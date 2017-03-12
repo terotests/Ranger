@@ -131,7 +131,7 @@ function init_lisp_core() {
             list = expand_sequence(list, ctx);
             var o = [];
             for (var i = 0; i < list.length; i++) {
-                o.push(lisp_eval(list[i]));
+                o.push(lisp_eval(list[i], ctx));
             }
             return o;
         },
@@ -145,7 +145,13 @@ function init_lisp_core() {
             ctx[v_name] = v_value;
         },
 
-        // create array
+
+        "keys": function length(list, ctx) {
+
+            var v = lisp_eval(list[0], ctx);
+            return Object.keys( v );
+        },
+        // array length
         "length": function length(list, ctx) {
 
             var v = lisp_eval(list[0], ctx);
@@ -534,7 +540,11 @@ function init_lisp_core() {
 }
 
 function lisp_eval(o, ctx) {
-    if ((typeof o === "undefined" ? "undefined" : _typeof2(o)) == "object" && o.lisp) {
+    if ((typeof o === "undefined" ? "undefined" : _typeof2(o)) == "object" && (o.lisp || o.xml)) {
+
+        if(o.xml) {
+            return xml_node_eval(o, ctx);
+        }
 
         if (o.children[0].vref == "lambda" || o.children[0].vref == "=>") {
             var fn_data = {
@@ -548,7 +558,7 @@ function lisp_eval(o, ctx) {
             return fn_data;
         }
         return lisp_eval(run_lisp(o, ctx), ctx);
-        // if(typeof(ref) == "object" )
+
     } else {
         if ((typeof o === "undefined" ? "undefined" : _typeof2(o)) == "object" && o.vref) {
             return ctx[o.vref];
@@ -556,6 +566,53 @@ function lisp_eval(o, ctx) {
             return o;
         }
     }
+}
+
+function flatten_results(arr) {
+  return arr.reduce(function (flat, toFlatten) {
+    return flat.concat(Array.isArray(toFlatten) ? flatten_results(toFlatten) : toFlatten);
+  }, []);
+}
+
+// evaluate xml node...
+function xml_node_eval(o, ctx) {
+    if(o.lisp) {
+        return lisp_eval(o,ctx);
+    }
+
+    var attr = {}
+    Object.keys( o.attrs ).forEach(function(name) {
+        var v = o.attrs[name];
+        if( (typeof(v)=="object") && (v.lisp)) {
+            /// debugger;
+            var r = run_lisp( v , ctx );
+
+            attr[name] = r;
+        } else {
+            attr[name] = v;
+        }
+    })
+
+
+    var obj = {
+        name : o.name,
+        attributes : attr,
+        children : flatten_results( o.children.map(function(node) {
+            if(node.lisp) {
+                var r = run_lisp(node, ctx);
+                if( (typeof(r)=="string") || !isNaN(r)) {
+                    return {
+                        charNode : true,
+                        cdata : r
+                    }
+                }
+                return r;
+            }
+            if(node.cdata) return node;
+            return xml_node_eval( node, ctx );
+        }) )
+    }    
+    return obj;
 }
 
 // function parameters as list [] can contain "&" reference which expands the list
@@ -611,11 +668,6 @@ function run_lisp(node, ctx) {
             };
 
             ctx = ctx.__fork();
-            /*
-            var new_ctx_fn = function() {};
-            new_ctx_fn.prototype = ctx;
-            ctx = new new_ctx_fn();         
-            */
 
             for (var ii = 0; ii < fn_data.params.children.length; ii++) {
                 var p = fn_data.params.children[ii];
@@ -650,6 +702,10 @@ function run_lisp(node, ctx) {
 
     if (fn = lisp_fns[fn_name]) {
         return fn(node.children.slice(1), ctx);
+    }
+
+    if(fn_name.xml) {
+        return xml_node_eval(fn_name, ctx);
     }
 
     // can you then evaluate
@@ -890,7 +946,7 @@ function JMLParser(s, obj) {
 
         while (i < len) {
 
-            last_i = i;
+            var last_i = i;
 
             // skip empty space
             while (i < len && s.charCodeAt(i) <= 32) {
@@ -907,7 +963,7 @@ function JMLParser(s, obj) {
 
             // check for character values
             // " or ` or '  
-            if (c == 34 || c == 96 || c == 36) {
+            if ( (c == 34) || (c == 96) || (c == 39)) {
                 var end_d = c;
                 i++;
                 var sp = i;
@@ -1146,12 +1202,27 @@ function JMLParser(s, obj) {
 
                 tag_depth++;
 
+                var p_type = 1; // task
+
+                if( (ep-sp) == 7) {
+                    if( (s.charCodeAt(sp)==112) 
+                        && (s.charCodeAt(sp+1)==114)
+                        && (s.charCodeAt(sp+2)==111)
+                        && (s.charCodeAt(sp+3)==99)
+                        && (s.charCodeAt(sp+4)==101)
+                        && (s.charCodeAt(sp+5)==115)
+                        && (s.charCodeAt(sp+6)==115) ) {
+                            p_type = 2;
+                        }
+                }
+
+
                 if (!curr_node) {
-                    curr_node = { name: s.substring(sp, ep), children: [], attrs: {}, macro: macro_operator, pipe: pipe_operator };
+                    curr_node = { name: s.substring(sp, ep), children: [], attrs: {}, ptype:p_type, pnode:true, macro: macro_operator, pipe: pipe_operator };
                     rootNode = curr_node;
                     parents.push(curr_node);
                 } else {
-                    var new_node = { name: s.substring(sp, ep), children: [], attrs: {}, macro: macro_operator, pipe: pipe_operator };
+                    var new_node = { name: s.substring(sp, ep), children: [], attrs: {}, ptype:p_type, pnode:true, macro: macro_operator, pipe: pipe_operator };
                     curr_node.children.push(new_node);
                     curr_node = new_node;
                     parents.push(curr_node);
@@ -1449,6 +1520,12 @@ function JMLParser(s, obj) {
                         }
 
                         if (tag_depth < 0) throw "Invalid XML, depth < 0 ";
+
+                        if (tag_list.length == 0) return;
+                        if (curr_node.lisp) {
+
+                            return;
+                        }                        
                     }
                 }
             } else {
@@ -1462,7 +1539,7 @@ function JMLParser(s, obj) {
                 }ep = i;
 
                 // then push a text node to XML...
-                curr_node.children.push({ cdata: s.substring(sp, ep) });
+                curr_node.children.push({ charNode:true, cdata: s.substring(sp, ep) });
 
             }
             if (last_i == i) i++;
