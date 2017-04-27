@@ -5,8 +5,9 @@
   ```
   (def n:CodeNode (new CodeNode (src start end)))
   (def str:string (node getCode ()))
+  
   ```
-   ##isVariableDef:boolean()
+  ##isVariableDef:boolean()
   ##isFunctionDef:boolean()
   ##isFunctionCall:boolean()
   ##isPrimitive:boolean()
