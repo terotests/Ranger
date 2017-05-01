@@ -1019,7 +1019,38 @@
             (PublicMethod cmdFileRead:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
                 (
                 )
-            )  
+            )
+
+            (PublicMethod cmdFileWrite:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+                )
+            )
+
+            (PublicMethod cmdIsDir:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+                )
+            )
+
+            (PublicMethod cmdIsFile:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+                )
+            )            
+
+            (PublicMethod cmdCreateDir:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+                )
+            )                                           
+
+            (PublicMethod cmdArgv:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+                )
+            )
+
+            (PublicMethod cmdArgvCnt:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+                )
+            )                
+
             
 
             (PublicMethod WriteComment:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
@@ -1218,7 +1249,15 @@
                                         (case "push" (call this cmdPush (node ctx wr)) )
                                         (case "removeLast" (call this cmdRemoveLast (node ctx wr)) )
 
+                                        (case "shell_arg_cnt" (call this cmdArgvCnt (node ctx wr)))
+                                        (case "shell_arg" (call this cmdArgv (node ctx wr)))
+
                                         (case "file_read" (call this cmdFileRead (node ctx wr)))
+                                        (case "file_write" (call this cmdFileWrite (node ctx wr)))
+                                        (case "file_exists" (call this cmdIsFile (node ctx wr)))
+                                        (case "dir_exists" (call this cmdIsDir (node ctx wr)))
+                                        (case "dir_create" (call this cmdCreateDir (node ctx wr)))
+
 
                                         (case "=" (call this cmdAssign (node ctx wr)) )
                                         (case ("sin" "cos" "tan" "atan" "log" "abs" "acos" "asin" "floor" "round" "sqrt")

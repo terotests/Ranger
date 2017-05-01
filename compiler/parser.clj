@@ -70,7 +70,7 @@
                                     (= new_node (new CodeNode (code sp i)))
                                     (= new_node.value_type RangerNodeType.Comment) 
                                     (= new_node.string_value (substring s sp i))
-                                    (push curr_node.children new_node)
+                                    (push curr_node.comments new_node)
                                     
                                     (continue _)
                                 ))                                                            

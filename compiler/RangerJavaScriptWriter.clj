@@ -16,6 +16,26 @@
                 )
             )       
 
+            (PublicMethod cmdArgv:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+
+                    (def argIndex:CodeNode (call node getSecond ()))
+                
+                    (call wr out ( "process.argv[ 2 + process.execArgv.length + " false))
+                    (call ctx setInExpr ())
+                    (call this WalkNode (argIndex ctx wr))
+                    (call ctx unsetInExpr ())
+                    (call wr out ( "]" false))                    
+                )
+            )              
+
+
+            (PublicMethod cmdArgvCnt:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+                    (call wr out ( "( process.argv.length - ( 2 + process.execArgv.length ) )" false))
+                )
+            ) 
+
             (PublicMethod cmdFileRead:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
                 (
 
@@ -34,7 +54,84 @@
                     (call wr out ( (+ ", " (strfromcode 34) "utf8" (strfromcode 34) ")" )  false))                   
                 )
             )  
+
+            (PublicMethod cmdFileWrite:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+
+                    (def pathName:CodeNode (call node getSecond ()))
+                    (def fileName:CodeNode (call node getThird ()))
+                    (def dataToWrite:CodeNode (itemAt node.children (3)))
+
+                    (call wr newline ()) 
+                    
+                    (call wr out ( (+ "require(" (strfromcode 34) "fs" (strfromcode 34) ").writeFileSync( __dirname + " ) false))
+                    (call wr out ( (+ (strfromcode 34) "/" (strfromcode 34) " + " )  false))
+
+                    (call ctx setInExpr ())
+                    (call this WalkNode (pathName ctx wr))
+
+                    (call wr out ( (+ " + " (strfromcode 34) "/" (strfromcode 34) " + " )  false))
+                    (call this WalkNode (fileName ctx wr))
+                    
+                    (call wr out ( ", "  false))       
+
+                    (call this WalkNode (dataToWrite ctx wr))   
+
+                    (call wr out ( ");"  true))                                              
+
+                    (call ctx unsetInExpr ())            
+                )
+            )  
+
+            (PublicMethod cmdIsFile:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+                    (def pathName:CodeNode (call node getSecond ()))
+                    (def fileName:CodeNode (call node getThird ()))
+                    ; 
+                    (call wr out ( (+ "require(" (strfromcode 34) "fs" (strfromcode 34) ").existsSync( __dirname + " ) false))
+                    (call wr out ( (+ (strfromcode 34) "/" (strfromcode 34) " + " )  false))
+
+                    (call ctx setInExpr ())
+                    (call this WalkNode (pathName ctx wr))
+                    (call wr out ( (+ " + " (strfromcode 34) "/" (strfromcode 34) " + " )  false))
+                    (call this WalkNode (fileName ctx wr))
+                    (call ctx unsetInExpr ())
+                    (call wr out ( ")"  false))  
+                )
+            )
+            (PublicMethod cmdIsDir:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+                    (def pathName:CodeNode (call node getSecond ()))
+                    ; 
+                    (call wr out ( (+ "require(" (strfromcode 34) "fs" (strfromcode 34) ").existsSync( __dirname + " ) false))
+                    (call wr out ( (+ (strfromcode 34) "/" (strfromcode 34) " + " )  false))
+                    (call ctx setInExpr ())
+                    (call this WalkNode (pathName ctx wr))
+                    (call ctx unsetInExpr ())
+                    (call wr out ( ")"  false))  
+                )
+            )
+
             
+            (PublicMethod cmdCreateDir:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+                (
+                    ; mkdirSync
+
+
+                    (def pathName:CodeNode (call node getSecond ()))
+                    (call wr newline ()) 
+                    
+                    (call wr out ( (+ "require(" (strfromcode 34) "fs" (strfromcode 34) ").mkdirSync( __dirname + " ) false))
+                    (call wr out ( (+ (strfromcode 34) "/" (strfromcode 34) " + " )  false))
+
+                    (call ctx setInExpr ())
+                    (call this WalkNode (pathName ctx wr))
+
+                    (call wr out ( ");"  true))                                              
+
+                    (call ctx unsetInExpr ())                     
+                )
+            )                
 
             (PublicMethod PublicMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (

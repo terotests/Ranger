@@ -67,6 +67,7 @@
             (def props:[string:CodeNode])
             (def prop_keys:[string])
 
+            (def comments:[CodeNode])
             (def children:[CodeNode])
             (def parent:CodeNode)
 

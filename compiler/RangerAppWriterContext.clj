@@ -407,7 +407,12 @@
 
             (PublicMethod expressionLevel:int ()
                 (
-                    (return (array_length expr_stack))
+                    (def level:int (array_length expr_stack))
+
+                    (if (!null? parent)
+                        (return (+ level (call parent expressionLevel ())))
+                    )
+                    (return level)                    
                 )
             )
 
