@@ -1,4 +1,16 @@
 (
+
+    
+    ( CreateClass RangerCompilerError
+        (
+            (def error_level:int 0)
+            (def code_line:int 0)
+            (def fileName:string "")
+            (def description:string "")
+            (def node:CodeNode)
+        )
+    )
+    
     ; RangerNodeValue could be used for default values
     ( CreateClass RangerNodeValue
         (
@@ -109,6 +121,19 @@
                 )
             )
 
+            (PublicMethod findVariable:RangerAppParamDesc (f_name:string)
+                (
+                    (for variables m:RangerAppParamDesc i 
+                        (
+                            (if (== m.name f_name)
+                                (return m)
+                            )
+                        )
+                    )
+                )
+            )
+            
+
             (PublicMethod addParentClass:void (p_name:string)
                 (
                     (push extends_classes p_name)
@@ -130,12 +155,14 @@
 
             (PublicMethod addConstructor:void (desc:RangerAppFunctionDesc)
                 (
-                    (= constructor_fn desc)
+                    (= constructor_node desc)
+                    (= has_constructor true)
                 )
             )
             (PublicMethod addDesctructor:void (desc:RangerAppFunctionDesc)
                 (
-                    (= descructor_fn desc)
+                    (= descructor_node desc)
+                    (= has_desctructor true)
                 )
             )
 
@@ -164,12 +191,15 @@
 
             (def definedEnums:[string:RangerAppEnum])
 
-            (def definedClasses:[RangerAppClassDesc])
+            (def definedClasses:[string:RangerAppClassDesc])
             (def definedClassList:[string])
 
             ; list of local variables
             (def localVariables:[string:RangerAppParamDesc])
             (def localVarNames:[string])
+
+            (def compilerErrors:[RangerCompilerError])
+            (def compilerMessage:[RangerCompilerError])
 
             ; if the target language does not support local block variables, then
             ; temporary block variables could be used
@@ -185,6 +215,20 @@
                     (= fileSystem (new CodeFileSystem ()))
                 )
             )
+
+            (PublicMethod addError:void (node:CodeNode descr:string)
+                (
+                    
+                    (def e:RangerCompilerError (new RangerCompilerError ()))
+                    (= e.description descr)
+                    (= e.node node)
+
+                    (def root:RangerAppWriterContext (call this getRoot ()))
+                    (push root.compilerErrors e)
+
+                )
+            )            
+
 
             ; (for node.children nn:CodeNode i
             ;   (for nn.children ch:CodeNode i
@@ -262,7 +306,7 @@
             )
 
 
-            (PublicMethod isEnumDefined:void (n:string)
+            (PublicMethod isEnumDefined:boolean (n:string)
                 (
                     (if (has definedEnums n)
                         (return true)
@@ -326,7 +370,7 @@
 
             (PublicMethod isDefinedClass:boolean (name:string)
                 (
-                    (if (has name definedClasses)
+                    (if (has definedClasses name)
                         (
                             (return true)
                         )

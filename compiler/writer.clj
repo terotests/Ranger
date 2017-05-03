@@ -73,6 +73,38 @@
                 (return new_file)
             ))
 
+            (PublicMethod mkdir:void (path:string) (
+                (def parts:[string] (strsplit path "/"))
+                (def curr_path:string "")
+                (for parts p:string i
+                    (
+                        (= curr_path (+ curr_path "/" p))
+                        (if (dir_exists curr_path)
+                            (
+
+                            )
+                            (
+                                (dir_create curr_path)
+                            )
+                        )
+                    )
+                )
+            ))
+
+
+            (PublicMethod saveTo:void (path:string) (
+
+                (for files file:CodeFile idx
+                    (
+                        (def file_path:string (+ path "/" file.path_name))
+                        (mkdir file_path)
+                        (print (+ "Writing to path " file_path))
+                        (file_write file_path file.name (call file getCode ()) )
+                    )
+                )
+            ))
+            
+
             (PublicMethod printFilesList:void () (
 
                 (for files file:CodeFile idx

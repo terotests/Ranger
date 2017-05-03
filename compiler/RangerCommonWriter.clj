@@ -1,7 +1,7 @@
 (
     (Import "writer.clj")
     (Import "RangerAppWriterContext.clj")
-
+    (Import "parser.clj")
     ; Small TODO list:
     ; - try... catch missing
 
@@ -41,7 +41,18 @@
                                 )    
                                 (case 13 
                                     ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 114 ) ) ) 
-                                )    
+                                )
+
+                                (case 34 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 34 ) ) ) 
+                                )  
+                                (case 92 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 92 ) ) ) 
+                                )
+                                (case 47 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 47 ) ) ) 
+                                )                                    
+                                    
                                 (default
                                     ( = encoded_str (+ encoded_str (strfromcode cc) ) ) 
                                 )
@@ -68,11 +79,116 @@
                     (set ctx.definedEnums fNameNode.vref new_enum)
                 )
             )
-   
+
+            (PublicMethod findParamDesc:RangerAppParamDesc (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (
+
+                    (def varDesc:RangerAppParamDesc)    
+                    ; (print "findParamDesc")
+                    (if (== obj.vref (getThisName _))
+                        (
+                            ; call to "this"
+                            (= varDesc (new RangerAppParamDesc ()))
+                            ; TODO: set the this variable description 
+                            (return varDesc)
+                        )
+                        (
+                            ; reference of type obj.foo
+                            (if (> (array_length obj.ns) 1)
+                                (
+                                    ; (print "--> has ns")
+                                    (def cnt:int (array_length obj.ns))
+                                    (def classRefDesc:RangerAppParamDesc)                                        
+
+                                    (for obj.ns strname:string i
+                                        (if (== i 0)
+                                            (
+                                                (= classRefDesc (call ctx getVariableDef (strname)))   
+                                                (if (null? classRefDesc)
+                                                    (
+                                                        (call ctx addError (obj ( + "Error, no description for called object: " strname ) ))
+                                                        (break _)
+                                                    )
+                                                )
+                                                (def classDesc:RangerAppClassDesc)
+                                                (= classDesc (call ctx findClass (classRefDesc.nameNode.type_name)))
+                                                ; (print (+ " looking for class " classRefDesc.nameNode.type_name))                     
+                                            )
+                                            (
+                                                ; TODO: consider if methods should be checed too
+                                                (= varDesc (call classDesc findVariable (strname)))       
+                                                ; (print (+ "ns variable type " varDesc.nameNode.type_name))                                                                                             
+                                            )
+                                        )                                        
+                                    )
+                                    (return varDesc)
+                                    ; (= varDesc (call subCtx getVariableDef (obj.vref)))      
+                                )
+                            )
+
+                            (= varDesc (call ctx getVariableDef (obj.vref)))
+                            ; (= varDesc (call this findParamDesc (obj ctx wr)))
+                            (if (!null? varDesc.nameNode)
+                                (
+                                    ; OK, here is what to expect:
+                                    ; (print (+ varDesc.nameNode.vref ":" varDesc.nameNode.type_name) )
+                                )
+                                (
+                                    (print (+ "findParamDesc : description not found for " obj.vref ))
+                                    (if (!null? varDesc)
+                                        (print (+ "Vardesc was found though..." varDesc.name))
+                                    )
+                                    (call ctx addError (obj ( + "Error, no description for called object: " obj.vref ) ))
+                                )
+                            )
+                            (return varDesc)
+                        )
+                    )
+                )
+            )
+
+            (PublicMethod validateEvalTypes:void (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext)
+                (
+                    ; (print (+ n1.eval_type_name " vs " n2.eval_type_name))
+                    (if ( && (!= n1.eval_type RangerNodeType.NoType)
+                             (!= n2.eval_type RangerNodeType.NoType) )
+                        (
+                            ; (print "had eval def")
+                            (if (== n1.eval_type_name n2.eval_type_name)
+                                (
+                                    ; positively evaluated assigment value...
+                                    ; (print (+ "Equals == " n1.eval_type_name))
+                                    ; (call ctx addError (node "OK assigment " ))
+
+                                )
+                                (
+                                    ; check if this is int => enum
+                                    (def b_ok:boolean false)
+                                    (if ( && (call ctx isEnumDefined (n1.eval_type_name))
+                                        ( == n2.eval_type_name "int") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )
+                                    (if ( && (call ctx isEnumDefined (n2.eval_type_name))
+                                        ( == n1.eval_type_name "int") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )                                    
+                                    (if (== b_ok false)
+                                        (call ctx addError (n1 ( + "Invalid assigment " n2.eval_type_name " => " n1.eval_type_name )))                                
+                                    )
+                                )
+                            )
+                        )
+                    )           
+
+                )
+            )
 
             (PublicMethod cmdImport:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
-
                     (def fNameNode:CodeNode (itemAt node.children 1))
                     (def import_file:string fNameNode.string_value)
 
@@ -108,14 +224,23 @@
                 )
             )
 
+            (PublicMethod getThisName:string ()
+                (
+                    (return "this")
+                )
+            )
+
             (PublicMethod WriteThisVar:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
-                    (call wr out ("this" false))
+                    (call wr out ((getThisName _) false))
                 )
             )
 
             (PublicMethod WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
+                   (if (== node.vref "_")
+                       (return _)
+                   )
                    ; test if vref is enum type
                    (def rootObjName:string (itemAt node.ns 0))
                    ; (print rootObjName)
@@ -142,19 +267,46 @@
                                     (call wr out ( node.vref false ))
                                     (return 1)
                                 )
-                            )                      
-                            (def vNameNode:CodeNode vDef.nameNode)
-                            (if (!null? vNameNode)
-                                ; (print (+ "type name: " vNameNode.type_name))                                    
-                                ; (print ( + "!!!!!!!!!!!!!!!!!!!!!!!!!!!! Had no type name : " rootObjName))
                             )
+
+                            (= vDef (call this findParamDesc (node ctx wr)))        
+
+                            (if (!null? vDef)
+                                (
+                                    (def vNameNode:CodeNode vDef.nameNode)
+                                    (if ( && (!null? vNameNode) (!null? vNameNode.type_name) )
+                                        (
+                                            ; (if (== n1.eval_type_name n2.eval_type_name)
+                                            (= node.eval_type RangerNodeType.VRef)
+                                            (= node.eval_type_name vNameNode.type_name)                                    
+                                        )
+                                        ; (print (+ "type name: " vNameNode.type_name))                                    
+                                        ; (print ( + "!!!!!!!!!!!!!!!!!!!!!!!!!!!! Had no type name : " rootObjName))
+                                    )
+
+                                )
+                            )                        
 
                            ; is_class_variable
                        )
                        (
-                            (def desc:RangerAppClassDesc (call ctx getCurrentClass ()))        
+                            (def class_or_this:boolean (== rootObjName (getThisName _)))
+
+                            (if (call ctx isDefinedClass (rootObjName))
+                                (= class_or_this true)
+                            )
+
+                            (if class_or_this
+                                (
+
+                                )
+                                (
+                                    (def desc:RangerAppClassDesc (call ctx getCurrentClass ()))        
+                                    (call ctx addError (node (+ "Undefined variable " rootObjName " in class " desc.name)))
+                                )
+                            )
+                        
                             ; (print "-------==============")
-                            ; (print (+ "WARNING! Undefined variable " rootObjName " in class " desc.name))
                          
                        )
                    )
@@ -195,20 +347,24 @@
 
             (PublicMethod WriteScalarValue (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
+                    (= node.eval_type node.value_type)
                     (switch node.value_type
                         (case RangerNodeType.Double
                             (
                                 (call wr out ( ( + "" node.double_value ) false ))
+                                (= node.eval_type_name "double")                    
                             )
                         )
                         (case RangerNodeType.String
                             (
                                 (call wr out  ( (+ (strfromcode 34) (call this EncodeString (node.string_value)) (strfromcode 34)) false) )
+                                (= node.eval_type_name "string")
                             )
                         )
                         (case RangerNodeType.Integer
                             (
                                 (call wr out (( + "" node.int_value) false))
+                                (= node.eval_type_name "int")
                             )
                         )
                         (case RangerNodeType.Boolean
@@ -217,6 +373,7 @@
                                     (call wr out ("true" false))
                                     (call wr out ("false" false))
                                 )
+                                (= node.eval_type_name "boolean")                                
                             )   
                         )       
                     )             
@@ -224,7 +381,7 @@
             )
 
             ;( new ClassName (...params))
-            (PublicMethod cmdNew:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdNew:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
 
                     (def obj:CodeNode (call node getSecond ()))
@@ -259,22 +416,37 @@
                         (call wr newline ())
                     )
 
+                    ; evaluated object type
+                    (= node.eval_type RangerNodeType.Object)
+                    (= node.eval_type_name obj.vref)
+
                 )
             )
 
 
             ; test if this expression is a call...
-            (PublicMethod cmdLocalCall:boolean (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdLocalCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def fnNode:CodeNode (call node getFirst ()))
                     (def desc:RangerAppClassDesc (call ctx getCurrentClass ()))    
 
                     (if (call desc hasMethod (fnNode.vref))
                         (
-                            (call ctx setInExpr ())
-                            (call this WriteThisVar (fnNode ctx wr))
+
+
+                            (def subCtx:RangerAppWriterContext (call ctx fork ()))
+
+                            (def p:RangerAppParamDesc (new RangerAppParamDesc ()))
+                            (= p.name fnNode.vref)
+                            (= p.value_type fnNode.value_type)
+                            (= p.node fnNode)
+                            (= p.nameNode fnNode)
+                            (call subCtx defineVariable (p.name p))     
+                            
+                            (call subCtx setInExpr ())
+                            (call this WriteThisVar (fnNode subCtx wr))
                             (call wr out ("." false))
-                            (call this WalkNode (fnNode ctx wr))                            
+                            (call this WalkNode (fnNode subCtx wr))                            
                             (call wr out ("(" false))
 
                             (for node.children arg:CodeNode i
@@ -285,11 +457,15 @@
                                     (if (> i 1)
                                         (call wr out ("," false))
                                     )
-                                    (call this WalkNode (arg ctx wr))
+                                    (call this WalkNode (arg subCtx wr))
                                 )
                             )
+
                             (call wr out (")" false))
                             (call ctx unsetInExpr ())
+                            (if ( == (call ctx expressionLevel ()) 0 )
+                                (call wr newline ())
+                            )
 
                             (return true)
                         )
@@ -301,60 +477,105 @@
                 )
             )            
 
-            (PublicMethod cmdCall:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def obj:CodeNode (call node getSecond ()))
                     (def method:CodeNode (call node getThird ()))
 
+                    (def subCtx:RangerAppWriterContext (call ctx fork ()))
+
+                    (def p:RangerAppParamDesc (new RangerAppParamDesc ()))
+                    (= p.name method.vref)
+                    (= p.value_type method.value_type)
+                    (= p.node method)
+                    (= p.nameNode method)
+                    (call subCtx defineVariable (p.name p))     
+
+                    ; what is the object to be called ? 
+                    (def varDesc:RangerAppParamDesc)
+
+                    (if (== obj.vref (getThisName _))
+                        (
+                            ; call to "this"
+                        )
+                        (
+                            ; (= varDesc (call subCtx getVariableDef (obj.vref)))
+                            (= varDesc (call this findParamDesc (obj subCtx wr)))
+
+                            (if (!null? varDesc)
+                                (
+                                    ; OK, here is what to expect:
+                                    ; (print (+ varDesc.nameNode.vref ":" varDesc.nameNode.type_name) )
+                                )
+                                (
+                                    (print (+ "description not found for " obj.vref ))
+                                    (if (!null? varDesc)
+                                        (print (+ "Vardesc was found though..." varDesc.name))
+                                    )
+                                    (call ctx addError (obj ( + "Error, no description for called object: " obj.vref ) ))
+                                )
+                            )
+
+                        )
+                    )
+
+                    ; (print varDesc.node)
                     ; might check if there are any required params etc...
 
-                    (if ( > (call ctx expressionLevel ()) 1 )
+                    (if ( == (call subCtx expressionLevel ()) 0 )
+                        (call wr newline ())
+                    )
+
+                    (if ( > (call subCtx expressionLevel ()) 1 )
                         (call wr out ("(" false))
                     )
 
                     (if (> (array_length node.children) 3)
                         (
                             (def params:CodeNode (itemAt node.children (3)))
-                            (call ctx setInExpr ())
-                            (call this WalkNode (obj ctx wr))
+                            (call subCtx setInExpr ())
+                            (call this WalkNode (obj subCtx wr))
                             (call wr out ("." false))
-                            (call this WalkNode (method ctx wr))
+                            (call this WalkNode (method subCtx wr))
                             
                             (call wr out ("(" false))
                             (for params.children arg:CodeNode i
                                 (
+                                    ; (if ( == arg.value_type RangerNodeType.NoType)
+                                    ;     (call ctx addError (arg ( + "No value defined for argument " arg.vref ) ))
+                                    ; )
                                     (if (> i 0)
                                         (call wr out ("," false))
                                     )
-                                    (call this WalkNode (arg ctx wr))
+                                    (call this WalkNode (arg subCtx wr))
                                 )
                             )
                             (call wr out (")" false))
-                            (call ctx unsetInExpr ())
+                            (call subCtx unsetInExpr ())
                         )
                         (
-                            (call ctx setInExpr ())
-                            (call this WalkNode (obj ctx wr))
+                            (call subCtx setInExpr ())
+                            (call this WalkNode (obj subCtx wr))
                             (call wr out ("." false))
-                            (call this WalkNode (method ctx wr))
+                            (call this WalkNode (method subCtx wr))
                             
                             (call wr out ("()" false))
                             
-                            (call ctx unsetInExpr ())
+                            (call subCtx unsetInExpr ())
                         )
                     )
 
-                    (if ( > (call ctx expressionLevel ()) 1 )
+                    (if ( > (call subCtx expressionLevel ()) 1 )
                         (call wr out (")" false))
                     )
-                    (if ( == (call ctx expressionLevel ()) 0 )
+                    (if ( == (call subCtx expressionLevel ()) 0 )
                         (call wr newline ())
                     )
 
                 )
             )
 
-            (PublicMethod cmdJoin:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdJoin:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
                     (def n2:CodeNode (call node getThird ()))
@@ -369,7 +590,7 @@
                 )
             )
 
-            (PublicMethod cmdSplit:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdSplit:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
                     (def n2:CodeNode (call node getThird ()))
@@ -384,7 +605,7 @@
                 )
             )
 
-            (PublicMethod cmdTrim:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdTrim:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
                     (call ctx setInExpr ())
@@ -394,7 +615,7 @@
                 )
             )
 
-            (PublicMethod cmdStrlen:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdStrlen:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
                     (call ctx setInExpr ())
@@ -404,7 +625,7 @@
                 )
             )
 
-            (PublicMethod cmdSubstring:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdSubstring:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
                     (def start:CodeNode (itemAt node.children 2))
@@ -422,7 +643,7 @@
             )
 
             ; getting the character code for some 
-            (PublicMethod cmdCharcode:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdCharcode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
 
@@ -434,7 +655,7 @@
                 )
             )             
 
-            (PublicMethod cmdStrfromcode:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdStrfromcode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
                     (call ctx setInExpr ())
@@ -445,7 +666,7 @@
                 )
             )   
 
-            (PublicMethod cmdCharAt:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdCharAt:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
                     (def index:CodeNode (itemAt node.children 2))
@@ -461,7 +682,7 @@
             )    
 
             ;cmdStr2Int     
-            (PublicMethod cmdStr2Int:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdStr2Int:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
 
@@ -475,7 +696,7 @@
                 )
             )      
 
-            (PublicMethod cmdStr2Double:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdStr2Double:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
 
@@ -489,7 +710,7 @@
                 )
             )                              
 
-            (PublicMethod cmdDouble2Str:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdDouble2Str:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
 
@@ -503,7 +724,7 @@
                 )
             )            
 
-            (PublicMethod cmdArrayLength:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdArrayLength:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
                     (call ctx setInExpr ())
@@ -513,7 +734,7 @@
                 )
             )
 
-            (PublicMethod cmdPrint:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdPrint:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
                     (call wr newline ())
@@ -525,7 +746,7 @@
                 )
             )
 
-            (PublicMethod cmdDoc:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdDoc:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (call wr out ("/**" false))
@@ -539,14 +760,14 @@
                 )
             )
 
-            (PublicMethod cmdContinue:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdContinue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (call wr out ("continue;" true))
                 )
             )  
 
-            (PublicMethod cmdBreak:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdBreak:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (call wr out ("break;" true))
@@ -554,7 +775,7 @@
             )            
 
 
-            (PublicMethod cmdReturn:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdReturn:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr out ("return" false))
                     (if (> (array_length node.children) 1)
@@ -577,7 +798,7 @@
             )
 
             ; (removeLast arr value)
-            (PublicMethod cmdRemoveLast:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdRemoveLast:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def obj:CodeNode (call node getSecond ()))
  
@@ -591,7 +812,7 @@
             )
 
             ; (push arr value)
-            (PublicMethod cmdPush:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdPush:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def obj:CodeNode (call node getSecond ()))
                     (def value:CodeNode (call node getThird ()))
@@ -608,7 +829,7 @@
             )
 
             ; (itemAt arr index)
-            (PublicMethod cmdItemAt:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdItemAt:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def obj:CodeNode (call node getSecond ()))
                     (def index:CodeNode (call node getThird ()))
@@ -624,7 +845,7 @@
 
 
             ; (has obj key)
-            (PublicMethod cmdHas:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdHas:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def obj:CodeNode (call node getSecond ()))
                     (def key:CodeNode (call node getThird ()))
@@ -648,7 +869,7 @@
 
 
             ; (set obj key value)
-            (PublicMethod cmdSet:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdSet:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def obj:CodeNode (call node getSecond ()))
                     (def key:CodeNode (call node getThird ()))
@@ -669,7 +890,7 @@
             )
 
             ; (get obj key)
-            (PublicMethod cmdGet:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdGet:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def obj:CodeNode (call node getSecond ()))
                     (def key:CodeNode (call node getThird ()))
@@ -691,7 +912,7 @@
             
 
             ; test for null (null? <value>)
-            (PublicMethod cmdIsNull:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdIsNull:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
  
@@ -709,7 +930,7 @@
             )
 
             ; test for not null (!null? <value>)
-            (PublicMethod cmdNotNull:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdNotNull:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
  
@@ -727,7 +948,7 @@
             )
 
             ; assigment = operator
-            (PublicMethod cmdAssign:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdAssign:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (def n1:CodeNode (call node getSecond ()))
@@ -737,17 +958,19 @@
                     (call ctx setInExpr ())
                     (call this WalkNode (n2 ctx wr))
                     (call ctx unsetInExpr ())
-                    (call wr out (";" true))                    
+                    (call wr out (";" true))         
+
+                    (call this validateEvalTypes (n1 n2 ctx))
                 )
             )
 
             ; override in child classes
-            (PublicMethod mathLibCalled:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod mathLibCalled:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 ()
             )
 
             ;  "sin", "cos", "tan", "atan", "log", "abs", "acos", "asin", "floor", "round", "sqrt"
-            (PublicMethod cmdMathLibOp:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdMathLibOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def op:CodeNode (call node getFirst ()))
                     (def n1:CodeNode (call node getSecond ()))
@@ -766,7 +989,7 @@
             )
 
             ; operators "==", "<", ">", "!=", ">=", "<="
-            (PublicMethod cmdComparisionOp:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdComparisionOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def op:CodeNode (call node getFirst ()))
                     (def n1:CodeNode (call node getSecond ()))
@@ -787,7 +1010,7 @@
             )
 
             ; operators "&&", "||"
-            (PublicMethod cmdLogicOp:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdLogicOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def op:CodeNode (call node getFirst ()))
 
@@ -814,7 +1037,7 @@
             )
 
             ; operators "*", "+", "-", "/", "%"
-            (PublicMethod cmdNumericOp:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdNumericOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def op:CodeNode (call node getFirst ()))
 
@@ -841,7 +1064,7 @@
             )
             
 
-            (PublicMethod cmdIf:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdIf:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (def n1:CodeNode (call node getSecond ()))
@@ -872,7 +1095,7 @@
             )
 
             ;(for list node indexname loop)
-            (PublicMethod cmdFor:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdFor:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (def listField:CodeNode (itemAt node.children (1)))
@@ -888,6 +1111,7 @@
                     (= p.name indexField.vref)
                     (= p.value_type indexField.value_type)
                     (= p.node indexField)
+                    (= p.nameNode indexField)
                     (= p.is_optional false)
                     (call subCtx defineVariable (p.name p))     
 
@@ -895,7 +1119,10 @@
                     (= p2.name nodeField.vref)
                     (= p2.value_type nodeField.value_type)
                     (= p2.node nodeField)
+                    (= p2.nameNode nodeField)
                     (= p2.is_optional false)
+
+;                     (print (+ "defines for var " p2.name))
                     (call subCtx defineVariable (p2.name p2))   
 
                     (call wr out ("for( var " false))
@@ -926,7 +1153,7 @@
                 )
             )
 
-            (PublicMethod cmdWhile:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdWhile:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (def n1:CodeNode (call node getSecond ()))
@@ -946,7 +1173,7 @@
                 )
             )
 
-            (PublicMethod cmdDefault:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdDefault:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (def n1:CodeNode (call node getSecond ()))
@@ -960,7 +1187,7 @@
                 )
             )
 
-            (PublicMethod cmdCase:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdCase:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (def n1:CodeNode (call node getSecond ()))
@@ -994,7 +1221,7 @@
                 )
             )
 
-            (PublicMethod cmdSwitch:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdSwitch:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (def n1:CodeNode (call node getSecond ()))
@@ -1016,44 +1243,44 @@
                 )
             )
 
-            (PublicMethod cmdFileRead:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdFileRead:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )
 
-            (PublicMethod cmdFileWrite:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdFileWrite:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )
 
-            (PublicMethod cmdIsDir:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdIsDir:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )
 
-            (PublicMethod cmdIsFile:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdIsFile:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )            
 
-            (PublicMethod cmdCreateDir:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdCreateDir:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )                                           
 
-            (PublicMethod cmdArgv:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdArgv:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )
 
-            (PublicMethod cmdArgvCnt:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod cmdArgvCnt:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )                
 
             
 
-            (PublicMethod WriteComment:void (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod WriteComment:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     ; (call wr out ("// " false))                    
                     ; (call wr out (node.string_value true))
@@ -1068,11 +1295,16 @@
                     ; ctx.findClass
                     (def cn:CodeNode (itemAt node.children 1))
                     (def desc:RangerAppClassDesc (call ctx findClass (cn.vref)))
-
                     (def subCtx:RangerAppWriterContext (call ctx fork ()))
 
-                    ; (print (+ "Entering " desc.name))
                     (= subCtx.currentClass desc)
+
+                    (for desc.variables p:RangerAppParamDesc i
+                        (
+                            ; TODO: check that the class definition sets the optional values
+                            (call subCtx defineVariable (p.name p))
+                        )
+                    )
 
                     (for desc.variables p:RangerAppParamDesc i
                         (
@@ -1129,6 +1361,9 @@
                             (= p.node node)
                             (= p.nameNode cn)
 
+                            (= cn.eval_type cn.value_type)
+                            (= cn.eval_type_name cn.type_name)
+
                             (if (> (array_length node.children) 2)
                                 (
                                     (= p.set_cnt 1)
@@ -1140,7 +1375,13 @@
                                 )
                             )
                             (call ctx defineVariable (p.name p))
-                            (call this DefineVar (node ctx wr))                     
+                            (call this DefineVar (node ctx wr))      
+
+                            (if (> (array_length node.children) 2)
+                                (
+                                    (call this validateEvalTypes (cn p.def_value ctx))    
+                                )
+                            )           
                         )
                         (
                             ; class variables should be already defined
@@ -1311,7 +1552,18 @@
                 (
                     ; at this point all the information for building the classes should be collected
                     ; using the CollectMethods function. 
-                    (WalkNode node ctx wr)
+                    (call this WalkNode (node ctx wr))
+
+                    ; after writing write native code
+                    ; @javascript
+                    ; getStringProperty
+                    (def lang:string (call this getWriterLang ()))
+                    (if (call node hasStringProperty (lang))
+                        (
+                            (call wr newline ())
+                            (call wr out ( (call node getStringProperty (lang))  true))
+                        )
+                    )
                     
                 )
             )       
@@ -1428,7 +1680,7 @@
                 )
             )                  
 
-            (PublicMethod DefineVar (node:CodeNode ctx:RangerContext wr:CodeWriter)
+            (PublicMethod DefineVar (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (print "ERROR: DefineVar not implemented!")
                 )

@@ -23,6 +23,8 @@
             Method
             ClassVar
             Function
+            Literal
+            Quasiliteral
             Null
         )
     )
@@ -57,6 +59,10 @@
 
             (def value_type:int RangerNodeType.NoType)
 
+            ; set after the code has been preprosessed
+            (def eval_type:int RangerNodeType.NoType)
+            (def eval_type_name:string "")
+
             (def double_value:double)
             (def string_value:string)
             (def int_value:int)
@@ -81,6 +87,28 @@
                     (= code source)
                 )
             )
+
+            (PublicMethod getPositionalString:string () 
+                (
+                    (if (&& (> ep sp) ( < (- ep sp) 50 ))
+                        (
+                            (def start:int sp)
+                            (def end:int ep)
+                            (= start (- start 100))
+                            (= end (+ end 50))
+                            (if (< start 0)
+                                (= start 0)
+                            )
+                            (if (>= end (strlen code.code))
+                                (= end (- (strlen code.code) 1))
+                            )
+                            (return (substring code.code start end))
+                        )
+                    )
+                    (return "")
+                )
+            )
+            
 
             (PublicMethod isVariableDef:boolean () 
                 (
