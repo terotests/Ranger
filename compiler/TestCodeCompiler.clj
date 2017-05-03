@@ -35,7 +35,37 @@
 
                     (call cwr CollectMethods (node appCtx wr))
                     (call cwr StartCodeWriting (node appCtx wr))
-                    (print (call wr getCode ()))
+
+                    (def had_errors:boolean false)
+                    (if (== (array_length appCtx.compilerErrors) 0)
+                        (
+                            ; (print "No compiler errors or warnings")
+                            (call wr newline ())
+
+                            (if ( > (shell_arg_cnt _) 0 )
+                                (
+
+                                )
+                                (
+                                    (call wr out ("(new TestCodeCompiler()).test1()"))
+                                )
+                            )
+                            (print (call wr getCode ()))                       
+                        )
+                        (
+                            (= had_errors true)
+                            (print "Had following compiler errors:")
+                            (for appCtx.compilerErrors e:RangerCompilerError i 
+                                (
+                                    (def line_index:int (call e.node getLine ()))                                
+                                    (print (+ (call e.node getFilename ()) " Line: " line_index))
+                                    (print e.description)
+                                    (print (call e.node getLineString(line_index)))
+                                )
+                            )                    
+                        )
+                    )
+
                 )
             )
             
@@ -59,6 +89,7 @@
 				(def c:string (file_read "." read_filename))
 
 				(def code:SourceCode (new SourceCode (c)))
+                (= code.filename read_filename)
 				(def parser:RangerLispParser (new RangerLispParser (code)))
 				(call parser parse ())
 
@@ -97,8 +128,10 @@
                         (print "Had following compiler errors:")
                         (for appCtx.compilerErrors e:RangerCompilerError i 
                             (
+                                (def line_index:int (call e.node getLine ()))
+                                (print (+ (call e.node getFilename ()) " Line: " line_index))
                                 (print e.description)
-                                (print (call e.node getPositionalString()))
+                                (print (call e.node getLineString(line_index)))
                             )
                         )                    
                     )

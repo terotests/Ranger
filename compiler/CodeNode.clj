@@ -88,6 +88,19 @@
                 )
             )
 
+            ( PublicMethod getFilename:string () (
+                (return code.filename)
+            ))            
+
+            ( PublicMethod getLine:int () (
+                (return (call code getLine (sp)))
+            ))
+                        
+            ( PublicMethod getLineString:string (line_index:int) (
+                (return (call code getLineString (line_index)))
+            ))
+           
+
             (PublicMethod getPositionalString:string () 
                 (
                     (if (&& (> ep sp) ( < (- ep sp) 50 ))

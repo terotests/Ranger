@@ -67,7 +67,7 @@
     ( CreateClass RangerAppEnum
         (
             (def name:string "")
-            (def cnt:integer 0)
+            (def cnt:int 0)
             (def values:[string:int])
 
             (def node:CodeNode)

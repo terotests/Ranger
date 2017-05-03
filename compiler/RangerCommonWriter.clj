@@ -202,6 +202,7 @@
                     ; read the file contents
                     (def c:string (file_read "." import_file))                    
                     (def code:SourceCode (new SourceCode (c)))
+                    (= code.filename import_file)
                     (def parser:RangerLispParser (new RangerLispParser (code)))
                     (call parser parse ())
 
@@ -1384,8 +1385,19 @@
                             )           
                         )
                         (
+
+                            (def cn:CodeNode (itemAt node.children 1))                    
+                            (= cn.eval_type cn.value_type)
+                            (= cn.eval_type_name cn.type_name)
+
                             ; class variables should be already defined
                             (call this DefineVar (node ctx wr))                     
+                            (if (> (array_length node.children) 2)
+                                (
+                                    (call this validateEvalTypes ((itemAt node.children 1) (itemAt node.children 2) ctx))    
+                                )
+                            )           
+
                         )
                     )     
                 )

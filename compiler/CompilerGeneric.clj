@@ -6,13 +6,37 @@
     ( CreateClass SourceCode:void
         (
             (def code:string)
-            (def filename:string)
+            (def filename:string "")
+            (def lines:[string])
 
             (Constructor (code_string:string)
                 (
                     (= code code_string)
+                    (= lines (strsplit code_string "\n"))
                 )
             )
+
+            ( PublicMethod getLineString:string (line_index:int) (
+
+                (if (> (array_length lines) line_index)
+                    (return (itemAt lines line_index))
+                )
+                (return "")
+            ))            
+            
+            ( PublicMethod getLine:int (sp:int) (
+                (def cnt:int 0)
+                (for lines str:string i 
+                    (
+                        (= cnt (+ cnt (+ (strlen str) 1)))
+                        (if (> cnt sp)
+                            (return i)
+                        )
+                    )
+                )
+                (return -1)
+            ))            
+
         )
     )
 
