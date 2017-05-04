@@ -11,7 +11,18 @@
     ( CreateClass TestCodeCompiler 
         (
             ; example of code which can be transformed into a cmd line tool
-            ( PublicMethod compile:void (fileName:string) 
+            ( PublicMethod compile:void (fileName:string)
+
+                ; the utility information for package.json
+                @shellUtility(
+                    @name("ranger-compiler")
+                    @directory("tools\\ranger-compiler")
+                    @description("Ranger command-line compiler utility")
+                    @author("Tero Tolonen")
+                    @license("MIT")
+                    @version("1.0.7")
+                ) 
+                
                 (
 
                     @onError(

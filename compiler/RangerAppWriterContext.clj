@@ -51,6 +51,8 @@
     ( CreateClass RangerAppFunctionDesc
         (
             (def name:string "")
+            (def node:CodeNode)            
+            (def nameNode:CodeNode)
             (def params:[RangerAppParamDesc])
             (def return_value:RangerAppParamDesc)
 

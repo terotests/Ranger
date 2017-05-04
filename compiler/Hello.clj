@@ -24,7 +24,7 @@
                 (print "Error")
             )
             dd  ; creates undefined variable error
-            (def ford:bar2 (new bar ()))
+            (def ford:bar2 (new bar ())) ; can not define bar2 and then instantiate bar 
 
             (def items:[string])
 
@@ -44,7 +44,7 @@
 
                     ; definitions which should fail...
                     (def int_v:int 0)
-                    (= int_v "moro")                    
+                    (= int_v "moro") ; this should generate compiler error                    
                     (= int_v ( + "morjens" 30))
                     
                     (if (== 2 true) ; invalid comparision
@@ -60,14 +60,11 @@
                     )
 
                     (def fRes:double (sin 2.3)) ; ok
-                    (def fRes2:double (sin "2.3")) ; fail
-                    
-
+                    (def fRes2:double (sin "2.3")) ; not valid math op should fail
 
                     @onError(
                         (print("Error occurred during compile"))
                     )
-
 
                     (def bb:boolean true)
                     (if (== true bb)

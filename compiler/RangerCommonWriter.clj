@@ -149,6 +149,26 @@
 
             (PublicMethod shouldBeEqualTypes:void (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext)
                 (
+
+                    (if (null? n1)
+                        (
+                            (if (!null? n2)
+                                (call ctx addError (n2 "Internal error: shouldBeEqualTypes called with n1 == null "  ) )                            
+                            )
+                            (return _)
+                        )
+                    )
+
+                    (if (null? n2)
+                        (
+                            (if (!null? n1)
+                                (call ctx addError (n1 "Internal error: shouldBeEqualTypes called with n1 == null "  ) )                            
+                            )                            
+                            (return _)
+                        )
+                    )
+                    
+
                     ; (print (+ n1.eval_type_name " vs " n2.eval_type_name))
                     (if ( && (!= n1.eval_type RangerNodeType.NoType)
                              (!= n2.eval_type RangerNodeType.NoType) 
@@ -1882,6 +1902,7 @@
                             ; collecting the method data
                             (def m:RangerAppFunctionDesc (new RangerAppFunctionDesc ()))
                             (= m.name s)
+                            (= m.node node)
                             (= m.nameNode (itemAt node.children 1))
                             ; parse arguments...
                             (def args:CodeNode (itemAt node.children 2))
