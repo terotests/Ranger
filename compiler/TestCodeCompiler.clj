@@ -14,6 +14,10 @@
             ( PublicMethod compile:void (fileName:string) 
                 (
 
+                    @onError(
+                        (print "Unknown compiler error.")
+                    )
+
                     (if (file_exists "." fileName)
                         ()
                         (
@@ -25,8 +29,17 @@
                     (def c:string (file_read "." fileName))
                     
                     (def code:SourceCode (new SourceCode (c)))
+                    (= code.filename fileName)
+
                     (def parser:RangerLispParser (new RangerLispParser (code)))
                     (call parser parse ())
+
+                    (if parser.had_error
+                        (
+                            (return _)
+                        )
+                    )
+
 
                     (def appCtx:RangerAppWriterContext (new RangerAppWriterContext()))
                     (def cwr:RangerJavaScriptWriter (new RangerJavaScriptWriter ()))
@@ -92,6 +105,12 @@
                 (= code.filename read_filename)
 				(def parser:RangerLispParser (new RangerLispParser (code)))
 				(call parser parse ())
+
+                (if parser.had_error
+                    (
+                        (return _)
+                    )
+                )
 
 				; --> parsing the file and dependencies
 

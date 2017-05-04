@@ -13,8 +13,12 @@
             (def parents:[CodeNode])
             (def next:CodeNode)
 
+            (def paren_cnt:int 0)
+
             (def rootNode:CodeNode)
             (def curr_node:CodeNode)
+
+            (def had_error:boolean false)
 
             (Constructor (code_module:SourceCode )
                 (
@@ -30,6 +34,20 @@
 
             ( PublicMethod parse:void () (
 
+                @onError(
+                    (if (!null? curr_node)
+                        (
+                            (def line_index:int (call curr_node getLine ()))     
+                            (= line_index (call curr_node getLine ()))                           
+                            (print (+ (call curr_node getFilename ()) " Line: " line_index))
+                            (print "Parser error close to")
+                            (print (call curr_node getLineString(line_index)))           
+
+                            (= had_error true)         
+                        )
+                    )
+                )
+
                 (def c:char)
                 (def next_c:char)
                 (def fc:char)
@@ -43,6 +61,7 @@
 
                 (while (< i len)
                     (
+                        (if had_error (break _))
                         ; (print i)
                         (= last_i i)
                         (while ( && (< i len) 
@@ -75,31 +94,45 @@
                                     (continue _)
                                 ))                                                            
                                 
-                                (if (== c 40)
-                                (
-                                    ; (print "Found ( ")
-                                    (if (null? curr_node)
+                                (if (< i (- len 1))
+                                    (
+                                        (= fc (charAt s (+ i 1)))
+                                        (if (||
+                                                (== c 40)
+                                                (&& (== c 39) (== fc 40) )
+                                                (&& (== c 96) (== fc 40) ) )
                                         (
-                                            (= curr_node (new CodeNode (code i i)))
-                                            (= curr_node.expression true)
-                                            (= rootNode curr_node)
-                                            (push parents curr_node)
-                                            ; (print "-> new root node")
-                                        )
-                                        (
-                                            (= new_node (new CodeNode (code i i)))
-                                            (= new_node.expression true)
-                                            (push curr_node.children new_node)
-                                            (= curr_node new_node)
-                                            (push parents curr_node)
-                                            ; (print "added a new child node")
-                                        )
-                                    )
-                                    (= i (+ 1 i))
-                                    (call this parse ())
-                                    (continue _)
+                                            ; (print "Found ( ")
+                                            (= paren_cnt (+ paren_cnt 1))
+                                            (if (null? curr_node)
+                                                (
+                                                    (= curr_node (new CodeNode (code i i)))
+                                                    (if (== c 96) (= curr_node.value_type RangerNodeType.Quasiliteral))
+                                                    (if (== c 39) (= curr_node.value_type RangerNodeType.Literal))
+                                                    (= curr_node.expression true)
+                                                    (= rootNode curr_node)
+                                                    (push parents curr_node)
+                                                    ; (print "-> new root node")
+                                                )
+                                                (
+                                                    (= new_node (new CodeNode (code i i)))
+                                                    (if (== c 96) (= new_node.value_type RangerNodeType.Quasiliteral))
+                                                    (if (== c 39) (= new_node.value_type RangerNodeType.Literal))                                                    
+                                                    (= new_node.expression true)
+                                                    (push curr_node.children new_node)
+                                                    (= curr_node new_node)
+                                                    (push parents curr_node)
+                                                    ; (print "added a new child node")
+                                                )
+                                            )
+                                            (= i (+ 1 i))
+                                            (call this parse ())
+                                            (continue _)
 
-                                ))
+                                        ))
+                                    )
+                                )
+
 
                                 (= sp i)
                                 (= ep i)
@@ -351,6 +384,7 @@
 
                                                 (push parents a_node)
                                                 (= i (+ i 1))
+                                                (= paren_cnt (+ paren_cnt 1))
 
                                                 (call this parse ())
 
@@ -599,6 +633,11 @@
                                 (
                                     ; (print "Found ) ")
                                     (= i (+ 1 i))
+                                    (= paren_cnt (- paren_cnt 1))
+                                    (if (< paren_cnt 0)
+                                        (throw "Parser error ) mismatch")
+                                    )
+
                                     (removeLast parents)
                                     (if (!null? curr_node) 
                                         (= curr_node.ep i)

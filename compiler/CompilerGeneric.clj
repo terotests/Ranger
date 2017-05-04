@@ -17,7 +17,6 @@
             )
 
             ( PublicMethod getLineString:string (line_index:int) (
-
                 (if (> (array_length lines) line_index)
                     (return (itemAt lines line_index))
                 )

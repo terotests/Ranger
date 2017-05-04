@@ -147,11 +147,14 @@
                 )
             )
 
-            (PublicMethod validateEvalTypes:void (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext)
+            (PublicMethod shouldBeEqualTypes:void (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext)
                 (
                     ; (print (+ n1.eval_type_name " vs " n2.eval_type_name))
                     (if ( && (!= n1.eval_type RangerNodeType.NoType)
-                             (!= n2.eval_type RangerNodeType.NoType) )
+                             (!= n2.eval_type RangerNodeType.NoType) 
+                             (> (strlen n1.eval_type_name) 0)
+                             (> (strlen n2.eval_type_name) 0)
+                             )
                         (
                             ; (print "had eval def")
                             (if (== n1.eval_type_name n2.eval_type_name)
@@ -169,15 +172,32 @@
                                         (
                                             (= b_ok true)
                                         )
-                                    )
+                                    )                                    
                                     (if ( && (call ctx isEnumDefined (n2.eval_type_name))
                                         ( == n1.eval_type_name "int") )
                                         (
                                             (= b_ok true)
                                         )
-                                    )                                    
+                                    )
+
+                                    ; TODO: fix this comparision to be more reasonable
+                                    ; TODO: could be also a warning
+                                    (if ( && ( == n1.eval_type_name "char")
+                                             ( == n2.eval_type_name "int") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )
+
+                                    (if ( && ( == n1.eval_type_name "int")
+                                        ( == n2.eval_type_name "char") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )
+                                                                        
                                     (if (== b_ok false)
-                                        (call ctx addError (n1 ( + "Invalid assigment " n2.eval_type_name " => " n1.eval_type_name )))                                
+                                        (call ctx addError (n1 ( + "Type mismatch " n2.eval_type_name " <> " n1.eval_type_name )))                                
                                     )
                                 )
                             )
@@ -187,10 +207,76 @@
                 )
             )
 
+
+           (PublicMethod shouldBeType:void (type_name:string n1:CodeNode ctx:RangerAppWriterContext)
+                (
+                    ; (print (+ n1.eval_type_name " vs " n2.eval_type_name))
+                    (if ( && (!= n1.eval_type RangerNodeType.NoType)
+                             (> (strlen n1.eval_type_name) 0)
+                             )
+                        (
+                            ; (print "had eval def")
+                            (if (== n1.eval_type_name type_name)
+                                (
+                                    ; positively evaluated assigment value...
+                                    ; (print (+ "Equals == " n1.eval_type_name))
+                                    ; (call ctx addError (node "OK assigment " ))
+
+                                )
+                                (
+                                    ; check if this is int => enum
+                                    (def b_ok:boolean false)
+                                    (if ( && (call ctx isEnumDefined (n1.eval_type_name))
+                                        ( == type_name "int") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )                                    
+                                    (if ( && (call ctx isEnumDefined (type_name))
+                                        ( == n1.eval_type_name "int") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )
+
+                                    ; TODO: fix this comparision to be more reasonable
+                                    ; TODO: could be also a warning
+                                    (if ( && ( == n1.eval_type_name "char")
+                                             ( == type_name "int") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )
+
+                                    (if ( && ( == n1.eval_type_name "int")
+                                        ( == type_name "char") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )
+                                                                        
+                                    (if (== b_ok false)
+                                        (call ctx addError (n1 ( + "Type mismatch " type_name " <> " n1.eval_type_name )))                                
+                                    )
+                                )
+                            )
+                        )
+                    )           
+
+                )
+            )
+
+
+
             (PublicMethod cmdImport:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
+
                     (def fNameNode:CodeNode (itemAt node.children 1))
                     (def import_file:string fNameNode.string_value)
+
+                    @onError(
+                        (throw (+ "ERROR: import failed, possibly invalid Import filename: " import_file))
+                    )
 
                     (if (has ctx.already_imported import_file)
                         (return false)
@@ -506,7 +592,17 @@
                             (if (!null? varDesc)
                                 (
                                     ; OK, here is what to expect:
-                                    ; (print (+ varDesc.nameNode.vref ":" varDesc.nameNode.type_name) )
+                                    (def className:string varDesc.nameNode.type_name)
+                                    (def classDesc:RangerAppClassDesc (call ctx findClass (className)))
+                                    ; (print (+ "call " varDesc.nameNode.vref ":" varDesc.nameNode.type_name " method->" method.vref) )
+
+                                    (if (!null? classDesc)
+                                        (def fnDescr:RangerAppFunctionDesc (call classDesc findMethod (method.vref)))   
+                                        (
+                                            (call ctx addError (obj ( + "ERROR, could not find class " className ) ))                                    
+                                        )                             
+                                    )
+
                                 )
                                 (
                                     (print (+ "description not found for " obj.vref ))
@@ -613,6 +709,9 @@
                     (call this WalkNode (n1 ctx wr))
                     (call ctx unsetInExpr ())
                     (call wr out (".trim()" false))
+
+                    (call this shouldBeType ("string" n1 ctx))
+                    
                 )
             )
 
@@ -623,6 +722,9 @@
                     (call this WalkNode (n1 ctx wr))
                     (call ctx unsetInExpr ())
                     (call wr out (".length" false))
+
+                    (call this shouldBeType ("string" n1 ctx))
+
                 )
             )
 
@@ -640,6 +742,11 @@
                     (call this WalkNode (end ctx wr))
                     (call wr out (")" false))
                     (call ctx unsetInExpr ())
+
+                    (call this shouldBeType ("string" n1 ctx))
+                    (call this shouldBeType ("int" start ctx))
+                    (call this shouldBeType ("int" end ctx))
+                    
                 )
             )
 
@@ -664,6 +771,9 @@
                     (call this WalkNode (n1 ctx wr))
                     (call wr out (")" false))
                     (call ctx unsetInExpr ())
+
+                    (call this shouldBeType ("int" n1 ctx))
+                    
                 )
             )   
 
@@ -678,6 +788,9 @@
                     (call this WalkNode (index ctx wr))
                     (call wr out (")" false))
                     (call ctx unsetInExpr ())
+
+                    (call this shouldBeType ("string" n1 ctx))                    
+                    (call this shouldBeType ("int" index ctx))                    
                     
                 )
             )    
@@ -693,7 +806,9 @@
                     (call ctx unsetInExpr ())
 
                     (call wr out (")" false))
-                    
+
+                    (call this shouldBeType ("string" n1 ctx))                    
+ 
                 )
             )      
 
@@ -707,6 +822,8 @@
                     (call ctx unsetInExpr ())
 
                     (call wr out (")" false))
+
+                    (call this shouldBeType ("string" n1 ctx))                    
                     
                 )
             )                              
@@ -721,6 +838,8 @@
                     (call ctx unsetInExpr ())
 
                     (call wr out (")" false))
+
+                    (call this shouldBeType ("double" n1 ctx))                    
                     
                 )
             )            
@@ -732,6 +851,10 @@
                     (call this WalkNode (n1 ctx wr))
                     (call ctx unsetInExpr ())
                     (call wr out (".length" false))
+
+                    (= node.eval_type RangerNodeType.Integer)
+                    (= node.eval_type_name "int")
+
                 )
             )
 
@@ -744,6 +867,9 @@
                     (call this WalkNode (n1 ctx wr))
                     (call ctx unsetInExpr ())
                     (call wr out (");" true))
+
+                    (call this shouldBeType ("string" n1 ctx))                    
+
                 )
             )
 
@@ -774,6 +900,30 @@
                     (call wr out ("break;" true))
                 )
             )            
+
+            (PublicMethod cmdThrow:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (                    
+
+                    (call wr newline ())
+                    (call wr out ("throw " false))
+                    (if (> (array_length node.children) 1)
+                        (
+                            (def fc:CodeNode (call node getSecond ()))
+
+                            (if (== fc.vref "_")
+                                ()
+                                (
+                                    (call wr out (" " false))
+                                    (call ctx setInExpr ())
+                                    (call this WalkNode (fc ctx wr))    
+                                    (call ctx unsetInExpr ())    
+                                )
+                            )
+                        )
+                    )
+                    (call wr out (";" true))                    
+                )
+            )
 
 
             (PublicMethod cmdReturn:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -809,6 +959,10 @@
                     (call this WalkNode (obj ctx wr))
                     (call ctx unsetInExpr ())                    
                     (call wr out (".pop()" true))
+
+                    ; TODO: handling array and hash types...
+                    (call this shouldBeType ("[]" obj ctx))                    
+                    
                 )
             )
 
@@ -841,6 +995,10 @@
                     (call this WalkNode (index ctx wr))
                     (call ctx unsetInExpr ())                    
                     (call wr out ("]" false))
+
+                    (call this shouldBeType ("[]" obj ctx))                    
+                    (call this shouldBeType ("int" index ctx))                    
+
                 )
             )
 
@@ -961,7 +1119,7 @@
                     (call ctx unsetInExpr ())
                     (call wr out (";" true))         
 
-                    (call this validateEvalTypes (n1 n2 ctx))
+                    (call this shouldBeEqualTypes (n1 n2 ctx))
                 )
             )
 
@@ -986,6 +1144,16 @@
                     (call wr out (")" false))
                 
                     (call this mathLibCalled (node ctx wr))
+
+                    (if ( && (!= n1.eval_type RangerNodeType.NoType)
+                             (!= n1.eval_type_name "double") )
+                        (
+                            (call ctx addError (n1 ( + "Math operator Math." op.vref " called with invalid value type: " n1.eval_type_name) ))
+                        )
+                    )
+                             
+                        
+                    
                 )
             )
 
@@ -996,6 +1164,9 @@
                     (def n1:CodeNode (call node getSecond ()))
                     (def n2:CodeNode (call node getThird ()))
 
+                    (= node.eval_type RangerNodeType.Boolean)
+                    (= node.eval_type_name "boolean")
+    
                     (if ( > (call ctx expressionLevel ()) 1 )
                         (call wr out ("(" false))
                     )
@@ -1007,11 +1178,52 @@
                     (if ( > (call ctx expressionLevel ()) 1 )
                         (call wr out (")" false))
                     )
+                    (call this shouldBeEqualTypes (n1 n2 ctx))       
                 )
             )
 
             ; operators "&&", "||"
             (PublicMethod cmdLogicOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (
+                    (def op:CodeNode (call node getFirst ()))
+
+                    (= node.eval_type RangerNodeType.Boolean)
+                    (= node.eval_type_name "boolean")
+
+                    (def firstChild:CodeNode (call node getSecond ()))
+
+                    (for node.children ch:CodeNode i
+                        (
+                            (if (> i 1)
+                                 (call this shouldBeEqualTypes (firstChild ch ctx))                                                   
+                            )
+                        )
+                    )
+
+                    (if ( > (call ctx expressionLevel ()) 1 )
+                        (call wr out ("(" false))
+                    )
+                    ;(&& a b c d)
+                    (for node.children item:CodeNode i
+                        (if (> i 0)
+                            (
+                                (if (> i 1)
+                                    (call wr out ( (+ " " op.vref " ") false))
+                                )
+                                (call ctx setInExpr ())
+                                (call this WalkNode (item ctx wr))
+                                (call ctx unsetInExpr ())
+                            )
+                        )
+                    )
+                    (if ( > (call ctx expressionLevel ()) 1 )
+                        (call wr out (")" false))
+                    )
+                )
+            )
+
+            ; operator "+"
+            (PublicMethod cmdPlusOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def op:CodeNode (call node getFirst ()))
 
@@ -1036,8 +1248,9 @@
                     )
                 )
             )
+            
 
-            ; operators "*", "+", "-", "/", "%"
+            ; operators "*", -", "/", "%"
             (PublicMethod cmdNumericOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def op:CodeNode (call node getFirst ()))
@@ -1092,6 +1305,9 @@
                         )
                     )
                     (call wr out ("}" true))
+
+                   (call this shouldBeType ("boolean" n1 ctx))
+                     
                 )
             )
 
@@ -1171,6 +1387,9 @@
                         (call wr newline ())
                         (call wr indent (-1))
                     (call wr out ("}" true))
+
+                    (call this shouldBeType ("boolean" n1 ctx))
+                    
                 )
             )
 
@@ -1355,7 +1574,6 @@
                             (def desc:RangerAppClassDesc ctx.currentClass)         
                                     
                             ; (print (+ "Defining variable " cn.vref))
-
                             (def p:RangerAppParamDesc (new RangerAppParamDesc ()))
                             (= p.name cn.vref)
                             (= p.value_type cn.value_type)
@@ -1380,7 +1598,7 @@
 
                             (if (> (array_length node.children) 2)
                                 (
-                                    (call this validateEvalTypes (cn p.def_value ctx))    
+                                    (call this shouldBeEqualTypes (cn p.def_value ctx))    
                                 )
                             )           
                         )
@@ -1390,11 +1608,12 @@
                             (= cn.eval_type cn.value_type)
                             (= cn.eval_type_name cn.type_name)
 
-                            ; class variables should be already defined
+                            ; Note: no need for defineVariable call because the class variable is
+                            ; defined when entering the class
                             (call this DefineVar (node ctx wr))                     
                             (if (> (array_length node.children) 2)
                                 (
-                                    (call this validateEvalTypes ((itemAt node.children 1) (itemAt node.children 2) ctx))    
+                                    (call this shouldBeEqualTypes ((itemAt node.children 1) (itemAt node.children 2) ctx))    
                                 )
                             )           
 
@@ -1466,6 +1685,8 @@
                                         (case "for" (call this cmdFor (node ctx wr)) )
                                         (case "break" (call this cmdBreak (node ctx wr)) )
                                         (case "continue" (call this cmdContinue (node ctx wr)) )
+
+                                        (case "throw" (call this cmdThrow (node ctx wr)) )
                  
                                         (case "switch" (call this cmdSwitch (node ctx wr)) )
                                         (case "case" (call this cmdCase (node ctx wr)) )
@@ -1511,7 +1732,7 @@
                                         (case "dir_exists" (call this cmdIsDir (node ctx wr)))
                                         (case "dir_create" (call this cmdCreateDir (node ctx wr)))
 
-
+                                        (case "+" (call this cmdPlusOp (node ctx wr)) )
                                         (case "=" (call this cmdAssign (node ctx wr)) )
                                         (case ("sin" "cos" "tan" "atan" "log" "abs" "acos" "asin" "floor" "round" "sqrt")
                                               (call this cmdMathLibOp (node ctx wr))
@@ -1522,7 +1743,7 @@
                                         (case ("&&" "||")
                                               (call this cmdLogicOp (node ctx wr))
                                         )
-                                        (case ("*" "+" "-" "/" "%")
+                                        (case ("*" "-" "/" "%")
                                               (call this cmdNumericOp (node ctx wr))
                                         )
 
@@ -1661,7 +1882,7 @@
                             ; collecting the method data
                             (def m:RangerAppFunctionDesc (new RangerAppFunctionDesc ()))
                             (= m.name s)
-
+                            (= m.nameNode (itemAt node.children 1))
                             ; parse arguments...
                             (def args:CodeNode (itemAt node.children 2))
                             ; (print (array_length args.children))

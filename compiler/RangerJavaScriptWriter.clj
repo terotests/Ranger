@@ -173,7 +173,6 @@
                     (call this WalkNodeChildren (fnBody ctx wr))
                     (call wr newline ())
                     (call wr indent (-1))
-                    (call ctx unsetInMethod ())
                     (if (call fnBody hasExpressionProperty ("onError"))
                         (
                             ; (call wr indent (-1))
@@ -187,6 +186,8 @@
                         )
                     )   
                     (call wr out ( (+ "}") true ) )
+                    (call ctx unsetInMethod ())
+                    
                 )
             )
 
