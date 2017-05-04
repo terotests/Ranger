@@ -21,8 +21,8 @@
                     (return (itemAt lines line_index))
                 )
                 (return "")
-            ))            
-            
+            ))
+                        
             ( PublicMethod getLine:int (sp:int) (
                 (def cnt:int 0)
                 (for lines str:string i 
@@ -71,7 +71,7 @@
             (def ctx:RangerContext)
             (def var_name:string)
 
-            ( PublicMethod fire:void () (
+            ( PublicMethod fire:void ( ) (
                 ; 
             ))            
         )
@@ -83,7 +83,7 @@
 
             ( PublicMethod fire:void () (
                 (for listeners observer:RangerContextEvent i
-                    (call observer fire ())
+                    (call observer fire ( ))
                 )
             ))            
         )

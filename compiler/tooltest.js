@@ -10,296 +10,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
                             
-var CodeFile = function( ) {  
-  function CodeFile(filePath, fileName) {
-    _classCallCheck(this, CodeFile);
-    this.path_name = "";
-    this.name = "";
-    this.writer = undefined;
-    this.import_list = {};
-    this.import_names = [];
-    this.fileSystem = undefined;
-    this.name = fileName;
-    this.path_name = filePath;
-    this.writer = new CodeWriter();
-    this.writer.createTag("imports")
-    this.writer.ownerFile = this;
-  }
-  
-   _createClass(CodeFile, [
-    { key: "addImport", value: function addImport(import_name) { 
-      if(typeof(this.import_list[import_name]) != "undefined") {
-      } else {
-        this.import_list[this.name] = import_name;
-        this.import_names.push(import_name);
-      }
-    }}
-    ,
-    { key: "getImports", value: function getImports() { 
-      return this.import_names;
-    }}
-    ,
-    { key: "getWriter", value: function getWriter() { 
-      return this.writer;
-    }}
-    ,
-    { key: "getCode", value: function getCode() { 
-      return this.writer.getCode();
-    }}
-  ]);
-  
-
-return CodeFile;
-}();
-var CodeFileSystem = function( ) {  
-  function CodeFileSystem() {
-    _classCallCheck(this, CodeFileSystem);
-    this.files = [];
-  }
-  
-   _createClass(CodeFileSystem, [
-    { key: "getFile", value: function getFile(path, name) { 
-      for( var idx= 0; idx< this.files.length; idx++) { 
-        var file= this.files[idx];
-        if((file.path_name==path) && (file.name==name)) {
-          return file;
-        }
-      }
-      var new_file = new CodeFile(path,name);
-      new_file.fileSystem = this;
-      this.files.push(new_file);
-      return new_file;
-    }}
-    ,
-    { key: "mkdir", value: function mkdir(path) { 
-      var parts = path.split("\/");
-      var curr_path = "";
-      for( var i= 0; i< parts.length; i++) { 
-        var p= parts[i];
-        curr_path = curr_path + "\/" + p;
-        if(require("fs").existsSync( process.cwd() + "/" + curr_path)) {
-        } else {
-          require("fs").mkdirSync( process.cwd() + "/" + curr_path);
-        }
-      }
-    }}
-    ,
-    { key: "saveTo", value: function saveTo(path) { 
-      for( var idx= 0; idx< this.files.length; idx++) { 
-        var file= this.files[idx];
-        var file_path = path + "\/" + file.path_name;
-        this.mkdir(file_path)
-        console.log("Writing to path " + file_path);
-        require("fs").writeFileSync( process.cwd() + "/" + file_path + "/" + file.name, file.getCode());
-      }
-    }}
-    ,
-    { key: "printFilesList", value: function printFilesList() { 
-      for( var idx= 0; idx< this.files.length; idx++) { 
-        var file= this.files[idx];
-        console.log("----===== " + (file.path_name + "\/" + file.name) + " ====----");
-        console.log(file.getCode());
-      }
-    }}
-  ]);
-  
-
-return CodeFileSystem;
-}();
-var CodeSlice = function( ) {  
-  function CodeSlice() {
-    _classCallCheck(this, CodeSlice);
-    this.code = "";
-    this.writer = undefined;
-  }
-  
-   _createClass(CodeSlice, [
-    { key: "getCode", value: function getCode() { 
-      if(this.writer == null ) {
-        return this.code;
-      }
-      return this.writer.getCode();
-    }}
-  ]);
-  
-
-return CodeSlice;
-}();
-var CodeWriter = function( ) {  
-  function CodeWriter() {
-    _classCallCheck(this, CodeWriter);
-    this.tagName = "";
-    this.codeStr = "";
-    this.currentLine = "";
-    this.tabStr = "  ";
-    this.lineNumber = 1;
-    this.indentAmount = 0;
-    this.tags = {};
-    this.slices = [];
-    this.current_slice = undefined;
-    this.ownerFile = undefined;
-    this.forks = [];
-    this.tagOffset = undefined;
-    this.parent = undefined;
-    this.had_nl = true;
-    this.current_slice = new CodeSlice();
-    this.slices.push(this.current_slice);
-  }
-  
-   _createClass(CodeWriter, [
-    { key: "addImport", value: function addImport(name) { 
-      if(this.ownerFile != null ) {
-        this.ownerFile.addImport(name)
-      } else {
-        if(this.parent != null ) {
-          this.parent.addImport(name)
-        }
-      }
-    }}
-    ,
-    { key: "indent", value: function indent(delta) { 
-      this.indentAmount = delta + this.indentAmount;
-      if(this.indentAmount<0) {
-        this.indentAmount = 0;
-      }
-    }}
-    ,
-    { key: "addIndent", value: function addIndent() { 
-      var i = 0;
-      if(this.currentLine.length==0) {
-        while(i<this.indentAmount) {
-          this.currentLine = this.currentLine + this.tabStr;
-          i = i + 1;
-        }
-      }
-    }}
-    ,
-    { key: "createTag", value: function createTag(name) { 
-      var new_writer = new CodeWriter();
-      var new_slice = new CodeSlice();
-      this.tags[name] = this.slices.length;
-      this.slices.push(new_slice);
-      new_slice.writer = new_writer;
-      new_writer.indentAmount = this.indentAmount;
-      var new_active_slice = new CodeSlice();
-      this.slices.push(new_active_slice);
-      this.current_slice = new_active_slice;
-      new_writer.parent = this;
-      return new_writer;
-    }}
-    ,
-    { key: "getTag", value: function getTag(name) { 
-      if(typeof(this.tags[name]) != "undefined") {
-        var idx = this.tags[name];
-        var slice = this.slices[idx];
-        return slice.writer;
-      } else {
-        if(this.parent != null ) {
-          return this.parent.getTag(name);
-        }
-      }
-      return this;
-    }}
-    ,
-    { key: "hasTag", value: function hasTag(name) { 
-      if(typeof(this.tags[name]) != "undefined") {
-        return true;
-      } else {
-        if(this.parent != null ) {
-          return this.parent.hasTag(name);
-        }
-      }
-      return false;
-    }}
-    ,
-    { key: "fork", value: function fork() { 
-      var new_writer = new CodeWriter();
-      var new_slice = new CodeSlice();
-      this.slices.push(new_slice);
-      new_slice.writer = new_writer;
-      new_writer.indentAmount = this.indentAmount;
-      new_writer.parent = this;
-      var new_active_slice = new CodeSlice();
-      this.slices.push(new_active_slice);
-      this.current_slice = new_active_slice;
-      return new_writer;
-    }}
-    ,
-    { key: "newline", value: function newline() { 
-      /**"Inserts newline if necessary"*/
-      if(this.currentLine.length>0) {
-        this.out("",true)
-      }
-    }}
-    ,
-    { key: "writeSlice", value: function writeSlice(str, newLine) { 
-      this.addIndent()
-      this.currentLine = this.currentLine + str;
-      if(newLine) {
-        this.current_slice.code = this.current_slice.code + this.currentLine + "\n";
-        this.currentLine = "";
-      }
-    }}
-    /**"out function accepts string and newline parameter"*/
-    ,
-    { key: "out", value: function out(str, newLine) { 
-      var lines = str.split("\n");
-      var rowCnt = lines.length;
-      if(rowCnt==1) {
-        this.writeSlice(str,newLine)
-      } else {
-        for( var idx= 0; idx< lines.length; idx++) { 
-          var row= lines[idx];
-          this.addIndent()
-          if(idx<(rowCnt - 1)) {
-            this.writeSlice(row.trim(),true)
-          } else {
-            this.writeSlice(row,newLine)
-          }
-        }
-      }
-    }}
-    ,
-    { key: "getCode", value: function getCode() { 
-      var res = "";
-      for( var idx= 0; idx< this.slices.length; idx++) { 
-        var slice= this.slices[idx];
-        res = res + (slice.getCode());
-      }
-      res = res + this.currentLine;
-      return res;
-    }}
-  ]);
-  
-
-return CodeWriter;
-}();
-var CodeWriterTester = function( ) {  
-  function CodeWriterTester() {
-    _classCallCheck(this, CodeWriterTester);
-  }
-  
-   _createClass(CodeWriterTester, [
-    { key: "test1", value: function test1() { 
-      var fs = new CodeFileSystem();
-      var testFile = fs.getFile("root","test.java");
-      var wr = testFile.getWriter();
-      wr.addImport("java.utils.*")
-      wr.out("\n                \n\/\/ this is a sample output from LISP code\n\nclass mySampleClass {\n\n}                               \n                ",true)
-      testFile.addImport("java.io.*")
-      var iWriter = wr.getTag("imports");
-      var i_list = testFile.getImports();
-      for( var idx= 0; idx< i_list.length; idx++) { 
-        var str= i_list[idx];
-        iWriter.out("import " + str + ";",true)
-      }
-      fs.printFilesList()
-    }}
-  ]);
-  
-
-return CodeWriterTester;
-}();
 var DictNode = function( ) {  
   function DictNode(source, start, end) {
     _classCallCheck(this, DictNode);
@@ -1355,6 +1065,296 @@ var RangerContext = function( ) {
 
 return RangerContext;
 }();
+var CodeFile = function( ) {  
+  function CodeFile(filePath, fileName) {
+    _classCallCheck(this, CodeFile);
+    this.path_name = "";
+    this.name = "";
+    this.writer = undefined;
+    this.import_list = {};
+    this.import_names = [];
+    this.fileSystem = undefined;
+    this.name = fileName;
+    this.path_name = filePath;
+    this.writer = new CodeWriter();
+    this.writer.createTag("imports")
+    this.writer.ownerFile = this;
+  }
+  
+   _createClass(CodeFile, [
+    { key: "addImport", value: function addImport(import_name) { 
+      if(typeof(this.import_list[import_name]) != "undefined") {
+      } else {
+        this.import_list[this.name] = import_name;
+        this.import_names.push(import_name);
+      }
+    }}
+    ,
+    { key: "getImports", value: function getImports() { 
+      return this.import_names;
+    }}
+    ,
+    { key: "getWriter", value: function getWriter() { 
+      return this.writer;
+    }}
+    ,
+    { key: "getCode", value: function getCode() { 
+      return this.writer.getCode();
+    }}
+  ]);
+  
+
+return CodeFile;
+}();
+var CodeFileSystem = function( ) {  
+  function CodeFileSystem() {
+    _classCallCheck(this, CodeFileSystem);
+    this.files = [];
+  }
+  
+   _createClass(CodeFileSystem, [
+    { key: "getFile", value: function getFile(path, name) { 
+      for( var idx= 0; idx< this.files.length; idx++) { 
+        var file= this.files[idx];
+        if((file.path_name==path) && (file.name==name)) {
+          return file;
+        }
+      }
+      var new_file = new CodeFile(path,name);
+      new_file.fileSystem = this;
+      this.files.push(new_file);
+      return new_file;
+    }}
+    ,
+    { key: "mkdir", value: function mkdir(path) { 
+      var parts = path.split("\/");
+      var curr_path = "";
+      for( var i= 0; i< parts.length; i++) { 
+        var p= parts[i];
+        curr_path = curr_path + "\/" + p;
+        if(require("fs").existsSync( process.cwd() + "/" + curr_path)) {
+        } else {
+          require("fs").mkdirSync( process.cwd() + "/" + curr_path);
+        }
+      }
+    }}
+    ,
+    { key: "saveTo", value: function saveTo(path) { 
+      for( var idx= 0; idx< this.files.length; idx++) { 
+        var file= this.files[idx];
+        var file_path = path + "\/" + file.path_name;
+        this.mkdir(file_path)
+        console.log("Writing to path " + file_path);
+        require("fs").writeFileSync( process.cwd() + "/" + file_path + "/" + file.name, file.getCode());
+      }
+    }}
+    ,
+    { key: "printFilesList", value: function printFilesList() { 
+      for( var idx= 0; idx< this.files.length; idx++) { 
+        var file= this.files[idx];
+        console.log("----===== " + (file.path_name + "\/" + file.name) + " ====----");
+        console.log(file.getCode());
+      }
+    }}
+  ]);
+  
+
+return CodeFileSystem;
+}();
+var CodeSlice = function( ) {  
+  function CodeSlice() {
+    _classCallCheck(this, CodeSlice);
+    this.code = "";
+    this.writer = undefined;
+  }
+  
+   _createClass(CodeSlice, [
+    { key: "getCode", value: function getCode() { 
+      if(this.writer == null ) {
+        return this.code;
+      }
+      return this.writer.getCode();
+    }}
+  ]);
+  
+
+return CodeSlice;
+}();
+var CodeWriter = function( ) {  
+  function CodeWriter() {
+    _classCallCheck(this, CodeWriter);
+    this.tagName = "";
+    this.codeStr = "";
+    this.currentLine = "";
+    this.tabStr = "  ";
+    this.lineNumber = 1;
+    this.indentAmount = 0;
+    this.tags = {};
+    this.slices = [];
+    this.current_slice = undefined;
+    this.ownerFile = undefined;
+    this.forks = [];
+    this.tagOffset = undefined;
+    this.parent = undefined;
+    this.had_nl = true;
+    this.current_slice = new CodeSlice();
+    this.slices.push(this.current_slice);
+  }
+  
+   _createClass(CodeWriter, [
+    { key: "addImport", value: function addImport(name) { 
+      if(this.ownerFile != null ) {
+        this.ownerFile.addImport(name)
+      } else {
+        if(this.parent != null ) {
+          this.parent.addImport(name)
+        }
+      }
+    }}
+    ,
+    { key: "indent", value: function indent(delta) { 
+      this.indentAmount = delta + this.indentAmount;
+      if(this.indentAmount<0) {
+        this.indentAmount = 0;
+      }
+    }}
+    ,
+    { key: "addIndent", value: function addIndent() { 
+      var i = 0;
+      if(this.currentLine.length==0) {
+        while(i<this.indentAmount) {
+          this.currentLine = this.currentLine + this.tabStr;
+          i = i + 1;
+        }
+      }
+    }}
+    ,
+    { key: "createTag", value: function createTag(name) { 
+      var new_writer = new CodeWriter();
+      var new_slice = new CodeSlice();
+      this.tags[name] = this.slices.length;
+      this.slices.push(new_slice);
+      new_slice.writer = new_writer;
+      new_writer.indentAmount = this.indentAmount;
+      var new_active_slice = new CodeSlice();
+      this.slices.push(new_active_slice);
+      this.current_slice = new_active_slice;
+      new_writer.parent = this;
+      return new_writer;
+    }}
+    ,
+    { key: "getTag", value: function getTag(name) { 
+      if(typeof(this.tags[name]) != "undefined") {
+        var idx = this.tags[name];
+        var slice = this.slices[idx];
+        return slice.writer;
+      } else {
+        if(this.parent != null ) {
+          return this.parent.getTag(name);
+        }
+      }
+      return this;
+    }}
+    ,
+    { key: "hasTag", value: function hasTag(name) { 
+      if(typeof(this.tags[name]) != "undefined") {
+        return true;
+      } else {
+        if(this.parent != null ) {
+          return this.parent.hasTag(name);
+        }
+      }
+      return false;
+    }}
+    ,
+    { key: "fork", value: function fork() { 
+      var new_writer = new CodeWriter();
+      var new_slice = new CodeSlice();
+      this.slices.push(new_slice);
+      new_slice.writer = new_writer;
+      new_writer.indentAmount = this.indentAmount;
+      new_writer.parent = this;
+      var new_active_slice = new CodeSlice();
+      this.slices.push(new_active_slice);
+      this.current_slice = new_active_slice;
+      return new_writer;
+    }}
+    ,
+    { key: "newline", value: function newline() { 
+      /**"Inserts newline if necessary"*/
+      if(this.currentLine.length>0) {
+        this.out("",true)
+      }
+    }}
+    ,
+    { key: "writeSlice", value: function writeSlice(str, newLine) { 
+      this.addIndent()
+      this.currentLine = this.currentLine + str;
+      if(newLine) {
+        this.current_slice.code = this.current_slice.code + this.currentLine + "\n";
+        this.currentLine = "";
+      }
+    }}
+    /**"out function accepts string and newline parameter"*/
+    ,
+    { key: "out", value: function out(str, newLine) { 
+      var lines = str.split("\n");
+      var rowCnt = lines.length;
+      if(rowCnt==1) {
+        this.writeSlice(str,newLine)
+      } else {
+        for( var idx= 0; idx< lines.length; idx++) { 
+          var row= lines[idx];
+          this.addIndent()
+          if(idx<(rowCnt - 1)) {
+            this.writeSlice(row.trim(),true)
+          } else {
+            this.writeSlice(row,newLine)
+          }
+        }
+      }
+    }}
+    ,
+    { key: "getCode", value: function getCode() { 
+      var res = "";
+      for( var idx= 0; idx< this.slices.length; idx++) { 
+        var slice= this.slices[idx];
+        res = res + (slice.getCode());
+      }
+      res = res + this.currentLine;
+      return res;
+    }}
+  ]);
+  
+
+return CodeWriter;
+}();
+var CodeWriterTester = function( ) {  
+  function CodeWriterTester() {
+    _classCallCheck(this, CodeWriterTester);
+  }
+  
+   _createClass(CodeWriterTester, [
+    { key: "test1", value: function test1() { 
+      var fs = new CodeFileSystem();
+      var testFile = fs.getFile("root","test.java");
+      var wr = testFile.getWriter();
+      wr.addImport("java.utils.*")
+      wr.out("\n                \n\/\/ this is a sample output from LISP code\n\nclass mySampleClass {\n\n}                               \n                ",true)
+      testFile.addImport("java.io.*")
+      var iWriter = wr.getTag("imports");
+      var i_list = testFile.getImports();
+      for( var idx= 0; idx< i_list.length; idx++) { 
+        var str= i_list[idx];
+        iWriter.out("import " + str + ";",true)
+      }
+      fs.printFilesList()
+    }}
+  ]);
+  
+
+return CodeWriterTester;
+}();
 var RangerLispParser = function( ) {  
   function RangerLispParser(code_module) {
     _classCallCheck(this, RangerLispParser);
@@ -1743,6 +1743,311 @@ var RangerLispParser = function( ) {
   
 
 return RangerLispParser;
+}();
+var JSONParser = function( ) {  
+  function JSONParser(code_module) {
+    _classCallCheck(this, JSONParser);
+    this.code = undefined;
+    this.s = undefined;
+    this.len = undefined;
+    this.i = 0;
+    this.parents = [];
+    this.next = undefined;
+    this.rootNode = undefined;
+    this.curr_node = undefined;
+    this.tag_depth = 0;
+    this.s = code_module.code;
+    this.code = code_module;
+    this.len = code_module.code.length;
+  }
+  
+   _createClass(JSONParser, [
+    { key: "skip_space", value: function skip_space() { 
+      while((this.i<this.len) && (this.s.charCodeAt(this.i)<=32)) {
+        this.i = 1 + this.i;
+      }
+      return this.i;
+    }}
+    ,
+    { key: "parse", value: function parse() { 
+      var c;
+      var next_c;
+      var fc;
+      var new_node;
+      var sp = this.i;
+      var ep = this.i;
+      var last_i = 0;
+      var cc1;
+      var cc2;
+      while(this.i<this.len) {
+        last_i = this.i;
+        while((this.i<this.len) && (this.s.charCodeAt(this.i)<=32)) {
+          this.i = 1 + this.i;
+        }
+        cc1 = this.s.charCodeAt(this.i);
+        if(cc1=="]".charCodeAt(0)) {
+          this.parents.pop()
+          if(this.curr_node.is_property_value) {
+            this.parents.pop()
+          }
+          var p_cnt = this.parents.length;
+          var last_parent = this.parents[(p_cnt - 1)];
+          this.curr_node = last_parent;
+          this.i = this.i + 1;
+          continue;
+        }
+        if(cc1=="}".charCodeAt(0)) {
+          this.parents.pop()
+          if(this.curr_node.is_property_value) {
+            this.parents.pop()
+          }
+          var p_cnt = this.parents.length;
+          var last_parent = this.parents[(p_cnt - 1)];
+          this.curr_node = last_parent;
+          this.i = this.i + 1;
+          continue;
+        }
+        if(cc1==",".charCodeAt(0)) {
+          this.i = this.i + 1;
+          continue;
+        }
+        if(cc1==":".charCodeAt(0)) {
+          this.i = this.i + 1;
+          continue;
+        }
+        fc = cc1;
+        if((fc=="n".charCodeAt(0)) && (this.s.charCodeAt((this.i + 1))=="u".charCodeAt(0)) && (this.s.charCodeAt((this.i + 2))=="l".charCodeAt(0)) && (this.s.charCodeAt((this.i + 3))=="l".charCodeAt(0))) {
+          if(this.curr_node.is_property) {
+            this.curr_node.value_type = 7;
+            this.parents.pop()
+            var p_cnt = this.parents.length;
+            var last_parent = this.parents[(p_cnt - 1)];
+            this.curr_node = last_parent;
+          } else {
+            var new_attr = new DictNode(this.code,sp,ep);
+            new_attr.value_type = 7;
+            this.curr_node.children.push(new_attr);
+          }
+          this.i = this.i + 4;
+          continue;
+        }
+        if((fc=="t".charCodeAt(0)) && (this.s.charCodeAt((this.i + 1))=="r".charCodeAt(0)) && (this.s.charCodeAt((this.i + 2))=="u".charCodeAt(0)) && (this.s.charCodeAt((this.i + 3))=="e".charCodeAt(0))) {
+          if(this.curr_node.is_property) {
+            this.curr_node.value_type = 4;
+            this.curr_node.boolean_value = true;
+            this.parents.pop()
+            var p_cnt = this.parents.length;
+            var last_parent = this.parents[(p_cnt - 1)];
+            this.curr_node = last_parent;
+          } else {
+            var new_attr = new DictNode(this.code,sp,ep);
+            new_attr.value_type = 4;
+            new_attr.boolean_value = true;
+            this.curr_node.children.push(new_attr);
+          }
+          this.i = this.i + 4;
+          continue;
+        }
+        if((fc=="f".charCodeAt(0)) && (this.s.charCodeAt((this.i + 1))=="a".charCodeAt(0)) && (this.s.charCodeAt((this.i + 2))=="l".charCodeAt(0)) && (this.s.charCodeAt((this.i + 3))=="s".charCodeAt(0)) && (this.s.charCodeAt((this.i + 4))=="e".charCodeAt(0))) {
+          if(this.curr_node.is_property) {
+            this.curr_node.value_type = 4;
+            this.curr_node.boolean_value = false;
+            this.parents.pop()
+            var p_cnt = this.parents.length;
+            var last_parent = this.parents[(p_cnt - 1)];
+            this.curr_node = last_parent;
+          } else {
+            var new_attr = new DictNode(this.code,sp,ep);
+            new_attr.value_type = 4;
+            new_attr.boolean_value = false;
+            this.curr_node.children.push(new_attr);
+          }
+          this.i = this.i + 5;
+          continue;
+        }
+        if(((fc==45) && (this.s.charCodeAt((this.i + 1))>=46) && (this.s.charCodeAt((this.i + 1))<=57)) || ((fc>=48) && (fc<=57))) {
+          sp = this.i;
+          this.i = 1 + this.i;
+          c = this.s.charCodeAt(this.i);
+          while((this.i<this.len) && (((c>=48) && (c<=57)) || (c=="e".charCodeAt(0)) || (c=="E".charCodeAt(0)) || (c==".".charCodeAt(0)) || (c=="+".charCodeAt(0)) || (c=="-".charCodeAt(0)))) {
+            this.i = 1 + this.i;
+            c = this.s.charCodeAt(this.i);
+          }
+          ep = this.i;
+          if(this.curr_node.is_property) {
+            this.curr_node.value_type = 1;
+            this.curr_node.double_value = parseFloat(this.s.substring(sp, ep));
+            this.parents.pop()
+            var p_cnt = this.parents.length;
+            var last_parent = this.parents[(p_cnt - 1)];
+            this.curr_node = last_parent;
+            continue;
+          } else {
+            var new_attr = new DictNode(this.code,sp,ep);
+            new_attr.value_type = 1;
+            new_attr.double_value = parseFloat(this.s.substring(sp, ep));
+            this.curr_node.children.push(new_attr);
+            continue;
+          }
+        }
+        if(cc1==34) {
+          sp = this.i + 1;
+          ep = sp;
+          c = this.s.charCodeAt(this.i);
+          var must_encode = false;
+          while(this.i<this.len) {
+            this.i = 1 + this.i;
+            c = this.s.charCodeAt(this.i);
+            if(c==34) {
+              break;
+            }
+            if(c==92) {
+              this.i = 1 + this.i;
+              if(this.i<this.len) {
+                must_encode = true;
+                c = this.s.charCodeAt(this.i);
+              } else {
+                break;
+              }
+            }
+          }
+          ep = this.i;
+          if(this.i<this.len) {
+            var encoded_str = "";
+            if(must_encode) {
+              var orig_str = this.s.substring(sp, ep);
+              var str_length = orig_str.length;
+              var ii = 0;
+              while(ii<str_length) {
+                var cc = orig_str.charCodeAt(ii);
+                if(cc==92) {
+                  var next_ch = orig_str.charCodeAt((ii + 1));
+                  switch(next_ch) {
+                    case 34:
+                      encoded_str = encoded_str + String.fromCharCode(34);
+                      break;
+                    case 92:
+                      encoded_str = encoded_str + String.fromCharCode(92);
+                      break;
+                    case 47:
+                      encoded_str = encoded_str + String.fromCharCode(47);
+                      break;
+                    case 98:
+                      encoded_str = encoded_str + String.fromCharCode(8);
+                      break;
+                    case 102:
+                      encoded_str = encoded_str + String.fromCharCode(12);
+                      break;
+                    case 110:
+                      encoded_str = encoded_str + String.fromCharCode(10);
+                      break;
+                    case 114:
+                      encoded_str = encoded_str + String.fromCharCode(13);
+                      break;
+                    case 116:
+                      encoded_str = encoded_str + String.fromCharCode(9);
+                      break;
+                    case 117:
+                      ii = ii + 4;
+                      break;
+                  }
+                  ii = ii + 2;
+                } else {
+                  encoded_str = encoded_str + orig_str.substring(ii, (1 + ii));
+                  ii = ii + 1;
+                }
+              }
+            }
+            if(this.curr_node.is_property) {
+              if(must_encode) {
+                this.curr_node.string_value = encoded_str;
+              } else {
+                this.curr_node.string_value = this.s.substring(sp, ep);
+              }
+              this.curr_node.value_type = 3;
+              this.parents.pop()
+              var p_cnt = this.parents.length;
+              var last_parent = this.parents[(p_cnt - 1)];
+              this.curr_node = last_parent;
+              this.i = this.i + 1;
+              continue;
+            }
+            if(this.curr_node.value_type==5) {
+              var new_attr = new DictNode(this.code,sp,ep);
+              new_attr.value_type = 3;
+              if(must_encode) {
+                new_attr.string_value = encoded_str;
+              } else {
+                new_attr.string_value = this.s.substring(sp, ep);
+              }
+              this.curr_node.children.push(new_attr);
+              this.i = this.i + 1;
+              continue;
+            }
+            if(this.curr_node.value_type==6) {
+              var new_prop = new DictNode(this.code,sp,ep);
+              new_prop.is_property = true;
+              new_prop.vref = this.s.substring(sp, ep);
+              this.curr_node.keys.push(new_prop.vref);
+              this.curr_node.objects[new_prop.vref] = new_prop;
+              this.parents.push(new_prop);
+              this.curr_node = new_prop;
+              this.i = this.i + 1;
+              continue;
+            }
+          }
+        }
+        if(cc1=="{".charCodeAt(0)) {
+          var new_node = new DictNode(this.code,sp,ep);
+          new_node.value_type = 6;
+          this.parents.push(new_node);
+          if(this.curr_node == null ) {
+            this.curr_node = new_node;
+            this.rootNode = new_node;
+          } else {
+            if(this.curr_node.is_property) {
+              this.curr_node.object_value = new_node;
+              this.curr_node.value_type = 6;
+              new_node.value_type = 6;
+              new_node.is_property_value = true;
+            } else {
+              this.curr_node.children.push(new_node);
+            }
+            this.curr_node = new_node;
+          }
+          this.i = this.i + 1;
+          continue;
+        }
+        if(cc1=="[".charCodeAt(0)) {
+          var new_node = new DictNode(this.code,sp,ep);
+          new_node.value_type = 5;
+          this.parents.push(new_node);
+          if(this.curr_node == null ) {
+            this.curr_node = new_node;
+            this.rootNode = new_node;
+          } else {
+            if(this.curr_node.is_property) {
+              this.curr_node.object_value = new_node;
+              this.curr_node.value_type = 6;
+              new_node.is_property_value = true;
+            } else {
+              this.curr_node.children.push(new_node);
+            }
+            this.curr_node = new_node;
+          }
+          this.i = this.i + 1;
+          continue;
+        }
+        if(last_i==this.i) {
+          this.i = 1 + this.i;
+        }
+      }
+      return this.rootNode;
+    }}
+  ]);
+  
+
+return JSONParser;
 }();
 var RangerCompilerError = function( ) {  
   function RangerCompilerError() {
@@ -3893,123 +4198,135 @@ var RangerES5Writer = function( _RangerCommonWriter) {  _inherits(RangerES5Write
 
 return RangerES5Writer;
 }(RangerCommonWriter);
-var TestCodeCompiler = function( ) {  
-  function TestCodeCompiler() {
-    _classCallCheck(this, TestCodeCompiler);
+var TestCreateSh = function( ) {  
+  function TestCreateSh() {
+    _classCallCheck(this, TestCreateSh);
+    this.read_filename = "";
+    this.call_class = "";
+    this.call_method = "";
+    this.tool_dir = "";
+    this.tool_name = "";
+    this.version = "";
+    this.arg_cnt = 0;
+    this.fnDescription = undefined;
   }
   
-   _createClass(TestCodeCompiler, [
-    { key: "compile", value: function compile(fileName) { 
-      try {
-        if(require("fs").existsSync( process.cwd() + "/" + "." + "/" + fileName)) {
-        } else {
-          console.log("File does not exists!");
-          return;
-        }
-        var c = require("fs").readFileSync( process.cwd() + "/" + "." + "/" + fileName, "utf8");
-        var code = new SourceCode(c);
-        code.filename = fileName;
-        var parser = new RangerLispParser(code);
-        parser.parse()
-        if(parser.had_error) {
-          return;
-        }
-        var appCtx = new RangerAppWriterContext();
-        var cwr = new RangerES5Writer();
-        var node = parser.rootNode;
-        var wr = new CodeWriter();
-        cwr.CollectMethods(node,appCtx,wr)
-        cwr.StartCodeWriting(node,appCtx,wr)
-        var had_errors = false;
-        if(appCtx.compilerErrors.length==0) {
-          wr.newline()
-          if(( process.argv.length - ( 2 + process.execArgv.length ) )>0) {
-          } else {
-            wr.out("(new TestCodeCompiler()).test1()",false)
-          }
-          console.log(wr.getCode());
-        } else {
-          had_errors = true;
-          console.log("Had following compiler errors:");
-          for( var i= 0; i< appCtx.compilerErrors.length; i++) { 
-            var e= appCtx.compilerErrors[i];
-            var line_index = e.node.getLine();
-            console.log((e.node.getFilename()) + " Line: " + line_index);
-            console.log(e.description);
-            console.log(e.node.getLineString(line_index));
-          }
-        }
-      } catch(e) {
-        console.log(e);
-        console.log("Unknown compiler error.");
-      }
-    }}
-    ,
-    { key: "test1", value: function test1() { 
-      try {
-        var read_filename = ".\/TestCodeCompiler.clj";
-        if(( process.argv.length - ( 2 + process.execArgv.length ) )>0) {
-          read_filename = process.argv[ 2 + process.execArgv.length + 0];
-        }
-        var c = require("fs").readFileSync( process.cwd() + "/" + "." + "/" + read_filename, "utf8");
-        var code = new SourceCode(c);
-        code.filename = read_filename;
-        var parser = new RangerLispParser(code);
-        parser.parse()
-        if(parser.had_error) {
-          return;
-        }
-        var appCtx = new RangerAppWriterContext();
-        var cwr = new RangerES5Writer();
-        var node = parser.rootNode;
-        var wr = new CodeWriter();
-        cwr.CollectMethods(node,appCtx,wr)
-        cwr.StartCodeWriting(node,appCtx,wr)
-        var had_errors = false;
-        if(appCtx.compilerErrors.length==0) {
-          wr.newline()
-          if(( process.argv.length - ( 2 + process.execArgv.length ) )>0) {
-          } else {
-            wr.out("(new TestCodeCompiler()).test1()",true)
-          }
-          console.log(wr.getCode());
-        } else {
-          had_errors = true;
-          console.log("Had following compiler errors:");
-          for( var i= 0; i< appCtx.compilerErrors.length; i++) { 
-            var e= appCtx.compilerErrors[i];
-            var line_index = e.node.getLine();
-            console.log((e.node.getFilename()) + " Line: " + line_index);
-            console.log(e.description);
-            console.log(e.node.getLineString(line_index));
-          }
-        }
-      } catch(e) {
-        console.log(e);
-        console.log("Compilation error occurred !!");
-      }
-    }}
-    ,
-    { key: "run", value: function run() { 
-      var fileSystem = new CodeFileSystem();
-      console.log(process.argv[ 2 + process.execArgv.length + 0]);
-      var c = require("fs").readFileSync( process.cwd() + "/" + "." + "/" + ".\/TestFS.clj", "utf8");
-      var code = new SourceCode(c);
+   _createClass(TestCreateSh, [
+    { key: "codeStringToJs", value: function codeStringToJs(str, wr) { 
+      var code = new SourceCode(str);
       var parser = new RangerLispParser(code);
       parser.parse()
       var appCtx = new RangerAppWriterContext();
       var cwr = new RangerES5Writer();
       var node = parser.rootNode;
-      var cf = fileSystem.getFile("ranger\/test1","fstest.js");
-      var wr = cf.getWriter();
       cwr.CollectMethods(node,appCtx,wr)
       cwr.StartCodeWriting(node,appCtx,wr)
-      fileSystem.saveTo("output")
+    }}
+    ,
+    { key: "writeJavascriptCmdTool", value: function writeJavascriptCmdTool(wr, info) { 
+      var usageWr = new CodeWriter();
+      for( var i= 0; i< this.fnDescription.params.length; i++) { 
+        var v= this.fnDescription.params[i];
+        usageWr.out("<" + v.name + ">",true)
+      }
+      var callWr = new CodeWriter();
+      var ii = 0;
+      callWr.out("(def obj:" + this.call_class + " (new " + this.call_class + "()) )",true)
+      callWr.out("(call obj " + this.call_method + " (",false)
+      while(ii<this.arg_cnt) {
+        callWr.out("(shell_arg " + ii + ") ",false)
+        ii = ii + 1;
+      }
+      callWr.out(")",true)
+      var rWr = new CodeWriter();
+      rWr.out("\n(                    \n    (CreateClass ShellScriptToolMain" + this.call_class + "\n        (\n            (PublicMethod run:void ()\n                (\n                    (def argCnt:int (shell_arg_cnt _))\n                    (if ( < argCnt " + this.arg_cnt + ")\n                        (\n                            (print \"" + (info.getStringProperty("description")) + " " + (info.getStringProperty("version")) + " \")\n                            (print \"Usage:\")\n                            (print (+ \"" + (info.getStringProperty("name")) + " " + (usageWr.getCode()) + " \"))\n                            (return _)\n                        )\n                    )\n                    " + (callWr.getCode()) + "\n                )\n            )\n        )\n    )                    \n)\n                    ",false)
+      this.codeStringToJs(rWr.getCode(),wr)
+      wr.out("\n\/\/ start the cmd line tool\n(new ShellScriptToolMain" + this.call_class + "()).run();\n                    ",true)
+    }}
+    ,
+    { key: "createPackageJSON", value: function createPackageJSON(info) { 
+      var jsp = new JSONParser((new SourceCode("{}")));
+      var n = jsp.parse();
+      n.addString("name",info.getStringProperty("name"))
+      n.addString("version",info.getStringProperty("version"))
+      n.addString("description",info.getStringProperty("description"))
+      n.addString("main","index.js")
+      n.addObject("scripts")
+      var binNode = n.addObject("bin");
+      binNode.addString(info.getStringProperty("name"),".\/index.js")
+      n.addString("author",info.getStringProperty("author"))
+      n.addString("license",info.getStringProperty("license"))
+      return n.stringify();
+    }}
+    ,
+    { key: "run", value: function run() { 
+      if(( process.argv.length - ( 2 + process.execArgv.length ) )==3) {
+        this.read_filename = process.argv[ 2 + process.execArgv.length + 0];
+        this.call_class = process.argv[ 2 + process.execArgv.length + 1];
+        this.call_method = process.argv[ 2 + process.execArgv.length + 2];
+      } else {
+        console.log("args: <file> <class> <method> ");
+        return;
+      }
+      var c = require("fs").readFileSync( process.cwd() + "/" + "." + "/" + this.read_filename, "utf8");
+      var code = new SourceCode(c);
+      var parser = new RangerLispParser(code);
+      parser.parse()
+      console.log("Directory " + this.tool_dir);
+      var fileSystem = new CodeFileSystem();
+      var cf = fileSystem.getFile(".","index.js");
+      var code_wr = cf.getWriter();
+      code_wr.out("#!\/usr\/bin\/env node",true)
+      var appCtx = new RangerAppWriterContext();
+      var cwr = new RangerES5Writer();
+      var node = parser.rootNode;
+      cwr.CollectMethods(node,appCtx,code_wr)
+      cwr.StartCodeWriting(node,appCtx,code_wr)
+      if(appCtx.isDefinedClass(this.call_class)) {
+        console.log("Found " + this.call_class + "!");
+        var cDesc = appCtx.findClass(this.call_class);
+        if(cDesc.hasMethod(this.call_method)) {
+          console.log("Class had method " + this.call_method + "!");
+          var m = cDesc.findMethod(this.call_method);
+          this.fnDescription = m;
+          var fnNode = m.node;
+          if(fnNode != null ) {
+            if(fnNode.hasExpressionProperty("shellUtility")) {
+              console.log("Found the utility info!!!!");
+              var info = fnNode.getExpressionProperty("shellUtility");
+              var util_name = info.getStringProperty("name");
+              console.log("name => " + util_name);
+              console.log("dir => " + (info.getStringProperty("directory")));
+              this.tool_dir = info.getStringProperty("directory");
+              var packageFile = fileSystem.getFile(".","package.json");
+              var package_wr = packageFile.getWriter();
+              package_wr.out(this.createPackageJSON(info)
+              ,false)
+              for( var i= 0; i< m.params.length; i++) { 
+                var v= m.params[i];
+                console.log("--> variable " + v.name);
+                this.arg_cnt = this.arg_cnt + 1;
+              }
+              this.writeJavascriptCmdTool(code_wr,info)
+            } else {
+              return;
+            }
+          }
+          fileSystem.saveTo(this.tool_dir)
+        } else {
+          console.log("had no method " + this.call_method + " :(");
+        }
+      } else {
+        console.log("Class " + this.call_class + " not found");
+      }
+      return;
     }}
   ]);
   
 
-return TestCodeCompiler;
+return TestCreateSh;
 }();
-(new TestCodeCompiler()).test1()
+
+// for JS code only
+(new TestCreateSh()).run();
 

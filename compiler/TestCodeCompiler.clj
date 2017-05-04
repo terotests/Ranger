@@ -1,9 +1,12 @@
 (
+
+    (Import "CompilerGeneric.clj")
     (Import "writer.clj")
     (Import "parser.clj")
 
 	(Import "RangerCommonWriter.clj")
-	(Import "RangerJavaScriptWriter.clj")
+	(Import "RangerES5Writer.clj")
+	(Import "RangerES5Writer.clj")
 
     ; node tooltest.js TestCodeCompiler.clj TestCodeCompiler compile tools/compile ranger-compile 1
     ; There could be annotations to allow compiling shell scripts out from the file
@@ -20,9 +23,9 @@
                     @description("Ranger command-line compiler utility")
                     @author("Tero Tolonen")
                     @license("MIT")
-                    @version("1.0.7")
+                    @version("1.0.10")
                 ) 
-                
+
                 (
 
                     @onError(
@@ -53,7 +56,7 @@
 
 
                     (def appCtx:RangerAppWriterContext (new RangerAppWriterContext()))
-                    (def cwr:RangerJavaScriptWriter (new RangerJavaScriptWriter ()))
+                    (def cwr:RangerES5Writer (new RangerES5Writer ()))
                     (def node:CodeNode parser.rootNode)
                     (def wr:CodeWriter (new CodeWriter ()))
 
@@ -71,7 +74,7 @@
 
                                 )
                                 (
-                                    (call wr out ("(new TestCodeCompiler()).test1()"))
+                                    (call wr out ("(new TestCodeCompiler()).test1()" false))
                                 )
                             )
                             (print (call wr getCode ()))                       
@@ -128,7 +131,7 @@
                 (def appCtx:RangerAppWriterContext (new RangerAppWriterContext()))
 
                 ; test using the JS writer
-				(def cwr:RangerJavaScriptWriter (new RangerJavaScriptWriter ()))
+                (def cwr:RangerES5Writer (new RangerES5Writer ()))
 
 				(def node:CodeNode parser.rootNode)
 
@@ -148,7 +151,8 @@
 
                             )
                             (
-                                (call wr out ("(new TestCodeCompiler()).test1()"))
+                                (call wr out ("(new TestCodeCompiler()).test1()" true))
+                                
                             )
                         )
                         (print (call wr getCode ()))                       
@@ -206,7 +210,7 @@
                 (def appCtx:RangerAppWriterContext (new RangerAppWriterContext()))
 
                 ; test using the JS writer
-				(def cwr:RangerJavaScriptWriter (new RangerJavaScriptWriter ()))
+				(def cwr:RangerES5Writer (new RangerES5Writer ()))
 
 				(def node:CodeNode parser.rootNode)
 

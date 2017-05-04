@@ -147,13 +147,98 @@
                 )
             )
 
+
+            (PublicMethod areEqualTypes:boolean (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext)
+                (
+
+                    (if (null? n1)
+                        (
+                            (if (!null? n2)
+                                (call ctx addError (n2 "Internal error: shouldBeEqualTypes called with n2 == null "  ) )                            
+                            )
+                            (return false)
+                        )
+                    )
+
+                    (if (null? n2)
+                        (
+                            (if (!null? n1)
+                                (call ctx addError (n1 "Internal error: shouldBeEqualTypes called with n1 == null "  ) )                            
+                            )                            
+                            (return false)
+                        )
+                    )
+                    
+
+                    ; (print (+ n1.eval_type_name " vs " n2.eval_type_name))
+                    (if ( && (!= n1.eval_type RangerNodeType.NoType)
+                             (!= n2.eval_type RangerNodeType.NoType) 
+                             (> (strlen n1.eval_type_name) 0)
+                             (> (strlen n2.eval_type_name) 0)
+                             )
+                        (
+                            ; (print "had eval def")
+                            (if (== n1.eval_type_name n2.eval_type_name)
+                                (
+                                    ; positively evaluated assigment value...
+                                    ; (print (+ "Equals == " n1.eval_type_name))
+                                    ; (call ctx addError (node "OK assigment " ))
+
+                                )
+                                (
+                                    ; check if this is int => enum
+                                    (def b_ok:boolean false)
+                                    (if ( && (call ctx isEnumDefined (n1.eval_type_name))
+                                        ( == n2.eval_type_name "int") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )                                    
+                                    (if ( && (call ctx isEnumDefined (n2.eval_type_name))
+                                        ( == n1.eval_type_name "int") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )
+
+                                    ; TODO: fix this comparision to be more reasonable
+                                    ; TODO: could be also a warning
+                                    (if ( && ( == n1.eval_type_name "char")
+                                             ( == n2.eval_type_name "int") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )
+
+                                    (if ( && ( == n1.eval_type_name "int")
+                                        ( == n2.eval_type_name "char") )
+                                        (
+                                            (= b_ok true)
+                                        )
+                                    )
+                                                                        
+                                    (if (== b_ok false)
+                                        (return false)
+                                    )
+                                )
+                            )
+                        )
+                    )           
+
+                    (return true)
+
+                )
+            )
+
+
+
             (PublicMethod shouldBeEqualTypes:void (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext)
                 (
 
                     (if (null? n1)
                         (
                             (if (!null? n2)
-                                (call ctx addError (n2 "Internal error: shouldBeEqualTypes called with n1 == null "  ) )                            
+                                (call ctx addError (n2 "Internal error: shouldBeEqualTypes called with n2 == null "  ) )                            
                             )
                             (return _)
                         )
@@ -539,8 +624,7 @@
 
                     (if (call desc hasMethod (fnNode.vref))
                         (
-
-
+                            (def fnDescr:RangerAppFunctionDesc (call desc findMethod (fnNode.vref)))
                             (def subCtx:RangerAppWriterContext (call ctx fork ()))
 
                             (def p:RangerAppParamDesc (new RangerAppParamDesc ()))
@@ -574,9 +658,35 @@
                                 (call wr newline ())
                             )
 
+                            (for fnDescr.params param:RangerAppParamDesc i
+                                (
+                                    (def argNode:CodeNode (itemAt node.children (+ i 1)))
+                                    (if (null? argNode)
+                                        (
+                                            (call ctx addError (node "Argument was not defined"))                                                     
+                                        )
+                                    )
+                                    (if (call this areEqualTypes ( param.nameNode argNode ctx))
+                                        (
+
+                                        )
+                                        (
+                                            ; error
+                                            (call ctx addError (node ( + "ERROR, invalid argument types for " desc.name " method " fnDescr.name ) ))                                    
+                                            
+                                        )
+                                    )
+
+;                                    (call ctx addError (obj ( + "ERROR, could not find class " className " method " method.vref ) ))                                    
+
+                                )
+                            )
+                            
+
                             (return true)
                         )
-                        (
+                        (                            
+                            (call ctx addError (node ( + "ERROR, could not find class " desc.name " method " fnNode.vref ) ))                                    
                             (return false)
                         )
                     )     
@@ -588,7 +698,8 @@
                 (
                     (def obj:CodeNode (call node getSecond ()))
                     (def method:CodeNode (call node getThird ()))
-
+                    (def fnDescr:RangerAppFunctionDesc ) 
+                    (def has_fn_desc:boolean false)  
                     (def subCtx:RangerAppWriterContext (call ctx fork ()))
 
                     (def p:RangerAppParamDesc (new RangerAppParamDesc ()))
@@ -617,7 +728,17 @@
                                     ; (print (+ "call " varDesc.nameNode.vref ":" varDesc.nameNode.type_name " method->" method.vref) )
 
                                     (if (!null? classDesc)
-                                        (def fnDescr:RangerAppFunctionDesc (call classDesc findMethod (method.vref)))   
+                                        (
+                                            (= fnDescr (call classDesc findMethod (method.vref)))   
+                                            (if (null? fnDescr)
+                                                (
+                                                    (call ctx addError (obj ( + "ERROR, could not find class " className " method " method.vref ) ))                                    
+                                                )
+                                                (
+                                                    (= has_fn_desc true)                
+                                                )
+                                            )
+                                        )
                                         (
                                             (call ctx addError (obj ( + "ERROR, could not find class " className ) ))                                    
                                         )                             
@@ -647,6 +768,16 @@
                         (call wr out ("(" false))
                     )
 
+                    (if has_fn_desc
+                        (
+                            ; fnDescr.nameNode
+                            (def nn:CodeNode fnDescr.nameNode)
+                            (= node.eval_type nn.value_type)
+                            (= node.eval_type_name nn.type_name)
+                        )
+                    )
+                    
+
                     (if (> (array_length node.children) 3)
                         (
                             (def params:CodeNode (itemAt node.children (3)))
@@ -669,6 +800,39 @@
                             )
                             (call wr out (")" false))
                             (call subCtx unsetInExpr ())
+
+                            ; check that the call arguments match the function prototype arguments
+
+                            (if has_fn_desc
+                                (
+                                    ; fnDescr.nameNode
+                                    (for fnDescr.params param:RangerAppParamDesc i
+                                        (
+                                            (def argNode:CodeNode (itemAt params.children i))
+                                            (if (null? argNode)
+                                                (
+                                                    (call ctx addError (node "Argument was not defined"))                                                     
+                                                )
+                                            )
+                                            (if (call this areEqualTypes ( param.nameNode argNode ctx))
+                                                (
+
+                                                )
+                                                (
+                                                    ; error
+                                                    (call ctx addError (node ( + "ERROR, invalid argument types for " className " method " method.vref ) ))                                    
+                                                    
+                                                )
+                                            )
+
+;                                    (call ctx addError (obj ( + "ERROR, could not find class " className " method " method.vref ) ))                                    
+
+                                        )
+                                    )
+                                )
+                            )
+
+
                         )
                         (
                             (call subCtx setInExpr ())
@@ -1858,6 +2022,7 @@
                             (def new_class:RangerAppClassDesc (new RangerAppClassDesc ()))
                             (= new_class.name s)
                             (= ctx.currentClass new_class)
+                            (= new_class.ctx ctx)
                             (call ctx addClass (s new_class))
                         )
                     )
@@ -1916,9 +2081,16 @@
                                     (= p.node arg)
                                     (= p.nameNode arg)
 
+                                    (= arg.eval_type arg.value_type)
+                                    (= arg.eval_type_name arg.type_name)
+                                    
+
                                     (push m.params p)
                                 )
                             )
+
+                            ; return_value
+
                             (call currC addMethod (m))
                             (= find_more false)
                         )

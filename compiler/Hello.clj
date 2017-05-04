@@ -15,6 +15,11 @@
                 (
                 )
             )
+
+            (PublicMethod getInt:int ()
+                (
+                )
+            )            
         )
    )
     
@@ -26,6 +31,11 @@
             dd  ; creates undefined variable error
             (def ford:bar2 (new bar ())) ; can not define bar2 and then instantiate bar 
 
+            (call ford myFn (1 4.2)) ; this is valid call
+            (call ford myFn (1 false)) ; this invalid call
+
+            (def myS:string (call ford getInt ())) ; function result mismatch here
+
             (def items:[string])
 
             (def a_len:int (array_length items))    ; should work
@@ -34,11 +44,19 @@
             (def s_len1:int (strlen "My String"))   ; OK strlen
             (def s_len2:int (strlen 33))            ; failing strlen
 
+            (PublicMethod SuchMethod:void ( x:int)
+                ()
+            )
             (PublicMethod Hello:void ()
                 (
-                (def bb:bar)
+                    (def bb:bar)
                     (= bb (new bar ()))
                     (def fobba:bar2 (new bar2 ()))
+
+                    (SuchMethod "dum" )     ; invalid argument type error
+                    (SuchMethod 1 )         ; valid call
+                    
+                    (noSuchMethod _) ; this call should generate error
 
                     (def ss:string (call fobba myFn ( 2 4.4)))
 

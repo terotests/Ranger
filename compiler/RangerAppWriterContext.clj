@@ -89,7 +89,7 @@
         (
 
             (def name:string "")
-
+            (def ctx:RangerAppWriterContext)
             (def variables:[RangerAppParamDesc])
             (def methods:[RangerAppFunctionDesc])
             (def defined_methods:[string:boolean])
@@ -120,6 +120,17 @@
                             )
                         )
                     )
+
+                    ; (def classDesc:RangerAppClassDesc (call ctx findClass (className)))
+                    (for extends_classes cname:string i
+                        (
+                            (def cDesc:RangerAppClassDesc (call ctx findClass (cname)))
+                            (if (call cDesc hasMethod (f_name))
+                                (return (call cDesc findMethod (f_name)))
+                            )
+                        )
+                    )
+
                 )
             )
 
@@ -220,7 +231,6 @@
 
             (PublicMethod addError:void (node:CodeNode descr:string)
                 (
-                    
                     (def e:RangerCompilerError (new RangerCompilerError ()))
                     (= e.description descr)
                     (= e.node node)
@@ -333,7 +343,7 @@
             )
 
 
-            (PublicMethod isVarDefined:void (name:string)
+            (PublicMethod isVarDefined:boolean (name:string)
                 (
                     (if (has localVariables name)
                         (return true)
