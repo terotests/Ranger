@@ -5,7 +5,7 @@
     (Import "parser.clj")
 
     (Import "RangerCommonWriter.clj")
-    (Import "RangerES5Writer.clj")
+    (Import "RangerJavaScriptWriter.clj")
     (Import "RangerES5Writer.clj")
 
     ; node tooltest.js TestCodeCompiler.clj TestCodeCompiler compile tools/compile ranger-compile 1
@@ -19,11 +19,11 @@
                 ; the utility information for package.json
                 @shellUtility(
                     @name("ranger-compiler")
-                    @directory("tools\\ranger-compiler")
+                    @directory("tools/ranger-compiler")
                     @description("Ranger command-line compiler utility")
                     @author("Tero Tolonen")
                     @license("MIT")
-                    @version("1.0.10")
+                    @version("1.0.11")
                 ) 
 
                 (

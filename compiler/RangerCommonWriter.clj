@@ -148,7 +148,7 @@
             )
 
 
-            (PublicMethod areEqualTypes:boolean (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext)
+            (PublicMethod areEqualTypes:boolean (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext )
                 (
 
                     (if (null? n1)
@@ -232,7 +232,7 @@
 
 
 
-            (PublicMethod shouldBeEqualTypes:void (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext)
+            (PublicMethod shouldBeEqualTypes:void (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext msg:string)
                 (
 
                     (if (null? n1)
@@ -302,7 +302,7 @@
                                     )
                                                                         
                                     (if (== b_ok false)
-                                        (call ctx addError (n1 ( + "Type mismatch " n2.eval_type_name " <> " n1.eval_type_name )))                                
+                                        (call ctx addError (n1 ( + "Type mismatch " n2.eval_type_name " <> " n1.eval_type_name ". " msg )))                                
                                     )
                                 )
                             )
@@ -313,7 +313,16 @@
             )
 
 
-           (PublicMethod shouldBeType:void (type_name:string n1:CodeNode ctx:RangerAppWriterContext)
+           (PublicMethod shouldBeExpression:void (n1:CodeNode ctx:RangerAppWriterContext msg:string)
+                (
+                    (if (== n1.expression false)
+                        (call ctx addError (n1 ( + msg)))                                
+                    )
+                )
+            )            
+
+
+           (PublicMethod shouldBeType:void (type_name:string n1:CodeNode ctx:RangerAppWriterContext msg:string)
                 (
                     ; (print (+ n1.eval_type_name " vs " n2.eval_type_name))
                     (if ( && (!= n1.eval_type RangerNodeType.NoType)
@@ -361,7 +370,7 @@
                                     )
                                                                         
                                     (if (== b_ok false)
-                                        (call ctx addError (n1 ( + "Type mismatch " type_name " <> " n1.eval_type_name )))                                
+                                        (call ctx addError (n1 ( + "Type mismatch " type_name " <> " n1.eval_type_name ". " msg )))                                
                                     )
                                 )
                             )
@@ -579,7 +588,7 @@
                     (def obj:CodeNode (call node getSecond ()))
                     (def params:CodeNode (call node getThird ()))
 
-                    ; might check if there are any required params etc...
+                    ; TODO: check required parameters for the class constructor
 
                     (if ( > (call ctx expressionLevel ()) 1 )
                         (call wr out ("(" false))
@@ -715,6 +724,25 @@
                     (if (== obj.vref (getThisName _))
                         (
                             ; call to "this"
+                            (def classDesc:RangerAppClassDesc (call ctx getCurrentClass ()))
+                            ; (print (+ "call " varDesc.nameNode.vref ":" varDesc.nameNode.type_name " method->" method.vref) )
+
+                            (if (!null? classDesc)
+                                (
+                                    (= fnDescr (call classDesc findMethod (method.vref)))   
+                                    (if (null? fnDescr)
+                                        (
+                                            (call ctx addError (obj ( + "ERROR, could not find this." method.vref " from class " classDesc.name ) ))                                    
+                                        )
+                                        (
+                                            (= has_fn_desc true)                
+                                        )
+                                    )
+                                )
+                                (
+                                    (call ctx addError (obj "ERROR, could not find class for this "  ))                                    
+                                )                             
+                            )
                         )
                         (
                             ; (= varDesc (call subCtx getVariableDef (obj.vref)))
@@ -868,6 +896,9 @@
                     (call this WalkNode (n2 ctx wr))
                     (call wr out (")" false))
 
+                    ; TODO: add array check
+                    (call this shouldBeType ("string" n2 ctx "join expects a string as the second parameter."))
+
                 )
             )
 
@@ -883,6 +914,9 @@
                     (call this WalkNode (n2 ctx wr))
                     (call wr out (")" false))
 
+                    (call this shouldBeType ("string" n1 ctx "strsplit expects a string as the first parameter."))
+                    (call this shouldBeType ("string" n2 ctx "strsplit expects a string as the second parameter."))
+
                 )
             )
 
@@ -894,7 +928,7 @@
                     (call ctx unsetInExpr ())
                     (call wr out (".trim()" false))
 
-                    (call this shouldBeType ("string" n1 ctx))
+                    (call this shouldBeType ("string" n1 ctx "Trim expects a string as the first parameter."))
                     
                 )
             )
@@ -907,7 +941,7 @@
                     (call ctx unsetInExpr ())
                     (call wr out (".length" false))
 
-                    (call this shouldBeType ("string" n1 ctx))
+                    (call this shouldBeType ("string" n1 ctx "strlen expects a string as the first parameter."))
 
                 )
             )
@@ -927,9 +961,9 @@
                     (call wr out (")" false))
                     (call ctx unsetInExpr ())
 
-                    (call this shouldBeType ("string" n1 ctx))
-                    (call this shouldBeType ("int" start ctx))
-                    (call this shouldBeType ("int" end ctx))
+                    (call this shouldBeType ("string" n1 ctx "substring expects a string as the first parameter."))
+                    (call this shouldBeType ("int" start ctx "substring expects an integer as the second parameter."))
+                    (call this shouldBeType ("int" end ctx "substring expects an integer as the first parameter."))
                     
                 )
             )
@@ -943,6 +977,8 @@
                     (call this WalkNode (n1 ctx wr))
                     (call wr out (".charCodeAt(0)" false))
                     (call ctx unsetInExpr ())
+
+                    (call this shouldBeType ("string" n1 ctx "charcode expects a string as the first parameter."))
                     
                 )
             )             
@@ -956,7 +992,7 @@
                     (call wr out (")" false))
                     (call ctx unsetInExpr ())
 
-                    (call this shouldBeType ("int" n1 ctx))
+                    (call this shouldBeType ("int" n1 ctx "strfromcode expects an integer as the first parameter."))
                     
                 )
             )   
@@ -973,8 +1009,8 @@
                     (call wr out (")" false))
                     (call ctx unsetInExpr ())
 
-                    (call this shouldBeType ("string" n1 ctx))                    
-                    (call this shouldBeType ("int" index ctx))                    
+                    (call this shouldBeType ("string" n1 ctx "charAt expects a string as the first parameter."))                    
+                    (call this shouldBeType ("int" index ctx "charAt expects an integer as the second parameter."))                    
                     
                 )
             )    
@@ -991,7 +1027,7 @@
 
                     (call wr out (")" false))
 
-                    (call this shouldBeType ("string" n1 ctx))                    
+                    (call this shouldBeType ("string" n1 ctx "str2int expects a string as the first parameter."))                    
  
                 )
             )      
@@ -1007,7 +1043,7 @@
 
                     (call wr out (")" false))
 
-                    (call this shouldBeType ("string" n1 ctx))                    
+                    (call this shouldBeType ("string" n1 ctx "str2double expects a string as the first parameter."))                    
                     
                 )
             )                              
@@ -1023,7 +1059,7 @@
 
                     (call wr out (")" false))
 
-                    (call this shouldBeType ("double" n1 ctx))                    
+                    (call this shouldBeType ("double" n1 ctx "double2str expects a double as the first parameter."))                    
                     
                 )
             )            
@@ -1052,7 +1088,7 @@
                     (call ctx unsetInExpr ())
                     (call wr out (");" true))
 
-                    (call this shouldBeType ("string" n1 ctx))                    
+                    (call this shouldBeType ("string" n1 ctx "print expects a string as the first parameter."))                    
 
                 )
             )
@@ -1145,7 +1181,7 @@
                     (call wr out (".pop()" true))
 
                     ; TODO: handling array and hash types...
-                    (call this shouldBeType ("[]" obj ctx))                    
+                    (call this shouldBeType ("[]" obj ctx "removeLast expects an array as the first parameter."))                    
                     
                 )
             )
@@ -1180,8 +1216,8 @@
                     (call ctx unsetInExpr ())                    
                     (call wr out ("]" false))
 
-                    (call this shouldBeType ("[]" obj ctx))                    
-                    (call this shouldBeType ("int" index ctx))                    
+                    (call this shouldBeType ("[]" obj ctx "itemAt expects an array as the first parameter."))                    
+                    (call this shouldBeType ("int" index ctx "charAt expects an interger as the second parameter."))                    
 
                 )
             )
@@ -1207,6 +1243,9 @@
                     (if ( > (call ctx expressionLevel ()) 1 )
                         (call wr out (")" false))
                     )
+
+                    ; TODO: check hash type
+                    (call this shouldBeType ("string" key ctx "has expects a string as the second parameter."))
                 )
             )
 
@@ -1303,7 +1342,7 @@
                     (call ctx unsetInExpr ())
                     (call wr out (";" true))         
 
-                    (call this shouldBeEqualTypes (n1 n2 ctx))
+                    (call this shouldBeEqualTypes (n1 n2 ctx "Assigment expects both sides to be equal."))
                 )
             )
 
@@ -1362,7 +1401,7 @@
                     (if ( > (call ctx expressionLevel ()) 1 )
                         (call wr out (")" false))
                     )
-                    (call this shouldBeEqualTypes (n1 n2 ctx))       
+                    (call this shouldBeEqualTypes (n1 n2 ctx "Can not compare values of different types."))       
                 )
             )
 
@@ -1379,7 +1418,7 @@
                     (for node.children ch:CodeNode i
                         (
                             (if (> i 1)
-                                 (call this shouldBeEqualTypes (firstChild ch ctx))                                                   
+                                 (call this shouldBeEqualTypes (firstChild ch ctx "Logic operator expects boolean arguments."))                                                   
                             )
                         )
                     )
@@ -1475,7 +1514,11 @@
                         (call ctx unsetInExpr ())
                     (call wr out (") {" true))
                         (call wr indent (1))
+
+                        (call this shouldBeExpression (n2 ctx "The second parameter of if statement should be expression"))
+
                         (call this WalkNode (n2 ctx wr))
+
                         (call wr newline ())
                         (call wr indent (-1))
                     (if (> (array_length node.children) 3)
@@ -1490,7 +1533,7 @@
                     )
                     (call wr out ("}" true))
 
-                   (call this shouldBeType ("boolean" n1 ctx))
+                   (call this shouldBeType ("boolean" n1 ctx "if expects a boolean as the first parameter."))
                      
                 )
             )
@@ -1551,6 +1594,8 @@
                         (call wr newline ())
                         (call wr indent (-1))
                     (call wr out ("}" true))
+
+                    (call this shouldBeExpression (loopField ctx "For loop requires expression to evaluate."))
                 )
             )
 
@@ -1572,7 +1617,7 @@
                         (call wr indent (-1))
                     (call wr out ("}" true))
 
-                    (call this shouldBeType ("boolean" n1 ctx))
+                    (call this shouldBeType ("boolean" n1 ctx "while expects a string as the first parameter."))
                     
                 )
             )
@@ -1599,11 +1644,18 @@
 
                     (if n1.expression
                         (
+                            ; (call this shouldBeEqualTypes (cItem n1 ctx))  
                             (for n1.children item:CodeNode i
                                 (
                                     (call wr out ("case " false))
                                     (call ctx setInExpr ())
                                     (call this WalkNode (item ctx wr))
+
+                                    (call this shouldBeEqualTypes (item (itemAt n1.children 0) ctx "case statement expects arguments to be of the same type."))
+
+                                    (= node.eval_type item.eval_type)
+                                    (= node.eval_type_name item.eval_type_name)     
+
                                     (call ctx unsetInExpr ())
                                     (call wr out (":" true))
                                 )
@@ -1613,6 +1665,12 @@
                             (call wr out ("case " false))
                             (call ctx setInExpr ())
                             (call this WalkNode (n1 ctx wr))
+
+                            (= node.eval_type n1.eval_type)
+                            (= node.eval_type_name n1.eval_type_name)
+
+                            ; (print (+ "Case type " n1.value_type " type name " n1.type_name))
+
                             (call ctx unsetInExpr ())
                             (call wr out (":" true))
                         )
@@ -1638,7 +1696,10 @@
                         (call wr indent (1))
                         (for node.children cItem:CodeNode i
                             (if (>= i 2)
-                                 (call this WalkNode (cItem ctx wr))                   
+                                (
+                                 (call this WalkNode (cItem ctx wr))       
+                                 (call this shouldBeEqualTypes (cItem n1 ctx "switch statement expects argument and case have same type."))                 
+                                )
                             )
                         )
                         (call wr newline ())
@@ -1682,7 +1743,11 @@
                 )
             )                
 
-            
+
+            (PublicMethod PublicMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (
+                )
+            )
 
             (PublicMethod WriteComment:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1782,7 +1847,7 @@
 
                             (if (> (array_length node.children) 2)
                                 (
-                                    (call this shouldBeEqualTypes (cn p.def_value ctx))    
+                                    (call this shouldBeEqualTypes (cn p.def_value ctx "Variable was assigned an incompatible type."))    
                                 )
                             )           
                         )
@@ -1797,7 +1862,7 @@
                             (call this DefineVar (node ctx wr))                     
                             (if (> (array_length node.children) 2)
                                 (
-                                    (call this shouldBeEqualTypes ((itemAt node.children 1) (itemAt node.children 2) ctx))    
+                                    (call this shouldBeEqualTypes ((itemAt node.children 1) (itemAt node.children 2) ctx "Variable was assigned an incompatible type."))    
                                 )
                             )           
 
@@ -1997,14 +2062,12 @@
                             (for extList.children ee:CodeNode ii
                                 (
                                     ; (print (+ "Extending --> "  ee.vref))
-                                    (call currC addParentClass (ee.vref))
-                                    
+                                    (call currC addParentClass (ee.vref))                                   
                                 )
                             )
                         )
                     )
                 
-
                     (if (call node isFirstVref ("Constructor"))
                         (
                             (def currC:RangerAppClassDesc ctx.currentClass)
