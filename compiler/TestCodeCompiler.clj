@@ -23,7 +23,7 @@
                     @description("Ranger command-line compiler utility")
                     @author("Tero Tolonen")
                     @license("MIT")
-                    @version("1.0.11")
+                    @version("1.0.13")
                 ) 
 
                 (

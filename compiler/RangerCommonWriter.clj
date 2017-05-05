@@ -116,7 +116,9 @@
                                             )
                                             (
                                                 ; TODO: consider if methods should be checed too
-                                                (= varDesc (call classDesc findVariable (strname)))       
+                                                (if (!null? classDesc) 
+                                                    (= varDesc (call classDesc findVariable (strname)))
+                                                )       
                                                 ; (print (+ "ns variable type " varDesc.nameNode.type_name))                                                                                             
                                             )
                                         )                                        
@@ -322,6 +324,29 @@
             )            
 
 
+           (PublicMethod shouldBeNumeric:void (n1:CodeNode ctx:RangerAppWriterContext msg:string)
+                (
+                    ; (print (+ n1.eval_type_name " vs " n2.eval_type_name))
+                    (if ( && (!= n1.eval_type RangerNodeType.NoType)
+                             (> (strlen n1.eval_type_name) 0)
+                             )
+                        (
+                            (if (|| (== n1.eval_type_name "double") (== n1.eval_type_name "int") )
+                                (
+                                    ; OK
+                                )
+                                (
+                                    (call ctx addError (n1 ( + "Not numeric: " n1.eval_type_name ". " msg )))                                
+                                )
+                            )
+                        )
+                    )           
+
+                )
+            )
+            
+
+
            (PublicMethod shouldBeType:void (type_name:string n1:CodeNode ctx:RangerAppWriterContext msg:string)
                 (
                     ; (print (+ n1.eval_type_name " vs " n2.eval_type_name))
@@ -329,13 +354,8 @@
                              (> (strlen n1.eval_type_name) 0)
                              )
                         (
-                            ; (print "had eval def")
                             (if (== n1.eval_type_name type_name)
                                 (
-                                    ; positively evaluated assigment value...
-                                    ; (print (+ "Equals == " n1.eval_type_name))
-                                    ; (call ctx addError (node "OK assigment " ))
-
                                 )
                                 (
                                     ; check if this is int => enum
@@ -450,7 +470,18 @@
                        (
                            (def enumName:string (itemAt node.ns 1))
                            (def e:RangerAppEnum (call ctx getEnum (rootObjName)))
-                           (call wr out ((+ (get e.values enumName) "") false)) 
+
+                           ; (get e.values enumName)
+
+                           (if (has e.values enumName)
+                               (
+                                   (call wr out ((+ (get e.values enumName) "") false)) 
+                               )
+                               (
+                                    (call ctx addError (node (+ "Undefined Enum " rootObjName "." enumName  )))                                   
+                               )
+                           )
+
                            (return 1)
                        )
                    )
@@ -520,7 +551,6 @@
                 (
                    
                    (def subCtx:RangerAppWriterContext (call ctx fork ()))
-
                    ; (call wr out ( node.vref false ))
                    (def cw:CodeWriter (call wr getTag ("constructor")))
 
@@ -588,8 +618,6 @@
                     (def obj:CodeNode (call node getSecond ()))
                     (def params:CodeNode (call node getThird ()))
 
-                    ; TODO: check required parameters for the class constructor
-
                     (if ( > (call ctx expressionLevel ()) 1 )
                         (call wr out ("(" false))
                     )
@@ -620,6 +648,33 @@
                     ; evaluated object type
                     (= node.eval_type RangerNodeType.Object)
                     (= node.eval_type_name obj.vref)
+
+                   (def currC:RangerAppClassDesc (call ctx findClass (obj.vref)))
+                   (def fnDescr:RangerAppFunctionDesc currC.constructor_fn)
+                    ; check constructor params
+                   (if (!null? fnDescr)
+                        (for fnDescr.params param:RangerAppParamDesc i
+                            (
+                                (def argNode:CodeNode (itemAt params.children i))
+                                (if (null? argNode)
+                                    (
+                                        (call ctx addError (node "Argument was not defined"))                                                     
+                                    )
+                                )
+                                (if (call this areEqualTypes ( param.nameNode argNode ctx))
+                                    (
+
+                                    )
+                                    (
+                                        ; error
+                                        (call ctx addError (node ( + "ERROR, invalid argument types for " currC.name " constructor "  ) ))                                    
+                                        
+                                    )
+                                )
+                            )
+                        )         
+                   )          
+
 
                 )
             )
@@ -852,9 +907,6 @@
                                                     
                                                 )
                                             )
-
-;                                    (call ctx addError (obj ( + "ERROR, could not find class " className " method " method.vref ) ))                                    
-
                                         )
                                     )
                                 )
@@ -1491,6 +1543,7 @@
                                 (call ctx setInExpr ())
                                 (call this WalkNode (item ctx wr))
                                 (call ctx unsetInExpr ())
+                                (call this shouldBeNumeric (item ctx (+ "Operator " op.vref "expects numberic arguments")))
                             )
                         )
                     )
@@ -2073,7 +2126,32 @@
                             (def currC:RangerAppClassDesc ctx.currentClass)
                             (= currC.has_constructor true)
                             (= currC.constructor_node node)
-                            
+
+                            (def m:RangerAppFunctionDesc (new RangerAppFunctionDesc ()))
+                            (= m.name "Constructor")
+                            (= m.node node)
+                            (= m.nameNode (itemAt node.children 0))
+
+                            ; parse arguments...
+                            (def args:CodeNode (itemAt node.children 1))
+                            ; (print (array_length args.children))
+                            (for args.children arg:CodeNode ii 
+                                (
+                                    ; (print arg.vref)
+                                    (def p:RangerAppParamDesc (new RangerAppParamDesc ()))
+                                    (= p.name arg.vref)
+                                    (= p.value_type arg.value_type)
+                                    (= p.node arg)
+                                    (= p.nameNode arg)
+
+                                    (= arg.eval_type arg.value_type)
+                                    (= arg.eval_type_name arg.type_name)
+                        
+                                    (push m.params p)
+                                )
+                            )
+                            (= currC.constructor_fn m)
+
                         )
                     )                    
 

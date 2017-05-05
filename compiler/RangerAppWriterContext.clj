@@ -96,9 +96,11 @@
             
             (def has_constructor:boolean false)
             (def constructor_node:CodeNode)
+            (def constructor_fn:RangerAppFunctionDesc)
 
-            (def has_desctructor:boolean false)
-            (def descructor_node:CodeNode)
+            (def has_destructor:boolean false)
+            (def destructor_node:CodeNode)
+            (def destructor_fn:RangerAppFunctionDesc)
             
             (def extends_classes:[string])
 
@@ -174,8 +176,8 @@
             )
             (PublicMethod addDesctructor:void (desc:RangerAppFunctionDesc)
                 (
-                    (= descructor_node desc)
-                    (= has_desctructor true)
+                    (= destructor_node desc)
+                    (= has_destructor true)
                 )
             )
 
@@ -335,6 +337,7 @@
                     (if (has definedEnums n)
                         (return (get definedEnums n))
                     )
+                    ; what if there is no ? 
                     (if (null? parent)
                         (return (new RangerAppEnum ()))
                     )

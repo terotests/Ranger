@@ -15,9 +15,6 @@
     )
     ( CreateClass DictNode:void 
         (
-            (def code:SourceCode)
-            (def sp:int 0)
-            (def ep:int 0)
 
             (def is_property:boolean false)
             (def is_property_value:boolean false)
@@ -34,17 +31,57 @@
             (def objects:[string:DictNode])
             (def keys:[string])
 
-            (Constructor (source:SourceCode start:int end:int)
+            (PublicMethod EncodeString:string (orig_str:string)
                 (
-                    (= sp start)
-                    (= ep end)
-                    (= code source)
+                    (def encoded_str:string "")
+                    (def str_length:int (strlen orig_str))
+                    (def ii:int 0)
+
+                    ; a bit slow algorithm, could be improved much faster by copying
+                    ; longer slices 
+                    (while (< ii str_length)
+                        (
+                            (def cc:char (charAt orig_str ii))
+
+                            (switch cc
+                                (case 8 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 98 ) ) ) 
+                                )    
+                                (case 9 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 116 ) ) ) 
+                                )    
+                                (case 10 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 110 ) ) ) 
+                                )    
+                                (case 12 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 102 ) ) ) 
+                                )    
+                                (case 13 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 114 ) ) ) 
+                                )    
+                                (case 34 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 34 ) ) ) 
+                                )  
+                                (case 92 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 92 ) ) ) 
+                                )
+                                (case 47 
+                                    ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 47 ) ) ) 
+                                )                                    
+                             
+                                (default
+                                    ( = encoded_str (+ encoded_str (strfromcode cc) ) ) 
+                                )
+                            )   
+                            (= ii (+ 1 ii))
+                        )
+                    )
+                    (return encoded_str)   
                 )
-            )
+            )            
 
             ( PublicMethod createEmptyObject:DictNode () (
-                (def emptyCode:SourceCode (new SourceCode ("")))
-                (def v:DictNode (new DictNode (emptyCode 0 0)))
+                (def v:DictNode (new DictNode ()))
                 (= v.value_type DictNodeType.Object)
                 (return v)
             ))
@@ -52,8 +89,8 @@
             ( PublicMethod addObject:DictNode (key:string) (
                 (if (== value_type DictNodeType.Object)
                     (
-                        (def p:DictNode (new DictNode (code 0 0)))                       
-                        (def v:DictNode (new DictNode (code 0 0)))
+                        (def p:DictNode (new DictNode ()))                       
+                        (def v:DictNode (new DictNode ()))
                         (= p.value_type DictNodeType.Object)
                         (= p.vref key)
                         (= p.is_property true)
@@ -74,7 +111,7 @@
                 (if (== value_type DictNodeType.Object)
                     (
                     
-                        (def v:DictNode (new DictNode (code 0 0)))
+                        (def v:DictNode (new DictNode ()))
                         (= v.string_value value)
                         (= v.value_type DictNodeType.String)
                         (= v.vref key)
@@ -137,7 +174,7 @@
                         )
                     )
                 )
-                (return  (new DictNode ((new SourceCode ("")) 0 0) ))
+                (return  (new DictNode () ))
             ))  
 
             ( PublicMethod getArrayAt:DictNode (index:int) (
@@ -147,7 +184,7 @@
                         (return k)
                     )
                 )
-                (return  (new DictNode ((new SourceCode ("")) 0 0) ))
+                (return  (new DictNode ()))
             ))    
 
             ( PublicMethod getObject:DictNode (key:string) (
@@ -159,7 +196,7 @@
                         )
                     )
                 )
-                (return  (new DictNode ((new SourceCode ("")) 0 0) ))
+                (return  (new DictNode ()))
             ))  
 
             ( PublicMethod getObjectAt:DictNode (index:int) (
@@ -170,7 +207,7 @@
                         (return k)
                     )
                 )
-                (return  (new DictNode ((new SourceCode ("")) 0 0) ))
+                (return  (new DictNode ( )))
             ))                                  
             
             ( PublicMethod walk:void () (
@@ -268,7 +305,7 @@
                             (return (+ (strfromcode 34) vref (strfromcode 34) ":" double_value))
                         )
                         (if (== value_type DictNodeType.String)
-                            (return (+ (strfromcode 34) vref (strfromcode 34) ":" (strfromcode 34) string_value (strfromcode 34) ))
+                            (return (+ (strfromcode 34) vref (strfromcode 34) ":" (strfromcode 34) ( EncodeString string_value ) (strfromcode 34) ))
                         )
                         (if (== value_type DictNodeType.Boolean)
                             (if boolean_value
@@ -285,7 +322,7 @@
                             (return ( + "" double_value) )
                         )
                         (if (== value_type DictNodeType.String)
-                            (return ( + (strfromcode 34) string_value (strfromcode 34)))
+                            (return ( + (strfromcode 34) ( EncodeString string_value ) (strfromcode 34)))
                         )
                         (if (== value_type DictNodeType.Boolean)
                             (if boolean_value
