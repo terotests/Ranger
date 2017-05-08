@@ -212,6 +212,84 @@
                 )
             )
 
+
+            (PublicMethod StaticMethod:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter)
+                (
+
+
+
+                    (def currClass:RangerAppClassDesc (call ctx getCurrentClass ()))                    
+                    (def nameDef:CodeNode (call node getSecond ()))
+
+                    (def wr:CodeWriter (call ctx getStaticWriter (currClass.name)))
+
+                    (if (== false (call wr hasTag ((+ "js_class_static_writer" currClass.name))))
+                        (
+                            (call wr createTag ((+ "js_class_static_writer" currClass.name)))
+                        )
+                        (
+                            (call wr out ("," true))
+                        )
+                    )
+
+                    (call wr newline ())
+                    (call wr out ((+ "{ key: \"" nameDef.vref "\", value: function " nameDef.vref "(") false ))
+
+                    ; parameters
+                    (def args:CodeNode (call node getThird ()))
+
+                    (for args.children arg:CodeNode i
+                        (
+                            (if (> i 0)
+                                (call wr out (", " false))
+                            )
+                            (call wr out (arg.vref false))
+                        )
+                    )
+                    
+                    (call wr out ( ") { " true ) )
+
+                    (call ctx setInMethod ())
+                    (call wr indent (1))
+                    (def fnBody:CodeNode (itemAt node.children 3))
+
+                    (def has_try_catch:boolean false)
+                    (def try_catch:CodeNode)
+                    ; see if there is error processing 
+                    (if (call fnBody hasExpressionProperty ("onError"))
+                        (
+                            (= try_catch (call fnBody getExpressionProperty ("onError")))   
+                            (call wr out("try {" true))
+                            (call wr indent (1))    
+                        )
+                    )   
+
+                    (call this WalkNodeChildren (fnBody ctx wr))
+                    (call wr newline ())
+                    (call wr indent (-1))
+                    (if (call fnBody hasExpressionProperty ("onError"))
+                        (
+                            ; (call wr indent (-1))
+                            (call wr out("} catch(e) {" true))
+                            (call wr indent (1))
+                            (call wr out ("console.log(e);" true))    
+                            (call this WalkNodeChildren (try_catch ctx wr))
+                            (call wr indent (-1))
+                            (call wr out("}" true))
+                            (call wr indent (-1))
+                        )
+                    )
+
+                    (call wr newline ())
+                    (call wr out ("}}" true ))
+                       
+                    ; (call wr out ( (+ "}") true ) )
+                    (call ctx unsetInMethod ())
+                    
+                )
+            )
+            
+
             (PublicMethod CreateClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def nameDef:CodeNode (call node getSecond ()))
@@ -239,6 +317,10 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 
                     (call wr newline ())
                     (call wr out ( (+ "var " nameDef.vref " = function( " ) false ) )
+
+                    (def staticWriter:CodeWriter (new CodeWriter ()))
+                    (call ctx setStaticWriter (nameDef.vref staticWriter))
+                    ; classStaticWriters
 
                     (def b_extended:boolean false)
 
@@ -319,6 +401,16 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 
                         (def fnBody:CodeNode (itemAt node.children 2))
                         (call this WalkNodeChildren (fnBody ctx wr))
+
+
+;                     (def wr:CodeWriter (call ctx getStaticWriter (currClass.name)))
+(call wr newline ())
+(call wr indent (-1))                         
+(call wr out ("], [" true) )
+(call wr indent (1))                         
+
+    ; could there be a "re-write" method for the writer ...
+    (call wr out ( (call staticWriter getCode ()) true))
 
 (call wr indent (-1))                         
 (call wr out ("]);" true) )
@@ -438,19 +530,6 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
                     
                 )
             )
-
-            (PublicMethod DefineMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
-                (
-                    (def s:string (call node getVRefAt (1)))
-                    (call wr out ("// DefineMethod" true))
-                    (call wr out (( + s "() {") true) )
-                        (call wr indent(1))
-                        (call wr out ("// the code..." true))
-                        (call wr indent(-1))
-                    (call wr out ("}" true))                    
-                )
-            )
-
 
 
         )

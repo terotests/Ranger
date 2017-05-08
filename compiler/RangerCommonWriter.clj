@@ -1,9 +1,8 @@
 (
     (Import "writer.clj")
     (Import "RangerAppWriterContext.clj")
+    (Import "RangerAllocations.clj")
     (Import "parser.clj")
-    ; Small TODO list:
-    ; - try... catch missing
 
     ( CreateClass RangerCommonWriter 
         (
@@ -784,6 +783,11 @@
                    (def currFn:RangerAppFunctionDesc (call ctx getCurrentMethod ()))
                    (call currFn addNewInstance (node currC.name ctx))
 
+                   (call RangerAllocations cmdNew (node ctx wr))
+
+; (call ctx log ( node "memory4" "ERROR: function tried to return strong reference") )
+                   
+
 ;             (PublicMethod addNewInstance:void (node:CodeNode className:string ctx:RangerAppWriterContext)
 
                 )
@@ -910,42 +914,66 @@
                             )
                         )
                         (
-                            ; (= varDesc (call subCtx getVariableDef (obj.vref)))
-                            (= varDesc (call this findParamDesc (obj subCtx wr)))
 
-                            (if (!null? varDesc)
+                            ; test if this is a static method call
+                            (def possibleClass:string (itemAt obj.ns 0))
+
+                            (if (call ctx hasClass (possibleClass))
                                 (
-                                    ; OK, here is what to expect:
-                                    (def className:string varDesc.nameNode.type_name)
-                                    (def classDesc:RangerAppClassDesc (call ctx findClass (className)))
-                                    ; (print (+ "call " varDesc.nameNode.vref ":" varDesc.nameNode.type_name " method->" method.vref) )
-
-                                    (if (!null? classDesc)
+                                    (def classDesc:RangerAppClassDesc (call ctx findClass (possibleClass)))
+                                    (= fnDescr (call classDesc findStaticMethod (method.vref)))   
+                                    (if (null? fnDescr)
                                         (
-                                            (= fnDescr (call classDesc findMethod (method.vref)))   
-                                            (if (null? fnDescr)
-                                                (
-                                                    (call ctx addError (obj ( + "ERROR, could not find class " className " method " method.vref ) ))                                    
-                                                )
-                                                (
-                                                    (= has_fn_desc true)                
-                                                )
-                                            )
+                                            (call ctx addError (obj ( + "ERROR, could not find class " possibleClass " static method " method.vref ) ))                                    
                                         )
                                         (
-                                            (call ctx addError (obj ( + "ERROR, could not find class " className ) ))                                    
-                                        )                             
+                                            (= has_fn_desc true)                
+                                        )
                                     )
 
                                 )
                                 (
-                                    (print (+ "description not found for " obj.vref ))
+
+                                    ; (= varDesc (call subCtx getVariableDef (obj.vref)))
+                                    (= varDesc (call this findParamDesc (obj subCtx wr)))
+
                                     (if (!null? varDesc)
-                                        (print (+ "Vardesc was found though..." varDesc.name))
+                                        (
+                                            ; OK, here is what to expect:
+                                            (def className:string varDesc.nameNode.type_name)
+                                            (def classDesc:RangerAppClassDesc (call ctx findClass (className)))
+                                            ; (print (+ "call " varDesc.nameNode.vref ":" varDesc.nameNode.type_name " method->" method.vref) )
+
+                                            (if (!null? classDesc)
+                                                (
+                                                    (= fnDescr (call classDesc findMethod (method.vref)))   
+                                                    (if (null? fnDescr)
+                                                        (
+                                                            (call ctx addError (obj ( + "ERROR, could not find class " className " method " method.vref ) ))                                    
+                                                        )
+                                                        (
+                                                            (= has_fn_desc true)                
+                                                        )
+                                                    )
+                                                )
+                                                (
+                                                    (call ctx addError (obj ( + "ERROR, could not find class " className ) ))                                    
+                                                )                             
+                                            )
+
+                                        )
+                                        (
+                                            (print (+ "description not found for " obj.vref ))
+                                            (if (!null? varDesc)
+                                                (print (+ "Vardesc was found though..." varDesc.name))
+                                            )
+                                            (call ctx addError (obj ( + "Error, no description for called object: " obj.vref ) ))
+                                        )
                                     )
-                                    (call ctx addError (obj ( + "Error, no description for called object: " obj.vref ) ))
+
                                 )
                             )
+
 
                         )
                     )
@@ -2192,6 +2220,12 @@
                 )
             )
 
+            (PublicMethod StaticMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (
+                )
+            )
+            
+
             (PublicMethod WriteComment:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     ; (call wr out ("// " false))                    
@@ -2272,6 +2306,73 @@
                     )
                     
                     (call this PublicMethod (node subCtx wr))        
+
+                    (call ctx log (node "memory3" (+ "[free variables " cn.vref "]")))
+
+                    ; then check if the method had owned instances
+                    (for fnBody.children n:CodeNode i
+                        (
+                            (def cnt:int (array_length n.ownedInstances))
+                            (if (> cnt 0)
+                                (for n.ownedInstances inst:RangerAppObjectInstance ii
+                                    (
+                                        (if (== false (call subCtx hasResignedInstanceVar (inst.name)))
+                                            (
+                                                (call ctx log (node "memory3" (+ ">>>>>>>>> should free " inst.name)))
+                                            )
+                                        )
+                                        ;(dbglog "memory3" ( + "Method " cn.vref " had instance of class " inst.className " to be freed" ) )
+                                        ;(if inst.is_returned
+                                        ;    (dbglog "memory3" "^ but it is returned so does not need to be freed")
+                                        ;)
+                                    )
+                                )
+                            )
+                        )
+                    )             
+                )
+            )
+
+
+            (PublicMethod EnterStaticMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (                   
+ 
+                    (call this shouldHaveChildCnt (4 node ctx "StaticMethod expexts four arguments"))
+
+                    (def cn:CodeNode (itemAt node.children 1))                    
+                    (def fnBody:CodeNode (itemAt node.children 3))                    
+                    (def desc:RangerAppClassDesc (call ctx getCurrentClass ()))        
+
+                    (call ctx log (node "memory4" (+ "[creating static method " cn.vref "]")))
+
+
+                    ; (print (+ "Entering " desc.name "::" cn.vref))
+
+                    (def subCtx:RangerAppWriterContext (call ctx fork ()))
+
+                    ; get method description
+                    (def m:RangerAppFunctionDesc (call desc findStaticMethod (cn.vref)))
+
+                    (= subCtx.currentMethod m) 
+
+                    (for m.params v:RangerAppParamDesc i 
+                        (
+                            ; (print (+ "param:" v.name))
+                            ; defineVariable
+                            (call subCtx defineVariable (v.name v))
+                            ; if the var is instance type ?
+                            (def paramNode:CodeNode v.nameNode)
+                            (if (== false (call paramNode isPrimitive()))
+                                (
+                                    ; instance reference
+                                    (call m addParamInstance (paramNode desc.name subCtx))
+                                )
+                            )
+
+                        )
+                    )
+                    
+                    (call this StaticMethod (node subCtx wr))        
 
                     (call ctx log (node "memory3" (+ "[free variables " cn.vref "]")))
 
@@ -2438,6 +2539,7 @@
                     (if (call node isFirstVref ("def")) ((call this EnterVarDef (node ctx wr)) (return true) ) )                    
                     (if (call node isFirstVref ("CreateClass")) ( (call this EnterClass (node ctx wr)) (return true) ) )
                     (if (call node isFirstVref ("PublicMethod")) ( (call this EnterMethod (node ctx wr)) (return true) ) )
+                    (if (call node isFirstVref ("StaticMethod")) ( (call this EnterStaticMethod (node ctx wr)) (return true) ) )
                     (if (call node isFirstVref ("Constructor")) ( (call this Constructor (node ctx wr)) (return true) ) )
 
                     ; check if this is a function call...
@@ -2674,6 +2776,45 @@
                             (call currC addVariable (p))
                         )
                     )
+
+                    (if (call node isFirstVref ("StaticMethod"))
+                        (
+                            (def s:string (call node getVRefAt (1)))
+                            (def currC:RangerAppClassDesc ctx.currentClass)
+                            ; (print (+ "--> " s "::" currC.name))
+                            ; collecting the method data
+                            (def m:RangerAppFunctionDesc (new RangerAppFunctionDesc ()))
+                            (= m.name s)
+                            (= m.node node)
+                            (= m.is_static true)
+                            (= m.nameNode (itemAt node.children 1))
+
+                            ; parse arguments...
+                            (def args:CodeNode (itemAt node.children 2))
+                            ; (print (array_length args.children))
+                            (for args.children arg:CodeNode ii 
+                                (
+                                    ; (print arg.vref)
+                                    (def p:RangerAppParamDesc (new RangerAppParamDesc ()))
+                                    (= p.name arg.vref)
+                                    (= p.value_type arg.value_type)
+                                    (= p.node arg)
+                                    (= p.nameNode arg)
+
+                                    (= arg.eval_type arg.value_type)
+                                    (= arg.eval_type_name arg.type_name)
+                                
+                                    (push m.params p)
+                                )
+                            )
+
+                            ; return_value
+
+                            (call currC addStaticMethod (m))
+                            (= find_more false)
+                        )
+                    )
+                    
                     (if (call node isFirstVref ("PublicMethod"))
                         (
                             (def s:string (call node getVRefAt (1)))

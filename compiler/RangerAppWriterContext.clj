@@ -82,11 +82,13 @@
             (def is_set:boolean false)
             (def is_class_variable:boolean false)
 
+            ; note these should be weak...
             (def node:CodeNode)
             (def nameNode:CodeNode)
 
             (def description:string "")
             (def git_doc:string "")
+
         )
     )
 
@@ -99,6 +101,7 @@
             (def return_value:RangerAppParamDesc)
 
             (def is_method:boolean false)
+            (def is_static false)
             (def container_class:RangerAppClassDesc)
 
             ; function body AST and string
@@ -240,8 +243,12 @@
             (def name:string "")
             (def ctx:RangerAppWriterContext)
             (def variables:[RangerAppParamDesc])
+
             (def methods:[RangerAppFunctionDesc])
             (def defined_methods:[string:boolean])
+
+            (def static_methods:[RangerAppFunctionDesc])
+            (def defined_static_methods:[string:boolean])
             
             (def has_constructor:boolean false)
             (def constructor_node:CodeNode)
@@ -281,9 +288,37 @@
                             )
                         )
                     )
-
                 )
             )
+
+            (PublicMethod hasStaticMethod:boolean (m_name:string)
+                (
+                    (return (has defined_static_methods m_name))
+                )
+            )
+
+            (PublicMethod findStaticMethod:RangerAppFunctionDesc (f_name:string)
+                (
+                    (for static_methods m:RangerAppFunctionDesc i 
+                        (
+                            (if (== m.name f_name)
+                                (return m)
+                            )
+                        )
+                    )
+
+                    ; (def classDesc:RangerAppClassDesc (call ctx findClass (className)))
+                    (for extends_classes cname:string i
+                        (
+                            (def cDesc:RangerAppClassDesc (call ctx findClass (cname)))
+                            (if (call cDesc hasStaticMethod (f_name))
+                                (return (call cDesc findStaticMethod (f_name)))
+                            )
+                        )
+                    )
+                )
+            )
+            
 
             (PublicMethod findVariable:RangerAppParamDesc (f_name:string)
                 (
@@ -317,6 +352,13 @@
                 )
             )
 
+            (PublicMethod addStaticMethod:void (desc:RangerAppFunctionDesc)
+                (
+                    (set defined_static_methods desc.name true)
+                    (push static_methods desc)
+                )
+            )
+
         )
     )
 
@@ -345,6 +387,8 @@
 
             (def definedClasses:[string:RangerAppClassDesc])
             (def definedClassList:[string])
+
+            (def classStaticWriters:[string:CodeWriter])
 
             ; list of local variables
             (def localVariables:[string:RangerAppParamDesc])
@@ -466,7 +510,24 @@
                     (push root.compilerErrors e)
 
                 )
-            )            
+            )           
+
+            ;             (def classStaticWriters:[string:CodeWriter])
+
+            (PublicMethod setStaticWriter:void (className:string writer:CodeWriter)
+                (
+                    (def root:RangerAppWriterContext (call this getRoot ()))
+                    (set root.classStaticWriters className writer)
+                )
+            )           
+
+            (PublicMethod getStaticWriter:CodeWriter (className:string )
+                (
+                    (def root:RangerAppWriterContext (call this getRoot ()))
+                    (return (get root.classStaticWriters className) )
+                )
+            )           
+ 
 
             ; resignedInstancesVars
 
@@ -773,6 +834,14 @@
                 (
                     (def root:RangerAppWriterContext (getRoot ()))
                     (return (get root.definedClasses name) )
+                )
+            )
+
+
+            (PublicMethod hasClass:boolean (name:string)
+                (
+                    (def root:RangerAppWriterContext (getRoot ()))
+                    (return (has root.definedClasses name) )
                 )
             )
 

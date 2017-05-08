@@ -131,7 +131,7 @@
                     (= len (strlen code_module.code))
                 )
             )  
-            ( PublicMethod skip_space:int ()
+            ( PublicMethod skip_space:int ( sss : string)
                 (
                         (while ( && (< i len) 
                                     (<= (charAt s i) 32 ) )
@@ -349,7 +349,7 @@
 
                                 (removeLast parents)
                                 (def p_cnt:int (array_length parents))
-                                (def last_parent:DictNode (itemAt parents (- p_cnt 1)) )      
+                                (def last_parent:XMLNode (itemAt parents (- p_cnt 1)) )      
                                 (= curr_node last_parent)                                      
 
                                 ;(print (+ "...ends" (substring s sp ep) ))
