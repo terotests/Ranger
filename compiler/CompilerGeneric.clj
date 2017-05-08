@@ -96,7 +96,7 @@
     ( CreateClass RangerContext 
         (
 
-            (def parent:RangerContext)
+            (def parent:RangerContext @weak(true))
 
             (def defined_values:[string:boolean])
             (def set_values:[string:boolean])

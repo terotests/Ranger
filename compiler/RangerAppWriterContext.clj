@@ -1,7 +1,38 @@
 (
 
+    (Enum RangerNodeRefType:int
+        (
+            NoType
+            Weak
+            Strong
+            Shared
+            StrongImmutable
+        )
+    )
+
+    ( Enum RangerContextVarType
+        (
+            NoType
+            This
+            ThisProperty
+            NewObject
+            FunctionParameter
+            LocalVariable
+            Array 
+            Object
+            Property
+        )    
+    )
     
-    ( CreateClass RangerCompilerError
+
+    ( CreateClass RangerAppTodo
+        (
+            (def description:string "")
+            (def node:CodeNode)
+        )    
+    )
+    
+    ( CreateClass RangerCompilerMessage
         (
             (def error_level:int 0)
             (def code_line:int 0)
@@ -34,6 +65,17 @@
             (def def_value:CodeNode)
 
             (def default_value:RangerNodeValue)
+            
+            (def isThis:boolean false)            
+            (def classDesc:RangerAppClassDesc)
+            (def fnDesc:RangerAppFunctionDesc)
+
+            ; 
+            (def varType:RangerContextVarType RangerContextVarType.NoType)
+            (def refType:RangerNodeRefType RangerNodeRefType.NoType)
+
+            (def isParam:boolean)
+            (def paramIndex:int 0)
 
             (def is_optional:boolean false)
             (def is_mutating:boolean false)
@@ -62,6 +104,113 @@
             ; function body AST and string
             (def body_ast:CodeNode)
             (def body_str:string)
+
+            ; static code analyzer
+            (def createdInstances:[RangerAppObjectInstance])
+
+            ; for example there could be a reference instance to a variable which holds
+            ; a new object created in this function or an object which is returned from
+            ; some method call.
+            (def instanceVariables:[string:RangerAppObjectInstance])
+
+            ; assign a new instance to function and codenode
+            (PublicMethod addNewInstance:void (node:CodeNode className:string ctx:RangerAppWriterContext)
+                (
+                   (def currC:RangerAppClassDesc (call ctx findClass (className)))
+                   (def inst:RangerAppObjectInstance (new RangerAppObjectInstance ()))
+
+                   (= inst.className className)
+                   (= inst.is_created_here true)                    
+                   (push createdInstances inst)
+                   (push node.ownedInstances inst)
+
+                   (= node.ref_need_assign 1)
+                   ; (print (+ "new instance " className))
+                )
+            )
+
+            (PublicMethod addParamInstance:void (node:CodeNode className:string ctx:RangerAppWriterContext)
+                (
+                   (def currC:RangerAppClassDesc (call ctx findClass (className)))
+                   (def inst:RangerAppObjectInstance (new RangerAppObjectInstance ()))
+
+                   (= inst.className className)
+                   (= inst.is_fn_parameter true)                    
+                   (push createdInstances inst)
+
+                   @todo("The owned instances might be simply referenced instances list and the type could be determined from the reference type.")
+                   
+                   (push node.ownedInstances inst)
+                   (call ctx setInstanceVar (node.vref inst))
+                   ; (print (+ "new instance " className))
+                )
+            )
+
+            (PublicMethod addStrongInstance:void (node:CodeNode className:string ctx:RangerAppWriterContext)
+                (
+                   (def currC:RangerAppClassDesc (call ctx findClass (className)))
+                   (def inst:RangerAppObjectInstance (new RangerAppObjectInstance ()))
+
+                   (= inst.className className)               
+                   (push createdInstances inst)
+
+                   ; (push node.referencedInstances inst)
+                   (push node.ownedInstances inst)
+                   (call ctx setInstanceVar (node.vref inst))
+                   ; (print (+ "new instance " className))
+                )
+            )            
+
+
+
+            (PublicMethod setInstanceVar:void (i_name:string inst:RangerAppObjectInstance)
+                (
+                    (set instanceVariables i_name inst)
+                )
+            )
+
+            (PublicMethod hasInstanceVar:boolean (i_name:string )
+                (
+                    ( return (has instanceVariables i_name) )
+                )
+            )
+
+            (PublicMethod getInstanceVar:RangerAppObjectInstance (i_name:string )
+                (
+                    ( return (get instanceVariables i_name) )
+                )
+            )
+
+
+        )
+    )
+
+    ; datastructure which tracks the created instances and helps to determine if the
+    ; functions and destructors should free the instances or not
+    ( CreateClass RangerAppObjectInstance
+        (
+
+            (def name:string "")
+
+            (def sourceClass:string "")
+            (def sourceFn:string "")
+
+            (def assignedToVariable:RangerAppParamDesc)
+
+            ; if the instance is created at this function
+            (def is_created_here:boolean false)
+            (def is_fn_parameter:boolean false)
+            (def is_assigned_member:boolean false)
+
+            (def is_returned:boolean false)
+
+            ; the function which owns the variable
+            (def ownerFunction:RangerAppFunctionDesc)
+
+            (def is_owner:boolean false)
+
+            (def creatorNode:CodeNode)
+            (def is_local:boolean)
             
         )
     )
@@ -168,19 +317,6 @@
                 )
             )
 
-            (PublicMethod addConstructor:void (desc:RangerAppFunctionDesc)
-                (
-                    (= constructor_node desc)
-                    (= has_constructor true)
-                )
-            )
-            (PublicMethod addDesctructor:void (desc:RangerAppFunctionDesc)
-                (
-                    (= destructor_node desc)
-                    (= has_destructor true)
-                )
-            )
-
         )
     )
 
@@ -188,7 +324,7 @@
         (
 
             (def ctx:RangerContext)
-            (def parent:RangerAppWriterContext)
+            (def parent:RangerAppWriterContext @weak(true))
 
             (def defined_imports:[string])
             (def already_imported:[string:boolean])
@@ -203,6 +339,7 @@
 
             (def currentClassName:string )
             (def currentClass:RangerAppClassDesc)
+            (def currentMethod:RangerAppFunctionDesc)
 
             (def definedEnums:[string:RangerAppEnum])
 
@@ -213,8 +350,21 @@
             (def localVariables:[string:RangerAppParamDesc])
             (def localVarNames:[string])
 
-            (def compilerErrors:[RangerCompilerError])
-            (def compilerMessage:[RangerCompilerError])
+            (def compilerFlags:[string:boolean])
+            (def compilerSettings:[string:string])
+
+            (def compilerErrors:[RangerCompilerMessage])
+            (def compilerMessages:[RangerCompilerMessage])
+            (def compilerLog:[string:RangerCompilerMessage])
+
+            ; to statically analyze the code, metadata about the function is collected
+            (def instantiatedObjects:[RangerAppObjectInstance])
+
+            (def instanceVariables:[string:RangerAppObjectInstance])
+            (def resignedInstancesVars:[string:RangerAppObjectInstance])
+
+            ; during compile time collect TODO items
+            (def todoList:[RangerAppTodo])
 
             ; if the target language does not support local block variables, then
             ; temporary block variables could be used
@@ -231,9 +381,84 @@
                 )
             )
 
+            ; RangerAppTodo
+            (PublicMethod addTodo:void (node:CodeNode descr:string)
+                (
+                    (def e:RangerAppTodo (new RangerAppTodo ()))
+                    (= e.description descr)
+                    (= e.node node)
+
+                    (def root:RangerAppWriterContext (call this getRoot ()))
+                    (push root.todoList e)
+                )
+            )    
+
+            (PublicMethod printLogs:void (logName:string)
+                (
+                    (def root:RangerAppWriterContext (getRoot _))                   
+                    (print "--------------------------------------------------------------------")
+                    (print ( + "log " logName))                    
+                    (if (has root.compilerLog logName )
+                        (
+                            (def logObjs:[RangerCompilerMessage] (get root.compilerLog logName))                            
+                            (if (> (array_length logObjs) 0)
+                                (
+                                    (for logObjs e:RangerCompilerMessage i 
+                                        (
+                                            (def line_index:int (call e.node getLine ()))                                
+                                            (print (+ "[" logName "] "(call e.node getFilename ()) ", Line " line_index ": " e.description))
+                                            (print (call e.node getLineAsString ()))
+                                        )
+                                    )                    
+                                )
+                                (print "<no entries>")                            
+                            )                   
+                        )
+                        (
+                            (print "<no entries>")
+                        )
+                    ) 
+                    
+                )
+            )
+
+            (PublicMethod log:void (node:CodeNode logName:string descr:string)
+                (
+                    (def root:RangerAppWriterContext (getRoot _))
+                    (def logObjs:[RangerCompilerMessage])
+                    (if (== false (has root.compilerLog logName))
+                        (
+                            (set root.compilerLog logName logObjs)
+                        )
+                        (
+                            (= logObjs (get root.compilerLog logName))
+                        )
+                    )
+
+                    (def e:RangerCompilerMessage (new RangerCompilerMessage ()))
+                    (= e.description descr)
+                    (= e.node node)
+
+                    (def root:RangerAppWriterContext (call this getRoot ()))
+                    (push logObjs e)
+                )
+            )    
+
+            (PublicMethod addMessage:void (node:CodeNode descr:string)
+                (
+                    (def e:RangerCompilerMessage (new RangerCompilerMessage ()))
+                    (= e.description descr)
+                    (= e.node node)
+
+                    (def root:RangerAppWriterContext (call this getRoot ()))
+                    (push root.compilerMessages e)
+
+                )
+            )    
+
             (PublicMethod addError:void (node:CodeNode descr:string)
                 (
-                    (def e:RangerCompilerError (new RangerCompilerError ()))
+                    (def e:RangerCompilerMessage (new RangerCompilerMessage ()))
                     (= e.description descr)
                     (= e.node node)
 
@@ -242,6 +467,63 @@
 
                 )
             )            
+
+            ; resignedInstancesVars
+
+            (PublicMethod resignInstanceVar:void (i_name:string inst:RangerAppObjectInstance)
+                (
+                    (set resignedInstancesVars i_name inst)
+                )
+            )
+
+            (PublicMethod hasResignedInstanceVar:boolean (i_name:string )
+                (
+                    @todo("check that i_name is not referring to a scalar value from lower scope accidentally")
+
+                    (if (has resignedInstancesVars i_name) 
+                        (return true)
+                    )
+                    (if (!null? parent)
+                        (return (call parent hasResignedInstanceVar (i_name)))
+                    )
+                    (return false)
+                )
+            )
+
+
+
+            (PublicMethod setInstanceVar:void (i_name:string inst:RangerAppObjectInstance)
+                (
+                    (set instanceVariables i_name inst)
+                    (= inst.name i_name)
+                )
+            )
+
+            (PublicMethod hasInstanceVar:boolean (i_name:string )
+                (
+                    (if (has instanceVariables i_name) 
+                        (return true)
+                    )
+                    (if (!null? parent)
+                        (return (call parent hasInstanceVar (i_name)))
+                    )
+                    (return false)
+                )
+            )
+
+            (PublicMethod getInstanceVar:RangerAppObjectInstance (i_name:string )
+                (
+                    (if (has instanceVariables i_name) 
+                        (return (get instanceVariables i_name))
+                    )
+                    (if (!null? parent)
+                        (return (call parent getInstanceVar (i_name)))
+                    )
+                    (return (new RangerAppObjectInstance ()))
+                )
+            )
+
+
 
 
             ; (for node.children nn:CodeNode i
@@ -358,6 +640,64 @@
                 )
             )
 
+            (PublicMethod hasCompilerFlag:boolean (s_name:string)
+                (
+                    (if (has compilerFlags s_name)
+                        (return (get compilerFlags s_name))
+                    )
+                    (if (null? parent)
+                        (
+                            (return false)
+                        )
+                    )
+                    (return (call parent hasCompilerFlag (s_name)))
+                )
+            )            
+
+
+            (PublicMethod getCompilerSetting:string (s_name:string)
+                (
+                    (if (has compilerSettings s_name)
+                        (return (get compilerSettings s_name))
+                    )
+                    (if (null? parent)
+                        (
+                            (return "")
+                        )
+                    )
+                    (return (call parent getCompilerSetting (s_name)))
+                )
+            )              
+
+
+            (PublicMethod hasCompilerSetting:boolean (s_name:string)
+                (
+                    (if (has compilerSettings s_name)
+                        (return true)
+                    )
+                    (if (null? parent)
+                        (
+                            (return false)
+                        )
+                    )
+                    (return (call parent hasCompilerSetting (s_name)))
+                )
+            )            
+
+
+            (PublicMethod getCompilerSetting:string (s_name:string)
+                (
+                    (if (has compilerSettings s_name)
+                        (return (get compilerSettings s_name))
+                    )
+                    (if (null? parent)
+                        (
+                            (return "")
+                        )
+                    )
+                    (return (call parent getCompilerSetting (s_name)))
+                )
+            )  
 
             (PublicMethod getVariableDef:RangerAppParamDesc (name:string)
                 (
@@ -435,6 +775,21 @@
                     (return (get root.definedClasses name) )
                 )
             )
+
+            (PublicMethod getCurrentMethod:RangerAppFunctionDesc ()
+                (
+                    (if (!null? currentMethod)
+                        (
+                            (return currentMethod)
+                        )
+                    )
+                    (if (!null? parent)
+                        (return (call parent getCurrentMethod ()))
+                    )
+                    (return (new RangerAppFunctionDesc ()))
+                )
+            )
+            
 
             (PublicMethod getCurrentClass:RangerAppClassDesc ()
                 (

@@ -10,14 +10,14 @@
             (def s:string)
             (def len:int)
             (def i:int 0)
-            (def parents:[CodeNode])
+            (def parents:[CodeNode] @weak(true))
             (def next:CodeNode)
 
             (def paren_cnt:int 0)
 
-            (def rootNode:CodeNode)
-            (def curr_node:CodeNode)
-
+            (def rootNode:CodeNode )
+            (def curr_node:CodeNode @weak(true))
+            
             (def had_error:boolean false)
 
             (Constructor (code_module:SourceCode )
@@ -106,11 +106,11 @@
                                             (= paren_cnt (+ paren_cnt 1))
                                             (if (null? curr_node)
                                                 (
-                                                    (= curr_node (new CodeNode (code i i)))
+                                                    (= rootNode (new CodeNode (code i i)))                                                    
+                                                    (= curr_node rootNode)
                                                     (if (== c 96) (= curr_node.value_type RangerNodeType.Quasiliteral))
                                                     (if (== c 39) (= curr_node.value_type RangerNodeType.Literal))
                                                     (= curr_node.expression true)
-                                                    (= rootNode curr_node)
                                                     (push parents curr_node)
                                                     ; (print "-> new root node")
                                                 )
@@ -376,13 +376,13 @@
                                         (if (&& (< i len) (> ep sp) )
                                             (
                                                 ; parse new expression as variable type
-                                                (def a_node:CodeNode (new CodeNode (code sp ep)))
+                                                (def a_node2:CodeNode (new CodeNode (code sp ep)))
                                                 (def a_name:string (substring s sp ep))
 
-                                                (= a_node.expression true)
-                                                (= curr_node a_node)
+                                                (= a_node2.expression true)
+                                                (= curr_node a_node2)
 
-                                                (push parents a_node)
+                                                (push parents a_node2)
                                                 (= i (+ i 1))
                                                 (= paren_cnt (+ paren_cnt 1))
 
@@ -394,21 +394,21 @@
                                                 ;(= new_node.expression_value a_node)               
                                                 ;(= new_node.value_type RangerNodeType.ExpressionType)      
 
-                                                (if (== 1 (array_length a_node.children))
+                                                (if (== 1 (array_length a_node2.children))
                                                     (
-                                                        (def ch1:CodeNode (itemAt a_node.children 0))
+                                                        (def ch1:CodeNode (itemAt a_node2.children 0))
                                                         (if (call ch1 isPrimitive ())
                                                             (
                                                                 (set curr_node.props a_name ch1)
                                                             )
                                                             (
-                                                                (set curr_node.props a_name a_node)
+                                                                (set curr_node.props a_name a_node2)
                                                             )
                                                         )
 
                                                     )
                                                     (
-                                                        (set curr_node.props a_name a_node)
+                                                        (set curr_node.props a_name a_node2)
                                                     )
                                                 )                                           
                                                 
@@ -484,11 +484,11 @@
                                         (if (== c (charcode "("))
                                             (
                                                 ; parse new expression as variable type
-                                                (def a_node:CodeNode (new CodeNode (code sp ep)))
-                                                (= a_node.expression true)
-                                                (= curr_node a_node)
+                                                (def a_node3:CodeNode (new CodeNode (code sp ep)))
+                                                (= a_node3.expression true)
+                                                (= curr_node a_node3)
 
-                                                (push parents a_node)
+                                                (push parents a_node3)
                                                 (= i (+ i 1))
 
                                                 (call this parse ())
@@ -496,7 +496,7 @@
                                                 (= new_node (new CodeNode (code sp vt_ep)))
                                                 (= new_node.vref (substring s sp ep))
                                                 (= new_node.ns ns_list)
-                                                (= new_node.expression_value a_node)               
+                                                (= new_node.expression_value a_node3)               
                                                 (= new_node.value_type RangerNodeType.ExpressionType)                                                 
 
                                                 (push curr_node.children new_node)

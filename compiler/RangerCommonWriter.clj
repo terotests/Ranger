@@ -323,28 +323,41 @@
                 )
             )            
 
+           (PublicMethod shouldHaveChildCnt:void (cnt:int n1:CodeNode ctx:RangerAppWriterContext msg:string)
+                (
+                    (if (!= (array_length n1.children) cnt)
+                        (call ctx addError (n1 ( + msg)))                                
+                    )
+                )
+            )            
 
            (PublicMethod shouldBeNumeric:void (n1:CodeNode ctx:RangerAppWriterContext msg:string)
                 (
-                    ; (print (+ n1.eval_type_name " vs " n2.eval_type_name))
                     (if ( && (!= n1.eval_type RangerNodeType.NoType)
                              (> (strlen n1.eval_type_name) 0)
                              )
                         (
-                            (if (|| (== n1.eval_type_name "double") (== n1.eval_type_name "int") )
-                                (
-                                    ; OK
-                                )
+                            (if (== false (|| (== n1.eval_type_name "double") (== n1.eval_type_name "int") ))
                                 (
                                     (call ctx addError (n1 ( + "Not numeric: " n1.eval_type_name ". " msg )))                                
                                 )
                             )
                         )
                     )           
-
                 )
             )
             
+           (PublicMethod shouldBeArray:void (n1:CodeNode ctx:RangerAppWriterContext msg:string)
+                (
+                    ;(!= n1.eval_type RangerNodeType.NoType) )
+                    (if (!= n1.eval_type RangerNodeType.Array)
+                        (
+;                             (print (+ " Type is " n1.eval_type))
+                            (call ctx addError (n1 ( + "Expecting array. " msg )))                                
+                        )
+                    )           
+                )
+            )
 
 
            (PublicMethod shouldBeType:void (type_name:string n1:CodeNode ctx:RangerAppWriterContext msg:string)
@@ -466,6 +479,12 @@
                    (def rootObjName:string (itemAt node.ns 0))
                    ; (print rootObjName)
 
+@todo("Riittääkö tässä metodissa se, että löydetään variable definition ?
+- mietittävä pitäisikö myös this variablelle olla oma var def ?
+- melkein se se variablen määrittely on se mikä tässäkin haetaan
+- toisaalta kontekstissa voi olla jotain päivitettyä tietoa aiheesta ?
+")
+
                    (if (call ctx isEnumDefined (rootObjName))
                        (
                            (def enumName:string (itemAt node.ns 1))
@@ -486,10 +505,57 @@
                        )
                    )
 
+                   (if (== node.vref (getThisName _))
+                       (
+                           ; 
+                           (call wr out ( node.vref false ))
+                           (= node.ref_type RangerNodeRefType.StrongImmutable)                                    
+                           ( return _ )                   
+                       )
+                   )
+
+
                    ; (print (+ "ns[0] = " rootObjName))
                    (if (call ctx isVarDefined (rootObjName))
                        (
-                           (def vDef:RangerAppParamDesc (call ctx getVariableDef (rootObjName)))                            
+                           (def vDef:RangerAppParamDesc (call ctx getVariableDef (rootObjName)))                
+
+                           (def activeFn:RangerAppFunctionDesc (call ctx getCurrentMethod ()))
+                           (if (call activeFn hasInstanceVar (rootObjName))
+                               (
+                                   ; (dbglog "memory1" (+ "**** referencing instance var " rootObjName))
+                                   (def refInst:RangerAppObjectInstance (call activeFn getInstanceVar  (rootObjName)))
+                                   (push node.referencedInstances refInst)
+                               )
+                           )
+
+                           (if (call ctx hasInstanceVar (rootObjName))
+                               (
+                                   ; (dbglog "memory2" (+ "<<<<<< **** CONTEXT referencing instance var " rootObjName))                                   
+                               )
+                           )
+
+                           (if (call ctx hasResignedInstanceVar (rootObjName))
+                               (
+                                   ; (dbglog "memory2" (+ "oooooooooooooooo **** CONTEXT had resigned instance var " rootObjName))   
+                                   ; (dbglog "memory2" (call node getLineAsString()))
+                                   ; (dbglog "memory2" "")                         
+
+                                   ; the reference type of the node is now weak
+                                   (if (== 1 (array_length node.ns))
+                                       (= node.ref_type RangerNodeRefType.Weak)  
+                                   )
+
+                               )
+                           )
+
+
+
+                           ; TODO:
+                           ;  think about moving the ownership from the node which previously holded the reference
+                           ;  to the current node if possible ? 
+                           ;  (call node getInstancesFrom (fc))
+
                            ; (print (+ "=> Defined variable " rootObjName " type " vDef.value_type))
                            (if vDef.is_class_variable 
                                 (
@@ -497,6 +563,35 @@
                                     (call this WriteThisVar (node ctx wr))
                                     (call wr out ("." false))
                                     (call wr out ( node.vref false ))
+
+                                    ; TODO: missing support for more than two levels
+                                    ; obj.foo works but obj.foo.x does not work, should be quite easy to change
+                                    (if (> (array_length node.ns) 1)
+                                        (
+                                            (def pointedClass:RangerAppClassDesc (call ctx findClass (vDef.nameNode.type_name)))
+                                            (if (null? pointedClass)
+                                                (
+                                                    (call ctx addError (node (+ "Could not find class " vDef.nameNode.type_name)))
+                                                    (return _)
+                                                )
+                                            )
+                                            (def vName:string (itemAt node.ns 1))
+                                            (= vDef (call pointedClass findVariable (vName)))
+                                        )
+                                    )
+
+                                    ; for exaple this.obj.parent or similar is usually weak
+                                    (if (call vDef.node getBooleanProperty ("weak"))
+                                        (
+                                            (= node.ref_type RangerNodeRefType.Weak)
+                                        )
+                                    )
+                                    
+                                    
+                                    (def vNameNode:CodeNode vDef.nameNode)
+                                    (= node.eval_type vNameNode.value_type)
+                                    (= node.eval_type_name vNameNode.type_name)                                    
+                                    
                                     (return 1)
                                 )
                             )
@@ -505,11 +600,18 @@
 
                             (if (!null? vDef)
                                 (
+                                    ; for exaple node.parent or similar is usually weak
+                                    (if (call vDef.node getBooleanProperty ("weak"))
+                                        (
+                                            (= node.ref_type RangerNodeRefType.Weak)
+                                        )
+                                    )
+
                                     (def vNameNode:CodeNode vDef.nameNode)
                                     (if ( && (!null? vNameNode) (!null? vNameNode.type_name) )
                                         (
                                             ; (if (== n1.eval_type_name n2.eval_type_name)
-                                            (= node.eval_type RangerNodeType.VRef)
+                                            (= node.eval_type vNameNode.value_type)
                                             (= node.eval_type_name vNameNode.type_name)                                    
                                         )
                                         ; (print (+ "type name: " vNameNode.type_name))                                    
@@ -615,6 +717,9 @@
             (PublicMethod cmdNew:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
 
+                    (call this shouldHaveChildCnt (3 node ctx "new expexts three arguments"))
+                    ;    (call ctx addError (node ( + "ERROR, invalid argument types for " currC.name " constructor "  ) ))                                                                            
+
                     (def obj:CodeNode (call node getSecond ()))
                     (def params:CodeNode (call node getThird ()))
 
@@ -651,6 +756,7 @@
 
                    (def currC:RangerAppClassDesc (call ctx findClass (obj.vref)))
                    (def fnDescr:RangerAppFunctionDesc currC.constructor_fn)
+
                     ; check constructor params
                    (if (!null? fnDescr)
                         (for fnDescr.params param:RangerAppParamDesc i
@@ -667,14 +773,18 @@
                                     )
                                     (
                                         ; error
-                                        (call ctx addError (node ( + "ERROR, invalid argument types for " currC.name " constructor "  ) ))                                    
-                                        
+                                        (call ctx addError (node ( + "ERROR, invalid argument types for " currC.name " constructor "  ) ))                                                                            
                                     )
                                 )
                             )
                         )         
-                   )          
+                   )
+                   ; then add the creation of the class instance to the curren function
+                   ; RangerAppObjectInstance           
+                   (def currFn:RangerAppFunctionDesc (call ctx getCurrentMethod ()))
+                   (call currFn addNewInstance (node currC.name ctx))
 
+;             (PublicMethod addNewInstance:void (node:CodeNode className:string ctx:RangerAppWriterContext)
 
                 )
             )
@@ -1130,6 +1240,40 @@
                 )
             )
 
+
+            ; logging should be enabled only if compiler setting "log" is enabled
+            ; ; (dbglog "memory1" "")
+            (PublicMethod cmdLog:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (
+                    (return _)
+
+                    ; log_group
+                    (if (call ctx hasCompilerSetting ("log_group"))
+                        (
+                            (def gName:string (call ctx getCompilerSetting ("log_group")))
+
+                            (def n1:CodeNode (call node getSecond ()))
+                            (def n2:CodeNode (call node getThird ()))
+
+                            (if (== n1.string_value gName)
+                                (
+                                    (call wr newline ())
+                                    (call wr out ( (+ "console.log(\"[" gName "] \" +"  ) false))
+                                    (call ctx setInExpr ())
+                                    (call this WalkNode (n2 ctx wr))
+                                    (call ctx unsetInExpr ())
+                                    (call wr out (");" true))
+                                )
+                            )
+
+                        )
+                    )
+
+
+                )
+            )
+            
+
             (PublicMethod cmdPrint:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
@@ -1212,6 +1356,34 @@
                                     (call ctx setInExpr ())
                                     (call this WalkNode (fc ctx wr))    
                                     (call ctx unsetInExpr ())    
+
+                                    ; then move the owned instances of possible return value to a "returned values"
+                                    (call node getInstancesFrom (fc))
+                                    (call node moveOwnedToReturned ())
+
+                                    (for fc.referencedInstances refInst i
+                                        (
+                                            (= refInst.is_returned true)
+                                            (call ctx resignInstanceVar (refInst.name refInst))
+                                            
+                                            (if (== fc.ref_type RangerNodeRefType.Weak)
+                                                (
+                                                    ; (print "the returned instance is weak!!!")
+                                                    (def theFunc:RangerAppFunctionDesc (call ctx getCurrentMethod ()))
+
+                                                    (if (call theFunc.node hasBooleanProperty ("weak"))
+                                                        (
+
+                                                        )
+                                                        (
+                                                            (call ctx log ( node "memory3" "ERROR: function tried to return strong reference") )
+                                                        )
+                                                    )
+
+                                                )
+                                            )
+                                        )
+                                    )
                                 )
                             )
                         )
@@ -1219,6 +1391,53 @@
                     (call wr out (";" true))                    
                 )
             )
+
+            ; remove item from array
+            ; (remove_index arr index)
+            (PublicMethod cmdRemoveIndex:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (
+                    (def arrayObj:CodeNode (call node getSecond ()))
+                    (def indexNode:CodeNode (call node getThird ()))
+
+                    ; TODO: check that the item is the same type as the array type
+                    (call wr newline ())
+                    
+                    (call ctx setInExpr ())
+                    (call this WalkNode (arrayObj ctx wr))
+                    (call wr out (".splice(" false))
+                    (call this WalkNode (indexNode ctx wr))
+                    (call ctx unsetInExpr ())                    
+
+                    (call wr out (", 1)" true))
+
+                    (call this shouldBeType ("int" indexNode ctx "indexOf expects an interger as the second parameter."))                    
+                    ; TODO: handling array and hash types...
+                    (call this shouldBeArray (arrayObj ctx "remove expects an array as the first parameter."))                    
+                )
+            )
+
+            ; (indexOf arr item)
+            (PublicMethod cmdIndexOf:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (
+                    (def arrayObj:CodeNode (call node getSecond ()))
+                    (def itemObj:CodeNode (call node getThird ()))
+
+                    ; TODO: check that this call is inside expression
+                    ; TODO: check that the item is the same type as the array type
+
+                    (call ctx setInExpr ())
+                    (call this WalkNode (arrayObj ctx wr))
+               
+                    (call wr out (".indexOf(" false))
+                    (call this WalkNode (itemObj ctx wr))
+                    (call ctx unsetInExpr ())                    
+                    (call wr out (")" false))
+
+                    ; TODO: handling array and hash types...
+                    (call this shouldBeArray (arrayObj ctx "remove expects an array as the first parameter."))                    
+                )
+            )
+            
 
             ; (removeLast arr value)
             (PublicMethod cmdRemoveLast:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -1232,9 +1451,7 @@
                     (call ctx unsetInExpr ())                    
                     (call wr out (".pop()" true))
 
-                    ; TODO: handling array and hash types...
-                    (call this shouldBeType ("[]" obj ctx "removeLast expects an array as the first parameter."))                    
-                    
+                    (call this shouldBeArray (obj ctx "removeLast expects an array as the first parameter."))                    
                 )
             )
 
@@ -1252,6 +1469,41 @@
                     (call this WalkNode (value ctx wr))
                     (call ctx unsetInExpr ())                    
                     (call wr out (");" true))
+
+                    (for value.ownedInstances refInst:RangerAppObjectInstance i
+                        (
+                            ; (dbglog "memory3"  (+ "@cmdPush Going to resign instance variable " refInst.name))   
+                            ; (print (call node getLineAsString ()))
+
+                            (if (== obj.ref_type RangerNodeRefType.Weak)
+                                (call ctx log (node  "memory3"  (+ "was about to resign at push ^ but targe was weak " refInst.name)))
+                                (
+                                    (call ctx log (node  "memory3"  (+ "Going to resign instance variable " refInst.name)))                                              
+                                    (call ctx resignInstanceVar (refInst.name refInst))                            
+                                )                                                                      
+                            )
+                            
+                        )
+                    )                    
+
+                    (for value.referencedInstances refInst:RangerAppObjectInstance i
+                        (
+                            ; (dbglog "memory3"  (+ "@cmdPush Going to resign instance variable " refInst.name))   
+                            ; (print (call node getLineAsString ()))
+
+                            (if (== obj.ref_type RangerNodeRefType.Weak)
+                                (call ctx log (node  "memory3"  (+ "was about to resign at push ^ but targe was weak " refInst.name)))
+                                (
+                                    (call ctx log (node  "memory3"  (+ "Going to resign instance variable " refInst.name)))                                              
+                                    (call ctx resignInstanceVar (refInst.name refInst))                            
+                                )                                                                      
+                            )
+                            
+                        )
+                    )                    
+
+                    (call this shouldBeArray (obj ctx "push expects an array as the first parameter."))                    
+
                 )
             )
 
@@ -1268,7 +1520,8 @@
                     (call ctx unsetInExpr ())                    
                     (call wr out ("]" false))
 
-                    (call this shouldBeType ("[]" obj ctx "itemAt expects an array as the first parameter."))                    
+                    
+                    (call this shouldBeArray (obj ctx "itemAt expects an array as the first parameter."))                    
                     (call this shouldBeType ("int" index ctx "charAt expects an interger as the second parameter."))                    
 
                 )
@@ -1320,6 +1573,39 @@
                     (call ctx unsetInExpr ())
                     (call wr out (";" true))
 
+                    (for value.ownedInstances refInst:RangerAppObjectInstance i
+                        (
+                            ; (dbglog "memory3"  (+ "@cmdPush Going to resign instance variable " refInst.name))   
+                            ; (print (call node getLineAsString ()))
+
+                            (if (== obj.ref_type RangerNodeRefType.Weak)
+                                (call ctx log (node  "memory3"  (+ "was about to resign at set ^ but targe was weak " refInst.name)))
+                                (
+                                    (call ctx log (node  "memory3"  (+ "Going to resign instance variable " refInst.name)))                                              
+                                    (call ctx resignInstanceVar (refInst.name refInst))                            
+                                )                                                                      
+                            )
+                            
+                        )
+                    )                    
+
+                    (for value.referencedInstances refInst:RangerAppObjectInstance i
+                        (
+                            ; (dbglog "memory3"  (+ "@cmdPush Going to resign instance variable " refInst.name))   
+                            ; (print (call node getLineAsString ()))
+
+                            (if (== obj.ref_type RangerNodeRefType.Weak)
+                                (call ctx log (node  "memory3"  (+ "was about to resign at push ^ but targe was weak " refInst.name)))
+                                (
+                                    (call ctx log (node  "memory3"  (+ "Going to resign instance variable " refInst.name)))                                              
+                                    (call ctx resignInstanceVar (refInst.name refInst))                            
+                                )                                                                      
+                            )
+                            
+                        )
+                    )                    
+                    
+
                 )
             )
 
@@ -1341,6 +1627,11 @@
                     (if ( > (call ctx expressionLevel ()) 1 )
                         (call wr out (")" false))
                     )
+
+                    (def currFn:RangerAppFunctionDesc (call ctx getCurrentMethod ()))
+                    (call currFn addStrongInstance (node obj.array_type ctx))              
+                    (call ctx log (node  "memory3"  (+ "should add strong instance to 'get' node from " obj.vref)))      
+
                 )
             )
             
@@ -1392,8 +1683,105 @@
                     (call ctx setInExpr ())
                     (call this WalkNode (n2 ctx wr))
                     (call ctx unsetInExpr ())
-                    (call wr out (";" true))         
+                    (call wr out (";" true)) 
 
+@todo("Pitäisikö tämä cmdAssign siirtää CodeNoden funktioksi, joka siirtää referenssin nodesta A nodeen B?
+- Kaikissa nodeissa ei ole mitään siirrettävää data, osa on scalar arvoja, esim. true, 1, string etc.
+- Jotkut nodet sisältävät ihan uusia arvoja, jotka luotu new -operaattorilla ja ne siirtyvät ekaa kertaa ctxiin
+- Jotkut siirtävät dataa vaikkapa arraystä, esim. (= foo (get myHash name))
+- Joissain asetetaan esim. this, (= foo.parent this)
+- Toiset nodet pitäisi olla asetttuja jonkun referenssin arvoon, esim. (= foo this.current_obj)
+
+? mitä variantteja noden referenssin arvolla voi olla - WriteVRef on toinen avainfunktio 
+")
+
+                    (if (== n1.ref_type RangerNodeRefType.Weak)
+                        (
+                            ; (print "===== weak assigment ==== ")
+                            ; (print (call node getLineAsString ()))
+                            (call ctx log ( node "memory3" "weak assigment") )
+                            
+                            (if (!= n2.ref_type RangerNodeType.NoType)
+                                 (call ctx log ( node "note" "weak assigment") )                       
+                            )
+                            (if (> (array_length n2.referencedInstances) 0)
+                                (call ctx log ( node "memory3" "weak assigment with references") )
+                                (call ctx log ( node "note" "weak assigment, but no references") )                        
+                            )
+                            (if (> (array_length n2.ownedInstances) 0)
+                                (call ctx log ( node "memory3" "weak assigment with references") )
+                                (call ctx log ( node "note" "weak assigment, but no owned references") )                        
+                            )
+                            
+                            (if (call ctx hasInstanceVar (n2.vref)) 
+                                (
+                                    (call ctx log ( node "memory3" (+ "instance var n2.vref " n2.vref " was defined") )) 
+                                    (def vv:RangerAppObjectInstance (call ctx getInstanceVar (n2.vref)))
+                                    (if (call ctx hasResignedInstanceVar (n2.vref))
+                                        (
+                                            (call ctx log ( node "memory3" "the variable was resigned") )                                          
+                                        )
+                                        (
+                                            (call ctx log ( node "memory3" "the variable was not resigned") )                                          
+                                        )
+                                    )
+                                )
+                            )
+
+                            (if (> n2.ref_need_assign 0)
+                                (
+                                    (call ctx log ( node "memory3" "ERROR: weak assigment of node which needs to be assigned is never freed") )                                          
+                                )
+                            )
+                            
+                        )
+                        (
+                            (def is_strong:boolean true)
+                            ; not a weak reference...
+                            (if (== n2.ref_type RangerNodeRefType.StrongImmutable)
+                                (
+                                    (call ctx log (node  "memory3"  (+ "ERROR: strong immutable can not be assigned to non-weak " n1.vref)))    
+                                    (= is_strong false)                                          
+                                )
+                            )
+
+                            (if (== n2.ref_type RangerNodeRefType.Weak)
+                                (
+                                    (call ctx log (node  "memory3"  (+ "ERROR: Weak -> Strong assigment for " n2.vref)))    
+                                    (= is_strong false)                                              
+                                )
+                            )
+
+                            (for n2.ownedInstances refInst:RangerAppObjectInstance i
+                                (
+                                    (call ctx log (node  "memory3"  (+ "Going to resign instance variable " refInst.name))) 
+                                    (call ctx resignInstanceVar (refInst.name refInst))
+                                    (if is_strong
+                                        (
+                                            (call ctx log (node  "memory3"  (+ "WARNING: might need to release memory here for " n1.vref)))  
+                                        )
+                                    )
+                                )
+                            )                           
+                            
+                            ; should ask the node to resign all the instance variables it refers to
+                            (for n2.referencedInstances refInst:RangerAppObjectInstance i
+                                (
+                                    (call ctx log (node  "memory3"  (+ "Going to resign instance variable " refInst.name))) 
+                                    (call ctx resignInstanceVar (refInst.name refInst))
+                                    (if is_strong
+                                        (
+                                            (call ctx log (node  "memory3"  (+ "WARNING: might need to release memory here for " n1.vref)))  
+                                        )
+                                    )
+                                )
+                            )
+                            ; (call ctx resignInstanceVar ())
+                        )
+                    )        
+
+                    ; can you detect if the assigment is weak ? 
+                    
                     (call this shouldBeEqualTypes (n1 n2 ctx "Assigment expects both sides to be equal."))
                 )
             )
@@ -1467,14 +1855,6 @@
 
                     (def firstChild:CodeNode (call node getSecond ()))
 
-                    (for node.children ch:CodeNode i
-                        (
-                            (if (> i 1)
-                                 (call this shouldBeEqualTypes (firstChild ch ctx "Logic operator expects boolean arguments."))                                                   
-                            )
-                        )
-                    )
-
                     (if ( > (call ctx expressionLevel ()) 1 )
                         (call wr out ("(" false))
                     )
@@ -1494,6 +1874,16 @@
                     (if ( > (call ctx expressionLevel ()) 1 )
                         (call wr out (")" false))
                     )
+
+                    (call this shouldBeType ("boolean" firstChild ctx "Logical operator expects boolean as the first parameter."))
+                    (for node.children ch:CodeNode i
+                        (
+                            (if (> i 1)
+                                 (call this shouldBeEqualTypes (firstChild ch ctx "Logic operator expects boolean arguments."))                                                   
+                            )
+                        )
+                    )
+                    
                 )
             )
 
@@ -1842,26 +2232,70 @@
             ; When starting at new method
             (PublicMethod EnterMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (                   
+ 
+ ; ---------------  examples of methods to set instance variables  ----------------------
+ ;                  (def currFn:RangerAppFunctionDesc (call ctx getCurrentMethod ()))
+ ;                  (call currFn addNewInstance (node currC.name ctx))
+ ;                  (call activeFn setInstanceVar (cn.vref inst))
+ ;                  (call ctx setInstanceVar (cn.vref inst))
+
+                    (call this shouldHaveChildCnt (4 node ctx "Method expexts four arguments"))
                     
                     (def cn:CodeNode (itemAt node.children 1))                    
+                    (def fnBody:CodeNode (itemAt node.children 3))                    
                     (def desc:RangerAppClassDesc (call ctx getCurrentClass ()))        
 
                     ; (print (+ "Entering " desc.name "::" cn.vref))
 
                     (def subCtx:RangerAppWriterContext (call ctx fork ()))
-                    
+
                     ; get method description
                     (def m:RangerAppFunctionDesc (call desc findMethod (cn.vref)))
+
+                    (= subCtx.currentMethod m) 
 
                     (for m.params v:RangerAppParamDesc i 
                         (
                             ; (print (+ "param:" v.name))
                             ; defineVariable
                             (call subCtx defineVariable (v.name v))
+                            ; if the var is instance type ?
+                            (def paramNode:CodeNode v.nameNode)
+                            (if (== false (call paramNode isPrimitive()))
+                                (
+                                    ; instance reference
+                                    (call m addParamInstance (paramNode desc.name subCtx))
+                                )
+                            )
+
                         )
                     )
                     
-                    (call this PublicMethod (node subCtx wr))                     
+                    (call this PublicMethod (node subCtx wr))        
+
+                    (call ctx log (node "memory3" (+ "[free variables " cn.vref "]")))
+
+                    ; then check if the method had owned instances
+                    (for fnBody.children n:CodeNode i
+                        (
+                            (def cnt:int (array_length n.ownedInstances))
+                            (if (> cnt 0)
+                                (for n.ownedInstances inst:RangerAppObjectInstance ii
+                                    (
+                                        (if (== false (call subCtx hasResignedInstanceVar (inst.name)))
+                                            (
+                                                (call ctx log (node "memory3" (+ ">>>>>>>>> should free " inst.name)))
+                                            )
+                                        )
+                                        ;(dbglog "memory3" ( + "Method " cn.vref " had instance of class " inst.className " to be freed" ) )
+                                        ;(if inst.is_returned
+                                        ;    (dbglog "memory3" "^ but it is returned so does not need to be freed")
+                                        ;)
+                                    )
+                                )
+                            )
+                        )
+                    )             
                 )
             )
 
@@ -1900,7 +2334,29 @@
 
                             (if (> (array_length node.children) 2)
                                 (
-                                    (call this shouldBeEqualTypes (cn p.def_value ctx "Variable was assigned an incompatible type."))    
+                                    (call this shouldBeEqualTypes (cn p.def_value ctx "Variable was assigned an incompatible type."))
+                                    (def valueNode:CodeNode p.def_value)
+                                    (if (> (array_length valueNode.ownedInstances) 0)
+                                        (
+                                            ; (print "defined variable which now holds new instance")
+                                            (call node getInstancesFrom (valueNode))
+                                            ; (dbglog "memory3" "--> moved ownership of instances to the current node")
+                                        )
+                                    )
+
+                                    (def activeFn:RangerAppFunctionDesc (call ctx getCurrentMethod ()))
+                                    (if (!null? activeFn)
+                                        (
+                                            @todo("Tässä kohdassa voisi asettaa instance varin suoraan kontextin RangerAppParamDesc arvoon  ")
+                                            (for node.ownedInstances inst:RangerAppObjectInstance i
+                                                (
+                                                    (call activeFn setInstanceVar (cn.vref inst))
+                                                    (call ctx setInstanceVar (cn.vref inst))
+                                                )
+                                            )
+                                        )
+                                    )
+                                        
                                 )
                             )           
                         )
@@ -1927,6 +2383,12 @@
 
             (PublicMethod WalkNodeChildren:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
+                    (if (call node hasStringProperty ("todo")) 
+                        (
+                            (call ctx addTodo ( node (call node getStringProperty ("todo"))))
+                        )
+                    )
+                    
                     (if node.expression
                         (
                             (for node.children item:CodeNode i
@@ -1945,6 +2407,13 @@
                     (if (null? node)
                         (return false)
                     )
+
+                    (if (call node hasStringProperty ("todo")) 
+                        (
+                            (call ctx addTodo ( node (call node getStringProperty ("todo"))))
+                        )
+                    )
+
                     (if (call node isPrimitive ())
                         (
                             (call this WriteScalarValue(node ctx wr))
@@ -1988,6 +2457,8 @@
                                         (case "break" (call this cmdBreak (node ctx wr)) )
                                         (case "continue" (call this cmdContinue (node ctx wr)) )
 
+                                        (case "dbglog" (call this cmdLog (node ctx wr)) )
+
                                         (case "throw" (call this cmdThrow (node ctx wr)) )
                  
                                         (case "switch" (call this cmdSwitch (node ctx wr)) )
@@ -2022,6 +2493,9 @@
 
                                         (case "array_length" (call this cmdArrayLength (node ctx wr)))
                                         (case "itemAt" (call this cmdItemAt (node ctx wr)) )
+                                        (case "indexOf" (call this cmdIndexOf (node ctx wr)) )
+                                        (case "remove_index" (call this cmdRemoveIndex (node ctx wr)) )
+
                                         (case "push" (call this cmdPush (node ctx wr)) )
                                         (case "removeLast" (call this cmdRemoveLast (node ctx wr)) )
 

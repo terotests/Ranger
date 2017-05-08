@@ -1,5 +1,9 @@
 (
 
+    (Import "writer.clj")
+    (Import "RangerAppWriterContext.clj")
+
+
     (Enum RangerNodeType:int
         (
             NoType
@@ -63,6 +67,10 @@
             (def eval_type:int RangerNodeType.NoType)
             (def eval_type_name:string "")
 
+            ; if the node references to object, if this reference is weak or not
+            (def ref_type:int RangerNodeRefType.NoType)
+            (def ref_need_assign:int 0)  
+
             (def double_value:double)
             (def string_value:string)
             (def int_value:int)
@@ -75,7 +83,16 @@
 
             (def comments:[CodeNode])
             (def children:[CodeNode])
-            (def parent:CodeNode)
+            (def parent:CodeNode @weak(true))
+
+            ; if node has a variable or parameter reference 
+            (def hasParamDesc:boolean false)
+            (def paramDesc:RangerAppParamDesc)
+
+            ; the instances of new objects this node owns
+            (def ownedInstances:[RangerAppObjectInstance])
+            (def referencedInstances:[RangerAppObjectInstance])
+            (def returnedInstances:[RangerAppObjectInstance])
 
             ; execution state
             (def execState:CodeExecState)
@@ -88,6 +105,49 @@
                 )
             )
 
+            ( PublicMethod moveOwnedToReturned:void () (
+                (for ownedInstances inst:RangerAppObjectInstance i
+                    (
+                        ; (dbglog "memory3" "--> moved owned instance to returned instance")
+                        (push returnedInstances inst)
+                    )
+                )
+                (def cnt:int (array_length ownedInstances))
+                (while (> cnt 0)
+                    (
+                        (removeLast ownedInstances)
+                        (= cnt (- cnt 1))
+                    )
+                )                
+            ))            
+
+            ; copies all referenced instances to be a return value of the node
+            ( PublicMethod copyRefToReturn:void (node:CodeNode) (
+
+                (for node.referencedInstances inst:RangerAppObjectInstance i
+                    (
+                        (push returnedInstances inst)
+                    )
+                )
+
+            ))            
+            
+
+            ( PublicMethod getInstancesFrom:void (node:CodeNode) (
+                (for node.ownedInstances inst:RangerAppObjectInstance i
+                    (
+                        (push ownedInstances inst)
+                    )
+                )
+                (def cnt:int (array_length node.ownedInstances))
+                (while (> cnt 0)
+                    (
+                        (removeLast node.ownedInstances)
+                        (= cnt (- cnt 1))
+                    )
+                )                
+            ))            
+            
             ( PublicMethod getFilename:string () (
                 (return code.filename)
             ))            
@@ -95,11 +155,16 @@
             ( PublicMethod getLine:int () (
                 (return (call code getLine (sp)))
             ))
-                        
+
             ( PublicMethod getLineString:string (line_index:int) (
                 (return (call code getLineString (line_index)))
             ))
            
+            ( PublicMethod getLineAsString:string () (
+                (def idx:int (getLine _))
+                (def line_name_idx:int (+ idx 1))
+                (return (+ (getFilename _ ) ", line " line_name_idx " : " (call code getLineString (idx))))
+            ))
 
             (PublicMethod getPositionalString:string () 
                 (

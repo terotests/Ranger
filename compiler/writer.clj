@@ -11,7 +11,7 @@
             (def import_list:[string:string])
             (def import_names:[string])
 
-            (def fileSystem:CodeFileSystem)
+            (def fileSystem:CodeFileSystem @weak(true))
 
             (Constructor (filePath:string fileName:string)
                 (
@@ -56,7 +56,7 @@
 
             (def files:[CodeFile])
 
-            (PublicMethod getFile:CodeFile (path:string name:string) (
+            (PublicMethod getFile:CodeFile @weak(true) (path:string name:string) (
 
                 (for files file:CodeFile idx
                     (
@@ -124,8 +124,11 @@
     ( CreateClass CodeSlice:void
         (
             (def code:string "")
-            (def writer:CodeWriter)
 
+            ; setting a weak reference to the writer so assigment does not actually
+            ; break the ownership of the code slice and deleting codeslice does not free
+            ; the writer
+            (def writer:CodeWriter @weak(true))
 
             (PublicMethod getCode:string () (
 
@@ -151,27 +154,29 @@
 
             ; all the code slices which are written by the writer
             (def slices:[CodeSlice])
-            (def current_slice:CodeSlice)
+            (def current_slice:CodeSlice @weak(true))
 
             ; possibly the file where the writer belongs to
-            (def ownerFile:CodeFile)
+            (def ownerFile:CodeFile @weak(true))
 
             ; forks and their names...
             (def forks:[CodeWriter])
 
             (def tagOffset:int)
-            (def parent:CodeWriter)
+            (def parent:CodeWriter @weak(true)) ; necessary to prevent errors
 
             (def had_nl:boolean true)
 
             (Constructor ()
                 (
-                    (= current_slice (new CodeSlice ()))
+                    (def new_slice:CodeSlice (new CodeSlice ()))
+                    (= current_slice new_slice)
                     (push slices current_slice)
                 )
             )
 
             ( PublicMethod addImport:void (name:string) (
+
                 (if (!null? ownerFile)
                     (
                         (call ownerFile addImport (name))
