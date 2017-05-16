@@ -499,7 +499,7 @@ Joins array of strings into a single string
 Spits string into array of strings
 ```
   (def list:[string] (strsplit "list,of,items"))
-  (def str:string (join list ":") ; list:of:items
+  (def str:string (join list ":")) ; list:of:items
 ```
 
 
@@ -508,7 +508,7 @@ Spits string into array of strings
 
 Remove whitespace around the string
 ```
-  (def str:string (trim "  abba   ") ; "abba"
+  (def str:string (trim "  abba   ")) ; "abba"
 ```
 
 
@@ -728,7 +728,7 @@ Returns true if map has a key
 Set a map key to some value
 ```
   (def someMap:[string:string])
-  (set someMap "oo" "bar") ; map has now key-value pari foo:bar
+  (set someMap "foo" "bar") ; map has now key-value pair foo:bar
 ```
 
 
@@ -738,7 +738,7 @@ Set a map key to some value
 Get a value associated to a key 
 ```
   (def someMap:[string:string])
-  (set someMap "oo" "bar") ; map has now key-value pari foo:bar
+  (set someMap "foo" "bar") ; map has now key-value pair foo:bar
 
   (def value:string (get someMap "foo")) ; "bar"
 ```
