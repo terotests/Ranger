@@ -1,9 +1,41 @@
 
-# Ranger kääntäjän dokumentaatiot
+# Ranger kääntäjän dokumentaatio
 
 Yleisesti huomioitavaa: 
 - kääntäjä on vielä työn alla ja jotkut ominaisuudet eivät vielä toimi tai toimivat vain osin
 - sama koskee myös dokumentaatiota, kaikkia osia ei ole dokumentoitu tai dokumentoitu vain osin
+
+# Hello World
+
+Create file `Hello.ran`
+```
+(
+    (gitdoc "README.md"
+"
+# The Hello World -project
+"    
+    )
+    (CreateClass Hello
+        (
+            (PublicMethod hello:void ()
+                (
+                    (print "Hello World")
+                )
+            )
+        )
+    )
+)
+```
+Then compile it using `ranger-compiler` using command line
+
+```
+ranger-compiler Hello.ran es5 projectdir/hello none
+```
+
+Then go to directory `projectdir/hello` and see the compiled result
+
+
+
 
 
 
