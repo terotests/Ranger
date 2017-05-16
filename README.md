@@ -5,7 +5,13 @@ Yleisesti huomioitavaa:
 - kääntäjä on vielä työn alla ja jotkut ominaisuudet eivät vielä toimi tai toimivat vain osin
 - sama koskee myös dokumentaatiota, kaikkia osia ei ole dokumentoitu tai dokumentoitu vain osin
 
-# Hello World
+## Kääntäjän asentaminen
+
+```
+ npm install -g ranger-compiler
+```
+
+## Hello World
 
 Create file `Hello.ran`
 ```
