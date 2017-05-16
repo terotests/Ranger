@@ -233,6 +233,15 @@ Arrayn tai Mapin sisällä oleva template voidaan määritellä seuraavasti:
 (def len:int 10)
 ```
 
+## heikot ja vahvat referenssit
+
+Joskus referenssi olioon on määriteltävä heikoksi, jotta sitä ei vapauteta kun funktiosta poistutaan
+tai kun kyseinen olio itsessään vapautetaan.
+
+```
+(def obj:myClass @weak(true))
+```
+
 ## muuttujien sijoittaminen
 
 ```
@@ -259,7 +268,7 @@ Komennot noudattavat lisp -tyyppistä syntaksia:
 
 
 
-# Enumeraatiot
+## Enumeraatiot
 
 Enumeraatiot ovat tyyppiä int
 ```
@@ -279,7 +288,9 @@ muuttujaan jossa on tyyppiä
 
 
 
-# Import
+## Import
+
+Lähdekoodin uudelleenkäyttäminen ja importointi, jossa haetaan tiedoston luokkamääritykset:
 
 ```
     (Import "sourcefile.ext")
@@ -328,12 +339,16 @@ muuttujaan jossa on tyyppiä
 
 ## Periyttäminen
 
+Periyttäminen voidaan tehdä `Extends` komennolla luokan bodyn sisällä.
+
 ```
     (CreateClass childClass 
         (
             (Extends (myClass))
         )
     )
+
+    ; usage:
     (def obj:childClass (new childClass ()))
     (call obj hello ())
     
@@ -370,7 +385,7 @@ parametrin käsittelee argumenttia vahvana referenssinä.
         (
             (Constructor (str:string)
                 (
-                    (print (+ "ello !" str))
+                    (print (+ "Hello !" str))
                 )
             )
         )
