@@ -185,7 +185,38 @@ Arrayn tai Mapin sisällä oleva template voidaan määritellä seuraavasti:
 
 
 
-# Peruskirjasto
+# Komentojen synktasi
+
+## muuttujien määrittely
+
+```
+(def x:double)
+(def len:int 10)
+```
+
+## muuttujien sijoittaminen
+
+```
+(def x:double 20)
+(def y:double 10)
+(= x y )          ; x is now 10
+(= x (+ x 5))     ; x is now 15
+```
+
+## komentojen lisp -tyyppinen syntaksi
+
+Komennot noudattavat lisp -tyyppistä syntaksia:
+
+```
+(+ 10 5)     ; 15
+(== 5 12)    ; false
+(> 7 3)      ; true
+(&& (== 4 4) true)  ; true
+(&& (== 4 4) false) ; false
+
+(call myObj hello ()) ; calls object myObj funtion hello
+```
+
 
 
 
@@ -222,23 +253,211 @@ muuttujaan jossa on tyyppiä
 ```
     (CreateClass myClass 
         (
-
+            (PublicMethod hello:void ()
+                (
+                    (print "ello World!")
+                )
+            )
         )
     )
+    (def obj:myClass (new myClass ()))
+    (call obj hello ())
 ``` 
 
-## Periyttäminen
 
-## Luokan luominen
+
+## Periyttäminen
 
 ```
     (CreateClass childClass 
         (
             (Extends (myClass))
+        )
+    )
+    (def obj:childClass (new childClass ()))
+    (call obj hello ())
+    
+``` 
+
+
+
+## Luokan rakentaja
+
+```
+    (CreateClass myClass 
+        (
+            (Constructor (str:string)
+                (
+                    (print (+ "ello !" str))
+                )
+            )
+        )
+    )
+``` 
+
+Käyttö: `(new myClass ("World"))`
+
+
+
+## new -operaattori
+
+```
+    (def obj:myClass (new myClass ("World")))
+``` 
+
+
+
+## Luokan funktioiden kutsuminen
+
+Oliota, johon on olemassa referenssi voidaan kutsua `call` operaattorilla
+
+```
+  (call obj hello ())
+```
+
+Luokan metodit voivat kutsua oman luokan metodeja joko
+
+```
+  ; käyttäen suoraan this referenssiä
+  (call this say ("Hello World")) 
+
+  ; tai suoraan funktion nimellä
+  (say "Hello World")
+
+```
+
+Esimerkki:
+
+```
+    (CreateClass myClass 
+        (
+            (PublicMethod hello:void ()
+                (
+                    ; call function say
+                    (say "ello World!")
+                )
+            )
+            (PublicMethod say:void (msg:string)
+                (
+                    (print msg)
+                )
+            )
 
         )
     )
 ``` 
+
+
+
+## join
+
+Joins array of strings into a single string
+```
+  (def list:[string] (strsplit "list,of,items"))
+  (def str:string (join list ":") ; list:of:items
+```
+
+
+
+## strsplit
+
+Spits string into array of strings
+```
+  (def list:[string] (strsplit "list,of,items"))
+  (def str:string (join list ":") ; list:of:items
+```
+
+
+
+## trim
+
+Remove whitespace around the string
+```
+  (def str:string (trim "  abba   ") ; "abba"
+```
+
+
+
+## strlen
+
+Return length of a  string
+```
+  (def len:int (strlen "abcdef")) ; 6
+```
+
+
+
+## substring
+
+Return copy of the string 
+```
+  (def s:string (substring "abcdef" 2 5)) ; "cde"
+```
+
+
+
+## charcode
+
+Return ASCII code of a character
+```
+  (def code:int (charcode "A")) ; <ASCII code of A>
+```
+
+
+
+## strfromcode
+
+```
+  (def str:string (strfromcode 65)) ; A
+```
+
+
+
+## charAt
+Get ASCII code of character at position
+```
+  (def code:int (charAt "DAA" 1)) ; 65
+```
+
+
+
+## str2int
+Convert string value to integer
+```
+  (def value:int (str2int "456" )) ; 456
+```
+
+
+
+## str2double
+Convert string value to double
+```
+  (def value:double (str2double "3.14" )) ; 3.14
+```
+
+
+
+## double2str
+Convert double value to string
+```
+  (def value:string (double2str 3.14 )) ; "3.14"
+```
+
+
+
+## array_length
+Return the length of array as integer
+```
+  (def value:int (array_length someArray )) ; length of the someArray
+```
+
+
+
+## print
+Prints some output to the console
+```
+  (print "This is fine.")
+```
 
 
 
@@ -251,5 +470,334 @@ Ohjelmakoodin sisällä voidaan luoda git-dokumentaatioon lisää entryjä komen
 ```
 
 Tämä dokumentaatio on luotu käyttäen tätä synktaksia.
+
+
+
+## continue
+for, while loop continue statement
+```
+  (continue _)
+```
+
+
+
+## break
+for, while loop break statement
+```
+  (break _)
+```
+
+
+
+## throw
+
+Throws exception
+```
+  (throw "Something went wrong")
+```
+
+
+
+## return
+
+Return from function with or without value
+```
+  (return _)           ; <- nothing to return
+  (return value)       ; <- has return value
+```
+
+
+
+## remove_index
+
+Removes item from array without returning it
+```
+  (remove_index someArray 10)     
+```
+
+
+
+## indexOf
+
+Get index of item in array or -1 if not found
+```
+  (def idx:index (indexOf someArray item))     
+```
+
+
+
+## array_extract
+
+Gets and removes item from array at some index 
+```
+  (def item:ItemType (array_extract someArray 0))     
+```
+
+
+
+## removeLast 
+
+Removes the last element from the array without returning it
+```
+  (removeLast someArray )     
+```
+
+
+
+## push 
+
+Append item as last element of array
+```
+  (push someArray item)     
+```
+
+
+
+## itemAt 
+
+Returns item from array without removing it
+```
+  (def item:itemType (itemAt someArray 3)) ; get item from index 3     
+```
+
+
+
+## has 
+
+Returns true if map has a key
+```
+  (has someMap someKey) ; returns true if map has defined key "someKey"
+```
+
+
+
+## set 
+
+Set a map key to some value
+```
+  (def someMap:[string:string])
+  (set someMap "oo" "bar") ; map has now key-value pari foo:bar
+```
+
+
+
+## get 
+
+Get a value associated to a key 
+```
+  (def someMap:[string:string])
+  (set someMap "oo" "bar") ; map has now key-value pari foo:bar
+
+  (def value:string (get someMap "foo")) ; "bar"
+```
+
+
+
+## null? 
+
+Returns true if value is null
+```
+  (null? value)
+```
+
+
+
+## !null? 
+
+Returns true if value is not null
+```
+  (!null? value)
+```
+
+
+
+## Math library functions
+
+Following standard math library functions are defined from double values
+```
+  (sin value)
+  (cos value)
+  (tan value)
+  (atan value)
+  (log value)
+  (abs value)
+  (acos value)
+  (asin value)
+  (floor value)
+  (round value)
+  (sqrt value)
+```
+
+
+
+## Boolean comparision operators
+
+Following standard boolean operators are defined
+```
+  (== value1 value2)  ; equal values
+  (< value1 value2)   ; less than
+  (> value1 value2)   ; greater than
+  (!= value1 value2)  ; not equal
+  (>= value1 value2)  ; greater or equal
+  (<= value1 value2)  ; less or equal
+```
+The result value of comparision operator is boolean
+
+
+
+## Boolean logic operators
+
+Following standard boolean operators are defined for boolean values
+```
+  (&& value1 value2 value3 ...)   ; logical AND
+  (|| value1 value2 value3 ...)   ; logical OR
+```
+The result value of comparision operator is boolean
+
+
+
+## + add operator
+
+Addition is defined for numbers and strings. If the first parameter is string then
+numbers are atomatically converted to string. If first parameter is numeric then
+rest of the parameters are assumed to be numeric too.
+
+```
+(def age:int 26)
+(= x (+ x 1))
+(print (+ "Your age is now " age))
+```
+
+HUOM! Tyyppitarkastukset numeroille eivät vielä noudata tätä speksiä. Tarkastettava että ei
+tule JS tyyppisiä outouksia konversiosta.
+
+
+
+## Mathematical operators
+
+```
+(* 10 20) ; 200
+(/ 9 2)   ; 4.5
+(- 50 10) ; 40
+(% 5 2)   ; 1
+```
+
+
+
+## if
+
+```
+(if condition
+    (
+        ; then statements
+    )
+    (
+        ; else statements
+    )
+)
+```
+
+
+
+## for
+
+```
+(for someArray item:itemType i
+    (
+        ; loop expressions
+    )
+)
+```
+
+
+
+## while
+
+```
+(while condition
+    (
+        ; loop expressions
+    )
+)
+```
+
+
+
+## switch case
+
+Switch-case statement can multiple case statements having one or more matching arguments.
+
+```
+(switch condition
+    (case value
+        (
+            ; case expressions
+        )
+    )
+    (case (value1 value2 value2) ; multiple values
+        (
+
+        )
+    )
+    (default (
+        ; default expressions
+    ))
+)
+```
+
+
+
+# IO operators
+
+
+## file_read
+
+TODO: pohdittava pitäisikö olla verbi `read_file`
+
+```
+(def contents:string (file_read pathName fileName))
+```
+
+
+
+## file_write
+
+TODO: pohdittava pitäisikö olla verbi `write_file`
+
+```
+(file_write pathName fileName contentStr)
+```
+
+
+
+## dir_exists
+
+```
+(if (dir_exists pathName)
+    (
+        ; do something
+    )
+)
+```
+
+
+
+## file_exists
+
+```
+(if (file_exists pathName fileName)
+    (
+        ; do something
+    )
+)
+```
+
+
+
+## dir_create
+
+```
+(dir_create pathName)
+```
 
 
