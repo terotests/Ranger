@@ -1804,8 +1804,6 @@ Prints some output to the console
             )
                         
 
-            (PublicMethod cmdGitDoc:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
-                (                   
 (gitdoc "README.md"
 "
 ## Tuki ( gitdoc *file* *text* ) -komennolle
@@ -1817,16 +1815,13 @@ Ohjelmakoodin sisällä voidaan luoda git-dokumentaatioon lisää entryjä komen
 ```
 
 Tämä dokumentaatio on luotu käyttäen tätä synktaksia.
-
 "
-
-)                    
-
+) 
+            (PublicMethod cmdGitDoc:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (                   
                     (def cn:CodeNode (itemAt node.children 1))                    
                     (def doc:CodeNode (itemAt node.children 2))                    
-
                     (def classWriter:CodeWriter (call ctx getFileWriter ("." cn.string_value)))
-                    ; (call this WalkNode (doc ctx classWriter))
                     (call classWriter raw (doc.string_value true))
                 )
             )                    
