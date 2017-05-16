@@ -4,34 +4,6 @@
     (Import "RangerAppWriterContext.clj")
 
 
-    (Enum RangerNodeType:int
-        (
-            NoType
-            Double
-            Integer
-            String
-            Boolean
-            Array
-            Hash
-            Object
-            VRef
-            Comment
-            ExpressionType
-            XMLNode
-            XMLText
-            XMLAttr
-            XMLCDATA
-            Dictionary
-            Any
-            Class
-            Method
-            ClassVar
-            Function
-            Literal
-            Quasiliteral
-            Null
-        )
-    )
     
     ( CreateClass CodeNode 
         (
@@ -52,14 +24,24 @@
             (def ep:int 0)
 
             (def expression:boolean false)
-            (def vref:string)
+            (def vref:string "")
 
             (def type_type:string "")  ; hash, function, array ? 
             (def type_name:string "")
-            (def key_type:string)
-            (def array_type:string)
+            (def key_type:string "")
+            (def array_type:string "")
 
-            (def ns:[string]) ; obj.foo.x etc => ["obj", "foo", "x"]
+            (def ns:[string])   ; obj.foo.x etc => ["obj", "foo", "x"]
+            (def vforce:[int])  ; if the vref is strong or weak,    +obj
+            (def wrap:[int])    ; if the vref is unwrapped or not   call obj?
+
+            (def template_expression:CodeNode) ; MyClass<(T)>
+
+            (def has_vref_annotation:boolean false)
+            (def vref_annotation:CodeNode)
+
+            (def has_type_annotation:boolean false)            
+            (def type_annotation:CodeNode)
 
             (def value_type:int RangerNodeType.NoType)
 
@@ -87,7 +69,7 @@
 
             ; if node has a variable or parameter reference 
             (def hasParamDesc:boolean false)
-            (def paramDesc:RangerAppParamDesc)
+            (def paramDesc:RangerAppParamDesc @weak(true))
 
             ; the instances of new objects this node owns
             (def ownedInstances:[RangerAppObjectInstance])
@@ -151,6 +133,41 @@
             ( PublicMethod getFilename:string () (
                 (return code.filename)
             ))            
+
+            ( PublicMethod getTypeInformationString:string () (
+                (def s:string "")
+
+                (if (> (strlen vref) 0)
+                    (= s (+ s "<vref:" vref ">"))
+                    (= s (+ s "<no.vref>"))
+                )
+                (if (> (strlen type_name) 0)
+                    (= s (+ s "<type_name:" type_name ">"))
+                    (= s (+ s "<no.type_name>"))
+                )
+                (if (> (strlen array_type) 0)
+                    (= s (+ s "<array_type:" array_type ">"))
+                    (= s (+ s "<no.array_type>"))
+                )
+                (if (> (strlen key_type) 0)
+                    (= s (+ s "<key_type:" key_type ">"))
+                    (= s (+ s "<no.key_type>"))
+                )
+                (switch value_type
+                    (case RangerNodeType.Boolean (= s (+ s "<value_type=Boolean>")) )
+                    (case RangerNodeType.String (= s (+ s "<value_type=String>")) )
+                    (case RangerNodeType.Integer (= s (+ s "<value_type=Integer>")) )
+                    (case RangerNodeType.Double (= s (+ s "<value_type=Double>")) )
+                    (case RangerNodeType.Array (= s (+ s "<value_type=Array>")) )
+                    (case RangerNodeType.VRef (= s (+ s "<value_type=VRef>")) )
+                    (case RangerNodeType.ExpressionType (= s (+ s "<value_type=ExpressionType>")) )
+                    (case RangerNodeType.Object (= s (+ s "<value_type=Object>")) )
+                    (default (= s (+ s "<value_type=Unknown " value_type " >")))
+                )
+                
+                (return s)
+            ))
+            
 
             ( PublicMethod getLine:int () (
                 (return (call code getLine (sp)))
@@ -231,7 +248,24 @@
                     (return false)
                 )
             )
-            
+
+
+             (PublicMethod isPrimitiveType:boolean () 
+                (
+                    (if (||
+                            (== type_name "double")
+                            (== type_name "string")
+                            (== type_name "int")
+                            (== type_name "boolean")
+                        )
+                        (
+                            (return true)
+                        )
+                    )
+                    (return false)
+                )
+            )
+           
 
             (PublicMethod getFirst:CodeNode () 
                 (

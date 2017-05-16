@@ -32,6 +32,40 @@
                 (return (call rootNode getCode ()))
             ))        
 
+            ( PublicMethod parse_raw_annotation:CodeNode ()
+                (
+
+                    (def c:char)
+                    (def sp:int i)
+                    (def ep:int i)
+                    
+                    ; skip annotation mark and continue
+                    (= i (+ i 1))
+                    (= sp i)
+                    (= ep i)
+                    (= c (charAt s i))
+
+                    (if (< i len) 
+                        (
+                            ; parse new expression as variable type
+                            (def a_node2:CodeNode (new CodeNode (code sp ep)))
+                            (= a_node2.expression true)
+                            (= curr_node a_node2)
+
+                            (push parents a_node2)
+                            (= i (+ i 1))
+                            (= paren_cnt (+ paren_cnt 1))
+
+                            (call this parse ())
+
+                            (return a_node2)                       
+
+                        )
+                    ) 
+                    
+                )            
+            )
+
             ( PublicMethod parse:void () (
 
                 @onError(
@@ -115,13 +149,13 @@
                                                     ; (print "-> new root node")
                                                 )
                                                 (
-                                                    (= new_node (new CodeNode (code i i)))
-                                                    (if (== c 96) (= new_node.value_type RangerNodeType.Quasiliteral))
-                                                    (if (== c 39) (= new_node.value_type RangerNodeType.Literal))                                                    
-                                                    (= new_node.expression true)
-                                                    (push curr_node.children new_node)
-                                                    (= curr_node new_node)
-                                                    (push parents curr_node)
+                                                    (def new_qnode (new CodeNode (code i i)))
+                                                    (if (== c 96) (= new_qnode.value_type RangerNodeType.Quasiliteral))
+                                                    (if (== c 39) (= new_qnode.value_type RangerNodeType.Literal))                                                    
+                                                    (= new_qnode.expression true)
+                                                    (push curr_node.children new_qnode)
+                                                    (= curr_node new_qnode)
+                                                    (push parents new_qnode)
                                                     ; (print "added a new child node")
                                                 )
                                             )
@@ -172,22 +206,22 @@
                                     )
                                     (= ep i)
 
-                                    (= new_node (new CodeNode (code sp ep)))
+                                    (def new_num_node (new CodeNode (code sp ep)))
 
                                     (if is_double
                                         (
-                                            (= new_node.value_type RangerNodeType.Double) 
-                                            (= new_node.double_value (str2double (substring s sp ep)))
+                                            (= new_num_node.value_type RangerNodeType.Double) 
+                                            (= new_num_node.double_value (str2double (substring s sp ep)))
                                         )
                                         (
-                                            (= new_node.value_type RangerNodeType.Integer) 
-                                            (= new_node.int_value (str2int (substring s sp ep)))    
+                                            (= new_num_node.value_type RangerNodeType.Integer) 
+                                            (= new_num_node.int_value (str2int (substring s sp ep)))    
                                         )
                                         
                                     )
                                     
 
-                                    (push curr_node.children new_node)
+                                    (push curr_node.children new_num_node)
                                     ; (print (call new_node getString ()))
                                     ; set type to number...
                                     (continue _ )
@@ -294,15 +328,15 @@
                                                     )
                                                 )
 
-                                                (= new_node (new CodeNode (code sp ep)))
-                                                (= new_node.value_type RangerNodeType.String)
+                                                (def new_str_node (new CodeNode (code sp ep)))
+                                                (= new_str_node.value_type RangerNodeType.String)
 
                                                 (if must_encode
-                                                    (= new_node.string_value encoded_str)
-                                                    (= new_node.string_value (substring s sp ep))
+                                                    (= new_str_node.string_value encoded_str)
+                                                    (= new_str_node.string_value (substring s sp ep))
                                                 )
 
-                                                (push curr_node.children new_node)
+                                                (push curr_node.children new_str_node)
                                                 ; (print (call new_node getString ()))
                                                 ; set type to number...
                                                 (= i (+ 1 i))
@@ -320,11 +354,11 @@
                                         (== (charAt s (+ i 3)) (charcode "e")) )
                                     (
 
-                                        (= new_node (new CodeNode (code sp (+ sp 4))))
-                                        (= new_node.value_type RangerNodeType.Boolean)
-                                        (= new_node.boolean_value true)
+                                        (def new_true_node:CodeNode (new CodeNode (code sp (+ sp 4))))
+                                        (= new_true_node.value_type RangerNodeType.Boolean)
+                                        (= new_true_node.boolean_value true)
 
-                                        (push curr_node.children new_node)
+                                        (push curr_node.children new_true_node)
 
                                         (= i (+ i 4))
                                         (continue _)
@@ -339,17 +373,18 @@
                                     (
 
 
-                                        (= new_node (new CodeNode (code sp (+ sp 5))))
-                                        (= new_node.value_type RangerNodeType.Boolean)
-                                        (= new_node.boolean_value false)
+                                        (def new_f_node:CodeNode (new CodeNode (code sp (+ sp 5))))
+                                        (= new_f_node.value_type RangerNodeType.Boolean)
+                                        (= new_f_node.boolean_value false)
 
-                                        (push curr_node.children new_node)
+                                        (push curr_node.children new_f_node)
 
                                         (= i (+ i 5))
                                         (continue _)
                                     )
                                 )
 
+                                ; expression annotation...
                                 ; @prop(true)
                                 (if (== fc (charcode "@")) 
                                     (
@@ -388,34 +423,24 @@
 
                                                 (call this parse ())
 
-                                                ;(= new_node (new CodeNode (code sp vt_ep)))
-                                                ;(= new_node.vref (substring s sp ep))
-                                                ;(= new_node.ns ns_list)
-                                                ;(= new_node.expression_value a_node)               
-                                                ;(= new_node.value_type RangerNodeType.ExpressionType)      
-
+                                                @todo("add get strong reference from array")
+                                                ; the branching is mildly proglematic...
+                                                (def use_first:boolean false)
                                                 (if (== 1 (array_length a_node2.children))
                                                     (
                                                         (def ch1:CodeNode (itemAt a_node2.children 0))
-                                                        (if (call ch1 isPrimitive ())
-                                                            (
-                                                                (set curr_node.props a_name ch1)
-                                                            )
-                                                            (
-                                                                (set curr_node.props a_name a_node2)
-                                                            )
-                                                        )
-
+                                                        (= use_first (call ch1 isPrimitive ()))
                                                     )
+                                                )            
+                                                (if use_first
                                                     (
-                                                        (set curr_node.props a_name a_node2)
+                                                        (def theNode:CodeNode (array_extract a_node2.children 0))
+                                                        (set curr_node.props a_name theNode)
+                                                    )(
+                                                        (set curr_node.props a_name a_node2)                                                        
                                                     )
-                                                )                                           
-                                                
-                                                
-                                                
+                                                )                               
                                                 (push curr_node.prop_keys a_name)
-
                                                 (continue _)
 
                                             )
@@ -429,6 +454,10 @@
                                 (def ns_list:[string])
                                 (def last_ns:int i)
                                 (def ns_cnt:int 1)  
+
+                                (def vref_had_type_ann:boolean false)
+                                (def vref_ann_node:CodeNode)
+                                (def vref_end:int i)
 
                                 (while ( && (< i len) 
                                             (> (charAt s i) 32 ) 
@@ -448,10 +477,28 @@
                                                 (= ns_cnt (+ 1 ns_cnt))
                                             )
                                         )
+
+                                        (if ( && ( > i vref_end ) (== c (charcode "@")) )
+                                            (
+                                                (= vref_had_type_ann true)
+                                                (= vref_end i)
+                                                (= vref_ann_node (call this parse_raw_annotation ()))
+                                                (print "found annotation node")
+                                                (= c (charAt s i))
+                                                (break _)
+                                            )
+                                        )                                        
                                     )
                                 )
-                                (push ns_list (substring s last_ns i))
+                                
                                 (= ep i)
+
+                                (if vref_had_type_ann
+                                    (
+                                        (= ep vref_end)
+                                    )
+                                )
+                                (push ns_list (substring s last_ns ep))
 
                                 ; skip empty space
                                 (while ( && (< i len) 
@@ -493,13 +540,19 @@
 
                                                 (call this parse ())
 
-                                                (= new_node (new CodeNode (code sp vt_ep)))
-                                                (= new_node.vref (substring s sp ep))
-                                                (= new_node.ns ns_list)
-                                                (= new_node.expression_value a_node3)               
-                                                (= new_node.value_type RangerNodeType.ExpressionType)                                                 
+                                                (def new_expr_node (new CodeNode (code sp vt_ep)))
+                                                (= new_expr_node.vref (substring s sp ep))
+                                                (= new_expr_node.ns ns_list)
+                                                (= new_expr_node.expression_value a_node3)               
+                                                (= new_expr_node.value_type RangerNodeType.ExpressionType)   
 
-                                                (push curr_node.children new_node)
+                                                (if vref_had_type_ann 
+                                                    (
+                                                        (= new_expr_node.vref_annotation vref_ann_node)
+                                                        (= new_expr_node.has_vref_annotation true)
+                                                    )
+                                                )
+                                                (push curr_node.children new_expr_node)
 
                                                 (continue _)
 
@@ -513,6 +566,7 @@
                                                 (= vt_sp i)
                                                 
                                                 (def hash_sep:int 0)
+                                                (def had_array_type_ann:boolean false)
                                                 (= c (charAt s i))
                                                 (while (&& (< i len) (> c 32)
                                                         (!= c 93) )
@@ -524,6 +578,13 @@
                                                                     (= hash_sep i)
                                                                 )
                                                             )
+
+                                                            (if (== c (charcode "@"))
+                                                                (
+                                                                    (= had_array_type_ann true)
+                                                                    (break _)
+                                                                )
+                                                            )                                                            
                                                         )
                                                 )
                                                 (= vt_ep i)
@@ -537,16 +598,32 @@
                                                         (def key_type_name:string (substring s vt_sp hash_sep)) 
                                                            
                                                         ; also add namespace....
-                                                        (= new_node (new CodeNode (code sp vt_ep)))
-                                                        (= new_node.vref (substring s sp ep))
-                                                        (= new_node.ns ns_list)
-                                                        (= new_node.value_type RangerNodeType.Hash) 
+                                                        (def new_hash_node:CodeNode (new CodeNode (code sp vt_ep)))
+                                                        (= new_hash_node.vref (substring s sp ep))
+                                                        (= new_hash_node.ns ns_list)
+                                                        (= new_hash_node.value_type RangerNodeType.Hash) 
                                                         
-                                                        (= new_node.array_type type_name)
-                                                        (= new_node.key_type key_type_name)
+                                                        (= new_hash_node.array_type type_name)
+                                                        (= new_hash_node.key_type key_type_name)
 
-                                                        (= new_node.parent curr_node)
-                                                        (push curr_node.children new_node)
+                                                        (if vref_had_type_ann 
+                                                            (
+                                                                (= new_hash_node.vref_annotation vref_ann_node)
+                                                                (= new_hash_node.has_vref_annotation true)
+                                                            )
+                                                        )
+
+                                                        (if had_array_type_ann
+                                                            (
+                                                                (def vann_hash:CodeNode (call this parse_raw_annotation ()))
+                                                                (= new_hash_node.type_annotation vann_hash)
+                                                                (= new_hash_node.has_type_annotation true)
+                                                                (print "--> parsed HASH TYPE annotation")                                                                
+                                                            )
+                                                        )
+
+                                                        (= new_hash_node.parent curr_node)
+                                                        (push curr_node.children new_hash_node)
                                                         ; (print new_node.vref)
                                                         (= i (+ 1 i))
                                                         (continue _)
@@ -554,19 +631,35 @@
                                                     )
                                                     (
                                                         ; array
-                                                        ; (print "Found ARRAY type")
                                                         (= vt_ep i)
                                                         (def type_name:string (substring s vt_sp vt_ep))    
-
+                                                        ; (print type_name)
                                                         ; also add namespace....
-                                                        (= new_node (new CodeNode (code sp vt_ep)))
-                                                        (= new_node.vref (substring s sp ep))
-                                                        (= new_node.ns ns_list)
-                                                        (= new_node.value_type RangerNodeType.Array) 
+                                                        (def new_arr_node (new CodeNode (code sp vt_ep)))
+                                                        (= new_arr_node.vref (substring s sp ep))
+                                                        (= new_arr_node.ns ns_list)
+                                                        (= new_arr_node.value_type RangerNodeType.Array) 
                                                         
-                                                        (= new_node.array_type type_name)
-                                                        (= new_node.parent curr_node)
-                                                        (push curr_node.children new_node)
+                                                        (= new_arr_node.array_type type_name)
+                                                        (= new_arr_node.parent curr_node)
+                                                        (push curr_node.children new_arr_node)
+
+
+                                                        (if vref_had_type_ann 
+                                                            (
+                                                                (= new_arr_node.vref_annotation vref_ann_node)
+                                                                (= new_arr_node.has_vref_annotation true)
+                                                            )
+                                                        )
+
+                                                        (if had_array_type_ann
+                                                            (
+                                                                (def vann_arr:CodeNode (call this parse_raw_annotation ()))
+                                                                (= new_arr_node.type_annotation vann_arr)
+                                                                (= new_arr_node.has_type_annotation true)
+                                                                (print "--> parsed ARRAY TYPE annotation")                                                                
+                                                            )
+                                                        )
 
                                                         (= i (+ 1 i))
                                                         (continue _)
@@ -577,6 +670,7 @@
                                         )
 
                                         ; parse normal type like :int, :double etc.
+                                        (def had_type_ann:boolean false)
                                         (while ( && (< i len) 
                                                     (> (charAt s i) 32 ) 
                                                     (!= c 58)
@@ -587,6 +681,14 @@
                                                 ; (print (+ "char:" c))
                                                 (= i (+ 1 i))
                                                 (= c (charAt s i))
+
+                                                (if (== c (charcode "@"))
+                                                    (
+                                                        (= had_type_ann true)
+                                                        ;(= i (- i 1))
+                                                        (break _)
+                                                    )
+                                                )
                                             )
                                         )                                        
                                         (if (< i len)
@@ -595,14 +697,30 @@
                                                 (def type_name:string (substring s vt_sp vt_ep))    
 
                                                 ; also add namespace....
-                                                (= new_node (new CodeNode (code sp ep)))
-                                                (= new_node.vref (substring s sp ep))
-                                                (= new_node.ns ns_list)
-                                                (= new_node.value_type RangerNodeType.VRef) 
-                                                (= new_node.type_name (substring s vt_sp vt_ep))
-                                                (= new_node.parent curr_node)
+                                                (def new_ref_node:CodeNode (new CodeNode (code sp ep)))
+                                                (= new_ref_node.vref (substring s sp ep))
+                                                (= new_ref_node.ns ns_list)
+                                                (= new_ref_node.value_type RangerNodeType.VRef) 
+                                                (= new_ref_node.type_name (substring s vt_sp vt_ep))
+                                                (= new_ref_node.parent curr_node)
+
+                                                (if vref_had_type_ann 
+                                                    (
+                                                        (= new_ref_node.vref_annotation vref_ann_node)
+                                                        (= new_ref_node.has_vref_annotation true)
+                                                    )
+                                                )
+
                                                 ; (print (+ "Found type " new_node.type_name))
-                                                (push curr_node.children new_node)
+                                                (push curr_node.children new_ref_node)
+                                                (if had_type_ann
+                                                    (
+                                                        (def vann:CodeNode (call this parse_raw_annotation ()))
+                                                        (= new_ref_node.type_annotation vann)
+                                                        (= new_ref_node.has_type_annotation true)
+                                                        (print "--> parsed TYPE annotation")
+                                                    )
+                                                )
                                                 (continue _)
                                             )
                                         )                    
@@ -613,12 +731,21 @@
                                         ; types like obj.foo.x
                                         (if ( && (< i len) (> ep sp) )
                                             (
-                                                (= new_node (new CodeNode (code sp ep)))
-                                                (= new_node.vref (substring s sp ep))
-                                                (= new_node.value_type RangerNodeType.VRef) 
-                                                (= new_node.ns ns_list)
-                                                (= new_node.parent curr_node)
-                                                (push curr_node.children new_node)
+                                                (def new_vref_node:CodeNode (new CodeNode (code sp ep)))
+                                                (= new_vref_node.vref (substring s sp ep))
+                                                (= new_vref_node.value_type RangerNodeType.VRef) 
+                                                (= new_vref_node.ns ns_list)
+                                                (= new_vref_node.parent curr_node)
+                                                (push curr_node.children new_vref_node)
+                                                (if vref_had_type_ann
+                                                    (
+                                                        ; (def vann:CodeNode (call this parse_raw_annotation ()))
+                                                        (= new_vref_node.vref_annotation vref_ann_node)
+                                                        (= new_vref_node.has_vref_annotation true)
+                                                        (print "--> had a normal vref annotation")
+                                                        (print (substring s sp ep))
+                                                    )
+                                                )
 
                                             )
                                         )                                                            
