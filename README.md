@@ -60,7 +60,7 @@ variable `x`
 ```
 (def x)
 ```
-Jos halutaan määritellä variable tyyppiä `double` se voidaan tehdä syntaksin avulla
+Jos halutaan määritellä variable tyyppiä `double` se voidaan tehdä laajennetun tyyppi -syntaksin avulla
 ```
 (def x:double)
 ```
@@ -469,7 +469,7 @@ Esimerkki:
             (PublicMethod hello:void ()
                 (
                     ; call function say
-                    (say "ello World!")
+                    (say "Hello World!")
                 )
             )
             (PublicMethod say:void (msg:string)
