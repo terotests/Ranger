@@ -37,6 +37,48 @@ Arrayn tai Mapin sisällä oleva template voidaan määritellä seuraavasti:
 
 
 
+## Annotaatio -tuki
+
+Ranger laajentaa Lispin syntaksiin kolme erityyppistä annotaatiota:
+- expression -annotaatiot
+- referenssi -annotaatiot
+- type -annotaatiot
+
+Esimerkkejä:
+
+```
+(CreateClass myClass@(T) ; <-- referenssi annotaatio
+@todo("muista lisätä tuki Option tyyppisille arvoille") ; expression annotation
+
+(PublicMethod foobar:void (myObj@(strong)) ; <-- referenssi annotaatio
+(
+(def classList:myClass@(T)) ; <-- @(T) on type annotaatio referenssille classList
+)
+)
+)
+
+```
+
+Jokainen annotaatio on uusi S-expression tyyppiä `CodeNode` ja sijoitetaan luokan CodeNode propertyksi.
+
+Luokassa CodeNode referenssiannotaatio sijoitetaan propertyyn `vref_annotation` tyyppiannotaatio
+sijoitetaan `type_annotation` propertyyn ja expressionin annotaatiot sijoitetaan niiden avaimen
+mukaisesti `props` -propertyyn.
+
+```
+(def has_vref_annotation:boolean false)
+(def vref_annotation:CodeNode)
+
+(def has_type_annotation:boolean false)
+(def type_annotation:CodeNode)
+
+; annotations or properties
+(def props:[string:CodeNode])
+(def prop_keys:[string])
+```
+
+
+
 ## Tuki ( gitdoc *file* *text* ) -komennolle
 
 Ohjelmakoodin sisällä voidaan luoda git-dokumentaatioon lisää entryjä komennolla
