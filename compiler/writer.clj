@@ -1,6 +1,14 @@
 (
     (Import "CompilerGeneric.clj")
 
+(gitdoc "codewriter.md" 
+"
+# Koodin kirjoittaja (CodeWriter)
+
+Tärkeä osa koodin käännösprosessia on koodikirjoittaja, joka luo virtuaalisen tiedostojärjestelmän
+johon koodi talletetaan. 
+
+")
     ( CreateClass CodeFile
         (
             
@@ -322,19 +330,9 @@
                                 (if (< idx (- rowCnt 1))
                                     (
                                         (writeSlice (trim row) true)
-                                        ;(= currentLine (+ currentLine row))
-                                        ;(= codeStr (+ codeStr currentLine "\n" ))
-                                        ;(= currentLine "")
                                     )
                                     (
                                         (writeSlice row newLine)
-                                        ;(= currentLine (+ currentLine row))
-                                        ;(if newLine
-                                        ;    (
-                                        ;        (= codeStr (+ codeStr currentLine "\n" ))
-                                        ;        (= currentLine "")
-                                        ;    )
-                                        ;)                                        
                                     )
                                 )
                             )
@@ -342,6 +340,33 @@
                     )
                 )
             ))
+
+            ( PublicMethod raw:void (str:string newLine:boolean) (
+                (def lines:[string] (strsplit str "\n" ))
+                (def rowCnt:int (array_length lines))
+                (if (== rowCnt 1)
+                    (
+                        (writeSlice str newLine)
+                    )
+                    (
+                        ; if more than 1 line to be written
+                        (for lines row idx
+                            (
+                                (addIndent ())
+                                (if (< idx (- rowCnt 1))
+                                    (
+                                        (writeSlice row true)
+                                    )
+                                    (
+                                        (writeSlice row newLine)
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            ))
+            
             
 
             ( PublicMethod getCode:string () (

@@ -1,5 +1,55 @@
 (
+    
 
+(gitdoc "README.md"
+
+"
+# Ranger kääntäjän dokumentaatio
+
+Yleisesti huomioitavaa: 
+- kääntäjä on vielä työn alla ja jotkut ominaisuudet eivät vielä toimi tai toimivat vain osin
+- sama koskee myös dokumentaatiota, kaikkia osia ei ole dokumentoitu tai dokumentoitu vain osin
+
+## Kääntäjän asentaminen
+
+```
+ npm install -g ranger-compiler
+```
+
+## Hello World
+
+Create file `Hello.ran`
+```
+(
+    (gitdoc \"README.md\"
+\"
+# The Hello World -project
+\"    
+    )
+    (CreateClass Hello
+        (
+            (PublicMethod hello:void ()
+                (
+                    (print \"Hello World\")
+                )
+            )
+        )
+    )
+)
+```
+Then compile it using `ranger-compiler` using command line
+
+```
+ranger-compiler Hello.ran es5 projectdir/hello none
+```
+
+Then go to directory `projectdir/hello` and see the compiled result
+
+
+
+
+"
+)
     (Import "CompilerGeneric.clj")
     (Import "writer.clj")
     (Import "parser.clj")
@@ -67,11 +117,11 @@
                     @description("Ranger command-line compiler utility")
                     @author("Tero Tolonen")
                     @license("MIT")
-                    @version("1.0.22")
+                    @version("1.0.24")
                     @usage("languages: js-browser")
                 ) 
-
                 (
+
 
                     @onError(
                         (print "Unknown compiler error.")
@@ -213,6 +263,7 @@
                     )
                 )
                 (print "Usage: <input> <directory> <logtype>")
+                (print (+ "% 5 2 => " (% 5 2)))
                 ; (compile read_filename "ranger_output" "memory4" )
 
             ))            

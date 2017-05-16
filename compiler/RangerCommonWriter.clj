@@ -4,6 +4,53 @@
     (Import "RangerAllocations.clj")
     (Import "parser.clj")
 
+(gitdoc "README.md"
+
+"
+# Komentojen synktasi
+
+## muuttujien määrittely
+
+```
+(def x:double)
+(def len:int 10)
+```
+
+## heikot ja vahvat referenssit
+
+Joskus referenssi olioon on määriteltävä heikoksi, jotta sitä ei vapauteta kun funktiosta poistutaan
+tai kun kyseinen olio itsessään vapautetaan.
+
+```
+(def obj:myClass @weak(true))
+```
+
+## muuttujien sijoittaminen
+
+```
+(def x:double 20)
+(def y:double 10)
+(= x y )          ; x is now 10
+(= x (+ x 5))     ; x is now 15
+```
+
+## komentojen lisp -tyyppinen syntaksi
+
+Komennot noudattavat lisp -tyyppistä syntaksia:
+
+```
+(+ 10 5)     ; 15
+(== 5 12)    ; false
+(> 7 3)      ; true
+(&& (== 4 4) true)  ; true
+(&& (== 4 4) false) ; false
+
+(call myObj hello ()) ; calls object myObj funtion hello
+```
+
+
+"
+)
     ( CreateClass RangerCommonWriter 
         (
 
@@ -63,6 +110,29 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## Enumeraatiot
+
+Enumeraatiot ovat tyyppiä int
+```
+    (Enum Fruits:int
+        (
+            Banana
+            Orange
+            Apple
+            Pineapple
+        )
+    )
+``` 
+
+Huom! Tällä hetkellä tyyppitarkastukset enumeroiduista tyypeistä eivät osaa tarkastaa virhellisiä
+enumeroituja tyyppejä vaan konvertoivat kaikki tyyppiin `int`. Tällöin on mahdollista sijoittaa
+muuttujaan jossa on tyyppiä
+
+"
+)
             ; (def definedEnums:[string:RangerAppEnum])
             (PublicMethod cmdEnum:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -443,6 +513,19 @@
             )
 
 
+(gitdoc "README.md"
+
+"
+## Import
+
+Lähdekoodin uudelleenkäyttäminen ja importointi, jossa haetaan tiedoston luokkamääritykset:
+
+```
+    (Import \"sourcefile.ext\")
+``` 
+
+"
+)
 
             (PublicMethod cmdImport:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -480,6 +563,90 @@
                     (return true)
                 )           
             )
+
+(gitdoc "README.md"
+
+"
+## Luokan luominen
+
+```
+    (CreateClass myClass 
+        (
+            (PublicMethod hello:void ()
+                (
+                    (print \"\Hello World!\")
+                )
+            )
+        )
+    )
+    (def obj:myClass (new myClass ()))
+    (call obj hello ())
+``` 
+
+## Metodin määrittely luominen
+
+```
+    (PublicMethod hello:string (arg1:int arg2:string)
+``` 
+
+```
+    (StaticMethod hello:string (arg1:int arg2:string)
+``` 
+
+
+```
+    (CreateClass myClass 
+        (
+            (PublicMethod hello:string (arg1:int arg2:string)
+                (
+                )
+            )
+        )
+    )
+``` 
+
+
+## Periyttäminen
+
+Periyttäminen voidaan tehdä `Extends` komennolla luokan bodyn sisällä.
+
+```
+    (CreateClass childClass 
+        (
+            (Extends (myClass))
+        )
+    )
+
+    ; usage:
+    (def obj:childClass (new childClass ()))
+    (call obj hello ())
+    
+``` 
+
+## Heikot ja vanhvat paluuarvot
+
+Tällä hetkellä pohdinnassa syntaksi:
+```
+    (PublicMethod hello:myClass @strong(true) (arg1:int arg2:string)
+``` 
+
+Toinen vaihtoehto:
+```
+    (PublicMethod hello@(weak):myClass  (arg1:int arg2:string)
+``` 
+
+## Heikot ja vanhvat argumentit
+
+Tällä hetkellä pohdinnassa syntaksi:
+```
+    (PublicMethod hello:myClass (arg1@(strong):someClass)
+``` 
+Missä `arg1` on vahva argumentti ja siirtää variable omistuksen funktioon, minkä jälkeen
+kutsuja käsittelee annettua parametria weak -referenssinä ja funktio joka vastaanotti
+parametrin käsittelee argumenttia vahvana referenssinä.
+
+"
+)
 
             (PublicMethod CreateClass (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -684,6 +851,28 @@
                    ; (call wr out ( node.vref false ))
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## Luokan rakentaja
+
+```
+    (CreateClass myClass 
+        (
+            (Constructor (str:string)
+                (
+                    (print (+ \"Hello !\" str))
+                )
+            )
+        )
+    )
+``` 
+
+Käyttö: `(new myClass (\"World\"))`
+
+"
+)
             
             (PublicMethod Constructor (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -750,6 +939,17 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## new -operaattori
+
+```
+    (def obj:myClass (new myClass (\"World\")))
+``` 
+
+"
+)
             ;( new ClassName (...params))
             (PublicMethod cmdNew:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -821,6 +1021,52 @@
 
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## Luokan funktioiden kutsuminen
+
+Oliota, johon on olemassa referenssi voidaan kutsua `call` operaattorilla
+
+```
+  (call obj hello ())
+```
+
+Luokan metodit voivat kutsua oman luokan metodeja joko
+
+```
+  ; käyttäen suoraan this referenssiä
+  (call this say (\"Hello World\")) 
+
+  ; tai suoraan funktion nimellä
+  (say \"Hello World\")
+
+```
+
+Esimerkki:
+
+```
+    (CreateClass myClass 
+        (
+            (PublicMethod hello:void ()
+                (
+                    ; call function say
+                    (say \"Hello World!\")
+                )
+            )
+            (PublicMethod say:void (msg:string)
+                (
+                    (print msg)
+                )
+            )
+
+        )
+    )
+``` 
+
+"
+)
 
 
             ; test if this expression is a call...
@@ -901,6 +1147,7 @@
                     (return false)
                 )
             )            
+
 
             (PublicMethod cmdCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1138,6 +1385,19 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## join
+
+Joins array of strings into a single string
+```
+  (def list:[string] (strsplit \"list,of,items\"))
+  (def str:string (join list \":\")) ; list:of:items
+```
+
+"
+)
             (PublicMethod cmdJoin:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
@@ -1155,6 +1415,21 @@
 
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## strsplit
+
+Spits string into array of strings
+```
+  (def list:[string] (strsplit \"list,of,items\"))
+  (def str:string (join list \":\")) ; list:of:items
+```
+
+"
+)
+            
 
             (PublicMethod cmdSplit:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1174,6 +1449,20 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## trim
+
+Remove whitespace around the string
+```
+  (def str:string (trim \"  abba   \")) ; \"abba\"
+```
+
+"
+)
+            
+
             (PublicMethod cmdTrim:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
@@ -1187,6 +1476,19 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## strlen
+
+Return length of a  string
+```
+  (def len:int (strlen \"abcdef\")) ; 6
+```
+
+"
+)
+
             (PublicMethod cmdStrlen:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
@@ -1199,6 +1501,19 @@
 
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## substring
+
+Return copy of the string 
+```
+  (def s:string (substring \"abcdef\" 2 5)) ; \"cde\"
+```
+
+"
+)
 
             (PublicMethod cmdSubstring:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1222,6 +1537,19 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## charcode
+
+Return ASCII code of a character
+```
+  (def code:int (charcode \"A\")) ; <ASCII code of A>
+```
+
+"
+)
+
             ; getting the character code for some 
             (PublicMethod cmdCharcode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1237,6 +1565,18 @@
                 )
             )             
 
+(gitdoc "README.md"
+
+"
+## strfromcode
+
+```
+  (def str:string (strfromcode 65)) ; A
+```
+
+"
+)
+
             (PublicMethod cmdStrfromcode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
@@ -1250,6 +1590,17 @@
                     
                 )
             )   
+
+(gitdoc "README.md"
+
+"
+## charAt
+Get ASCII code of character at position
+```
+  (def code:int (charAt \"DAA\" 1)) ; 65
+```
+
+")
 
             (PublicMethod cmdCharAt:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1269,6 +1620,17 @@
                 )
             )    
 
+(gitdoc "README.md"
+
+"
+## str2int
+Convert string value to integer
+```
+  (def value:int (str2int \"456\" )) ; 456
+```
+
+")            
+
             ;cmdStr2Int     
             (PublicMethod cmdStr2Int:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1286,6 +1648,17 @@
                 )
             )      
 
+(gitdoc "README.md"
+
+"
+## str2double
+Convert string value to double
+```
+  (def value:double (str2double \"3.14\" )) ; 3.14
+```
+
+")            
+
             (PublicMethod cmdStr2Double:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def n1:CodeNode (call node getSecond ()))
@@ -1300,7 +1673,19 @@
                     (call this shouldBeType ("string" n1 ctx "str2double expects a string as the first parameter."))                    
                     
                 )
-            )                              
+            )                      
+
+ 
+(gitdoc "README.md"
+
+"
+## double2str
+Convert double value to string
+```
+  (def value:string (double2str 3.14 )) ; \"3.14\"
+```
+
+")                               
 
             (PublicMethod cmdDouble2Str:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1317,6 +1702,18 @@
                     
                 )
             )            
+
+
+(gitdoc "README.md"
+
+"
+## array_length
+Return the length of array as integer
+```
+  (def value:int (array_length someArray )) ; length of the someArray
+```
+
+")                        
 
             (PublicMethod cmdArrayLength:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1364,6 +1761,17 @@
 
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## print
+Prints some output to the console
+```
+  (print \"This is fine.\")
+```
+
+")                        
             
 
             (PublicMethod cmdPrint:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -1394,6 +1802,46 @@
                     (call wr out ("*/" true))                    
                 )
             )
+                        
+
+            (PublicMethod cmdGitDoc:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (                   
+(gitdoc "README.md"
+"
+## Tuki ( gitdoc *file* *text* ) -komennolle
+
+Ohjelmakoodin sisällä voidaan luoda git-dokumentaatioon lisää entryjä komennolla
+
+```
+   (gitdoc \"README.md\" \"# Hello Git!\")
+```
+
+Tämä dokumentaatio on luotu käyttäen tätä synktaksia.
+
+"
+
+)                    
+
+                    (def cn:CodeNode (itemAt node.children 1))                    
+                    (def doc:CodeNode (itemAt node.children 2))                    
+
+                    (def classWriter:CodeWriter (call ctx getFileWriter ("." cn.string_value)))
+                    ; (call this WalkNode (doc ctx classWriter))
+                    (call classWriter raw (doc.string_value true))
+                )
+            )                    
+
+
+(gitdoc "README.md"
+
+"
+## continue
+for, while loop continue statement
+```
+  (continue _)
+```
+
+")            
 
             (PublicMethod cmdContinue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1402,12 +1850,52 @@
                 )
             )  
 
+(gitdoc "README.md"
+
+"
+## break
+for, while loop break statement
+```
+  (break _)
+```
+
+")            
+
             (PublicMethod cmdBreak:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
                     (call wr out ("break;" true))
                 )
             )            
+
+(gitdoc "README.md"
+
+"
+## throw
+
+Throws exception
+```
+  (throw \"Something went wrong\")
+```
+
+Virheiden käsittelijä on vielä työn alla. Koska tavoite on pystyä kääntämään myös Golang kielelle
+missä ei ole normaalia try... catch... käsittelijää ainakin toistaiseksi virhekäsittelijä on 
+funktiokohtainen annotaatio `@onError()` jonka sisällä oleva expression sisältää komennot jotka
+ajetaan virheen tapahtumisen jälkeen.
+
+```
+@onError(
+    (print \"Got exception.\")
+)
+```
+
+Virhekäsittelijästä puuttuu vielä kyky lähettää eri tyyppisiä virheilmoituksia esimerkiksi 
+enumeroituina Exceptioneina tai erillistettyinä Exception -luokkina. Lisäksi on pohdittava
+miten virhekäsittelijä suhtautuu paikallisiin variableihin, onko niiden käyttäminen 
+sallittua ja missä määrin.
+
+
+")            
 
             (PublicMethod cmdThrow:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (                    
@@ -1432,6 +1920,19 @@
                     (call wr out (";" true))                    
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## return
+
+Return from function with or without value
+```
+  (return _)           ; <- nothing to return
+  (return value)       ; <- has return value
+```
+
+")            
 
 
             (PublicMethod cmdReturn:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -1512,6 +2013,18 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## remove_index
+
+Removes item from array without returning it
+```
+  (remove_index someArray 10)     
+```
+
+")            
+
             ; remove item from array
             ; (remove_index arr index)
             (PublicMethod cmdRemoveIndex:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -1536,6 +2049,18 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## indexOf
+
+Get index of item in array or -1 if not found
+```
+  (def idx:index (indexOf someArray item))     
+```
+
+")            
+
             ; (indexOf arr item)
             (PublicMethod cmdIndexOf:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1557,6 +2082,18 @@
                     (call this shouldBeArray (arrayObj ctx "remove expects an array as the first parameter."))                    
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## array_extract
+
+Gets and removes item from array at some index 
+```
+  (def item:ItemType (array_extract someArray 0))     
+```
+
+")            
 
             ; (removeLast arr value)
             (PublicMethod cmdExtractArray:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -1593,6 +2130,18 @@
 
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## removeLast 
+
+Removes the last element from the array without returning it
+```
+  (removeLast someArray )     
+```
+
+")            
             
 
             ; (removeLast arr value)
@@ -1610,6 +2159,18 @@
                     (call this shouldBeArray (obj ctx "removeLast expects an array as the first parameter."))                    
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## push 
+
+Append item as last element of array
+```
+  (push someArray item)     
+```
+
+")            
 
             ; (push arr value)
             (PublicMethod cmdPush:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -1633,6 +2194,19 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## itemAt 
+
+Returns item from array without removing it
+```
+  (def item:itemType (itemAt someArray 3)) ; get item from index 3     
+```
+
+")            
+            
+
             ; (itemAt arr index)
             (PublicMethod cmdItemAt:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1653,6 +2227,18 @@
                 )
             )
 
+
+(gitdoc "README.md"
+
+"
+## has 
+
+Returns true if map has a key
+```
+  (has someMap someKey) ; returns true if map has defined key \"someKey\"
+```
+
+")            
 
             ; (has obj key)
             (PublicMethod cmdHas:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -1680,6 +2266,19 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## set 
+
+Set a map key to some value
+```
+  (def someMap:[string:string])
+  (set someMap \"foo\" \"bar\") ; map has now key-value pair foo:bar
+```
+
+")            
+
 
             ; (set obj key value)
             (PublicMethod cmdSet:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -1704,6 +2303,21 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## get 
+
+Get a value associated to a key 
+```
+  (def someMap:[string:string])
+  (set someMap \"foo\" \"bar\") ; map has now key-value pair foo:bar
+
+  (def value:string (get someMap \"foo\")) ; \"bar\"
+```
+
+")            
+
             ; (get obj key)
             (PublicMethod cmdGet:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1727,6 +2341,18 @@
                     @todo("get should fetch a weak reference")
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## null? 
+
+Returns true if value is null
+```
+  (null? value)
+```
+
+")            
             
 
             ; test for null (null? <value>)
@@ -1746,6 +2372,18 @@
                     )
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## !null? 
+
+Returns true if value is not null
+```
+  (!null? value)
+```
+
+")            
 
             ; test for not null (!null? <value>)
             (PublicMethod cmdNotNull:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -1826,6 +2464,28 @@
                 ()
             )
 
+
+(gitdoc "README.md"
+
+"
+## Math library functions
+
+Following standard math library functions are defined from double values
+```
+  (sin value)
+  (cos value)
+  (tan value)
+  (atan value)
+  (log value)
+  (abs value)
+  (acos value)
+  (asin value)
+  (floor value)
+  (round value)
+  (sqrt value)
+```
+
+")  
             ;  "sin", "cos", "tan", "atan", "log", "abs", "acos", "asin", "floor", "round", "sqrt"
             (PublicMethod cmdMathLibOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1855,6 +2515,23 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## Boolean comparision operators
+
+Following standard boolean operators are defined
+```
+  (== value1 value2)  ; equal values
+  (< value1 value2)   ; less than
+  (> value1 value2)   ; greater than
+  (!= value1 value2)  ; not equal
+  (>= value1 value2)  ; greater or equal
+  (<= value1 value2)  ; less or equal
+```
+The result value of comparision operator is boolean
+
+")  
             ; operators "==", "<", ">", "!=", ">=", "<="
             (PublicMethod cmdComparisionOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1879,6 +2556,20 @@
                     (call this shouldBeEqualTypes (n1 n2 ctx "Can not compare values of different types."))       
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## Boolean logic operators
+
+Following standard boolean operators are defined for boolean values
+```
+  (&& value1 value2 value3 ...)   ; logical AND
+  (|| value1 value2 value3 ...)   ; logical OR
+```
+The result value of comparision operator is boolean
+
+")  
 
             ; operators "&&", "||"
             (PublicMethod cmdLogicOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -1922,6 +2613,26 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## + add operator
+
+Addition is defined for numbers and strings. If the first parameter is string then
+numbers are atomatically converted to string. If first parameter is numeric then
+rest of the parameters are assumed to be numeric too.
+
+```
+(def age:int 26)
+(= x (+ x 1))
+(print (+ \"Your age is now \" age))
+```
+
+HUOM! Tyyppitarkastukset numeroille eivät vielä noudata tätä speksiä. Tarkastettava että ei
+tule JS tyyppisiä outouksia konversiosta.
+
+")  
+
             ; operator "+"
             (PublicMethod cmdPlusOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -1948,6 +2659,20 @@
                     )
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## Mathematical operators
+
+```
+(* 10 20) ; 200
+(/ 9 2)   ; 4.5
+(- 50 10) ; 40
+(% 5 2)   ; 1
+```
+
+")  
             
 
             ; operators "*", -", "/", "%"
@@ -1977,6 +2702,24 @@
                     )
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## if
+
+```
+(if condition
+    (
+        ; then statements
+    )
+    (
+        ; else statements
+    )
+)
+```
+
+")  
             
 
             (PublicMethod cmdIf:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -2015,6 +2758,21 @@
                      
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## for
+
+```
+(for someArray item:itemType i
+    (
+        ; loop expressions
+    )
+)
+```
+
+")  
 
             ;(for list node indexname loop)
             (PublicMethod cmdFor:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -2077,6 +2835,21 @@
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## while
+
+```
+(while condition
+    (
+        ; loop expressions
+    )
+)
+```
+
+")  
+
             (PublicMethod cmdWhile:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (call wr newline ())
@@ -2099,6 +2872,33 @@
                     
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## switch case
+
+Switch-case statement can multiple case statements having one or more matching arguments.
+
+```
+(switch condition
+    (case value
+        (
+            ; case expressions
+        )
+    )
+    (case (value1 value2 value2) ; multiple values
+        (
+
+        )
+    )
+    (default (
+        ; default expressions
+    ))
+)
+```
+
+")  
 
             (PublicMethod cmdDefault:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -2186,35 +2986,130 @@
                 )
             )
 
+
+(gitdoc "README.md"
+
+"
+# IO operators
+
+
+## file_read
+
+TODO: pohdittava pitäisikö olla verbi `read_file`
+
+```
+(def contents:string (file_read pathName fileName))
+```
+
+")  
+
+
             (PublicMethod cmdFileRead:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## file_write
+
+TODO: pohdittava pitäisikö olla verbi `write_file`
+
+```
+(file_write pathName fileName contentStr)
+```
+
+")  
             (PublicMethod cmdFileWrite:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )
+
+(gitdoc "README.md"
+
+"
+## dir_exists
+
+```
+(if (dir_exists pathName)
+    (
+        ; do something
+    )
+)
+```
+
+")  
+
 
             (PublicMethod cmdIsDir:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )
 
+(gitdoc "README.md"
+
+"
+## file_exists
+
+```
+(if (file_exists pathName fileName)
+    (
+        ; do something
+    )
+)
+```
+
+")  
+
             (PublicMethod cmdIsFile:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )            
+
+(gitdoc "README.md"
+
+"
+## dir_create
+
+```
+(dir_create pathName)
+```
+
+")  
 
             (PublicMethod cmdCreateDir:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )                                           
 
+(gitdoc "README.md"
+
+"
+# Environment functions
+
+## shell_arg
+```
+(def value:string (shell_arg 0)) ; first shell argument as string
+```
+
+")  
+
             (PublicMethod cmdArgv:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                 )
             )
+
+(gitdoc "README.md"
+
+"
+
+## shell_arg_cnt
+```
+(def cnt:int (shell_arg_cnt _)) ; number of given shell arguments
+```
+
+")  
 
             (PublicMethod cmdArgvCnt:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -2567,6 +3462,9 @@
                                         (case "new" (call this cmdNew (node ctx wr)) )
 
                                         (case "doc" (call this cmdDoc (node ctx wr)) )
+
+                                        (case "gitdoc" (call this cmdGitDoc (node ctx wr)) )
+                                        
                                         (case "print" (call this cmdPrint (node ctx wr)) )
 
                                         (case "has" (call this cmdHas (node ctx wr)) )

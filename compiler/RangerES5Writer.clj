@@ -294,6 +294,8 @@
                     (def nameDef:CodeNode (call node getSecond ()))
                     (def classInfo:RangerAppClassDesc (call ctx findClass (nameDef.vref)))
 
+                    ; fileSystem
+
                     (if (== false (call wr hasTag ("polyfill")))
                         (
                             ; insert ES5 polyfills which are the same as in babel

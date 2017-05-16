@@ -35,6 +35,87 @@
             ( PublicMethod parse_raw_annotation:CodeNode ()
                 (
 
+(gitdoc "README.md" 
+"
+
+# Parserin tukema syntaksi
+
+Parseri parsii lisp -tyyppisiä S-expressioneita joillakin syntaksilaajennuksilla, joita ovat mm. tuki
+annotaatioille sekä tyyppimäärityksille
+
+## Tyyppimääritykset
+
+Tokeneilla voi olla tyyppimäärityksiä, jotka tulevat referenssin AST puun ominaisuudeksi
+Esimerkki yksittäisestä tokenista on vaikkapa variablen määritys `def` tai sen määrittelemä
+variable `x`
+
+```
+(def x)
+```
+Jos halutaan määritellä variable tyyppiä `double` se voidaan tehdä laajennetun tyyppi -syntaksin avulla
+```
+(def x:double)
+```
+Syntaksi tukee myös Array ja Map tyyppisiä määrityksiä
+
+```
+(def arr:[double])         ; array of doubles
+(def arr:[string:string])  ; map string -> string
+(def objMap:[string:SomeClass]) ; map string -> object
+
+```
+
+
+## Annotaatiot
+
+Annotaatiot ovat kääntäjälle tarkoitettua metatietoa, jota käytetään esimerkiksi paremetrien
+vahvuuden (strong, weak) tai genericsien määrittelemiseen. Annotaatioiden perusidea on mahdollistaa
+syntaksin laajentaminen tulevaisuudessa.
+
+Ranger laajentaa Lispin syntaksiin kolme erityyppistä annotaatiota:
+ - expression -annotaatiot
+ - referenssi -annotaatiot
+ - type -annotaatiot
+
+Expression annotaatio sijoitetaan S-expressionin sisällä erillisenä elementtinä
+```
+(
+    @todo(\"muista lisätä tuki Option tyyppisille arvoille\") ; expression annotation
+)
+```
+
+Referenssiin (tai tokeniin) liittyvä annotaatio kirjoitetaan suoraan kiinni tokeniin johon se liittyy
+```
+(CreateC)lass myClass@(T) ; <-- referenssi annotaatio
+(PublicMethod foobar:void (myObj@(strong optional)) ; <-- referenssi annotaatio 
+```
+
+Tyyppi-annotaatio tulee osaksi Array tai Map tyyppiä.
+
+```
+(def classList:myClass@(T)) ; <-- @(T) on type annotaatio referenssille classList
+```
+
+Jokainen annotaatio on uusi S-expression tyyppiä `CodeNode` ja sijoitetaan luokan CodeNode propertyksi.
+
+Luokassa CodeNode referenssiannotaatio sijoitetaan propertyyn `vref_annotation` tyyppiannotaatio
+sijoitetaan `type_annotation` propertyyn ja expressionin annotaatiot sijoitetaan niiden avaimen
+mukaisesti `props` -propertyyn.
+
+```
+            (def has_vref_annotation:boolean false)
+            (def vref_annotation:CodeNode)
+
+            (def has_type_annotation:boolean false)            
+            (def type_annotation:CodeNode)
+
+            ; annotations or properties
+            (def props:[string:CodeNode])
+            (def prop_keys:[string])
+```
+
+")
+
                     (def c:char)
                     (def sp:int i)
                     (def ep:int i)
@@ -105,6 +186,21 @@
                                    (= i (+ 1 i))
                                )
                         )
+
+(gitdoc "README.md" 
+"
+## Kommentit
+
+Tällä hetkelä tuettuna on vain yhden rivin kommentit. Kommentit merkitään seuraavasti:
+
+```
+  ; this is a comment
+```
+
+Jatkossa pitäisi lisätä tuki myös usean rivin kommenteille.
+
+"
+)                        
                         (if (< i len)
                             (
                                 (= c (charAt s i))
@@ -172,6 +268,29 @@
                                 (= ep i)
                                 (= fc (charAt s i))
 
+(gitdoc "README.md" 
+"
+## Numeroarvot
+
+```
+(def i:int 0)
+(def x:double 0.0)  ; <- piste vaaditaan
+
+```
+
+Tuettuna kahta erilaista numeroarvoa:
+- int
+- double
+
+Double -literaalin tulee sisältää piste tai muu liukuluvun tunniste, jotta se tunnistetaan.
+
+Tuettuna ovat double sekä int -arvoille negatiiviset arvot sekä double -arvoille pyritään
+tunnistamaan myös exponenttimuoto. Parseri ei yritä tunnistaa virheitä double arvoissa toistaiseksi,
+joten lukuarvot joissa on esimerkiksi useampia desimaalierottimia tai e -arvoja menevät läpi.
+
+"
+)                        
+
                                 (if ( || ( && (== fc 45) (>= (charAt s (+ i 1)) 46) (<= (charAt s (+ i 1)) 57)   ) 
                                          ( && (>= fc 48) (<= fc 57)   ) )
                                 (
@@ -228,6 +347,20 @@
                                     
                                 ))                        
 
+(gitdoc "README.md" 
+"
+## Strings - Merkkijonot
+
+```
+(def hello:string \"Hello World\")
+(def str:string \"
+  multiline string
+\")
+```
+Merkkijono alkaa \" -merkillä ja päättyy samaaan merkkiin. Välissä voi olla newline ja linefeed
+merkkejä. Escape charit ovat sama kuin JSON string koodauksessa, mutta newlineja ei tarvitse 
+escapeta.
+")
 
                                 ; if " then we have a string value
                                 (if (== fc 34) 
@@ -347,6 +480,19 @@
                                     )
                                 ) ; if " " ends
 
+(gitdoc "README.md" 
+"
+## Boolean
+
+```
+(def x:boolean true)
+(def y:boolean false)
+```
+Sallittuja literaaleja ovat `true` ja `false`
+
+"
+)                        
+
                                 ; test for true / false
                                 (if (  && (== fc (charcode "t"))
                                         (== (charAt s (+ i 1)) (charcode "r"))
@@ -448,6 +594,20 @@
                                     )
                                 )
                                
+(gitdoc "README.md" 
+"
+## Referenssit
+
+```
+(= x 10) ; x = referenssi
+user.info.firstName ; referenssi, jossa on property accessor
+```
+Rererenssiksi tunnistetaan mikä tahansa yhtenäinen merkkijono mikä ei ole numero, string,
+S-expression, boolean tai annotaatio. 
+
+Referenssillä voi olla N namespacea, jotka käsitetään olion property accessoreiksi, esimerkiksi `obj.name`.
+
+")
 
                                 ; collect namespaces like obj.foo.x into separate array
                                 ; ["obj", "foo", "x"]
@@ -559,6 +719,29 @@
                                             )
                                         )
 
+(gitdoc "README.md" 
+"
+## Array
+
+```
+(def myIntArray:[int]) 
+(def myStringArray:[string])
+(def myObjArray:[myClass]) 
+```
+
+## Map / Hash
+
+```
+(def mapFromInToInt:[int:int]) 
+(def example2:[int:string])
+(def myObjMap:[string:myClass]) 
+(def genericsHash:[string:List@(myClass)])  ; <-- using generics
+
+```
+
+")
+
+
                                         (if (== c (charcode "["))
                                             (
                                                 ; handle start of array
@@ -668,6 +851,22 @@
                                                 )
                                             )
                                         )
+
+(gitdoc "README.md" 
+"
+## Tyyppimääritys - olio, string etc
+
+```
+(def myIntArray:<typename>)
+
+; esim 
+(def str:string)
+(def i:int)
+(def myHash:[string:myClass])
+(def myArray:[myClass])
+```
+
+")
 
                                         ; parse normal type like :int, :double etc.
                                         (def had_type_ann:boolean false)
@@ -794,6 +993,46 @@
             ))
         )
     )    
+
+(gitdoc "README.md"
+
+"
+
+## Alaviite parseriin: Syntaksin laajennus Generics supportille
+
+Ongelma: joissain tapauksissa variablet tarvitsevat itseensä kohdistettua metatietoa, esimerkiksi
+generics  esitettään tyypillisesti muodossa
+```
+class myClass<T,V> { ... }
+```
+Samoin `new` operaattori useissa kielissä käyttää samantyyppistä meta-informaatiota kun luokka määritellään jaluodaan
+```
+ var obj:myClass = new myClass<T,V>(...-)
+```
+
+Lisp parseri ei anna tukea yksittäisten alkoiden meta-informaatiolle itsenään, joten Rangerin 
+annotaatio -syntaksio on laajennetu siten, että se tukee annotaatioita referensseillä kahdessa muodossa:
+ - myClass@(...)
+ - obj:[myClass@(...)]
+
+Ensimmäinen on referenssi-annottaatio `<CodeNode>.vref_annotation` ja jälkimmäinen `<CodeNode>.type_annotation`.
+
+Tämän jälkeen voidaan määritellä generics luokka esimerkiksi seuraavasti:
+```
+(CreateClass myClass@(T V)
+   ...
+)
+(def obj:myClass@(T V) (new myClass@(T V) ())) 
+```
+
+Arrayn tai Mapin sisällä oleva template voidaan määritellä seuraavasti:
+```
+(def myArray:[myClass@(T V)])
+(def myMap:[string:myClass@(T V)])
+```
+
+"
+)
 
 
 )
