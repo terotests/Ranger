@@ -264,6 +264,27 @@ muuttujaan jossa on tyyppiä
     (call obj hello ())
 ``` 
 
+## Metodin määrittely luominen
+
+```
+    (PublicMethod hello:string (arg1:int arg2:string)
+``` 
+
+```
+    (StaticMethod hello:string (arg1:int arg2:string)
+``` 
+
+
+```
+    (CreateClass myClass 
+        (
+            (PublicMethod hello:string (arg1:int arg2:string)
+                (
+                )
+            )
+        )
+    )
+``` 
 
 
 ## Periyttäminen
@@ -278,6 +299,28 @@ muuttujaan jossa on tyyppiä
     (call obj hello ())
     
 ``` 
+
+## Heikot ja vanhvat paluuarvot
+
+Tällä hetkellä pohdinnassa syntaksi:
+```
+    (PublicMethod hello:myClass @strong(true) (arg1:int arg2:string)
+``` 
+
+Toinen vaihtoehto:
+```
+    (PublicMethod hello@(weak):myClass  (arg1:int arg2:string)
+``` 
+
+## Heikot ja vanhvat argumentit
+
+Tällä hetkellä pohdinnassa syntaksi:
+```
+    (PublicMethod hello:myClass (arg1@(strong):someClass)
+``` 
+Missä `arg1` on vahva argumentti ja siirtää variable omistuksen funktioon, minkä jälkeen
+kutsuja käsittelee annettua parametria weak -referenssinä ja funktio joka vastaanotti
+parametrin käsittelee argumenttia vahvana referenssinä.
 
 
 
