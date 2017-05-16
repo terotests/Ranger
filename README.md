@@ -1,4 +1,16 @@
 
+## Tuki (gitdoc <file> <dokumentaatio> komennolle
+
+Ohjelmakoodin sisällä voidaan luoda git-dokumentaatioon lisää entryjä komennolla
+
+```
+(gitdoc "README.md" "# Hello Git!")
+```
+
+Tämä dokuentaatio on luotu käyttäen tätä synktaksia.
+
+
+
 # Ranger kääntäjän dokumentaatiot
 
 Tällä hetkellä mietittäviä asioita:
