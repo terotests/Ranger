@@ -35,6 +35,10 @@
                     )
                 )
             ))  
+            
+            (PublicMethod testCreateWriter:CodeWriter @strong(true) () (
+                (return (new CodeWriter ()))
+            ))                     
 
             (PublicMethod getImports:[string] () (
                 (return import_names)
@@ -128,7 +132,7 @@
             ; setting a weak reference to the writer so assigment does not actually
             ; break the ownership of the code slice and deleting codeslice does not free
             ; the writer
-            (def writer:CodeWriter @weak(true))
+            (def writer:CodeWriter)
 
             (PublicMethod getCode:string () (
 
@@ -171,11 +175,11 @@
                 (
                     (def new_slice:CodeSlice (new CodeSlice ()))
                     (= current_slice new_slice)
-                    (push slices current_slice)
+                    (push slices new_slice)
                 )
             )
 
-            ( PublicMethod addImport:void (name:string) (
+            ( PublicMethod addImport:void (name:string ) (
 
                 (if (!null? ownerFile)
                     (

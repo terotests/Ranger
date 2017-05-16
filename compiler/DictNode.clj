@@ -80,13 +80,14 @@
                 )
             )            
 
-            ( PublicMethod createEmptyObject:DictNode () (
+            ( PublicMethod createEmptyObject:DictNode @strong(true) () (
                 (def v:DictNode (new DictNode ()))
                 (= v.value_type DictNodeType.Object)
                 (return v)
             ))
 
-            ( PublicMethod addObject:DictNode (key:string) (
+            ; returns a weak reference to the new object
+            ( PublicMethod addObject:DictNode @weak(true) (key:string) (
                 (if (== value_type DictNodeType.Object)
                     (
                         (def p:DictNode (new DictNode ()))                       
@@ -235,7 +236,7 @@
                             (print "null")
                         )                
                         (if (== value_type DictNodeType.Double)
-                            (print double_value)
+                            (print (double2str double_value))
                         )
                         (if (== value_type DictNodeType.String)
                             (print string_value)

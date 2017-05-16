@@ -18,7 +18,6 @@
 
             (PublicMethod cmdArgv:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
-
                     (def argIndex:CodeNode (call node getSecond ()))
                 
                     (call wr out ( "process.argv[ 2 + process.execArgv.length + " false))
@@ -402,6 +401,32 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
                         (def fnBody:CodeNode (itemAt node.children 2))
                         (call this WalkNodeChildren (fnBody ctx wr))
 
+; (def variables:[RangerAppParamDesc])
+; weak variables should have a function to remove the references from the referred class§
+(for classInfo.variables varD:RangerAppParamDesc i
+    (
+        (if ( == varD.refType RangerNodeRefType.Weak)
+            (
+                (call wr out ( (+ "/* Weak variable : "  varD.name "*/" ) true))
+                (if (call varD isArray ())
+                    (call wr out ( (+ "/* Weak ARRAY variable : "  varD.name " in class " classInfo.name "*/" ) true))
+                )
+                 (if (call varD isHash ())
+                    (call wr out ( (+ "/* Weak HASH variable : "  varD.name " in class " classInfo.name "*/" ) true))
+                )
+                 (if (call varD isObject ())
+                    (call wr out ( (+ "/* Weak Object variable : "  varD.name " in class " classInfo.name " */" ) true))
+                )
+               
+            )
+        )
+    )
+)
+; what happends if ? 
+;    obj.friend = null
+;    => remove from the referred variables list then
+;    
+
 
 ;                     (def wr:CodeWriter (call ctx getStaticWriter (currClass.name)))
 (call wr newline ())
@@ -462,7 +487,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
                         (
                             ; method variable declaration
                             (def v:CodeNode (call node getSecond ()))
-                            (call wr out ( (+ "var " v.vref) false ))
+                            (call wr out ( (+ "var " v.paramDesc.compiledName) false ))
 
                             (if (> (array_length node.children) 2)
                                 (
