@@ -31,6 +31,7 @@ Syntaksi tukee myös Array ja Map tyyppisiä määrityksiä
 ```
 (def arr:[double])         ; array of doubles
 (def arr:[string:string])  ; map string -> string
+(def objMap:[string:SomeClass]) ; map string -> object
 
 ```
 
@@ -435,7 +436,7 @@ Esimerkki:
 Joins array of strings into a single string
 ```
   (def list:[string] (strsplit "list,of,items"))
-  (def str:string (join list ":") ; list:of:items
+  (def str:string (join list ":")) ; list:of:items
 ```
 
 
