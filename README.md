@@ -1,7 +1,6 @@
 
 # Ranger kääntäjän dokumentaatiot
 
-Tällä hetkellä mietittäviä asioita:
 
 ## Syntaksin laajennus Generics supportille
 
@@ -38,7 +37,7 @@ Arrayn tai Mapin sisällä oleva template voidaan määritellä seuraavasti:
 
 
 
-## Tuki (gitdoc <file> <dokumentaatio>) -komennolle
+## Tuki ( gitdoc *file* *text* ) -komennolle
 
 Ohjelmakoodin sisällä voidaan luoda git-dokumentaatioon lisää entryjä komennolla
 
@@ -46,6 +45,6 @@ Ohjelmakoodin sisällä voidaan luoda git-dokumentaatioon lisää entryjä komen
 (gitdoc "README.md" "# Hello Git!")
 ```
 
-Tämä dokuentaatio on luotu käyttäen tätä synktaksia.
+Tämä dokumentaatio on luotu käyttäen tätä synktaksia.
 
 
