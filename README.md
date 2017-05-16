@@ -49,13 +49,8 @@ Esimerkkejä:
 ```
 (CreateClass myClass@(T) ; <-- referenssi annotaatio
 @todo("muista lisätä tuki Option tyyppisille arvoille") ; expression annotation
-
 (PublicMethod foobar:void (myObj@(strong)) ; <-- referenssi annotaatio
-(
 (def classList:myClass@(T)) ; <-- @(T) on type annotaatio referenssille classList
-)
-)
-)
 
 ```
 
