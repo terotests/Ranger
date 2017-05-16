@@ -7,24 +7,62 @@ Yleisesti huomioitavaa:
 
 
 
-## Annotaatio -tuki
+
+# Parserin tukema syntaksi
+
+Parseri parsii lisp -tyyppisiä S-expressioneita joillakin syntaksilaajennuksilla, joita ovat mm. tuki
+annotaatioille sekä tyyppimäärityksille
+
+## Tyyppimääritykset
+
+Tokeneilla voi olla tyyppimäärityksiä, jotka tulevat referenssin AST puun ominaisuudeksi
+Esimerkki yksittäisestä tokenista on vaikkapa variablen määritys `def` tai sen määrittelemä
+variable `x`
+
+```
+(def x)
+```
+Jos halutaan määritellä variable tyyppiä `double` se voidaan tehdä syntaksin avulla
+```
+(def x:double)
+```
+Syntaksi tukee myös Array ja Map tyyppisiä määrityksiä
+
+```
+(def arr:[double])         ; array of doubles
+(def arr:[string:string])  ; map string -> string
+
+```
+
+
+## Annotaatiot
+
+Annotaatiot ovat kääntäjälle tarkoitettua metatietoa, jota käytetään esimerkiksi paremetrien
+vahvuuden (strong, weak) tai genericsien määrittelemiseen. Annotaatioiden perusidea on mahdollistaa
+syntaksin laajentaminen tulevaisuudessa.
 
 Ranger laajentaa Lispin syntaksiin kolme erityyppistä annotaatiota:
  - expression -annotaatiot
  - referenssi -annotaatiot
  - type -annotaatiot
 
-Esimerkkejä:
+Expression annotaatio sijoitetaan S-expressionin sisällä erillisenä elementtinä
+```
+(
+    @todo("muista lisätä tuki Option tyyppisille arvoille") ; expression annotation
+)
+```
+
+Referenssiin (tai tokeniin) liittyvä annotaatio kirjoitetaan suoraan kiinni tokeniin johon se liittyy
+```
+(CreateC)lass myClass@(T) ; <-- referenssi annotaatio
+(PublicMethod foobar:void (myObj@(strong optional)) ; <-- referenssi annotaatio 
+```
+
+Tyyppi-annotaatio tulee osaksi Array tai Map tyyppiä.
 
 ```
-(CreateClass myClass@(T) ; <-- referenssi annotaatio
-
-@todo("muista lisätä tuki Option tyyppisille arvoille") ; expression annotation
-
-(PublicMethod foobar:void (myObj@(strong)) ; <-- referenssi annotaatio 
-
 (def classList:myClass@(T)) ; <-- @(T) on type annotaatio referenssille classList
-
 ```
 
 Jokainen annotaatio on uusi S-expression tyyppiä `CodeNode` ja sijoitetaan luokan CodeNode propertyksi.
@@ -539,6 +577,23 @@ Throws exception
   (throw "Something went wrong")
 ```
 
+Virheiden käsittelijä on vielä työn alla. Koska tavoite on pystyä kääntämään myös Golang kielelle
+missä ei ole normaalia try... catch... käsittelijää ainakin toistaiseksi virhekäsittelijä on 
+funktiokohtainen annotaatio `@onError()` jonka sisällä oleva expression sisältää komennot jotka
+ajetaan virheen tapahtumisen jälkeen.
+
+```
+@onError(
+    (print "Got exception.")
+)
+```
+
+Virhekäsittelijästä puuttuu vielä kyky lähettää eri tyyppisiä virheilmoituksia esimerkiksi 
+enumeroituina Exceptioneina tai erillistettyinä Exception -luokkina. Lisäksi on pohdittava
+miten virhekäsittelijä suhtautuu paikallisiin variableihin, onko niiden käyttäminen 
+sallittua ja missä määrin.
+
+
 
 
 ## return
@@ -841,6 +896,23 @@ TODO: pohdittava pitäisikö olla verbi `write_file`
 
 ```
 (dir_create pathName)
+```
+
+
+
+# Environment functions
+
+## shell_arg
+```
+(def value:string (shell_arg 0)) ; first shell argument as string
+```
+
+
+
+
+## shell_arg_cnt
+```
+(def cnt:int (shell_arg_cnt _)) ; number of given shell arguments
 ```
 
 
