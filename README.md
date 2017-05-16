@@ -48,8 +48,11 @@ Esimerkkejä:
 
 ```
 (CreateClass myClass@(T) ; <-- referenssi annotaatio
+
 @todo("muista lisätä tuki Option tyyppisille arvoille") ; expression annotation
+
 (PublicMethod foobar:void (myObj@(strong)) ; <-- referenssi annotaatio
+
 (def classList:myClass@(T)) ; <-- @(T) on type annotaatio referenssille classList
 
 ```
@@ -70,6 +73,107 @@ mukaisesti `props` -propertyyn.
 ; annotations or properties
 (def props:[string:CodeNode])
 (def prop_keys:[string])
+```
+
+
+
+## Kommentit
+
+Tällä hetkelä tuettuna on vain yhden rivin kommentit. Kommentit merkitään seuraavasti:
+
+```
+; this is a comment
+```
+
+Jatkossa pitäisi lisätä tuki myös usean rivin kommenteille.
+
+
+
+## Numeroarvot
+
+```
+(def i:int 0)
+(def x:double 0.0)  ; <- piste vaaditaan
+
+```
+
+Tuettuna kahta erilaista numeroarvoa:
+- int
+- double
+
+Double -literaalin tulee sisältää piste tai muu liukuluvun tunniste, jotta se tunnistetaan.
+
+Tuettuna ovat double sekä int -arvoille negatiiviset arvot sekä double -arvoille pyritään
+tunnistamaan myös exponenttimuoto. Parseri ei yritä tunnistaa virheitä double arvoissa toistaiseksi,
+joten lukuarvot joissa on esimerkiksi useampia desimaalierottimia tai e -arvoja menevät läpi.
+
+
+
+# Strings - Merkkijonot
+
+```
+(def str:string "
+multiline string
+")
+```
+Merkkijono alkaa " -merkillä ja päättyy samaaan merkkiin. Välissä voi olla newline ja linefeed
+merkkejä. Escape charit ovat sama kuin JSON string koodauksessa, mutta newlineja ei tarvitse
+escapeta.
+
+
+## Boolean
+
+```
+(def x:boolean true)
+(def y:boolean false)
+```
+Sallittuja literaaleja ovat `true` ja `false`
+
+
+
+## Referenssit
+
+```
+(= x 10) ; x = referenssi
+user.info.firstName ; referenssi, jossa on property accessor
+```
+Rererenssiksi tunnistetaan mikä tahansa yhtenäinen merkkijono mikä ei ole numero, string,
+S-expression, boolean tai annotaatio.
+
+Referenssillä voi olla N namespacea, jotka käsitetään olion property accessoreiksi, esimerkiksi `obj.name`.
+
+
+
+## Array
+
+```
+(def myIntArray:[int])
+(def myStringArray:[string])
+(def myObjArray:[myClass])
+```
+
+## Map / Hash
+
+```
+(def mapFromInToInt:[int:int])
+(def example2:[int:string])
+(def myObjMap:[string:myClass])
+(def genericsHash:[string:List@(myClass)])  ; <-- using generics
+
+```
+
+
+
+## Tyyppimääritys - olio, string etc
+
+```
+(def myIntArray:<typename>)
+
+; esim
+(def str:string)
+(def i:int)
+(def myHash:[string:myClass])
+(def myArray:[myClass])
 ```
 
 
