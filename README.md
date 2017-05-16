@@ -156,7 +156,7 @@ joten lukuarvot joissa on esimerkiksi useampia desimaalierottimia tai e -arvoja 
 
 
 
-# Strings - Merkkijonot
+## Strings - Merkkijonot
 
 ```
 (def hello:string "Hello World")
