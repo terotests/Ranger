@@ -15,22 +15,16 @@ Yleisesti huomioitavaa:
 
 Create file `Hello.ran`
 ```
-(
-    (gitdoc "README.md"
-"
+gitdoc "README.md" "
 # The Hello World -project
 "    
-    )
-    (CreateClass Hello
-        (
-            (PublicMethod hello:void ()
-                (
-                    (print "Hello World")
-                )
-            )
-        )
-    )
-)
+    
+class Hello {
+    fn hello:void () {
+        print "Hello World"
+    }
+}
+
 ```
 Then compile it using `ranger-compiler` using command line
 
@@ -605,7 +599,6 @@ Ohjelmakoodin sisällä voidaan luoda git-dokumentaatioon lisää entryjä komen
 ```
 
 Tämä dokumentaatio on luotu käyttäen tätä synktaksia.
-
 
 
 ## continue
