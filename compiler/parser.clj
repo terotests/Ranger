@@ -14,17 +14,27 @@
             (def next:CodeNode)
 
             (def paren_cnt:int 0)
+            (def get_op_pred:int 0)
 
             (def rootNode:CodeNode )
             (def curr_node:CodeNode @weak(true))
             
             (def had_error:boolean false)
+            ; (def had_lf false)
 
             (Constructor (code_module:SourceCode )
                 (
                     (= s code_module.code)
                     (= code code_module)
                     (= len (strlen code_module.code))
+
+                    (= rootNode (new CodeNode (code 0 0))) 
+                    (= rootNode.is_block_node true) 
+                    (= rootNode.expression true)
+                    (= curr_node rootNode)
+                    (push parents curr_node)
+                    (= paren_cnt 1)
+
                 )
             )    
 
@@ -32,37 +42,22 @@
                 (return (call rootNode getCode ()))
             ))        
 
-            ( PublicMethod parse_raw_annotation:CodeNode ()
-                (
-
 (gitdoc "README.md" 
 "
 
-# Parserin tukema syntaksi
+# The Syntax
 
-Parseri parsii lisp -tyyppisiä S-expressioneita joillakin syntaksilaajennuksilla, joita ovat mm. tuki
-annotaatioille sekä tyyppimäärityksille
+## Variable definitions
 
-## Tyyppimääritykset
-
-Tokeneilla voi olla tyyppimäärityksiä, jotka tulevat referenssin AST puun ominaisuudeksi
-Esimerkki yksittäisestä tokenista on vaikkapa variablen määritys `def` tai sen määrittelemä
-variable `x`
+Values can be defined using `def` or `let` keyword.
 
 ```
-(def x)
-```
-Jos halutaan määritellä variable tyyppiä `double` se voidaan tehdä laajennetun tyyppi -syntaksin avulla
-```
-(def x:double)
-```
-Syntaksi tukee myös Array ja Map tyyppisiä määrityksiä
-
-```
-(def arr:[double])         ; array of doubles
-(def arr:[string:string])  ; map string -> string
-(def objMap:[string:SomeClass]) ; map string -> object
-
+def x:double
+def x:double 0.4            ; double with initializer
+def list1:[double]          ; list of doubles
+def strList:[string]        ; list of Strings
+def strMap:[string:string]  ; map of string -> string
+def strObjMap:[string:someClass]    ; map of string -> object of type someClass
 ```
 
 
@@ -93,7 +88,7 @@ Referenssiin (tai tokeniin) liittyvä annotaatio kirjoitetaan suoraan kiinni tok
 Tyyppi-annotaatio tulee osaksi Array tai Map tyyppiä.
 
 ```
-(def classList:myClass@(T)) ; <-- @(T) on type annotaatio referenssille classList
+def classList:myClass@(T) ; <-- @(T) on type annotaatio referenssille classList
 ```
 
 Jokainen annotaatio on uusi S-expression tyyppiä `CodeNode` ja sijoitetaan luokan CodeNode propertyksi.
@@ -114,8 +109,10 @@ mukaisesti `props` -propertyyn.
             (def prop_keys:[string])
 ```
 
-")
+")            
 
+            ( PublicMethod parse_raw_annotation:CodeNode ()
+                (
                     (def c:char)
                     (def sp:int i)
                     (def ep:int i)
@@ -147,6 +144,276 @@ mukaisesti `props` -propertyyn.
                 )            
             )
 
+            ( PublicMethod skip_space:boolean (is_block_parent : boolean)
+                (
+                    (def did_break:boolean false)
+
+                    (def c:char (charAt s i))
+                    ; --> skipping of comma (== c (charcode ",")) removed
+                    (while ( && (< i len) 
+                                (<= c 32 ) )
+                            (
+
+                                (if (&& is_block_parent (|| (== c 10) (== c 13) ))
+                                    (
+                                        
+                                        (end_expression _)
+                                        (= did_break true)
+                                        (break _)
+                                    )
+                                )
+
+                                (= i (+ 1 i))
+                                (= c (charAt s i))                                   
+                            )
+                    )
+                    (return did_break)                    
+                )
+            )
+          
+
+            ( PublicMethod end_expression:void () (
+
+                (= i (+ 1 i))
+                (= paren_cnt (- paren_cnt 1))
+                (if (< paren_cnt 0)
+                    (throw "Parser error ) mismatch")
+                )
+
+                (removeLast parents)
+                (if (!null? curr_node) 
+                    (
+                        (= curr_node.ep i)
+                        (= curr_node.infix_operator false)
+                    )
+                )
+
+                (if (> (array_length parents) 0)
+                    (
+                        (= curr_node (itemAt parents (- (array_length parents) 1 ) ))
+                    )
+                    (
+                        (= curr_node rootNode)
+                    )
+                )
+                (= curr_node.infix_operator false)
+            ))
+
+            (PublicMethod getOperator:int () {
+
+                if ( i - 2 > len ) {
+                    return 0
+                }
+
+                def c:char (charAt s i)
+                def c2:char (charAt s (+ i 1))
+
+                switch c {
+
+                    case ( (charcode "*" ) ) {
+                        i = i + 1
+                        return 14
+                    } 
+
+                    case ( (charcode "/" ) ) {
+                        i = i + 1
+                        return 14
+                    } 
+
+                    case ( (charcode "+" ) ) {
+                        i = i + 1
+                        return 13
+                    } 
+
+                    case ( (charcode "-" ) ) {
+                        i = i + 1
+                        return 13
+                    } 
+                    
+                    case ( (charcode "<" ) ) {
+                        if (c2 == (charcode "=")) {
+                            i = i + 2
+                            return 11
+                        }
+                        i = i + 1
+                        return 11
+                    } 
+
+                    case ( (charcode ">" ) ) {
+                        if (c2 == (charcode "=")) {
+                            i = i + 2
+                            return 11
+                        }
+                        i = i + 1
+                        return 11
+                    } 
+
+                    case ( (charcode "!" ) ) {
+                        if (c2 == (charcode "=")) {
+                            i = i + 2
+                            return 10
+                        }
+                        return 0  ; currently negation not supported
+                    } 
+                    case ( (charcode "=" ) ) {
+                        if (c2 == (charcode "=")) {
+                            i = i + 2
+                            return 10 ; == operator
+                        }
+                        i = i + 1
+                        return 3  ; assigment operator
+                    } 
+
+                    case ( (charcode "&" ) ) {
+                        if (c2 == (charcode "&")) {
+                            i = i + 2
+                            return 6 ; && operator
+                        }
+                        return 0 
+                    } 
+
+                    case ( (charcode "|" ) ) {
+                        if (c2 == (charcode "|")) {
+                            i = i + 2
+                            return 5 ; && operator
+                        }
+                        return 0 
+                    } 
+
+                }
+
+                return 0 
+            })
+
+            (PublicMethod isOperator:int () {
+
+                if ( i - 2 > len ) {
+                    return 0
+                }
+
+                def c:char (charAt s i)
+                def c2:char (charAt s (+ i 1))
+
+                switch c {
+
+                    case ( (charcode "*" ) ) {
+                        return 1
+                    } 
+
+                    case ( (charcode "/" ) ) {
+                        return 14
+                    } 
+
+                    case ( (charcode "+" ) ) {
+                        return 13
+                    } 
+
+                    case ( (charcode "-" ) ) {
+                        return 13
+                    } 
+                    
+                    case ( (charcode "<" ) ) {
+                        if (c2 == (charcode "=")) {
+                            return 11
+                        }
+                        return 11
+                    } 
+
+                    case ( (charcode ">" ) ) {
+                        if (c2 == (charcode "=")) {
+                            return 11
+                        }
+                        return 11
+                    } 
+
+                    case ( (charcode "!" ) ) {
+                        if (c2 == (charcode "=")) {
+                            return 10
+                        }
+                        return 0  ; currently negation not supported
+                    } 
+                    case ( (charcode "=" ) ) {
+                        if (c2 == (charcode "=")) {
+                            return 10 ; == operator
+                        }
+                        return 3  ; assigment operator
+                    } 
+
+                    case ( (charcode "&" ) ) {
+                        if (c2 == (charcode "&")) {
+                            return 6 ; && operator
+                        }
+                        return 0 
+                    } 
+
+                    case ( (charcode "|" ) ) {
+                        if (c2 == (charcode "|")) {
+                            return 5 ; && operator
+                        }
+                        return 0 
+                    } 
+                }
+
+                return 0 
+            })
+            
+
+            (PublicMethod getOperatorPred:int (str:string)
+                {
+                    switch str {
+                        case ( "<" ">" "<=" ">=" ) {
+                            return 11
+                        }
+                        case ( "==" "!=" ) {
+                            return 10
+                        }
+                        case ( "=" ) {
+                            return 3
+                        }                                                                        
+                        case "&&" {
+                            return 6
+                        }
+                        case "||" {
+                            return 5
+                        }                                                
+                        case ( "+" "-" ) {
+                            return 13
+                        }
+                        case "*" {
+                            return 14
+                        }
+                        case "/" {
+                            return 14
+                        }                        
+                    }                
+                    return 0
+                }
+            )
+            (PublicMethod insert_node:void (new_node:CodeNode)
+                (
+
+                    (if (== false curr_node.infix_operator)
+                        (
+                            (push curr_node.children new_node)
+                        )
+                        (
+                            (def ifNode:CodeNode curr_node.infix_node)
+                            (if (== ifNode.to_the_right false) 
+                                (
+                                    (push ifNode.children new_node)
+                                )(
+                                    ; op_pred == 0 &&  curr_node.to_the_right == false
+                                    (def rn:CodeNode ifNode.right_node)
+                                    (= new_node.parent rn)
+                                    (push rn.children new_node)
+                                )
+                            ) 
+                        )
+                    )
+     
+                )
+            )      
+
             ( PublicMethod parse:void () (
 
                 @onError(
@@ -173,19 +440,58 @@ mukaisesti `props` -propertyyn.
                 (def ep:int i)
 
                 (def last_i:int 0)
+                (def had_lf:boolean false)
 
                 (while (< i len)
                     (
                         (if had_error (break _))
                         ; (print i)
                         (= last_i i)
-                        (while ( && (< i len) 
-                                    (<= (charAt s i) 32 ) )
-                               (
-                                   ; (print "-- space --")
-                                   (= i (+ 1 i))
-                               )
+
+                        (def is_in_block:boolean false)
+                        (def is_block_parent:boolean false)
+
+                        (if had_lf 
+                            (
+                                (= had_lf false)
+                                (end_expression _)
+                                (break _)
+                            )
                         )
+
+                        
+                        (if (!null? curr_node) 
+                            (
+                                (if curr_node.is_block_node (
+                                    (= is_in_block true)
+                                ))
+
+                                (if (!null? curr_node.parent)
+                                    (
+                                        (def nodeParent:CodeNode curr_node.parent)
+                                        (if nodeParent.is_block_node (
+                                            (= is_in_block true)
+                                            (= is_block_parent true)
+                                        ))
+                                    )
+                                )
+                            )
+                        )
+                        
+
+                        ; comma expression
+                        ; (|| (<= (charAt s i) 32 ) (== (charAt s i) (charcode ","))
+
+                        ; original:         (<= (charAt s i) 32 ) )
+                        ; new with comma:   (|| (<= (charAt s i) 32 ) (== (charAt s i) (charcode ",")))
+
+                        (if (skip_space is_block_parent)
+                            (break _)
+                        )
+                        (= had_lf false)
+                        (= c (charAt s i))
+
+
 
 (gitdoc "README.md" 
 "
@@ -204,7 +510,7 @@ Jatkossa pitäisi lisätä tuki myös usean rivin kommenteille.
                         (if (< i len)
                             (
                                 (= c (charAt s i))
-                                (if (== c 59)
+                                (if (== c 59) 
                                 (
                                     (= sp (+ i 1))
                                     ; read the comment
@@ -224,11 +530,13 @@ Jatkossa pitäisi lisätä tuki myös usean rivin kommenteille.
                                     (continue _)
                                 ))                                                            
                                 
+                                ; NEW S-EXPRESSION STARTS HERE!!!!!
                                 (if (< i (- len 1))
                                     (
                                         (= fc (charAt s (+ i 1)))
                                         (if (||
                                                 (== c 40)
+                                                (== c (charcode "{"))               ; support also braces for now
                                                 (&& (== c 39) (== fc 40) )
                                                 (&& (== c 96) (== fc 40) ) )
                                         (
@@ -249,10 +557,18 @@ Jatkossa pitäisi lisätä tuki myös usean rivin kommenteille.
                                                     (if (== c 96) (= new_qnode.value_type RangerNodeType.Quasiliteral))
                                                     (if (== c 39) (= new_qnode.value_type RangerNodeType.Literal))                                                    
                                                     (= new_qnode.expression true)
-                                                    (push curr_node.children new_qnode)
+
+                                                    (insert_node new_qnode)
+                                                    ; (push curr_node.children new_qnode)
+
                                                     (= curr_node new_qnode)
                                                     (push parents new_qnode)
                                                     ; (print "added a new child node")
+                                                )
+                                            )
+                                            (if (== c (charcode "{"))
+                                                (
+                                                    ( = curr_node.is_block_node true )
                                                 )
                                             )
                                             (= i (+ 1 i))
@@ -301,18 +617,19 @@ joten lukuarvot joissa on esimerkiksi useampia desimaalierottimia tai e -arvoja 
                                     (= c (charAt s i))
                                     (while ( && (< i len) 
                                                 ( || ( && (>= c 48) (<= c 57))
-                                                    ( == c (charcode "e"))
-                                                    ( == c (charcode "E"))
+                                                    ;( == c (charcode "e"))
+                                                    ;( == c (charcode "E"))
                                                     ( == c (charcode "."))
-                                                    ( == c (charcode "+"))
-                                                    ( == c (charcode "-"))
+                                                    (&& (== i sp)
+                                                        ( || ( == c (charcode "+"))
+                                                             ( == c (charcode "-")) ) )
                                                     
                                                 ) 
                                             )
                                         (
                                             (if ( ||
-                                                    ( == c (charcode "e"))
-                                                    ( == c (charcode "E"))
+                                                    ;( == c (charcode "e"))
+                                                    ;( == c (charcode "E"))
                                                     ( == c (charcode "."))                                               
                                                 )
                                                 (
@@ -340,7 +657,8 @@ joten lukuarvot joissa on esimerkiksi useampia desimaalierottimia tai e -arvoja 
                                     )
                                     
 
-                                    (push curr_node.children new_num_node)
+                                    (insert_node new_num_node)
+                                    ; (push curr_node.children new_num_node)
                                     ; (print (call new_node getString ()))
                                     ; set type to number...
                                     (continue _ )
@@ -469,7 +787,9 @@ escapeta.
                                                     (= new_str_node.string_value (substring s sp ep))
                                                 )
 
-                                                (push curr_node.children new_str_node)
+                                                (insert_node new_str_node)
+                                                ;(push curr_node.children new_str_node)
+
                                                 ; (print (call new_node getString ()))
                                                 ; set type to number...
                                                 (= i (+ 1 i))
@@ -504,7 +824,8 @@ Sallittuja literaaleja ovat `true` ja `false`
                                         (= new_true_node.value_type RangerNodeType.Boolean)
                                         (= new_true_node.boolean_value true)
 
-                                        (push curr_node.children new_true_node)
+                                        (insert_node new_true_node)
+                                        ; (push curr_node.children new_true_node)
 
                                         (= i (+ i 4))
                                         (continue _)
@@ -523,7 +844,8 @@ Sallittuja literaaleja ovat `true` ja `false`
                                         (= new_f_node.value_type RangerNodeType.Boolean)
                                         (= new_f_node.boolean_value false)
 
-                                        (push curr_node.children new_f_node)
+                                        (insert_node new_f_node)
+                                        ; (push curr_node.children new_f_node)
 
                                         (= i (+ i 5))
                                         (continue _)
@@ -545,6 +867,8 @@ Sallittuja literaaleja ovat `true` ja `false`
                                                     (> (charAt s i) 32 ) 
                                                     (!= c 40)
                                                     (!= c 41)
+                                                    (!= c (charcode "}"))
+                                                    
                                                 )
                                             (
                                                 ; (print (+ "char:" c))
@@ -619,35 +943,109 @@ Referenssillä voi olla N namespacea, jotka käsitetään olion property accesso
                                 (def vref_ann_node:CodeNode)
                                 (def vref_end:int i)
 
-                                (while ( && (< i len) 
+                                ; collect the reference symbol.
+                                ; change: if the parent node is a block node the reference is interpreted
+                                ; as a new S-expression
+                                (if ( && (< i len) 
                                             (> (charAt s i) 32 ) 
                                             (!= c 58)
                                             (!= c 40)
                                             (!= c 41)
+                                            (!= c (charcode "}"))
+                                            
                                         )
                                     (
-                                        ; (print (+ "char:" c))
-                                        (= i (+ 1 i))
-                                        (= c (charAt s i))
-                                        ; obj.
-                                        (if (== c (charcode "."))
+                                        ; if reference symbol is observed in block node, make it a call immediately
+                                        (if (== curr_node.is_block_node true)
                                             (
-                                                (push ns_list (substring s last_ns i))
-                                                (= last_ns (+ i 1))
-                                                (= ns_cnt (+ 1 ns_cnt))
+                                                (def new_expr_node:CodeNode (new CodeNode (code sp ep)))
+                                                (= new_expr_node.parent curr_node)
+                                                (= new_expr_node.expression true)
+                                                (push curr_node.children new_expr_node)
+                                                (= curr_node new_expr_node)
+                                                (push parents new_expr_node)
+                                                (= paren_cnt (+ 1 paren_cnt))
+
+                                                (call this parse ())
+                                                (continue _)
+                                            )
+                                        )
+                                    )
+                                )
+
+                                ; op check
+
+                                (def op_c:int 0)
+                                (def not_first false)
+                                (if (>= (array_length curr_node.children) 0)
+                                    (
+                                        (= op_c (getOperator _))
+                                        (= not_first true)                                    
+                                    )
+                                )
+
+                                (def last_was_newline:boolean false)
+                                (if (> op_c 0)
+                                    (
+                                        ; (print "--> found operator !!!")
+                                    )
+                                    (
+                                        (while ( && (< i len) 
+                                                    (> (charAt s i) 32 ) 
+                                                    (!= c 58)
+                                                    (!= c 40)
+                                                    (!= c 41)
+                                                    (!= c (charcode "}"))
+                                                    
+                                                )
+                                            (
+
+                                                (if (> i sp) 
+                                                    (
+                                                        (def is_opchar:int (isOperator _))
+                                                        (if (> is_opchar 0)
+                                                            (
+                                                                ; (print (+ "opchar around " (substring s last_ns (+ i 1))))
+                                                                (break _)
+                                                            )
+                                                        )
+                                                    )
+                                                )
+                                                
+                                                ; (print (+ "char:" c))
+                                                (= i (+ 1 i))
+                                                (= c (charAt s i))
+
+                                                (if ( || (== c 10) (== c 13))
+                                                    (
+                                                        (= last_was_newline true)
+                                                        (break _)
+                                                    )
+                                                )                                                
+
+
+                                                ; obj.
+                                                (if (== c (charcode "."))
+                                                    (
+                                                        (push ns_list (substring s last_ns i))
+                                                        (= last_ns (+ i 1))
+                                                        (= ns_cnt (+ 1 ns_cnt))
+                                                    )
+                                                )
+
+                                                (if ( && ( > i vref_end ) (== c (charcode "@")) )
+                                                    (
+                                                        (= vref_had_type_ann true)
+                                                        (= vref_end i)
+                                                        (= vref_ann_node (call this parse_raw_annotation ()))
+                                                        ; (print "found annotation node")
+                                                        (= c (charAt s i))
+                                                        (break _)
+                                                    )
+                                                )                                        
                                             )
                                         )
 
-                                        (if ( && ( > i vref_end ) (== c (charcode "@")) )
-                                            (
-                                                (= vref_had_type_ann true)
-                                                (= vref_end i)
-                                                (= vref_ann_node (call this parse_raw_annotation ()))
-                                                (print "found annotation node")
-                                                (= c (charAt s i))
-                                                (break _)
-                                            )
-                                        )                                        
                                     )
                                 )
                                 
@@ -660,14 +1058,33 @@ Referenssillä voi olla N namespacea, jotka käsitetään olion property accesso
                                 )
                                 (push ns_list (substring s last_ns ep))
 
+
+                                ;(if (skip_space is_block_parent)
+                                ;    (break _)
+                                ;)           
+                                ;(= c (charAt s i))                     
+
                                 ; skip empty space
+                                (= c (charAt s i)) 
                                 (while ( && (< i len) 
-                                            (<= (charAt s i) 32 ) 
+                                            (<= c 32 )
+                                            (== false last_was_newline) 
                                         )
-                                    (
+                                    (                                        
                                         ; (print "-- space --")
                                         (= i (+ 1 i))
                                         (= c (charAt s i))
+
+                                        ; no newlines allowed here...
+                                        ; 
+                                        (if (&& is_block_parent ( || (== c 10) (== c 13)))
+                                            (       
+                                                (= i (- i 1))
+                                                (= c (charAt s i))
+                                                (= had_lf true)
+                                                (break _)      
+                                            )
+                                        )                           
                                     )
                                 )          
 
@@ -875,6 +1292,9 @@ Referenssillä voi olla N namespacea, jotka käsitetään olion property accesso
                                                     (!= c 58)
                                                     (!= c 40)
                                                     (!= c 41)
+                                                    (!= c (charcode "}"))
+                                                    (!= c (charcode ","))
+                                                    
                                                 )
                                             (
                                                 ; (print (+ "char:" c))
@@ -894,6 +1314,9 @@ Referenssillä voi olla N namespacea, jotka käsitetään olion property accesso
                                             (
                                                 (= vt_ep i)
                                                 (def type_name:string (substring s vt_sp vt_ep))    
+
+                                                ; if current node is a block node then the expression will be the first child of
+                                                ; a new S-expression
 
                                                 ; also add namespace....
                                                 (def new_ref_node:CodeNode (new CodeNode (code sp ep)))
@@ -917,7 +1340,7 @@ Referenssillä voi olla N namespacea, jotka käsitetään olion property accesso
                                                         (def vann:CodeNode (call this parse_raw_annotation ()))
                                                         (= new_ref_node.type_annotation vann)
                                                         (= new_ref_node.has_type_annotation true)
-                                                        (print "--> parsed TYPE annotation")
+                                                        ; (print "--> parsed TYPE annotation")
                                                     )
                                                 )
                                                 (continue _)
@@ -926,8 +1349,9 @@ Referenssillä voi olla N namespacea, jotka käsitetään olion property accesso
                                     )
                                     (
                                         ; variable without a type definition
-                                        ; TODO: add namespace parsing here for
-                                        ; types like obj.foo.x
+
+                                        ; (= c (charAt s i))
+
                                         (if ( && (< i len) (> ep sp) )
                                             (
                                                 (def new_vref_node:CodeNode (new CodeNode (code sp ep)))
@@ -935,7 +1359,39 @@ Referenssillä voi olla N namespacea, jotka käsitetään olion property accesso
                                                 (= new_vref_node.value_type RangerNodeType.VRef) 
                                                 (= new_vref_node.ns ns_list)
                                                 (= new_vref_node.parent curr_node)
-                                                (push curr_node.children new_vref_node)
+
+                                                ; test if this is operator
+                                                (def op_pred:int (getOperatorPred new_vref_node.vref))
+
+                                                ; comma will stop the infix processing...
+
+                                                (if (== new_vref_node.vref ",")
+                                                    (
+                                                        (= curr_node.infix_operator false)
+                                                        (continue _)
+                                                    )
+                                                )                                                
+
+                                                (if curr_node.infix_operator
+                                                    (
+                                                        (def iNode:CodeNode curr_node.infix_node)
+                                                        (if (|| (> op_pred 0) (== iNode.to_the_right false) )
+                                                            (
+                                                                (push iNode.children new_vref_node)
+                                                            )(                                                                
+                                                                (def rn:CodeNode iNode.right_node)
+                                                                (= new_vref_node.parent rn)
+                                                                (push rn.children new_vref_node)
+                                                            )
+                                                        )
+                                                    )(
+                                                        ; normal operation...
+                                                        (push curr_node.children new_vref_node)
+                                                    )   
+                                                )
+
+
+                                                
                                                 (if vref_had_type_ann
                                                     (
                                                         ; (def vann:CodeNode (call this parse_raw_annotation ()))
@@ -946,16 +1402,153 @@ Referenssillä voi olla N namespacea, jotka käsitetään olion property accesso
                                                     )
                                                 )
 
+                                                ; call operator consideration here, not implemented because it is hard if not impossible to determine
+                                                ; if the expression is starting simply a new list or is it actually a call.
+                                                (if ( || (== (charAt s (+ i 1)) (charcode "(") ) (== (charAt s (+ i 0)) (charcode "(")) )
+                                                    (
+                                                        (if ( && (== 0 op_pred) curr_node.infix_operator (== 1 (array_length curr_node.children)))    
+                                                            (
+                                                                ; TODO: consider options for call operator here.
+                                                            )
+                                                        )
+                                                    )
+                                                )
+
+
+                                                (if ( || ( && (> op_pred 0) curr_node.infix_operator) ( && (> op_pred 0) (>= (array_length curr_node.children) 2) ) )    
+                                                    (
+
+                                                        ; assigment operator...
+                                                        (if (== op_pred 3)
+                                                            (
+                                                                ; just swap the first and second node...
+                                                                (def n_ch:CodeNode (array_extract curr_node.children 0))
+                                                                (push curr_node.children n_ch)
+
+                                                            )
+                                                            (
+
+                                                                (if (== false curr_node.infix_operator)
+                                                                    (
+                                                                        ; (print "we should create a new infix_operator node right here...")
+                                                                        (def if_node:CodeNode (new CodeNode (code sp ep)))
+                                                                        (= curr_node.infix_node if_node)
+                                                                        (= curr_node.infix_operator true)
+                                                                        (= if_node.infix_subnode true)
+
+                                                                        ; move the nodes to the infix node and use that node instead
+                                                                        (def ch_cnt:int (array_length curr_node.children))
+                                                                        (def ii:int 0)
+                                                                        (def start_from:int (- ch_cnt 2))
+                                                                        (def keep_nodes:[CodeNode])
+                                                                        (while (> ch_cnt 0)
+                                                                            (
+                                                                                (def n_ch:CodeNode (array_extract curr_node.children 0))
+                                                                                (if ( || (< ii start_from) n_ch.infix_subnode )
+                                                                                    (
+                                                                                        (push keep_nodes n_ch) ; if already a infix subnode, do not overwrite them
+                                                                                    )
+                                                                                    (
+                                                                                        (push if_node.children n_ch)
+                                                                                    )
+                                                                                )                                                                        
+                                                                                (= ch_cnt (- ch_cnt 1))
+                                                                                (= ii (+ 1 ii))
+                                                                            )
+                                                                        )
+                                                                        (for keep_nodes keep:CodeNode i
+                                                                            (
+                                                                                (push curr_node.children keep)
+                                                                            )
+                                                                        )
+                                                                        (push curr_node.children  if_node)
+                                                                        ; infix_node
+                                                                    )
+                                                                )
+
+                                                                (def ifNode:CodeNode curr_node.infix_node)
+
+                                                                ; (print ( + "operator" new_vref_node.vref  " close to") )
+                                                                ; (def c_line_index:int (call curr_node getLine ())) 
+                                                                ; (print (call curr_node getLineString(c_line_index)))    
+                                                                ; (print (+ "now has " (array_length curr_node.children) " nodes "))
+                                                                
+
+                                                                (def new_op_node:CodeNode (new CodeNode (code sp ep)))
+                                                                (= new_op_node.expression true)
+                                                                (= new_op_node.parent ifNode)
+
+                                                                (def until_index:int (- (array_length ifNode.children) 1))
+                                                                (def to_right:boolean false)
+                                                                (def just_continue:boolean false)
+
+                                                                (if ( && (> ifNode.operator_pred 0) ( < ifNode.operator_pred op_pred) )
+                                                                    (
+                                                                        (= to_right true)
+                                                                    )
+                                                                )
+
+                                                                (if ( && (> ifNode.operator_pred 0) ( > ifNode.operator_pred op_pred) )
+                                                                    (
+                                                                        (= ifNode.to_the_right false)
+                                                                    )
+                                                                )             
+
+                                                                (if ( && (> ifNode.operator_pred 0) ( == ifNode.operator_pred op_pred) )
+                                                                    (
+                                                                        (= to_right ifNode.to_the_right)
+                                                                    )
+                                                                )       
+        
+                                                                (if to_right   
+                                                                    (
+                                                                        ; 3 * 4 + 5 * 7 
+                                                                        (def op_node:CodeNode (array_extract ifNode.children until_index))
+                                                                        (def last_value:CodeNode (array_extract ifNode.children (- until_index 1)))
+
+                                                                        (push new_op_node.children op_node)
+                                                                        (push new_op_node.children last_value)
+
+                                                                        (push ifNode.children new_op_node)
+                                                                        (= ifNode.right_node new_op_node)
+                                                                        (= ifNode.to_the_right true)
+
+                                                                    )
+                                                                    (
+                                                                        (if (== false just_continue)
+                                                                            (
+                                                                                (while (> until_index 0)
+                                                                                    (
+                                                                                        (def what_to_add:CodeNode (array_extract ifNode.children 0))
+                                                                                        (push new_op_node.children what_to_add)
+                                                                                        (= until_index (- until_index 1))
+                                                                                    )
+                                                                                )
+                                                                                (push ifNode.children new_op_node)
+                                                                            )
+                                                                        )
+                                                                    )
+                                                                )
+
+                                                                (= ifNode.operator_pred op_pred)
+                                                                (continue _) 
+
+                                                                
+                                                            )
+                                                        )
+
+
+
+                                                    )
+                                                )                                                
+                                            
+                                                (continue _) 
                                             )
                                         )                                                            
                                     )
                                 )                      
 
-
-
-
-
-                                (if (== c 41)
+                                (if ( || (== c 41) (== c (charcode "}")) )
                                 (
                                     ; (print "Found ) ")
                                     (= i (+ 1 i))

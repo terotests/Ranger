@@ -58,7 +58,14 @@ Komennot noudattavat lisp -tyyppistä syntaksia:
                 (
                     (return "common")
                 )
-            )    
+            ) 
+
+            (PublicMethod getCmdName:string (cmd:string)
+                (
+                    (return cmd)
+                )
+            )
+               
 
             (PublicMethod EncodeString:string (orig_str:string)
                 (
@@ -149,6 +156,105 @@ muuttujaan jossa on tyyppiä
                 )
             )
 
+            (PublicMethod findFunctionDesc:RangerAppFunctionDesc (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+                (
+
+                    (def varDesc:RangerAppParamDesc)   
+                    (def varFnDesc:RangerAppFunctionDesc)   
+                     
+                    ; (print "findParamDesc")
+                    (if (== obj.vref (getThisName _))
+                        (
+                            (call ctx addError (obj "Can not call 'this' like function" ))                            
+                            (= varFnDesc (new RangerAppFunctionDesc ()))
+                            (return varFnDesc)
+                        )
+                        (
+                            ; reference of type obj.foo
+                            (if (> (array_length obj.ns) 1)
+                                (
+                                    ; (print "--> has ns")
+                                    (def cnt:int (array_length obj.ns))
+                                    (def classRefDesc:RangerAppParamDesc)                                        
+
+                                    (for obj.ns strname:string i
+                                        (if (== i 0)
+                                            (
+                                                (def classDesc:RangerAppClassDesc)
+                                                (if (== strname (getThisName _))
+                                                    (
+                                                        (= classDesc (call ctx getCurrentClass ()))
+                                                    )
+                                                    (
+                                                        (= classRefDesc (call ctx getVariableDef (strname))) 
+                                                        (if (null? classRefDesc)
+                                                            (
+                                                                (call ctx addError (obj ( + "Error, no description for called object: " strname ) ))
+                                                                (break _)
+                                                            )
+                                                        )
+                                                        (= classDesc (call ctx findClass (classRefDesc.nameNode.type_name)))
+                                                    )
+                                                )
+                                                ; (print (+ " looking for class " classRefDesc.nameNode.type_name))                     
+                                            )
+                                            (
+                                                (if (< i (- cnt 1))
+                                                    (
+                                                        (= varDesc (call classDesc findVariable (strname)))
+                                                        (if (null? varDesc)
+                                                            (call ctx addError (obj ( + "Error, no description for refenced obj: " strname ) ))                                                    
+                                                        )
+                                                        (def subClass:string (call varDesc getTypeName ()))
+                                                        (= classDesc (call ctx findClass (subClass)))
+                                                        (continue _) 
+                                                                                                               
+                                                        ; the variable type name
+                                                    )
+                                                )
+                                                
+                                                ; TODO: consider if methods should be checed too
+                                                (if (!null? classDesc) 
+                                                    (
+                                                        (= varFnDesc (call classDesc findMethod (strname)))
+                                                        (if (null? varFnDesc)
+                                                            (call ctx addError (obj ( + "variable not found " strname ) ))                                   
+                                                        )
+                                                    )
+                                                )       
+                                                ; (print (+ "ns variable type " varDesc.nameNode.type_name))                                                                                             
+                                            )
+                                        )                                        
+                                    )
+                                    (return varFnDesc)
+                                    ; (= varDesc (call subCtx getVariableDef (obj.vref)))      
+                                )
+                            )
+
+                            ; get this class
+                            ; call findMethod
+
+                            (def currClass:RangerAppClassDesc (call ctx getCurrentClass ()))
+                            (= varFnDesc (call currClass findMethod (obj.vref)))
+
+                            ; (= varDesc (call this findParamDesc (obj ctx wr)))
+                            (if (!null? varFnDesc.nameNode)
+                                (
+                                    ; OK, here is what to expect:
+                                    ; (print (+ varDesc.nameNode.vref ":" varDesc.nameNode.type_name) )
+                                )
+                                (
+
+                                    (call ctx addError (obj ( + "Error, no description for called function: " obj.vref ) ))
+                                )
+                            )
+                            (return varFnDesc)
+                        )
+                    )
+                )
+            )
+            
+
             (PublicMethod findParamDesc:RangerAppParamDesc (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
 
@@ -172,16 +278,33 @@ muuttujaan jossa on tyyppiä
                                     (for obj.ns strname:string i
                                         (if (== i 0)
                                             (
-                                                (= classRefDesc (call ctx getVariableDef (strname)))   
-                                                (if (null? classRefDesc)
+
+                                                (def classDesc:RangerAppClassDesc)
+                                                (if (== strname (getThisName _))
                                                     (
-                                                        (call ctx addError (obj ( + "Error, no description for called object: " strname ) ))
-                                                        (break _)
+                                                        (= classDesc (call ctx getCurrentClass ()))
+                                                    )
+                                                    (
+                                                        (= classRefDesc (call ctx getVariableDef (strname))) 
+                                                        (if (null? classRefDesc)
+                                                            (
+                                                                (call ctx addError (obj ( + "Error, no description for called object: " strname ) ))
+                                                                (break _)
+                                                            )
+                                                        )
+                                                        (= classDesc (call ctx findClass (classRefDesc.nameNode.type_name)))
                                                     )
                                                 )
-                                                (def classDesc:RangerAppClassDesc)
-                                                (= classDesc (call ctx findClass (classRefDesc.nameNode.type_name)))
-                                                ; (print (+ " looking for class " classRefDesc.nameNode.type_name))                     
+                                                
+                                                ;(= classRefDesc (call ctx getVariableDef (strname)))   
+                                                ;(if (null? classRefDesc)
+                                                ;    (
+                                                ;        (call ctx addError (obj ( + "Error, no description for called object: " strname ) ))
+                                                ;        (break _)
+                                                ;    )
+                                                ;)
+                                                ;(def classDesc:RangerAppClassDesc)
+                                                ;(= classDesc (call ctx findClass (classRefDesc.nameNode.type_name)))
                                             )
                                             (
                                                 (if (< i (- cnt 1))
@@ -203,7 +326,17 @@ muuttujaan jossa on tyyppiä
                                                     (
                                                         (= varDesc (call classDesc findVariable (strname)))
                                                         (if (null? varDesc)
-                                                            (call ctx addError (obj ( + "variable not found " strname ) ))                                   
+                                                            (
+                                                                (def classMethod:RangerAppFunctionDesc (call classDesc findMethod (strname)))
+                                                                (if (null? classMethod)
+                                                                    (call ctx addError (obj ( + "variable not found " strname ) ))
+                                                                    (
+                                                                        ; (print (+ "findParamDesc returning function " strname))
+                                                                        (return classMethod)
+                                                                    )
+                                                                )   
+                                                                       
+                                                            )                            
                                                         )
                                                     )
                                                 )       
@@ -1073,7 +1206,103 @@ Esimerkki:
             (PublicMethod cmdLocalCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
                     (def fnNode:CodeNode (call node getFirst ()))
-                    (def desc:RangerAppClassDesc (call ctx getCurrentClass ()))    
+                    (def desc:RangerAppClassDesc (call ctx getCurrentClass ()))
+
+                    ; (wr.out("moi" true))
+                    ; (wr.out("moi", true))
+
+                    (if (> (array_length fnNode.ns) 1)
+                        (
+                            
+                            ; it should be a method call for some object or call to object which is property of the object
+                            @todo("REVIEW the VREF and function existence check")
+
+                            (def vFnDef:RangerAppFunctionDesc (call this findFunctionDesc (fnNode ctx wr)))        
+
+                            (if (!null? vFnDef)
+                                (                                    
+                                    (def subCtx:RangerAppWriterContext (call ctx fork ()))
+
+                                    (def p:RangerAppParamDesc (new RangerAppParamDesc ()))
+                                    (= p.name fnNode.vref)
+                                    (= p.value_type fnNode.value_type)
+                                    (= p.node fnNode)
+                                    (= p.nameNode fnNode)
+                                    (= p.varType RangerContextVarType.Function)
+                                    (call subCtx defineVariable (p.name p))     
+
+                                    ;                                     
+                                    (call subCtx setInExpr ())
+                                    (call this WalkNode (fnNode subCtx wr))                            
+                                    (call wr out ("(" false))
+
+                                    ; (wr.out ())
+                                    (def callParams:CodeNode (itemAt node.children (1)))
+
+                                    (for callParams.children arg:CodeNode i
+                                        (
+                                            ;(if (< i 1)
+                                            ;    (continue _)
+                                            ;)                                    
+                                            (if (> i 0)
+                                                (call wr out ("," false))
+                                            )
+                                            (call this WalkNode (arg subCtx wr))
+                                        )
+                                    )
+
+                                    (call wr out (")" false))
+                                    (call subCtx unsetInExpr ())
+
+                                    
+                                    (if ( == (call ctx expressionLevel ()) 0 )
+                                        (   
+                                            ; (call wr out ("/* expr level == 0 ; */ " false))
+                                            (call wr out (";" false))
+                                            (call wr newline ())
+                                        )
+                                    )
+
+                                    
+
+                                    (for vFnDef.params param:RangerAppParamDesc i
+                                        (
+                                            (def argNode:CodeNode (itemAt callParams.children i))
+                                            (if (null? argNode)
+                                                (
+                                                    (call ctx addError (node "Argument was not defined"))                                                     
+                                                )
+                                            )
+                                            (if (call this areEqualTypes ( param.nameNode argNode ctx))
+                                                (
+
+                                                )
+                                                (
+                                                    ; error
+                                                    (call ctx addError (node ( + "ERROR, invalid argument types for method " vFnDef.name ) ))                                    
+                                                    
+                                                )
+                                            )
+
+        ;                                    (call ctx addError (obj ( + "ERROR, could not find class " className " method " method.vref ) ))                                    
+
+                                        )
+                                    )
+                                    
+
+                                    (return true)
+
+
+
+                                )
+                                (
+                                    (call ctx addError (node "Called Object or Property was not defined"))                                                     
+                                )
+                            )
+
+                        )
+                    )
+
 
                     (if (call desc hasMethod (fnNode.vref))
                         (
@@ -1107,9 +1336,13 @@ Esimerkki:
                             )
 
                             (call wr out (")" false))
-                            (call ctx unsetInExpr ())
+                            (call subCtx unsetInExpr ())
                             (if ( == (call ctx expressionLevel ()) 0 )
-                                (call wr newline ())
+                                (   
+                                    ; (call wr out ("/* expr level == 0 ; */ " false))
+                                    (call wr out (";" false))
+                                    (call wr newline ())
+                                )
                             )
 
                             (for fnDescr.params param:RangerAppParamDesc i
@@ -1378,8 +1611,11 @@ Esimerkki:
                     (if ( > (call subCtx expressionLevel ()) 1 )
                         (call wr out (")" false))
                     )
-                    (if ( == (call subCtx expressionLevel ()) 0 )
-                        (call wr newline ())
+                    (if ( == (call ctx expressionLevel ()) 0 )
+                        (
+                            (call wr out (";" false))
+                            (call wr newline ())
+                        )
                     )
 
                 )
@@ -2166,7 +2402,6 @@ Append item as last element of array
 ```
 
 ")            
-
             ; (push arr value)
             (PublicMethod cmdPush:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 (
@@ -2177,7 +2412,7 @@ Append item as last element of array
                     
                     (call ctx setInExpr ())
                     (call this WalkNode (obj ctx wr))
-                    (call wr out (".push(" false))
+                    (call wr out ((+ "." (call this getCmdName ("push")) "(") false))
                     (call this WalkNode (value ctx wr))
                     (call ctx unsetInExpr ())                    
                     (call wr out (");" true))
@@ -2185,7 +2420,6 @@ Append item as last element of array
                     (call RangerAllocations moveOwnership (obj value ctx wr))
 
                     (call this shouldBeArray (obj ctx "push expects an array as the first parameter."))                    
-
                 )
             )
 
@@ -2215,7 +2449,6 @@ Returns item from array without removing it
                     (call ctx unsetInExpr ())                    
                     (call wr out ("]" false))
 
-                    
                     (call this shouldBeArray (obj ctx "itemAt expects an array as the first parameter."))                    
                     (call this shouldBeType ("int" index ctx "charAt expects an interger as the second parameter."))                    
 
@@ -2227,6 +2460,16 @@ Returns item from array without removing it
 
 "
 ## has 
+
+Block syntax
+```
+    def hashTbl:[string:string]
+    set hashTbl \"someKey\" \"foo\"
+    
+    if (has hashTbl \"someKey\") {
+        print \"did have\"
+    }
+```
 
 Returns true if map has a key
 ```
@@ -2304,10 +2547,11 @@ Set a map key to some value
 ## get 
 
 Get a value associated to a key 
+
+General syntax:
 ```
   (def someMap:[string:string])
   (set someMap \"foo\" \"bar\") ; map has now key-value pair foo:bar
-
   (def value:string (get someMap \"foo\")) ; \"bar\"
 ```
 
@@ -2454,7 +2698,7 @@ Returns true if value is not null
                 )
             )
 
-            ; override in child classes
+            ; override in child classes if necessary to import math libraries
             (PublicMethod mathLibCalled:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
                 ()
             )
@@ -2811,7 +3055,6 @@ tule JS tyyppisiä outouksia konversiosta.
                         (call this WalkNode (indexField subCtx wr))
                         (call wr out ("++) { " true))
                         (call wr indent (1))
-                        (call wr out ("/* new version of for loop */ " true))
                         (call wr out ("var " false))
                         (call this WalkNode (nodeField subCtx wr))
                         (call wr out ("= " false))
@@ -3419,12 +3662,22 @@ TODO: pohdittava pitäisikö olla verbi `write_file`
                     )
                     (if (call node isFirstVref ("Extends")) ( (return true) ) )                    
 
-                    (if (call node isFirstVref ("Import")) ((call this cmdImport (node ctx wr)) (return true) ) )                    
+                    (if (call node isFirstVref ("Import")) ((call this cmdImport (node ctx wr)) (return true) ) )   
+
                     (if (call node isFirstVref ("def")) ((call this EnterVarDef (node ctx wr)) (return true) ) )                    
+                    (if (call node isFirstVref ("let")) ((call this EnterVarDef (node ctx wr)) (return true) ) )                    
+                    
                     (if (call node isFirstVref ("TemplateClass")) ( (call this EnterTemplateClass (node ctx wr)) (return true) ) )
+                    
                     (if (call node isFirstVref ("CreateClass")) ( (call this EnterClass (node ctx wr)) (return true) ) )
+                    (if (call node isFirstVref ("class")) ( (call this EnterClass (node ctx wr)) (return true) ) )
+
                     (if (call node isFirstVref ("PublicMethod")) ( (call this EnterMethod (node ctx wr)) (return true) ) )
                     (if (call node isFirstVref ("StaticMethod")) ( (call this EnterStaticMethod (node ctx wr)) (return true) ) )
+
+                    (if (call node isFirstVref ("fn")) ( (call this EnterMethod (node ctx wr)) (return true) ) )
+                    (if (call node isFirstVref ("sfn")) ( (call this EnterStaticMethod (node ctx wr)) (return true) ) )
+
                     (if (call node isFirstVref ("Constructor")) ( (call this Constructor (node ctx wr)) (return true) ) )
 
                     ; check if this is a function call...
@@ -3525,9 +3778,19 @@ TODO: pohdittava pitäisikö olla verbi `write_file`
                                     )
                                     ; the variable type should be checked
                                     ; (print ( + "Possible call to " fc.vref))
-                                    (if (call this cmdLocalCall (node ctx wr))
-                                        (return true)
+
+                                    (if (> (array_length node.children ) 1)
+                                        (
+                                            (if (call this cmdLocalCall (node ctx wr))
+                                                (return true)
+                                            )
+                                        )
+                                        (   
+
+
+                                        )
                                     )
+
                                 )
                             )
                         )
@@ -3672,7 +3935,7 @@ TODO: pohdittava pitäisikö olla verbi `write_file`
                         )
                     )                    
 
-                    (if (call node isFirstVref ("CreateClass"))
+                    (if ( || (call node isFirstVref ("CreateClass")) (call node isFirstVref ("class")) )
                         (
                             (def s:string (call node getVRefAt (1)))
                             ; (print (+ "Found class " s))
@@ -3701,7 +3964,7 @@ TODO: pohdittava pitäisikö olla verbi `write_file`
                         )
                     )
                     
-                    (if (call node isFirstVref ("def"))
+                    (if ( || (call node isFirstVref ("def")) (call node isFirstVref ("let")) )
                         (
                             (def s:string (call node getVRefAt (1)))
                             ; (print (+ "DEF " s ))
@@ -3746,7 +4009,7 @@ TODO: pohdittava pitäisikö olla verbi `write_file`
                         )
                     )
 
-                    (if (call node isFirstVref ("StaticMethod"))
+                    (if ( || (call node isFirstVref ("StaticMethod")) (call node isFirstVref ("sfn")) )
                         (
                             (def s:string (call node getVRefAt (1)))
                             (def currC:RangerAppClassDesc ctx.currentClass)
@@ -3790,7 +4053,7 @@ TODO: pohdittava pitäisikö olla verbi `write_file`
                         )
                     )
                     
-                    (if (call node isFirstVref ("PublicMethod"))
+                    (if (|| (call node isFirstVref ("PublicMethod")) (call node isFirstVref ("fn")))
                         (
                             (def s:string (call node getVRefAt (1)))
                             (def currC:RangerAppClassDesc ctx.currentClass)

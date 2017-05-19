@@ -38,7 +38,7 @@ johon koodi talletetaan.
 
                     )
                     (
-                        (set import_list name import_name)
+                        (set import_list import_name import_name)
                         (push import_names import_name)
                     )
                 )
@@ -187,6 +187,23 @@ johon koodi talletetaan.
                 )
             )
 
+            ( PublicMethod getImports:[string] () (
+
+                (if (!null? ownerFile)
+                    (
+                        (return ownerFile.import_names)
+                    )
+                    (
+                        (if (!null? parent)
+                            (return (call parent getImports ()))
+                        )
+                        (def nothing:[string])
+                        (return nothing)
+                    )
+                )
+            ))
+            
+
             ( PublicMethod addImport:void (name:string ) (
 
                 (if (!null? ownerFile)
@@ -316,6 +333,7 @@ johon koodi talletetaan.
             )
 
             ( PublicMethod out:void (str:string newLine:boolean) (
+
                 (def lines:[string] (strsplit str "\n" ))
                 (def rowCnt:int (array_length lines))
                 (if (== rowCnt 1)

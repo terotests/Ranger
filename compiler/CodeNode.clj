@@ -25,6 +25,15 @@
 
             (def expression:boolean false)
             (def vref:string "")
+            (def is_block_node:boolean false)     ; specifically marked as a block node
+
+            (def infix_operator:boolean false)    ; if we are collecting infix nodex like 4 + 2 * 10
+            (def infix_node:CodeNode @weak(true))
+            (def infix_subnode false)
+
+            (def operator_pred:int 0)
+            (def to_the_right:boolean false)
+            (def right_node:CodeNode @weak(true))
 
             (def type_type:string "")  ; hash, function, array ? 
             (def type_name:string "")
