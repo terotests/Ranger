@@ -1,11 +1,18 @@
 
-# Ranger kääntäjän dokumentaatio
+# Ranger cross language compiler
 
-Yleisesti huomioitavaa: 
-- kääntäjä on vielä työn alla ja jotkut ominaisuudet eivät vielä toimi tai toimivat vain osin
-- sama koskee myös dokumentaatiota, kaikkia osia ei ole dokumentoitu tai dokumentoitu vain osin
+```
+This is a work in progress, everything is subject to change at this point.
+```
 
-## Kääntäjän asentaminen
+The goal is to have a common language which can be used to transform ideas and algorithms between different
+problem domains using easy to write and parse AST syntax form. The goal is to support eventually at least
+
+- Java 7
+- swift 2 or swift 3
+- JavaScript, ES5 and ES6 
+
+## Setup
 
 ```
  npm install -g ranger-compiler
@@ -31,40 +38,31 @@ Then compile it using `ranger-compiler` using command line
 ```
 ranger-compiler Hello.ran es5 projectdir/hello none
 ```
+NOTE; The last argument, which is here set to `none`, is for compilers internal messages used during development
 
-Then go to directory `projectdir/hello` and see the compiled result
+Then go to directory `projectdir/hello` and see the compiled result. You should see at least
+
+- Hello.js
+- README.md
+- classdoc.md
 
 
 
 
 
+# The Syntax
 
+## Variable definitions
 
-# Parserin tukema syntaksi
-
-Parseri parsii lisp -tyyppisiä S-expressioneita joillakin syntaksilaajennuksilla, joita ovat mm. tuki
-annotaatioille sekä tyyppimäärityksille
-
-## Tyyppimääritykset
-
-Tokeneilla voi olla tyyppimäärityksiä, jotka tulevat referenssin AST puun ominaisuudeksi
-Esimerkki yksittäisestä tokenista on vaikkapa variablen määritys `def` tai sen määrittelemä
-variable `x`
+Values can be defined using `def` or `let` keyword.
 
 ```
-(def x)
-```
-Jos halutaan määritellä variable tyyppiä `double` se voidaan tehdä laajennetun tyyppi -syntaksin avulla
-```
-(def x:double)
-```
-Syntaksi tukee myös Array ja Map tyyppisiä määrityksiä
-
-```
-(def arr:[double])         ; array of doubles
-(def arr:[string:string])  ; map string -> string
-(def objMap:[string:SomeClass]) ; map string -> object
-
+def x:double
+def x:double 0.4            ; double with initializer
+def list1:[double]          ; list of doubles
+def strList:[string]        ; list of Strings
+def strMap:[string:string]  ; map of string -> string
+def strObjMap:[string:someClass]    ; map of string -> object of type someClass
 ```
 
 
@@ -95,7 +93,7 @@ Referenssiin (tai tokeniin) liittyvä annotaatio kirjoitetaan suoraan kiinni tok
 Tyyppi-annotaatio tulee osaksi Array tai Map tyyppiä.
 
 ```
-(def classList:myClass@(T)) ; <-- @(T) on type annotaatio referenssille classList
+def classList:myClass@(T) ; <-- @(T) on type annotaatio referenssille classList
 ```
 
 Jokainen annotaatio on uusi S-expression tyyppiä `CodeNode` ja sijoitetaan luokan CodeNode propertyksi.
@@ -709,6 +707,16 @@ Returns item from array without removing it
 
 ## has 
 
+Block syntax
+```
+    def hashTbl:[string:string]
+    set hashTbl "someKey" "foo"
+    
+    if (has hashTbl "someKey") {
+        print "did have"
+    }
+```
+
 Returns true if map has a key
 ```
   (has someMap someKey) ; returns true if map has defined key "someKey"
@@ -729,10 +737,11 @@ Set a map key to some value
 ## get 
 
 Get a value associated to a key 
+
+General syntax:
 ```
   (def someMap:[string:string])
   (set someMap "foo" "bar") ; map has now key-value pair foo:bar
-
   (def value:string (get someMap "foo")) ; "bar"
 ```
 
