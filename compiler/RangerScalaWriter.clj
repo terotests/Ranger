@@ -392,7 +392,7 @@ class RangerScalaWriter {
         ; (call RangerAllocations moveOwnership (obj value ctx wr))
     }
 
-    fn cmdStrsplit:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    fn cmdSplit:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
         ; TODO: miten konvertoida ArrayBufferiksi ???
 
@@ -404,7 +404,7 @@ class RangerScalaWriter {
         wr.out (".split(" false)        
         this.WalkNode (n2 ctx wr)
         ctx.unsetInExpr ()
-        wr.out (")" false)
+        wr.out (").to[collection.mutable.ArrayBuffer]" false)
         
         this.shouldBeType ("string" n1 ctx "strsplit expects a string as the first parameter.")
         this.shouldBeType ("string" n2 ctx "strsplit expects a string as the second parameter.")
@@ -485,31 +485,31 @@ class RangerScalaWriter {
     
 
     fn cmdArgv:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-        wr.out ("RangerIO.readArg()" false)                 
+        wr.out ("/* RangerIO.readArg() */ \"\"" false)                 
     }
 
     fn cmdArgvCnt:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-        wr.out ("RangerIO.argCount()" false)
+        wr.out ("/* RangerIO.argCount() */ 0" false)
     }
 
     fn cmdFileRead:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-        wr.out ("RangerIO.ReadFile()" false)
+        wr.out ("/* RangerIO.ReadFile() */ \"\" " false)
     }
 
     fn cmdFileWrite:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-        wr.out ("RangerIO.FileWrite()" false)
+        wr.out ("/* RangerIO.FileWrite() */" false)
     }
 
     fn cmdIsFile:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-        wr.out ("RangerIO.IsFile()" false)
+        wr.out ("/* RangerIO.IsFile() */ false " false)
     }
 
     fn cmdIsDir:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-        wr.out ("RangerIO.IsDir()" false)
+        wr.out ("/* RangerIO.IsDir() */  false" false)
     }
 
     fn cmdCreateDir:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-        wr.out ("RangerIO.CreateDir()" false)
+        wr.out ("/* RangerIO.CreateDir() */ " false)
     }
 
     fn PublicMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -693,6 +693,9 @@ class RangerScalaWriter {
                     wr.out( " = collection.mutable.ArrayBuffer["  + (getObjectTypeString v.array_type) + "]()" , true)
                     return _
                 }
+            }
+            if (false == (call ctx isInMethod ()) ) {
+                wr.out ( " = _ " false)
             }
         }
         wr.out ( "" true)
