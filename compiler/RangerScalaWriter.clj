@@ -9,7 +9,7 @@ class RangerScalaWriter {
 
     fn getCmdName:string (cmd:string) {
         switch cmd {
-            case "push" { return "add" }
+            case "push" { return "append" }
             default { return cmd }
         }
     }
@@ -18,7 +18,7 @@ class RangerScalaWriter {
 
         switch type_string {
             case "int" {
-                return "Integer"
+                return "Long"
             }
             case "string" {
                 return "String"
@@ -38,16 +38,16 @@ class RangerScalaWriter {
 
         switch type_string {
             case "int" {
-                return "int"
+                return "Long"
             }
             case "string" {
                 return "String"
             }
             case "boolean" {
-                return "boolean"
+                return "Boolean"
             }
             case "double" {
-                return "double"
+                return "Double"
             }
             default {
                 return type_string
@@ -60,29 +60,34 @@ class RangerScalaWriter {
     fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
         switch node.value_type {
             case RangerNodeType.Integer {
-                wr.out("int" false)
+                wr.out("Long" false)
             }
             case RangerNodeType.Double {
-                wr.out("double" false)
+                wr.out("Double" false)
             }
             case RangerNodeType.String {
                 wr.out("String" false)
             }
             case RangerNodeType.Boolean {
-                wr.out("boolean" false)
+                wr.out("Boolean" false)
             }
             case RangerNodeType.Hash {
-			    wr.addImport("java.util.*")
-                wr.out( "Map<" + (getObjectTypeString node.key_type) + ", " + (getObjectTypeString node.array_type) + ">" , false)
+			    wr.addImport("scala.collection.mutable")
+                wr.out( "Map[" + (getObjectTypeString node.key_type) + ", " + (getObjectTypeString node.array_type) + "]" , false)
             }
             case RangerNodeType.Array {
                 ; ArrayList
                 ; TODO: add generics support
-			    wr.addImport("java.util.*")
-                wr.out( "ArrayList<" + (getObjectTypeString node.array_type) + ">" , false)
+			    wr.addImport("scala.collection.mutable")
+                wr.out( "collection.mutable.ArrayBuffer[" + (getObjectTypeString node.array_type) + "]" , false)
             }
             default {
-                wr.out( node.type_name false )
+
+                if( node.type_name == "void") {
+                    wr.out( "Unit" false )
+                    return _
+                }
+                wr.out( ( getTypeString( node.type_name) ) false )
             }
         }
     }
@@ -94,7 +99,7 @@ class RangerScalaWriter {
             
         ctx.setInExpr ()
         this.WalkNode(obj ctx wr)
-        wr.out(".get(" false)
+        wr.out("(" false)
         this.WalkNode(index ctx wr)
         ctx.unsetInExpr()
         wr.out(")" false)
@@ -111,11 +116,7 @@ class RangerScalaWriter {
 
         ctx.setInExpr()
         this.WalkNode (obj ctx wr)
-        wr.out (".remove(" false)
-        this.WalkNode (obj ctx wr)
-
-        wr.out(".size() - 1" false)
-
+        wr.out (".dropRight(1)" false)
         ctx.unsetInExpr ()                    
         wr.out (")" false)
 
@@ -124,20 +125,36 @@ class RangerScalaWriter {
     }
     
     fn mathLibCalled:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-        wr.addImport("java.lang.Math")                           
+        wr.addImport("scala.math")                           
     }
 
-    fn cmdPrint:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    fn cmdMathLibOp:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
         
-        wr.addImport ("java.io.*")
+        wr.addImport ("scala.math")
 
+        def op:CodeNode (call node getFirst ())
         def n1:CodeNode (call node getSecond ())
-        wr.newline()
-        wr.out ("System.out.println(String.valueOf(" false)
+
+        wr.out(op.vref + "(" , false)
         ctx.setInExpr ()
         this.WalkNode (n1 ctx wr)
         ctx.unsetInExpr ()
-        wr.out ("));" true)
+        wr.out (")" false)
+
+        this.shouldBeType ("double" n1 ctx "math operator expect a double as the first parameter.")                 
+    }      
+
+
+    fn cmdPrint:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+        
+        def n1:CodeNode (call node getSecond ())
+        wr.newline()
+        wr.out ("println(" false)
+        ctx.setInExpr ()
+        this.WalkNode (n1 ctx wr)
+        ctx.unsetInExpr ()
+        wr.out (")" true)
+
         this.shouldBeType ("string" n1 ctx "print expects a string as the first parameter.")                 
     }        
     
@@ -171,26 +188,19 @@ class RangerScalaWriter {
 
         wr.out ("for( int " false)
         this.WalkNode (indexField subCtx wr)
-        wr.out ("= 0; " false)
-        this.WalkNode (indexField subCtx wr)
-        wr.out ("< " false)
-            this.WriteVRef(listField ctx wr)
-            wr.out (".size(); " false)
-            this.WalkNode (indexField subCtx wr)
-            wr.out ("++) { " true)
+        wr.out (" <- 0 until " false)
+        this.WriteVRef(listField ctx wr)
+        wr.out (".length ) {" true)
+
             wr.indent(1)
 
-            @todo("JAVA: erillinen data-tyypin kirjoittamisfunktio tarvitaan esim. genericsejä varten")
-
-            wr.out ("// FIX the TYPE names here" true)
-            wr.out (nodeField.type_name false)
-
-            wr.out (" " false)
+            wr.out(" val " false)
             this.WalkNode (nodeField subCtx wr)
+            wr.out(" : " false)
+            this.writeTypeDef( nodeField ctx wr )
             wr.out (" = " false)
             this.WriteVRef(listField ctx wr)
-
-            wr.out (".get(" false)
+            wr.out ("(" false)
             this.WalkNode (indexField subCtx wr)
             wr.out (");" true)
             
@@ -208,7 +218,7 @@ class RangerScalaWriter {
         ctx.setInExpr ()
         this.WalkNode (n1 ctx wr)
         ctx.unsetInExpr ()
-        wr.out (".size()" false)
+        wr.out (".length" false)
 
         node.eval_type = RangerNodeType.Integer
         node.eval_type_name = "int"
@@ -238,7 +248,7 @@ class RangerScalaWriter {
 
         ctx.setInExpr ()
         this.WalkNode (obj ctx wr)
-        wr.out (".containsKey(" false)
+        wr.out (".contains(" false)
         this.WalkNode (key ctx wr)
         wr.out (")" false)
         ctx.unsetInExpr ()
@@ -301,7 +311,7 @@ class RangerScalaWriter {
         
         ctx.setInExpr ()
         this.WalkNode (obj ctx wr)
-        wr.out (".add(" false)
+        wr.out (".append(" false)
         this.WalkNode (value ctx wr)
         ctx.unsetInExpr ()
         wr.out (");" true)
@@ -315,13 +325,10 @@ class RangerScalaWriter {
         def obj:CodeNode (call node getSecond ())
         def value:CodeNode (call node getThird ())
 
-        wr.addImport ("org.apache.commons.lang.StringUtils")
-
         ctx.setInExpr ()
-        wr.out ("StringUtils.join(" false)
-        this.WalkNode (value ctx wr)
-        wr.out (", " false)        
         this.WalkNode (obj ctx wr)
+        wr.out (".mkString(" false)
+        this.WalkNode (value ctx wr)
         ctx.unsetInExpr ()
         wr.out (")" false)
 
@@ -330,34 +337,34 @@ class RangerScalaWriter {
         ; (call RangerAllocations moveOwnership (obj value ctx wr))
     }
 
-    fn cmdJoin:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    fn cmdStrsplit:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
-		wr.addImport("java.util.*")
+        ; TODO: miten konvertoida ArrayBufferiksi ???
 
         def n1:CodeNode (call node getSecond ())
         def n2:CodeNode (call node getThird ())
 
         ctx.setInExpr ()
-        wr.out ("new ArrayList<String>(Arrays.asList(" false)
         this.WalkNode (n1 ctx wr)
         wr.out (".split(" false)        
         this.WalkNode (n2 ctx wr)
         ctx.unsetInExpr ()
-        wr.out ("))" false)
+        wr.out (")" false)
         
         this.shouldBeType ("string" n1 ctx "strsplit expects a string as the first parameter.")
         this.shouldBeType ("string" n2 ctx "strsplit expects a string as the second parameter.")
 
-    }   
+    }     
+
 
     fn cmdCharcode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
         def n1:CodeNode (call node getSecond ())
 
         ctx.setInExpr ()
-        wr.out ("((int)" false)
+        wr.out ("(" false)
         this.WalkNode (n1 ctx wr)
-        wr.out (".charAt(0))" false)      
+        wr.out (".charAt(0).toInt)" false)      
 
         this.shouldBeType ("string" n1 ctx "charcode expects a string as the first parameter.")
 
@@ -365,14 +372,17 @@ class RangerScalaWriter {
  
     fn cmdCharAt:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     
+        
         def obj:CodeNode (call node getSecond ())
         def value:CodeNode (call node getThird ())
 
         ctx.setInExpr ()
+        wr.out ("(" false)
         this.WalkNode (obj ctx wr)
         wr.out (".charAt(" false)
         this.WalkNode (value ctx wr)
         ctx.unsetInExpr ()
+        wr.out (").toInt" false)
         wr.out (")" false)
 
         this.shouldBeType("int" value ctx "charAt expects an interger as the third parameter.")                        
@@ -438,10 +448,8 @@ class RangerScalaWriter {
         def nameDef:CodeNode (call node getSecond ())
         wr.newline()
         wr.out(" " true)
-        wr.out("public " false)
-        
-        this.writeTypeDef( nameDef ctx wr )
-        
+        wr.out("def " false)
+                
         wr.out ( (+ " " nameDef.vref "(") false ) 
 
         def args:CodeNode (call node getThird ())
@@ -450,10 +458,16 @@ class RangerScalaWriter {
             if (> i 0) {
                 wr.out (", " false)
             }
-            this.writeTypeDef( arg ctx wr )
-            wr.out ( " " + arg.vref , false)
+
+            wr.out (arg.vref false)
+            wr.out( ":" false)
+            this.writeTypeDef( arg ctx wr )            
         }
-        wr.out ( ") { " true ) 
+        wr.out ( ") : " false )
+        
+        this.writeTypeDef( nameDef ctx wr )
+        
+        wr.out(" = { " true ) 
 
         ctx.setInMethod ()
         wr.indent(1)
@@ -473,9 +487,13 @@ class RangerScalaWriter {
         wr.newline()
         wr.indent(-1)
         if (call fnBody hasExpressionProperty ("onError")) {
-            wr.out("} catch( Exception e ) {" true)
+            wr.out("} catch {" true)
             wr.indent(1)
-            this.WalkNodeChildren (try_catch ctx wr)
+                wr.out("case e: Exception => {" true)
+                wr.indent(1)
+                    this.WalkNodeChildren (try_catch ctx wr)
+                wr.indent(-1)
+                wr.out("}" true)
             wr.indent(-1)
             wr.out("}" true)
             wr.indent(-1)
@@ -488,15 +506,33 @@ class RangerScalaWriter {
 
         def nameDef:CodeNode (call node getSecond ())
         def classInfo:RangerAppClassDesc (call ctx findClass (nameDef.vref))
-        def wr:CodeWriter (call ctx getFileWriter ("." (+ nameDef.vref ".java")))
+        def wr:CodeWriter (call ctx getFileWriter ("." (+ nameDef.vref ".scala")))
 
         def importFork:CodeWriter (call wr fork ())
 
         wr.newline()
-        wr.out ( (+ "class " nameDef.vref " " ) false ) 
+        wr.out ( (+ "class " nameDef.vref "" ) false ) 
+
+        ; write the constructor parameters over here...
+
+        if classInfo.has_constructor {
+            wr.out("(" false)
+            def constr:CodeNode classInfo.constructor_node)
+            def cParams:CodeNode (call constr getSecond ()))
+            for cParams.children param:CodeNode i {
+                if (> i 0) {
+                    wr.out(", " false)
+                }
+                wr.out (param.vref false)
+                wr.out( ":" false)
+                this.writeTypeDef( param ctx wr )
+            }
+            wr.out(") " false)
+        }        
 
         def b_extended:boolean false
         
+        ; TODO: extends does not work properly, does not call the parent class initializer here yet...
         if (> (array_length classInfo.extends_classes) 0) {
             wr.out (" extends " false)                    
             b_extended = true        
@@ -506,42 +542,24 @@ class RangerScalaWriter {
                 }
             }
         }
+
         wr.out ( " {" true )
             wr.indent(1)
             wr.out ("" true)
 
             def paramWr:CodeWriter (call wr createTag ("properties"))            
             def cw:CodeWriter (call wr createTag ("constructor"))
-            cw.out("" true)
-            cw.out((+ "public " nameDef.vref "(") false)
 
-            if classInfo.has_constructor {
-                def constr:CodeNode classInfo.constructor_node)
-                def cParams:CodeNode (call constr getSecond ()))
-                for cParams.children param:CodeNode i {
-                    if (> i 0) {
-                        cw.out(", " false)
-                    }
-                    cw.out (param.vref false)
-                }
-            }
 
-            cw.out (") {" true)
-            cw.indent (1)
-
-            if b_extended {
-                cw.out ("super()" true)
-            }
             def fnBody:CodeNode (itemAt node.children 2)
             this.WalkNodeChildren (fnBody ctx wr)
-            cw.indent (-1)
-            cw.out ("}" true)
+
             wr.indent(-1)
         wr.out ( (+ "}") true )
 
         def import_list:[string] (call wr getImports ())
         for import_list codeStr:string i {
-            importFork.out ((+ "import " codeStr ";") true)
+            importFork.out ((+ "import " codeStr "") true)
         }
     }
 
@@ -550,82 +568,36 @@ class RangerScalaWriter {
 
     fn DefineVar:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
-        if (call ctx isInMethod ()) {
+        @todo("entering the constructor possibly requires constructor context: check if this is true for init. 
+=> Also check the immutable variables (var/val) for scala")
 
-            def v:CodeNode (call node getSecond ())
+        def v:CodeNode (call node getSecond ())
 
-            wr.newline()
-            this.writeTypeDef( v ctx wr )
-            wr.out( " " + v.vref , false )
+        wr.newline()
+        wr.out( "var " false )
+        wr.out( v.vref  false )
+        wr.out(": " false)
+        this.writeTypeDef( v ctx wr )
 
-            ; case RangerNodeType.Hash {
-
-            if (> (array_length node.children) 2) {                
-                wr.out ( " = " false)
-                ctx.setInExpr ()
-                this.WalkNode ((call node getThird ()) ctx wr)
-                ctx.unsetInExpr ()
-            } {
-                switch v.value_type {
-                    case RangerNodeType.Hash {
-    		    	    wr.addImport("java.util.*")
-                        wr.out( "HashMap<" + (getObjectTypeString v.key_type) + ", " + (getObjectTypeString v.array_type) + ">();" , true)
-                        return _
-                    }
-                    case RangerNodeType.Array {
-    		    	    wr.addImport("java.util.*")
-                        wr.out( "ArrayList<"  + (getObjectTypeString v.array_type) + ">();" , true)
-                        return _
-                    }
-                    default {
-                        wr.out ( "" false)
-                    }
-                }
-            }
-            wr.out ( ";" true)
+        if (> (array_length node.children) 2) {                
+            wr.out ( " = " false)
+            ctx.setInExpr ()
+            this.WalkNode ((call node getThird ()) ctx wr)
+            ctx.unsetInExpr ()
         } {
-
-
-            def propWr:CodeWriter (call wr getTag ("properties"))            
-            def v:CodeNode (call node getSecond ())
-
-            propWr.newline()
-            propWr.out("public " false)
-            this.writeTypeDef( v ctx propWr )
-            propWr.out( " " + v.vref + "; ", true )
-
-            def cw:CodeWriter (call wr getTag ("constructor"))
-            
-            @todo("entering the constructor possibly requires constructor context: check if this is true for init")
-
-            if (> (array_length node.children) 2) {                
-
-                cw.newline()
-                cw.out ( v.vref + " = " , false )
-                ctx.setInExpr ()
-                this.WalkNode ((call node getThird ()) ctx cw)
-                ctx.unsetInExpr ()
-                cw.out( ";" true)
-
-            } {
-                switch v.value_type {
-                    case RangerNodeType.Hash {
-    		    	    cw.addImport("java.util.*")
-                        cw.newline()
-                        cw.out ( v.vref + " = " , false )        
-                        cw.out( "HashMap<" + (getObjectTypeString v.key_type) + ", " + (getObjectTypeString v.array_type) + ">();" , true)
-                    }
-                    case RangerNodeType.Array {
-    		    	    cw.addImport("java.util.*")
-                        cw.newline()
-                        cw.out ( v.vref + " = " , false )        
-                        cw.out( "ArrayList<"  + (getObjectTypeString v.array_type) + ">();" , true)
-                    }
-                    default {
-                        
-                    }
+            switch v.value_type {
+                case RangerNodeType.Hash {
+                    wr.addImport("scala.collection.mutable")
+                    wr.out( "collection.mutable.Map[" + (getObjectTypeString v.key_type) + ", " + (getObjectTypeString v.array_type) + "]()" , true)
+                    return _
+                }
+                case RangerNodeType.Array {
+                    wr.addImport("scala.collection.mutable")
+                    wr.out( "collection.mutable.ArrayBuffe["  + (getObjectTypeString v.array_type) + ">()" , true)
+                    return _
                 }
             }
         }
+        wr.out ( "" true)
     }
 }
