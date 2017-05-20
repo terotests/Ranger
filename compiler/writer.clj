@@ -103,7 +103,6 @@ johon koodi talletetaan.
                 )
             ))
 
-
             (PublicMethod saveTo:void (path:string) (
 
                 (for files file:CodeFile idx
@@ -111,7 +110,11 @@ johon koodi talletetaan.
                         (def file_path:string (+ path "/" file.path_name))
                         (mkdir file_path)
                         (print (+ "Writing to path " file_path))
-                        (file_write file_path file.name (call file getCode ()) )
+                        (def file_content:string  (call file getCode ()))
+
+                        (if (> (strlen file_content) 0)
+                            (file_write file_path file.name file_content )
+                        )
                     )
                 )
             ))

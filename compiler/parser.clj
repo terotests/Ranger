@@ -1550,6 +1550,13 @@ Referenssillä voi olla N namespacea, jotka käsitetään olion property accesso
 
                                 (if ( || (== c 41) (== c (charcode "}")) )
                                 (
+                                    ; } is the same as newline and if we have { return "foobar" } it is required to end the current expression first
+                                    (if (&& (== c (charcode "}"))  is_block_parent  ( > (array_length curr_node.children) 0) ) 
+                                        (
+                                            (end_expression _)
+                                        )
+                                    )
+
                                     ; (print "Found ) ")
                                     (= i (+ 1 i))
                                     (= paren_cnt (- paren_cnt 1))
@@ -1557,6 +1564,7 @@ Referenssillä voi olla N namespacea, jotka käsitetään olion property accesso
                                         (throw "Parser error ) mismatch")
                                     )
 
+   
                                     (removeLast parents)
                                     (if (!null? curr_node) 
                                         (= curr_node.ep i)
