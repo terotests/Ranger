@@ -14,11 +14,57 @@ class RangerScalaWriter {
         }
     }
 
+
+    (PublicMethod EncodeString:string (orig_str:string)
+        (
+            (def encoded_str:string "")
+            (def str_length:int (strlen orig_str))
+            (def ii:int 0)
+
+            (while (< ii str_length)
+                (
+                    (def cc:char (charAt orig_str ii))
+
+                    (switch cc
+                        (case 8 
+                            ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 98 ) ) ) 
+                        )    
+                        (case 9 
+                            ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 116 ) ) ) 
+                        )    
+                        (case 10 
+                            ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 110 ) ) ) 
+                        )    
+                        (case 12 
+                            ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 102 ) ) ) 
+                        )    
+                        (case 13 
+                            ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 114 ) ) ) 
+                        )
+
+                        (case 34 
+                            ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 34 ) ) ) 
+                        )  
+                        (case 92 
+                            ( = encoded_str (+ encoded_str (strfromcode 92 ) (strfromcode 92 ) ) ) 
+                        )
+                                                            
+                        (default
+                            ( = encoded_str (+ encoded_str (strfromcode cc) ) ) 
+                        )
+                    )   
+                    (= ii (+ 1 ii))
+                )
+            )
+            (return encoded_str)   
+        )
+    )
+
     fn getObjectTypeString:string (type_string:string) {
 
         switch type_string {
             case "int" {
-                return "Long"
+                return "Int"
             }
             case "string" {
                 return "String"
@@ -38,7 +84,7 @@ class RangerScalaWriter {
 
         switch type_string {
             case "int" {
-                return "Long"
+                return "Int"
             }
             case "string" {
                 return "String"
@@ -60,7 +106,7 @@ class RangerScalaWriter {
     fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
         switch node.value_type {
             case RangerNodeType.Integer {
-                wr.out("Long" false)
+                wr.out("Int" false)
             }
             case RangerNodeType.Double {
                 wr.out("Double" false)
@@ -73,7 +119,7 @@ class RangerScalaWriter {
             }
             case RangerNodeType.Hash {
 			    wr.addImport("scala.collection.mutable")
-                wr.out( "Map[" + (getObjectTypeString node.key_type) + ", " + (getObjectTypeString node.array_type) + "]" , false)
+                wr.out( "collection.mutable.Map[" + (getObjectTypeString node.key_type) + ", " + (getObjectTypeString node.array_type) + "]" , false)
             }
             case RangerNodeType.Array {
                 ; ArrayList
@@ -186,7 +232,7 @@ class RangerScalaWriter {
 
         subCtx.defineVariable (p2.name p2)   
 
-        wr.out ("for( int " false)
+        wr.out ("for( " false)
         this.WalkNode (indexField subCtx wr)
         wr.out (" <- 0 until " false)
         this.WriteVRef(listField ctx wr)
@@ -196,8 +242,7 @@ class RangerScalaWriter {
 
             wr.out(" val " false)
             this.WalkNode (nodeField subCtx wr)
-            wr.out(" : " false)
-            this.writeTypeDef( nodeField ctx wr )
+
             wr.out (" = " false)
             this.WriteVRef(listField ctx wr)
             wr.out ("(" false)
@@ -293,7 +338,17 @@ class RangerScalaWriter {
         this.WalkNode (obj ctx wr)
         wr.out (".get(" false)
         this.WalkNode (key ctx wr)
-        wr.out (")" false)
+        wr.out (").asInstanceOf[" false)
+        ; wr.out(obj.)
+        ; find variables type 
+
+        def p:RangerAppParamDesc (call RangerAllocations findParamDesc (obj ctx wr))
+        def nameNode p.nameNode
+
+        wr.out( ( getTypeString( nameNode.array_type )) false)
+        ; this.writeTypeDef( p.nameNode ctx wr )
+
+        wr.out ("]" false)
         ctx.unsetInExpr ()
         if ( > (call ctx expressionLevel ()) 1 ) {
             wr.out (")" false)
@@ -413,6 +468,20 @@ class RangerScalaWriter {
         ; this.shouldBeArray(obj ctx "push expects an array as the first parameter.")        
         ; (call RangerAllocations moveOwnership (obj value ctx wr))
     }
+
+    (PublicMethod cmdStrfromcode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
+        (
+            (def n1:CodeNode (call node getSecond ()))
+            (call ctx setInExpr ())
+            (call wr out ("(" false))
+            (call this WalkNode (n1 ctx wr))
+            (call wr out (".toChar)" false))
+            (call ctx unsetInExpr ())
+
+            (call this shouldBeType ("int" n1 ctx "strfromcode expects an integer as the first parameter."))
+            
+        )
+    )      
     
 
     fn cmdArgv:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -502,6 +571,34 @@ class RangerScalaWriter {
         ctx.unsetInMethod ()
     }
 
+    fn Constructor (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+            
+        (def subCtx:RangerAppWriterContext (call ctx fork ()))
+            ; (call wr out ( node.vref false ))
+        (def cw:CodeWriter wr)
+
+        (def cParams:CodeNode (itemAt node.children 1))
+
+        (for cParams.children cn:CodeNode i
+        (
+            (def p:RangerAppParamDesc (new RangerAppParamDesc ()))
+            (= p.name cn.vref)
+            (= p.value_type cn.value_type)
+            (= p.node cn)
+            (= p.nameNode cn)
+            (= p.varType RangerContextVarType.FunctionParameter)
+            (= p.is_optional false)
+            (call subCtx defineVariable (p.name p))                        
+        )
+        )
+
+        (def cBody:CodeNode (call node getThird ()))
+        (call ctx setInMethod ())
+        (call this WalkNode (cBody subCtx cw))
+        (call ctx unsetInMethod ())
+        
+    }  
+
     fn CreateClass:void (node:CodeNode ctx:RangerAppWriterContext inputWriter:CodeWriter) {
 
         def nameDef:CodeNode (call node getSecond ())
@@ -588,12 +685,12 @@ class RangerScalaWriter {
             switch v.value_type {
                 case RangerNodeType.Hash {
                     wr.addImport("scala.collection.mutable")
-                    wr.out( "collection.mutable.Map[" + (getObjectTypeString v.key_type) + ", " + (getObjectTypeString v.array_type) + "]()" , true)
+                    wr.out( " = collection.mutable.Map[" + (getObjectTypeString v.key_type) + ", " + (getObjectTypeString v.array_type) + "]()" , true)
                     return _
                 }
                 case RangerNodeType.Array {
                     wr.addImport("scala.collection.mutable")
-                    wr.out( "collection.mutable.ArrayBuffe["  + (getObjectTypeString v.array_type) + ">()" , true)
+                    wr.out( " = collection.mutable.ArrayBuffer["  + (getObjectTypeString v.array_type) + "]()" , true)
                     return _
                 }
             }
