@@ -20,28 +20,35 @@ language {
 
     commands {
 
-        -               cmdMinusOp:double            ( left:double right:double )  {
-            templates {
-                * ( (e 1) " - " (e 2) )
-            }
-        }      
+        ; numeric - operations
+        -               cmdMinusOp:double            ( left:double right:double )  { templates { * ( (e 1) " - " (e 2) ) } }      
+        -               cmdMinusOp:int            ( left:int right:int )  { templates { * ( (e 1) " - " (e 2) ) } }      
 
-        ; the + operator could be also defined for different semantics
-        +               cmdPlusOp:T             ( left:expression right:expression ) {
-            templates {
-                * ( (e 1) " + " (e 2) )
-            }
-        }
-        *               cmdMulOp:double         ( left:double right:double ) {
-            templates {
-                * ( (e 1) " * " (e 2) )
-            }
-        }        
+        ; numeric + operations
+        +               cmdPlusOp:double             ( left:double right:double ) { templates { * ( (e 1) " + " (e 2) ) } }
+        +               cmdPlusOp:int                ( left:int right:int ) { templates { * ( (e 1) " + " (e 2) ) } }
+
+        ; string + operations
+        +               cmdPlusOp:string             ( left:string right:string ) { templates { * ( (e 1) " + " (e 2) ) } }
+        +               cmdPlusOp:string             ( left:string right:double ) { templates { * ( (e 1) " + " (e 2) ) } }
+        +               cmdPlusOp:string             ( left:string right:int    ) { templates { * ( (e 1) " + " (e 2) ) } }
+
+
+        *               cmdMulOp:double         ( left:double right:double ) { templates { * ( (e 1) " * " (e 2) ) } }
+        *               cmdMulOp:int            ( left:int right:int ) { templates { * ( (e 1) " * " (e 2) ) } }
+
+
         =               cmdAssign:void          ( target:vref expr:expression ) {
             templates {
                 scala ( (e 1) " = " (e 2) )   ; <-- scala does not require ; here                
                 * ( (e 1) " = " (e 2) ";" )
             }
+        }
+
+        int2double      cmdIntToDouble:double            ( value:int ) { 
+                templates { 
+                    * ( "parseFloat(" (e 1) ")" (e 2) ) 
+                } 
         }
 
 
@@ -54,7 +61,7 @@ language {
 
 ; TODO: add the rest ....(case ("sin" "cos" "tan" "atan" "log" "abs" "acos" "asin" "floor" "round" "sqrt")
         ;"<cmath>"
-        sin        cmdSin:void          (  value:double )  {
+        sin        cmdSin:double          (  value:double )  {
             templates {
                 swift3 ( "sin(" (e 1) ")" (imp "Foundation"))               
                 cpp ( "sin(" (e 1) ")" (imp "<cmath>"))
@@ -68,12 +75,13 @@ language {
         
         if              cmdIf:void              ( condition:boolean then_block:block else_block@(optional):block )  {
             templates {
-                * ( "if (" (e 1) ") {" I (e 2) i "}" (ifa 3) " else {" I (e 3) i "}" )
+                * ( "if ( " (e 1) "  /*new version */ ) {" I (e 2) i "}" (ifa 3) " else {" I (e 3) i "}" )
             }
         }
+
         switch          cmdSwitch:void          ( condition:boolean case_list:block )  {
             templates {
-                * ( "switch (" (e 1) ") {" I (e 2) i "}" )
+                * ( "switch (" (e 1) ") /* new switch */ {" I (e 2) i "}" )
             }
         }       
         while           cmdWhile:void          ( condition:boolean whileLoop:block )  {
@@ -92,24 +100,21 @@ language {
             }
         }
 
-        continue        cmdDefault:void          (  default_block:block )  {
+        default        cmdDefault:void          (  default_block:block )  {
             templates {
                 * ( nl "default: " nl I (e 1) nl "break;" i )
             }
         }
 
-        ; TODO: the case definition is currenlty too complex - requires command pattern matching so that
-        ; the first parameter can be either expression or VRef
         case        cmdCase:void          (  condition:T case_block:block )  {
-            
+            ; if no tempates are specified, spefic code from the language classes is used
         }
 
-        ; TODO: new expression is language specific, so must be overridden per language
-        new        cmdNew:T          (  className:class args:arguments  )  {
-
+        new        cmdNew:T          (  className:T.name args:arguments  )  {
+            ; if no tempates are specified, spefic code from the language classes is used
         }
 
-        null?       cmdIsNull        ( arg:T ) {
+        null?       cmdIsNull:boolean        ( arg:T ) {
             templates {
                 php ( "(!isset(" (e 1) "))")                                
                 cpp ((e 1) "== NULL")                                
@@ -118,7 +123,7 @@ language {
             }
         }
 
-        !null?       cmdIsNotNull        ( arg:T ) {
+        !null?       cmdIsNotNull:boolean        ( arg:T ) {
             templates {
                 php ( "(!sset(" (e 1) "))")                                
                 cpp ((e 1) "!= NULL")                                
@@ -132,22 +137,18 @@ language {
             templates {
                 * ( nl "throw"  (e 1) ";" nl )
             }
-        }
+        }        
 
-        ; case e: Exception => {
-        try        cmdTry:void          (  run_block:block catch_block:block  )  {
+        try          cmdTry:void          (  run_block:block catch_block:block  )  {
             templates {
-                php ( nl "try {" nl I (e 1) i nl"} catch( Exception $e) {" nl I (e 2) i nl "}" nl )               
-                scala ( nl "try {" nl I (e 1) i nl"} catch {" nl I nl "case e: Exception => {" nl I (e 2) i nl "}" i nl "}" nl )
-                java7 ( nl "try {" nl I (e 1) i nl"} catch( Exception e) {" nl I (e 2) i nl "}" nl )
-                * ( nl "try {" nl I (e 1) i nl"} catch(e) {" nl I (e 2) i nl "}" nl )
+                php ( nl "try {" nl I (e 1) i nl "} catch( Exception $e) {" nl I (e 2) i nl "}" nl )               
+                scala ( nl "try {" nl I (e 1) i nl "} catch {" nl I nl "case e: Exception => {" nl I (e 2) i nl "}" i nl "}" nl )
+                java7 ( nl "try {" nl I (e 1) i nl "} catch( Exception e) {" nl I (e 2) i nl "}" nl )
+                * ( nl "try {" nl I (e 1) i nl "} catch(e) {" nl I (e 2) i nl "}" nl )
             }
         }
-        
-        
-        
-        ; typeof
-        for             cmdFor:void          ( list:[T] item:keyword indexName:keyword repet_block:block)  {
+                
+        for             cmdFor:void          ( list:[T] item:T.name indexName:keyword repeat_block:block)  {
             templates {
                 swift3 ( (forkctx _ ) (def 2) (def 3) nl "var " (e 3) " = 0;" nl "for ( " (e 2) " in " (e 1) ") {" nl I (e 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I (e 2) " = " (e 1) "[" (e 3) "]" nl (e 4) nl i "}" )
@@ -239,7 +240,6 @@ language {
             }
         }
         
-
         ; std::to_string(myDoubleVar);
         double2str   cmdDoubleToString:string       ( value:double ) { 
             templates {
@@ -252,7 +252,7 @@ language {
             }
         }
 
-        str2int   cmdStringToInt:int      ( test:string ) { 
+        str2int   cmdStringToInt:int      ( value:string ) { 
             templates {
                 cpp ("std::stoi(" (e 1) ")" imp("<string>"))
                 java7 ( "Integer.parseInt(" (e 1) " )") 
@@ -264,7 +264,7 @@ language {
             }
         }
 
-        str2double   cmdStringToDouble:int      ( test:string ) { 
+        str2double   cmdStringToDouble:double      ( value:string ) { 
             templates {
                 cpp ("std::stod(" (e 1) ")" imp("<string>"))
                 java7 ( "Double.parseDouble(" (e 1) " )") 
@@ -276,9 +276,8 @@ language {
             }
         }
         
-
         ; scala: .mkString(
-        join             cmdJoin:string          ( map:array delimiter:string ) { 
+        join             cmdJoin:string          ( array:[string] delimiter:string ) { 
             templates {                
                 java7 ( "StringUtils.join(" (e 1 ) ", " (e 2) ")" (imp "org.apache.commons.lang.StringUtils"))
                 scala ( (e 1) ".mkString(" (e 2) ")" )
@@ -286,8 +285,7 @@ language {
             }            
         }                 
         
-
-        has             cmdHas:boolean          ( map:map key:string ) { 
+        has             cmdHas:boolean          ( map:[K:T] key:K ) { 
             templates {                
                 es5  ( "typeof(" (e 1) "[" (e 2) "] ) != \\\"undefined\\\"" )
                 es6  ( "typeof(" (e 1) "[" (e 2) "] ) != \\\"undefined\\\"" )
@@ -304,7 +302,7 @@ language {
             }            
         }  
 
-        get             cmdGet:boolean          ( map:map key:string ) { 
+        get             cmdGet:T          ( map:[K:T] key:K ) { 
             templates {                
                 java7 ( (e 1) ".get(" (e 2) ")" )
                 scala ( (e 1) ".get(" (e 2) ").asInstanceOf[" (atype 1) "]" )
@@ -312,7 +310,7 @@ language {
             }            
         }                 
 
-        set             cmdSet:boolean          ( map:map key:string value:T ) { 
+        set             cmdSet:void          ( map:[K:T] key:K value:T ) { 
             templates {                
                 java7 ( (e 1) ".put(" (e 2) ")" )
                 scala ( (e 1) ".put(" (e 2) ")" )
@@ -321,7 +319,7 @@ language {
         }                 
 
 
-        itemAt    cmdItemAt:int      ( array:[T] index:int ) { 
+        itemAt    cmdItemAt:T      ( array:[T] index:int ) { 
             templates {
                  cpp ( (e 1) ".at( " (e 2) ")" (imp "<vector>"))   
                  java7 ( (e 1) ".get(" (e 2) ")" )                                                              
@@ -329,7 +327,6 @@ language {
                  * ( (e 1) "[" (e 2) "]" )                                              
             }
         }
-
 
         indexOf    cmdIndexOf:int      ( array:[T] element:T ) { 
             templates {
@@ -370,7 +367,7 @@ language {
                  cpp ( (e 1) ".pop_back();")
                  swift3 ( (e 1) ".removeLast();")
                  php ( "array_pop(" (e 1) " );")
-                 java7 ( (e 1) ".remove(" (e 2) ".size() - 1);" )
+                 java7 ( (e 1) ".remove(" (e 1) ".size() - 1);" )
                  csharp ( "Array.Resize(ref "(e 1) ", " (e 1 )".Length - 1);" ) 
                  scala ( (e 1) ".dropRight(1)" )
                  * ( (e 1) ".pop();" )                                              
@@ -390,7 +387,7 @@ language {
             }
         }
 
-        array_extract    cmdArrayExtract:int      ( array:[T] position:int ) { 
+        array_extract    cmdArrayExtract:T      ( array:[T] position:int ) { 
             templates {
                  ; TODO: C++ version does not seem to have a clear functino to extrace element from std::vector
                  swift3 ( (e 1) ".remove(at:" (e 2)")")
@@ -422,11 +419,22 @@ language {
             }
         }
 
-        ==              cmdEqual:boolean ( left:T right:T ) { templates { * ( (e 1) " == " (e 2) ) } }
-        >               cmdGt:boolean ( left:number right:number ) { templates { * ( (e 1) " > " (e 2) ) } }
-        <               cmdLt:boolean ( left:number right:number ) { templates { * ( (e 1) " < " (e 2) ) } }
-        <=              cmdLte:boolean ( left:number right:number ) { templates { * ( (e 1) " <= " (e 2) ) } }
-        >=              cmdGte:boolean ( left:number right:number ) { templates { * ( (e 1) " >= " (e 2) ) } }
+        ==              cmdEqual:boolean ( left:int right:int ) { templates { * ( (e 1) " == " (e 2) ) } }
+        ==              cmdEqual:boolean ( left:double right:double ) { templates { * ( (e 1) " == " (e 2) ) } }
+        ==              cmdEqual:boolean ( left:boolean right:boolean ) { templates { * ( (e 1) " == " (e 2) ) } }
+        ==              cmdEqual:boolean ( left:string right:string ) { templates { * ( (e 1) " == " (e 2) ) } }
+        
+        >               cmdGt:boolean ( left:double right:double ) { templates { * ( (e 1) " > " (e 2) ) } }
+        >               cmdGt:boolean ( left:int right:int ) { templates { * ( (e 1) " > " (e 2) ) } }
+
+        <               cmdLt:boolean ( left:int right:int ) { templates { * ( (e 1) " < " (e 2) ) } }
+        <               cmdLt:boolean ( left:double right:double ) { templates { * ( (e 1) " < " (e 2) ) } }
+
+        <=              cmdLte:boolean ( left:int right:int ) { templates { * ( (e 1) " <= " (e 2) ) } }
+        <=              cmdLte:boolean ( left:double right:double ) { templates { * ( (e 1) " <= " (e 2) ) } }
+
+        >=              cmdGte:boolean ( left:int right:int ) { templates { * ( (e 1) " >= " (e 2) ) } }
+        >=              cmdGte:boolean ( left:double right:double ) { templates { * ( (e 1) " >= " (e 2) ) } }
 
         &&              cmdLogicAnd:boolean ( left:boolean right:boolean ) { templates { * ( (e 1) " && " (e 2) ) } }
         ||              cmdLogicOr:boolean ( left:boolean right:boolean ) { templates { * ( (e 1) " || " (e 2) ) } }
