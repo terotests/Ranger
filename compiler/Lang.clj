@@ -31,7 +31,9 @@ language {
         ; string + operations
         +               cmdPlusOp:string             ( left:string right:string ) { templates { * ( (e 1) " + " (e 2) ) } }
         +               cmdPlusOp:string             ( left:string right:double ) { templates { * ( (e 1) " + " (e 2) ) } }
+        +               cmdPlusOp:string             ( left:double right:string ) { templates { * ( (e 1) " + " (e 2) ) } }
         +               cmdPlusOp:string             ( left:string right:int    ) { templates { * ( (e 1) " + " (e 2) ) } }
+        +               cmdPlusOp:string             ( left:int right:string    ) { templates { * ( (e 1) " + " (e 2) ) } }
 
 
         *               cmdMulOp:double         ( left:double right:double ) { templates { * ( (e 1) " * " (e 2) ) } }
@@ -72,12 +74,19 @@ language {
                 * ( "Math.sin(" (e 1) ")")
             }
         }
-        
+
         if              cmdIf:void              ( condition:boolean then_block:block else_block@(optional):block )  {
             templates {
-                * ( "if ( " (e 1) "  /*new version */ ) {" I (e 2) i "}" (ifa 3) " else {" I (e 3) i "}" )
+                * ( "if ( " (e 1) " ) {" I (e 2) i "}" (ifa 3) " else {" I (e 3) i "}" )
+            }
+        }        
+        
+        if              cmdIf:void              ( condition:boolean then_block:block )  {
+            templates {
+                * ( "if ( " (e 1) " ) {" I (e 2) i "}" )
             }
         }
+
 
         switch          cmdSwitch:void          ( condition:boolean case_list:block )  {
             templates {
