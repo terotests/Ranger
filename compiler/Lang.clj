@@ -47,7 +47,7 @@ language {
 
         int2double      cmdIntToDouble:double            ( value:int ) { 
                 templates { 
-                    * ( "parseFloat(" (e 1) ")" (e 2) ) 
+                    * ( "parseFloat(" (e 1) ")" ) 
                 } 
         }
 
