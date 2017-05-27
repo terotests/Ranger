@@ -39,6 +39,8 @@ language {
         *               cmdMulOp:double         ( left:double right:double ) { templates { * ( (e 1) " * " (e 2) ) } }
         *               cmdMulOp:int            ( left:int right:int ) { templates { * ( (e 1) " * " (e 2) ) } }
 
+        /               cmdDivOp:double         ( left:double right:double ) { templates { * ( (e 1) " / " (e 2) ) } }
+        /               cmdDivOp:double         ( left:int right:int ) { templates { * ( (e 1) " / " (e 2) ) } }
 
         =               cmdAssign:void          ( target:vref expr:expression ) {
             templates {
@@ -90,7 +92,7 @@ language {
 
         switch          cmdSwitch:void          ( condition:boolean case_list:block )  {
             templates {
-                * ( "switch (" (e 1) ") /* new switch */ {" I (e 2) i "}" )
+                * ( "switch (" (e 1) ") {" I (e 2) i "}" )
             }
         }       
         while           cmdWhile:void          ( condition:boolean whileLoop:block )  {
@@ -156,7 +158,8 @@ language {
                 * ( nl "try {" nl I (e 1) i nl "} catch(e) {" nl I (e 2) i nl "}" nl )
             }
         }
-                
+
+        ; T.name is a bit of a problem ??        
         for             cmdFor:void          ( list:[T] item:T.name indexName:keyword repeat_block:block)  {
             templates {
                 swift3 ( (forkctx _ ) (def 2) (def 3) nl "var " (e 3) " = 0;" nl "for ( " (e 2) " in " (e 1) ") {" nl I (e 4) nl i "}" )
@@ -319,7 +322,7 @@ language {
             }            
         }                 
 
-        set             cmdSet:void          ( map:[K:T] key:K value:T ) { 
+        set             cmdSet:void          ( map@(mutates):[K:T] key:K value:T ) { 
             templates {                
                 java7 ( (e 1) ".put(" (e 2) ")" )
                 scala ( (e 1) ".put(" (e 2) ")" )
@@ -357,7 +360,7 @@ language {
             }
         }
 
-        push    cmdPush:void  ( array:[T] item:T ) { 
+        push    cmdPush:void  ( array@(mutates):[T] item:T ) { 
             templates {
 
                  cpp ( (e 1) ".push_back( "(e 1)"  )")
@@ -371,7 +374,7 @@ language {
         }
 
 
-        removeLast  cmdRemoveLast:void  ( array:[T] ) { 
+        removeLast  cmdRemoveLast:void  ( array@(mutates):[T] ) { 
             templates {
                  cpp ( (e 1) ".pop_back();")
                  swift3 ( (e 1) ".removeLast();")
@@ -396,7 +399,7 @@ language {
             }
         }
 
-        array_extract    cmdArrayExtract:T      ( array:[T] position:int ) { 
+        array_extract    cmdArrayExtract:T      ( array@(mutates):[T] position:int ) { 
             templates {
                  ; TODO: C++ version does not seem to have a clear functino to extrace element from std::vector
                  swift3 ( (e 1) ".remove(at:" (e 2)")")
