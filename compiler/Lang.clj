@@ -160,7 +160,7 @@ language {
         }
 
         ; T.name is a bit of a problem ??        
-        for             cmdFor:void          ( list:[T] item:T.name indexName:keyword repeat_block:block)  {
+        for             cmdFor:void          ( list:[T] item@(define:T):T.name indexName@(define:int):keyword repeat_block:block)  {
             templates {
                 swift3 ( (forkctx _ ) (def 2) (def 3) nl "var " (e 3) " = 0;" nl "for ( " (e 2) " in " (e 1) ") {" nl I (e 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I (e 2) " = " (e 1) "[" (e 3) "]" nl (e 4) nl i "}" )
