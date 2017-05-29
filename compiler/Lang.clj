@@ -4,7 +4,7 @@ language {
     ; compilation targets might be defined here like this
     targets {
         ; short     common name     file extension
-        es5         ES5             js
+        es5         ES5             js 
         es6         JavaScript      js
         java7       Java7           java
         kotlin      Kotlin          kt
@@ -17,8 +17,49 @@ language {
         php         PHP             php
     }
 
-
     commands {
+
+        =               cmdAssign:void            ( left:T right:T )  { 
+            templates { 
+                scala ( nl (e 1) " = " (e 2) nl )                 
+                * ( nl (e 1) " = " (e 2) ";" nl ) 
+            } 
+        }      
+
+        ; TODO: could be varname@(mutable), but the compiler may not be able to determine the
+        ; mutability before the code has been processed through... 
+
+        def             cmdDef:void            ( varname:T )  { 
+            templates { 
+                scala@(mutable) ( nl "var " (e 1) ":" (typeof 1 ) " /* mutable uninitialized value */" nl ) 
+                scala ( nl "val " (e 1) ":" (typeof 1 ) " /* immutable uninitialized value */" nl )    
+                java7 (nl (typeof 1) " " (e 1) ";" nl)             
+                es6@(mutable) ( nl "let " (e 1) ";" nl ) 
+                es5@(mutable) ( nl "var " (e 1) ";" nl ) 
+                * ( nl "const " (e 1) ";" nl ) 
+            } 
+        }      
+
+        def             cmdDef:void            ( varname:T value:T )  { 
+            templates { 
+                scala@(mutable) ( nl "var " (e 1) ":" (typeof 1 )" = " (e 2) " /* mutable value */" nl ) 
+                scala ( nl "val " (e 1) ":" (typeof 1 )" = " (e 2) " /* immutable value */" nl ) 
+                java7 (nl (typeof 1) " " (e 1) " = " (e 2) ";" nl)
+                es6@(mutable) ( nl "let " (e 1) " = " (e 2) ";" nl )
+                es6 ( nl "const " (e 1) " = " (e 2) ";" nl )
+                * ( nl "var " (e 1) " = " (e 2) ";" nl )
+            } 
+        }     
+
+        def             cmdDef:void            ( varname@(mutable):T value:T )  { 
+            templates { 
+                scala( nl "var " (e 1) ":" (typeof 1 )" = " (e 2) " /* mutable def value */" nl ) 
+                java7 (nl (typeof 1) " " (e 1) " = " (e 2) ";" nl)
+                es6 ( nl "let " (e 1) " = " (e 2) ";" nl )
+                * ( nl "var " (e 1) " = " (e 2) ";" nl )
+            } 
+        }      
+        
 
         ; numeric - operations
         -               cmdMinusOp:double            ( left:double right:double )  { templates { * ( (e 1) " - " (e 2) ) } }      
@@ -26,7 +67,12 @@ language {
 
         ; numeric + operations
         +               cmdPlusOp:double             ( left:double right:double ) { templates { * ( (e 1) " + " (e 2) ) } }
-        +               cmdPlusOp:int                ( left:int right:int ) { templates { * ( (e 1) " + " (e 2) ) } }
+        +               cmdPlusOp:int                ( left@(mutable):int right@(optional):int ) { 
+            templates { * ( (e 1) " + " (e 2) "? /* optional add*/" ) } 
+        }
+
+        +               cmdPlusOp:int                ( left@(mutable):int right:int ) { templates { * ( (e 1) " + " (e 2) " /* mutable add*/" ) } }
+        +               cmdPlusOp:int                ( left:int right:int ) { templates { * ( (e 1) " + " (e 2) " /* normal add */" ) } }
 
         ; string + operations
         +               cmdPlusOp:string             ( left:string right:string ) { templates { * ( (e 1) " + " (e 2) ) } }
@@ -41,6 +87,10 @@ language {
 
         /               cmdDivOp:double         ( left:double right:double ) { templates { * ( (e 1) " / " (e 2) ) } }
         /               cmdDivOp:double         ( left:int right:int ) { templates { * ( (e 1) " / " (e 2) ) } }
+
+        ?               cmdTernary:T         ( condition:boolean  left:T right:T ) { 
+            templates { * ( (e 1) " ? " (e 2) " : " (e 3) ) } 
+        }
 
         =               cmdAssign:void          ( target:vref expr:expression ) {
             templates {
@@ -77,7 +127,7 @@ language {
             }
         }
 
-        if              cmdIf:void              ( condition:boolean then_block:block else_block@(optional):block )  {
+        if              cmdIf:void              ( condition:boolean then_block:block else_block:block )  {
             templates {
                 * ( "if ( " (e 1) " ) {" I (e 2) i "}" (ifa 3) " else {" I (e 3) i "}" )
             }
