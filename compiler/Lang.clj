@@ -29,6 +29,13 @@ language {
         ; TODO: could be varname@(mutable), but the compiler may not be able to determine the
         ; mutability before the code has been processed through... 
 
+        def             cmdDef:void            ( varname:[T] )  { 
+            templates { 
+                * ( nl "const " (nameof 1) " = [];" nl )
+            } 
+        }     
+
+
         def             cmdDef:void            ( varname:T )  { 
             templates { 
                 scala@(mutable) ( nl "var " (e 1) ":" (typeof 1 ) " /* mutable uninitialized value */" nl ) 
@@ -50,6 +57,8 @@ language {
                 * ( nl "var " (e 1) " = " (e 2) ";" nl )
             } 
         }     
+
+        
 
         def             cmdDef:void            ( varname@(mutable):T value:T )  { 
             templates { 
@@ -136,13 +145,20 @@ language {
 
         if              cmdIf:void              ( condition:boolean then_block:block else_block:block )  {
             templates {
-                * ( "if ( " (e 1) " ) {" I (e 2) i "}" (ifa 3) " else {" I (e 3) i "}" )
+                * ( "if ( " (e 1) " ) {" I (e 2) i "}" (ifa 3) " else {" I (e 3) i "}" nl)
             }
         }        
         
         if              cmdIf:void              ( condition:boolean then_block:block )  {
             templates {
-                * ( "if ( " (e 1) " ) {" I (e 2) i "}" )
+                * ( "if ( " (e 1) " ) {" I (e 2) i "}" nl )
+            }
+        }
+
+        if              cmdIf:void              ( condition@(optional):T then_block:block )  {
+            templates {
+                scala ( "if ( " (e 1) ".isDefined ) {" I (e 2) i "}" nl )
+                * ( "if ( " (e 1) ".length > 0 ) {" I (e 2) i "}" nl )
             }
         }
 
@@ -184,6 +200,7 @@ language {
 
         unwrap       cmdUnwrap:T        ( arg@(optional):T ) {
             templates {
+                scala ( (e 1) ".get" )
                 * ( (e 1) "[0]")
             }
         }
@@ -256,7 +273,7 @@ language {
             }            
         }                 
 
-;         wr.out (").to[collection.mutable.ArrayBuffer]" false)
+;         wr.out (").to[collection.mutable.ArrayBuffer]" false
 ; kotlin could use also something like: .split(Regex("(?<=[!?])|(?=[!?])"))
 ; swift : .components(separatedBy:
         strsplit       cmdSplit:[string]       ( strToSplit:string delimiter:string ) { 
@@ -349,7 +366,7 @@ language {
                 cpp ("std::stoi(" (e 1) ")" imp("<string>"))
                 java7 ( "Integer.parseInt(" (e 1) " )") 
                 php ( "intval(" (e 1) ")")
-                scala ( (e 1) ".toInt")
+                scala ( "Try(" (e 1) ".toInt).toOption" (imp "scala.util.Try"))
                 kotlin (  (e 1) ".toInt()")
                 swfit3 ("Int(" (e 1) ")")              
                 * ( "isNaN( parseInt(" (e 1) ") ) ? [] : [parseInt(" (e 1) ")]")
@@ -411,12 +428,13 @@ language {
         }                 
 
 
-        itemAt    cmdItemAt:T      ( array:[T] index:int ) { 
+        itemAt    cmdItemAt@(optional):T      ( array:[T] index:int ) { 
             templates {
                  cpp ( (e 1) ".at( " (e 2) ")" (imp "<vector>"))   
-                 java7 ( (e 1) ".get(" (e 2) ")" )                                                              
-                 scala ( (e 1) "(" (e 2) ")" )
-                 * ( (e 1) "[" (e 2) "]" )                                              
+                 java7 ( (e 1) ".get(" (e 2) ")" )                                 
+                 ; lift return optional type => safer                             
+                 scala ( (e 1) ".lift(" (e 2) ")" )    
+                 * ( (e 1) ".length <= (" (e 2 )" + 1 ) ? [] :  [" (e 1) "[" (e 2) "] ] " )                                              
             }
         }
 
@@ -527,6 +545,26 @@ language {
 
         >=              cmdGte:boolean ( left:int right:int ) { templates { * ( (e 1) " >= " (e 2) ) } }
         >=              cmdGte:boolean ( left:double right:double ) { templates { * ( (e 1) " >= " (e 2) ) } }
+
+        ; optional testing
+        &&              cmdLogicAnd:boolean ( left@(optional):T right@(optional):S ) { 
+            templates { 
+                scala ( (e 1) ".isDefined  && " (e 2) ".isDefined") 
+                * ( (e 1) ".length > 0 && " (e 2) ".length > 0") 
+            } 
+        }
+        &&              cmdLogicAnd:boolean ( left:boolean right@(optional):S ) { 
+            templates {
+                scala ( (e 1) " && " (e 2) ".isDefined") 
+                * ( (e 1) " && " (e 2) ".length > 0") 
+            } 
+        }
+        &&              cmdLogicAnd:boolean ( left@(optioanl):T right:boolean ) { 
+            templates { 
+                scala ( ""(e 1) ".isDefined && " (e 2) ) 
+                * ( (e 1) ".length > 0 && " (e 2) ) 
+            } 
+        }
 
         &&              cmdLogicAnd:boolean ( left:boolean right:boolean ) { templates { * ( (e 1) " && " (e 2) ) } }
         ||              cmdLogicOr:boolean ( left:boolean right:boolean ) { templates { * ( (e 1) " || " (e 2) ) } }
