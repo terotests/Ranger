@@ -67,11 +67,18 @@ language {
 
         ; numeric + operations
         +               cmdPlusOp:double             ( left:double right:double ) { templates { * ( (e 1) " + " (e 2) ) } }
+
+        ; random tests, remove these later:
+        +               cmdPlusOp:int                ( left:int right@(optional):int ) { 
+            templates { * ( (e 1) " + ( " (e 2) ".length ? " (e 2) "[0] : 0 ) /* optional right side add with automatic unwrapping */" ) } 
+        }
         +               cmdPlusOp:int                ( left@(mutable):int right@(optional):int ) { 
             templates { * ( (e 1) " + " (e 2) "? /* optional add*/" ) } 
         }
-
         +               cmdPlusOp:int                ( left@(mutable):int right:int ) { templates { * ( (e 1) " + " (e 2) " /* mutable add*/" ) } }
+        +               cmdPlusOp:int                ( left@(mutable):int right:int ) { templates { * ( (e 1) " + " (e 2) " /* mutable add*/" ) } }
+
+        , random tests end
         +               cmdPlusOp:int                ( left:int right:int ) { templates { * ( (e 1) " + " (e 2) " /* normal add */" ) } }
 
         ; string + operations
@@ -175,6 +182,13 @@ language {
             ; if no tempates are specified, spefic code from the language classes is used
         }
 
+        unwrap       cmdUnwrap:T        ( arg@(optional):T ) {
+            templates {
+                * ( (e 1) "[0]")
+            }
+        }
+        
+
         null?       cmdIsNull:boolean        ( arg:T ) {
             templates {
                 php ( "(!isset(" (e 1) "))")                                
@@ -183,6 +197,16 @@ language {
                 * ((e 1) "== null")
             }
         }
+
+        !null?       cmdIsNotNull:boolean        ( arg@(optional):T ) {
+            templates {
+                php ( "(!sset(" (e 1) "))")                                
+                cpp ((e 1) "!= NULL")                                
+                swift3 ((e 1) "!= nil")                
+                * ((e 1) ".length > 0")
+            }
+        }
+        
 
         !null?       cmdIsNotNull:boolean        ( arg:T ) {
             templates {
@@ -314,7 +338,13 @@ language {
             }
         }
 
-        str2int   cmdStringToInt:int      ( value:string ) { 
+        ; note: this has now different value, it is optional int...
+        ; the optionality of the return value should be preserved 
+        ; can not do just
+        ;   def x:int (10 + (str2int "hello"))
+        ; --> optional return value here...
+
+        str2int   cmdStringToInt@(optional):int      ( value:string ) { 
             templates {
                 cpp ("std::stoi(" (e 1) ")" imp("<string>"))
                 java7 ( "Integer.parseInt(" (e 1) " )") 
@@ -322,7 +352,7 @@ language {
                 scala ( (e 1) ".toInt")
                 kotlin (  (e 1) ".toInt()")
                 swfit3 ("Int(" (e 1) ")")              
-                * ( "parseInt(" (e 1) ")")
+                * ( "isNaN( parseInt(" (e 1) ") ) ? [] : [parseInt(" (e 1) ")]")
             }
         }
 
