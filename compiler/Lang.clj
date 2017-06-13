@@ -30,6 +30,12 @@ language {
                 swift3 ( "do {" nl I nl "let _start = CFAbsoluteTimeGetCurrent()" nl (block 2) nl "print(" (e 1) ", CFAbsoluteTimeGetCurrent() - _start )" i nl "}" (imp "CoreFoundation") )
                 es6 ( "console.time(" (e 1) ");" nl (block 2) nl "console.timeEnd(" (e 1) ");" )
                 php ( nl "$time_start = microtime(true);" nl (block 2) nl "$time_end = microtime(true);" nl "echo(" (e 1) ".($time_end - $time_start).\"\\n\");" nl)
+                java7 (
+                    nl "long startTime = System.nanoTime();" nl
+                    (block 2 )
+                    nl "long elapsedTime = System.nanoTime() - startTime;" nl
+                    nl "System.out.println( " (e 1) "+ String.valueOf((double)elapsedTime / 1000000000.0));" nl 
+                )
                 * ( (block 2) )
             }
         }
@@ -40,7 +46,22 @@ language {
             templates {
                 php ("file_get_contents(" (e 1) " . \"/\" . " (e 2) ") " )
                 swift3 ("try String(contentsOfFile: " (e 1) " + \"/\" + " (e 2) ") " )
-                java7 ( "new String(readAllBytes(get(" (e 1) " + \"/\" + " (e 2) " )))"  (imp "java.nio.file.Paths.get") (imp "java.nio.file.Files.readAllBytes") )
+                java7 ( "Optional.of(readFile(" (e 1) " + \"/\" + " (e 2) " , StandardCharsets.UTF_8 ))"  
+                    (imp "java.nio.file.Paths") 
+                    (imp "java.io.File")
+                    (imp "java.nio.file.Files") 
+                    (imp "java.nio.charset.Charset")
+                    (imp "java.nio.charset.StandardCharsets")
+(create_polyfill "
+static String readFile(String path, Charset encoding) 
+  throws IOException 
+{
+  byte[] encoded = Files.readAllBytes(Paths.get(path));
+  return new String(encoded, encoding);
+}    
+    ")                        
+                        
+                        )
                 scala ( "Try(Source.fromFile(" (e 1) " + \"/\" + " (e 2) ").getLines.mkString).toOption" (imp "scala.io.Source") (imp "scala.util.Try"))
                 go (  "r_io_read_file(" (e 1) ", " (e 2) ")" (imp "io/ioutil")
 (create_polyfill "
@@ -418,9 +439,33 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
         switch          cmdSwitch:void          ( condition:T case_list:block )  {
             templates {
                 scala ( (e 1) " match { " I (block 2) i "}" )
+                kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }       
+
+        case        cmdCase:void          (  condition:T case_block:block )  {
+            templates {
+
+                scala ( nl "case " (e 1)" => " nl I (block 2) nl i )
+                swift3 ( nl "case " (e 1)" : " nl I (block 2) nl i )
+                java7 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
+                go ( nl "case " (e 1)" : " nl I (block 2) nl i )
+                kotlin ( nl (e 1) " -> {" nl I (block 2) nl i "}" )
+                * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
+            }
+        }        
+
+        default        cmdDefault:void          (  default_block:block )  {
+            templates {
+
+                scala ( nl "case _ => " nl I (block 1) nl i )
+                go ( nl "default: " nl I (block 1) nl i )
+                kotlin ( nl "else  -> { " nl I (block 2) nl i "}" )
+                * ( nl "default: " nl I (block 1) nl "break;" i )
+            }
+        }
+        
 
 
         break           cmdBreak:void          ( )  {
@@ -477,25 +522,8 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             }
         }
 
-        default        cmdDefault:void          (  default_block:block )  {
-            templates {
 
-                scala ( nl "case _ => " nl I (block 1) nl i )
-                go ( nl "default: " nl I (block 1) nl i )
-                * ( nl "default: " nl I (block 1) nl "break;" i )
-            }
-        }
 
-        case        cmdCase:void          (  condition:T case_block:block )  {
-            templates {
-
-                scala ( nl "case " (e 1)" => " nl I (block 2) nl i )
-                swift3 ( nl "case " (e 1)" : " nl I (block 2) nl i )
-                java7 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
-                go ( nl "case " (e 1)" : " nl I (block 2) nl i )
-                * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
-            }
-        }
 
         []         cmdArrayLiteral:[T] ( typeDef@(ignore):T listOf:expression ) {
             templates {
@@ -569,6 +597,8 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 php ( nl "try {" nl I (block 1) i nl "} catch( Exception $e) {" nl I (block 2) i nl "}" nl )               
                 scala ( nl "try {" nl I (block 1) i nl "} catch {" nl I nl "case e: Exception => {" nl I (block 2) i nl "}" i nl "}" nl )
                 java7 ( nl "try {" nl I (block 1) i nl "} catch( Exception e) {" nl I (block 2) i nl "}" nl )
+
+                go ( nl (block 1) nl )
                 * ( nl "try {" nl I (block 1) i nl "} catch(e) {" nl I (block 2) i nl "}" nl )
             }
         }
@@ -660,7 +690,9 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 java7 ( "new String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) " )")
                 swift3 ( "String(data: Data(bytes:" (e 1) "[" (e 2) " ..< " (e 3) "]), encoding: .utf8)!"  (imp "Foundation"))
                 kotlin ( "String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) " )")           
-                go ( "fmt.Sprintf(\"%s\", " (e 1) "[" (e 2) ":" (e 3) "])" )
+                go ( "fmt.Sprintf(\"%s\", " (e 1) "[" (e 2) ":" (e 3) "])"               
+                
+                )
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")") 
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
@@ -969,7 +1001,13 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                  ; TODO: C++ version does not seem to have a clear functino to extrace element from std::vector
                  swift3 ( (e 1) ".remove(at:" (e 2)")")
                  php ( "array_splice(" (e 1) ", " (e 2 )", 1)[0]")
-                 go ( "r_arr_" (rawtype 1) "_extract(" (e 1) ", " (e 2 )")")
+                 go ( "r_m_arr_" (rawtype 1) "_extract(" (e 1) ", " (e 2 )")"
+
+(macro ("func r_m_arr_" (rawtype 1)  "_extract( a []"  (ptr 1) (rawtype 1) ", i int64 ) (" (ptr 1) (rawtype 1)  ", []" (ptr 1) (rawtype 1) " ) { " nl I 
+    "item := a[i]" nl "res := append(a[:i], a[(i+1):]...)" nl "return item, res " nl i "
+}" nl ))                  
+                 
+                 )
                  kotlin ( (e 1) ".removeAt(" (e 2) ")" ) 
                  java7 ( (e 1) ".remove(" (e 2) ")" )
                  scala ( (e 1) ".remove(" (e 2) ")" )
@@ -984,7 +1022,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                  cpp (ln "std::cout << " (e 1) " << std::endl;" nl (imp "<iostream>"))
                  kotlin ( nl "println( " (e 1) " )" nl )                                              
                  scala ( nl "println( " (e 1) " )" nl ) 
-                 go ( nl "fmt.Println( " (e 1) " )" nl (imp "fmt")) 
+                 go ( nl "fmt.Println( " (e 1) " )" nl (imp "fmt")             ) 
                  rust ( nl "println!( \"{}\", " (e 1) " );" nl )                              
                  java7 ( nl "System.out.println(String.valueOf( " (e 1) " ) );" nl (imp "java.io.*"))                              
                  php ( nl "echo( " (e 1) " . \"\\n\");" nl )               
