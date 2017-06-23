@@ -605,7 +605,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         if              cmdIf:void              ( condition:boolean then_block:block else_block:block )  {
             templates {
-                ranger ( "if  " (e 1) " {" I nl (block 2) i nl "}" (ifa 3) " {" I nl (block 3) i "}" nl)
+                ranger ( "if (" (e 1) " ) {" I nl (block 2) i nl "}" (ifa 3) " {" I nl (block 3) i "}" nl)
                 rust ( "if  " (e 1) " {" I nl (block 2) i nl "}" (ifa 3) " else {" I nl (block 3) i "}" nl)
                 go ( "if  " (e 1) " {" I nl (block 2) i nl "}" (ifa 3) " else {" I nl (block 3) i "}" nl)
                 * ( "if ( " (e 1) " ) {" I nl (block 2) i nl "}" (ifa 3) " else {" I nl (block 3) i "}" nl)
@@ -614,7 +614,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
         
         if              cmdIf:void              ( condition:boolean then_block:block )  {
             templates {
-                ranger ( "if  " (e 1) " {" I nl (block 2) nl i "}" nl )
+                ranger ( "if (" (e 1) ") {" I nl (block 2) nl i "}" nl )
                 rust ( "if  " (e 1) " {" I nl (block 2) nl i "}" nl )
                 go ( "if  " (e 1) " {" I nl (block 2) nl i "}" nl )
                 * ( "if ( " (e 1) " ) {" I nl (block 2) nl i "}" nl )
@@ -623,7 +623,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         if              cmdIf:void              ( condition@(optional):T then_block:block )  {
             templates {
-                ranger ( "if ( " (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                ranger ( "if ( " (e 1) ") ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" nl I (block 2) i nl "}" nl )
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
@@ -642,6 +642,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         if              cmdIf:void              ( condition@(optional):T then_block:block else_block )  {
             templates {
+                ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -1017,7 +1018,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
         ;(charcode "A")
         charcode   cmdCharcode:int       ( text:string ) { 
             templates {
-                ranger ( "(charcode " (e 1) "")
+                ranger ( "(charcode " (e 1) ")")
                 go ( "[]byte(" (e 1) ")[0]" )
                 php ( "ord(" (e 1) "[0])") 
                 * ( (e 1) ".charCodeAt(0)" )
@@ -1026,7 +1027,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         strfromcode   cmdStrFromCode:string       ( code:char ) { 
             templates {
-                ranger ( "(strfromcode " (e 1) )
+                ranger ( "(strfromcode " (e 1) ")")
                 csharp ( "((char)" (e 1) ").toString()") 
                 java7 ( "(new String( new char[] {" (e 1) " }))") 
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ))))") 
@@ -1040,7 +1041,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         strfromcode   cmdStrFromCode:string       ( code:int ) { 
             templates {
-                ranger ( "(strfromcode " (e 1) )
+                ranger ( "(strfromcode " (e 1) ")"))
                 csharp ( "((char)" (e 1) ").toString()") 
                 java7 ( "(new String( new char[] {" (e 1) " }))") 
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ))))") 
@@ -1054,7 +1055,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
         ; std::to_string(myDoubleVar);
         double2str   cmdDoubleToString:string       ( value:double ) { 
             templates {
-                ranger ( "(double2str " (e 1) "")
+                ranger ( "(double2str " (e 1) ")")
                 cpp ("std::to_string(" (e 1) ")" imp("<string>"))
                 java7 ( "String.valueOf(" (e 1) " )") 
                 php ( "strval(" (e 1) ")") 
@@ -1073,7 +1074,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         str2int   cmdStringToInt@(optional):int      ( value:string ) { 
             templates {
-                ranger ( "(str2int " (e 1) "")
+                ranger ( "(str2int " (e 1) ")")
                 cpp ("std::stoi(" (e 1) ")" imp("<string>"))
                 java7 ( "Optional.of(Integer.parseInt(" (e 1) " ))") 
                 go ("r_str_2_i64(" (e 1) ")"
@@ -1104,7 +1105,7 @@ func r_str_2_i64(s string) *GoNullable {
 
         str2double   cmdStringToDouble@(optional):double      ( value:string ) { 
             templates {
-                ranger ( "(str2double " (e 1) "")
+                ranger ( "(str2double " (e 1) ")")
                 cpp ("std::stod(" (e 1) ")" imp("<string>"))
                 java7 ( "Optional.of(Double.parseDouble(" (e 1) " ))") 
                 go ("r_str_2_d64(" (e 1) ")"
