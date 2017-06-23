@@ -1,10 +1,4 @@
 
-class Here {
-  Constructor () {
-    
-  }
-}
-
 class RangerTypeClass {
   def name:string ""
   def compiledName:string ""
