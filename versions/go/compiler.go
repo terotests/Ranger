@@ -3836,7 +3836,7 @@ func (this *CodeNode) writeCode (wr *CodeWriter) () {
     case 2 : 
       wr.out(strconv.FormatFloat(this.double_value,'f', 6, 64), false);
     case 4 : 
-      wr.out(strings.Join([]string{ (strings.Join([]string{ (string([] byte{34})),this.string_value }, "")),(string([] byte{34})) }, ""), false);
+      wr.out(strings.Join([]string{ (strings.Join([]string{ (string([] byte{byte(34)})),this.string_value }, "")),(string([] byte{byte(34)})) }, ""), false);
     case 3 : 
       wr.out(strings.Join([]string{ "",strconv.FormatInt(this.int_value, 10) }, ""), false);
     case 5 : 
@@ -6761,21 +6761,21 @@ func (this *RangerLispParser) parse () () {
                 var next_ch byte = orig_str[(ii_5 + 1)];
                 switch (next_ch ) { 
                   case 34 : 
-                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{34})) }, ""); 
+                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{byte(34)})) }, ""); 
                   case 92 : 
-                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{92})) }, ""); 
+                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{byte(92)})) }, ""); 
                   case 47 : 
-                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{47})) }, ""); 
+                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{byte(47)})) }, ""); 
                   case 98 : 
-                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{8})) }, ""); 
+                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{byte(8)})) }, ""); 
                   case 102 : 
-                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{12})) }, ""); 
+                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{byte(12)})) }, ""); 
                   case 110 : 
-                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{10})) }, ""); 
+                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{byte(10)})) }, ""); 
                   case 114 : 
-                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{13})) }, ""); 
+                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{byte(13)})) }, ""); 
                   case 116 : 
-                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{9})) }, ""); 
+                    encoded_str = strings.Join([]string{ encoded_str,(string([] byte{byte(9)})) }, ""); 
                   case 117 : 
                     ii_5 = ii_5 + 4; 
                   default: 
@@ -9694,24 +9694,24 @@ func (this *RangerGenericClassWriter) EncodeString (node *CodeNode, ctx *RangerA
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = node.string_value[ii_11];
+  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{cc_4})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
     }
     ii_11 = ii_11 + 1; 
   }
@@ -10444,24 +10444,24 @@ func (this *RangerJava7ClassWriter) EncodeString (node *CodeNode, ctx *RangerApp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = node.string_value[ii_11];
+  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{cc_4})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
     }
     ii_11 = ii_11 + 1; 
   }
@@ -11080,24 +11080,24 @@ func (this *RangerSwift3ClassWriter) EncodeString (node *CodeNode, ctx *RangerAp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = node.string_value[ii_11];
+  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{cc_4})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
     }
     ii_11 = ii_11 + 1; 
   }
@@ -11587,24 +11587,24 @@ func (this *RangerKotlinClassWriter) EncodeString (node *CodeNode, ctx *RangerAp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = node.string_value[ii_11];
+  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{cc_4})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
     }
     ii_11 = ii_11 + 1; 
   }
@@ -11996,24 +11996,24 @@ func (this *RangerCSharpClassWriter) EncodeString (node *CodeNode, ctx *RangerAp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = node.string_value[ii_11];
+  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{cc_4})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
     }
     ii_11 = ii_11 + 1; 
   }
@@ -12561,24 +12561,24 @@ func (this *RangerScalaClassWriter) EncodeString (node *CodeNode, ctx *RangerApp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = node.string_value[ii_11];
+  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{cc_4})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
     }
     ii_11 = ii_11 + 1; 
   }
@@ -14110,24 +14110,24 @@ func (this *RangerGolangClassWriter) EncodeString (node *CodeNode, ctx *RangerAp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = node.string_value[ii_11];
+  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{cc_4})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
     }
     ii_11 = ii_11 + 1; 
   }
@@ -14692,24 +14692,24 @@ func (this *RangerPHPClassWriter) EncodeString (node *CodeNode, ctx *RangerAppWr
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = node.string_value[ii_11];
+  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{cc_4})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
     }
     ii_11 = ii_11 + 1; 
   }
@@ -15193,24 +15193,24 @@ func (this *RangerJavaScriptClassWriter) EncodeString (node *CodeNode, ctx *Rang
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = node.string_value[ii_11];
+  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{cc_4})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
     }
     ii_11 = ii_11 + 1; 
   }
@@ -15721,24 +15721,24 @@ func (this *RangerRangerClassWriter) EncodeString (node *CodeNode, ctx *RangerAp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = node.string_value[ii_11];
+  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{cc_4})) }, ""); 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
     }
     ii_11 = ii_11 + 1; 
   }
@@ -15948,25 +15948,25 @@ func (this *LiveCompiler) EncodeString (node *CodeNode, ctx *RangerAppWriterCont
   var str_length_3 int64 = int64(len(node.string_value));
   var encoded_str_10 string = "";
   var ii_12 int64 = 0;
-  for ii_12 < str_length_3 {var ch_6 int64 = node.string_value[ii_12];
+  for ii_12 < str_length_3 {var ch_6 int64 = int64(node.string_value[ii_12]);
     var cc_19 int64 = ch_6;
     switch (cc_19 ) { 
       case 8 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{92})) }, "")),(string([] byte{98})) }, ""); 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{92})) }, "")),(string([] byte{116})) }, ""); 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{92})) }, "")),(string([] byte{110})) }, ""); 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{92})) }, "")),(string([] byte{102})) }, ""); 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{92})) }, "")),(string([] byte{114})) }, ""); 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{92})) }, "")),(string([] byte{34})) }, ""); 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{92})) }, "")),(string([] byte{92})) }, ""); 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_10 = strings.Join([]string{ encoded_str_10,(string([] byte{ch_6})) }, ""); 
+        encoded_str_10 = strings.Join([]string{ encoded_str_10,(string([] byte{byte(ch_6)})) }, ""); 
     }
     ii_12 = ii_12 + 1; 
   }
@@ -16704,7 +16704,7 @@ func main() {
       codeStr_5 := import_list_5[i_201];
       switch (appCtx_2.targetLangName ) { 
         case "go" : 
-          if  (codeStr_5[0]) == ([]byte("_")[0]) {
+          if  (int64(codeStr_5[0])) == (int64(([]byte("_")[0]))) {
             importFork_8.out(strings.Join([]string{ (strings.Join([]string{ " _ \"",(codeStr_5[1:(int64(len(codeStr_5)))]) }, "")),"\"" }, ""), true);
           } else {
             importFork_8.out(strings.Join([]string{ (strings.Join([]string{ "\"",codeStr_5 }, "")),"\"" }, ""), true);
