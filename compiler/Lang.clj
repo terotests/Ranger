@@ -67,12 +67,27 @@ language {
         }        
 
         ; I/O
-        file_exists          cmdIsDir:boolean (path:string) {
+        install_directory         cmdArg:string () {
             templates {
-                 es6 ("require(\"fs\").existsSync(process.cwd() + \"/\" + " 
-                        (e 1) ")")
-                ranger ("( file_exists " (e 1) " )")
-                java7 ( "new File(" (e 1) ").exists()" (imp "java.io.file") )
+                es6 ( "__dirname" )
+                ranger ("( install_directory )")
+                * ( "\".\"")
+            }
+        }   
+
+        current_directory         cmdArg:string () {
+            templates {
+                es6 ( "process.cwd()" )
+                ranger ("( current_directory )")
+                * ( "\".\"")
+            }
+        }               
+
+        file_exists          cmdIsDir:boolean (path:string filename:string) {
+            templates {
+                es6 ("require(\"fs\").existsSync(process.cwd() + \"/\" + " (e 1) " + \"/\" + " (e 2) " )")
+                ranger ("( file_exists " (e 1) " + \"/\" + " (e 2) "  )")
+                java7 ( "new File(" (e 1) " + '/' + " (e 2) ").exists()" (imp "java.io.file") )
                 php ( "file_exists(" (e 1) ".'/'." (e 2) ")" )
                 go ( "r_file_exists(" (e 1) ", " (e 2) ")"
 (create_polyfill
@@ -991,7 +1006,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 java7 ( "(int)" (e 1) ".charAt(" (e 2) ")")  
                 kotlin ( (e 1) "[" (e 2) "]")    
                 scala ( (e 1) "(" (e 2) ")")    
-                go ( (e 1) "[" (e 2) "]")  
+                go ( "int64(" (e 1) "[" (e 2) "])")  
                 swift3 ( (e 1) "[" (e 2) "]")    
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
@@ -1049,7 +1064,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ))))") 
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
-                go ("string([] byte{" (e 1) "})")        
+                go ("string([] byte{byte(" (e 1) ")})")       
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -1063,7 +1078,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ))))") 
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
-                go ("string([] byte{" (e 1) "})")        
+                go ("string([] byte{byte(" (e 1) ")})")        
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
