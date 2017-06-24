@@ -702,22 +702,9 @@ class RangerFlowParser {
         }      
       }      
       return true
-    } {
-      ctx.addError(node ("ERROR, could not find class " + desc.name + " method " + fnNode.vref))
-      ctx.addError(node ("definition : " + (node.getCode())))
-      if(expects_error) {
-        def cnt_now:int (ctx.getErrorCount())
-        if (cnt_now == err_cnt) {
-          ctx.addParserError( node "LANGUAGE_PARSER_ERROR: expected generated error, err counts : " + err_cnt + " : " +cnt_now)
-        }
-      } {
-        def cnt_now:int (ctx.getErrorCount())
-        if (cnt_now > err_cnt) {
-          ctx.addParserError( node "LANGUAGE_PARSER_ERROR: did not expect generated error, err counts : " + err_cnt + " : " +cnt_now)
-        }      
-      }      
-      return false
-    }
+    } 
+    ctx.addError(node ("ERROR, could not find class " + desc.name + " method " + fnNode.vref))
+    ctx.addError(node ("definition : " + (node.getCode())))
     if(expects_error) {
       def cnt_now:int (ctx.getErrorCount())
       if (cnt_now == err_cnt) {
@@ -728,7 +715,7 @@ class RangerFlowParser {
       if (cnt_now > err_cnt) {
         ctx.addParserError( node "LANGUAGE_PARSER_ERROR: did not expect generated error, err counts : " + err_cnt + " : " +cnt_now)
       }      
-    }
+    }      
     return false
   }
   fn cmdReturn:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1532,11 +1519,7 @@ class RangerFlowParser {
     def varDesc:RangerAppParamDesc
     def varFnDesc:RangerAppFunctionDesc
     
-    if (obj.vref == (this.getThisName())) {
-      ctx.addError(obj "Can not call 'this' like function")
-      varFnDesc = (new RangerAppFunctionDesc ())
-      return varFnDesc
-    } {
+    if (obj.vref != (this.getThisName())) {
       if ((array_length obj.ns) > 1) {
         def cnt:int (array_length obj.ns)
         def classRefDesc:RangerAppParamDesc
@@ -1559,13 +1542,13 @@ class RangerFlowParser {
               classRefDesc.ref_cnt = (1 + classRefDesc.ref_cnt)
               classDesc = (ctx.findClass(classRefDesc.nameNode.type_name))
               if(null? classDesc) {
-                return varDesc
+                return varFnDesc
               }
             }
           } {
 
             if(null? classDesc) {
-              return varDesc
+              return varFnDesc
             }            
             if (i < (cnt - 1)) {
               varDesc = (classDesc.findVariable(strname))
@@ -1600,6 +1583,8 @@ class RangerFlowParser {
       }
       return varFnDesc
     }
+    ctx.addError(obj "Can not call 'this' like function")
+    varFnDesc = (new RangerAppFunctionDesc ())
     return varFnDesc
   }
   fn findParamDesc@(weak optional):RangerAppParamDesc (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1610,9 +1595,7 @@ class RangerFlowParser {
     if (0 == (array_length obj.nsp)) {
       set_nsp = true
     }
-    if (obj.vref == (this.getThisName())) {
-      return (ctx.getCurrentClass())
-    } {
+    if (obj.vref != (this.getThisName())) {
       if ((array_length obj.ns) > 1) {
         def cnt:int (array_length obj.ns)
         def classRefDesc@(lives):RangerAppParamDesc
@@ -1694,7 +1677,8 @@ class RangerFlowParser {
       }
       return varDesc
     }
-    return varDesc
+    def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    return cc
   }
   fn areEqualTypes:boolean (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext) {
 

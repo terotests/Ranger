@@ -57,11 +57,8 @@ class RangerGolangClassWriter {
       case "charbuffer" {
         return "[]byte"
       }
-      default {
-        return (ctx.transformTypeName(type_string))
-      }
     }
-    return ""
+    return (ctx.transformTypeName(type_string))
   }
   fn getTypeString2:string (type_string:string ctx:RangerAppWriterContext) {
     if (type_string == "this") {
@@ -86,11 +83,8 @@ class RangerGolangClassWriter {
       case "charbuffer" {
         return "[]byte"
       }
-      default {
-        return (ctx.transformTypeName(type_string))
-      }
     }
-    return ""
+    return (ctx.transformTypeName(type_string))
   }
   fn writeRawTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     write_raw_type = true
@@ -98,69 +92,7 @@ class RangerGolangClassWriter {
     write_raw_type = false
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    
     this.writeTypeDef2(node ctx wr)
-    return
-
-    def v_type:RangerNodeType node.value_type
-    if ((v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
-      v_type = (node.typeNameAsType(ctx))
-    }
-    if (node.eval_type != RangerNodeType.NoType) {
-      v_type = node.eval_type
-    }
-    switch v_type {
-      case RangerNodeType.Enum {
-        wr.out("int64" false)
-      }
-      case RangerNodeType.Integer {
-        wr.out("int64" false)
-      }
-      case RangerNodeType.Double {
-        wr.out("float64" false)
-      }
-      case RangerNodeType.String {
-        wr.out("string" false)
-      }
-      case RangerNodeType.Boolean {
-        wr.out("bool" false)
-      }
-      case RangerNodeType.Char {
-        wr.out("byte" false)
-      }
-      case RangerNodeType.CharBuffer {
-        wr.out("[]byte" false)
-      }
-      case RangerNodeType.Hash {
-        if write_raw_type {
-          wr.out( ( (this.getObjectTypeString(node.array_type ctx) ) + "") , false)
-        } {
-          wr.out((("map[" + (this.getObjectTypeString(node.key_type ctx))) + "]") , false)
-          if ((write_raw_type == false) && ((ctx.isPrimitiveType(node.array_type)) == false)) {
-            wr.out("*" false)
-          }
-          wr.out(((this.getObjectTypeString(node.array_type ctx)) + "") , false)
-        }
-      }
-      case RangerNodeType.Array {
-        if (false == write_raw_type) {
-          wr.out("[]" false)
-        }
-        if ((write_raw_type == false) && ((ctx.isPrimitiveType(node.array_type)) == false)) {
-          wr.out("*" false)
-        }
-        wr.out(((this.getObjectTypeString(node.array_type ctx)) + "") false)
-      }
-      default {
-        if (node.type_name == "void") {
-          (wr.out("()" false))return
-        }
-        if ((write_raw_type == false) && ((node.isPrimitiveType()) == false)) {
-          (wr.out("*" false))
-        }
-        wr.out((this.getTypeString2(node.type_name ctx)) false))
-      }
-    }
   }
 
   fn writeArrayTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -812,13 +744,6 @@ class RangerGolangClassWriter {
               this.WalkNode(value ctx wr)
               ctx.unsetInExpr()
               wr.out(".has_value;" true)
-              return
-              wr.out((p.compiledName + " = ") false)
-              ctx.setInExpr()
-              def value:CodeNode (node.getThird())
-              this.WalkNode(value ctx wr)
-              ctx.unsetInExpr()
-              wr.out(";" true)
               return
             } {
               wr.out((p.compiledName + ".value = ") false)

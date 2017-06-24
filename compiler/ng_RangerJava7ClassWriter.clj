@@ -29,11 +29,8 @@ class RangerJava7ClassWriter {
       case "double" {
         return "Double"
       }
-      default {
-        return type_string
-      }
     }
-    return ""
+    return type_string
   }
   fn getTypeString:string (type_string:string) {
     switch type_string {
@@ -55,16 +52,30 @@ class RangerJava7ClassWriter {
       case "double" {
         return "double"
       }
-      default {
-        return type_string
-      }
     }
     return type_string
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    def v_type:RangerNodeType node.value_type
+
+    def v_type:RangerNodeType node.value_type    
+    def t_name:string node.type_name
+    def a_name:string node.array_type
+    def k_name:string node.key_type
+
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (node.typeNameAsType(ctx))
+    }
     if (node.eval_type != RangerNodeType.NoType) {
       v_type = node.eval_type
+      if ( (strlen node.eval_type_name) > 0 ) {
+        t_name = node.eval_type_name
+      }
+      if ( (strlen node.eval_array_type) > 0 ) {
+        a_name = node.eval_array_type
+      }
+      if ( (strlen node.eval_key_type) > 0 ) {
+        k_name = node.eval_key_type
+      }
     }
     if (node.hasFlag("optional")) {
       wr.addImport("java.util.Optional")
@@ -92,18 +103,18 @@ class RangerJava7ClassWriter {
           wr.out("char[]" false)
         }
         case RangerNodeType.Hash {
-          wr.out( (((("HashMap<" + (this.getObjectTypeString(node.key_type ctx))) + ",") + (this.getObjectTypeString(node.array_type ctx))) + ">") , false)
+          wr.out( (((("HashMap<" + (this.getObjectTypeString(k_name ctx))) + ",") + (this.getObjectTypeString(a_name ctx))) + ">") , false)
           wr.addImport("java.util.*")
         }
         case RangerNodeType.Array {
-          wr.out((("ArrayList<" + (this.getObjectTypeString(node.array_type ctx))) + ">") , false)
+          wr.out((("ArrayList<" + (this.getObjectTypeString(a_name ctx))) + ">") , false)
           wr.addImport("java.util.*")
         }
         default {
-          if (node.type_name == "void") {
+          if (t_name== "void") {
             wr.out("void" false)
           } {
-            wr.out((this.getObjectTypeString(node.type_name ctx) ), false)
+            wr.out((this.getObjectTypeString(t_name ctx) ), false)
           }
         }
       }
@@ -131,18 +142,18 @@ class RangerJava7ClassWriter {
           wr.out("boolean" false)
         }
         case RangerNodeType.Hash {
-          wr.out((((("HashMap<" + (this.getObjectTypeString(node.key_type ctx))) + ",") + (this.getObjectTypeString(node.array_type ctx)))) + ">" , false)
+          wr.out((((("HashMap<" + (this.getObjectTypeString(k_name ctx))) + ",") + (this.getObjectTypeString(a_name ctx)))) + ">" , false)
           wr.addImport("java.util.*")
         }
         case RangerNodeType.Array {
-          wr.out((("ArrayList<" + (this.getObjectTypeString(node.array_type ctx)))) + ">" , false)
+          wr.out((("ArrayList<" + (this.getObjectTypeString(a_name ctx)))) + ">" , false)
           wr.addImport("java.util.*")
         }
         default {
-          if (node.type_name == "void") {
+          if (t_name == "void") {
             wr.out("void" false)
           } {
-            wr.out((this.getTypeString(node.type_name)) , false)
+            wr.out((this.getTypeString(t_name)) , false)
           }
         }
       }
@@ -275,11 +286,65 @@ class RangerJava7ClassWriter {
     }
   }
 
+  fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fc:CodeNode (node.getFirst())
+    def cmd:string fc.vref
+    if(cmd == "return") {
+      wr.newline()
+      if( (array_length node.children ) > 1 ) {
+        def value:CodeNode (node.getSecond())
+
+        if( value.hasParamDesc ) {
+          def nn:CodeNode (unwrap value.paramDesc.nameNode )
+          if ( ctx.isDefinedClass(nn.type_name) ) {
+              def cl:RangerAppClassDesc (ctx.findClass(nn.type_name))
+              def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
+              def fnNameNode:CodeNode (unwrap activeFn.nameNode)
+              if(fnNameNode.hasFlag("optional")) {
+
+                ; Optional.ofNullable( ( none_2.isPresent() ? (CodeNode)none_2.get() : null ) );
+                ; Optional.of((RangerAppParamDesc)ctx.getCurrentClass().get())
+                wr.out("return Optional.ofNullable((" false)
+                ; this.writeTypeDef( fnNameNode ctx wr)
+
+                this.WalkNode( value ctx wr )
+                wr.out(".isPresent() ? (" false)
+                wr.out(fnNameNode.type_name false)
+                wr.out(")" false)
+                this.WalkNode( value ctx wr )
+                wr.out(".get() : null ) );" true)
+                return
+              }
+          }
+        }
+
+        wr.out("return " false)
+        ctx.setInExpr()
+        this.WalkNode( value ctx wr )
+        ctx.unsetInExpr()
+        wr.out(";" true)
+
+      } {
+        wr.out("return;" true)
+      }
+    }
+  }  
+
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
       return
     }
+    def declaredVariable:[string:boolean]
+    if ( ( array_length cl.extends_classes ) > 0 ) { 
+      for cl.extends_classes pName:string i {
+        def pC:RangerAppClassDesc (ctx.findClass(pName))
+        for pC.variables pvar:RangerAppParamDesc i {
+          set declaredVariable pvar.name true
+        }
+      }
+    }
+
     def wr:CodeWriter (orig_wr.getFileWriter("." (cl.name + ".java")))
     def importFork:CodeWriter (wr.fork())
     wr.out("" true)
@@ -296,6 +361,9 @@ class RangerJava7ClassWriter {
     wr.indent(1)
     wr.createTag("utilities")
     for cl.variables pvar:RangerAppParamDesc i {
+      if( has declaredVariable pvar.name ) {
+        continue
+      }
       wr.out("public " false)
       this.writeVarDef( (unwrap pvar.node) ctx wr)
     }

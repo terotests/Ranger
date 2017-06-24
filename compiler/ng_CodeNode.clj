@@ -502,7 +502,6 @@ class CodeNode {
                   return RangerNodeType.Object
               }
           }
-          return value_type
       }
     }
     return value_type
@@ -629,6 +628,9 @@ class CodeNode {
     return 0.0
   }
   fn hasStringProperty:boolean (name:string) {
+    if( false == (has props name) ) {
+      return false
+    }
     def ann:CodeNode (get props name)
     if (!null? ann) {
       if (ann.value_type == RangerNodeType.String) {
@@ -709,25 +711,6 @@ class CodeNode {
     def wr:CodeWriter (new CodeWriter ())
     this.writeCode(wr)
     return (wr.getCode())
-    switch value_type {
-      case RangerNodeType.Double {
-        return (double2str double_value)
-      }
-      case RangerNodeType.String {
-        return ((strfromcode 34) + string_value + (strfromcode 34))
-      }
-    }
-    if ((array_length children) > 0) {
-      def res:string "( "
-      for children item:CodeNode i {
-        res = (res + " ")
-        res = (res + (item.getCode()))
-        res = (res + " ")
-      }
-      res = (res + " ) ")
-      return res
-    }
-    return ""
   }
   fn walk:void () {
     switch value_type {

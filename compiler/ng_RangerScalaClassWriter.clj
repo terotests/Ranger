@@ -22,11 +22,8 @@ class RangerScalaClassWriter {
       case "char" {
         return "byte"
       }
-      default {
-        return type_string
-      }
     }
-    return ""
+    return type_string
   }
   fn getTypeString:string (type_string:string) {
     switch type_string {
@@ -48,11 +45,8 @@ class RangerScalaClassWriter {
       case "char" {
         return "byte"
       }
-      default {
-        return type_string
-      }
     }
-    return ""
+    return type_string
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.hasFlag("optional")) {

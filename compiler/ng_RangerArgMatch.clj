@@ -304,11 +304,8 @@ class RangerArgMatch {
       case "enum" {
         return RangerNodeType.Enum
       }
-      default {
-        return RangerNodeType.Object
-      }
     }
-    return RangerNodeType.NoType
+    return RangerNodeType.Object
   }
   fn setRvBasedOn:boolean (arg:CodeNode node:CodeNode) {
     if (arg.hasFlag("optional")) {

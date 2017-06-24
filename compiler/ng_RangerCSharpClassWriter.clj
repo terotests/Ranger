@@ -27,11 +27,8 @@ class RangerCSharpClassWriter {
       case "double" {
         return "Double"
       }
-      default {
-        return type_string
-      }
     }
-    return ""
+    return type_string
   }
   fn getTypeString:string (type_string:string) {
     switch type_string {
@@ -52,9 +49,6 @@ class RangerCSharpClassWriter {
       }
       case "double" {
         return "double"
-      }
-      default {
-        return type_string
       }
     }
     return type_string

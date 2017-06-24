@@ -152,9 +152,12 @@ static void createDir(String path)
 (create_polyfill "
 static void writeFile(String path, String text) 
 {
-    try(  PrintWriter out = new PrintWriter( path)  ){
+    try{
+        PrintWriter out = new PrintWriter( path);
         out.print( text );
         out.close();
+    } catch ( FileNotFoundException e) {
+
     }
 }    
     ") )                        
@@ -198,10 +201,13 @@ func r_write_text_file(pathName string, fileName string, txtData string)  {
                     (imp "java.nio.charset.StandardCharsets")
 (create_polyfill "
 static String readFile(String path, Charset encoding) 
-  throws IOException 
 {
-  byte[] encoded = Files.readAllBytes(Paths.get(path));
-  return new String(encoded, encoding);
+  try {
+    byte[] encoded = Files.readAllBytes(Paths.get(path));
+    return new String(encoded, encoding);
+  } catch(IOException e) { 
+    return \"\";
+  }
 }    
     ")                        
                         
@@ -375,6 +381,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         return  cmdReturn@(optional returns@(1)):T          ( value@(optional):T ) {
             templates {
+                java7 ( (custom _) )
                 ranger ( nl "return " (e 1) nl ) 
                 * ( "return " (ifa 1 ";") (e 1) (eif _) ";" )
             }
@@ -682,6 +689,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 scala ( nl "case _ => " nl I (block 1) nl i )
                 go ( nl "default: " nl I (block 1) nl i )
                 kotlin ( nl "else  -> { " nl I (block 2) nl i "}" )
+                java7 ( nl "default: " nl I (java_case 1) nl i )
                 * ( nl "default: " nl I (block 1) nl "break;" i )
             }
         }
@@ -863,6 +871,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 scala ( (e 1) ".split(" (e 2) ").to[collection.mutable.ArrayBuffer]")  
                 csharp ( (e 1) ".Split(" (e 2) ")")
                 swift3 ( (e 1) ".components( separatedBy : " (e 2) ")")
+                java7( "new ArrayList<String>(Arrays.asList(" (e 1) ".split(" (e 2) ")))" )
                 php ( "explode(" (e 2) ", " (e 1) ")")               
                 go ("strings.Split(" (e 1) ", " (e 2) ")" (imp "strings"))
                 * ( (e 1) ".split(" (e 2) ")")
@@ -979,7 +988,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 cpp ( (e 1) ".at( " (e 2) ")")    
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
-                java7 ( (e 1) "[" (e 2) "]")  
+                java7 ( "(int)" (e 1) ".charAt(" (e 2) ")")  
                 kotlin ( (e 1) "[" (e 2) "]")    
                 scala ( (e 1) "(" (e 2) ")")    
                 go ( (e 1) "[" (e 2) "]")  
@@ -1016,12 +1025,19 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
         }
 
         ;(charcode "A")
-        charcode   cmdCharcode:int       ( text:string ) { 
+        charcode   cmdCharcode:char       ( text:string ) { 
             templates {
                 ranger ( "(charcode " (e 1) ")")
                 go ( "[]byte(" (e 1) ")[0]" )
                 php ( "ord(" (e 1) "[0])") 
+                java7 ( "((" (e 1) ".charAt(0)))") 
                 * ( (e 1) ".charCodeAt(0)" )
+            }
+        }
+
+        ccode       cmdCharCode:char ( text:string ) { 
+            templates {
+                * ( (cc 1) )
             }
         }
 
@@ -1043,7 +1059,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             templates {
                 ranger ( "(strfromcode " (e 1) ")"))
                 csharp ( "((char)" (e 1) ").toString()") 
-                java7 ( "(new String( new char[] {" (e 1) " }))") 
+                java7 ( "(new String( Character.toChars(" (e 1) ")))") 
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ))))") 
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
@@ -1169,7 +1185,7 @@ func r_str_2_i64(s string) *GoNullable {
         get             cmdGet@(optional weak):T          ( map:[K:T] key:K ) { 
             templates {
                 ranger ( "(get " (e 1) " " (e 2) ")")                 
-                java7 ( "Optional.of(" (e 1) ".get(" (e 2) "))" (imp "java.util.Optional"))
+                java7 ( "Optional.ofNullable(" (e 1) ".get(" (e 2) "))" (imp "java.util.Optional"))
                 rust ( (e 1) ".get(" (e 2) ")" )
                 scala ( (e 1) ".get(" (e 2) ").asInstanceOf[" (atype 1) "]" )
 
@@ -1403,6 +1419,12 @@ i "}" nl ))
 
         ; ----------------------------------------------------------------------------------------------------------
 
+        ==              cmdEqual:boolean ( left:string right:string ) { 
+            templates { 
+                java7 ( (e 1) ".equals(" (e 2) ")" ) 
+                * ( (e 1) " == " (e 2) ) 
+            } 
+        }
 
         ==              cmdEqual:boolean ( left:T right:T ) { templates { * ( (e 1) " == " (e 2) ) } }
         ==              cmdEqual:boolean ( left:enum right:enum ) { templates { * ( (e 1) " == " (e 2) ) } }
@@ -1413,7 +1435,7 @@ i "}" nl ))
         ==              cmdEqual:boolean ( left:int right:int ) { templates { * ( (e 1) " == " (e 2) ) } }
         ==              cmdEqual:boolean ( left:double right:double ) { templates { * ( (e 1) " == " (e 2) ) } }
         ==              cmdEqual:boolean ( left:boolean right:boolean ) { templates { * ( (e 1) " == " (e 2) ) } }
-        ==              cmdEqual:boolean ( left:string right:string ) { templates { * ( (e 1) " == " (e 2) ) } }
+        
         
         >               cmdGt:boolean ( left:double right:double ) { templates { * ( (e 1) " > " (e 2) ) } }
         >               cmdGt:boolean ( left:int right:int ) { templates { * ( (e 1) " > " (e 2) ) } }
@@ -1454,6 +1476,13 @@ i "}" nl ))
         ==               cmdEq:boolean ( left:char right:char ) { 
             templates { * ( (e 1) " == " (e 2) ) } 
         }
+
+        !=               cmdNeq:boolean ( left:string right:string ) { 
+            templates { 
+                java7 ( "!" (e 1) ".equals(" (e 2) ")") 
+                * ( (e 1) " != " (e 2) ) 
+            } 
+        }        
 
         !=               cmdNeq:boolean ( left:int right:char ) { 
             templates { * ( (e 1) " != " (e 2) ) } 

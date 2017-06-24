@@ -19,6 +19,8 @@ class LiveCompiler {
     def the_lang:string (shell_arg 1)
     def the_target:string (shell_arg 2)
 
+    print "file name " + the_file
+
     def c:string (read_file "." the_file)    
     def code:SourceCode (new SourceCode ((unwrap c)))
 
@@ -207,8 +209,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
 
     while (< ii str_length) {
 
-      def ch:char (charAt node.string_value ii)
-      def cc:int (to_int ch)
+      def ch:int (charAt node.string_value ii)
+      def cc:int ch
 
       switch cc {
         case 8 {
@@ -247,26 +249,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     langWriter.WriteScalarValue(node ctx wr)
-    return
-    switch node.value_type {
-      case RangerNodeType.Double {
-        wr.out(("" + node.double_value) false)
-      }
-      case RangerNodeType.String {
-        def s:string (this.EncodeString(node ctx wr))
-        wr.out((("\"" + s) + "\"") false)
-      }
-      case RangerNodeType.Integer {
-        wr.out(("" + node.int_value) false)
-      }
-      case RangerNodeType.Boolean {
-        if node.boolean_value {
-          wr.out("true" false)
-        } {
-          wr.out("false" false)
-        }
-      }
-    }
   }
   fn adjustType:string (tn:string) {
     if (tn == "this") {
@@ -279,14 +261,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     langWriter.writeTypeDef(node ctx wr)
-    return
-    if (node.value_type == RangerNodeType.Lambda) {
-      wr.out(" () => Long /* or whatever... */" false)
-      return
-    }
-    if (node.isPrimitive()) {
-    }
-    wr.out(node.type_name false)
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def args:CodeNode (itemAt node.children 2)
@@ -584,7 +558,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             this.WalkNode(arg ctx wr)
             ctx.unsetInExpr()
           }
-        }
+        }       
 
         case "goset" {
           def idx:int cmdArg.int_value
@@ -731,6 +705,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           }
         }        
         case "macro" {
+          ; compiledTags
+          def p_write:CodeWriter (wr.getTag("utilities"))
           def newWriter:CodeWriter (new CodeWriter ())
           def testCtx:RangerAppWriterContext (ctx.fork())
           testCtx.restartExpressionLevel()
@@ -739,9 +715,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           def p_str:string (newWriter.getCode())
           def root:RangerAppWriterContext (ctx.getRoot())
 
-          if ((has root.definedMacro p_str) == false) {
-            set root.definedMacro p_str true
-            def p_write:CodeWriter (wr.getTag("utilities"))
+          if ((has p_write.compiledTags p_str) == false) {
+            set p_write.compiledTags p_str true
+            
             def mCtx:RangerAppWriterContext (ctx.fork())
             mCtx.restartExpressionLevel()
             this.walkCommandList(cmdArg node mCtx p_write)
@@ -749,11 +725,11 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           }
         }
         case "create_polyfill" {
+          def p_write:CodeWriter (wr.getTag("utilities"))
           def p_str:string cmdArg.string_value
-          if ((has hasCreatedPolyfill p_str) == false) {
-            def p_write:CodeWriter (wr.getTag("utilities"))
+          if ((has p_write.compiledTags p_str) == false) {
             p_write.raw(p_str true)
-            set hasCreatedPolyfill p_str true
+            set p_write.compiledTags p_str true
           }
         }
         case "typeof" {
@@ -819,10 +795,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     if (0 == (array_length obj.nsp)) {
       set_nsp = true
     }
-    if (obj.vref == "this") {
-      def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
-      return cc
-    } {
+    if (obj.vref != "this") {
       if ((array_length obj.ns) > 1) {
         def cnt:int (array_length obj.ns)
         def classRefDesc@(lives):RangerAppParamDesc
@@ -902,7 +875,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       }
       return varDesc
     }
-    return varDesc
+    def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    return cc
   }
   
 }
