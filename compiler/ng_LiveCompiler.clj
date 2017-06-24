@@ -10,16 +10,44 @@ class LiveCompiler {
 
   sfn hello@(main):void () {
 
-    if ( (shell_arg_cnt) < 3  ) {
-      print "usage <file> <language> <targetfile>"
+    def allowed_languages:[string] ([] _:string ("es6" "go" "scala" "java7" "swift3" "php" ))
+
+    if ( (shell_arg_cnt) < 5  ) {
+      print "Ranger compiler, version 2.01"
+      print "usage <file> <language-file> <language> <directory> <targetfile>"
+      def s:string ""
+      for allowed_languages lang:string i { s = s + " " + lang }
+      print "allowed languages: " + s
       return 
     }    
 
     def the_file:string (shell_arg 0)
-    def the_lang:string (shell_arg 1)
-    def the_target:string (shell_arg 2)
+    def the_lang_file:string (shell_arg 1)
+    def the_lang:string (shell_arg 2)
+    def the_target_dir:string (shell_arg 3)
+    def the_target:string (shell_arg 4)
 
-    print "file name " + the_file
+    if ( ( indexOf allowed_languages the_lang) < 0 ) {
+      print "Invalid language : " + the_lang
+      def s:string ""
+      for allowed_languages lang:string i { s = s + " " + lang }
+      print "allowed languages: " + s      
+      return
+    }
+
+    if ( (file_exists "." the_file) == false) {
+      print "Could not compile."
+      print "File not found: " + the_file
+      return
+    }
+
+    if ( (file_exists "." the_lang_file) == false) {
+      print "language file " + the_lang_file + " not found!"
+      print "download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.clj"
+      return
+    }        
+
+    print "File to be compiled: " + the_file
 
     def c:string (read_file "." the_file)    
     def code:SourceCode (new SourceCode ((unwrap c)))
@@ -36,16 +64,16 @@ class LiveCompiler {
     timer "Total time" {
 
       flowParser.mergeImports(node appCtx wr)
-      def lang_str:string (read_file "." "Lang.clj")
+      def lang_str:string (read_file "." the_lang_file)
       def lang_code:SourceCode (new SourceCode ( (unwrap lang_str)) )
 
-      lang_code.filename = "Lang.clj"
+      lang_code.filename = the_lang_file
       def lang_parser:RangerLispParser (new RangerLispParser (lang_code))
       lang_parser.parse()
 
       appCtx.langOperators = (unwrap lang_parser.rootNode)
 
-      print "===== collecting methods ==== ---->>>"
+      print "1. Collecting available methods."
       flowParser.CollectMethods (node appCtx wr)
 
       if ( ( array_length appCtx.compilerErrors ) > 0 ) {
@@ -53,8 +81,7 @@ class LiveCompiler {
         return
       }
 
-      print "----> collection done"
-      print "===== starting flowParser ==== "
+      print "2. Analyzing the code."
 
       appCtx.targetLangName = the_lang
 
@@ -64,7 +91,8 @@ class LiveCompiler {
         LiveCompiler.displayParserErrors(appCtx)
         return
       }
-      print "--- flow done --- "
+
+      print "3. Compiling the source code."
 
 
       def fileSystem:CodeFileSystem (new CodeFileSystem())
@@ -106,7 +134,7 @@ class LiveCompiler {
 
         switch appCtx.targetLangName {
           case "go" {
-            if ( (charAt codeStr 0) == (charcode "_") ) {
+            if ( (charAt codeStr 0) == (to_int (charcode "_") ) ) {
               importFork.out (( " _ \"" + (substring codeStr 1 (strlen codeStr)) + "\"") , true)
             } {
               importFork.out (("\"" + codeStr + "\"") , true)
@@ -125,7 +153,7 @@ class LiveCompiler {
         importFork.indent(-1)
         importFork.out(")" true)
       }
-      fileSystem.saveTo(".")
+      fileSystem.saveTo(the_target_dir)
       print "Ready."
       LiveCompiler.displayCompilerErrors(appCtx)
       LiveCompiler.displayParserErrors(appCtx)
