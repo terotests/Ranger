@@ -16,8 +16,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
 
     while (< ii str_length) {
 
-      def ch:char (charAt node.string_value ii)
-      def cc:int (to_int ch)
+      def cc:int (charAt node.string_value ii)
 
       switch cc {
         case 8 {
@@ -44,7 +43,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         }
                                             
         default {
-            ( = encoded_str ( encoded_str + (strfromcode ch) ) ) 
+            ( = encoded_str ( encoded_str + (strfromcode cc) ) ) 
         }
       }
       ii = ii + 1
@@ -126,11 +125,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       case "double" {
         return "Double"
       }
-      default {
-        return type_string
-      }
     }
-    return ""
+    return type_string
   }
   fn release_local_vars:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     for ctx.localVarNames n:string i {

@@ -27,11 +27,8 @@ class RangerSwift3ClassWriter {
       case "double" {
         return "Double"
       }
-      default {
-        return type_string
-      }
     }
-    return ""
+    return type_string
   }
   fn getTypeString:string (type_string:string) {
     switch type_string {
@@ -47,11 +44,8 @@ class RangerSwift3ClassWriter {
       case "double" {
         return "Double"
       }
-      default {
-        return type_string
-      }
     }
-    return ""
+    return type_string
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def v_type:RangerNodeType node.value_type
