@@ -13,6 +13,5 @@ class RangerTypeClass {
   def is_lambda:boolean false
   def nameNode:CodeNode
   def templateParams:CodeNode
-  def implements:[RangerTypeClass]
 }
 

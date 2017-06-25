@@ -58,7 +58,7 @@ class RangerLispParser {
       return true
     }
     def c:char (charAt s i)
-    def bb:boolean c == ((charcode "."))
+    def bb:boolean c == ((ccode "."))
     while ((i < len) && (c <= 32)) {
       if (is_block_parent && ((c == 10) || (c == 13))) {
         this.end_expression()
@@ -105,62 +105,62 @@ class RangerLispParser {
     def c:char (charAt s i)
     def c2:char (charAt s (i + 1))
     switch (c ) { 
-      case (charcode "*") { 
+      case (ccode "*") { 
         i = i + 1
         return 14
       }
-      case (charcode "/") { 
+      case (ccode "/") { 
         i = i + 1
         return 14
       }
-      case (charcode "+") { 
+      case (ccode "+") { 
         i = i + 1
         return 13
       }
-      case (charcode "-") { 
+      case (ccode "-") { 
         i = i + 1
         return 13
       }
-      case (charcode "<") { 
-        if (c2 == ((charcode "="))) {
+      case (ccode "<") { 
+        if (c2 == ((ccode "="))) {
           i = i + 2
           return 11
         }
         i = i + 1
         return 11
       }
-      case (charcode ">") { 
-        if (c2 == ((charcode "="))) {
+      case (ccode ">") { 
+        if (c2 == ((ccode "="))) {
           i = i + 2
           return 11
         }
         i = i + 1
         return 11
       }
-      case (charcode "!") { 
-        if (c2 == ((charcode "="))) {
+      case (ccode "!") { 
+        if (c2 == ((ccode "="))) {
           i = i + 2
           return 10
         }
         return 0
       }
-      case (charcode "=") { 
-        if (c2 == ((charcode "="))) {
+      case (ccode "=") { 
+        if (c2 == ((ccode "="))) {
           i = i + 2
           return 10
         }
         i = i + 1
         return 3
       }
-      case (charcode "&") { 
-        if (c2 == ((charcode "&"))) {
+      case (ccode "&") { 
+        if (c2 == ((ccode "&"))) {
           i = i + 2
           return 6
         }
         return 0
       }
-      case (charcode "|") { 
-        if (c2 == ((charcode "|"))) {
+      case (ccode "|") { 
+        if (c2 == ((ccode "|"))) {
           i = i + 2
           return 5
         }
@@ -180,50 +180,50 @@ class RangerLispParser {
     def c:char (charAt s i)
     def c2:char (charAt s (i + 1))
     switch (c ) { 
-      case (charcode "*") { 
+      case (ccode "*") { 
         return 1
       }
-      case (charcode "/") { 
+      case (ccode "/") { 
         return 14
       }
-      case (charcode "+") { 
+      case (ccode "+") { 
         return 13
       }
-      case (charcode "-") { 
+      case (ccode "-") { 
         return 13
       }
-      case (charcode "<") { 
-        if (c2 == ((charcode "="))) {
+      case (ccode "<") { 
+        if (c2 == ((ccode "="))) {
           return 11
         }
         return 11
       }
-      case (charcode ">") { 
-        if (c2 == ((charcode "="))) {
+      case (ccode ">") { 
+        if (c2 == ((ccode "="))) {
           return 11
         }
         return 11
       }
-      case (charcode "!") { 
-        if (c2 == ((charcode "="))) {
+      case (ccode "!") { 
+        if (c2 == ((ccode "="))) {
           return 10
         }
         return 0
       }
-      case (charcode "=") { 
-        if (c2 == ((charcode "="))) {
+      case (ccode "=") { 
+        if (c2 == ((ccode "="))) {
           return 10
         }
         return 3
       }
-      case (charcode "&") { 
-        if (c2 == ((charcode "&"))) {
+      case (ccode "&") { 
+        if (c2 == ((ccode "&"))) {
           return 6
         }
         return 0
       }
-      case (charcode "|") { 
-        if (c2 == ((charcode "|"))) {
+      case (ccode "|") { 
+        if (c2 == ((ccode "|"))) {
           return 5
         }
         return 0
@@ -345,7 +345,7 @@ class RangerLispParser {
         }
         if (i < (len - 1)) {
           fc = (charAt s (i + 1))
-          if ((c == 40) || (c == ((charcode "{"))) || ((c == 39) && (fc == 40)) || ((c == 96) && (fc == 40))) {
+          if ((c == 40) || (c == ((ccode "{"))) || ((c == 39) && (fc == 40)) || ((c == 96) && (fc == 40))) {
             paren_cnt = paren_cnt + 1
             if ((null? curr_node) ) {
               rootNode = (new CodeNode(( unwrap code) i i))
@@ -371,7 +371,7 @@ class RangerLispParser {
               push parents new_qnode
               curr_node = new_qnode
             }
-            if (c == ((charcode "{"))) {
+            if (c == ((ccode "{"))) {
               curr_node.is_block_node = true
             }
             i = 1 + i
@@ -387,8 +387,8 @@ class RangerLispParser {
           sp = i
           i = 1 + i
           c = (charAt s i)
-          while ((i < len) && (((c >= 48) && (c <= 57)) || (c == ((charcode "."))) || ((i == sp) && ((c == ((charcode "+"))) || (c == ((charcode "-"))))))) {
-            if (c == ((charcode "."))) {
+          while ((i < len) && (((c >= 48) && (c <= 57)) || (c == ((ccode "."))) || ((i == sp) && ((c == ((ccode "+"))) || (c == ((ccode "-"))))))) {
+            if (c == ((ccode "."))) {
               is_double = true
             }
             i = 1 + i
@@ -487,7 +487,7 @@ class RangerLispParser {
             continue 
           }
         }
-        if ((fc == ((charcode "t"))) && (((charAt s (i + 1))) == ((charcode "r"))) && (((charAt s (i + 2))) == ((charcode "u"))) && (((charAt s (i + 3))) == ((charcode "e")))) {
+        if ((fc == ((ccode "t"))) && (((charAt s (i + 1))) == ((ccode "r"))) && (((charAt s (i + 2))) == ((ccode "u"))) && (((charAt s (i + 3))) == ((ccode "e")))) {
           def new_true_node:CodeNode (new CodeNode(( unwrap code) sp sp + 4))
           new_true_node.value_type = RangerNodeType.Boolean
           new_true_node.boolean_value = true
@@ -495,7 +495,7 @@ class RangerLispParser {
           i = i + 4
           continue 
         }
-        if ((fc == ((charcode "f"))) && (((charAt s (i + 1))) == ((charcode "a"))) && (((charAt s (i + 2))) == ((charcode "l"))) && (((charAt s (i + 3))) == ((charcode "s"))) && (((charAt s (i + 4))) == ((charcode "e")))) {
+        if ((fc == ((ccode "f"))) && (((charAt s (i + 1))) == ((ccode "a"))) && (((charAt s (i + 2))) == ((ccode "l"))) && (((charAt s (i + 3))) == ((ccode "s"))) && (((charAt s (i + 4))) == ((ccode "e")))) {
           def new_f_node:CodeNode (new CodeNode(( unwrap code) sp sp + 5))
           new_f_node.value_type = RangerNodeType.Boolean
           new_f_node.boolean_value = false
@@ -503,12 +503,12 @@ class RangerLispParser {
           i = i + 5
           continue 
         }
-        if (fc == ((charcode "@"))) {
+        if (fc == ((ccode "@"))) {
           i = i + 1
           sp = i
           ep = i
           c = (charAt s i)
-          while ((i < len) && (((charAt s i)) > 32) && (c != 40) && (c != 41) && (c != ((charcode "}")))) {
+          while ((i < len) && (((charAt s i)) > 32) && (c != 40) && (c != 41) && (c != ((ccode "}")))) {
             i = 1 + i
             c = (charAt s i)
           }
@@ -543,7 +543,7 @@ class RangerLispParser {
         def vref_had_type_ann:boolean false
         def vref_ann_node@(optional temp):CodeNode
         def vref_end:int i
-        if ((i < len) && (((charAt s i)) > 32) && (c != 58) && (c != 40) && (c != 41) && (c != ((charcode "}")))) {
+        if ((i < len) && (((charAt s i)) > 32) && (c != 58) && (c != 40) && (c != 41) && (c != ((ccode "}")))) {
           if (curr_node.is_block_node == true) {
             def new_expr_node:CodeNode (new CodeNode(( unwrap code) sp ep))
             new_expr_node.parent = curr_node
@@ -563,7 +563,7 @@ class RangerLispParser {
         def last_was_newline:boolean false
         if (op_c > 0 ) {
         } {
-          while ((i < len) && (((charAt s i)) > 32) && (c != 58) && (c != 40) && (c != 41) && (c != ((charcode "}")))) {
+          while ((i < len) && (((charAt s i)) > 32) && (c != 58) && (c != 40) && (c != 41) && (c != ((ccode "}")))) {
             if (i > sp) {
               def is_opchar:int (this.isOperator())
               if (is_opchar > 0) {
@@ -576,12 +576,12 @@ class RangerLispParser {
               last_was_newline = true
               break
             }
-            if (c == ((charcode "."))) {
+            if (c == ((ccode "."))) {
               push ns_list (substring s last_ns i)
               last_ns = i + 1
               ns_cnt = 1 + ns_cnt
             }
-            if ((i > vref_end) && (c == ((charcode "@")))) {
+            if ((i > vref_end) && (c == ((ccode "@")))) {
               vref_had_type_ann = true
               vref_end = i
               vref_ann_node = (this.parse_raw_annotation())
@@ -614,7 +614,7 @@ class RangerLispParser {
           def vt_sp:int i
           def vt_ep:int i
           c = (charAt s i)
-          if (c == ((charcode "("))) {
+          if (c == ((ccode "("))) {
             def a_node3@(lives):CodeNode (new CodeNode(( unwrap code) sp ep))
             a_node3.expression = true
             curr_node = a_node3
@@ -633,7 +633,7 @@ class RangerLispParser {
             push curr_node.children new_expr_node
             continue 
           }
-          if (c == ((charcode "["))) {
+          if (c == ((ccode "["))) {
             i = i + 1
             vt_sp = i
             def hash_sep:int 0
@@ -642,10 +642,10 @@ class RangerLispParser {
             while ((i < len) && (c > 32) && (c != 93)) {
               i = 1 + i
               c = (charAt s i)
-              if (c == ((charcode ":"))) {
+              if (c == ((ccode ":"))) {
                 hash_sep = i
               }
-              if (c == ((charcode "@"))) {
+              if (c == ((ccode "@"))) {
                 had_array_type_ann = true
                 break
               }
@@ -700,10 +700,10 @@ class RangerLispParser {
             }
           }
           def had_type_ann:boolean false
-          while ((i < len) && (((charAt s i)) > 32) && (c != 58) && (c != 40) && (c != 41) && (c != ((charcode "}"))) && (c != ((charcode ",")))) {
+          while ((i < len) && (((charAt s i)) > 32) && (c != 58) && (c != 40) && (c != 41) && (c != ((ccode "}"))) && (c != ((ccode ",")))) {
             i = 1 + i
             c = (charAt s i)
-            if (c == ((charcode "@"))) {
+            if (c == ((ccode "@"))) {
               had_type_ann = true
               break
             }
@@ -757,7 +757,7 @@ class RangerLispParser {
               new_vref_node.vref_annotation = vref_ann_node
               new_vref_node.has_vref_annotation = true
             }
-            if ((((charAt s (i + 1))) == ((charcode "("))) || (((charAt s (i + 0))) == ((charcode "(")))) {
+            if ((((charAt s (i + 1))) == ((ccode "("))) || (((charAt s (i + 0))) == ((ccode "(")))) {
               if ((0 == op_pred) && curr_node.infix_operator && (1 == ((array_length curr_node.children)))) {
               }
             }
@@ -836,8 +836,8 @@ class RangerLispParser {
             continue 
           }
         }
-        if ((c == 41) || (c == ((charcode "}")))) {
-          if ((c == ((charcode "}"))) && is_block_parent && (((array_length curr_node.children)) > 0)) {
+        if ((c == 41) || (c == ((ccode "}")))) {
+          if ((c == ((ccode "}"))) && is_block_parent && (((array_length curr_node.children)) > 0)) {
             this.end_expression()
           }
           i = 1 + i
