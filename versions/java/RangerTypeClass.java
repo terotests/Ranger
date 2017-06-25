@@ -1,5 +1,4 @@
 import java.util.Optional;
-import java.util.*;
 
 class RangerTypeClass { 
   public String name = ""     /** note: unused */;
@@ -15,5 +14,4 @@ class RangerTypeClass {
   public boolean is_lambda = false     /** note: unused */;
   public Optional<CodeNode> nameNode = Optional.empty()     /** note: unused */;
   public Optional<CodeNode> templateParams = Optional.empty()     /** note: unused */;
-  public ArrayList<RangerTypeClass> implements = new ArrayList<RangerTypeClass>()     /** note: unused */;
 }

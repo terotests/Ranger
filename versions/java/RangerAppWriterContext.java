@@ -7,7 +7,6 @@ class RangerAppWriterContext {
   public Optional<CodeNode> stdCommands = Optional.empty();
   public int intRootCounter = 1     /** note: unused */;
   public String targetLangName = "";
-  public Optional<RangerContext> ctx = Optional.empty()     /** note: unused */;
   public Optional<RangerAppWriterContext> parent = Optional.empty();
   public ArrayList<String> defined_imports = new ArrayList<String>()     /** note: unused */;
   public HashMap<String,Boolean> already_imported = new HashMap<String,Boolean>();
