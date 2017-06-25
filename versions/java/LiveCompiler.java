@@ -1,6 +1,7 @@
 import java.util.Optional;
 import java.util.*;
 import java.io.*;
+import java.io.file;
 import java.nio.file.Paths;
 import java.io.File;
 import java.nio.file.Files;
@@ -23,15 +24,44 @@ class LiveCompiler {
   public HashMap<String,Boolean> hasCreatedPolyfill = new HashMap<String,Boolean>()     /** note: unused */;
   
   public static void main(String [] args ) {
-    if ( (args.length) < 4 ) {
-      System.out.println(String.valueOf( "usage <file> <language> <directory> <targetfile>" ) );
+    final ArrayList<String> allowed_languages = new ArrayList<String>(Arrays.asList("es6","go","scala","java7","swift3","php")) ;
+    if ( (args.length) < 5 ) {
+      System.out.println(String.valueOf( "Ranger compiler, version 2.01" ) );
+      System.out.println(String.valueOf( "usage <file> <language-file> <language> <directory> <targetfile>" ) );
+      String s_21 = "";
+      for ( int i_194 = 0; i_194 < allowed_languages.size(); i_194++) {
+        String lang_2 = allowed_languages.get(i_194);
+        s_21 = (s_21 + " ") + lang_2;
+      }
+      System.out.println(String.valueOf( "allowed languages: " + s_21 ) );
       return;
     }
     final String the_file = args[0];
-    final String the_lang = args[1];
-    final String the_target_dir = args[2];
-    final String the_target = args[3];
-    System.out.println(String.valueOf( "file name " + the_file ) );
+    final String the_lang_file = args[1];
+    final String the_lang = args[2];
+    final String the_target_dir = args[3];
+    final String the_target = args[4];
+    if ( (allowed_languages.indexOf(the_lang)) < 0 ) {
+      System.out.println(String.valueOf( "Invalid language : " + the_lang ) );
+      String s_26 = "";
+      for ( int i_199 = 0; i_199 < allowed_languages.size(); i_199++) {
+        String lang_7 = allowed_languages.get(i_199);
+        s_26 = (s_26 + " ") + lang_7;
+      }
+      System.out.println(String.valueOf( "allowed languages: " + s_26 ) );
+      return;
+    }
+    if ( (new File("." + '/' + the_file).exists()) == false ) {
+      System.out.println(String.valueOf( "Could not compile." ) );
+      System.out.println(String.valueOf( "File not found: " + the_file ) );
+      return;
+    }
+    if ( (new File("." + '/' + the_lang_file).exists()) == false ) {
+      System.out.println(String.valueOf( ("language file " + the_lang_file) + " not found!" ) );
+      System.out.println(String.valueOf( "download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.clj" ) );
+      return;
+    }
+    System.out.println(String.valueOf( "File to be compiled: " + the_file ) );
     final Optional<String> c_13 = Optional.of(readFile("." + "/" + the_file , StandardCharsets.UTF_8 ));
     final SourceCode code_3 = new SourceCode(c_13.get());
     code_3.filename = the_file;
@@ -43,20 +73,19 @@ class LiveCompiler {
     final CodeWriter wr_13 = new CodeWriter();
     long startTime = System.nanoTime();
     flowParser_2.mergeImports(node_2, appCtx_2, wr_13);
-    final Optional<String> lang_str_2 = Optional.of(readFile("." + "/" + "Lang.clj" , StandardCharsets.UTF_8 ));
+    final Optional<String> lang_str_2 = Optional.of(readFile("." + "/" + the_lang_file , StandardCharsets.UTF_8 ));
     final SourceCode lang_code_2 = new SourceCode(lang_str_2.get());
-    lang_code_2.filename = "Lang.clj";
+    lang_code_2.filename = the_lang_file;
     final RangerLispParser lang_parser_2 = new RangerLispParser(lang_code_2);
     lang_parser_2.parse();
     appCtx_2.langOperators = Optional.of(lang_parser_2.rootNode.get());
-    System.out.println(String.valueOf( "===== collecting methods ==== ---->>>" ) );
+    System.out.println(String.valueOf( "1. Collecting available methods." ) );
     flowParser_2.CollectMethods(node_2, appCtx_2, wr_13);
     if ( (appCtx_2.compilerErrors.size()) > 0 ) {
       LiveCompiler.displayCompilerErrors(appCtx_2);
       return;
     }
-    System.out.println(String.valueOf( "----> collection done" ) );
-    System.out.println(String.valueOf( "===== starting flowParser ==== " ) );
+    System.out.println(String.valueOf( "2. Analyzing the code." ) );
     appCtx_2.targetLangName = the_lang;
     flowParser_2.WalkNode(node_2, appCtx_2, wr_13);
     if ( (appCtx_2.compilerErrors.size()) > 0 ) {
@@ -64,15 +93,15 @@ class LiveCompiler {
       LiveCompiler.displayParserErrors(appCtx_2);
       return;
     }
-    System.out.println(String.valueOf( "--- flow done --- " ) );
+    System.out.println(String.valueOf( "3. Compiling the source code." ) );
     final CodeFileSystem fileSystem = new CodeFileSystem();
     final CodeFile file_5 = fileSystem.getFile(".", the_target);
     final Optional<CodeWriter> wr_20 = file_5.getWriter();
     final LiveCompiler lcc_2 = new LiveCompiler();
     Optional<RangerAppClassDesc> staticMethods = Optional.empty();
     final CodeWriter importFork_8 = wr_20.get().fork();
-    for ( int i_194 = 0; i_194 < appCtx_2.definedClassList.size(); i_194++) {
-      String cName_2 = appCtx_2.definedClassList.get(i_194);
+    for ( int i_202 = 0; i_202 < appCtx_2.definedClassList.size(); i_202++) {
+      String cName_2 = appCtx_2.definedClassList.get(i_202);
       if ( cName_2.equals("RangerStaticMethods") ) {
         staticMethods = Optional.ofNullable(appCtx_2.definedClasses.get(cName_2));
         continue;
@@ -94,11 +123,11 @@ class LiveCompiler {
       importFork_8.out("import (", true);
       importFork_8.indent(1);
     }
-    for ( int i_201 = 0; i_201 < import_list_5.size(); i_201++) {
-      String codeStr_5 = import_list_5.get(i_201);
+    for ( int i_207 = 0; i_207 < import_list_5.size(); i_207++) {
+      String codeStr_5 = import_list_5.get(i_207);
       switch (appCtx_2.targetLangName ) { 
         case "go" : 
-          if ( ((int)codeStr_5.charAt(0)) == ((("_".charAt(0)))) ) {
+          if ( ((int)codeStr_5.charAt(0)) == (((("_".charAt(0))))) ) {
             importFork_8.out((" _ \"" + (codeStr_5.substring(1, (codeStr_5.length()) ))) + "\"", true);
           } else {
             importFork_8.out(("\"" + codeStr_5) + "\"", true);
@@ -125,8 +154,8 @@ class LiveCompiler {
   }
   
   public static void displayCompilerErrors( RangerAppWriterContext appCtx ) {
-    for ( int i_199 = 0; i_199 < appCtx.compilerErrors.size(); i_199++) {
-      RangerCompilerMessage e_21 = appCtx.compilerErrors.get(i_199);
+    for ( int i_203 = 0; i_203 < appCtx.compilerErrors.size(); i_203++) {
+      RangerCompilerMessage e_21 = appCtx.compilerErrors.get(i_203);
       final int line_index_4 = e_21.node.get().getLine();
       System.out.println(String.valueOf( (e_21.node.get().getFilename() + " Line: ") + (1 + line_index_4) ) );
       System.out.println(String.valueOf( e_21.description ) );
@@ -140,8 +169,8 @@ class LiveCompiler {
       return;
     }
     System.out.println(String.valueOf( "LANGUAGE TEST ERRORS:" ) );
-    for ( int i_201 = 0; i_201 < appCtx.parserErrors.size(); i_201++) {
-      RangerCompilerMessage e_24 = appCtx.parserErrors.get(i_201);
+    for ( int i_205 = 0; i_205 < appCtx.parserErrors.size(); i_205++) {
+      RangerCompilerMessage e_24 = appCtx.parserErrors.get(i_205);
       final int line_index_7 = e_24.node.get().getLine();
       System.out.println(String.valueOf( (e_24.node.get().getFilename() + " Line: ") + (1 + line_index_7) ) );
       System.out.println(String.valueOf( e_24.description ) );

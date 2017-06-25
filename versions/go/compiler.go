@@ -228,6 +228,14 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
    return res 
 }
 
+
+func r_file_exists(pathName string, fileName string) bool {
+    if _, err := os.Stat(pathName + "/" + fileName); os.IsNotExist(err) {
+        return false
+    }
+    return true
+}
+
 type RangerAppTodo struct { 
   description string
   todonode *GoNullable
@@ -2715,6 +2723,7 @@ type RangerTypeClass struct {
   is_lambda bool /**  unused  **/ 
   nameNode *GoNullable /**  unused  **/ 
   templateParams *GoNullable /**  unused  **/ 
+  implements []*RangerTypeClass /**  unused  **/ 
 }
 type IFACE_RangerTypeClass interface { 
   Get_name() string
@@ -2743,6 +2752,8 @@ type IFACE_RangerTypeClass interface {
   Set_nameNode(value *GoNullable) 
   Get_templateParams() *GoNullable
   Set_templateParams(value *GoNullable) 
+  Get_implements() []*RangerTypeClass
+  Set_implements(value []*RangerTypeClass) 
 }
 
 func CreateNew_RangerTypeClass() *RangerTypeClass {
@@ -2755,6 +2766,7 @@ func CreateNew_RangerTypeClass() *RangerTypeClass {
   me.is_optional = false
   me.is_generic = false
   me.is_lambda = false
+  me.implements = make([]*RangerTypeClass,0)
   me.type_name = new(GoNullable);
   me.key_type = new(GoNullable);
   me.array_type = new(GoNullable);
@@ -2865,6 +2877,14 @@ func (this *RangerTypeClass) Get_templateParams() *GoNullable {
 // setter for variable templateParams
 func (this *RangerTypeClass) Set_templateParams( value *GoNullable)  {
   this.templateParams = value 
+}
+// getter for variable implements
+func (this *RangerTypeClass) Get_implements() []*RangerTypeClass {
+  return this.implements
+}
+// setter for variable implements
+func (this *RangerTypeClass) Set_implements( value []*RangerTypeClass)  {
+  this.implements = value 
 }
 type SourceCode struct { 
   code string
@@ -6456,53 +6476,53 @@ func (this *RangerLispParser) getOperator () int64 {
   var c_5 byte = s_11[this.i];
   var c2 byte = s_11[(this.i + 1)];
   switch (c_5 ) { 
-    case 42 : 
+    case []byte("*")[0] : 
       this.i = this.i + 1; 
       return 14;
-    case 47 : 
+    case []byte("/")[0] : 
       this.i = this.i + 1; 
       return 14;
-    case 43 : 
+    case []byte("+")[0] : 
       this.i = this.i + 1; 
       return 13;
-    case 45 : 
+    case []byte("-")[0] : 
       this.i = this.i + 1; 
       return 13;
-    case 60 : 
-      if  c2 == (61) {
+    case []byte("<")[0] : 
+      if  c2 == ([]byte("=")[0]) {
         this.i = this.i + 2; 
         return 11;
       }
       this.i = this.i + 1; 
       return 11;
-    case 62 : 
-      if  c2 == (61) {
+    case []byte(">")[0] : 
+      if  c2 == ([]byte("=")[0]) {
         this.i = this.i + 2; 
         return 11;
       }
       this.i = this.i + 1; 
       return 11;
-    case 33 : 
-      if  c2 == (61) {
+    case []byte("!")[0] : 
+      if  c2 == ([]byte("=")[0]) {
         this.i = this.i + 2; 
         return 10;
       }
       return 0;
-    case 61 : 
-      if  c2 == (61) {
+    case []byte("=")[0] : 
+      if  c2 == ([]byte("=")[0]) {
         this.i = this.i + 2; 
         return 10;
       }
       this.i = this.i + 1; 
       return 3;
-    case 38 : 
-      if  c2 == (38) {
+    case []byte("&")[0] : 
+      if  c2 == ([]byte("&")[0]) {
         this.i = this.i + 2; 
         return 6;
       }
       return 0;
-    case 124 : 
-      if  c2 == (124) {
+    case []byte("|")[0] : 
+      if  c2 == ([]byte("|")[0]) {
         this.i = this.i + 2; 
         return 5;
       }
@@ -6519,41 +6539,41 @@ func (this *RangerLispParser) isOperator () int64 {
   var c_7 byte = s_13[this.i];
   var c2_4 byte = s_13[(this.i + 1)];
   switch (c_7 ) { 
-    case 42 : 
+    case []byte("*")[0] : 
       return 1;
-    case 47 : 
+    case []byte("/")[0] : 
       return 14;
-    case 43 : 
+    case []byte("+")[0] : 
       return 13;
-    case 45 : 
+    case []byte("-")[0] : 
       return 13;
-    case 60 : 
-      if  c2_4 == (61) {
+    case []byte("<")[0] : 
+      if  c2_4 == ([]byte("=")[0]) {
         return 11;
       }
       return 11;
-    case 62 : 
-      if  c2_4 == (61) {
+    case []byte(">")[0] : 
+      if  c2_4 == ([]byte("=")[0]) {
         return 11;
       }
       return 11;
-    case 33 : 
-      if  c2_4 == (61) {
+    case []byte("!")[0] : 
+      if  c2_4 == ([]byte("=")[0]) {
         return 10;
       }
       return 0;
-    case 61 : 
-      if  c2_4 == (61) {
+    case []byte("=")[0] : 
+      if  c2_4 == ([]byte("=")[0]) {
         return 10;
       }
       return 3;
-    case 38 : 
-      if  c2_4 == (38) {
+    case []byte("&")[0] : 
+      if  c2_4 == ([]byte("&")[0]) {
         return 6;
       }
       return 0;
-    case 124 : 
-      if  c2_4 == (124) {
+    case []byte("|")[0] : 
+      if  c2_4 == ([]byte("|")[0]) {
         return 5;
       }
       return 0;
@@ -6664,7 +6684,7 @@ func (this *RangerLispParser) parse () () {
       }
       if  this.i < (this.len - 1) {
         fc_11 = s_15[(this.i + 1)]; 
-        if  (((c_9 == 40) || (c_9 == (123))) || ((c_9 == 39) && (fc_11 == 40))) || ((c_9 == 96) && (fc_11 == 40)) {
+        if  (((c_9 == 40) || (c_9 == ([]byte("{")[0]))) || ((c_9 == 39) && (fc_11 == 40))) || ((c_9 == 96) && (fc_11 == 40)) {
           this.paren_cnt = this.paren_cnt + 1; 
           if  !this.curr_node.has_value  {
             this.rootNode.value = CreateNew_CodeNode(this.code.value.(*SourceCode), this.i, this.i);
@@ -6693,7 +6713,7 @@ func (this *RangerLispParser) parse () () {
             this.curr_node.value = new_qnode;
             this.curr_node.has_value = true; /* detected as non-optional */
           }
-          if  c_9 == (123) {
+          if  c_9 == ([]byte("{")[0]) {
             this.curr_node.value.(*CodeNode).is_block_node = true; 
           }
           this.i = 1 + this.i; 
@@ -6709,8 +6729,8 @@ func (this *RangerLispParser) parse () () {
         sp_4 = this.i; 
         this.i = 1 + this.i; 
         c_9 = s_15[this.i]; 
-        for (this.i < this.len) && ((((c_9 >= 48) && (c_9 <= 57)) || (c_9 == (46))) || ((this.i == sp_4) && ((c_9 == (43)) || (c_9 == (45))))) {
-          if  c_9 == (46) {
+        for (this.i < this.len) && ((((c_9 >= 48) && (c_9 <= 57)) || (c_9 == ([]byte(".")[0]))) || ((this.i == sp_4) && ((c_9 == ([]byte("+")[0])) || (c_9 == ([]byte("-")[0]))))) {
+          if  c_9 == ([]byte(".")[0]) {
             is_double = true; 
           }
           this.i = 1 + this.i; 
@@ -6799,7 +6819,7 @@ func (this *RangerLispParser) parse () () {
           continue;
         }
       }
-      if  (((fc_11 == (116)) && ((s_15[(this.i + 1)]) == (114))) && ((s_15[(this.i + 2)]) == (117))) && ((s_15[(this.i + 3)]) == (101)) {
+      if  (((fc_11 == ([]byte("t")[0])) && ((s_15[(this.i + 1)]) == ([]byte("r")[0]))) && ((s_15[(this.i + 2)]) == ([]byte("u")[0]))) && ((s_15[(this.i + 3)]) == ([]byte("e")[0])) {
         var new_true_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, sp_4 + 4);
         new_true_node.value_type = 5; 
         new_true_node.boolean_value = true; 
@@ -6807,7 +6827,7 @@ func (this *RangerLispParser) parse () () {
         this.i = this.i + 4; 
         continue;
       }
-      if  ((((fc_11 == (102)) && ((s_15[(this.i + 1)]) == (97))) && ((s_15[(this.i + 2)]) == (108))) && ((s_15[(this.i + 3)]) == (115))) && ((s_15[(this.i + 4)]) == (101)) {
+      if  ((((fc_11 == ([]byte("f")[0])) && ((s_15[(this.i + 1)]) == ([]byte("a")[0]))) && ((s_15[(this.i + 2)]) == ([]byte("l")[0]))) && ((s_15[(this.i + 3)]) == ([]byte("s")[0]))) && ((s_15[(this.i + 4)]) == ([]byte("e")[0])) {
         var new_f_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, sp_4 + 5);
         new_f_node.value_type = 5; 
         new_f_node.boolean_value = false; 
@@ -6815,12 +6835,12 @@ func (this *RangerLispParser) parse () () {
         this.i = this.i + 5; 
         continue;
       }
-      if  fc_11 == (64) {
+      if  fc_11 == ([]byte("@")[0]) {
         this.i = this.i + 1; 
         sp_4 = this.i; 
         ep_4 = this.i; 
         c_9 = s_15[this.i]; 
-        for ((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125)) {
+        for ((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ([]byte("}")[0])) {
           this.i = 1 + this.i; 
           c_9 = s_15[this.i]; 
         }
@@ -6862,7 +6882,7 @@ func (this *RangerLispParser) parse () () {
       var vref_had_type_ann bool = false;
       var vref_ann_node *GoNullable = new(GoNullable); 
       var vref_end int64 = this.i;
-      if  (((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125)) {
+      if  (((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ([]byte("}")[0])) {
         if  this.curr_node.value.(*CodeNode).is_block_node == true {
           var new_expr_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, ep_4);
           new_expr_node.parent.value = this.curr_node.value;
@@ -6884,7 +6904,7 @@ func (this *RangerLispParser) parse () () {
       var last_was_newline bool = false;
       if  op_c > 0 {
       } else {
-        for (((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125)) {
+        for (((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ([]byte("}")[0])) {
           if  this.i > sp_4 {
             var is_opchar int64 = this.isOperator();
             if  is_opchar > 0 {
@@ -6897,12 +6917,12 @@ func (this *RangerLispParser) parse () () {
             last_was_newline = true; 
             break;
           }
-          if  c_9 == (46) {
+          if  c_9 == ([]byte(".")[0]) {
             ns_list = append(ns_list,fmt.Sprintf("%s", s_15[last_ns:this.i])); 
             last_ns = this.i + 1; 
             ns_cnt = 1 + ns_cnt; 
           }
-          if  (this.i > vref_end) && (c_9 == (64)) {
+          if  (this.i > vref_end) && (c_9 == ([]byte("@")[0])) {
             vref_had_type_ann = true; 
             vref_end = this.i; 
             vref_ann_node.value = this.parse_raw_annotation();
@@ -6936,7 +6956,7 @@ func (this *RangerLispParser) parse () () {
         var vt_sp int64 = this.i;
         var vt_ep int64 = this.i;
         c_9 = s_15[this.i]; 
-        if  c_9 == (40) {
+        if  c_9 == ([]byte("(")[0]) {
           var a_node3 *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, ep_4);
           a_node3.expression = true; 
           this.curr_node.value = a_node3;
@@ -6958,7 +6978,7 @@ func (this *RangerLispParser) parse () () {
           this.curr_node.value.(*CodeNode).children = append(this.curr_node.value.(*CodeNode).children,new_expr_node_10); 
           continue;
         }
-        if  c_9 == (91) {
+        if  c_9 == ([]byte("[")[0]) {
           this.i = this.i + 1; 
           vt_sp = this.i; 
           var hash_sep int64 = 0;
@@ -6967,10 +6987,10 @@ func (this *RangerLispParser) parse () () {
           for ((this.i < this.len) && (c_9 > 32)) && (c_9 != 93) {
             this.i = 1 + this.i; 
             c_9 = s_15[this.i]; 
-            if  c_9 == (58) {
+            if  c_9 == ([]byte(":")[0]) {
               hash_sep = this.i; 
             }
-            if  c_9 == (64) {
+            if  c_9 == ([]byte("@")[0]) {
               had_array_type_ann = true; 
               break;
             }
@@ -7031,10 +7051,10 @@ func (this *RangerLispParser) parse () () {
           }
         }
         var had_type_ann bool = false;
-        for ((((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) && (c_9 != (44)) {
+        for ((((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ([]byte("}")[0]))) && (c_9 != ([]byte(",")[0])) {
           this.i = 1 + this.i; 
           c_9 = s_15[this.i]; 
-          if  c_9 == (64) {
+          if  c_9 == ([]byte("@")[0]) {
             had_type_ann = true; 
             break;
           }
@@ -7102,7 +7122,7 @@ func (this *RangerLispParser) parse () () {
             new_vref_node.vref_annotation.has_value = vref_ann_node.has_value; 
             new_vref_node.has_vref_annotation = true; 
           }
-          if  ((s_15[(this.i + 1)]) == (40)) || ((s_15[(this.i + 0)]) == (40)) {
+          if  ((s_15[(this.i + 1)]) == ([]byte("(")[0])) || ((s_15[(this.i + 0)]) == ([]byte("(")[0])) {
             if  ((0 == op_pred) && this.curr_node.value.(*CodeNode).infix_operator) && (1 == (int64(len(this.curr_node.value.(*CodeNode).children)))) {
             }
           }
@@ -7218,8 +7238,8 @@ func (this *RangerLispParser) parse () () {
           continue;
         }
       }
-      if  (c_9 == 41) || (c_9 == (125)) {
-        if  ((c_9 == (125)) && is_block_parent) && ((int64(len(this.curr_node.value.(*CodeNode).children))) > 0) {
+      if  (c_9 == 41) || (c_9 == ([]byte("}")[0])) {
+        if  ((c_9 == ([]byte("}")[0])) && is_block_parent) && ((int64(len(this.curr_node.value.(*CodeNode).children))) > 0) {
           this.end_expression();
         }
         this.i = 1 + this.i; 
@@ -15487,7 +15507,7 @@ func (this *RangerRangerClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWr
 }
 func (this *RangerRangerClassWriter) WriteVRefWithOpt (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   wr.out(node.vref, false);
-  var flags []string = []string{"optional","weak","strong","temp","lives","returns","returnvalue"};
+  var flags []string = []string{"optional","weak","strong","temp","lives","returns"};
   var some_set bool = false;
   var i_172 int64 = 0;  
   for ; i_172 < int64(len(flags)) ; i_172++ {
@@ -15584,7 +15604,7 @@ func (this *RangerRangerClassWriter) writeNewCall (node *CodeNode, ctx *RangerAp
         arg_34 := constr_20.value.(*RangerAppFunctionDesc).params[i_177];
         var n_20 *CodeNode = givenArgs_14.children[i_177];
         if  i_177 > 0 {
-          wr.out(" ", false);
+          wr.out(", ", false);
         }
         if  true || (arg_34.Get_nameNode().has_value) {
           this.WalkNode(n_20, ctx, wr);
@@ -15875,9 +15895,9 @@ func CreateNew_LiveCompiler() *LiveCompiler {
   return me;
 }
 func LiveCompiler_static_displayCompilerErrors(appCtx *RangerAppWriterContext) () {
-  var i_199 int64 = 0;  
-  for ; i_199 < int64(len(appCtx.compilerErrors)) ; i_199++ {
-    e_21 := appCtx.compilerErrors[i_199];
+  var i_203 int64 = 0;  
+  for ; i_203 < int64(len(appCtx.compilerErrors)) ; i_203++ {
+    e_21 := appCtx.compilerErrors[i_203];
     var line_index_4 int64 = e_21.node.value.(*CodeNode).getLine();
     fmt.Println( strings.Join([]string{ (strings.Join([]string{ e_21.node.value.(*CodeNode).getFilename()," Line: " }, "")),strconv.FormatInt((1 + line_index_4), 10) }, "") )
     fmt.Println( e_21.description )
@@ -15890,9 +15910,9 @@ func LiveCompiler_static_displayParserErrors(appCtx *RangerAppWriterContext) () 
     return;
   }
   fmt.Println( "LANGUAGE TEST ERRORS:" )
-  var i_201 int64 = 0;  
-  for ; i_201 < int64(len(appCtx.parserErrors)) ; i_201++ {
-    e_24 := appCtx.parserErrors[i_201];
+  var i_205 int64 = 0;  
+  for ; i_205 < int64(len(appCtx.parserErrors)) ; i_205++ {
+    e_24 := appCtx.parserErrors[i_205];
     var line_index_7 int64 = e_24.node.value.(*CodeNode).getLine();
     fmt.Println( strings.Join([]string{ (strings.Join([]string{ e_24.node.value.(*CodeNode).getFilename()," Line: " }, "")),strconv.FormatInt((1 + line_index_7), 10) }, "") )
     fmt.Println( e_24.description )
@@ -16620,15 +16640,46 @@ func (this *LiveCompiler) Set_hasCreatedPolyfill( value map[string]bool)  {
   this.hasCreatedPolyfill = value 
 }
 func main() {
-  if  (int64( len( os.Args) - 1 )) < 4 {
-    fmt.Println( "usage <file> <language> <directory> <targetfile>" )
+  var allowed_languages []string = []string{"es6","go","scala","java7","swift3","php"};
+  if  (int64( len( os.Args) - 1 )) < 5 {
+    fmt.Println( "Ranger compiler, version 2.01" )
+    fmt.Println( "usage <file> <language-file> <language> <directory> <targetfile>" )
+    var s_21 string = "";
+    var i_194 int64 = 0;  
+    for ; i_194 < int64(len(allowed_languages)) ; i_194++ {
+      lang_2 := allowed_languages[i_194];
+      s_21 = strings.Join([]string{ (strings.Join([]string{ s_21," " }, "")),lang_2 }, ""); 
+    }
+    fmt.Println( strings.Join([]string{ "allowed languages: ",s_21 }, "") )
     return;
   }
   var the_file string = os.Args[0 + 1];
-  var the_lang string = os.Args[1 + 1];
-  var the_target_dir string = os.Args[2 + 1];
-  var the_target string = os.Args[3 + 1];
-  fmt.Println( strings.Join([]string{ "file name ",the_file }, "") )
+  var the_lang_file string = os.Args[1 + 1];
+  var the_lang string = os.Args[2 + 1];
+  var the_target_dir string = os.Args[3 + 1];
+  var the_target string = os.Args[4 + 1];
+  if  (r_indexof_arr_string(allowed_languages, the_lang)) < 0 {
+    fmt.Println( strings.Join([]string{ "Invalid language : ",the_lang }, "") )
+    var s_26 string = "";
+    var i_199 int64 = 0;  
+    for ; i_199 < int64(len(allowed_languages)) ; i_199++ {
+      lang_7 := allowed_languages[i_199];
+      s_26 = strings.Join([]string{ (strings.Join([]string{ s_26," " }, "")),lang_7 }, ""); 
+    }
+    fmt.Println( strings.Join([]string{ "allowed languages: ",s_26 }, "") )
+    return;
+  }
+  if  (r_file_exists(".", the_file)) == false {
+    fmt.Println( "Could not compile." )
+    fmt.Println( strings.Join([]string{ "File not found: ",the_file }, "") )
+    return;
+  }
+  if  (r_file_exists(".", the_lang_file)) == false {
+    fmt.Println( strings.Join([]string{ (strings.Join([]string{ "language file ",the_lang_file }, ""))," not found!" }, "") )
+    fmt.Println( "download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.clj" )
+    return;
+  }
+  fmt.Println( strings.Join([]string{ "File to be compiled: ",the_file }, "") )
   var c_13 *GoNullable = new(GoNullable); 
   c_13 = r_io_read_file(".", the_file);
   var code_3 *SourceCode = CreateNew_SourceCode(c_13.value.(string));
@@ -16643,21 +16694,20 @@ func main() {
     _start := time.Now()
     flowParser_2.mergeImports(node_2, appCtx_2, wr_13);
     var lang_str_2 *GoNullable = new(GoNullable); 
-    lang_str_2 = r_io_read_file(".", "Lang.clj");
+    lang_str_2 = r_io_read_file(".", the_lang_file);
     var lang_code_2 *SourceCode = CreateNew_SourceCode(lang_str_2.value.(string));
-    lang_code_2.filename = "Lang.clj"; 
+    lang_code_2.filename = the_lang_file; 
     var lang_parser_2 *RangerLispParser = CreateNew_RangerLispParser(lang_code_2);
     lang_parser_2.parse();
     appCtx_2.langOperators.value = lang_parser_2.rootNode.value.(*CodeNode);
     appCtx_2.langOperators.has_value = true; /* detected as non-optional */
-    fmt.Println( "===== collecting methods ==== ---->>>" )
+    fmt.Println( "1. Collecting available methods." )
     flowParser_2.CollectMethods(node_2, appCtx_2, wr_13);
     if  (int64(len(appCtx_2.compilerErrors))) > 0 {
       LiveCompiler_static_displayCompilerErrors(appCtx_2);
       return;
     }
-    fmt.Println( "----> collection done" )
-    fmt.Println( "===== starting flowParser ==== " )
+    fmt.Println( "2. Analyzing the code." )
     appCtx_2.targetLangName = the_lang; 
     flowParser_2.WalkNode(node_2, appCtx_2, wr_13);
     if  (int64(len(appCtx_2.compilerErrors))) > 0 {
@@ -16665,7 +16715,7 @@ func main() {
       LiveCompiler_static_displayParserErrors(appCtx_2);
       return;
     }
-    fmt.Println( "--- flow done --- " )
+    fmt.Println( "3. Compiling the source code." )
     var fileSystem *CodeFileSystem = CreateNew_CodeFileSystem();
     var file_5 *CodeFile = fileSystem.getFile(".", the_target);
     var wr_20 *GoNullable = new(GoNullable); 
@@ -16673,9 +16723,9 @@ func main() {
     var lcc_2 *LiveCompiler = CreateNew_LiveCompiler();
     var staticMethods *GoNullable = new(GoNullable); 
     var importFork_8 *CodeWriter = wr_20.value.(*CodeWriter).fork();
-    var i_194 int64 = 0;  
-    for ; i_194 < int64(len(appCtx_2.definedClassList)) ; i_194++ {
-      cName_2 := appCtx_2.definedClassList[i_194];
+    var i_202 int64 = 0;  
+    for ; i_202 < int64(len(appCtx_2.definedClassList)) ; i_202++ {
+      cName_2 := appCtx_2.definedClassList[i_202];
       if  cName_2 == "RangerStaticMethods" {
         staticMethods.value = r_get_string_RangerAppClassDesc(appCtx_2.definedClasses, cName_2).value;
         staticMethods.has_value = r_get_string_RangerAppClassDesc(appCtx_2.definedClasses, cName_2).has_value; 
@@ -16699,9 +16749,9 @@ func main() {
       importFork_8.out("import (", true);
       importFork_8.indent(1);
     }
-    var i_201 int64 = 0;  
-    for ; i_201 < int64(len(import_list_5)) ; i_201++ {
-      codeStr_5 := import_list_5[i_201];
+    var i_207 int64 = 0;  
+    for ; i_207 < int64(len(import_list_5)) ; i_207++ {
+      codeStr_5 := import_list_5[i_207];
       switch (appCtx_2.targetLangName ) { 
         case "go" : 
           if  (int64(codeStr_5[0])) == (int64(([]byte("_")[0]))) {

@@ -62,7 +62,7 @@ class RangerLispParser {
       return true;
     }
     char c_2 = s_8[i];
-    /** unused:  final boolean bb = c_2 == (46)   **/ ;
+    /** unused:  final boolean bb = c_2 == (((".".charAt(0))))   **/ ;
     while ((i < len) && (c_2 <= 32)) {
       if ( is_block_parent && ((c_2 == 10) || (c_2 == 13)) ) {
         this.end_expression();
@@ -109,53 +109,53 @@ class RangerLispParser {
     final char c_5 = s_11[i];
     final char c2 = s_11[(i + 1)];
     switch (c_5 ) { 
-      case 42 : 
+      case (("*".charAt(0))) : 
         i = i + 1;
         return 14;
-      case 47 : 
+      case (("/".charAt(0))) : 
         i = i + 1;
         return 14;
-      case 43 : 
+      case (("+".charAt(0))) : 
         i = i + 1;
         return 13;
-      case 45 : 
+      case (("-".charAt(0))) : 
         i = i + 1;
         return 13;
-      case 60 : 
-        if ( c2 == (61) ) {
+      case (("<".charAt(0))) : 
+        if ( c2 == ((("=".charAt(0)))) ) {
           i = i + 2;
           return 11;
         }
         i = i + 1;
         return 11;
-      case 62 : 
-        if ( c2 == (61) ) {
+      case ((">".charAt(0))) : 
+        if ( c2 == ((("=".charAt(0)))) ) {
           i = i + 2;
           return 11;
         }
         i = i + 1;
         return 11;
-      case 33 : 
-        if ( c2 == (61) ) {
+      case (("!".charAt(0))) : 
+        if ( c2 == ((("=".charAt(0)))) ) {
           i = i + 2;
           return 10;
         }
         return 0;
-      case 61 : 
-        if ( c2 == (61) ) {
+      case (("=".charAt(0))) : 
+        if ( c2 == ((("=".charAt(0)))) ) {
           i = i + 2;
           return 10;
         }
         i = i + 1;
         return 3;
-      case 38 : 
-        if ( c2 == (38) ) {
+      case (("&".charAt(0))) : 
+        if ( c2 == ((("&".charAt(0)))) ) {
           i = i + 2;
           return 6;
         }
         return 0;
-      case 124 : 
-        if ( c2 == (124) ) {
+      case (("|".charAt(0))) : 
+        if ( c2 == ((("|".charAt(0)))) ) {
           i = i + 2;
           return 5;
         }
@@ -174,41 +174,41 @@ class RangerLispParser {
     final char c_7 = s_13[i];
     final char c2_4 = s_13[(i + 1)];
     switch (c_7 ) { 
-      case 42 : 
+      case (("*".charAt(0))) : 
         return 1;
-      case 47 : 
+      case (("/".charAt(0))) : 
         return 14;
-      case 43 : 
+      case (("+".charAt(0))) : 
         return 13;
-      case 45 : 
+      case (("-".charAt(0))) : 
         return 13;
-      case 60 : 
-        if ( c2_4 == (61) ) {
+      case (("<".charAt(0))) : 
+        if ( c2_4 == ((("=".charAt(0)))) ) {
           return 11;
         }
         return 11;
-      case 62 : 
-        if ( c2_4 == (61) ) {
+      case ((">".charAt(0))) : 
+        if ( c2_4 == ((("=".charAt(0)))) ) {
           return 11;
         }
         return 11;
-      case 33 : 
-        if ( c2_4 == (61) ) {
+      case (("!".charAt(0))) : 
+        if ( c2_4 == ((("=".charAt(0)))) ) {
           return 10;
         }
         return 0;
-      case 61 : 
-        if ( c2_4 == (61) ) {
+      case (("=".charAt(0))) : 
+        if ( c2_4 == ((("=".charAt(0)))) ) {
           return 10;
         }
         return 3;
-      case 38 : 
-        if ( c2_4 == (38) ) {
+      case (("&".charAt(0))) : 
+        if ( c2_4 == ((("&".charAt(0)))) ) {
           return 6;
         }
         return 0;
-      case 124 : 
-        if ( c2_4 == (124) ) {
+      case (("|".charAt(0))) : 
+        if ( c2_4 == ((("|".charAt(0)))) ) {
           return 5;
         }
         return 0;
@@ -316,7 +316,7 @@ class RangerLispParser {
         }
         if ( i < (len - 1) ) {
           fc_11 = s_15[(i + 1)];
-          if ( (((c_9 == 40) || (c_9 == (123))) || ((c_9 == 39) && (fc_11 == 40))) || ((c_9 == 96) && (fc_11 == 40)) ) {
+          if ( (((c_9 == 40) || (c_9 == ((("{".charAt(0)))))) || ((c_9 == 39) && (fc_11 == 40))) || ((c_9 == 96) && (fc_11 == 40)) ) {
             paren_cnt = paren_cnt + 1;
             if ( !curr_node.isPresent() ) {
               rootNode = Optional.of(new CodeNode(code.get(), i, i));
@@ -342,7 +342,7 @@ class RangerLispParser {
               parents.add(new_qnode);
               curr_node = Optional.of(new_qnode);
             }
-            if ( c_9 == (123) ) {
+            if ( c_9 == ((("{".charAt(0)))) ) {
               curr_node.get().is_block_node = true;
             }
             i = 1 + i;
@@ -358,8 +358,8 @@ class RangerLispParser {
           sp_4 = i;
           i = 1 + i;
           c_9 = s_15[i];
-          while ((i < len) && ((((c_9 >= 48) && (c_9 <= 57)) || (c_9 == (46))) || ((i == sp_4) && ((c_9 == (43)) || (c_9 == (45)))))) {
-            if ( c_9 == (46) ) {
+          while ((i < len) && ((((c_9 >= 48) && (c_9 <= 57)) || (c_9 == (((".".charAt(0)))))) || ((i == sp_4) && ((c_9 == ((("+".charAt(0))))) || (c_9 == ((("-".charAt(0))))))))) {
+            if ( c_9 == (((".".charAt(0)))) ) {
               is_double = true;
             }
             i = 1 + i;
@@ -458,7 +458,7 @@ class RangerLispParser {
             continue;
           }
         }
-        if ( (((fc_11 == (116)) && ((s_15[(i + 1)]) == (114))) && ((s_15[(i + 2)]) == (117))) && ((s_15[(i + 3)]) == (101)) ) {
+        if ( (((fc_11 == ((("t".charAt(0))))) && ((s_15[(i + 1)]) == ((("r".charAt(0)))))) && ((s_15[(i + 2)]) == ((("u".charAt(0)))))) && ((s_15[(i + 3)]) == ((("e".charAt(0))))) ) {
           final CodeNode new_true_node = new CodeNode(code.get(), sp_4, sp_4 + 4);
           new_true_node.value_type = 5;
           new_true_node.boolean_value = true;
@@ -466,7 +466,7 @@ class RangerLispParser {
           i = i + 4;
           continue;
         }
-        if ( ((((fc_11 == (102)) && ((s_15[(i + 1)]) == (97))) && ((s_15[(i + 2)]) == (108))) && ((s_15[(i + 3)]) == (115))) && ((s_15[(i + 4)]) == (101)) ) {
+        if ( ((((fc_11 == ((("f".charAt(0))))) && ((s_15[(i + 1)]) == ((("a".charAt(0)))))) && ((s_15[(i + 2)]) == ((("l".charAt(0)))))) && ((s_15[(i + 3)]) == ((("s".charAt(0)))))) && ((s_15[(i + 4)]) == ((("e".charAt(0))))) ) {
           final CodeNode new_f_node = new CodeNode(code.get(), sp_4, sp_4 + 5);
           new_f_node.value_type = 5;
           new_f_node.boolean_value = false;
@@ -474,12 +474,12 @@ class RangerLispParser {
           i = i + 5;
           continue;
         }
-        if ( fc_11 == (64) ) {
+        if ( fc_11 == ((("@".charAt(0)))) ) {
           i = i + 1;
           sp_4 = i;
           ep_4 = i;
           c_9 = s_15[i];
-          while (((((i < len) && ((s_15[i]) > 32)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) {
+          while (((((i < len) && ((s_15[i]) > 32)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ((("}".charAt(0)))))) {
             i = 1 + i;
             c_9 = s_15[i];
           }
@@ -514,7 +514,7 @@ class RangerLispParser {
         boolean vref_had_type_ann = false;
         Optional<CodeNode> vref_ann_node = Optional.empty();
         int vref_end = i;
-        if ( (((((i < len) && ((s_15[i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125)) ) {
+        if ( (((((i < len) && ((s_15[i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ((("}".charAt(0))))) ) {
           if ( curr_node.get().is_block_node == true ) {
             final CodeNode new_expr_node = new CodeNode(code.get(), sp_4, ep_4);
             new_expr_node.parent = curr_node;
@@ -534,7 +534,7 @@ class RangerLispParser {
         boolean last_was_newline = false;
         if ( op_c > 0 ) {
         } else {
-          while ((((((i < len) && ((s_15[i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) {
+          while ((((((i < len) && ((s_15[i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ((("}".charAt(0)))))) {
             if ( i > sp_4 ) {
               final int is_opchar = this.isOperator();
               if ( is_opchar > 0 ) {
@@ -547,12 +547,12 @@ class RangerLispParser {
               last_was_newline = true;
               break;
             }
-            if ( c_9 == (46) ) {
+            if ( c_9 == (((".".charAt(0)))) ) {
               ns_list.add(new String(s_15,last_ns, i - last_ns ));
               last_ns = i + 1;
               ns_cnt = 1 + ns_cnt;
             }
-            if ( (i > vref_end) && (c_9 == (64)) ) {
+            if ( (i > vref_end) && (c_9 == ((("@".charAt(0))))) ) {
               vref_had_type_ann = true;
               vref_end = i;
               vref_ann_node = Optional.of(this.parse_raw_annotation());
@@ -585,7 +585,7 @@ class RangerLispParser {
           int vt_sp = i;
           int vt_ep = i;
           c_9 = s_15[i];
-          if ( c_9 == (40) ) {
+          if ( c_9 == ((("(".charAt(0)))) ) {
             final CodeNode a_node3 = new CodeNode(code.get(), sp_4, ep_4);
             a_node3.expression = true;
             curr_node = Optional.of(a_node3);
@@ -604,7 +604,7 @@ class RangerLispParser {
             curr_node.get().children.add(new_expr_node_10);
             continue;
           }
-          if ( c_9 == (91) ) {
+          if ( c_9 == ((("[".charAt(0)))) ) {
             i = i + 1;
             vt_sp = i;
             int hash_sep = 0;
@@ -613,10 +613,10 @@ class RangerLispParser {
             while (((i < len) && (c_9 > 32)) && (c_9 != 93)) {
               i = 1 + i;
               c_9 = s_15[i];
-              if ( c_9 == (58) ) {
+              if ( c_9 == (((":".charAt(0)))) ) {
                 hash_sep = i;
               }
-              if ( c_9 == (64) ) {
+              if ( c_9 == ((("@".charAt(0)))) ) {
                 had_array_type_ann = true;
                 break;
               }
@@ -671,10 +671,10 @@ class RangerLispParser {
             }
           }
           boolean had_type_ann = false;
-          while (((((((i < len) && ((s_15[i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) && (c_9 != (44))) {
+          while (((((((i < len) && ((s_15[i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ((("}".charAt(0)))))) && (c_9 != (((",".charAt(0)))))) {
             i = 1 + i;
             c_9 = s_15[i];
-            if ( c_9 == (64) ) {
+            if ( c_9 == ((("@".charAt(0)))) ) {
               had_type_ann = true;
               break;
             }
@@ -728,7 +728,7 @@ class RangerLispParser {
               new_vref_node.vref_annotation = vref_ann_node;
               new_vref_node.has_vref_annotation = true;
             }
-            if ( ((s_15[(i + 1)]) == (40)) || ((s_15[(i + 0)]) == (40)) ) {
+            if ( ((s_15[(i + 1)]) == ((("(".charAt(0))))) || ((s_15[(i + 0)]) == ((("(".charAt(0))))) ) {
               if ( ((0 == op_pred) && curr_node.get().infix_operator) && (1 == (curr_node.get().children.size())) ) {
               }
             }
@@ -808,8 +808,8 @@ class RangerLispParser {
             continue;
           }
         }
-        if ( (c_9 == 41) || (c_9 == (125)) ) {
-          if ( ((c_9 == (125)) && is_block_parent) && ((curr_node.get().children.size()) > 0) ) {
+        if ( (c_9 == 41) || (c_9 == ((("}".charAt(0))))) ) {
+          if ( ((c_9 == ((("}".charAt(0))))) && is_block_parent) && ((curr_node.get().children.size()) > 0) ) {
             this.end_expression();
           }
           i = 1 + i;

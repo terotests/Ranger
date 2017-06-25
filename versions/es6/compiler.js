@@ -556,6 +556,7 @@ class RangerTypeClass  {
     this.is_lambda = false;     /** note: unused */
     this.nameNode;     /** note: unused */
     this.templateParams;     /** note: unused */
+    this.implements = [];     /** note: unused */
   }
 }
 class SourceCode  {
@@ -2332,7 +2333,7 @@ class RangerLispParser  {
       return true;
     }
     var c_2 = s_8.charCodeAt(this.i )
-    /** unused:  var bb = c_2 == (46)   **/ 
+    /** unused:  var bb = c_2 == (".".charCodeAt(0))   **/ 
     while ((this.i < this.len) && (c_2 <= 32)) {
       if ( is_block_parent && ((c_2 == 10) || (c_2 == 13)) ) {
         this.end_expression();
@@ -2379,62 +2380,62 @@ class RangerLispParser  {
     var c_5 = s_11.charCodeAt(this.i )
     var c2 = s_11.charCodeAt((this.i + 1) )
     switch (c_5 ) { 
-      case 42 : 
+      case "*".charCodeAt(0) : 
         this.i = this.i + 1;
         return 14;
         break;
-      case 47 : 
+      case "/".charCodeAt(0) : 
         this.i = this.i + 1;
         return 14;
         break;
-      case 43 : 
+      case "+".charCodeAt(0) : 
         this.i = this.i + 1;
         return 13;
         break;
-      case 45 : 
+      case "-".charCodeAt(0) : 
         this.i = this.i + 1;
         return 13;
         break;
-      case 60 : 
-        if ( c2 == (61) ) {
+      case "<".charCodeAt(0) : 
+        if ( c2 == ("=".charCodeAt(0)) ) {
           this.i = this.i + 2;
           return 11;
         }
         this.i = this.i + 1;
         return 11;
         break;
-      case 62 : 
-        if ( c2 == (61) ) {
+      case ">".charCodeAt(0) : 
+        if ( c2 == ("=".charCodeAt(0)) ) {
           this.i = this.i + 2;
           return 11;
         }
         this.i = this.i + 1;
         return 11;
         break;
-      case 33 : 
-        if ( c2 == (61) ) {
+      case "!".charCodeAt(0) : 
+        if ( c2 == ("=".charCodeAt(0)) ) {
           this.i = this.i + 2;
           return 10;
         }
         return 0;
         break;
-      case 61 : 
-        if ( c2 == (61) ) {
+      case "=".charCodeAt(0) : 
+        if ( c2 == ("=".charCodeAt(0)) ) {
           this.i = this.i + 2;
           return 10;
         }
         this.i = this.i + 1;
         return 3;
         break;
-      case 38 : 
-        if ( c2 == (38) ) {
+      case "&".charCodeAt(0) : 
+        if ( c2 == ("&".charCodeAt(0)) ) {
           this.i = this.i + 2;
           return 6;
         }
         return 0;
         break;
-      case 124 : 
-        if ( c2 == (124) ) {
+      case "|".charCodeAt(0) : 
+        if ( c2 == ("|".charCodeAt(0)) ) {
           this.i = this.i + 2;
           return 5;
         }
@@ -2454,50 +2455,50 @@ class RangerLispParser  {
     var c_7 = s_13.charCodeAt(this.i )
     var c2_4 = s_13.charCodeAt((this.i + 1) )
     switch (c_7 ) { 
-      case 42 : 
+      case "*".charCodeAt(0) : 
         return 1;
         break;
-      case 47 : 
+      case "/".charCodeAt(0) : 
         return 14;
         break;
-      case 43 : 
+      case "+".charCodeAt(0) : 
         return 13;
         break;
-      case 45 : 
+      case "-".charCodeAt(0) : 
         return 13;
         break;
-      case 60 : 
-        if ( c2_4 == (61) ) {
+      case "<".charCodeAt(0) : 
+        if ( c2_4 == ("=".charCodeAt(0)) ) {
           return 11;
         }
         return 11;
         break;
-      case 62 : 
-        if ( c2_4 == (61) ) {
+      case ">".charCodeAt(0) : 
+        if ( c2_4 == ("=".charCodeAt(0)) ) {
           return 11;
         }
         return 11;
         break;
-      case 33 : 
-        if ( c2_4 == (61) ) {
+      case "!".charCodeAt(0) : 
+        if ( c2_4 == ("=".charCodeAt(0)) ) {
           return 10;
         }
         return 0;
         break;
-      case 61 : 
-        if ( c2_4 == (61) ) {
+      case "=".charCodeAt(0) : 
+        if ( c2_4 == ("=".charCodeAt(0)) ) {
           return 10;
         }
         return 3;
         break;
-      case 38 : 
-        if ( c2_4 == (38) ) {
+      case "&".charCodeAt(0) : 
+        if ( c2_4 == ("&".charCodeAt(0)) ) {
           return 6;
         }
         return 0;
         break;
-      case 124 : 
-        if ( c2_4 == (124) ) {
+      case "|".charCodeAt(0) : 
+        if ( c2_4 == ("|".charCodeAt(0)) ) {
           return 5;
         }
         return 0;
@@ -2619,7 +2620,7 @@ class RangerLispParser  {
         }
         if ( this.i < (this.len - 1) ) {
           fc_11 = s_15.charCodeAt((this.i + 1) );
-          if ( (((c_9 == 40) || (c_9 == (123))) || ((c_9 == 39) && (fc_11 == 40))) || ((c_9 == 96) && (fc_11 == 40)) ) {
+          if ( (((c_9 == 40) || (c_9 == ("{".charCodeAt(0)))) || ((c_9 == 39) && (fc_11 == 40))) || ((c_9 == 96) && (fc_11 == 40)) ) {
             this.paren_cnt = this.paren_cnt + 1;
             if ( typeof(this.curr_node) === "undefined" ) {
               this.rootNode = new CodeNode(this.code, this.i, this.i);
@@ -2645,7 +2646,7 @@ class RangerLispParser  {
               this.parents.push(new_qnode);
               this.curr_node = new_qnode;
             }
-            if ( c_9 == (123) ) {
+            if ( c_9 == ("{".charCodeAt(0)) ) {
               this.curr_node.is_block_node = true;
             }
             this.i = 1 + this.i;
@@ -2661,8 +2662,8 @@ class RangerLispParser  {
           sp_4 = this.i;
           this.i = 1 + this.i;
           c_9 = s_15.charCodeAt(this.i );
-          while ((this.i < this.len) && ((((c_9 >= 48) && (c_9 <= 57)) || (c_9 == (46))) || ((this.i == sp_4) && ((c_9 == (43)) || (c_9 == (45)))))) {
-            if ( c_9 == (46) ) {
+          while ((this.i < this.len) && ((((c_9 >= 48) && (c_9 <= 57)) || (c_9 == (".".charCodeAt(0)))) || ((this.i == sp_4) && ((c_9 == ("+".charCodeAt(0))) || (c_9 == ("-".charCodeAt(0))))))) {
+            if ( c_9 == (".".charCodeAt(0)) ) {
               is_double = true;
             }
             this.i = 1 + this.i;
@@ -2761,7 +2762,7 @@ class RangerLispParser  {
             continue;
           }
         }
-        if ( (((fc_11 == (116)) && ((s_15.charCodeAt((this.i + 1) )) == (114))) && ((s_15.charCodeAt((this.i + 2) )) == (117))) && ((s_15.charCodeAt((this.i + 3) )) == (101)) ) {
+        if ( (((fc_11 == ("t".charCodeAt(0))) && ((s_15.charCodeAt((this.i + 1) )) == ("r".charCodeAt(0)))) && ((s_15.charCodeAt((this.i + 2) )) == ("u".charCodeAt(0)))) && ((s_15.charCodeAt((this.i + 3) )) == ("e".charCodeAt(0))) ) {
           var new_true_node = new CodeNode(this.code, sp_4, sp_4 + 4)
           new_true_node.value_type = 5;
           new_true_node.boolean_value = true;
@@ -2769,7 +2770,7 @@ class RangerLispParser  {
           this.i = this.i + 4;
           continue;
         }
-        if ( ((((fc_11 == (102)) && ((s_15.charCodeAt((this.i + 1) )) == (97))) && ((s_15.charCodeAt((this.i + 2) )) == (108))) && ((s_15.charCodeAt((this.i + 3) )) == (115))) && ((s_15.charCodeAt((this.i + 4) )) == (101)) ) {
+        if ( ((((fc_11 == ("f".charCodeAt(0))) && ((s_15.charCodeAt((this.i + 1) )) == ("a".charCodeAt(0)))) && ((s_15.charCodeAt((this.i + 2) )) == ("l".charCodeAt(0)))) && ((s_15.charCodeAt((this.i + 3) )) == ("s".charCodeAt(0)))) && ((s_15.charCodeAt((this.i + 4) )) == ("e".charCodeAt(0))) ) {
           var new_f_node = new CodeNode(this.code, sp_4, sp_4 + 5)
           new_f_node.value_type = 5;
           new_f_node.boolean_value = false;
@@ -2777,12 +2778,12 @@ class RangerLispParser  {
           this.i = this.i + 5;
           continue;
         }
-        if ( fc_11 == (64) ) {
+        if ( fc_11 == ("@".charCodeAt(0)) ) {
           this.i = this.i + 1;
           sp_4 = this.i;
           ep_4 = this.i;
           c_9 = s_15.charCodeAt(this.i );
-          while (((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) {
+          while (((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ("}".charCodeAt(0)))) {
             this.i = 1 + this.i;
             c_9 = s_15.charCodeAt(this.i );
           }
@@ -2817,7 +2818,7 @@ class RangerLispParser  {
         var vref_had_type_ann = false
         var vref_ann_node
         var vref_end = this.i
-        if ( (((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125)) ) {
+        if ( (((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ("}".charCodeAt(0))) ) {
           if ( this.curr_node.is_block_node == true ) {
             var new_expr_node = new CodeNode(this.code, sp_4, ep_4)
             new_expr_node.parent = this.curr_node;
@@ -2837,7 +2838,7 @@ class RangerLispParser  {
         var last_was_newline = false
         if ( op_c > 0 ) {
         } else {
-          while ((((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) {
+          while ((((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ("}".charCodeAt(0)))) {
             if ( this.i > sp_4 ) {
               var is_opchar = this.isOperator()
               if ( is_opchar > 0 ) {
@@ -2850,12 +2851,12 @@ class RangerLispParser  {
               last_was_newline = true;
               break;
             }
-            if ( c_9 == (46) ) {
+            if ( c_9 == (".".charCodeAt(0)) ) {
               ns_list.push(s_15.substring(last_ns, this.i ));
               last_ns = this.i + 1;
               ns_cnt = 1 + ns_cnt;
             }
-            if ( (this.i > vref_end) && (c_9 == (64)) ) {
+            if ( (this.i > vref_end) && (c_9 == ("@".charCodeAt(0))) ) {
               vref_had_type_ann = true;
               vref_end = this.i;
               vref_ann_node = this.parse_raw_annotation();
@@ -2888,7 +2889,7 @@ class RangerLispParser  {
           var vt_sp = this.i
           var vt_ep = this.i
           c_9 = s_15.charCodeAt(this.i );
-          if ( c_9 == (40) ) {
+          if ( c_9 == ("(".charCodeAt(0)) ) {
             var a_node3 = new CodeNode(this.code, sp_4, ep_4)
             a_node3.expression = true;
             this.curr_node = a_node3;
@@ -2907,7 +2908,7 @@ class RangerLispParser  {
             this.curr_node.children.push(new_expr_node_10);
             continue;
           }
-          if ( c_9 == (91) ) {
+          if ( c_9 == ("[".charCodeAt(0)) ) {
             this.i = this.i + 1;
             vt_sp = this.i;
             var hash_sep = 0
@@ -2916,10 +2917,10 @@ class RangerLispParser  {
             while (((this.i < this.len) && (c_9 > 32)) && (c_9 != 93)) {
               this.i = 1 + this.i;
               c_9 = s_15.charCodeAt(this.i );
-              if ( c_9 == (58) ) {
+              if ( c_9 == (":".charCodeAt(0)) ) {
                 hash_sep = this.i;
               }
-              if ( c_9 == (64) ) {
+              if ( c_9 == ("@".charCodeAt(0)) ) {
                 had_array_type_ann = true;
                 break;
               }
@@ -2974,10 +2975,10 @@ class RangerLispParser  {
             }
           }
           var had_type_ann = false
-          while (((((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) && (c_9 != (44))) {
+          while (((((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ("}".charCodeAt(0)))) && (c_9 != (",".charCodeAt(0)))) {
             this.i = 1 + this.i;
             c_9 = s_15.charCodeAt(this.i );
-            if ( c_9 == (64) ) {
+            if ( c_9 == ("@".charCodeAt(0)) ) {
               had_type_ann = true;
               break;
             }
@@ -3031,7 +3032,7 @@ class RangerLispParser  {
               new_vref_node.vref_annotation = vref_ann_node;
               new_vref_node.has_vref_annotation = true;
             }
-            if ( ((s_15.charCodeAt((this.i + 1) )) == (40)) || ((s_15.charCodeAt((this.i + 0) )) == (40)) ) {
+            if ( ((s_15.charCodeAt((this.i + 1) )) == ("(".charCodeAt(0))) || ((s_15.charCodeAt((this.i + 0) )) == ("(".charCodeAt(0))) ) {
               if ( ((0 == op_pred) && this.curr_node.infix_operator) && (1 == (this.curr_node.children.length)) ) {
               }
             }
@@ -3111,8 +3112,8 @@ class RangerLispParser  {
             continue;
           }
         }
-        if ( (c_9 == 41) || (c_9 == (125)) ) {
-          if ( ((c_9 == (125)) && is_block_parent) && ((this.curr_node.children.length) > 0) ) {
+        if ( (c_9 == 41) || (c_9 == ("}".charCodeAt(0))) ) {
+          if ( ((c_9 == ("}".charCodeAt(0))) && is_block_parent) && ((this.curr_node.children.length) > 0) ) {
             this.end_expression();
           }
           this.i = 1 + this.i;
@@ -9506,7 +9507,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
   
   WriteVRefWithOpt(node ,ctx ,wr ) {
     wr.out(node.vref, false);
-    var flags = ["optional","weak","strong","temp","lives","returns","returnvalue"]
+    var flags = ["optional","weak","strong","temp","lives","returns"]
     var some_set = false
     for ( var i_172 = 0; i_172 < flags.length; i_172++) {
       var flag_2 = flags[i_172];
@@ -9596,7 +9597,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
           var arg_34 = constr_20.params[i_177];
           var n_20 = givenArgs_14.children[i_177]
           if ( i_177 > 0 ) {
-            wr.out(" ", false);
+            wr.out(", ", false);
           }
           if ( true || (typeof(arg_34.nameNode) !== "undefined") ) {
             this.WalkNode(n_20, ctx, wr);
@@ -10445,8 +10446,8 @@ class LiveCompiler  {
 
 
 LiveCompiler.displayCompilerErrors = function(appCtx ) {
-  for ( var i_199 = 0; i_199 < appCtx.compilerErrors.length; i_199++) {
-    var e_21 = appCtx.compilerErrors[i_199];
+  for ( var i_203 = 0; i_203 < appCtx.compilerErrors.length; i_203++) {
+    var e_21 = appCtx.compilerErrors[i_203];
     var line_index_4 = e_21.node.getLine()
     console.log((e_21.node.getFilename() + " Line: ") + (1 + line_index_4))
     console.log(e_21.description)
@@ -10460,8 +10461,8 @@ LiveCompiler.displayParserErrors = function(appCtx ) {
     return;
   }
   console.log("LANGUAGE TEST ERRORS:")
-  for ( var i_201 = 0; i_201 < appCtx.parserErrors.length; i_201++) {
-    var e_24 = appCtx.parserErrors[i_201];
+  for ( var i_205 = 0; i_205 < appCtx.parserErrors.length; i_205++) {
+    var e_24 = appCtx.parserErrors[i_205];
     var line_index_7 = e_24.node.getLine()
     console.log((e_24.node.getFilename() + " Line: ") + (1 + line_index_7))
     console.log(e_24.description)
@@ -10470,15 +10471,44 @@ LiveCompiler.displayParserErrors = function(appCtx ) {
 }
 
 /* static JavaSript main routine */
-if ( ((process.argv.length - 2 - process.execArgv.length)) < 4 ) {
-  console.log("usage <file> <language> <directory> <targetfile>")
+var allowed_languages = ["es6","go","scala","java7","swift3","php"]
+if ( ((process.argv.length - 2 - process.execArgv.length)) < 5 ) {
+  console.log("Ranger compiler, version 2.01")
+  console.log("usage <file> <language-file> <language> <directory> <targetfile>")
+  var s_21 = ""
+  for ( var i_194 = 0; i_194 < allowed_languages.length; i_194++) {
+    var lang_2 = allowed_languages[i_194];
+    s_21 = (s_21 + " ") + lang_2;
+  }
+  console.log("allowed languages: " + s_21)
   return;
 }
 var the_file = process.argv[ 2 + process.execArgv.length + 0]
-var the_lang = process.argv[ 2 + process.execArgv.length + 1]
-var the_target_dir = process.argv[ 2 + process.execArgv.length + 2]
-var the_target = process.argv[ 2 + process.execArgv.length + 3]
-console.log("file name " + the_file)
+var the_lang_file = process.argv[ 2 + process.execArgv.length + 1]
+var the_lang = process.argv[ 2 + process.execArgv.length + 2]
+var the_target_dir = process.argv[ 2 + process.execArgv.length + 3]
+var the_target = process.argv[ 2 + process.execArgv.length + 4]
+if ( (allowed_languages.indexOf(the_lang)) < 0 ) {
+  console.log("Invalid language : " + the_lang)
+  var s_26 = ""
+  for ( var i_199 = 0; i_199 < allowed_languages.length; i_199++) {
+    var lang_7 = allowed_languages[i_199];
+    s_26 = (s_26 + " ") + lang_7;
+  }
+  console.log("allowed languages: " + s_26)
+  return;
+}
+if ( (require("fs").existsSync(process.cwd() + "/" + "." + "/" + the_file )) == false ) {
+  console.log("Could not compile.")
+  console.log("File not found: " + the_file)
+  return;
+}
+if ( (require("fs").existsSync(process.cwd() + "/" + "." + "/" + the_lang_file )) == false ) {
+  console.log(("language file " + the_lang_file) + " not found!")
+  console.log("download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.clj")
+  return;
+}
+console.log("File to be compiled: " + the_file)
 var c_13 = (require('fs').readFileSync( process.cwd() + '/' + "." + '/' + the_file , 'utf8'))
 var code_3 = new SourceCode(c_13)
 code_3.filename = the_file;
@@ -10490,20 +10520,19 @@ var appCtx_2 = new RangerAppWriterContext()
 var wr_13 = new CodeWriter()
 console.time("Total time");
 flowParser_2.mergeImports(node_2, appCtx_2, wr_13);
-var lang_str_2 = (require('fs').readFileSync( process.cwd() + '/' + "." + '/' + "Lang.clj" , 'utf8'))
+var lang_str_2 = (require('fs').readFileSync( process.cwd() + '/' + "." + '/' + the_lang_file , 'utf8'))
 var lang_code_2 = new SourceCode(lang_str_2)
-lang_code_2.filename = "Lang.clj";
+lang_code_2.filename = the_lang_file;
 var lang_parser_2 = new RangerLispParser(lang_code_2)
 lang_parser_2.parse();
 appCtx_2.langOperators = lang_parser_2.rootNode;
-console.log("===== collecting methods ==== ---->>>")
+console.log("1. Collecting available methods.")
 flowParser_2.CollectMethods(node_2, appCtx_2, wr_13);
 if ( (appCtx_2.compilerErrors.length) > 0 ) {
   LiveCompiler.displayCompilerErrors(appCtx_2);
   return;
 }
-console.log("----> collection done")
-console.log("===== starting flowParser ==== ")
+console.log("2. Analyzing the code.")
 appCtx_2.targetLangName = the_lang;
 flowParser_2.WalkNode(node_2, appCtx_2, wr_13);
 if ( (appCtx_2.compilerErrors.length) > 0 ) {
@@ -10511,15 +10540,15 @@ if ( (appCtx_2.compilerErrors.length) > 0 ) {
   LiveCompiler.displayParserErrors(appCtx_2);
   return;
 }
-console.log("--- flow done --- ")
+console.log("3. Compiling the source code.")
 var fileSystem = new CodeFileSystem()
 var file_5 = fileSystem.getFile(".", the_target)
 var wr_20 = file_5.getWriter()
 var lcc_2 = new LiveCompiler()
 var staticMethods
 var importFork_8 = wr_20.fork()
-for ( var i_194 = 0; i_194 < appCtx_2.definedClassList.length; i_194++) {
-  var cName_2 = appCtx_2.definedClassList[i_194];
+for ( var i_202 = 0; i_202 < appCtx_2.definedClassList.length; i_202++) {
+  var cName_2 = appCtx_2.definedClassList[i_202];
   if ( cName_2 == "RangerStaticMethods" ) {
     staticMethods = appCtx_2.definedClasses[cName_2];
     continue;
@@ -10541,8 +10570,8 @@ if ( appCtx_2.targetLangName == "go" ) {
   importFork_8.out("import (", true);
   importFork_8.indent(1);
 }
-for ( var i_201 = 0; i_201 < import_list_5.length; i_201++) {
-  var codeStr_5 = import_list_5[i_201];
+for ( var i_207 = 0; i_207 < import_list_5.length; i_207++) {
+  var codeStr_5 = import_list_5[i_207];
   switch (appCtx_2.targetLangName ) { 
     case "go" : 
       if ( (codeStr_5.charCodeAt(0 )) == (("_".charCodeAt(0))) ) {

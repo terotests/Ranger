@@ -55,7 +55,7 @@ class RangerRangerClassWriter extends RangerGenericClassWriter {
   
   public void WriteVRefWithOpt( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
     wr.out(node.vref, false);
-    final ArrayList<String> flags = new ArrayList<String>(Arrays.asList("optional","weak","strong","temp","lives","returns","returnvalue")) ;
+    final ArrayList<String> flags = new ArrayList<String>(Arrays.asList("optional","weak","strong","temp","lives","returns")) ;
     boolean some_set = false;
     for ( int i_172 = 0; i_172 < flags.size(); i_172++) {
       String flag_2 = flags.get(i_172);
@@ -145,7 +145,7 @@ class RangerRangerClassWriter extends RangerGenericClassWriter {
           RangerAppParamDesc arg_34 = constr_20.get().params.get(i_177);
           final CodeNode n_20 = givenArgs_14.children.get(i_177);
           if ( i_177 > 0 ) {
-            wr.out(" ", false);
+            wr.out(", ", false);
           }
           if ( true || (arg_34.nameNode.isPresent()) ) {
             this.WalkNode(n_20, ctx, wr);
