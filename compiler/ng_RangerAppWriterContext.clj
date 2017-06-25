@@ -30,7 +30,6 @@ class RangerAppWriterContext {
   def stdCommands:CodeNode 
   def intRootCounter:int 1
   def targetLangName:string ""
-  def ctx:RangerContext
   def parent:RangerAppWriterContext
   def defined_imports:[string]
   def already_imported:[string:boolean]

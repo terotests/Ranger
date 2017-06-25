@@ -87,7 +87,7 @@ language {
             templates {
                 es6 ("require(\"fs\").existsSync(process.cwd() + \"/\" + " (e 1) " + \"/\" + " (e 2) " )")
                 ranger ("( file_exists " (e 1) " + \"/\" + " (e 2) "  )")
-                java7 ( "new File(" (e 1) " + '/' + " (e 2) ").exists()" (imp "java.io.file") )
+                java7 ( "new File(" (e 1) " + '/' + " (e 2) ").exists()" (imp "java.io.File") )
                 php ( "file_exists(" (e 1) ".'/'." (e 2) ")" )
                 go ( "r_file_exists(" (e 1) ", " (e 2) ")"
 (create_polyfill
@@ -534,8 +534,17 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
         /               cmdDivOp:double         ( left:int right:int ) { templates { * ( (e 1) " / " (e 2) ) } }
 
         ?               cmdTernary:T         ( condition:boolean  left:T right:T ) { 
-            templates { * ( (e 1) " ? " (e 2) " : " (e 3) ) } 
+            templates { 
+                go ( "(func() " (typeof 2) " { if " (e 1) " { return " (e 2) " } else { return " (e 3) "} }())" )  
+                * ( (e 1) " ? " (e 2) " : " (e 3) ) 
+            } 
         }
+
+        ??               cmdNullCoalesce:T         ( left@(optional):T right:T ) { 
+            templates { 
+                * @macro(true) ( "(? (!null? " (e 1) ") (unwrap " (e 1) ") " (e 2) ")" ) 
+            } 
+        }        
 
         =               cmdAssign:void          ( target:vref expr:expression ) {
             templates {
@@ -1165,7 +1174,23 @@ func r_str_2_i64(s string) *GoNullable {
         join             cmdJoin:string          ( array:[string] delimiter:string ) { 
             templates {      
                 ranger ( "(join " (e 1) " " (e 2) ")")          
-                java7 ( "StringUtils.join(" (e 1 ) ", " (e 2) ")" (imp "org.apache.commons.lang.StringUtils"))
+                java7 ( "joinStrings(" (e 1 ) ", " (e 2) ")" 
+                    (imp "java.lang.StringBuilder")
+(create_polyfill "
+static String joinStrings(ArrayList<String> list, String delimiter) 
+{
+    StringBuilder b = new StringBuilder();
+    for(int i=0; i < list.size() ; i++) {
+        if( i > 0 ) {
+            b.append(delimiter);
+        }
+        b.append(list.get(i));
+    }
+    return b.toString();
+}    
+    ")                               
+                
+                )
                 scala ( (e 1) ".mkString(" (e 2) ")" )
                 * ( (e 1) ".join(" (e 2) ")" )
             }            
