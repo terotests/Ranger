@@ -8,6 +8,31 @@ class RangerCppClassWriter {
     }
     return tn
   }
+
+  ; std::string
+
+  fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    switch node.value_type {
+      case RangerNodeType.Double {
+        wr.out(("" + node.double_value) , false)
+      }
+      case RangerNodeType.String {
+        def s:string (this.EncodeString(node ctx wr))
+        wr.out( "std::string(" + (("\"" + s) + "\"") + ")" , false)
+      }
+      case RangerNodeType.Integer {
+        wr.out(("" + node.int_value) , false)
+      }
+      case RangerNodeType.Boolean {
+        if node.boolean_value {
+          wr.out("true" false)
+        } {
+          wr.out("false" false)
+        }
+      }
+    }
+  }  
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
       case "char" {
@@ -338,7 +363,9 @@ class RangerCppClassWriter {
           if (i > 0) {
             wr.out(", " false)
           }
-          this.WalkNode(n ctx wr)
+          if ( true || (!null? arg.nameNode) ) {
+            this.WalkNode(n ctx wr)
+          }
         }
       }
       wr.out(")" false)

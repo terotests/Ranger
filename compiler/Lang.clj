@@ -503,6 +503,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatFloat(" (e 2) ",'f', 6, 64) }, \"\")" (imp "strings") (imp "strconv"))
                     rust ( "[" (e 1) " , (" (e 2)".to_string()) ].join(\"\")" )
                     swift3 ( (e 1) " + String(" (e 2)")" )
+                    cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
                     * ( (e 1) " + " (e 2) ) 
                 } 
@@ -514,6 +515,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatInt(" (e 2) ", 10) }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     rust ( "[" (e 1) " , (" (e 2)".to_string()) ].join(\"\")" )
+                    cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
                     * ( (e 1) " + " (e 2) ) 
                 } 
@@ -761,7 +763,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         while           cmdWhile:void          ( condition:boolean whileLoop:block )  {
             templates {
-                go ( "for " (e 1) " {" I (block 2) i "}" )
+                go ( "for " (e 1) " {" I nl (block 2) nl i "}" )
                 scala ( 
                     (forkctx _ ) (def 2) (def 3) 
                     "try {" nl I
@@ -780,7 +782,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     i nl "} " nl
                     (imp "scala.util.control._")
                 )                 
-                * ( "while (" (e 1) ") {" I (block 2) i "}" )
+                * ( "while (" (e 1) ") {" nl I (block 2) i nl "}" )
             }
         }
 
@@ -855,7 +857,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 swift3 ( (forkctx _ ) (def 2) (def 3) nl "for ( " (swift_rc 3) " , " (e 2) " ) in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
 
-                rust ( (forkctx _ ) (def 2) (def 3) "for (" (e 3) ", " (e 2) " ) in " (e 1) ".enumerate() {" nl I (block 4) nl i "}" )
+                rust ( (forkctx _ ) (def 2) (def 3) "for (" (e 3) ", " (e 2) " ) in " (e 1) ".enumerate() {" nl I (block 4) nl i "}" )              
 
                 go    (  (def 2) (def 3) "var " (e 3) " int64 = 0;  " nl "for ; " (e 3) " < int64(len(" (e 1) ")) ; " (e 3) "++ {" nl I nl (e 2) " := " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
 
@@ -1201,6 +1203,7 @@ static String joinStrings(ArrayList<String> list, String delimiter)
     ")                               
                 
                 )
+                go ( "strings.Join(" (e 1) ", " (e 2) ")")
                 scala ( (e 1) ".mkString(" (e 2) ")" )
                 * ( (e 1) ".join(" (e 2) ")" )
             }            
