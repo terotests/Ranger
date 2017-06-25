@@ -31,6 +31,9 @@ class LiveCompiler {
       case "php" {
         langWriter = (new RangerPHPClassWriter ())
       }
+      case "cpp" {
+        langWriter = (new RangerCppClassWriter())
+      }
       case "csharp" {
         langWriter = (new RangerCSharpClassWriter ())
       }

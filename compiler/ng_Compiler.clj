@@ -5,10 +5,10 @@ class CompilerInterface {
 
   sfn hello@(main):void () {
 
-    def allowed_languages:[string] ([] _:string ("es6" "go" "scala" "java7" "swift3" "php" "ranger" ))
+    def allowed_languages:[string] ([] _:string ("es6" "go" "scala" "java7" "swift3" "cpp" "php" "ranger" ))
 
     if ( (shell_arg_cnt) < 5  ) {
-      print "Ranger compiler, version 2.04"
+      print "Ranger compiler, version 2.05"
       print "usage <file> <language-file> <language> <directory> <targetfile>"
       print "allowed languages: " + (join allowed_languages " ")
       return 
@@ -135,6 +135,9 @@ class CompilerInterface {
           }
           case "rust" {
             importFork.out (( "use " + codeStr + ";") , true)
+          }
+          case "cpp" {
+            importFork.out (( "#include  " + codeStr + "") , true)
           }
           default {
             importFork.out (("import "  + codeStr + "") , true)

@@ -41,6 +41,12 @@ language {
                     nl "System.out.println( " (e 1) "+ String.valueOf((double)elapsedTime / 1000000000.0));" nl 
                 )
                 ranger ( nl "timer " (e 1) " {" nl I (block 2) i nl "}" nl)
+                cpp ( ( imp "<ctime>" )
+                    nl "std::clock_t __begin = std::clock();" nl
+                    (block 2)
+                    nl "std::clock_t __end = std::clock();"       
+                    nl "std::cout << " (e 1) " << ( double(__end - __begin) / CLOCKS_PER_SEC ) << std::endl;" nl          
+                )
                 * ( (block 2) )
             }
         }
@@ -265,7 +271,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 swift ( nl (e 1) " = Optional(" (e 2) ");" nl )   
                 java7 ( nl (e 1) " = Optional.of(" (e 2) ");" nl (imp "java.util.Optional") )   
                 go ( nl (goset 1) ".value = " (e 2) ";" nl nl (goset 1) ".has_value = true; /* detected as non-optional */" nl )  
-                cpp ( nl ( 1) "->value = " (e 2) ";" nl nl (e 1) "->has_value = true;" nl )                 
+                cpp ( nl ( e 1) "  = " (e 2) ";" nl )                 
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }           
@@ -275,7 +281,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 ranger ( nl (e 1) " = " (e 2) nl ) 
                 scala ( nl (e 1) " = " (e 2) nl )      
                 go ( nl (goset 1) ".value = " (e 2) ".value;" nl nl (goset 1) ".has_value = " (e 2) ".has_value; " nl )  
-                cpp ( nl (e 1) "->value = " (e 2) "->value;" nl nl (e 1) "->has_value = " (e 2) "->has_value;" nl )     
+                cpp ( nl ( e 1) "  = " (e 2) ";" nl )   
                 java7 ( nl (e 1) " = " (e 2) ";" nl   (imp "java.util.Optional") )        
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
@@ -319,7 +325,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 kotlin ( (e 1) "!!" )
                 swift3 ( (e 1) "!" )
                 go ( (e 1) ".value.(" (typeof 1) ")" )
-                cpp ( "static_cast<" (typeof 1) ">(" (e 1) "->value)" )
+                cpp ( (e 1) )
 
                 * ( (e 1) )
             }
@@ -337,7 +343,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 kotlin ( (e 1) "!!" )
                 swift3 ( (e 1) "!" )
                 go ( (e 1) ".value.(" (typeof 1) ")" )
-                cpp ( "static_cast<" (typeof 1) ">(" (e 1) "->value)" )
+                cpp ( (e 1) )
 
                 * ( (e 1) )
             }
@@ -664,7 +670,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 ; is_some
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
-                cpp ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
+                cpp ( "if ( " (e 1) " != NULL ) {" nl I (block 2) i nl "}" nl )
                 rust ( "if " (e 1) ".is_some() {" nl I (block 2) i nl "}" nl )
                 * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" nl I (block 2) i nl "}" nl )
 
@@ -682,7 +688,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 swift3 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 go ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                go ( "if ( " (e 1) "->has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                cpp ( "if ( " (e 1) " != NULL ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
             }
         }
@@ -785,6 +791,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             templates {
                 ranger ( "([] _:" (typeof 1) "(" (list 2) "))")
                 go ( "[]" (typeof 1) "{" (comma 2) "}")
+                cpp ( "{" (comma 2) "}")
                 java7 ( "new ArrayList<" (typeof 1) ">(Arrays.asList(" (comma 2) ")) " )
                 * ( "[" (comma 2) "]")
             }
@@ -794,12 +801,11 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             templates {
                 ranger ("(null? " (e 1) ")")
                 php ( "(!isset(" (e 1) "))")                                
-                cpp ((e 1) "== NULL")                                
+                cpp ((e 1) " == NULL")                                
                 swift3 ((e 1) " == nil")  
                 java7 ("!" (e 1) ".isPresent()")  
                 csharp ((e 1) ".HasValue")  
                 rust ((e 1) ".is_null()")  
-                cpp ((e 1) "== true ")
                 go ( "!" (goset 1 ) ".has_value " )             
                 kotlin ((e 1) "== null")     
                 es6 (  "typeof(" ( e 1 ) ") === \"undefined\"")
@@ -813,7 +819,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 php ( "(isset(" (e 1) "))")
                 scala ((e 1) ".isDefined")  
                 swift3 ((e 1) " != nil ")     
-                cpp ((e 1) "== false ")     
+                cpp ((e 1) " != NULL ")     
                 java7 ((e 1) ".isPresent()")   
                 csharp ("!" (e 1) ".HasValue")
                 rust ((e 1) ".is_some()")     
@@ -867,7 +873,8 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     i nl "} " nl
                     (imp "scala.util.control._")
                 )      
-                cpp ( (forkctx _ ) (def 2) (def 3) "for ( std::vector< " (typeof 2) ">::size_type " (e 3) " = 0; " (e 3) " != " (e 1) ".size(); " (e 3) "++) {" nl I (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )          
+                cpp ( (forkctx _ ) (def 2) (def 3) "for ( std::vector< " (typeof 2) ">::size_type " (e 3) " = 0; " (e 3) " != " (e 1) ".size(); " (e 3) "++) {" nl 
+                            I (typeof 2) " " (e 2) " = " (e 1) ".at(" (e 3) ");" nl (block 4) nl i "}" )          
                 * ( (forkctx _ ) (def 2) (def 3) "for ( var " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
             }
         }
@@ -941,6 +948,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 go ( "fmt.Sprintf(\"%s\", " (e 1) "[" (e 2) ":" (e 3) "])"               
                 
                 )
+                cpp ( "std::string( " (e 1) " + " (e 2) ", " (e 3) " - " (e 2) " )")
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")") 
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
@@ -970,6 +978,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 csharp ( "Encoding.ASCII.GetBytes(" (e 1) ")")
                 kotlin ( (e 1 ) ".toCharArray()" )
                 rust ( (e 1) ".into_bytes()")
+                cpp ( (e 1) ".c_str()")
                 php ( (e 1) )
                 go("[]byte(" (e 1) ")")
                 * ( (e 1) )
@@ -1000,6 +1009,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 swift3 ( (e 1 ) ".count" )
                 rust ( (e 1 ) ".len()" )
                 java7 ( (e 1 ) ".length" )
+                cpp( "strlen( " (e 1) " )")
                 go ( "int64(len(" (e 1 ) "))")
                 php ( "strlen(" (e 1 ) ")")
                 * ( (e 1) ".length" )
@@ -1024,7 +1034,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
         charAt      cmdCharAt:char       ( text:charbuffer position:int ) { 
             templates {
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")
-                cpp ( (e 1) ".at( " (e 2) ")")    
+                cpp ( (e 1) "[ " (e 2) "]")    
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( (e 1) "[" (e 2) "]")  
@@ -1258,6 +1268,7 @@ i "}" nl ))
                 scala ( (e 1) ".put(" (e 2) ", " (e 3) ")" )
                 kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                cpp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 * ( (e 1) "[" (e 2) "] = " (e 3) )
             }            
         }                 
@@ -1320,7 +1331,7 @@ i "}" nl ))
         push    cmdPush@(moves@( 2 1 ) ):void  ( array@(mutates):[T] item@(optional):T ) { 
             templates {
                 ranger ( nl "push " (e 1) " " (e 2) "" nl)
-                 cpp ( (e 1) ".push_back( "(e 1)"  );")
+                 cpp ( (e 1) ".push_back( "(e 2)"  );")
                  swift3 ( (e 1) ".append(" (e 2)")")
                  php ( "array_push(" (e 1) ", " (e 2 )");")
                  java7 ( (e 1) ".add(" (e 2) ");" )
@@ -1336,7 +1347,7 @@ i "}" nl ))
         push    cmdPush@(moves@( 2 1 ) ):void  ( array@(mutates):[T] item:T ) { 
             templates {
                 ranger ( nl "push " (e 1) " " (e 2) "" nl)
-                 cpp ( (e 1) ".push_back( "(e 1)"  );")
+                 cpp ( (e 1) ".push_back( "(e 2)"  );")
                  swift3 ( (e 1) ".append(" (e 2)")")
                  php ( "array_push(" (e 1) ", " (e 2 )");")
                  java7 ( (e 1) ".add(" (e 2) ");" )

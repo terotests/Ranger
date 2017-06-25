@@ -233,7 +233,8 @@ class RangerGolangClassWriter {
       }
       default {
         if (node.type_name == "void") {
-          (wr.out("()" false))return
+          (wr.out("()" false))
+          return
         }
 
         if(ctx.isDefinedClass(t_name)) {

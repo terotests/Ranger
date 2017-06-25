@@ -1,15 +1,21 @@
 class RangerCppClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
+  def header_created:boolean false
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "this"
-    } {
-      return tn
     }
+    return tn
   }
-  fn getObjectTypeString:string (type_string:string) {
+  fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
+      case "char" {
+        return "char"
+      }   
+      case "charbuffer" {
+        return "const char*"
+      }       
       case "int" {
         return "int"
       }
@@ -22,12 +28,22 @@ class RangerCppClassWriter {
       case "double" {
         return "double"
       }
-      this.default(return type_string
-      )
     }
+
+    if(ctx.isDefinedClass(type_string)) {
+      return "std::shared_ptr<" + type_string + ">"
+    }
+
+    return type_string
   }
-  fn getTypeString:string (type_string:string) {
+  fn getTypeString2:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
+      case "char" {
+        return "char"
+      }   
+      case "charbuffer" {
+        return "const char*"
+      }       
       case "int" {
         return "int"
       }
@@ -40,26 +56,35 @@ class RangerCppClassWriter {
       case "double" {
         return "double"
       }
-      this.default(return type_string
-      )
     }
     return type_string
   }
+  
   fn writePtr:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.type_name == "void") {
       return
     }
-    if (((node.isPrimitiveType()) == false) && ((node.isPrimitive()) == false)) {
-      wr.out("*" false)
-    }
   }
+
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    def v_type:int node.value_type
-    if ((v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
-      v_type = node.typeNameAsType
+    def v_type:RangerNodeType node.value_type    
+    def t_name:string node.type_name
+    def a_name:string node.array_type
+    def k_name:string node.key_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (node.typeNameAsType(ctx))
     }
     if (node.eval_type != RangerNodeType.NoType) {
       v_type = node.eval_type
+      if ( (strlen node.eval_type_name) > 0 ) {
+        t_name = node.eval_type_name
+      }
+      if ( (strlen node.eval_array_type) > 0 ) {
+        a_name = node.eval_array_type
+      }
+      if ( (strlen node.eval_key_type) > 0 ) {
+        k_name = node.eval_key_type
+      }
     }
     switch v_type {
       case RangerNodeType.Enum {
@@ -68,6 +93,12 @@ class RangerCppClassWriter {
       case RangerNodeType.Integer {
         wr.out("int" false)
       }
+      case RangerNodeType.Char {
+        wr.out("char" false)
+      }  
+      case RangerNodeType.CharBuffer {
+        wr.out("const char*" false)
+      }            
       case RangerNodeType.Double {
         wr.out("double" false)
       }
@@ -79,54 +110,82 @@ class RangerCppClassWriter {
         wr.out("bool" false)
       }
       case RangerNodeType.Hash {
-        wr.out((((("std::map<" + (this.getObjectTypeString())) + ",") + (this.getObjectTypeString())) + ">") false)
+        wr.out((((("std::map<" + (this.getObjectTypeString(k_name ctx))) + ",") + (this.getObjectTypeString(a_name ctx)))) + ">" , false)
         wr.addImport("<map>")
       }
       case RangerNodeType.Array {
-        wr.out((("std::vector<" + (this.getObjectTypeString())) + ">") false)
+        wr.out((("std::vector<" + (this.getObjectTypeString(a_name ctx))) + ">") false)
         wr.addImport("<vector>")
       }
-      this.default(if (node.type_name == "void") {
-        (wr.out("void" false))
-      } {
-        (wr.out((this.getTypeString(node.type_name)) false))
+      default {
+
+        if (node.type_name == "void") {
+          wr.out("void" false)
+          return
+        }
+
+        if(ctx.isDefinedClass(t_name)) {
+          def cc:RangerAppClassDesc (ctx.findClass(t_name))
+
+          wr.out("std::shared_ptr<" false)
+          wr.out(cc.name false)
+          wr.out(">" false)
+          return
+        }
+
+        if(node.hasFlag("optional")) {
+          wr.out("shared_ptr< vector<" false)
+          wr.out((this.getTypeString2(t_name ctx)) false)
+          wr.out(">" false)
+          return
+        }
+        wr.out((this.getTypeString2(t_name ctx)) false))
       }
-      )
     }
   }
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (node.vref == "this") {
+      wr.out("this" false)
+      return
+    }
     if (node.eval_type == RangerNodeType.Enum) {
       def rootObjName:string (itemAt node.ns 0)
       def enumName:string (itemAt node.ns 1)
-      def e:RangerAppEnum (ctx.getEnum(rootObjName))
+      def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
       if (!null? e) {
-        wr.out(("" + (get e.values enumName)) false)
+        wr.out(("" + (unwrap (get e.values enumName))) false)
         return
       }
     }
+    def had_static:boolean false
     if ((array_length node.nsp) > 0) {
-      for node.nsp p:RangerAppParamDesc p:RangerAppParamDesc {
-        if (null? p) {
-          ctx.addError(node ("Invalid reference:" + (itemAt node.ns i)))
-          return
-        }
+      for node.nsp p:RangerAppParamDesc i {
         if (i > 0) {
-          wr.out("->" false)
-        }
-        if (i == 0) {
-          if (p.nameNode.hasFlag("optional")) {
-            wr.out("*" false)
+          if(had_static) {
+            wr.out("::" false)
+          } {
+            wr.out("->" false)
           }
         }
+        if (i == 0) {
+          def part:string (itemAt node.ns 0)
+          if(part == "this") {
+            wr.out("this" false)
+            continue
+          } 
+        }
         if ((strlen p.compiledName) > 0) {
-          wr.out((this.adjustType()) false)
+          wr.out((this.adjustType(p.compiledName)) false)
         } {
           if ((strlen p.name) > 0) {
-            wr.out((this.adjustType()) false)
+            wr.out((this.adjustType(p.name)) false)
           } {
             wr.out((this.adjustType( (itemAt node.ns i))) false)
           }
         }
+        if (p.isClass()) {
+          had_static = true
+        }        
       }
       return
     }
@@ -135,55 +194,36 @@ class RangerCppClassWriter {
       wr.out(p.compiledName false)
       return
     }
-    for node.ns part:string part:string {
+    for node.ns part:string i {
       if (i > 0) {
-        wr.out("->" false)
+        if had_static {
+          wr.out("::" false)
+        } {
+          wr.out("->" false)
+        }
       }
-      wr.out((this.adjustType()) false)
+
+      if (ctx.hasClass(part)) {
+        had_static = true
+      } {
+        had_static = false
+      }
+      wr.out((this.adjustType(part)) false)
     }
   }
-  fn writeVarDef (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+  fn writeVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("/** unused:  " false)
       }
-      if (nn.hasFlag("optional")) {
-        wr.addImport("\"boost-optional.hpp\"")
-        wr.out((("var " + p.compiledName) + " *CppOptional = new CppOptional(); ") true)
-        if ((array_length node.children) > 2) {
-          wr.out((p.compiledName + "->value = ") false)
-          ctx.setInExpr()
-          def value:CodeNode (node.getThird())
-          this.WalkNode(value ctx wr)
-          ctx.unsetInExpr()
-          if value.hasParamDesc {
-            def pnn:CodeNode value.paramDesc.nameNode
-            if (pnn.hasFlag("optional")) {
-              wr.out("->value" false)
-              wr.out(";" true)
-              wr.out((p.compiledName + "->has_value = ") false)
-              ctx.setInExpr()
-              def value:CodeNode (node.getThird())
-              this.WalkNode(value ctx wr)
-              ctx.unsetInExpr()
-              wr.out("->has_value;" true)
-              return
-            }
-          }
-          wr.out(";" true)
-          wr.out((p.compiledName + "->has_value = true;") true)
-        }
-        return
-      }
       if ((p.set_cnt > 0) || p.is_class_variable) {
         wr.out("" false)
       } {
         wr.out("" false)
       }
-      this.writeTypeDef(p.nameNode ctx wr)
-      this.writePtr(node ctx wr)
+      this.writeTypeDef((unwrap p.nameNode) ctx wr)
       wr.out(" " false)
       wr.out(p.compiledName false)
       if ((array_length node.children) > 2) {
@@ -195,12 +235,12 @@ class RangerCppClassWriter {
       } {
         if (nn.value_type == RangerNodeType.Array) {
           wr.out(" = new " false)
-          this.writeTypeDef(p.nameNode ctx wr)
+          this.writeTypeDef((unwrap p.nameNode) ctx wr)
           wr.out("()" false)
         }
         if (nn.value_type == RangerNodeType.Hash) {
           wr.out(" = new " false)
-          this.writeTypeDef(p.nameNode ctx wr)
+          this.writeTypeDef((unwrap p.nameNode) ctx wr)
           wr.out("()" false)
         }
       }
@@ -215,15 +255,13 @@ class RangerCppClassWriter {
       }
     }
   }
-  fn writeCppHeaderVar (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter do_initialize:boolean) {
+  fn writeCppHeaderVar:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter do_initialize:boolean) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
-      if (p.nameNode.hasFlag("optional")) {
-        wr.out("CppOptional* " false)
-        wr.out((p.compiledName + ";") true)
-        return
-      }
+
+      ; TODO: optionals...
+
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("/** unused:  " false)
       }
@@ -232,7 +270,7 @@ class RangerCppClassWriter {
       } {
         wr.out("" false)
       }
-      this.writeTypeDef(p.nameNode ctx wr)
+      this.writeTypeDef((unwrap p.nameNode) ctx wr)
       wr.out(" " false)
       wr.out(p.compiledName false)
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
@@ -246,29 +284,27 @@ class RangerCppClassWriter {
       }
     }
   }
-  fn writeArgsDef (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
-    for fnDesc.params arg:RangerAppParamDesc arg:RangerAppParamDesc {
+  fn writeArgsDef:void  (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    for fnDesc.params arg:RangerAppParamDesc i {
       if (i > 0) {
         wr.out("," false)
       }
       wr.out(" " false)
-      this.writeTypeDef(arg.nameNode ctx wr)
-      this.writePtr(arg.nameNode ctx wr)
+      this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
       wr.out(((" " + arg.name) + " ") false)
     }
   }
-  fn writeFnCall (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+  fn writeFnCall:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
-      for node.fnDesc.params arg:RangerAppParamDesc arg:RangerAppParamDesc {
-        def n:CodeNode (itemAt givenArgs.children i)
+      for node.fnDesc.params arg:RangerAppParamDesc i {
         if (i > 0) {
           wr.out(", " false)
         }
-        if (null? n) {
+        if ( i >= ( array_length givenArgs.children) ) {
           def defVal:CodeNode (arg.nameNode.getFlag("default"))
           if (!null? defVal) {
             def fc:CodeNode (defVal.vref_annotation.getFirst())
@@ -276,24 +312,28 @@ class RangerCppClassWriter {
           } {
             ctx.addError(node "Default argument was missing")
           }
-          continue _
+          continue 
         }
+        def n:CodeNode (itemAt givenArgs.children i)
         this.WalkNode(n ctx wr)
       }
       wr.out(")" false)
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }      
     }
   }
-  fn writeNewCall (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+  fn writeNewCall:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
       def fc:CodeNode (node.getSecond())
-      wr.out(" new " false)
+      wr.out(" std::make_shared<" false)
       wr.out(node.clDesc.name false)
-      wr.out("(" false)
+      wr.out(">(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
       if (!null? constr) {
-        for constr.params arg:RangerAppParamDesc arg:RangerAppParamDesc {
+        for constr.params arg:RangerAppParamDesc i {
           def n:CodeNode (itemAt givenArgs.children i)
           if (i > 0) {
             wr.out(", " false)
@@ -304,47 +344,57 @@ class RangerCppClassWriter {
       wr.out(")" false)
     }
   }
-  fn writeClassHeader (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+  fn writeClassHeader:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
       return
     }
-    wr.out((("#ifndef " + cl.name) + "_HEADER ") true)
-    wr.out((("#define " + cl.name) + "_HEADER ") true)
-    wr.out((("class " + cl.name) + " { ") true)
+
+    ; wr.out((("#ifndef " + cl.name) + "_HEADER ") true)
+    ; wr.out((("#define " + cl.name) + "_HEADER ") true)
+    wr.out(("class " + cl.name) , false)
+    
+    def parentClass:RangerAppClassDesc
+    if ( ( array_length cl.extends_classes ) > 0 ) { 
+      wr.out(" : " false)
+      for cl.extends_classes pName:string i {
+        wr.out("public " false)
+        wr.out(pName false)
+        parentClass = (ctx.findClass(pName))
+      }
+    } 
+
+    wr.out(" { " true)
     wr.indent(1)
     wr.out("public :" true)
     wr.indent(1)
-    for cl.variables pvar:RangerAppParamDesc pvar:RangerAppParamDesc {
-      this.writeCppHeaderVar(pvar.node ctx wr false)
+    for cl.variables pvar:RangerAppParamDesc i {
+      this.writeCppHeaderVar( (unwrap pvar.node) ctx wr false)
     }
-    wr.out("" true)
     wr.out("/* class constructor */ " true)
     wr.out((cl.name + "(") false)
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc cl.constructor_fn
-      this.writeArgsDef(constr ctx wr)
+      this.writeArgsDef((unwrap constr) ctx wr)
     }
     wr.out(" );" true)
-    for cl.static_methods variant:RangerAppFunctionDesc variant:RangerAppFunctionDesc {
+    for cl.static_methods variant:RangerAppFunctionDesc i {
       if (i == 0) {
-        wr.out("" true)
         wr.out("/* static methods */ " true)
       }
       wr.out("static " false)
-      this.writeTypeDef(variant.nameNode ctx wr)
+      this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
       wr.out(((" " + variant.name) + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(");" true)
     }
-    for cl.defined_variants fnVar:string fnVar:string {
+    for cl.defined_variants fnVar:string i {
       if (i == 0) {
-        wr.out("" true)
         wr.out("/* instance methods */ " true)
       }
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
-      for mVs.variants variant:RangerAppFunctionDesc variant:RangerAppFunctionDesc {
-        this.writeTypeDef(variant.nameNode ctx wr)
+      for mVs.variants variant:RangerAppFunctionDesc i {
+        this.writeTypeDef((unwrap variant.nameNode) ctx wr)
         wr.out(((" " + variant.name) + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(");" true)
@@ -353,87 +403,129 @@ class RangerCppClassWriter {
     wr.indent(-1)
     wr.indent(-1)
     wr.out("};" true)
-    wr.out("#endif " true)
+    ; wr.out("#endif " true)
   }
-  fn writeClass (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+
+  fn writeClass:void  (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+
     def cl:RangerAppClassDesc node.clDesc
+    def wr:CodeWriter orig_wr
     if (null? cl) {
       return
     }
-    def wr:CodeWriter (orig_wr.getFileWriter("." (cl.name + ".cpp")))
-    def headerWriter:CodeWriter (orig_wr.getFileWriter("." (cl.name + ".hpp")))
-    def projectHeaderWriter:CodeWriter (orig_wr.getFileWriter("." "project.hpp"))
+    if( header_created == false) {
+      wr.createTag("c++Imports")
+      wr.out("" true)
+      wr.out("// define classes here to avoid compiler errors" true)
+      wr.createTag("c++ClassDefs")
+      wr.out("" true)
+      wr.out("// header definitions" true)      
+      wr.createTag("c++Header")
+      header_created = true
+    }
+    def classWriter:CodeWriter (orig_wr.getTag("c++ClassDefs"))
+    def headerWriter:CodeWriter (orig_wr.getTag("c++Header"))
     def projectName:string "project"
-    projectHeaderWriter.out(((("#include \"" + cl.name) + ".hpp") + "\"") true)
+
+    classWriter.out("class " + cl.name + ";" , true)
+
     this.writeClassHeader(node ctx headerWriter)
-    def importFork:CodeWriter (wr.fork())
+
     wr.out("" true)
     wr.out((((cl.name + "::") + cl.name) + "(") false)
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc cl.constructor_fn
-      this.writeArgsDef(constr ctx wr)
+      this.writeArgsDef( (unwrap constr) ctx wr)
     }
     wr.out(" ) {" true)
     wr.indent(1)
-    for cl.variables pvar:RangerAppParamDesc pvar:RangerAppParamDesc {
-      def nn:CodeNode pvar.nameNode
-      if (nn.hasFlag("optional")) {
-        wr.out((("CppOptional* " + pvar.compiledName) + " = new CppOptional();") true)
+    for cl.variables pvar:RangerAppParamDesc i {
+      def nn:CodeNode (unwrap pvar.nameNode)
+      if ((array_length nn.children) > 2) {
+        def valueNode:CodeNode (itemAt nn.children 2)
+        wr.out((("this->" + pvar.compiledName) + " = ") false)
+        this.WalkNode(valueNode ctx wr)
+        wr.out("" true)
       }
+      ; if (nn.hasFlag("optional")) {
     }
     if cl.has_constructor {
-      def constr:RangerAppFunctionDesc cl.constructor_fn
+      def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
       wr.newline()
-      def subCtx:RangerAppWriterContext constr.fnCtx
+      def subCtx:RangerAppWriterContext (unwrap constr.fnCtx)
       subCtx.is_function = true
-      this.WalkNode(constr.fnBody subCtx wr)
+      this.WalkNode( (unwrap constr.fnBody) subCtx wr)
       wr.newline()
     }
     wr.indent(-1)
     wr.out("}" true)
-    for cl.static_methods variant:RangerAppFunctionDesc variant:RangerAppFunctionDesc {
+    for cl.static_methods variant:RangerAppFunctionDesc i {
+
+      if (variant.nameNode.hasFlag("main")) {
+        continue _
+      }
+
       wr.out("" true)
-      wr.out("static " false)
-      this.writeTypeDef(variant.nameNode ctx wr)
-      this.writePtr(variant.nameNode ctx wr)
+      ; wr.out("static " false)
+      this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
+      wr.out(" " false)
       wr.out(((" " + cl.name) + "::") false)
       wr.out((variant.name + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(") {" true)
       wr.indent(1)
       wr.newline()
-      def subCtx:RangerAppWriterContext variant.fnCtx
+      def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
       subCtx.is_function = true
-      this.WalkNode(variant.fnBody subCtx wr)
+      this.WalkNode( (unwrap variant.fnBody ) subCtx wr)
       wr.newline()
       wr.indent(-1)
       wr.out("}" true)
     }
-    for cl.defined_variants fnVar:string fnVar:string {
+    for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
-      for mVs.variants variant:RangerAppFunctionDesc variant:RangerAppFunctionDesc {
+      for mVs.variants variant:RangerAppFunctionDesc i {
         wr.out("" true)
-        this.writeTypeDef(variant.nameNode ctx wr)
-        this.writePtr(variant.nameNode ctx wr)
+        this.writeTypeDef((unwrap variant.nameNode )ctx wr)
+        ;this.writePtr((unwrap variant.nameNode ) ctx wr)
+        wr.out(" " false)
         wr.out(((" " + cl.name) + "::") false)
         wr.out((variant.name + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") {" true)
         wr.indent(1)
         wr.newline()
-        def subCtx:RangerAppWriterContext variant.fnCtx
+        def subCtx:RangerAppWriterContext (unwrap variant.fnCtx )
         subCtx.is_function = true
-        this.WalkNode(variant.fnBody subCtx wr)
+        this.WalkNode( (unwrap variant.fnBody ) subCtx wr)
         wr.newline()
         wr.indent(-1)
         wr.out("}" true)
       }
     }
-    wr.addImport(((("\"" + projectName) + ".hpp") + "\""))
-    def import_list:[string] (wr.getImports())
-    for import_list codeStr:string codeStr:string {
-      importFork.out(("#include " + codeStr + "") true)
+    ; wr.addImport(((("\"" + projectName) + ".hpp") + "\""))
+
+    ;def import_list:[string] (wr.getImports())
+    ;for import_list codeStr:string i {
+    ;  importFork.out(("#include " + codeStr + "") true)
+    ;}
+
+    for cl.static_methods variant:RangerAppFunctionDesc i {
+      if (variant.nameNode.hasFlag("main")) {
+        wr.out("" true)
+        wr.out("int main(int argc, char* argv[]) {" true)
+        wr.indent(1)
+        wr.newline()
+        def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
+        subCtx.is_function = true
+        this.WalkNode( (unwrap variant.fnBody ) subCtx wr)
+        wr.newline()
+        wr.out("return 0;" true)
+        wr.indent(-1)
+        wr.out("}" true)
+      }
     }
+
   }
 }
 
