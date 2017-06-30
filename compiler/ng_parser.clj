@@ -338,6 +338,7 @@ class RangerLispParser {
             break
           }
           new_node = (new CodeNode(( unwrap code) sp i))
+          new_node.parsed_type = RangerNodeType.Comment
           new_node.value_type = RangerNodeType.Comment
           new_node.string_value = (substring s sp i)
           push curr_node.comments ( unwrap new_node)
@@ -351,9 +352,11 @@ class RangerLispParser {
               rootNode = (new CodeNode(( unwrap code) i i))
               curr_node = rootNode
               if (c == 96) {
+                curr_node.parsed_type = RangerNodeType.Quasiliteral
                 curr_node.value_type = RangerNodeType.Quasiliteral
               }
               if (c == 39) {
+                curr_node.parsed_type = RangerNodeType.Literal
                 curr_node.value_type = RangerNodeType.Literal
               }
               curr_node.expression = true
@@ -397,9 +400,11 @@ class RangerLispParser {
           ep = i
           def new_num_node:CodeNode (new CodeNode(( unwrap code) sp ep))
           if (is_double ) {
+            new_num_node.parsed_type = RangerNodeType.Double
             new_num_node.value_type = RangerNodeType.Double
             new_num_node.double_value = ( unwrap ((str2double ((substring s sp ep)))))
           } {
+            new_num_node.parsed_type = RangerNodeType.Integer
             new_num_node.value_type = RangerNodeType.Integer
             new_num_node.int_value = ( unwrap ((str2int ((substring s sp ep)))))
           }
@@ -476,6 +481,7 @@ class RangerLispParser {
               }
             }
             def new_str_node:CodeNode (new CodeNode(( unwrap code) sp ep))
+            new_str_node.parsed_type = RangerNodeType.String
             new_str_node.value_type = RangerNodeType.String
             if (must_encode ) {
               new_str_node.string_value = encoded_str
@@ -490,6 +496,7 @@ class RangerLispParser {
         if ((fc == ((ccode "t"))) && (((charAt s (i + 1))) == ((ccode "r"))) && (((charAt s (i + 2))) == ((ccode "u"))) && (((charAt s (i + 3))) == ((ccode "e")))) {
           def new_true_node:CodeNode (new CodeNode(( unwrap code) sp sp + 4))
           new_true_node.value_type = RangerNodeType.Boolean
+          new_true_node.parsed_type = RangerNodeType.Boolean
           new_true_node.boolean_value = true
           this.insert_node(new_true_node)
           i = i + 4
@@ -498,6 +505,7 @@ class RangerLispParser {
         if ((fc == ((ccode "f"))) && (((charAt s (i + 1))) == ((ccode "a"))) && (((charAt s (i + 2))) == ((ccode "l"))) && (((charAt s (i + 3))) == ((ccode "s"))) && (((charAt s (i + 4))) == ((ccode "e")))) {
           def new_f_node:CodeNode (new CodeNode(( unwrap code) sp sp + 5))
           new_f_node.value_type = RangerNodeType.Boolean
+          new_f_node.parsed_type = RangerNodeType.Boolean
           new_f_node.boolean_value = false
           this.insert_node(new_f_node)
           i = i + 5
@@ -625,6 +633,7 @@ class RangerLispParser {
             new_expr_node.vref = (substring s sp ep)
             new_expr_node.ns = ns_list
             new_expr_node.expression_value = a_node3
+            new_expr_node.parsed_type = RangerNodeType.ExpressionType
             new_expr_node.value_type = RangerNodeType.ExpressionType
             if (vref_had_type_ann) {
               new_expr_node.vref_annotation = vref_ann_node
@@ -658,6 +667,7 @@ class RangerLispParser {
               def new_hash_node:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
               new_hash_node.vref = (substring s sp ep)
               new_hash_node.ns = ns_list
+              new_hash_node.parsed_type = RangerNodeType.Hash
               new_hash_node.value_type = RangerNodeType.Hash
               new_hash_node.array_type = type_name
               new_hash_node.key_type = key_type_name
@@ -681,6 +691,7 @@ class RangerLispParser {
               def new_arr_node:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
               new_arr_node.vref = (substring s sp ep)
               new_arr_node.ns = ns_list
+              new_arr_node.parsed_type = RangerNodeType.Array              
               new_arr_node.value_type = RangerNodeType.Array
               new_arr_node.array_type = type_name
               new_arr_node.parent = curr_node
@@ -714,6 +725,7 @@ class RangerLispParser {
             def new_ref_node:CodeNode (new CodeNode(( unwrap code) sp ep))
             new_ref_node.vref = (substring s sp ep)
             new_ref_node.ns = ns_list
+            new_ref_node.parsed_type = RangerNodeType.VRef
             new_ref_node.value_type = RangerNodeType.VRef
             new_ref_node.type_name = (substring s vt_sp vt_ep)
             new_ref_node.parent = curr_node
@@ -733,6 +745,7 @@ class RangerLispParser {
           if ((i < len) && (ep > sp)) {
             def new_vref_node:CodeNode (new CodeNode(( unwrap code) sp ep))
             new_vref_node.vref = (substring s sp ep)
+            new_vref_node.parsed_type = RangerNodeType.VRef
             new_vref_node.value_type = RangerNodeType.VRef
             new_vref_node.ns = ns_list
             new_vref_node.parent = curr_node
@@ -757,10 +770,13 @@ class RangerLispParser {
               new_vref_node.vref_annotation = vref_ann_node
               new_vref_node.has_vref_annotation = true
             }
-            if ((((charAt s (i + 1))) == ((ccode "("))) || (((charAt s (i + 0))) == ((ccode "(")))) {
-              if ((0 == op_pred) && curr_node.infix_operator && (1 == ((array_length curr_node.children)))) {
+            if ( (i + 1) <len ) {
+              if ((((charAt s (i + 1))) == ((ccode "("))) || (((charAt s (i + 0))) == ((ccode "(")))) {
+                if ((0 == op_pred) && curr_node.infix_operator && (1 == ((array_length curr_node.children)))) {
+                }
               }
             }
+
             if (((op_pred > 0) && curr_node.infix_operator) || ((op_pred > 0) && (((array_length curr_node.children)) >= 2))) {
               if ((op_pred == 3) && (2 == ((array_length curr_node.children))) ) {
                 def n_ch:CodeNode (array_extract curr_node.children 0)

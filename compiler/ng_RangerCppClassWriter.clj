@@ -324,6 +324,7 @@ class RangerCppClassWriter {
       def fc:CodeNode (node.getFirst())
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
+      ctx.setInExpr()
       def givenArgs:CodeNode (node.getSecond())
       for node.fnDesc.params arg:RangerAppParamDesc i {
         if (i > 0) {
@@ -342,6 +343,7 @@ class RangerCppClassWriter {
         def n:CodeNode (itemAt givenArgs.children i)
         this.WalkNode(n ctx wr)
       }
+      ctx.unsetInExpr()
       wr.out(")" false)
       if ((ctx.expressionLevel()) == 0) {
         wr.out(";" true)
@@ -448,6 +450,8 @@ class RangerCppClassWriter {
       wr.out("" true)
       wr.out("// header definitions" true)      
       wr.createTag("c++Header")
+      wr.out("" true)
+      wr.createTag("utilities")
       header_created = true
     }
     def classWriter:CodeWriter (orig_wr.getTag("c++ClassDefs"))
@@ -467,12 +471,12 @@ class RangerCppClassWriter {
     wr.out(" ) {" true)
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
-      def nn:CodeNode (unwrap pvar.nameNode)
+      def nn:CodeNode (unwrap pvar.node)
       if ((array_length nn.children) > 2) {
         def valueNode:CodeNode (itemAt nn.children 2)
         wr.out((("this->" + pvar.compiledName) + " = ") false)
         this.WalkNode(valueNode ctx wr)
-        wr.out("" true)
+        wr.out(";" true)
       }
       ; if (nn.hasFlag("optional")) {
     }

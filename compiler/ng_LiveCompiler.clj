@@ -6,6 +6,7 @@ class LiveCompiler {
 
   def langWriter:RangerGenericClassWriter
   def hasCreatedPolyfill:[string:boolean]
+  def lastProcessedNode@(weak):CodeNode
 
   fn initWriter:void (ctx:RangerAppWriterContext) {
     if (!null? langWriter) {
@@ -286,12 +287,13 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     return false
   }
   fn WalkNode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-
+    
     this.initWriter(ctx)
     if (node.isPrimitive()) {
       this.WriteScalarValue(node ctx wr)
       return
     }
+    this.lastProcessedNode = node
     if (node.value_type == RangerNodeType.VRef) {
       this.WriteVRef(node ctx wr)
       return
@@ -364,6 +366,13 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def cmdE:CodeNode (cmd.getFirst())
       def cmdArg@(lives):CodeNode (cmd.getSecond())
       switch cmdE.vref {
+        case "str" {
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            wr.out(arg.string_value false)
+          }
+        }
         case "block" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {

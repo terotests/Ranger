@@ -10,8 +10,71 @@ class RangerPHPClassWriter {
     return tn
   }
 
-  fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def encoded_str:string ""
+    def str_length:int (strlen node.string_value)
+    def encoded_str:string ""
+    def ii:int 0
+    while (< ii str_length) {
+      def cc:int (charAt node.string_value ii)
+      switch cc {
+        case 8 {
+            encoded_str = encoded_str + (strfromcode 92 ) + (strfromcode 98 )  
+        }
+        case 9 {
+            encoded_str = encoded_str + (strfromcode 92 ) + (strfromcode 116 ) 
+        }    
+        case 10 {
+            ( = encoded_str ( encoded_str + (strfromcode 92 ) + (strfromcode 110 ) ) ) 
+        }    
+        case 12 {
+            ( = encoded_str ( encoded_str + (strfromcode 92 ) + (strfromcode 102 ) ) ) 
+        }    
+        case 13 {
+            ( = encoded_str ( encoded_str + (strfromcode 92 ) + (strfromcode 114 ) ) ) 
+        }
 
+        case 34 {
+            ( = encoded_str ( encoded_str + (strfromcode 92 ) + (strfromcode 34 ) ) ) 
+        }  
+        case 36 {
+            ( = encoded_str ( encoded_str + (strfromcode 92 ) + (strfromcode 34 ) ) ) 
+        }          
+        case 92 {
+            = encoded_str ( encoded_str + (strfromcode 92 ) + (strfromcode 92 ) ) 
+        }
+                                            
+        default {
+            ( = encoded_str ( encoded_str + (strfromcode cc) ) ) 
+        }
+      }
+      ii = ii + 1
+    }
+    return encoded_str   
+  }
+  fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    switch node.value_type {
+      case RangerNodeType.Double {
+        wr.out(("" + node.double_value) , false)
+      }
+      case RangerNodeType.String {
+        def s:string (this.EncodeString(node ctx wr))
+        wr.out((("\"" + s) + "\"") , false)
+      }
+      case RangerNodeType.Integer {
+        wr.out(("" + node.int_value) , false)
+      }
+      case RangerNodeType.Boolean {
+        if node.boolean_value {
+          wr.out("true" false)
+        } {
+          wr.out("false" false)
+        }
+      }
+    }
+  }
+
+  fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     if (node.vref == "this") {
       wr.out("$this" false)

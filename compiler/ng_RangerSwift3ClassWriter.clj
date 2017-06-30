@@ -15,7 +15,7 @@ class RangerSwift3ClassWriter {
       case "string" {
         return "String"
       }
-      case "chararray" {
+      case "charbuffer" {
         return "[UInt8]"
       }
       case "char" {
@@ -38,6 +38,12 @@ class RangerSwift3ClassWriter {
       case "string" {
         return "String"
       }
+      case "charbuffer" {
+        return "[UInt8]"
+      }
+      case "char" {
+        return "UInt8"
+      }      
       case "boolean" {
         return "Bool"
       }

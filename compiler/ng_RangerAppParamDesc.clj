@@ -1,4 +1,60 @@
 
+class RangerParamEventHandler {
+  fn callback:void (param:RangerAppParamDesc) {
+  }
+}
+
+class RangerParamEventList {
+  def list:[RangerParamEventHandler]
+}
+
+class RangerParamEventMap {
+  def events:[string:RangerParamEventList]
+
+  fn clearAllEvents:void () {
+
+  }
+
+  fn addEvent:void (name:string e@(strong):RangerParamEventHandler) {
+    if( (has events name) == false ) {
+      set events name (new RangerParamEventList())
+    }
+    def list:RangerParamEventList (unwrap (get events name))
+    push list.list e
+  }
+
+  fn fireEvent:void (name:string from:RangerAppParamDesc) {
+    if( has events name ) {
+      def list:RangerParamEventList (unwrap (get events name))
+      for list.list ev:RangerParamEventHandler i {
+        ev.callback( from )
+      }
+    }
+  }
+}
+
+class RangerAppArrayValue {
+  def value_type:RangerNodeType RangerNodeType.NoType
+  def value_type_name:string ""
+  def values:[RangerAppValue]
+}
+class RangerAppHashValue {
+  def value_type:RangerNodeType RangerNodeType.NoType
+  def key_type_name:string ""
+  def value_type_name:string ""
+  def s_values:[string:RangerAppValue]
+  def i_values:[int:RangerAppValue]
+  def b_values:[boolean:RangerAppValue]
+  def d_values:[double:RangerAppValue]
+}
+class RangerAppValue {
+  def double_value:double 0
+  def string_value:string ""
+  def int_value:int 0
+  def boolean_value:boolean false
+  def arr:RangerAppArrayValue
+  def hash:RangerAppHashValue
+}
 
 class RangerRefForce {
   def strength:int 0
@@ -8,6 +64,7 @@ class RangerRefForce {
 
 class RangerAppParamDesc {
   def name:string ""
+  def value:RangerAppValue
   def compiledName:string ""
   def debugString:string ""
   def ref_cnt:int 0
@@ -36,6 +93,16 @@ class RangerAppParamDesc {
   def nameNode@(weak):CodeNode
   def description:string ""
   def git_doc:string ""
+  def has_events:boolean false
+  def eMap:RangerParamEventMap
+
+  fn addEvent:void (name:string e@(strong lives):RangerParamEventHandler) {
+    if( has_events == false ) {
+      eMap = (new RangerParamEventMap())
+      has_events = true
+    }
+    eMap.addEvent(name e)
+  }  
   fn changeStrength:void (newStrength:int lifeTime:int changer:CodeNode) {
     def entry:RangerRefForce (new RangerRefForce ())
     entry.strength = newStrength
@@ -61,7 +128,8 @@ class RangerAppParamDesc {
         if (nameNode.eval_type == RangerNodeType.Hash) {
           return true
         }
-        if ((((nameNode.eval_type == RangerNodeType.String) || (nameNode.eval_type == RangerNodeType.Double)) || (nameNode.eval_type == RangerNodeType.Boolean)) || (nameNode.eval_type == RangerNodeType.Integer)) {
+        if ((((nameNode.eval_type == RangerNodeType.CharBuffer) 
+            || (nameNode.eval_type == RangerNodeType.Char) || (nameNode.eval_type == RangerNodeType.String) || (nameNode.eval_type == RangerNodeType.Double)) || (nameNode.eval_type == RangerNodeType.Boolean)) || (nameNode.eval_type == RangerNodeType.Integer)) {
           return false
         }
         if (nameNode.eval_type == RangerNodeType.Enum) {

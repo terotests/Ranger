@@ -1,25 +1,47 @@
 
+class NodeEvalState {
+  def ctx@(weak):RangerAppWriterContext
+  def is_running:boolean false
+
+  def child_index:int -1
+  def cmd_index:int -1
+  
+  def is_ready:boolean false
+  def is_waiting:boolean false
+
+  def exit_after:boolean false
+  def expand_args:boolean false
+  
+  def ask_expand:boolean false
+  def eval_rest:boolean false
+  def exec_cnt:int 0
+  def b_debugger:boolean false   
+  def b_top_node:boolean false
+
+  def ask_eval:boolean false
+  def param_eval_on:boolean false
+  def eval_index:int -1
+  def eval_end_index:int -1
+  def ask_eval_start:int 0
+  def ask_eval_end:int 0
+  def evaluating_cmd@(weak):CodeNode
+}
 
 class SourceCode {
     def code:string ""
-    def sp:int 0 
-    def ep:int 0
     def lines:[string]
     def filename:string ""
-
     Constructor (code_str:string ) {
         code = code_str
         lines = (strsplit code_str "\n")
     }
-
     fn getLineString:string (line_index:int) {
 
         if (> (array_length lines) line_index) {
             return (itemAt lines line_index)
         }
         return ""
-    }
-                
+    }                
     fn getLine:int (sp:int) {
         def cnt:int 0
         for lines str:string i {
@@ -30,7 +52,6 @@ class SourceCode {
         }
         return -1
     } 
-
 }
 
 
@@ -62,6 +83,7 @@ class CodeNode {
   def has_type_annotation:boolean false
   def type_annotation:CodeNode
   def typeClass@(weak):RangerTypeClass
+  def parsed_type:RangerNodeType RangerNodeType.NoType
   def value_type:RangerNodeType RangerNodeType.NoType
   def eval_type:RangerNodeType RangerNodeType.NoType
   def eval_type_name:string ""
@@ -93,6 +115,7 @@ class CodeNode {
   def paramDesc@(weak optional):RangerAppParamDesc
   def ownParamDesc@(optional):RangerAppParamDesc
   def evalCtx:RangerAppWriterContext
+  def evalState:NodeEvalState
 
   Constructor (source:SourceCode start:int end:int) {
     sp = start
@@ -506,6 +529,12 @@ class CodeNode {
     }
     return value_type
   }
+  fn isParsedAsPrimitive:boolean () {
+    if ((parsed_type == RangerNodeType.Double) || (parsed_type == RangerNodeType.String) || (parsed_type == RangerNodeType.Integer) || (parsed_type == RangerNodeType.Char) || (parsed_type == RangerNodeType.CharBuffer) || (parsed_type == RangerNodeType.Boolean)) {
+      return true
+    }
+    return false
+  }
   fn isPrimitive:boolean () {
     if ((value_type == RangerNodeType.Double) || (value_type == RangerNodeType.String) || (value_type == RangerNodeType.Integer) || (value_type == RangerNodeType.Char) || (value_type == RangerNodeType.CharBuffer) || (value_type == RangerNodeType.Boolean)) {
       return true
@@ -733,9 +762,4 @@ class CodeNode {
       print ")"
     }
   }
-}
-
-
-class AfterCodeNode {
-  def ff:int 0
 }

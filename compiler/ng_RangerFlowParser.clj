@@ -15,6 +15,8 @@ Import "ng_RangerArgMatch.clj"
 class RangerFlowParser {
 
   def stdCommands@(optional):CodeNode
+  def lastProcessedNode@(weak):CodeNode
+
   fn cmdEnum:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fNameNode:CodeNode (itemAt node.children 1)
     def enumList:CodeNode (itemAt node.children 2)
@@ -61,6 +63,7 @@ class RangerFlowParser {
       lcc.langWriter.compiler = lcc
 
       subCtx.targetLangName = "ranger"
+      subCtx.restartExpressionLevel()
 
       def macroNode:CodeNode (unwrap langOper)
       def cmdList:CodeNode (macroNode.getSecond())
@@ -1070,7 +1073,7 @@ class RangerFlowParser {
       return true
     }
     node.flow_done = true
-
+    this.lastProcessedNode = node
     if (node.hasStringProperty("todo")) {
       ctx.addTodo(node (node.getStringProperty("todo")))
     }
@@ -1306,6 +1309,7 @@ class RangerFlowParser {
         new_class.nameNode = classNameNode
         ctx.addClass(s new_class)
         new_class.classNode = node
+        new_class.node = node
       }
     }
     if (node.isFirstVref("TemplateClass")) {

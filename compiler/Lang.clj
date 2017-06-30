@@ -26,6 +26,28 @@ language {
 
     commands {
 
+        golang_wait:void waiter:void (seconds:double ) {
+            templates {
+                go ( "time.Sleep(time.Duration(" (e 1) " * float64(time.Second) )) " (imp "time") )
+                * ()
+            }
+        }
+
+        wait cmdWait:void ( seconds:double ) {
+            templates {
+                es6 ( "" )
+                * ()
+            }
+        }
+
+        wait cmdWait:void ( seconds:double after:block) {
+            templates {
+                es6 ( "setTimeout( () => { " nl I (block 2) i nl " }, 1000 * " (e 1) ")" )
+                go ( "go func() {" nl I "time.Sleep(time.Duration(" (e 1) " * float64(time.Second) )) " nl (block 2) i nl "}()" nl (imp "time") )
+            }
+        }
+        
+
         ; Profiling
         timer           cmdTimerBlock:void (name:string code:block) {
             templates {
@@ -209,8 +231,21 @@ func r_write_text_file(pathName string, fileName string, txtData string)  {
         
 
         read_file        cmdReadFile@(optional):string (path:string filename:string) {
+
             templates {
                 ranger (  "(read_file " (e 1) " " (e 2) ")" )
+                cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
+(create_polyfill "
+std::string  r_cpp_readFile(std::string path, std::string filename) 
+{
+  std::ifstream ifs(path + \"/\" + filename);
+  std::string content( (std::istreambuf_iterator<char>(ifs) ),
+                       (std::istreambuf_iterator<char>()    ) );
+  return content;
+}    
+    ")                        
+            
+                )
                 php ("file_get_contents(" (e 1) " . \"/\" . " (e 2) ") " )
                 swift3 ("try String(contentsOfFile: " (e 1) " + \"/\" + " (e 2) ") " )
                 java7 ( "Optional.of(readFile(" (e 1) " + \"/\" + " (e 2) " , StandardCharsets.UTF_8 ))"  
@@ -844,7 +879,6 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 php ( nl "try {" nl I (block 1) i nl "} catch( Exception $e) {" nl I (block 2) i nl "}" nl )               
                 scala ( nl "try {" nl I (block 1) i nl "} catch {" nl I nl "case e: Exception => {" nl I (block 2) i nl "}" i nl "}" nl )
                 java7 ( nl "try {" nl I (block 1) i nl "} catch( Exception e) {" nl I (block 2) i nl "}" nl )
-
                 go ( nl (block 1) nl )
                 * ( nl "try {" nl I (block 1) i nl "} catch(e) {" nl I (block 2) i nl "}" nl )
             }
@@ -976,7 +1010,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 ranger ( "(to_charbuffer " (e 1) ")") 
                 swift3 ( "Array(" (e 1) ".utf8)" )
                 scala ( (e 1) ".toCharArray.map(_.toByte)")
-                java7 ( (e 1) ".toCharArray()" )
+                java7 ( (e 1) ".getBytes()" )
                 csharp ( "Encoding.ASCII.GetBytes(" (e 1) ")")
                 kotlin ( (e 1 ) ".toCharArray()" )
                 rust ( (e 1) ".into_bytes()")
@@ -1066,7 +1100,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 ranger ( "(charcode " (e 1) ")")
                 go ( "[]byte(" (e 1) ")[0]" )
                 php ( "ord(" (e 1) "[0])") 
-                java7 ( "((" (e 1) ".charAt(0)))") 
+                java7 ( "((" (e 1) ".getBytes())[0])") 
                 * ( (e 1) ".charCodeAt(0)" )
             }
         }
@@ -1103,6 +1137,32 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
+
+        to_int   cmdDoubleToString:string       ( value:int ) { 
+            templates {
+                ranger ( "(to_int " (e 1) ")")
+                cpp ("std::to_string(" (e 1) ")" imp("<string>"))
+                java7 ( "String.valueOf(" (e 1) " )") 
+                php ( "strval(" (e 1) ")") 
+                scala ( "(" (e 1) ".toString)")
+                go ("strconv.FormatFloat(" (e 1) ",'f', 6, 64)" (imp "strconv"))
+                swfit3 ("String(" (e 1) ")")              
+                * ( "(" (e 1) ".toString())")
+            }
+        }          
+
+        to_string   cmdIntToString:string       ( value:int ) { 
+            templates {
+                ranger ( "(to_string " (e 1) ")")
+                cpp ("std::to_string(" (e 1) ")" imp("<string>"))
+                java7 ( "String.valueOf(" (e 1) " )") 
+                php ( "strval(" (e 1) ")") 
+                scala ( "(" (e 1) ".toString)")
+                go ("strconv.Itoa(" (e 1) ")" (imp "strconv"))
+                swfit3 ("String(" (e 1) ")")              
+                * ( "(" (e 1) ").toString()")
+            }
+        }        
         
         ; std::to_string(myDoubleVar);
         double2str   cmdDoubleToString:string       ( value:double ) { 
@@ -1205,6 +1265,7 @@ static String joinStrings(ArrayList<String> list, String delimiter)
                 )
                 go ( "strings.Join(" (e 1) ", " (e 2) ")")
                 scala ( (e 1) ".mkString(" (e 2) ")" )
+                php ( "join(" (e 1) ", " (e 2) ")")
                 * ( (e 1) ".join(" (e 2) ")" )
             }            
         }                 

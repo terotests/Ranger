@@ -8,7 +8,7 @@ class CompilerInterface {
     def allowed_languages:[string] ([] _:string ("es6" "go" "scala" "java7" "swift3" "cpp" "php" "ranger" ))
 
     if ( (shell_arg_cnt) < 5  ) {
-      print "Ranger compiler, version 2.05"
+      print "Ranger compiler, version 2.0.8"
       print "usage <file> <language-file> <language> <directory> <targetfile>"
       print "allowed languages: " + (join allowed_languages " ")
       return 
@@ -47,111 +47,114 @@ class CompilerInterface {
     code.filename = the_file
     def parser:RangerLispParser (new RangerLispParser (code))
     parser.parse()
-    
+
+    def lcc:LiveCompiler (new LiveCompiler())
     def node:CodeNode (unwrap parser.rootNode)
     def flowParser:RangerFlowParser (new RangerFlowParser ())
     def appCtx:RangerAppWriterContext (new RangerAppWriterContext()))
     def wr:CodeWriter (new CodeWriter())
 
     timer "Total time" {
+      try {
+        flowParser.mergeImports(node appCtx wr)
+        def lang_str:string (read_file "." the_lang_file)
+        def lang_code:SourceCode (new SourceCode ( (unwrap lang_str)) )
+        lang_code.filename = the_lang_file
+        def lang_parser:RangerLispParser (new RangerLispParser (lang_code))
+        lang_parser.parse()
+        appCtx.langOperators = (unwrap lang_parser.rootNode)
+        print "1. Collecting available methods."
+        flowParser.CollectMethods (node appCtx wr)
+        if ( ( array_length appCtx.compilerErrors ) > 0 ) {
+          CompilerInterface.displayCompilerErrors(appCtx)
+          return
+        }
+        print "2. Analyzing the code."
+        appCtx.targetLangName = the_lang
+        flowParser.WalkNode (node appCtx wr)
+        if ( ( array_length appCtx.compilerErrors ) > 0 ) {
+          CompilerInterface.displayCompilerErrors(appCtx)
+          CompilerInterface.displayParserErrors(appCtx)
+          return
+        }
+        print "3. Compiling the source code."
+        def fileSystem:CodeFileSystem (new CodeFileSystem())
+        def file:CodeFile (fileSystem.getFile("." the_target))
+        def wr@(optional):CodeWriter (file.getWriter())
+        def staticMethods:RangerAppClassDesc
+        def importFork:CodeWriter (wr.fork())
+        for appCtx.definedClassList cName:string i {
 
-      flowParser.mergeImports(node appCtx wr)
-      def lang_str:string (read_file "." the_lang_file)
-      def lang_code:SourceCode (new SourceCode ( (unwrap lang_str)) )
+          if (cName == "RangerStaticMethods") {
+            staticMethods = (get appCtx.definedClasses cName)
+            continue _
+          }
+          def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
+          if(cl.is_system) {
+            print "--> system class " + cl.name + ", skipping"
+            continue _
+          }
+          lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
+        }
+        if (!null? staticMethods) {
+          lcc.WalkNode( (unwrap staticMethods.classNode) appCtx (unwrap wr))
+        }
 
-      lang_code.filename = the_lang_file
-      def lang_parser:RangerLispParser (new RangerLispParser (lang_code))
-      lang_parser.parse()
+        def import_list:[string] (wr.getImports ())
 
-      appCtx.langOperators = (unwrap lang_parser.rootNode)
+        if(appCtx.targetLangName == "go") {
+          importFork.out("package main" true)
+          importFork.newline()
+          importFork.out("import (" true)
+          importFork.indent(1)
+        }
 
-      print "1. Collecting available methods."
-      flowParser.CollectMethods (node appCtx wr)
+        for import_list codeStr:string i {
 
-      if ( ( array_length appCtx.compilerErrors ) > 0 ) {
-        CompilerInterface.displayCompilerErrors(appCtx)
-        return
-      }
-
-      print "2. Analyzing the code."
-
-      appCtx.targetLangName = the_lang
-
-      flowParser.WalkNode (node appCtx wr)
-      if ( ( array_length appCtx.compilerErrors ) > 0 ) {
+          switch appCtx.targetLangName {
+            case "go" {
+              if ( (charAt codeStr 0) == (to_int (charcode "_") ) ) {
+                importFork.out (( " _ \"" + (substring codeStr 1 (strlen codeStr)) + "\"") , true)
+              } {
+                importFork.out (("\"" + codeStr + "\"") , true)
+              }
+              
+            }
+            case "rust" {
+              importFork.out (( "use " + codeStr + ";") , true)
+            }
+            case "cpp" {
+              importFork.out (( "#include  " + codeStr + "") , true)
+            }
+            default {
+              importFork.out (("import "  + codeStr + "") , true)
+            }
+          }        
+        }				
+        if(appCtx.targetLangName == "go") {
+          importFork.indent(-1)
+          importFork.out(")" true)
+        }
+        fileSystem.saveTo(the_target_dir)
+        print "Ready."
         CompilerInterface.displayCompilerErrors(appCtx)
         CompilerInterface.displayParserErrors(appCtx)
+
+      }{
+        if(lcc.lastProcessedNode) {
+          print "Got compiler error close to"
+          print (lcc.lastProcessedNode.getLineAsString())
+          return
+        }
+        if(flowParser.lastProcessedNode) {
+          print "Got compiler error close to"
+          print (flowParser.lastProcessedNode.getLineAsString())
+          return
+        }
+        print "Got unknown compiler error"
         return
       }
 
-      print "3. Compiling the source code."
-
-
-      def fileSystem:CodeFileSystem (new CodeFileSystem())
-      def file:CodeFile (fileSystem.getFile("." the_target))
-      def wr@(optional):CodeWriter (file.getWriter())
-      def lcc:LiveCompiler (new LiveCompiler())
-      def staticMethods:RangerAppClassDesc
-
-      def importFork:CodeWriter (wr.fork())
-
-      for appCtx.definedClassList cName:string i {
-
-        if (cName == "RangerStaticMethods") {
-          staticMethods = (get appCtx.definedClasses cName)
-          continue _
-        }
-        def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
-        if(cl.is_system) {
-          print "--> system class " + cl.name + ", skipping"
-          continue _
-        }
-        lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
-      }
-
-      if (!null? staticMethods) {
-        lcc.WalkNode( (unwrap staticMethods.classNode) appCtx (unwrap wr))
-      }
-
-      def import_list:[string] (wr.getImports ())
-
-      if(appCtx.targetLangName == "go") {
-        importFork.out("package main" true)
-        importFork.newline()
-        importFork.out("import (" true)
-        importFork.indent(1)
-      }
-
-      for import_list codeStr:string i {
-
-        switch appCtx.targetLangName {
-          case "go" {
-            if ( (charAt codeStr 0) == (to_int (charcode "_") ) ) {
-              importFork.out (( " _ \"" + (substring codeStr 1 (strlen codeStr)) + "\"") , true)
-            } {
-              importFork.out (("\"" + codeStr + "\"") , true)
-            }
-            
-          }
-          case "rust" {
-            importFork.out (( "use " + codeStr + ";") , true)
-          }
-          case "cpp" {
-            importFork.out (( "#include  " + codeStr + "") , true)
-          }
-          default {
-            importFork.out (("import "  + codeStr + "") , true)
-          }
-        }        
-      }				
-      if(appCtx.targetLangName == "go") {
-        importFork.indent(-1)
-        importFork.out(")" true)
-      }
-      fileSystem.saveTo(the_target_dir)
-      print "Ready."
-      CompilerInterface.displayCompilerErrors(appCtx)
-      CompilerInterface.displayParserErrors(appCtx)
     }
   }
 

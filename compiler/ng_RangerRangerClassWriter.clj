@@ -58,7 +58,7 @@ class RangerRangerClassWriter {
 
   fn WriteVRefWithOpt:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
       wr.out(node.vref false)
-      def flags:[string] ([] _:string ("optional" "weak" "strong" "temp" "lives" "returns"))
+      def flags:[string] ([] _:string ("optional" "weak" "strong" "temp" "lives" "returns" "returnvalue"))
       def some_set:boolean false
       for flags flag:string i {
           if(node.hasFlag(flag)) {
@@ -147,7 +147,7 @@ class RangerRangerClassWriter {
         for constr.params arg:RangerAppParamDesc i {
           def n:CodeNode (itemAt givenArgs.children i)
           if (i > 0) {
-            wr.out(", " false)
+            wr.out(" " false)
           }
           if( true || (!null? arg.nameNode)) {
             this.WalkNode(n ctx wr)

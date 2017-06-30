@@ -17,11 +17,11 @@ class RangerJava7ClassWriter {
       case "string" {
         return "String"
       }
-      case "chararray" {
-        return "char[]"
+      case "charbuffer" {
+        return "byte[]"
       }
       case "char" {
-        return "char"
+        return "byte"
       }
       case "boolean" {
         return "Boolean"
@@ -40,11 +40,11 @@ class RangerJava7ClassWriter {
       case "string" {
         return "String"
       }
-      case "chararray" {
-        return "char[]"
+      case "charbuffer" {
+        return "byte[]"
       }
       case "char" {
-        return "char"
+        return "byte"
       }
       case "boolean" {
         return "boolean"
@@ -97,10 +97,10 @@ class RangerJava7ClassWriter {
           wr.out("Boolean" false)
         }
         case RangerNodeType.Char {
-          wr.out("char" false)
+          wr.out("byte" false)
         }
         case RangerNodeType.CharBuffer {
-          wr.out("char[]" false)
+          wr.out("byte[]" false)
         }
         case RangerNodeType.Hash {
           wr.out( (((("HashMap<" + (this.getObjectTypeString(k_name ctx))) + ",") + (this.getObjectTypeString(a_name ctx))) + ">") , false)
@@ -130,10 +130,10 @@ class RangerJava7ClassWriter {
           wr.out("double" false)
         }
         case RangerNodeType.Char {
-          wr.out("char" false)
+          wr.out("byte" false)
         }
         case RangerNodeType.CharBuffer {
-          wr.out("char[]" false)
+          wr.out("byte[]" false)
         }
         case RangerNodeType.String {
           wr.out("String" false)
