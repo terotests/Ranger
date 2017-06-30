@@ -30,6 +30,7 @@ class CodeNode {
   public boolean has_type_annotation = false;
   public Optional<CodeNode> type_annotation = Optional.empty();
   public Optional<RangerTypeClass> typeClass = Optional.empty();
+  public int parsed_type = 0;
   public int value_type = 0;
   public int eval_type = 0;
   public String eval_type_name = "";
@@ -61,6 +62,7 @@ class CodeNode {
   public Optional<RangerAppParamDesc> paramDesc = Optional.empty();
   public Optional<RangerAppParamDesc> ownParamDesc = Optional.empty();
   public Optional<RangerAppWriterContext> evalCtx = Optional.empty();
+  public Optional<NodeEvalState> evalState = Optional.empty()     /** note: unused */;
   
   CodeNode( SourceCode source , int start , int end  ) {
     sp = start;
@@ -99,8 +101,8 @@ class CodeNode {
       final Optional<CodeNode> t_ann = type_annotation;
       newNode.type_annotation = Optional.of(t_ann.get().rebuildWithType(match, true));
     }
-    for ( int i_11 = 0; i_11 < ns.size(); i_11++) {
-      String n = ns.get(i_11);
+    for ( int i_12 = 0; i_12 < ns.size(); i_12++) {
+      String n = ns.get(i_12);
       newNode.ns.add(n);
     }
     switch (value_type ) { 
@@ -122,15 +124,15 @@ class CodeNode {
         }
         break;
     }
-    for ( int i_16 = 0; i_16 < prop_keys.size(); i_16++) {
-      String key = prop_keys.get(i_16);
+    for ( int i_17 = 0; i_17 < prop_keys.size(); i_17++) {
+      String key = prop_keys.get(i_17);
       newNode.prop_keys.add(key);
       final Optional<CodeNode> oldp = Optional.ofNullable(props.get(key));
       final CodeNode np = oldp.get().rebuildWithType(match, changeVref);
       newNode.props.put(key, np);
     }
-    for ( int i_19 = 0; i_19 < children.size(); i_19++) {
-      CodeNode ch = children.get(i_19);
+    for ( int i_20 = 0; i_20 < children.size(); i_20++) {
+      CodeNode ch = children.get(i_20);
       final CodeNode newCh = ch.rebuildWithType(match, changeVref);
       newCh.parent = Optional.of(newNode);
       newNode.children.add(newCh);
@@ -248,8 +250,8 @@ class CodeNode {
     if ( false == has_vref_annotation ) {
       return Optional.ofNullable((res_2.isPresent() ? (CodeNode)res_2.get() : null ) );
     }
-    for ( int i_18 = 0; i_18 < vref_annotation.get().children.size(); i_18++) {
-      CodeNode ch_4 = vref_annotation.get().children.get(i_18);
+    for ( int i_19 = 0; i_19 < vref_annotation.get().children.size(); i_19++) {
+      CodeNode ch_4 = vref_annotation.get().children.get(i_19);
       if ( ch_4.vref.equals(flagName) ) {
         res_2 = Optional.of(ch_4);
         return Optional.ofNullable((res_2.isPresent() ? (CodeNode)res_2.get() : null ) );
@@ -262,8 +264,8 @@ class CodeNode {
     if ( false == has_vref_annotation ) {
       return false;
     }
-    for ( int i_20 = 0; i_20 < vref_annotation.get().children.size(); i_20++) {
-      CodeNode ch_6 = vref_annotation.get().children.get(i_20);
+    for ( int i_21 = 0; i_21 < vref_annotation.get().children.size(); i_21++) {
+      CodeNode ch_6 = vref_annotation.get().children.get(i_21);
       if ( ch_6.vref.equals(flagName) ) {
         return true;
       }
@@ -475,6 +477,13 @@ class CodeNode {
         break;
     }
     return value_type;
+  }
+  
+  public boolean isParsedAsPrimitive() {
+    if ( (((((parsed_type == 2) || (parsed_type == 4)) || (parsed_type == 3)) || (parsed_type == 12)) || (parsed_type == 13)) || (parsed_type == 5) ) {
+      return true;
+    }
+    return false;
   }
   
   public boolean isPrimitive() {
@@ -722,8 +731,8 @@ class CodeNode {
     } else {
       System.out.println(String.valueOf( code.get().code.substring(sp, ep ) ) );
     }
-    for ( int i_22 = 0; i_22 < children.size(); i_22++) {
-      CodeNode item = children.get(i_22);
+    for ( int i_23 = 0; i_23 < children.size(); i_23++) {
+      CodeNode item = children.get(i_23);
       item.walk();
     }
     if ( expression ) {

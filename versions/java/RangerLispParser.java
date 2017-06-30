@@ -4,7 +4,7 @@ import java.io.*;
 
 class RangerLispParser { 
   public Optional<SourceCode> code = Optional.empty();
-  public Optional<char[]> buff = Optional.empty();
+  public Optional<byte[]> buff = Optional.empty();
   public int len = 0;
   public int i = 0;
   public ArrayList<CodeNode> parents = new ArrayList<CodeNode>();
@@ -16,7 +16,7 @@ class RangerLispParser {
   public boolean had_error = false;
   
   RangerLispParser( SourceCode code_module  ) {
-    buff = Optional.of(code_module.code.toCharArray());
+    buff = Optional.of(code_module.code.getBytes());
     code = Optional.of(code_module);
     len = (buff.get()).length;
     rootNode = Optional.of(new CodeNode(code.get(), 0, 0));
@@ -56,12 +56,12 @@ class RangerLispParser {
   }
   
   public boolean skip_space( boolean is_block_parent ) {
-    final char[] s_8 = buff.get();
+    final byte[] s_8 = buff.get();
     boolean did_break = false;
     if ( i >= len ) {
       return true;
     }
-    char c_2 = s_8[i];
+    byte c_2 = s_8[i];
     /** unused:  final boolean bb = c_2 == (46)   **/ ;
     while ((i < len) && (c_2 <= 32)) {
       if ( is_block_parent && ((c_2 == 10) || (c_2 == 13)) ) {
@@ -102,12 +102,12 @@ class RangerLispParser {
   }
   
   public int getOperator() {
-    final char[] s_11 = buff.get();
+    final byte[] s_11 = buff.get();
     if ( (i + 2) >= len ) {
       return 0;
     }
-    final char c_5 = s_11[i];
-    final char c2 = s_11[(i + 1)];
+    final byte c_5 = s_11[i];
+    final byte c2 = s_11[(i + 1)];
     switch (c_5 ) { 
       case 42 : 
         i = i + 1;
@@ -167,12 +167,12 @@ class RangerLispParser {
   }
   
   public int isOperator() {
-    final char[] s_13 = buff.get();
+    final byte[] s_13 = buff.get();
     if ( (i - 2) > len ) {
       return 0;
     }
-    final char c_7 = s_13[i];
-    final char c2_4 = s_13[(i + 1)];
+    final byte c_7 = s_13[i];
+    final byte c2_4 = s_13[(i + 1)];
     switch (c_7 ) { 
       case 42 : 
         return 1;
@@ -265,10 +265,10 @@ class RangerLispParser {
   }
   
   public void parse() {
-    final char[] s_15 = buff.get();
-    char c_9 = s_15[0];
-    /** unused:  final char next_c = 0   **/ ;
-    char fc_11 = 0;
+    final byte[] s_15 = buff.get();
+    byte c_9 = s_15[0];
+    /** unused:  final byte next_c = 0   **/ ;
+    byte fc_11 = 0;
     Optional<CodeNode> new_node = Optional.empty();
     int sp_4 = 0;
     int ep_4 = 0;
@@ -309,6 +309,7 @@ class RangerLispParser {
             break;
           }
           new_node = Optional.of(new CodeNode(code.get(), sp_4, i));
+          new_node.get().parsed_type = 10;
           new_node.get().value_type = 10;
           new_node.get().string_value = new String(s_15,sp_4, i - sp_4 );
           curr_node.get().comments.add(new_node.get());
@@ -322,9 +323,11 @@ class RangerLispParser {
               rootNode = Optional.of(new CodeNode(code.get(), i, i));
               curr_node = rootNode;
               if ( c_9 == 96 ) {
+                curr_node.get().parsed_type = 30;
                 curr_node.get().value_type = 30;
               }
               if ( c_9 == 39 ) {
+                curr_node.get().parsed_type = 29;
                 curr_node.get().value_type = 29;
               }
               curr_node.get().expression = true;
@@ -368,9 +371,11 @@ class RangerLispParser {
           ep_4 = i;
           final CodeNode new_num_node = new CodeNode(code.get(), sp_4, ep_4);
           if ( is_double ) {
+            new_num_node.parsed_type = 2;
             new_num_node.value_type = 2;
             new_num_node.double_value = (Optional.of(Double.parseDouble((new String(s_15,sp_4, ep_4 - sp_4 )) ))).get();
           } else {
+            new_num_node.parsed_type = 3;
             new_num_node.value_type = 3;
             new_num_node.int_value = (Optional.of(Integer.parseInt((new String(s_15,sp_4, ep_4 - sp_4 )) ))).get();
           }
@@ -402,12 +407,13 @@ class RangerLispParser {
           if ( i < len ) {
             String encoded_str = "";
             if ( must_encode ) {
-              final char[] orig_str = (new String(s_15,sp_4, ep_4 - sp_4 )).toCharArray();
+              final byte[] orig_str = (new String(s_15,sp_4, ep_4 - sp_4 )).getBytes();
               final int str_length = orig_str.length;
               int ii_5 = 0;
-              while (ii_5 < str_length) {final char cc = orig_str[ii_5];
+              while (ii_5 < str_length) {
+                final byte cc = orig_str[ii_5];
                 if ( cc == 92 ) {
-                  final char next_ch = orig_str[(ii_5 + 1)];
+                  final byte next_ch = orig_str[(ii_5 + 1)];
                   switch (next_ch ) { 
                     case 34 : 
                       encoded_str = encoded_str + ((new String( Character.toChars(34))));
@@ -447,6 +453,7 @@ class RangerLispParser {
               }
             }
             final CodeNode new_str_node = new CodeNode(code.get(), sp_4, ep_4);
+            new_str_node.parsed_type = 4;
             new_str_node.value_type = 4;
             if ( must_encode ) {
               new_str_node.string_value = encoded_str;
@@ -461,6 +468,7 @@ class RangerLispParser {
         if ( (((fc_11 == (116)) && ((s_15[(i + 1)]) == (114))) && ((s_15[(i + 2)]) == (117))) && ((s_15[(i + 3)]) == (101)) ) {
           final CodeNode new_true_node = new CodeNode(code.get(), sp_4, sp_4 + 4);
           new_true_node.value_type = 5;
+          new_true_node.parsed_type = 5;
           new_true_node.boolean_value = true;
           this.insert_node(new_true_node);
           i = i + 4;
@@ -469,6 +477,7 @@ class RangerLispParser {
         if ( ((((fc_11 == (102)) && ((s_15[(i + 1)]) == (97))) && ((s_15[(i + 2)]) == (108))) && ((s_15[(i + 3)]) == (115))) && ((s_15[(i + 4)]) == (101)) ) {
           final CodeNode new_f_node = new CodeNode(code.get(), sp_4, sp_4 + 5);
           new_f_node.value_type = 5;
+          new_f_node.parsed_type = 5;
           new_f_node.boolean_value = false;
           this.insert_node(new_f_node);
           i = i + 5;
@@ -596,6 +605,7 @@ class RangerLispParser {
             new_expr_node_10.vref = new String(s_15,sp_4, ep_4 - sp_4 );
             new_expr_node_10.ns = ns_list;
             new_expr_node_10.expression_value = Optional.of(a_node3);
+            new_expr_node_10.parsed_type = 15;
             new_expr_node_10.value_type = 15;
             if ( vref_had_type_ann ) {
               new_expr_node_10.vref_annotation = vref_ann_node;
@@ -629,6 +639,7 @@ class RangerLispParser {
               final CodeNode new_hash_node = new CodeNode(code.get(), sp_4, vt_ep);
               new_hash_node.vref = new String(s_15,sp_4, ep_4 - sp_4 );
               new_hash_node.ns = ns_list;
+              new_hash_node.parsed_type = 7;
               new_hash_node.value_type = 7;
               new_hash_node.array_type = type_name;
               new_hash_node.key_type = key_type_name;
@@ -652,6 +663,7 @@ class RangerLispParser {
               final CodeNode new_arr_node = new CodeNode(code.get(), sp_4, vt_ep);
               new_arr_node.vref = new String(s_15,sp_4, ep_4 - sp_4 );
               new_arr_node.ns = ns_list;
+              new_arr_node.parsed_type = 6;
               new_arr_node.value_type = 6;
               new_arr_node.array_type = type_name_17;
               new_arr_node.parent = curr_node;
@@ -685,6 +697,7 @@ class RangerLispParser {
             final CodeNode new_ref_node = new CodeNode(code.get(), sp_4, ep_4);
             new_ref_node.vref = new String(s_15,sp_4, ep_4 - sp_4 );
             new_ref_node.ns = ns_list;
+            new_ref_node.parsed_type = 9;
             new_ref_node.value_type = 9;
             new_ref_node.type_name = new String(s_15,vt_sp, vt_ep - vt_sp );
             new_ref_node.parent = curr_node;
@@ -704,6 +717,7 @@ class RangerLispParser {
           if ( (i < len) && (ep_4 > sp_4) ) {
             final CodeNode new_vref_node = new CodeNode(code.get(), sp_4, ep_4);
             new_vref_node.vref = new String(s_15,sp_4, ep_4 - sp_4 );
+            new_vref_node.parsed_type = 9;
             new_vref_node.value_type = 9;
             new_vref_node.ns = ns_list;
             new_vref_node.parent = curr_node;
@@ -728,8 +742,10 @@ class RangerLispParser {
               new_vref_node.vref_annotation = vref_ann_node;
               new_vref_node.has_vref_annotation = true;
             }
-            if ( ((s_15[(i + 1)]) == (40)) || ((s_15[(i + 0)]) == (40)) ) {
-              if ( ((0 == op_pred) && curr_node.get().infix_operator) && (1 == (curr_node.get().children.size())) ) {
+            if ( (i + 1) < len ) {
+              if ( ((s_15[(i + 1)]) == (40)) || ((s_15[(i + 0)]) == (40)) ) {
+                if ( ((0 == op_pred) && curr_node.get().infix_operator) && (1 == (curr_node.get().children.size())) ) {
+                }
               }
             }
             if ( ((op_pred > 0) && curr_node.get().infix_operator) || ((op_pred > 0) && ((curr_node.get().children.size()) >= 2)) ) {
@@ -749,7 +765,8 @@ class RangerLispParser {
                   int ii_14 = 0;
                   final int start_from = ch_cnt - 2;
                   final CodeNode keep_nodes = new CodeNode(code.get(), sp_4, ep_4);
-                  while (ch_cnt > 0) {final CodeNode n_ch_21 = curr_node.get().children.remove(0);
+                  while (ch_cnt > 0) {
+                    final CodeNode n_ch_21 = curr_node.get().children.remove(0);
                     CodeNode p_target = if_node;
                     if ( (ii_14 < start_from) || n_ch_21.infix_subnode ) {
                       p_target = keep_nodes;
@@ -758,8 +775,8 @@ class RangerLispParser {
                     ch_cnt = ch_cnt - 1;
                     ii_14 = 1 + ii_14;
                   }
-                  for ( int i_33 = 0; i_33 < keep_nodes.children.size(); i_33++) {
-                    CodeNode keep = keep_nodes.children.get(i_33);
+                  for ( int i_34 = 0; i_34 < keep_nodes.children.size(); i_34++) {
+                    CodeNode keep = keep_nodes.children.get(i_34);
                     curr_node.get().children.add(keep);
                   }
                   curr_node.get().children.add(if_node);
@@ -788,7 +805,8 @@ class RangerLispParser {
                   new_op_node.children.add(last_value);
                 } else {
                   if ( false == just_continue ) {
-                    while (until_index > 0) {final CodeNode what_to_add = ifNode.get().children.remove(0);
+                    while (until_index > 0) {
+                      final CodeNode what_to_add = ifNode.get().children.remove(0);
                       new_op_node.children.add(what_to_add);
                       until_index = until_index - 1;
                     }

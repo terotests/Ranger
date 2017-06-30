@@ -62,11 +62,11 @@ class CodeWriter {
   }
   
   public void addIndent() {
-    int i_22 = 0;
+    int i_23 = 0;
     if ( 0 == (currentLine.length()) ) {
-      while (i_22 < indentAmount) {
+      while (i_23 < indentAmount) {
         currentLine = currentLine + tabStr;
-        i_22 = i_22 + 1;
+        i_23 = i_23 + 1;
       }
     }
   }

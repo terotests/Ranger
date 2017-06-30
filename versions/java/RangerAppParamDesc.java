@@ -4,6 +4,7 @@ import java.io.*;
 
 class RangerAppParamDesc { 
   public String name = "";
+  public Optional<RangerAppValue> value = Optional.empty()     /** note: unused */;
   public String compiledName = "";
   public String debugString = "";
   public int ref_cnt = 0;
@@ -32,6 +33,16 @@ class RangerAppParamDesc {
   public Optional<CodeNode> nameNode = Optional.empty();
   public String description = ""     /** note: unused */;
   public String git_doc = ""     /** note: unused */;
+  public boolean has_events = false;
+  public Optional<RangerParamEventMap> eMap = Optional.empty();
+  
+  public void addEvent( String name , RangerParamEventHandler e ) {
+    if ( has_events == false ) {
+      eMap = Optional.of(new RangerParamEventMap());
+      has_events = true;
+    }
+    eMap.get().addEvent(name, e);
+  }
   
   public void changeStrength( int newStrength , int lifeTime , CodeNode changer ) {
     final RangerRefForce entry = new RangerRefForce();
@@ -62,7 +73,7 @@ class RangerAppParamDesc {
         if ( nameNode.get().eval_type == 7 ) {
           return true;
         }
-        if ( (((nameNode.get().eval_type == 4) || (nameNode.get().eval_type == 2)) || (nameNode.get().eval_type == 5)) || (nameNode.get().eval_type == 3) ) {
+        if ( (((((nameNode.get().eval_type == 13) || (nameNode.get().eval_type == 12)) || (nameNode.get().eval_type == 4)) || (nameNode.get().eval_type == 2)) || (nameNode.get().eval_type == 5)) || (nameNode.get().eval_type == 3) ) {
           return false;
         }
         if ( nameNode.get().eval_type == 11 ) {
@@ -177,8 +188,8 @@ class RangerAppParamDesc {
   
   public void debugRefChanges() {
     System.out.println(String.valueOf( ("variable " + name) + " ref history : " ) );
-    for ( int i = 0; i < ownerHistory.size(); i++) {
-      RangerRefForce h = ownerHistory.get(i);
+    for ( int i_2 = 0; i_2 < ownerHistory.size(); i_2++) {
+      RangerRefForce h = ownerHistory.get(i_2);
       System.out.println(String.valueOf( ((" => change to " + h.strength) + " by ") + h.changer.get().getCode() ) );
     }
   }

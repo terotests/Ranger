@@ -20,13 +20,14 @@ class RangerFlowParser {
   }    
       
   public Optional<CodeNode> stdCommands = Optional.empty();
+  public Optional<CodeNode> lastProcessedNode = Optional.empty();
   
   public void cmdEnum( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
     final CodeNode fNameNode = node.children.get(1);
     final CodeNode enumList = node.children.get(2);
     final RangerAppEnum new_enum = new RangerAppEnum();
-    for ( int i_25 = 0; i_25 < enumList.children.size(); i_25++) {
-      CodeNode item_2 = enumList.children.get(i_25);
+    for ( int i_26 = 0; i_26 < enumList.children.size(); i_26++) {
+      CodeNode item_2 = enumList.children.get(i_26);
       new_enum.add(item_2.vref);
     }
     ctx.definedEnums.put(fNameNode.vref, new_enum);
@@ -37,14 +38,14 @@ class RangerFlowParser {
   
   public Optional<CodeNode> findLanguageOper( CodeNode details , RangerAppWriterContext ctx ) {
     final String langName = ctx.getTargetLang();
-    for ( int i_28 = 0; i_28 < details.children.size(); i_28++) {
-      CodeNode det = details.children.get(i_28);
+    for ( int i_29 = 0; i_29 < details.children.size(); i_29++) {
+      CodeNode det = details.children.get(i_29);
       if ( (det.children.size()) > 0 ) {
         final CodeNode fc_13 = det.children.get(0);
         if ( fc_13.vref.equals("templates") ) {
           final CodeNode tplList = det.children.get(1);
-          for ( int i_38 = 0; i_38 < tplList.children.size(); i_38++) {
-            CodeNode tpl = tplList.children.get(i_38);
+          for ( int i_39 = 0; i_39 < tplList.children.size(); i_39++) {
+            CodeNode tpl = tplList.children.get(i_39);
             final CodeNode tplName = tpl.getFirst();
             Optional<CodeNode> tplImpl = Optional.empty();
             tplImpl = Optional.of(tpl.getSecond());
@@ -69,6 +70,7 @@ class RangerFlowParser {
     lcc.langWriter = Optional.of(new RangerRangerClassWriter());
     lcc.langWriter.get().compiler = Optional.of(lcc);
     subCtx.targetLangName = "ranger";
+    subCtx.restartExpressionLevel();
     final CodeNode macroNode = langOper.get();
     final CodeNode cmdList = macroNode.getSecond();
     lcc.walkCommandList(cmdList, args, subCtx, wr_4);
@@ -120,9 +122,9 @@ class RangerFlowParser {
             is_macro = true;
           }
           final RangerArgMatch match = new RangerArgMatch();
-          for ( int i_32 = 0; i_32 < args.children.size(); i_32++) {
-            CodeNode arg_2 = args.children.get(i_32);
-            final CodeNode callArg_2 = callArgs.children.get((i_32 + 1));
+          for ( int i_33 = 0; i_33 < args.children.size(); i_33++) {
+            CodeNode arg_2 = args.children.get(i_33);
+            final CodeNode callArg_2 = callArgs.children.get((i_33 + 1));
             if ( arg_2.hasFlag("define") ) {
               final RangerAppParamDesc p_3 = new RangerAppParamDesc();
               p_3.name = callArg_2.vref;
@@ -228,8 +230,8 @@ class RangerFlowParser {
               CodeNode arg_13 = args.children.get(arg_index);
               if ( arg_13.has_vref_annotation ) {
                 final Optional<CodeNode> anns = arg_13.vref_annotation;
-                for ( int i_42 = 0; i_42 < anns.get().children.size(); i_42++) {
-                  CodeNode ann_25 = anns.get().children.get(i_42);
+                for ( int i_43 = 0; i_43 < anns.get().children.size(); i_43++) {
+                  CodeNode ann_25 = anns.get().children.get(i_43);
                   if ( ann_25.vref.equals("mutates") ) {
                     final CodeNode theArg = callArgs.children.get((arg_index + 1));
                     if ( theArg.hasParamDesc ) {
@@ -392,8 +394,8 @@ class RangerFlowParser {
     subCtx_4.is_function = true;
     subCtx_4.currentMethod = m_5;
     subCtx_4.setInMethod();
-    for ( int i_36 = 0; i_36 < m_5.get().params.size(); i_36++) {
-      RangerAppParamDesc v = m_5.get().params.get(i_36);
+    for ( int i_37 = 0; i_37 < m_5.get().params.size(); i_37++) {
+      RangerAppParamDesc v = m_5.get().params.get(i_37);
       subCtx_4.defineVariable(v.name, v);
     }
     this.WalkNodeChildren(fnBody, subCtx_4, wr);
@@ -401,8 +403,8 @@ class RangerFlowParser {
     if ( fnBody.didReturnAtIndex >= 0 ) {
       ctx.addError(node, "constructor should not return any values!");
     }
-    for ( int i_40 = 0; i_40 < subCtx_4.localVarNames.size(); i_40++) {
-      String n_4 = subCtx_4.localVarNames.get(i_40);
+    for ( int i_41 = 0; i_41 < subCtx_4.localVarNames.size(); i_41++) {
+      String n_4 = subCtx_4.localVarNames.get(i_41);
       final Optional<RangerAppParamDesc> p_6 = Optional.ofNullable(subCtx_4.localVariables.get(n_4));
       if ( p_6.get().set_cnt > 0 ) {
         final Optional<CodeNode> defNode = p_6.get().node;
@@ -443,9 +445,9 @@ class RangerFlowParser {
     }
     System.out.println(String.valueOf( "could build generic class... " + cn_4.vref ) );
     final RangerArgMatch match_4 = new RangerArgMatch();
-    for ( int i_40 = 0; i_40 < tplArgs_2.get().children.size(); i_40++) {
-      CodeNode arg_7 = tplArgs_2.get().children.get(i_40);
-      final CodeNode given = givenArgs.get().children.get(i_40);
+    for ( int i_41 = 0; i_41 < tplArgs_2.get().children.size(); i_41++) {
+      CodeNode arg_7 = tplArgs_2.get().children.get(i_41);
+      final CodeNode given = givenArgs.get().children.get(i_41);
       System.out.println(String.valueOf( ((" setting " + arg_7.vref) + " => ") + given.vref ) );
       if ( false == match_4.add(arg_7.vref, given.vref, ctx) ) {
         System.out.println(String.valueOf( "set failed!" ) );
@@ -502,8 +504,8 @@ class RangerFlowParser {
       }
     }
     this.WalkNode(obj, ctx, wr);
-    for ( int i_42 = 0; i_42 < params.children.size(); i_42++) {
-      CodeNode arg_9 = params.children.get(i_42);
+    for ( int i_43 = 0; i_43 < params.children.size(); i_43++) {
+      CodeNode arg_9 = params.children.get(i_43);
       ctx.setInExpr();
       this.WalkNode(arg_9, ctx, wr);
       ctx.unsetInExpr();
@@ -517,19 +519,19 @@ class RangerFlowParser {
     node.clDesc = currC;
     final Optional<RangerAppFunctionDesc> fnDescr = currC.get().constructor_fn;
     if ( fnDescr.isPresent() ) {
-      for ( int i_46 = 0; i_46 < fnDescr.get().params.size(); i_46++) {
-        RangerAppParamDesc param = fnDescr.get().params.get(i_46);
+      for ( int i_47 = 0; i_47 < fnDescr.get().params.size(); i_47++) {
+        RangerAppParamDesc param = fnDescr.get().params.get(i_47);
         boolean has_default = false;
         if ( param.nameNode.get().hasFlag("default") ) {
           has_default = true;
         }
-        if ( (params.children.size()) <= i_46 ) {
+        if ( (params.children.size()) <= i_47 ) {
           if ( has_default ) {
             continue;
           }
           ctx.addError(node, "Argument was not defined");
         }
-        final CodeNode argNode_4 = params.children.get(i_46);
+        final CodeNode argNode_4 = params.children.get(i_47);
         if ( false == this.areEqualTypes((param.nameNode.get()), argNode_4, ctx) ) {
           ctx.addError(node, ("ERROR, invalid argument types for " + currC.get().name) + " constructor ");
         }
@@ -584,27 +586,27 @@ class RangerFlowParser {
         subCtx_6.defineVariable(p_8.name, p_8);
         this.WalkNode(fnNode, subCtx_6, wr);
         final CodeNode callParams = node.children.get(1);
-        for ( int i_46 = 0; i_46 < callParams.children.size(); i_46++) {
-          CodeNode arg_11 = callParams.children.get(i_46);
+        for ( int i_47 = 0; i_47 < callParams.children.size(); i_47++) {
+          CodeNode arg_11 = callParams.children.get(i_47);
           ctx.setInExpr();
           this.WalkNode(arg_11, subCtx_6, wr);
           ctx.unsetInExpr();
-          final RangerAppParamDesc fnArg = vFnDef.get().params.get(i_46);
+          final RangerAppParamDesc fnArg = vFnDef.get().params.get(i_47);
           final Optional<RangerAppParamDesc> callArgP = arg_11.paramDesc;
           if ( callArgP.isPresent() ) {
             callArgP.get().moveRefTo(node, fnArg, ctx);
           }
         }
-        for ( int i_54 = 0; i_54 < vFnDef.get().params.size(); i_54++) {
-          RangerAppParamDesc param_4 = vFnDef.get().params.get(i_54);
-          if ( (callParams.children.size()) <= i_54 ) {
+        for ( int i_55 = 0; i_55 < vFnDef.get().params.size(); i_55++) {
+          RangerAppParamDesc param_4 = vFnDef.get().params.get(i_55);
+          if ( (callParams.children.size()) <= i_55 ) {
             if ( param_4.nameNode.get().hasFlag("default") ) {
               continue;
             }
             ctx.addError(node, "Argument was not defined");
             break;
           }
-          final CodeNode argNode_6 = callParams.children.get(i_54);
+          final CodeNode argNode_6 = callParams.children.get(i_55);
           if ( false == this.areEqualTypes((param_4.nameNode.get()), argNode_6, ctx) ) {
             ctx.addError(node, "ERROR, invalid argument types for method " + vFnDef.get().name);
           }
@@ -656,22 +658,22 @@ class RangerFlowParser {
       subCtx_10.defineVariable(p_12.name, p_12);
       this.WriteThisVar(fnNode, subCtx_10, wr);
       this.WalkNode(fnNode, subCtx_10, wr);
-      for ( int i_53 = 0; i_53 < node.children.size(); i_53++) {
-        CodeNode arg_15 = node.children.get(i_53);
-        if ( i_53 < 1 ) {
+      for ( int i_54 = 0; i_54 < node.children.size(); i_54++) {
+        CodeNode arg_15 = node.children.get(i_54);
+        if ( i_54 < 1 ) {
           continue;
         }
         ctx.setInExpr();
         this.WalkNode(arg_15, subCtx_10, wr);
         ctx.unsetInExpr();
       }
-      for ( int i_58 = 0; i_58 < fnDescr_4.get().params.size(); i_58++) {
-        RangerAppParamDesc param_8 = fnDescr_4.get().params.get(i_58);
-        if ( (node.children.size()) <= (i_58 + 1) ) {
+      for ( int i_59 = 0; i_59 < fnDescr_4.get().params.size(); i_59++) {
+        RangerAppParamDesc param_8 = fnDescr_4.get().params.get(i_59);
+        if ( (node.children.size()) <= (i_59 + 1) ) {
           ctx.addError(node, "Argument was not defined");
           break;
         }
-        final CodeNode argNode_10 = node.children.get((i_58 + 1));
+        final CodeNode argNode_10 = node.children.get((i_59 + 1));
         if ( false == this.areEqualTypes((param_8.nameNode.get()), argNode_10, ctx) ) {
           ctx.addError(node, (("ERROR, invalid argument types for " + desc_6.name) + " method ") + fnDescr_4.get().name);
         }
@@ -775,8 +777,8 @@ class RangerFlowParser {
     }
     final RangerAppWriterContext subCtx_10 = desc_8.ctx.get();
     subCtx_10.setCurrentClass(desc_8);
-    for ( int i_54 = 0; i_54 < desc_8.variables.size(); i_54++) {
-      RangerAppParamDesc p_12 = desc_8.variables.get(i_54);
+    for ( int i_55 = 0; i_55 < desc_8.variables.size(); i_55++) {
+      RangerAppParamDesc p_12 = desc_8.variables.get(i_55);
       final Optional<CodeNode> vNode = p_12.node;
       if ( (vNode.get().children.size()) > 2 ) {
         final CodeNode value = vNode.get().children.get(2);
@@ -788,22 +790,22 @@ class RangerFlowParser {
       p_12.nameNode.get().eval_type = p_12.nameNode.get().typeNameAsType(ctx);
       p_12.nameNode.get().eval_type_name = p_12.nameNode.get().type_name;
     }
-    for ( int i_58 = 0; i_58 < cBody.children.size(); i_58++) {
-      CodeNode fNode = cBody.children.get(i_58);
+    for ( int i_59 = 0; i_59 < cBody.children.size(); i_59++) {
+      CodeNode fNode = cBody.children.get(i_59);
       if ( fNode.isFirstVref("fn") || fNode.isFirstVref("Constructor") ) {
         this.WalkNode(fNode, subCtx_10, wr);
       }
     }
-    for ( int i_61 = 0; i_61 < cBody.children.size(); i_61++) {
-      CodeNode fNode_6 = cBody.children.get(i_61);
+    for ( int i_62 = 0; i_62 < cBody.children.size(); i_62++) {
+      CodeNode fNode_6 = cBody.children.get(i_62);
       if ( fNode_6.isFirstVref("fn") || fNode_6.isFirstVref("PublicMethod") ) {
         this.WalkNode(fNode_6, subCtx_10, wr);
       }
     }
     final RangerAppWriterContext staticCtx = ctx.fork();
     staticCtx.setCurrentClass(desc_8);
-    for ( int i_64 = 0; i_64 < cBody.children.size(); i_64++) {
-      CodeNode fNode_9 = cBody.children.get(i_64);
+    for ( int i_65 = 0; i_65 < cBody.children.size(); i_65++) {
+      CodeNode fNode_9 = cBody.children.get(i_65);
       if ( fNode_9.isFirstVref("sfn") || fNode_9.isFirstVref("StaticMethod") ) {
         this.WalkNode(fNode_9, staticCtx, wr);
       }
@@ -823,8 +825,8 @@ class RangerFlowParser {
     final RangerAppFunctionDesc m_8 = um.get();
     final RangerAppWriterContext subCtx_12 = m_8.fnCtx.get();
     subCtx_12.currentMethod = Optional.of(m_8);
-    for ( int i_62 = 0; i_62 < m_8.params.size(); i_62++) {
-      RangerAppParamDesc v_4 = m_8.params.get(i_62);
+    for ( int i_63 = 0; i_63 < m_8.params.size(); i_63++) {
+      RangerAppParamDesc v_4 = m_8.params.get(i_63);
       v_4.nameNode.get().eval_type = v_4.nameNode.get().typeNameAsType(subCtx_12);
       v_4.nameNode.get().eval_type_name = v_4.nameNode.get().type_name;
     }
@@ -836,8 +838,8 @@ class RangerFlowParser {
         ctx.addError(node, "Function does not return any values!");
       }
     }
-    for ( int i_66 = 0; i_66 < subCtx_12.localVarNames.size(); i_66++) {
-      String n_7 = subCtx_12.localVarNames.get(i_66);
+    for ( int i_67 = 0; i_67 < subCtx_12.localVarNames.size(); i_67++) {
+      String n_7 = subCtx_12.localVarNames.get(i_67);
       final Optional<RangerAppParamDesc> p_14 = Optional.ofNullable(subCtx_12.localVariables.get(n_7));
       if ( p_14.get().set_cnt > 0 ) {
         final Optional<CodeNode> defNode_4 = p_14.get().node;
@@ -867,8 +869,8 @@ class RangerFlowParser {
       m_10.changeStrength(1, 1, node);
     }
     subCtx_14.setInMethod();
-    for ( int i_66 = 0; i_66 < m_10.params.size(); i_66++) {
-      RangerAppParamDesc v_6 = m_10.params.get(i_66);
+    for ( int i_67 = 0; i_67 < m_10.params.size(); i_67++) {
+      RangerAppParamDesc v_6 = m_10.params.get(i_67);
       subCtx_14.defineVariable(v_6.name, v_6);
       v_6.nameNode.get().eval_type = v_6.nameNode.get().typeNameAsType(ctx);
       v_6.nameNode.get().eval_type_name = v_6.nameNode.get().type_name;
@@ -881,8 +883,8 @@ class RangerFlowParser {
         ctx.addError(node, "Function does not return any values!");
       }
     }
-    for ( int i_70 = 0; i_70 < subCtx_14.localVarNames.size(); i_70++) {
-      String n_9 = subCtx_14.localVarNames.get(i_70);
+    for ( int i_71 = 0; i_71 < subCtx_14.localVarNames.size(); i_71++) {
+      String n_9 = subCtx_14.localVarNames.get(i_71);
       final Optional<RangerAppParamDesc> p_16 = Optional.ofNullable(subCtx_14.localVariables.get(n_9));
       if ( p_16.get().set_cnt > 0 ) {
         final Optional<CodeNode> defNode_6 = p_16.get().node;
@@ -899,16 +901,16 @@ class RangerFlowParser {
     final CodeNode args_4 = node.children.get(2);
     final CodeNode body = node.children.get(3);
     final RangerAppWriterContext subCtx_16 = ctx.fork();
-    for ( int i_70 = 0; i_70 < args_4.children.size(); i_70++) {
-      CodeNode arg_15 = args_4.children.get(i_70);
+    for ( int i_71 = 0; i_71 < args_4.children.size(); i_71++) {
+      CodeNode arg_15 = args_4.children.get(i_71);
       final RangerAppParamDesc v_8 = new RangerAppParamDesc();
       v_8.name = arg_15.vref;
       v_8.node = Optional.of(arg_15);
       v_8.nameNode = Optional.of(arg_15);
       subCtx_16.defineVariable(v_8.name, v_8);
     }
-    for ( int i_74 = 0; i_74 < body.children.size(); i_74++) {
-      CodeNode item_5 = body.children.get(i_74);
+    for ( int i_75 = 0; i_75 < body.children.size(); i_75++) {
+      CodeNode item_5 = body.children.get(i_75);
       this.WalkNode(item_5, subCtx_16, wr);
     }
     System.out.println(String.valueOf( "--> EXITLAMBDA" ) );
@@ -1037,8 +1039,8 @@ class RangerFlowParser {
       ctx.addTodo(node, node.getStringProperty("todo"));
     }
     if ( node.expression ) {
-      for ( int i_74 = 0; i_74 < node.children.size(); i_74++) {
-        CodeNode item_7 = node.children.get(i_74);
+      for ( int i_75 = 0; i_75 < node.children.size(); i_75++) {
+        CodeNode item_7 = node.children.get(i_75);
         item_7.parent = Optional.of(node);
         this.WalkNode(item_7, ctx, wr);
         node.copyEvalResFrom(item_7);
@@ -1052,8 +1054,8 @@ class RangerFlowParser {
     }
     final CodeNode fc_24 = node.getFirst();
     stdCommands = Optional.of(ctx.getStdCommands());
-    for ( int i_76 = 0; i_76 < stdCommands.get().children.size(); i_76++) {
-      CodeNode cmd = stdCommands.get().children.get(i_76);
+    for ( int i_77 = 0; i_77 < stdCommands.get().children.size(); i_77++) {
+      CodeNode cmd = stdCommands.get().children.get(i_77);
       final CodeNode cmdName = cmd.getFirst();
       if ( cmdName.vref.equals(fc_24.vref) ) {
         this.stdParamMatch(node, ctx, wr);
@@ -1072,6 +1074,7 @@ class RangerFlowParser {
       return true;
     }
     node.flow_done = true;
+    this.lastProcessedNode = Optional.of(node);
     if ( node.hasStringProperty("todo") ) {
       ctx.addTodo(node, node.getStringProperty("todo"));
     }
@@ -1181,8 +1184,8 @@ class RangerFlowParser {
       }
     }
     if ( node.expression ) {
-      for ( int i_78 = 0; i_78 < node.children.size(); i_78++) {
-        CodeNode item_9 = node.children.get(i_78);
+      for ( int i_79 = 0; i_79 < node.children.size(); i_79++) {
+        CodeNode item_9 = node.children.get(i_79);
         item_9.parent = Optional.of(node);
         this.WalkNode(item_9, ctx, wr);
         node.copyEvalResFrom(item_9);
@@ -1214,8 +1217,8 @@ class RangerFlowParser {
       this.mergeImports(rn_2, ctx, wr);
       node.children.add(rn_2);
     } else {
-      for ( int i_80 = 0; i_80 < node.children.size(); i_80++) {
-        CodeNode item_11 = node.children.get(i_80);
+      for ( int i_81 = 0; i_81 < node.children.size(); i_81++) {
+        CodeNode item_11 = node.children.get(i_81);
         this.mergeImports(item_11, ctx, wr);
       }
     }
@@ -1232,8 +1235,8 @@ class RangerFlowParser {
       new_class.nameNode = Optional.of(nameNode_4);
       ctx.addClass(nameNode_4.vref, new_class);
       new_class.is_system = true;
-      for ( int i_82 = 0; i_82 < instances.children.size(); i_82++) {
-        CodeNode ch_7 = instances.children.get(i_82);
+      for ( int i_83 = 0; i_83 < instances.children.size(); i_83++) {
+        CodeNode ch_7 = instances.children.get(i_83);
         final CodeNode langName_4 = ch_7.getFirst();
         final CodeNode langClassName = ch_7.getSecond();
         new_class.systemNames.put(langName_4.vref, langClassName.vref);
@@ -1302,6 +1305,7 @@ class RangerFlowParser {
         new_class_6.nameNode = Optional.of(classNameNode);
         ctx.addClass(s_13, new_class_6);
         new_class_6.classNode = Optional.of(node);
+        new_class_6.node = Optional.of(node);
       }
     }
     if ( node.isFirstVref("TemplateClass") ) {
@@ -1310,12 +1314,12 @@ class RangerFlowParser {
       find_more = false;
     }
     if ( node.isFirstVref("Extends") ) {
-      final CodeNode list_2 = node.children.get(1);
-      for ( int i_86 = 0; i_86 < list_2.children.size(); i_86++) {
-        CodeNode cname_5 = list_2.children.get(i_86);
+      final CodeNode list_4 = node.children.get(1);
+      for ( int i_87 = 0; i_87 < list_4.children.size(); i_87++) {
+        CodeNode cname_5 = list_4.children.get(i_87);
         final RangerAppClassDesc extC = ctx.findClass(cname_5.vref);
-        for ( int i_95 = 0; i_95 < extC.variables.size(); i_95++) {
-          RangerAppParamDesc vv = extC.variables.get(i_95);
+        for ( int i_96 = 0; i_96 < extC.variables.size(); i_96++) {
+          RangerAppParamDesc vv = extC.variables.get(i_96);
           final Optional<RangerAppClassDesc> currC_11 = ctx.currentClass;
           final Optional<RangerAppWriterContext> subCtx_25 = currC_11.get().ctx;
           subCtx_25.get().defineVariable(vv.name, vv);
@@ -1362,8 +1366,8 @@ class RangerFlowParser {
     }
     if ( node.isFirstVref("operators") ) {
       final CodeNode listOf = node.getSecond();
-      for ( int i_92 = 0; i_92 < listOf.children.size(); i_92++) {
-        CodeNode item_13 = listOf.children.get(i_92);
+      for ( int i_93 = 0; i_93 < listOf.children.size(); i_93++) {
+        CodeNode item_13 = listOf.children.get(i_93);
         ctx.createOperator(item_13);
       }
       find_more = false;
@@ -1477,17 +1481,17 @@ class RangerFlowParser {
       find_more = false;
     }
     if ( find_more ) {
-      for ( int i_95 = 0; i_95 < node.children.size(); i_95++) {
-        CodeNode item_17 = node.children.get(i_95);
+      for ( int i_96 = 0; i_96 < node.children.size(); i_96++) {
+        CodeNode item_17 = node.children.get(i_96);
         this.CollectMethods(item_17, ctx, wr);
       }
     }
   }
   
   public void FindWeakRefs( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
-    final ArrayList<RangerAppClassDesc> list_5 = ctx.getClasses();
-    for ( int i_92 = 0; i_92 < list_5.size(); i_92++) {
-      RangerAppClassDesc classDesc = list_5.get(i_92);
+    final ArrayList<RangerAppClassDesc> list_7 = ctx.getClasses();
+    for ( int i_93 = 0; i_93 < list_7.size(); i_93++) {
+      RangerAppClassDesc classDesc = list_7.get(i_93);
       for ( int i2 = 0; i2 < classDesc.variables.size(); i2++) {
         RangerAppParamDesc varD = classDesc.variables.get(i2);
         if ( varD.refType == 1 ) {
@@ -1513,9 +1517,9 @@ class RangerFlowParser {
         final int cnt_4 = obj.ns.size();
         Optional<RangerAppParamDesc> classRefDesc = Optional.empty();
         Optional<RangerAppClassDesc> classDesc_4 = Optional.empty();
-        for ( int i_94 = 0; i_94 < obj.ns.size(); i_94++) {
-          String strname = obj.ns.get(i_94);
-          if ( i_94 == 0 ) {
+        for ( int i_95 = 0; i_95 < obj.ns.size(); i_95++) {
+          String strname = obj.ns.get(i_95);
+          if ( i_95 == 0 ) {
             if ( strname.equals(this.getThisName()) ) {
               classDesc_4 = ctx.getCurrentClass();
             } else {
@@ -1538,7 +1542,7 @@ class RangerFlowParser {
             if ( !classDesc_4.isPresent() ) {
               return Optional.ofNullable((varFnDesc.isPresent() ? (RangerAppFunctionDesc)varFnDesc.get() : null ) );
             }
-            if ( i_94 < (cnt_4 - 1) ) {
+            if ( i_95 < (cnt_4 - 1) ) {
               varDesc = classDesc_4.get().findVariable(strname);
               if ( !varDesc.isPresent() ) {
                 ctx.addError(obj, "Error, no description for refenced obj: " + strname);
@@ -1585,9 +1589,9 @@ class RangerFlowParser {
       if ( (obj.ns.size()) > 1 ) {
         final int cnt_7 = obj.ns.size();
         Optional<RangerAppParamDesc> classRefDesc_4 = Optional.empty();
-        for ( int i_96 = 0; i_96 < obj.ns.size(); i_96++) {
-          String strname_4 = obj.ns.get(i_96);
-          if ( i_96 == 0 ) {
+        for ( int i_97 = 0; i_97 < obj.ns.size(); i_97++) {
+          String strname_4 = obj.ns.get(i_97);
+          if ( i_97 == 0 ) {
             if ( strname_4.equals(this.getThisName()) ) {
               classDesc_6 = ctx.getCurrentClass();
               if ( set_nsp ) {
@@ -1613,7 +1617,7 @@ class RangerFlowParser {
               classDesc_6 = Optional.of(ctx.findClass(classRefDesc_4.get().nameNode.get().type_name));
             }
           } else {
-            if ( i_96 < (cnt_7 - 1) ) {
+            if ( i_97 < (cnt_7 - 1) ) {
               varDesc_4 = classDesc_6.get().findVariable(strname_4);
               if ( !varDesc_4.isPresent() ) {
                 ctx.addError(obj, "Error, no description for refenced obj: " + strname_4);

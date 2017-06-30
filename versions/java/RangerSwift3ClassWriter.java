@@ -15,7 +15,7 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
         return "Int";
       case "string" : 
         return "String";
-      case "chararray" : 
+      case "charbuffer" : 
         return "[UInt8]";
       case "char" : 
         return "UInt8";
@@ -33,6 +33,10 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
         return "Int";
       case "string" : 
         return "String";
+      case "charbuffer" : 
+        return "[UInt8]";
+      case "char" : 
+        return "UInt8";
       case "boolean" : 
         return "Bool";
       case "double" : 
@@ -122,16 +126,16 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
     }
     final int max_len_2 = node.ns.size();
     if ( (node.nsp.size()) > 0 ) {
-      for ( int i_81 = 0; i_81 < node.nsp.size(); i_81++) {
-        RangerAppParamDesc p_20 = node.nsp.get(i_81);
-        if ( i_81 == 0 ) {
+      for ( int i_82 = 0; i_82 < node.nsp.size(); i_82++) {
+        RangerAppParamDesc p_20 = node.nsp.get(i_82);
+        if ( i_82 == 0 ) {
           final String part_4 = node.ns.get(0);
           if ( part_4.equals("this") ) {
             wr.out("self", false);
             continue;
           }
         }
-        if ( i_81 > 0 ) {
+        if ( i_82 > 0 ) {
           wr.out(".", false);
         }
         if ( (p_20.compiledName.length()) > 0 ) {
@@ -140,10 +144,10 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
           if ( (p_20.name.length()) > 0 ) {
             wr.out(this.adjustType(p_20.name), false);
           } else {
-            wr.out(this.adjustType((node.ns.get(i_81))), false);
+            wr.out(this.adjustType((node.ns.get(i_82))), false);
           }
         }
-        if ( i_81 < (max_len_2 - 1) ) {
+        if ( i_82 < (max_len_2 - 1) ) {
           if ( p_20.nameNode.get().hasFlag("optional") ) {
             wr.out("!", false);
           }
@@ -156,9 +160,9 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
       wr.out(p_25.get().compiledName, false);
       return;
     }
-    for ( int i_86 = 0; i_86 < node.ns.size(); i_86++) {
-      String part_9 = node.ns.get(i_86);
-      if ( i_86 > 0 ) {
+    for ( int i_87 = 0; i_87 < node.ns.size(); i_87++) {
+      String part_9 = node.ns.get(i_87);
+      if ( i_87 > 0 ) {
         wr.out(".", false);
       }
       wr.out(this.adjustType(part_9), false);
@@ -208,9 +212,9 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
   }
   
   public void writeArgsDef( RangerAppFunctionDesc fnDesc , RangerAppWriterContext ctx , CodeWriter wr ) {
-    for ( int i_86 = 0; i_86 < fnDesc.params.size(); i_86++) {
-      RangerAppParamDesc arg_15 = fnDesc.params.get(i_86);
-      if ( i_86 > 0 ) {
+    for ( int i_87 = 0; i_87 < fnDesc.params.size(); i_87++) {
+      RangerAppParamDesc arg_15 = fnDesc.params.get(i_87);
+      if ( i_87 > 0 ) {
         wr.out(", ", false);
       }
       wr.out(arg_15.name + " : ", false);
@@ -231,12 +235,12 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
       wr.out("(", false);
       ctx.setInExpr();
       final CodeNode givenArgs_4 = node.getSecond();
-      for ( int i_88 = 0; i_88 < node.fnDesc.get().params.size(); i_88++) {
-        RangerAppParamDesc arg_18 = node.fnDesc.get().params.get(i_88);
-        if ( i_88 > 0 ) {
+      for ( int i_89 = 0; i_89 < node.fnDesc.get().params.size(); i_89++) {
+        RangerAppParamDesc arg_18 = node.fnDesc.get().params.get(i_89);
+        if ( i_89 > 0 ) {
           wr.out(", ", false);
         }
-        if ( (givenArgs_4.children.size()) <= i_88 ) {
+        if ( (givenArgs_4.children.size()) <= i_89 ) {
           final Optional<CodeNode> defVal_2 = arg_18.nameNode.get().getFlag("default");
           if ( defVal_2.isPresent() ) {
             final CodeNode fc_35 = defVal_2.get().vref_annotation.get().getFirst();
@@ -246,7 +250,7 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
           }
           continue;
         }
-        final CodeNode n_10 = givenArgs_4.children.get(i_88);
+        final CodeNode n_10 = givenArgs_4.children.get(i_89);
         wr.out(arg_18.name + " : ", false);
         this.WalkNode(n_10, ctx, wr);
       }
@@ -267,10 +271,10 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
       final Optional<RangerAppFunctionDesc> constr_3 = cl_6.get().constructor_fn;
       final CodeNode givenArgs_7 = node.getThird();
       if ( constr_3.isPresent() ) {
-        for ( int i_90 = 0; i_90 < constr_3.get().params.size(); i_90++) {
-          RangerAppParamDesc arg_20 = constr_3.get().params.get(i_90);
-          final CodeNode n_13 = givenArgs_7.children.get(i_90);
-          if ( i_90 > 0 ) {
+        for ( int i_91 = 0; i_91 < constr_3.get().params.size(); i_91++) {
+          RangerAppParamDesc arg_20 = constr_3.get().params.get(i_91);
+          final CodeNode n_13 = givenArgs_7.children.get(i_91);
+          if ( i_91 > 0 ) {
             wr.out(", ", false);
           }
           wr.out(arg_20.name + " : ", false);
@@ -294,9 +298,9 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
     if ( (fn1.params.size()) != (fn2.params.size()) ) {
       return false;
     }
-    for ( int i_92 = 0; i_92 < fn1.params.size(); i_92++) {
-      RangerAppParamDesc p_27 = fn1.params.get(i_92);
-      final RangerAppParamDesc p2_2 = fn2.params.get(i_92);
+    for ( int i_93 = 0; i_93 < fn1.params.size(); i_93++) {
+      RangerAppParamDesc p_27 = fn1.params.get(i_93);
+      final RangerAppParamDesc p2_2 = fn2.params.get(i_93);
       if ( match_3.doesDefsMatch((p_27.nameNode.get()), (p2_2.nameNode.get()), ctx) == false ) {
         return false;
       }
@@ -313,16 +317,16 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
     Optional<RangerAppClassDesc> parentClass_2 = Optional.empty();
     if ( (cl_9.get().extends_classes.size()) > 0 ) {
       wr.out(" : ", false);
-      for ( int i_94 = 0; i_94 < cl_9.get().extends_classes.size(); i_94++) {
-        String pName_3 = cl_9.get().extends_classes.get(i_94);
+      for ( int i_95 = 0; i_95 < cl_9.get().extends_classes.size(); i_95++) {
+        String pName_3 = cl_9.get().extends_classes.get(i_95);
         wr.out(pName_3, false);
         parentClass_2 = Optional.of(ctx.findClass(pName_3));
       }
     }
     wr.out(" { ", true);
     wr.indent(1);
-    for ( int i_98 = 0; i_98 < cl_9.get().variables.size(); i_98++) {
-      RangerAppParamDesc pvar_5 = cl_9.get().variables.get(i_98);
+    for ( int i_99 = 0; i_99 < cl_9.get().variables.size(); i_99++) {
+      RangerAppParamDesc pvar_5 = cl_9.get().variables.get(i_99);
       this.writeVarDef(pvar_5.node.get(), ctx, wr);
     }
     if ( cl_9.get().has_constructor ) {
@@ -358,8 +362,8 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
       wr.indent(-1);
       wr.out("}", true);
     }
-    for ( int i_101 = 0; i_101 < cl_9.get().static_methods.size(); i_101++) {
-      RangerAppFunctionDesc variant_4 = cl_9.get().static_methods.get(i_101);
+    for ( int i_102 = 0; i_102 < cl_9.get().static_methods.size(); i_102++) {
+      RangerAppFunctionDesc variant_4 = cl_9.get().static_methods.get(i_102);
       if ( variant_4.nameNode.get().hasFlag("main") ) {
         continue;
       }
@@ -377,11 +381,11 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
       wr.indent(-1);
       wr.out("}", true);
     }
-    for ( int i_104 = 0; i_104 < cl_9.get().defined_variants.size(); i_104++) {
-      String fnVar_3 = cl_9.get().defined_variants.get(i_104);
+    for ( int i_105 = 0; i_105 < cl_9.get().defined_variants.size(); i_105++) {
+      String fnVar_3 = cl_9.get().defined_variants.get(i_105);
       final Optional<RangerAppMethodVariants> mVs_3 = Optional.ofNullable(cl_9.get().method_variants.get(fnVar_3));
-      for ( int i_111 = 0; i_111 < mVs_3.get().variants.size(); i_111++) {
-        RangerAppFunctionDesc variant_9 = mVs_3.get().variants.get(i_111);
+      for ( int i_112 = 0; i_112 < mVs_3.get().variants.size(); i_112++) {
+        RangerAppFunctionDesc variant_9 = mVs_3.get().variants.get(i_112);
         wr.out(("func " + variant_9.name) + "(", false);
         this.writeArgsDef(variant_9, ctx, wr);
         wr.out(") -> ", false);
@@ -399,8 +403,8 @@ class RangerSwift3ClassWriter extends RangerGenericClassWriter {
     }
     wr.indent(-1);
     wr.out("}", true);
-    for ( int i_110 = 0; i_110 < cl_9.get().static_methods.size(); i_110++) {
-      RangerAppFunctionDesc variant_12 = cl_9.get().static_methods.get(i_110);
+    for ( int i_111 = 0; i_111 < cl_9.get().static_methods.size(); i_111++) {
+      RangerAppFunctionDesc variant_12 = cl_9.get().static_methods.get(i_111);
       final boolean b_3 = variant_12.nameNode.get().hasFlag("main");
       if ( b_3 ) {
         wr.newline();

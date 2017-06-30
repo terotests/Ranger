@@ -8,7 +8,8 @@ class RangerGenericClassWriter {
     final int str_length_2 = node.string_value.length();
     String encoded_str_8 = "";
     int ii_11 = 0;
-    while (ii_11 < str_length_2) {final int cc_4 = (int)node.string_value.charAt(ii_11);
+    while (ii_11 < str_length_2) {
+      final int cc_4 = (int)node.string_value.charAt(ii_11);
       switch (cc_4 ) { 
         case 8 : 
           encoded_str_8 = (encoded_str_8 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(98))));
@@ -115,8 +116,8 @@ class RangerGenericClassWriter {
   }
   
   public void release_local_vars( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
-    for ( int i_61 = 0; i_61 < ctx.localVarNames.size(); i_61++) {
-      String n_7 = ctx.localVarNames.get(i_61);
+    for ( int i_62 = 0; i_62 < ctx.localVarNames.size(); i_62++) {
+      String n_7 = ctx.localVarNames.get(i_62);
       final Optional<RangerAppParamDesc> p_14 = Optional.ofNullable(ctx.localVariables.get(n_7));
       if ( p_14.get().ref_cnt == 0 ) {
         continue;
@@ -177,9 +178,9 @@ class RangerGenericClassWriter {
       }
     }
     if ( (node.nsp.size()) > 0 ) {
-      for ( int i_64 = 0; i_64 < node.nsp.size(); i_64++) {
-        RangerAppParamDesc p_17 = node.nsp.get(i_64);
-        if ( i_64 > 0 ) {
+      for ( int i_65 = 0; i_65 < node.nsp.size(); i_65++) {
+        RangerAppParamDesc p_17 = node.nsp.get(i_65);
+        if ( i_65 > 0 ) {
           wr.out(".", false);
         }
         if ( (p_17.compiledName.length()) > 0 ) {
@@ -188,15 +189,15 @@ class RangerGenericClassWriter {
           if ( (p_17.name.length()) > 0 ) {
             wr.out(this.adjustType(p_17.name), false);
           } else {
-            wr.out(this.adjustType((node.ns.get(i_64))), false);
+            wr.out(this.adjustType((node.ns.get(i_65))), false);
           }
         }
       }
       return;
     }
-    for ( int i_68 = 0; i_68 < node.ns.size(); i_68++) {
-      String part = node.ns.get(i_68);
-      if ( i_68 > 0 ) {
+    for ( int i_69 = 0; i_69 < node.ns.size(); i_69++) {
+      String part = node.ns.get(i_69);
+      if ( i_69 > 0 ) {
         wr.out(".", false);
       }
       wr.out(this.adjustType(part), false);
@@ -231,12 +232,12 @@ class RangerGenericClassWriter {
       wr.out("(", false);
       final CodeNode givenArgs_2 = node.getSecond();
       ctx.setInExpr();
-      for ( int i_68 = 0; i_68 < node.fnDesc.get().params.size(); i_68++) {
-        RangerAppParamDesc arg_12 = node.fnDesc.get().params.get(i_68);
-        if ( i_68 > 0 ) {
+      for ( int i_69 = 0; i_69 < node.fnDesc.get().params.size(); i_69++) {
+        RangerAppParamDesc arg_12 = node.fnDesc.get().params.get(i_69);
+        if ( i_69 > 0 ) {
           wr.out(", ", false);
         }
-        if ( (givenArgs_2.children.size()) <= i_68 ) {
+        if ( (givenArgs_2.children.size()) <= i_69 ) {
           final Optional<CodeNode> defVal = arg_12.nameNode.get().getFlag("default");
           if ( defVal.isPresent() ) {
             final CodeNode fc_31 = defVal.get().vref_annotation.get().getFirst();
@@ -246,7 +247,7 @@ class RangerGenericClassWriter {
           }
           continue;
         }
-        final CodeNode n_10 = givenArgs_2.children.get(i_68);
+        final CodeNode n_10 = givenArgs_2.children.get(i_69);
         this.WalkNode(n_10, ctx, wr);
       }
       ctx.unsetInExpr();
@@ -266,10 +267,10 @@ class RangerGenericClassWriter {
       final Optional<RangerAppFunctionDesc> constr = cl_2.get().constructor_fn;
       final CodeNode givenArgs_5 = node.getThird();
       if ( constr.isPresent() ) {
-        for ( int i_70 = 0; i_70 < constr.get().params.size(); i_70++) {
-          RangerAppParamDesc arg_15 = constr.get().params.get(i_70);
-          final CodeNode n_12 = givenArgs_5.children.get(i_70);
-          if ( i_70 > 0 ) {
+        for ( int i_71 = 0; i_71 < constr.get().params.size(); i_71++) {
+          RangerAppParamDesc arg_15 = constr.get().params.get(i_71);
+          final CodeNode n_12 = givenArgs_5.children.get(i_71);
+          if ( i_71 > 0 ) {
             wr.out(", ", false);
           }
           if ( true || (arg_15.nameNode.isPresent()) ) {
@@ -288,19 +289,19 @@ class RangerGenericClassWriter {
     }
     wr.out(("class " + cl_5.get().name) + " { ", true);
     wr.indent(1);
-    for ( int i_72 = 0; i_72 < cl_5.get().variables.size(); i_72++) {
-      RangerAppParamDesc pvar = cl_5.get().variables.get(i_72);
+    for ( int i_73 = 0; i_73 < cl_5.get().variables.size(); i_73++) {
+      RangerAppParamDesc pvar = cl_5.get().variables.get(i_73);
       wr.out(((("/* var " + pvar.name) + " => ") + pvar.nameNode.get().parent.get().getCode()) + " */ ", true);
     }
-    for ( int i_76 = 0; i_76 < cl_5.get().static_methods.size(); i_76++) {
-      RangerAppFunctionDesc pvar_6 = cl_5.get().static_methods.get(i_76);
+    for ( int i_77 = 0; i_77 < cl_5.get().static_methods.size(); i_77++) {
+      RangerAppFunctionDesc pvar_6 = cl_5.get().static_methods.get(i_77);
       wr.out(("/* static " + pvar_6.name) + " */ ", true);
     }
-    for ( int i_79 = 0; i_79 < cl_5.get().defined_variants.size(); i_79++) {
-      String fnVar = cl_5.get().defined_variants.get(i_79);
+    for ( int i_80 = 0; i_80 < cl_5.get().defined_variants.size(); i_80++) {
+      String fnVar = cl_5.get().defined_variants.get(i_80);
       final Optional<RangerAppMethodVariants> mVs = Optional.ofNullable(cl_5.get().method_variants.get(fnVar));
-      for ( int i_86 = 0; i_86 < mVs.get().variants.size(); i_86++) {
-        RangerAppFunctionDesc variant = mVs.get().variants.get(i_86);
+      for ( int i_87 = 0; i_87 < mVs.get().variants.size(); i_87++) {
+        RangerAppFunctionDesc variant = mVs.get().variants.get(i_87);
         wr.out(("function " + variant.name) + "() {", true);
         wr.indent(1);
         wr.newline();

@@ -2,8 +2,6 @@ import java.util.*;
 
 class SourceCode { 
   public String code = "";
-  public int sp = 0     /** note: unused */;
-  public int ep = 0     /** note: unused */;
   public ArrayList<String> lines = new ArrayList<String>();
   public String filename = "";
   
@@ -21,11 +19,11 @@ class SourceCode {
   
   public int getLine( int sp ) {
     int cnt = 0;
-    for ( int i_10 = 0; i_10 < lines.size(); i_10++) {
-      String str = lines.get(i_10);
+    for ( int i_11 = 0; i_11 < lines.size(); i_11++) {
+      String str = lines.get(i_11);
       cnt = cnt + ((str.length()) + 1);
       if ( cnt > sp ) {
-        return i_10;
+        return i_11;
       }
     }
     return -1;

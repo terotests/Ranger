@@ -47,8 +47,8 @@ class RangerAppClassDesc extends RangerAppParamDesc {
     if ( (extends_classes.indexOf(class_name)) >= 0 ) {
       return true;
     }
-    for ( int i_2 = 0; i_2 < extends_classes.size(); i_2++) {
-      String c_name = extends_classes.get(i_2);
+    for ( int i_3 = 0; i_3 < extends_classes.size(); i_3++) {
+      String c_name = extends_classes.get(i_3);
       final RangerAppClassDesc c = ctx.findClass(c_name);
       if ( c.isSameOrParentClass(class_name, ctx) ) {
         return true;
@@ -61,8 +61,8 @@ class RangerAppClassDesc extends RangerAppParamDesc {
     if ( defined_methods.containsKey(m_name) ) {
       return true;
     }
-    for ( int i_5 = 0; i_5 < extends_classes.size(); i_5++) {
-      String cname = extends_classes.get(i_5);
+    for ( int i_6 = 0; i_6 < extends_classes.size(); i_6++) {
+      String cname = extends_classes.get(i_6);
       final RangerAppClassDesc cDesc = ctx.get().findClass(cname);
       if ( cDesc.hasMethod(m_name) ) {
         return cDesc.hasMethod(m_name);
@@ -73,15 +73,15 @@ class RangerAppClassDesc extends RangerAppParamDesc {
   
   public Optional<RangerAppFunctionDesc> findMethod( String f_name ) {
     Optional<RangerAppFunctionDesc> res = Optional.empty();
-    for ( int i_7 = 0; i_7 < methods.size(); i_7++) {
-      RangerAppFunctionDesc m = methods.get(i_7);
+    for ( int i_8 = 0; i_8 < methods.size(); i_8++) {
+      RangerAppFunctionDesc m = methods.get(i_8);
       if ( m.name.equals(f_name) ) {
         res = Optional.of(m);
         return Optional.ofNullable((res.isPresent() ? (RangerAppFunctionDesc)res.get() : null ) );
       }
     }
-    for ( int i_11 = 0; i_11 < extends_classes.size(); i_11++) {
-      String cname_4 = extends_classes.get(i_11);
+    for ( int i_12 = 0; i_12 < extends_classes.size(); i_12++) {
+      String cname_4 = extends_classes.get(i_12);
       final RangerAppClassDesc cDesc_4 = ctx.get().findClass(cname_4);
       if ( cDesc_4.hasMethod(f_name) ) {
         return cDesc_4.findMethod(f_name);
@@ -96,15 +96,15 @@ class RangerAppClassDesc extends RangerAppParamDesc {
   
   public Optional<RangerAppFunctionDesc> findStaticMethod( String f_name ) {
     Optional<RangerAppFunctionDesc> e = Optional.empty();
-    for ( int i_11 = 0; i_11 < static_methods.size(); i_11++) {
-      RangerAppFunctionDesc m_4 = static_methods.get(i_11);
+    for ( int i_12 = 0; i_12 < static_methods.size(); i_12++) {
+      RangerAppFunctionDesc m_4 = static_methods.get(i_12);
       if ( m_4.name.equals(f_name) ) {
         e = Optional.of(m_4);
         return Optional.ofNullable((e.isPresent() ? (RangerAppFunctionDesc)e.get() : null ) );
       }
     }
-    for ( int i_15 = 0; i_15 < extends_classes.size(); i_15++) {
-      String cname_6 = extends_classes.get(i_15);
+    for ( int i_16 = 0; i_16 < extends_classes.size(); i_16++) {
+      String cname_6 = extends_classes.get(i_16);
       final RangerAppClassDesc cDesc_6 = ctx.get().findClass(cname_6);
       if ( cDesc_6.hasStaticMethod(f_name) ) {
         return cDesc_6.findStaticMethod(f_name);
@@ -115,15 +115,15 @@ class RangerAppClassDesc extends RangerAppParamDesc {
   
   public Optional<RangerAppParamDesc> findVariable( String f_name ) {
     Optional<RangerAppParamDesc> e_4 = Optional.empty();
-    for ( int i_15 = 0; i_15 < variables.size(); i_15++) {
-      RangerAppParamDesc m_6 = variables.get(i_15);
+    for ( int i_16 = 0; i_16 < variables.size(); i_16++) {
+      RangerAppParamDesc m_6 = variables.get(i_16);
       if ( m_6.name.equals(f_name) ) {
         e_4 = Optional.of(m_6);
         return Optional.ofNullable((e_4.isPresent() ? (RangerAppParamDesc)e_4.get() : null ) );
       }
     }
-    for ( int i_19 = 0; i_19 < extends_classes.size(); i_19++) {
-      String cname_8 = extends_classes.get(i_19);
+    for ( int i_20 = 0; i_20 < extends_classes.size(); i_20++) {
+      String cname_8 = extends_classes.get(i_20);
       final RangerAppClassDesc cDesc_8 = ctx.get().findClass(cname_8);
       return cDesc_8.findVariable(f_name);
     }

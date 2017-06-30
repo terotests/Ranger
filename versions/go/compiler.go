@@ -13,6 +13,22 @@ type GoNullable struct {
   has_value bool
 }
 
+func r_has_key_string_RangerParamEventList( a map[string]*RangerParamEventList, key string ) bool { 
+  _, ok := a[key]
+  return ok
+
+}
+func r_get_string_RangerParamEventList( a map[string]*RangerParamEventList, key string ) *GoNullable  { 
+  res := new(GoNullable)
+  v, ok := a[key]
+  if ok { 
+    res.has_value = true
+    res.value = v
+    return res
+  }
+  res.has_value = false
+  return res
+}
 func r_indexof_arr_string( a []string, item string ) ( int64 ) { 
   for i, v := range a {
     if item == v { 
@@ -338,6 +354,301 @@ func (this *RangerCompilerMessage) Get_node() *GoNullable {
 func (this *RangerCompilerMessage) Set_node( value *GoNullable)  {
   this.node = value 
 }
+type RangerParamEventHandler struct { 
+}
+type IFACE_RangerParamEventHandler interface { 
+  callback(param IFACE_RangerAppParamDesc) ()
+}
+
+func CreateNew_RangerParamEventHandler() *RangerParamEventHandler {
+  me := new(RangerParamEventHandler)
+  return me;
+}
+func (this *RangerParamEventHandler) callback (param IFACE_RangerAppParamDesc) () {
+}
+type RangerParamEventList struct { 
+  list []*RangerParamEventHandler
+}
+type IFACE_RangerParamEventList interface { 
+  Get_list() []*RangerParamEventHandler
+  Set_list(value []*RangerParamEventHandler) 
+}
+
+func CreateNew_RangerParamEventList() *RangerParamEventList {
+  me := new(RangerParamEventList)
+  me.list = make([]*RangerParamEventHandler,0)
+  return me;
+}
+// getter for variable list
+func (this *RangerParamEventList) Get_list() []*RangerParamEventHandler {
+  return this.list
+}
+// setter for variable list
+func (this *RangerParamEventList) Set_list( value []*RangerParamEventHandler)  {
+  this.list = value 
+}
+type RangerParamEventMap struct { 
+  events map[string]*RangerParamEventList
+}
+type IFACE_RangerParamEventMap interface { 
+  Get_events() map[string]*RangerParamEventList
+  Set_events(value map[string]*RangerParamEventList) 
+  clearAllEvents() ()
+  addEvent(name string, e *RangerParamEventHandler) ()
+  fireEvent(name string, from IFACE_RangerAppParamDesc) ()
+}
+
+func CreateNew_RangerParamEventMap() *RangerParamEventMap {
+  me := new(RangerParamEventMap)
+  me.events = make(map[string]*RangerParamEventList)
+  return me;
+}
+func (this *RangerParamEventMap) clearAllEvents () () {
+}
+func (this *RangerParamEventMap) addEvent (name string, e *RangerParamEventHandler) () {
+  if  (r_has_key_string_RangerParamEventList(this.events, name)) == false {
+    this.events[name] = CreateNew_RangerParamEventList()
+  }
+  var list *RangerParamEventList = (r_get_string_RangerParamEventList(this.events, name)).value.(*RangerParamEventList);
+  list.list = append(list.list,e); 
+}
+func (this *RangerParamEventMap) fireEvent (name string, from IFACE_RangerAppParamDesc) () {
+  if  r_has_key_string_RangerParamEventList(this.events, name) {
+    var list_4 *RangerParamEventList = (r_get_string_RangerParamEventList(this.events, name)).value.(*RangerParamEventList);
+    var i int64 = 0;  
+    for ; i < int64(len(list_4.list)) ; i++ {
+      ev := list_4.list[i];
+      ev.callback(from);
+    }
+  }
+}
+// getter for variable events
+func (this *RangerParamEventMap) Get_events() map[string]*RangerParamEventList {
+  return this.events
+}
+// setter for variable events
+func (this *RangerParamEventMap) Set_events( value map[string]*RangerParamEventList)  {
+  this.events = value 
+}
+type RangerAppArrayValue struct { 
+  value_type int64 /**  unused  **/ 
+  value_type_name string /**  unused  **/ 
+  values []*RangerAppValue /**  unused  **/ 
+}
+type IFACE_RangerAppArrayValue interface { 
+  Get_value_type() int64
+  Set_value_type(value int64) 
+  Get_value_type_name() string
+  Set_value_type_name(value string) 
+  Get_values() []*RangerAppValue
+  Set_values(value []*RangerAppValue) 
+}
+
+func CreateNew_RangerAppArrayValue() *RangerAppArrayValue {
+  me := new(RangerAppArrayValue)
+  me.value_type = 0
+  me.value_type_name = ""
+  me.values = make([]*RangerAppValue,0)
+  return me;
+}
+// getter for variable value_type
+func (this *RangerAppArrayValue) Get_value_type() int64 {
+  return this.value_type
+}
+// setter for variable value_type
+func (this *RangerAppArrayValue) Set_value_type( value int64)  {
+  this.value_type = value 
+}
+// getter for variable value_type_name
+func (this *RangerAppArrayValue) Get_value_type_name() string {
+  return this.value_type_name
+}
+// setter for variable value_type_name
+func (this *RangerAppArrayValue) Set_value_type_name( value string)  {
+  this.value_type_name = value 
+}
+// getter for variable values
+func (this *RangerAppArrayValue) Get_values() []*RangerAppValue {
+  return this.values
+}
+// setter for variable values
+func (this *RangerAppArrayValue) Set_values( value []*RangerAppValue)  {
+  this.values = value 
+}
+type RangerAppHashValue struct { 
+  value_type int64 /**  unused  **/ 
+  key_type_name string /**  unused  **/ 
+  value_type_name string /**  unused  **/ 
+  s_values map[string]*RangerAppValue /**  unused  **/ 
+  i_values map[int64]*RangerAppValue /**  unused  **/ 
+  b_values map[bool]*RangerAppValue /**  unused  **/ 
+  d_values map[float64]*RangerAppValue /**  unused  **/ 
+}
+type IFACE_RangerAppHashValue interface { 
+  Get_value_type() int64
+  Set_value_type(value int64) 
+  Get_key_type_name() string
+  Set_key_type_name(value string) 
+  Get_value_type_name() string
+  Set_value_type_name(value string) 
+  Get_s_values() map[string]*RangerAppValue
+  Set_s_values(value map[string]*RangerAppValue) 
+  Get_i_values() map[int64]*RangerAppValue
+  Set_i_values(value map[int64]*RangerAppValue) 
+  Get_b_values() map[bool]*RangerAppValue
+  Set_b_values(value map[bool]*RangerAppValue) 
+  Get_d_values() map[float64]*RangerAppValue
+  Set_d_values(value map[float64]*RangerAppValue) 
+}
+
+func CreateNew_RangerAppHashValue() *RangerAppHashValue {
+  me := new(RangerAppHashValue)
+  me.value_type = 0
+  me.key_type_name = ""
+  me.value_type_name = ""
+  me.s_values = make(map[string]*RangerAppValue)
+  me.i_values = make(map[int64]*RangerAppValue)
+  me.b_values = make(map[bool]*RangerAppValue)
+  me.d_values = make(map[float64]*RangerAppValue)
+  return me;
+}
+// getter for variable value_type
+func (this *RangerAppHashValue) Get_value_type() int64 {
+  return this.value_type
+}
+// setter for variable value_type
+func (this *RangerAppHashValue) Set_value_type( value int64)  {
+  this.value_type = value 
+}
+// getter for variable key_type_name
+func (this *RangerAppHashValue) Get_key_type_name() string {
+  return this.key_type_name
+}
+// setter for variable key_type_name
+func (this *RangerAppHashValue) Set_key_type_name( value string)  {
+  this.key_type_name = value 
+}
+// getter for variable value_type_name
+func (this *RangerAppHashValue) Get_value_type_name() string {
+  return this.value_type_name
+}
+// setter for variable value_type_name
+func (this *RangerAppHashValue) Set_value_type_name( value string)  {
+  this.value_type_name = value 
+}
+// getter for variable s_values
+func (this *RangerAppHashValue) Get_s_values() map[string]*RangerAppValue {
+  return this.s_values
+}
+// setter for variable s_values
+func (this *RangerAppHashValue) Set_s_values( value map[string]*RangerAppValue)  {
+  this.s_values = value 
+}
+// getter for variable i_values
+func (this *RangerAppHashValue) Get_i_values() map[int64]*RangerAppValue {
+  return this.i_values
+}
+// setter for variable i_values
+func (this *RangerAppHashValue) Set_i_values( value map[int64]*RangerAppValue)  {
+  this.i_values = value 
+}
+// getter for variable b_values
+func (this *RangerAppHashValue) Get_b_values() map[bool]*RangerAppValue {
+  return this.b_values
+}
+// setter for variable b_values
+func (this *RangerAppHashValue) Set_b_values( value map[bool]*RangerAppValue)  {
+  this.b_values = value 
+}
+// getter for variable d_values
+func (this *RangerAppHashValue) Get_d_values() map[float64]*RangerAppValue {
+  return this.d_values
+}
+// setter for variable d_values
+func (this *RangerAppHashValue) Set_d_values( value map[float64]*RangerAppValue)  {
+  this.d_values = value 
+}
+type RangerAppValue struct { 
+  double_value float64 /**  unused  **/ 
+  string_value string /**  unused  **/ 
+  int_value int64 /**  unused  **/ 
+  boolean_value bool /**  unused  **/ 
+  arr *GoNullable /**  unused  **/ 
+  hash *GoNullable /**  unused  **/ 
+}
+type IFACE_RangerAppValue interface { 
+  Get_double_value() float64
+  Set_double_value(value float64) 
+  Get_string_value() string
+  Set_string_value(value string) 
+  Get_int_value() int64
+  Set_int_value(value int64) 
+  Get_boolean_value() bool
+  Set_boolean_value(value bool) 
+  Get_arr() *GoNullable
+  Set_arr(value *GoNullable) 
+  Get_hash() *GoNullable
+  Set_hash(value *GoNullable) 
+}
+
+func CreateNew_RangerAppValue() *RangerAppValue {
+  me := new(RangerAppValue)
+  me.double_value = 0
+  me.string_value = ""
+  me.int_value = 0
+  me.boolean_value = false
+  me.arr = new(GoNullable);
+  me.hash = new(GoNullable);
+  return me;
+}
+// getter for variable double_value
+func (this *RangerAppValue) Get_double_value() float64 {
+  return this.double_value
+}
+// setter for variable double_value
+func (this *RangerAppValue) Set_double_value( value float64)  {
+  this.double_value = value 
+}
+// getter for variable string_value
+func (this *RangerAppValue) Get_string_value() string {
+  return this.string_value
+}
+// setter for variable string_value
+func (this *RangerAppValue) Set_string_value( value string)  {
+  this.string_value = value 
+}
+// getter for variable int_value
+func (this *RangerAppValue) Get_int_value() int64 {
+  return this.int_value
+}
+// setter for variable int_value
+func (this *RangerAppValue) Set_int_value( value int64)  {
+  this.int_value = value 
+}
+// getter for variable boolean_value
+func (this *RangerAppValue) Get_boolean_value() bool {
+  return this.boolean_value
+}
+// setter for variable boolean_value
+func (this *RangerAppValue) Set_boolean_value( value bool)  {
+  this.boolean_value = value 
+}
+// getter for variable arr
+func (this *RangerAppValue) Get_arr() *GoNullable {
+  return this.arr
+}
+// setter for variable arr
+func (this *RangerAppValue) Set_arr( value *GoNullable)  {
+  this.arr = value 
+}
+// getter for variable hash
+func (this *RangerAppValue) Get_hash() *GoNullable {
+  return this.hash
+}
+// setter for variable hash
+func (this *RangerAppValue) Set_hash( value *GoNullable)  {
+  this.hash = value 
+}
 type RangerRefForce struct { 
   strength int64
   lifetime int64
@@ -385,6 +696,7 @@ func (this *RangerRefForce) Set_changer( value *GoNullable)  {
 }
 type RangerAppParamDesc struct { 
   name string
+  value *GoNullable /**  unused  **/ 
   compiledName string
   debugString string
   ref_cnt int64
@@ -413,10 +725,14 @@ type RangerAppParamDesc struct {
   nameNode *GoNullable
   description string /**  unused  **/ 
   git_doc string /**  unused  **/ 
+  has_events bool
+  eMap *GoNullable
 }
 type IFACE_RangerAppParamDesc interface { 
   Get_name() string
   Set_name(value string) 
+  Get_value() *GoNullable
+  Set_value(value *GoNullable) 
   Get_compiledName() string
   Set_compiledName(value string) 
   Get_debugString() string
@@ -473,6 +789,11 @@ type IFACE_RangerAppParamDesc interface {
   Set_description(value string) 
   Get_git_doc() string
   Set_git_doc(value string) 
+  Get_has_events() bool
+  Set_has_events(value bool) 
+  Get_eMap() *GoNullable
+  Set_eMap(value *GoNullable) 
+  addEvent(name string, e *RangerParamEventHandler) ()
   changeStrength(newStrength int64, lifeTime int64, changer *CodeNode) ()
   isProperty() bool
   isClass() bool
@@ -517,6 +838,8 @@ func CreateNew_RangerAppParamDesc() *RangerAppParamDesc {
   me.is_class_variable = false
   me.description = ""
   me.git_doc = ""
+  me.has_events = false
+  me.value = new(GoNullable);
   me.def_value = new(GoNullable);
   me.default_value = new(GoNullable);
   me.classDesc = new(GoNullable);
@@ -524,7 +847,16 @@ func CreateNew_RangerAppParamDesc() *RangerAppParamDesc {
   me.isParam = new(GoNullable);
   me.node = new(GoNullable);
   me.nameNode = new(GoNullable);
+  me.eMap = new(GoNullable);
   return me;
+}
+func (this *RangerAppParamDesc) addEvent (name string, e *RangerParamEventHandler) () {
+  if  this.has_events == false {
+    this.eMap.value = CreateNew_RangerParamEventMap();
+    this.eMap.has_value = true; /* detected as non-optional */
+    this.has_events = true; 
+  }
+  this.eMap.value.(*RangerParamEventMap).addEvent(name, e);
 }
 func (this *RangerAppParamDesc) changeStrength (newStrength int64, lifeTime int64, changer *CodeNode) () {
   var entry *RangerRefForce = CreateNew_RangerRefForce();
@@ -552,7 +884,7 @@ func (this *RangerAppParamDesc) isAllocatedType () bool {
       if  this.nameNode.value.(*CodeNode).eval_type == 7 {
         return true;
       }
-      if  (((this.nameNode.value.(*CodeNode).eval_type == 4) || (this.nameNode.value.(*CodeNode).eval_type == 2)) || (this.nameNode.value.(*CodeNode).eval_type == 5)) || (this.nameNode.value.(*CodeNode).eval_type == 3) {
+      if  (((((this.nameNode.value.(*CodeNode).eval_type == 13) || (this.nameNode.value.(*CodeNode).eval_type == 12)) || (this.nameNode.value.(*CodeNode).eval_type == 4)) || (this.nameNode.value.(*CodeNode).eval_type == 2)) || (this.nameNode.value.(*CodeNode).eval_type == 5)) || (this.nameNode.value.(*CodeNode).eval_type == 3) {
         return false;
       }
       if  this.nameNode.value.(*CodeNode).eval_type == 11 {
@@ -662,9 +994,9 @@ func (this *RangerAppParamDesc) getStrength () int64 {
 }
 func (this *RangerAppParamDesc) debugRefChanges () () {
   fmt.Println( strings.Join([]string{ (strings.Join([]string{ "variable ",this.name }, ""))," ref history : " }, "") )
-  var i int64 = 0;  
-  for ; i < int64(len(this.ownerHistory)) ; i++ {
-    h := this.ownerHistory[i];
+  var i_2 int64 = 0;  
+  for ; i_2 < int64(len(this.ownerHistory)) ; i_2++ {
+    h := this.ownerHistory[i_2];
     fmt.Println( strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ " => change to ",strconv.FormatInt(h.strength, 10) }, ""))," by " }, "")),h.changer.value.(*CodeNode).getCode() }, "") )
   }
 }
@@ -779,6 +1111,14 @@ func (this *RangerAppParamDesc) Get_name() string {
 // setter for variable name
 func (this *RangerAppParamDesc) Set_name( value string)  {
   this.name = value 
+}
+// getter for variable value
+func (this *RangerAppParamDesc) Get_value() *GoNullable {
+  return this.value
+}
+// setter for variable value
+func (this *RangerAppParamDesc) Set_value( value *GoNullable)  {
+  this.value = value 
 }
 // getter for variable compiledName
 func (this *RangerAppParamDesc) Get_compiledName() string {
@@ -1004,6 +1344,22 @@ func (this *RangerAppParamDesc) Get_git_doc() string {
 func (this *RangerAppParamDesc) Set_git_doc( value string)  {
   this.git_doc = value 
 }
+// getter for variable has_events
+func (this *RangerAppParamDesc) Get_has_events() bool {
+  return this.has_events
+}
+// setter for variable has_events
+func (this *RangerAppParamDesc) Set_has_events( value bool)  {
+  this.has_events = value 
+}
+// getter for variable eMap
+func (this *RangerAppParamDesc) Get_eMap() *GoNullable {
+  return this.eMap
+}
+// setter for variable eMap
+func (this *RangerAppParamDesc) Set_eMap( value *GoNullable)  {
+  this.eMap = value 
+}
 type RangerAppFunctionDesc struct { 
   name string
   ref_cnt int64
@@ -1018,6 +1374,7 @@ type RangerAppFunctionDesc struct {
   refType int64
   fnCtx *GoNullable
   // inherited from parent class RangerAppParamDesc
+  value *GoNullable /**  unused  **/ 
   compiledName string
   debugString string
   init_cnt int64
@@ -1042,6 +1399,8 @@ type RangerAppFunctionDesc struct {
   is_class_variable bool
   description string /**  unused  **/ 
   git_doc string /**  unused  **/ 
+  has_events bool
+  eMap *GoNullable
 }
 type IFACE_RangerAppFunctionDesc interface { 
   Get_name() string
@@ -1108,6 +1467,8 @@ func CreateNew_RangerAppFunctionDesc() *RangerAppFunctionDesc {
   me.is_class_variable = false
   me.description = ""
   me.git_doc = ""
+  me.has_events = false
+  me.value = new(GoNullable);
   me.def_value = new(GoNullable);
   me.default_value = new(GoNullable);
   me.classDesc = new(GoNullable);
@@ -1115,6 +1476,7 @@ func CreateNew_RangerAppFunctionDesc() *RangerAppFunctionDesc {
   me.isParam = new(GoNullable);
   me.node = new(GoNullable);
   me.nameNode = new(GoNullable);
+  me.eMap = new(GoNullable);
   return me;
 }
 func (this *RangerAppFunctionDesc) isClass () bool {
@@ -1124,6 +1486,14 @@ func (this *RangerAppFunctionDesc) isProperty () bool {
   return false;
 }
 // inherited methods from parent class RangerAppParamDesc
+func (this *RangerAppFunctionDesc) addEvent (name string, e *RangerParamEventHandler) () {
+  if  this.has_events == false {
+    this.eMap.value = CreateNew_RangerParamEventMap();
+    this.eMap.has_value = true; /* detected as non-optional */
+    this.has_events = true; 
+  }
+  this.eMap.value.(*RangerParamEventMap).addEvent(name, e);
+}
 func (this *RangerAppFunctionDesc) changeStrength (newStrength int64, lifeTime int64, changer *CodeNode) () {
   var entry *RangerRefForce = CreateNew_RangerRefForce();
   entry.strength = newStrength; 
@@ -1144,7 +1514,7 @@ func (this *RangerAppFunctionDesc) isAllocatedType () bool {
       if  this.nameNode.value.(*CodeNode).eval_type == 7 {
         return true;
       }
-      if  (((this.nameNode.value.(*CodeNode).eval_type == 4) || (this.nameNode.value.(*CodeNode).eval_type == 2)) || (this.nameNode.value.(*CodeNode).eval_type == 5)) || (this.nameNode.value.(*CodeNode).eval_type == 3) {
+      if  (((((this.nameNode.value.(*CodeNode).eval_type == 13) || (this.nameNode.value.(*CodeNode).eval_type == 12)) || (this.nameNode.value.(*CodeNode).eval_type == 4)) || (this.nameNode.value.(*CodeNode).eval_type == 2)) || (this.nameNode.value.(*CodeNode).eval_type == 5)) || (this.nameNode.value.(*CodeNode).eval_type == 3) {
         return false;
       }
       if  this.nameNode.value.(*CodeNode).eval_type == 11 {
@@ -1254,9 +1624,9 @@ func (this *RangerAppFunctionDesc) getStrength () int64 {
 }
 func (this *RangerAppFunctionDesc) debugRefChanges () () {
   fmt.Println( strings.Join([]string{ (strings.Join([]string{ "variable ",this.name }, ""))," ref history : " }, "") )
-  var i int64 = 0;  
-  for ; i < int64(len(this.ownerHistory)) ; i++ {
-    h := this.ownerHistory[i];
+  var i_2 int64 = 0;  
+  for ; i_2 < int64(len(this.ownerHistory)) ; i_2++ {
+    h := this.ownerHistory[i_2];
     fmt.Println( strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ " => change to ",strconv.FormatInt(h.strength, 10) }, ""))," by " }, "")),h.changer.value.(*CodeNode).getCode() }, "") )
   }
 }
@@ -1461,6 +1831,14 @@ func (this *RangerAppFunctionDesc) Set_fnCtx( value *GoNullable)  {
   this.fnCtx = value 
 }
 // inherited getters and setters from the parent class RangerAppParamDesc
+// getter for variable value
+func (this *RangerAppFunctionDesc) Get_value() *GoNullable {
+  return this.value
+}
+// getter for variable value
+func (this *RangerAppFunctionDesc) Set_value( value *GoNullable)  {
+  this.value = value 
+}
 // getter for variable compiledName
 func (this *RangerAppFunctionDesc) Get_compiledName() string {
   return this.compiledName
@@ -1653,6 +2031,22 @@ func (this *RangerAppFunctionDesc) Get_git_doc() string {
 func (this *RangerAppFunctionDesc) Set_git_doc( value string)  {
   this.git_doc = value 
 }
+// getter for variable has_events
+func (this *RangerAppFunctionDesc) Get_has_events() bool {
+  return this.has_events
+}
+// getter for variable has_events
+func (this *RangerAppFunctionDesc) Set_has_events( value bool)  {
+  this.has_events = value 
+}
+// getter for variable eMap
+func (this *RangerAppFunctionDesc) Get_eMap() *GoNullable {
+  return this.eMap
+}
+// getter for variable eMap
+func (this *RangerAppFunctionDesc) Set_eMap( value *GoNullable)  {
+  this.eMap = value 
+}
 type RangerAppMethodVariants struct { 
   name string /**  unused  **/ 
   variants []*RangerAppFunctionDesc
@@ -1749,6 +2143,7 @@ type RangerAppClassDesc struct {
   contr_writers []*CodeWriter /**  unused  **/ 
   is_inherited bool
   // inherited from parent class RangerAppParamDesc
+  value *GoNullable /**  unused  **/ 
   debugString string
   ref_cnt int64
   init_cnt int64
@@ -1775,6 +2170,8 @@ type RangerAppClassDesc struct {
   node *GoNullable
   description string /**  unused  **/ 
   git_doc string /**  unused  **/ 
+  has_events bool
+  eMap *GoNullable
 }
 type IFACE_RangerAppClassDesc interface { 
   Get_name() string
@@ -1900,6 +2297,8 @@ func CreateNew_RangerAppClassDesc() *RangerAppClassDesc {
   me.is_class_variable = false
   me.description = ""
   me.git_doc = ""
+  me.has_events = false
+  me.value = new(GoNullable);
   me.def_value = new(GoNullable);
   me.default_value = new(GoNullable);
   me.classDesc = new(GoNullable);
@@ -1907,6 +2306,7 @@ func CreateNew_RangerAppClassDesc() *RangerAppClassDesc {
   me.isParam = new(GoNullable);
   me.node = new(GoNullable);
   me.nameNode = new(GoNullable);
+  me.eMap = new(GoNullable);
   return me;
 }
 func (this *RangerAppClassDesc) isClass () bool {
@@ -1925,9 +2325,9 @@ func (this *RangerAppClassDesc) isSameOrParentClass (class_name string, ctx *Ran
   if  (r_indexof_arr_string(this.extends_classes, class_name)) >= 0 {
     return true;
   }
-  var i_2 int64 = 0;  
-  for ; i_2 < int64(len(this.extends_classes)) ; i_2++ {
-    c_name := this.extends_classes[i_2];
+  var i_3 int64 = 0;  
+  for ; i_3 < int64(len(this.extends_classes)) ; i_3++ {
+    c_name := this.extends_classes[i_3];
     var c *RangerAppClassDesc = ctx.findClass(c_name);
     if  c.isSameOrParentClass(class_name, ctx) {
       return true;
@@ -1939,9 +2339,9 @@ func (this *RangerAppClassDesc) hasMethod (m_name string) bool {
   if  r_has_key_string_bool(this.defined_methods, m_name) {
     return true;
   }
-  var i_5 int64 = 0;  
-  for ; i_5 < int64(len(this.extends_classes)) ; i_5++ {
-    cname := this.extends_classes[i_5];
+  var i_6 int64 = 0;  
+  for ; i_6 < int64(len(this.extends_classes)) ; i_6++ {
+    cname := this.extends_classes[i_6];
     var cDesc *RangerAppClassDesc = this.ctx.value.(*RangerAppWriterContext).findClass(cname);
     if  cDesc.hasMethod(m_name) {
       return cDesc.hasMethod(m_name);
@@ -1951,18 +2351,18 @@ func (this *RangerAppClassDesc) hasMethod (m_name string) bool {
 }
 func (this *RangerAppClassDesc) findMethod (f_name string) *GoNullable {
   var res *GoNullable = new(GoNullable); 
-  var i_7 int64 = 0;  
-  for ; i_7 < int64(len(this.methods)) ; i_7++ {
-    m := this.methods[i_7];
+  var i_8 int64 = 0;  
+  for ; i_8 < int64(len(this.methods)) ; i_8++ {
+    m := this.methods[i_8];
     if  m.name == f_name {
       res.value = m;
       res.has_value = true; /* detected as non-optional */
       return res;
     }
   }
-  var i_11 int64 = 0;  
-  for ; i_11 < int64(len(this.extends_classes)) ; i_11++ {
-    cname_4 := this.extends_classes[i_11];
+  var i_12 int64 = 0;  
+  for ; i_12 < int64(len(this.extends_classes)) ; i_12++ {
+    cname_4 := this.extends_classes[i_12];
     var cDesc_4 *RangerAppClassDesc = this.ctx.value.(*RangerAppWriterContext).findClass(cname_4);
     if  cDesc_4.hasMethod(f_name) {
       return cDesc_4.findMethod(f_name);
@@ -1975,18 +2375,18 @@ func (this *RangerAppClassDesc) hasStaticMethod (m_name string) bool {
 }
 func (this *RangerAppClassDesc) findStaticMethod (f_name string) *GoNullable {
   var e *GoNullable = new(GoNullable); 
-  var i_11 int64 = 0;  
-  for ; i_11 < int64(len(this.static_methods)) ; i_11++ {
-    m_4 := this.static_methods[i_11];
+  var i_12 int64 = 0;  
+  for ; i_12 < int64(len(this.static_methods)) ; i_12++ {
+    m_4 := this.static_methods[i_12];
     if  m_4.name == f_name {
       e.value = m_4;
       e.has_value = true; /* detected as non-optional */
       return e;
     }
   }
-  var i_15 int64 = 0;  
-  for ; i_15 < int64(len(this.extends_classes)) ; i_15++ {
-    cname_6 := this.extends_classes[i_15];
+  var i_16 int64 = 0;  
+  for ; i_16 < int64(len(this.extends_classes)) ; i_16++ {
+    cname_6 := this.extends_classes[i_16];
     var cDesc_6 *RangerAppClassDesc = this.ctx.value.(*RangerAppWriterContext).findClass(cname_6);
     if  cDesc_6.hasStaticMethod(f_name) {
       return cDesc_6.findStaticMethod(f_name);
@@ -1996,18 +2396,18 @@ func (this *RangerAppClassDesc) findStaticMethod (f_name string) *GoNullable {
 }
 func (this *RangerAppClassDesc) findVariable (f_name string) *GoNullable {
   var e_4 *GoNullable = new(GoNullable); 
-  var i_15 int64 = 0;  
-  for ; i_15 < int64(len(this.variables)) ; i_15++ {
-    m_6 := this.variables[i_15];
+  var i_16 int64 = 0;  
+  for ; i_16 < int64(len(this.variables)) ; i_16++ {
+    m_6 := this.variables[i_16];
     if  m_6.Get_name() == f_name {
       e_4.value = m_6;
       e_4.has_value = true; /* detected as non-optional */
       return e_4;
     }
   }
-  var i_19 int64 = 0;  
-  for ; i_19 < int64(len(this.extends_classes)) ; i_19++ {
-    cname_8 := this.extends_classes[i_19];
+  var i_20 int64 = 0;  
+  for ; i_20 < int64(len(this.extends_classes)) ; i_20++ {
+    cname_8 := this.extends_classes[i_20];
     var cDesc_8 *RangerAppClassDesc = this.ctx.value.(*RangerAppWriterContext).findClass(cname_8);
     return cDesc_8.findVariable(f_name);
   }
@@ -2039,6 +2439,14 @@ func (this *RangerAppClassDesc) addStaticMethod (desc *RangerAppFunctionDesc) ()
   this.static_methods = append(this.static_methods,desc); 
 }
 // inherited methods from parent class RangerAppParamDesc
+func (this *RangerAppClassDesc) addEvent (name string, e *RangerParamEventHandler) () {
+  if  this.has_events == false {
+    this.eMap.value = CreateNew_RangerParamEventMap();
+    this.eMap.has_value = true; /* detected as non-optional */
+    this.has_events = true; 
+  }
+  this.eMap.value.(*RangerParamEventMap).addEvent(name, e);
+}
 func (this *RangerAppClassDesc) changeStrength (newStrength int64, lifeTime int64, changer *CodeNode) () {
   var entry *RangerRefForce = CreateNew_RangerRefForce();
   entry.strength = newStrength; 
@@ -2056,7 +2464,7 @@ func (this *RangerAppClassDesc) isAllocatedType () bool {
       if  this.nameNode.value.(*CodeNode).eval_type == 7 {
         return true;
       }
-      if  (((this.nameNode.value.(*CodeNode).eval_type == 4) || (this.nameNode.value.(*CodeNode).eval_type == 2)) || (this.nameNode.value.(*CodeNode).eval_type == 5)) || (this.nameNode.value.(*CodeNode).eval_type == 3) {
+      if  (((((this.nameNode.value.(*CodeNode).eval_type == 13) || (this.nameNode.value.(*CodeNode).eval_type == 12)) || (this.nameNode.value.(*CodeNode).eval_type == 4)) || (this.nameNode.value.(*CodeNode).eval_type == 2)) || (this.nameNode.value.(*CodeNode).eval_type == 5)) || (this.nameNode.value.(*CodeNode).eval_type == 3) {
         return false;
       }
       if  this.nameNode.value.(*CodeNode).eval_type == 11 {
@@ -2166,9 +2574,9 @@ func (this *RangerAppClassDesc) getStrength () int64 {
 }
 func (this *RangerAppClassDesc) debugRefChanges () () {
   fmt.Println( strings.Join([]string{ (strings.Join([]string{ "variable ",this.name }, ""))," ref history : " }, "") )
-  var i int64 = 0;  
-  for ; i < int64(len(this.ownerHistory)) ; i++ {
-    h := this.ownerHistory[i];
+  var i_2 int64 = 0;  
+  for ; i_2 < int64(len(this.ownerHistory)) ; i_2++ {
+    h := this.ownerHistory[i_2];
     fmt.Println( strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ " => change to ",strconv.FormatInt(h.strength, 10) }, ""))," by " }, "")),h.changer.value.(*CodeNode).getCode() }, "") )
   }
 }
@@ -2501,6 +2909,14 @@ func (this *RangerAppClassDesc) Set_is_inherited( value bool)  {
   this.is_inherited = value 
 }
 // inherited getters and setters from the parent class RangerAppParamDesc
+// getter for variable value
+func (this *RangerAppClassDesc) Get_value() *GoNullable {
+  return this.value
+}
+// getter for variable value
+func (this *RangerAppClassDesc) Set_value( value *GoNullable)  {
+  this.value = value 
+}
 // getter for variable debugString
 func (this *RangerAppClassDesc) Get_debugString() string {
   return this.debugString
@@ -2709,6 +3125,22 @@ func (this *RangerAppClassDesc) Get_git_doc() string {
 func (this *RangerAppClassDesc) Set_git_doc( value string)  {
   this.git_doc = value 
 }
+// getter for variable has_events
+func (this *RangerAppClassDesc) Get_has_events() bool {
+  return this.has_events
+}
+// getter for variable has_events
+func (this *RangerAppClassDesc) Set_has_events( value bool)  {
+  this.has_events = value 
+}
+// getter for variable eMap
+func (this *RangerAppClassDesc) Get_eMap() *GoNullable {
+  return this.eMap
+}
+// getter for variable eMap
+func (this *RangerAppClassDesc) Set_eMap( value *GoNullable)  {
+  this.eMap = value 
+}
 type RangerTypeClass struct { 
   name string /**  unused  **/ 
   compiledName string /**  unused  **/ 
@@ -2723,7 +3155,6 @@ type RangerTypeClass struct {
   is_lambda bool /**  unused  **/ 
   nameNode *GoNullable /**  unused  **/ 
   templateParams *GoNullable /**  unused  **/ 
-  implements []*RangerTypeClass /**  unused  **/ 
 }
 type IFACE_RangerTypeClass interface { 
   Get_name() string
@@ -2752,8 +3183,6 @@ type IFACE_RangerTypeClass interface {
   Set_nameNode(value *GoNullable) 
   Get_templateParams() *GoNullable
   Set_templateParams(value *GoNullable) 
-  Get_implements() []*RangerTypeClass
-  Set_implements(value []*RangerTypeClass) 
 }
 
 func CreateNew_RangerTypeClass() *RangerTypeClass {
@@ -2766,7 +3195,6 @@ func CreateNew_RangerTypeClass() *RangerTypeClass {
   me.is_optional = false
   me.is_generic = false
   me.is_lambda = false
-  me.implements = make([]*RangerTypeClass,0)
   me.type_name = new(GoNullable);
   me.key_type = new(GoNullable);
   me.array_type = new(GoNullable);
@@ -2878,28 +3306,263 @@ func (this *RangerTypeClass) Get_templateParams() *GoNullable {
 func (this *RangerTypeClass) Set_templateParams( value *GoNullable)  {
   this.templateParams = value 
 }
-// getter for variable implements
-func (this *RangerTypeClass) Get_implements() []*RangerTypeClass {
-  return this.implements
+type NodeEvalState struct { 
+  ctx *GoNullable /**  unused  **/ 
+  is_running bool /**  unused  **/ 
+  child_index int64 /**  unused  **/ 
+  cmd_index int64 /**  unused  **/ 
+  is_ready bool /**  unused  **/ 
+  is_waiting bool /**  unused  **/ 
+  exit_after bool /**  unused  **/ 
+  expand_args bool /**  unused  **/ 
+  ask_expand bool /**  unused  **/ 
+  eval_rest bool /**  unused  **/ 
+  exec_cnt int64 /**  unused  **/ 
+  b_debugger bool /**  unused  **/ 
+  b_top_node bool /**  unused  **/ 
+  ask_eval bool /**  unused  **/ 
+  param_eval_on bool /**  unused  **/ 
+  eval_index int64 /**  unused  **/ 
+  eval_end_index int64 /**  unused  **/ 
+  ask_eval_start int64 /**  unused  **/ 
+  ask_eval_end int64 /**  unused  **/ 
+  evaluating_cmd *GoNullable /**  unused  **/ 
 }
-// setter for variable implements
-func (this *RangerTypeClass) Set_implements( value []*RangerTypeClass)  {
-  this.implements = value 
+type IFACE_NodeEvalState interface { 
+  Get_ctx() *GoNullable
+  Set_ctx(value *GoNullable) 
+  Get_is_running() bool
+  Set_is_running(value bool) 
+  Get_child_index() int64
+  Set_child_index(value int64) 
+  Get_cmd_index() int64
+  Set_cmd_index(value int64) 
+  Get_is_ready() bool
+  Set_is_ready(value bool) 
+  Get_is_waiting() bool
+  Set_is_waiting(value bool) 
+  Get_exit_after() bool
+  Set_exit_after(value bool) 
+  Get_expand_args() bool
+  Set_expand_args(value bool) 
+  Get_ask_expand() bool
+  Set_ask_expand(value bool) 
+  Get_eval_rest() bool
+  Set_eval_rest(value bool) 
+  Get_exec_cnt() int64
+  Set_exec_cnt(value int64) 
+  Get_b_debugger() bool
+  Set_b_debugger(value bool) 
+  Get_b_top_node() bool
+  Set_b_top_node(value bool) 
+  Get_ask_eval() bool
+  Set_ask_eval(value bool) 
+  Get_param_eval_on() bool
+  Set_param_eval_on(value bool) 
+  Get_eval_index() int64
+  Set_eval_index(value int64) 
+  Get_eval_end_index() int64
+  Set_eval_end_index(value int64) 
+  Get_ask_eval_start() int64
+  Set_ask_eval_start(value int64) 
+  Get_ask_eval_end() int64
+  Set_ask_eval_end(value int64) 
+  Get_evaluating_cmd() *GoNullable
+  Set_evaluating_cmd(value *GoNullable) 
+}
+
+func CreateNew_NodeEvalState() *NodeEvalState {
+  me := new(NodeEvalState)
+  me.is_running = false
+  me.child_index = -1
+  me.cmd_index = -1
+  me.is_ready = false
+  me.is_waiting = false
+  me.exit_after = false
+  me.expand_args = false
+  me.ask_expand = false
+  me.eval_rest = false
+  me.exec_cnt = 0
+  me.b_debugger = false
+  me.b_top_node = false
+  me.ask_eval = false
+  me.param_eval_on = false
+  me.eval_index = -1
+  me.eval_end_index = -1
+  me.ask_eval_start = 0
+  me.ask_eval_end = 0
+  me.ctx = new(GoNullable);
+  me.evaluating_cmd = new(GoNullable);
+  return me;
+}
+// getter for variable ctx
+func (this *NodeEvalState) Get_ctx() *GoNullable {
+  return this.ctx
+}
+// setter for variable ctx
+func (this *NodeEvalState) Set_ctx( value *GoNullable)  {
+  this.ctx = value 
+}
+// getter for variable is_running
+func (this *NodeEvalState) Get_is_running() bool {
+  return this.is_running
+}
+// setter for variable is_running
+func (this *NodeEvalState) Set_is_running( value bool)  {
+  this.is_running = value 
+}
+// getter for variable child_index
+func (this *NodeEvalState) Get_child_index() int64 {
+  return this.child_index
+}
+// setter for variable child_index
+func (this *NodeEvalState) Set_child_index( value int64)  {
+  this.child_index = value 
+}
+// getter for variable cmd_index
+func (this *NodeEvalState) Get_cmd_index() int64 {
+  return this.cmd_index
+}
+// setter for variable cmd_index
+func (this *NodeEvalState) Set_cmd_index( value int64)  {
+  this.cmd_index = value 
+}
+// getter for variable is_ready
+func (this *NodeEvalState) Get_is_ready() bool {
+  return this.is_ready
+}
+// setter for variable is_ready
+func (this *NodeEvalState) Set_is_ready( value bool)  {
+  this.is_ready = value 
+}
+// getter for variable is_waiting
+func (this *NodeEvalState) Get_is_waiting() bool {
+  return this.is_waiting
+}
+// setter for variable is_waiting
+func (this *NodeEvalState) Set_is_waiting( value bool)  {
+  this.is_waiting = value 
+}
+// getter for variable exit_after
+func (this *NodeEvalState) Get_exit_after() bool {
+  return this.exit_after
+}
+// setter for variable exit_after
+func (this *NodeEvalState) Set_exit_after( value bool)  {
+  this.exit_after = value 
+}
+// getter for variable expand_args
+func (this *NodeEvalState) Get_expand_args() bool {
+  return this.expand_args
+}
+// setter for variable expand_args
+func (this *NodeEvalState) Set_expand_args( value bool)  {
+  this.expand_args = value 
+}
+// getter for variable ask_expand
+func (this *NodeEvalState) Get_ask_expand() bool {
+  return this.ask_expand
+}
+// setter for variable ask_expand
+func (this *NodeEvalState) Set_ask_expand( value bool)  {
+  this.ask_expand = value 
+}
+// getter for variable eval_rest
+func (this *NodeEvalState) Get_eval_rest() bool {
+  return this.eval_rest
+}
+// setter for variable eval_rest
+func (this *NodeEvalState) Set_eval_rest( value bool)  {
+  this.eval_rest = value 
+}
+// getter for variable exec_cnt
+func (this *NodeEvalState) Get_exec_cnt() int64 {
+  return this.exec_cnt
+}
+// setter for variable exec_cnt
+func (this *NodeEvalState) Set_exec_cnt( value int64)  {
+  this.exec_cnt = value 
+}
+// getter for variable b_debugger
+func (this *NodeEvalState) Get_b_debugger() bool {
+  return this.b_debugger
+}
+// setter for variable b_debugger
+func (this *NodeEvalState) Set_b_debugger( value bool)  {
+  this.b_debugger = value 
+}
+// getter for variable b_top_node
+func (this *NodeEvalState) Get_b_top_node() bool {
+  return this.b_top_node
+}
+// setter for variable b_top_node
+func (this *NodeEvalState) Set_b_top_node( value bool)  {
+  this.b_top_node = value 
+}
+// getter for variable ask_eval
+func (this *NodeEvalState) Get_ask_eval() bool {
+  return this.ask_eval
+}
+// setter for variable ask_eval
+func (this *NodeEvalState) Set_ask_eval( value bool)  {
+  this.ask_eval = value 
+}
+// getter for variable param_eval_on
+func (this *NodeEvalState) Get_param_eval_on() bool {
+  return this.param_eval_on
+}
+// setter for variable param_eval_on
+func (this *NodeEvalState) Set_param_eval_on( value bool)  {
+  this.param_eval_on = value 
+}
+// getter for variable eval_index
+func (this *NodeEvalState) Get_eval_index() int64 {
+  return this.eval_index
+}
+// setter for variable eval_index
+func (this *NodeEvalState) Set_eval_index( value int64)  {
+  this.eval_index = value 
+}
+// getter for variable eval_end_index
+func (this *NodeEvalState) Get_eval_end_index() int64 {
+  return this.eval_end_index
+}
+// setter for variable eval_end_index
+func (this *NodeEvalState) Set_eval_end_index( value int64)  {
+  this.eval_end_index = value 
+}
+// getter for variable ask_eval_start
+func (this *NodeEvalState) Get_ask_eval_start() int64 {
+  return this.ask_eval_start
+}
+// setter for variable ask_eval_start
+func (this *NodeEvalState) Set_ask_eval_start( value int64)  {
+  this.ask_eval_start = value 
+}
+// getter for variable ask_eval_end
+func (this *NodeEvalState) Get_ask_eval_end() int64 {
+  return this.ask_eval_end
+}
+// setter for variable ask_eval_end
+func (this *NodeEvalState) Set_ask_eval_end( value int64)  {
+  this.ask_eval_end = value 
+}
+// getter for variable evaluating_cmd
+func (this *NodeEvalState) Get_evaluating_cmd() *GoNullable {
+  return this.evaluating_cmd
+}
+// setter for variable evaluating_cmd
+func (this *NodeEvalState) Set_evaluating_cmd( value *GoNullable)  {
+  this.evaluating_cmd = value 
 }
 type SourceCode struct { 
   code string
-  sp int64 /**  unused  **/ 
-  ep int64 /**  unused  **/ 
   lines []string
   filename string
 }
 type IFACE_SourceCode interface { 
   Get_code() string
   Set_code(value string) 
-  Get_sp() int64
-  Set_sp(value int64) 
-  Get_ep() int64
-  Set_ep(value int64) 
   Get_lines() []string
   Set_lines(value []string) 
   Get_filename() string
@@ -2911,8 +3574,6 @@ type IFACE_SourceCode interface {
 func CreateNew_SourceCode(code_str string) *SourceCode {
   me := new(SourceCode)
   me.code = ""
-  me.sp = 0
-  me.ep = 0
   me.lines = make([]string,0)
   me.filename = ""
   me.code = code_str; 
@@ -2927,12 +3588,12 @@ func (this *SourceCode) getLineString (line_index int64) string {
 }
 func (this *SourceCode) getLine (sp int64) int64 {
   var cnt int64 = 0;
-  var i_10 int64 = 0;  
-  for ; i_10 < int64(len(this.lines)) ; i_10++ {
-    str := this.lines[i_10];
+  var i_11 int64 = 0;  
+  for ; i_11 < int64(len(this.lines)) ; i_11++ {
+    str := this.lines[i_11];
     cnt = cnt + ((int64(len(str))) + 1); 
     if  cnt > sp {
-      return i_10;
+      return i_11;
     }
   }
   return -1;
@@ -2944,22 +3605,6 @@ func (this *SourceCode) Get_code() string {
 // setter for variable code
 func (this *SourceCode) Set_code( value string)  {
   this.code = value 
-}
-// getter for variable sp
-func (this *SourceCode) Get_sp() int64 {
-  return this.sp
-}
-// setter for variable sp
-func (this *SourceCode) Set_sp( value int64)  {
-  this.sp = value 
-}
-// getter for variable ep
-func (this *SourceCode) Get_ep() int64 {
-  return this.ep
-}
-// setter for variable ep
-func (this *SourceCode) Set_ep( value int64)  {
-  this.ep = value 
 }
 // getter for variable lines
 func (this *SourceCode) Get_lines() []string {
@@ -3005,6 +3650,7 @@ type CodeNode struct {
   has_type_annotation bool
   type_annotation *GoNullable
   typeClass *GoNullable
+  parsed_type int64
   value_type int64
   eval_type int64
   eval_type_name string
@@ -3036,6 +3682,7 @@ type CodeNode struct {
   paramDesc *GoNullable
   ownParamDesc *GoNullable
   evalCtx *GoNullable
+  evalState *GoNullable /**  unused  **/ 
 }
 type IFACE_CodeNode interface { 
   Get_code() *GoNullable
@@ -3092,6 +3739,8 @@ type IFACE_CodeNode interface {
   Set_type_annotation(value *GoNullable) 
   Get_typeClass() *GoNullable
   Set_typeClass(value *GoNullable) 
+  Get_parsed_type() int64
+  Set_parsed_type(value int64) 
   Get_value_type() int64
   Set_value_type(value int64) 
   Get_eval_type() int64
@@ -3154,6 +3803,8 @@ type IFACE_CodeNode interface {
   Set_ownParamDesc(value *GoNullable) 
   Get_evalCtx() *GoNullable
   Set_evalCtx(value *GoNullable) 
+  Get_evalState() *GoNullable
+  Set_evalState(value *GoNullable) 
   getParsedString() string
   rebuildWithType(match *RangerArgMatch, changeVref bool) *CodeNode
   buildTypeSignatureUsingMatch(match *RangerArgMatch) string
@@ -3174,6 +3825,7 @@ type IFACE_CodeNode interface {
   copyEvalResFrom(node *CodeNode) ()
   defineNodeTypeTo(node *CodeNode, ctx *RangerAppWriterContext) ()
   typeNameAsType(ctx *RangerAppWriterContext) int64
+  isParsedAsPrimitive() bool
   isPrimitive() bool
   isPrimitiveType() bool
   isAPrimitiveType() bool
@@ -3225,6 +3877,7 @@ func CreateNew_CodeNode(source *SourceCode, start int64, end int64) *CodeNode {
   me.nsp = make([]IFACE_RangerAppParamDesc,0)
   me.has_vref_annotation = false
   me.has_type_annotation = false
+  me.parsed_type = 0
   me.value_type = 0
   me.eval_type = 0
   me.eval_type_name = ""
@@ -3262,6 +3915,7 @@ func CreateNew_CodeNode(source *SourceCode, start int64, end int64) *CodeNode {
   me.paramDesc = new(GoNullable);
   me.ownParamDesc = new(GoNullable);
   me.evalCtx = new(GoNullable);
+  me.evalState = new(GoNullable);
   me.sp = start; 
   me.ep = end; 
   me.code.value = source;
@@ -3304,9 +3958,9 @@ func (this *CodeNode) rebuildWithType (match *RangerArgMatch, changeVref bool) *
     newNode.type_annotation.value = t_ann.value.(*CodeNode).rebuildWithType(match, true);
     newNode.type_annotation.has_value = true; /* detected as non-optional */
   }
-  var i_11 int64 = 0;  
-  for ; i_11 < int64(len(this.ns)) ; i_11++ {
-    n := this.ns[i_11];
+  var i_12 int64 = 0;  
+  for ; i_12 < int64(len(this.ns)) ; i_12++ {
+    n := this.ns[i_12];
     newNode.ns = append(newNode.ns,n); 
   }
   switch (this.value_type ) { 
@@ -3324,18 +3978,18 @@ func (this *CodeNode) rebuildWithType (match *RangerArgMatch, changeVref bool) *
         newNode.expression_value.has_value = true; /* detected as non-optional */
       }
   }
-  var i_16 int64 = 0;  
-  for ; i_16 < int64(len(this.prop_keys)) ; i_16++ {
-    key := this.prop_keys[i_16];
+  var i_17 int64 = 0;  
+  for ; i_17 < int64(len(this.prop_keys)) ; i_17++ {
+    key := this.prop_keys[i_17];
     newNode.prop_keys = append(newNode.prop_keys,key); 
     var oldp *GoNullable = new(GoNullable); 
     oldp = r_get_string_CodeNode(this.props, key);
     var np *CodeNode = oldp.value.(*CodeNode).rebuildWithType(match, changeVref);
     newNode.props[key] = np
   }
-  var i_19 int64 = 0;  
-  for ; i_19 < int64(len(this.children)) ; i_19++ {
-    ch := this.children[i_19];
+  var i_20 int64 = 0;  
+  for ; i_20 < int64(len(this.children)) ; i_20++ {
+    ch := this.children[i_20];
     var newCh *CodeNode = ch.rebuildWithType(match, changeVref);
     newCh.parent.value = newNode;
     newCh.parent.has_value = true; /* detected as non-optional */
@@ -3446,9 +4100,9 @@ func (this *CodeNode) getFlag (flagName string) *GoNullable {
   if  false == this.has_vref_annotation {
     return res_2;
   }
-  var i_18 int64 = 0;  
-  for ; i_18 < int64(len(this.vref_annotation.value.(*CodeNode).children)) ; i_18++ {
-    ch_4 := this.vref_annotation.value.(*CodeNode).children[i_18];
+  var i_19 int64 = 0;  
+  for ; i_19 < int64(len(this.vref_annotation.value.(*CodeNode).children)) ; i_19++ {
+    ch_4 := this.vref_annotation.value.(*CodeNode).children[i_19];
     if  ch_4.vref == flagName {
       res_2.value = ch_4;
       res_2.has_value = true; /* detected as non-optional */
@@ -3461,9 +4115,9 @@ func (this *CodeNode) hasFlag (flagName string) bool {
   if  false == this.has_vref_annotation {
     return false;
   }
-  var i_20 int64 = 0;  
-  for ; i_20 < int64(len(this.vref_annotation.value.(*CodeNode).children)) ; i_20++ {
-    ch_6 := this.vref_annotation.value.(*CodeNode).children[i_20];
+  var i_21 int64 = 0;  
+  for ; i_21 < int64(len(this.vref_annotation.value.(*CodeNode).children)) ; i_21++ {
+    ch_6 := this.vref_annotation.value.(*CodeNode).children[i_21];
     if  ch_6.vref == flagName {
       return true;
     }
@@ -3659,6 +4313,12 @@ func (this *CodeNode) typeNameAsType (ctx *RangerAppWriterContext) int64 {
       }
   }
   return this.value_type;
+}
+func (this *CodeNode) isParsedAsPrimitive () bool {
+  if  (((((this.parsed_type == 2) || (this.parsed_type == 4)) || (this.parsed_type == 3)) || (this.parsed_type == 12)) || (this.parsed_type == 13)) || (this.parsed_type == 5) {
+    return true;
+  }
+  return false;
 }
 func (this *CodeNode) isPrimitive () bool {
   if  (((((this.value_type == 2) || (this.value_type == 4)) || (this.value_type == 3)) || (this.value_type == 12)) || (this.value_type == 13)) || (this.value_type == 5) {
@@ -3884,9 +4544,9 @@ func (this *CodeNode) walk () () {
   } else {
     fmt.Println( this.code.value.(*SourceCode).code[this.sp:this.ep] )
   }
-  var i_22 int64 = 0;  
-  for ; i_22 < int64(len(this.children)) ; i_22++ {
-    item := this.children[i_22];
+  var i_23 int64 = 0;  
+  for ; i_23 < int64(len(this.children)) ; i_23++ {
+    item := this.children[i_23];
     item.walk();
   }
   if  this.expression {
@@ -4108,6 +4768,14 @@ func (this *CodeNode) Get_typeClass() *GoNullable {
 // setter for variable typeClass
 func (this *CodeNode) Set_typeClass( value *GoNullable)  {
   this.typeClass = value 
+}
+// getter for variable parsed_type
+func (this *CodeNode) Get_parsed_type() int64 {
+  return this.parsed_type
+}
+// setter for variable parsed_type
+func (this *CodeNode) Set_parsed_type( value int64)  {
+  this.parsed_type = value 
 }
 // getter for variable value_type
 func (this *CodeNode) Get_value_type() int64 {
@@ -4357,26 +5025,13 @@ func (this *CodeNode) Get_evalCtx() *GoNullable {
 func (this *CodeNode) Set_evalCtx( value *GoNullable)  {
   this.evalCtx = value 
 }
-type AfterCodeNode struct { 
-  ff int64 /**  unused  **/ 
+// getter for variable evalState
+func (this *CodeNode) Get_evalState() *GoNullable {
+  return this.evalState
 }
-type IFACE_AfterCodeNode interface { 
-  Get_ff() int64
-  Set_ff(value int64) 
-}
-
-func CreateNew_AfterCodeNode() *AfterCodeNode {
-  me := new(AfterCodeNode)
-  me.ff = 0
-  return me;
-}
-// getter for variable ff
-func (this *AfterCodeNode) Get_ff() int64 {
-  return this.ff
-}
-// setter for variable ff
-func (this *AfterCodeNode) Set_ff( value int64)  {
-  this.ff = value 
+// setter for variable evalState
+func (this *CodeNode) Set_evalState( value *GoNullable)  {
+  this.evalState = value 
 }
 type RangerNodeValue struct { 
   double_value *GoNullable /**  unused  **/ 
@@ -4592,7 +5247,6 @@ type RangerAppWriterContext struct {
   stdCommands *GoNullable
   intRootCounter int64 /**  unused  **/ 
   targetLangName string
-  ctx *GoNullable /**  unused  **/ 
   parent *GoNullable
   defined_imports []string /**  unused  **/ 
   already_imported map[string]bool
@@ -4645,8 +5299,6 @@ type IFACE_RangerAppWriterContext interface {
   Set_intRootCounter(value int64) 
   Get_targetLangName() string
   Set_targetLangName(value string) 
-  Get_ctx() *GoNullable
-  Set_ctx(value *GoNullable) 
   Get_parent() *GoNullable
   Set_parent(value *GoNullable) 
   Get_defined_imports() []string
@@ -4838,7 +5490,6 @@ func CreateNew_RangerAppWriterContext() *RangerAppWriterContext {
   me.defCounts = make(map[string]int64)
   me.langOperators = new(GoNullable);
   me.stdCommands = new(GoNullable);
-  me.ctx = new(GoNullable);
   me.parent = new(GoNullable);
   me.fileSystem = new(GoNullable);
   me.currentClassName = new(GoNullable);
@@ -4857,9 +5508,9 @@ func (this *RangerAppWriterContext) initStdCommands () bool {
   main.value = this.langOperators.value;
   main.has_value = this.langOperators.has_value;
   var lang *GoNullable = new(GoNullable); 
-  var i_17 int64 = 0;  
-  for ; i_17 < int64(len(main.value.(*CodeNode).children)) ; i_17++ {
-    m_4 := main.value.(*CodeNode).children[i_17];
+  var i_18 int64 = 0;  
+  for ; i_18 < int64(len(main.value.(*CodeNode).children)) ; i_18++ {
+    m_4 := main.value.(*CodeNode).children[i_18];
     var fc_8 *CodeNode = m_4.getFirst();
     if  fc_8.vref == "language" {
       lang.value = m_4;
@@ -4868,9 +5519,9 @@ func (this *RangerAppWriterContext) initStdCommands () bool {
   }
   /** unused:  cmds*/
   var langNodes *CodeNode = lang.value.(*CodeNode).children[1];
-  var i_22 int64 = 0;  
-  for ; i_22 < int64(len(langNodes.children)) ; i_22++ {
-    lch := langNodes.children[i_22];
+  var i_23 int64 = 0;  
+  for ; i_23 < int64(len(langNodes.children)) ; i_23++ {
+    lch := langNodes.children[i_23];
     var fc_13 *CodeNode = lch.getFirst();
     if  fc_13.vref == "commands" {
       /** unused:  n_2*/
@@ -5152,9 +5803,9 @@ func (this *RangerAppWriterContext) getFnVarCnt (name string) int64 {
 }
 func (this *RangerAppWriterContext) debugVars () () {
   fmt.Println( "--- context vars ---" )
-  var i_22 int64 = 0;  
-  for ; i_22 < int64(len(this.localVarNames)) ; i_22++ {
-    na := this.localVarNames[i_22];
+  var i_23 int64 = 0;  
+  for ; i_23 < int64(len(this.localVarNames)) ; i_23++ {
+    na := this.localVarNames[i_23];
     fmt.Println( strings.Join([]string{ "var => ",na }, "") )
   }
   if  this.parent.has_value {
@@ -5238,13 +5889,13 @@ func (this *RangerAppWriterContext) getRoot () *RangerAppWriterContext {
   return this.parent.value.(*RangerAppWriterContext).getRoot();
 }
 func (this *RangerAppWriterContext) getClasses () []*RangerAppClassDesc {
-  var list []*RangerAppClassDesc = make([]*RangerAppClassDesc, 0);
-  var i_24 int64 = 0;  
-  for ; i_24 < int64(len(this.definedClassList)) ; i_24++ {
-    n_5 := this.definedClassList[i_24];
-    list = append(list,(r_get_string_RangerAppClassDesc(this.definedClasses, n_5)).value.(*RangerAppClassDesc)); 
+  var list_3 []*RangerAppClassDesc = make([]*RangerAppClassDesc, 0);
+  var i_25 int64 = 0;  
+  for ; i_25 < int64(len(this.definedClassList)) ; i_25++ {
+    n_5 := this.definedClassList[i_25];
+    list_3 = append(list_3,(r_get_string_RangerAppClassDesc(this.definedClasses, n_5)).value.(*RangerAppClassDesc)); 
   }
-  return list;
+  return list_3;
 }
 func (this *RangerAppWriterContext) addClass (name string, desc *RangerAppClassDesc) () {
   var root_34 *RangerAppWriterContext = this.getRoot();
@@ -5397,14 +6048,6 @@ func (this *RangerAppWriterContext) Get_targetLangName() string {
 // setter for variable targetLangName
 func (this *RangerAppWriterContext) Set_targetLangName( value string)  {
   this.targetLangName = value 
-}
-// getter for variable ctx
-func (this *RangerAppWriterContext) Get_ctx() *GoNullable {
-  return this.ctx
-}
-// setter for variable ctx
-func (this *RangerAppWriterContext) Set_ctx( value *GoNullable)  {
-  this.ctx = value 
 }
 // getter for variable parent
 func (this *RangerAppWriterContext) Get_parent() *GoNullable {
@@ -5886,9 +6529,9 @@ func (this *CodeFileSystem) getFile (path string, name string) *CodeFile {
 func (this *CodeFileSystem) mkdir (path string) () {
   var parts []string = strings.Split(path, "/");
   var curr_path string = "";
-  var i_21 int64 = 0;  
-  for ; i_21 < int64(len(parts)) ; i_21++ {
-    p := parts[i_21];
+  var i_22 int64 = 0;  
+  for ; i_22 < int64(len(parts)) ; i_22++ {
+    p := parts[i_22];
     curr_path = strings.Join([]string{ (strings.Join([]string{ curr_path,"/" }, "")),p }, ""); 
     if  false == (r_dir_exists(curr_path)) {
       _ = os.Mkdir( curr_path , os.ModePerm)
@@ -6080,11 +6723,11 @@ func (this *CodeWriter) indent (delta int64) () {
   }
 }
 func (this *CodeWriter) addIndent () () {
-  var i_22 int64 = 0;
+  var i_23 int64 = 0;
   if  0 == (int64(len(this.currentLine))) {
-    for i_22 < this.indentAmount {
+    for i_23 < this.indentAmount {
       this.currentLine = strings.Join([]string{ this.currentLine,this.tabStr }, ""); 
-      i_22 = i_22 + 1; 
+      i_23 = i_23 + 1; 
     }
   }
 }
@@ -6476,53 +7119,53 @@ func (this *RangerLispParser) getOperator () int64 {
   var c_5 byte = s_11[this.i];
   var c2 byte = s_11[(this.i + 1)];
   switch (c_5 ) { 
-    case []byte("*")[0] : 
+    case 42 : 
       this.i = this.i + 1; 
       return 14;
-    case []byte("/")[0] : 
+    case 47 : 
       this.i = this.i + 1; 
       return 14;
-    case []byte("+")[0] : 
+    case 43 : 
       this.i = this.i + 1; 
       return 13;
-    case []byte("-")[0] : 
+    case 45 : 
       this.i = this.i + 1; 
       return 13;
-    case []byte("<")[0] : 
-      if  c2 == ([]byte("=")[0]) {
+    case 60 : 
+      if  c2 == (61) {
         this.i = this.i + 2; 
         return 11;
       }
       this.i = this.i + 1; 
       return 11;
-    case []byte(">")[0] : 
-      if  c2 == ([]byte("=")[0]) {
+    case 62 : 
+      if  c2 == (61) {
         this.i = this.i + 2; 
         return 11;
       }
       this.i = this.i + 1; 
       return 11;
-    case []byte("!")[0] : 
-      if  c2 == ([]byte("=")[0]) {
+    case 33 : 
+      if  c2 == (61) {
         this.i = this.i + 2; 
         return 10;
       }
       return 0;
-    case []byte("=")[0] : 
-      if  c2 == ([]byte("=")[0]) {
+    case 61 : 
+      if  c2 == (61) {
         this.i = this.i + 2; 
         return 10;
       }
       this.i = this.i + 1; 
       return 3;
-    case []byte("&")[0] : 
-      if  c2 == ([]byte("&")[0]) {
+    case 38 : 
+      if  c2 == (38) {
         this.i = this.i + 2; 
         return 6;
       }
       return 0;
-    case []byte("|")[0] : 
-      if  c2 == ([]byte("|")[0]) {
+    case 124 : 
+      if  c2 == (124) {
         this.i = this.i + 2; 
         return 5;
       }
@@ -6539,41 +7182,41 @@ func (this *RangerLispParser) isOperator () int64 {
   var c_7 byte = s_13[this.i];
   var c2_4 byte = s_13[(this.i + 1)];
   switch (c_7 ) { 
-    case []byte("*")[0] : 
+    case 42 : 
       return 1;
-    case []byte("/")[0] : 
+    case 47 : 
       return 14;
-    case []byte("+")[0] : 
+    case 43 : 
       return 13;
-    case []byte("-")[0] : 
+    case 45 : 
       return 13;
-    case []byte("<")[0] : 
-      if  c2_4 == ([]byte("=")[0]) {
+    case 60 : 
+      if  c2_4 == (61) {
         return 11;
       }
       return 11;
-    case []byte(">")[0] : 
-      if  c2_4 == ([]byte("=")[0]) {
+    case 62 : 
+      if  c2_4 == (61) {
         return 11;
       }
       return 11;
-    case []byte("!")[0] : 
-      if  c2_4 == ([]byte("=")[0]) {
+    case 33 : 
+      if  c2_4 == (61) {
         return 10;
       }
       return 0;
-    case []byte("=")[0] : 
-      if  c2_4 == ([]byte("=")[0]) {
+    case 61 : 
+      if  c2_4 == (61) {
         return 10;
       }
       return 3;
-    case []byte("&")[0] : 
-      if  c2_4 == ([]byte("&")[0]) {
+    case 38 : 
+      if  c2_4 == (38) {
         return 6;
       }
       return 0;
-    case []byte("|")[0] : 
-      if  c2_4 == ([]byte("|")[0]) {
+    case 124 : 
+      if  c2_4 == (124) {
         return 5;
       }
       return 0;
@@ -6677,6 +7320,7 @@ func (this *RangerLispParser) parse () () {
         }
         new_node.value = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, this.i);
         new_node.has_value = true; /* detected as non-optional */
+        new_node.value.(*CodeNode).parsed_type = 10; 
         new_node.value.(*CodeNode).value_type = 10; 
         new_node.value.(*CodeNode).string_value = fmt.Sprintf("%s", s_15[sp_4:this.i]); 
         this.curr_node.value.(*CodeNode).comments = append(this.curr_node.value.(*CodeNode).comments,new_node.value.(*CodeNode)); 
@@ -6684,7 +7328,7 @@ func (this *RangerLispParser) parse () () {
       }
       if  this.i < (this.len - 1) {
         fc_11 = s_15[(this.i + 1)]; 
-        if  (((c_9 == 40) || (c_9 == ([]byte("{")[0]))) || ((c_9 == 39) && (fc_11 == 40))) || ((c_9 == 96) && (fc_11 == 40)) {
+        if  (((c_9 == 40) || (c_9 == (123))) || ((c_9 == 39) && (fc_11 == 40))) || ((c_9 == 96) && (fc_11 == 40)) {
           this.paren_cnt = this.paren_cnt + 1; 
           if  !this.curr_node.has_value  {
             this.rootNode.value = CreateNew_CodeNode(this.code.value.(*SourceCode), this.i, this.i);
@@ -6692,9 +7336,11 @@ func (this *RangerLispParser) parse () () {
             this.curr_node.value = this.rootNode.value;
             this.curr_node.has_value = this.rootNode.has_value; 
             if  c_9 == 96 {
+              this.curr_node.value.(*CodeNode).parsed_type = 30; 
               this.curr_node.value.(*CodeNode).value_type = 30; 
             }
             if  c_9 == 39 {
+              this.curr_node.value.(*CodeNode).parsed_type = 29; 
               this.curr_node.value.(*CodeNode).value_type = 29; 
             }
             this.curr_node.value.(*CodeNode).expression = true; 
@@ -6713,7 +7359,7 @@ func (this *RangerLispParser) parse () () {
             this.curr_node.value = new_qnode;
             this.curr_node.has_value = true; /* detected as non-optional */
           }
-          if  c_9 == ([]byte("{")[0]) {
+          if  c_9 == (123) {
             this.curr_node.value.(*CodeNode).is_block_node = true; 
           }
           this.i = 1 + this.i; 
@@ -6729,8 +7375,8 @@ func (this *RangerLispParser) parse () () {
         sp_4 = this.i; 
         this.i = 1 + this.i; 
         c_9 = s_15[this.i]; 
-        for (this.i < this.len) && ((((c_9 >= 48) && (c_9 <= 57)) || (c_9 == ([]byte(".")[0]))) || ((this.i == sp_4) && ((c_9 == ([]byte("+")[0])) || (c_9 == ([]byte("-")[0]))))) {
-          if  c_9 == ([]byte(".")[0]) {
+        for (this.i < this.len) && ((((c_9 >= 48) && (c_9 <= 57)) || (c_9 == (46))) || ((this.i == sp_4) && ((c_9 == (43)) || (c_9 == (45))))) {
+          if  c_9 == (46) {
             is_double = true; 
           }
           this.i = 1 + this.i; 
@@ -6739,9 +7385,11 @@ func (this *RangerLispParser) parse () () {
         ep_4 = this.i; 
         var new_num_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, ep_4);
         if  is_double {
+          new_num_node.parsed_type = 2; 
           new_num_node.value_type = 2; 
           new_num_node.double_value = (r_str_2_d64((fmt.Sprintf("%s", s_15[sp_4:ep_4])))).value.(float64); 
         } else {
+          new_num_node.parsed_type = 3; 
           new_num_node.value_type = 3; 
           new_num_node.int_value = (r_str_2_i64((fmt.Sprintf("%s", s_15[sp_4:ep_4])))).value.(int64); 
         }
@@ -6776,7 +7424,8 @@ func (this *RangerLispParser) parse () () {
             var orig_str []byte = []byte((fmt.Sprintf("%s", s_15[sp_4:ep_4])));
             var str_length int64 = int64(len(orig_str));
             var ii_5 int64 = 0;
-            for ii_5 < str_length {var cc byte = orig_str[ii_5];
+            for ii_5 < str_length {
+              var cc byte = orig_str[ii_5];
               if  cc == 92 {
                 var next_ch byte = orig_str[(ii_5 + 1)];
                 switch (next_ch ) { 
@@ -6808,6 +7457,7 @@ func (this *RangerLispParser) parse () () {
             }
           }
           var new_str_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, ep_4);
+          new_str_node.parsed_type = 4; 
           new_str_node.value_type = 4; 
           if  must_encode {
             new_str_node.string_value = encoded_str; 
@@ -6819,28 +7469,30 @@ func (this *RangerLispParser) parse () () {
           continue;
         }
       }
-      if  (((fc_11 == ([]byte("t")[0])) && ((s_15[(this.i + 1)]) == ([]byte("r")[0]))) && ((s_15[(this.i + 2)]) == ([]byte("u")[0]))) && ((s_15[(this.i + 3)]) == ([]byte("e")[0])) {
+      if  (((fc_11 == (116)) && ((s_15[(this.i + 1)]) == (114))) && ((s_15[(this.i + 2)]) == (117))) && ((s_15[(this.i + 3)]) == (101)) {
         var new_true_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, sp_4 + 4);
         new_true_node.value_type = 5; 
+        new_true_node.parsed_type = 5; 
         new_true_node.boolean_value = true; 
         this.insert_node(new_true_node);
         this.i = this.i + 4; 
         continue;
       }
-      if  ((((fc_11 == ([]byte("f")[0])) && ((s_15[(this.i + 1)]) == ([]byte("a")[0]))) && ((s_15[(this.i + 2)]) == ([]byte("l")[0]))) && ((s_15[(this.i + 3)]) == ([]byte("s")[0]))) && ((s_15[(this.i + 4)]) == ([]byte("e")[0])) {
+      if  ((((fc_11 == (102)) && ((s_15[(this.i + 1)]) == (97))) && ((s_15[(this.i + 2)]) == (108))) && ((s_15[(this.i + 3)]) == (115))) && ((s_15[(this.i + 4)]) == (101)) {
         var new_f_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, sp_4 + 5);
         new_f_node.value_type = 5; 
+        new_f_node.parsed_type = 5; 
         new_f_node.boolean_value = false; 
         this.insert_node(new_f_node);
         this.i = this.i + 5; 
         continue;
       }
-      if  fc_11 == ([]byte("@")[0]) {
+      if  fc_11 == (64) {
         this.i = this.i + 1; 
         sp_4 = this.i; 
         ep_4 = this.i; 
         c_9 = s_15[this.i]; 
-        for ((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ([]byte("}")[0])) {
+        for ((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125)) {
           this.i = 1 + this.i; 
           c_9 = s_15[this.i]; 
         }
@@ -6882,7 +7534,7 @@ func (this *RangerLispParser) parse () () {
       var vref_had_type_ann bool = false;
       var vref_ann_node *GoNullable = new(GoNullable); 
       var vref_end int64 = this.i;
-      if  (((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ([]byte("}")[0])) {
+      if  (((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125)) {
         if  this.curr_node.value.(*CodeNode).is_block_node == true {
           var new_expr_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, ep_4);
           new_expr_node.parent.value = this.curr_node.value;
@@ -6904,7 +7556,7 @@ func (this *RangerLispParser) parse () () {
       var last_was_newline bool = false;
       if  op_c > 0 {
       } else {
-        for (((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ([]byte("}")[0])) {
+        for (((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125)) {
           if  this.i > sp_4 {
             var is_opchar int64 = this.isOperator();
             if  is_opchar > 0 {
@@ -6917,12 +7569,12 @@ func (this *RangerLispParser) parse () () {
             last_was_newline = true; 
             break;
           }
-          if  c_9 == ([]byte(".")[0]) {
+          if  c_9 == (46) {
             ns_list = append(ns_list,fmt.Sprintf("%s", s_15[last_ns:this.i])); 
             last_ns = this.i + 1; 
             ns_cnt = 1 + ns_cnt; 
           }
-          if  (this.i > vref_end) && (c_9 == ([]byte("@")[0])) {
+          if  (this.i > vref_end) && (c_9 == (64)) {
             vref_had_type_ann = true; 
             vref_end = this.i; 
             vref_ann_node.value = this.parse_raw_annotation();
@@ -6956,7 +7608,7 @@ func (this *RangerLispParser) parse () () {
         var vt_sp int64 = this.i;
         var vt_ep int64 = this.i;
         c_9 = s_15[this.i]; 
-        if  c_9 == ([]byte("(")[0]) {
+        if  c_9 == (40) {
           var a_node3 *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, ep_4);
           a_node3.expression = true; 
           this.curr_node.value = a_node3;
@@ -6969,6 +7621,7 @@ func (this *RangerLispParser) parse () () {
           new_expr_node_10.ns = ns_list; 
           new_expr_node_10.expression_value.value = a_node3;
           new_expr_node_10.expression_value.has_value = true; /* detected as non-optional */
+          new_expr_node_10.parsed_type = 15; 
           new_expr_node_10.value_type = 15; 
           if  vref_had_type_ann {
             new_expr_node_10.vref_annotation.value = vref_ann_node.value;
@@ -6978,7 +7631,7 @@ func (this *RangerLispParser) parse () () {
           this.curr_node.value.(*CodeNode).children = append(this.curr_node.value.(*CodeNode).children,new_expr_node_10); 
           continue;
         }
-        if  c_9 == ([]byte("[")[0]) {
+        if  c_9 == (91) {
           this.i = this.i + 1; 
           vt_sp = this.i; 
           var hash_sep int64 = 0;
@@ -6987,10 +7640,10 @@ func (this *RangerLispParser) parse () () {
           for ((this.i < this.len) && (c_9 > 32)) && (c_9 != 93) {
             this.i = 1 + this.i; 
             c_9 = s_15[this.i]; 
-            if  c_9 == ([]byte(":")[0]) {
+            if  c_9 == (58) {
               hash_sep = this.i; 
             }
-            if  c_9 == ([]byte("@")[0]) {
+            if  c_9 == (64) {
               had_array_type_ann = true; 
               break;
             }
@@ -7003,6 +7656,7 @@ func (this *RangerLispParser) parse () () {
             var new_hash_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, vt_ep);
             new_hash_node.vref = fmt.Sprintf("%s", s_15[sp_4:ep_4]); 
             new_hash_node.ns = ns_list; 
+            new_hash_node.parsed_type = 7; 
             new_hash_node.value_type = 7; 
             new_hash_node.array_type = type_name; 
             new_hash_node.key_type = key_type_name; 
@@ -7029,6 +7683,7 @@ func (this *RangerLispParser) parse () () {
             var new_arr_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, vt_ep);
             new_arr_node.vref = fmt.Sprintf("%s", s_15[sp_4:ep_4]); 
             new_arr_node.ns = ns_list; 
+            new_arr_node.parsed_type = 6; 
             new_arr_node.value_type = 6; 
             new_arr_node.array_type = type_name_17; 
             new_arr_node.parent.value = this.curr_node.value;
@@ -7051,10 +7706,10 @@ func (this *RangerLispParser) parse () () {
           }
         }
         var had_type_ann bool = false;
-        for ((((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ([]byte("}")[0]))) && (c_9 != ([]byte(",")[0])) {
+        for ((((((this.i < this.len) && ((s_15[this.i]) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) && (c_9 != (44)) {
           this.i = 1 + this.i; 
           c_9 = s_15[this.i]; 
-          if  c_9 == ([]byte("@")[0]) {
+          if  c_9 == (64) {
             had_type_ann = true; 
             break;
           }
@@ -7065,6 +7720,7 @@ func (this *RangerLispParser) parse () () {
           var new_ref_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, ep_4);
           new_ref_node.vref = fmt.Sprintf("%s", s_15[sp_4:ep_4]); 
           new_ref_node.ns = ns_list; 
+          new_ref_node.parsed_type = 9; 
           new_ref_node.value_type = 9; 
           new_ref_node.type_name = fmt.Sprintf("%s", s_15[vt_sp:vt_ep]); 
           new_ref_node.parent.value = this.curr_node.value;
@@ -7087,6 +7743,7 @@ func (this *RangerLispParser) parse () () {
         if  (this.i < this.len) && (ep_4 > sp_4) {
           var new_vref_node *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, ep_4);
           new_vref_node.vref = fmt.Sprintf("%s", s_15[sp_4:ep_4]); 
+          new_vref_node.parsed_type = 9; 
           new_vref_node.value_type = 9; 
           new_vref_node.ns = ns_list; 
           new_vref_node.parent.value = this.curr_node.value;
@@ -7122,8 +7779,10 @@ func (this *RangerLispParser) parse () () {
             new_vref_node.vref_annotation.has_value = vref_ann_node.has_value; 
             new_vref_node.has_vref_annotation = true; 
           }
-          if  ((s_15[(this.i + 1)]) == ([]byte("(")[0])) || ((s_15[(this.i + 0)]) == ([]byte("(")[0])) {
-            if  ((0 == op_pred) && this.curr_node.value.(*CodeNode).infix_operator) && (1 == (int64(len(this.curr_node.value.(*CodeNode).children)))) {
+          if  (this.i + 1) < this.len {
+            if  ((s_15[(this.i + 1)]) == (40)) || ((s_15[(this.i + 0)]) == (40)) {
+              if  ((0 == op_pred) && this.curr_node.value.(*CodeNode).infix_operator) && (1 == (int64(len(this.curr_node.value.(*CodeNode).children)))) {
+              }
             }
           }
           if  ((op_pred > 0) && this.curr_node.value.(*CodeNode).infix_operator) || ((op_pred > 0) && ((int64(len(this.curr_node.value.(*CodeNode).children))) >= 2)) {
@@ -7150,7 +7809,8 @@ func (this *RangerLispParser) parse () () {
                 var ii_14 int64 = 0;
                 var start_from int64 = ch_cnt - 2;
                 var keep_nodes *CodeNode = CreateNew_CodeNode(this.code.value.(*SourceCode), sp_4, ep_4);
-                for ch_cnt > 0 {var n_ch_21 *CodeNode
+                for ch_cnt > 0 {
+                  var n_ch_21 *CodeNode
                   
                   // array_extract operator 
                   var n_ch_13 []*CodeNode
@@ -7165,9 +7825,9 @@ func (this *RangerLispParser) parse () () {
                   ch_cnt = ch_cnt - 1; 
                   ii_14 = 1 + ii_14; 
                 }
-                var i_33 int64 = 0;  
-                for ; i_33 < int64(len(keep_nodes.children)) ; i_33++ {
-                  keep := keep_nodes.children[i_33];
+                var i_34 int64 = 0;  
+                for ; i_34 < int64(len(keep_nodes.children)) ; i_34++ {
+                  keep := keep_nodes.children[i_34];
                   this.curr_node.value.(*CodeNode).children = append(this.curr_node.value.(*CodeNode).children,keep); 
                 }
                 this.curr_node.value.(*CodeNode).children = append(this.curr_node.value.(*CodeNode).children,if_node); 
@@ -7211,7 +7871,8 @@ func (this *RangerLispParser) parse () () {
                 new_op_node.children = append(new_op_node.children,last_value); 
               } else {
                 if  false == just_continue {
-                  for until_index > 0 {var what_to_add *CodeNode
+                  for until_index > 0 {
+                    var what_to_add *CodeNode
                     
                     // array_extract operator 
                     var what_to_add_6 []*CodeNode
@@ -7238,8 +7899,8 @@ func (this *RangerLispParser) parse () () {
           continue;
         }
       }
-      if  (c_9 == 41) || (c_9 == ([]byte("}")[0])) {
-        if  ((c_9 == ([]byte("}")[0])) && is_block_parent) && ((int64(len(this.curr_node.value.(*CodeNode).children))) > 0) {
+      if  (c_9 == 41) || (c_9 == (125)) {
+        if  ((c_9 == (125)) && is_block_parent) && ((int64(len(this.curr_node.value.(*CodeNode).children))) > 0) {
           this.end_expression();
         }
         this.i = 1 + this.i; 
@@ -7379,10 +8040,10 @@ func (this *RangerArgMatch) matchArguments (args *CodeNode, callArgs *CodeNode, 
   /** unused:  fc_12*/
   var missed_args []string = make([]string, 0);
   var all_matched bool = true;
-  var i_24 int64 = 0;  
-  for ; i_24 < int64(len(args.children)) ; i_24++ {
-    arg := args.children[i_24];
-    var callArg *CodeNode = callArgs.children[(i_24 + firstArgIndex)];
+  var i_25 int64 = 0;  
+  for ; i_25 < int64(len(args.children)) ; i_25++ {
+    arg := args.children[i_25];
+    var callArg *CodeNode = callArgs.children[(i_25 + firstArgIndex)];
     if  arg.hasFlag("ignore") {
       continue;
     }
@@ -7674,10 +8335,13 @@ func (this *RangerArgMatch) Set_matched( value map[string]string)  {
 }
 type RangerFlowParser struct { 
   stdCommands *GoNullable
+  lastProcessedNode *GoNullable
 }
 type IFACE_RangerFlowParser interface { 
   Get_stdCommands() *GoNullable
   Set_stdCommands(value *GoNullable) 
+  Get_lastProcessedNode() *GoNullable
+  Set_lastProcessedNode(value *GoNullable) 
   cmdEnum(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
   initStdCommands() ()
   findLanguageOper(details *CodeNode, ctx *RangerAppWriterContext) *GoNullable
@@ -7730,15 +8394,16 @@ type IFACE_RangerFlowParser interface {
 func CreateNew_RangerFlowParser() *RangerFlowParser {
   me := new(RangerFlowParser)
   me.stdCommands = new(GoNullable);
+  me.lastProcessedNode = new(GoNullable);
   return me;
 }
 func (this *RangerFlowParser) cmdEnum (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   var fNameNode *CodeNode = node.children[1];
   var enumList *CodeNode = node.children[2];
   var new_enum *RangerAppEnum = CreateNew_RangerAppEnum();
-  var i_25 int64 = 0;  
-  for ; i_25 < int64(len(enumList.children)) ; i_25++ {
-    item_2 := enumList.children[i_25];
+  var i_26 int64 = 0;  
+  for ; i_26 < int64(len(enumList.children)) ; i_26++ {
+    item_2 := enumList.children[i_26];
     new_enum.add(item_2.vref);
   }
   ctx.definedEnums[fNameNode.vref] = new_enum
@@ -7747,16 +8412,16 @@ func (this *RangerFlowParser) initStdCommands () () {
 }
 func (this *RangerFlowParser) findLanguageOper (details *CodeNode, ctx *RangerAppWriterContext) *GoNullable {
   var langName string = ctx.getTargetLang();
-  var i_28 int64 = 0;  
-  for ; i_28 < int64(len(details.children)) ; i_28++ {
-    det := details.children[i_28];
+  var i_29 int64 = 0;  
+  for ; i_29 < int64(len(details.children)) ; i_29++ {
+    det := details.children[i_29];
     if  (int64(len(det.children))) > 0 {
       var fc_13 *CodeNode = det.children[0];
       if  fc_13.vref == "templates" {
         var tplList *CodeNode = det.children[1];
-        var i_38 int64 = 0;  
-        for ; i_38 < int64(len(tplList.children)) ; i_38++ {
-          tpl := tplList.children[i_38];
+        var i_39 int64 = 0;  
+        for ; i_39 < int64(len(tplList.children)) ; i_39++ {
+          tpl := tplList.children[i_39];
           var tplName *CodeNode = tpl.getFirst();
           var tplImpl *GoNullable = new(GoNullable); 
           tplImpl.value = tpl.getSecond();
@@ -7784,6 +8449,7 @@ func (this *RangerFlowParser) buildMacro (langOper *GoNullable, args *CodeNode, 
   lcc.langWriter.value.(IFACE_RangerGenericClassWriter).Get_compiler().value = lcc;
   lcc.langWriter.value.(IFACE_RangerGenericClassWriter).Get_compiler().has_value = true; /* detected as non-optional */
   subCtx.targetLangName = "ranger"; 
+  subCtx.restartExpressionLevel();
   var macroNode *CodeNode = langOper.value.(*CodeNode);
   var cmdList *CodeNode = macroNode.getSecond();
   lcc.walkCommandList(cmdList, args, subCtx, wr_4);
@@ -7839,10 +8505,10 @@ func (this *RangerFlowParser) stdParamMatch (callArgs *CodeNode, inCtx *RangerAp
           is_macro = true; 
         }
         var match *RangerArgMatch = CreateNew_RangerArgMatch();
-        var i_32 int64 = 0;  
-        for ; i_32 < int64(len(args.children)) ; i_32++ {
-          arg_2 := args.children[i_32];
-          var callArg_2 *CodeNode = callArgs.children[(i_32 + 1)];
+        var i_33 int64 = 0;  
+        for ; i_33 < int64(len(args.children)) ; i_33++ {
+          arg_2 := args.children[i_33];
+          var callArg_2 *CodeNode = callArgs.children[(i_33 + 1)];
           if  arg_2.hasFlag("define") {
             var p_3 IFACE_RangerAppParamDesc = CreateNew_RangerAppParamDesc();
             p_3.Set_name(callArg_2.vref); 
@@ -7968,9 +8634,9 @@ func (this *RangerFlowParser) stdParamMatch (callArgs *CodeNode, inCtx *RangerAp
               var anns *GoNullable = new(GoNullable); 
               anns.value = arg_13.vref_annotation.value;
               anns.has_value = arg_13.vref_annotation.has_value;
-              var i_42 int64 = 0;  
-              for ; i_42 < int64(len(anns.value.(*CodeNode).children)) ; i_42++ {
-                ann_25 := anns.value.(*CodeNode).children[i_42];
+              var i_43 int64 = 0;  
+              for ; i_43 < int64(len(anns.value.(*CodeNode).children)) ; i_43++ {
+                ann_25 := anns.value.(*CodeNode).children[i_43];
                 if  ann_25.vref == "mutates" {
                   var theArg *CodeNode = callArgs.children[(arg_index + 1)];
                   if  theArg.hasParamDesc {
@@ -8132,9 +8798,9 @@ func (this *RangerFlowParser) Constructor (node *CodeNode, ctx *RangerAppWriterC
   subCtx_4.currentMethod.value = m_5.value;
   subCtx_4.currentMethod.has_value = m_5.has_value; 
   subCtx_4.setInMethod();
-  var i_36 int64 = 0;  
-  for ; i_36 < int64(len(m_5.value.(*RangerAppFunctionDesc).params)) ; i_36++ {
-    v := m_5.value.(*RangerAppFunctionDesc).params[i_36];
+  var i_37 int64 = 0;  
+  for ; i_37 < int64(len(m_5.value.(*RangerAppFunctionDesc).params)) ; i_37++ {
+    v := m_5.value.(*RangerAppFunctionDesc).params[i_37];
     subCtx_4.defineVariable(v.Get_name(), v);
   }
   this.WalkNodeChildren(fnBody, subCtx_4, wr);
@@ -8142,9 +8808,9 @@ func (this *RangerFlowParser) Constructor (node *CodeNode, ctx *RangerAppWriterC
   if  fnBody.didReturnAtIndex >= 0 {
     ctx.addError(node, "constructor should not return any values!");
   }
-  var i_40 int64 = 0;  
-  for ; i_40 < int64(len(subCtx_4.localVarNames)) ; i_40++ {
-    n_4 := subCtx_4.localVarNames[i_40];
+  var i_41 int64 = 0;  
+  for ; i_41 < int64(len(subCtx_4.localVarNames)) ; i_41++ {
+    n_4 := subCtx_4.localVarNames[i_41];
     var p_6 *GoNullable = new(GoNullable); 
     p_6 = r_get_string_IFACE_RangerAppParamDesc(subCtx_4.localVariables, n_4);
     if  p_6.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0 {
@@ -8188,10 +8854,10 @@ func (this *RangerFlowParser) buildGenericClass (tpl *CodeNode, node *CodeNode, 
   }
   fmt.Println( strings.Join([]string{ "could build generic class... ",cn_4.vref }, "") )
   var match_4 *RangerArgMatch = CreateNew_RangerArgMatch();
-  var i_40 int64 = 0;  
-  for ; i_40 < int64(len(tplArgs_2.value.(*CodeNode).children)) ; i_40++ {
-    arg_7 := tplArgs_2.value.(*CodeNode).children[i_40];
-    var given *CodeNode = givenArgs.value.(*CodeNode).children[i_40];
+  var i_41 int64 = 0;  
+  for ; i_41 < int64(len(tplArgs_2.value.(*CodeNode).children)) ; i_41++ {
+    arg_7 := tplArgs_2.value.(*CodeNode).children[i_41];
+    var given *CodeNode = givenArgs.value.(*CodeNode).children[i_41];
     fmt.Println( strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ " setting ",arg_7.vref }, ""))," => " }, "")),given.vref }, "") )
     if  false == match_4.add(arg_7.vref, given.vref, ctx) {
       fmt.Println( "set failed!" )
@@ -8248,9 +8914,9 @@ func (this *RangerFlowParser) cmdNew (node *CodeNode, ctx *RangerAppWriterContex
     }
   }
   this.WalkNode(obj, ctx, wr);
-  var i_42 int64 = 0;  
-  for ; i_42 < int64(len(params.children)) ; i_42++ {
-    arg_9 := params.children[i_42];
+  var i_43 int64 = 0;  
+  for ; i_43 < int64(len(params.children)) ; i_43++ {
+    arg_9 := params.children[i_43];
     ctx.setInExpr();
     this.WalkNode(arg_9, ctx, wr);
     ctx.unsetInExpr();
@@ -8268,20 +8934,20 @@ func (this *RangerFlowParser) cmdNew (node *CodeNode, ctx *RangerAppWriterContex
   fnDescr.value = currC.value.(*RangerAppClassDesc).constructor_fn.value;
   fnDescr.has_value = currC.value.(*RangerAppClassDesc).constructor_fn.has_value;
   if  fnDescr.has_value {
-    var i_46 int64 = 0;  
-    for ; i_46 < int64(len(fnDescr.value.(*RangerAppFunctionDesc).params)) ; i_46++ {
-      param := fnDescr.value.(*RangerAppFunctionDesc).params[i_46];
+    var i_47 int64 = 0;  
+    for ; i_47 < int64(len(fnDescr.value.(*RangerAppFunctionDesc).params)) ; i_47++ {
+      param := fnDescr.value.(*RangerAppFunctionDesc).params[i_47];
       var has_default bool = false;
       if  param.Get_nameNode().value.(*CodeNode).hasFlag("default") {
         has_default = true; 
       }
-      if  (int64(len(params.children))) <= i_46 {
+      if  (int64(len(params.children))) <= i_47 {
         if  has_default {
           continue;
         }
         ctx.addError(node, "Argument was not defined");
       }
-      var argNode_4 *CodeNode = params.children[i_46];
+      var argNode_4 *CodeNode = params.children[i_47];
       if  false == this.areEqualTypes((param.Get_nameNode().value.(*CodeNode)), argNode_4, ctx) {
         ctx.addError(node, strings.Join([]string{ (strings.Join([]string{ "ERROR, invalid argument types for ",currC.value.(*RangerAppClassDesc).name }, ""))," constructor " }, ""));
       }
@@ -8340,13 +9006,13 @@ func (this *RangerFlowParser) cmdLocalCall (node *CodeNode, ctx *RangerAppWriter
       subCtx_6.defineVariable(p_8.Get_name(), p_8);
       this.WalkNode(fnNode, subCtx_6, wr);
       var callParams *CodeNode = node.children[1];
-      var i_46 int64 = 0;  
-      for ; i_46 < int64(len(callParams.children)) ; i_46++ {
-        arg_11 := callParams.children[i_46];
+      var i_47 int64 = 0;  
+      for ; i_47 < int64(len(callParams.children)) ; i_47++ {
+        arg_11 := callParams.children[i_47];
         ctx.setInExpr();
         this.WalkNode(arg_11, subCtx_6, wr);
         ctx.unsetInExpr();
-        var fnArg IFACE_RangerAppParamDesc = vFnDef.value.(*RangerAppFunctionDesc).params[i_46];
+        var fnArg IFACE_RangerAppParamDesc = vFnDef.value.(*RangerAppFunctionDesc).params[i_47];
         var callArgP *GoNullable = new(GoNullable); 
         callArgP.value = arg_11.paramDesc.value;
         callArgP.has_value = arg_11.paramDesc.has_value;
@@ -8354,17 +9020,17 @@ func (this *RangerFlowParser) cmdLocalCall (node *CodeNode, ctx *RangerAppWriter
           callArgP.value.(IFACE_RangerAppParamDesc).moveRefTo(node, fnArg, ctx);
         }
       }
-      var i_54 int64 = 0;  
-      for ; i_54 < int64(len(vFnDef.value.(*RangerAppFunctionDesc).params)) ; i_54++ {
-        param_4 := vFnDef.value.(*RangerAppFunctionDesc).params[i_54];
-        if  (int64(len(callParams.children))) <= i_54 {
+      var i_55 int64 = 0;  
+      for ; i_55 < int64(len(vFnDef.value.(*RangerAppFunctionDesc).params)) ; i_55++ {
+        param_4 := vFnDef.value.(*RangerAppFunctionDesc).params[i_55];
+        if  (int64(len(callParams.children))) <= i_55 {
           if  param_4.Get_nameNode().value.(*CodeNode).hasFlag("default") {
             continue;
           }
           ctx.addError(node, "Argument was not defined");
           break;
         }
-        var argNode_6 *CodeNode = callParams.children[i_54];
+        var argNode_6 *CodeNode = callParams.children[i_55];
         if  false == this.areEqualTypes((param_4.Get_nameNode().value.(*CodeNode)), argNode_6, ctx) {
           ctx.addError(node, strings.Join([]string{ "ERROR, invalid argument types for method ",vFnDef.value.(*RangerAppFunctionDesc).name }, ""));
         }
@@ -8422,24 +9088,24 @@ func (this *RangerFlowParser) cmdLocalCall (node *CodeNode, ctx *RangerAppWriter
     subCtx_10.defineVariable(p_12.Get_name(), p_12);
     this.WriteThisVar(fnNode, subCtx_10, wr);
     this.WalkNode(fnNode, subCtx_10, wr);
-    var i_53 int64 = 0;  
-    for ; i_53 < int64(len(node.children)) ; i_53++ {
-      arg_15 := node.children[i_53];
-      if  i_53 < 1 {
+    var i_54 int64 = 0;  
+    for ; i_54 < int64(len(node.children)) ; i_54++ {
+      arg_15 := node.children[i_54];
+      if  i_54 < 1 {
         continue;
       }
       ctx.setInExpr();
       this.WalkNode(arg_15, subCtx_10, wr);
       ctx.unsetInExpr();
     }
-    var i_58 int64 = 0;  
-    for ; i_58 < int64(len(fnDescr_4.value.(*RangerAppFunctionDesc).params)) ; i_58++ {
-      param_8 := fnDescr_4.value.(*RangerAppFunctionDesc).params[i_58];
-      if  (int64(len(node.children))) <= (i_58 + 1) {
+    var i_59 int64 = 0;  
+    for ; i_59 < int64(len(fnDescr_4.value.(*RangerAppFunctionDesc).params)) ; i_59++ {
+      param_8 := fnDescr_4.value.(*RangerAppFunctionDesc).params[i_59];
+      if  (int64(len(node.children))) <= (i_59 + 1) {
         ctx.addError(node, "Argument was not defined");
         break;
       }
-      var argNode_10 *CodeNode = node.children[(i_58 + 1)];
+      var argNode_10 *CodeNode = node.children[(i_59 + 1)];
       if  false == this.areEqualTypes((param_8.Get_nameNode().value.(*CodeNode)), argNode_10, ctx) {
         ctx.addError(node, strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "ERROR, invalid argument types for ",desc_6.name }, ""))," method " }, "")),fnDescr_4.value.(*RangerAppFunctionDesc).name }, ""));
       }
@@ -8543,9 +9209,9 @@ func (this *RangerFlowParser) EnterClass (node *CodeNode, ctx *RangerAppWriterCo
   }
   var subCtx_10 *RangerAppWriterContext = desc_8.ctx.value.(*RangerAppWriterContext);
   subCtx_10.setCurrentClass(desc_8);
-  var i_54 int64 = 0;  
-  for ; i_54 < int64(len(desc_8.variables)) ; i_54++ {
-    p_12 := desc_8.variables[i_54];
+  var i_55 int64 = 0;  
+  for ; i_55 < int64(len(desc_8.variables)) ; i_55++ {
+    p_12 := desc_8.variables[i_55];
     var vNode *GoNullable = new(GoNullable); 
     vNode.value = p_12.Get_node().value;
     vNode.has_value = p_12.Get_node().has_value;
@@ -8559,25 +9225,25 @@ func (this *RangerFlowParser) EnterClass (node *CodeNode, ctx *RangerAppWriterCo
     p_12.Get_nameNode().value.(*CodeNode).eval_type = p_12.Get_nameNode().value.(*CodeNode).typeNameAsType(ctx); 
     p_12.Get_nameNode().value.(*CodeNode).eval_type_name = p_12.Get_nameNode().value.(*CodeNode).type_name; 
   }
-  var i_58 int64 = 0;  
-  for ; i_58 < int64(len(cBody.children)) ; i_58++ {
-    fNode := cBody.children[i_58];
+  var i_59 int64 = 0;  
+  for ; i_59 < int64(len(cBody.children)) ; i_59++ {
+    fNode := cBody.children[i_59];
     if  fNode.isFirstVref("fn") || fNode.isFirstVref("Constructor") {
       this.WalkNode(fNode, subCtx_10, wr);
     }
   }
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(cBody.children)) ; i_61++ {
-    fNode_6 := cBody.children[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(cBody.children)) ; i_62++ {
+    fNode_6 := cBody.children[i_62];
     if  fNode_6.isFirstVref("fn") || fNode_6.isFirstVref("PublicMethod") {
       this.WalkNode(fNode_6, subCtx_10, wr);
     }
   }
   var staticCtx *RangerAppWriterContext = ctx.fork();
   staticCtx.setCurrentClass(desc_8);
-  var i_64 int64 = 0;  
-  for ; i_64 < int64(len(cBody.children)) ; i_64++ {
-    fNode_9 := cBody.children[i_64];
+  var i_65 int64 = 0;  
+  for ; i_65 < int64(len(cBody.children)) ; i_65++ {
+    fNode_9 := cBody.children[i_65];
     if  fNode_9.isFirstVref("sfn") || fNode_9.isFirstVref("StaticMethod") {
       this.WalkNode(fNode_9, staticCtx, wr);
     }
@@ -8601,9 +9267,9 @@ func (this *RangerFlowParser) EnterMethod (node *CodeNode, ctx *RangerAppWriterC
   var subCtx_12 *RangerAppWriterContext = m_8.fnCtx.value.(*RangerAppWriterContext);
   subCtx_12.currentMethod.value = m_8;
   subCtx_12.currentMethod.has_value = true; /* detected as non-optional */
-  var i_62 int64 = 0;  
-  for ; i_62 < int64(len(m_8.params)) ; i_62++ {
-    v_4 := m_8.params[i_62];
+  var i_63 int64 = 0;  
+  for ; i_63 < int64(len(m_8.params)) ; i_63++ {
+    v_4 := m_8.params[i_63];
     v_4.Get_nameNode().value.(*CodeNode).eval_type = v_4.Get_nameNode().value.(*CodeNode).typeNameAsType(subCtx_12); 
     v_4.Get_nameNode().value.(*CodeNode).eval_type_name = v_4.Get_nameNode().value.(*CodeNode).type_name; 
   }
@@ -8615,9 +9281,9 @@ func (this *RangerFlowParser) EnterMethod (node *CodeNode, ctx *RangerAppWriterC
       ctx.addError(node, "Function does not return any values!");
     }
   }
-  var i_66 int64 = 0;  
-  for ; i_66 < int64(len(subCtx_12.localVarNames)) ; i_66++ {
-    n_7 := subCtx_12.localVarNames[i_66];
+  var i_67 int64 = 0;  
+  for ; i_67 < int64(len(subCtx_12.localVarNames)) ; i_67++ {
+    n_7 := subCtx_12.localVarNames[i_67];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(subCtx_12.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0 {
@@ -8655,9 +9321,9 @@ func (this *RangerFlowParser) EnterStaticMethod (node *CodeNode, ctx *RangerAppW
     m_10.changeStrength(1, 1, node);
   }
   subCtx_14.setInMethod();
-  var i_66 int64 = 0;  
-  for ; i_66 < int64(len(m_10.params)) ; i_66++ {
-    v_6 := m_10.params[i_66];
+  var i_67 int64 = 0;  
+  for ; i_67 < int64(len(m_10.params)) ; i_67++ {
+    v_6 := m_10.params[i_67];
     subCtx_14.defineVariable(v_6.Get_name(), v_6);
     v_6.Get_nameNode().value.(*CodeNode).eval_type = v_6.Get_nameNode().value.(*CodeNode).typeNameAsType(ctx); 
     v_6.Get_nameNode().value.(*CodeNode).eval_type_name = v_6.Get_nameNode().value.(*CodeNode).type_name; 
@@ -8670,9 +9336,9 @@ func (this *RangerFlowParser) EnterStaticMethod (node *CodeNode, ctx *RangerAppW
       ctx.addError(node, "Function does not return any values!");
     }
   }
-  var i_70 int64 = 0;  
-  for ; i_70 < int64(len(subCtx_14.localVarNames)) ; i_70++ {
-    n_9 := subCtx_14.localVarNames[i_70];
+  var i_71 int64 = 0;  
+  for ; i_71 < int64(len(subCtx_14.localVarNames)) ; i_71++ {
+    n_9 := subCtx_14.localVarNames[i_71];
     var p_16 *GoNullable = new(GoNullable); 
     p_16 = r_get_string_IFACE_RangerAppParamDesc(subCtx_14.localVariables, n_9);
     if  p_16.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0 {
@@ -8693,9 +9359,9 @@ func (this *RangerFlowParser) EnterLambdaMethod (node *CodeNode, ctx *RangerAppW
   var args_4 *CodeNode = node.children[2];
   var body *CodeNode = node.children[3];
   var subCtx_16 *RangerAppWriterContext = ctx.fork();
-  var i_70 int64 = 0;  
-  for ; i_70 < int64(len(args_4.children)) ; i_70++ {
-    arg_15 := args_4.children[i_70];
+  var i_71 int64 = 0;  
+  for ; i_71 < int64(len(args_4.children)) ; i_71++ {
+    arg_15 := args_4.children[i_71];
     var v_8 IFACE_RangerAppParamDesc = CreateNew_RangerAppParamDesc();
     v_8.Set_name(arg_15.vref); 
     v_8.Get_node().value = arg_15;
@@ -8704,9 +9370,9 @@ func (this *RangerFlowParser) EnterLambdaMethod (node *CodeNode, ctx *RangerAppW
     v_8.Get_nameNode().has_value = true; /* detected as non-optional */
     subCtx_16.defineVariable(v_8.Get_name(), v_8);
   }
-  var i_74 int64 = 0;  
-  for ; i_74 < int64(len(body.children)) ; i_74++ {
-    item_5 := body.children[i_74];
+  var i_75 int64 = 0;  
+  for ; i_75 < int64(len(body.children)) ; i_75++ {
+    item_5 := body.children[i_75];
     this.WalkNode(item_5, subCtx_16, wr);
   }
   fmt.Println( "--> EXITLAMBDA" )
@@ -8844,9 +9510,9 @@ func (this *RangerFlowParser) WalkNodeChildren (node *CodeNode, ctx *RangerAppWr
     ctx.addTodo(node, node.getStringProperty("todo"));
   }
   if  node.expression {
-    var i_74 int64 = 0;  
-    for ; i_74 < int64(len(node.children)) ; i_74++ {
-      item_7 := node.children[i_74];
+    var i_75 int64 = 0;  
+    for ; i_75 < int64(len(node.children)) ; i_75++ {
+      item_7 := node.children[i_75];
       item_7.parent.value = node;
       item_7.parent.has_value = true; /* detected as non-optional */
       this.WalkNode(item_7, ctx, wr);
@@ -8861,9 +9527,9 @@ func (this *RangerFlowParser) matchNode (node *CodeNode, ctx *RangerAppWriterCon
   var fc_24 *CodeNode = node.getFirst();
   this.stdCommands.value = ctx.getStdCommands();
   this.stdCommands.has_value = true; /* detected as non-optional */
-  var i_76 int64 = 0;  
-  for ; i_76 < int64(len(this.stdCommands.value.(*CodeNode).children)) ; i_76++ {
-    cmd := this.stdCommands.value.(*CodeNode).children[i_76];
+  var i_77 int64 = 0;  
+  for ; i_77 < int64(len(this.stdCommands.value.(*CodeNode).children)) ; i_77++ {
+    cmd := this.stdCommands.value.(*CodeNode).children[i_77];
     var cmdName *CodeNode = cmd.getFirst();
     if  cmdName.vref == fc_24.vref {
       this.stdParamMatch(node, ctx, wr);
@@ -8881,6 +9547,8 @@ func (this *RangerFlowParser) WalkNode (node *CodeNode, ctx *RangerAppWriterCont
     return true;
   }
   node.flow_done = true; 
+  this.lastProcessedNode.value = node;
+  this.lastProcessedNode.has_value = true; /* detected as non-optional */
   if  node.hasStringProperty("todo") {
     ctx.addTodo(node, node.getStringProperty("todo"));
   }
@@ -8988,9 +9656,9 @@ func (this *RangerFlowParser) WalkNode (node *CodeNode, ctx *RangerAppWriterCont
     }
   }
   if  node.expression {
-    var i_78 int64 = 0;  
-    for ; i_78 < int64(len(node.children)) ; i_78++ {
-      item_9 := node.children[i_78];
+    var i_79 int64 = 0;  
+    for ; i_79 < int64(len(node.children)) ; i_79++ {
+      item_9 := node.children[i_79];
       item_9.parent.value = node;
       item_9.parent.has_value = true; /* detected as non-optional */
       this.WalkNode(item_9, ctx, wr);
@@ -9023,9 +9691,9 @@ func (this *RangerFlowParser) mergeImports (node *CodeNode, ctx *RangerAppWriter
     this.mergeImports(rn_2, ctx, wr);
     node.children = append(node.children,rn_2); 
   } else {
-    var i_80 int64 = 0;  
-    for ; i_80 < int64(len(node.children)) ; i_80++ {
-      item_11 := node.children[i_80];
+    var i_81 int64 = 0;  
+    for ; i_81 < int64(len(node.children)) ; i_81++ {
+      item_11 := node.children[i_81];
       this.mergeImports(item_11, ctx, wr);
     }
   }
@@ -9042,9 +9710,9 @@ func (this *RangerFlowParser) CollectMethods (node *CodeNode, ctx *RangerAppWrit
     new_class.nameNode.has_value = true; /* detected as non-optional */
     ctx.addClass(nameNode_4.vref, new_class);
     new_class.is_system = true; 
-    var i_82 int64 = 0;  
-    for ; i_82 < int64(len(instances.children)) ; i_82++ {
-      ch_7 := instances.children[i_82];
+    var i_83 int64 = 0;  
+    for ; i_83 < int64(len(instances.children)) ; i_83++ {
+      ch_7 := instances.children[i_83];
       var langName_4 *CodeNode = ch_7.getFirst();
       var langClassName *CodeNode = ch_7.getSecond();
       new_class.systemNames[langName_4.vref] = langClassName.vref
@@ -9134,6 +9802,8 @@ func (this *RangerFlowParser) CollectMethods (node *CodeNode, ctx *RangerAppWrit
       ctx.addClass(s_13, new_class_6);
       new_class_6.classNode.value = node;
       new_class_6.classNode.has_value = true; /* detected as non-optional */
+      new_class_6.node.value = node;
+      new_class_6.node.has_value = true; /* detected as non-optional */
     }
   }
   if  node.isFirstVref("TemplateClass") {
@@ -9142,14 +9812,14 @@ func (this *RangerFlowParser) CollectMethods (node *CodeNode, ctx *RangerAppWrit
     find_more = false; 
   }
   if  node.isFirstVref("Extends") {
-    var list_2 *CodeNode = node.children[1];
-    var i_86 int64 = 0;  
-    for ; i_86 < int64(len(list_2.children)) ; i_86++ {
-      cname_5 := list_2.children[i_86];
+    var list_4 *CodeNode = node.children[1];
+    var i_87 int64 = 0;  
+    for ; i_87 < int64(len(list_4.children)) ; i_87++ {
+      cname_5 := list_4.children[i_87];
       var extC *RangerAppClassDesc = ctx.findClass(cname_5.vref);
-      var i_95 int64 = 0;  
-      for ; i_95 < int64(len(extC.variables)) ; i_95++ {
-        vv := extC.variables[i_95];
+      var i_96 int64 = 0;  
+      for ; i_96 < int64(len(extC.variables)) ; i_96++ {
+        vv := extC.variables[i_96];
         var currC_11 *GoNullable = new(GoNullable); 
         currC_11.value = ctx.currentClass.value;
         currC_11.has_value = ctx.currentClass.has_value;
@@ -9211,9 +9881,9 @@ func (this *RangerFlowParser) CollectMethods (node *CodeNode, ctx *RangerAppWrit
   }
   if  node.isFirstVref("operators") {
     var listOf *CodeNode = node.getSecond();
-    var i_92 int64 = 0;  
-    for ; i_92 < int64(len(listOf.children)) ; i_92++ {
-      item_13 := listOf.children[i_92];
+    var i_93 int64 = 0;  
+    for ; i_93 < int64(len(listOf.children)) ; i_93++ {
+      item_13 := listOf.children[i_93];
       ctx.createOperator(item_13);
     }
     find_more = false; 
@@ -9350,18 +10020,18 @@ func (this *RangerFlowParser) CollectMethods (node *CodeNode, ctx *RangerAppWrit
     find_more = false; 
   }
   if  find_more {
-    var i_95 int64 = 0;  
-    for ; i_95 < int64(len(node.children)) ; i_95++ {
-      item_17 := node.children[i_95];
+    var i_96 int64 = 0;  
+    for ; i_96 < int64(len(node.children)) ; i_96++ {
+      item_17 := node.children[i_96];
       this.CollectMethods(item_17, ctx, wr);
     }
   }
 }
 func (this *RangerFlowParser) FindWeakRefs (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var list_5 []*RangerAppClassDesc = ctx.getClasses();
-  var i_92 int64 = 0;  
-  for ; i_92 < int64(len(list_5)) ; i_92++ {
-    classDesc := list_5[i_92];
+  var list_7 []*RangerAppClassDesc = ctx.getClasses();
+  var i_93 int64 = 0;  
+  for ; i_93 < int64(len(list_7)) ; i_93++ {
+    classDesc := list_7[i_93];
     var i2 int64 = 0;  
     for ; i2 < int64(len(classDesc.variables)) ; i2++ {
       varD := classDesc.variables[i2];
@@ -9387,10 +10057,10 @@ func (this *RangerFlowParser) findFunctionDesc (obj *CodeNode, ctx *RangerAppWri
       var cnt_4 int64 = int64(len(obj.ns));
       var classRefDesc *GoNullable = new(GoNullable); 
       var classDesc_4 *GoNullable = new(GoNullable); 
-      var i_94 int64 = 0;  
-      for ; i_94 < int64(len(obj.ns)) ; i_94++ {
-        strname := obj.ns[i_94];
-        if  i_94 == 0 {
+      var i_95 int64 = 0;  
+      for ; i_95 < int64(len(obj.ns)) ; i_95++ {
+        strname := obj.ns[i_95];
+        if  i_95 == 0 {
           if  strname == this.getThisName() {
             classDesc_4.value = ctx.getCurrentClass().value;
             classDesc_4.has_value = ctx.getCurrentClass().has_value; 
@@ -9417,7 +10087,7 @@ func (this *RangerFlowParser) findFunctionDesc (obj *CodeNode, ctx *RangerAppWri
           if  !classDesc_4.has_value  {
             return varFnDesc;
           }
-          if  i_94 < (cnt_4 - 1) {
+          if  i_95 < (cnt_4 - 1) {
             varDesc.value = classDesc_4.value.(*RangerAppClassDesc).findVariable(strname).value;
             varDesc.has_value = classDesc_4.value.(*RangerAppClassDesc).findVariable(strname).has_value; 
             if  !varDesc.has_value  {
@@ -9470,10 +10140,10 @@ func (this *RangerFlowParser) findParamDesc (obj *CodeNode, ctx *RangerAppWriter
     if  (int64(len(obj.ns))) > 1 {
       var cnt_7 int64 = int64(len(obj.ns));
       var classRefDesc_4 *GoNullable = new(GoNullable); 
-      var i_96 int64 = 0;  
-      for ; i_96 < int64(len(obj.ns)) ; i_96++ {
-        strname_4 := obj.ns[i_96];
-        if  i_96 == 0 {
+      var i_97 int64 = 0;  
+      for ; i_97 < int64(len(obj.ns)) ; i_97++ {
+        strname_4 := obj.ns[i_97];
+        if  i_97 == 0 {
           if  strname_4 == this.getThisName() {
             classDesc_6.value = ctx.getCurrentClass().value;
             classDesc_6.has_value = ctx.getCurrentClass().has_value; 
@@ -9503,7 +10173,7 @@ func (this *RangerFlowParser) findParamDesc (obj *CodeNode, ctx *RangerAppWriter
             classDesc_6.has_value = true; /* detected as non-optional */
           }
         } else {
-          if  i_96 < (cnt_7 - 1) {
+          if  i_97 < (cnt_7 - 1) {
             varDesc_4.value = classDesc_6.value.(*RangerAppClassDesc).findVariable(strname_4).value;
             varDesc_4.has_value = classDesc_6.value.(*RangerAppClassDesc).findVariable(strname_4).has_value; 
             if  !varDesc_4.has_value  {
@@ -9677,6 +10347,14 @@ func (this *RangerFlowParser) Get_stdCommands() *GoNullable {
 func (this *RangerFlowParser) Set_stdCommands( value *GoNullable)  {
   this.stdCommands = value 
 }
+// getter for variable lastProcessedNode
+func (this *RangerFlowParser) Get_lastProcessedNode() *GoNullable {
+  return this.lastProcessedNode
+}
+// setter for variable lastProcessedNode
+func (this *RangerFlowParser) Set_lastProcessedNode( value *GoNullable)  {
+  this.lastProcessedNode = value 
+}
 type RangerGenericClassWriter struct { 
   compiler *GoNullable
 }
@@ -9714,7 +10392,8 @@ func (this *RangerGenericClassWriter) EncodeString (node *CodeNode, ctx *RangerA
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
+  for ii_11 < str_length_2 {
+    var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
         encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
@@ -9805,9 +10484,9 @@ func (this *RangerGenericClassWriter) getObjectTypeString (type_string string, c
   return type_string;
 }
 func (this *RangerGenericClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(ctx.localVarNames)) ; i_61++ {
-    n_7 := ctx.localVarNames[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
@@ -9865,10 +10544,10 @@ func (this *RangerGenericClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppW
     }
   }
   if  (int64(len(node.nsp))) > 0 {
-    var i_64 int64 = 0;  
-    for ; i_64 < int64(len(node.nsp)) ; i_64++ {
-      p_17 := node.nsp[i_64];
-      if  i_64 > 0 {
+    var i_65 int64 = 0;  
+    for ; i_65 < int64(len(node.nsp)) ; i_65++ {
+      p_17 := node.nsp[i_65];
+      if  i_65 > 0 {
         wr.out(".", false);
       }
       if  (int64(len(p_17.Get_compiledName()))) > 0 {
@@ -9877,16 +10556,16 @@ func (this *RangerGenericClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppW
         if  (int64(len(p_17.Get_name()))) > 0 {
           wr.out(this.adjustType(p_17.Get_name()), false);
         } else {
-          wr.out(this.adjustType((node.ns[i_64])), false);
+          wr.out(this.adjustType((node.ns[i_65])), false);
         }
       }
     }
     return;
   }
-  var i_68 int64 = 0;  
-  for ; i_68 < int64(len(node.ns)) ; i_68++ {
-    part := node.ns[i_68];
-    if  i_68 > 0 {
+  var i_69 int64 = 0;  
+  for ; i_69 < int64(len(node.ns)) ; i_69++ {
+    part := node.ns[i_69];
+    if  i_69 > 0 {
       wr.out(".", false);
     }
     wr.out(this.adjustType(part), false);
@@ -9921,13 +10600,13 @@ func (this *RangerGenericClassWriter) writeFnCall (node *CodeNode, ctx *RangerAp
     wr.out("(", false);
     var givenArgs_2 *CodeNode = node.getSecond();
     ctx.setInExpr();
-    var i_68 int64 = 0;  
-    for ; i_68 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_68++ {
-      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_68];
-      if  i_68 > 0 {
+    var i_69 int64 = 0;  
+    for ; i_69 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_69++ {
+      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_69];
+      if  i_69 > 0 {
         wr.out(", ", false);
       }
-      if  (int64(len(givenArgs_2.children))) <= i_68 {
+      if  (int64(len(givenArgs_2.children))) <= i_69 {
         var defVal *GoNullable = new(GoNullable); 
         defVal = arg_12.Get_nameNode().value.(*CodeNode).getFlag("default");
         if  defVal.has_value {
@@ -9938,7 +10617,7 @@ func (this *RangerGenericClassWriter) writeFnCall (node *CodeNode, ctx *RangerAp
         }
         continue;
       }
-      var n_10 *CodeNode = givenArgs_2.children[i_68];
+      var n_10 *CodeNode = givenArgs_2.children[i_69];
       this.WalkNode(n_10, ctx, wr);
     }
     ctx.unsetInExpr();
@@ -9961,11 +10640,11 @@ func (this *RangerGenericClassWriter) writeNewCall (node *CodeNode, ctx *RangerA
     constr.has_value = cl_2.value.(*RangerAppClassDesc).constructor_fn.has_value;
     var givenArgs_5 *CodeNode = node.getThird();
     if  constr.has_value {
-      var i_70 int64 = 0;  
-      for ; i_70 < int64(len(constr.value.(*RangerAppFunctionDesc).params)) ; i_70++ {
-        arg_15 := constr.value.(*RangerAppFunctionDesc).params[i_70];
-        var n_12 *CodeNode = givenArgs_5.children[i_70];
-        if  i_70 > 0 {
+      var i_71 int64 = 0;  
+      for ; i_71 < int64(len(constr.value.(*RangerAppFunctionDesc).params)) ; i_71++ {
+        arg_15 := constr.value.(*RangerAppFunctionDesc).params[i_71];
+        var n_12 *CodeNode = givenArgs_5.children[i_71];
+        if  i_71 > 0 {
           wr.out(", ", false);
         }
         if  true || (arg_15.Get_nameNode().has_value) {
@@ -9985,24 +10664,24 @@ func (this *RangerGenericClassWriter) writeClass (node *CodeNode, ctx *RangerApp
   }
   wr.out(strings.Join([]string{ (strings.Join([]string{ "class ",cl_5.value.(*RangerAppClassDesc).name }, ""))," { " }, ""), true);
   wr.indent(1);
-  var i_72 int64 = 0;  
-  for ; i_72 < int64(len(cl_5.value.(*RangerAppClassDesc).variables)) ; i_72++ {
-    pvar := cl_5.value.(*RangerAppClassDesc).variables[i_72];
+  var i_73 int64 = 0;  
+  for ; i_73 < int64(len(cl_5.value.(*RangerAppClassDesc).variables)) ; i_73++ {
+    pvar := cl_5.value.(*RangerAppClassDesc).variables[i_73];
     wr.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "/* var ",pvar.Get_name() }, ""))," => " }, "")),pvar.Get_nameNode().value.(*CodeNode).parent.value.(*CodeNode).getCode() }, ""))," */ " }, ""), true);
   }
-  var i_76 int64 = 0;  
-  for ; i_76 < int64(len(cl_5.value.(*RangerAppClassDesc).static_methods)) ; i_76++ {
-    pvar_6 := cl_5.value.(*RangerAppClassDesc).static_methods[i_76];
+  var i_77 int64 = 0;  
+  for ; i_77 < int64(len(cl_5.value.(*RangerAppClassDesc).static_methods)) ; i_77++ {
+    pvar_6 := cl_5.value.(*RangerAppClassDesc).static_methods[i_77];
     wr.out(strings.Join([]string{ (strings.Join([]string{ "/* static ",pvar_6.name }, ""))," */ " }, ""), true);
   }
-  var i_79 int64 = 0;  
-  for ; i_79 < int64(len(cl_5.value.(*RangerAppClassDesc).defined_variants)) ; i_79++ {
-    fnVar := cl_5.value.(*RangerAppClassDesc).defined_variants[i_79];
+  var i_80 int64 = 0;  
+  for ; i_80 < int64(len(cl_5.value.(*RangerAppClassDesc).defined_variants)) ; i_80++ {
+    fnVar := cl_5.value.(*RangerAppClassDesc).defined_variants[i_80];
     var mVs *GoNullable = new(GoNullable); 
     mVs = r_get_string_RangerAppMethodVariants(cl_5.value.(*RangerAppClassDesc).method_variants, fnVar);
-    var i_86 int64 = 0;  
-    for ; i_86 < int64(len(mVs.value.(*RangerAppMethodVariants).variants)) ; i_86++ {
-      variant := mVs.value.(*RangerAppMethodVariants).variants[i_86];
+    var i_87 int64 = 0;  
+    for ; i_87 < int64(len(mVs.value.(*RangerAppMethodVariants).variants)) ; i_87++ {
+      variant := mVs.value.(*RangerAppMethodVariants).variants[i_87];
       wr.out(strings.Join([]string{ (strings.Join([]string{ "function ",variant.name }, "")),"() {" }, ""), true);
       wr.indent(1);
       wr.newline();
@@ -10060,10 +10739,10 @@ func (this *RangerJava7ClassWriter) getObjectTypeString (type_string string, ctx
       return "Integer";
     case "string" : 
       return "String";
-    case "chararray" : 
-      return "char[]";
+    case "charbuffer" : 
+      return "byte[]";
     case "char" : 
-      return "char";
+      return "byte";
     case "boolean" : 
       return "Boolean";
     case "double" : 
@@ -10077,10 +10756,10 @@ func (this *RangerJava7ClassWriter) getTypeString (type_string string) string {
       return "int";
     case "string" : 
       return "String";
-    case "chararray" : 
-      return "char[]";
+    case "charbuffer" : 
+      return "byte[]";
     case "char" : 
-      return "char";
+      return "byte";
     case "boolean" : 
       return "boolean";
     case "double" : 
@@ -10123,9 +10802,9 @@ func (this *RangerJava7ClassWriter) writeTypeDef (node *CodeNode, ctx *RangerApp
       case 5 : 
         wr.out("Boolean", false);
       case 12 : 
-        wr.out("char", false);
+        wr.out("byte", false);
       case 13 : 
-        wr.out("char[]", false);
+        wr.out("byte[]", false);
       case 7 : 
         wr.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "HashMap<",this.getObjectTypeString(k_name, ctx) }, "")),"," }, "")),this.getObjectTypeString(a_name_2, ctx) }, "")),">" }, ""), false);
         wr.addImport("java.util.*");
@@ -10148,9 +10827,9 @@ func (this *RangerJava7ClassWriter) writeTypeDef (node *CodeNode, ctx *RangerApp
       case 2 : 
         wr.out("double", false);
       case 12 : 
-        wr.out("char", false);
+        wr.out("byte", false);
       case 13 : 
-        wr.out("char[]", false);
+        wr.out("byte[]", false);
       case 4 : 
         wr.out("String", false);
       case 5 : 
@@ -10192,17 +10871,17 @@ func (this *RangerJava7ClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWri
   }
   var max_len int64 = int64(len(node.ns));
   if  (int64(len(node.nsp))) > 0 {
-    var i_70 int64 = 0;  
-    for ; i_70 < int64(len(node.nsp)) ; i_70++ {
-      p_17 := node.nsp[i_70];
-      if  i_70 == 0 {
+    var i_71 int64 = 0;  
+    for ; i_71 < int64(len(node.nsp)) ; i_71++ {
+      p_17 := node.nsp[i_71];
+      if  i_71 == 0 {
         var part_2 string = node.ns[0];
         if  part_2 == "this" {
           wr.out("this", false);
           continue;
         }
       }
-      if  i_70 > 0 {
+      if  i_71 > 0 {
         wr.out(".", false);
       }
       if  (int64(len(p_17.Get_compiledName()))) > 0 {
@@ -10211,10 +10890,10 @@ func (this *RangerJava7ClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWri
         if  (int64(len(p_17.Get_name()))) > 0 {
           wr.out(this.adjustType(p_17.Get_name()), false);
         } else {
-          wr.out(this.adjustType((node.ns[i_70])), false);
+          wr.out(this.adjustType((node.ns[i_71])), false);
         }
       }
-      if  i_70 < (max_len - 1) {
+      if  i_71 < (max_len - 1) {
         if  p_17.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
           wr.out(".get()", false);
         }
@@ -10229,10 +10908,10 @@ func (this *RangerJava7ClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWri
     wr.out(p_22.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
     return;
   }
-  var i_75 int64 = 0;  
-  for ; i_75 < int64(len(node.ns)) ; i_75++ {
-    part_7 := node.ns[i_75];
-    if  i_75 > 0 {
+  var i_76 int64 = 0;  
+  for ; i_76 < int64(len(node.ns)) ; i_76++ {
+    part_7 := node.ns[i_76];
+    if  i_76 > 0 {
       wr.out(".", false);
     }
     wr.out(this.adjustType(part_7), false);
@@ -10291,10 +10970,10 @@ func (this *RangerJava7ClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppW
   }
 }
 func (this *RangerJava7ClassWriter) writeArgsDef (fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_75 int64 = 0;  
-  for ; i_75 < int64(len(fnDesc.params)) ; i_75++ {
-    arg_14 := fnDesc.params[i_75];
-    if  i_75 > 0 {
+  var i_76 int64 = 0;  
+  for ; i_76 < int64(len(fnDesc.params)) ; i_76++ {
+    arg_14 := fnDesc.params[i_76];
+    if  i_76 > 0 {
       wr.out(",", false);
     }
     wr.out(" ", false);
@@ -10346,13 +11025,13 @@ func (this *RangerJava7ClassWriter) writeClass (node *CodeNode, ctx *RangerAppWr
   }
   var declaredVariable map[string]bool = make(map[string]bool);
   if  (int64(len(cl_7.value.(*RangerAppClassDesc).extends_classes))) > 0 {
-    var i_77 int64 = 0;  
-    for ; i_77 < int64(len(cl_7.value.(*RangerAppClassDesc).extends_classes)) ; i_77++ {
-      pName := cl_7.value.(*RangerAppClassDesc).extends_classes[i_77];
+    var i_78 int64 = 0;  
+    for ; i_78 < int64(len(cl_7.value.(*RangerAppClassDesc).extends_classes)) ; i_78++ {
+      pName := cl_7.value.(*RangerAppClassDesc).extends_classes[i_78];
       var pC *RangerAppClassDesc = ctx.findClass(pName);
-      var i_87 int64 = 0;  
-      for ; i_87 < int64(len(pC.variables)) ; i_87++ {
-        pvar_3 := pC.variables[i_87];
+      var i_88 int64 = 0;  
+      for ; i_88 < int64(len(pC.variables)) ; i_88++ {
+        pvar_3 := pC.variables[i_88];
         declaredVariable[pvar_3.Get_name()] = true
       }
     }
@@ -10364,9 +11043,9 @@ func (this *RangerJava7ClassWriter) writeClass (node *CodeNode, ctx *RangerAppWr
   var parentClass *GoNullable = new(GoNullable); 
   if  (int64(len(cl_7.value.(*RangerAppClassDesc).extends_classes))) > 0 {
     wr_5.out(" extends ", false);
-    var i_84 int64 = 0;  
-    for ; i_84 < int64(len(cl_7.value.(*RangerAppClassDesc).extends_classes)) ; i_84++ {
-      pName_6 := cl_7.value.(*RangerAppClassDesc).extends_classes[i_84];
+    var i_85 int64 = 0;  
+    for ; i_85 < int64(len(cl_7.value.(*RangerAppClassDesc).extends_classes)) ; i_85++ {
+      pName_6 := cl_7.value.(*RangerAppClassDesc).extends_classes[i_85];
       wr_5.out(pName_6, false);
       parentClass.value = ctx.findClass(pName_6);
       parentClass.has_value = true; /* detected as non-optional */
@@ -10375,9 +11054,9 @@ func (this *RangerJava7ClassWriter) writeClass (node *CodeNode, ctx *RangerAppWr
   wr_5.out(" { ", true);
   wr_5.indent(1);
   wr_5.createTag("utilities");
-  var i_87 int64 = 0;  
-  for ; i_87 < int64(len(cl_7.value.(*RangerAppClassDesc).variables)) ; i_87++ {
-    pvar_8 := cl_7.value.(*RangerAppClassDesc).variables[i_87];
+  var i_88 int64 = 0;  
+  for ; i_88 < int64(len(cl_7.value.(*RangerAppClassDesc).variables)) ; i_88++ {
+    pvar_8 := cl_7.value.(*RangerAppClassDesc).variables[i_88];
     if  r_has_key_string_bool(declaredVariable, pvar_8.Get_name()) {
       continue;
     }
@@ -10401,9 +11080,9 @@ func (this *RangerJava7ClassWriter) writeClass (node *CodeNode, ctx *RangerAppWr
     wr_5.indent(-1);
     wr_5.out("}", true);
   }
-  var i_90 int64 = 0;  
-  for ; i_90 < int64(len(cl_7.value.(*RangerAppClassDesc).static_methods)) ; i_90++ {
-    variant_2 := cl_7.value.(*RangerAppClassDesc).static_methods[i_90];
+  var i_91 int64 = 0;  
+  for ; i_91 < int64(len(cl_7.value.(*RangerAppClassDesc).static_methods)) ; i_91++ {
+    variant_2 := cl_7.value.(*RangerAppClassDesc).static_methods[i_91];
     wr_5.out("", true);
     if  variant_2.nameNode.value.(*CodeNode).hasFlag("main") {
       wr_5.out("public static void main(String [] args ) {", true);
@@ -10424,14 +11103,14 @@ func (this *RangerJava7ClassWriter) writeClass (node *CodeNode, ctx *RangerAppWr
     wr_5.indent(-1);
     wr_5.out("}", true);
   }
-  var i_93 int64 = 0;  
-  for ; i_93 < int64(len(cl_7.value.(*RangerAppClassDesc).defined_variants)) ; i_93++ {
-    fnVar_2 := cl_7.value.(*RangerAppClassDesc).defined_variants[i_93];
+  var i_94 int64 = 0;  
+  for ; i_94 < int64(len(cl_7.value.(*RangerAppClassDesc).defined_variants)) ; i_94++ {
+    fnVar_2 := cl_7.value.(*RangerAppClassDesc).defined_variants[i_94];
     var mVs_2 *GoNullable = new(GoNullable); 
     mVs_2 = r_get_string_RangerAppMethodVariants(cl_7.value.(*RangerAppClassDesc).method_variants, fnVar_2);
-    var i_100 int64 = 0;  
-    for ; i_100 < int64(len(mVs_2.value.(*RangerAppMethodVariants).variants)) ; i_100++ {
-      variant_7 := mVs_2.value.(*RangerAppMethodVariants).variants[i_100];
+    var i_101 int64 = 0;  
+    for ; i_101 < int64(len(mVs_2.value.(*RangerAppMethodVariants).variants)) ; i_101++ {
+      variant_7 := mVs_2.value.(*RangerAppMethodVariants).variants[i_101];
       wr_5.out("", true);
       wr_5.out("public ", false);
       this.writeTypeDef(variant_7.nameNode.value.(*CodeNode), ctx, wr_5);
@@ -10452,9 +11131,9 @@ func (this *RangerJava7ClassWriter) writeClass (node *CodeNode, ctx *RangerAppWr
   wr_5.indent(-1);
   wr_5.out("}", true);
   var import_list []string = wr_5.getImports();
-  var i_99 int64 = 0;  
-  for ; i_99 < int64(len(import_list)) ; i_99++ {
-    codeStr := import_list[i_99];
+  var i_100 int64 = 0;  
+  for ; i_100 < int64(len(import_list)) ; i_100++ {
+    codeStr := import_list[i_100];
     importFork.out(strings.Join([]string{ (strings.Join([]string{ "import ",codeStr }, "")),";" }, ""), true);
   }
 }
@@ -10464,7 +11143,8 @@ func (this *RangerJava7ClassWriter) EncodeString (node *CodeNode, ctx *RangerApp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
+  for ii_11 < str_length_2 {
+    var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
         encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
@@ -10533,9 +11213,9 @@ func (this *RangerJava7ClassWriter) import_lib (lib_name string, ctx *RangerAppW
   wr.addImport(lib_name);
 }
 func (this *RangerJava7ClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(ctx.localVarNames)) ; i_61++ {
-    n_7 := ctx.localVarNames[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
@@ -10580,13 +11260,13 @@ func (this *RangerJava7ClassWriter) writeFnCall (node *CodeNode, ctx *RangerAppW
     wr.out("(", false);
     var givenArgs_2 *CodeNode = node.getSecond();
     ctx.setInExpr();
-    var i_68 int64 = 0;  
-    for ; i_68 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_68++ {
-      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_68];
-      if  i_68 > 0 {
+    var i_69 int64 = 0;  
+    for ; i_69 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_69++ {
+      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_69];
+      if  i_69 > 0 {
         wr.out(", ", false);
       }
-      if  (int64(len(givenArgs_2.children))) <= i_68 {
+      if  (int64(len(givenArgs_2.children))) <= i_69 {
         var defVal *GoNullable = new(GoNullable); 
         defVal = arg_12.Get_nameNode().value.(*CodeNode).getFlag("default");
         if  defVal.has_value {
@@ -10597,7 +11277,7 @@ func (this *RangerJava7ClassWriter) writeFnCall (node *CodeNode, ctx *RangerAppW
         }
         continue;
       }
-      var n_10 *CodeNode = givenArgs_2.children[i_68];
+      var n_10 *CodeNode = givenArgs_2.children[i_69];
       this.WalkNode(n_10, ctx, wr);
     }
     ctx.unsetInExpr();
@@ -10620,11 +11300,11 @@ func (this *RangerJava7ClassWriter) writeNewCall (node *CodeNode, ctx *RangerApp
     constr.has_value = cl_2.value.(*RangerAppClassDesc).constructor_fn.has_value;
     var givenArgs_5 *CodeNode = node.getThird();
     if  constr.has_value {
-      var i_70 int64 = 0;  
-      for ; i_70 < int64(len(constr.value.(*RangerAppFunctionDesc).params)) ; i_70++ {
-        arg_15 := constr.value.(*RangerAppFunctionDesc).params[i_70];
-        var n_12 *CodeNode = givenArgs_5.children[i_70];
-        if  i_70 > 0 {
+      var i_71 int64 = 0;  
+      for ; i_71 < int64(len(constr.value.(*RangerAppFunctionDesc).params)) ; i_71++ {
+        arg_15 := constr.value.(*RangerAppFunctionDesc).params[i_71];
+        var n_12 *CodeNode = givenArgs_5.children[i_71];
+        if  i_71 > 0 {
           wr.out(", ", false);
         }
         if  true || (arg_15.Get_nameNode().has_value) {
@@ -10683,7 +11363,7 @@ func (this *RangerSwift3ClassWriter) getObjectTypeString (type_string string, ct
       return "Int";
     case "string" : 
       return "String";
-    case "chararray" : 
+    case "charbuffer" : 
       return "[UInt8]";
     case "char" : 
       return "UInt8";
@@ -10700,6 +11380,10 @@ func (this *RangerSwift3ClassWriter) getTypeString (type_string string) string {
       return "Int";
     case "string" : 
       return "String";
+    case "charbuffer" : 
+      return "[UInt8]";
+    case "char" : 
+      return "UInt8";
     case "boolean" : 
       return "Bool";
     case "double" : 
@@ -10782,17 +11466,17 @@ func (this *RangerSwift3ClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWr
   }
   var max_len_2 int64 = int64(len(node.ns));
   if  (int64(len(node.nsp))) > 0 {
-    var i_81 int64 = 0;  
-    for ; i_81 < int64(len(node.nsp)) ; i_81++ {
-      p_20 := node.nsp[i_81];
-      if  i_81 == 0 {
+    var i_82 int64 = 0;  
+    for ; i_82 < int64(len(node.nsp)) ; i_82++ {
+      p_20 := node.nsp[i_82];
+      if  i_82 == 0 {
         var part_4 string = node.ns[0];
         if  part_4 == "this" {
           wr.out("self", false);
           continue;
         }
       }
-      if  i_81 > 0 {
+      if  i_82 > 0 {
         wr.out(".", false);
       }
       if  (int64(len(p_20.Get_compiledName()))) > 0 {
@@ -10801,10 +11485,10 @@ func (this *RangerSwift3ClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWr
         if  (int64(len(p_20.Get_name()))) > 0 {
           wr.out(this.adjustType(p_20.Get_name()), false);
         } else {
-          wr.out(this.adjustType((node.ns[i_81])), false);
+          wr.out(this.adjustType((node.ns[i_82])), false);
         }
       }
-      if  i_81 < (max_len_2 - 1) {
+      if  i_82 < (max_len_2 - 1) {
         if  p_20.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
           wr.out("!", false);
         }
@@ -10819,10 +11503,10 @@ func (this *RangerSwift3ClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWr
     wr.out(p_25.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
     return;
   }
-  var i_86 int64 = 0;  
-  for ; i_86 < int64(len(node.ns)) ; i_86++ {
-    part_9 := node.ns[i_86];
-    if  i_86 > 0 {
+  var i_87 int64 = 0;  
+  for ; i_87 < int64(len(node.ns)) ; i_87++ {
+    part_9 := node.ns[i_87];
+    if  i_87 > 0 {
       wr.out(".", false);
     }
     wr.out(this.adjustType(part_9), false);
@@ -10872,10 +11556,10 @@ func (this *RangerSwift3ClassWriter) writeVarDef (node *CodeNode, ctx *RangerApp
   }
 }
 func (this *RangerSwift3ClassWriter) writeArgsDef (fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_86 int64 = 0;  
-  for ; i_86 < int64(len(fnDesc.params)) ; i_86++ {
-    arg_15 := fnDesc.params[i_86];
-    if  i_86 > 0 {
+  var i_87 int64 = 0;  
+  for ; i_87 < int64(len(fnDesc.params)) ; i_87++ {
+    arg_15 := fnDesc.params[i_87];
+    if  i_87 > 0 {
       wr.out(", ", false);
     }
     wr.out(strings.Join([]string{ arg_15.Get_name()," : " }, ""), false);
@@ -10897,13 +11581,13 @@ func (this *RangerSwift3ClassWriter) writeFnCall (node *CodeNode, ctx *RangerApp
     wr.out("(", false);
     ctx.setInExpr();
     var givenArgs_4 *CodeNode = node.getSecond();
-    var i_88 int64 = 0;  
-    for ; i_88 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_88++ {
-      arg_18 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_88];
-      if  i_88 > 0 {
+    var i_89 int64 = 0;  
+    for ; i_89 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_89++ {
+      arg_18 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_89];
+      if  i_89 > 0 {
         wr.out(", ", false);
       }
-      if  (int64(len(givenArgs_4.children))) <= i_88 {
+      if  (int64(len(givenArgs_4.children))) <= i_89 {
         var defVal_2 *GoNullable = new(GoNullable); 
         defVal_2 = arg_18.Get_nameNode().value.(*CodeNode).getFlag("default");
         if  defVal_2.has_value {
@@ -10914,7 +11598,7 @@ func (this *RangerSwift3ClassWriter) writeFnCall (node *CodeNode, ctx *RangerApp
         }
         continue;
       }
-      var n_10 *CodeNode = givenArgs_4.children[i_88];
+      var n_10 *CodeNode = givenArgs_4.children[i_89];
       wr.out(strings.Join([]string{ arg_18.Get_name()," : " }, ""), false);
       this.WalkNode(n_10, ctx, wr);
     }
@@ -10938,11 +11622,11 @@ func (this *RangerSwift3ClassWriter) writeNewCall (node *CodeNode, ctx *RangerAp
     constr_3.has_value = cl_6.value.(*RangerAppClassDesc).constructor_fn.has_value;
     var givenArgs_7 *CodeNode = node.getThird();
     if  constr_3.has_value {
-      var i_90 int64 = 0;  
-      for ; i_90 < int64(len(constr_3.value.(*RangerAppFunctionDesc).params)) ; i_90++ {
-        arg_20 := constr_3.value.(*RangerAppFunctionDesc).params[i_90];
-        var n_13 *CodeNode = givenArgs_7.children[i_90];
-        if  i_90 > 0 {
+      var i_91 int64 = 0;  
+      for ; i_91 < int64(len(constr_3.value.(*RangerAppFunctionDesc).params)) ; i_91++ {
+        arg_20 := constr_3.value.(*RangerAppFunctionDesc).params[i_91];
+        var n_13 *CodeNode = givenArgs_7.children[i_91];
+        if  i_91 > 0 {
           wr.out(", ", false);
         }
         wr.out(strings.Join([]string{ arg_20.Get_name()," : " }, ""), false);
@@ -10965,10 +11649,10 @@ func (this *RangerSwift3ClassWriter) haveSameSig (fn1 *RangerAppFunctionDesc, fn
   if  (int64(len(fn1.params))) != (int64(len(fn2.params))) {
     return false;
   }
-  var i_92 int64 = 0;  
-  for ; i_92 < int64(len(fn1.params)) ; i_92++ {
-    p_27 := fn1.params[i_92];
-    var p2_2 IFACE_RangerAppParamDesc = fn2.params[i_92];
+  var i_93 int64 = 0;  
+  for ; i_93 < int64(len(fn1.params)) ; i_93++ {
+    p_27 := fn1.params[i_93];
+    var p2_2 IFACE_RangerAppParamDesc = fn2.params[i_93];
     if  match_3.doesDefsMatch((p_27.Get_nameNode().value.(*CodeNode)), (p2_2.Get_nameNode().value.(*CodeNode)), ctx) == false {
       return false;
     }
@@ -10986,9 +11670,9 @@ func (this *RangerSwift3ClassWriter) writeClass (node *CodeNode, ctx *RangerAppW
   var parentClass_2 *GoNullable = new(GoNullable); 
   if  (int64(len(cl_9.value.(*RangerAppClassDesc).extends_classes))) > 0 {
     wr.out(" : ", false);
-    var i_94 int64 = 0;  
-    for ; i_94 < int64(len(cl_9.value.(*RangerAppClassDesc).extends_classes)) ; i_94++ {
-      pName_3 := cl_9.value.(*RangerAppClassDesc).extends_classes[i_94];
+    var i_95 int64 = 0;  
+    for ; i_95 < int64(len(cl_9.value.(*RangerAppClassDesc).extends_classes)) ; i_95++ {
+      pName_3 := cl_9.value.(*RangerAppClassDesc).extends_classes[i_95];
       wr.out(pName_3, false);
       parentClass_2.value = ctx.findClass(pName_3);
       parentClass_2.has_value = true; /* detected as non-optional */
@@ -10996,9 +11680,9 @@ func (this *RangerSwift3ClassWriter) writeClass (node *CodeNode, ctx *RangerAppW
   }
   wr.out(" { ", true);
   wr.indent(1);
-  var i_98 int64 = 0;  
-  for ; i_98 < int64(len(cl_9.value.(*RangerAppClassDesc).variables)) ; i_98++ {
-    pvar_5 := cl_9.value.(*RangerAppClassDesc).variables[i_98];
+  var i_99 int64 = 0;  
+  for ; i_99 < int64(len(cl_9.value.(*RangerAppClassDesc).variables)) ; i_99++ {
+    pvar_5 := cl_9.value.(*RangerAppClassDesc).variables[i_99];
     this.writeVarDef(pvar_5.Get_node().value.(*CodeNode), ctx, wr);
   }
   if  cl_9.value.(*RangerAppClassDesc).has_constructor {
@@ -11036,9 +11720,9 @@ func (this *RangerSwift3ClassWriter) writeClass (node *CodeNode, ctx *RangerAppW
     wr.indent(-1);
     wr.out("}", true);
   }
-  var i_101 int64 = 0;  
-  for ; i_101 < int64(len(cl_9.value.(*RangerAppClassDesc).static_methods)) ; i_101++ {
-    variant_4 := cl_9.value.(*RangerAppClassDesc).static_methods[i_101];
+  var i_102 int64 = 0;  
+  for ; i_102 < int64(len(cl_9.value.(*RangerAppClassDesc).static_methods)) ; i_102++ {
+    variant_4 := cl_9.value.(*RangerAppClassDesc).static_methods[i_102];
     if  variant_4.nameNode.value.(*CodeNode).hasFlag("main") {
       continue;
     }
@@ -11056,14 +11740,14 @@ func (this *RangerSwift3ClassWriter) writeClass (node *CodeNode, ctx *RangerAppW
     wr.indent(-1);
     wr.out("}", true);
   }
-  var i_104 int64 = 0;  
-  for ; i_104 < int64(len(cl_9.value.(*RangerAppClassDesc).defined_variants)) ; i_104++ {
-    fnVar_3 := cl_9.value.(*RangerAppClassDesc).defined_variants[i_104];
+  var i_105 int64 = 0;  
+  for ; i_105 < int64(len(cl_9.value.(*RangerAppClassDesc).defined_variants)) ; i_105++ {
+    fnVar_3 := cl_9.value.(*RangerAppClassDesc).defined_variants[i_105];
     var mVs_3 *GoNullable = new(GoNullable); 
     mVs_3 = r_get_string_RangerAppMethodVariants(cl_9.value.(*RangerAppClassDesc).method_variants, fnVar_3);
-    var i_111 int64 = 0;  
-    for ; i_111 < int64(len(mVs_3.value.(*RangerAppMethodVariants).variants)) ; i_111++ {
-      variant_9 := mVs_3.value.(*RangerAppMethodVariants).variants[i_111];
+    var i_112 int64 = 0;  
+    for ; i_112 < int64(len(mVs_3.value.(*RangerAppMethodVariants).variants)) ; i_112++ {
+      variant_9 := mVs_3.value.(*RangerAppMethodVariants).variants[i_112];
       wr.out(strings.Join([]string{ (strings.Join([]string{ "func ",variant_9.name }, "")),"(" }, ""), false);
       this.writeArgsDef(variant_9, ctx, wr);
       wr.out(") -> ", false);
@@ -11081,9 +11765,9 @@ func (this *RangerSwift3ClassWriter) writeClass (node *CodeNode, ctx *RangerAppW
   }
   wr.indent(-1);
   wr.out("}", true);
-  var i_110 int64 = 0;  
-  for ; i_110 < int64(len(cl_9.value.(*RangerAppClassDesc).static_methods)) ; i_110++ {
-    variant_12 := cl_9.value.(*RangerAppClassDesc).static_methods[i_110];
+  var i_111 int64 = 0;  
+  for ; i_111 < int64(len(cl_9.value.(*RangerAppClassDesc).static_methods)) ; i_111++ {
+    variant_12 := cl_9.value.(*RangerAppClassDesc).static_methods[i_111];
     var b_3 bool = variant_12.nameNode.value.(*CodeNode).hasFlag("main");
     if  b_3 {
       wr.newline();
@@ -11100,7 +11784,8 @@ func (this *RangerSwift3ClassWriter) EncodeString (node *CodeNode, ctx *RangerAp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
+  for ii_11 < str_length_2 {
+    var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
         encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
@@ -11150,9 +11835,9 @@ func (this *RangerSwift3ClassWriter) import_lib (lib_name string, ctx *RangerApp
   wr.addImport(lib_name);
 }
 func (this *RangerSwift3ClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(ctx.localVarNames)) ; i_61++ {
-    n_7 := ctx.localVarNames[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
@@ -11199,6 +11884,703 @@ func (this *RangerSwift3ClassWriter) Set_compiler( value *GoNullable)  {
   this.compiler = value 
 }
 // inherited getters and setters from the parent class RangerGenericClassWriter
+type RangerCppClassWriter struct { 
+  compiler *GoNullable /**  unused  **/ 
+  header_created bool
+  // inherited from parent class RangerGenericClassWriter
+}
+type IFACE_RangerCppClassWriter interface { 
+  Get_compiler() *GoNullable
+  Set_compiler(value *GoNullable) 
+  Get_header_created() bool
+  Set_header_created(value bool) 
+  adjustType(tn string) string
+  WriteScalarValue(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
+  getObjectTypeString(type_string string, ctx *RangerAppWriterContext) string
+  getTypeString2(type_string string, ctx *RangerAppWriterContext) string
+  writePtr(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
+  writeTypeDef(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
+  WriteVRef(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
+  writeVarDef(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
+  writeCppHeaderVar(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter, do_initialize bool) ()
+  writeArgsDef(fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) ()
+  writeFnCall(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
+  writeNewCall(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
+  writeClassHeader(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
+  writeClass(node *CodeNode, ctx *RangerAppWriterContext, orig_wr *CodeWriter) ()
+}
+
+func CreateNew_RangerCppClassWriter() *RangerCppClassWriter {
+  me := new(RangerCppClassWriter)
+  me.header_created = false
+  me.compiler = new(GoNullable);
+  me.compiler = new(GoNullable);
+  return me;
+}
+func (this *RangerCppClassWriter) adjustType (tn string) string {
+  if  tn == "this" {
+    return "this";
+  }
+  return tn;
+}
+func (this *RangerCppClassWriter) WriteScalarValue (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  switch (node.value_type ) { 
+    case 2 : 
+      wr.out(strings.Join([]string{ "",strconv.FormatFloat(node.double_value,'f', 6, 64) }, ""), false);
+    case 4 : 
+      var s_19 string = this.EncodeString(node, ctx, wr);
+      wr.out(strings.Join([]string{ (strings.Join([]string{ "std::string(",(strings.Join([]string{ (strings.Join([]string{ "\"",s_19 }, "")),"\"" }, "")) }, "")),")" }, ""), false);
+    case 3 : 
+      wr.out(strings.Join([]string{ "",strconv.FormatInt(node.int_value, 10) }, ""), false);
+    case 5 : 
+      if  node.boolean_value {
+        wr.out("true", false);
+      } else {
+        wr.out("false", false);
+      }
+  }
+}
+func (this *RangerCppClassWriter) getObjectTypeString (type_string string, ctx *RangerAppWriterContext) string {
+  switch (type_string ) { 
+    case "char" : 
+      return "char";
+    case "charbuffer" : 
+      return "const char*";
+    case "int" : 
+      return "int";
+    case "string" : 
+      return "std::string";
+    case "boolean" : 
+      return "bool";
+    case "double" : 
+      return "double";
+  }
+  if  ctx.isDefinedClass(type_string) {
+    return strings.Join([]string{ (strings.Join([]string{ "std::shared_ptr<",type_string }, "")),">" }, "");
+  }
+  return type_string;
+}
+func (this *RangerCppClassWriter) getTypeString2 (type_string string, ctx *RangerAppWriterContext) string {
+  switch (type_string ) { 
+    case "char" : 
+      return "char";
+    case "charbuffer" : 
+      return "const char*";
+    case "int" : 
+      return "int";
+    case "string" : 
+      return "std::string";
+    case "boolean" : 
+      return "bool";
+    case "double" : 
+      return "double";
+  }
+  return type_string;
+}
+func (this *RangerCppClassWriter) writePtr (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  if  node.type_name == "void" {
+    return;
+  }
+}
+func (this *RangerCppClassWriter) writeTypeDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  var v_type_3 int64 = node.value_type;
+  var t_name_2 string = node.type_name;
+  var a_name_3 string = node.array_type;
+  var k_name_2 string = node.key_type;
+  if  ((v_type_3 == 8) || (v_type_3 == 9)) || (v_type_3 == 0) {
+    v_type_3 = node.typeNameAsType(ctx); 
+  }
+  if  node.eval_type != 0 {
+    v_type_3 = node.eval_type; 
+    if  (int64(len(node.eval_type_name))) > 0 {
+      t_name_2 = node.eval_type_name; 
+    }
+    if  (int64(len(node.eval_array_type))) > 0 {
+      a_name_3 = node.eval_array_type; 
+    }
+    if  (int64(len(node.eval_key_type))) > 0 {
+      k_name_2 = node.eval_key_type; 
+    }
+  }
+  switch (v_type_3 ) { 
+    case 11 : 
+      wr.out("int", false);
+    case 3 : 
+      wr.out("int", false);
+    case 12 : 
+      wr.out("char", false);
+    case 13 : 
+      wr.out("const char*", false);
+    case 2 : 
+      wr.out("double", false);
+    case 4 : 
+      wr.addImport("<string>");
+      wr.out("std::string", false);
+    case 5 : 
+      wr.out("bool", false);
+    case 7 : 
+      wr.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "std::map<",this.getObjectTypeString(k_name_2, ctx) }, "")),"," }, "")),this.getObjectTypeString(a_name_3, ctx) }, "")),">" }, ""), false);
+      wr.addImport("<map>");
+    case 6 : 
+      wr.out(strings.Join([]string{ (strings.Join([]string{ "std::vector<",this.getObjectTypeString(a_name_3, ctx) }, "")),">" }, ""), false);
+      wr.addImport("<vector>");
+    default: 
+      if  node.type_name == "void" {
+        wr.out("void", false);
+        return;
+      }
+      if  ctx.isDefinedClass(t_name_2) {
+        var cc_5 *RangerAppClassDesc = ctx.findClass(t_name_2);
+        wr.out("std::shared_ptr<", false);
+        wr.out(cc_5.name, false);
+        wr.out(">", false);
+        return;
+      }
+      if  node.hasFlag("optional") {
+        wr.out("shared_ptr< vector<", false);
+        wr.out(this.getTypeString2(t_name_2, ctx), false);
+        wr.out(">", false);
+        return;
+      }
+      wr.out(this.getTypeString2(t_name_2, ctx), false);
+  }
+}
+func (this *RangerCppClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  if  node.vref == "this" {
+    wr.out("this", false);
+    return;
+  }
+  if  node.eval_type == 11 {
+    var rootObjName_7 string = node.ns[0];
+    var enumName_7 string = node.ns[1];
+    var e_13 *GoNullable = new(GoNullable); 
+    e_13 = ctx.getEnum(rootObjName_7);
+    if  e_13.has_value {
+      wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_13.value.(*RangerAppEnum).values, enumName_7)).value.(int64)), 10) }, ""), false);
+      return;
+    }
+  }
+  var had_static bool = false;
+  if  (int64(len(node.nsp))) > 0 {
+    var i_94 int64 = 0;  
+    for ; i_94 < int64(len(node.nsp)) ; i_94++ {
+      p_24 := node.nsp[i_94];
+      if  i_94 > 0 {
+        if  had_static {
+          wr.out("::", false);
+        } else {
+          wr.out("->", false);
+        }
+      }
+      if  i_94 == 0 {
+        var part_6 string = node.ns[0];
+        if  part_6 == "this" {
+          wr.out("this", false);
+          continue;
+        }
+      }
+      if  (int64(len(p_24.Get_compiledName()))) > 0 {
+        wr.out(this.adjustType(p_24.Get_compiledName()), false);
+      } else {
+        if  (int64(len(p_24.Get_name()))) > 0 {
+          wr.out(this.adjustType(p_24.Get_name()), false);
+        } else {
+          wr.out(this.adjustType((node.ns[i_94])), false);
+        }
+      }
+      if  p_24.isClass() {
+        had_static = true; 
+      }
+    }
+    return;
+  }
+  if  node.hasParamDesc {
+    var p_29 *GoNullable = new(GoNullable); 
+    p_29.value = node.paramDesc.value;
+    p_29.has_value = node.paramDesc.has_value;
+    wr.out(p_29.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    return;
+  }
+  var i_99 int64 = 0;  
+  for ; i_99 < int64(len(node.ns)) ; i_99++ {
+    part_11 := node.ns[i_99];
+    if  i_99 > 0 {
+      if  had_static {
+        wr.out("::", false);
+      } else {
+        wr.out("->", false);
+      }
+    }
+    if  ctx.hasClass(part_11) {
+      had_static = true; 
+    } else {
+      had_static = false; 
+    }
+    wr.out(this.adjustType(part_11), false);
+  }
+}
+func (this *RangerCppClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  if  node.hasParamDesc {
+    var nn_13 *CodeNode = node.children[1];
+    var p_29 *GoNullable = new(GoNullable); 
+    p_29.value = nn_13.paramDesc.value;
+    p_29.has_value = nn_13.paramDesc.has_value;
+    if  (p_29.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_29.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+      wr.out("/** unused:  ", false);
+    }
+    if  (p_29.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0) || p_29.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() {
+      wr.out("", false);
+    } else {
+      wr.out("", false);
+    }
+    this.writeTypeDef(p_29.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+    wr.out(" ", false);
+    wr.out(p_29.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    if  (int64(len(node.children))) > 2 {
+      wr.out(" = ", false);
+      ctx.setInExpr();
+      var value_6 *CodeNode = node.getThird();
+      this.WalkNode(value_6, ctx, wr);
+      ctx.unsetInExpr();
+    } else {
+      if  nn_13.value_type == 6 {
+        wr.out(" = new ", false);
+        this.writeTypeDef(p_29.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+        wr.out("()", false);
+      }
+      if  nn_13.value_type == 7 {
+        wr.out(" = new ", false);
+        this.writeTypeDef(p_29.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+        wr.out("()", false);
+      }
+    }
+    if  (p_29.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_29.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
+      wr.out("     /** note: unused */", false);
+    }
+    if  (p_29.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_29.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+      wr.out("   **/ ;", true);
+    } else {
+      wr.out(";", false);
+      wr.newline();
+    }
+  }
+}
+func (this *RangerCppClassWriter) writeCppHeaderVar (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter, do_initialize bool) () {
+  if  node.hasParamDesc {
+    var nn_16 *CodeNode = node.children[1];
+    var p_31 *GoNullable = new(GoNullable); 
+    p_31.value = nn_16.paramDesc.value;
+    p_31.has_value = nn_16.paramDesc.has_value;
+    if  (p_31.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_31.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+      wr.out("/** unused:  ", false);
+    }
+    if  (p_31.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0) || p_31.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() {
+      wr.out("", false);
+    } else {
+      wr.out("", false);
+    }
+    this.writeTypeDef(p_31.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+    wr.out(" ", false);
+    wr.out(p_31.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    if  (p_31.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_31.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
+      wr.out("     /** note: unused */", false);
+    }
+    if  (p_31.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_31.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+      wr.out("   **/ ;", true);
+    } else {
+      wr.out(";", false);
+      wr.newline();
+    }
+  }
+}
+func (this *RangerCppClassWriter) writeArgsDef (fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  var i_99 int64 = 0;  
+  for ; i_99 < int64(len(fnDesc.params)) ; i_99++ {
+    arg_18 := fnDesc.params[i_99];
+    if  i_99 > 0 {
+      wr.out(",", false);
+    }
+    wr.out(" ", false);
+    this.writeTypeDef(arg_18.Get_nameNode().value.(*CodeNode), ctx, wr);
+    wr.out(strings.Join([]string{ (strings.Join([]string{ " ",arg_18.Get_name() }, ""))," " }, ""), false);
+  }
+}
+func (this *RangerCppClassWriter) writeFnCall (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  if  node.hasFnCall {
+    var fc_27 *CodeNode = node.getFirst();
+    this.WriteVRef(fc_27, ctx, wr);
+    wr.out("(", false);
+    ctx.setInExpr();
+    var givenArgs_6 *CodeNode = node.getSecond();
+    var i_101 int64 = 0;  
+    for ; i_101 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_101++ {
+      arg_21 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_101];
+      if  i_101 > 0 {
+        wr.out(", ", false);
+      }
+      if  i_101 >= (int64(len(givenArgs_6.children))) {
+        var defVal_3 *GoNullable = new(GoNullable); 
+        defVal_3 = arg_21.Get_nameNode().value.(*CodeNode).getFlag("default");
+        if  defVal_3.has_value {
+          var fc_38 *CodeNode = defVal_3.value.(*CodeNode).vref_annotation.value.(*CodeNode).getFirst();
+          this.WalkNode(fc_38, ctx, wr);
+        } else {
+          ctx.addError(node, "Default argument was missing");
+        }
+        continue;
+      }
+      var n_12 *CodeNode = givenArgs_6.children[i_101];
+      this.WalkNode(n_12, ctx, wr);
+    }
+    ctx.unsetInExpr();
+    wr.out(")", false);
+    if  ctx.expressionLevel() == 0 {
+      wr.out(";", true);
+    }
+  }
+}
+func (this *RangerCppClassWriter) writeNewCall (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  if  node.hasNewOper {
+    var cl_8 *GoNullable = new(GoNullable); 
+    cl_8.value = node.clDesc.value;
+    cl_8.has_value = node.clDesc.has_value;
+    /** unused:  fc_32*/
+    wr.out(" std::make_shared<", false);
+    wr.out(node.clDesc.value.(*RangerAppClassDesc).name, false);
+    wr.out(">(", false);
+    var constr_5 *GoNullable = new(GoNullable); 
+    constr_5.value = cl_8.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_5.has_value = cl_8.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    var givenArgs_9 *CodeNode = node.getThird();
+    if  constr_5.has_value {
+      var i_103 int64 = 0;  
+      for ; i_103 < int64(len(constr_5.value.(*RangerAppFunctionDesc).params)) ; i_103++ {
+        arg_23 := constr_5.value.(*RangerAppFunctionDesc).params[i_103];
+        var n_15 *CodeNode = givenArgs_9.children[i_103];
+        if  i_103 > 0 {
+          wr.out(", ", false);
+        }
+        if  true || (arg_23.Get_nameNode().has_value) {
+          this.WalkNode(n_15, ctx, wr);
+        }
+      }
+    }
+    wr.out(")", false);
+  }
+}
+func (this *RangerCppClassWriter) writeClassHeader (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  var cl_11 *GoNullable = new(GoNullable); 
+  cl_11.value = node.clDesc.value;
+  cl_11.has_value = node.clDesc.has_value;
+  if  !cl_11.has_value  {
+    return;
+  }
+  wr.out(strings.Join([]string{ "class ",cl_11.value.(*RangerAppClassDesc).name }, ""), false);
+  var parentClass_3 *GoNullable = new(GoNullable); 
+  if  (int64(len(cl_11.value.(*RangerAppClassDesc).extends_classes))) > 0 {
+    wr.out(" : ", false);
+    var i_105 int64 = 0;  
+    for ; i_105 < int64(len(cl_11.value.(*RangerAppClassDesc).extends_classes)) ; i_105++ {
+      pName_4 := cl_11.value.(*RangerAppClassDesc).extends_classes[i_105];
+      wr.out("public ", false);
+      wr.out(pName_4, false);
+      parentClass_3.value = ctx.findClass(pName_4);
+      parentClass_3.has_value = true; /* detected as non-optional */
+    }
+  }
+  wr.out(" { ", true);
+  wr.indent(1);
+  wr.out("public :", true);
+  wr.indent(1);
+  var i_109 int64 = 0;  
+  for ; i_109 < int64(len(cl_11.value.(*RangerAppClassDesc).variables)) ; i_109++ {
+    pvar_6 := cl_11.value.(*RangerAppClassDesc).variables[i_109];
+    this.writeCppHeaderVar(pvar_6.Get_node().value.(*CodeNode), ctx, wr, false);
+  }
+  wr.out("/* class constructor */ ", true);
+  wr.out(strings.Join([]string{ cl_11.value.(*RangerAppClassDesc).name,"(" }, ""), false);
+  if  cl_11.value.(*RangerAppClassDesc).has_constructor {
+    var constr_8 *GoNullable = new(GoNullable); 
+    constr_8.value = cl_11.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_8.has_value = cl_11.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    this.writeArgsDef(constr_8.value.(*RangerAppFunctionDesc), ctx, wr);
+  }
+  wr.out(" );", true);
+  var i_112 int64 = 0;  
+  for ; i_112 < int64(len(cl_11.value.(*RangerAppClassDesc).static_methods)) ; i_112++ {
+    variant_7 := cl_11.value.(*RangerAppClassDesc).static_methods[i_112];
+    if  i_112 == 0 {
+      wr.out("/* static methods */ ", true);
+    }
+    wr.out("static ", false);
+    this.writeTypeDef(variant_7.nameNode.value.(*CodeNode), ctx, wr);
+    wr.out(strings.Join([]string{ (strings.Join([]string{ " ",variant_7.name }, "")),"(" }, ""), false);
+    this.writeArgsDef(variant_7, ctx, wr);
+    wr.out(");", true);
+  }
+  var i_115 int64 = 0;  
+  for ; i_115 < int64(len(cl_11.value.(*RangerAppClassDesc).defined_variants)) ; i_115++ {
+    fnVar_4 := cl_11.value.(*RangerAppClassDesc).defined_variants[i_115];
+    if  i_115 == 0 {
+      wr.out("/* instance methods */ ", true);
+    }
+    var mVs_4 *GoNullable = new(GoNullable); 
+    mVs_4 = r_get_string_RangerAppMethodVariants(cl_11.value.(*RangerAppClassDesc).method_variants, fnVar_4);
+    var i_122 int64 = 0;  
+    for ; i_122 < int64(len(mVs_4.value.(*RangerAppMethodVariants).variants)) ; i_122++ {
+      variant_12 := mVs_4.value.(*RangerAppMethodVariants).variants[i_122];
+      this.writeTypeDef(variant_12.nameNode.value.(*CodeNode), ctx, wr);
+      wr.out(strings.Join([]string{ (strings.Join([]string{ " ",variant_12.name }, "")),"(" }, ""), false);
+      this.writeArgsDef(variant_12, ctx, wr);
+      wr.out(");", true);
+    }
+  }
+  wr.indent(-1);
+  wr.indent(-1);
+  wr.out("};", true);
+}
+func (this *RangerCppClassWriter) writeClass (node *CodeNode, ctx *RangerAppWriterContext, orig_wr *CodeWriter) () {
+  var cl_13 *GoNullable = new(GoNullable); 
+  cl_13.value = node.clDesc.value;
+  cl_13.has_value = node.clDesc.has_value;
+  var wr_6 *CodeWriter = orig_wr;
+  if  !cl_13.has_value  {
+    return;
+  }
+  if  this.header_created == false {
+    wr_6.createTag("c++Imports");
+    wr_6.out("", true);
+    wr_6.out("// define classes here to avoid compiler errors", true);
+    wr_6.createTag("c++ClassDefs");
+    wr_6.out("", true);
+    wr_6.out("// header definitions", true);
+    wr_6.createTag("c++Header");
+    wr_6.out("", true);
+    wr_6.createTag("utilities");
+    this.header_created = true; 
+  }
+  var classWriter *CodeWriter = orig_wr.getTag("c++ClassDefs");
+  var headerWriter *CodeWriter = orig_wr.getTag("c++Header");
+  /** unused:  projectName*/
+  classWriter.out(strings.Join([]string{ (strings.Join([]string{ "class ",cl_13.value.(*RangerAppClassDesc).name }, "")),";" }, ""), true);
+  this.writeClassHeader(node, ctx, headerWriter);
+  wr_6.out("", true);
+  wr_6.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ cl_13.value.(*RangerAppClassDesc).name,"::" }, "")),cl_13.value.(*RangerAppClassDesc).name }, "")),"(" }, ""), false);
+  if  cl_13.value.(*RangerAppClassDesc).has_constructor {
+    var constr_10 *GoNullable = new(GoNullable); 
+    constr_10.value = cl_13.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_10.has_value = cl_13.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    this.writeArgsDef(constr_10.value.(*RangerAppFunctionDesc), ctx, wr_6);
+  }
+  wr_6.out(" ) {", true);
+  wr_6.indent(1);
+  var i_115 int64 = 0;  
+  for ; i_115 < int64(len(cl_13.value.(*RangerAppClassDesc).variables)) ; i_115++ {
+    pvar_9 := cl_13.value.(*RangerAppClassDesc).variables[i_115];
+    var nn_18 *CodeNode = pvar_9.Get_node().value.(*CodeNode);
+    if  (int64(len(nn_18.children))) > 2 {
+      var valueNode *CodeNode = nn_18.children[2];
+      wr_6.out(strings.Join([]string{ (strings.Join([]string{ "this->",pvar_9.Get_compiledName() }, ""))," = " }, ""), false);
+      this.WalkNode(valueNode, ctx, wr_6);
+      wr_6.out(";", true);
+    }
+  }
+  if  cl_13.value.(*RangerAppClassDesc).has_constructor {
+    var constr_14 *RangerAppFunctionDesc = cl_13.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
+    wr_6.newline();
+    var subCtx_22 *RangerAppWriterContext = constr_14.fnCtx.value.(*RangerAppWriterContext);
+    subCtx_22.is_function = true; 
+    this.WalkNode(constr_14.fnBody.value.(*CodeNode), subCtx_22, wr_6);
+    wr_6.newline();
+  }
+  wr_6.indent(-1);
+  wr_6.out("}", true);
+  var i_119 int64 = 0;  
+  for ; i_119 < int64(len(cl_13.value.(*RangerAppClassDesc).static_methods)) ; i_119++ {
+    variant_12 := cl_13.value.(*RangerAppClassDesc).static_methods[i_119];
+    if  variant_12.nameNode.value.(*CodeNode).hasFlag("main") {
+      continue;
+    }
+    wr_6.out("", true);
+    this.writeTypeDef(variant_12.nameNode.value.(*CodeNode), ctx, wr_6);
+    wr_6.out(" ", false);
+    wr_6.out(strings.Join([]string{ (strings.Join([]string{ " ",cl_13.value.(*RangerAppClassDesc).name }, "")),"::" }, ""), false);
+    wr_6.out(strings.Join([]string{ variant_12.name,"(" }, ""), false);
+    this.writeArgsDef(variant_12, ctx, wr_6);
+    wr_6.out(") {", true);
+    wr_6.indent(1);
+    wr_6.newline();
+    var subCtx_27 *RangerAppWriterContext = variant_12.fnCtx.value.(*RangerAppWriterContext);
+    subCtx_27.is_function = true; 
+    this.WalkNode(variant_12.fnBody.value.(*CodeNode), subCtx_27, wr_6);
+    wr_6.newline();
+    wr_6.indent(-1);
+    wr_6.out("}", true);
+  }
+  var i_122 int64 = 0;  
+  for ; i_122 < int64(len(cl_13.value.(*RangerAppClassDesc).defined_variants)) ; i_122++ {
+    fnVar_7 := cl_13.value.(*RangerAppClassDesc).defined_variants[i_122];
+    var mVs_7 *GoNullable = new(GoNullable); 
+    mVs_7 = r_get_string_RangerAppMethodVariants(cl_13.value.(*RangerAppClassDesc).method_variants, fnVar_7);
+    var i_129 int64 = 0;  
+    for ; i_129 < int64(len(mVs_7.value.(*RangerAppMethodVariants).variants)) ; i_129++ {
+      variant_16 := mVs_7.value.(*RangerAppMethodVariants).variants[i_129];
+      wr_6.out("", true);
+      this.writeTypeDef(variant_16.nameNode.value.(*CodeNode), ctx, wr_6);
+      wr_6.out(" ", false);
+      wr_6.out(strings.Join([]string{ (strings.Join([]string{ " ",cl_13.value.(*RangerAppClassDesc).name }, "")),"::" }, ""), false);
+      wr_6.out(strings.Join([]string{ variant_16.name,"(" }, ""), false);
+      this.writeArgsDef(variant_16, ctx, wr_6);
+      wr_6.out(") {", true);
+      wr_6.indent(1);
+      wr_6.newline();
+      var subCtx_30 *RangerAppWriterContext = variant_16.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_30.is_function = true; 
+      this.WalkNode(variant_16.fnBody.value.(*CodeNode), subCtx_30, wr_6);
+      wr_6.newline();
+      wr_6.indent(-1);
+      wr_6.out("}", true);
+    }
+  }
+  var i_128 int64 = 0;  
+  for ; i_128 < int64(len(cl_13.value.(*RangerAppClassDesc).static_methods)) ; i_128++ {
+    variant_19 := cl_13.value.(*RangerAppClassDesc).static_methods[i_128];
+    if  variant_19.nameNode.value.(*CodeNode).hasFlag("main") {
+      wr_6.out("", true);
+      wr_6.out("int main(int argc, char* argv[]) {", true);
+      wr_6.indent(1);
+      wr_6.newline();
+      var subCtx_33 *RangerAppWriterContext = variant_19.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_33.is_function = true; 
+      this.WalkNode(variant_19.fnBody.value.(*CodeNode), subCtx_33, wr_6);
+      wr_6.newline();
+      wr_6.out("return 0;", true);
+      wr_6.indent(-1);
+      wr_6.out("}", true);
+    }
+  }
+}
+// inherited methods from parent class RangerGenericClassWriter
+func (this *RangerCppClassWriter) EncodeString (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) string {
+  /** unused:  encoded_str_2*/
+  var str_length_2 int64 = int64(len(node.string_value));
+  var encoded_str_8 string = "";
+  var ii_11 int64 = 0;
+  for ii_11 < str_length_2 {
+    var cc_4 int64 = int64(node.string_value[ii_11]);
+    switch (cc_4 ) { 
+      case 8 : 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
+      case 9 : 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
+      case 10 : 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
+      case 12 : 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
+      case 13 : 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
+      case 34 : 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
+      case 92 : 
+        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
+      default: 
+        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
+    }
+    ii_11 = ii_11 + 1; 
+  }
+  return encoded_str_8;
+}
+func (this *RangerCppClassWriter) CustomOperator (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+}
+func (this *RangerCppClassWriter) WriteSetterVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+}
+func (this *RangerCppClassWriter) writeArrayTypeDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+}
+func (this *RangerCppClassWriter) WriteEnum (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  if  node.eval_type == 11 {
+    var rootObjName_2 string = node.ns[0];
+    var e_8 *GoNullable = new(GoNullable); 
+    e_8 = ctx.getEnum(rootObjName_2);
+    if  e_8.has_value {
+      var enumName_2 string = node.ns[1];
+      wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_8.value.(*RangerAppEnum).values, enumName_2)).value.(int64)), 10) }, ""), false);
+    } else {
+      if  node.hasParamDesc {
+        var pp_4 *GoNullable = new(GoNullable); 
+        pp_4.value = node.paramDesc.value;
+        pp_4.has_value = node.paramDesc.has_value;
+        var nn_8 *GoNullable = new(GoNullable); 
+        nn_8.value = pp_4.value.(IFACE_RangerAppParamDesc).Get_nameNode().value;
+        nn_8.has_value = pp_4.value.(IFACE_RangerAppParamDesc).Get_nameNode().has_value;
+        this.WriteVRef(nn_8.value.(*CodeNode), ctx, wr);
+      }
+    }
+  }
+}
+func (this *RangerCppClassWriter) getTypeString (type_string string) string {
+  return type_string;
+}
+func (this *RangerCppClassWriter) import_lib (lib_name string, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  wr.addImport(lib_name);
+}
+func (this *RangerCppClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
+    var p_14 *GoNullable = new(GoNullable); 
+    p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
+    if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
+      continue;
+    }
+    if  p_14.value.(IFACE_RangerAppParamDesc).isAllocatedType() {
+      if  1 == p_14.value.(IFACE_RangerAppParamDesc).getStrength() {
+        if  p_14.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).eval_type == 7 {
+        }
+        if  p_14.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).eval_type == 6 {
+        }
+        if  (p_14.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).eval_type != 6) && (p_14.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).eval_type != 7) {
+        }
+      }
+      if  0 == p_14.value.(IFACE_RangerAppParamDesc).getStrength() {
+        if  p_14.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).eval_type == 7 {
+        }
+        if  p_14.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).eval_type == 6 {
+        }
+        if  (p_14.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).eval_type != 6) && (p_14.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).eval_type != 7) {
+        }
+      }
+    }
+  }
+  if  ctx.is_function {
+    return;
+  }
+  if  ctx.parent.has_value {
+    this.release_local_vars(node, ctx.parent.value.(*RangerAppWriterContext), wr);
+  }
+}
+func (this *RangerCppClassWriter) WalkNode (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  this.compiler.value.(*LiveCompiler).WalkNode(node, ctx, wr);
+}
+func (this *RangerCppClassWriter) writeRawTypeDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  this.writeTypeDef(node, ctx, wr);
+}
+// getter for variable compiler
+func (this *RangerCppClassWriter) Get_compiler() *GoNullable {
+  return this.compiler
+}
+// setter for variable compiler
+func (this *RangerCppClassWriter) Set_compiler( value *GoNullable)  {
+  this.compiler = value 
+}
+// getter for variable header_created
+func (this *RangerCppClassWriter) Get_header_created() bool {
+  return this.header_created
+}
+// setter for variable header_created
+func (this *RangerCppClassWriter) Set_header_created( value bool)  {
+  this.header_created = value 
+}
+// inherited getters and setters from the parent class RangerGenericClassWriter
 type RangerKotlinClassWriter struct { 
   compiler *GoNullable /**  unused  **/ 
   // inherited from parent class RangerGenericClassWriter
@@ -11230,8 +12612,8 @@ func (this *RangerKotlinClassWriter) WriteScalarValue (node *CodeNode, ctx *Rang
     case 2 : 
       wr.out(node.getParsedString(), false);
     case 4 : 
-      var s_19 string = this.EncodeString(node, ctx, wr);
-      wr.out(strings.Join([]string{ (strings.Join([]string{ "\"",s_19 }, "")),"\"" }, ""), false);
+      var s_20 string = this.EncodeString(node, ctx, wr);
+      wr.out(strings.Join([]string{ (strings.Join([]string{ "\"",s_20 }, "")),"\"" }, ""), false);
     case 3 : 
       wr.out(strings.Join([]string{ "",strconv.FormatInt(node.int_value, 10) }, ""), false);
     case 5 : 
@@ -11283,11 +12665,11 @@ func (this *RangerKotlinClassWriter) getTypeString (type_string string) string {
   return type_string;
 }
 func (this *RangerKotlinClassWriter) writeTypeDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var v_type_3 int64 = node.value_type;
+  var v_type_4 int64 = node.value_type;
   if  node.eval_type != 0 {
-    v_type_3 = node.eval_type; 
+    v_type_4 = node.eval_type; 
   }
-  switch (v_type_3 ) { 
+  switch (v_type_4 ) { 
     case 11 : 
       wr.out("Int", false);
     case 3 : 
@@ -11320,34 +12702,34 @@ func (this *RangerKotlinClassWriter) writeTypeDef (node *CodeNode, ctx *RangerAp
 func (this *RangerKotlinClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.eval_type == 11 {
     if  (int64(len(node.ns))) > 1 {
-      var rootObjName_7 string = node.ns[0];
-      var enumName_7 string = node.ns[1];
-      var e_13 *GoNullable = new(GoNullable); 
-      e_13 = ctx.getEnum(rootObjName_7);
-      if  e_13.has_value {
-        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_13.value.(*RangerAppEnum).values, enumName_7)).value.(int64)), 10) }, ""), false);
+      var rootObjName_8 string = node.ns[0];
+      var enumName_8 string = node.ns[1];
+      var e_14 *GoNullable = new(GoNullable); 
+      e_14 = ctx.getEnum(rootObjName_8);
+      if  e_14.has_value {
+        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_14.value.(*RangerAppEnum).values, enumName_8)).value.(int64)), 10) }, ""), false);
         return;
       }
     }
   }
   if  (int64(len(node.nsp))) > 0 {
-    var i_93 int64 = 0;  
-    for ; i_93 < int64(len(node.nsp)) ; i_93++ {
-      p_24 := node.nsp[i_93];
-      if  i_93 > 0 {
+    var i_109 int64 = 0;  
+    for ; i_109 < int64(len(node.nsp)) ; i_109++ {
+      p_28 := node.nsp[i_109];
+      if  i_109 > 0 {
         wr.out(".", false);
       }
-      if  (int64(len(p_24.Get_compiledName()))) > 0 {
-        wr.out(this.adjustType(p_24.Get_compiledName()), false);
+      if  (int64(len(p_28.Get_compiledName()))) > 0 {
+        wr.out(this.adjustType(p_28.Get_compiledName()), false);
       } else {
-        if  (int64(len(p_24.Get_name()))) > 0 {
-          wr.out(this.adjustType(p_24.Get_name()), false);
+        if  (int64(len(p_28.Get_name()))) > 0 {
+          wr.out(this.adjustType(p_28.Get_name()), false);
         } else {
-          wr.out(this.adjustType((node.ns[i_93])), false);
+          wr.out(this.adjustType((node.ns[i_109])), false);
         }
       }
-      if  i_93 == 0 {
-        if  p_24.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+      if  i_109 == 0 {
+        if  p_28.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
           wr.out("!!", false);
         }
       }
@@ -11355,57 +12737,57 @@ func (this *RangerKotlinClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWr
     return;
   }
   if  node.hasParamDesc {
-    var p_29 *GoNullable = new(GoNullable); 
-    p_29.value = node.paramDesc.value;
-    p_29.has_value = node.paramDesc.has_value;
-    wr.out(p_29.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    var p_33 *GoNullable = new(GoNullable); 
+    p_33.value = node.paramDesc.value;
+    p_33.has_value = node.paramDesc.has_value;
+    wr.out(p_33.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
     return;
   }
-  var i_98 int64 = 0;  
-  for ; i_98 < int64(len(node.ns)) ; i_98++ {
-    part_6 := node.ns[i_98];
-    if  i_98 > 0 {
+  var i_114 int64 = 0;  
+  for ; i_114 < int64(len(node.ns)) ; i_114++ {
+    part_8 := node.ns[i_114];
+    if  i_114 > 0 {
       wr.out(".", false);
     }
-    wr.out(this.adjustType(part_6), false);
+    wr.out(this.adjustType(part_8), false);
   }
 }
 func (this *RangerKotlinClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasParamDesc {
-    var nn_13 *CodeNode = node.children[1];
-    var p_29 *GoNullable = new(GoNullable); 
-    p_29.value = nn_13.paramDesc.value;
-    p_29.has_value = nn_13.paramDesc.has_value;
-    if  (p_29.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_29.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    var nn_16 *CodeNode = node.children[1];
+    var p_33 *GoNullable = new(GoNullable); 
+    p_33.value = nn_16.paramDesc.value;
+    p_33.has_value = nn_16.paramDesc.has_value;
+    if  (p_33.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_33.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("/** unused:  ", false);
     }
-    if  (p_29.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0) || p_29.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() {
+    if  (p_33.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0) || p_33.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() {
       wr.out("var ", false);
     } else {
       wr.out("val ", false);
     }
-    wr.out(p_29.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    wr.out(p_33.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
     wr.out(" : ", false);
-    this.writeTypeDef(p_29.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+    this.writeTypeDef(p_33.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
     wr.out(" ", false);
     if  (int64(len(node.children))) > 2 {
       wr.out(" = ", false);
       ctx.setInExpr();
-      var value_6 *CodeNode = node.getThird();
-      this.WalkNode(value_6, ctx, wr);
+      var value_7 *CodeNode = node.getThird();
+      this.WalkNode(value_7, ctx, wr);
       ctx.unsetInExpr();
     } else {
-      if  nn_13.value_type == 6 {
+      if  nn_16.value_type == 6 {
         wr.out(" = arrayListOf()", false);
       }
-      if  nn_13.value_type == 7 {
+      if  nn_16.value_type == 7 {
         wr.out(" = hashMapOf()", false);
       }
     }
-    if  (p_29.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_29.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
+    if  (p_33.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_33.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
       wr.out("     /** note: unused */", false);
     }
-    if  (p_29.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_29.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    if  (p_33.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_33.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("   **/ ;", true);
     } else {
       wr.out(";", false);
@@ -11414,42 +12796,42 @@ func (this *RangerKotlinClassWriter) writeVarDef (node *CodeNode, ctx *RangerApp
   }
 }
 func (this *RangerKotlinClassWriter) writeArgsDef (fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_98 int64 = 0;  
-  for ; i_98 < int64(len(fnDesc.params)) ; i_98++ {
-    arg_18 := fnDesc.params[i_98];
-    if  i_98 > 0 {
+  var i_114 int64 = 0;  
+  for ; i_114 < int64(len(fnDesc.params)) ; i_114++ {
+    arg_21 := fnDesc.params[i_114];
+    if  i_114 > 0 {
       wr.out(",", false);
     }
     wr.out(" ", false);
-    wr.out(strings.Join([]string{ arg_18.Get_name()," : " }, ""), false);
-    this.writeTypeDef(arg_18.Get_nameNode().value.(*CodeNode), ctx, wr);
+    wr.out(strings.Join([]string{ arg_21.Get_name()," : " }, ""), false);
+    this.writeTypeDef(arg_21.Get_nameNode().value.(*CodeNode), ctx, wr);
   }
 }
 func (this *RangerKotlinClassWriter) writeFnCall (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasFnCall {
-    var fc_27 *CodeNode = node.getFirst();
-    this.WriteVRef(fc_27, ctx, wr);
+    var fc_30 *CodeNode = node.getFirst();
+    this.WriteVRef(fc_30, ctx, wr);
     wr.out("(", false);
-    var givenArgs_6 *CodeNode = node.getSecond();
-    var i_100 int64 = 0;  
-    for ; i_100 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_100++ {
-      arg_21 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_100];
-      if  i_100 > 0 {
+    var givenArgs_8 *CodeNode = node.getSecond();
+    var i_116 int64 = 0;  
+    for ; i_116 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_116++ {
+      arg_24 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_116];
+      if  i_116 > 0 {
         wr.out(", ", false);
       }
-      if  (int64(len(givenArgs_6.children))) <= i_100 {
-        var defVal_3 *GoNullable = new(GoNullable); 
-        defVal_3 = arg_21.Get_nameNode().value.(*CodeNode).getFlag("default");
-        if  defVal_3.has_value {
-          var fc_38 *CodeNode = defVal_3.value.(*CodeNode).vref_annotation.value.(*CodeNode).getFirst();
-          this.WalkNode(fc_38, ctx, wr);
+      if  (int64(len(givenArgs_8.children))) <= i_116 {
+        var defVal_4 *GoNullable = new(GoNullable); 
+        defVal_4 = arg_24.Get_nameNode().value.(*CodeNode).getFlag("default");
+        if  defVal_4.has_value {
+          var fc_41 *CodeNode = defVal_4.value.(*CodeNode).vref_annotation.value.(*CodeNode).getFirst();
+          this.WalkNode(fc_41, ctx, wr);
         } else {
           ctx.addError(node, "Default argument was missing");
         }
         continue;
       }
-      var n_12 *CodeNode = givenArgs_6.children[i_100];
-      this.WalkNode(n_12, ctx, wr);
+      var n_14 *CodeNode = givenArgs_8.children[i_116];
+      this.WalkNode(n_14, ctx, wr);
     }
     wr.out(")", false);
     if  ctx.expressionLevel() == 0 {
@@ -11459,27 +12841,27 @@ func (this *RangerKotlinClassWriter) writeFnCall (node *CodeNode, ctx *RangerApp
 }
 func (this *RangerKotlinClassWriter) writeNewCall (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasNewOper {
-    var cl_8 *GoNullable = new(GoNullable); 
-    cl_8.value = node.clDesc.value;
-    cl_8.has_value = node.clDesc.has_value;
-    /** unused:  fc_32*/
+    var cl_11 *GoNullable = new(GoNullable); 
+    cl_11.value = node.clDesc.value;
+    cl_11.has_value = node.clDesc.has_value;
+    /** unused:  fc_35*/
     wr.out(" ", false);
     wr.out(node.clDesc.value.(*RangerAppClassDesc).name, false);
     wr.out("(", false);
-    var constr_5 *GoNullable = new(GoNullable); 
-    constr_5.value = cl_8.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_5.has_value = cl_8.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    var givenArgs_9 *CodeNode = node.getThird();
-    if  constr_5.has_value {
-      var i_102 int64 = 0;  
-      for ; i_102 < int64(len(constr_5.value.(*RangerAppFunctionDesc).params)) ; i_102++ {
-        arg_23 := constr_5.value.(*RangerAppFunctionDesc).params[i_102];
-        var n_15 *CodeNode = givenArgs_9.children[i_102];
-        if  i_102 > 0 {
+    var constr_9 *GoNullable = new(GoNullable); 
+    constr_9.value = cl_11.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_9.has_value = cl_11.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    var givenArgs_11 *CodeNode = node.getThird();
+    if  constr_9.has_value {
+      var i_118 int64 = 0;  
+      for ; i_118 < int64(len(constr_9.value.(*RangerAppFunctionDesc).params)) ; i_118++ {
+        arg_26 := constr_9.value.(*RangerAppFunctionDesc).params[i_118];
+        var n_17 *CodeNode = givenArgs_11.children[i_118];
+        if  i_118 > 0 {
           wr.out(", ", false);
         }
-        if  true || (arg_23.Get_nameNode().has_value) {
-          this.WalkNode(n_15, ctx, wr);
+        if  true || (arg_26.Get_nameNode().has_value) {
+          this.WalkNode(n_17, ctx, wr);
         }
       }
     }
@@ -11487,117 +12869,117 @@ func (this *RangerKotlinClassWriter) writeNewCall (node *CodeNode, ctx *RangerAp
   }
 }
 func (this *RangerKotlinClassWriter) writeClass (node *CodeNode, ctx *RangerAppWriterContext, orig_wr *CodeWriter) () {
-  var cl_11 *GoNullable = new(GoNullable); 
-  cl_11.value = node.clDesc.value;
-  cl_11.has_value = node.clDesc.has_value;
-  if  !cl_11.has_value  {
+  var cl_14 *GoNullable = new(GoNullable); 
+  cl_14.value = node.clDesc.value;
+  cl_14.has_value = node.clDesc.has_value;
+  if  !cl_14.has_value  {
     return;
   }
-  var wr_6 *CodeWriter = orig_wr;
+  var wr_7 *CodeWriter = orig_wr;
   /** unused:  importFork_2*/
-  wr_6.out("", true);
-  wr_6.out(strings.Join([]string{ "class ",cl_11.value.(*RangerAppClassDesc).name }, ""), false);
-  if  cl_11.value.(*RangerAppClassDesc).has_constructor {
-    var constr_8 *RangerAppFunctionDesc = cl_11.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
-    wr_6.out("(", false);
-    this.writeArgsDef(constr_8, ctx, wr_6);
-    wr_6.out(" ) ", true);
+  wr_7.out("", true);
+  wr_7.out(strings.Join([]string{ "class ",cl_14.value.(*RangerAppClassDesc).name }, ""), false);
+  if  cl_14.value.(*RangerAppClassDesc).has_constructor {
+    var constr_12 *RangerAppFunctionDesc = cl_14.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
+    wr_7.out("(", false);
+    this.writeArgsDef(constr_12, ctx, wr_7);
+    wr_7.out(" ) ", true);
   }
-  wr_6.out(" {", true);
-  wr_6.indent(1);
-  var i_104 int64 = 0;  
-  for ; i_104 < int64(len(cl_11.value.(*RangerAppClassDesc).variables)) ; i_104++ {
-    pvar_6 := cl_11.value.(*RangerAppClassDesc).variables[i_104];
-    this.writeVarDef(pvar_6.Get_node().value.(*CodeNode), ctx, wr_6);
+  wr_7.out(" {", true);
+  wr_7.indent(1);
+  var i_120 int64 = 0;  
+  for ; i_120 < int64(len(cl_14.value.(*RangerAppClassDesc).variables)) ; i_120++ {
+    pvar_8 := cl_14.value.(*RangerAppClassDesc).variables[i_120];
+    this.writeVarDef(pvar_8.Get_node().value.(*CodeNode), ctx, wr_7);
   }
-  if  cl_11.value.(*RangerAppClassDesc).has_constructor {
-    var constr_12 *GoNullable = new(GoNullable); 
-    constr_12.value = cl_11.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_12.has_value = cl_11.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    wr_6.out("", true);
-    wr_6.out("init {", true);
-    wr_6.indent(1);
-    wr_6.newline();
-    var subCtx_22 *RangerAppWriterContext = constr_12.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
-    subCtx_22.is_function = true; 
-    this.WalkNode(constr_12.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_22, wr_6);
-    wr_6.newline();
-    wr_6.indent(-1);
-    wr_6.out("}", true);
+  if  cl_14.value.(*RangerAppClassDesc).has_constructor {
+    var constr_16 *GoNullable = new(GoNullable); 
+    constr_16.value = cl_14.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_16.has_value = cl_14.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    wr_7.out("", true);
+    wr_7.out("init {", true);
+    wr_7.indent(1);
+    wr_7.newline();
+    var subCtx_26 *RangerAppWriterContext = constr_16.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
+    subCtx_26.is_function = true; 
+    this.WalkNode(constr_16.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_26, wr_7);
+    wr_7.newline();
+    wr_7.indent(-1);
+    wr_7.out("}", true);
   }
-  if  (int64(len(cl_11.value.(*RangerAppClassDesc).static_methods))) > 0 {
-    wr_6.out("companion object {", true);
-    wr_6.indent(1);
+  if  (int64(len(cl_14.value.(*RangerAppClassDesc).static_methods))) > 0 {
+    wr_7.out("companion object {", true);
+    wr_7.indent(1);
   }
-  var i_108 int64 = 0;  
-  for ; i_108 < int64(len(cl_11.value.(*RangerAppClassDesc).static_methods)) ; i_108++ {
-    variant_7 := cl_11.value.(*RangerAppClassDesc).static_methods[i_108];
-    wr_6.out("", true);
-    if  variant_7.nameNode.value.(*CodeNode).hasFlag("main") {
+  var i_124 int64 = 0;  
+  for ; i_124 < int64(len(cl_14.value.(*RangerAppClassDesc).static_methods)) ; i_124++ {
+    variant_12 := cl_14.value.(*RangerAppClassDesc).static_methods[i_124];
+    wr_7.out("", true);
+    if  variant_12.nameNode.value.(*CodeNode).hasFlag("main") {
       continue;
     }
-    wr_6.out("fun ", false);
-    wr_6.out(" ", false);
-    wr_6.out(strings.Join([]string{ variant_7.name,"(" }, ""), false);
-    this.writeArgsDef(variant_7, ctx, wr_6);
-    wr_6.out(") : ", false);
-    this.writeTypeDef(variant_7.nameNode.value.(*CodeNode), ctx, wr_6);
-    wr_6.out(" {", true);
-    wr_6.indent(1);
-    wr_6.newline();
-    var subCtx_27 *RangerAppWriterContext = variant_7.fnCtx.value.(*RangerAppWriterContext);
-    subCtx_27.is_function = true; 
-    this.WalkNode(variant_7.fnBody.value.(*CodeNode), subCtx_27, wr_6);
-    wr_6.newline();
-    wr_6.indent(-1);
-    wr_6.out("}", true);
+    wr_7.out("fun ", false);
+    wr_7.out(" ", false);
+    wr_7.out(strings.Join([]string{ variant_12.name,"(" }, ""), false);
+    this.writeArgsDef(variant_12, ctx, wr_7);
+    wr_7.out(") : ", false);
+    this.writeTypeDef(variant_12.nameNode.value.(*CodeNode), ctx, wr_7);
+    wr_7.out(" {", true);
+    wr_7.indent(1);
+    wr_7.newline();
+    var subCtx_31 *RangerAppWriterContext = variant_12.fnCtx.value.(*RangerAppWriterContext);
+    subCtx_31.is_function = true; 
+    this.WalkNode(variant_12.fnBody.value.(*CodeNode), subCtx_31, wr_7);
+    wr_7.newline();
+    wr_7.indent(-1);
+    wr_7.out("}", true);
   }
-  if  (int64(len(cl_11.value.(*RangerAppClassDesc).static_methods))) > 0 {
-    wr_6.indent(-1);
-    wr_6.out("}", true);
+  if  (int64(len(cl_14.value.(*RangerAppClassDesc).static_methods))) > 0 {
+    wr_7.indent(-1);
+    wr_7.out("}", true);
   }
-  var i_111 int64 = 0;  
-  for ; i_111 < int64(len(cl_11.value.(*RangerAppClassDesc).defined_variants)) ; i_111++ {
-    fnVar_4 := cl_11.value.(*RangerAppClassDesc).defined_variants[i_111];
-    var mVs_4 *GoNullable = new(GoNullable); 
-    mVs_4 = r_get_string_RangerAppMethodVariants(cl_11.value.(*RangerAppClassDesc).method_variants, fnVar_4);
-    var i_118 int64 = 0;  
-    for ; i_118 < int64(len(mVs_4.value.(*RangerAppMethodVariants).variants)) ; i_118++ {
-      variant_12 := mVs_4.value.(*RangerAppMethodVariants).variants[i_118];
-      wr_6.out("", true);
-      wr_6.out("fun ", false);
-      wr_6.out(" ", false);
-      wr_6.out(strings.Join([]string{ variant_12.name,"(" }, ""), false);
-      this.writeArgsDef(variant_12, ctx, wr_6);
-      wr_6.out(") : ", false);
-      this.writeTypeDef(variant_12.nameNode.value.(*CodeNode), ctx, wr_6);
-      wr_6.out(" {", true);
-      wr_6.indent(1);
-      wr_6.newline();
-      var subCtx_30 *RangerAppWriterContext = variant_12.fnCtx.value.(*RangerAppWriterContext);
-      subCtx_30.is_function = true; 
-      this.WalkNode(variant_12.fnBody.value.(*CodeNode), subCtx_30, wr_6);
-      wr_6.newline();
-      wr_6.indent(-1);
-      wr_6.out("}", true);
+  var i_127 int64 = 0;  
+  for ; i_127 < int64(len(cl_14.value.(*RangerAppClassDesc).defined_variants)) ; i_127++ {
+    fnVar_6 := cl_14.value.(*RangerAppClassDesc).defined_variants[i_127];
+    var mVs_6 *GoNullable = new(GoNullable); 
+    mVs_6 = r_get_string_RangerAppMethodVariants(cl_14.value.(*RangerAppClassDesc).method_variants, fnVar_6);
+    var i_134 int64 = 0;  
+    for ; i_134 < int64(len(mVs_6.value.(*RangerAppMethodVariants).variants)) ; i_134++ {
+      variant_17 := mVs_6.value.(*RangerAppMethodVariants).variants[i_134];
+      wr_7.out("", true);
+      wr_7.out("fun ", false);
+      wr_7.out(" ", false);
+      wr_7.out(strings.Join([]string{ variant_17.name,"(" }, ""), false);
+      this.writeArgsDef(variant_17, ctx, wr_7);
+      wr_7.out(") : ", false);
+      this.writeTypeDef(variant_17.nameNode.value.(*CodeNode), ctx, wr_7);
+      wr_7.out(" {", true);
+      wr_7.indent(1);
+      wr_7.newline();
+      var subCtx_34 *RangerAppWriterContext = variant_17.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_34.is_function = true; 
+      this.WalkNode(variant_17.fnBody.value.(*CodeNode), subCtx_34, wr_7);
+      wr_7.newline();
+      wr_7.indent(-1);
+      wr_7.out("}", true);
     }
   }
-  wr_6.indent(-1);
-  wr_6.out("}", true);
-  var i_117 int64 = 0;  
-  for ; i_117 < int64(len(cl_11.value.(*RangerAppClassDesc).static_methods)) ; i_117++ {
-    variant_15 := cl_11.value.(*RangerAppClassDesc).static_methods[i_117];
-    wr_6.out("", true);
-    if  variant_15.nameNode.value.(*CodeNode).hasFlag("main") {
-      wr_6.out("fun main(args : Array<String>) {", true);
-      wr_6.indent(1);
-      wr_6.newline();
-      var subCtx_33 *RangerAppWriterContext = variant_15.fnCtx.value.(*RangerAppWriterContext);
-      subCtx_33.is_function = true; 
-      this.WalkNode(variant_15.fnBody.value.(*CodeNode), subCtx_33, wr_6);
-      wr_6.newline();
-      wr_6.indent(-1);
-      wr_6.out("}", true);
+  wr_7.indent(-1);
+  wr_7.out("}", true);
+  var i_133 int64 = 0;  
+  for ; i_133 < int64(len(cl_14.value.(*RangerAppClassDesc).static_methods)) ; i_133++ {
+    variant_20 := cl_14.value.(*RangerAppClassDesc).static_methods[i_133];
+    wr_7.out("", true);
+    if  variant_20.nameNode.value.(*CodeNode).hasFlag("main") {
+      wr_7.out("fun main(args : Array<String>) {", true);
+      wr_7.indent(1);
+      wr_7.newline();
+      var subCtx_37 *RangerAppWriterContext = variant_20.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_37.is_function = true; 
+      this.WalkNode(variant_20.fnBody.value.(*CodeNode), subCtx_37, wr_7);
+      wr_7.newline();
+      wr_7.indent(-1);
+      wr_7.out("}", true);
     }
   }
 }
@@ -11607,7 +12989,8 @@ func (this *RangerKotlinClassWriter) EncodeString (node *CodeNode, ctx *RangerAp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
+  for ii_11 < str_length_2 {
+    var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
         encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
@@ -11661,9 +13044,9 @@ func (this *RangerKotlinClassWriter) import_lib (lib_name string, ctx *RangerApp
   wr.addImport(lib_name);
 }
 func (this *RangerKotlinClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(ctx.localVarNames)) ; i_61++ {
-    n_7 := ctx.localVarNames[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
@@ -11774,11 +13157,11 @@ func (this *RangerCSharpClassWriter) getTypeString (type_string string) string {
   return type_string;
 }
 func (this *RangerCSharpClassWriter) writeTypeDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var v_type_4 int64 = node.value_type;
+  var v_type_5 int64 = node.value_type;
   if  node.eval_type != 0 {
-    v_type_4 = node.eval_type; 
+    v_type_5 = node.eval_type; 
   }
-  switch (v_type_4 ) { 
+  switch (v_type_5 ) { 
     case 11 : 
       wr.out("int", false);
     case 3 : 
@@ -11813,94 +13196,94 @@ func (this *RangerCSharpClassWriter) writeTypeDef (node *CodeNode, ctx *RangerAp
 func (this *RangerCSharpClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.eval_type == 11 {
     if  (int64(len(node.ns))) > 1 {
-      var rootObjName_8 string = node.ns[0];
-      var enumName_8 string = node.ns[1];
-      var e_14 *GoNullable = new(GoNullable); 
-      e_14 = ctx.getEnum(rootObjName_8);
-      if  e_14.has_value {
-        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_14.value.(*RangerAppEnum).values, enumName_8)).value.(int64)), 10) }, ""), false);
+      var rootObjName_9 string = node.ns[0];
+      var enumName_9 string = node.ns[1];
+      var e_15 *GoNullable = new(GoNullable); 
+      e_15 = ctx.getEnum(rootObjName_9);
+      if  e_15.has_value {
+        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_15.value.(*RangerAppEnum).values, enumName_9)).value.(int64)), 10) }, ""), false);
         return;
       }
     }
   }
   if  (int64(len(node.nsp))) > 0 {
-    var i_103 int64 = 0;  
-    for ; i_103 < int64(len(node.nsp)) ; i_103++ {
-      p_27 := node.nsp[i_103];
-      if  i_103 > 0 {
+    var i_119 int64 = 0;  
+    for ; i_119 < int64(len(node.nsp)) ; i_119++ {
+      p_31 := node.nsp[i_119];
+      if  i_119 > 0 {
         wr.out(".", false);
       }
-      if  i_103 == 0 {
-        if  p_27.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+      if  i_119 == 0 {
+        if  p_31.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
         }
       }
-      if  (int64(len(p_27.Get_compiledName()))) > 0 {
-        wr.out(this.adjustType(p_27.Get_compiledName()), false);
+      if  (int64(len(p_31.Get_compiledName()))) > 0 {
+        wr.out(this.adjustType(p_31.Get_compiledName()), false);
       } else {
-        if  (int64(len(p_27.Get_name()))) > 0 {
-          wr.out(this.adjustType(p_27.Get_name()), false);
+        if  (int64(len(p_31.Get_name()))) > 0 {
+          wr.out(this.adjustType(p_31.Get_name()), false);
         } else {
-          wr.out(this.adjustType((node.ns[i_103])), false);
+          wr.out(this.adjustType((node.ns[i_119])), false);
         }
       }
     }
     return;
   }
   if  node.hasParamDesc {
-    var p_32 *GoNullable = new(GoNullable); 
-    p_32.value = node.paramDesc.value;
-    p_32.has_value = node.paramDesc.has_value;
-    wr.out(p_32.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    var p_36 *GoNullable = new(GoNullable); 
+    p_36.value = node.paramDesc.value;
+    p_36.has_value = node.paramDesc.has_value;
+    wr.out(p_36.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
     return;
   }
-  var i_108 int64 = 0;  
-  for ; i_108 < int64(len(node.ns)) ; i_108++ {
-    part_7 := node.ns[i_108];
-    if  i_108 > 0 {
+  var i_124 int64 = 0;  
+  for ; i_124 < int64(len(node.ns)) ; i_124++ {
+    part_9 := node.ns[i_124];
+    if  i_124 > 0 {
       wr.out(".", false);
     }
-    wr.out(this.adjustType(part_7), false);
+    wr.out(this.adjustType(part_9), false);
   }
 }
 func (this *RangerCSharpClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasParamDesc {
-    var nn_14 *CodeNode = node.children[1];
-    var p_32 *GoNullable = new(GoNullable); 
-    p_32.value = nn_14.paramDesc.value;
-    p_32.has_value = nn_14.paramDesc.has_value;
-    if  (p_32.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_32.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    var nn_17 *CodeNode = node.children[1];
+    var p_36 *GoNullable = new(GoNullable); 
+    p_36.value = nn_17.paramDesc.value;
+    p_36.has_value = nn_17.paramDesc.has_value;
+    if  (p_36.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_36.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("/** unused:  ", false);
     }
-    if  (p_32.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0) || p_32.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() {
+    if  (p_36.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0) || p_36.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() {
       wr.out("", false);
     } else {
       wr.out("const ", false);
     }
-    this.writeTypeDef(p_32.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+    this.writeTypeDef(p_36.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
     wr.out(" ", false);
-    wr.out(p_32.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    wr.out(p_36.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
     if  (int64(len(node.children))) > 2 {
       wr.out(" = ", false);
       ctx.setInExpr();
-      var value_7 *CodeNode = node.getThird();
-      this.WalkNode(value_7, ctx, wr);
+      var value_8 *CodeNode = node.getThird();
+      this.WalkNode(value_8, ctx, wr);
       ctx.unsetInExpr();
     } else {
-      if  nn_14.value_type == 6 {
+      if  nn_17.value_type == 6 {
         wr.out(" = new ", false);
-        this.writeTypeDef(p_32.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+        this.writeTypeDef(p_36.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
         wr.out("()", false);
       }
-      if  nn_14.value_type == 7 {
+      if  nn_17.value_type == 7 {
         wr.out(" = new ", false);
-        this.writeTypeDef(p_32.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+        this.writeTypeDef(p_36.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
         wr.out("()", false);
       }
     }
-    if  (p_32.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_32.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
+    if  (p_36.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_36.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
       wr.out("     /** note: unused */", false);
     }
-    if  (p_32.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_32.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    if  (p_36.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_36.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("   **/ ;", true);
     } else {
       wr.out(";", false);
@@ -11909,104 +13292,104 @@ func (this *RangerCSharpClassWriter) writeVarDef (node *CodeNode, ctx *RangerApp
   }
 }
 func (this *RangerCSharpClassWriter) writeArgsDef (fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_108 int64 = 0;  
-  for ; i_108 < int64(len(fnDesc.params)) ; i_108++ {
-    arg_21 := fnDesc.params[i_108];
-    if  i_108 > 0 {
+  var i_124 int64 = 0;  
+  for ; i_124 < int64(len(fnDesc.params)) ; i_124++ {
+    arg_24 := fnDesc.params[i_124];
+    if  i_124 > 0 {
       wr.out(",", false);
     }
     wr.out(" ", false);
-    this.writeTypeDef(arg_21.Get_nameNode().value.(*CodeNode), ctx, wr);
-    wr.out(strings.Join([]string{ (strings.Join([]string{ " ",arg_21.Get_name() }, ""))," " }, ""), false);
+    this.writeTypeDef(arg_24.Get_nameNode().value.(*CodeNode), ctx, wr);
+    wr.out(strings.Join([]string{ (strings.Join([]string{ " ",arg_24.Get_name() }, ""))," " }, ""), false);
   }
 }
 func (this *RangerCSharpClassWriter) writeClass (node *CodeNode, ctx *RangerAppWriterContext, orig_wr *CodeWriter) () {
-  var cl_10 *GoNullable = new(GoNullable); 
-  cl_10.value = node.clDesc.value;
-  cl_10.has_value = node.clDesc.has_value;
-  if  !cl_10.has_value  {
+  var cl_13 *GoNullable = new(GoNullable); 
+  cl_13.value = node.clDesc.value;
+  cl_13.has_value = node.clDesc.has_value;
+  if  !cl_13.has_value  {
     return;
   }
-  var wr_7 *CodeWriter = orig_wr.getFileWriter(".", (strings.Join([]string{ cl_10.value.(*RangerAppClassDesc).name,".cs" }, "")));
-  var importFork_3 *CodeWriter = wr_7.fork();
-  wr_7.out("", true);
-  wr_7.out(strings.Join([]string{ (strings.Join([]string{ "class ",cl_10.value.(*RangerAppClassDesc).name }, ""))," {" }, ""), true);
-  wr_7.indent(1);
-  var i_110 int64 = 0;  
-  for ; i_110 < int64(len(cl_10.value.(*RangerAppClassDesc).variables)) ; i_110++ {
-    pvar_7 := cl_10.value.(*RangerAppClassDesc).variables[i_110];
-    wr_7.out("public ", false);
-    this.writeVarDef(pvar_7.Get_node().value.(*CodeNode), ctx, wr_7);
+  var wr_8 *CodeWriter = orig_wr.getFileWriter(".", (strings.Join([]string{ cl_13.value.(*RangerAppClassDesc).name,".cs" }, "")));
+  var importFork_3 *CodeWriter = wr_8.fork();
+  wr_8.out("", true);
+  wr_8.out(strings.Join([]string{ (strings.Join([]string{ "class ",cl_13.value.(*RangerAppClassDesc).name }, ""))," {" }, ""), true);
+  wr_8.indent(1);
+  var i_126 int64 = 0;  
+  for ; i_126 < int64(len(cl_13.value.(*RangerAppClassDesc).variables)) ; i_126++ {
+    pvar_9 := cl_13.value.(*RangerAppClassDesc).variables[i_126];
+    wr_8.out("public ", false);
+    this.writeVarDef(pvar_9.Get_node().value.(*CodeNode), ctx, wr_8);
   }
-  if  cl_10.value.(*RangerAppClassDesc).has_constructor {
-    var constr_8 *RangerAppFunctionDesc = cl_10.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
-    wr_7.out("", true);
-    wr_7.out(strings.Join([]string{ cl_10.value.(*RangerAppClassDesc).name,"(" }, ""), false);
-    this.writeArgsDef(constr_8, ctx, wr_7);
-    wr_7.out(" ) {", true);
-    wr_7.indent(1);
-    wr_7.newline();
-    var subCtx_26 *RangerAppWriterContext = constr_8.fnCtx.value.(*RangerAppWriterContext);
-    subCtx_26.is_function = true; 
-    this.WalkNode(constr_8.fnBody.value.(*CodeNode), subCtx_26, wr_7);
-    wr_7.newline();
-    wr_7.indent(-1);
-    wr_7.out("}", true);
+  if  cl_13.value.(*RangerAppClassDesc).has_constructor {
+    var constr_12 *RangerAppFunctionDesc = cl_13.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
+    wr_8.out("", true);
+    wr_8.out(strings.Join([]string{ cl_13.value.(*RangerAppClassDesc).name,"(" }, ""), false);
+    this.writeArgsDef(constr_12, ctx, wr_8);
+    wr_8.out(" ) {", true);
+    wr_8.indent(1);
+    wr_8.newline();
+    var subCtx_30 *RangerAppWriterContext = constr_12.fnCtx.value.(*RangerAppWriterContext);
+    subCtx_30.is_function = true; 
+    this.WalkNode(constr_12.fnBody.value.(*CodeNode), subCtx_30, wr_8);
+    wr_8.newline();
+    wr_8.indent(-1);
+    wr_8.out("}", true);
   }
-  var i_114 int64 = 0;  
-  for ; i_114 < int64(len(cl_10.value.(*RangerAppClassDesc).static_methods)) ; i_114++ {
-    variant_10 := cl_10.value.(*RangerAppClassDesc).static_methods[i_114];
-    wr_7.out("", true);
-    if  variant_10.nameNode.value.(*CodeNode).hasFlag("main") {
-      wr_7.out("static int Main( string [] args ) {", true);
+  var i_130 int64 = 0;  
+  for ; i_130 < int64(len(cl_13.value.(*RangerAppClassDesc).static_methods)) ; i_130++ {
+    variant_15 := cl_13.value.(*RangerAppClassDesc).static_methods[i_130];
+    wr_8.out("", true);
+    if  variant_15.nameNode.value.(*CodeNode).hasFlag("main") {
+      wr_8.out("static int Main( string [] args ) {", true);
     } else {
-      wr_7.out("public static ", false);
-      this.writeTypeDef(variant_10.nameNode.value.(*CodeNode), ctx, wr_7);
-      wr_7.out(" ", false);
-      wr_7.out(strings.Join([]string{ variant_10.name,"(" }, ""), false);
-      this.writeArgsDef(variant_10, ctx, wr_7);
-      wr_7.out(") {", true);
+      wr_8.out("public static ", false);
+      this.writeTypeDef(variant_15.nameNode.value.(*CodeNode), ctx, wr_8);
+      wr_8.out(" ", false);
+      wr_8.out(strings.Join([]string{ variant_15.name,"(" }, ""), false);
+      this.writeArgsDef(variant_15, ctx, wr_8);
+      wr_8.out(") {", true);
     }
-    wr_7.indent(1);
-    wr_7.newline();
-    var subCtx_31 *RangerAppWriterContext = variant_10.fnCtx.value.(*RangerAppWriterContext);
-    subCtx_31.is_function = true; 
-    this.WalkNode(variant_10.fnBody.value.(*CodeNode), subCtx_31, wr_7);
-    wr_7.newline();
-    wr_7.indent(-1);
-    wr_7.out("}", true);
+    wr_8.indent(1);
+    wr_8.newline();
+    var subCtx_35 *RangerAppWriterContext = variant_15.fnCtx.value.(*RangerAppWriterContext);
+    subCtx_35.is_function = true; 
+    this.WalkNode(variant_15.fnBody.value.(*CodeNode), subCtx_35, wr_8);
+    wr_8.newline();
+    wr_8.indent(-1);
+    wr_8.out("}", true);
   }
-  var i_117 int64 = 0;  
-  for ; i_117 < int64(len(cl_10.value.(*RangerAppClassDesc).defined_variants)) ; i_117++ {
-    fnVar_5 := cl_10.value.(*RangerAppClassDesc).defined_variants[i_117];
-    var mVs_5 *GoNullable = new(GoNullable); 
-    mVs_5 = r_get_string_RangerAppMethodVariants(cl_10.value.(*RangerAppClassDesc).method_variants, fnVar_5);
-    var i_124 int64 = 0;  
-    for ; i_124 < int64(len(mVs_5.value.(*RangerAppMethodVariants).variants)) ; i_124++ {
-      variant_15 := mVs_5.value.(*RangerAppMethodVariants).variants[i_124];
-      wr_7.out("", true);
-      wr_7.out("public ", false);
-      this.writeTypeDef(variant_15.nameNode.value.(*CodeNode), ctx, wr_7);
-      wr_7.out(" ", false);
-      wr_7.out(strings.Join([]string{ variant_15.name,"(" }, ""), false);
-      this.writeArgsDef(variant_15, ctx, wr_7);
-      wr_7.out(") {", true);
-      wr_7.indent(1);
-      wr_7.newline();
-      var subCtx_34 *RangerAppWriterContext = variant_15.fnCtx.value.(*RangerAppWriterContext);
-      subCtx_34.is_function = true; 
-      this.WalkNode(variant_15.fnBody.value.(*CodeNode), subCtx_34, wr_7);
-      wr_7.newline();
-      wr_7.indent(-1);
-      wr_7.out("}", true);
+  var i_133 int64 = 0;  
+  for ; i_133 < int64(len(cl_13.value.(*RangerAppClassDesc).defined_variants)) ; i_133++ {
+    fnVar_7 := cl_13.value.(*RangerAppClassDesc).defined_variants[i_133];
+    var mVs_7 *GoNullable = new(GoNullable); 
+    mVs_7 = r_get_string_RangerAppMethodVariants(cl_13.value.(*RangerAppClassDesc).method_variants, fnVar_7);
+    var i_140 int64 = 0;  
+    for ; i_140 < int64(len(mVs_7.value.(*RangerAppMethodVariants).variants)) ; i_140++ {
+      variant_20 := mVs_7.value.(*RangerAppMethodVariants).variants[i_140];
+      wr_8.out("", true);
+      wr_8.out("public ", false);
+      this.writeTypeDef(variant_20.nameNode.value.(*CodeNode), ctx, wr_8);
+      wr_8.out(" ", false);
+      wr_8.out(strings.Join([]string{ variant_20.name,"(" }, ""), false);
+      this.writeArgsDef(variant_20, ctx, wr_8);
+      wr_8.out(") {", true);
+      wr_8.indent(1);
+      wr_8.newline();
+      var subCtx_38 *RangerAppWriterContext = variant_20.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_38.is_function = true; 
+      this.WalkNode(variant_20.fnBody.value.(*CodeNode), subCtx_38, wr_8);
+      wr_8.newline();
+      wr_8.indent(-1);
+      wr_8.out("}", true);
     }
   }
-  wr_7.indent(-1);
-  wr_7.out("}", true);
-  var import_list_2 []string = wr_7.getImports();
-  var i_123 int64 = 0;  
-  for ; i_123 < int64(len(import_list_2)) ; i_123++ {
-    codeStr_2 := import_list_2[i_123];
+  wr_8.indent(-1);
+  wr_8.out("}", true);
+  var import_list_2 []string = wr_8.getImports();
+  var i_139 int64 = 0;  
+  for ; i_139 < int64(len(import_list_2)) ; i_139++ {
+    codeStr_2 := import_list_2[i_139];
     importFork_3.out(strings.Join([]string{ (strings.Join([]string{ "using ",codeStr_2 }, "")),";" }, ""), true);
   }
 }
@@ -12016,7 +13399,8 @@ func (this *RangerCSharpClassWriter) EncodeString (node *CodeNode, ctx *RangerAp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
+  for ii_11 < str_length_2 {
+    var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
         encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
@@ -12087,9 +13471,9 @@ func (this *RangerCSharpClassWriter) import_lib (lib_name string, ctx *RangerApp
   wr.addImport(lib_name);
 }
 func (this *RangerCSharpClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(ctx.localVarNames)) ; i_61++ {
-    n_7 := ctx.localVarNames[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
@@ -12134,13 +13518,13 @@ func (this *RangerCSharpClassWriter) writeFnCall (node *CodeNode, ctx *RangerApp
     wr.out("(", false);
     var givenArgs_2 *CodeNode = node.getSecond();
     ctx.setInExpr();
-    var i_68 int64 = 0;  
-    for ; i_68 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_68++ {
-      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_68];
-      if  i_68 > 0 {
+    var i_69 int64 = 0;  
+    for ; i_69 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_69++ {
+      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_69];
+      if  i_69 > 0 {
         wr.out(", ", false);
       }
-      if  (int64(len(givenArgs_2.children))) <= i_68 {
+      if  (int64(len(givenArgs_2.children))) <= i_69 {
         var defVal *GoNullable = new(GoNullable); 
         defVal = arg_12.Get_nameNode().value.(*CodeNode).getFlag("default");
         if  defVal.has_value {
@@ -12151,7 +13535,7 @@ func (this *RangerCSharpClassWriter) writeFnCall (node *CodeNode, ctx *RangerApp
         }
         continue;
       }
-      var n_10 *CodeNode = givenArgs_2.children[i_68];
+      var n_10 *CodeNode = givenArgs_2.children[i_69];
       this.WalkNode(n_10, ctx, wr);
     }
     ctx.unsetInExpr();
@@ -12174,11 +13558,11 @@ func (this *RangerCSharpClassWriter) writeNewCall (node *CodeNode, ctx *RangerAp
     constr.has_value = cl_2.value.(*RangerAppClassDesc).constructor_fn.has_value;
     var givenArgs_5 *CodeNode = node.getThird();
     if  constr.has_value {
-      var i_70 int64 = 0;  
-      for ; i_70 < int64(len(constr.value.(*RangerAppFunctionDesc).params)) ; i_70++ {
-        arg_15 := constr.value.(*RangerAppFunctionDesc).params[i_70];
-        var n_12 *CodeNode = givenArgs_5.children[i_70];
-        if  i_70 > 0 {
+      var i_71 int64 = 0;  
+      for ; i_71 < int64(len(constr.value.(*RangerAppFunctionDesc).params)) ; i_71++ {
+        arg_15 := constr.value.(*RangerAppFunctionDesc).params[i_71];
+        var n_12 *CodeNode = givenArgs_5.children[i_71];
+        if  i_71 > 0 {
           wr.out(", ", false);
         }
         if  true || (arg_15.Get_nameNode().has_value) {
@@ -12259,11 +13643,11 @@ func (this *RangerScalaClassWriter) writeTypeDef (node *CodeNode, ctx *RangerApp
   if  node.hasFlag("optional") {
     wr.out("Option[", false);
   }
-  var v_type_5 int64 = node.value_type;
+  var v_type_6 int64 = node.value_type;
   if  node.eval_type != 0 {
-    v_type_5 = node.eval_type; 
+    v_type_6 = node.eval_type; 
   }
-  switch (v_type_5 ) { 
+  switch (v_type_6 ) { 
     case 11 : 
       wr.out("Int", false);
     case 3 : 
@@ -12296,11 +13680,11 @@ func (this *RangerScalaClassWriter) writeTypeDef (node *CodeNode, ctx *RangerApp
   }
 }
 func (this *RangerScalaClassWriter) writeTypeDefNoOption (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var v_type_8 int64 = node.value_type;
+  var v_type_9 int64 = node.value_type;
   if  node.eval_type != 0 {
-    v_type_8 = node.eval_type; 
+    v_type_9 = node.eval_type; 
   }
-  switch (v_type_8 ) { 
+  switch (v_type_9 ) { 
     case 11 : 
       wr.out("Int", false);
     case 3 : 
@@ -12332,34 +13716,34 @@ func (this *RangerScalaClassWriter) writeTypeDefNoOption (node *CodeNode, ctx *R
 func (this *RangerScalaClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.eval_type == 11 {
     if  (int64(len(node.ns))) > 1 {
-      var rootObjName_9 string = node.ns[0];
-      var enumName_9 string = node.ns[1];
-      var e_15 *GoNullable = new(GoNullable); 
-      e_15 = ctx.getEnum(rootObjName_9);
-      if  e_15.has_value {
-        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_15.value.(*RangerAppEnum).values, enumName_9)).value.(int64)), 10) }, ""), false);
+      var rootObjName_10 string = node.ns[0];
+      var enumName_10 string = node.ns[1];
+      var e_16 *GoNullable = new(GoNullable); 
+      e_16 = ctx.getEnum(rootObjName_10);
+      if  e_16.has_value {
+        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_16.value.(*RangerAppEnum).values, enumName_10)).value.(int64)), 10) }, ""), false);
         return;
       }
     }
   }
   if  (int64(len(node.nsp))) > 0 {
-    var i_111 int64 = 0;  
-    for ; i_111 < int64(len(node.nsp)) ; i_111++ {
-      p_30 := node.nsp[i_111];
-      if  i_111 > 0 {
+    var i_127 int64 = 0;  
+    for ; i_127 < int64(len(node.nsp)) ; i_127++ {
+      p_34 := node.nsp[i_127];
+      if  i_127 > 0 {
         wr.out(".", false);
       }
-      if  (int64(len(p_30.Get_compiledName()))) > 0 {
-        wr.out(this.adjustType(p_30.Get_compiledName()), false);
+      if  (int64(len(p_34.Get_compiledName()))) > 0 {
+        wr.out(this.adjustType(p_34.Get_compiledName()), false);
       } else {
-        if  (int64(len(p_30.Get_name()))) > 0 {
-          wr.out(this.adjustType(p_30.Get_name()), false);
+        if  (int64(len(p_34.Get_name()))) > 0 {
+          wr.out(this.adjustType(p_34.Get_name()), false);
         } else {
-          wr.out(this.adjustType((node.ns[i_111])), false);
+          wr.out(this.adjustType((node.ns[i_127])), false);
         }
       }
-      if  i_111 == 0 {
-        if  p_30.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+      if  i_127 == 0 {
+        if  p_34.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
           wr.out(".get", false);
         }
       }
@@ -12367,55 +13751,55 @@ func (this *RangerScalaClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWri
     return;
   }
   if  node.hasParamDesc {
-    var p_35 *GoNullable = new(GoNullable); 
-    p_35.value = node.paramDesc.value;
-    p_35.has_value = node.paramDesc.has_value;
-    wr.out(p_35.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    var p_39 *GoNullable = new(GoNullable); 
+    p_39.value = node.paramDesc.value;
+    p_39.has_value = node.paramDesc.has_value;
+    wr.out(p_39.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
     return;
   }
-  var i_116 int64 = 0;  
-  for ; i_116 < int64(len(node.ns)) ; i_116++ {
-    part_8 := node.ns[i_116];
-    if  i_116 > 0 {
+  var i_132 int64 = 0;  
+  for ; i_132 < int64(len(node.ns)) ; i_132++ {
+    part_10 := node.ns[i_132];
+    if  i_132 > 0 {
       wr.out(".", false);
     }
-    wr.out(this.adjustType(part_8), false);
+    wr.out(this.adjustType(part_10), false);
   }
 }
 func (this *RangerScalaClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasParamDesc {
-    var p_35 *GoNullable = new(GoNullable); 
-    p_35.value = node.paramDesc.value;
-    p_35.has_value = node.paramDesc.has_value;
-    /** unused:  nn_15*/
-    if  (p_35.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_35.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    var p_39 *GoNullable = new(GoNullable); 
+    p_39.value = node.paramDesc.value;
+    p_39.has_value = node.paramDesc.has_value;
+    /** unused:  nn_18*/
+    if  (p_39.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_39.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("/** unused ", false);
     }
-    if  (p_35.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0) || p_35.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() {
-      wr.out(strings.Join([]string{ (strings.Join([]string{ "var ",p_35.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""))," : " }, ""), false);
+    if  (p_39.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0) || p_39.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() {
+      wr.out(strings.Join([]string{ (strings.Join([]string{ "var ",p_39.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""))," : " }, ""), false);
     } else {
-      wr.out(strings.Join([]string{ (strings.Join([]string{ "val ",p_35.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""))," : " }, ""), false);
+      wr.out(strings.Join([]string{ (strings.Join([]string{ "val ",p_39.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""))," : " }, ""), false);
     }
-    this.writeTypeDef(p_35.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+    this.writeTypeDef(p_39.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
     if  (int64(len(node.children))) > 2 {
       wr.out(" = ", false);
       ctx.setInExpr();
-      var value_8 *CodeNode = node.getThird();
-      this.WalkNode(value_8, ctx, wr);
+      var value_9 *CodeNode = node.getThird();
+      this.WalkNode(value_9, ctx, wr);
       ctx.unsetInExpr();
     } else {
       var b_inited bool = false;
-      if  p_35.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).value_type == 6 {
+      if  p_39.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).value_type == 6 {
         b_inited = true; 
         wr.out("= new collection.mutable.ArrayBuffer()", false);
       }
-      if  p_35.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).value_type == 7 {
+      if  p_39.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).value_type == 7 {
         b_inited = true; 
         wr.out("= new collection.mutable.HashMap()", false);
       }
-      if  p_35.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+      if  p_39.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).hasFlag("optional") {
         wr.out(" = Option.empty[", false);
-        this.writeTypeDefNoOption(p_35.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+        this.writeTypeDefNoOption(p_39.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
         wr.out("]", false);
       } else {
         if  b_inited == false {
@@ -12423,7 +13807,7 @@ func (this *RangerScalaClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppW
         }
       }
     }
-    if  (p_35.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_35.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    if  (p_39.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_39.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("**/ ", true);
     } else {
       wr.newline();
@@ -12431,147 +13815,147 @@ func (this *RangerScalaClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppW
   }
 }
 func (this *RangerScalaClassWriter) writeArgsDef (fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_116 int64 = 0;  
-  for ; i_116 < int64(len(fnDesc.params)) ; i_116++ {
-    arg_22 := fnDesc.params[i_116];
-    if  i_116 > 0 {
+  var i_132 int64 = 0;  
+  for ; i_132 < int64(len(fnDesc.params)) ; i_132++ {
+    arg_25 := fnDesc.params[i_132];
+    if  i_132 > 0 {
       wr.out(",", false);
     }
     wr.out(" ", false);
-    wr.out(strings.Join([]string{ arg_22.Get_name()," : " }, ""), false);
-    this.writeTypeDef(arg_22.Get_nameNode().value.(*CodeNode), ctx, wr);
+    wr.out(strings.Join([]string{ arg_25.Get_name()," : " }, ""), false);
+    this.writeTypeDef(arg_25.Get_nameNode().value.(*CodeNode), ctx, wr);
   }
 }
 func (this *RangerScalaClassWriter) writeClass (node *CodeNode, ctx *RangerAppWriterContext, orig_wr *CodeWriter) () {
-  var cl_11 *GoNullable = new(GoNullable); 
-  cl_11.value = node.clDesc.value;
-  cl_11.has_value = node.clDesc.has_value;
-  if  !cl_11.has_value  {
+  var cl_14 *GoNullable = new(GoNullable); 
+  cl_14.value = node.clDesc.value;
+  cl_14.has_value = node.clDesc.has_value;
+  if  !cl_14.has_value  {
     return;
   }
-  var wr_8 *CodeWriter = orig_wr.getFileWriter(".", (strings.Join([]string{ cl_11.value.(*RangerAppClassDesc).name,".scala" }, "")));
-  var importFork_4 *CodeWriter = wr_8.fork();
-  wr_8.out("", true);
-  wr_8.out(strings.Join([]string{ (strings.Join([]string{ "class ",cl_11.value.(*RangerAppClassDesc).name }, ""))," " }, ""), false);
-  if  cl_11.value.(*RangerAppClassDesc).has_constructor {
-    wr_8.out("(", false);
-    var constr_9 *RangerAppFunctionDesc = cl_11.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
-    var i_118 int64 = 0;  
-    for ; i_118 < int64(len(constr_9.params)) ; i_118++ {
-      arg_25 := constr_9.params[i_118];
-      if  i_118 > 0 {
-        wr_8.out(", ", false);
+  var wr_9 *CodeWriter = orig_wr.getFileWriter(".", (strings.Join([]string{ cl_14.value.(*RangerAppClassDesc).name,".scala" }, "")));
+  var importFork_4 *CodeWriter = wr_9.fork();
+  wr_9.out("", true);
+  wr_9.out(strings.Join([]string{ (strings.Join([]string{ "class ",cl_14.value.(*RangerAppClassDesc).name }, ""))," " }, ""), false);
+  if  cl_14.value.(*RangerAppClassDesc).has_constructor {
+    wr_9.out("(", false);
+    var constr_13 *RangerAppFunctionDesc = cl_14.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
+    var i_134 int64 = 0;  
+    for ; i_134 < int64(len(constr_13.params)) ; i_134++ {
+      arg_28 := constr_13.params[i_134];
+      if  i_134 > 0 {
+        wr_9.out(", ", false);
       }
-      wr_8.out(strings.Join([]string{ arg_25.Get_name()," : " }, ""), false);
-      this.writeTypeDef(arg_25.Get_nameNode().value.(*CodeNode), ctx, wr_8);
+      wr_9.out(strings.Join([]string{ arg_28.Get_name()," : " }, ""), false);
+      this.writeTypeDef(arg_28.Get_nameNode().value.(*CodeNode), ctx, wr_9);
     }
-    wr_8.out(")", false);
+    wr_9.out(")", false);
   }
-  wr_8.out(" {", true);
-  wr_8.indent(1);
-  var i_122 int64 = 0;  
-  for ; i_122 < int64(len(cl_11.value.(*RangerAppClassDesc).variables)) ; i_122++ {
-    pvar_8 := cl_11.value.(*RangerAppClassDesc).variables[i_122];
-    this.writeVarDef(pvar_8.Get_node().value.(*CodeNode), ctx, wr_8);
+  wr_9.out(" {", true);
+  wr_9.indent(1);
+  var i_138 int64 = 0;  
+  for ; i_138 < int64(len(cl_14.value.(*RangerAppClassDesc).variables)) ; i_138++ {
+    pvar_10 := cl_14.value.(*RangerAppClassDesc).variables[i_138];
+    this.writeVarDef(pvar_10.Get_node().value.(*CodeNode), ctx, wr_9);
   }
-  if  cl_11.value.(*RangerAppClassDesc).has_constructor {
-    var constr_14 *GoNullable = new(GoNullable); 
-    constr_14.value = cl_11.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_14.has_value = cl_11.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    wr_8.newline();
-    var subCtx_29 *RangerAppWriterContext = constr_14.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
-    subCtx_29.is_function = true; 
-    this.WalkNode(constr_14.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_29, wr_8);
-    wr_8.newline();
+  if  cl_14.value.(*RangerAppClassDesc).has_constructor {
+    var constr_18 *GoNullable = new(GoNullable); 
+    constr_18.value = cl_14.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_18.has_value = cl_14.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    wr_9.newline();
+    var subCtx_33 *RangerAppWriterContext = constr_18.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
+    subCtx_33.is_function = true; 
+    this.WalkNode(constr_18.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_33, wr_9);
+    wr_9.newline();
   }
-  var i_125 int64 = 0;  
-  for ; i_125 < int64(len(cl_11.value.(*RangerAppClassDesc).defined_variants)) ; i_125++ {
-    fnVar_6 := cl_11.value.(*RangerAppClassDesc).defined_variants[i_125];
-    var mVs_6 *GoNullable = new(GoNullable); 
-    mVs_6 = r_get_string_RangerAppMethodVariants(cl_11.value.(*RangerAppClassDesc).method_variants, fnVar_6);
-    var i_132 int64 = 0;  
-    for ; i_132 < int64(len(mVs_6.value.(*RangerAppMethodVariants).variants)) ; i_132++ {
-      variant_12 := mVs_6.value.(*RangerAppMethodVariants).variants[i_132];
-      wr_8.out("", true);
-      wr_8.out("def ", false);
-      wr_8.out(" ", false);
-      wr_8.out(strings.Join([]string{ variant_12.name,"(" }, ""), false);
-      this.writeArgsDef(variant_12, ctx, wr_8);
-      wr_8.out(") : ", false);
-      this.writeTypeDef(variant_12.nameNode.value.(*CodeNode), ctx, wr_8);
-      wr_8.out(" = {", true);
-      wr_8.indent(1);
-      wr_8.newline();
-      var subCtx_34 *RangerAppWriterContext = variant_12.fnCtx.value.(*RangerAppWriterContext);
-      subCtx_34.is_function = true; 
-      this.WalkNode(variant_12.fnBody.value.(*CodeNode), subCtx_34, wr_8);
-      wr_8.newline();
-      wr_8.indent(-1);
-      wr_8.out("}", true);
+  var i_141 int64 = 0;  
+  for ; i_141 < int64(len(cl_14.value.(*RangerAppClassDesc).defined_variants)) ; i_141++ {
+    fnVar_8 := cl_14.value.(*RangerAppClassDesc).defined_variants[i_141];
+    var mVs_8 *GoNullable = new(GoNullable); 
+    mVs_8 = r_get_string_RangerAppMethodVariants(cl_14.value.(*RangerAppClassDesc).method_variants, fnVar_8);
+    var i_148 int64 = 0;  
+    for ; i_148 < int64(len(mVs_8.value.(*RangerAppMethodVariants).variants)) ; i_148++ {
+      variant_17 := mVs_8.value.(*RangerAppMethodVariants).variants[i_148];
+      wr_9.out("", true);
+      wr_9.out("def ", false);
+      wr_9.out(" ", false);
+      wr_9.out(strings.Join([]string{ variant_17.name,"(" }, ""), false);
+      this.writeArgsDef(variant_17, ctx, wr_9);
+      wr_9.out(") : ", false);
+      this.writeTypeDef(variant_17.nameNode.value.(*CodeNode), ctx, wr_9);
+      wr_9.out(" = {", true);
+      wr_9.indent(1);
+      wr_9.newline();
+      var subCtx_38 *RangerAppWriterContext = variant_17.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_38.is_function = true; 
+      this.WalkNode(variant_17.fnBody.value.(*CodeNode), subCtx_38, wr_9);
+      wr_9.newline();
+      wr_9.indent(-1);
+      wr_9.out("}", true);
     }
   }
-  wr_8.indent(-1);
-  wr_8.out("}", true);
+  wr_9.indent(-1);
+  wr_9.out("}", true);
   var b_had_app bool = false;
   var app_obj *GoNullable = new(GoNullable); 
-  if  (int64(len(cl_11.value.(*RangerAppClassDesc).static_methods))) > 0 {
-    wr_8.out("", true);
-    wr_8.out(strings.Join([]string{ "// companion object for static methods of ",cl_11.value.(*RangerAppClassDesc).name }, ""), true);
-    wr_8.out(strings.Join([]string{ (strings.Join([]string{ "object ",cl_11.value.(*RangerAppClassDesc).name }, ""))," {" }, ""), true);
-    wr_8.indent(1);
+  if  (int64(len(cl_14.value.(*RangerAppClassDesc).static_methods))) > 0 {
+    wr_9.out("", true);
+    wr_9.out(strings.Join([]string{ "// companion object for static methods of ",cl_14.value.(*RangerAppClassDesc).name }, ""), true);
+    wr_9.out(strings.Join([]string{ (strings.Join([]string{ "object ",cl_14.value.(*RangerAppClassDesc).name }, ""))," {" }, ""), true);
+    wr_9.indent(1);
   }
-  var i_131 int64 = 0;  
-  for ; i_131 < int64(len(cl_11.value.(*RangerAppClassDesc).static_methods)) ; i_131++ {
-    variant_17 := cl_11.value.(*RangerAppClassDesc).static_methods[i_131];
-    if  variant_17.nameNode.value.(*CodeNode).hasFlag("main") {
+  var i_147 int64 = 0;  
+  for ; i_147 < int64(len(cl_14.value.(*RangerAppClassDesc).static_methods)) ; i_147++ {
+    variant_22 := cl_14.value.(*RangerAppClassDesc).static_methods[i_147];
+    if  variant_22.nameNode.value.(*CodeNode).hasFlag("main") {
       b_had_app = true; 
-      app_obj.value = variant_17;
+      app_obj.value = variant_22;
       app_obj.has_value = true; /* detected as non-optional */
       continue;
     }
-    wr_8.out("", true);
-    wr_8.out("def ", false);
-    wr_8.out(" ", false);
-    wr_8.out(strings.Join([]string{ variant_17.name,"(" }, ""), false);
-    this.writeArgsDef(variant_17, ctx, wr_8);
-    wr_8.out(") : ", false);
-    this.writeTypeDef(variant_17.nameNode.value.(*CodeNode), ctx, wr_8);
-    wr_8.out(" = {", true);
-    wr_8.indent(1);
-    wr_8.newline();
-    var subCtx_37 *RangerAppWriterContext = variant_17.fnCtx.value.(*RangerAppWriterContext);
-    subCtx_37.is_function = true; 
-    this.WalkNode(variant_17.fnBody.value.(*CodeNode), subCtx_37, wr_8);
-    wr_8.newline();
-    wr_8.indent(-1);
-    wr_8.out("}", true);
+    wr_9.out("", true);
+    wr_9.out("def ", false);
+    wr_9.out(" ", false);
+    wr_9.out(strings.Join([]string{ variant_22.name,"(" }, ""), false);
+    this.writeArgsDef(variant_22, ctx, wr_9);
+    wr_9.out(") : ", false);
+    this.writeTypeDef(variant_22.nameNode.value.(*CodeNode), ctx, wr_9);
+    wr_9.out(" = {", true);
+    wr_9.indent(1);
+    wr_9.newline();
+    var subCtx_41 *RangerAppWriterContext = variant_22.fnCtx.value.(*RangerAppWriterContext);
+    subCtx_41.is_function = true; 
+    this.WalkNode(variant_22.fnBody.value.(*CodeNode), subCtx_41, wr_9);
+    wr_9.newline();
+    wr_9.indent(-1);
+    wr_9.out("}", true);
   }
-  if  (int64(len(cl_11.value.(*RangerAppClassDesc).static_methods))) > 0 {
-    wr_8.newline();
-    wr_8.indent(-1);
-    wr_8.out("}", true);
+  if  (int64(len(cl_14.value.(*RangerAppClassDesc).static_methods))) > 0 {
+    wr_9.newline();
+    wr_9.indent(-1);
+    wr_9.out("}", true);
   }
   if  b_had_app {
-    var variant_20 *GoNullable = new(GoNullable); 
-    variant_20.value = app_obj.value;
-    variant_20.has_value = app_obj.has_value;
-    wr_8.out("", true);
-    wr_8.out(strings.Join([]string{ "// application main function for ",cl_11.value.(*RangerAppClassDesc).name }, ""), true);
-    wr_8.out(strings.Join([]string{ (strings.Join([]string{ "object App",cl_11.value.(*RangerAppClassDesc).name }, ""))," extends App {" }, ""), true);
-    wr_8.indent(1);
-    wr_8.indent(1);
-    wr_8.newline();
-    var subCtx_40 *RangerAppWriterContext = variant_20.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
-    subCtx_40.is_function = true; 
-    this.WalkNode(variant_20.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_40, wr_8);
-    wr_8.newline();
-    wr_8.indent(-1);
-    wr_8.out("}", true);
+    var variant_25 *GoNullable = new(GoNullable); 
+    variant_25.value = app_obj.value;
+    variant_25.has_value = app_obj.has_value;
+    wr_9.out("", true);
+    wr_9.out(strings.Join([]string{ "// application main function for ",cl_14.value.(*RangerAppClassDesc).name }, ""), true);
+    wr_9.out(strings.Join([]string{ (strings.Join([]string{ "object App",cl_14.value.(*RangerAppClassDesc).name }, ""))," extends App {" }, ""), true);
+    wr_9.indent(1);
+    wr_9.indent(1);
+    wr_9.newline();
+    var subCtx_44 *RangerAppWriterContext = variant_25.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
+    subCtx_44.is_function = true; 
+    this.WalkNode(variant_25.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_44, wr_9);
+    wr_9.newline();
+    wr_9.indent(-1);
+    wr_9.out("}", true);
   }
-  var import_list_3 []string = wr_8.getImports();
-  var i_134 int64 = 0;  
-  for ; i_134 < int64(len(import_list_3)) ; i_134++ {
-    codeStr_3 := import_list_3[i_134];
+  var import_list_3 []string = wr_9.getImports();
+  var i_150 int64 = 0;  
+  for ; i_150 < int64(len(import_list_3)) ; i_150++ {
+    codeStr_3 := import_list_3[i_150];
     importFork_4.out(strings.Join([]string{ (strings.Join([]string{ "import ",codeStr_3 }, "")),";" }, ""), true);
   }
 }
@@ -12581,7 +13965,8 @@ func (this *RangerScalaClassWriter) EncodeString (node *CodeNode, ctx *RangerApp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
+  for ii_11 < str_length_2 {
+    var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
         encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
@@ -12652,9 +14037,9 @@ func (this *RangerScalaClassWriter) import_lib (lib_name string, ctx *RangerAppW
   wr.addImport(lib_name);
 }
 func (this *RangerScalaClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(ctx.localVarNames)) ; i_61++ {
-    n_7 := ctx.localVarNames[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
@@ -12702,13 +14087,13 @@ func (this *RangerScalaClassWriter) writeFnCall (node *CodeNode, ctx *RangerAppW
     wr.out("(", false);
     var givenArgs_2 *CodeNode = node.getSecond();
     ctx.setInExpr();
-    var i_68 int64 = 0;  
-    for ; i_68 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_68++ {
-      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_68];
-      if  i_68 > 0 {
+    var i_69 int64 = 0;  
+    for ; i_69 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_69++ {
+      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_69];
+      if  i_69 > 0 {
         wr.out(", ", false);
       }
-      if  (int64(len(givenArgs_2.children))) <= i_68 {
+      if  (int64(len(givenArgs_2.children))) <= i_69 {
         var defVal *GoNullable = new(GoNullable); 
         defVal = arg_12.Get_nameNode().value.(*CodeNode).getFlag("default");
         if  defVal.has_value {
@@ -12719,7 +14104,7 @@ func (this *RangerScalaClassWriter) writeFnCall (node *CodeNode, ctx *RangerAppW
         }
         continue;
       }
-      var n_10 *CodeNode = givenArgs_2.children[i_68];
+      var n_10 *CodeNode = givenArgs_2.children[i_69];
       this.WalkNode(n_10, ctx, wr);
     }
     ctx.unsetInExpr();
@@ -12742,11 +14127,11 @@ func (this *RangerScalaClassWriter) writeNewCall (node *CodeNode, ctx *RangerApp
     constr.has_value = cl_2.value.(*RangerAppClassDesc).constructor_fn.has_value;
     var givenArgs_5 *CodeNode = node.getThird();
     if  constr.has_value {
-      var i_70 int64 = 0;  
-      for ; i_70 < int64(len(constr.value.(*RangerAppFunctionDesc).params)) ; i_70++ {
-        arg_15 := constr.value.(*RangerAppFunctionDesc).params[i_70];
-        var n_12 *CodeNode = givenArgs_5.children[i_70];
-        if  i_70 > 0 {
+      var i_71 int64 = 0;  
+      for ; i_71 < int64(len(constr.value.(*RangerAppFunctionDesc).params)) ; i_71++ {
+        arg_15 := constr.value.(*RangerAppFunctionDesc).params[i_71];
+        var n_12 *CodeNode = givenArgs_5.children[i_71];
+        if  i_71 > 0 {
           wr.out(", ", false);
         }
         if  true || (arg_15.Get_nameNode().has_value) {
@@ -12814,8 +14199,8 @@ func (this *RangerGolangClassWriter) WriteScalarValue (node *CodeNode, ctx *Rang
     case 2 : 
       wr.out(node.getParsedString(), false);
     case 4 : 
-      var s_20 string = this.EncodeString(node, ctx, wr);
-      wr.out(strings.Join([]string{ (strings.Join([]string{ "\"",s_20 }, "")),"\"" }, ""), false);
+      var s_21 string = this.EncodeString(node, ctx, wr);
+      wr.out(strings.Join([]string{ (strings.Join([]string{ "\"",s_21 }, "")),"\"" }, ""), false);
     case 3 : 
       wr.out(strings.Join([]string{ "",strconv.FormatInt(node.int_value, 10) }, ""), false);
     case 5 : 
@@ -12831,8 +14216,8 @@ func (this *RangerGolangClassWriter) getObjectTypeString (type_string string, ct
     return this.thisName;
   }
   if  ctx.isDefinedClass(type_string) {
-    var cc_5 *RangerAppClassDesc = ctx.findClass(type_string);
-    if  cc_5.doesInherit() {
+    var cc_6 *RangerAppClassDesc = ctx.findClass(type_string);
+    if  cc_6.doesInherit() {
       return strings.Join([]string{ "IFACE_",ctx.transformTypeName(type_string) }, "");
     }
   }
@@ -12881,66 +14266,66 @@ func (this *RangerGolangClassWriter) writeTypeDef (node *CodeNode, ctx *RangerAp
   this.writeTypeDef2(node, ctx, wr);
 }
 func (this *RangerGolangClassWriter) writeArrayTypeDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var v_type_7 int64 = node.value_type;
-  var a_name_3 string = node.array_type;
-  if  ((v_type_7 == 8) || (v_type_7 == 9)) || (v_type_7 == 0) {
-    v_type_7 = node.typeNameAsType(ctx); 
+  var v_type_8 int64 = node.value_type;
+  var a_name_4 string = node.array_type;
+  if  ((v_type_8 == 8) || (v_type_8 == 9)) || (v_type_8 == 0) {
+    v_type_8 = node.typeNameAsType(ctx); 
   }
   if  node.eval_type != 0 {
-    v_type_7 = node.eval_type; 
+    v_type_8 = node.eval_type; 
     if  (int64(len(node.eval_array_type))) > 0 {
-      a_name_3 = node.eval_array_type; 
+      a_name_4 = node.eval_array_type; 
     }
   }
-  switch (v_type_7 ) { 
+  switch (v_type_8 ) { 
     case 7 : 
-      if  ctx.isDefinedClass(a_name_3) {
-        var cc_8 *RangerAppClassDesc = ctx.findClass(a_name_3);
-        if  cc_8.doesInherit() {
-          wr.out(strings.Join([]string{ "IFACE_",this.getTypeString2(a_name_3, ctx) }, ""), false);
+      if  ctx.isDefinedClass(a_name_4) {
+        var cc_9 *RangerAppClassDesc = ctx.findClass(a_name_4);
+        if  cc_9.doesInherit() {
+          wr.out(strings.Join([]string{ "IFACE_",this.getTypeString2(a_name_4, ctx) }, ""), false);
           return;
         }
       }
-      if  ctx.isPrimitiveType(a_name_3) == false {
+      if  ctx.isPrimitiveType(a_name_4) == false {
         wr.out("*", false);
       }
-      wr.out(strings.Join([]string{ this.getObjectTypeString(a_name_3, ctx),"" }, ""), false);
+      wr.out(strings.Join([]string{ this.getObjectTypeString(a_name_4, ctx),"" }, ""), false);
     case 6 : 
-      if  ctx.isDefinedClass(a_name_3) {
-        var cc_14 *RangerAppClassDesc = ctx.findClass(a_name_3);
-        if  cc_14.doesInherit() {
-          wr.out(strings.Join([]string{ "IFACE_",this.getTypeString2(a_name_3, ctx) }, ""), false);
+      if  ctx.isDefinedClass(a_name_4) {
+        var cc_15 *RangerAppClassDesc = ctx.findClass(a_name_4);
+        if  cc_15.doesInherit() {
+          wr.out(strings.Join([]string{ "IFACE_",this.getTypeString2(a_name_4, ctx) }, ""), false);
           return;
         }
       }
-      if  (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_3) == false) {
+      if  (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_4) == false) {
         wr.out("*", false);
       }
-      wr.out(strings.Join([]string{ this.getObjectTypeString(a_name_3, ctx),"" }, ""), false);
+      wr.out(strings.Join([]string{ this.getObjectTypeString(a_name_4, ctx),"" }, ""), false);
     default: 
   }
 }
 func (this *RangerGolangClassWriter) writeTypeDef2 (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var v_type_10 int64 = node.value_type;
-  var t_name_2 string = node.type_name;
-  var a_name_6 string = node.array_type;
-  var k_name_2 string = node.key_type;
-  if  ((v_type_10 == 8) || (v_type_10 == 9)) || (v_type_10 == 0) {
-    v_type_10 = node.typeNameAsType(ctx); 
+  var v_type_11 int64 = node.value_type;
+  var t_name_3 string = node.type_name;
+  var a_name_7 string = node.array_type;
+  var k_name_3 string = node.key_type;
+  if  ((v_type_11 == 8) || (v_type_11 == 9)) || (v_type_11 == 0) {
+    v_type_11 = node.typeNameAsType(ctx); 
   }
   if  node.eval_type != 0 {
-    v_type_10 = node.eval_type; 
+    v_type_11 = node.eval_type; 
     if  (int64(len(node.eval_type_name))) > 0 {
-      t_name_2 = node.eval_type_name; 
+      t_name_3 = node.eval_type_name; 
     }
     if  (int64(len(node.eval_array_type))) > 0 {
-      a_name_6 = node.eval_array_type; 
+      a_name_7 = node.eval_array_type; 
     }
     if  (int64(len(node.eval_key_type))) > 0 {
-      k_name_2 = node.eval_key_type; 
+      k_name_3 = node.eval_key_type; 
     }
   }
-  switch (v_type_10 ) { 
+  switch (v_type_11 ) { 
     case 11 : 
       wr.out("int64", false);
     case 3 : 
@@ -12957,52 +14342,52 @@ func (this *RangerGolangClassWriter) writeTypeDef2 (node *CodeNode, ctx *RangerA
       wr.out("[]byte", false);
     case 7 : 
       if  this.write_raw_type {
-        wr.out(strings.Join([]string{ this.getObjectTypeString(a_name_6, ctx),"" }, ""), false);
+        wr.out(strings.Join([]string{ this.getObjectTypeString(a_name_7, ctx),"" }, ""), false);
       } else {
-        wr.out(strings.Join([]string{ (strings.Join([]string{ "map[",this.getObjectTypeString(k_name_2, ctx) }, "")),"]" }, ""), false);
-        if  ctx.isDefinedClass(a_name_6) {
-          var cc_12 *RangerAppClassDesc = ctx.findClass(a_name_6);
-          if  cc_12.doesInherit() {
-            wr.out(strings.Join([]string{ "IFACE_",this.getTypeString2(a_name_6, ctx) }, ""), false);
+        wr.out(strings.Join([]string{ (strings.Join([]string{ "map[",this.getObjectTypeString(k_name_3, ctx) }, "")),"]" }, ""), false);
+        if  ctx.isDefinedClass(a_name_7) {
+          var cc_13 *RangerAppClassDesc = ctx.findClass(a_name_7);
+          if  cc_13.doesInherit() {
+            wr.out(strings.Join([]string{ "IFACE_",this.getTypeString2(a_name_7, ctx) }, ""), false);
             return;
           }
         }
-        if  (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_6) == false) {
+        if  (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_7) == false) {
           wr.out("*", false);
         }
-        wr.out(strings.Join([]string{ this.getObjectTypeString(a_name_6, ctx),"" }, ""), false);
+        wr.out(strings.Join([]string{ this.getObjectTypeString(a_name_7, ctx),"" }, ""), false);
       }
     case 6 : 
       if  false == this.write_raw_type {
         wr.out("[]", false);
       }
-      if  ctx.isDefinedClass(a_name_6) {
-        var cc_18 *RangerAppClassDesc = ctx.findClass(a_name_6);
-        if  cc_18.doesInherit() {
-          wr.out(strings.Join([]string{ "IFACE_",this.getTypeString2(a_name_6, ctx) }, ""), false);
+      if  ctx.isDefinedClass(a_name_7) {
+        var cc_19 *RangerAppClassDesc = ctx.findClass(a_name_7);
+        if  cc_19.doesInherit() {
+          wr.out(strings.Join([]string{ "IFACE_",this.getTypeString2(a_name_7, ctx) }, ""), false);
           return;
         }
       }
-      if  (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_6) == false) {
+      if  (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_7) == false) {
         wr.out("*", false);
       }
-      wr.out(strings.Join([]string{ this.getObjectTypeString(a_name_6, ctx),"" }, ""), false);
+      wr.out(strings.Join([]string{ this.getObjectTypeString(a_name_7, ctx),"" }, ""), false);
     default: 
       if  node.type_name == "void" {
         wr.out("()", false);
         return;
       }
-      if  ctx.isDefinedClass(t_name_2) {
-        var cc_22 *RangerAppClassDesc = ctx.findClass(t_name_2);
-        if  cc_22.doesInherit() {
-          wr.out(strings.Join([]string{ "IFACE_",this.getTypeString2(t_name_2, ctx) }, ""), false);
+      if  ctx.isDefinedClass(t_name_3) {
+        var cc_23 *RangerAppClassDesc = ctx.findClass(t_name_3);
+        if  cc_23.doesInherit() {
+          wr.out(strings.Join([]string{ "IFACE_",this.getTypeString2(t_name_3, ctx) }, ""), false);
           return;
         }
       }
       if  (this.write_raw_type == false) && (node.isPrimitiveType() == false) {
         wr.out("*", false);
       }
-      wr.out(this.getTypeString2(t_name_2, ctx), false);
+      wr.out(this.getTypeString2(t_name_3, ctx), false);
   }
 }
 func (this *RangerGolangClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
@@ -13012,12 +14397,12 @@ func (this *RangerGolangClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWr
   }
   if  node.eval_type == 11 {
     if  (int64(len(node.ns))) > 1 {
-      var rootObjName_10 string = node.ns[0];
-      var enumName_10 string = node.ns[1];
-      var e_16 *GoNullable = new(GoNullable); 
-      e_16 = ctx.getEnum(rootObjName_10);
-      if  e_16.has_value {
-        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_16.value.(*RangerAppEnum).values, enumName_10)).value.(int64)), 10) }, ""), false);
+      var rootObjName_11 string = node.ns[0];
+      var enumName_11 string = node.ns[1];
+      var e_17 *GoNullable = new(GoNullable); 
+      e_17 = ctx.getEnum(rootObjName_11);
+      if  e_17.has_value {
+        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_17.value.(*RangerAppEnum).values, enumName_11)).value.(int64)), 10) }, ""), false);
         return;
       }
     }
@@ -13027,12 +14412,12 @@ func (this *RangerGolangClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWr
   var needs_par bool = false;
   var ns_last int64 = (int64(len(node.ns))) - 1;
   if  (int64(len(node.nsp))) > 0 {
-    var had_static bool = false;
-    var i_120 int64 = 0;  
-    for ; i_120 < int64(len(node.nsp)) ; i_120++ {
-      p_33 := node.nsp[i_120];
+    var had_static_2 bool = false;
+    var i_136 int64 = 0;  
+    for ; i_136 < int64(len(node.nsp)) ; i_136++ {
+      p_37 := node.nsp[i_136];
       if  next_is_gs {
-        if  p_33.isProperty() {
+        if  p_37.isProperty() {
           wr.out(".Get_", false);
           needs_par = true; 
         } else {
@@ -13041,217 +14426,72 @@ func (this *RangerGolangClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWr
         next_is_gs = false; 
       }
       if  needs_par == false {
-        if  i_120 > 0 {
-          if  had_static {
+        if  i_136 > 0 {
+          if  had_static_2 {
             wr.out("_static_", false);
           } else {
             wr.out(".", false);
           }
         }
       }
-      if  ctx.isDefinedClass(p_33.Get_nameNode().value.(*CodeNode).type_name) {
-        var c_8 *RangerAppClassDesc = ctx.findClass(p_33.Get_nameNode().value.(*CodeNode).type_name);
+      if  ctx.isDefinedClass(p_37.Get_nameNode().value.(*CodeNode).type_name) {
+        var c_8 *RangerAppClassDesc = ctx.findClass(p_37.Get_nameNode().value.(*CodeNode).type_name);
         if  c_8.doesInherit() {
           next_is_gs = true; 
         }
       }
-      if  i_120 == 0 {
-        var part_9 string = node.ns[0];
-        if  part_9 == "this" {
+      if  i_136 == 0 {
+        var part_11 string = node.ns[0];
+        if  part_11 == "this" {
           wr.out(this.thisName, false);
           continue;
         }
-        if  (part_9 != this.thisName) && ctx.isMemberVariable(part_9) {
-          var cc_18 *GoNullable = new(GoNullable); 
-          cc_18 = ctx.getCurrentClass();
-          var currC_8 *RangerAppClassDesc = cc_18.value.(*RangerAppClassDesc);
+        if  (part_11 != this.thisName) && ctx.isMemberVariable(part_11) {
+          var cc_19 *GoNullable = new(GoNullable); 
+          cc_19 = ctx.getCurrentClass();
+          var currC_8 *RangerAppClassDesc = cc_19.value.(*RangerAppClassDesc);
           var up *GoNullable = new(GoNullable); 
-          up = currC_8.findVariable(part_9);
+          up = currC_8.findVariable(part_11);
           if  up.has_value {
             /** unused:  p3*/
             wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
           }
         }
       }
-      if  (int64(len(p_33.Get_compiledName()))) > 0 {
-        wr.out(this.adjustType(p_33.Get_compiledName()), false);
+      if  (int64(len(p_37.Get_compiledName()))) > 0 {
+        wr.out(this.adjustType(p_37.Get_compiledName()), false);
       } else {
-        if  (int64(len(p_33.Get_name()))) > 0 {
-          wr.out(this.adjustType(p_33.Get_name()), false);
+        if  (int64(len(p_37.Get_name()))) > 0 {
+          wr.out(this.adjustType(p_37.Get_name()), false);
         } else {
-          wr.out(this.adjustType((node.ns[i_120])), false);
+          wr.out(this.adjustType((node.ns[i_136])), false);
         }
       }
       if  needs_par {
         wr.out("()", false);
         needs_par = false; 
       }
-      if  p_33.Get_nameNode().value.(*CodeNode).hasFlag("optional") && (i_120 != ns_last) {
+      if  p_37.Get_nameNode().value.(*CodeNode).hasFlag("optional") && (i_136 != ns_last) {
         wr.out(".value.(", false);
-        this.writeTypeDef(p_33.Get_nameNode().value.(*CodeNode), ctx, wr);
+        this.writeTypeDef(p_37.Get_nameNode().value.(*CodeNode), ctx, wr);
         wr.out(")", false);
       }
-      if  p_33.isClass() {
-        had_static = true; 
+      if  p_37.isClass() {
+        had_static_2 = true; 
       }
     }
     return;
   }
   if  node.hasParamDesc {
-    var part_14 string = node.ns[0];
-    if  (part_14 != this.thisName) && ctx.isMemberVariable(part_14) {
-      var cc_22 *GoNullable = new(GoNullable); 
-      cc_22 = ctx.getCurrentClass();
-      var currC_13 *RangerAppClassDesc = cc_22.value.(*RangerAppClassDesc);
+    var part_16 string = node.ns[0];
+    if  (part_16 != this.thisName) && ctx.isMemberVariable(part_16) {
+      var cc_23 *GoNullable = new(GoNullable); 
+      cc_23 = ctx.getCurrentClass();
+      var currC_13 *RangerAppClassDesc = cc_23.value.(*RangerAppClassDesc);
       var up_6 *GoNullable = new(GoNullable); 
-      up_6 = currC_13.findVariable(part_14);
+      up_6 = currC_13.findVariable(part_16);
       if  up_6.has_value {
         /** unused:  p3_6*/
-        wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
-      }
-    }
-    var p_38 *GoNullable = new(GoNullable); 
-    p_38.value = node.paramDesc.value;
-    p_38.has_value = node.paramDesc.has_value;
-    wr.out(p_38.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
-    return;
-  }
-  var b_was_static bool = false;
-  var i_125 int64 = 0;  
-  for ; i_125 < int64(len(node.ns)) ; i_125++ {
-    part_17 := node.ns[i_125];
-    if  i_125 > 0 {
-      if  (i_125 == 1) && b_was_static {
-        wr.out("_static_", false);
-      } else {
-        wr.out(".", false);
-      }
-    }
-    if  i_125 == 0 {
-      if  part_17 == "this" {
-        wr.out(this.thisName, false);
-        continue;
-      }
-      if  ctx.hasClass(part_17) {
-        b_was_static = true; 
-      }
-      if  (part_17 != "this") && ctx.isMemberVariable(part_17) {
-        var cc_25 *GoNullable = new(GoNullable); 
-        cc_25 = ctx.getCurrentClass();
-        var currC_16 *RangerAppClassDesc = cc_25.value.(*RangerAppClassDesc);
-        var up_9 *GoNullable = new(GoNullable); 
-        up_9 = currC_16.findVariable(part_17);
-        if  up_9.has_value {
-          /** unused:  p3_9*/
-          wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
-        }
-      }
-    }
-    wr.out(this.adjustType(part_17), false);
-  }
-}
-func (this *RangerGolangClassWriter) WriteSetterVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  if  node.vref == "this" {
-    wr.out(this.thisName, false);
-    return;
-  }
-  if  node.eval_type == 11 {
-    var rootObjName_13 string = node.ns[0];
-    var enumName_13 string = node.ns[1];
-    var e_19 *GoNullable = new(GoNullable); 
-    e_19 = ctx.getEnum(rootObjName_13);
-    if  e_19.has_value {
-      wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_19.value.(*RangerAppEnum).values, enumName_13)).value.(int64)), 10) }, ""), false);
-      return;
-    }
-  }
-  var next_is_gs_4 bool = false;
-  /** unused:  last_was_setter_4*/
-  var needs_par_4 bool = false;
-  var ns_len int64 = (int64(len(node.ns))) - 1;
-  if  (int64(len(node.nsp))) > 0 {
-    var had_static_4 bool = false;
-    var i_125 int64 = 0;  
-    for ; i_125 < int64(len(node.nsp)) ; i_125++ {
-      p_38 := node.nsp[i_125];
-      if  next_is_gs_4 {
-        if  p_38.isProperty() {
-          wr.out(".Get_", false);
-          needs_par_4 = true; 
-        } else {
-          needs_par_4 = false; 
-        }
-        next_is_gs_4 = false; 
-      }
-      if  needs_par_4 == false {
-        if  i_125 > 0 {
-          if  had_static_4 {
-            wr.out("_static_", false);
-          } else {
-            wr.out(".", false);
-          }
-        }
-      }
-      if  ctx.isDefinedClass(p_38.Get_nameNode().value.(*CodeNode).type_name) {
-        var c_11 *RangerAppClassDesc = ctx.findClass(p_38.Get_nameNode().value.(*CodeNode).type_name);
-        if  c_11.doesInherit() {
-          next_is_gs_4 = true; 
-        }
-      }
-      if  i_125 == 0 {
-        var part_16 string = node.ns[0];
-        if  part_16 == "this" {
-          wr.out(this.thisName, false);
-          continue;
-        }
-        if  (part_16 != this.thisName) && ctx.isMemberVariable(part_16) {
-          var cc_24 *GoNullable = new(GoNullable); 
-          cc_24 = ctx.getCurrentClass();
-          var currC_15 *RangerAppClassDesc = cc_24.value.(*RangerAppClassDesc);
-          var up_8 *GoNullable = new(GoNullable); 
-          up_8 = currC_15.findVariable(part_16);
-          if  up_8.has_value {
-            /** unused:  p3_8*/
-            wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
-          }
-        }
-      }
-      if  (int64(len(p_38.Get_compiledName()))) > 0 {
-        wr.out(this.adjustType(p_38.Get_compiledName()), false);
-      } else {
-        if  (int64(len(p_38.Get_name()))) > 0 {
-          wr.out(this.adjustType(p_38.Get_name()), false);
-        } else {
-          wr.out(this.adjustType((node.ns[i_125])), false);
-        }
-      }
-      if  needs_par_4 {
-        wr.out("()", false);
-        needs_par_4 = false; 
-      }
-      if  i_125 < ns_len {
-        if  p_38.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
-          wr.out(".value.(", false);
-          this.writeTypeDef(p_38.Get_nameNode().value.(*CodeNode), ctx, wr);
-          wr.out(")", false);
-        }
-      }
-      if  p_38.isClass() {
-        had_static_4 = true; 
-      }
-    }
-    return;
-  }
-  if  node.hasParamDesc {
-    var part_20 string = node.ns[0];
-    if  (part_20 != this.thisName) && ctx.isMemberVariable(part_20) {
-      var cc_28 *GoNullable = new(GoNullable); 
-      cc_28 = ctx.getCurrentClass();
-      var currC_19 *RangerAppClassDesc = cc_28.value.(*RangerAppClassDesc);
-      var up_12 *GoNullable = new(GoNullable); 
-      up_12 = currC_19.findVariable(part_20);
-      if  up_12.has_value {
-        /** unused:  p3_12*/
         wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
       }
     }
@@ -13261,38 +14501,183 @@ func (this *RangerGolangClassWriter) WriteSetterVRef (node *CodeNode, ctx *Range
     wr.out(p_42.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
     return;
   }
-  var b_was_static_4 bool = false;
-  var i_129 int64 = 0;  
-  for ; i_129 < int64(len(node.ns)) ; i_129++ {
-    part_23 := node.ns[i_129];
-    if  i_129 > 0 {
-      if  (i_129 == 1) && b_was_static_4 {
+  var b_was_static bool = false;
+  var i_141 int64 = 0;  
+  for ; i_141 < int64(len(node.ns)) ; i_141++ {
+    part_19 := node.ns[i_141];
+    if  i_141 > 0 {
+      if  (i_141 == 1) && b_was_static {
         wr.out("_static_", false);
       } else {
         wr.out(".", false);
       }
     }
-    if  i_129 == 0 {
-      if  part_23 == "this" {
+    if  i_141 == 0 {
+      if  part_19 == "this" {
         wr.out(this.thisName, false);
         continue;
       }
-      if  ctx.hasClass(part_23) {
+      if  ctx.hasClass(part_19) {
+        b_was_static = true; 
+      }
+      if  (part_19 != "this") && ctx.isMemberVariable(part_19) {
+        var cc_26 *GoNullable = new(GoNullable); 
+        cc_26 = ctx.getCurrentClass();
+        var currC_16 *RangerAppClassDesc = cc_26.value.(*RangerAppClassDesc);
+        var up_9 *GoNullable = new(GoNullable); 
+        up_9 = currC_16.findVariable(part_19);
+        if  up_9.has_value {
+          /** unused:  p3_9*/
+          wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
+        }
+      }
+    }
+    wr.out(this.adjustType(part_19), false);
+  }
+}
+func (this *RangerGolangClassWriter) WriteSetterVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  if  node.vref == "this" {
+    wr.out(this.thisName, false);
+    return;
+  }
+  if  node.eval_type == 11 {
+    var rootObjName_14 string = node.ns[0];
+    var enumName_14 string = node.ns[1];
+    var e_20 *GoNullable = new(GoNullable); 
+    e_20 = ctx.getEnum(rootObjName_14);
+    if  e_20.has_value {
+      wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_20.value.(*RangerAppEnum).values, enumName_14)).value.(int64)), 10) }, ""), false);
+      return;
+    }
+  }
+  var next_is_gs_4 bool = false;
+  /** unused:  last_was_setter_4*/
+  var needs_par_4 bool = false;
+  var ns_len int64 = (int64(len(node.ns))) - 1;
+  if  (int64(len(node.nsp))) > 0 {
+    var had_static_5 bool = false;
+    var i_141 int64 = 0;  
+    for ; i_141 < int64(len(node.nsp)) ; i_141++ {
+      p_42 := node.nsp[i_141];
+      if  next_is_gs_4 {
+        if  p_42.isProperty() {
+          wr.out(".Get_", false);
+          needs_par_4 = true; 
+        } else {
+          needs_par_4 = false; 
+        }
+        next_is_gs_4 = false; 
+      }
+      if  needs_par_4 == false {
+        if  i_141 > 0 {
+          if  had_static_5 {
+            wr.out("_static_", false);
+          } else {
+            wr.out(".", false);
+          }
+        }
+      }
+      if  ctx.isDefinedClass(p_42.Get_nameNode().value.(*CodeNode).type_name) {
+        var c_11 *RangerAppClassDesc = ctx.findClass(p_42.Get_nameNode().value.(*CodeNode).type_name);
+        if  c_11.doesInherit() {
+          next_is_gs_4 = true; 
+        }
+      }
+      if  i_141 == 0 {
+        var part_18 string = node.ns[0];
+        if  part_18 == "this" {
+          wr.out(this.thisName, false);
+          continue;
+        }
+        if  (part_18 != this.thisName) && ctx.isMemberVariable(part_18) {
+          var cc_25 *GoNullable = new(GoNullable); 
+          cc_25 = ctx.getCurrentClass();
+          var currC_15 *RangerAppClassDesc = cc_25.value.(*RangerAppClassDesc);
+          var up_8 *GoNullable = new(GoNullable); 
+          up_8 = currC_15.findVariable(part_18);
+          if  up_8.has_value {
+            /** unused:  p3_8*/
+            wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
+          }
+        }
+      }
+      if  (int64(len(p_42.Get_compiledName()))) > 0 {
+        wr.out(this.adjustType(p_42.Get_compiledName()), false);
+      } else {
+        if  (int64(len(p_42.Get_name()))) > 0 {
+          wr.out(this.adjustType(p_42.Get_name()), false);
+        } else {
+          wr.out(this.adjustType((node.ns[i_141])), false);
+        }
+      }
+      if  needs_par_4 {
+        wr.out("()", false);
+        needs_par_4 = false; 
+      }
+      if  i_141 < ns_len {
+        if  p_42.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+          wr.out(".value.(", false);
+          this.writeTypeDef(p_42.Get_nameNode().value.(*CodeNode), ctx, wr);
+          wr.out(")", false);
+        }
+      }
+      if  p_42.isClass() {
+        had_static_5 = true; 
+      }
+    }
+    return;
+  }
+  if  node.hasParamDesc {
+    var part_22 string = node.ns[0];
+    if  (part_22 != this.thisName) && ctx.isMemberVariable(part_22) {
+      var cc_29 *GoNullable = new(GoNullable); 
+      cc_29 = ctx.getCurrentClass();
+      var currC_19 *RangerAppClassDesc = cc_29.value.(*RangerAppClassDesc);
+      var up_12 *GoNullable = new(GoNullable); 
+      up_12 = currC_19.findVariable(part_22);
+      if  up_12.has_value {
+        /** unused:  p3_12*/
+        wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
+      }
+    }
+    var p_46 *GoNullable = new(GoNullable); 
+    p_46.value = node.paramDesc.value;
+    p_46.has_value = node.paramDesc.has_value;
+    wr.out(p_46.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    return;
+  }
+  var b_was_static_4 bool = false;
+  var i_145 int64 = 0;  
+  for ; i_145 < int64(len(node.ns)) ; i_145++ {
+    part_25 := node.ns[i_145];
+    if  i_145 > 0 {
+      if  (i_145 == 1) && b_was_static_4 {
+        wr.out("_static_", false);
+      } else {
+        wr.out(".", false);
+      }
+    }
+    if  i_145 == 0 {
+      if  part_25 == "this" {
+        wr.out(this.thisName, false);
+        continue;
+      }
+      if  ctx.hasClass(part_25) {
         b_was_static_4 = true; 
       }
-      if  (part_23 != "this") && ctx.isMemberVariable(part_23) {
-        var cc_31 *GoNullable = new(GoNullable); 
-        cc_31 = ctx.getCurrentClass();
-        var currC_22 *RangerAppClassDesc = cc_31.value.(*RangerAppClassDesc);
+      if  (part_25 != "this") && ctx.isMemberVariable(part_25) {
+        var cc_32 *GoNullable = new(GoNullable); 
+        cc_32 = ctx.getCurrentClass();
+        var currC_22 *RangerAppClassDesc = cc_32.value.(*RangerAppClassDesc);
         var up_15 *GoNullable = new(GoNullable); 
-        up_15 = currC_22.findVariable(part_23);
+        up_15 = currC_22.findVariable(part_25);
         if  up_15.has_value {
           /** unused:  p3_15*/
           wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
         }
       }
     }
-    wr.out(this.adjustType(part_23), false);
+    wr.out(this.adjustType(part_25), false);
   }
 }
 func (this *RangerGolangClassWriter) goExtractAssign (value *CodeNode, p IFACE_RangerAppParamDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
@@ -13325,11 +14710,11 @@ func (this *RangerGolangClassWriter) goExtractAssign (value *CodeNode, p IFACE_R
   var last_was_setter_6 bool = false;
   var needs_par_6 bool = false;
   var b_was_static_6 bool = false;
-  var i_129 int64 = 0;  
-  for ; i_129 < int64(len(left.ns)) ; i_129++ {
-    part_22 := left.ns[i_129];
+  var i_145 int64 = 0;  
+  for ; i_145 < int64(len(left.ns)) ; i_145++ {
+    part_24 := left.ns[i_145];
     if  next_is_gs_6 {
-      if  i_129 == len_5 {
+      if  i_145 == len_5 {
         wr.out(".Set_", false);
         last_was_setter_6 = true; 
       } else {
@@ -13340,23 +14725,23 @@ func (this *RangerGolangClassWriter) goExtractAssign (value *CodeNode, p IFACE_R
       }
     }
     if  (last_was_setter_6 == false) && (needs_par_6 == false) {
-      if  i_129 > 0 {
-        if  (i_129 == 1) && b_was_static_6 {
+      if  i_145 > 0 {
+        if  (i_145 == 1) && b_was_static_6 {
           wr.out("_static_", false);
         } else {
           wr.out(".", false);
         }
       }
     }
-    if  i_129 == 0 {
-      if  part_22 == "this" {
+    if  i_145 == 0 {
+      if  part_24 == "this" {
         wr.out(this.thisName, false);
         continue;
       }
-      if  ctx.hasClass(part_22) {
+      if  ctx.hasClass(part_24) {
         b_was_static_6 = true; 
       }
-      var partDef IFACE_RangerAppParamDesc = ctx.getVariableDef(part_22);
+      var partDef IFACE_RangerAppParamDesc = ctx.getVariableDef(part_24);
       if  partDef.Get_nameNode().has_value {
         if  ctx.isDefinedClass(partDef.Get_nameNode().value.(*CodeNode).type_name) {
           var c_13 *RangerAppClassDesc = ctx.findClass(partDef.Get_nameNode().value.(*CodeNode).type_name);
@@ -13365,12 +14750,12 @@ func (this *RangerGolangClassWriter) goExtractAssign (value *CodeNode, p IFACE_R
           }
         }
       }
-      if  (part_22 != "this") && ctx.isMemberVariable(part_22) {
-        var cc_30 *GoNullable = new(GoNullable); 
-        cc_30 = ctx.getCurrentClass();
-        var currC_21 *RangerAppClassDesc = cc_30.value.(*RangerAppClassDesc);
+      if  (part_24 != "this") && ctx.isMemberVariable(part_24) {
+        var cc_31 *GoNullable = new(GoNullable); 
+        cc_31 = ctx.getCurrentClass();
+        var currC_21 *RangerAppClassDesc = cc_31.value.(*RangerAppClassDesc);
         var up_14 *GoNullable = new(GoNullable); 
-        up_14 = currC_21.findVariable(part_22);
+        up_14 = currC_21.findVariable(part_24);
         if  up_14.has_value {
           /** unused:  p3_14*/
           wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
@@ -13378,21 +14763,21 @@ func (this *RangerGolangClassWriter) goExtractAssign (value *CodeNode, p IFACE_R
       }
     }
     if  (int64(len(left.nsp))) > 0 {
-      var p_45 IFACE_RangerAppParamDesc = left.nsp[i_129];
-      wr.out(this.adjustType(p_45.Get_compiledName()), false);
+      var p_49 IFACE_RangerAppParamDesc = left.nsp[i_145];
+      wr.out(this.adjustType(p_49.Get_compiledName()), false);
     } else {
       if  left.hasParamDesc {
         wr.out(left.paramDesc.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
       } else {
-        wr.out(this.adjustType(part_22), false);
+        wr.out(this.adjustType(part_24), false);
       }
     }
     if  needs_par_6 {
       wr.out("()", false);
       needs_par_6 = false; 
     }
-    if  (int64(len(left.nsp))) >= (i_129 + 1) {
-      var pp_6 IFACE_RangerAppParamDesc = left.nsp[i_129];
+    if  (int64(len(left.nsp))) >= (i_145 + 1) {
+      var pp_6 IFACE_RangerAppParamDesc = left.nsp[i_145];
       if  pp_6.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
         wr.out(".value.(", false);
         this.writeTypeDef(pp_6.Get_nameNode().value.(*CodeNode), ctx, wr);
@@ -13413,74 +14798,74 @@ func (this *RangerGolangClassWriter) goExtractAssign (value *CodeNode, p IFACE_R
 }
 func (this *RangerGolangClassWriter) writeStructField (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasParamDesc {
-    var nn_16 *CodeNode = node.children[1];
-    var p_44 *GoNullable = new(GoNullable); 
-    p_44.value = nn_16.paramDesc.value;
-    p_44.has_value = nn_16.paramDesc.has_value;
-    wr.out(strings.Join([]string{ p_44.value.(IFACE_RangerAppParamDesc).Get_compiledName()," " }, ""), false);
-    if  p_44.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+    var nn_19 *CodeNode = node.children[1];
+    var p_48 *GoNullable = new(GoNullable); 
+    p_48.value = nn_19.paramDesc.value;
+    p_48.has_value = nn_19.paramDesc.has_value;
+    wr.out(strings.Join([]string{ p_48.value.(IFACE_RangerAppParamDesc).Get_compiledName()," " }, ""), false);
+    if  p_48.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).hasFlag("optional") {
       wr.out("*GoNullable", false);
     } else {
-      this.writeTypeDef(p_44.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+      this.writeTypeDef(p_48.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
     }
-    if  p_44.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
+    if  p_48.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
       wr.out(" /**  unused  **/ ", false);
     }
     wr.out("", true);
-    if  p_44.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+    if  p_48.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).hasFlag("optional") {
     }
   }
 }
 func (this *RangerGolangClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasParamDesc {
-    var nn_19 *CodeNode = node.children[1];
-    var p_46 *GoNullable = new(GoNullable); 
-    p_46.value = nn_19.paramDesc.value;
-    p_46.has_value = nn_19.paramDesc.has_value;
+    var nn_22 *CodeNode = node.children[1];
+    var p_50 *GoNullable = new(GoNullable); 
+    p_50.value = nn_22.paramDesc.value;
+    p_50.has_value = nn_22.paramDesc.has_value;
     var b_not_used bool = false;
-    if  (p_46.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_46.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
-      wr.out(strings.Join([]string{ (strings.Join([]string{ "/** unused:  ",p_46.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, "")),"*/" }, ""), true);
+    if  (p_50.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_50.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+      wr.out(strings.Join([]string{ (strings.Join([]string{ "/** unused:  ",p_50.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, "")),"*/" }, ""), true);
       b_not_used = true; 
       return;
     }
-    var map_or_hash bool = (nn_19.value_type == 6) || (nn_19.value_type == 7);
-    if  nn_19.hasFlag("optional") {
-      wr.out(strings.Join([]string{ (strings.Join([]string{ "var ",p_46.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""))," *GoNullable = new(GoNullable); " }, ""), true);
+    var map_or_hash bool = (nn_22.value_type == 6) || (nn_22.value_type == 7);
+    if  nn_22.hasFlag("optional") {
+      wr.out(strings.Join([]string{ (strings.Join([]string{ "var ",p_50.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""))," *GoNullable = new(GoNullable); " }, ""), true);
       if  (int64(len(node.children))) > 2 {
-        var value_9 *CodeNode = node.children[2];
-        if  value_9.hasParamDesc {
+        var value_10 *CodeNode = node.children[2];
+        if  value_10.hasParamDesc {
           var pnn *GoNullable = new(GoNullable); 
-          pnn.value = value_9.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value;
-          pnn.has_value = value_9.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().has_value;
+          pnn.value = value_10.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value;
+          pnn.has_value = value_10.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().has_value;
           if  pnn.value.(*CodeNode).hasFlag("optional") {
-            wr.out(strings.Join([]string{ p_46.value.(IFACE_RangerAppParamDesc).Get_compiledName(),".value = " }, ""), false);
+            wr.out(strings.Join([]string{ p_50.value.(IFACE_RangerAppParamDesc).Get_compiledName(),".value = " }, ""), false);
             ctx.setInExpr();
-            var value_23 *CodeNode = node.getThird();
-            this.WalkNode(value_23, ctx, wr);
+            var value_24 *CodeNode = node.getThird();
+            this.WalkNode(value_24, ctx, wr);
             ctx.unsetInExpr();
             wr.out(".value;", true);
-            wr.out(strings.Join([]string{ p_46.value.(IFACE_RangerAppParamDesc).Get_compiledName(),".has_value = " }, ""), false);
+            wr.out(strings.Join([]string{ p_50.value.(IFACE_RangerAppParamDesc).Get_compiledName(),".has_value = " }, ""), false);
             ctx.setInExpr();
-            var value_33 *CodeNode = node.getThird();
-            this.WalkNode(value_33, ctx, wr);
+            var value_34 *CodeNode = node.getThird();
+            this.WalkNode(value_34, ctx, wr);
             ctx.unsetInExpr();
             wr.out(".has_value;", true);
             return;
           } else {
-            wr.out(strings.Join([]string{ p_46.value.(IFACE_RangerAppParamDesc).Get_compiledName(),".value = " }, ""), false);
+            wr.out(strings.Join([]string{ p_50.value.(IFACE_RangerAppParamDesc).Get_compiledName(),".value = " }, ""), false);
             ctx.setInExpr();
-            var value_41 *CodeNode = node.getThird();
-            this.WalkNode(value_41, ctx, wr);
+            var value_42 *CodeNode = node.getThird();
+            this.WalkNode(value_42, ctx, wr);
             ctx.unsetInExpr();
             wr.out(";", true);
-            wr.out(strings.Join([]string{ p_46.value.(IFACE_RangerAppParamDesc).Get_compiledName(),".has_value = true;" }, ""), true);
+            wr.out(strings.Join([]string{ p_50.value.(IFACE_RangerAppParamDesc).Get_compiledName(),".has_value = true;" }, ""), true);
             return;
           }
         } else {
-          wr.out(strings.Join([]string{ p_46.value.(IFACE_RangerAppParamDesc).Get_compiledName()," = " }, ""), false);
+          wr.out(strings.Join([]string{ p_50.value.(IFACE_RangerAppParamDesc).Get_compiledName()," = " }, ""), false);
           ctx.setInExpr();
-          var value_44 *CodeNode = node.getThird();
-          this.WalkNode(value_44, ctx, wr);
+          var value_45 *CodeNode = node.getThird();
+          this.WalkNode(value_45, ctx, wr);
           ctx.unsetInExpr();
           wr.out(";", true);
           return;
@@ -13488,90 +14873,90 @@ func (this *RangerGolangClassWriter) writeVarDef (node *CodeNode, ctx *RangerApp
       }
       return;
     } else {
-      if  ((p_46.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0) || p_46.value.(IFACE_RangerAppParamDesc).Get_is_class_variable()) || map_or_hash {
-        wr.out(strings.Join([]string{ (strings.Join([]string{ "var ",p_46.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""))," " }, ""), false);
+      if  ((p_50.value.(IFACE_RangerAppParamDesc).Get_set_cnt() > 0) || p_50.value.(IFACE_RangerAppParamDesc).Get_is_class_variable()) || map_or_hash {
+        wr.out(strings.Join([]string{ (strings.Join([]string{ "var ",p_50.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""))," " }, ""), false);
       } else {
-        wr.out(strings.Join([]string{ (strings.Join([]string{ "var ",p_46.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""))," " }, ""), false);
+        wr.out(strings.Join([]string{ (strings.Join([]string{ "var ",p_50.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""))," " }, ""), false);
       }
     }
-    this.writeTypeDef2(p_46.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+    this.writeTypeDef2(p_50.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
     if  (int64(len(node.children))) > 2 {
-      var value_32 *CodeNode = node.getThird();
-      if  value_32.expression && ((int64(len(value_32.children))) > 1) {
-        var fc_30 *CodeNode = value_32.children[0];
-        if  fc_30.vref == "array_extract" {
-          this.goExtractAssign(value_32, p_46.value.(IFACE_RangerAppParamDesc), ctx, wr);
+      var value_33 *CodeNode = node.getThird();
+      if  value_33.expression && ((int64(len(value_33.children))) > 1) {
+        var fc_33 *CodeNode = value_33.children[0];
+        if  fc_33.vref == "array_extract" {
+          this.goExtractAssign(value_33, p_50.value.(IFACE_RangerAppParamDesc), ctx, wr);
           return;
         }
       }
       wr.out(" = ", false);
       ctx.setInExpr();
-      this.WalkNode(value_32, ctx, wr);
+      this.WalkNode(value_33, ctx, wr);
       ctx.unsetInExpr();
     } else {
-      if  nn_19.value_type == 6 {
+      if  nn_22.value_type == 6 {
         wr.out(" = make(", false);
-        this.writeTypeDef(p_46.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+        this.writeTypeDef(p_50.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
         wr.out(", 0)", false);
       }
-      if  nn_19.value_type == 7 {
+      if  nn_22.value_type == 7 {
         wr.out(" = make(", false);
-        this.writeTypeDef(p_46.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+        this.writeTypeDef(p_50.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
         wr.out(")", false);
       }
     }
     wr.out(";", false);
-    if  (p_46.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_46.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
+    if  (p_50.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_50.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
       wr.out("     /** note: unused */", false);
     }
-    if  (p_46.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_46.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    if  (p_50.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_50.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("   **/ ", true);
     } else {
       wr.newline();
     }
     if  b_not_used == false {
-      if  nn_19.hasFlag("optional") {
+      if  nn_22.hasFlag("optional") {
         wr.addImport("errors");
       }
     }
   }
 }
 func (this *RangerGolangClassWriter) writeArgsDef (fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_131 int64 = 0;  
-  for ; i_131 < int64(len(fnDesc.params)) ; i_131++ {
-    arg_24 := fnDesc.params[i_131];
-    if  i_131 > 0 {
+  var i_147 int64 = 0;  
+  for ; i_147 < int64(len(fnDesc.params)) ; i_147++ {
+    arg_27 := fnDesc.params[i_147];
+    if  i_147 > 0 {
       wr.out(", ", false);
     }
-    wr.out(strings.Join([]string{ arg_24.Get_name()," " }, ""), false);
-    if  arg_24.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+    wr.out(strings.Join([]string{ arg_27.Get_name()," " }, ""), false);
+    if  arg_27.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
       wr.out("*GoNullable", false);
     } else {
-      this.writeTypeDef(arg_24.Get_nameNode().value.(*CodeNode), ctx, wr);
+      this.writeTypeDef(arg_27.Get_nameNode().value.(*CodeNode), ctx, wr);
     }
   }
 }
 func (this *RangerGolangClassWriter) writeNewCall (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasNewOper {
-    var cl_12 *GoNullable = new(GoNullable); 
-    cl_12.value = node.clDesc.value;
-    cl_12.has_value = node.clDesc.has_value;
-    /** unused:  fc_33*/
+    var cl_15 *GoNullable = new(GoNullable); 
+    cl_15.value = node.clDesc.value;
+    cl_15.has_value = node.clDesc.has_value;
+    /** unused:  fc_36*/
     wr.out(strings.Join([]string{ (strings.Join([]string{ "CreateNew_",node.clDesc.value.(*RangerAppClassDesc).name }, "")),"(" }, ""), false);
-    var constr_11 *GoNullable = new(GoNullable); 
-    constr_11.value = cl_12.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_11.has_value = cl_12.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    var givenArgs_8 *CodeNode = node.getThird();
-    if  constr_11.has_value {
-      var i_133 int64 = 0;  
-      for ; i_133 < int64(len(constr_11.value.(*RangerAppFunctionDesc).params)) ; i_133++ {
-        arg_27 := constr_11.value.(*RangerAppFunctionDesc).params[i_133];
-        var n_14 *CodeNode = givenArgs_8.children[i_133];
-        if  i_133 > 0 {
+    var constr_15 *GoNullable = new(GoNullable); 
+    constr_15.value = cl_15.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_15.has_value = cl_15.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    var givenArgs_10 *CodeNode = node.getThird();
+    if  constr_15.has_value {
+      var i_149 int64 = 0;  
+      for ; i_149 < int64(len(constr_15.value.(*RangerAppFunctionDesc).params)) ; i_149++ {
+        arg_30 := constr_15.value.(*RangerAppFunctionDesc).params[i_149];
+        var n_16 *CodeNode = givenArgs_10.children[i_149];
+        if  i_149 > 0 {
           wr.out(", ", false);
         }
-        if  true || (arg_27.Get_nameNode().has_value) {
-          this.WalkNode(n_14, ctx, wr);
+        if  true || (arg_30.Get_nameNode().has_value) {
+          this.WalkNode(n_16, ctx, wr);
         }
       }
     }
@@ -13579,8 +14964,8 @@ func (this *RangerGolangClassWriter) writeNewCall (node *CodeNode, ctx *RangerAp
   }
 }
 func (this *RangerGolangClassWriter) CustomOperator (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var fc_35 *CodeNode = node.getFirst();
-  var cmd_3 string = fc_35.vref;
+  var fc_38 *CodeNode = node.getFirst();
+  var cmd_3 string = fc_38.vref;
   if  ((cmd_3 == "=") || (cmd_3 == "push")) || (cmd_3 == "removeLast") {
     var left_4 *CodeNode = node.getSecond();
     var right *CodeNode = left_4;
@@ -13595,11 +14980,11 @@ func (this *RangerGolangClassWriter) CustomOperator (node *CodeNode, ctx *Ranger
       var next_is_gs_8 bool = false;
       var last_was_setter_8 bool = false;
       var needs_par_8 bool = false;
-      var i_135 int64 = 0;  
-      for ; i_135 < int64(len(left_4.ns)) ; i_135++ {
-        part_24 := left_4.ns[i_135];
+      var i_151 int64 = 0;  
+      for ; i_151 < int64(len(left_4.ns)) ; i_151++ {
+        part_26 := left_4.ns[i_151];
         if  next_is_gs_8 {
-          if  i_135 == len_8 {
+          if  i_151 == len_8 {
             wr.out(".Set_", false);
             last_was_setter_8 = true; 
           } else {
@@ -13610,37 +14995,37 @@ func (this *RangerGolangClassWriter) CustomOperator (node *CodeNode, ctx *Ranger
           }
         }
         if  (last_was_setter_8 == false) && (needs_par_8 == false) {
-          if  i_135 > 0 {
-            if  (i_135 == 1) && b_was_static_8 {
+          if  i_151 > 0 {
+            if  (i_151 == 1) && b_was_static_8 {
               wr.out("_static_", false);
             } else {
               wr.out(".", false);
             }
           }
         }
-        if  i_135 == 0 {
-          if  part_24 == "this" {
+        if  i_151 == 0 {
+          if  part_26 == "this" {
             wr.out(this.thisName, false);
             continue;
           }
-          if  ctx.hasClass(part_24) {
+          if  ctx.hasClass(part_26) {
             b_was_static_8 = true; 
           }
-          if  (part_24 != "this") && ctx.isMemberVariable(part_24) {
-            var cc_32 *GoNullable = new(GoNullable); 
-            cc_32 = ctx.getCurrentClass();
-            var currC_23 *RangerAppClassDesc = cc_32.value.(*RangerAppClassDesc);
+          if  (part_26 != "this") && ctx.isMemberVariable(part_26) {
+            var cc_33 *GoNullable = new(GoNullable); 
+            cc_33 = ctx.getCurrentClass();
+            var currC_23 *RangerAppClassDesc = cc_33.value.(*RangerAppClassDesc);
             var up_16 *GoNullable = new(GoNullable); 
-            up_16 = currC_23.findVariable(part_24);
+            up_16 = currC_23.findVariable(part_26);
             if  up_16.has_value {
               /** unused:  p3_16*/
               wr.out(strings.Join([]string{ this.thisName,"." }, ""), false);
             }
           }
         }
-        var partDef_4 IFACE_RangerAppParamDesc = ctx.getVariableDef(part_24);
-        if  (int64(len(left_4.nsp))) > i_135 {
-          partDef_4 = left_4.nsp[i_135]; 
+        var partDef_4 IFACE_RangerAppParamDesc = ctx.getVariableDef(part_26);
+        if  (int64(len(left_4.nsp))) > i_151 {
+          partDef_4 = left_4.nsp[i_151]; 
         }
         if  partDef_4.Get_nameNode().has_value {
           if  ctx.isDefinedClass(partDef_4.Get_nameNode().value.(*CodeNode).type_name) {
@@ -13651,21 +15036,21 @@ func (this *RangerGolangClassWriter) CustomOperator (node *CodeNode, ctx *Ranger
           }
         }
         if  (int64(len(left_4.nsp))) > 0 {
-          var p_48 IFACE_RangerAppParamDesc = left_4.nsp[i_135];
-          wr.out(this.adjustType(p_48.Get_compiledName()), false);
+          var p_52 IFACE_RangerAppParamDesc = left_4.nsp[i_151];
+          wr.out(this.adjustType(p_52.Get_compiledName()), false);
         } else {
           if  left_4.hasParamDesc {
             wr.out(left_4.paramDesc.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
           } else {
-            wr.out(this.adjustType(part_24), false);
+            wr.out(this.adjustType(part_26), false);
           }
         }
         if  needs_par_8 {
           wr.out("()", false);
           needs_par_8 = false; 
         }
-        if  (int64(len(left_4.nsp))) >= (i_135 + 1) {
-          var pp_9 IFACE_RangerAppParamDesc = left_4.nsp[i_135];
+        if  (int64(len(left_4.nsp))) >= (i_151 + 1) {
+          var pp_9 IFACE_RangerAppParamDesc = left_4.nsp[i_151];
           if  pp_9.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
             wr.out(".value.(", false);
             this.writeTypeDef(pp_9.Get_nameNode().value.(*CodeNode), ctx, wr);
@@ -13741,386 +15126,386 @@ func (this *RangerGolangClassWriter) CustomOperator (node *CodeNode, ctx *Ranger
   }
 }
 func (this *RangerGolangClassWriter) writeClass (node *CodeNode, ctx *RangerAppWriterContext, orig_wr *CodeWriter) () {
-  var cl_15 *GoNullable = new(GoNullable); 
-  cl_15.value = node.clDesc.value;
-  cl_15.has_value = node.clDesc.has_value;
-  if  !cl_15.has_value  {
+  var cl_18 *GoNullable = new(GoNullable); 
+  cl_18.value = node.clDesc.value;
+  cl_18.has_value = node.clDesc.has_value;
+  if  !cl_18.has_value  {
     return;
   }
-  var wr_9 *CodeWriter = orig_wr;
+  var wr_10 *CodeWriter = orig_wr;
   if  this.did_write_nullable == false {
-    wr_9.raw("\r\ntype GoNullable struct { \r\n  value interface{}\r\n  has_value bool\r\n}\r\n", true);
-    wr_9.createTag("utilities");
+    wr_10.raw("\r\ntype GoNullable struct { \r\n  value interface{}\r\n  has_value bool\r\n}\r\n", true);
+    wr_10.createTag("utilities");
     this.did_write_nullable = true; 
   }
   var declaredVariable_2 map[string]bool = make(map[string]bool);
-  wr_9.out(strings.Join([]string{ (strings.Join([]string{ "type ",cl_15.value.(*RangerAppClassDesc).name }, ""))," struct { " }, ""), true);
-  wr_9.indent(1);
-  var i_137 int64 = 0;  
-  for ; i_137 < int64(len(cl_15.value.(*RangerAppClassDesc).variables)) ; i_137++ {
-    pvar_9 := cl_15.value.(*RangerAppClassDesc).variables[i_137];
-    this.writeStructField(pvar_9.Get_node().value.(*CodeNode), ctx, wr_9);
-    declaredVariable_2[pvar_9.Get_name()] = true
+  wr_10.out(strings.Join([]string{ (strings.Join([]string{ "type ",cl_18.value.(*RangerAppClassDesc).name }, ""))," struct { " }, ""), true);
+  wr_10.indent(1);
+  var i_153 int64 = 0;  
+  for ; i_153 < int64(len(cl_18.value.(*RangerAppClassDesc).variables)) ; i_153++ {
+    pvar_11 := cl_18.value.(*RangerAppClassDesc).variables[i_153];
+    this.writeStructField(pvar_11.Get_node().value.(*CodeNode), ctx, wr_10);
+    declaredVariable_2[pvar_11.Get_name()] = true
   }
-  if  (int64(len(cl_15.value.(*RangerAppClassDesc).extends_classes))) > 0 {
-    var i_141 int64 = 0;  
-    for ; i_141 < int64(len(cl_15.value.(*RangerAppClassDesc).extends_classes)) ; i_141++ {
-      pName_4 := cl_15.value.(*RangerAppClassDesc).extends_classes[i_141];
-      var pC_2 *RangerAppClassDesc = ctx.findClass(pName_4);
-      wr_9.out(strings.Join([]string{ "// inherited from parent class ",pName_4 }, ""), true);
-      var i_150 int64 = 0;  
-      for ; i_150 < int64(len(pC_2.variables)) ; i_150++ {
-        pvar_14 := pC_2.variables[i_150];
-        if  r_has_key_string_bool(declaredVariable_2, pvar_14.Get_name()) {
+  if  (int64(len(cl_18.value.(*RangerAppClassDesc).extends_classes))) > 0 {
+    var i_157 int64 = 0;  
+    for ; i_157 < int64(len(cl_18.value.(*RangerAppClassDesc).extends_classes)) ; i_157++ {
+      pName_5 := cl_18.value.(*RangerAppClassDesc).extends_classes[i_157];
+      var pC_2 *RangerAppClassDesc = ctx.findClass(pName_5);
+      wr_10.out(strings.Join([]string{ "// inherited from parent class ",pName_5 }, ""), true);
+      var i_166 int64 = 0;  
+      for ; i_166 < int64(len(pC_2.variables)) ; i_166++ {
+        pvar_16 := pC_2.variables[i_166];
+        if  r_has_key_string_bool(declaredVariable_2, pvar_16.Get_name()) {
           continue;
         }
-        this.writeStructField(pvar_14.Get_node().value.(*CodeNode), ctx, wr_9);
+        this.writeStructField(pvar_16.Get_node().value.(*CodeNode), ctx, wr_10);
       }
     }
   }
-  wr_9.indent(-1);
-  wr_9.out("}", true);
-  wr_9.out(strings.Join([]string{ (strings.Join([]string{ "type IFACE_",cl_15.value.(*RangerAppClassDesc).name }, ""))," interface { " }, ""), true);
-  wr_9.indent(1);
-  var i_147 int64 = 0;  
-  for ; i_147 < int64(len(cl_15.value.(*RangerAppClassDesc).variables)) ; i_147++ {
-    p_50 := cl_15.value.(*RangerAppClassDesc).variables[i_147];
-    wr_9.out("Get_", false);
-    wr_9.out(strings.Join([]string{ p_50.Get_compiledName(),"() " }, ""), false);
-    if  p_50.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
-      wr_9.out("*GoNullable", false);
+  wr_10.indent(-1);
+  wr_10.out("}", true);
+  wr_10.out(strings.Join([]string{ (strings.Join([]string{ "type IFACE_",cl_18.value.(*RangerAppClassDesc).name }, ""))," interface { " }, ""), true);
+  wr_10.indent(1);
+  var i_163 int64 = 0;  
+  for ; i_163 < int64(len(cl_18.value.(*RangerAppClassDesc).variables)) ; i_163++ {
+    p_54 := cl_18.value.(*RangerAppClassDesc).variables[i_163];
+    wr_10.out("Get_", false);
+    wr_10.out(strings.Join([]string{ p_54.Get_compiledName(),"() " }, ""), false);
+    if  p_54.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+      wr_10.out("*GoNullable", false);
     } else {
-      this.writeTypeDef(p_50.Get_nameNode().value.(*CodeNode), ctx, wr_9);
+      this.writeTypeDef(p_54.Get_nameNode().value.(*CodeNode), ctx, wr_10);
     }
-    wr_9.out("", true);
-    wr_9.out("Set_", false);
-    wr_9.out(strings.Join([]string{ p_50.Get_compiledName(),"(value " }, ""), false);
-    if  p_50.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
-      wr_9.out("*GoNullable", false);
+    wr_10.out("", true);
+    wr_10.out("Set_", false);
+    wr_10.out(strings.Join([]string{ p_54.Get_compiledName(),"(value " }, ""), false);
+    if  p_54.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+      wr_10.out("*GoNullable", false);
     } else {
-      this.writeTypeDef(p_50.Get_nameNode().value.(*CodeNode), ctx, wr_9);
+      this.writeTypeDef(p_54.Get_nameNode().value.(*CodeNode), ctx, wr_10);
     }
-    wr_9.out(") ", true);
+    wr_10.out(") ", true);
   }
-  var i_150 int64 = 0;  
-  for ; i_150 < int64(len(cl_15.value.(*RangerAppClassDesc).defined_variants)) ; i_150++ {
-    fnVar_7 := cl_15.value.(*RangerAppClassDesc).defined_variants[i_150];
-    var mVs_7 *GoNullable = new(GoNullable); 
-    mVs_7 = r_get_string_RangerAppMethodVariants(cl_15.value.(*RangerAppClassDesc).method_variants, fnVar_7);
-    var i_157 int64 = 0;  
-    for ; i_157 < int64(len(mVs_7.value.(*RangerAppMethodVariants).variants)) ; i_157++ {
-      variant_15 := mVs_7.value.(*RangerAppMethodVariants).variants[i_157];
-      wr_9.out(strings.Join([]string{ variant_15.name,"(" }, ""), false);
-      this.writeArgsDef(variant_15, ctx, wr_9);
-      wr_9.out(") ", false);
-      if  variant_15.nameNode.value.(*CodeNode).hasFlag("optional") {
-        wr_9.out("*GoNullable", false);
+  var i_166 int64 = 0;  
+  for ; i_166 < int64(len(cl_18.value.(*RangerAppClassDesc).defined_variants)) ; i_166++ {
+    fnVar_9 := cl_18.value.(*RangerAppClassDesc).defined_variants[i_166];
+    var mVs_9 *GoNullable = new(GoNullable); 
+    mVs_9 = r_get_string_RangerAppMethodVariants(cl_18.value.(*RangerAppClassDesc).method_variants, fnVar_9);
+    var i_173 int64 = 0;  
+    for ; i_173 < int64(len(mVs_9.value.(*RangerAppMethodVariants).variants)) ; i_173++ {
+      variant_20 := mVs_9.value.(*RangerAppMethodVariants).variants[i_173];
+      wr_10.out(strings.Join([]string{ variant_20.name,"(" }, ""), false);
+      this.writeArgsDef(variant_20, ctx, wr_10);
+      wr_10.out(") ", false);
+      if  variant_20.nameNode.value.(*CodeNode).hasFlag("optional") {
+        wr_10.out("*GoNullable", false);
       } else {
-        this.writeTypeDef(variant_15.nameNode.value.(*CodeNode), ctx, wr_9);
+        this.writeTypeDef(variant_20.nameNode.value.(*CodeNode), ctx, wr_10);
       }
-      wr_9.out("", true);
+      wr_10.out("", true);
     }
   }
-  wr_9.indent(-1);
-  wr_9.out("}", true);
+  wr_10.indent(-1);
+  wr_10.out("}", true);
   this.thisName = "me"; 
-  wr_9.out("", true);
-  wr_9.out(strings.Join([]string{ (strings.Join([]string{ "func CreateNew_",cl_15.value.(*RangerAppClassDesc).name }, "")),"(" }, ""), false);
-  if  cl_15.value.(*RangerAppClassDesc).has_constructor {
-    var constr_14 *GoNullable = new(GoNullable); 
-    constr_14.value = cl_15.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_14.has_value = cl_15.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    var i_156 int64 = 0;  
-    for ; i_156 < int64(len(constr_14.value.(*RangerAppFunctionDesc).params)) ; i_156++ {
-      arg_29 := constr_14.value.(*RangerAppFunctionDesc).params[i_156];
-      if  i_156 > 0 {
-        wr_9.out(", ", false);
+  wr_10.out("", true);
+  wr_10.out(strings.Join([]string{ (strings.Join([]string{ "func CreateNew_",cl_18.value.(*RangerAppClassDesc).name }, "")),"(" }, ""), false);
+  if  cl_18.value.(*RangerAppClassDesc).has_constructor {
+    var constr_18 *GoNullable = new(GoNullable); 
+    constr_18.value = cl_18.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_18.has_value = cl_18.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    var i_172 int64 = 0;  
+    for ; i_172 < int64(len(constr_18.value.(*RangerAppFunctionDesc).params)) ; i_172++ {
+      arg_32 := constr_18.value.(*RangerAppFunctionDesc).params[i_172];
+      if  i_172 > 0 {
+        wr_10.out(", ", false);
       }
-      wr_9.out(strings.Join([]string{ arg_29.Get_name()," " }, ""), false);
-      this.writeTypeDef(arg_29.Get_nameNode().value.(*CodeNode), ctx, wr_9);
+      wr_10.out(strings.Join([]string{ arg_32.Get_name()," " }, ""), false);
+      this.writeTypeDef(arg_32.Get_nameNode().value.(*CodeNode), ctx, wr_10);
     }
   }
-  wr_9.out(strings.Join([]string{ (strings.Join([]string{ ") *",cl_15.value.(*RangerAppClassDesc).name }, ""))," {" }, ""), true);
-  wr_9.indent(1);
-  wr_9.newline();
-  wr_9.out(strings.Join([]string{ (strings.Join([]string{ "me := new(",cl_15.value.(*RangerAppClassDesc).name }, "")),")" }, ""), true);
-  var i_159 int64 = 0;  
-  for ; i_159 < int64(len(cl_15.value.(*RangerAppClassDesc).variables)) ; i_159++ {
-    pvar_17 := cl_15.value.(*RangerAppClassDesc).variables[i_159];
-    var nn_21 *CodeNode = pvar_17.Get_node().value.(*CodeNode);
-    if  (int64(len(nn_21.children))) > 2 {
-      var valueNode *CodeNode = nn_21.children[2];
-      wr_9.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_17.Get_compiledName() }, ""))," = " }, ""), false);
-      this.WalkNode(valueNode, ctx, wr_9);
-      wr_9.out("", true);
+  wr_10.out(strings.Join([]string{ (strings.Join([]string{ ") *",cl_18.value.(*RangerAppClassDesc).name }, ""))," {" }, ""), true);
+  wr_10.indent(1);
+  wr_10.newline();
+  wr_10.out(strings.Join([]string{ (strings.Join([]string{ "me := new(",cl_18.value.(*RangerAppClassDesc).name }, "")),")" }, ""), true);
+  var i_175 int64 = 0;  
+  for ; i_175 < int64(len(cl_18.value.(*RangerAppClassDesc).variables)) ; i_175++ {
+    pvar_19 := cl_18.value.(*RangerAppClassDesc).variables[i_175];
+    var nn_24 *CodeNode = pvar_19.Get_node().value.(*CodeNode);
+    if  (int64(len(nn_24.children))) > 2 {
+      var valueNode_2 *CodeNode = nn_24.children[2];
+      wr_10.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_19.Get_compiledName() }, ""))," = " }, ""), false);
+      this.WalkNode(valueNode_2, ctx, wr_10);
+      wr_10.out("", true);
     } else {
       var pNameN *GoNullable = new(GoNullable); 
-      pNameN.value = pvar_17.Get_nameNode().value;
-      pNameN.has_value = pvar_17.Get_nameNode().has_value;
+      pNameN.value = pvar_19.Get_nameNode().value;
+      pNameN.has_value = pvar_19.Get_nameNode().has_value;
       if  pNameN.value.(*CodeNode).value_type == 6 {
-        wr_9.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_17.Get_compiledName() }, ""))," = " }, ""), false);
-        wr_9.out("make(", false);
-        this.writeTypeDef(pvar_17.Get_nameNode().value.(*CodeNode), ctx, wr_9);
-        wr_9.out(",0)", true);
+        wr_10.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_19.Get_compiledName() }, ""))," = " }, ""), false);
+        wr_10.out("make(", false);
+        this.writeTypeDef(pvar_19.Get_nameNode().value.(*CodeNode), ctx, wr_10);
+        wr_10.out(",0)", true);
       }
       if  pNameN.value.(*CodeNode).value_type == 7 {
-        wr_9.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_17.Get_compiledName() }, ""))," = " }, ""), false);
-        wr_9.out("make(", false);
-        this.writeTypeDef(pvar_17.Get_nameNode().value.(*CodeNode), ctx, wr_9);
-        wr_9.out(")", true);
+        wr_10.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_19.Get_compiledName() }, ""))," = " }, ""), false);
+        wr_10.out("make(", false);
+        this.writeTypeDef(pvar_19.Get_nameNode().value.(*CodeNode), ctx, wr_10);
+        wr_10.out(")", true);
       }
     }
   }
-  var i_162 int64 = 0;  
-  for ; i_162 < int64(len(cl_15.value.(*RangerAppClassDesc).variables)) ; i_162++ {
-    pvar_20 := cl_15.value.(*RangerAppClassDesc).variables[i_162];
-    if  pvar_20.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
-      wr_9.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_20.Get_compiledName() }, ""))," = new(GoNullable);" }, ""), true);
+  var i_178 int64 = 0;  
+  for ; i_178 < int64(len(cl_18.value.(*RangerAppClassDesc).variables)) ; i_178++ {
+    pvar_22 := cl_18.value.(*RangerAppClassDesc).variables[i_178];
+    if  pvar_22.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+      wr_10.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_22.Get_compiledName() }, ""))," = new(GoNullable);" }, ""), true);
     }
   }
-  if  (int64(len(cl_15.value.(*RangerAppClassDesc).extends_classes))) > 0 {
-    var i_165 int64 = 0;  
-    for ; i_165 < int64(len(cl_15.value.(*RangerAppClassDesc).extends_classes)) ; i_165++ {
-      pName_9 := cl_15.value.(*RangerAppClassDesc).extends_classes[i_165];
-      var pC_7 *RangerAppClassDesc = ctx.findClass(pName_9);
-      var i_174 int64 = 0;  
-      for ; i_174 < int64(len(pC_7.variables)) ; i_174++ {
-        pvar_23 := pC_7.variables[i_174];
-        var nn_25 *CodeNode = pvar_23.Get_node().value.(*CodeNode);
-        if  (int64(len(nn_25.children))) > 2 {
-          var valueNode_6 *CodeNode = nn_25.children[2];
-          wr_9.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_23.Get_compiledName() }, ""))," = " }, ""), false);
-          this.WalkNode(valueNode_6, ctx, wr_9);
-          wr_9.out("", true);
+  if  (int64(len(cl_18.value.(*RangerAppClassDesc).extends_classes))) > 0 {
+    var i_181 int64 = 0;  
+    for ; i_181 < int64(len(cl_18.value.(*RangerAppClassDesc).extends_classes)) ; i_181++ {
+      pName_10 := cl_18.value.(*RangerAppClassDesc).extends_classes[i_181];
+      var pC_7 *RangerAppClassDesc = ctx.findClass(pName_10);
+      var i_190 int64 = 0;  
+      for ; i_190 < int64(len(pC_7.variables)) ; i_190++ {
+        pvar_25 := pC_7.variables[i_190];
+        var nn_28 *CodeNode = pvar_25.Get_node().value.(*CodeNode);
+        if  (int64(len(nn_28.children))) > 2 {
+          var valueNode_7 *CodeNode = nn_28.children[2];
+          wr_10.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_25.Get_compiledName() }, ""))," = " }, ""), false);
+          this.WalkNode(valueNode_7, ctx, wr_10);
+          wr_10.out("", true);
         } else {
-          var pNameN_6 *CodeNode = pvar_23.Get_nameNode().value.(*CodeNode);
+          var pNameN_6 *CodeNode = pvar_25.Get_nameNode().value.(*CodeNode);
           if  pNameN_6.value_type == 6 {
-            wr_9.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_23.Get_compiledName() }, ""))," = " }, ""), false);
-            wr_9.out("make(", false);
-            this.writeTypeDef(pvar_23.Get_nameNode().value.(*CodeNode), ctx, wr_9);
-            wr_9.out(",0)", true);
+            wr_10.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_25.Get_compiledName() }, ""))," = " }, ""), false);
+            wr_10.out("make(", false);
+            this.writeTypeDef(pvar_25.Get_nameNode().value.(*CodeNode), ctx, wr_10);
+            wr_10.out(",0)", true);
           }
           if  pNameN_6.value_type == 7 {
-            wr_9.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_23.Get_compiledName() }, ""))," = " }, ""), false);
-            wr_9.out("make(", false);
-            this.writeTypeDef(pvar_23.Get_nameNode().value.(*CodeNode), ctx, wr_9);
-            wr_9.out(")", true);
+            wr_10.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_25.Get_compiledName() }, ""))," = " }, ""), false);
+            wr_10.out("make(", false);
+            this.writeTypeDef(pvar_25.Get_nameNode().value.(*CodeNode), ctx, wr_10);
+            wr_10.out(")", true);
           }
         }
       }
-      var i_179 int64 = 0;  
-      for ; i_179 < int64(len(pC_7.variables)) ; i_179++ {
-        pvar_30 := pC_7.variables[i_179];
-        if  pvar_30.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
-          wr_9.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_30.Get_compiledName() }, ""))," = new(GoNullable);" }, ""), true);
+      var i_195 int64 = 0;  
+      for ; i_195 < int64(len(pC_7.variables)) ; i_195++ {
+        pvar_32 := pC_7.variables[i_195];
+        if  pvar_32.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+          wr_10.out(strings.Join([]string{ (strings.Join([]string{ "me.",pvar_32.Get_compiledName() }, ""))," = new(GoNullable);" }, ""), true);
         }
       }
       if  pC_7.has_constructor {
-        var constr_18 *GoNullable = new(GoNullable); 
-        constr_18.value = pC_7.constructor_fn.value;
-        constr_18.has_value = pC_7.constructor_fn.has_value;
-        var subCtx_33 *RangerAppWriterContext = constr_18.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
-        subCtx_33.is_function = true; 
-        this.WalkNode(constr_18.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_33, wr_9);
+        var constr_22 *GoNullable = new(GoNullable); 
+        constr_22.value = pC_7.constructor_fn.value;
+        constr_22.has_value = pC_7.constructor_fn.has_value;
+        var subCtx_37 *RangerAppWriterContext = constr_22.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
+        subCtx_37.is_function = true; 
+        this.WalkNode(constr_22.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_37, wr_10);
       }
     }
   }
-  if  cl_15.value.(*RangerAppClassDesc).has_constructor {
-    var constr_21 *GoNullable = new(GoNullable); 
-    constr_21.value = cl_15.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_21.has_value = cl_15.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    var subCtx_38 *RangerAppWriterContext = constr_21.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
-    subCtx_38.is_function = true; 
-    this.WalkNode(constr_21.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_38, wr_9);
+  if  cl_18.value.(*RangerAppClassDesc).has_constructor {
+    var constr_25 *GoNullable = new(GoNullable); 
+    constr_25.value = cl_18.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_25.has_value = cl_18.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    var subCtx_42 *RangerAppWriterContext = constr_25.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
+    subCtx_42.is_function = true; 
+    this.WalkNode(constr_25.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_42, wr_10);
   }
-  wr_9.out("return me;", true);
-  wr_9.indent(-1);
-  wr_9.out("}", true);
+  wr_10.out("return me;", true);
+  wr_10.indent(-1);
+  wr_10.out("}", true);
   this.thisName = "this"; 
-  var i_174 int64 = 0;  
-  for ; i_174 < int64(len(cl_15.value.(*RangerAppClassDesc).static_methods)) ; i_174++ {
-    variant_20 := cl_15.value.(*RangerAppClassDesc).static_methods[i_174];
-    if  variant_20.nameNode.value.(*CodeNode).hasFlag("main") {
+  var i_190 int64 = 0;  
+  for ; i_190 < int64(len(cl_18.value.(*RangerAppClassDesc).static_methods)) ; i_190++ {
+    variant_25 := cl_18.value.(*RangerAppClassDesc).static_methods[i_190];
+    if  variant_25.nameNode.value.(*CodeNode).hasFlag("main") {
       continue;
     }
-    wr_9.newline();
-    wr_9.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "func ",cl_15.value.(*RangerAppClassDesc).name }, "")),"_static_" }, "")),variant_20.name }, "")),"(" }, ""), false);
-    this.writeArgsDef(variant_20, ctx, wr_9);
-    wr_9.out(") ", false);
-    this.writeTypeDef(variant_20.nameNode.value.(*CodeNode), ctx, wr_9);
-    wr_9.out(" {", true);
-    wr_9.indent(1);
-    wr_9.newline();
-    var subCtx_41 *RangerAppWriterContext = variant_20.fnCtx.value.(*RangerAppWriterContext);
-    subCtx_41.is_function = true; 
-    this.WalkNode(variant_20.fnBody.value.(*CodeNode), subCtx_41, wr_9);
-    wr_9.newline();
-    wr_9.indent(-1);
-    wr_9.out("}", true);
+    wr_10.newline();
+    wr_10.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "func ",cl_18.value.(*RangerAppClassDesc).name }, "")),"_static_" }, "")),variant_25.name }, "")),"(" }, ""), false);
+    this.writeArgsDef(variant_25, ctx, wr_10);
+    wr_10.out(") ", false);
+    this.writeTypeDef(variant_25.nameNode.value.(*CodeNode), ctx, wr_10);
+    wr_10.out(" {", true);
+    wr_10.indent(1);
+    wr_10.newline();
+    var subCtx_45 *RangerAppWriterContext = variant_25.fnCtx.value.(*RangerAppWriterContext);
+    subCtx_45.is_function = true; 
+    this.WalkNode(variant_25.fnBody.value.(*CodeNode), subCtx_45, wr_10);
+    wr_10.newline();
+    wr_10.indent(-1);
+    wr_10.out("}", true);
   }
   var declaredFn map[string]bool = make(map[string]bool);
-  var i_177 int64 = 0;  
-  for ; i_177 < int64(len(cl_15.value.(*RangerAppClassDesc).defined_variants)) ; i_177++ {
-    fnVar_12 := cl_15.value.(*RangerAppClassDesc).defined_variants[i_177];
-    var mVs_12 *GoNullable = new(GoNullable); 
-    mVs_12 = r_get_string_RangerAppMethodVariants(cl_15.value.(*RangerAppClassDesc).method_variants, fnVar_12);
-    var i_184 int64 = 0;  
-    for ; i_184 < int64(len(mVs_12.value.(*RangerAppMethodVariants).variants)) ; i_184++ {
-      variant_23 := mVs_12.value.(*RangerAppMethodVariants).variants[i_184];
-      declaredFn[variant_23.name] = true
-      wr_9.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_15.value.(*RangerAppClassDesc).name }, "")),") " }, "")),variant_23.name }, ""))," (" }, ""), false);
-      this.writeArgsDef(variant_23, ctx, wr_9);
-      wr_9.out(") ", false);
-      if  variant_23.nameNode.value.(*CodeNode).hasFlag("optional") {
-        wr_9.out("*GoNullable", false);
+  var i_193 int64 = 0;  
+  for ; i_193 < int64(len(cl_18.value.(*RangerAppClassDesc).defined_variants)) ; i_193++ {
+    fnVar_14 := cl_18.value.(*RangerAppClassDesc).defined_variants[i_193];
+    var mVs_14 *GoNullable = new(GoNullable); 
+    mVs_14 = r_get_string_RangerAppMethodVariants(cl_18.value.(*RangerAppClassDesc).method_variants, fnVar_14);
+    var i_200 int64 = 0;  
+    for ; i_200 < int64(len(mVs_14.value.(*RangerAppMethodVariants).variants)) ; i_200++ {
+      variant_28 := mVs_14.value.(*RangerAppMethodVariants).variants[i_200];
+      declaredFn[variant_28.name] = true
+      wr_10.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_18.value.(*RangerAppClassDesc).name }, "")),") " }, "")),variant_28.name }, ""))," (" }, ""), false);
+      this.writeArgsDef(variant_28, ctx, wr_10);
+      wr_10.out(") ", false);
+      if  variant_28.nameNode.value.(*CodeNode).hasFlag("optional") {
+        wr_10.out("*GoNullable", false);
       } else {
-        this.writeTypeDef(variant_23.nameNode.value.(*CodeNode), ctx, wr_9);
+        this.writeTypeDef(variant_28.nameNode.value.(*CodeNode), ctx, wr_10);
       }
-      wr_9.out(" {", true);
-      wr_9.indent(1);
-      wr_9.newline();
-      var subCtx_44 *RangerAppWriterContext = variant_23.fnCtx.value.(*RangerAppWriterContext);
-      subCtx_44.is_function = true; 
-      this.WalkNode(variant_23.fnBody.value.(*CodeNode), subCtx_44, wr_9);
-      wr_9.newline();
-      wr_9.indent(-1);
-      wr_9.out("}", true);
+      wr_10.out(" {", true);
+      wr_10.indent(1);
+      wr_10.newline();
+      var subCtx_48 *RangerAppWriterContext = variant_28.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_48.is_function = true; 
+      this.WalkNode(variant_28.fnBody.value.(*CodeNode), subCtx_48, wr_10);
+      wr_10.newline();
+      wr_10.indent(-1);
+      wr_10.out("}", true);
     }
   }
-  if  (int64(len(cl_15.value.(*RangerAppClassDesc).extends_classes))) > 0 {
-    var i_183 int64 = 0;  
-    for ; i_183 < int64(len(cl_15.value.(*RangerAppClassDesc).extends_classes)) ; i_183++ {
-      pName_12 := cl_15.value.(*RangerAppClassDesc).extends_classes[i_183];
-      var pC_10 *RangerAppClassDesc = ctx.findClass(pName_12);
-      wr_9.out(strings.Join([]string{ "// inherited methods from parent class ",pName_12 }, ""), true);
-      var i_192 int64 = 0;  
-      for ; i_192 < int64(len(pC_10.defined_variants)) ; i_192++ {
-        fnVar_15 := pC_10.defined_variants[i_192];
-        var mVs_15 *GoNullable = new(GoNullable); 
-        mVs_15 = r_get_string_RangerAppMethodVariants(pC_10.method_variants, fnVar_15);
-        var i_200 int64 = 0;  
-        for ; i_200 < int64(len(mVs_15.value.(*RangerAppMethodVariants).variants)) ; i_200++ {
-          variant_26 := mVs_15.value.(*RangerAppMethodVariants).variants[i_200];
-          if  r_has_key_string_bool(declaredFn, variant_26.name) {
+  if  (int64(len(cl_18.value.(*RangerAppClassDesc).extends_classes))) > 0 {
+    var i_199 int64 = 0;  
+    for ; i_199 < int64(len(cl_18.value.(*RangerAppClassDesc).extends_classes)) ; i_199++ {
+      pName_13 := cl_18.value.(*RangerAppClassDesc).extends_classes[i_199];
+      var pC_10 *RangerAppClassDesc = ctx.findClass(pName_13);
+      wr_10.out(strings.Join([]string{ "// inherited methods from parent class ",pName_13 }, ""), true);
+      var i_208 int64 = 0;  
+      for ; i_208 < int64(len(pC_10.defined_variants)) ; i_208++ {
+        fnVar_17 := pC_10.defined_variants[i_208];
+        var mVs_17 *GoNullable = new(GoNullable); 
+        mVs_17 = r_get_string_RangerAppMethodVariants(pC_10.method_variants, fnVar_17);
+        var i_216 int64 = 0;  
+        for ; i_216 < int64(len(mVs_17.value.(*RangerAppMethodVariants).variants)) ; i_216++ {
+          variant_31 := mVs_17.value.(*RangerAppMethodVariants).variants[i_216];
+          if  r_has_key_string_bool(declaredFn, variant_31.name) {
             continue;
           }
-          wr_9.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_15.value.(*RangerAppClassDesc).name }, "")),") " }, "")),variant_26.name }, ""))," (" }, ""), false);
-          this.writeArgsDef(variant_26, ctx, wr_9);
-          wr_9.out(") ", false);
-          if  variant_26.nameNode.value.(*CodeNode).hasFlag("optional") {
-            wr_9.out("*GoNullable", false);
+          wr_10.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_18.value.(*RangerAppClassDesc).name }, "")),") " }, "")),variant_31.name }, ""))," (" }, ""), false);
+          this.writeArgsDef(variant_31, ctx, wr_10);
+          wr_10.out(") ", false);
+          if  variant_31.nameNode.value.(*CodeNode).hasFlag("optional") {
+            wr_10.out("*GoNullable", false);
           } else {
-            this.writeTypeDef(variant_26.nameNode.value.(*CodeNode), ctx, wr_9);
+            this.writeTypeDef(variant_31.nameNode.value.(*CodeNode), ctx, wr_10);
           }
-          wr_9.out(" {", true);
-          wr_9.indent(1);
-          wr_9.newline();
-          var subCtx_47 *RangerAppWriterContext = variant_26.fnCtx.value.(*RangerAppWriterContext);
-          subCtx_47.is_function = true; 
-          this.WalkNode(variant_26.fnBody.value.(*CodeNode), subCtx_47, wr_9);
-          wr_9.newline();
-          wr_9.indent(-1);
-          wr_9.out("}", true);
+          wr_10.out(" {", true);
+          wr_10.indent(1);
+          wr_10.newline();
+          var subCtx_51 *RangerAppWriterContext = variant_31.fnCtx.value.(*RangerAppWriterContext);
+          subCtx_51.is_function = true; 
+          this.WalkNode(variant_31.fnBody.value.(*CodeNode), subCtx_51, wr_10);
+          wr_10.newline();
+          wr_10.indent(-1);
+          wr_10.out("}", true);
         }
       }
     }
   }
   var declaredGetter map[string]bool = make(map[string]bool);
-  var i_192 int64 = 0;  
-  for ; i_192 < int64(len(cl_15.value.(*RangerAppClassDesc).variables)) ; i_192++ {
-    p_54 := cl_15.value.(*RangerAppClassDesc).variables[i_192];
-    declaredGetter[p_54.Get_name()] = true
-    wr_9.newline();
-    wr_9.out(strings.Join([]string{ "// getter for variable ",p_54.Get_name() }, ""), true);
-    wr_9.out(strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_15.value.(*RangerAppClassDesc).name }, "")),") " }, ""), false);
-    wr_9.out("Get_", false);
-    wr_9.out(strings.Join([]string{ p_54.Get_compiledName(),"() " }, ""), false);
-    if  p_54.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
-      wr_9.out("*GoNullable", false);
+  var i_208 int64 = 0;  
+  for ; i_208 < int64(len(cl_18.value.(*RangerAppClassDesc).variables)) ; i_208++ {
+    p_58 := cl_18.value.(*RangerAppClassDesc).variables[i_208];
+    declaredGetter[p_58.Get_name()] = true
+    wr_10.newline();
+    wr_10.out(strings.Join([]string{ "// getter for variable ",p_58.Get_name() }, ""), true);
+    wr_10.out(strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_18.value.(*RangerAppClassDesc).name }, "")),") " }, ""), false);
+    wr_10.out("Get_", false);
+    wr_10.out(strings.Join([]string{ p_58.Get_compiledName(),"() " }, ""), false);
+    if  p_58.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+      wr_10.out("*GoNullable", false);
     } else {
-      this.writeTypeDef(p_54.Get_nameNode().value.(*CodeNode), ctx, wr_9);
+      this.writeTypeDef(p_58.Get_nameNode().value.(*CodeNode), ctx, wr_10);
     }
-    wr_9.out(" {", true);
-    wr_9.indent(1);
-    wr_9.out(strings.Join([]string{ "return this.",p_54.Get_compiledName() }, ""), true);
-    wr_9.indent(-1);
-    wr_9.out("}", true);
-    wr_9.newline();
-    wr_9.out(strings.Join([]string{ "// setter for variable ",p_54.Get_name() }, ""), true);
-    wr_9.out(strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_15.value.(*RangerAppClassDesc).name }, "")),") " }, ""), false);
-    wr_9.out("Set_", false);
-    wr_9.out(strings.Join([]string{ p_54.Get_compiledName(),"( value " }, ""), false);
-    if  p_54.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
-      wr_9.out("*GoNullable", false);
+    wr_10.out(" {", true);
+    wr_10.indent(1);
+    wr_10.out(strings.Join([]string{ "return this.",p_58.Get_compiledName() }, ""), true);
+    wr_10.indent(-1);
+    wr_10.out("}", true);
+    wr_10.newline();
+    wr_10.out(strings.Join([]string{ "// setter for variable ",p_58.Get_name() }, ""), true);
+    wr_10.out(strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_18.value.(*RangerAppClassDesc).name }, "")),") " }, ""), false);
+    wr_10.out("Set_", false);
+    wr_10.out(strings.Join([]string{ p_58.Get_compiledName(),"( value " }, ""), false);
+    if  p_58.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+      wr_10.out("*GoNullable", false);
     } else {
-      this.writeTypeDef(p_54.Get_nameNode().value.(*CodeNode), ctx, wr_9);
+      this.writeTypeDef(p_58.Get_nameNode().value.(*CodeNode), ctx, wr_10);
     }
-    wr_9.out(") ", false);
-    wr_9.out(" {", true);
-    wr_9.indent(1);
-    wr_9.out(strings.Join([]string{ (strings.Join([]string{ "this.",p_54.Get_compiledName() }, ""))," = value " }, ""), true);
-    wr_9.indent(-1);
-    wr_9.out("}", true);
+    wr_10.out(") ", false);
+    wr_10.out(" {", true);
+    wr_10.indent(1);
+    wr_10.out(strings.Join([]string{ (strings.Join([]string{ "this.",p_58.Get_compiledName() }, ""))," = value " }, ""), true);
+    wr_10.indent(-1);
+    wr_10.out("}", true);
   }
-  if  (int64(len(cl_15.value.(*RangerAppClassDesc).extends_classes))) > 0 {
-    var i_195 int64 = 0;  
-    for ; i_195 < int64(len(cl_15.value.(*RangerAppClassDesc).extends_classes)) ; i_195++ {
-      pName_15 := cl_15.value.(*RangerAppClassDesc).extends_classes[i_195];
-      var pC_13 *RangerAppClassDesc = ctx.findClass(pName_15);
-      wr_9.out(strings.Join([]string{ "// inherited getters and setters from the parent class ",pName_15 }, ""), true);
-      var i_204 int64 = 0;  
-      for ; i_204 < int64(len(pC_13.variables)) ; i_204++ {
-        p_57 := pC_13.variables[i_204];
-        if  r_has_key_string_bool(declaredGetter, p_57.Get_name()) {
+  if  (int64(len(cl_18.value.(*RangerAppClassDesc).extends_classes))) > 0 {
+    var i_211 int64 = 0;  
+    for ; i_211 < int64(len(cl_18.value.(*RangerAppClassDesc).extends_classes)) ; i_211++ {
+      pName_16 := cl_18.value.(*RangerAppClassDesc).extends_classes[i_211];
+      var pC_13 *RangerAppClassDesc = ctx.findClass(pName_16);
+      wr_10.out(strings.Join([]string{ "// inherited getters and setters from the parent class ",pName_16 }, ""), true);
+      var i_220 int64 = 0;  
+      for ; i_220 < int64(len(pC_13.variables)) ; i_220++ {
+        p_61 := pC_13.variables[i_220];
+        if  r_has_key_string_bool(declaredGetter, p_61.Get_name()) {
           continue;
         }
-        wr_9.newline();
-        wr_9.out(strings.Join([]string{ "// getter for variable ",p_57.Get_name() }, ""), true);
-        wr_9.out(strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_15.value.(*RangerAppClassDesc).name }, "")),") " }, ""), false);
-        wr_9.out("Get_", false);
-        wr_9.out(strings.Join([]string{ p_57.Get_compiledName(),"() " }, ""), false);
-        if  p_57.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
-          wr_9.out("*GoNullable", false);
+        wr_10.newline();
+        wr_10.out(strings.Join([]string{ "// getter for variable ",p_61.Get_name() }, ""), true);
+        wr_10.out(strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_18.value.(*RangerAppClassDesc).name }, "")),") " }, ""), false);
+        wr_10.out("Get_", false);
+        wr_10.out(strings.Join([]string{ p_61.Get_compiledName(),"() " }, ""), false);
+        if  p_61.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+          wr_10.out("*GoNullable", false);
         } else {
-          this.writeTypeDef(p_57.Get_nameNode().value.(*CodeNode), ctx, wr_9);
+          this.writeTypeDef(p_61.Get_nameNode().value.(*CodeNode), ctx, wr_10);
         }
-        wr_9.out(" {", true);
-        wr_9.indent(1);
-        wr_9.out(strings.Join([]string{ "return this.",p_57.Get_compiledName() }, ""), true);
-        wr_9.indent(-1);
-        wr_9.out("}", true);
-        wr_9.newline();
-        wr_9.out(strings.Join([]string{ "// getter for variable ",p_57.Get_name() }, ""), true);
-        wr_9.out(strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_15.value.(*RangerAppClassDesc).name }, "")),") " }, ""), false);
-        wr_9.out("Set_", false);
-        wr_9.out(strings.Join([]string{ p_57.Get_compiledName(),"( value " }, ""), false);
-        if  p_57.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
-          wr_9.out("*GoNullable", false);
+        wr_10.out(" {", true);
+        wr_10.indent(1);
+        wr_10.out(strings.Join([]string{ "return this.",p_61.Get_compiledName() }, ""), true);
+        wr_10.indent(-1);
+        wr_10.out("}", true);
+        wr_10.newline();
+        wr_10.out(strings.Join([]string{ "// getter for variable ",p_61.Get_name() }, ""), true);
+        wr_10.out(strings.Join([]string{ (strings.Join([]string{ "func (this *",cl_18.value.(*RangerAppClassDesc).name }, "")),") " }, ""), false);
+        wr_10.out("Set_", false);
+        wr_10.out(strings.Join([]string{ p_61.Get_compiledName(),"( value " }, ""), false);
+        if  p_61.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+          wr_10.out("*GoNullable", false);
         } else {
-          this.writeTypeDef(p_57.Get_nameNode().value.(*CodeNode), ctx, wr_9);
+          this.writeTypeDef(p_61.Get_nameNode().value.(*CodeNode), ctx, wr_10);
         }
-        wr_9.out(") ", false);
-        wr_9.out(" {", true);
-        wr_9.indent(1);
-        wr_9.out(strings.Join([]string{ (strings.Join([]string{ "this.",p_57.Get_compiledName() }, ""))," = value " }, ""), true);
-        wr_9.indent(-1);
-        wr_9.out("}", true);
+        wr_10.out(") ", false);
+        wr_10.out(" {", true);
+        wr_10.indent(1);
+        wr_10.out(strings.Join([]string{ (strings.Join([]string{ "this.",p_61.Get_compiledName() }, ""))," = value " }, ""), true);
+        wr_10.indent(-1);
+        wr_10.out("}", true);
       }
     }
   }
-  var i_201 int64 = 0;  
-  for ; i_201 < int64(len(cl_15.value.(*RangerAppClassDesc).static_methods)) ; i_201++ {
-    variant_29 := cl_15.value.(*RangerAppClassDesc).static_methods[i_201];
-    if  variant_29.nameNode.value.(*CodeNode).hasFlag("main") {
-      wr_9.out("func main() {", true);
-      wr_9.indent(1);
-      wr_9.newline();
-      var subCtx_50 *RangerAppWriterContext = variant_29.fnCtx.value.(*RangerAppWriterContext);
-      subCtx_50.is_function = true; 
-      this.WalkNode(variant_29.fnBody.value.(*CodeNode), subCtx_50, wr_9);
-      wr_9.newline();
-      wr_9.indent(-1);
-      wr_9.out("}", true);
+  var i_217 int64 = 0;  
+  for ; i_217 < int64(len(cl_18.value.(*RangerAppClassDesc).static_methods)) ; i_217++ {
+    variant_34 := cl_18.value.(*RangerAppClassDesc).static_methods[i_217];
+    if  variant_34.nameNode.value.(*CodeNode).hasFlag("main") {
+      wr_10.out("func main() {", true);
+      wr_10.indent(1);
+      wr_10.newline();
+      var subCtx_54 *RangerAppWriterContext = variant_34.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_54.is_function = true; 
+      this.WalkNode(variant_34.fnBody.value.(*CodeNode), subCtx_54, wr_10);
+      wr_10.newline();
+      wr_10.indent(-1);
+      wr_10.out("}", true);
     }
   }
 }
@@ -14130,7 +15515,8 @@ func (this *RangerGolangClassWriter) EncodeString (node *CodeNode, ctx *RangerAp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
+  for ii_11 < str_length_2 {
+    var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
         encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
@@ -14181,9 +15567,9 @@ func (this *RangerGolangClassWriter) import_lib (lib_name string, ctx *RangerApp
   wr.addImport(lib_name);
 }
 func (this *RangerGolangClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(ctx.localVarNames)) ; i_61++ {
-    n_7 := ctx.localVarNames[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
@@ -14228,13 +15614,13 @@ func (this *RangerGolangClassWriter) writeFnCall (node *CodeNode, ctx *RangerApp
     wr.out("(", false);
     var givenArgs_2 *CodeNode = node.getSecond();
     ctx.setInExpr();
-    var i_68 int64 = 0;  
-    for ; i_68 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_68++ {
-      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_68];
-      if  i_68 > 0 {
+    var i_69 int64 = 0;  
+    for ; i_69 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_69++ {
+      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_69];
+      if  i_69 > 0 {
         wr.out(", ", false);
       }
-      if  (int64(len(givenArgs_2.children))) <= i_68 {
+      if  (int64(len(givenArgs_2.children))) <= i_69 {
         var defVal *GoNullable = new(GoNullable); 
         defVal = arg_12.Get_nameNode().value.(*CodeNode).getFlag("default");
         if  defVal.has_value {
@@ -14245,7 +15631,7 @@ func (this *RangerGolangClassWriter) writeFnCall (node *CodeNode, ctx *RangerApp
         }
         continue;
       }
-      var n_10 *CodeNode = givenArgs_2.children[i_68];
+      var n_10 *CodeNode = givenArgs_2.children[i_69];
       this.WalkNode(n_10, ctx, wr);
     }
     ctx.unsetInExpr();
@@ -14302,6 +15688,8 @@ type IFACE_RangerPHPClassWriter interface {
   Get_wrote_header() bool
   Set_wrote_header(value bool) 
   adjustType(tn string) string
+  EncodeString(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) string
+  WriteScalarValue(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
   WriteVRef(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
   writeVarInitDef(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
   writeVarDef(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
@@ -14326,6 +15714,54 @@ func (this *RangerPHPClassWriter) adjustType (tn string) string {
   }
   return tn;
 }
+func (this *RangerPHPClassWriter) EncodeString (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) string {
+  /** unused:  encoded_str_4*/
+  var str_length_3 int64 = int64(len(node.string_value));
+  var encoded_str_10 string = "";
+  var ii_12 int64 = 0;
+  for ii_12 < str_length_3 {
+    var cc_20 int64 = int64(node.string_value[ii_12]);
+    switch (cc_20 ) { 
+      case 8 : 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
+      case 9 : 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
+      case 10 : 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
+      case 12 : 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
+      case 13 : 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
+      case 34 : 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
+      case 36 : 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
+      case 92 : 
+        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
+      default: 
+        encoded_str_10 = strings.Join([]string{ encoded_str_10,(string([] byte{byte(cc_20)})) }, ""); 
+    }
+    ii_12 = ii_12 + 1; 
+  }
+  return encoded_str_10;
+}
+func (this *RangerPHPClassWriter) WriteScalarValue (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  switch (node.value_type ) { 
+    case 2 : 
+      wr.out(strings.Join([]string{ "",strconv.FormatFloat(node.double_value,'f', 6, 64) }, ""), false);
+    case 4 : 
+      var s_22 string = this.EncodeString(node, ctx, wr);
+      wr.out(strings.Join([]string{ (strings.Join([]string{ "\"",s_22 }, "")),"\"" }, ""), false);
+    case 3 : 
+      wr.out(strings.Join([]string{ "",strconv.FormatInt(node.int_value, 10) }, ""), false);
+    case 5 : 
+      if  node.boolean_value {
+        wr.out("true", false);
+      } else {
+        wr.out("false", false);
+      }
+  }
+}
 func (this *RangerPHPClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.vref == "this" {
     wr.out("$this", false);
@@ -14333,53 +15769,53 @@ func (this *RangerPHPClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWrite
   }
   if  node.eval_type == 11 {
     if  (int64(len(node.ns))) > 1 {
-      var rootObjName_12 string = node.ns[0];
-      var enumName_12 string = node.ns[1];
-      var e_18 *GoNullable = new(GoNullable); 
-      e_18 = ctx.getEnum(rootObjName_12);
-      if  e_18.has_value {
-        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_18.value.(*RangerAppEnum).values, enumName_12)).value.(int64)), 10) }, ""), false);
+      var rootObjName_13 string = node.ns[0];
+      var enumName_13 string = node.ns[1];
+      var e_19 *GoNullable = new(GoNullable); 
+      e_19 = ctx.getEnum(rootObjName_13);
+      if  e_19.has_value {
+        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_19.value.(*RangerAppEnum).values, enumName_13)).value.(int64)), 10) }, ""), false);
         return;
       }
     }
   }
   if  (int64(len(node.nsp))) > 0 {
-    var i_150 int64 = 0;  
-    for ; i_150 < int64(len(node.nsp)) ; i_150++ {
-      p_44 := node.nsp[i_150];
-      if  i_150 == 0 {
-        var part_17 string = node.ns[0];
-        if  part_17 == "this" {
+    var i_166 int64 = 0;  
+    for ; i_166 < int64(len(node.nsp)) ; i_166++ {
+      p_48 := node.nsp[i_166];
+      if  i_166 == 0 {
+        var part_19 string = node.ns[0];
+        if  part_19 == "this" {
           wr.out("$this", false);
           continue;
         }
       }
-      if  i_150 > 0 {
+      if  i_166 > 0 {
         wr.out("->", false);
       }
-      if  i_150 == 0 {
+      if  i_166 == 0 {
         wr.out("$", false);
-        if  p_44.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+        if  p_48.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
         }
-        var part_26 string = node.ns[0];
-        if  (part_26 != "this") && ctx.hasCurrentClass() {
+        var part_28 string = node.ns[0];
+        if  (part_28 != "this") && ctx.hasCurrentClass() {
           var uc *GoNullable = new(GoNullable); 
           uc = ctx.getCurrentClass();
           var currC_16 *RangerAppClassDesc = uc.value.(*RangerAppClassDesc);
           var up_9 *GoNullable = new(GoNullable); 
-          up_9 = currC_16.findVariable(part_26);
+          up_9 = currC_16.findVariable(part_28);
           if  up_9.has_value {
             wr.out(strings.Join([]string{ this.thisName,"->" }, ""), false);
           }
         }
       }
-      if  (int64(len(p_44.Get_compiledName()))) > 0 {
-        wr.out(this.adjustType(p_44.Get_compiledName()), false);
+      if  (int64(len(p_48.Get_compiledName()))) > 0 {
+        wr.out(this.adjustType(p_48.Get_compiledName()), false);
       } else {
-        if  (int64(len(p_44.Get_name()))) > 0 {
-          wr.out(this.adjustType(p_44.Get_name()), false);
+        if  (int64(len(p_48.Get_name()))) > 0 {
+          wr.out(this.adjustType(p_48.Get_name()), false);
         } else {
-          wr.out(this.adjustType((node.ns[i_150])), false);
+          wr.out(this.adjustType((node.ns[i_166])), false);
         }
       }
     }
@@ -14387,104 +15823,69 @@ func (this *RangerPHPClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWrite
   }
   if  node.hasParamDesc {
     wr.out("$", false);
-    var part_25 string = node.ns[0];
-    if  (part_25 != "this") && ctx.hasCurrentClass() {
+    var part_27 string = node.ns[0];
+    if  (part_27 != "this") && ctx.hasCurrentClass() {
       var uc_6 *GoNullable = new(GoNullable); 
       uc_6 = ctx.getCurrentClass();
       var currC_21 *RangerAppClassDesc = uc_6.value.(*RangerAppClassDesc);
       var up_14 *GoNullable = new(GoNullable); 
-      up_14 = currC_21.findVariable(part_25);
+      up_14 = currC_21.findVariable(part_27);
       if  up_14.has_value {
         wr.out(strings.Join([]string{ this.thisName,"->" }, ""), false);
       }
     }
-    var p_49 *GoNullable = new(GoNullable); 
-    p_49.value = node.paramDesc.value;
-    p_49.has_value = node.paramDesc.has_value;
-    wr.out(p_49.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    var p_53 *GoNullable = new(GoNullable); 
+    p_53.value = node.paramDesc.value;
+    p_53.has_value = node.paramDesc.has_value;
+    wr.out(p_53.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
     return;
   }
   var b_was_static_5 bool = false;
-  var i_155 int64 = 0;  
-  for ; i_155 < int64(len(node.ns)) ; i_155++ {
-    part_28 := node.ns[i_155];
-    if  i_155 > 0 {
-      if  (i_155 == 1) && b_was_static_5 {
+  var i_171 int64 = 0;  
+  for ; i_171 < int64(len(node.ns)) ; i_171++ {
+    part_30 := node.ns[i_171];
+    if  i_171 > 0 {
+      if  (i_171 == 1) && b_was_static_5 {
         wr.out("::", false);
       } else {
         wr.out("->", false);
       }
     }
-    if  i_155 == 0 {
-      if  ctx.hasClass(part_28) {
+    if  i_171 == 0 {
+      if  ctx.hasClass(part_30) {
         b_was_static_5 = true; 
       } else {
         wr.out("$", false);
       }
-      if  (part_28 != "this") && ctx.hasCurrentClass() {
+      if  (part_30 != "this") && ctx.hasCurrentClass() {
         var uc_9 *GoNullable = new(GoNullable); 
         uc_9 = ctx.getCurrentClass();
         var currC_24 *RangerAppClassDesc = uc_9.value.(*RangerAppClassDesc);
         var up_17 *GoNullable = new(GoNullable); 
-        up_17 = currC_24.findVariable(part_28);
+        up_17 = currC_24.findVariable(part_30);
         if  up_17.has_value {
           wr.out(strings.Join([]string{ this.thisName,"->" }, ""), false);
         }
       }
     }
-    wr.out(this.adjustType(part_28), false);
+    wr.out(this.adjustType(part_30), false);
   }
 }
 func (this *RangerPHPClassWriter) writeVarInitDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasParamDesc {
-    var nn_20 *CodeNode = node.children[1];
-    var p_49 *GoNullable = new(GoNullable); 
-    p_49.value = nn_20.paramDesc.value;
-    p_49.has_value = nn_20.paramDesc.has_value;
-    if  (p_49.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_49.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
-      wr.out("/** unused:  ", false);
-    }
-    wr.out(strings.Join([]string{ "$this->",p_49.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""), false);
-    if  (int64(len(node.children))) > 2 {
-      wr.out(" = ", false);
-      ctx.setInExpr();
-      var value_15 *CodeNode = node.getThird();
-      this.WalkNode(value_15, ctx, wr);
-      ctx.unsetInExpr();
-    } else {
-      if  nn_20.value_type == 6 {
-        wr.out(" = array()", false);
-      }
-      if  nn_20.value_type == 7 {
-        wr.out(" = array()", false);
-      }
-    }
-    if  (p_49.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_49.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
-      wr.out("   **/", true);
-      return;
-    }
-    wr.out(";", false);
-    if  (p_49.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_49.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
-      wr.out("     /** note: unused */", false);
-    }
-    wr.newline();
-  }
-}
-func (this *RangerPHPClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  if  node.hasParamDesc {
     var nn_23 *CodeNode = node.children[1];
-    var p_51 *GoNullable = new(GoNullable); 
-    p_51.value = nn_23.paramDesc.value;
-    p_51.has_value = nn_23.paramDesc.has_value;
-    if  (p_51.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_51.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    var p_53 *GoNullable = new(GoNullable); 
+    p_53.value = nn_23.paramDesc.value;
+    p_53.has_value = nn_23.paramDesc.has_value;
+    if  (p_53.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_53.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("/** unused:  ", false);
     }
-    wr.out(strings.Join([]string{ "$",p_51.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""), false);
+    wr.out(strings.Join([]string{ "$this->",p_53.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""), false);
     if  (int64(len(node.children))) > 2 {
       wr.out(" = ", false);
       ctx.setInExpr();
-      var value_18 *CodeNode = node.getThird();
-      this.WalkNode(value_18, ctx, wr);
+      var value_16 *CodeNode = node.getThird();
+      this.WalkNode(value_16, ctx, wr);
       ctx.unsetInExpr();
     } else {
       if  nn_23.value_type == 6 {
@@ -14494,10 +15895,45 @@ func (this *RangerPHPClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWri
         wr.out(" = array()", false);
       }
     }
-    if  (p_51.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_51.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
+    if  (p_53.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_53.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+      wr.out("   **/", true);
+      return;
+    }
+    wr.out(";", false);
+    if  (p_53.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_53.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
       wr.out("     /** note: unused */", false);
     }
-    if  (p_51.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_51.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    wr.newline();
+  }
+}
+func (this *RangerPHPClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
+  if  node.hasParamDesc {
+    var nn_26 *CodeNode = node.children[1];
+    var p_55 *GoNullable = new(GoNullable); 
+    p_55.value = nn_26.paramDesc.value;
+    p_55.has_value = nn_26.paramDesc.has_value;
+    if  (p_55.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_55.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+      wr.out("/** unused:  ", false);
+    }
+    wr.out(strings.Join([]string{ "$",p_55.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""), false);
+    if  (int64(len(node.children))) > 2 {
+      wr.out(" = ", false);
+      ctx.setInExpr();
+      var value_19 *CodeNode = node.getThird();
+      this.WalkNode(value_19, ctx, wr);
+      ctx.unsetInExpr();
+    } else {
+      if  nn_26.value_type == 6 {
+        wr.out(" = array()", false);
+      }
+      if  nn_26.value_type == 7 {
+        wr.out(" = array()", false);
+      }
+    }
+    if  (p_55.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_55.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
+      wr.out("     /** note: unused */", false);
+    }
+    if  (p_55.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_55.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("   **/ ;", true);
     } else {
       wr.out(";", false);
@@ -14507,49 +15943,49 @@ func (this *RangerPHPClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWri
 }
 func (this *RangerPHPClassWriter) writeClassVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasParamDesc {
-    var nn_25 *CodeNode = node.children[1];
-    var p_53 *GoNullable = new(GoNullable); 
-    p_53.value = nn_25.paramDesc.value;
-    p_53.has_value = nn_25.paramDesc.has_value;
-    wr.out(strings.Join([]string{ (strings.Join([]string{ "var $",p_53.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, "")),";" }, ""), true);
+    var nn_28 *CodeNode = node.children[1];
+    var p_57 *GoNullable = new(GoNullable); 
+    p_57.value = nn_28.paramDesc.value;
+    p_57.has_value = nn_28.paramDesc.has_value;
+    wr.out(strings.Join([]string{ (strings.Join([]string{ "var $",p_57.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, "")),";" }, ""), true);
   }
 }
 func (this *RangerPHPClassWriter) writeArgsDef (fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_155 int64 = 0;  
-  for ; i_155 < int64(len(fnDesc.params)) ; i_155++ {
-    arg_27 := fnDesc.params[i_155];
-    if  i_155 > 0 {
+  var i_171 int64 = 0;  
+  for ; i_171 < int64(len(fnDesc.params)) ; i_171++ {
+    arg_30 := fnDesc.params[i_171];
+    if  i_171 > 0 {
       wr.out(",", false);
     }
-    wr.out(strings.Join([]string{ (strings.Join([]string{ " $",arg_27.Get_name() }, ""))," " }, ""), false);
+    wr.out(strings.Join([]string{ (strings.Join([]string{ " $",arg_30.Get_name() }, ""))," " }, ""), false);
   }
 }
 func (this *RangerPHPClassWriter) writeFnCall (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasFnCall {
-    var fc_33 *CodeNode = node.getFirst();
-    this.WriteVRef(fc_33, ctx, wr);
+    var fc_36 *CodeNode = node.getFirst();
+    this.WriteVRef(fc_36, ctx, wr);
     wr.out("(", false);
-    var givenArgs_9 *CodeNode = node.getSecond();
+    var givenArgs_11 *CodeNode = node.getSecond();
     ctx.setInExpr();
-    var i_157 int64 = 0;  
-    for ; i_157 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_157++ {
-      arg_30 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_157];
-      if  i_157 > 0 {
+    var i_173 int64 = 0;  
+    for ; i_173 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_173++ {
+      arg_33 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_173];
+      if  i_173 > 0 {
         wr.out(", ", false);
       }
-      if  (int64(len(givenArgs_9.children))) <= i_157 {
-        var defVal_4 *GoNullable = new(GoNullable); 
-        defVal_4 = arg_30.Get_nameNode().value.(*CodeNode).getFlag("default");
-        if  defVal_4.has_value {
-          var fc_44 *CodeNode = defVal_4.value.(*CodeNode).vref_annotation.value.(*CodeNode).getFirst();
-          this.WalkNode(fc_44, ctx, wr);
+      if  (int64(len(givenArgs_11.children))) <= i_173 {
+        var defVal_5 *GoNullable = new(GoNullable); 
+        defVal_5 = arg_33.Get_nameNode().value.(*CodeNode).getFlag("default");
+        if  defVal_5.has_value {
+          var fc_47 *CodeNode = defVal_5.value.(*CodeNode).vref_annotation.value.(*CodeNode).getFirst();
+          this.WalkNode(fc_47, ctx, wr);
         } else {
           ctx.addError(node, "Default argument was missing");
         }
         continue;
       }
-      var n_15 *CodeNode = givenArgs_9.children[i_157];
-      this.WalkNode(n_15, ctx, wr);
+      var n_17 *CodeNode = givenArgs_11.children[i_173];
+      this.WalkNode(n_17, ctx, wr);
     }
     ctx.unsetInExpr();
     wr.out(")", false);
@@ -14560,27 +15996,27 @@ func (this *RangerPHPClassWriter) writeFnCall (node *CodeNode, ctx *RangerAppWri
 }
 func (this *RangerPHPClassWriter) writeNewCall (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasNewOper {
-    var cl_14 *GoNullable = new(GoNullable); 
-    cl_14.value = node.clDesc.value;
-    cl_14.has_value = node.clDesc.has_value;
-    /** unused:  fc_38*/
+    var cl_17 *GoNullable = new(GoNullable); 
+    cl_17.value = node.clDesc.value;
+    cl_17.has_value = node.clDesc.has_value;
+    /** unused:  fc_41*/
     wr.out(" new ", false);
     wr.out(node.clDesc.value.(*RangerAppClassDesc).name, false);
     wr.out("(", false);
-    var constr_15 *GoNullable = new(GoNullable); 
-    constr_15.value = cl_14.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_15.has_value = cl_14.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    var givenArgs_12 *CodeNode = node.getThird();
-    if  constr_15.has_value {
-      var i_159 int64 = 0;  
-      for ; i_159 < int64(len(constr_15.value.(*RangerAppFunctionDesc).params)) ; i_159++ {
-        arg_32 := constr_15.value.(*RangerAppFunctionDesc).params[i_159];
-        var n_18 *CodeNode = givenArgs_12.children[i_159];
-        if  i_159 > 0 {
+    var constr_19 *GoNullable = new(GoNullable); 
+    constr_19.value = cl_17.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_19.has_value = cl_17.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    var givenArgs_14 *CodeNode = node.getThird();
+    if  constr_19.has_value {
+      var i_175 int64 = 0;  
+      for ; i_175 < int64(len(constr_19.value.(*RangerAppFunctionDesc).params)) ; i_175++ {
+        arg_35 := constr_19.value.(*RangerAppFunctionDesc).params[i_175];
+        var n_20 *CodeNode = givenArgs_14.children[i_175];
+        if  i_175 > 0 {
           wr.out(", ", false);
         }
-        if  true || (arg_32.Get_nameNode().has_value) {
-          this.WalkNode(n_18, ctx, wr);
+        if  true || (arg_35.Get_nameNode().has_value) {
+          this.WalkNode(n_20, ctx, wr);
         }
       }
     }
@@ -14588,153 +16024,125 @@ func (this *RangerPHPClassWriter) writeNewCall (node *CodeNode, ctx *RangerAppWr
   }
 }
 func (this *RangerPHPClassWriter) writeClass (node *CodeNode, ctx *RangerAppWriterContext, orig_wr *CodeWriter) () {
-  var cl_17 *GoNullable = new(GoNullable); 
-  cl_17.value = node.clDesc.value;
-  cl_17.has_value = node.clDesc.has_value;
-  if  !cl_17.has_value  {
+  var cl_20 *GoNullable = new(GoNullable); 
+  cl_20.value = node.clDesc.value;
+  cl_20.has_value = node.clDesc.has_value;
+  if  !cl_20.has_value  {
     return;
   }
-  var wr_10 *CodeWriter = orig_wr;
+  var wr_11 *CodeWriter = orig_wr;
   /** unused:  importFork_5*/
   if  this.wrote_header == false {
-    wr_10.out("<? ", true);
-    wr_10.out("", true);
+    wr_11.out("<? ", true);
+    wr_11.out("", true);
     this.wrote_header = true; 
   }
-  wr_10.out(strings.Join([]string{ "class ",cl_17.value.(*RangerAppClassDesc).name }, ""), false);
-  var parentClass_3 *GoNullable = new(GoNullable); 
-  if  (int64(len(cl_17.value.(*RangerAppClassDesc).extends_classes))) > 0 {
-    wr_10.out(" extends ", false);
-    var i_161 int64 = 0;  
-    for ; i_161 < int64(len(cl_17.value.(*RangerAppClassDesc).extends_classes)) ; i_161++ {
-      pName_8 := cl_17.value.(*RangerAppClassDesc).extends_classes[i_161];
-      wr_10.out(pName_8, false);
-      parentClass_3.value = ctx.findClass(pName_8);
-      parentClass_3.has_value = true; /* detected as non-optional */
+  wr_11.out(strings.Join([]string{ "class ",cl_20.value.(*RangerAppClassDesc).name }, ""), false);
+  var parentClass_4 *GoNullable = new(GoNullable); 
+  if  (int64(len(cl_20.value.(*RangerAppClassDesc).extends_classes))) > 0 {
+    wr_11.out(" extends ", false);
+    var i_177 int64 = 0;  
+    for ; i_177 < int64(len(cl_20.value.(*RangerAppClassDesc).extends_classes)) ; i_177++ {
+      pName_9 := cl_20.value.(*RangerAppClassDesc).extends_classes[i_177];
+      wr_11.out(pName_9, false);
+      parentClass_4.value = ctx.findClass(pName_9);
+      parentClass_4.has_value = true; /* detected as non-optional */
     }
   }
-  wr_10.out(" { ", true);
-  wr_10.indent(1);
-  var i_165 int64 = 0;  
-  for ; i_165 < int64(len(cl_17.value.(*RangerAppClassDesc).variables)) ; i_165++ {
-    pvar_15 := cl_17.value.(*RangerAppClassDesc).variables[i_165];
-    this.writeClassVarDef(pvar_15.Get_node().value.(*CodeNode), ctx, wr_10);
+  wr_11.out(" { ", true);
+  wr_11.indent(1);
+  var i_181 int64 = 0;  
+  for ; i_181 < int64(len(cl_20.value.(*RangerAppClassDesc).variables)) ; i_181++ {
+    pvar_17 := cl_20.value.(*RangerAppClassDesc).variables[i_181];
+    this.writeClassVarDef(pvar_17.Get_node().value.(*CodeNode), ctx, wr_11);
   }
-  wr_10.out("", true);
-  wr_10.out("function __construct(", false);
-  if  cl_17.value.(*RangerAppClassDesc).has_constructor {
-    var constr_18 *RangerAppFunctionDesc = cl_17.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
-    this.writeArgsDef(constr_18, ctx, wr_10);
+  wr_11.out("", true);
+  wr_11.out("function __construct(", false);
+  if  cl_20.value.(*RangerAppClassDesc).has_constructor {
+    var constr_22 *RangerAppFunctionDesc = cl_20.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
+    this.writeArgsDef(constr_22, ctx, wr_11);
   }
-  wr_10.out(" ) {", true);
-  wr_10.indent(1);
-  if ( parentClass_3.has_value) {
-    wr_10.out("parent::__construct();", true);
+  wr_11.out(" ) {", true);
+  wr_11.indent(1);
+  if ( parentClass_4.has_value) {
+    wr_11.out("parent::__construct();", true);
   }
-  var i_168 int64 = 0;  
-  for ; i_168 < int64(len(cl_17.value.(*RangerAppClassDesc).variables)) ; i_168++ {
-    pvar_20 := cl_17.value.(*RangerAppClassDesc).variables[i_168];
-    this.writeVarInitDef(pvar_20.Get_node().value.(*CodeNode), ctx, wr_10);
+  var i_184 int64 = 0;  
+  for ; i_184 < int64(len(cl_20.value.(*RangerAppClassDesc).variables)) ; i_184++ {
+    pvar_22 := cl_20.value.(*RangerAppClassDesc).variables[i_184];
+    this.writeVarInitDef(pvar_22.Get_node().value.(*CodeNode), ctx, wr_11);
   }
-  if  cl_17.value.(*RangerAppClassDesc).has_constructor {
-    var constr_22 *GoNullable = new(GoNullable); 
-    constr_22.value = cl_17.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_22.has_value = cl_17.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    wr_10.newline();
-    var subCtx_39 *RangerAppWriterContext = constr_22.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
-    subCtx_39.is_function = true; 
-    this.WalkNode(constr_22.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_39, wr_10);
+  if  cl_20.value.(*RangerAppClassDesc).has_constructor {
+    var constr_26 *GoNullable = new(GoNullable); 
+    constr_26.value = cl_20.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_26.has_value = cl_20.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    wr_11.newline();
+    var subCtx_43 *RangerAppWriterContext = constr_26.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
+    subCtx_43.is_function = true; 
+    this.WalkNode(constr_26.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_43, wr_11);
   }
-  wr_10.newline();
-  wr_10.indent(-1);
-  wr_10.out("}", true);
-  var i_171 int64 = 0;  
-  for ; i_171 < int64(len(cl_17.value.(*RangerAppClassDesc).static_methods)) ; i_171++ {
-    variant_20 := cl_17.value.(*RangerAppClassDesc).static_methods[i_171];
-    wr_10.out("", true);
-    if  variant_20.nameNode.value.(*CodeNode).hasFlag("main") {
+  wr_11.newline();
+  wr_11.indent(-1);
+  wr_11.out("}", true);
+  var i_187 int64 = 0;  
+  for ; i_187 < int64(len(cl_20.value.(*RangerAppClassDesc).static_methods)) ; i_187++ {
+    variant_25 := cl_20.value.(*RangerAppClassDesc).static_methods[i_187];
+    wr_11.out("", true);
+    if  variant_25.nameNode.value.(*CodeNode).hasFlag("main") {
       continue;
     } else {
-      wr_10.out("public static function ", false);
-      wr_10.out(strings.Join([]string{ variant_20.name,"(" }, ""), false);
-      this.writeArgsDef(variant_20, ctx, wr_10);
-      wr_10.out(") {", true);
+      wr_11.out("public static function ", false);
+      wr_11.out(strings.Join([]string{ variant_25.name,"(" }, ""), false);
+      this.writeArgsDef(variant_25, ctx, wr_11);
+      wr_11.out(") {", true);
     }
-    wr_10.indent(1);
-    wr_10.newline();
-    var subCtx_44 *RangerAppWriterContext = variant_20.fnCtx.value.(*RangerAppWriterContext);
-    subCtx_44.is_function = true; 
-    this.WalkNode(variant_20.fnBody.value.(*CodeNode), subCtx_44, wr_10);
-    wr_10.newline();
-    wr_10.indent(-1);
-    wr_10.out("}", true);
+    wr_11.indent(1);
+    wr_11.newline();
+    var subCtx_48 *RangerAppWriterContext = variant_25.fnCtx.value.(*RangerAppWriterContext);
+    subCtx_48.is_function = true; 
+    this.WalkNode(variant_25.fnBody.value.(*CodeNode), subCtx_48, wr_11);
+    wr_11.newline();
+    wr_11.indent(-1);
+    wr_11.out("}", true);
   }
-  var i_174 int64 = 0;  
-  for ; i_174 < int64(len(cl_17.value.(*RangerAppClassDesc).defined_variants)) ; i_174++ {
-    fnVar_10 := cl_17.value.(*RangerAppClassDesc).defined_variants[i_174];
-    var mVs_10 *GoNullable = new(GoNullable); 
-    mVs_10 = r_get_string_RangerAppMethodVariants(cl_17.value.(*RangerAppClassDesc).method_variants, fnVar_10);
-    var i_181 int64 = 0;  
-    for ; i_181 < int64(len(mVs_10.value.(*RangerAppMethodVariants).variants)) ; i_181++ {
-      variant_25 := mVs_10.value.(*RangerAppMethodVariants).variants[i_181];
-      wr_10.out("", true);
-      wr_10.out(strings.Join([]string{ (strings.Join([]string{ "function ",variant_25.name }, "")),"(" }, ""), false);
-      this.writeArgsDef(variant_25, ctx, wr_10);
-      wr_10.out(") {", true);
-      wr_10.indent(1);
-      wr_10.newline();
-      var subCtx_47 *RangerAppWriterContext = variant_25.fnCtx.value.(*RangerAppWriterContext);
-      subCtx_47.is_function = true; 
-      this.WalkNode(variant_25.fnBody.value.(*CodeNode), subCtx_47, wr_10);
-      wr_10.newline();
-      wr_10.indent(-1);
-      wr_10.out("}", true);
+  var i_190 int64 = 0;  
+  for ; i_190 < int64(len(cl_20.value.(*RangerAppClassDesc).defined_variants)) ; i_190++ {
+    fnVar_12 := cl_20.value.(*RangerAppClassDesc).defined_variants[i_190];
+    var mVs_12 *GoNullable = new(GoNullable); 
+    mVs_12 = r_get_string_RangerAppMethodVariants(cl_20.value.(*RangerAppClassDesc).method_variants, fnVar_12);
+    var i_197 int64 = 0;  
+    for ; i_197 < int64(len(mVs_12.value.(*RangerAppMethodVariants).variants)) ; i_197++ {
+      variant_30 := mVs_12.value.(*RangerAppMethodVariants).variants[i_197];
+      wr_11.out("", true);
+      wr_11.out(strings.Join([]string{ (strings.Join([]string{ "function ",variant_30.name }, "")),"(" }, ""), false);
+      this.writeArgsDef(variant_30, ctx, wr_11);
+      wr_11.out(") {", true);
+      wr_11.indent(1);
+      wr_11.newline();
+      var subCtx_51 *RangerAppWriterContext = variant_30.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_51.is_function = true; 
+      this.WalkNode(variant_30.fnBody.value.(*CodeNode), subCtx_51, wr_11);
+      wr_11.newline();
+      wr_11.indent(-1);
+      wr_11.out("}", true);
     }
   }
-  wr_10.indent(-1);
-  wr_10.out("}", true);
-  var i_180 int64 = 0;  
-  for ; i_180 < int64(len(cl_17.value.(*RangerAppClassDesc).static_methods)) ; i_180++ {
-    variant_28 := cl_17.value.(*RangerAppClassDesc).static_methods[i_180];
+  wr_11.indent(-1);
+  wr_11.out("}", true);
+  var i_196 int64 = 0;  
+  for ; i_196 < int64(len(cl_20.value.(*RangerAppClassDesc).static_methods)) ; i_196++ {
+    variant_33 := cl_20.value.(*RangerAppClassDesc).static_methods[i_196];
     ctx.disableCurrentClass();
-    wr_10.out("", true);
-    if  variant_28.nameNode.value.(*CodeNode).hasFlag("main") {
-      wr_10.out("/* static PHP main routine */", false);
-      wr_10.newline();
-      this.WalkNode(variant_28.fnBody.value.(*CodeNode), ctx, wr_10);
-      wr_10.newline();
+    wr_11.out("", true);
+    if  variant_33.nameNode.value.(*CodeNode).hasFlag("main") {
+      wr_11.out("/* static PHP main routine */", false);
+      wr_11.newline();
+      this.WalkNode(variant_33.fnBody.value.(*CodeNode), ctx, wr_11);
+      wr_11.newline();
     }
   }
 }
 // inherited methods from parent class RangerGenericClassWriter
-func (this *RangerPHPClassWriter) EncodeString (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) string {
-  /** unused:  encoded_str_2*/
-  var str_length_2 int64 = int64(len(node.string_value));
-  var encoded_str_8 string = "";
-  var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
-    switch (cc_4 ) { 
-      case 8 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
-      case 9 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
-      case 10 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
-      case 12 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
-      case 13 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
-      case 34 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
-      case 92 : 
-        encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
-      default: 
-        encoded_str_8 = strings.Join([]string{ encoded_str_8,(string([] byte{byte(cc_4)})) }, ""); 
-    }
-    ii_11 = ii_11 + 1; 
-  }
-  return encoded_str_8;
-}
 func (this *RangerPHPClassWriter) CustomOperator (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
 }
 func (this *RangerPHPClassWriter) WriteSetterVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
@@ -14762,23 +16170,6 @@ func (this *RangerPHPClassWriter) WriteEnum (node *CodeNode, ctx *RangerAppWrite
     }
   }
 }
-func (this *RangerPHPClassWriter) WriteScalarValue (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  switch (node.value_type ) { 
-    case 2 : 
-      wr.out(strings.Join([]string{ "",strconv.FormatFloat(node.double_value,'f', 6, 64) }, ""), false);
-    case 4 : 
-      var s_18 string = this.EncodeString(node, ctx, wr);
-      wr.out(strings.Join([]string{ (strings.Join([]string{ "\"",s_18 }, "")),"\"" }, ""), false);
-    case 3 : 
-      wr.out(strings.Join([]string{ "",strconv.FormatInt(node.int_value, 10) }, ""), false);
-    case 5 : 
-      if  node.boolean_value {
-        wr.out("true", false);
-      } else {
-        wr.out("false", false);
-      }
-  }
-}
 func (this *RangerPHPClassWriter) getTypeString (type_string string) string {
   return type_string;
 }
@@ -14803,9 +16194,9 @@ func (this *RangerPHPClassWriter) getObjectTypeString (type_string string, ctx *
   return type_string;
 }
 func (this *RangerPHPClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(ctx.localVarNames)) ; i_61++ {
-    n_7 := ctx.localVarNames[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
@@ -14910,134 +16301,134 @@ func (this *RangerJavaScriptClassWriter) adjustType (tn string) string {
 func (this *RangerJavaScriptClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.eval_type == 11 {
     if  (int64(len(node.ns))) > 1 {
-      var rootObjName_13 string = node.ns[0];
-      var enumName_13 string = node.ns[1];
-      var e_19 *GoNullable = new(GoNullable); 
-      e_19 = ctx.getEnum(rootObjName_13);
-      if  e_19.has_value {
-        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_19.value.(*RangerAppEnum).values, enumName_13)).value.(int64)), 10) }, ""), false);
+      var rootObjName_14 string = node.ns[0];
+      var enumName_14 string = node.ns[1];
+      var e_20 *GoNullable = new(GoNullable); 
+      e_20 = ctx.getEnum(rootObjName_14);
+      if  e_20.has_value {
+        wr.out(strings.Join([]string{ "",strconv.FormatInt(((r_get_string_int64(e_20.value.(*RangerAppEnum).values, enumName_14)).value.(int64)), 10) }, ""), false);
         return;
       }
     }
   }
   if  (int64(len(node.nsp))) > 0 {
-    var i_162 int64 = 0;  
-    for ; i_162 < int64(len(node.nsp)) ; i_162++ {
-      p_49 := node.nsp[i_162];
-      if  i_162 > 0 {
+    var i_178 int64 = 0;  
+    for ; i_178 < int64(len(node.nsp)) ; i_178++ {
+      p_53 := node.nsp[i_178];
+      if  i_178 > 0 {
         wr.out(".", false);
       }
-      if  i_162 == 0 {
-        if  p_49.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
+      if  i_178 == 0 {
+        if  p_53.Get_nameNode().value.(*CodeNode).hasFlag("optional") {
         }
-        var part_21 string = node.ns[0];
-        if  (part_21 != "this") && ctx.isMemberVariable(part_21) {
+        var part_23 string = node.ns[0];
+        if  (part_23 != "this") && ctx.isMemberVariable(part_23) {
           var uc_4 *GoNullable = new(GoNullable); 
           uc_4 = ctx.getCurrentClass();
           var currC_19 *RangerAppClassDesc = uc_4.value.(*RangerAppClassDesc);
           var up_12 *GoNullable = new(GoNullable); 
-          up_12 = currC_19.findVariable(part_21);
+          up_12 = currC_19.findVariable(part_23);
           if  up_12.has_value {
             wr.out("this.", false);
           }
         }
-        if  part_21 == "this" {
+        if  part_23 == "this" {
           wr.out("this", false);
           continue;
         }
       }
-      if  (int64(len(p_49.Get_compiledName()))) > 0 {
-        wr.out(this.adjustType(p_49.Get_compiledName()), false);
+      if  (int64(len(p_53.Get_compiledName()))) > 0 {
+        wr.out(this.adjustType(p_53.Get_compiledName()), false);
       } else {
-        if  (int64(len(p_49.Get_name()))) > 0 {
-          wr.out(this.adjustType(p_49.Get_name()), false);
+        if  (int64(len(p_53.Get_name()))) > 0 {
+          wr.out(this.adjustType(p_53.Get_name()), false);
         } else {
-          wr.out(this.adjustType((node.ns[i_162])), false);
+          wr.out(this.adjustType((node.ns[i_178])), false);
         }
       }
     }
     return;
   }
   if  node.hasParamDesc {
-    var part_26 string = node.ns[0];
-    if  (part_26 != "this") && ctx.isMemberVariable(part_26) {
+    var part_28 string = node.ns[0];
+    if  (part_28 != "this") && ctx.isMemberVariable(part_28) {
       var uc_9 *GoNullable = new(GoNullable); 
       uc_9 = ctx.getCurrentClass();
       var currC_24 *RangerAppClassDesc = uc_9.value.(*RangerAppClassDesc);
       var up_17 *GoNullable = new(GoNullable); 
-      up_17 = currC_24.findVariable(part_26);
+      up_17 = currC_24.findVariable(part_28);
       if  up_17.has_value {
         wr.out("this.", false);
       }
     }
-    var p_54 *GoNullable = new(GoNullable); 
-    p_54.value = node.paramDesc.value;
-    p_54.has_value = node.paramDesc.has_value;
-    wr.out(p_54.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
+    var p_58 *GoNullable = new(GoNullable); 
+    p_58.value = node.paramDesc.value;
+    p_58.has_value = node.paramDesc.has_value;
+    wr.out(p_58.value.(IFACE_RangerAppParamDesc).Get_compiledName(), false);
     return;
   }
   var b_was_static_6 bool = false;
-  var i_167 int64 = 0;  
-  for ; i_167 < int64(len(node.ns)) ; i_167++ {
-    part_29 := node.ns[i_167];
-    if  i_167 > 0 {
-      if  (i_167 == 1) && b_was_static_6 {
+  var i_183 int64 = 0;  
+  for ; i_183 < int64(len(node.ns)) ; i_183++ {
+    part_31 := node.ns[i_183];
+    if  i_183 > 0 {
+      if  (i_183 == 1) && b_was_static_6 {
         wr.out(".", false);
       } else {
         wr.out(".", false);
       }
     }
-    if  i_167 == 0 {
-      if  ctx.hasClass(part_29) {
+    if  i_183 == 0 {
+      if  ctx.hasClass(part_31) {
         b_was_static_6 = true; 
       } else {
         wr.out("", false);
       }
-      if  (part_29 != "this") && ctx.isMemberVariable(part_29) {
+      if  (part_31 != "this") && ctx.isMemberVariable(part_31) {
         var uc_12 *GoNullable = new(GoNullable); 
         uc_12 = ctx.getCurrentClass();
         var currC_27 *RangerAppClassDesc = uc_12.value.(*RangerAppClassDesc);
         var up_20 *GoNullable = new(GoNullable); 
-        up_20 = currC_27.findVariable(part_29);
+        up_20 = currC_27.findVariable(part_31);
         if  up_20.has_value {
           wr.out("this.", false);
         }
       }
     }
-    wr.out(this.adjustType(part_29), false);
+    wr.out(this.adjustType(part_31), false);
   }
 }
 func (this *RangerJavaScriptClassWriter) writeVarInitDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasParamDesc {
-    var nn_23 *CodeNode = node.children[1];
-    var p_54 *GoNullable = new(GoNullable); 
-    p_54.value = nn_23.paramDesc.value;
-    p_54.has_value = nn_23.paramDesc.has_value;
+    var nn_26 *CodeNode = node.children[1];
+    var p_58 *GoNullable = new(GoNullable); 
+    p_58.value = nn_26.paramDesc.value;
+    p_58.has_value = nn_26.paramDesc.has_value;
     var remove_unused bool = ctx.hasCompilerFlag("remove-unused-class-vars");
-    if  (p_54.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (remove_unused || (p_54.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false)) {
+    if  (p_58.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (remove_unused || (p_58.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false)) {
       wr.out("/** unused:  ", false);
     }
-    wr.out(strings.Join([]string{ "this.",p_54.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""), false);
+    wr.out(strings.Join([]string{ "this.",p_58.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""), false);
     if  (int64(len(node.children))) > 2 {
       wr.out(" = ", false);
       ctx.setInExpr();
-      var value_17 *CodeNode = node.getThird();
-      this.WalkNode(value_17, ctx, wr);
+      var value_18 *CodeNode = node.getThird();
+      this.WalkNode(value_18, ctx, wr);
       ctx.unsetInExpr();
     } else {
-      if  nn_23.value_type == 6 {
+      if  nn_26.value_type == 6 {
         wr.out(" = []", false);
       }
-      if  nn_23.value_type == 7 {
+      if  nn_26.value_type == 7 {
         wr.out(" = {}", false);
       }
     }
-    if  (p_54.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (remove_unused || (p_54.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false)) {
+    if  (p_58.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (remove_unused || (p_58.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false)) {
       wr.out("   **/", true);
       return;
     }
     wr.out(";", false);
-    if  (p_54.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_54.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
+    if  (p_58.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_58.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
       wr.out("     /** note: unused */", false);
     }
     wr.newline();
@@ -15045,33 +16436,33 @@ func (this *RangerJavaScriptClassWriter) writeVarInitDef (node *CodeNode, ctx *R
 }
 func (this *RangerJavaScriptClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasParamDesc {
-    var nn_26 *CodeNode = node.children[1];
-    var p_56 *GoNullable = new(GoNullable); 
-    p_56.value = nn_26.paramDesc.value;
-    p_56.has_value = nn_26.paramDesc.has_value;
+    var nn_29 *CodeNode = node.children[1];
+    var p_60 *GoNullable = new(GoNullable); 
+    p_60.value = nn_29.paramDesc.value;
+    p_60.has_value = nn_29.paramDesc.has_value;
     /** unused:  opt_js*/
-    if  (p_56.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_56.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    if  (p_60.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_60.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("/** unused:  ", false);
     }
-    wr.out(strings.Join([]string{ "var ",p_56.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""), false);
+    wr.out(strings.Join([]string{ "var ",p_60.value.(IFACE_RangerAppParamDesc).Get_compiledName() }, ""), false);
     if  (int64(len(node.children))) > 2 {
       wr.out(" = ", false);
       ctx.setInExpr();
-      var value_20 *CodeNode = node.getThird();
-      this.WalkNode(value_20, ctx, wr);
+      var value_21 *CodeNode = node.getThird();
+      this.WalkNode(value_21, ctx, wr);
       ctx.unsetInExpr();
     } else {
-      if  nn_26.value_type == 6 {
+      if  nn_29.value_type == 6 {
         wr.out(" = []", false);
       }
-      if  nn_26.value_type == 7 {
+      if  nn_29.value_type == 7 {
         wr.out(" = []", false);
       }
     }
-    if  (p_56.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_56.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
+    if  (p_60.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_60.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == true) {
       wr.out("     /** note: unused */", false);
     }
-    if  (p_56.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_56.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
+    if  (p_60.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0) && (p_60.value.(IFACE_RangerAppParamDesc).Get_is_class_variable() == false) {
       wr.out("   **/ ", true);
     } else {
       wr.out("", false);
@@ -15082,128 +16473,128 @@ func (this *RangerJavaScriptClassWriter) writeVarDef (node *CodeNode, ctx *Range
 func (this *RangerJavaScriptClassWriter) writeClassVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
 }
 func (this *RangerJavaScriptClassWriter) writeArgsDef (fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_167 int64 = 0;  
-  for ; i_167 < int64(len(fnDesc.params)) ; i_167++ {
-    arg_30 := fnDesc.params[i_167];
-    if  i_167 > 0 {
+  var i_183 int64 = 0;  
+  for ; i_183 < int64(len(fnDesc.params)) ; i_183++ {
+    arg_33 := fnDesc.params[i_183];
+    if  i_183 > 0 {
       wr.out(",", false);
     }
-    wr.out(strings.Join([]string{ arg_30.Get_name()," " }, ""), false);
+    wr.out(strings.Join([]string{ arg_33.Get_name()," " }, ""), false);
   }
 }
 func (this *RangerJavaScriptClassWriter) writeClass (node *CodeNode, ctx *RangerAppWriterContext, orig_wr *CodeWriter) () {
-  var cl_16 *GoNullable = new(GoNullable); 
-  cl_16.value = node.clDesc.value;
-  cl_16.has_value = node.clDesc.has_value;
-  if  !cl_16.has_value  {
+  var cl_19 *GoNullable = new(GoNullable); 
+  cl_19.value = node.clDesc.value;
+  cl_19.has_value = node.clDesc.has_value;
+  if  !cl_19.has_value  {
     return;
   }
-  var wr_11 *CodeWriter = orig_wr;
+  var wr_12 *CodeWriter = orig_wr;
   /** unused:  importFork_6*/
   if  this.wrote_header == false {
-    wr_11.out("", true);
+    wr_12.out("", true);
     this.wrote_header = true; 
   }
   var b_extd bool = false;
-  wr_11.out(strings.Join([]string{ (strings.Join([]string{ "class ",cl_16.value.(*RangerAppClassDesc).name }, ""))," " }, ""), false);
-  var i_169 int64 = 0;  
-  for ; i_169 < int64(len(cl_16.value.(*RangerAppClassDesc).extends_classes)) ; i_169++ {
-    pName_9 := cl_16.value.(*RangerAppClassDesc).extends_classes[i_169];
-    if  i_169 == 0 {
-      wr_11.out(" extends ", false);
+  wr_12.out(strings.Join([]string{ (strings.Join([]string{ "class ",cl_19.value.(*RangerAppClassDesc).name }, ""))," " }, ""), false);
+  var i_185 int64 = 0;  
+  for ; i_185 < int64(len(cl_19.value.(*RangerAppClassDesc).extends_classes)) ; i_185++ {
+    pName_10 := cl_19.value.(*RangerAppClassDesc).extends_classes[i_185];
+    if  i_185 == 0 {
+      wr_12.out(" extends ", false);
     }
-    wr_11.out(pName_9, false);
+    wr_12.out(pName_10, false);
     b_extd = true; 
   }
-  wr_11.out(" {", true);
-  wr_11.indent(1);
-  var i_173 int64 = 0;  
-  for ; i_173 < int64(len(cl_16.value.(*RangerAppClassDesc).variables)) ; i_173++ {
-    pvar_17 := cl_16.value.(*RangerAppClassDesc).variables[i_173];
-    this.writeClassVarDef(pvar_17.Get_node().value.(*CodeNode), ctx, wr_11);
+  wr_12.out(" {", true);
+  wr_12.indent(1);
+  var i_189 int64 = 0;  
+  for ; i_189 < int64(len(cl_19.value.(*RangerAppClassDesc).variables)) ; i_189++ {
+    pvar_19 := cl_19.value.(*RangerAppClassDesc).variables[i_189];
+    this.writeClassVarDef(pvar_19.Get_node().value.(*CodeNode), ctx, wr_12);
   }
-  wr_11.out("", true);
-  wr_11.out("constructor(", false);
-  if  cl_16.value.(*RangerAppClassDesc).has_constructor {
-    var constr_18 *RangerAppFunctionDesc = cl_16.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
-    this.writeArgsDef(constr_18, ctx, wr_11);
+  wr_12.out("", true);
+  wr_12.out("constructor(", false);
+  if  cl_19.value.(*RangerAppClassDesc).has_constructor {
+    var constr_22 *RangerAppFunctionDesc = cl_19.value.(*RangerAppClassDesc).constructor_fn.value.(*RangerAppFunctionDesc);
+    this.writeArgsDef(constr_22, ctx, wr_12);
   }
-  wr_11.out(" ) {", true);
-  wr_11.indent(1);
+  wr_12.out(" ) {", true);
+  wr_12.indent(1);
   if  b_extd {
-    wr_11.out("super()", true);
+    wr_12.out("super()", true);
   }
-  var i_176 int64 = 0;  
-  for ; i_176 < int64(len(cl_16.value.(*RangerAppClassDesc).variables)) ; i_176++ {
-    pvar_22 := cl_16.value.(*RangerAppClassDesc).variables[i_176];
-    this.writeVarInitDef(pvar_22.Get_node().value.(*CodeNode), ctx, wr_11);
+  var i_192 int64 = 0;  
+  for ; i_192 < int64(len(cl_19.value.(*RangerAppClassDesc).variables)) ; i_192++ {
+    pvar_24 := cl_19.value.(*RangerAppClassDesc).variables[i_192];
+    this.writeVarInitDef(pvar_24.Get_node().value.(*CodeNode), ctx, wr_12);
   }
-  if  cl_16.value.(*RangerAppClassDesc).has_constructor {
-    var constr_23 *GoNullable = new(GoNullable); 
-    constr_23.value = cl_16.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_23.has_value = cl_16.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    wr_11.newline();
-    var subCtx_42 *RangerAppWriterContext = constr_23.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
-    subCtx_42.is_function = true; 
-    this.WalkNode(constr_23.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_42, wr_11);
+  if  cl_19.value.(*RangerAppClassDesc).has_constructor {
+    var constr_27 *GoNullable = new(GoNullable); 
+    constr_27.value = cl_19.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_27.has_value = cl_19.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    wr_12.newline();
+    var subCtx_46 *RangerAppWriterContext = constr_27.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
+    subCtx_46.is_function = true; 
+    this.WalkNode(constr_27.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_46, wr_12);
   }
-  wr_11.newline();
-  wr_11.indent(-1);
-  wr_11.out("}", true);
-  var i_179 int64 = 0;  
-  for ; i_179 < int64(len(cl_16.value.(*RangerAppClassDesc).defined_variants)) ; i_179++ {
-    fnVar_11 := cl_16.value.(*RangerAppClassDesc).defined_variants[i_179];
-    var mVs_11 *GoNullable = new(GoNullable); 
-    mVs_11 = r_get_string_RangerAppMethodVariants(cl_16.value.(*RangerAppClassDesc).method_variants, fnVar_11);
-    var i_186 int64 = 0;  
-    for ; i_186 < int64(len(mVs_11.value.(*RangerAppMethodVariants).variants)) ; i_186++ {
-      variant_23 := mVs_11.value.(*RangerAppMethodVariants).variants[i_186];
-      wr_11.out("", true);
-      wr_11.out(strings.Join([]string{ (strings.Join([]string{ "",variant_23.name }, "")),"(" }, ""), false);
-      this.writeArgsDef(variant_23, ctx, wr_11);
-      wr_11.out(") {", true);
-      wr_11.indent(1);
-      wr_11.newline();
-      var subCtx_47 *RangerAppWriterContext = variant_23.fnCtx.value.(*RangerAppWriterContext);
-      subCtx_47.is_function = true; 
-      this.WalkNode(variant_23.fnBody.value.(*CodeNode), subCtx_47, wr_11);
-      wr_11.newline();
-      wr_11.indent(-1);
-      wr_11.out("}", true);
+  wr_12.newline();
+  wr_12.indent(-1);
+  wr_12.out("}", true);
+  var i_195 int64 = 0;  
+  for ; i_195 < int64(len(cl_19.value.(*RangerAppClassDesc).defined_variants)) ; i_195++ {
+    fnVar_13 := cl_19.value.(*RangerAppClassDesc).defined_variants[i_195];
+    var mVs_13 *GoNullable = new(GoNullable); 
+    mVs_13 = r_get_string_RangerAppMethodVariants(cl_19.value.(*RangerAppClassDesc).method_variants, fnVar_13);
+    var i_202 int64 = 0;  
+    for ; i_202 < int64(len(mVs_13.value.(*RangerAppMethodVariants).variants)) ; i_202++ {
+      variant_28 := mVs_13.value.(*RangerAppMethodVariants).variants[i_202];
+      wr_12.out("", true);
+      wr_12.out(strings.Join([]string{ (strings.Join([]string{ "",variant_28.name }, "")),"(" }, ""), false);
+      this.writeArgsDef(variant_28, ctx, wr_12);
+      wr_12.out(") {", true);
+      wr_12.indent(1);
+      wr_12.newline();
+      var subCtx_51 *RangerAppWriterContext = variant_28.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_51.is_function = true; 
+      this.WalkNode(variant_28.fnBody.value.(*CodeNode), subCtx_51, wr_12);
+      wr_12.newline();
+      wr_12.indent(-1);
+      wr_12.out("}", true);
     }
   }
-  wr_11.indent(-1);
-  wr_11.out("}", true);
-  var i_185 int64 = 0;  
-  for ; i_185 < int64(len(cl_16.value.(*RangerAppClassDesc).static_methods)) ; i_185++ {
-    variant_28 := cl_16.value.(*RangerAppClassDesc).static_methods[i_185];
-    wr_11.out("", true);
-    if  variant_28.nameNode.value.(*CodeNode).hasFlag("main") {
+  wr_12.indent(-1);
+  wr_12.out("}", true);
+  var i_201 int64 = 0;  
+  for ; i_201 < int64(len(cl_19.value.(*RangerAppClassDesc).static_methods)) ; i_201++ {
+    variant_33 := cl_19.value.(*RangerAppClassDesc).static_methods[i_201];
+    wr_12.out("", true);
+    if  variant_33.nameNode.value.(*CodeNode).hasFlag("main") {
       continue;
     } else {
-      wr_11.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ cl_16.value.(*RangerAppClassDesc).name,"." }, "")),variant_28.name }, ""))," = function(" }, ""), false);
-      this.writeArgsDef(variant_28, ctx, wr_11);
-      wr_11.out(") {", true);
+      wr_12.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ cl_19.value.(*RangerAppClassDesc).name,"." }, "")),variant_33.name }, ""))," = function(" }, ""), false);
+      this.writeArgsDef(variant_33, ctx, wr_12);
+      wr_12.out(") {", true);
     }
-    wr_11.indent(1);
-    wr_11.newline();
-    var subCtx_50 *RangerAppWriterContext = variant_28.fnCtx.value.(*RangerAppWriterContext);
-    subCtx_50.is_function = true; 
-    this.WalkNode(variant_28.fnBody.value.(*CodeNode), subCtx_50, wr_11);
-    wr_11.newline();
-    wr_11.indent(-1);
-    wr_11.out("}", true);
+    wr_12.indent(1);
+    wr_12.newline();
+    var subCtx_54 *RangerAppWriterContext = variant_33.fnCtx.value.(*RangerAppWriterContext);
+    subCtx_54.is_function = true; 
+    this.WalkNode(variant_33.fnBody.value.(*CodeNode), subCtx_54, wr_12);
+    wr_12.newline();
+    wr_12.indent(-1);
+    wr_12.out("}", true);
   }
-  var i_188 int64 = 0;  
-  for ; i_188 < int64(len(cl_16.value.(*RangerAppClassDesc).static_methods)) ; i_188++ {
-    variant_31 := cl_16.value.(*RangerAppClassDesc).static_methods[i_188];
+  var i_204 int64 = 0;  
+  for ; i_204 < int64(len(cl_19.value.(*RangerAppClassDesc).static_methods)) ; i_204++ {
+    variant_36 := cl_19.value.(*RangerAppClassDesc).static_methods[i_204];
     ctx.disableCurrentClass();
-    wr_11.out("", true);
-    if  variant_31.nameNode.value.(*CodeNode).hasFlag("main") {
-      wr_11.out("/* static JavaSript main routine */", false);
-      wr_11.newline();
-      this.WalkNode(variant_31.fnBody.value.(*CodeNode), ctx, wr_11);
-      wr_11.newline();
+    wr_12.out("", true);
+    if  variant_36.nameNode.value.(*CodeNode).hasFlag("main") {
+      wr_12.out("/* static JavaSript main routine */", false);
+      wr_12.newline();
+      this.WalkNode(variant_36.fnBody.value.(*CodeNode), ctx, wr_12);
+      wr_12.newline();
     }
   }
 }
@@ -15213,7 +16604,8 @@ func (this *RangerJavaScriptClassWriter) EncodeString (node *CodeNode, ctx *Rang
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
+  for ii_11 < str_length_2 {
+    var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
         encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
@@ -15304,9 +16696,9 @@ func (this *RangerJavaScriptClassWriter) getObjectTypeString (type_string string
   return type_string;
 }
 func (this *RangerJavaScriptClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(ctx.localVarNames)) ; i_61++ {
-    n_7 := ctx.localVarNames[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
@@ -15354,13 +16746,13 @@ func (this *RangerJavaScriptClassWriter) writeFnCall (node *CodeNode, ctx *Range
     wr.out("(", false);
     var givenArgs_2 *CodeNode = node.getSecond();
     ctx.setInExpr();
-    var i_68 int64 = 0;  
-    for ; i_68 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_68++ {
-      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_68];
-      if  i_68 > 0 {
+    var i_69 int64 = 0;  
+    for ; i_69 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_69++ {
+      arg_12 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_69];
+      if  i_69 > 0 {
         wr.out(", ", false);
       }
-      if  (int64(len(givenArgs_2.children))) <= i_68 {
+      if  (int64(len(givenArgs_2.children))) <= i_69 {
         var defVal *GoNullable = new(GoNullable); 
         defVal = arg_12.Get_nameNode().value.(*CodeNode).getFlag("default");
         if  defVal.has_value {
@@ -15371,7 +16763,7 @@ func (this *RangerJavaScriptClassWriter) writeFnCall (node *CodeNode, ctx *Range
         }
         continue;
       }
-      var n_10 *CodeNode = givenArgs_2.children[i_68];
+      var n_10 *CodeNode = givenArgs_2.children[i_69];
       this.WalkNode(n_10, ctx, wr);
     }
     ctx.unsetInExpr();
@@ -15394,11 +16786,11 @@ func (this *RangerJavaScriptClassWriter) writeNewCall (node *CodeNode, ctx *Rang
     constr.has_value = cl_2.value.(*RangerAppClassDesc).constructor_fn.has_value;
     var givenArgs_5 *CodeNode = node.getThird();
     if  constr.has_value {
-      var i_70 int64 = 0;  
-      for ; i_70 < int64(len(constr.value.(*RangerAppFunctionDesc).params)) ; i_70++ {
-        arg_15 := constr.value.(*RangerAppFunctionDesc).params[i_70];
-        var n_12 *CodeNode = givenArgs_5.children[i_70];
-        if  i_70 > 0 {
+      var i_71 int64 = 0;  
+      for ; i_71 < int64(len(constr.value.(*RangerAppFunctionDesc).params)) ; i_71++ {
+        arg_15 := constr.value.(*RangerAppFunctionDesc).params[i_71];
+        var n_12 *CodeNode = givenArgs_5.children[i_71];
+        if  i_71 > 0 {
           wr.out(", ", false);
         }
         if  true || (arg_15.Get_nameNode().has_value) {
@@ -15473,45 +16865,45 @@ func (this *RangerRangerClassWriter) getTypeString (type_string string) string {
   return type_string;
 }
 func (this *RangerRangerClassWriter) writeTypeDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var v_type_9 int64 = node.value_type;
-  var t_name_3 string = node.type_name;
-  var a_name_5 string = node.array_type;
-  var k_name_3 string = node.key_type;
-  if  ((v_type_9 == 8) || (v_type_9 == 9)) || (v_type_9 == 0) {
-    v_type_9 = node.typeNameAsType(ctx); 
+  var v_type_10 int64 = node.value_type;
+  var t_name_4 string = node.type_name;
+  var a_name_6 string = node.array_type;
+  var k_name_4 string = node.key_type;
+  if  ((v_type_10 == 8) || (v_type_10 == 9)) || (v_type_10 == 0) {
+    v_type_10 = node.typeNameAsType(ctx); 
   }
   if  node.eval_type != 0 {
-    v_type_9 = node.eval_type; 
+    v_type_10 = node.eval_type; 
     if  (int64(len(node.eval_type_name))) > 0 {
-      t_name_3 = node.eval_type_name; 
+      t_name_4 = node.eval_type_name; 
     }
     if  (int64(len(node.eval_array_type))) > 0 {
-      a_name_5 = node.eval_array_type; 
+      a_name_6 = node.eval_array_type; 
     }
     if  (int64(len(node.eval_key_type))) > 0 {
-      k_name_3 = node.eval_key_type; 
+      k_name_4 = node.eval_key_type; 
     }
   }
-  if  v_type_9 == 7 {
-    wr.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "[",k_name_3 }, "")),":" }, "")),a_name_5 }, "")),"]" }, ""), false);
+  if  v_type_10 == 7 {
+    wr.out(strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ (strings.Join([]string{ "[",k_name_4 }, "")),":" }, "")),a_name_6 }, "")),"]" }, ""), false);
     return;
   }
-  if  v_type_9 == 6 {
-    wr.out(strings.Join([]string{ (strings.Join([]string{ "[",a_name_5 }, "")),"]" }, ""), false);
+  if  v_type_10 == 6 {
+    wr.out(strings.Join([]string{ (strings.Join([]string{ "[",a_name_6 }, "")),"]" }, ""), false);
     return;
   }
-  wr.out(t_name_3, false);
+  wr.out(t_name_4, false);
 }
 func (this *RangerRangerClassWriter) WriteVRef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   wr.out(node.vref, false);
 }
 func (this *RangerRangerClassWriter) WriteVRefWithOpt (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   wr.out(node.vref, false);
-  var flags []string = []string{"optional","weak","strong","temp","lives","returns"};
+  var flags []string = []string{"optional","weak","strong","temp","lives","returns","returnvalue"};
   var some_set bool = false;
-  var i_172 int64 = 0;  
-  for ; i_172 < int64(len(flags)) ; i_172++ {
-    flag_2 := flags[i_172];
+  var i_188 int64 = 0;  
+  for ; i_188 < int64(len(flags)) ; i_188++ {
+    flag_2 := flags[i_188];
     if  node.hasFlag(flag_2) {
       if  false == some_set {
         wr.out("@(", false);
@@ -15528,19 +16920,19 @@ func (this *RangerRangerClassWriter) WriteVRefWithOpt (node *CodeNode, ctx *Rang
 }
 func (this *RangerRangerClassWriter) writeVarDef (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasParamDesc {
-    var nn_25 *CodeNode = node.children[1];
-    var p_53 *GoNullable = new(GoNullable); 
-    p_53.value = nn_25.paramDesc.value;
-    p_53.has_value = nn_25.paramDesc.has_value;
+    var nn_28 *CodeNode = node.children[1];
+    var p_57 *GoNullable = new(GoNullable); 
+    p_57.value = nn_28.paramDesc.value;
+    p_57.has_value = nn_28.paramDesc.has_value;
     wr.out("def ", false);
-    this.WriteVRefWithOpt(nn_25, ctx, wr);
+    this.WriteVRefWithOpt(nn_28, ctx, wr);
     wr.out(":", false);
-    this.writeTypeDef(p_53.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+    this.writeTypeDef(p_57.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
     if  (int64(len(node.children))) > 2 {
       wr.out(" ", false);
       ctx.setInExpr();
-      var value_19 *CodeNode = node.getThird();
-      this.WalkNode(value_19, ctx, wr);
+      var value_20 *CodeNode = node.getThird();
+      this.WalkNode(value_20, ctx, wr);
       ctx.unsetInExpr();
     }
     wr.newline();
@@ -15551,30 +16943,30 @@ func (this *RangerRangerClassWriter) writeFnCall (node *CodeNode, ctx *RangerApp
     if  ctx.expressionLevel() > 0 {
       wr.out("(", false);
     }
-    var fc_36 *CodeNode = node.getFirst();
-    this.WriteVRef(fc_36, ctx, wr);
+    var fc_39 *CodeNode = node.getFirst();
+    this.WriteVRef(fc_39, ctx, wr);
     wr.out("(", false);
-    var givenArgs_11 *CodeNode = node.getSecond();
+    var givenArgs_13 *CodeNode = node.getSecond();
     ctx.setInExpr();
-    var i_175 int64 = 0;  
-    for ; i_175 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_175++ {
-      arg_31 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_175];
-      if  i_175 > 0 {
+    var i_191 int64 = 0;  
+    for ; i_191 < int64(len(node.fnDesc.value.(*RangerAppFunctionDesc).params)) ; i_191++ {
+      arg_34 := node.fnDesc.value.(*RangerAppFunctionDesc).params[i_191];
+      if  i_191 > 0 {
         wr.out(", ", false);
       }
-      if  (int64(len(givenArgs_11.children))) <= i_175 {
-        var defVal_5 *GoNullable = new(GoNullable); 
-        defVal_5 = arg_31.Get_nameNode().value.(*CodeNode).getFlag("default");
-        if  defVal_5.has_value {
-          var fc_47 *CodeNode = defVal_5.value.(*CodeNode).vref_annotation.value.(*CodeNode).getFirst();
-          this.WalkNode(fc_47, ctx, wr);
+      if  (int64(len(givenArgs_13.children))) <= i_191 {
+        var defVal_6 *GoNullable = new(GoNullable); 
+        defVal_6 = arg_34.Get_nameNode().value.(*CodeNode).getFlag("default");
+        if  defVal_6.has_value {
+          var fc_50 *CodeNode = defVal_6.value.(*CodeNode).vref_annotation.value.(*CodeNode).getFirst();
+          this.WalkNode(fc_50, ctx, wr);
         } else {
           ctx.addError(node, "Default argument was missing");
         }
         continue;
       }
-      var n_17 *CodeNode = givenArgs_11.children[i_175];
-      this.WalkNode(n_17, ctx, wr);
+      var n_19 *CodeNode = givenArgs_13.children[i_191];
+      this.WalkNode(n_19, ctx, wr);
     }
     ctx.unsetInExpr();
     wr.out(")", false);
@@ -15588,26 +16980,26 @@ func (this *RangerRangerClassWriter) writeFnCall (node *CodeNode, ctx *RangerApp
 }
 func (this *RangerRangerClassWriter) writeNewCall (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   if  node.hasNewOper {
-    var cl_17 *GoNullable = new(GoNullable); 
-    cl_17.value = node.clDesc.value;
-    cl_17.has_value = node.clDesc.has_value;
-    /** unused:  fc_41*/
+    var cl_20 *GoNullable = new(GoNullable); 
+    cl_20.value = node.clDesc.value;
+    cl_20.has_value = node.clDesc.has_value;
+    /** unused:  fc_44*/
     wr.out(strings.Join([]string{ "(new ",node.clDesc.value.(*RangerAppClassDesc).name }, ""), false);
     wr.out("(", false);
-    var constr_20 *GoNullable = new(GoNullable); 
-    constr_20.value = cl_17.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_20.has_value = cl_17.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    var givenArgs_14 *CodeNode = node.getThird();
-    if  constr_20.has_value {
-      var i_177 int64 = 0;  
-      for ; i_177 < int64(len(constr_20.value.(*RangerAppFunctionDesc).params)) ; i_177++ {
-        arg_34 := constr_20.value.(*RangerAppFunctionDesc).params[i_177];
-        var n_20 *CodeNode = givenArgs_14.children[i_177];
-        if  i_177 > 0 {
-          wr.out(", ", false);
+    var constr_24 *GoNullable = new(GoNullable); 
+    constr_24.value = cl_20.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_24.has_value = cl_20.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    var givenArgs_16 *CodeNode = node.getThird();
+    if  constr_24.has_value {
+      var i_193 int64 = 0;  
+      for ; i_193 < int64(len(constr_24.value.(*RangerAppFunctionDesc).params)) ; i_193++ {
+        arg_37 := constr_24.value.(*RangerAppFunctionDesc).params[i_193];
+        var n_22 *CodeNode = givenArgs_16.children[i_193];
+        if  i_193 > 0 {
+          wr.out(" ", false);
         }
-        if  true || (arg_34.Get_nameNode().has_value) {
-          this.WalkNode(n_20, ctx, wr);
+        if  true || (arg_37.Get_nameNode().has_value) {
+          this.WalkNode(n_22, ctx, wr);
         }
       }
     }
@@ -15615,123 +17007,123 @@ func (this *RangerRangerClassWriter) writeNewCall (node *CodeNode, ctx *RangerAp
   }
 }
 func (this *RangerRangerClassWriter) writeArgsDef (fnDesc *RangerAppFunctionDesc, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_179 int64 = 0;  
-  for ; i_179 < int64(len(fnDesc.params)) ; i_179++ {
-    arg_36 := fnDesc.params[i_179];
-    if  i_179 > 0 {
+  var i_195 int64 = 0;  
+  for ; i_195 < int64(len(fnDesc.params)) ; i_195++ {
+    arg_39 := fnDesc.params[i_195];
+    if  i_195 > 0 {
       wr.out(",", false);
     }
     wr.out(" ", false);
-    this.WriteVRefWithOpt(arg_36.Get_nameNode().value.(*CodeNode), ctx, wr);
+    this.WriteVRefWithOpt(arg_39.Get_nameNode().value.(*CodeNode), ctx, wr);
     wr.out(":", false);
-    this.writeTypeDef(arg_36.Get_nameNode().value.(*CodeNode), ctx, wr);
+    this.writeTypeDef(arg_39.Get_nameNode().value.(*CodeNode), ctx, wr);
   }
 }
 func (this *RangerRangerClassWriter) writeClass (node *CodeNode, ctx *RangerAppWriterContext, orig_wr *CodeWriter) () {
-  var cl_20 *GoNullable = new(GoNullable); 
-  cl_20.value = node.clDesc.value;
-  cl_20.has_value = node.clDesc.has_value;
-  if  !cl_20.has_value  {
+  var cl_23 *GoNullable = new(GoNullable); 
+  cl_23.value = node.clDesc.value;
+  cl_23.has_value = node.clDesc.has_value;
+  if  !cl_23.has_value  {
     return;
   }
-  var wr_12 *CodeWriter = orig_wr;
-  var importFork_7 *CodeWriter = wr_12.fork();
-  wr_12.out("", true);
-  wr_12.out(strings.Join([]string{ "class ",cl_20.value.(*RangerAppClassDesc).name }, ""), false);
-  var parentClass_4 *GoNullable = new(GoNullable); 
-  wr_12.out(" { ", true);
-  wr_12.indent(1);
-  if  (int64(len(cl_20.value.(*RangerAppClassDesc).extends_classes))) > 0 {
-    wr_12.out("Extends(", false);
-    var i_181 int64 = 0;  
-    for ; i_181 < int64(len(cl_20.value.(*RangerAppClassDesc).extends_classes)) ; i_181++ {
-      pName_10 := cl_20.value.(*RangerAppClassDesc).extends_classes[i_181];
-      wr_12.out(pName_10, false);
-      parentClass_4.value = ctx.findClass(pName_10);
-      parentClass_4.has_value = true; /* detected as non-optional */
+  var wr_13 *CodeWriter = orig_wr;
+  var importFork_7 *CodeWriter = wr_13.fork();
+  wr_13.out("", true);
+  wr_13.out(strings.Join([]string{ "class ",cl_23.value.(*RangerAppClassDesc).name }, ""), false);
+  var parentClass_5 *GoNullable = new(GoNullable); 
+  wr_13.out(" { ", true);
+  wr_13.indent(1);
+  if  (int64(len(cl_23.value.(*RangerAppClassDesc).extends_classes))) > 0 {
+    wr_13.out("Extends(", false);
+    var i_197 int64 = 0;  
+    for ; i_197 < int64(len(cl_23.value.(*RangerAppClassDesc).extends_classes)) ; i_197++ {
+      pName_11 := cl_23.value.(*RangerAppClassDesc).extends_classes[i_197];
+      wr_13.out(pName_11, false);
+      parentClass_5.value = ctx.findClass(pName_11);
+      parentClass_5.has_value = true; /* detected as non-optional */
     }
-    wr_12.out(")", true);
+    wr_13.out(")", true);
   }
-  wr_12.createTag("utilities");
-  var i_185 int64 = 0;  
-  for ; i_185 < int64(len(cl_20.value.(*RangerAppClassDesc).variables)) ; i_185++ {
-    pvar_19 := cl_20.value.(*RangerAppClassDesc).variables[i_185];
-    this.writeVarDef(pvar_19.Get_node().value.(*CodeNode), ctx, wr_12);
+  wr_13.createTag("utilities");
+  var i_201 int64 = 0;  
+  for ; i_201 < int64(len(cl_23.value.(*RangerAppClassDesc).variables)) ; i_201++ {
+    pvar_21 := cl_23.value.(*RangerAppClassDesc).variables[i_201];
+    this.writeVarDef(pvar_21.Get_node().value.(*CodeNode), ctx, wr_13);
   }
-  if  cl_20.value.(*RangerAppClassDesc).has_constructor {
-    var constr_23 *GoNullable = new(GoNullable); 
-    constr_23.value = cl_20.value.(*RangerAppClassDesc).constructor_fn.value;
-    constr_23.has_value = cl_20.value.(*RangerAppClassDesc).constructor_fn.has_value;
-    wr_12.out("", true);
-    wr_12.out("Constructor (", false);
-    this.writeArgsDef(constr_23.value.(*RangerAppFunctionDesc), ctx, wr_12);
-    wr_12.out(" ) {", true);
-    wr_12.indent(1);
-    wr_12.newline();
-    var subCtx_45 *RangerAppWriterContext = constr_23.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
-    subCtx_45.is_function = true; 
-    this.WalkNode(constr_23.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_45, wr_12);
-    wr_12.newline();
-    wr_12.indent(-1);
-    wr_12.out("}", true);
+  if  cl_23.value.(*RangerAppClassDesc).has_constructor {
+    var constr_27 *GoNullable = new(GoNullable); 
+    constr_27.value = cl_23.value.(*RangerAppClassDesc).constructor_fn.value;
+    constr_27.has_value = cl_23.value.(*RangerAppClassDesc).constructor_fn.has_value;
+    wr_13.out("", true);
+    wr_13.out("Constructor (", false);
+    this.writeArgsDef(constr_27.value.(*RangerAppFunctionDesc), ctx, wr_13);
+    wr_13.out(" ) {", true);
+    wr_13.indent(1);
+    wr_13.newline();
+    var subCtx_49 *RangerAppWriterContext = constr_27.value.(*RangerAppFunctionDesc).fnCtx.value.(*RangerAppWriterContext);
+    subCtx_49.is_function = true; 
+    this.WalkNode(constr_27.value.(*RangerAppFunctionDesc).fnBody.value.(*CodeNode), subCtx_49, wr_13);
+    wr_13.newline();
+    wr_13.indent(-1);
+    wr_13.out("}", true);
   }
-  var i_188 int64 = 0;  
-  for ; i_188 < int64(len(cl_20.value.(*RangerAppClassDesc).static_methods)) ; i_188++ {
-    variant_26 := cl_20.value.(*RangerAppClassDesc).static_methods[i_188];
-    wr_12.out("", true);
-    if  variant_26.nameNode.value.(*CodeNode).hasFlag("main") {
-      wr_12.out("sfn m@(main):void () {", true);
+  var i_204 int64 = 0;  
+  for ; i_204 < int64(len(cl_23.value.(*RangerAppClassDesc).static_methods)) ; i_204++ {
+    variant_31 := cl_23.value.(*RangerAppClassDesc).static_methods[i_204];
+    wr_13.out("", true);
+    if  variant_31.nameNode.value.(*CodeNode).hasFlag("main") {
+      wr_13.out("sfn m@(main):void () {", true);
     } else {
-      wr_12.out("sfn ", false);
-      this.WriteVRefWithOpt(variant_26.nameNode.value.(*CodeNode), ctx, wr_12);
-      wr_12.out(":", false);
-      this.writeTypeDef(variant_26.nameNode.value.(*CodeNode), ctx, wr_12);
-      wr_12.out(" (", false);
-      this.writeArgsDef(variant_26, ctx, wr_12);
-      wr_12.out(") {", true);
+      wr_13.out("sfn ", false);
+      this.WriteVRefWithOpt(variant_31.nameNode.value.(*CodeNode), ctx, wr_13);
+      wr_13.out(":", false);
+      this.writeTypeDef(variant_31.nameNode.value.(*CodeNode), ctx, wr_13);
+      wr_13.out(" (", false);
+      this.writeArgsDef(variant_31, ctx, wr_13);
+      wr_13.out(") {", true);
     }
-    wr_12.indent(1);
-    wr_12.newline();
-    var subCtx_50 *RangerAppWriterContext = variant_26.fnCtx.value.(*RangerAppWriterContext);
-    subCtx_50.is_function = true; 
-    this.WalkNode(variant_26.fnBody.value.(*CodeNode), subCtx_50, wr_12);
-    wr_12.newline();
-    wr_12.indent(-1);
-    wr_12.out("}", true);
+    wr_13.indent(1);
+    wr_13.newline();
+    var subCtx_54 *RangerAppWriterContext = variant_31.fnCtx.value.(*RangerAppWriterContext);
+    subCtx_54.is_function = true; 
+    this.WalkNode(variant_31.fnBody.value.(*CodeNode), subCtx_54, wr_13);
+    wr_13.newline();
+    wr_13.indent(-1);
+    wr_13.out("}", true);
   }
-  var i_191 int64 = 0;  
-  for ; i_191 < int64(len(cl_20.value.(*RangerAppClassDesc).defined_variants)) ; i_191++ {
-    fnVar_12 := cl_20.value.(*RangerAppClassDesc).defined_variants[i_191];
-    var mVs_12 *GoNullable = new(GoNullable); 
-    mVs_12 = r_get_string_RangerAppMethodVariants(cl_20.value.(*RangerAppClassDesc).method_variants, fnVar_12);
-    var i_198 int64 = 0;  
-    for ; i_198 < int64(len(mVs_12.value.(*RangerAppMethodVariants).variants)) ; i_198++ {
-      variant_31 := mVs_12.value.(*RangerAppMethodVariants).variants[i_198];
-      wr_12.out("", true);
-      wr_12.out("fn ", false);
-      this.WriteVRefWithOpt(variant_31.nameNode.value.(*CodeNode), ctx, wr_12);
-      wr_12.out(":", false);
-      this.writeTypeDef(variant_31.nameNode.value.(*CodeNode), ctx, wr_12);
-      wr_12.out(" ", false);
-      wr_12.out("(", false);
-      this.writeArgsDef(variant_31, ctx, wr_12);
-      wr_12.out(") {", true);
-      wr_12.indent(1);
-      wr_12.newline();
-      var subCtx_53 *RangerAppWriterContext = variant_31.fnCtx.value.(*RangerAppWriterContext);
-      subCtx_53.is_function = true; 
-      this.WalkNode(variant_31.fnBody.value.(*CodeNode), subCtx_53, wr_12);
-      wr_12.newline();
-      wr_12.indent(-1);
-      wr_12.out("}", true);
+  var i_207 int64 = 0;  
+  for ; i_207 < int64(len(cl_23.value.(*RangerAppClassDesc).defined_variants)) ; i_207++ {
+    fnVar_14 := cl_23.value.(*RangerAppClassDesc).defined_variants[i_207];
+    var mVs_14 *GoNullable = new(GoNullable); 
+    mVs_14 = r_get_string_RangerAppMethodVariants(cl_23.value.(*RangerAppClassDesc).method_variants, fnVar_14);
+    var i_214 int64 = 0;  
+    for ; i_214 < int64(len(mVs_14.value.(*RangerAppMethodVariants).variants)) ; i_214++ {
+      variant_36 := mVs_14.value.(*RangerAppMethodVariants).variants[i_214];
+      wr_13.out("", true);
+      wr_13.out("fn ", false);
+      this.WriteVRefWithOpt(variant_36.nameNode.value.(*CodeNode), ctx, wr_13);
+      wr_13.out(":", false);
+      this.writeTypeDef(variant_36.nameNode.value.(*CodeNode), ctx, wr_13);
+      wr_13.out(" ", false);
+      wr_13.out("(", false);
+      this.writeArgsDef(variant_36, ctx, wr_13);
+      wr_13.out(") {", true);
+      wr_13.indent(1);
+      wr_13.newline();
+      var subCtx_57 *RangerAppWriterContext = variant_36.fnCtx.value.(*RangerAppWriterContext);
+      subCtx_57.is_function = true; 
+      this.WalkNode(variant_36.fnBody.value.(*CodeNode), subCtx_57, wr_13);
+      wr_13.newline();
+      wr_13.indent(-1);
+      wr_13.out("}", true);
     }
   }
-  wr_12.indent(-1);
-  wr_12.out("}", true);
-  var import_list_4 []string = wr_12.getImports();
-  var i_197 int64 = 0;  
-  for ; i_197 < int64(len(import_list_4)) ; i_197++ {
-    codeStr_4 := import_list_4[i_197];
+  wr_13.indent(-1);
+  wr_13.out("}", true);
+  var import_list_4 []string = wr_13.getImports();
+  var i_213 int64 = 0;  
+  for ; i_213 < int64(len(import_list_4)) ; i_213++ {
+    codeStr_4 := import_list_4[i_213];
     importFork_7.out(strings.Join([]string{ (strings.Join([]string{ "Import \"",codeStr_4 }, "")),"\"" }, ""), true);
   }
 }
@@ -15741,7 +17133,8 @@ func (this *RangerRangerClassWriter) EncodeString (node *CodeNode, ctx *RangerAp
   var str_length_2 int64 = int64(len(node.string_value));
   var encoded_str_8 string = "";
   var ii_11 int64 = 0;
-  for ii_11 < str_length_2 {var cc_4 int64 = int64(node.string_value[ii_11]);
+  for ii_11 < str_length_2 {
+    var cc_4 int64 = int64(node.string_value[ii_11]);
     switch (cc_4 ) { 
       case 8 : 
         encoded_str_8 = strings.Join([]string{ (strings.Join([]string{ encoded_str_8,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
@@ -15812,9 +17205,9 @@ func (this *RangerRangerClassWriter) import_lib (lib_name string, ctx *RangerApp
   wr.addImport(lib_name);
 }
 func (this *RangerRangerClassWriter) release_local_vars (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
-  var i_61 int64 = 0;  
-  for ; i_61 < int64(len(ctx.localVarNames)) ; i_61++ {
-    n_7 := ctx.localVarNames[i_61];
+  var i_62 int64 = 0;  
+  for ; i_62 < int64(len(ctx.localVarNames)) ; i_62++ {
+    n_7 := ctx.localVarNames[i_62];
     var p_14 *GoNullable = new(GoNullable); 
     p_14 = r_get_string_IFACE_RangerAppParamDesc(ctx.localVariables, n_7);
     if  p_14.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
@@ -15864,12 +17257,15 @@ func (this *RangerRangerClassWriter) Set_compiler( value *GoNullable)  {
 type LiveCompiler struct { 
   langWriter *GoNullable
   hasCreatedPolyfill map[string]bool /**  unused  **/ 
+  lastProcessedNode *GoNullable
 }
 type IFACE_LiveCompiler interface { 
   Get_langWriter() *GoNullable
   Set_langWriter(value *GoNullable) 
   Get_hasCreatedPolyfill() map[string]bool
   Set_hasCreatedPolyfill(value map[string]bool) 
+  Get_lastProcessedNode() *GoNullable
+  Set_lastProcessedNode(value *GoNullable) 
   initWriter(ctx *RangerAppWriterContext) ()
   EncodeString(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) string
   WriteScalarValue(node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) ()
@@ -15892,32 +17288,8 @@ func CreateNew_LiveCompiler() *LiveCompiler {
   me := new(LiveCompiler)
   me.hasCreatedPolyfill = make(map[string]bool)
   me.langWriter = new(GoNullable);
+  me.lastProcessedNode = new(GoNullable);
   return me;
-}
-func LiveCompiler_static_displayCompilerErrors(appCtx *RangerAppWriterContext) () {
-  var i_203 int64 = 0;  
-  for ; i_203 < int64(len(appCtx.compilerErrors)) ; i_203++ {
-    e_21 := appCtx.compilerErrors[i_203];
-    var line_index_4 int64 = e_21.node.value.(*CodeNode).getLine();
-    fmt.Println( strings.Join([]string{ (strings.Join([]string{ e_21.node.value.(*CodeNode).getFilename()," Line: " }, "")),strconv.FormatInt((1 + line_index_4), 10) }, "") )
-    fmt.Println( e_21.description )
-    fmt.Println( e_21.node.value.(*CodeNode).getLineString(line_index_4) )
-  }
-}
-func LiveCompiler_static_displayParserErrors(appCtx *RangerAppWriterContext) () {
-  if  (int64(len(appCtx.parserErrors))) == 0 {
-    fmt.Println( "no language test errors" )
-    return;
-  }
-  fmt.Println( "LANGUAGE TEST ERRORS:" )
-  var i_205 int64 = 0;  
-  for ; i_205 < int64(len(appCtx.parserErrors)) ; i_205++ {
-    e_24 := appCtx.parserErrors[i_205];
-    var line_index_7 int64 = e_24.node.value.(*CodeNode).getLine();
-    fmt.Println( strings.Join([]string{ (strings.Join([]string{ e_24.node.value.(*CodeNode).getFilename()," Line: " }, "")),strconv.FormatInt((1 + line_index_7), 10) }, "") )
-    fmt.Println( e_24.description )
-    fmt.Println( e_24.node.value.(*CodeNode).getLineString(line_index_7) )
-  }
 }
 func (this *LiveCompiler) initWriter (ctx *RangerAppWriterContext) () {
   if  this.langWriter.has_value {
@@ -15943,6 +17315,9 @@ func (this *LiveCompiler) initWriter (ctx *RangerAppWriterContext) () {
     case "php" : 
       this.langWriter.value = CreateNew_RangerPHPClassWriter();
       this.langWriter.has_value = true; /* detected as non-optional */
+    case "cpp" : 
+      this.langWriter.value = CreateNew_RangerCppClassWriter();
+      this.langWriter.has_value = true; /* detected as non-optional */
     case "csharp" : 
       this.langWriter.value = CreateNew_RangerCSharpClassWriter();
       this.langWriter.has_value = true; /* detected as non-optional */
@@ -15964,33 +17339,34 @@ func (this *LiveCompiler) initWriter (ctx *RangerAppWriterContext) () {
   }
 }
 func (this *LiveCompiler) EncodeString (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) string {
-  /** unused:  encoded_str_4*/
-  var str_length_3 int64 = int64(len(node.string_value));
-  var encoded_str_10 string = "";
-  var ii_12 int64 = 0;
-  for ii_12 < str_length_3 {var ch_6 int64 = int64(node.string_value[ii_12]);
-    var cc_19 int64 = ch_6;
-    switch (cc_19 ) { 
+  /** unused:  encoded_str_6*/
+  var str_length_4 int64 = int64(len(node.string_value));
+  var encoded_str_12 string = "";
+  var ii_13 int64 = 0;
+  for ii_13 < str_length_4 {
+    var ch_6 int64 = int64(node.string_value[ii_13]);
+    var cc_21 int64 = ch_6;
+    switch (cc_21 ) { 
       case 8 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
+        encoded_str_12 = strings.Join([]string{ (strings.Join([]string{ encoded_str_12,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(98)})) }, ""); 
       case 9 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
+        encoded_str_12 = strings.Join([]string{ (strings.Join([]string{ encoded_str_12,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(116)})) }, ""); 
       case 10 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
+        encoded_str_12 = strings.Join([]string{ (strings.Join([]string{ encoded_str_12,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(110)})) }, ""); 
       case 12 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
+        encoded_str_12 = strings.Join([]string{ (strings.Join([]string{ encoded_str_12,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(102)})) }, ""); 
       case 13 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
+        encoded_str_12 = strings.Join([]string{ (strings.Join([]string{ encoded_str_12,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(114)})) }, ""); 
       case 34 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
+        encoded_str_12 = strings.Join([]string{ (strings.Join([]string{ encoded_str_12,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(34)})) }, ""); 
       case 92 : 
-        encoded_str_10 = strings.Join([]string{ (strings.Join([]string{ encoded_str_10,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
+        encoded_str_12 = strings.Join([]string{ (strings.Join([]string{ encoded_str_12,(string([] byte{byte(92)})) }, "")),(string([] byte{byte(92)})) }, ""); 
       default: 
-        encoded_str_10 = strings.Join([]string{ encoded_str_10,(string([] byte{byte(ch_6)})) }, ""); 
+        encoded_str_12 = strings.Join([]string{ encoded_str_12,(string([] byte{byte(ch_6)})) }, ""); 
     }
-    ii_12 = ii_12 + 1; 
+    ii_13 = ii_13 + 1; 
   }
-  return encoded_str_10;
+  return encoded_str_12;
 }
 func (this *LiveCompiler) WriteScalarValue (node *CodeNode, ctx *RangerAppWriterContext, wr *CodeWriter) () {
   this.langWriter.value.(IFACE_RangerGenericClassWriter).WriteScalarValue(node, ctx, wr);
@@ -16011,21 +17387,21 @@ func (this *LiveCompiler) CreateLambda (node *CodeNode, ctx *RangerAppWriterCont
   var args_6 *CodeNode = node.children[2];
   var body_2 *CodeNode = node.children[3];
   wr.out("(", false);
-  var i_182 int64 = 0;  
-  for ; i_182 < int64(len(args_6.children)) ; i_182++ {
-    arg_34 := args_6.children[i_182];
-    if  i_182 > 0 {
+  var i_198 int64 = 0;  
+  for ; i_198 < int64(len(args_6.children)) ; i_198++ {
+    arg_37 := args_6.children[i_198];
+    if  i_198 > 0 {
       wr.out(", ", false);
     }
-    wr.out(arg_34.vref, false);
+    wr.out(arg_37.vref, false);
   }
   wr.out(")", false);
   wr.out(" => { ", true);
   wr.indent(1);
   wr.out("// body ", true);
-  var i_187 int64 = 0;  
-  for ; i_187 < int64(len(body_2.children)) ; i_187++ {
-    item_9 := body_2.children[i_187];
+  var i_203 int64 = 0;  
+  for ; i_203 < int64(len(body_2.children)) ; i_203++ {
+    item_9 := body_2.children[i_203];
     this.WalkNode(item_9, ctx, wr);
   }
   wr.newline();
@@ -16040,12 +17416,12 @@ func (this *LiveCompiler) findOpCode (op *CodeNode, node *CodeNode, ctx *RangerA
   var args_9 *CodeNode = op.children[2];
   if  (int64(len(op.children))) > 3 {
     var details *CodeNode = op.children[3];
-    var i_187 int64 = 0;  
-    for ; i_187 < int64(len(details.children)) ; i_187++ {
-      det_2 := details.children[i_187];
+    var i_203 int64 = 0;  
+    for ; i_203 < int64(len(details.children)) ; i_203++ {
+      det_2 := details.children[i_203];
       if  (int64(len(det_2.children))) > 0 {
-        var fc_39 *CodeNode = det_2.children[0];
-        if  fc_39.vref == "code" {
+        var fc_42 *CodeNode = det_2.children[0];
+        if  fc_42.vref == "code" {
           var match_4 *RangerArgMatch = CreateNew_RangerArgMatch();
           var all_matched_3 bool = match_4.matchArguments(args_9, node, ctx, 1);
           if  all_matched_3 == false {
@@ -16069,25 +17445,25 @@ func (this *LiveCompiler) findOpCode (op *CodeNode, node *CodeNode, ctx *RangerA
             m_11.nameNode.has_value = true; /* detected as non-optional */
             m_11.fnBody.value = theCode;
             m_11.fnBody.has_value = true; /* detected as non-optional */
-            var ii_15 int64 = 0;  
-            for ; ii_15 < int64(len(args_9.children)) ; ii_15++ {
-              arg_37 := args_9.children[ii_15];
-              var p_54 IFACE_RangerAppParamDesc = CreateNew_RangerAppParamDesc();
-              p_54.Set_name(arg_37.vref); 
-              p_54.Set_value_type(arg_37.value_type); 
-              p_54.Get_node().value = arg_37;
-              p_54.Get_node().has_value = true; /* detected as non-optional */
-              p_54.Get_nameNode().value = arg_37;
-              p_54.Get_nameNode().has_value = true; /* detected as non-optional */
-              p_54.Set_refType(1); 
-              p_54.Set_varType(4); 
-              m_11.params = append(m_11.params,p_54); 
-              arg_37.hasParamDesc = true; 
-              arg_37.paramDesc.value = p_54;
-              arg_37.paramDesc.has_value = true; /* detected as non-optional */
-              arg_37.eval_type = arg_37.value_type; 
-              arg_37.eval_type_name = arg_37.type_name; 
-              runCtx.defineVariable(p_54.Get_name(), p_54);
+            var ii_16 int64 = 0;  
+            for ; ii_16 < int64(len(args_9.children)) ; ii_16++ {
+              arg_40 := args_9.children[ii_16];
+              var p_58 IFACE_RangerAppParamDesc = CreateNew_RangerAppParamDesc();
+              p_58.Set_name(arg_40.vref); 
+              p_58.Set_value_type(arg_40.value_type); 
+              p_58.Get_node().value = arg_40;
+              p_58.Get_node().has_value = true; /* detected as non-optional */
+              p_58.Get_nameNode().value = arg_40;
+              p_58.Get_nameNode().has_value = true; /* detected as non-optional */
+              p_58.Set_refType(1); 
+              p_58.Set_varType(4); 
+              m_11.params = append(m_11.params,p_58); 
+              arg_40.hasParamDesc = true; 
+              arg_40.paramDesc.value = p_58;
+              arg_40.paramDesc.has_value = true; /* detected as non-optional */
+              arg_40.eval_type = arg_40.value_type; 
+              arg_40.eval_type_name = arg_40.type_name; 
+              runCtx.defineVariable(p_58.Get_name(), p_58);
             }
             stdClass.addStaticMethod(m_11);
             var err_cnt_4 int64 = int64(len(ctx.compilerErrors));
@@ -16099,16 +17475,16 @@ func (this *LiveCompiler) findOpCode (op *CodeNode, node *CodeNode, ctx *RangerA
             if  err_delta > 0 {
               b_failed = true; 
               fmt.Println( "Had following compiler errors:" )
-              var i_201 int64 = 0;  
-              for ; i_201 < int64(len(ctx.compilerErrors)) ; i_201++ {
-                e_20 := ctx.compilerErrors[i_201];
-                if  i_201 < err_cnt_4 {
+              var i_217 int64 = 0;  
+              for ; i_217 < int64(len(ctx.compilerErrors)) ; i_217++ {
+                e_21 := ctx.compilerErrors[i_217];
+                if  i_217 < err_cnt_4 {
                   continue;
                 }
-                var line_index_3 int64 = e_20.node.value.(*CodeNode).getLine();
-                fmt.Println( strings.Join([]string{ (strings.Join([]string{ e_20.node.value.(*CodeNode).getFilename()," Line: " }, "")),strconv.FormatInt(line_index_3, 10) }, "") )
-                fmt.Println( e_20.description )
-                fmt.Println( e_20.node.value.(*CodeNode).getLineString(line_index_3) )
+                var line_index_3 int64 = e_21.node.value.(*CodeNode).getLine();
+                fmt.Println( strings.Join([]string{ (strings.Join([]string{ e_21.node.value.(*CodeNode).getFilename()," Line: " }, "")),strconv.FormatInt(line_index_3, 10) }, "") )
+                fmt.Println( e_21.description )
+                fmt.Println( e_21.node.value.(*CodeNode).getLineString(line_index_3) )
               }
             } else {
               fmt.Println( "no errors found" )
@@ -16118,16 +17494,16 @@ func (this *LiveCompiler) findOpCode (op *CodeNode, node *CodeNode, ctx *RangerA
             wr.out("/* custom operator compilation failed */ ", false);
           } else {
             wr.out(strings.Join([]string{ (strings.Join([]string{ "RangerStaticMethods.",stdFnName }, "")),"(" }, ""), false);
-            var i_209 int64 = 0;  
-            for ; i_209 < int64(len(node.children)) ; i_209++ {
-              cc_22 := node.children[i_209];
-              if  i_209 == 0 {
+            var i_225 int64 = 0;  
+            for ; i_225 < int64(len(node.children)) ; i_225++ {
+              cc_24 := node.children[i_225];
+              if  i_225 == 0 {
                 continue;
               }
-              if  i_209 > 1 {
+              if  i_225 > 1 {
                 wr.out(", ", false);
               }
-              this.WalkNode(cc_22, ctx, wr);
+              this.WalkNode(cc_24, ctx, wr);
             }
             wr.out(")", false);
           }
@@ -16143,16 +17519,16 @@ func (this *LiveCompiler) findOpTemplate (op *CodeNode, node *CodeNode, ctx *Ran
   var langName_3 string = ctx.getTargetLang();
   if  (int64(len(op.children))) > 3 {
     var details_4 *CodeNode = op.children[3];
-    var i_193 int64 = 0;  
-    for ; i_193 < int64(len(details_4.children)) ; i_193++ {
-      det_5 := details_4.children[i_193];
+    var i_209 int64 = 0;  
+    for ; i_209 < int64(len(details_4.children)) ; i_209++ {
+      det_5 := details_4.children[i_209];
       if  (int64(len(det_5.children))) > 0 {
-        var fc_42 *CodeNode = det_5.children[0];
-        if  fc_42.vref == "templates" {
+        var fc_45 *CodeNode = det_5.children[0];
+        if  fc_45.vref == "templates" {
           var tplList_2 *CodeNode = det_5.children[1];
-          var i_205 int64 = 0;  
-          for ; i_205 < int64(len(tplList_2.children)) ; i_205++ {
-            tpl_3 := tplList_2.children[i_205];
+          var i_221 int64 = 0;  
+          for ; i_221 < int64(len(tplList_2.children)) ; i_221++ {
+            tpl_3 := tplList_2.children[i_221];
             var tplName_2 *CodeNode = tpl_3.getFirst();
             var tplImpl_2 *GoNullable = new(GoNullable); 
             tplImpl_2.value = tpl_3.getSecond();
@@ -16201,6 +17577,8 @@ func (this *LiveCompiler) WalkNode (node *CodeNode, ctx *RangerAppWriterContext,
     this.WriteScalarValue(node, ctx, wr);
     return;
   }
+  this.lastProcessedNode.value = node;
+  this.lastProcessedNode.has_value = true; /* detected as non-optional */
   if  node.value_type == 9 {
     this.WriteVRef(node, ctx, wr);
     return;
@@ -16212,7 +17590,7 @@ func (this *LiveCompiler) WalkNode (node *CodeNode, ctx *RangerAppWriterContext,
   if  (int64(len(node.children))) > 0 {
     if  node.has_operator {
       var op *CodeNode = ctx.findOperator(node);
-      /** unused:  fc_44*/
+      /** unused:  fc_47*/
       var tplImpl_5 *GoNullable = new(GoNullable); 
       tplImpl_5 = this.findOpTemplate(op, node, ctx, wr);
       var evalCtx *RangerAppWriterContext = ctx;
@@ -16239,13 +17617,13 @@ func (this *LiveCompiler) WalkNode (node *CodeNode, ctx *RangerAppWriterContext,
         return;
       }
     }
-    /** unused:  fc_50*/
+    /** unused:  fc_53*/
   }
   if  node.expression {
-    var i_197 int64 = 0;  
-    for ; i_197 < int64(len(node.children)) ; i_197++ {
-      item_12 := node.children[i_197];
-      if  (node.didReturnAtIndex >= 0) && (node.didReturnAtIndex < i_197) {
+    var i_213 int64 = 0;  
+    for ; i_213 < int64(len(node.children)) ; i_213++ {
+      item_12 := node.children[i_213];
+      if  (node.didReturnAtIndex >= 0) && (node.didReturnAtIndex < i_213) {
         break;
       }
       this.WalkNode(item_12, ctx, wr);
@@ -16260,9 +17638,9 @@ func (this *LiveCompiler) walkCommandList (cmd *CodeNode, node *CodeNode, ctx *R
   if  ctx.expressionLevel() > 1 {
     wr.out("(", false);
   }
-  var i_199 int64 = 0;  
-  for ; i_199 < int64(len(cmd.children)) ; i_199++ {
-    c_12 := cmd.children[i_199];
+  var i_215 int64 = 0;  
+  for ; i_215 < int64(len(cmd.children)) ; i_215++ {
+    c_12 := cmd.children[i_215];
     this.walkCommand(c_12, node, ctx, wr);
   }
   if  ctx.expressionLevel() > 1 {
@@ -16277,102 +17655,108 @@ func (this *LiveCompiler) walkCommand (cmd *CodeNode, node *CodeNode, ctx *Range
     var cmdE *CodeNode = cmd.getFirst();
     var cmdArg *CodeNode = cmd.getSecond();
     switch (cmdE.vref ) { 
-      case "block" : 
+      case "str" : 
         var idx_8 int64 = cmdArg.int_value;
         if  (int64(len(node.children))) > idx_8 {
-          var arg_39 *CodeNode = node.children[idx_8];
-          this.WalkNode(arg_39, ctx, wr);
+          var arg_42 *CodeNode = node.children[idx_8];
+          wr.out(arg_42.string_value, false);
+        }
+      case "block" : 
+        var idx_17 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_17 {
+          var arg_50 *CodeNode = node.children[idx_17];
+          this.WalkNode(arg_50, ctx, wr);
         }
       case "varname" : 
         if  ctx.isVarDefined(cmdArg.vref) {
-          var p_57 IFACE_RangerAppParamDesc = ctx.getVariableDef(cmdArg.vref);
-          wr.out(p_57.Get_compiledName(), false);
+          var p_61 IFACE_RangerAppParamDesc = ctx.getVariableDef(cmdArg.vref);
+          wr.out(p_61.Get_compiledName(), false);
         }
       case "defvar" : 
-        var p_65 IFACE_RangerAppParamDesc = CreateNew_RangerAppParamDesc();
-        p_65.Set_name(cmdArg.vref); 
-        p_65.Set_value_type(cmdArg.value_type); 
-        p_65.Get_node().value = cmdArg;
-        p_65.Get_node().has_value = true; /* detected as non-optional */
-        p_65.Get_nameNode().value = cmdArg;
-        p_65.Get_nameNode().has_value = true; /* detected as non-optional */
-        p_65.Set_is_optional(false); 
-        ctx.defineVariable(p_65.Get_name(), p_65);
+        var p_69 IFACE_RangerAppParamDesc = CreateNew_RangerAppParamDesc();
+        p_69.Set_name(cmdArg.vref); 
+        p_69.Set_value_type(cmdArg.value_type); 
+        p_69.Get_node().value = cmdArg;
+        p_69.Get_node().has_value = true; /* detected as non-optional */
+        p_69.Get_nameNode().value = cmdArg;
+        p_69.Get_nameNode().has_value = true; /* detected as non-optional */
+        p_69.Set_is_optional(false); 
+        ctx.defineVariable(p_69.Get_name(), p_69);
       case "cc" : 
-        var idx_17 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_17 {
-          var arg_47 *CodeNode = node.children[idx_17];
-          var cc_24 byte = []byte(arg_47.string_value)[0];
-          wr.out(strings.Join([]string{ "",strconv.FormatInt((int64(cc_24)), 10) }, ""), false);
-        }
-      case "java_case" : 
         var idx_22 int64 = cmdArg.int_value;
         if  (int64(len(node.children))) > idx_22 {
-          var arg_52 *CodeNode = node.children[idx_22];
-          this.WalkNode(arg_52, ctx, wr);
-          if  arg_52.didReturnAtIndex < 0 {
+          var arg_55 *CodeNode = node.children[idx_22];
+          var cc_26 byte = []byte(arg_55.string_value)[0];
+          wr.out(strings.Join([]string{ "",strconv.FormatInt((int64(cc_26)), 10) }, ""), false);
+        }
+      case "java_case" : 
+        var idx_27 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_27 {
+          var arg_60 *CodeNode = node.children[idx_27];
+          this.WalkNode(arg_60, ctx, wr);
+          if  arg_60.didReturnAtIndex < 0 {
             wr.newline();
             wr.out("break;", true);
           }
         }
       case "e" : 
-        var idx_27 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_27 {
-          var arg_57 *CodeNode = node.children[idx_27];
+        var idx_32 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_32 {
+          var arg_65 *CodeNode = node.children[idx_32];
           ctx.setInExpr();
-          this.WalkNode(arg_57, ctx, wr);
+          this.WalkNode(arg_65, ctx, wr);
           ctx.unsetInExpr();
         }
       case "goset" : 
-        var idx_32 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_32 {
-          var arg_62 *CodeNode = node.children[idx_32];
+        var idx_37 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_37 {
+          var arg_70 *CodeNode = node.children[idx_37];
           ctx.setInExpr();
-          this.langWriter.value.(IFACE_RangerGenericClassWriter).WriteSetterVRef(arg_62, ctx, wr);
+          this.langWriter.value.(IFACE_RangerGenericClassWriter).WriteSetterVRef(arg_70, ctx, wr);
           ctx.unsetInExpr();
         }
       case "pe" : 
-        var idx_37 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_37 {
-          var arg_67 *CodeNode = node.children[idx_37];
-          this.WalkNode(arg_67, ctx, wr);
-        }
-      case "ptr" : 
         var idx_42 int64 = cmdArg.int_value;
         if  (int64(len(node.children))) > idx_42 {
-          var arg_72 *CodeNode = node.children[idx_42];
-          if  arg_72.hasParamDesc {
-            if  arg_72.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).isAPrimitiveType() == false {
+          var arg_75 *CodeNode = node.children[idx_42];
+          this.WalkNode(arg_75, ctx, wr);
+        }
+      case "ptr" : 
+        var idx_47 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_47 {
+          var arg_80 *CodeNode = node.children[idx_47];
+          if  arg_80.hasParamDesc {
+            if  arg_80.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).isAPrimitiveType() == false {
               wr.out("*", false);
             }
           } else {
-            if  arg_72.isAPrimitiveType() == false {
+            if  arg_80.isAPrimitiveType() == false {
               wr.out("*", false);
             }
           }
         }
       case "ptrsrc" : 
-        var idx_47 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_47 {
-          var arg_77 *CodeNode = node.children[idx_47];
-          if  (arg_77.isPrimitiveType() == false) && (arg_77.isPrimitive() == false) {
+        var idx_52 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_52 {
+          var arg_85 *CodeNode = node.children[idx_52];
+          if  (arg_85.isPrimitiveType() == false) && (arg_85.isPrimitive() == false) {
             wr.out("&", false);
           }
         }
       case "nameof" : 
-        var idx_52 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_52 {
-          var arg_82 *CodeNode = node.children[idx_52];
-          wr.out(arg_82.vref, false);
-        }
-      case "list" : 
         var idx_57 int64 = cmdArg.int_value;
         if  (int64(len(node.children))) > idx_57 {
-          var arg_87 *CodeNode = node.children[idx_57];
-          var i_201 int64 = 0;  
-          for ; i_201 < int64(len(arg_87.children)) ; i_201++ {
-            ch_9 := arg_87.children[i_201];
-            if  i_201 > 0 {
+          var arg_90 *CodeNode = node.children[idx_57];
+          wr.out(arg_90.vref, false);
+        }
+      case "list" : 
+        var idx_62 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_62 {
+          var arg_95 *CodeNode = node.children[idx_62];
+          var i_217 int64 = 0;  
+          for ; i_217 < int64(len(arg_95.children)) ; i_217++ {
+            ch_9 := arg_95.children[i_217];
+            if  i_217 > 0 {
               wr.out(" ", false);
             }
             ctx.setInExpr();
@@ -16381,13 +17765,13 @@ func (this *LiveCompiler) walkCommand (cmd *CodeNode, node *CodeNode, ctx *Range
           }
         }
       case "comma" : 
-        var idx_62 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_62 {
-          var arg_92 *CodeNode = node.children[idx_62];
-          var i_209 int64 = 0;  
-          for ; i_209 < int64(len(arg_92.children)) ; i_209++ {
-            ch_17 := arg_92.children[i_209];
-            if  i_209 > 0 {
+        var idx_67 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_67 {
+          var arg_100 *CodeNode = node.children[idx_67];
+          var i_225 int64 = 0;  
+          for ; i_225 < int64(len(arg_100.children)) ; i_225++ {
+            ch_17 := arg_100.children[i_225];
+            if  i_225 > 0 {
               wr.out(",", false);
             }
             ctx.setInExpr();
@@ -16396,63 +17780,63 @@ func (this *LiveCompiler) walkCommand (cmd *CodeNode, node *CodeNode, ctx *Range
           }
         }
       case "swift_rc" : 
-        var idx_67 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_67 {
-          var arg_97 *CodeNode = node.children[idx_67];
-          if  arg_97.hasParamDesc {
-            if  arg_97.paramDesc.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
+        var idx_72 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_72 {
+          var arg_105 *CodeNode = node.children[idx_72];
+          if  arg_105.hasParamDesc {
+            if  arg_105.paramDesc.value.(IFACE_RangerAppParamDesc).Get_ref_cnt() == 0 {
               wr.out("_", false);
             } else {
-              wr.out(arg_97.vref, false);
+              wr.out(arg_105.vref, false);
             }
           } else {
-            wr.out(arg_97.vref, false);
+            wr.out(arg_105.vref, false);
           }
         }
       case "r_ktype" : 
-        var idx_72 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_72 {
-          var arg_102 *CodeNode = node.children[idx_72];
-          if  arg_102.hasParamDesc {
-            var ss string = this.langWriter.value.(IFACE_RangerGenericClassWriter).getObjectTypeString(arg_102.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).key_type, ctx);
+        var idx_77 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_77 {
+          var arg_110 *CodeNode = node.children[idx_77];
+          if  arg_110.hasParamDesc {
+            var ss string = this.langWriter.value.(IFACE_RangerGenericClassWriter).getObjectTypeString(arg_110.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).key_type, ctx);
             wr.out(ss, false);
           } else {
-            var ss_17 string = this.langWriter.value.(IFACE_RangerGenericClassWriter).getObjectTypeString(arg_102.key_type, ctx);
+            var ss_17 string = this.langWriter.value.(IFACE_RangerGenericClassWriter).getObjectTypeString(arg_110.key_type, ctx);
             wr.out(ss_17, false);
           }
         }
       case "r_atype" : 
-        var idx_77 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_77 {
-          var arg_107 *CodeNode = node.children[idx_77];
-          if  arg_107.hasParamDesc {
-            var ss_15 string = this.langWriter.value.(IFACE_RangerGenericClassWriter).getObjectTypeString(arg_107.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).array_type, ctx);
+        var idx_82 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_82 {
+          var arg_115 *CodeNode = node.children[idx_82];
+          if  arg_115.hasParamDesc {
+            var ss_15 string = this.langWriter.value.(IFACE_RangerGenericClassWriter).getObjectTypeString(arg_115.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode).array_type, ctx);
             wr.out(ss_15, false);
           } else {
-            var ss_27 string = this.langWriter.value.(IFACE_RangerGenericClassWriter).getObjectTypeString(arg_107.array_type, ctx);
+            var ss_27 string = this.langWriter.value.(IFACE_RangerGenericClassWriter).getObjectTypeString(arg_115.array_type, ctx);
             wr.out(ss_27, false);
           }
         }
       case "custom" : 
         this.langWriter.value.(IFACE_RangerGenericClassWriter).CustomOperator(node, ctx, wr);
       case "arraytype" : 
-        var idx_82 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_82 {
-          var arg_112 *CodeNode = node.children[idx_82];
-          if  arg_112.hasParamDesc {
-            this.langWriter.value.(IFACE_RangerGenericClassWriter).writeArrayTypeDef(arg_112.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+        var idx_87 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_87 {
+          var arg_120 *CodeNode = node.children[idx_87];
+          if  arg_120.hasParamDesc {
+            this.langWriter.value.(IFACE_RangerGenericClassWriter).writeArrayTypeDef(arg_120.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
           } else {
-            this.langWriter.value.(IFACE_RangerGenericClassWriter).writeArrayTypeDef(arg_112, ctx, wr);
+            this.langWriter.value.(IFACE_RangerGenericClassWriter).writeArrayTypeDef(arg_120, ctx, wr);
           }
         }
       case "rawtype" : 
-        var idx_87 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) > idx_87 {
-          var arg_117 *CodeNode = node.children[idx_87];
-          if  arg_117.hasParamDesc {
-            this.langWriter.value.(IFACE_RangerGenericClassWriter).writeRawTypeDef(arg_117.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+        var idx_92 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) > idx_92 {
+          var arg_125 *CodeNode = node.children[idx_92];
+          if  arg_125.hasParamDesc {
+            this.langWriter.value.(IFACE_RangerGenericClassWriter).writeRawTypeDef(arg_125.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
           } else {
-            this.langWriter.value.(IFACE_RangerGenericClassWriter).writeRawTypeDef(arg_117, ctx, wr);
+            this.langWriter.value.(IFACE_RangerGenericClassWriter).writeRawTypeDef(arg_125, ctx, wr);
           }
         }
       case "macro" : 
@@ -16477,24 +17861,24 @@ func (this *LiveCompiler) walkCommand (cmd *CodeNode, node *CodeNode, ctx *Range
           p_write_10.compiledTags[p_str_10] = true
         }
       case "typeof" : 
-        var idx_92 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) >= idx_92 {
-          var arg_122 *CodeNode = node.children[idx_92];
-          if  arg_122.hasParamDesc {
-            this.writeTypeDef(arg_122.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
+        var idx_97 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) >= idx_97 {
+          var arg_130 *CodeNode = node.children[idx_97];
+          if  arg_130.hasParamDesc {
+            this.writeTypeDef(arg_130.paramDesc.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode), ctx, wr);
           } else {
-            this.writeTypeDef(arg_122, ctx, wr);
+            this.writeTypeDef(arg_130, ctx, wr);
           }
         }
       case "imp" : 
         this.langWriter.value.(IFACE_RangerGenericClassWriter).import_lib(cmdArg.string_value, ctx, wr);
       case "atype" : 
-        var idx_97 int64 = cmdArg.int_value;
-        if  (int64(len(node.children))) >= idx_97 {
-          var arg_127 *CodeNode = node.children[idx_97];
-          var p_70 *GoNullable = new(GoNullable); 
-          p_70 = this.findParamDesc(arg_127, ctx, wr);
-          var nameNode_3 *CodeNode = p_70.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode);
+        var idx_102 int64 = cmdArg.int_value;
+        if  (int64(len(node.children))) >= idx_102 {
+          var arg_135 *CodeNode = node.children[idx_102];
+          var p_74 *GoNullable = new(GoNullable); 
+          p_74 = this.findParamDesc(arg_135, ctx, wr);
+          var nameNode_3 *CodeNode = p_74.value.(IFACE_RangerAppParamDesc).Get_nameNode().value.(*CodeNode);
           var tn_3 string = nameNode_3.array_type;
           wr.out(this.getTypeString(tn_3, ctx), false);
         }
@@ -16509,8 +17893,8 @@ func (this *LiveCompiler) walkCommand (cmd *CodeNode, node *CodeNode, ctx *Range
         case "i" : 
           wr.indent(-1);
         case "op" : 
-          var fc_48 *CodeNode = node.getFirst();
-          wr.out(fc_48.vref, false);
+          var fc_51 *CodeNode = node.getFirst();
+          wr.out(fc_51.vref, false);
       }
     } else {
       if  cmd.value_type == 4 {
@@ -16532,10 +17916,10 @@ func (this *LiveCompiler) findParamDesc (obj *CodeNode, ctx *RangerAppWriterCont
     if  (int64(len(obj.ns))) > 1 {
       var cnt_6 int64 = int64(len(obj.ns));
       var classRefDesc_3 *GoNullable = new(GoNullable); 
-      var i_205 int64 = 0;  
-      for ; i_205 < int64(len(obj.ns)) ; i_205++ {
-        strname_3 := obj.ns[i_205];
-        if  i_205 == 0 {
+      var i_221 int64 = 0;  
+      for ; i_221 < int64(len(obj.ns)) ; i_221++ {
+        strname_3 := obj.ns[i_221];
+        if  i_221 == 0 {
           if  strname_3 == "this" {
             classDesc_4.value = ctx.getCurrentClass().value;
             classDesc_4.has_value = ctx.getCurrentClass().has_value; 
@@ -16565,7 +17949,7 @@ func (this *LiveCompiler) findParamDesc (obj *CodeNode, ctx *RangerAppWriterCont
             classDesc_4.has_value = true; /* detected as non-optional */
           }
         } else {
-          if  i_205 < (cnt_6 - 1) {
+          if  i_221 < (cnt_6 - 1) {
             varDesc_3.value = classDesc_4.value.(*RangerAppClassDesc).findVariable(strname_3).value;
             varDesc_3.has_value = classDesc_4.value.(*RangerAppClassDesc).findVariable(strname_3).has_value; 
             if  !varDesc_3.has_value  {
@@ -16619,9 +18003,9 @@ func (this *LiveCompiler) findParamDesc (obj *CodeNode, ctx *RangerAppWriterCont
     }
     return varDesc_3;
   }
-  var cc_26 *GoNullable = new(GoNullable); 
-  cc_26 = ctx.getCurrentClass();
-  return cc_26;
+  var cc_28 *GoNullable = new(GoNullable); 
+  cc_28 = ctx.getCurrentClass();
+  return cc_28;
 }
 // getter for variable langWriter
 func (this *LiveCompiler) Get_langWriter() *GoNullable {
@@ -16639,18 +18023,54 @@ func (this *LiveCompiler) Get_hasCreatedPolyfill() map[string]bool {
 func (this *LiveCompiler) Set_hasCreatedPolyfill( value map[string]bool)  {
   this.hasCreatedPolyfill = value 
 }
+// getter for variable lastProcessedNode
+func (this *LiveCompiler) Get_lastProcessedNode() *GoNullable {
+  return this.lastProcessedNode
+}
+// setter for variable lastProcessedNode
+func (this *LiveCompiler) Set_lastProcessedNode( value *GoNullable)  {
+  this.lastProcessedNode = value 
+}
+type CompilerInterface struct { 
+}
+type IFACE_CompilerInterface interface { 
+}
+
+func CreateNew_CompilerInterface() *CompilerInterface {
+  me := new(CompilerInterface)
+  return me;
+}
+func CompilerInterface_static_displayCompilerErrors(appCtx *RangerAppWriterContext) () {
+  var i_215 int64 = 0;  
+  for ; i_215 < int64(len(appCtx.compilerErrors)) ; i_215++ {
+    e_22 := appCtx.compilerErrors[i_215];
+    var line_index_4 int64 = e_22.node.value.(*CodeNode).getLine();
+    fmt.Println( strings.Join([]string{ (strings.Join([]string{ e_22.node.value.(*CodeNode).getFilename()," Line: " }, "")),strconv.FormatInt((1 + line_index_4), 10) }, "") )
+    fmt.Println( e_22.description )
+    fmt.Println( e_22.node.value.(*CodeNode).getLineString(line_index_4) )
+  }
+}
+func CompilerInterface_static_displayParserErrors(appCtx *RangerAppWriterContext) () {
+  if  (int64(len(appCtx.parserErrors))) == 0 {
+    fmt.Println( "no language test errors" )
+    return;
+  }
+  fmt.Println( "LANGUAGE TEST ERRORS:" )
+  var i_217 int64 = 0;  
+  for ; i_217 < int64(len(appCtx.parserErrors)) ; i_217++ {
+    e_25 := appCtx.parserErrors[i_217];
+    var line_index_7 int64 = e_25.node.value.(*CodeNode).getLine();
+    fmt.Println( strings.Join([]string{ (strings.Join([]string{ e_25.node.value.(*CodeNode).getFilename()," Line: " }, "")),strconv.FormatInt((1 + line_index_7), 10) }, "") )
+    fmt.Println( e_25.description )
+    fmt.Println( e_25.node.value.(*CodeNode).getLineString(line_index_7) )
+  }
+}
 func main() {
-  var allowed_languages []string = []string{"es6","go","scala","java7","swift3","php"};
+  var allowed_languages []string = []string{"es6","go","scala","java7","swift3","cpp","php","ranger"};
   if  (int64( len( os.Args) - 1 )) < 5 {
-    fmt.Println( "Ranger compiler, version 2.01" )
+    fmt.Println( "Ranger compiler, version 2.0.8" )
     fmt.Println( "usage <file> <language-file> <language> <directory> <targetfile>" )
-    var s_21 string = "";
-    var i_194 int64 = 0;  
-    for ; i_194 < int64(len(allowed_languages)) ; i_194++ {
-      lang_2 := allowed_languages[i_194];
-      s_21 = strings.Join([]string{ (strings.Join([]string{ s_21," " }, "")),lang_2 }, ""); 
-    }
-    fmt.Println( strings.Join([]string{ "allowed languages: ",s_21 }, "") )
+    fmt.Println( strings.Join([]string{ "allowed languages: ",(strings.Join(allowed_languages, " ")) }, "") )
     return;
   }
   var the_file string = os.Args[0 + 1];
@@ -16660,13 +18080,8 @@ func main() {
   var the_target string = os.Args[4 + 1];
   if  (r_indexof_arr_string(allowed_languages, the_lang)) < 0 {
     fmt.Println( strings.Join([]string{ "Invalid language : ",the_lang }, "") )
-    var s_26 string = "";
-    var i_199 int64 = 0;  
-    for ; i_199 < int64(len(allowed_languages)) ; i_199++ {
-      lang_7 := allowed_languages[i_199];
-      s_26 = strings.Join([]string{ (strings.Join([]string{ s_26," " }, "")),lang_7 }, ""); 
-    }
-    fmt.Println( strings.Join([]string{ "allowed languages: ",s_26 }, "") )
+    /** unused:  s_23*/
+    fmt.Println( strings.Join([]string{ "allowed languages: ",(strings.Join(allowed_languages, " ")) }, "") )
     return;
   }
   if  (r_file_exists(".", the_file)) == false {
@@ -16686,13 +18101,14 @@ func main() {
   code_3.filename = the_file; 
   var parser_3 *RangerLispParser = CreateNew_RangerLispParser(code_3);
   parser_3.parse();
+  var lcc_2 *LiveCompiler = CreateNew_LiveCompiler();
   var node_2 *CodeNode = parser_3.rootNode.value.(*CodeNode);
   var flowParser_2 *RangerFlowParser = CreateNew_RangerFlowParser();
   var appCtx_2 *RangerAppWriterContext = CreateNew_RangerAppWriterContext();
-  var wr_13 *CodeWriter = CreateNew_CodeWriter();
+  var wr_14 *CodeWriter = CreateNew_CodeWriter();
   for {
     _start := time.Now()
-    flowParser_2.mergeImports(node_2, appCtx_2, wr_13);
+    flowParser_2.mergeImports(node_2, appCtx_2, wr_14);
     var lang_str_2 *GoNullable = new(GoNullable); 
     lang_str_2 = r_io_read_file(".", the_lang_file);
     var lang_code_2 *SourceCode = CreateNew_SourceCode(lang_str_2.value.(string));
@@ -16702,56 +18118,55 @@ func main() {
     appCtx_2.langOperators.value = lang_parser_2.rootNode.value.(*CodeNode);
     appCtx_2.langOperators.has_value = true; /* detected as non-optional */
     fmt.Println( "1. Collecting available methods." )
-    flowParser_2.CollectMethods(node_2, appCtx_2, wr_13);
+    flowParser_2.CollectMethods(node_2, appCtx_2, wr_14);
     if  (int64(len(appCtx_2.compilerErrors))) > 0 {
-      LiveCompiler_static_displayCompilerErrors(appCtx_2);
+      CompilerInterface_static_displayCompilerErrors(appCtx_2);
       return;
     }
     fmt.Println( "2. Analyzing the code." )
     appCtx_2.targetLangName = the_lang; 
-    flowParser_2.WalkNode(node_2, appCtx_2, wr_13);
+    flowParser_2.WalkNode(node_2, appCtx_2, wr_14);
     if  (int64(len(appCtx_2.compilerErrors))) > 0 {
-      LiveCompiler_static_displayCompilerErrors(appCtx_2);
-      LiveCompiler_static_displayParserErrors(appCtx_2);
+      CompilerInterface_static_displayCompilerErrors(appCtx_2);
+      CompilerInterface_static_displayParserErrors(appCtx_2);
       return;
     }
     fmt.Println( "3. Compiling the source code." )
     var fileSystem *CodeFileSystem = CreateNew_CodeFileSystem();
     var file_5 *CodeFile = fileSystem.getFile(".", the_target);
-    var wr_20 *GoNullable = new(GoNullable); 
-    wr_20 = file_5.getWriter();
-    var lcc_2 *LiveCompiler = CreateNew_LiveCompiler();
+    var wr_22 *GoNullable = new(GoNullable); 
+    wr_22 = file_5.getWriter();
     var staticMethods *GoNullable = new(GoNullable); 
-    var importFork_8 *CodeWriter = wr_20.value.(*CodeWriter).fork();
-    var i_202 int64 = 0;  
-    for ; i_202 < int64(len(appCtx_2.definedClassList)) ; i_202++ {
-      cName_2 := appCtx_2.definedClassList[i_202];
+    var importFork_8 *CodeWriter = wr_22.value.(*CodeWriter).fork();
+    var i_210 int64 = 0;  
+    for ; i_210 < int64(len(appCtx_2.definedClassList)) ; i_210++ {
+      cName_2 := appCtx_2.definedClassList[i_210];
       if  cName_2 == "RangerStaticMethods" {
         staticMethods.value = r_get_string_RangerAppClassDesc(appCtx_2.definedClasses, cName_2).value;
         staticMethods.has_value = r_get_string_RangerAppClassDesc(appCtx_2.definedClasses, cName_2).has_value; 
         continue;
       }
-      var cl_19 *GoNullable = new(GoNullable); 
-      cl_19 = r_get_string_RangerAppClassDesc(appCtx_2.definedClasses, cName_2);
-      if  cl_19.value.(*RangerAppClassDesc).is_system {
-        fmt.Println( strings.Join([]string{ (strings.Join([]string{ "--> system class ",cl_19.value.(*RangerAppClassDesc).name }, "")),", skipping" }, "") )
+      var cl_22 *GoNullable = new(GoNullable); 
+      cl_22 = r_get_string_RangerAppClassDesc(appCtx_2.definedClasses, cName_2);
+      if  cl_22.value.(*RangerAppClassDesc).is_system {
+        fmt.Println( strings.Join([]string{ (strings.Join([]string{ "--> system class ",cl_22.value.(*RangerAppClassDesc).name }, "")),", skipping" }, "") )
         continue;
       }
-      lcc_2.WalkNode(cl_19.value.(*RangerAppClassDesc).classNode.value.(*CodeNode), appCtx_2, wr_20.value.(*CodeWriter));
+      lcc_2.WalkNode(cl_22.value.(*RangerAppClassDesc).classNode.value.(*CodeNode), appCtx_2, wr_22.value.(*CodeWriter));
     }
     if  staticMethods.has_value {
-      lcc_2.WalkNode(staticMethods.value.(*RangerAppClassDesc).classNode.value.(*CodeNode), appCtx_2, wr_20.value.(*CodeWriter));
+      lcc_2.WalkNode(staticMethods.value.(*RangerAppClassDesc).classNode.value.(*CodeNode), appCtx_2, wr_22.value.(*CodeWriter));
     }
-    var import_list_5 []string = wr_20.value.(*CodeWriter).getImports();
+    var import_list_5 []string = wr_22.value.(*CodeWriter).getImports();
     if  appCtx_2.targetLangName == "go" {
       importFork_8.out("package main", true);
       importFork_8.newline();
       importFork_8.out("import (", true);
       importFork_8.indent(1);
     }
-    var i_207 int64 = 0;  
-    for ; i_207 < int64(len(import_list_5)) ; i_207++ {
-      codeStr_5 := import_list_5[i_207];
+    var i_219 int64 = 0;  
+    for ; i_219 < int64(len(import_list_5)) ; i_219++ {
+      codeStr_5 := import_list_5[i_219];
       switch (appCtx_2.targetLangName ) { 
         case "go" : 
           if  (int64(codeStr_5[0])) == (int64(([]byte("_")[0]))) {
@@ -16761,6 +18176,8 @@ func main() {
           }
         case "rust" : 
           importFork_8.out(strings.Join([]string{ (strings.Join([]string{ "use ",codeStr_5 }, "")),";" }, ""), true);
+        case "cpp" : 
+          importFork_8.out(strings.Join([]string{ (strings.Join([]string{ "#include  ",codeStr_5 }, "")),"" }, ""), true);
         default: 
           importFork_8.out(strings.Join([]string{ (strings.Join([]string{ "import ",codeStr_5 }, "")),"" }, ""), true);
       }
@@ -16771,8 +18188,8 @@ func main() {
     }
     fileSystem.saveTo(the_target_dir);
     fmt.Println( "Ready." )
-    LiveCompiler_static_displayCompilerErrors(appCtx_2);
-    LiveCompiler_static_displayParserErrors(appCtx_2);
+    CompilerInterface_static_displayCompilerErrors(appCtx_2);
+    CompilerInterface_static_displayParserErrors(appCtx_2);
     fmt.Println("Total time", time.Since(_start) )
     break;
   }

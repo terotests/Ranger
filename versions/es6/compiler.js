@@ -16,6 +16,78 @@ class RangerCompilerMessage  {
     this.node;
   }
 }
+class RangerParamEventHandler  {
+  
+  constructor( ) {
+  }
+  
+  callback(param ) {
+  }
+}
+class RangerParamEventList  {
+  
+  constructor( ) {
+    this.list = [];
+  }
+}
+class RangerParamEventMap  {
+  
+  constructor( ) {
+    this.events = {};
+  }
+  
+  clearAllEvents() {
+  }
+  
+  addEvent(name ,e ) {
+    if ( (typeof(this.events[name] ) != "undefined") == false ) {
+      this.events[name] = new RangerParamEventList()
+    }
+    var list = (this.events[name])
+    list.list.push(e);
+  }
+  
+  fireEvent(name ,from ) {
+    if ( typeof(this.events[name] ) != "undefined" ) {
+      var list_4 = (this.events[name])
+      for ( var i = 0; i < list_4.list.length; i++) {
+        var ev = list_4.list[i];
+        ev.callback(from);
+      }
+    }
+  }
+}
+class RangerAppArrayValue  {
+  
+  constructor( ) {
+    this.value_type = 0;     /** note: unused */
+    this.value_type_name = "";     /** note: unused */
+    this.values = [];     /** note: unused */
+  }
+}
+class RangerAppHashValue  {
+  
+  constructor( ) {
+    this.value_type = 0;     /** note: unused */
+    this.key_type_name = "";     /** note: unused */
+    this.value_type_name = "";     /** note: unused */
+    this.s_values = {};     /** note: unused */
+    this.i_values = {};     /** note: unused */
+    this.b_values = {};     /** note: unused */
+    this.d_values = {};     /** note: unused */
+  }
+}
+class RangerAppValue  {
+  
+  constructor( ) {
+    this.double_value = 0;     /** note: unused */
+    this.string_value = "";     /** note: unused */
+    this.int_value = 0;     /** note: unused */
+    this.boolean_value = false;     /** note: unused */
+    this.arr;     /** note: unused */
+    this.hash;     /** note: unused */
+  }
+}
 class RangerRefForce  {
   
   constructor( ) {
@@ -28,6 +100,7 @@ class RangerAppParamDesc  {
   
   constructor( ) {
     this.name = "";
+    this.value;     /** note: unused */
     this.compiledName = "";
     this.debugString = "";
     this.ref_cnt = 0;
@@ -56,6 +129,16 @@ class RangerAppParamDesc  {
     this.nameNode;
     this.description = "";     /** note: unused */
     this.git_doc = "";     /** note: unused */
+    this.has_events = false;
+    this.eMap;
+  }
+  
+  addEvent(name ,e ) {
+    if ( this.has_events == false ) {
+      this.eMap = new RangerParamEventMap();
+      this.has_events = true;
+    }
+    this.eMap.addEvent(name, e);
   }
   
   changeStrength(newStrength ,lifeTime ,changer ) {
@@ -87,7 +170,7 @@ class RangerAppParamDesc  {
         if ( this.nameNode.eval_type == 7 ) {
           return true;
         }
-        if ( (((this.nameNode.eval_type == 4) || (this.nameNode.eval_type == 2)) || (this.nameNode.eval_type == 5)) || (this.nameNode.eval_type == 3) ) {
+        if ( (((((this.nameNode.eval_type == 13) || (this.nameNode.eval_type == 12)) || (this.nameNode.eval_type == 4)) || (this.nameNode.eval_type == 2)) || (this.nameNode.eval_type == 5)) || (this.nameNode.eval_type == 3) ) {
           return false;
         }
         if ( this.nameNode.eval_type == 11 ) {
@@ -202,8 +285,8 @@ class RangerAppParamDesc  {
   
   debugRefChanges() {
     console.log(("variable " + this.name) + " ref history : ")
-    for ( var i = 0; i < this.ownerHistory.length; i++) {
-      var h = this.ownerHistory[i];
+    for ( var i_2 = 0; i_2 < this.ownerHistory.length; i_2++) {
+      var h = this.ownerHistory[i_2];
       console.log(((" => change to " + h.strength) + " by ") + h.changer.getCode())
     }
   }
@@ -429,8 +512,8 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     if ( (this.extends_classes.indexOf(class_name)) >= 0 ) {
       return true;
     }
-    for ( var i_2 = 0; i_2 < this.extends_classes.length; i_2++) {
-      var c_name = this.extends_classes[i_2];
+    for ( var i_3 = 0; i_3 < this.extends_classes.length; i_3++) {
+      var c_name = this.extends_classes[i_3];
       var c = ctx.findClass(c_name)
       if ( c.isSameOrParentClass(class_name, ctx) ) {
         return true;
@@ -443,8 +526,8 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     if ( typeof(this.defined_methods[m_name] ) != "undefined" ) {
       return true;
     }
-    for ( var i_5 = 0; i_5 < this.extends_classes.length; i_5++) {
-      var cname = this.extends_classes[i_5];
+    for ( var i_6 = 0; i_6 < this.extends_classes.length; i_6++) {
+      var cname = this.extends_classes[i_6];
       var cDesc = this.ctx.findClass(cname)
       if ( cDesc.hasMethod(m_name) ) {
         return cDesc.hasMethod(m_name);
@@ -455,15 +538,15 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
   
   findMethod(f_name ) {
     var res
-    for ( var i_7 = 0; i_7 < this.methods.length; i_7++) {
-      var m = this.methods[i_7];
+    for ( var i_8 = 0; i_8 < this.methods.length; i_8++) {
+      var m = this.methods[i_8];
       if ( m.name == f_name ) {
         res = m;
         return res;
       }
     }
-    for ( var i_11 = 0; i_11 < this.extends_classes.length; i_11++) {
-      var cname_4 = this.extends_classes[i_11];
+    for ( var i_12 = 0; i_12 < this.extends_classes.length; i_12++) {
+      var cname_4 = this.extends_classes[i_12];
       var cDesc_4 = this.ctx.findClass(cname_4)
       if ( cDesc_4.hasMethod(f_name) ) {
         return cDesc_4.findMethod(f_name);
@@ -478,15 +561,15 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
   
   findStaticMethod(f_name ) {
     var e
-    for ( var i_11 = 0; i_11 < this.static_methods.length; i_11++) {
-      var m_4 = this.static_methods[i_11];
+    for ( var i_12 = 0; i_12 < this.static_methods.length; i_12++) {
+      var m_4 = this.static_methods[i_12];
       if ( m_4.name == f_name ) {
         e = m_4;
         return e;
       }
     }
-    for ( var i_15 = 0; i_15 < this.extends_classes.length; i_15++) {
-      var cname_6 = this.extends_classes[i_15];
+    for ( var i_16 = 0; i_16 < this.extends_classes.length; i_16++) {
+      var cname_6 = this.extends_classes[i_16];
       var cDesc_6 = this.ctx.findClass(cname_6)
       if ( cDesc_6.hasStaticMethod(f_name) ) {
         return cDesc_6.findStaticMethod(f_name);
@@ -497,15 +580,15 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
   
   findVariable(f_name ) {
     var e_4
-    for ( var i_15 = 0; i_15 < this.variables.length; i_15++) {
-      var m_6 = this.variables[i_15];
+    for ( var i_16 = 0; i_16 < this.variables.length; i_16++) {
+      var m_6 = this.variables[i_16];
       if ( m_6.name == f_name ) {
         e_4 = m_6;
         return e_4;
       }
     }
-    for ( var i_19 = 0; i_19 < this.extends_classes.length; i_19++) {
-      var cname_8 = this.extends_classes[i_19];
+    for ( var i_20 = 0; i_20 < this.extends_classes.length; i_20++) {
+      var cname_8 = this.extends_classes[i_20];
       var cDesc_8 = this.ctx.findClass(cname_8)
       return cDesc_8.findVariable(f_name);
     }
@@ -556,15 +639,37 @@ class RangerTypeClass  {
     this.is_lambda = false;     /** note: unused */
     this.nameNode;     /** note: unused */
     this.templateParams;     /** note: unused */
-    this.implements = [];     /** note: unused */
+  }
+}
+class NodeEvalState  {
+  
+  constructor( ) {
+    this.ctx;     /** note: unused */
+    this.is_running = false;     /** note: unused */
+    this.child_index = -1;     /** note: unused */
+    this.cmd_index = -1;     /** note: unused */
+    this.is_ready = false;     /** note: unused */
+    this.is_waiting = false;     /** note: unused */
+    this.exit_after = false;     /** note: unused */
+    this.expand_args = false;     /** note: unused */
+    this.ask_expand = false;     /** note: unused */
+    this.eval_rest = false;     /** note: unused */
+    this.exec_cnt = 0;     /** note: unused */
+    this.b_debugger = false;     /** note: unused */
+    this.b_top_node = false;     /** note: unused */
+    this.ask_eval = false;     /** note: unused */
+    this.param_eval_on = false;     /** note: unused */
+    this.eval_index = -1;     /** note: unused */
+    this.eval_end_index = -1;     /** note: unused */
+    this.ask_eval_start = 0;     /** note: unused */
+    this.ask_eval_end = 0;     /** note: unused */
+    this.evaluating_cmd;     /** note: unused */
   }
 }
 class SourceCode  {
   
   constructor(code_str  ) {
     this.code = "";
-    this.sp = 0;     /** note: unused */
-    this.ep = 0;     /** note: unused */
     this.lines = [];
     this.filename = "";
     this.code = code_str;
@@ -580,11 +685,11 @@ class SourceCode  {
   
   getLine(sp ) {
     var cnt = 0
-    for ( var i_10 = 0; i_10 < this.lines.length; i_10++) {
-      var str = this.lines[i_10];
+    for ( var i_11 = 0; i_11 < this.lines.length; i_11++) {
+      var str = this.lines[i_11];
       cnt = cnt + ((str.length) + 1);
       if ( cnt > sp ) {
-        return i_10;
+        return i_11;
       }
     }
     return -1;
@@ -620,6 +725,7 @@ class CodeNode  {
     this.has_type_annotation = false;
     this.type_annotation;
     this.typeClass;
+    this.parsed_type = 0;
     this.value_type = 0;
     this.eval_type = 0;
     this.eval_type_name = "";
@@ -651,6 +757,7 @@ class CodeNode  {
     this.paramDesc;
     this.ownParamDesc;
     this.evalCtx;
+    this.evalState;     /** note: unused */
     this.sp = start;
     this.ep = end;
     this.code = source;
@@ -687,8 +794,8 @@ class CodeNode  {
       var t_ann = this.type_annotation
       newNode.type_annotation = t_ann.rebuildWithType(match, true);
     }
-    for ( var i_11 = 0; i_11 < this.ns.length; i_11++) {
-      var n = this.ns[i_11];
+    for ( var i_12 = 0; i_12 < this.ns.length; i_12++) {
+      var n = this.ns[i_12];
       newNode.ns.push(n);
     }
     switch (this.value_type ) { 
@@ -710,15 +817,15 @@ class CodeNode  {
         }
         break;
     }
-    for ( var i_16 = 0; i_16 < this.prop_keys.length; i_16++) {
-      var key = this.prop_keys[i_16];
+    for ( var i_17 = 0; i_17 < this.prop_keys.length; i_17++) {
+      var key = this.prop_keys[i_17];
       newNode.prop_keys.push(key);
       var oldp = this.props[key]
       var np = oldp.rebuildWithType(match, changeVref)
       newNode.props[key] = np
     }
-    for ( var i_19 = 0; i_19 < this.children.length; i_19++) {
-      var ch = this.children[i_19];
+    for ( var i_20 = 0; i_20 < this.children.length; i_20++) {
+      var ch = this.children[i_20];
       var newCh = ch.rebuildWithType(match, changeVref)
       newCh.parent = newNode;
       newNode.children.push(newCh);
@@ -846,8 +953,8 @@ class CodeNode  {
     if ( false == this.has_vref_annotation ) {
       return res_2;
     }
-    for ( var i_18 = 0; i_18 < this.vref_annotation.children.length; i_18++) {
-      var ch_4 = this.vref_annotation.children[i_18];
+    for ( var i_19 = 0; i_19 < this.vref_annotation.children.length; i_19++) {
+      var ch_4 = this.vref_annotation.children[i_19];
       if ( ch_4.vref == flagName ) {
         res_2 = ch_4;
         return res_2;
@@ -860,8 +967,8 @@ class CodeNode  {
     if ( false == this.has_vref_annotation ) {
       return false;
     }
-    for ( var i_20 = 0; i_20 < this.vref_annotation.children.length; i_20++) {
-      var ch_6 = this.vref_annotation.children[i_20];
+    for ( var i_21 = 0; i_21 < this.vref_annotation.children.length; i_21++) {
+      var ch_6 = this.vref_annotation.children[i_21];
       if ( ch_6.vref == flagName ) {
         return true;
       }
@@ -1079,6 +1186,13 @@ class CodeNode  {
         break;
     }
     return this.value_type;
+  }
+  
+  isParsedAsPrimitive() {
+    if ( (((((this.parsed_type == 2) || (this.parsed_type == 4)) || (this.parsed_type == 3)) || (this.parsed_type == 12)) || (this.parsed_type == 13)) || (this.parsed_type == 5) ) {
+      return true;
+    }
+    return false;
   }
   
   isPrimitive() {
@@ -1326,19 +1440,13 @@ class CodeNode  {
     } else {
       console.log(this.code.code.substring(this.sp, this.ep ))
     }
-    for ( var i_22 = 0; i_22 < this.children.length; i_22++) {
-      var item = this.children[i_22];
+    for ( var i_23 = 0; i_23 < this.children.length; i_23++) {
+      var item = this.children[i_23];
       item.walk();
     }
     if ( this.expression ) {
       console.log(")")
     }
-  }
-}
-class AfterCodeNode  {
-  
-  constructor( ) {
-    this.ff = 0;     /** note: unused */
   }
 }
 class RangerNodeValue  {
@@ -1387,7 +1495,6 @@ class RangerAppWriterContext  {
     this.stdCommands;
     this.intRootCounter = 1;     /** note: unused */
     this.targetLangName = "";
-    this.ctx;     /** note: unused */
     this.parent;
     this.defined_imports = [];     /** note: unused */
     this.already_imported = {};
@@ -1441,8 +1548,8 @@ class RangerAppWriterContext  {
     }
     var main = this.langOperators
     var lang
-    for ( var i_17 = 0; i_17 < main.children.length; i_17++) {
-      var m_4 = main.children[i_17];
+    for ( var i_18 = 0; i_18 < main.children.length; i_18++) {
+      var m_4 = main.children[i_18];
       var fc_8 = m_4.getFirst()
       if ( fc_8.vref == "language" ) {
         lang = m_4;
@@ -1450,8 +1557,8 @@ class RangerAppWriterContext  {
     }
     /** unused:  var cmds   **/ 
     var langNodes = lang.children[1]
-    for ( var i_22 = 0; i_22 < langNodes.children.length; i_22++) {
-      var lch = langNodes.children[i_22];
+    for ( var i_23 = 0; i_23 < langNodes.children.length; i_23++) {
+      var lch = langNodes.children[i_23];
       var fc_13 = lch.getFirst()
       if ( fc_13.vref == "commands" ) {
         /** unused:  var n_2 = lch.getSecond()   **/ 
@@ -1757,8 +1864,8 @@ class RangerAppWriterContext  {
   
   debugVars() {
     console.log("--- context vars ---")
-    for ( var i_22 = 0; i_22 < this.localVarNames.length; i_22++) {
-      var na = this.localVarNames[i_22];
+    for ( var i_23 = 0; i_23 < this.localVarNames.length; i_23++) {
+      var na = this.localVarNames[i_23];
       console.log("var => " + na)
     }
     if ( typeof(this.parent) !== "undefined" ) {
@@ -1849,12 +1956,12 @@ class RangerAppWriterContext  {
   }
   
   getClasses() {
-    var list = []
-    for ( var i_24 = 0; i_24 < this.definedClassList.length; i_24++) {
-      var n_5 = this.definedClassList[i_24];
-      list.push((this.definedClasses[n_5]));
+    var list_3 = []
+    for ( var i_25 = 0; i_25 < this.definedClassList.length; i_25++) {
+      var n_5 = this.definedClassList[i_25];
+      list_3.push((this.definedClasses[n_5]));
     }
-    return list;
+    return list_3;
   }
   
   addClass(name ,desc ) {
@@ -2055,8 +2162,8 @@ class CodeFileSystem  {
   mkdir(path ) {
     var parts = path.split("/")
     var curr_path = ""
-    for ( var i_21 = 0; i_21 < parts.length; i_21++) {
-      var p = parts[i_21];
+    for ( var i_22 = 0; i_22 < parts.length; i_22++) {
+      var p = parts[i_22];
       curr_path = (curr_path + "/") + p;
       if ( false == (require("fs").existsSync(process.cwd() + "/" + curr_path + "/" )) ) {
         require("fs").mkdirSync(process.cwd() + "/" + curr_path)
@@ -2152,11 +2259,11 @@ class CodeWriter  {
   }
   
   addIndent() {
-    var i_22 = 0
+    var i_23 = 0
     if ( 0 == (this.currentLine.length) ) {
-      while (i_22 < this.indentAmount) {
+      while (i_23 < this.indentAmount) {
         this.currentLine = this.currentLine + this.tabStr;
-        i_22 = i_22 + 1;
+        i_23 = i_23 + 1;
       }
     }
   }
@@ -2333,7 +2440,7 @@ class RangerLispParser  {
       return true;
     }
     var c_2 = s_8.charCodeAt(this.i )
-    /** unused:  var bb = c_2 == (".".charCodeAt(0))   **/ 
+    /** unused:  var bb = c_2 == (46)   **/ 
     while ((this.i < this.len) && (c_2 <= 32)) {
       if ( is_block_parent && ((c_2 == 10) || (c_2 == 13)) ) {
         this.end_expression();
@@ -2380,62 +2487,62 @@ class RangerLispParser  {
     var c_5 = s_11.charCodeAt(this.i )
     var c2 = s_11.charCodeAt((this.i + 1) )
     switch (c_5 ) { 
-      case "*".charCodeAt(0) : 
+      case 42 : 
         this.i = this.i + 1;
         return 14;
         break;
-      case "/".charCodeAt(0) : 
+      case 47 : 
         this.i = this.i + 1;
         return 14;
         break;
-      case "+".charCodeAt(0) : 
+      case 43 : 
         this.i = this.i + 1;
         return 13;
         break;
-      case "-".charCodeAt(0) : 
+      case 45 : 
         this.i = this.i + 1;
         return 13;
         break;
-      case "<".charCodeAt(0) : 
-        if ( c2 == ("=".charCodeAt(0)) ) {
+      case 60 : 
+        if ( c2 == (61) ) {
           this.i = this.i + 2;
           return 11;
         }
         this.i = this.i + 1;
         return 11;
         break;
-      case ">".charCodeAt(0) : 
-        if ( c2 == ("=".charCodeAt(0)) ) {
+      case 62 : 
+        if ( c2 == (61) ) {
           this.i = this.i + 2;
           return 11;
         }
         this.i = this.i + 1;
         return 11;
         break;
-      case "!".charCodeAt(0) : 
-        if ( c2 == ("=".charCodeAt(0)) ) {
+      case 33 : 
+        if ( c2 == (61) ) {
           this.i = this.i + 2;
           return 10;
         }
         return 0;
         break;
-      case "=".charCodeAt(0) : 
-        if ( c2 == ("=".charCodeAt(0)) ) {
+      case 61 : 
+        if ( c2 == (61) ) {
           this.i = this.i + 2;
           return 10;
         }
         this.i = this.i + 1;
         return 3;
         break;
-      case "&".charCodeAt(0) : 
-        if ( c2 == ("&".charCodeAt(0)) ) {
+      case 38 : 
+        if ( c2 == (38) ) {
           this.i = this.i + 2;
           return 6;
         }
         return 0;
         break;
-      case "|".charCodeAt(0) : 
-        if ( c2 == ("|".charCodeAt(0)) ) {
+      case 124 : 
+        if ( c2 == (124) ) {
           this.i = this.i + 2;
           return 5;
         }
@@ -2455,50 +2562,50 @@ class RangerLispParser  {
     var c_7 = s_13.charCodeAt(this.i )
     var c2_4 = s_13.charCodeAt((this.i + 1) )
     switch (c_7 ) { 
-      case "*".charCodeAt(0) : 
+      case 42 : 
         return 1;
         break;
-      case "/".charCodeAt(0) : 
+      case 47 : 
         return 14;
         break;
-      case "+".charCodeAt(0) : 
+      case 43 : 
         return 13;
         break;
-      case "-".charCodeAt(0) : 
+      case 45 : 
         return 13;
         break;
-      case "<".charCodeAt(0) : 
-        if ( c2_4 == ("=".charCodeAt(0)) ) {
+      case 60 : 
+        if ( c2_4 == (61) ) {
           return 11;
         }
         return 11;
         break;
-      case ">".charCodeAt(0) : 
-        if ( c2_4 == ("=".charCodeAt(0)) ) {
+      case 62 : 
+        if ( c2_4 == (61) ) {
           return 11;
         }
         return 11;
         break;
-      case "!".charCodeAt(0) : 
-        if ( c2_4 == ("=".charCodeAt(0)) ) {
+      case 33 : 
+        if ( c2_4 == (61) ) {
           return 10;
         }
         return 0;
         break;
-      case "=".charCodeAt(0) : 
-        if ( c2_4 == ("=".charCodeAt(0)) ) {
+      case 61 : 
+        if ( c2_4 == (61) ) {
           return 10;
         }
         return 3;
         break;
-      case "&".charCodeAt(0) : 
-        if ( c2_4 == ("&".charCodeAt(0)) ) {
+      case 38 : 
+        if ( c2_4 == (38) ) {
           return 6;
         }
         return 0;
         break;
-      case "|".charCodeAt(0) : 
-        if ( c2_4 == ("|".charCodeAt(0)) ) {
+      case 124 : 
+        if ( c2_4 == (124) ) {
           return 5;
         }
         return 0;
@@ -2613,6 +2720,7 @@ class RangerLispParser  {
             break;
           }
           new_node = new CodeNode(this.code, sp_4, this.i);
+          new_node.parsed_type = 10;
           new_node.value_type = 10;
           new_node.string_value = s_15.substring(sp_4, this.i );
           this.curr_node.comments.push(new_node);
@@ -2620,15 +2728,17 @@ class RangerLispParser  {
         }
         if ( this.i < (this.len - 1) ) {
           fc_11 = s_15.charCodeAt((this.i + 1) );
-          if ( (((c_9 == 40) || (c_9 == ("{".charCodeAt(0)))) || ((c_9 == 39) && (fc_11 == 40))) || ((c_9 == 96) && (fc_11 == 40)) ) {
+          if ( (((c_9 == 40) || (c_9 == (123))) || ((c_9 == 39) && (fc_11 == 40))) || ((c_9 == 96) && (fc_11 == 40)) ) {
             this.paren_cnt = this.paren_cnt + 1;
             if ( typeof(this.curr_node) === "undefined" ) {
               this.rootNode = new CodeNode(this.code, this.i, this.i);
               this.curr_node = this.rootNode;
               if ( c_9 == 96 ) {
+                this.curr_node.parsed_type = 30;
                 this.curr_node.value_type = 30;
               }
               if ( c_9 == 39 ) {
+                this.curr_node.parsed_type = 29;
                 this.curr_node.value_type = 29;
               }
               this.curr_node.expression = true;
@@ -2646,7 +2756,7 @@ class RangerLispParser  {
               this.parents.push(new_qnode);
               this.curr_node = new_qnode;
             }
-            if ( c_9 == ("{".charCodeAt(0)) ) {
+            if ( c_9 == (123) ) {
               this.curr_node.is_block_node = true;
             }
             this.i = 1 + this.i;
@@ -2662,8 +2772,8 @@ class RangerLispParser  {
           sp_4 = this.i;
           this.i = 1 + this.i;
           c_9 = s_15.charCodeAt(this.i );
-          while ((this.i < this.len) && ((((c_9 >= 48) && (c_9 <= 57)) || (c_9 == (".".charCodeAt(0)))) || ((this.i == sp_4) && ((c_9 == ("+".charCodeAt(0))) || (c_9 == ("-".charCodeAt(0))))))) {
-            if ( c_9 == (".".charCodeAt(0)) ) {
+          while ((this.i < this.len) && ((((c_9 >= 48) && (c_9 <= 57)) || (c_9 == (46))) || ((this.i == sp_4) && ((c_9 == (43)) || (c_9 == (45)))))) {
+            if ( c_9 == (46) ) {
               is_double = true;
             }
             this.i = 1 + this.i;
@@ -2672,9 +2782,11 @@ class RangerLispParser  {
           ep_4 = this.i;
           var new_num_node = new CodeNode(this.code, sp_4, ep_4)
           if ( is_double ) {
+            new_num_node.parsed_type = 2;
             new_num_node.value_type = 2;
             new_num_node.double_value = (isNaN( parseFloat((s_15.substring(sp_4, ep_4 ))) ) ? undefined : parseFloat((s_15.substring(sp_4, ep_4 ))));
           } else {
+            new_num_node.parsed_type = 3;
             new_num_node.value_type = 3;
             new_num_node.int_value = (isNaN( parseInt((s_15.substring(sp_4, ep_4 ))) ) ? undefined : parseInt((s_15.substring(sp_4, ep_4 ))));
           }
@@ -2709,7 +2821,8 @@ class RangerLispParser  {
               var orig_str = (s_15.substring(sp_4, ep_4 ))
               var str_length = orig_str.length
               var ii_5 = 0
-              while (ii_5 < str_length) {var cc = orig_str.charCodeAt(ii_5 )
+              while (ii_5 < str_length) {
+                var cc = orig_str.charCodeAt(ii_5 )
                 if ( cc == 92 ) {
                   var next_ch = orig_str.charCodeAt((ii_5 + 1) )
                   switch (next_ch ) { 
@@ -2751,6 +2864,7 @@ class RangerLispParser  {
               }
             }
             var new_str_node = new CodeNode(this.code, sp_4, ep_4)
+            new_str_node.parsed_type = 4;
             new_str_node.value_type = 4;
             if ( must_encode ) {
               new_str_node.string_value = encoded_str;
@@ -2762,28 +2876,30 @@ class RangerLispParser  {
             continue;
           }
         }
-        if ( (((fc_11 == ("t".charCodeAt(0))) && ((s_15.charCodeAt((this.i + 1) )) == ("r".charCodeAt(0)))) && ((s_15.charCodeAt((this.i + 2) )) == ("u".charCodeAt(0)))) && ((s_15.charCodeAt((this.i + 3) )) == ("e".charCodeAt(0))) ) {
+        if ( (((fc_11 == (116)) && ((s_15.charCodeAt((this.i + 1) )) == (114))) && ((s_15.charCodeAt((this.i + 2) )) == (117))) && ((s_15.charCodeAt((this.i + 3) )) == (101)) ) {
           var new_true_node = new CodeNode(this.code, sp_4, sp_4 + 4)
           new_true_node.value_type = 5;
+          new_true_node.parsed_type = 5;
           new_true_node.boolean_value = true;
           this.insert_node(new_true_node);
           this.i = this.i + 4;
           continue;
         }
-        if ( ((((fc_11 == ("f".charCodeAt(0))) && ((s_15.charCodeAt((this.i + 1) )) == ("a".charCodeAt(0)))) && ((s_15.charCodeAt((this.i + 2) )) == ("l".charCodeAt(0)))) && ((s_15.charCodeAt((this.i + 3) )) == ("s".charCodeAt(0)))) && ((s_15.charCodeAt((this.i + 4) )) == ("e".charCodeAt(0))) ) {
+        if ( ((((fc_11 == (102)) && ((s_15.charCodeAt((this.i + 1) )) == (97))) && ((s_15.charCodeAt((this.i + 2) )) == (108))) && ((s_15.charCodeAt((this.i + 3) )) == (115))) && ((s_15.charCodeAt((this.i + 4) )) == (101)) ) {
           var new_f_node = new CodeNode(this.code, sp_4, sp_4 + 5)
           new_f_node.value_type = 5;
+          new_f_node.parsed_type = 5;
           new_f_node.boolean_value = false;
           this.insert_node(new_f_node);
           this.i = this.i + 5;
           continue;
         }
-        if ( fc_11 == ("@".charCodeAt(0)) ) {
+        if ( fc_11 == (64) ) {
           this.i = this.i + 1;
           sp_4 = this.i;
           ep_4 = this.i;
           c_9 = s_15.charCodeAt(this.i );
-          while (((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ("}".charCodeAt(0)))) {
+          while (((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) {
             this.i = 1 + this.i;
             c_9 = s_15.charCodeAt(this.i );
           }
@@ -2818,7 +2934,7 @@ class RangerLispParser  {
         var vref_had_type_ann = false
         var vref_ann_node
         var vref_end = this.i
-        if ( (((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ("}".charCodeAt(0))) ) {
+        if ( (((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125)) ) {
           if ( this.curr_node.is_block_node == true ) {
             var new_expr_node = new CodeNode(this.code, sp_4, ep_4)
             new_expr_node.parent = this.curr_node;
@@ -2838,7 +2954,7 @@ class RangerLispParser  {
         var last_was_newline = false
         if ( op_c > 0 ) {
         } else {
-          while ((((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ("}".charCodeAt(0)))) {
+          while ((((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) {
             if ( this.i > sp_4 ) {
               var is_opchar = this.isOperator()
               if ( is_opchar > 0 ) {
@@ -2851,12 +2967,12 @@ class RangerLispParser  {
               last_was_newline = true;
               break;
             }
-            if ( c_9 == (".".charCodeAt(0)) ) {
+            if ( c_9 == (46) ) {
               ns_list.push(s_15.substring(last_ns, this.i ));
               last_ns = this.i + 1;
               ns_cnt = 1 + ns_cnt;
             }
-            if ( (this.i > vref_end) && (c_9 == ("@".charCodeAt(0))) ) {
+            if ( (this.i > vref_end) && (c_9 == (64)) ) {
               vref_had_type_ann = true;
               vref_end = this.i;
               vref_ann_node = this.parse_raw_annotation();
@@ -2889,7 +3005,7 @@ class RangerLispParser  {
           var vt_sp = this.i
           var vt_ep = this.i
           c_9 = s_15.charCodeAt(this.i );
-          if ( c_9 == ("(".charCodeAt(0)) ) {
+          if ( c_9 == (40) ) {
             var a_node3 = new CodeNode(this.code, sp_4, ep_4)
             a_node3.expression = true;
             this.curr_node = a_node3;
@@ -2900,6 +3016,7 @@ class RangerLispParser  {
             new_expr_node_10.vref = s_15.substring(sp_4, ep_4 );
             new_expr_node_10.ns = ns_list;
             new_expr_node_10.expression_value = a_node3;
+            new_expr_node_10.parsed_type = 15;
             new_expr_node_10.value_type = 15;
             if ( vref_had_type_ann ) {
               new_expr_node_10.vref_annotation = vref_ann_node;
@@ -2908,7 +3025,7 @@ class RangerLispParser  {
             this.curr_node.children.push(new_expr_node_10);
             continue;
           }
-          if ( c_9 == ("[".charCodeAt(0)) ) {
+          if ( c_9 == (91) ) {
             this.i = this.i + 1;
             vt_sp = this.i;
             var hash_sep = 0
@@ -2917,10 +3034,10 @@ class RangerLispParser  {
             while (((this.i < this.len) && (c_9 > 32)) && (c_9 != 93)) {
               this.i = 1 + this.i;
               c_9 = s_15.charCodeAt(this.i );
-              if ( c_9 == (":".charCodeAt(0)) ) {
+              if ( c_9 == (58) ) {
                 hash_sep = this.i;
               }
-              if ( c_9 == ("@".charCodeAt(0)) ) {
+              if ( c_9 == (64) ) {
                 had_array_type_ann = true;
                 break;
               }
@@ -2933,6 +3050,7 @@ class RangerLispParser  {
               var new_hash_node = new CodeNode(this.code, sp_4, vt_ep)
               new_hash_node.vref = s_15.substring(sp_4, ep_4 );
               new_hash_node.ns = ns_list;
+              new_hash_node.parsed_type = 7;
               new_hash_node.value_type = 7;
               new_hash_node.array_type = type_name;
               new_hash_node.key_type = key_type_name;
@@ -2956,6 +3074,7 @@ class RangerLispParser  {
               var new_arr_node = new CodeNode(this.code, sp_4, vt_ep)
               new_arr_node.vref = s_15.substring(sp_4, ep_4 );
               new_arr_node.ns = ns_list;
+              new_arr_node.parsed_type = 6;
               new_arr_node.value_type = 6;
               new_arr_node.array_type = type_name_17;
               new_arr_node.parent = this.curr_node;
@@ -2975,10 +3094,10 @@ class RangerLispParser  {
             }
           }
           var had_type_ann = false
-          while (((((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != ("}".charCodeAt(0)))) && (c_9 != (",".charCodeAt(0)))) {
+          while (((((((this.i < this.len) && ((s_15.charCodeAt(this.i )) > 32)) && (c_9 != 58)) && (c_9 != 40)) && (c_9 != 41)) && (c_9 != (125))) && (c_9 != (44))) {
             this.i = 1 + this.i;
             c_9 = s_15.charCodeAt(this.i );
-            if ( c_9 == ("@".charCodeAt(0)) ) {
+            if ( c_9 == (64) ) {
               had_type_ann = true;
               break;
             }
@@ -2989,6 +3108,7 @@ class RangerLispParser  {
             var new_ref_node = new CodeNode(this.code, sp_4, ep_4)
             new_ref_node.vref = s_15.substring(sp_4, ep_4 );
             new_ref_node.ns = ns_list;
+            new_ref_node.parsed_type = 9;
             new_ref_node.value_type = 9;
             new_ref_node.type_name = s_15.substring(vt_sp, vt_ep );
             new_ref_node.parent = this.curr_node;
@@ -3008,6 +3128,7 @@ class RangerLispParser  {
           if ( (this.i < this.len) && (ep_4 > sp_4) ) {
             var new_vref_node = new CodeNode(this.code, sp_4, ep_4)
             new_vref_node.vref = s_15.substring(sp_4, ep_4 );
+            new_vref_node.parsed_type = 9;
             new_vref_node.value_type = 9;
             new_vref_node.ns = ns_list;
             new_vref_node.parent = this.curr_node;
@@ -3032,8 +3153,10 @@ class RangerLispParser  {
               new_vref_node.vref_annotation = vref_ann_node;
               new_vref_node.has_vref_annotation = true;
             }
-            if ( ((s_15.charCodeAt((this.i + 1) )) == ("(".charCodeAt(0))) || ((s_15.charCodeAt((this.i + 0) )) == ("(".charCodeAt(0))) ) {
-              if ( ((0 == op_pred) && this.curr_node.infix_operator) && (1 == (this.curr_node.children.length)) ) {
+            if ( (this.i + 1) < this.len ) {
+              if ( ((s_15.charCodeAt((this.i + 1) )) == (40)) || ((s_15.charCodeAt((this.i + 0) )) == (40)) ) {
+                if ( ((0 == op_pred) && this.curr_node.infix_operator) && (1 == (this.curr_node.children.length)) ) {
+                }
               }
             }
             if ( ((op_pred > 0) && this.curr_node.infix_operator) || ((op_pred > 0) && ((this.curr_node.children.length) >= 2)) ) {
@@ -3053,7 +3176,8 @@ class RangerLispParser  {
                   var ii_14 = 0
                   var start_from = ch_cnt - 2
                   var keep_nodes = new CodeNode(this.code, sp_4, ep_4)
-                  while (ch_cnt > 0) {var n_ch_21 = this.curr_node.children.splice(0, 1).pop()
+                  while (ch_cnt > 0) {
+                    var n_ch_21 = this.curr_node.children.splice(0, 1).pop()
                     var p_target = if_node
                     if ( (ii_14 < start_from) || n_ch_21.infix_subnode ) {
                       p_target = keep_nodes;
@@ -3062,8 +3186,8 @@ class RangerLispParser  {
                     ch_cnt = ch_cnt - 1;
                     ii_14 = 1 + ii_14;
                   }
-                  for ( var i_33 = 0; i_33 < keep_nodes.children.length; i_33++) {
-                    var keep = keep_nodes.children[i_33];
+                  for ( var i_34 = 0; i_34 < keep_nodes.children.length; i_34++) {
+                    var keep = keep_nodes.children[i_34];
                     this.curr_node.children.push(keep);
                   }
                   this.curr_node.children.push(if_node);
@@ -3092,7 +3216,8 @@ class RangerLispParser  {
                   new_op_node.children.push(last_value);
                 } else {
                   if ( false == just_continue ) {
-                    while (until_index > 0) {var what_to_add = ifNode.children.splice(0, 1).pop()
+                    while (until_index > 0) {
+                      var what_to_add = ifNode.children.splice(0, 1).pop()
                       new_op_node.children.push(what_to_add);
                       until_index = until_index - 1;
                     }
@@ -3112,8 +3237,8 @@ class RangerLispParser  {
             continue;
           }
         }
-        if ( (c_9 == 41) || (c_9 == ("}".charCodeAt(0))) ) {
-          if ( ((c_9 == ("}".charCodeAt(0))) && is_block_parent) && ((this.curr_node.children.length) > 0) ) {
+        if ( (c_9 == 41) || (c_9 == (125)) ) {
+          if ( ((c_9 == (125)) && is_block_parent) && ((this.curr_node.children.length) > 0) ) {
             this.end_expression();
           }
           this.i = 1 + this.i;
@@ -3149,9 +3274,9 @@ class RangerArgMatch  {
     /** unused:  var fc_12 = callArgs.children[0]   **/ 
     var missed_args = []
     var all_matched = true
-    for ( var i_24 = 0; i_24 < args.children.length; i_24++) {
-      var arg = args.children[i_24];
-      var callArg = callArgs.children[(i_24 + firstArgIndex)]
+    for ( var i_25 = 0; i_25 < args.children.length; i_25++) {
+      var arg = args.children[i_25];
+      var callArg = callArgs.children[(i_25 + firstArgIndex)]
       if ( arg.hasFlag("ignore") ) {
         continue;
       }
@@ -3475,14 +3600,15 @@ class RangerFlowParser  {
   
   constructor( ) {
     this.stdCommands;
+    this.lastProcessedNode;
   }
   
   cmdEnum(node ,ctx ,wr ) {
     var fNameNode = node.children[1]
     var enumList = node.children[2]
     var new_enum = new RangerAppEnum()
-    for ( var i_25 = 0; i_25 < enumList.children.length; i_25++) {
-      var item_2 = enumList.children[i_25];
+    for ( var i_26 = 0; i_26 < enumList.children.length; i_26++) {
+      var item_2 = enumList.children[i_26];
       new_enum.add(item_2.vref);
     }
     ctx.definedEnums[fNameNode.vref] = new_enum
@@ -3493,14 +3619,14 @@ class RangerFlowParser  {
   
   findLanguageOper(details ,ctx ) {
     var langName = ctx.getTargetLang()
-    for ( var i_28 = 0; i_28 < details.children.length; i_28++) {
-      var det = details.children[i_28];
+    for ( var i_29 = 0; i_29 < details.children.length; i_29++) {
+      var det = details.children[i_29];
       if ( (det.children.length) > 0 ) {
         var fc_13 = det.children[0]
         if ( fc_13.vref == "templates" ) {
           var tplList = det.children[1]
-          for ( var i_38 = 0; i_38 < tplList.children.length; i_38++) {
-            var tpl = tplList.children[i_38];
+          for ( var i_39 = 0; i_39 < tplList.children.length; i_39++) {
+            var tpl = tplList.children[i_39];
             var tplName = tpl.getFirst()
             var tplImpl
             tplImpl = tpl.getSecond();
@@ -3525,6 +3651,7 @@ class RangerFlowParser  {
     lcc.langWriter = new RangerRangerClassWriter();
     lcc.langWriter.compiler = lcc;
     subCtx.targetLangName = "ranger";
+    subCtx.restartExpressionLevel();
     var macroNode = langOper
     var cmdList = macroNode.getSecond()
     lcc.walkCommandList(cmdList, args, subCtx, wr_4);
@@ -3576,9 +3703,9 @@ class RangerFlowParser  {
             is_macro = true;
           }
           var match = new RangerArgMatch()
-          for ( var i_32 = 0; i_32 < args.children.length; i_32++) {
-            var arg_2 = args.children[i_32];
-            var callArg_2 = callArgs.children[(i_32 + 1)]
+          for ( var i_33 = 0; i_33 < args.children.length; i_33++) {
+            var arg_2 = args.children[i_33];
+            var callArg_2 = callArgs.children[(i_33 + 1)]
             if ( arg_2.hasFlag("define") ) {
               var p_3 = new RangerAppParamDesc()
               p_3.name = callArg_2.vref;
@@ -3684,8 +3811,8 @@ class RangerFlowParser  {
               var arg_13 = args.children[arg_index];
               if ( arg_13.has_vref_annotation ) {
                 var anns = arg_13.vref_annotation
-                for ( var i_42 = 0; i_42 < anns.children.length; i_42++) {
-                  var ann_25 = anns.children[i_42];
+                for ( var i_43 = 0; i_43 < anns.children.length; i_43++) {
+                  var ann_25 = anns.children[i_43];
                   if ( ann_25.vref == "mutates" ) {
                     var theArg = callArgs.children[(arg_index + 1)]
                     if ( theArg.hasParamDesc ) {
@@ -3848,8 +3975,8 @@ class RangerFlowParser  {
     subCtx_4.is_function = true;
     subCtx_4.currentMethod = m_5;
     subCtx_4.setInMethod();
-    for ( var i_36 = 0; i_36 < m_5.params.length; i_36++) {
-      var v = m_5.params[i_36];
+    for ( var i_37 = 0; i_37 < m_5.params.length; i_37++) {
+      var v = m_5.params[i_37];
       subCtx_4.defineVariable(v.name, v);
     }
     this.WalkNodeChildren(fnBody, subCtx_4, wr);
@@ -3857,8 +3984,8 @@ class RangerFlowParser  {
     if ( fnBody.didReturnAtIndex >= 0 ) {
       ctx.addError(node, "constructor should not return any values!");
     }
-    for ( var i_40 = 0; i_40 < subCtx_4.localVarNames.length; i_40++) {
-      var n_4 = subCtx_4.localVarNames[i_40];
+    for ( var i_41 = 0; i_41 < subCtx_4.localVarNames.length; i_41++) {
+      var n_4 = subCtx_4.localVarNames[i_41];
       var p_6 = subCtx_4.localVariables[n_4]
       if ( p_6.set_cnt > 0 ) {
         var defNode = p_6.node
@@ -3899,9 +4026,9 @@ class RangerFlowParser  {
     }
     console.log("could build generic class... " + cn_4.vref)
     var match_4 = new RangerArgMatch()
-    for ( var i_40 = 0; i_40 < tplArgs_2.children.length; i_40++) {
-      var arg_7 = tplArgs_2.children[i_40];
-      var given = givenArgs.children[i_40]
+    for ( var i_41 = 0; i_41 < tplArgs_2.children.length; i_41++) {
+      var arg_7 = tplArgs_2.children[i_41];
+      var given = givenArgs.children[i_41]
       console.log(((" setting " + arg_7.vref) + " => ") + given.vref)
       if ( false == match_4.add(arg_7.vref, given.vref, ctx) ) {
         console.log("set failed!")
@@ -3958,8 +4085,8 @@ class RangerFlowParser  {
       }
     }
     this.WalkNode(obj, ctx, wr);
-    for ( var i_42 = 0; i_42 < params.children.length; i_42++) {
-      var arg_9 = params.children[i_42];
+    for ( var i_43 = 0; i_43 < params.children.length; i_43++) {
+      var arg_9 = params.children[i_43];
       ctx.setInExpr();
       this.WalkNode(arg_9, ctx, wr);
       ctx.unsetInExpr();
@@ -3973,19 +4100,19 @@ class RangerFlowParser  {
     node.clDesc = currC;
     var fnDescr = currC.constructor_fn
     if ( typeof(fnDescr) !== "undefined" ) {
-      for ( var i_46 = 0; i_46 < fnDescr.params.length; i_46++) {
-        var param = fnDescr.params[i_46];
+      for ( var i_47 = 0; i_47 < fnDescr.params.length; i_47++) {
+        var param = fnDescr.params[i_47];
         var has_default = false
         if ( param.nameNode.hasFlag("default") ) {
           has_default = true;
         }
-        if ( (params.children.length) <= i_46 ) {
+        if ( (params.children.length) <= i_47 ) {
           if ( has_default ) {
             continue;
           }
           ctx.addError(node, "Argument was not defined");
         }
-        var argNode_4 = params.children[i_46]
+        var argNode_4 = params.children[i_47]
         if ( false == this.areEqualTypes((param.nameNode), argNode_4, ctx) ) {
           ctx.addError(node, ("ERROR, invalid argument types for " + currC.name) + " constructor ");
         }
@@ -4040,27 +4167,27 @@ class RangerFlowParser  {
         subCtx_6.defineVariable(p_8.name, p_8);
         this.WalkNode(fnNode, subCtx_6, wr);
         var callParams = node.children[1]
-        for ( var i_46 = 0; i_46 < callParams.children.length; i_46++) {
-          var arg_11 = callParams.children[i_46];
+        for ( var i_47 = 0; i_47 < callParams.children.length; i_47++) {
+          var arg_11 = callParams.children[i_47];
           ctx.setInExpr();
           this.WalkNode(arg_11, subCtx_6, wr);
           ctx.unsetInExpr();
-          var fnArg = vFnDef.params[i_46]
+          var fnArg = vFnDef.params[i_47]
           var callArgP = arg_11.paramDesc
           if ( typeof(callArgP) !== "undefined" ) {
             callArgP.moveRefTo(node, fnArg, ctx);
           }
         }
-        for ( var i_54 = 0; i_54 < vFnDef.params.length; i_54++) {
-          var param_4 = vFnDef.params[i_54];
-          if ( (callParams.children.length) <= i_54 ) {
+        for ( var i_55 = 0; i_55 < vFnDef.params.length; i_55++) {
+          var param_4 = vFnDef.params[i_55];
+          if ( (callParams.children.length) <= i_55 ) {
             if ( param_4.nameNode.hasFlag("default") ) {
               continue;
             }
             ctx.addError(node, "Argument was not defined");
             break;
           }
-          var argNode_6 = callParams.children[i_54]
+          var argNode_6 = callParams.children[i_55]
           if ( false == this.areEqualTypes((param_4.nameNode), argNode_6, ctx) ) {
             ctx.addError(node, "ERROR, invalid argument types for method " + vFnDef.name);
           }
@@ -4112,22 +4239,22 @@ class RangerFlowParser  {
       subCtx_10.defineVariable(p_12.name, p_12);
       this.WriteThisVar(fnNode, subCtx_10, wr);
       this.WalkNode(fnNode, subCtx_10, wr);
-      for ( var i_53 = 0; i_53 < node.children.length; i_53++) {
-        var arg_15 = node.children[i_53];
-        if ( i_53 < 1 ) {
+      for ( var i_54 = 0; i_54 < node.children.length; i_54++) {
+        var arg_15 = node.children[i_54];
+        if ( i_54 < 1 ) {
           continue;
         }
         ctx.setInExpr();
         this.WalkNode(arg_15, subCtx_10, wr);
         ctx.unsetInExpr();
       }
-      for ( var i_58 = 0; i_58 < fnDescr_4.params.length; i_58++) {
-        var param_8 = fnDescr_4.params[i_58];
-        if ( (node.children.length) <= (i_58 + 1) ) {
+      for ( var i_59 = 0; i_59 < fnDescr_4.params.length; i_59++) {
+        var param_8 = fnDescr_4.params[i_59];
+        if ( (node.children.length) <= (i_59 + 1) ) {
           ctx.addError(node, "Argument was not defined");
           break;
         }
-        var argNode_10 = node.children[(i_58 + 1)]
+        var argNode_10 = node.children[(i_59 + 1)]
         if ( false == this.areEqualTypes((param_8.nameNode), argNode_10, ctx) ) {
           ctx.addError(node, (("ERROR, invalid argument types for " + desc_6.name) + " method ") + fnDescr_4.name);
         }
@@ -4231,8 +4358,8 @@ class RangerFlowParser  {
     }
     var subCtx_10 = desc_8.ctx
     subCtx_10.setCurrentClass(desc_8);
-    for ( var i_54 = 0; i_54 < desc_8.variables.length; i_54++) {
-      var p_12 = desc_8.variables[i_54];
+    for ( var i_55 = 0; i_55 < desc_8.variables.length; i_55++) {
+      var p_12 = desc_8.variables[i_55];
       var vNode = p_12.node
       if ( (vNode.children.length) > 2 ) {
         var value = vNode.children[2]
@@ -4244,22 +4371,22 @@ class RangerFlowParser  {
       p_12.nameNode.eval_type = p_12.nameNode.typeNameAsType(ctx);
       p_12.nameNode.eval_type_name = p_12.nameNode.type_name;
     }
-    for ( var i_58 = 0; i_58 < cBody.children.length; i_58++) {
-      var fNode = cBody.children[i_58];
+    for ( var i_59 = 0; i_59 < cBody.children.length; i_59++) {
+      var fNode = cBody.children[i_59];
       if ( fNode.isFirstVref("fn") || fNode.isFirstVref("Constructor") ) {
         this.WalkNode(fNode, subCtx_10, wr);
       }
     }
-    for ( var i_61 = 0; i_61 < cBody.children.length; i_61++) {
-      var fNode_6 = cBody.children[i_61];
+    for ( var i_62 = 0; i_62 < cBody.children.length; i_62++) {
+      var fNode_6 = cBody.children[i_62];
       if ( fNode_6.isFirstVref("fn") || fNode_6.isFirstVref("PublicMethod") ) {
         this.WalkNode(fNode_6, subCtx_10, wr);
       }
     }
     var staticCtx = ctx.fork()
     staticCtx.setCurrentClass(desc_8);
-    for ( var i_64 = 0; i_64 < cBody.children.length; i_64++) {
-      var fNode_9 = cBody.children[i_64];
+    for ( var i_65 = 0; i_65 < cBody.children.length; i_65++) {
+      var fNode_9 = cBody.children[i_65];
       if ( fNode_9.isFirstVref("sfn") || fNode_9.isFirstVref("StaticMethod") ) {
         this.WalkNode(fNode_9, staticCtx, wr);
       }
@@ -4279,8 +4406,8 @@ class RangerFlowParser  {
     var m_8 = um
     var subCtx_12 = m_8.fnCtx
     subCtx_12.currentMethod = m_8;
-    for ( var i_62 = 0; i_62 < m_8.params.length; i_62++) {
-      var v_4 = m_8.params[i_62];
+    for ( var i_63 = 0; i_63 < m_8.params.length; i_63++) {
+      var v_4 = m_8.params[i_63];
       v_4.nameNode.eval_type = v_4.nameNode.typeNameAsType(subCtx_12);
       v_4.nameNode.eval_type_name = v_4.nameNode.type_name;
     }
@@ -4292,8 +4419,8 @@ class RangerFlowParser  {
         ctx.addError(node, "Function does not return any values!");
       }
     }
-    for ( var i_66 = 0; i_66 < subCtx_12.localVarNames.length; i_66++) {
-      var n_7 = subCtx_12.localVarNames[i_66];
+    for ( var i_67 = 0; i_67 < subCtx_12.localVarNames.length; i_67++) {
+      var n_7 = subCtx_12.localVarNames[i_67];
       var p_14 = subCtx_12.localVariables[n_7]
       if ( p_14.set_cnt > 0 ) {
         var defNode_4 = p_14.node
@@ -4323,8 +4450,8 @@ class RangerFlowParser  {
       m_10.changeStrength(1, 1, node);
     }
     subCtx_14.setInMethod();
-    for ( var i_66 = 0; i_66 < m_10.params.length; i_66++) {
-      var v_6 = m_10.params[i_66];
+    for ( var i_67 = 0; i_67 < m_10.params.length; i_67++) {
+      var v_6 = m_10.params[i_67];
       subCtx_14.defineVariable(v_6.name, v_6);
       v_6.nameNode.eval_type = v_6.nameNode.typeNameAsType(ctx);
       v_6.nameNode.eval_type_name = v_6.nameNode.type_name;
@@ -4337,8 +4464,8 @@ class RangerFlowParser  {
         ctx.addError(node, "Function does not return any values!");
       }
     }
-    for ( var i_70 = 0; i_70 < subCtx_14.localVarNames.length; i_70++) {
-      var n_9 = subCtx_14.localVarNames[i_70];
+    for ( var i_71 = 0; i_71 < subCtx_14.localVarNames.length; i_71++) {
+      var n_9 = subCtx_14.localVarNames[i_71];
       var p_16 = subCtx_14.localVariables[n_9]
       if ( p_16.set_cnt > 0 ) {
         var defNode_6 = p_16.node
@@ -4355,16 +4482,16 @@ class RangerFlowParser  {
     var args_4 = node.children[2]
     var body = node.children[3]
     var subCtx_16 = ctx.fork()
-    for ( var i_70 = 0; i_70 < args_4.children.length; i_70++) {
-      var arg_15 = args_4.children[i_70];
+    for ( var i_71 = 0; i_71 < args_4.children.length; i_71++) {
+      var arg_15 = args_4.children[i_71];
       var v_8 = new RangerAppParamDesc()
       v_8.name = arg_15.vref;
       v_8.node = arg_15;
       v_8.nameNode = arg_15;
       subCtx_16.defineVariable(v_8.name, v_8);
     }
-    for ( var i_74 = 0; i_74 < body.children.length; i_74++) {
-      var item_5 = body.children[i_74];
+    for ( var i_75 = 0; i_75 < body.children.length; i_75++) {
+      var item_5 = body.children[i_75];
       this.WalkNode(item_5, subCtx_16, wr);
     }
     console.log("--> EXITLAMBDA")
@@ -4493,8 +4620,8 @@ class RangerFlowParser  {
       ctx.addTodo(node, node.getStringProperty("todo"));
     }
     if ( node.expression ) {
-      for ( var i_74 = 0; i_74 < node.children.length; i_74++) {
-        var item_7 = node.children[i_74];
+      for ( var i_75 = 0; i_75 < node.children.length; i_75++) {
+        var item_7 = node.children[i_75];
         item_7.parent = node;
         this.WalkNode(item_7, ctx, wr);
         node.copyEvalResFrom(item_7);
@@ -4508,8 +4635,8 @@ class RangerFlowParser  {
     }
     var fc_24 = node.getFirst()
     this.stdCommands = ctx.getStdCommands();
-    for ( var i_76 = 0; i_76 < this.stdCommands.children.length; i_76++) {
-      var cmd = this.stdCommands.children[i_76];
+    for ( var i_77 = 0; i_77 < this.stdCommands.children.length; i_77++) {
+      var cmd = this.stdCommands.children[i_77];
       var cmdName = cmd.getFirst()
       if ( cmdName.vref == fc_24.vref ) {
         this.stdParamMatch(node, ctx, wr);
@@ -4528,6 +4655,7 @@ class RangerFlowParser  {
       return true;
     }
     node.flow_done = true;
+    this.lastProcessedNode = node;
     if ( node.hasStringProperty("todo") ) {
       ctx.addTodo(node, node.getStringProperty("todo"));
     }
@@ -4637,8 +4765,8 @@ class RangerFlowParser  {
       }
     }
     if ( node.expression ) {
-      for ( var i_78 = 0; i_78 < node.children.length; i_78++) {
-        var item_9 = node.children[i_78];
+      for ( var i_79 = 0; i_79 < node.children.length; i_79++) {
+        var item_9 = node.children[i_79];
         item_9.parent = node;
         this.WalkNode(item_9, ctx, wr);
         node.copyEvalResFrom(item_9);
@@ -4670,8 +4798,8 @@ class RangerFlowParser  {
       this.mergeImports(rn_2, ctx, wr);
       node.children.push(rn_2);
     } else {
-      for ( var i_80 = 0; i_80 < node.children.length; i_80++) {
-        var item_11 = node.children[i_80];
+      for ( var i_81 = 0; i_81 < node.children.length; i_81++) {
+        var item_11 = node.children[i_81];
         this.mergeImports(item_11, ctx, wr);
       }
     }
@@ -4688,8 +4816,8 @@ class RangerFlowParser  {
       new_class.nameNode = nameNode_4;
       ctx.addClass(nameNode_4.vref, new_class);
       new_class.is_system = true;
-      for ( var i_82 = 0; i_82 < instances.children.length; i_82++) {
-        var ch_7 = instances.children[i_82];
+      for ( var i_83 = 0; i_83 < instances.children.length; i_83++) {
+        var ch_7 = instances.children[i_83];
         var langName_4 = ch_7.getFirst()
         var langClassName = ch_7.getSecond()
         new_class.systemNames[langName_4.vref] = langClassName.vref
@@ -4758,6 +4886,7 @@ class RangerFlowParser  {
         new_class_6.nameNode = classNameNode;
         ctx.addClass(s_13, new_class_6);
         new_class_6.classNode = node;
+        new_class_6.node = node;
       }
     }
     if ( node.isFirstVref("TemplateClass") ) {
@@ -4766,12 +4895,12 @@ class RangerFlowParser  {
       find_more = false;
     }
     if ( node.isFirstVref("Extends") ) {
-      var list_2 = node.children[1]
-      for ( var i_86 = 0; i_86 < list_2.children.length; i_86++) {
-        var cname_5 = list_2.children[i_86];
+      var list_4 = node.children[1]
+      for ( var i_87 = 0; i_87 < list_4.children.length; i_87++) {
+        var cname_5 = list_4.children[i_87];
         var extC = ctx.findClass(cname_5.vref)
-        for ( var i_95 = 0; i_95 < extC.variables.length; i_95++) {
-          var vv = extC.variables[i_95];
+        for ( var i_96 = 0; i_96 < extC.variables.length; i_96++) {
+          var vv = extC.variables[i_96];
           var currC_11 = ctx.currentClass
           var subCtx_25 = currC_11.ctx
           subCtx_25.defineVariable(vv.name, vv);
@@ -4818,8 +4947,8 @@ class RangerFlowParser  {
     }
     if ( node.isFirstVref("operators") ) {
       var listOf = node.getSecond()
-      for ( var i_92 = 0; i_92 < listOf.children.length; i_92++) {
-        var item_13 = listOf.children[i_92];
+      for ( var i_93 = 0; i_93 < listOf.children.length; i_93++) {
+        var item_13 = listOf.children[i_93];
         ctx.createOperator(item_13);
       }
       find_more = false;
@@ -4933,17 +5062,17 @@ class RangerFlowParser  {
       find_more = false;
     }
     if ( find_more ) {
-      for ( var i_95 = 0; i_95 < node.children.length; i_95++) {
-        var item_17 = node.children[i_95];
+      for ( var i_96 = 0; i_96 < node.children.length; i_96++) {
+        var item_17 = node.children[i_96];
         this.CollectMethods(item_17, ctx, wr);
       }
     }
   }
   
   FindWeakRefs(node ,ctx ,wr ) {
-    var list_5 = ctx.getClasses()
-    for ( var i_92 = 0; i_92 < list_5.length; i_92++) {
-      var classDesc = list_5[i_92];
+    var list_7 = ctx.getClasses()
+    for ( var i_93 = 0; i_93 < list_7.length; i_93++) {
+      var classDesc = list_7[i_93];
       for ( var i2 = 0; i2 < classDesc.variables.length; i2++) {
         var varD = classDesc.variables[i2];
         if ( varD.refType == 1 ) {
@@ -4969,9 +5098,9 @@ class RangerFlowParser  {
         var cnt_4 = obj.ns.length
         var classRefDesc
         var classDesc_4
-        for ( var i_94 = 0; i_94 < obj.ns.length; i_94++) {
-          var strname = obj.ns[i_94];
-          if ( i_94 == 0 ) {
+        for ( var i_95 = 0; i_95 < obj.ns.length; i_95++) {
+          var strname = obj.ns[i_95];
+          if ( i_95 == 0 ) {
             if ( strname == this.getThisName() ) {
               classDesc_4 = ctx.getCurrentClass();
             } else {
@@ -4994,7 +5123,7 @@ class RangerFlowParser  {
             if ( typeof(classDesc_4) === "undefined" ) {
               return varFnDesc;
             }
-            if ( i_94 < (cnt_4 - 1) ) {
+            if ( i_95 < (cnt_4 - 1) ) {
               varDesc = classDesc_4.findVariable(strname);
               if ( typeof(varDesc) === "undefined" ) {
                 ctx.addError(obj, "Error, no description for refenced obj: " + strname);
@@ -5041,9 +5170,9 @@ class RangerFlowParser  {
       if ( (obj.ns.length) > 1 ) {
         var cnt_7 = obj.ns.length
         var classRefDesc_4
-        for ( var i_96 = 0; i_96 < obj.ns.length; i_96++) {
-          var strname_4 = obj.ns[i_96];
-          if ( i_96 == 0 ) {
+        for ( var i_97 = 0; i_97 < obj.ns.length; i_97++) {
+          var strname_4 = obj.ns[i_97];
+          if ( i_97 == 0 ) {
             if ( strname_4 == this.getThisName() ) {
               classDesc_6 = ctx.getCurrentClass();
               if ( set_nsp ) {
@@ -5069,7 +5198,7 @@ class RangerFlowParser  {
               classDesc_6 = ctx.findClass(classRefDesc_4.nameNode.type_name);
             }
           } else {
-            if ( i_96 < (cnt_7 - 1) ) {
+            if ( i_97 < (cnt_7 - 1) ) {
               varDesc_4 = classDesc_6.findVariable(strname_4);
               if ( typeof(varDesc_4) === "undefined" ) {
                 ctx.addError(obj, "Error, no description for refenced obj: " + strname_4);
@@ -5247,7 +5376,8 @@ class RangerGenericClassWriter  {
     var str_length_2 = node.string_value.length
     var encoded_str_8 = ""
     var ii_11 = 0
-    while (ii_11 < str_length_2) {var cc_4 = node.string_value.charCodeAt(ii_11 )
+    while (ii_11 < str_length_2) {
+      var cc_4 = node.string_value.charCodeAt(ii_11 )
       switch (cc_4 ) { 
         case 8 : 
           encoded_str_8 = (encoded_str_8 + (String.fromCharCode(92))) + (String.fromCharCode(98));
@@ -5360,8 +5490,8 @@ class RangerGenericClassWriter  {
   }
   
   release_local_vars(node ,ctx ,wr ) {
-    for ( var i_61 = 0; i_61 < ctx.localVarNames.length; i_61++) {
-      var n_7 = ctx.localVarNames[i_61];
+    for ( var i_62 = 0; i_62 < ctx.localVarNames.length; i_62++) {
+      var n_7 = ctx.localVarNames[i_62];
       var p_14 = ctx.localVariables[n_7]
       if ( p_14.ref_cnt == 0 ) {
         continue;
@@ -5422,9 +5552,9 @@ class RangerGenericClassWriter  {
       }
     }
     if ( (node.nsp.length) > 0 ) {
-      for ( var i_64 = 0; i_64 < node.nsp.length; i_64++) {
-        var p_17 = node.nsp[i_64];
-        if ( i_64 > 0 ) {
+      for ( var i_65 = 0; i_65 < node.nsp.length; i_65++) {
+        var p_17 = node.nsp[i_65];
+        if ( i_65 > 0 ) {
           wr.out(".", false);
         }
         if ( (p_17.compiledName.length) > 0 ) {
@@ -5433,15 +5563,15 @@ class RangerGenericClassWriter  {
           if ( (p_17.name.length) > 0 ) {
             wr.out(this.adjustType(p_17.name), false);
           } else {
-            wr.out(this.adjustType((node.ns[i_64])), false);
+            wr.out(this.adjustType((node.ns[i_65])), false);
           }
         }
       }
       return;
     }
-    for ( var i_68 = 0; i_68 < node.ns.length; i_68++) {
-      var part = node.ns[i_68];
-      if ( i_68 > 0 ) {
+    for ( var i_69 = 0; i_69 < node.ns.length; i_69++) {
+      var part = node.ns[i_69];
+      if ( i_69 > 0 ) {
         wr.out(".", false);
       }
       wr.out(this.adjustType(part), false);
@@ -5476,12 +5606,12 @@ class RangerGenericClassWriter  {
       wr.out("(", false);
       var givenArgs_2 = node.getSecond()
       ctx.setInExpr();
-      for ( var i_68 = 0; i_68 < node.fnDesc.params.length; i_68++) {
-        var arg_12 = node.fnDesc.params[i_68];
-        if ( i_68 > 0 ) {
+      for ( var i_69 = 0; i_69 < node.fnDesc.params.length; i_69++) {
+        var arg_12 = node.fnDesc.params[i_69];
+        if ( i_69 > 0 ) {
           wr.out(", ", false);
         }
-        if ( (givenArgs_2.children.length) <= i_68 ) {
+        if ( (givenArgs_2.children.length) <= i_69 ) {
           var defVal = arg_12.nameNode.getFlag("default")
           if ( typeof(defVal) !== "undefined" ) {
             var fc_31 = defVal.vref_annotation.getFirst()
@@ -5491,7 +5621,7 @@ class RangerGenericClassWriter  {
           }
           continue;
         }
-        var n_10 = givenArgs_2.children[i_68]
+        var n_10 = givenArgs_2.children[i_69]
         this.WalkNode(n_10, ctx, wr);
       }
       ctx.unsetInExpr();
@@ -5511,10 +5641,10 @@ class RangerGenericClassWriter  {
       var constr = cl_2.constructor_fn
       var givenArgs_5 = node.getThird()
       if ( typeof(constr) !== "undefined" ) {
-        for ( var i_70 = 0; i_70 < constr.params.length; i_70++) {
-          var arg_15 = constr.params[i_70];
-          var n_12 = givenArgs_5.children[i_70]
-          if ( i_70 > 0 ) {
+        for ( var i_71 = 0; i_71 < constr.params.length; i_71++) {
+          var arg_15 = constr.params[i_71];
+          var n_12 = givenArgs_5.children[i_71]
+          if ( i_71 > 0 ) {
             wr.out(", ", false);
           }
           if ( true || (typeof(arg_15.nameNode) !== "undefined") ) {
@@ -5533,19 +5663,19 @@ class RangerGenericClassWriter  {
     }
     wr.out(("class " + cl_5.name) + " { ", true);
     wr.indent(1);
-    for ( var i_72 = 0; i_72 < cl_5.variables.length; i_72++) {
-      var pvar = cl_5.variables[i_72];
+    for ( var i_73 = 0; i_73 < cl_5.variables.length; i_73++) {
+      var pvar = cl_5.variables[i_73];
       wr.out(((("/* var " + pvar.name) + " => ") + pvar.nameNode.parent.getCode()) + " */ ", true);
     }
-    for ( var i_76 = 0; i_76 < cl_5.static_methods.length; i_76++) {
-      var pvar_6 = cl_5.static_methods[i_76];
+    for ( var i_77 = 0; i_77 < cl_5.static_methods.length; i_77++) {
+      var pvar_6 = cl_5.static_methods[i_77];
       wr.out(("/* static " + pvar_6.name) + " */ ", true);
     }
-    for ( var i_79 = 0; i_79 < cl_5.defined_variants.length; i_79++) {
-      var fnVar = cl_5.defined_variants[i_79];
+    for ( var i_80 = 0; i_80 < cl_5.defined_variants.length; i_80++) {
+      var fnVar = cl_5.defined_variants[i_80];
       var mVs = cl_5.method_variants[fnVar]
-      for ( var i_86 = 0; i_86 < mVs.variants.length; i_86++) {
-        var variant = mVs.variants[i_86];
+      for ( var i_87 = 0; i_87 < mVs.variants.length; i_87++) {
+        var variant = mVs.variants[i_87];
         wr.out(("function " + variant.name) + "() {", true);
         wr.indent(1);
         wr.newline();
@@ -5582,11 +5712,11 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       case "string" : 
         return "String";
         break;
-      case "chararray" : 
-        return "char[]";
+      case "charbuffer" : 
+        return "byte[]";
         break;
       case "char" : 
-        return "char";
+        return "byte";
         break;
       case "boolean" : 
         return "Boolean";
@@ -5606,11 +5736,11 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       case "string" : 
         return "String";
         break;
-      case "chararray" : 
-        return "char[]";
+      case "charbuffer" : 
+        return "byte[]";
         break;
       case "char" : 
-        return "char";
+        return "byte";
         break;
       case "boolean" : 
         return "boolean";
@@ -5662,10 +5792,10 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
           wr.out("Boolean", false);
           break;
         case 12 : 
-          wr.out("char", false);
+          wr.out("byte", false);
           break;
         case 13 : 
-          wr.out("char[]", false);
+          wr.out("byte[]", false);
           break;
         case 7 : 
           wr.out(((("HashMap<" + this.getObjectTypeString(k_name, ctx)) + ",") + this.getObjectTypeString(a_name_2, ctx)) + ">", false);
@@ -5695,10 +5825,10 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
           wr.out("double", false);
           break;
         case 12 : 
-          wr.out("char", false);
+          wr.out("byte", false);
           break;
         case 13 : 
-          wr.out("char[]", false);
+          wr.out("byte[]", false);
           break;
         case 4 : 
           wr.out("String", false);
@@ -5746,16 +5876,16 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     }
     var max_len = node.ns.length
     if ( (node.nsp.length) > 0 ) {
-      for ( var i_70 = 0; i_70 < node.nsp.length; i_70++) {
-        var p_17 = node.nsp[i_70];
-        if ( i_70 == 0 ) {
+      for ( var i_71 = 0; i_71 < node.nsp.length; i_71++) {
+        var p_17 = node.nsp[i_71];
+        if ( i_71 == 0 ) {
           var part_2 = node.ns[0]
           if ( part_2 == "this" ) {
             wr.out("this", false);
             continue;
           }
         }
-        if ( i_70 > 0 ) {
+        if ( i_71 > 0 ) {
           wr.out(".", false);
         }
         if ( (p_17.compiledName.length) > 0 ) {
@@ -5764,10 +5894,10 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
           if ( (p_17.name.length) > 0 ) {
             wr.out(this.adjustType(p_17.name), false);
           } else {
-            wr.out(this.adjustType((node.ns[i_70])), false);
+            wr.out(this.adjustType((node.ns[i_71])), false);
           }
         }
-        if ( i_70 < (max_len - 1) ) {
+        if ( i_71 < (max_len - 1) ) {
           if ( p_17.nameNode.hasFlag("optional") ) {
             wr.out(".get()", false);
           }
@@ -5780,9 +5910,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       wr.out(p_22.compiledName, false);
       return;
     }
-    for ( var i_75 = 0; i_75 < node.ns.length; i_75++) {
-      var part_7 = node.ns[i_75];
-      if ( i_75 > 0 ) {
+    for ( var i_76 = 0; i_76 < node.ns.length; i_76++) {
+      var part_7 = node.ns[i_76];
+      if ( i_76 > 0 ) {
         wr.out(".", false);
       }
       wr.out(this.adjustType(part_7), false);
@@ -5841,9 +5971,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
   }
   
   writeArgsDef(fnDesc ,ctx ,wr ) {
-    for ( var i_75 = 0; i_75 < fnDesc.params.length; i_75++) {
-      var arg_14 = fnDesc.params[i_75];
-      if ( i_75 > 0 ) {
+    for ( var i_76 = 0; i_76 < fnDesc.params.length; i_76++) {
+      var arg_14 = fnDesc.params[i_76];
+      if ( i_76 > 0 ) {
         wr.out(",", false);
       }
       wr.out(" ", false);
@@ -5895,11 +6025,11 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     }
     var declaredVariable = []
     if ( (cl_7.extends_classes.length) > 0 ) {
-      for ( var i_77 = 0; i_77 < cl_7.extends_classes.length; i_77++) {
-        var pName = cl_7.extends_classes[i_77];
+      for ( var i_78 = 0; i_78 < cl_7.extends_classes.length; i_78++) {
+        var pName = cl_7.extends_classes[i_78];
         var pC = ctx.findClass(pName)
-        for ( var i_87 = 0; i_87 < pC.variables.length; i_87++) {
-          var pvar_3 = pC.variables[i_87];
+        for ( var i_88 = 0; i_88 < pC.variables.length; i_88++) {
+          var pvar_3 = pC.variables[i_88];
           declaredVariable[pvar_3.name] = true
         }
       }
@@ -5911,8 +6041,8 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     var parentClass
     if ( (cl_7.extends_classes.length) > 0 ) {
       wr_5.out(" extends ", false);
-      for ( var i_84 = 0; i_84 < cl_7.extends_classes.length; i_84++) {
-        var pName_6 = cl_7.extends_classes[i_84];
+      for ( var i_85 = 0; i_85 < cl_7.extends_classes.length; i_85++) {
+        var pName_6 = cl_7.extends_classes[i_85];
         wr_5.out(pName_6, false);
         parentClass = ctx.findClass(pName_6);
       }
@@ -5920,8 +6050,8 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     wr_5.out(" { ", true);
     wr_5.indent(1);
     wr_5.createTag("utilities");
-    for ( var i_87 = 0; i_87 < cl_7.variables.length; i_87++) {
-      var pvar_8 = cl_7.variables[i_87];
+    for ( var i_88 = 0; i_88 < cl_7.variables.length; i_88++) {
+      var pvar_8 = cl_7.variables[i_88];
       if ( typeof(declaredVariable[pvar_8.name] ) != "undefined" ) {
         continue;
       }
@@ -5943,8 +6073,8 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       wr_5.indent(-1);
       wr_5.out("}", true);
     }
-    for ( var i_90 = 0; i_90 < cl_7.static_methods.length; i_90++) {
-      var variant_2 = cl_7.static_methods[i_90];
+    for ( var i_91 = 0; i_91 < cl_7.static_methods.length; i_91++) {
+      var variant_2 = cl_7.static_methods[i_91];
       wr_5.out("", true);
       if ( variant_2.nameNode.hasFlag("main") ) {
         wr_5.out("public static void main(String [] args ) {", true);
@@ -5965,11 +6095,11 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       wr_5.indent(-1);
       wr_5.out("}", true);
     }
-    for ( var i_93 = 0; i_93 < cl_7.defined_variants.length; i_93++) {
-      var fnVar_2 = cl_7.defined_variants[i_93];
+    for ( var i_94 = 0; i_94 < cl_7.defined_variants.length; i_94++) {
+      var fnVar_2 = cl_7.defined_variants[i_94];
       var mVs_2 = cl_7.method_variants[fnVar_2]
-      for ( var i_100 = 0; i_100 < mVs_2.variants.length; i_100++) {
-        var variant_7 = mVs_2.variants[i_100];
+      for ( var i_101 = 0; i_101 < mVs_2.variants.length; i_101++) {
+        var variant_7 = mVs_2.variants[i_101];
         wr_5.out("", true);
         wr_5.out("public ", false);
         this.writeTypeDef(variant_7.nameNode, ctx, wr_5);
@@ -5990,8 +6120,8 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     wr_5.indent(-1);
     wr_5.out("}", true);
     var import_list = wr_5.getImports()
-    for ( var i_99 = 0; i_99 < import_list.length; i_99++) {
-      var codeStr = import_list[i_99];
+    for ( var i_100 = 0; i_100 < import_list.length; i_100++) {
+      var codeStr = import_list[i_100];
       importFork.out(("import " + codeStr) + ";", true);
     }
   }
@@ -6018,7 +6148,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       case "string" : 
         return "String";
         break;
-      case "chararray" : 
+      case "charbuffer" : 
         return "[UInt8]";
         break;
       case "char" : 
@@ -6041,6 +6171,12 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
         break;
       case "string" : 
         return "String";
+        break;
+      case "charbuffer" : 
+        return "[UInt8]";
+        break;
+      case "char" : 
+        return "UInt8";
         break;
       case "boolean" : 
         return "Bool";
@@ -6133,16 +6269,16 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     }
     var max_len_2 = node.ns.length
     if ( (node.nsp.length) > 0 ) {
-      for ( var i_81 = 0; i_81 < node.nsp.length; i_81++) {
-        var p_20 = node.nsp[i_81];
-        if ( i_81 == 0 ) {
+      for ( var i_82 = 0; i_82 < node.nsp.length; i_82++) {
+        var p_20 = node.nsp[i_82];
+        if ( i_82 == 0 ) {
           var part_4 = node.ns[0]
           if ( part_4 == "this" ) {
             wr.out("self", false);
             continue;
           }
         }
-        if ( i_81 > 0 ) {
+        if ( i_82 > 0 ) {
           wr.out(".", false);
         }
         if ( (p_20.compiledName.length) > 0 ) {
@@ -6151,10 +6287,10 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
           if ( (p_20.name.length) > 0 ) {
             wr.out(this.adjustType(p_20.name), false);
           } else {
-            wr.out(this.adjustType((node.ns[i_81])), false);
+            wr.out(this.adjustType((node.ns[i_82])), false);
           }
         }
-        if ( i_81 < (max_len_2 - 1) ) {
+        if ( i_82 < (max_len_2 - 1) ) {
           if ( p_20.nameNode.hasFlag("optional") ) {
             wr.out("!", false);
           }
@@ -6167,9 +6303,9 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out(p_25.compiledName, false);
       return;
     }
-    for ( var i_86 = 0; i_86 < node.ns.length; i_86++) {
-      var part_9 = node.ns[i_86];
-      if ( i_86 > 0 ) {
+    for ( var i_87 = 0; i_87 < node.ns.length; i_87++) {
+      var part_9 = node.ns[i_87];
+      if ( i_87 > 0 ) {
         wr.out(".", false);
       }
       wr.out(this.adjustType(part_9), false);
@@ -6219,9 +6355,9 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
   }
   
   writeArgsDef(fnDesc ,ctx ,wr ) {
-    for ( var i_86 = 0; i_86 < fnDesc.params.length; i_86++) {
-      var arg_15 = fnDesc.params[i_86];
-      if ( i_86 > 0 ) {
+    for ( var i_87 = 0; i_87 < fnDesc.params.length; i_87++) {
+      var arg_15 = fnDesc.params[i_87];
+      if ( i_87 > 0 ) {
         wr.out(", ", false);
       }
       wr.out(arg_15.name + " : ", false);
@@ -6242,12 +6378,12 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out("(", false);
       ctx.setInExpr();
       var givenArgs_4 = node.getSecond()
-      for ( var i_88 = 0; i_88 < node.fnDesc.params.length; i_88++) {
-        var arg_18 = node.fnDesc.params[i_88];
-        if ( i_88 > 0 ) {
+      for ( var i_89 = 0; i_89 < node.fnDesc.params.length; i_89++) {
+        var arg_18 = node.fnDesc.params[i_89];
+        if ( i_89 > 0 ) {
           wr.out(", ", false);
         }
-        if ( (givenArgs_4.children.length) <= i_88 ) {
+        if ( (givenArgs_4.children.length) <= i_89 ) {
           var defVal_2 = arg_18.nameNode.getFlag("default")
           if ( typeof(defVal_2) !== "undefined" ) {
             var fc_35 = defVal_2.vref_annotation.getFirst()
@@ -6257,7 +6393,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
           }
           continue;
         }
-        var n_10 = givenArgs_4.children[i_88]
+        var n_10 = givenArgs_4.children[i_89]
         wr.out(arg_18.name + " : ", false);
         this.WalkNode(n_10, ctx, wr);
       }
@@ -6278,10 +6414,10 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       var constr_3 = cl_6.constructor_fn
       var givenArgs_7 = node.getThird()
       if ( typeof(constr_3) !== "undefined" ) {
-        for ( var i_90 = 0; i_90 < constr_3.params.length; i_90++) {
-          var arg_20 = constr_3.params[i_90];
-          var n_13 = givenArgs_7.children[i_90]
-          if ( i_90 > 0 ) {
+        for ( var i_91 = 0; i_91 < constr_3.params.length; i_91++) {
+          var arg_20 = constr_3.params[i_91];
+          var n_13 = givenArgs_7.children[i_91]
+          if ( i_91 > 0 ) {
             wr.out(", ", false);
           }
           wr.out(arg_20.name + " : ", false);
@@ -6305,9 +6441,9 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     if ( (fn1.params.length) != (fn2.params.length) ) {
       return false;
     }
-    for ( var i_92 = 0; i_92 < fn1.params.length; i_92++) {
-      var p_27 = fn1.params[i_92];
-      var p2_2 = fn2.params[i_92]
+    for ( var i_93 = 0; i_93 < fn1.params.length; i_93++) {
+      var p_27 = fn1.params[i_93];
+      var p2_2 = fn2.params[i_93]
       if ( match_3.doesDefsMatch((p_27.nameNode), (p2_2.nameNode), ctx) == false ) {
         return false;
       }
@@ -6324,16 +6460,16 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     var parentClass_2
     if ( (cl_9.extends_classes.length) > 0 ) {
       wr.out(" : ", false);
-      for ( var i_94 = 0; i_94 < cl_9.extends_classes.length; i_94++) {
-        var pName_3 = cl_9.extends_classes[i_94];
+      for ( var i_95 = 0; i_95 < cl_9.extends_classes.length; i_95++) {
+        var pName_3 = cl_9.extends_classes[i_95];
         wr.out(pName_3, false);
         parentClass_2 = ctx.findClass(pName_3);
       }
     }
     wr.out(" { ", true);
     wr.indent(1);
-    for ( var i_98 = 0; i_98 < cl_9.variables.length; i_98++) {
-      var pvar_5 = cl_9.variables[i_98];
+    for ( var i_99 = 0; i_99 < cl_9.variables.length; i_99++) {
+      var pvar_5 = cl_9.variables[i_99];
       this.writeVarDef(pvar_5.node, ctx, wr);
     }
     if ( cl_9.has_constructor ) {
@@ -6369,8 +6505,8 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.indent(-1);
       wr.out("}", true);
     }
-    for ( var i_101 = 0; i_101 < cl_9.static_methods.length; i_101++) {
-      var variant_4 = cl_9.static_methods[i_101];
+    for ( var i_102 = 0; i_102 < cl_9.static_methods.length; i_102++) {
+      var variant_4 = cl_9.static_methods[i_102];
       if ( variant_4.nameNode.hasFlag("main") ) {
         continue;
       }
@@ -6388,11 +6524,11 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.indent(-1);
       wr.out("}", true);
     }
-    for ( var i_104 = 0; i_104 < cl_9.defined_variants.length; i_104++) {
-      var fnVar_3 = cl_9.defined_variants[i_104];
+    for ( var i_105 = 0; i_105 < cl_9.defined_variants.length; i_105++) {
+      var fnVar_3 = cl_9.defined_variants[i_105];
       var mVs_3 = cl_9.method_variants[fnVar_3]
-      for ( var i_111 = 0; i_111 < mVs_3.variants.length; i_111++) {
-        var variant_9 = mVs_3.variants[i_111];
+      for ( var i_112 = 0; i_112 < mVs_3.variants.length; i_112++) {
+        var variant_9 = mVs_3.variants[i_112];
         wr.out(("func " + variant_9.name) + "(", false);
         this.writeArgsDef(variant_9, ctx, wr);
         wr.out(") -> ", false);
@@ -6410,8 +6546,8 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     }
     wr.indent(-1);
     wr.out("}", true);
-    for ( var i_110 = 0; i_110 < cl_9.static_methods.length; i_110++) {
-      var variant_12 = cl_9.static_methods[i_110];
+    for ( var i_111 = 0; i_111 < cl_9.static_methods.length; i_111++) {
+      var variant_12 = cl_9.static_methods[i_111];
       var b_3 = variant_12.nameNode.hasFlag("main")
       if ( b_3 ) {
         wr.newline();
@@ -6419,6 +6555,559 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
         subCtx_29.is_function = true;
         this.WalkNode(variant_12.fnBody, subCtx_29, wr);
         wr.newline();
+      }
+    }
+  }
+}
+class RangerCppClassWriter  extends RangerGenericClassWriter {
+  
+  constructor( ) {
+    super()
+    this.compiler;     /** note: unused */
+    this.header_created = false;
+  }
+  
+  adjustType(tn ) {
+    if ( tn == "this" ) {
+      return "this";
+    }
+    return tn;
+  }
+  
+  WriteScalarValue(node ,ctx ,wr ) {
+    switch (node.value_type ) { 
+      case 2 : 
+        wr.out("" + node.double_value, false);
+        break;
+      case 4 : 
+        var s_19 = this.EncodeString(node, ctx, wr)
+        wr.out(("std::string(" + (("\"" + s_19) + "\"")) + ")", false);
+        break;
+      case 3 : 
+        wr.out("" + node.int_value, false);
+        break;
+      case 5 : 
+        if ( node.boolean_value ) {
+          wr.out("true", false);
+        } else {
+          wr.out("false", false);
+        }
+        break;
+    }
+  }
+  
+  getObjectTypeString(type_string ,ctx ) {
+    switch (type_string ) { 
+      case "char" : 
+        return "char";
+        break;
+      case "charbuffer" : 
+        return "const char*";
+        break;
+      case "int" : 
+        return "int";
+        break;
+      case "string" : 
+        return "std::string";
+        break;
+      case "boolean" : 
+        return "bool";
+        break;
+      case "double" : 
+        return "double";
+        break;
+    }
+    if ( ctx.isDefinedClass(type_string) ) {
+      return ("std::shared_ptr<" + type_string) + ">";
+    }
+    return type_string;
+  }
+  
+  getTypeString2(type_string ,ctx ) {
+    switch (type_string ) { 
+      case "char" : 
+        return "char";
+        break;
+      case "charbuffer" : 
+        return "const char*";
+        break;
+      case "int" : 
+        return "int";
+        break;
+      case "string" : 
+        return "std::string";
+        break;
+      case "boolean" : 
+        return "bool";
+        break;
+      case "double" : 
+        return "double";
+        break;
+    }
+    return type_string;
+  }
+  
+  writePtr(node ,ctx ,wr ) {
+    if ( node.type_name == "void" ) {
+      return;
+    }
+  }
+  
+  writeTypeDef(node ,ctx ,wr ) {
+    var v_type_3 = node.value_type
+    var t_name_2 = node.type_name
+    var a_name_3 = node.array_type
+    var k_name_2 = node.key_type
+    if ( ((v_type_3 == 8) || (v_type_3 == 9)) || (v_type_3 == 0) ) {
+      v_type_3 = node.typeNameAsType(ctx);
+    }
+    if ( node.eval_type != 0 ) {
+      v_type_3 = node.eval_type;
+      if ( (node.eval_type_name.length) > 0 ) {
+        t_name_2 = node.eval_type_name;
+      }
+      if ( (node.eval_array_type.length) > 0 ) {
+        a_name_3 = node.eval_array_type;
+      }
+      if ( (node.eval_key_type.length) > 0 ) {
+        k_name_2 = node.eval_key_type;
+      }
+    }
+    switch (v_type_3 ) { 
+      case 11 : 
+        wr.out("int", false);
+        break;
+      case 3 : 
+        wr.out("int", false);
+        break;
+      case 12 : 
+        wr.out("char", false);
+        break;
+      case 13 : 
+        wr.out("const char*", false);
+        break;
+      case 2 : 
+        wr.out("double", false);
+        break;
+      case 4 : 
+        wr.addImport("<string>");
+        wr.out("std::string", false);
+        break;
+      case 5 : 
+        wr.out("bool", false);
+        break;
+      case 7 : 
+        wr.out(((("std::map<" + this.getObjectTypeString(k_name_2, ctx)) + ",") + this.getObjectTypeString(a_name_3, ctx)) + ">", false);
+        wr.addImport("<map>");
+        break;
+      case 6 : 
+        wr.out(("std::vector<" + this.getObjectTypeString(a_name_3, ctx)) + ">", false);
+        wr.addImport("<vector>");
+        break;
+      default: 
+        if ( node.type_name == "void" ) {
+          wr.out("void", false);
+          return;
+        }
+        if ( ctx.isDefinedClass(t_name_2) ) {
+          var cc_5 = ctx.findClass(t_name_2)
+          wr.out("std::shared_ptr<", false);
+          wr.out(cc_5.name, false);
+          wr.out(">", false);
+          return;
+        }
+        if ( node.hasFlag("optional") ) {
+          wr.out("shared_ptr< vector<", false);
+          wr.out(this.getTypeString2(t_name_2, ctx), false);
+          wr.out(">", false);
+          return;
+        }
+        wr.out(this.getTypeString2(t_name_2, ctx), false);
+        break;
+    }
+  }
+  
+  WriteVRef(node ,ctx ,wr ) {
+    if ( node.vref == "this" ) {
+      wr.out("this", false);
+      return;
+    }
+    if ( node.eval_type == 11 ) {
+      var rootObjName_7 = node.ns[0]
+      var enumName_7 = node.ns[1]
+      var e_13 = ctx.getEnum(rootObjName_7)
+      if ( typeof(e_13) !== "undefined" ) {
+        wr.out("" + ((e_13.values[enumName_7])), false);
+        return;
+      }
+    }
+    var had_static = false
+    if ( (node.nsp.length) > 0 ) {
+      for ( var i_94 = 0; i_94 < node.nsp.length; i_94++) {
+        var p_24 = node.nsp[i_94];
+        if ( i_94 > 0 ) {
+          if ( had_static ) {
+            wr.out("::", false);
+          } else {
+            wr.out("->", false);
+          }
+        }
+        if ( i_94 == 0 ) {
+          var part_6 = node.ns[0]
+          if ( part_6 == "this" ) {
+            wr.out("this", false);
+            continue;
+          }
+        }
+        if ( (p_24.compiledName.length) > 0 ) {
+          wr.out(this.adjustType(p_24.compiledName), false);
+        } else {
+          if ( (p_24.name.length) > 0 ) {
+            wr.out(this.adjustType(p_24.name), false);
+          } else {
+            wr.out(this.adjustType((node.ns[i_94])), false);
+          }
+        }
+        if ( p_24.isClass() ) {
+          had_static = true;
+        }
+      }
+      return;
+    }
+    if ( node.hasParamDesc ) {
+      var p_29 = node.paramDesc
+      wr.out(p_29.compiledName, false);
+      return;
+    }
+    for ( var i_99 = 0; i_99 < node.ns.length; i_99++) {
+      var part_11 = node.ns[i_99];
+      if ( i_99 > 0 ) {
+        if ( had_static ) {
+          wr.out("::", false);
+        } else {
+          wr.out("->", false);
+        }
+      }
+      if ( ctx.hasClass(part_11) ) {
+        had_static = true;
+      } else {
+        had_static = false;
+      }
+      wr.out(this.adjustType(part_11), false);
+    }
+  }
+  
+  writeVarDef(node ,ctx ,wr ) {
+    if ( node.hasParamDesc ) {
+      var nn_13 = node.children[1]
+      var p_29 = nn_13.paramDesc
+      if ( (p_29.ref_cnt == 0) && (p_29.is_class_variable == false) ) {
+        wr.out("/** unused:  ", false);
+      }
+      if ( (p_29.set_cnt > 0) || p_29.is_class_variable ) {
+        wr.out("", false);
+      } else {
+        wr.out("", false);
+      }
+      this.writeTypeDef(p_29.nameNode, ctx, wr);
+      wr.out(" ", false);
+      wr.out(p_29.compiledName, false);
+      if ( (node.children.length) > 2 ) {
+        wr.out(" = ", false);
+        ctx.setInExpr();
+        var value_6 = node.getThird()
+        this.WalkNode(value_6, ctx, wr);
+        ctx.unsetInExpr();
+      } else {
+        if ( nn_13.value_type == 6 ) {
+          wr.out(" = new ", false);
+          this.writeTypeDef(p_29.nameNode, ctx, wr);
+          wr.out("()", false);
+        }
+        if ( nn_13.value_type == 7 ) {
+          wr.out(" = new ", false);
+          this.writeTypeDef(p_29.nameNode, ctx, wr);
+          wr.out("()", false);
+        }
+      }
+      if ( (p_29.ref_cnt == 0) && (p_29.is_class_variable == true) ) {
+        wr.out("     /** note: unused */", false);
+      }
+      if ( (p_29.ref_cnt == 0) && (p_29.is_class_variable == false) ) {
+        wr.out("   **/ ;", true);
+      } else {
+        wr.out(";", false);
+        wr.newline();
+      }
+    }
+  }
+  
+  writeCppHeaderVar(node ,ctx ,wr ,do_initialize ) {
+    if ( node.hasParamDesc ) {
+      var nn_16 = node.children[1]
+      var p_31 = nn_16.paramDesc
+      if ( (p_31.ref_cnt == 0) && (p_31.is_class_variable == false) ) {
+        wr.out("/** unused:  ", false);
+      }
+      if ( (p_31.set_cnt > 0) || p_31.is_class_variable ) {
+        wr.out("", false);
+      } else {
+        wr.out("", false);
+      }
+      this.writeTypeDef(p_31.nameNode, ctx, wr);
+      wr.out(" ", false);
+      wr.out(p_31.compiledName, false);
+      if ( (p_31.ref_cnt == 0) && (p_31.is_class_variable == true) ) {
+        wr.out("     /** note: unused */", false);
+      }
+      if ( (p_31.ref_cnt == 0) && (p_31.is_class_variable == false) ) {
+        wr.out("   **/ ;", true);
+      } else {
+        wr.out(";", false);
+        wr.newline();
+      }
+    }
+  }
+  
+  writeArgsDef(fnDesc ,ctx ,wr ) {
+    for ( var i_99 = 0; i_99 < fnDesc.params.length; i_99++) {
+      var arg_18 = fnDesc.params[i_99];
+      if ( i_99 > 0 ) {
+        wr.out(",", false);
+      }
+      wr.out(" ", false);
+      this.writeTypeDef(arg_18.nameNode, ctx, wr);
+      wr.out((" " + arg_18.name) + " ", false);
+    }
+  }
+  
+  writeFnCall(node ,ctx ,wr ) {
+    if ( node.hasFnCall ) {
+      var fc_27 = node.getFirst()
+      this.WriteVRef(fc_27, ctx, wr);
+      wr.out("(", false);
+      ctx.setInExpr();
+      var givenArgs_6 = node.getSecond()
+      for ( var i_101 = 0; i_101 < node.fnDesc.params.length; i_101++) {
+        var arg_21 = node.fnDesc.params[i_101];
+        if ( i_101 > 0 ) {
+          wr.out(", ", false);
+        }
+        if ( i_101 >= (givenArgs_6.children.length) ) {
+          var defVal_3 = arg_21.nameNode.getFlag("default")
+          if ( typeof(defVal_3) !== "undefined" ) {
+            var fc_38 = defVal_3.vref_annotation.getFirst()
+            this.WalkNode(fc_38, ctx, wr);
+          } else {
+            ctx.addError(node, "Default argument was missing");
+          }
+          continue;
+        }
+        var n_12 = givenArgs_6.children[i_101]
+        this.WalkNode(n_12, ctx, wr);
+      }
+      ctx.unsetInExpr();
+      wr.out(")", false);
+      if ( ctx.expressionLevel() == 0 ) {
+        wr.out(";", true);
+      }
+    }
+  }
+  
+  writeNewCall(node ,ctx ,wr ) {
+    if ( node.hasNewOper ) {
+      var cl_8 = node.clDesc
+      /** unused:  var fc_32 = node.getSecond()   **/ 
+      wr.out(" std::make_shared<", false);
+      wr.out(node.clDesc.name, false);
+      wr.out(">(", false);
+      var constr_5 = cl_8.constructor_fn
+      var givenArgs_9 = node.getThird()
+      if ( typeof(constr_5) !== "undefined" ) {
+        for ( var i_103 = 0; i_103 < constr_5.params.length; i_103++) {
+          var arg_23 = constr_5.params[i_103];
+          var n_15 = givenArgs_9.children[i_103]
+          if ( i_103 > 0 ) {
+            wr.out(", ", false);
+          }
+          if ( true || (typeof(arg_23.nameNode) !== "undefined") ) {
+            this.WalkNode(n_15, ctx, wr);
+          }
+        }
+      }
+      wr.out(")", false);
+    }
+  }
+  
+  writeClassHeader(node ,ctx ,wr ) {
+    var cl_11 = node.clDesc
+    if ( typeof(cl_11) === "undefined" ) {
+      return;
+    }
+    wr.out("class " + cl_11.name, false);
+    var parentClass_3
+    if ( (cl_11.extends_classes.length) > 0 ) {
+      wr.out(" : ", false);
+      for ( var i_105 = 0; i_105 < cl_11.extends_classes.length; i_105++) {
+        var pName_4 = cl_11.extends_classes[i_105];
+        wr.out("public ", false);
+        wr.out(pName_4, false);
+        parentClass_3 = ctx.findClass(pName_4);
+      }
+    }
+    wr.out(" { ", true);
+    wr.indent(1);
+    wr.out("public :", true);
+    wr.indent(1);
+    for ( var i_109 = 0; i_109 < cl_11.variables.length; i_109++) {
+      var pvar_6 = cl_11.variables[i_109];
+      this.writeCppHeaderVar(pvar_6.node, ctx, wr, false);
+    }
+    wr.out("/* class constructor */ ", true);
+    wr.out(cl_11.name + "(", false);
+    if ( cl_11.has_constructor ) {
+      var constr_8 = cl_11.constructor_fn
+      this.writeArgsDef(constr_8, ctx, wr);
+    }
+    wr.out(" );", true);
+    for ( var i_112 = 0; i_112 < cl_11.static_methods.length; i_112++) {
+      var variant_7 = cl_11.static_methods[i_112];
+      if ( i_112 == 0 ) {
+        wr.out("/* static methods */ ", true);
+      }
+      wr.out("static ", false);
+      this.writeTypeDef(variant_7.nameNode, ctx, wr);
+      wr.out((" " + variant_7.name) + "(", false);
+      this.writeArgsDef(variant_7, ctx, wr);
+      wr.out(");", true);
+    }
+    for ( var i_115 = 0; i_115 < cl_11.defined_variants.length; i_115++) {
+      var fnVar_4 = cl_11.defined_variants[i_115];
+      if ( i_115 == 0 ) {
+        wr.out("/* instance methods */ ", true);
+      }
+      var mVs_4 = cl_11.method_variants[fnVar_4]
+      for ( var i_122 = 0; i_122 < mVs_4.variants.length; i_122++) {
+        var variant_12 = mVs_4.variants[i_122];
+        this.writeTypeDef(variant_12.nameNode, ctx, wr);
+        wr.out((" " + variant_12.name) + "(", false);
+        this.writeArgsDef(variant_12, ctx, wr);
+        wr.out(");", true);
+      }
+    }
+    wr.indent(-1);
+    wr.indent(-1);
+    wr.out("};", true);
+  }
+  
+  writeClass(node ,ctx ,orig_wr ) {
+    var cl_13 = node.clDesc
+    var wr_6 = orig_wr
+    if ( typeof(cl_13) === "undefined" ) {
+      return;
+    }
+    if ( this.header_created == false ) {
+      wr_6.createTag("c++Imports");
+      wr_6.out("", true);
+      wr_6.out("// define classes here to avoid compiler errors", true);
+      wr_6.createTag("c++ClassDefs");
+      wr_6.out("", true);
+      wr_6.out("// header definitions", true);
+      wr_6.createTag("c++Header");
+      wr_6.out("", true);
+      wr_6.createTag("utilities");
+      this.header_created = true;
+    }
+    var classWriter = orig_wr.getTag("c++ClassDefs")
+    var headerWriter = orig_wr.getTag("c++Header")
+    /** unused:  var projectName = "project"   **/ 
+    classWriter.out(("class " + cl_13.name) + ";", true);
+    this.writeClassHeader(node, ctx, headerWriter);
+    wr_6.out("", true);
+    wr_6.out(((cl_13.name + "::") + cl_13.name) + "(", false);
+    if ( cl_13.has_constructor ) {
+      var constr_10 = cl_13.constructor_fn
+      this.writeArgsDef(constr_10, ctx, wr_6);
+    }
+    wr_6.out(" ) {", true);
+    wr_6.indent(1);
+    for ( var i_115 = 0; i_115 < cl_13.variables.length; i_115++) {
+      var pvar_9 = cl_13.variables[i_115];
+      var nn_18 = pvar_9.node
+      if ( (nn_18.children.length) > 2 ) {
+        var valueNode = nn_18.children[2]
+        wr_6.out(("this->" + pvar_9.compiledName) + " = ", false);
+        this.WalkNode(valueNode, ctx, wr_6);
+        wr_6.out(";", true);
+      }
+    }
+    if ( cl_13.has_constructor ) {
+      var constr_14 = cl_13.constructor_fn
+      wr_6.newline();
+      var subCtx_22 = constr_14.fnCtx
+      subCtx_22.is_function = true;
+      this.WalkNode(constr_14.fnBody, subCtx_22, wr_6);
+      wr_6.newline();
+    }
+    wr_6.indent(-1);
+    wr_6.out("}", true);
+    for ( var i_119 = 0; i_119 < cl_13.static_methods.length; i_119++) {
+      var variant_12 = cl_13.static_methods[i_119];
+      if ( variant_12.nameNode.hasFlag("main") ) {
+        continue;
+      }
+      wr_6.out("", true);
+      this.writeTypeDef(variant_12.nameNode, ctx, wr_6);
+      wr_6.out(" ", false);
+      wr_6.out((" " + cl_13.name) + "::", false);
+      wr_6.out(variant_12.name + "(", false);
+      this.writeArgsDef(variant_12, ctx, wr_6);
+      wr_6.out(") {", true);
+      wr_6.indent(1);
+      wr_6.newline();
+      var subCtx_27 = variant_12.fnCtx
+      subCtx_27.is_function = true;
+      this.WalkNode(variant_12.fnBody, subCtx_27, wr_6);
+      wr_6.newline();
+      wr_6.indent(-1);
+      wr_6.out("}", true);
+    }
+    for ( var i_122 = 0; i_122 < cl_13.defined_variants.length; i_122++) {
+      var fnVar_7 = cl_13.defined_variants[i_122];
+      var mVs_7 = cl_13.method_variants[fnVar_7]
+      for ( var i_129 = 0; i_129 < mVs_7.variants.length; i_129++) {
+        var variant_16 = mVs_7.variants[i_129];
+        wr_6.out("", true);
+        this.writeTypeDef(variant_16.nameNode, ctx, wr_6);
+        wr_6.out(" ", false);
+        wr_6.out((" " + cl_13.name) + "::", false);
+        wr_6.out(variant_16.name + "(", false);
+        this.writeArgsDef(variant_16, ctx, wr_6);
+        wr_6.out(") {", true);
+        wr_6.indent(1);
+        wr_6.newline();
+        var subCtx_30 = variant_16.fnCtx
+        subCtx_30.is_function = true;
+        this.WalkNode(variant_16.fnBody, subCtx_30, wr_6);
+        wr_6.newline();
+        wr_6.indent(-1);
+        wr_6.out("}", true);
+      }
+    }
+    for ( var i_128 = 0; i_128 < cl_13.static_methods.length; i_128++) {
+      var variant_19 = cl_13.static_methods[i_128];
+      if ( variant_19.nameNode.hasFlag("main") ) {
+        wr_6.out("", true);
+        wr_6.out("int main(int argc, char* argv[]) {", true);
+        wr_6.indent(1);
+        wr_6.newline();
+        var subCtx_33 = variant_19.fnCtx
+        subCtx_33.is_function = true;
+        this.WalkNode(variant_19.fnBody, subCtx_33, wr_6);
+        wr_6.newline();
+        wr_6.out("return 0;", true);
+        wr_6.indent(-1);
+        wr_6.out("}", true);
       }
     }
   }
@@ -6436,8 +7125,8 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         wr.out(node.getParsedString(), false);
         break;
       case 4 : 
-        var s_19 = this.EncodeString(node, ctx, wr)
-        wr.out(("\"" + s_19) + "\"", false);
+        var s_20 = this.EncodeString(node, ctx, wr)
+        wr.out(("\"" + s_20) + "\"", false);
         break;
       case 3 : 
         wr.out("" + node.int_value, false);
@@ -6508,11 +7197,11 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   }
   
   writeTypeDef(node ,ctx ,wr ) {
-    var v_type_3 = node.value_type
+    var v_type_4 = node.value_type
     if ( node.eval_type != 0 ) {
-      v_type_3 = node.eval_type;
+      v_type_4 = node.eval_type;
     }
-    switch (v_type_3 ) { 
+    switch (v_type_4 ) { 
       case 11 : 
         wr.out("Int", false);
         break;
@@ -6556,32 +7245,32 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   WriteVRef(node ,ctx ,wr ) {
     if ( node.eval_type == 11 ) {
       if ( (node.ns.length) > 1 ) {
-        var rootObjName_7 = node.ns[0]
-        var enumName_7 = node.ns[1]
-        var e_13 = ctx.getEnum(rootObjName_7)
-        if ( typeof(e_13) !== "undefined" ) {
-          wr.out("" + ((e_13.values[enumName_7])), false);
+        var rootObjName_8 = node.ns[0]
+        var enumName_8 = node.ns[1]
+        var e_14 = ctx.getEnum(rootObjName_8)
+        if ( typeof(e_14) !== "undefined" ) {
+          wr.out("" + ((e_14.values[enumName_8])), false);
           return;
         }
       }
     }
     if ( (node.nsp.length) > 0 ) {
-      for ( var i_93 = 0; i_93 < node.nsp.length; i_93++) {
-        var p_24 = node.nsp[i_93];
-        if ( i_93 > 0 ) {
+      for ( var i_109 = 0; i_109 < node.nsp.length; i_109++) {
+        var p_28 = node.nsp[i_109];
+        if ( i_109 > 0 ) {
           wr.out(".", false);
         }
-        if ( (p_24.compiledName.length) > 0 ) {
-          wr.out(this.adjustType(p_24.compiledName), false);
+        if ( (p_28.compiledName.length) > 0 ) {
+          wr.out(this.adjustType(p_28.compiledName), false);
         } else {
-          if ( (p_24.name.length) > 0 ) {
-            wr.out(this.adjustType(p_24.name), false);
+          if ( (p_28.name.length) > 0 ) {
+            wr.out(this.adjustType(p_28.name), false);
           } else {
-            wr.out(this.adjustType((node.ns[i_93])), false);
+            wr.out(this.adjustType((node.ns[i_109])), false);
           }
         }
-        if ( i_93 == 0 ) {
-          if ( p_24.nameNode.hasFlag("optional") ) {
+        if ( i_109 == 0 ) {
+          if ( p_28.nameNode.hasFlag("optional") ) {
             wr.out("!!", false);
           }
         }
@@ -6589,53 +7278,53 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       return;
     }
     if ( node.hasParamDesc ) {
-      var p_29 = node.paramDesc
-      wr.out(p_29.compiledName, false);
+      var p_33 = node.paramDesc
+      wr.out(p_33.compiledName, false);
       return;
     }
-    for ( var i_98 = 0; i_98 < node.ns.length; i_98++) {
-      var part_6 = node.ns[i_98];
-      if ( i_98 > 0 ) {
+    for ( var i_114 = 0; i_114 < node.ns.length; i_114++) {
+      var part_8 = node.ns[i_114];
+      if ( i_114 > 0 ) {
         wr.out(".", false);
       }
-      wr.out(this.adjustType(part_6), false);
+      wr.out(this.adjustType(part_8), false);
     }
   }
   
   writeVarDef(node ,ctx ,wr ) {
     if ( node.hasParamDesc ) {
-      var nn_13 = node.children[1]
-      var p_29 = nn_13.paramDesc
-      if ( (p_29.ref_cnt == 0) && (p_29.is_class_variable == false) ) {
+      var nn_16 = node.children[1]
+      var p_33 = nn_16.paramDesc
+      if ( (p_33.ref_cnt == 0) && (p_33.is_class_variable == false) ) {
         wr.out("/** unused:  ", false);
       }
-      if ( (p_29.set_cnt > 0) || p_29.is_class_variable ) {
+      if ( (p_33.set_cnt > 0) || p_33.is_class_variable ) {
         wr.out("var ", false);
       } else {
         wr.out("val ", false);
       }
-      wr.out(p_29.compiledName, false);
+      wr.out(p_33.compiledName, false);
       wr.out(" : ", false);
-      this.writeTypeDef(p_29.nameNode, ctx, wr);
+      this.writeTypeDef(p_33.nameNode, ctx, wr);
       wr.out(" ", false);
       if ( (node.children.length) > 2 ) {
         wr.out(" = ", false);
         ctx.setInExpr();
-        var value_6 = node.getThird()
-        this.WalkNode(value_6, ctx, wr);
+        var value_7 = node.getThird()
+        this.WalkNode(value_7, ctx, wr);
         ctx.unsetInExpr();
       } else {
-        if ( nn_13.value_type == 6 ) {
+        if ( nn_16.value_type == 6 ) {
           wr.out(" = arrayListOf()", false);
         }
-        if ( nn_13.value_type == 7 ) {
+        if ( nn_16.value_type == 7 ) {
           wr.out(" = hashMapOf()", false);
         }
       }
-      if ( (p_29.ref_cnt == 0) && (p_29.is_class_variable == true) ) {
+      if ( (p_33.ref_cnt == 0) && (p_33.is_class_variable == true) ) {
         wr.out("     /** note: unused */", false);
       }
-      if ( (p_29.ref_cnt == 0) && (p_29.is_class_variable == false) ) {
+      if ( (p_33.ref_cnt == 0) && (p_33.is_class_variable == false) ) {
         wr.out("   **/ ;", true);
       } else {
         wr.out(";", false);
@@ -6645,40 +7334,40 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   }
   
   writeArgsDef(fnDesc ,ctx ,wr ) {
-    for ( var i_98 = 0; i_98 < fnDesc.params.length; i_98++) {
-      var arg_18 = fnDesc.params[i_98];
-      if ( i_98 > 0 ) {
+    for ( var i_114 = 0; i_114 < fnDesc.params.length; i_114++) {
+      var arg_21 = fnDesc.params[i_114];
+      if ( i_114 > 0 ) {
         wr.out(",", false);
       }
       wr.out(" ", false);
-      wr.out(arg_18.name + " : ", false);
-      this.writeTypeDef(arg_18.nameNode, ctx, wr);
+      wr.out(arg_21.name + " : ", false);
+      this.writeTypeDef(arg_21.nameNode, ctx, wr);
     }
   }
   
   writeFnCall(node ,ctx ,wr ) {
     if ( node.hasFnCall ) {
-      var fc_27 = node.getFirst()
-      this.WriteVRef(fc_27, ctx, wr);
+      var fc_30 = node.getFirst()
+      this.WriteVRef(fc_30, ctx, wr);
       wr.out("(", false);
-      var givenArgs_6 = node.getSecond()
-      for ( var i_100 = 0; i_100 < node.fnDesc.params.length; i_100++) {
-        var arg_21 = node.fnDesc.params[i_100];
-        if ( i_100 > 0 ) {
+      var givenArgs_8 = node.getSecond()
+      for ( var i_116 = 0; i_116 < node.fnDesc.params.length; i_116++) {
+        var arg_24 = node.fnDesc.params[i_116];
+        if ( i_116 > 0 ) {
           wr.out(", ", false);
         }
-        if ( (givenArgs_6.children.length) <= i_100 ) {
-          var defVal_3 = arg_21.nameNode.getFlag("default")
-          if ( typeof(defVal_3) !== "undefined" ) {
-            var fc_38 = defVal_3.vref_annotation.getFirst()
-            this.WalkNode(fc_38, ctx, wr);
+        if ( (givenArgs_8.children.length) <= i_116 ) {
+          var defVal_4 = arg_24.nameNode.getFlag("default")
+          if ( typeof(defVal_4) !== "undefined" ) {
+            var fc_41 = defVal_4.vref_annotation.getFirst()
+            this.WalkNode(fc_41, ctx, wr);
           } else {
             ctx.addError(node, "Default argument was missing");
           }
           continue;
         }
-        var n_12 = givenArgs_6.children[i_100]
-        this.WalkNode(n_12, ctx, wr);
+        var n_14 = givenArgs_8.children[i_116]
+        this.WalkNode(n_14, ctx, wr);
       }
       wr.out(")", false);
       if ( ctx.expressionLevel() == 0 ) {
@@ -6689,22 +7378,22 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   
   writeNewCall(node ,ctx ,wr ) {
     if ( node.hasNewOper ) {
-      var cl_8 = node.clDesc
-      /** unused:  var fc_32 = node.getSecond()   **/ 
+      var cl_11 = node.clDesc
+      /** unused:  var fc_35 = node.getSecond()   **/ 
       wr.out(" ", false);
       wr.out(node.clDesc.name, false);
       wr.out("(", false);
-      var constr_5 = cl_8.constructor_fn
-      var givenArgs_9 = node.getThird()
-      if ( typeof(constr_5) !== "undefined" ) {
-        for ( var i_102 = 0; i_102 < constr_5.params.length; i_102++) {
-          var arg_23 = constr_5.params[i_102];
-          var n_15 = givenArgs_9.children[i_102]
-          if ( i_102 > 0 ) {
+      var constr_9 = cl_11.constructor_fn
+      var givenArgs_11 = node.getThird()
+      if ( typeof(constr_9) !== "undefined" ) {
+        for ( var i_118 = 0; i_118 < constr_9.params.length; i_118++) {
+          var arg_26 = constr_9.params[i_118];
+          var n_17 = givenArgs_11.children[i_118]
+          if ( i_118 > 0 ) {
             wr.out(", ", false);
           }
-          if ( true || (typeof(arg_23.nameNode) !== "undefined") ) {
-            this.WalkNode(n_15, ctx, wr);
+          if ( true || (typeof(arg_26.nameNode) !== "undefined") ) {
+            this.WalkNode(n_17, ctx, wr);
           }
         }
       }
@@ -6713,107 +7402,107 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   }
   
   writeClass(node ,ctx ,orig_wr ) {
-    var cl_11 = node.clDesc
-    if ( typeof(cl_11) === "undefined" ) {
+    var cl_14 = node.clDesc
+    if ( typeof(cl_14) === "undefined" ) {
       return;
     }
-    var wr_6 = orig_wr
-    /** unused:  var importFork_2 = wr_6.fork()   **/ 
-    wr_6.out("", true);
-    wr_6.out("class " + cl_11.name, false);
-    if ( cl_11.has_constructor ) {
-      var constr_8 = cl_11.constructor_fn
-      wr_6.out("(", false);
-      this.writeArgsDef(constr_8, ctx, wr_6);
-      wr_6.out(" ) ", true);
+    var wr_7 = orig_wr
+    /** unused:  var importFork_2 = wr_7.fork()   **/ 
+    wr_7.out("", true);
+    wr_7.out("class " + cl_14.name, false);
+    if ( cl_14.has_constructor ) {
+      var constr_12 = cl_14.constructor_fn
+      wr_7.out("(", false);
+      this.writeArgsDef(constr_12, ctx, wr_7);
+      wr_7.out(" ) ", true);
     }
-    wr_6.out(" {", true);
-    wr_6.indent(1);
-    for ( var i_104 = 0; i_104 < cl_11.variables.length; i_104++) {
-      var pvar_6 = cl_11.variables[i_104];
-      this.writeVarDef(pvar_6.node, ctx, wr_6);
+    wr_7.out(" {", true);
+    wr_7.indent(1);
+    for ( var i_120 = 0; i_120 < cl_14.variables.length; i_120++) {
+      var pvar_8 = cl_14.variables[i_120];
+      this.writeVarDef(pvar_8.node, ctx, wr_7);
     }
-    if ( cl_11.has_constructor ) {
-      var constr_12 = cl_11.constructor_fn
-      wr_6.out("", true);
-      wr_6.out("init {", true);
-      wr_6.indent(1);
-      wr_6.newline();
-      var subCtx_22 = constr_12.fnCtx
-      subCtx_22.is_function = true;
-      this.WalkNode(constr_12.fnBody, subCtx_22, wr_6);
-      wr_6.newline();
-      wr_6.indent(-1);
-      wr_6.out("}", true);
+    if ( cl_14.has_constructor ) {
+      var constr_16 = cl_14.constructor_fn
+      wr_7.out("", true);
+      wr_7.out("init {", true);
+      wr_7.indent(1);
+      wr_7.newline();
+      var subCtx_26 = constr_16.fnCtx
+      subCtx_26.is_function = true;
+      this.WalkNode(constr_16.fnBody, subCtx_26, wr_7);
+      wr_7.newline();
+      wr_7.indent(-1);
+      wr_7.out("}", true);
     }
-    if ( (cl_11.static_methods.length) > 0 ) {
-      wr_6.out("companion object {", true);
-      wr_6.indent(1);
+    if ( (cl_14.static_methods.length) > 0 ) {
+      wr_7.out("companion object {", true);
+      wr_7.indent(1);
     }
-    for ( var i_108 = 0; i_108 < cl_11.static_methods.length; i_108++) {
-      var variant_7 = cl_11.static_methods[i_108];
-      wr_6.out("", true);
-      if ( variant_7.nameNode.hasFlag("main") ) {
+    for ( var i_124 = 0; i_124 < cl_14.static_methods.length; i_124++) {
+      var variant_12 = cl_14.static_methods[i_124];
+      wr_7.out("", true);
+      if ( variant_12.nameNode.hasFlag("main") ) {
         continue;
       }
-      wr_6.out("fun ", false);
-      wr_6.out(" ", false);
-      wr_6.out(variant_7.name + "(", false);
-      this.writeArgsDef(variant_7, ctx, wr_6);
-      wr_6.out(") : ", false);
-      this.writeTypeDef(variant_7.nameNode, ctx, wr_6);
-      wr_6.out(" {", true);
-      wr_6.indent(1);
-      wr_6.newline();
-      var subCtx_27 = variant_7.fnCtx
-      subCtx_27.is_function = true;
-      this.WalkNode(variant_7.fnBody, subCtx_27, wr_6);
-      wr_6.newline();
-      wr_6.indent(-1);
-      wr_6.out("}", true);
+      wr_7.out("fun ", false);
+      wr_7.out(" ", false);
+      wr_7.out(variant_12.name + "(", false);
+      this.writeArgsDef(variant_12, ctx, wr_7);
+      wr_7.out(") : ", false);
+      this.writeTypeDef(variant_12.nameNode, ctx, wr_7);
+      wr_7.out(" {", true);
+      wr_7.indent(1);
+      wr_7.newline();
+      var subCtx_31 = variant_12.fnCtx
+      subCtx_31.is_function = true;
+      this.WalkNode(variant_12.fnBody, subCtx_31, wr_7);
+      wr_7.newline();
+      wr_7.indent(-1);
+      wr_7.out("}", true);
     }
-    if ( (cl_11.static_methods.length) > 0 ) {
-      wr_6.indent(-1);
-      wr_6.out("}", true);
+    if ( (cl_14.static_methods.length) > 0 ) {
+      wr_7.indent(-1);
+      wr_7.out("}", true);
     }
-    for ( var i_111 = 0; i_111 < cl_11.defined_variants.length; i_111++) {
-      var fnVar_4 = cl_11.defined_variants[i_111];
-      var mVs_4 = cl_11.method_variants[fnVar_4]
-      for ( var i_118 = 0; i_118 < mVs_4.variants.length; i_118++) {
-        var variant_12 = mVs_4.variants[i_118];
-        wr_6.out("", true);
-        wr_6.out("fun ", false);
-        wr_6.out(" ", false);
-        wr_6.out(variant_12.name + "(", false);
-        this.writeArgsDef(variant_12, ctx, wr_6);
-        wr_6.out(") : ", false);
-        this.writeTypeDef(variant_12.nameNode, ctx, wr_6);
-        wr_6.out(" {", true);
-        wr_6.indent(1);
-        wr_6.newline();
-        var subCtx_30 = variant_12.fnCtx
-        subCtx_30.is_function = true;
-        this.WalkNode(variant_12.fnBody, subCtx_30, wr_6);
-        wr_6.newline();
-        wr_6.indent(-1);
-        wr_6.out("}", true);
+    for ( var i_127 = 0; i_127 < cl_14.defined_variants.length; i_127++) {
+      var fnVar_6 = cl_14.defined_variants[i_127];
+      var mVs_6 = cl_14.method_variants[fnVar_6]
+      for ( var i_134 = 0; i_134 < mVs_6.variants.length; i_134++) {
+        var variant_17 = mVs_6.variants[i_134];
+        wr_7.out("", true);
+        wr_7.out("fun ", false);
+        wr_7.out(" ", false);
+        wr_7.out(variant_17.name + "(", false);
+        this.writeArgsDef(variant_17, ctx, wr_7);
+        wr_7.out(") : ", false);
+        this.writeTypeDef(variant_17.nameNode, ctx, wr_7);
+        wr_7.out(" {", true);
+        wr_7.indent(1);
+        wr_7.newline();
+        var subCtx_34 = variant_17.fnCtx
+        subCtx_34.is_function = true;
+        this.WalkNode(variant_17.fnBody, subCtx_34, wr_7);
+        wr_7.newline();
+        wr_7.indent(-1);
+        wr_7.out("}", true);
       }
     }
-    wr_6.indent(-1);
-    wr_6.out("}", true);
-    for ( var i_117 = 0; i_117 < cl_11.static_methods.length; i_117++) {
-      var variant_15 = cl_11.static_methods[i_117];
-      wr_6.out("", true);
-      if ( variant_15.nameNode.hasFlag("main") ) {
-        wr_6.out("fun main(args : Array<String>) {", true);
-        wr_6.indent(1);
-        wr_6.newline();
-        var subCtx_33 = variant_15.fnCtx
-        subCtx_33.is_function = true;
-        this.WalkNode(variant_15.fnBody, subCtx_33, wr_6);
-        wr_6.newline();
-        wr_6.indent(-1);
-        wr_6.out("}", true);
+    wr_7.indent(-1);
+    wr_7.out("}", true);
+    for ( var i_133 = 0; i_133 < cl_14.static_methods.length; i_133++) {
+      var variant_20 = cl_14.static_methods[i_133];
+      wr_7.out("", true);
+      if ( variant_20.nameNode.hasFlag("main") ) {
+        wr_7.out("fun main(args : Array<String>) {", true);
+        wr_7.indent(1);
+        wr_7.newline();
+        var subCtx_37 = variant_20.fnCtx
+        subCtx_37.is_function = true;
+        this.WalkNode(variant_20.fnBody, subCtx_37, wr_7);
+        wr_7.newline();
+        wr_7.indent(-1);
+        wr_7.out("}", true);
       }
     }
   }
@@ -6881,11 +7570,11 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
   }
   
   writeTypeDef(node ,ctx ,wr ) {
-    var v_type_4 = node.value_type
+    var v_type_5 = node.value_type
     if ( node.eval_type != 0 ) {
-      v_type_4 = node.eval_type;
+      v_type_5 = node.eval_type;
     }
-    switch (v_type_4 ) { 
+    switch (v_type_5 ) { 
       case 11 : 
         wr.out("int", false);
         break;
@@ -6931,88 +7620,88 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
   WriteVRef(node ,ctx ,wr ) {
     if ( node.eval_type == 11 ) {
       if ( (node.ns.length) > 1 ) {
-        var rootObjName_8 = node.ns[0]
-        var enumName_8 = node.ns[1]
-        var e_14 = ctx.getEnum(rootObjName_8)
-        if ( typeof(e_14) !== "undefined" ) {
-          wr.out("" + ((e_14.values[enumName_8])), false);
+        var rootObjName_9 = node.ns[0]
+        var enumName_9 = node.ns[1]
+        var e_15 = ctx.getEnum(rootObjName_9)
+        if ( typeof(e_15) !== "undefined" ) {
+          wr.out("" + ((e_15.values[enumName_9])), false);
           return;
         }
       }
     }
     if ( (node.nsp.length) > 0 ) {
-      for ( var i_103 = 0; i_103 < node.nsp.length; i_103++) {
-        var p_27 = node.nsp[i_103];
-        if ( i_103 > 0 ) {
+      for ( var i_119 = 0; i_119 < node.nsp.length; i_119++) {
+        var p_31 = node.nsp[i_119];
+        if ( i_119 > 0 ) {
           wr.out(".", false);
         }
-        if ( i_103 == 0 ) {
-          if ( p_27.nameNode.hasFlag("optional") ) {
+        if ( i_119 == 0 ) {
+          if ( p_31.nameNode.hasFlag("optional") ) {
           }
         }
-        if ( (p_27.compiledName.length) > 0 ) {
-          wr.out(this.adjustType(p_27.compiledName), false);
+        if ( (p_31.compiledName.length) > 0 ) {
+          wr.out(this.adjustType(p_31.compiledName), false);
         } else {
-          if ( (p_27.name.length) > 0 ) {
-            wr.out(this.adjustType(p_27.name), false);
+          if ( (p_31.name.length) > 0 ) {
+            wr.out(this.adjustType(p_31.name), false);
           } else {
-            wr.out(this.adjustType((node.ns[i_103])), false);
+            wr.out(this.adjustType((node.ns[i_119])), false);
           }
         }
       }
       return;
     }
     if ( node.hasParamDesc ) {
-      var p_32 = node.paramDesc
-      wr.out(p_32.compiledName, false);
+      var p_36 = node.paramDesc
+      wr.out(p_36.compiledName, false);
       return;
     }
-    for ( var i_108 = 0; i_108 < node.ns.length; i_108++) {
-      var part_7 = node.ns[i_108];
-      if ( i_108 > 0 ) {
+    for ( var i_124 = 0; i_124 < node.ns.length; i_124++) {
+      var part_9 = node.ns[i_124];
+      if ( i_124 > 0 ) {
         wr.out(".", false);
       }
-      wr.out(this.adjustType(part_7), false);
+      wr.out(this.adjustType(part_9), false);
     }
   }
   
   writeVarDef(node ,ctx ,wr ) {
     if ( node.hasParamDesc ) {
-      var nn_14 = node.children[1]
-      var p_32 = nn_14.paramDesc
-      if ( (p_32.ref_cnt == 0) && (p_32.is_class_variable == false) ) {
+      var nn_17 = node.children[1]
+      var p_36 = nn_17.paramDesc
+      if ( (p_36.ref_cnt == 0) && (p_36.is_class_variable == false) ) {
         wr.out("/** unused:  ", false);
       }
-      if ( (p_32.set_cnt > 0) || p_32.is_class_variable ) {
+      if ( (p_36.set_cnt > 0) || p_36.is_class_variable ) {
         wr.out("", false);
       } else {
         wr.out("const ", false);
       }
-      this.writeTypeDef(p_32.nameNode, ctx, wr);
+      this.writeTypeDef(p_36.nameNode, ctx, wr);
       wr.out(" ", false);
-      wr.out(p_32.compiledName, false);
+      wr.out(p_36.compiledName, false);
       if ( (node.children.length) > 2 ) {
         wr.out(" = ", false);
         ctx.setInExpr();
-        var value_7 = node.getThird()
-        this.WalkNode(value_7, ctx, wr);
+        var value_8 = node.getThird()
+        this.WalkNode(value_8, ctx, wr);
         ctx.unsetInExpr();
       } else {
-        if ( nn_14.value_type == 6 ) {
+        if ( nn_17.value_type == 6 ) {
           wr.out(" = new ", false);
-          this.writeTypeDef(p_32.nameNode, ctx, wr);
+          this.writeTypeDef(p_36.nameNode, ctx, wr);
           wr.out("()", false);
         }
-        if ( nn_14.value_type == 7 ) {
+        if ( nn_17.value_type == 7 ) {
           wr.out(" = new ", false);
-          this.writeTypeDef(p_32.nameNode, ctx, wr);
+          this.writeTypeDef(p_36.nameNode, ctx, wr);
           wr.out("()", false);
         }
       }
-      if ( (p_32.ref_cnt == 0) && (p_32.is_class_variable == true) ) {
+      if ( (p_36.ref_cnt == 0) && (p_36.is_class_variable == true) ) {
         wr.out("     /** note: unused */", false);
       }
-      if ( (p_32.ref_cnt == 0) && (p_32.is_class_variable == false) ) {
+      if ( (p_36.ref_cnt == 0) && (p_36.is_class_variable == false) ) {
         wr.out("   **/ ;", true);
       } else {
         wr.out(";", false);
@@ -7022,96 +7711,96 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
   }
   
   writeArgsDef(fnDesc ,ctx ,wr ) {
-    for ( var i_108 = 0; i_108 < fnDesc.params.length; i_108++) {
-      var arg_21 = fnDesc.params[i_108];
-      if ( i_108 > 0 ) {
+    for ( var i_124 = 0; i_124 < fnDesc.params.length; i_124++) {
+      var arg_24 = fnDesc.params[i_124];
+      if ( i_124 > 0 ) {
         wr.out(",", false);
       }
       wr.out(" ", false);
-      this.writeTypeDef(arg_21.nameNode, ctx, wr);
-      wr.out((" " + arg_21.name) + " ", false);
+      this.writeTypeDef(arg_24.nameNode, ctx, wr);
+      wr.out((" " + arg_24.name) + " ", false);
     }
   }
   
   writeClass(node ,ctx ,orig_wr ) {
-    var cl_10 = node.clDesc
-    if ( typeof(cl_10) === "undefined" ) {
+    var cl_13 = node.clDesc
+    if ( typeof(cl_13) === "undefined" ) {
       return;
     }
-    var wr_7 = orig_wr.getFileWriter(".", (cl_10.name + ".cs"))
-    var importFork_3 = wr_7.fork()
-    wr_7.out("", true);
-    wr_7.out(("class " + cl_10.name) + " {", true);
-    wr_7.indent(1);
-    for ( var i_110 = 0; i_110 < cl_10.variables.length; i_110++) {
-      var pvar_7 = cl_10.variables[i_110];
-      wr_7.out("public ", false);
-      this.writeVarDef(pvar_7.node, ctx, wr_7);
+    var wr_8 = orig_wr.getFileWriter(".", (cl_13.name + ".cs"))
+    var importFork_3 = wr_8.fork()
+    wr_8.out("", true);
+    wr_8.out(("class " + cl_13.name) + " {", true);
+    wr_8.indent(1);
+    for ( var i_126 = 0; i_126 < cl_13.variables.length; i_126++) {
+      var pvar_9 = cl_13.variables[i_126];
+      wr_8.out("public ", false);
+      this.writeVarDef(pvar_9.node, ctx, wr_8);
     }
-    if ( cl_10.has_constructor ) {
-      var constr_8 = cl_10.constructor_fn
-      wr_7.out("", true);
-      wr_7.out(cl_10.name + "(", false);
-      this.writeArgsDef(constr_8, ctx, wr_7);
-      wr_7.out(" ) {", true);
-      wr_7.indent(1);
-      wr_7.newline();
-      var subCtx_26 = constr_8.fnCtx
-      subCtx_26.is_function = true;
-      this.WalkNode(constr_8.fnBody, subCtx_26, wr_7);
-      wr_7.newline();
-      wr_7.indent(-1);
-      wr_7.out("}", true);
+    if ( cl_13.has_constructor ) {
+      var constr_12 = cl_13.constructor_fn
+      wr_8.out("", true);
+      wr_8.out(cl_13.name + "(", false);
+      this.writeArgsDef(constr_12, ctx, wr_8);
+      wr_8.out(" ) {", true);
+      wr_8.indent(1);
+      wr_8.newline();
+      var subCtx_30 = constr_12.fnCtx
+      subCtx_30.is_function = true;
+      this.WalkNode(constr_12.fnBody, subCtx_30, wr_8);
+      wr_8.newline();
+      wr_8.indent(-1);
+      wr_8.out("}", true);
     }
-    for ( var i_114 = 0; i_114 < cl_10.static_methods.length; i_114++) {
-      var variant_10 = cl_10.static_methods[i_114];
-      wr_7.out("", true);
-      if ( variant_10.nameNode.hasFlag("main") ) {
-        wr_7.out("static int Main( string [] args ) {", true);
+    for ( var i_130 = 0; i_130 < cl_13.static_methods.length; i_130++) {
+      var variant_15 = cl_13.static_methods[i_130];
+      wr_8.out("", true);
+      if ( variant_15.nameNode.hasFlag("main") ) {
+        wr_8.out("static int Main( string [] args ) {", true);
       } else {
-        wr_7.out("public static ", false);
-        this.writeTypeDef(variant_10.nameNode, ctx, wr_7);
-        wr_7.out(" ", false);
-        wr_7.out(variant_10.name + "(", false);
-        this.writeArgsDef(variant_10, ctx, wr_7);
-        wr_7.out(") {", true);
+        wr_8.out("public static ", false);
+        this.writeTypeDef(variant_15.nameNode, ctx, wr_8);
+        wr_8.out(" ", false);
+        wr_8.out(variant_15.name + "(", false);
+        this.writeArgsDef(variant_15, ctx, wr_8);
+        wr_8.out(") {", true);
       }
-      wr_7.indent(1);
-      wr_7.newline();
-      var subCtx_31 = variant_10.fnCtx
-      subCtx_31.is_function = true;
-      this.WalkNode(variant_10.fnBody, subCtx_31, wr_7);
-      wr_7.newline();
-      wr_7.indent(-1);
-      wr_7.out("}", true);
+      wr_8.indent(1);
+      wr_8.newline();
+      var subCtx_35 = variant_15.fnCtx
+      subCtx_35.is_function = true;
+      this.WalkNode(variant_15.fnBody, subCtx_35, wr_8);
+      wr_8.newline();
+      wr_8.indent(-1);
+      wr_8.out("}", true);
     }
-    for ( var i_117 = 0; i_117 < cl_10.defined_variants.length; i_117++) {
-      var fnVar_5 = cl_10.defined_variants[i_117];
-      var mVs_5 = cl_10.method_variants[fnVar_5]
-      for ( var i_124 = 0; i_124 < mVs_5.variants.length; i_124++) {
-        var variant_15 = mVs_5.variants[i_124];
-        wr_7.out("", true);
-        wr_7.out("public ", false);
-        this.writeTypeDef(variant_15.nameNode, ctx, wr_7);
-        wr_7.out(" ", false);
-        wr_7.out(variant_15.name + "(", false);
-        this.writeArgsDef(variant_15, ctx, wr_7);
-        wr_7.out(") {", true);
-        wr_7.indent(1);
-        wr_7.newline();
-        var subCtx_34 = variant_15.fnCtx
-        subCtx_34.is_function = true;
-        this.WalkNode(variant_15.fnBody, subCtx_34, wr_7);
-        wr_7.newline();
-        wr_7.indent(-1);
-        wr_7.out("}", true);
+    for ( var i_133 = 0; i_133 < cl_13.defined_variants.length; i_133++) {
+      var fnVar_7 = cl_13.defined_variants[i_133];
+      var mVs_7 = cl_13.method_variants[fnVar_7]
+      for ( var i_140 = 0; i_140 < mVs_7.variants.length; i_140++) {
+        var variant_20 = mVs_7.variants[i_140];
+        wr_8.out("", true);
+        wr_8.out("public ", false);
+        this.writeTypeDef(variant_20.nameNode, ctx, wr_8);
+        wr_8.out(" ", false);
+        wr_8.out(variant_20.name + "(", false);
+        this.writeArgsDef(variant_20, ctx, wr_8);
+        wr_8.out(") {", true);
+        wr_8.indent(1);
+        wr_8.newline();
+        var subCtx_38 = variant_20.fnCtx
+        subCtx_38.is_function = true;
+        this.WalkNode(variant_20.fnBody, subCtx_38, wr_8);
+        wr_8.newline();
+        wr_8.indent(-1);
+        wr_8.out("}", true);
       }
     }
-    wr_7.indent(-1);
-    wr_7.out("}", true);
-    var import_list_2 = wr_7.getImports()
-    for ( var i_123 = 0; i_123 < import_list_2.length; i_123++) {
-      var codeStr_2 = import_list_2[i_123];
+    wr_8.indent(-1);
+    wr_8.out("}", true);
+    var import_list_2 = wr_8.getImports()
+    for ( var i_139 = 0; i_139 < import_list_2.length; i_139++) {
+      var codeStr_2 = import_list_2[i_139];
       importFork_3.out(("using " + codeStr_2) + ";", true);
     }
   }
@@ -7175,11 +7864,11 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     if ( node.hasFlag("optional") ) {
       wr.out("Option[", false);
     }
-    var v_type_5 = node.value_type
+    var v_type_6 = node.value_type
     if ( node.eval_type != 0 ) {
-      v_type_5 = node.eval_type;
+      v_type_6 = node.eval_type;
     }
-    switch (v_type_5 ) { 
+    switch (v_type_6 ) { 
       case 11 : 
         wr.out("Int", false);
         break;
@@ -7223,11 +7912,11 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
   }
   
   writeTypeDefNoOption(node ,ctx ,wr ) {
-    var v_type_8 = node.value_type
+    var v_type_9 = node.value_type
     if ( node.eval_type != 0 ) {
-      v_type_8 = node.eval_type;
+      v_type_9 = node.eval_type;
     }
-    switch (v_type_8 ) { 
+    switch (v_type_9 ) { 
       case 11 : 
         wr.out("Int", false);
         break;
@@ -7270,32 +7959,32 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
   WriteVRef(node ,ctx ,wr ) {
     if ( node.eval_type == 11 ) {
       if ( (node.ns.length) > 1 ) {
-        var rootObjName_9 = node.ns[0]
-        var enumName_9 = node.ns[1]
-        var e_15 = ctx.getEnum(rootObjName_9)
-        if ( typeof(e_15) !== "undefined" ) {
-          wr.out("" + ((e_15.values[enumName_9])), false);
+        var rootObjName_10 = node.ns[0]
+        var enumName_10 = node.ns[1]
+        var e_16 = ctx.getEnum(rootObjName_10)
+        if ( typeof(e_16) !== "undefined" ) {
+          wr.out("" + ((e_16.values[enumName_10])), false);
           return;
         }
       }
     }
     if ( (node.nsp.length) > 0 ) {
-      for ( var i_111 = 0; i_111 < node.nsp.length; i_111++) {
-        var p_30 = node.nsp[i_111];
-        if ( i_111 > 0 ) {
+      for ( var i_127 = 0; i_127 < node.nsp.length; i_127++) {
+        var p_34 = node.nsp[i_127];
+        if ( i_127 > 0 ) {
           wr.out(".", false);
         }
-        if ( (p_30.compiledName.length) > 0 ) {
-          wr.out(this.adjustType(p_30.compiledName), false);
+        if ( (p_34.compiledName.length) > 0 ) {
+          wr.out(this.adjustType(p_34.compiledName), false);
         } else {
-          if ( (p_30.name.length) > 0 ) {
-            wr.out(this.adjustType(p_30.name), false);
+          if ( (p_34.name.length) > 0 ) {
+            wr.out(this.adjustType(p_34.name), false);
           } else {
-            wr.out(this.adjustType((node.ns[i_111])), false);
+            wr.out(this.adjustType((node.ns[i_127])), false);
           }
         }
-        if ( i_111 == 0 ) {
-          if ( p_30.nameNode.hasFlag("optional") ) {
+        if ( i_127 == 0 ) {
+          if ( p_34.nameNode.hasFlag("optional") ) {
             wr.out(".get", false);
           }
         }
@@ -7303,51 +7992,51 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       return;
     }
     if ( node.hasParamDesc ) {
-      var p_35 = node.paramDesc
-      wr.out(p_35.compiledName, false);
+      var p_39 = node.paramDesc
+      wr.out(p_39.compiledName, false);
       return;
     }
-    for ( var i_116 = 0; i_116 < node.ns.length; i_116++) {
-      var part_8 = node.ns[i_116];
-      if ( i_116 > 0 ) {
+    for ( var i_132 = 0; i_132 < node.ns.length; i_132++) {
+      var part_10 = node.ns[i_132];
+      if ( i_132 > 0 ) {
         wr.out(".", false);
       }
-      wr.out(this.adjustType(part_8), false);
+      wr.out(this.adjustType(part_10), false);
     }
   }
   
   writeVarDef(node ,ctx ,wr ) {
     if ( node.hasParamDesc ) {
-      var p_35 = node.paramDesc
-      /** unused:  var nn_15 = node.children[1]   **/ 
-      if ( (p_35.ref_cnt == 0) && (p_35.is_class_variable == false) ) {
+      var p_39 = node.paramDesc
+      /** unused:  var nn_18 = node.children[1]   **/ 
+      if ( (p_39.ref_cnt == 0) && (p_39.is_class_variable == false) ) {
         wr.out("/** unused ", false);
       }
-      if ( (p_35.set_cnt > 0) || p_35.is_class_variable ) {
-        wr.out(("var " + p_35.compiledName) + " : ", false);
+      if ( (p_39.set_cnt > 0) || p_39.is_class_variable ) {
+        wr.out(("var " + p_39.compiledName) + " : ", false);
       } else {
-        wr.out(("val " + p_35.compiledName) + " : ", false);
+        wr.out(("val " + p_39.compiledName) + " : ", false);
       }
-      this.writeTypeDef(p_35.nameNode, ctx, wr);
+      this.writeTypeDef(p_39.nameNode, ctx, wr);
       if ( (node.children.length) > 2 ) {
         wr.out(" = ", false);
         ctx.setInExpr();
-        var value_8 = node.getThird()
-        this.WalkNode(value_8, ctx, wr);
+        var value_9 = node.getThird()
+        this.WalkNode(value_9, ctx, wr);
         ctx.unsetInExpr();
       } else {
         var b_inited = false
-        if ( p_35.nameNode.value_type == 6 ) {
+        if ( p_39.nameNode.value_type == 6 ) {
           b_inited = true;
           wr.out("= new collection.mutable.ArrayBuffer()", false);
         }
-        if ( p_35.nameNode.value_type == 7 ) {
+        if ( p_39.nameNode.value_type == 7 ) {
           b_inited = true;
           wr.out("= new collection.mutable.HashMap()", false);
         }
-        if ( p_35.nameNode.hasFlag("optional") ) {
+        if ( p_39.nameNode.hasFlag("optional") ) {
           wr.out(" = Option.empty[", false);
-          this.writeTypeDefNoOption(p_35.nameNode, ctx, wr);
+          this.writeTypeDefNoOption(p_39.nameNode, ctx, wr);
           wr.out("]", false);
         } else {
           if ( b_inited == false ) {
@@ -7355,7 +8044,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
           }
         }
       }
-      if ( (p_35.ref_cnt == 0) && (p_35.is_class_variable == false) ) {
+      if ( (p_39.ref_cnt == 0) && (p_39.is_class_variable == false) ) {
         wr.out("**/ ", true);
       } else {
         wr.newline();
@@ -7364,133 +8053,133 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
   }
   
   writeArgsDef(fnDesc ,ctx ,wr ) {
-    for ( var i_116 = 0; i_116 < fnDesc.params.length; i_116++) {
-      var arg_22 = fnDesc.params[i_116];
-      if ( i_116 > 0 ) {
+    for ( var i_132 = 0; i_132 < fnDesc.params.length; i_132++) {
+      var arg_25 = fnDesc.params[i_132];
+      if ( i_132 > 0 ) {
         wr.out(",", false);
       }
       wr.out(" ", false);
-      wr.out(arg_22.name + " : ", false);
-      this.writeTypeDef(arg_22.nameNode, ctx, wr);
+      wr.out(arg_25.name + " : ", false);
+      this.writeTypeDef(arg_25.nameNode, ctx, wr);
     }
   }
   
   writeClass(node ,ctx ,orig_wr ) {
-    var cl_11 = node.clDesc
-    if ( typeof(cl_11) === "undefined" ) {
+    var cl_14 = node.clDesc
+    if ( typeof(cl_14) === "undefined" ) {
       return;
     }
-    var wr_8 = orig_wr.getFileWriter(".", (cl_11.name + ".scala"))
-    var importFork_4 = wr_8.fork()
-    wr_8.out("", true);
-    wr_8.out(("class " + cl_11.name) + " ", false);
-    if ( cl_11.has_constructor ) {
-      wr_8.out("(", false);
-      var constr_9 = cl_11.constructor_fn
-      for ( var i_118 = 0; i_118 < constr_9.params.length; i_118++) {
-        var arg_25 = constr_9.params[i_118];
-        if ( i_118 > 0 ) {
-          wr_8.out(", ", false);
+    var wr_9 = orig_wr.getFileWriter(".", (cl_14.name + ".scala"))
+    var importFork_4 = wr_9.fork()
+    wr_9.out("", true);
+    wr_9.out(("class " + cl_14.name) + " ", false);
+    if ( cl_14.has_constructor ) {
+      wr_9.out("(", false);
+      var constr_13 = cl_14.constructor_fn
+      for ( var i_134 = 0; i_134 < constr_13.params.length; i_134++) {
+        var arg_28 = constr_13.params[i_134];
+        if ( i_134 > 0 ) {
+          wr_9.out(", ", false);
         }
-        wr_8.out(arg_25.name + " : ", false);
-        this.writeTypeDef(arg_25.nameNode, ctx, wr_8);
+        wr_9.out(arg_28.name + " : ", false);
+        this.writeTypeDef(arg_28.nameNode, ctx, wr_9);
       }
-      wr_8.out(")", false);
+      wr_9.out(")", false);
     }
-    wr_8.out(" {", true);
-    wr_8.indent(1);
-    for ( var i_122 = 0; i_122 < cl_11.variables.length; i_122++) {
-      var pvar_8 = cl_11.variables[i_122];
-      this.writeVarDef(pvar_8.node, ctx, wr_8);
+    wr_9.out(" {", true);
+    wr_9.indent(1);
+    for ( var i_138 = 0; i_138 < cl_14.variables.length; i_138++) {
+      var pvar_10 = cl_14.variables[i_138];
+      this.writeVarDef(pvar_10.node, ctx, wr_9);
     }
-    if ( cl_11.has_constructor ) {
-      var constr_14 = cl_11.constructor_fn
-      wr_8.newline();
-      var subCtx_29 = constr_14.fnCtx
-      subCtx_29.is_function = true;
-      this.WalkNode(constr_14.fnBody, subCtx_29, wr_8);
-      wr_8.newline();
+    if ( cl_14.has_constructor ) {
+      var constr_18 = cl_14.constructor_fn
+      wr_9.newline();
+      var subCtx_33 = constr_18.fnCtx
+      subCtx_33.is_function = true;
+      this.WalkNode(constr_18.fnBody, subCtx_33, wr_9);
+      wr_9.newline();
     }
-    for ( var i_125 = 0; i_125 < cl_11.defined_variants.length; i_125++) {
-      var fnVar_6 = cl_11.defined_variants[i_125];
-      var mVs_6 = cl_11.method_variants[fnVar_6]
-      for ( var i_132 = 0; i_132 < mVs_6.variants.length; i_132++) {
-        var variant_12 = mVs_6.variants[i_132];
-        wr_8.out("", true);
-        wr_8.out("def ", false);
-        wr_8.out(" ", false);
-        wr_8.out(variant_12.name + "(", false);
-        this.writeArgsDef(variant_12, ctx, wr_8);
-        wr_8.out(") : ", false);
-        this.writeTypeDef(variant_12.nameNode, ctx, wr_8);
-        wr_8.out(" = {", true);
-        wr_8.indent(1);
-        wr_8.newline();
-        var subCtx_34 = variant_12.fnCtx
-        subCtx_34.is_function = true;
-        this.WalkNode(variant_12.fnBody, subCtx_34, wr_8);
-        wr_8.newline();
-        wr_8.indent(-1);
-        wr_8.out("}", true);
+    for ( var i_141 = 0; i_141 < cl_14.defined_variants.length; i_141++) {
+      var fnVar_8 = cl_14.defined_variants[i_141];
+      var mVs_8 = cl_14.method_variants[fnVar_8]
+      for ( var i_148 = 0; i_148 < mVs_8.variants.length; i_148++) {
+        var variant_17 = mVs_8.variants[i_148];
+        wr_9.out("", true);
+        wr_9.out("def ", false);
+        wr_9.out(" ", false);
+        wr_9.out(variant_17.name + "(", false);
+        this.writeArgsDef(variant_17, ctx, wr_9);
+        wr_9.out(") : ", false);
+        this.writeTypeDef(variant_17.nameNode, ctx, wr_9);
+        wr_9.out(" = {", true);
+        wr_9.indent(1);
+        wr_9.newline();
+        var subCtx_38 = variant_17.fnCtx
+        subCtx_38.is_function = true;
+        this.WalkNode(variant_17.fnBody, subCtx_38, wr_9);
+        wr_9.newline();
+        wr_9.indent(-1);
+        wr_9.out("}", true);
       }
     }
-    wr_8.indent(-1);
-    wr_8.out("}", true);
+    wr_9.indent(-1);
+    wr_9.out("}", true);
     var b_had_app = false
     var app_obj
-    if ( (cl_11.static_methods.length) > 0 ) {
-      wr_8.out("", true);
-      wr_8.out("// companion object for static methods of " + cl_11.name, true);
-      wr_8.out(("object " + cl_11.name) + " {", true);
-      wr_8.indent(1);
+    if ( (cl_14.static_methods.length) > 0 ) {
+      wr_9.out("", true);
+      wr_9.out("// companion object for static methods of " + cl_14.name, true);
+      wr_9.out(("object " + cl_14.name) + " {", true);
+      wr_9.indent(1);
     }
-    for ( var i_131 = 0; i_131 < cl_11.static_methods.length; i_131++) {
-      var variant_17 = cl_11.static_methods[i_131];
-      if ( variant_17.nameNode.hasFlag("main") ) {
+    for ( var i_147 = 0; i_147 < cl_14.static_methods.length; i_147++) {
+      var variant_22 = cl_14.static_methods[i_147];
+      if ( variant_22.nameNode.hasFlag("main") ) {
         b_had_app = true;
-        app_obj = variant_17;
+        app_obj = variant_22;
         continue;
       }
-      wr_8.out("", true);
-      wr_8.out("def ", false);
-      wr_8.out(" ", false);
-      wr_8.out(variant_17.name + "(", false);
-      this.writeArgsDef(variant_17, ctx, wr_8);
-      wr_8.out(") : ", false);
-      this.writeTypeDef(variant_17.nameNode, ctx, wr_8);
-      wr_8.out(" = {", true);
-      wr_8.indent(1);
-      wr_8.newline();
-      var subCtx_37 = variant_17.fnCtx
-      subCtx_37.is_function = true;
-      this.WalkNode(variant_17.fnBody, subCtx_37, wr_8);
-      wr_8.newline();
-      wr_8.indent(-1);
-      wr_8.out("}", true);
+      wr_9.out("", true);
+      wr_9.out("def ", false);
+      wr_9.out(" ", false);
+      wr_9.out(variant_22.name + "(", false);
+      this.writeArgsDef(variant_22, ctx, wr_9);
+      wr_9.out(") : ", false);
+      this.writeTypeDef(variant_22.nameNode, ctx, wr_9);
+      wr_9.out(" = {", true);
+      wr_9.indent(1);
+      wr_9.newline();
+      var subCtx_41 = variant_22.fnCtx
+      subCtx_41.is_function = true;
+      this.WalkNode(variant_22.fnBody, subCtx_41, wr_9);
+      wr_9.newline();
+      wr_9.indent(-1);
+      wr_9.out("}", true);
     }
-    if ( (cl_11.static_methods.length) > 0 ) {
-      wr_8.newline();
-      wr_8.indent(-1);
-      wr_8.out("}", true);
+    if ( (cl_14.static_methods.length) > 0 ) {
+      wr_9.newline();
+      wr_9.indent(-1);
+      wr_9.out("}", true);
     }
     if ( b_had_app ) {
-      var variant_20 = app_obj
-      wr_8.out("", true);
-      wr_8.out("// application main function for " + cl_11.name, true);
-      wr_8.out(("object App" + cl_11.name) + " extends App {", true);
-      wr_8.indent(1);
-      wr_8.indent(1);
-      wr_8.newline();
-      var subCtx_40 = variant_20.fnCtx
-      subCtx_40.is_function = true;
-      this.WalkNode(variant_20.fnBody, subCtx_40, wr_8);
-      wr_8.newline();
-      wr_8.indent(-1);
-      wr_8.out("}", true);
+      var variant_25 = app_obj
+      wr_9.out("", true);
+      wr_9.out("// application main function for " + cl_14.name, true);
+      wr_9.out(("object App" + cl_14.name) + " extends App {", true);
+      wr_9.indent(1);
+      wr_9.indent(1);
+      wr_9.newline();
+      var subCtx_44 = variant_25.fnCtx
+      subCtx_44.is_function = true;
+      this.WalkNode(variant_25.fnBody, subCtx_44, wr_9);
+      wr_9.newline();
+      wr_9.indent(-1);
+      wr_9.out("}", true);
     }
-    var import_list_3 = wr_8.getImports()
-    for ( var i_134 = 0; i_134 < import_list_3.length; i_134++) {
-      var codeStr_3 = import_list_3[i_134];
+    var import_list_3 = wr_9.getImports()
+    for ( var i_150 = 0; i_150 < import_list_3.length; i_150++) {
+      var codeStr_3 = import_list_3[i_150];
       importFork_4.out(("import " + codeStr_3) + ";", true);
     }
   }
@@ -7511,8 +8200,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         wr.out(node.getParsedString(), false);
         break;
       case 4 : 
-        var s_20 = this.EncodeString(node, ctx, wr)
-        wr.out(("\"" + s_20) + "\"", false);
+        var s_21 = this.EncodeString(node, ctx, wr)
+        wr.out(("\"" + s_21) + "\"", false);
         break;
       case 3 : 
         wr.out("" + node.int_value, false);
@@ -7532,8 +8221,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       return this.thisName;
     }
     if ( ctx.isDefinedClass(type_string) ) {
-      var cc_5 = ctx.findClass(type_string)
-      if ( cc_5.doesInherit() ) {
+      var cc_6 = ctx.findClass(type_string)
+      if ( cc_6.doesInherit() ) {
         return "IFACE_" + ctx.transformTypeName(type_string);
       }
     }
@@ -7598,43 +8287,43 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   }
   
   writeArrayTypeDef(node ,ctx ,wr ) {
-    var v_type_7 = node.value_type
-    var a_name_3 = node.array_type
-    if ( ((v_type_7 == 8) || (v_type_7 == 9)) || (v_type_7 == 0) ) {
-      v_type_7 = node.typeNameAsType(ctx);
+    var v_type_8 = node.value_type
+    var a_name_4 = node.array_type
+    if ( ((v_type_8 == 8) || (v_type_8 == 9)) || (v_type_8 == 0) ) {
+      v_type_8 = node.typeNameAsType(ctx);
     }
     if ( node.eval_type != 0 ) {
-      v_type_7 = node.eval_type;
+      v_type_8 = node.eval_type;
       if ( (node.eval_array_type.length) > 0 ) {
-        a_name_3 = node.eval_array_type;
+        a_name_4 = node.eval_array_type;
       }
     }
-    switch (v_type_7 ) { 
+    switch (v_type_8 ) { 
       case 7 : 
-        if ( ctx.isDefinedClass(a_name_3) ) {
-          var cc_8 = ctx.findClass(a_name_3)
-          if ( cc_8.doesInherit() ) {
-            wr.out("IFACE_" + this.getTypeString2(a_name_3, ctx), false);
+        if ( ctx.isDefinedClass(a_name_4) ) {
+          var cc_9 = ctx.findClass(a_name_4)
+          if ( cc_9.doesInherit() ) {
+            wr.out("IFACE_" + this.getTypeString2(a_name_4, ctx), false);
             return;
           }
         }
-        if ( ctx.isPrimitiveType(a_name_3) == false ) {
+        if ( ctx.isPrimitiveType(a_name_4) == false ) {
           wr.out("*", false);
         }
-        wr.out(this.getObjectTypeString(a_name_3, ctx) + "", false);
+        wr.out(this.getObjectTypeString(a_name_4, ctx) + "", false);
         break;
       case 6 : 
-        if ( ctx.isDefinedClass(a_name_3) ) {
-          var cc_14 = ctx.findClass(a_name_3)
-          if ( cc_14.doesInherit() ) {
-            wr.out("IFACE_" + this.getTypeString2(a_name_3, ctx), false);
+        if ( ctx.isDefinedClass(a_name_4) ) {
+          var cc_15 = ctx.findClass(a_name_4)
+          if ( cc_15.doesInherit() ) {
+            wr.out("IFACE_" + this.getTypeString2(a_name_4, ctx), false);
             return;
           }
         }
-        if ( (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_3) == false) ) {
+        if ( (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_4) == false) ) {
           wr.out("*", false);
         }
-        wr.out(this.getObjectTypeString(a_name_3, ctx) + "", false);
+        wr.out(this.getObjectTypeString(a_name_4, ctx) + "", false);
         break;
       default: 
         break;
@@ -7642,26 +8331,26 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   }
   
   writeTypeDef2(node ,ctx ,wr ) {
-    var v_type_10 = node.value_type
-    var t_name_2 = node.type_name
-    var a_name_6 = node.array_type
-    var k_name_2 = node.key_type
-    if ( ((v_type_10 == 8) || (v_type_10 == 9)) || (v_type_10 == 0) ) {
-      v_type_10 = node.typeNameAsType(ctx);
+    var v_type_11 = node.value_type
+    var t_name_3 = node.type_name
+    var a_name_7 = node.array_type
+    var k_name_3 = node.key_type
+    if ( ((v_type_11 == 8) || (v_type_11 == 9)) || (v_type_11 == 0) ) {
+      v_type_11 = node.typeNameAsType(ctx);
     }
     if ( node.eval_type != 0 ) {
-      v_type_10 = node.eval_type;
+      v_type_11 = node.eval_type;
       if ( (node.eval_type_name.length) > 0 ) {
-        t_name_2 = node.eval_type_name;
+        t_name_3 = node.eval_type_name;
       }
       if ( (node.eval_array_type.length) > 0 ) {
-        a_name_6 = node.eval_array_type;
+        a_name_7 = node.eval_array_type;
       }
       if ( (node.eval_key_type.length) > 0 ) {
-        k_name_2 = node.eval_key_type;
+        k_name_3 = node.eval_key_type;
       }
     }
-    switch (v_type_10 ) { 
+    switch (v_type_11 ) { 
       case 11 : 
         wr.out("int64", false);
         break;
@@ -7685,54 +8374,54 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         break;
       case 7 : 
         if ( this.write_raw_type ) {
-          wr.out(this.getObjectTypeString(a_name_6, ctx) + "", false);
+          wr.out(this.getObjectTypeString(a_name_7, ctx) + "", false);
         } else {
-          wr.out(("map[" + this.getObjectTypeString(k_name_2, ctx)) + "]", false);
-          if ( ctx.isDefinedClass(a_name_6) ) {
-            var cc_12 = ctx.findClass(a_name_6)
-            if ( cc_12.doesInherit() ) {
-              wr.out("IFACE_" + this.getTypeString2(a_name_6, ctx), false);
+          wr.out(("map[" + this.getObjectTypeString(k_name_3, ctx)) + "]", false);
+          if ( ctx.isDefinedClass(a_name_7) ) {
+            var cc_13 = ctx.findClass(a_name_7)
+            if ( cc_13.doesInherit() ) {
+              wr.out("IFACE_" + this.getTypeString2(a_name_7, ctx), false);
               return;
             }
           }
-          if ( (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_6) == false) ) {
+          if ( (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_7) == false) ) {
             wr.out("*", false);
           }
-          wr.out(this.getObjectTypeString(a_name_6, ctx) + "", false);
+          wr.out(this.getObjectTypeString(a_name_7, ctx) + "", false);
         }
         break;
       case 6 : 
         if ( false == this.write_raw_type ) {
           wr.out("[]", false);
         }
-        if ( ctx.isDefinedClass(a_name_6) ) {
-          var cc_18 = ctx.findClass(a_name_6)
-          if ( cc_18.doesInherit() ) {
-            wr.out("IFACE_" + this.getTypeString2(a_name_6, ctx), false);
+        if ( ctx.isDefinedClass(a_name_7) ) {
+          var cc_19 = ctx.findClass(a_name_7)
+          if ( cc_19.doesInherit() ) {
+            wr.out("IFACE_" + this.getTypeString2(a_name_7, ctx), false);
             return;
           }
         }
-        if ( (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_6) == false) ) {
+        if ( (this.write_raw_type == false) && (ctx.isPrimitiveType(a_name_7) == false) ) {
           wr.out("*", false);
         }
-        wr.out(this.getObjectTypeString(a_name_6, ctx) + "", false);
+        wr.out(this.getObjectTypeString(a_name_7, ctx) + "", false);
         break;
       default: 
         if ( node.type_name == "void" ) {
           wr.out("()", false);
           return;
         }
-        if ( ctx.isDefinedClass(t_name_2) ) {
-          var cc_22 = ctx.findClass(t_name_2)
-          if ( cc_22.doesInherit() ) {
-            wr.out("IFACE_" + this.getTypeString2(t_name_2, ctx), false);
+        if ( ctx.isDefinedClass(t_name_3) ) {
+          var cc_23 = ctx.findClass(t_name_3)
+          if ( cc_23.doesInherit() ) {
+            wr.out("IFACE_" + this.getTypeString2(t_name_3, ctx), false);
             return;
           }
         }
         if ( (this.write_raw_type == false) && (node.isPrimitiveType() == false) ) {
           wr.out("*", false);
         }
-        wr.out(this.getTypeString2(t_name_2, ctx), false);
+        wr.out(this.getTypeString2(t_name_3, ctx), false);
         break;
     }
   }
@@ -7744,11 +8433,11 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
     if ( node.eval_type == 11 ) {
       if ( (node.ns.length) > 1 ) {
-        var rootObjName_10 = node.ns[0]
-        var enumName_10 = node.ns[1]
-        var e_16 = ctx.getEnum(rootObjName_10)
-        if ( typeof(e_16) !== "undefined" ) {
-          wr.out("" + ((e_16.values[enumName_10])), false);
+        var rootObjName_11 = node.ns[0]
+        var enumName_11 = node.ns[1]
+        var e_17 = ctx.getEnum(rootObjName_11)
+        if ( typeof(e_17) !== "undefined" ) {
+          wr.out("" + ((e_17.values[enumName_11])), false);
           return;
         }
       }
@@ -7758,11 +8447,11 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     var needs_par = false
     var ns_last = (node.ns.length) - 1
     if ( (node.nsp.length) > 0 ) {
-      var had_static = false
-      for ( var i_120 = 0; i_120 < node.nsp.length; i_120++) {
-        var p_33 = node.nsp[i_120];
+      var had_static_2 = false
+      for ( var i_136 = 0; i_136 < node.nsp.length; i_136++) {
+        var p_37 = node.nsp[i_136];
         if ( next_is_gs ) {
-          if ( p_33.isProperty() ) {
+          if ( p_37.isProperty() ) {
             wr.out(".Get_", false);
             needs_par = true;
           } else {
@@ -7771,104 +8460,104 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           next_is_gs = false;
         }
         if ( needs_par == false ) {
-          if ( i_120 > 0 ) {
-            if ( had_static ) {
+          if ( i_136 > 0 ) {
+            if ( had_static_2 ) {
               wr.out("_static_", false);
             } else {
               wr.out(".", false);
             }
           }
         }
-        if ( ctx.isDefinedClass(p_33.nameNode.type_name) ) {
-          var c_8 = ctx.findClass(p_33.nameNode.type_name)
+        if ( ctx.isDefinedClass(p_37.nameNode.type_name) ) {
+          var c_8 = ctx.findClass(p_37.nameNode.type_name)
           if ( c_8.doesInherit() ) {
             next_is_gs = true;
           }
         }
-        if ( i_120 == 0 ) {
-          var part_9 = node.ns[0]
-          if ( part_9 == "this" ) {
+        if ( i_136 == 0 ) {
+          var part_11 = node.ns[0]
+          if ( part_11 == "this" ) {
             wr.out(this.thisName, false);
             continue;
           }
-          if ( (part_9 != this.thisName) && ctx.isMemberVariable(part_9) ) {
-            var cc_18 = ctx.getCurrentClass()
-            var currC_8 = cc_18
-            var up = currC_8.findVariable(part_9)
+          if ( (part_11 != this.thisName) && ctx.isMemberVariable(part_11) ) {
+            var cc_19 = ctx.getCurrentClass()
+            var currC_8 = cc_19
+            var up = currC_8.findVariable(part_11)
             if ( typeof(up) !== "undefined" ) {
               /** unused:  var p3 = up   **/ 
               wr.out(this.thisName + ".", false);
             }
           }
         }
-        if ( (p_33.compiledName.length) > 0 ) {
-          wr.out(this.adjustType(p_33.compiledName), false);
+        if ( (p_37.compiledName.length) > 0 ) {
+          wr.out(this.adjustType(p_37.compiledName), false);
         } else {
-          if ( (p_33.name.length) > 0 ) {
-            wr.out(this.adjustType(p_33.name), false);
+          if ( (p_37.name.length) > 0 ) {
+            wr.out(this.adjustType(p_37.name), false);
           } else {
-            wr.out(this.adjustType((node.ns[i_120])), false);
+            wr.out(this.adjustType((node.ns[i_136])), false);
           }
         }
         if ( needs_par ) {
           wr.out("()", false);
           needs_par = false;
         }
-        if ( p_33.nameNode.hasFlag("optional") && (i_120 != ns_last) ) {
+        if ( p_37.nameNode.hasFlag("optional") && (i_136 != ns_last) ) {
           wr.out(".value.(", false);
-          this.writeTypeDef(p_33.nameNode, ctx, wr);
+          this.writeTypeDef(p_37.nameNode, ctx, wr);
           wr.out(")", false);
         }
-        if ( p_33.isClass() ) {
-          had_static = true;
+        if ( p_37.isClass() ) {
+          had_static_2 = true;
         }
       }
       return;
     }
     if ( node.hasParamDesc ) {
-      var part_14 = node.ns[0]
-      if ( (part_14 != this.thisName) && ctx.isMemberVariable(part_14) ) {
-        var cc_22 = ctx.getCurrentClass()
-        var currC_13 = cc_22
-        var up_6 = currC_13.findVariable(part_14)
+      var part_16 = node.ns[0]
+      if ( (part_16 != this.thisName) && ctx.isMemberVariable(part_16) ) {
+        var cc_23 = ctx.getCurrentClass()
+        var currC_13 = cc_23
+        var up_6 = currC_13.findVariable(part_16)
         if ( typeof(up_6) !== "undefined" ) {
           /** unused:  var p3_6 = up_6   **/ 
           wr.out(this.thisName + ".", false);
         }
       }
-      var p_38 = node.paramDesc
-      wr.out(p_38.compiledName, false);
+      var p_42 = node.paramDesc
+      wr.out(p_42.compiledName, false);
       return;
     }
     var b_was_static = false
-    for ( var i_125 = 0; i_125 < node.ns.length; i_125++) {
-      var part_17 = node.ns[i_125];
-      if ( i_125 > 0 ) {
-        if ( (i_125 == 1) && b_was_static ) {
+    for ( var i_141 = 0; i_141 < node.ns.length; i_141++) {
+      var part_19 = node.ns[i_141];
+      if ( i_141 > 0 ) {
+        if ( (i_141 == 1) && b_was_static ) {
           wr.out("_static_", false);
         } else {
           wr.out(".", false);
         }
       }
-      if ( i_125 == 0 ) {
-        if ( part_17 == "this" ) {
+      if ( i_141 == 0 ) {
+        if ( part_19 == "this" ) {
           wr.out(this.thisName, false);
           continue;
         }
-        if ( ctx.hasClass(part_17) ) {
+        if ( ctx.hasClass(part_19) ) {
           b_was_static = true;
         }
-        if ( (part_17 != "this") && ctx.isMemberVariable(part_17) ) {
-          var cc_25 = ctx.getCurrentClass()
-          var currC_16 = cc_25
-          var up_9 = currC_16.findVariable(part_17)
+        if ( (part_19 != "this") && ctx.isMemberVariable(part_19) ) {
+          var cc_26 = ctx.getCurrentClass()
+          var currC_16 = cc_26
+          var up_9 = currC_16.findVariable(part_19)
           if ( typeof(up_9) !== "undefined" ) {
             /** unused:  var p3_9 = up_9   **/ 
             wr.out(this.thisName + ".", false);
           }
         }
       }
-      wr.out(this.adjustType(part_17), false);
+      wr.out(this.adjustType(part_19), false);
     }
   }
   
@@ -7878,11 +8567,11 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       return;
     }
     if ( node.eval_type == 11 ) {
-      var rootObjName_13 = node.ns[0]
-      var enumName_13 = node.ns[1]
-      var e_19 = ctx.getEnum(rootObjName_13)
-      if ( typeof(e_19) !== "undefined" ) {
-        wr.out("" + ((e_19.values[enumName_13])), false);
+      var rootObjName_14 = node.ns[0]
+      var enumName_14 = node.ns[1]
+      var e_20 = ctx.getEnum(rootObjName_14)
+      if ( typeof(e_20) !== "undefined" ) {
+        wr.out("" + ((e_20.values[enumName_14])), false);
         return;
       }
     }
@@ -7891,11 +8580,11 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     var needs_par_4 = false
     var ns_len = (node.ns.length) - 1
     if ( (node.nsp.length) > 0 ) {
-      var had_static_4 = false
-      for ( var i_125 = 0; i_125 < node.nsp.length; i_125++) {
-        var p_38 = node.nsp[i_125];
+      var had_static_5 = false
+      for ( var i_141 = 0; i_141 < node.nsp.length; i_141++) {
+        var p_42 = node.nsp[i_141];
         if ( next_is_gs_4 ) {
-          if ( p_38.isProperty() ) {
+          if ( p_42.isProperty() ) {
             wr.out(".Get_", false);
             needs_par_4 = true;
           } else {
@@ -7904,106 +8593,106 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           next_is_gs_4 = false;
         }
         if ( needs_par_4 == false ) {
-          if ( i_125 > 0 ) {
-            if ( had_static_4 ) {
+          if ( i_141 > 0 ) {
+            if ( had_static_5 ) {
               wr.out("_static_", false);
             } else {
               wr.out(".", false);
             }
           }
         }
-        if ( ctx.isDefinedClass(p_38.nameNode.type_name) ) {
-          var c_11 = ctx.findClass(p_38.nameNode.type_name)
+        if ( ctx.isDefinedClass(p_42.nameNode.type_name) ) {
+          var c_11 = ctx.findClass(p_42.nameNode.type_name)
           if ( c_11.doesInherit() ) {
             next_is_gs_4 = true;
           }
         }
-        if ( i_125 == 0 ) {
-          var part_16 = node.ns[0]
-          if ( part_16 == "this" ) {
+        if ( i_141 == 0 ) {
+          var part_18 = node.ns[0]
+          if ( part_18 == "this" ) {
             wr.out(this.thisName, false);
             continue;
           }
-          if ( (part_16 != this.thisName) && ctx.isMemberVariable(part_16) ) {
-            var cc_24 = ctx.getCurrentClass()
-            var currC_15 = cc_24
-            var up_8 = currC_15.findVariable(part_16)
+          if ( (part_18 != this.thisName) && ctx.isMemberVariable(part_18) ) {
+            var cc_25 = ctx.getCurrentClass()
+            var currC_15 = cc_25
+            var up_8 = currC_15.findVariable(part_18)
             if ( typeof(up_8) !== "undefined" ) {
               /** unused:  var p3_8 = up_8   **/ 
               wr.out(this.thisName + ".", false);
             }
           }
         }
-        if ( (p_38.compiledName.length) > 0 ) {
-          wr.out(this.adjustType(p_38.compiledName), false);
+        if ( (p_42.compiledName.length) > 0 ) {
+          wr.out(this.adjustType(p_42.compiledName), false);
         } else {
-          if ( (p_38.name.length) > 0 ) {
-            wr.out(this.adjustType(p_38.name), false);
+          if ( (p_42.name.length) > 0 ) {
+            wr.out(this.adjustType(p_42.name), false);
           } else {
-            wr.out(this.adjustType((node.ns[i_125])), false);
+            wr.out(this.adjustType((node.ns[i_141])), false);
           }
         }
         if ( needs_par_4 ) {
           wr.out("()", false);
           needs_par_4 = false;
         }
-        if ( i_125 < ns_len ) {
-          if ( p_38.nameNode.hasFlag("optional") ) {
+        if ( i_141 < ns_len ) {
+          if ( p_42.nameNode.hasFlag("optional") ) {
             wr.out(".value.(", false);
-            this.writeTypeDef(p_38.nameNode, ctx, wr);
+            this.writeTypeDef(p_42.nameNode, ctx, wr);
             wr.out(")", false);
           }
         }
-        if ( p_38.isClass() ) {
-          had_static_4 = true;
+        if ( p_42.isClass() ) {
+          had_static_5 = true;
         }
       }
       return;
     }
     if ( node.hasParamDesc ) {
-      var part_20 = node.ns[0]
-      if ( (part_20 != this.thisName) && ctx.isMemberVariable(part_20) ) {
-        var cc_28 = ctx.getCurrentClass()
-        var currC_19 = cc_28
-        var up_12 = currC_19.findVariable(part_20)
+      var part_22 = node.ns[0]
+      if ( (part_22 != this.thisName) && ctx.isMemberVariable(part_22) ) {
+        var cc_29 = ctx.getCurrentClass()
+        var currC_19 = cc_29
+        var up_12 = currC_19.findVariable(part_22)
         if ( typeof(up_12) !== "undefined" ) {
           /** unused:  var p3_12 = up_12   **/ 
           wr.out(this.thisName + ".", false);
         }
       }
-      var p_42 = node.paramDesc
-      wr.out(p_42.compiledName, false);
+      var p_46 = node.paramDesc
+      wr.out(p_46.compiledName, false);
       return;
     }
     var b_was_static_4 = false
-    for ( var i_129 = 0; i_129 < node.ns.length; i_129++) {
-      var part_23 = node.ns[i_129];
-      if ( i_129 > 0 ) {
-        if ( (i_129 == 1) && b_was_static_4 ) {
+    for ( var i_145 = 0; i_145 < node.ns.length; i_145++) {
+      var part_25 = node.ns[i_145];
+      if ( i_145 > 0 ) {
+        if ( (i_145 == 1) && b_was_static_4 ) {
           wr.out("_static_", false);
         } else {
           wr.out(".", false);
         }
       }
-      if ( i_129 == 0 ) {
-        if ( part_23 == "this" ) {
+      if ( i_145 == 0 ) {
+        if ( part_25 == "this" ) {
           wr.out(this.thisName, false);
           continue;
         }
-        if ( ctx.hasClass(part_23) ) {
+        if ( ctx.hasClass(part_25) ) {
           b_was_static_4 = true;
         }
-        if ( (part_23 != "this") && ctx.isMemberVariable(part_23) ) {
-          var cc_31 = ctx.getCurrentClass()
-          var currC_22 = cc_31
-          var up_15 = currC_22.findVariable(part_23)
+        if ( (part_25 != "this") && ctx.isMemberVariable(part_25) ) {
+          var cc_32 = ctx.getCurrentClass()
+          var currC_22 = cc_32
+          var up_15 = currC_22.findVariable(part_25)
           if ( typeof(up_15) !== "undefined" ) {
             /** unused:  var p3_15 = up_15   **/ 
             wr.out(this.thisName + ".", false);
           }
         }
       }
-      wr.out(this.adjustType(part_23), false);
+      wr.out(this.adjustType(part_25), false);
     }
   }
   
@@ -8035,10 +8724,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     var last_was_setter_6 = false
     var needs_par_6 = false
     var b_was_static_6 = false
-    for ( var i_129 = 0; i_129 < left.ns.length; i_129++) {
-      var part_22 = left.ns[i_129];
+    for ( var i_145 = 0; i_145 < left.ns.length; i_145++) {
+      var part_24 = left.ns[i_145];
       if ( next_is_gs_6 ) {
-        if ( i_129 == len_5 ) {
+        if ( i_145 == len_5 ) {
           wr.out(".Set_", false);
           last_was_setter_6 = true;
         } else {
@@ -8049,23 +8738,23 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
       }
       if ( (last_was_setter_6 == false) && (needs_par_6 == false) ) {
-        if ( i_129 > 0 ) {
-          if ( (i_129 == 1) && b_was_static_6 ) {
+        if ( i_145 > 0 ) {
+          if ( (i_145 == 1) && b_was_static_6 ) {
             wr.out("_static_", false);
           } else {
             wr.out(".", false);
           }
         }
       }
-      if ( i_129 == 0 ) {
-        if ( part_22 == "this" ) {
+      if ( i_145 == 0 ) {
+        if ( part_24 == "this" ) {
           wr.out(this.thisName, false);
           continue;
         }
-        if ( ctx.hasClass(part_22) ) {
+        if ( ctx.hasClass(part_24) ) {
           b_was_static_6 = true;
         }
-        var partDef = ctx.getVariableDef(part_22)
+        var partDef = ctx.getVariableDef(part_24)
         if ( typeof(partDef.nameNode) !== "undefined" ) {
           if ( ctx.isDefinedClass(partDef.nameNode.type_name) ) {
             var c_13 = ctx.findClass(partDef.nameNode.type_name)
@@ -8074,10 +8763,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             }
           }
         }
-        if ( (part_22 != "this") && ctx.isMemberVariable(part_22) ) {
-          var cc_30 = ctx.getCurrentClass()
-          var currC_21 = cc_30
-          var up_14 = currC_21.findVariable(part_22)
+        if ( (part_24 != "this") && ctx.isMemberVariable(part_24) ) {
+          var cc_31 = ctx.getCurrentClass()
+          var currC_21 = cc_31
+          var up_14 = currC_21.findVariable(part_24)
           if ( typeof(up_14) !== "undefined" ) {
             /** unused:  var p3_14 = up_14   **/ 
             wr.out(this.thisName + ".", false);
@@ -8085,21 +8774,21 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
       }
       if ( (left.nsp.length) > 0 ) {
-        var p_45 = left.nsp[i_129]
-        wr.out(this.adjustType(p_45.compiledName), false);
+        var p_49 = left.nsp[i_145]
+        wr.out(this.adjustType(p_49.compiledName), false);
       } else {
         if ( left.hasParamDesc ) {
           wr.out(left.paramDesc.compiledName, false);
         } else {
-          wr.out(this.adjustType(part_22), false);
+          wr.out(this.adjustType(part_24), false);
         }
       }
       if ( needs_par_6 ) {
         wr.out("()", false);
         needs_par_6 = false;
       }
-      if ( (left.nsp.length) >= (i_129 + 1) ) {
-        var pp_6 = left.nsp[i_129]
+      if ( (left.nsp.length) >= (i_145 + 1) ) {
+        var pp_6 = left.nsp[i_145]
         if ( pp_6.nameNode.hasFlag("optional") ) {
           wr.out(".value.(", false);
           this.writeTypeDef(pp_6.nameNode, ctx, wr);
@@ -8121,69 +8810,69 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   
   writeStructField(node ,ctx ,wr ) {
     if ( node.hasParamDesc ) {
-      var nn_16 = node.children[1]
-      var p_44 = nn_16.paramDesc
-      wr.out(p_44.compiledName + " ", false);
-      if ( p_44.nameNode.hasFlag("optional") ) {
+      var nn_19 = node.children[1]
+      var p_48 = nn_19.paramDesc
+      wr.out(p_48.compiledName + " ", false);
+      if ( p_48.nameNode.hasFlag("optional") ) {
         wr.out("*GoNullable", false);
       } else {
-        this.writeTypeDef(p_44.nameNode, ctx, wr);
+        this.writeTypeDef(p_48.nameNode, ctx, wr);
       }
-      if ( p_44.ref_cnt == 0 ) {
+      if ( p_48.ref_cnt == 0 ) {
         wr.out(" /**  unused  **/ ", false);
       }
       wr.out("", true);
-      if ( p_44.nameNode.hasFlag("optional") ) {
+      if ( p_48.nameNode.hasFlag("optional") ) {
       }
     }
   }
   
   writeVarDef(node ,ctx ,wr ) {
     if ( node.hasParamDesc ) {
-      var nn_19 = node.children[1]
-      var p_46 = nn_19.paramDesc
+      var nn_22 = node.children[1]
+      var p_50 = nn_22.paramDesc
       var b_not_used = false
-      if ( (p_46.ref_cnt == 0) && (p_46.is_class_variable == false) ) {
-        wr.out(("/** unused:  " + p_46.compiledName) + "*/", true);
+      if ( (p_50.ref_cnt == 0) && (p_50.is_class_variable == false) ) {
+        wr.out(("/** unused:  " + p_50.compiledName) + "*/", true);
         b_not_used = true;
         return;
       }
-      var map_or_hash = (nn_19.value_type == 6) || (nn_19.value_type == 7)
-      if ( nn_19.hasFlag("optional") ) {
-        wr.out(("var " + p_46.compiledName) + " *GoNullable = new(GoNullable); ", true);
+      var map_or_hash = (nn_22.value_type == 6) || (nn_22.value_type == 7)
+      if ( nn_22.hasFlag("optional") ) {
+        wr.out(("var " + p_50.compiledName) + " *GoNullable = new(GoNullable); ", true);
         if ( (node.children.length) > 2 ) {
-          var value_9 = node.children[2]
-          if ( value_9.hasParamDesc ) {
-            var pnn = value_9.paramDesc.nameNode
+          var value_10 = node.children[2]
+          if ( value_10.hasParamDesc ) {
+            var pnn = value_10.paramDesc.nameNode
             if ( pnn.hasFlag("optional") ) {
-              wr.out(p_46.compiledName + ".value = ", false);
+              wr.out(p_50.compiledName + ".value = ", false);
               ctx.setInExpr();
-              var value_23 = node.getThird()
-              this.WalkNode(value_23, ctx, wr);
+              var value_24 = node.getThird()
+              this.WalkNode(value_24, ctx, wr);
               ctx.unsetInExpr();
               wr.out(".value;", true);
-              wr.out(p_46.compiledName + ".has_value = ", false);
+              wr.out(p_50.compiledName + ".has_value = ", false);
               ctx.setInExpr();
-              var value_33 = node.getThird()
-              this.WalkNode(value_33, ctx, wr);
+              var value_34 = node.getThird()
+              this.WalkNode(value_34, ctx, wr);
               ctx.unsetInExpr();
               wr.out(".has_value;", true);
               return;
             } else {
-              wr.out(p_46.compiledName + ".value = ", false);
+              wr.out(p_50.compiledName + ".value = ", false);
               ctx.setInExpr();
-              var value_41 = node.getThird()
-              this.WalkNode(value_41, ctx, wr);
+              var value_42 = node.getThird()
+              this.WalkNode(value_42, ctx, wr);
               ctx.unsetInExpr();
               wr.out(";", true);
-              wr.out(p_46.compiledName + ".has_value = true;", true);
+              wr.out(p_50.compiledName + ".has_value = true;", true);
               return;
             }
           } else {
-            wr.out(p_46.compiledName + " = ", false);
+            wr.out(p_50.compiledName + " = ", false);
             ctx.setInExpr();
-            var value_44 = node.getThird()
-            this.WalkNode(value_44, ctx, wr);
+            var value_45 = node.getThird()
+            this.WalkNode(value_45, ctx, wr);
             ctx.unsetInExpr();
             wr.out(";", true);
             return;
@@ -8191,49 +8880,49 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
         return;
       } else {
-        if ( ((p_46.set_cnt > 0) || p_46.is_class_variable) || map_or_hash ) {
-          wr.out(("var " + p_46.compiledName) + " ", false);
+        if ( ((p_50.set_cnt > 0) || p_50.is_class_variable) || map_or_hash ) {
+          wr.out(("var " + p_50.compiledName) + " ", false);
         } else {
-          wr.out(("var " + p_46.compiledName) + " ", false);
+          wr.out(("var " + p_50.compiledName) + " ", false);
         }
       }
-      this.writeTypeDef2(p_46.nameNode, ctx, wr);
+      this.writeTypeDef2(p_50.nameNode, ctx, wr);
       if ( (node.children.length) > 2 ) {
-        var value_32 = node.getThird()
-        if ( value_32.expression && ((value_32.children.length) > 1) ) {
-          var fc_30 = value_32.children[0]
-          if ( fc_30.vref == "array_extract" ) {
-            this.goExtractAssign(value_32, p_46, ctx, wr);
+        var value_33 = node.getThird()
+        if ( value_33.expression && ((value_33.children.length) > 1) ) {
+          var fc_33 = value_33.children[0]
+          if ( fc_33.vref == "array_extract" ) {
+            this.goExtractAssign(value_33, p_50, ctx, wr);
             return;
           }
         }
         wr.out(" = ", false);
         ctx.setInExpr();
-        this.WalkNode(value_32, ctx, wr);
+        this.WalkNode(value_33, ctx, wr);
         ctx.unsetInExpr();
       } else {
-        if ( nn_19.value_type == 6 ) {
+        if ( nn_22.value_type == 6 ) {
           wr.out(" = make(", false);
-          this.writeTypeDef(p_46.nameNode, ctx, wr);
+          this.writeTypeDef(p_50.nameNode, ctx, wr);
           wr.out(", 0)", false);
         }
-        if ( nn_19.value_type == 7 ) {
+        if ( nn_22.value_type == 7 ) {
           wr.out(" = make(", false);
-          this.writeTypeDef(p_46.nameNode, ctx, wr);
+          this.writeTypeDef(p_50.nameNode, ctx, wr);
           wr.out(")", false);
         }
       }
       wr.out(";", false);
-      if ( (p_46.ref_cnt == 0) && (p_46.is_class_variable == true) ) {
+      if ( (p_50.ref_cnt == 0) && (p_50.is_class_variable == true) ) {
         wr.out("     /** note: unused */", false);
       }
-      if ( (p_46.ref_cnt == 0) && (p_46.is_class_variable == false) ) {
+      if ( (p_50.ref_cnt == 0) && (p_50.is_class_variable == false) ) {
         wr.out("   **/ ", true);
       } else {
         wr.newline();
       }
       if ( b_not_used == false ) {
-        if ( nn_19.hasFlag("optional") ) {
+        if ( nn_22.hasFlag("optional") ) {
           wr.addImport("errors");
         }
       }
@@ -8241,36 +8930,36 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   }
   
   writeArgsDef(fnDesc ,ctx ,wr ) {
-    for ( var i_131 = 0; i_131 < fnDesc.params.length; i_131++) {
-      var arg_24 = fnDesc.params[i_131];
-      if ( i_131 > 0 ) {
+    for ( var i_147 = 0; i_147 < fnDesc.params.length; i_147++) {
+      var arg_27 = fnDesc.params[i_147];
+      if ( i_147 > 0 ) {
         wr.out(", ", false);
       }
-      wr.out(arg_24.name + " ", false);
-      if ( arg_24.nameNode.hasFlag("optional") ) {
+      wr.out(arg_27.name + " ", false);
+      if ( arg_27.nameNode.hasFlag("optional") ) {
         wr.out("*GoNullable", false);
       } else {
-        this.writeTypeDef(arg_24.nameNode, ctx, wr);
+        this.writeTypeDef(arg_27.nameNode, ctx, wr);
       }
     }
   }
   
   writeNewCall(node ,ctx ,wr ) {
     if ( node.hasNewOper ) {
-      var cl_12 = node.clDesc
-      /** unused:  var fc_33 = node.getSecond()   **/ 
+      var cl_15 = node.clDesc
+      /** unused:  var fc_36 = node.getSecond()   **/ 
       wr.out(("CreateNew_" + node.clDesc.name) + "(", false);
-      var constr_11 = cl_12.constructor_fn
-      var givenArgs_8 = node.getThird()
-      if ( typeof(constr_11) !== "undefined" ) {
-        for ( var i_133 = 0; i_133 < constr_11.params.length; i_133++) {
-          var arg_27 = constr_11.params[i_133];
-          var n_14 = givenArgs_8.children[i_133]
-          if ( i_133 > 0 ) {
+      var constr_15 = cl_15.constructor_fn
+      var givenArgs_10 = node.getThird()
+      if ( typeof(constr_15) !== "undefined" ) {
+        for ( var i_149 = 0; i_149 < constr_15.params.length; i_149++) {
+          var arg_30 = constr_15.params[i_149];
+          var n_16 = givenArgs_10.children[i_149]
+          if ( i_149 > 0 ) {
             wr.out(", ", false);
           }
-          if ( true || (typeof(arg_27.nameNode) !== "undefined") ) {
-            this.WalkNode(n_14, ctx, wr);
+          if ( true || (typeof(arg_30.nameNode) !== "undefined") ) {
+            this.WalkNode(n_16, ctx, wr);
           }
         }
       }
@@ -8279,8 +8968,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   }
   
   CustomOperator(node ,ctx ,wr ) {
-    var fc_35 = node.getFirst()
-    var cmd_3 = fc_35.vref
+    var fc_38 = node.getFirst()
+    var cmd_3 = fc_38.vref
     if ( ((cmd_3 == "=") || (cmd_3 == "push")) || (cmd_3 == "removeLast") ) {
       var left_4 = node.getSecond()
       var right = left_4
@@ -8295,10 +8984,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         var next_is_gs_8 = false
         var last_was_setter_8 = false
         var needs_par_8 = false
-        for ( var i_135 = 0; i_135 < left_4.ns.length; i_135++) {
-          var part_24 = left_4.ns[i_135];
+        for ( var i_151 = 0; i_151 < left_4.ns.length; i_151++) {
+          var part_26 = left_4.ns[i_151];
           if ( next_is_gs_8 ) {
-            if ( i_135 == len_8 ) {
+            if ( i_151 == len_8 ) {
               wr.out(".Set_", false);
               last_was_setter_8 = true;
             } else {
@@ -8309,35 +8998,35 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             }
           }
           if ( (last_was_setter_8 == false) && (needs_par_8 == false) ) {
-            if ( i_135 > 0 ) {
-              if ( (i_135 == 1) && b_was_static_8 ) {
+            if ( i_151 > 0 ) {
+              if ( (i_151 == 1) && b_was_static_8 ) {
                 wr.out("_static_", false);
               } else {
                 wr.out(".", false);
               }
             }
           }
-          if ( i_135 == 0 ) {
-            if ( part_24 == "this" ) {
+          if ( i_151 == 0 ) {
+            if ( part_26 == "this" ) {
               wr.out(this.thisName, false);
               continue;
             }
-            if ( ctx.hasClass(part_24) ) {
+            if ( ctx.hasClass(part_26) ) {
               b_was_static_8 = true;
             }
-            if ( (part_24 != "this") && ctx.isMemberVariable(part_24) ) {
-              var cc_32 = ctx.getCurrentClass()
-              var currC_23 = cc_32
-              var up_16 = currC_23.findVariable(part_24)
+            if ( (part_26 != "this") && ctx.isMemberVariable(part_26) ) {
+              var cc_33 = ctx.getCurrentClass()
+              var currC_23 = cc_33
+              var up_16 = currC_23.findVariable(part_26)
               if ( typeof(up_16) !== "undefined" ) {
                 /** unused:  var p3_16 = up_16   **/ 
                 wr.out(this.thisName + ".", false);
               }
             }
           }
-          var partDef_4 = ctx.getVariableDef(part_24)
-          if ( (left_4.nsp.length) > i_135 ) {
-            partDef_4 = left_4.nsp[i_135];
+          var partDef_4 = ctx.getVariableDef(part_26)
+          if ( (left_4.nsp.length) > i_151 ) {
+            partDef_4 = left_4.nsp[i_151];
           }
           if ( typeof(partDef_4.nameNode) !== "undefined" ) {
             if ( ctx.isDefinedClass(partDef_4.nameNode.type_name) ) {
@@ -8348,21 +9037,21 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             }
           }
           if ( (left_4.nsp.length) > 0 ) {
-            var p_48 = left_4.nsp[i_135]
-            wr.out(this.adjustType(p_48.compiledName), false);
+            var p_52 = left_4.nsp[i_151]
+            wr.out(this.adjustType(p_52.compiledName), false);
           } else {
             if ( left_4.hasParamDesc ) {
               wr.out(left_4.paramDesc.compiledName, false);
             } else {
-              wr.out(this.adjustType(part_24), false);
+              wr.out(this.adjustType(part_26), false);
             }
           }
           if ( needs_par_8 ) {
             wr.out("()", false);
             needs_par_8 = false;
           }
-          if ( (left_4.nsp.length) >= (i_135 + 1) ) {
-            var pp_9 = left_4.nsp[i_135]
+          if ( (left_4.nsp.length) >= (i_151 + 1) ) {
+            var pp_9 = left_4.nsp[i_151]
             if ( pp_9.nameNode.hasFlag("optional") ) {
               wr.out(".value.(", false);
               this.writeTypeDef(pp_9.nameNode, ctx, wr);
@@ -8439,351 +9128,351 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   }
   
   writeClass(node ,ctx ,orig_wr ) {
-    var cl_15 = node.clDesc
-    if ( typeof(cl_15) === "undefined" ) {
+    var cl_18 = node.clDesc
+    if ( typeof(cl_18) === "undefined" ) {
       return;
     }
-    var wr_9 = orig_wr
+    var wr_10 = orig_wr
     if ( this.did_write_nullable == false ) {
-      wr_9.raw("\r\ntype GoNullable struct { \r\n  value interface{}\r\n  has_value bool\r\n}\r\n", true);
-      wr_9.createTag("utilities");
+      wr_10.raw("\r\ntype GoNullable struct { \r\n  value interface{}\r\n  has_value bool\r\n}\r\n", true);
+      wr_10.createTag("utilities");
       this.did_write_nullable = true;
     }
     var declaredVariable_2 = []
-    wr_9.out(("type " + cl_15.name) + " struct { ", true);
-    wr_9.indent(1);
-    for ( var i_137 = 0; i_137 < cl_15.variables.length; i_137++) {
-      var pvar_9 = cl_15.variables[i_137];
-      this.writeStructField(pvar_9.node, ctx, wr_9);
-      declaredVariable_2[pvar_9.name] = true
+    wr_10.out(("type " + cl_18.name) + " struct { ", true);
+    wr_10.indent(1);
+    for ( var i_153 = 0; i_153 < cl_18.variables.length; i_153++) {
+      var pvar_11 = cl_18.variables[i_153];
+      this.writeStructField(pvar_11.node, ctx, wr_10);
+      declaredVariable_2[pvar_11.name] = true
     }
-    if ( (cl_15.extends_classes.length) > 0 ) {
-      for ( var i_141 = 0; i_141 < cl_15.extends_classes.length; i_141++) {
-        var pName_4 = cl_15.extends_classes[i_141];
-        var pC_2 = ctx.findClass(pName_4)
-        wr_9.out("// inherited from parent class " + pName_4, true);
-        for ( var i_150 = 0; i_150 < pC_2.variables.length; i_150++) {
-          var pvar_14 = pC_2.variables[i_150];
-          if ( typeof(declaredVariable_2[pvar_14.name] ) != "undefined" ) {
+    if ( (cl_18.extends_classes.length) > 0 ) {
+      for ( var i_157 = 0; i_157 < cl_18.extends_classes.length; i_157++) {
+        var pName_5 = cl_18.extends_classes[i_157];
+        var pC_2 = ctx.findClass(pName_5)
+        wr_10.out("// inherited from parent class " + pName_5, true);
+        for ( var i_166 = 0; i_166 < pC_2.variables.length; i_166++) {
+          var pvar_16 = pC_2.variables[i_166];
+          if ( typeof(declaredVariable_2[pvar_16.name] ) != "undefined" ) {
             continue;
           }
-          this.writeStructField(pvar_14.node, ctx, wr_9);
+          this.writeStructField(pvar_16.node, ctx, wr_10);
         }
       }
     }
-    wr_9.indent(-1);
-    wr_9.out("}", true);
-    wr_9.out(("type IFACE_" + cl_15.name) + " interface { ", true);
-    wr_9.indent(1);
-    for ( var i_147 = 0; i_147 < cl_15.variables.length; i_147++) {
-      var p_50 = cl_15.variables[i_147];
-      wr_9.out("Get_", false);
-      wr_9.out(p_50.compiledName + "() ", false);
-      if ( p_50.nameNode.hasFlag("optional") ) {
-        wr_9.out("*GoNullable", false);
+    wr_10.indent(-1);
+    wr_10.out("}", true);
+    wr_10.out(("type IFACE_" + cl_18.name) + " interface { ", true);
+    wr_10.indent(1);
+    for ( var i_163 = 0; i_163 < cl_18.variables.length; i_163++) {
+      var p_54 = cl_18.variables[i_163];
+      wr_10.out("Get_", false);
+      wr_10.out(p_54.compiledName + "() ", false);
+      if ( p_54.nameNode.hasFlag("optional") ) {
+        wr_10.out("*GoNullable", false);
       } else {
-        this.writeTypeDef(p_50.nameNode, ctx, wr_9);
+        this.writeTypeDef(p_54.nameNode, ctx, wr_10);
       }
-      wr_9.out("", true);
-      wr_9.out("Set_", false);
-      wr_9.out(p_50.compiledName + "(value ", false);
-      if ( p_50.nameNode.hasFlag("optional") ) {
-        wr_9.out("*GoNullable", false);
+      wr_10.out("", true);
+      wr_10.out("Set_", false);
+      wr_10.out(p_54.compiledName + "(value ", false);
+      if ( p_54.nameNode.hasFlag("optional") ) {
+        wr_10.out("*GoNullable", false);
       } else {
-        this.writeTypeDef(p_50.nameNode, ctx, wr_9);
+        this.writeTypeDef(p_54.nameNode, ctx, wr_10);
       }
-      wr_9.out(") ", true);
+      wr_10.out(") ", true);
     }
-    for ( var i_150 = 0; i_150 < cl_15.defined_variants.length; i_150++) {
-      var fnVar_7 = cl_15.defined_variants[i_150];
-      var mVs_7 = cl_15.method_variants[fnVar_7]
-      for ( var i_157 = 0; i_157 < mVs_7.variants.length; i_157++) {
-        var variant_15 = mVs_7.variants[i_157];
-        wr_9.out(variant_15.name + "(", false);
-        this.writeArgsDef(variant_15, ctx, wr_9);
-        wr_9.out(") ", false);
-        if ( variant_15.nameNode.hasFlag("optional") ) {
-          wr_9.out("*GoNullable", false);
+    for ( var i_166 = 0; i_166 < cl_18.defined_variants.length; i_166++) {
+      var fnVar_9 = cl_18.defined_variants[i_166];
+      var mVs_9 = cl_18.method_variants[fnVar_9]
+      for ( var i_173 = 0; i_173 < mVs_9.variants.length; i_173++) {
+        var variant_20 = mVs_9.variants[i_173];
+        wr_10.out(variant_20.name + "(", false);
+        this.writeArgsDef(variant_20, ctx, wr_10);
+        wr_10.out(") ", false);
+        if ( variant_20.nameNode.hasFlag("optional") ) {
+          wr_10.out("*GoNullable", false);
         } else {
-          this.writeTypeDef(variant_15.nameNode, ctx, wr_9);
+          this.writeTypeDef(variant_20.nameNode, ctx, wr_10);
         }
-        wr_9.out("", true);
+        wr_10.out("", true);
       }
     }
-    wr_9.indent(-1);
-    wr_9.out("}", true);
+    wr_10.indent(-1);
+    wr_10.out("}", true);
     this.thisName = "me";
-    wr_9.out("", true);
-    wr_9.out(("func CreateNew_" + cl_15.name) + "(", false);
-    if ( cl_15.has_constructor ) {
-      var constr_14 = cl_15.constructor_fn
-      for ( var i_156 = 0; i_156 < constr_14.params.length; i_156++) {
-        var arg_29 = constr_14.params[i_156];
-        if ( i_156 > 0 ) {
-          wr_9.out(", ", false);
+    wr_10.out("", true);
+    wr_10.out(("func CreateNew_" + cl_18.name) + "(", false);
+    if ( cl_18.has_constructor ) {
+      var constr_18 = cl_18.constructor_fn
+      for ( var i_172 = 0; i_172 < constr_18.params.length; i_172++) {
+        var arg_32 = constr_18.params[i_172];
+        if ( i_172 > 0 ) {
+          wr_10.out(", ", false);
         }
-        wr_9.out(arg_29.name + " ", false);
-        this.writeTypeDef(arg_29.nameNode, ctx, wr_9);
+        wr_10.out(arg_32.name + " ", false);
+        this.writeTypeDef(arg_32.nameNode, ctx, wr_10);
       }
     }
-    wr_9.out((") *" + cl_15.name) + " {", true);
-    wr_9.indent(1);
-    wr_9.newline();
-    wr_9.out(("me := new(" + cl_15.name) + ")", true);
-    for ( var i_159 = 0; i_159 < cl_15.variables.length; i_159++) {
-      var pvar_17 = cl_15.variables[i_159];
-      var nn_21 = pvar_17.node
-      if ( (nn_21.children.length) > 2 ) {
-        var valueNode = nn_21.children[2]
-        wr_9.out(("me." + pvar_17.compiledName) + " = ", false);
-        this.WalkNode(valueNode, ctx, wr_9);
-        wr_9.out("", true);
+    wr_10.out((") *" + cl_18.name) + " {", true);
+    wr_10.indent(1);
+    wr_10.newline();
+    wr_10.out(("me := new(" + cl_18.name) + ")", true);
+    for ( var i_175 = 0; i_175 < cl_18.variables.length; i_175++) {
+      var pvar_19 = cl_18.variables[i_175];
+      var nn_24 = pvar_19.node
+      if ( (nn_24.children.length) > 2 ) {
+        var valueNode_2 = nn_24.children[2]
+        wr_10.out(("me." + pvar_19.compiledName) + " = ", false);
+        this.WalkNode(valueNode_2, ctx, wr_10);
+        wr_10.out("", true);
       } else {
-        var pNameN = pvar_17.nameNode
+        var pNameN = pvar_19.nameNode
         if ( pNameN.value_type == 6 ) {
-          wr_9.out(("me." + pvar_17.compiledName) + " = ", false);
-          wr_9.out("make(", false);
-          this.writeTypeDef(pvar_17.nameNode, ctx, wr_9);
-          wr_9.out(",0)", true);
+          wr_10.out(("me." + pvar_19.compiledName) + " = ", false);
+          wr_10.out("make(", false);
+          this.writeTypeDef(pvar_19.nameNode, ctx, wr_10);
+          wr_10.out(",0)", true);
         }
         if ( pNameN.value_type == 7 ) {
-          wr_9.out(("me." + pvar_17.compiledName) + " = ", false);
-          wr_9.out("make(", false);
-          this.writeTypeDef(pvar_17.nameNode, ctx, wr_9);
-          wr_9.out(")", true);
+          wr_10.out(("me." + pvar_19.compiledName) + " = ", false);
+          wr_10.out("make(", false);
+          this.writeTypeDef(pvar_19.nameNode, ctx, wr_10);
+          wr_10.out(")", true);
         }
       }
     }
-    for ( var i_162 = 0; i_162 < cl_15.variables.length; i_162++) {
-      var pvar_20 = cl_15.variables[i_162];
-      if ( pvar_20.nameNode.hasFlag("optional") ) {
-        wr_9.out(("me." + pvar_20.compiledName) + " = new(GoNullable);", true);
+    for ( var i_178 = 0; i_178 < cl_18.variables.length; i_178++) {
+      var pvar_22 = cl_18.variables[i_178];
+      if ( pvar_22.nameNode.hasFlag("optional") ) {
+        wr_10.out(("me." + pvar_22.compiledName) + " = new(GoNullable);", true);
       }
     }
-    if ( (cl_15.extends_classes.length) > 0 ) {
-      for ( var i_165 = 0; i_165 < cl_15.extends_classes.length; i_165++) {
-        var pName_9 = cl_15.extends_classes[i_165];
-        var pC_7 = ctx.findClass(pName_9)
-        for ( var i_174 = 0; i_174 < pC_7.variables.length; i_174++) {
-          var pvar_23 = pC_7.variables[i_174];
-          var nn_25 = pvar_23.node
-          if ( (nn_25.children.length) > 2 ) {
-            var valueNode_6 = nn_25.children[2]
-            wr_9.out(("me." + pvar_23.compiledName) + " = ", false);
-            this.WalkNode(valueNode_6, ctx, wr_9);
-            wr_9.out("", true);
+    if ( (cl_18.extends_classes.length) > 0 ) {
+      for ( var i_181 = 0; i_181 < cl_18.extends_classes.length; i_181++) {
+        var pName_10 = cl_18.extends_classes[i_181];
+        var pC_7 = ctx.findClass(pName_10)
+        for ( var i_190 = 0; i_190 < pC_7.variables.length; i_190++) {
+          var pvar_25 = pC_7.variables[i_190];
+          var nn_28 = pvar_25.node
+          if ( (nn_28.children.length) > 2 ) {
+            var valueNode_7 = nn_28.children[2]
+            wr_10.out(("me." + pvar_25.compiledName) + " = ", false);
+            this.WalkNode(valueNode_7, ctx, wr_10);
+            wr_10.out("", true);
           } else {
-            var pNameN_6 = pvar_23.nameNode
+            var pNameN_6 = pvar_25.nameNode
             if ( pNameN_6.value_type == 6 ) {
-              wr_9.out(("me." + pvar_23.compiledName) + " = ", false);
-              wr_9.out("make(", false);
-              this.writeTypeDef(pvar_23.nameNode, ctx, wr_9);
-              wr_9.out(",0)", true);
+              wr_10.out(("me." + pvar_25.compiledName) + " = ", false);
+              wr_10.out("make(", false);
+              this.writeTypeDef(pvar_25.nameNode, ctx, wr_10);
+              wr_10.out(",0)", true);
             }
             if ( pNameN_6.value_type == 7 ) {
-              wr_9.out(("me." + pvar_23.compiledName) + " = ", false);
-              wr_9.out("make(", false);
-              this.writeTypeDef(pvar_23.nameNode, ctx, wr_9);
-              wr_9.out(")", true);
+              wr_10.out(("me." + pvar_25.compiledName) + " = ", false);
+              wr_10.out("make(", false);
+              this.writeTypeDef(pvar_25.nameNode, ctx, wr_10);
+              wr_10.out(")", true);
             }
           }
         }
-        for ( var i_179 = 0; i_179 < pC_7.variables.length; i_179++) {
-          var pvar_30 = pC_7.variables[i_179];
-          if ( pvar_30.nameNode.hasFlag("optional") ) {
-            wr_9.out(("me." + pvar_30.compiledName) + " = new(GoNullable);", true);
+        for ( var i_195 = 0; i_195 < pC_7.variables.length; i_195++) {
+          var pvar_32 = pC_7.variables[i_195];
+          if ( pvar_32.nameNode.hasFlag("optional") ) {
+            wr_10.out(("me." + pvar_32.compiledName) + " = new(GoNullable);", true);
           }
         }
         if ( pC_7.has_constructor ) {
-          var constr_18 = pC_7.constructor_fn
-          var subCtx_33 = constr_18.fnCtx
-          subCtx_33.is_function = true;
-          this.WalkNode(constr_18.fnBody, subCtx_33, wr_9);
+          var constr_22 = pC_7.constructor_fn
+          var subCtx_37 = constr_22.fnCtx
+          subCtx_37.is_function = true;
+          this.WalkNode(constr_22.fnBody, subCtx_37, wr_10);
         }
       }
     }
-    if ( cl_15.has_constructor ) {
-      var constr_21 = cl_15.constructor_fn
-      var subCtx_38 = constr_21.fnCtx
-      subCtx_38.is_function = true;
-      this.WalkNode(constr_21.fnBody, subCtx_38, wr_9);
+    if ( cl_18.has_constructor ) {
+      var constr_25 = cl_18.constructor_fn
+      var subCtx_42 = constr_25.fnCtx
+      subCtx_42.is_function = true;
+      this.WalkNode(constr_25.fnBody, subCtx_42, wr_10);
     }
-    wr_9.out("return me;", true);
-    wr_9.indent(-1);
-    wr_9.out("}", true);
+    wr_10.out("return me;", true);
+    wr_10.indent(-1);
+    wr_10.out("}", true);
     this.thisName = "this";
-    for ( var i_174 = 0; i_174 < cl_15.static_methods.length; i_174++) {
-      var variant_20 = cl_15.static_methods[i_174];
-      if ( variant_20.nameNode.hasFlag("main") ) {
+    for ( var i_190 = 0; i_190 < cl_18.static_methods.length; i_190++) {
+      var variant_25 = cl_18.static_methods[i_190];
+      if ( variant_25.nameNode.hasFlag("main") ) {
         continue;
       }
-      wr_9.newline();
-      wr_9.out(((("func " + cl_15.name) + "_static_") + variant_20.name) + "(", false);
-      this.writeArgsDef(variant_20, ctx, wr_9);
-      wr_9.out(") ", false);
-      this.writeTypeDef(variant_20.nameNode, ctx, wr_9);
-      wr_9.out(" {", true);
-      wr_9.indent(1);
-      wr_9.newline();
-      var subCtx_41 = variant_20.fnCtx
-      subCtx_41.is_function = true;
-      this.WalkNode(variant_20.fnBody, subCtx_41, wr_9);
-      wr_9.newline();
-      wr_9.indent(-1);
-      wr_9.out("}", true);
+      wr_10.newline();
+      wr_10.out(((("func " + cl_18.name) + "_static_") + variant_25.name) + "(", false);
+      this.writeArgsDef(variant_25, ctx, wr_10);
+      wr_10.out(") ", false);
+      this.writeTypeDef(variant_25.nameNode, ctx, wr_10);
+      wr_10.out(" {", true);
+      wr_10.indent(1);
+      wr_10.newline();
+      var subCtx_45 = variant_25.fnCtx
+      subCtx_45.is_function = true;
+      this.WalkNode(variant_25.fnBody, subCtx_45, wr_10);
+      wr_10.newline();
+      wr_10.indent(-1);
+      wr_10.out("}", true);
     }
     var declaredFn = []
-    for ( var i_177 = 0; i_177 < cl_15.defined_variants.length; i_177++) {
-      var fnVar_12 = cl_15.defined_variants[i_177];
-      var mVs_12 = cl_15.method_variants[fnVar_12]
-      for ( var i_184 = 0; i_184 < mVs_12.variants.length; i_184++) {
-        var variant_23 = mVs_12.variants[i_184];
-        declaredFn[variant_23.name] = true
-        wr_9.out(((("func (this *" + cl_15.name) + ") ") + variant_23.name) + " (", false);
-        this.writeArgsDef(variant_23, ctx, wr_9);
-        wr_9.out(") ", false);
-        if ( variant_23.nameNode.hasFlag("optional") ) {
-          wr_9.out("*GoNullable", false);
+    for ( var i_193 = 0; i_193 < cl_18.defined_variants.length; i_193++) {
+      var fnVar_14 = cl_18.defined_variants[i_193];
+      var mVs_14 = cl_18.method_variants[fnVar_14]
+      for ( var i_200 = 0; i_200 < mVs_14.variants.length; i_200++) {
+        var variant_28 = mVs_14.variants[i_200];
+        declaredFn[variant_28.name] = true
+        wr_10.out(((("func (this *" + cl_18.name) + ") ") + variant_28.name) + " (", false);
+        this.writeArgsDef(variant_28, ctx, wr_10);
+        wr_10.out(") ", false);
+        if ( variant_28.nameNode.hasFlag("optional") ) {
+          wr_10.out("*GoNullable", false);
         } else {
-          this.writeTypeDef(variant_23.nameNode, ctx, wr_9);
+          this.writeTypeDef(variant_28.nameNode, ctx, wr_10);
         }
-        wr_9.out(" {", true);
-        wr_9.indent(1);
-        wr_9.newline();
-        var subCtx_44 = variant_23.fnCtx
-        subCtx_44.is_function = true;
-        this.WalkNode(variant_23.fnBody, subCtx_44, wr_9);
-        wr_9.newline();
-        wr_9.indent(-1);
-        wr_9.out("}", true);
+        wr_10.out(" {", true);
+        wr_10.indent(1);
+        wr_10.newline();
+        var subCtx_48 = variant_28.fnCtx
+        subCtx_48.is_function = true;
+        this.WalkNode(variant_28.fnBody, subCtx_48, wr_10);
+        wr_10.newline();
+        wr_10.indent(-1);
+        wr_10.out("}", true);
       }
     }
-    if ( (cl_15.extends_classes.length) > 0 ) {
-      for ( var i_183 = 0; i_183 < cl_15.extends_classes.length; i_183++) {
-        var pName_12 = cl_15.extends_classes[i_183];
-        var pC_10 = ctx.findClass(pName_12)
-        wr_9.out("// inherited methods from parent class " + pName_12, true);
-        for ( var i_192 = 0; i_192 < pC_10.defined_variants.length; i_192++) {
-          var fnVar_15 = pC_10.defined_variants[i_192];
-          var mVs_15 = pC_10.method_variants[fnVar_15]
-          for ( var i_200 = 0; i_200 < mVs_15.variants.length; i_200++) {
-            var variant_26 = mVs_15.variants[i_200];
-            if ( typeof(declaredFn[variant_26.name] ) != "undefined" ) {
+    if ( (cl_18.extends_classes.length) > 0 ) {
+      for ( var i_199 = 0; i_199 < cl_18.extends_classes.length; i_199++) {
+        var pName_13 = cl_18.extends_classes[i_199];
+        var pC_10 = ctx.findClass(pName_13)
+        wr_10.out("// inherited methods from parent class " + pName_13, true);
+        for ( var i_208 = 0; i_208 < pC_10.defined_variants.length; i_208++) {
+          var fnVar_17 = pC_10.defined_variants[i_208];
+          var mVs_17 = pC_10.method_variants[fnVar_17]
+          for ( var i_216 = 0; i_216 < mVs_17.variants.length; i_216++) {
+            var variant_31 = mVs_17.variants[i_216];
+            if ( typeof(declaredFn[variant_31.name] ) != "undefined" ) {
               continue;
             }
-            wr_9.out(((("func (this *" + cl_15.name) + ") ") + variant_26.name) + " (", false);
-            this.writeArgsDef(variant_26, ctx, wr_9);
-            wr_9.out(") ", false);
-            if ( variant_26.nameNode.hasFlag("optional") ) {
-              wr_9.out("*GoNullable", false);
+            wr_10.out(((("func (this *" + cl_18.name) + ") ") + variant_31.name) + " (", false);
+            this.writeArgsDef(variant_31, ctx, wr_10);
+            wr_10.out(") ", false);
+            if ( variant_31.nameNode.hasFlag("optional") ) {
+              wr_10.out("*GoNullable", false);
             } else {
-              this.writeTypeDef(variant_26.nameNode, ctx, wr_9);
+              this.writeTypeDef(variant_31.nameNode, ctx, wr_10);
             }
-            wr_9.out(" {", true);
-            wr_9.indent(1);
-            wr_9.newline();
-            var subCtx_47 = variant_26.fnCtx
-            subCtx_47.is_function = true;
-            this.WalkNode(variant_26.fnBody, subCtx_47, wr_9);
-            wr_9.newline();
-            wr_9.indent(-1);
-            wr_9.out("}", true);
+            wr_10.out(" {", true);
+            wr_10.indent(1);
+            wr_10.newline();
+            var subCtx_51 = variant_31.fnCtx
+            subCtx_51.is_function = true;
+            this.WalkNode(variant_31.fnBody, subCtx_51, wr_10);
+            wr_10.newline();
+            wr_10.indent(-1);
+            wr_10.out("}", true);
           }
         }
       }
     }
     var declaredGetter = []
-    for ( var i_192 = 0; i_192 < cl_15.variables.length; i_192++) {
-      var p_54 = cl_15.variables[i_192];
-      declaredGetter[p_54.name] = true
-      wr_9.newline();
-      wr_9.out("// getter for variable " + p_54.name, true);
-      wr_9.out(("func (this *" + cl_15.name) + ") ", false);
-      wr_9.out("Get_", false);
-      wr_9.out(p_54.compiledName + "() ", false);
-      if ( p_54.nameNode.hasFlag("optional") ) {
-        wr_9.out("*GoNullable", false);
+    for ( var i_208 = 0; i_208 < cl_18.variables.length; i_208++) {
+      var p_58 = cl_18.variables[i_208];
+      declaredGetter[p_58.name] = true
+      wr_10.newline();
+      wr_10.out("// getter for variable " + p_58.name, true);
+      wr_10.out(("func (this *" + cl_18.name) + ") ", false);
+      wr_10.out("Get_", false);
+      wr_10.out(p_58.compiledName + "() ", false);
+      if ( p_58.nameNode.hasFlag("optional") ) {
+        wr_10.out("*GoNullable", false);
       } else {
-        this.writeTypeDef(p_54.nameNode, ctx, wr_9);
+        this.writeTypeDef(p_58.nameNode, ctx, wr_10);
       }
-      wr_9.out(" {", true);
-      wr_9.indent(1);
-      wr_9.out("return this." + p_54.compiledName, true);
-      wr_9.indent(-1);
-      wr_9.out("}", true);
-      wr_9.newline();
-      wr_9.out("// setter for variable " + p_54.name, true);
-      wr_9.out(("func (this *" + cl_15.name) + ") ", false);
-      wr_9.out("Set_", false);
-      wr_9.out(p_54.compiledName + "( value ", false);
-      if ( p_54.nameNode.hasFlag("optional") ) {
-        wr_9.out("*GoNullable", false);
+      wr_10.out(" {", true);
+      wr_10.indent(1);
+      wr_10.out("return this." + p_58.compiledName, true);
+      wr_10.indent(-1);
+      wr_10.out("}", true);
+      wr_10.newline();
+      wr_10.out("// setter for variable " + p_58.name, true);
+      wr_10.out(("func (this *" + cl_18.name) + ") ", false);
+      wr_10.out("Set_", false);
+      wr_10.out(p_58.compiledName + "( value ", false);
+      if ( p_58.nameNode.hasFlag("optional") ) {
+        wr_10.out("*GoNullable", false);
       } else {
-        this.writeTypeDef(p_54.nameNode, ctx, wr_9);
+        this.writeTypeDef(p_58.nameNode, ctx, wr_10);
       }
-      wr_9.out(") ", false);
-      wr_9.out(" {", true);
-      wr_9.indent(1);
-      wr_9.out(("this." + p_54.compiledName) + " = value ", true);
-      wr_9.indent(-1);
-      wr_9.out("}", true);
+      wr_10.out(") ", false);
+      wr_10.out(" {", true);
+      wr_10.indent(1);
+      wr_10.out(("this." + p_58.compiledName) + " = value ", true);
+      wr_10.indent(-1);
+      wr_10.out("}", true);
     }
-    if ( (cl_15.extends_classes.length) > 0 ) {
-      for ( var i_195 = 0; i_195 < cl_15.extends_classes.length; i_195++) {
-        var pName_15 = cl_15.extends_classes[i_195];
-        var pC_13 = ctx.findClass(pName_15)
-        wr_9.out("// inherited getters and setters from the parent class " + pName_15, true);
-        for ( var i_204 = 0; i_204 < pC_13.variables.length; i_204++) {
-          var p_57 = pC_13.variables[i_204];
-          if ( typeof(declaredGetter[p_57.name] ) != "undefined" ) {
+    if ( (cl_18.extends_classes.length) > 0 ) {
+      for ( var i_211 = 0; i_211 < cl_18.extends_classes.length; i_211++) {
+        var pName_16 = cl_18.extends_classes[i_211];
+        var pC_13 = ctx.findClass(pName_16)
+        wr_10.out("// inherited getters and setters from the parent class " + pName_16, true);
+        for ( var i_220 = 0; i_220 < pC_13.variables.length; i_220++) {
+          var p_61 = pC_13.variables[i_220];
+          if ( typeof(declaredGetter[p_61.name] ) != "undefined" ) {
             continue;
           }
-          wr_9.newline();
-          wr_9.out("// getter for variable " + p_57.name, true);
-          wr_9.out(("func (this *" + cl_15.name) + ") ", false);
-          wr_9.out("Get_", false);
-          wr_9.out(p_57.compiledName + "() ", false);
-          if ( p_57.nameNode.hasFlag("optional") ) {
-            wr_9.out("*GoNullable", false);
+          wr_10.newline();
+          wr_10.out("// getter for variable " + p_61.name, true);
+          wr_10.out(("func (this *" + cl_18.name) + ") ", false);
+          wr_10.out("Get_", false);
+          wr_10.out(p_61.compiledName + "() ", false);
+          if ( p_61.nameNode.hasFlag("optional") ) {
+            wr_10.out("*GoNullable", false);
           } else {
-            this.writeTypeDef(p_57.nameNode, ctx, wr_9);
+            this.writeTypeDef(p_61.nameNode, ctx, wr_10);
           }
-          wr_9.out(" {", true);
-          wr_9.indent(1);
-          wr_9.out("return this." + p_57.compiledName, true);
-          wr_9.indent(-1);
-          wr_9.out("}", true);
-          wr_9.newline();
-          wr_9.out("// getter for variable " + p_57.name, true);
-          wr_9.out(("func (this *" + cl_15.name) + ") ", false);
-          wr_9.out("Set_", false);
-          wr_9.out(p_57.compiledName + "( value ", false);
-          if ( p_57.nameNode.hasFlag("optional") ) {
-            wr_9.out("*GoNullable", false);
+          wr_10.out(" {", true);
+          wr_10.indent(1);
+          wr_10.out("return this." + p_61.compiledName, true);
+          wr_10.indent(-1);
+          wr_10.out("}", true);
+          wr_10.newline();
+          wr_10.out("// getter for variable " + p_61.name, true);
+          wr_10.out(("func (this *" + cl_18.name) + ") ", false);
+          wr_10.out("Set_", false);
+          wr_10.out(p_61.compiledName + "( value ", false);
+          if ( p_61.nameNode.hasFlag("optional") ) {
+            wr_10.out("*GoNullable", false);
           } else {
-            this.writeTypeDef(p_57.nameNode, ctx, wr_9);
+            this.writeTypeDef(p_61.nameNode, ctx, wr_10);
           }
-          wr_9.out(") ", false);
-          wr_9.out(" {", true);
-          wr_9.indent(1);
-          wr_9.out(("this." + p_57.compiledName) + " = value ", true);
-          wr_9.indent(-1);
-          wr_9.out("}", true);
+          wr_10.out(") ", false);
+          wr_10.out(" {", true);
+          wr_10.indent(1);
+          wr_10.out(("this." + p_61.compiledName) + " = value ", true);
+          wr_10.indent(-1);
+          wr_10.out("}", true);
         }
       }
     }
-    for ( var i_201 = 0; i_201 < cl_15.static_methods.length; i_201++) {
-      var variant_29 = cl_15.static_methods[i_201];
-      if ( variant_29.nameNode.hasFlag("main") ) {
-        wr_9.out("func main() {", true);
-        wr_9.indent(1);
-        wr_9.newline();
-        var subCtx_50 = variant_29.fnCtx
-        subCtx_50.is_function = true;
-        this.WalkNode(variant_29.fnBody, subCtx_50, wr_9);
-        wr_9.newline();
-        wr_9.indent(-1);
-        wr_9.out("}", true);
+    for ( var i_217 = 0; i_217 < cl_18.static_methods.length; i_217++) {
+      var variant_34 = cl_18.static_methods[i_217];
+      if ( variant_34.nameNode.hasFlag("main") ) {
+        wr_10.out("func main() {", true);
+        wr_10.indent(1);
+        wr_10.newline();
+        var subCtx_54 = variant_34.fnCtx
+        subCtx_54.is_function = true;
+        this.WalkNode(variant_34.fnBody, subCtx_54, wr_10);
+        wr_10.newline();
+        wr_10.indent(-1);
+        wr_10.out("}", true);
       }
     }
   }
@@ -8804,6 +9493,69 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     return tn;
   }
   
+  EncodeString(node ,ctx ,wr ) {
+    /** unused:  var encoded_str_4 = ""   **/ 
+    var str_length_3 = node.string_value.length
+    var encoded_str_10 = ""
+    var ii_12 = 0
+    while (ii_12 < str_length_3) {
+      var cc_20 = node.string_value.charCodeAt(ii_12 )
+      switch (cc_20 ) { 
+        case 8 : 
+          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(98));
+          break;
+        case 9 : 
+          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(116));
+          break;
+        case 10 : 
+          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(110));
+          break;
+        case 12 : 
+          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(102));
+          break;
+        case 13 : 
+          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(114));
+          break;
+        case 34 : 
+          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(34));
+          break;
+        case 36 : 
+          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(34));
+          break;
+        case 92 : 
+          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(92));
+          break;
+        default: 
+          encoded_str_10 = encoded_str_10 + (String.fromCharCode(cc_20));
+          break;
+      }
+      ii_12 = ii_12 + 1;
+    }
+    return encoded_str_10;
+  }
+  
+  WriteScalarValue(node ,ctx ,wr ) {
+    switch (node.value_type ) { 
+      case 2 : 
+        wr.out("" + node.double_value, false);
+        break;
+      case 4 : 
+        var s_22 = this.EncodeString(node, ctx, wr)
+        wr.out(("\"" + s_22) + "\"", false);
+        break;
+      case 3 : 
+        wr.out("" + node.int_value, false);
+        break;
+      case 5 : 
+        if ( node.boolean_value ) {
+          wr.out("true", false);
+        } else {
+          wr.out("false", false);
+        }
+        break;
+    }
+  }
+  
   WriteVRef(node ,ctx ,wr ) {
     if ( node.vref == "this" ) {
       wr.out("$this", false);
@@ -8811,49 +9563,49 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     }
     if ( node.eval_type == 11 ) {
       if ( (node.ns.length) > 1 ) {
-        var rootObjName_12 = node.ns[0]
-        var enumName_12 = node.ns[1]
-        var e_18 = ctx.getEnum(rootObjName_12)
-        if ( typeof(e_18) !== "undefined" ) {
-          wr.out("" + ((e_18.values[enumName_12])), false);
+        var rootObjName_13 = node.ns[0]
+        var enumName_13 = node.ns[1]
+        var e_19 = ctx.getEnum(rootObjName_13)
+        if ( typeof(e_19) !== "undefined" ) {
+          wr.out("" + ((e_19.values[enumName_13])), false);
           return;
         }
       }
     }
     if ( (node.nsp.length) > 0 ) {
-      for ( var i_150 = 0; i_150 < node.nsp.length; i_150++) {
-        var p_44 = node.nsp[i_150];
-        if ( i_150 == 0 ) {
-          var part_17 = node.ns[0]
-          if ( part_17 == "this" ) {
+      for ( var i_166 = 0; i_166 < node.nsp.length; i_166++) {
+        var p_48 = node.nsp[i_166];
+        if ( i_166 == 0 ) {
+          var part_19 = node.ns[0]
+          if ( part_19 == "this" ) {
             wr.out("$this", false);
             continue;
           }
         }
-        if ( i_150 > 0 ) {
+        if ( i_166 > 0 ) {
           wr.out("->", false);
         }
-        if ( i_150 == 0 ) {
+        if ( i_166 == 0 ) {
           wr.out("$", false);
-          if ( p_44.nameNode.hasFlag("optional") ) {
+          if ( p_48.nameNode.hasFlag("optional") ) {
           }
-          var part_26 = node.ns[0]
-          if ( (part_26 != "this") && ctx.hasCurrentClass() ) {
+          var part_28 = node.ns[0]
+          if ( (part_28 != "this") && ctx.hasCurrentClass() ) {
             var uc = ctx.getCurrentClass()
             var currC_16 = uc
-            var up_9 = currC_16.findVariable(part_26)
+            var up_9 = currC_16.findVariable(part_28)
             if ( typeof(up_9) !== "undefined" ) {
               wr.out(this.thisName + "->", false);
             }
           }
         }
-        if ( (p_44.compiledName.length) > 0 ) {
-          wr.out(this.adjustType(p_44.compiledName), false);
+        if ( (p_48.compiledName.length) > 0 ) {
+          wr.out(this.adjustType(p_48.compiledName), false);
         } else {
-          if ( (p_44.name.length) > 0 ) {
-            wr.out(this.adjustType(p_44.name), false);
+          if ( (p_48.name.length) > 0 ) {
+            wr.out(this.adjustType(p_48.name), false);
           } else {
-            wr.out(this.adjustType((node.ns[i_150])), false);
+            wr.out(this.adjustType((node.ns[i_166])), false);
           }
         }
       }
@@ -8861,95 +9613,61 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     }
     if ( node.hasParamDesc ) {
       wr.out("$", false);
-      var part_25 = node.ns[0]
-      if ( (part_25 != "this") && ctx.hasCurrentClass() ) {
+      var part_27 = node.ns[0]
+      if ( (part_27 != "this") && ctx.hasCurrentClass() ) {
         var uc_6 = ctx.getCurrentClass()
         var currC_21 = uc_6
-        var up_14 = currC_21.findVariable(part_25)
+        var up_14 = currC_21.findVariable(part_27)
         if ( typeof(up_14) !== "undefined" ) {
           wr.out(this.thisName + "->", false);
         }
       }
-      var p_49 = node.paramDesc
-      wr.out(p_49.compiledName, false);
+      var p_53 = node.paramDesc
+      wr.out(p_53.compiledName, false);
       return;
     }
     var b_was_static_5 = false
-    for ( var i_155 = 0; i_155 < node.ns.length; i_155++) {
-      var part_28 = node.ns[i_155];
-      if ( i_155 > 0 ) {
-        if ( (i_155 == 1) && b_was_static_5 ) {
+    for ( var i_171 = 0; i_171 < node.ns.length; i_171++) {
+      var part_30 = node.ns[i_171];
+      if ( i_171 > 0 ) {
+        if ( (i_171 == 1) && b_was_static_5 ) {
           wr.out("::", false);
         } else {
           wr.out("->", false);
         }
       }
-      if ( i_155 == 0 ) {
-        if ( ctx.hasClass(part_28) ) {
+      if ( i_171 == 0 ) {
+        if ( ctx.hasClass(part_30) ) {
           b_was_static_5 = true;
         } else {
           wr.out("$", false);
         }
-        if ( (part_28 != "this") && ctx.hasCurrentClass() ) {
+        if ( (part_30 != "this") && ctx.hasCurrentClass() ) {
           var uc_9 = ctx.getCurrentClass()
           var currC_24 = uc_9
-          var up_17 = currC_24.findVariable(part_28)
+          var up_17 = currC_24.findVariable(part_30)
           if ( typeof(up_17) !== "undefined" ) {
             wr.out(this.thisName + "->", false);
           }
         }
       }
-      wr.out(this.adjustType(part_28), false);
+      wr.out(this.adjustType(part_30), false);
     }
   }
   
   writeVarInitDef(node ,ctx ,wr ) {
     if ( node.hasParamDesc ) {
-      var nn_20 = node.children[1]
-      var p_49 = nn_20.paramDesc
-      if ( (p_49.ref_cnt == 0) && (p_49.is_class_variable == false) ) {
-        wr.out("/** unused:  ", false);
-      }
-      wr.out("$this->" + p_49.compiledName, false);
-      if ( (node.children.length) > 2 ) {
-        wr.out(" = ", false);
-        ctx.setInExpr();
-        var value_15 = node.getThird()
-        this.WalkNode(value_15, ctx, wr);
-        ctx.unsetInExpr();
-      } else {
-        if ( nn_20.value_type == 6 ) {
-          wr.out(" = array()", false);
-        }
-        if ( nn_20.value_type == 7 ) {
-          wr.out(" = array()", false);
-        }
-      }
-      if ( (p_49.ref_cnt == 0) && (p_49.is_class_variable == false) ) {
-        wr.out("   **/", true);
-        return;
-      }
-      wr.out(";", false);
-      if ( (p_49.ref_cnt == 0) && (p_49.is_class_variable == true) ) {
-        wr.out("     /** note: unused */", false);
-      }
-      wr.newline();
-    }
-  }
-  
-  writeVarDef(node ,ctx ,wr ) {
-    if ( node.hasParamDesc ) {
       var nn_23 = node.children[1]
-      var p_51 = nn_23.paramDesc
-      if ( (p_51.ref_cnt == 0) && (p_51.is_class_variable == false) ) {
+      var p_53 = nn_23.paramDesc
+      if ( (p_53.ref_cnt == 0) && (p_53.is_class_variable == false) ) {
         wr.out("/** unused:  ", false);
       }
-      wr.out("$" + p_51.compiledName, false);
+      wr.out("$this->" + p_53.compiledName, false);
       if ( (node.children.length) > 2 ) {
         wr.out(" = ", false);
         ctx.setInExpr();
-        var value_18 = node.getThird()
-        this.WalkNode(value_18, ctx, wr);
+        var value_16 = node.getThird()
+        this.WalkNode(value_16, ctx, wr);
         ctx.unsetInExpr();
       } else {
         if ( nn_23.value_type == 6 ) {
@@ -8959,10 +9677,44 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
           wr.out(" = array()", false);
         }
       }
-      if ( (p_51.ref_cnt == 0) && (p_51.is_class_variable == true) ) {
+      if ( (p_53.ref_cnt == 0) && (p_53.is_class_variable == false) ) {
+        wr.out("   **/", true);
+        return;
+      }
+      wr.out(";", false);
+      if ( (p_53.ref_cnt == 0) && (p_53.is_class_variable == true) ) {
         wr.out("     /** note: unused */", false);
       }
-      if ( (p_51.ref_cnt == 0) && (p_51.is_class_variable == false) ) {
+      wr.newline();
+    }
+  }
+  
+  writeVarDef(node ,ctx ,wr ) {
+    if ( node.hasParamDesc ) {
+      var nn_26 = node.children[1]
+      var p_55 = nn_26.paramDesc
+      if ( (p_55.ref_cnt == 0) && (p_55.is_class_variable == false) ) {
+        wr.out("/** unused:  ", false);
+      }
+      wr.out("$" + p_55.compiledName, false);
+      if ( (node.children.length) > 2 ) {
+        wr.out(" = ", false);
+        ctx.setInExpr();
+        var value_19 = node.getThird()
+        this.WalkNode(value_19, ctx, wr);
+        ctx.unsetInExpr();
+      } else {
+        if ( nn_26.value_type == 6 ) {
+          wr.out(" = array()", false);
+        }
+        if ( nn_26.value_type == 7 ) {
+          wr.out(" = array()", false);
+        }
+      }
+      if ( (p_55.ref_cnt == 0) && (p_55.is_class_variable == true) ) {
+        wr.out("     /** note: unused */", false);
+      }
+      if ( (p_55.ref_cnt == 0) && (p_55.is_class_variable == false) ) {
         wr.out("   **/ ;", true);
       } else {
         wr.out(";", false);
@@ -8973,46 +9725,46 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
   
   writeClassVarDef(node ,ctx ,wr ) {
     if ( node.hasParamDesc ) {
-      var nn_25 = node.children[1]
-      var p_53 = nn_25.paramDesc
-      wr.out(("var $" + p_53.compiledName) + ";", true);
+      var nn_28 = node.children[1]
+      var p_57 = nn_28.paramDesc
+      wr.out(("var $" + p_57.compiledName) + ";", true);
     }
   }
   
   writeArgsDef(fnDesc ,ctx ,wr ) {
-    for ( var i_155 = 0; i_155 < fnDesc.params.length; i_155++) {
-      var arg_27 = fnDesc.params[i_155];
-      if ( i_155 > 0 ) {
+    for ( var i_171 = 0; i_171 < fnDesc.params.length; i_171++) {
+      var arg_30 = fnDesc.params[i_171];
+      if ( i_171 > 0 ) {
         wr.out(",", false);
       }
-      wr.out((" $" + arg_27.name) + " ", false);
+      wr.out((" $" + arg_30.name) + " ", false);
     }
   }
   
   writeFnCall(node ,ctx ,wr ) {
     if ( node.hasFnCall ) {
-      var fc_33 = node.getFirst()
-      this.WriteVRef(fc_33, ctx, wr);
+      var fc_36 = node.getFirst()
+      this.WriteVRef(fc_36, ctx, wr);
       wr.out("(", false);
-      var givenArgs_9 = node.getSecond()
+      var givenArgs_11 = node.getSecond()
       ctx.setInExpr();
-      for ( var i_157 = 0; i_157 < node.fnDesc.params.length; i_157++) {
-        var arg_30 = node.fnDesc.params[i_157];
-        if ( i_157 > 0 ) {
+      for ( var i_173 = 0; i_173 < node.fnDesc.params.length; i_173++) {
+        var arg_33 = node.fnDesc.params[i_173];
+        if ( i_173 > 0 ) {
           wr.out(", ", false);
         }
-        if ( (givenArgs_9.children.length) <= i_157 ) {
-          var defVal_4 = arg_30.nameNode.getFlag("default")
-          if ( typeof(defVal_4) !== "undefined" ) {
-            var fc_44 = defVal_4.vref_annotation.getFirst()
-            this.WalkNode(fc_44, ctx, wr);
+        if ( (givenArgs_11.children.length) <= i_173 ) {
+          var defVal_5 = arg_33.nameNode.getFlag("default")
+          if ( typeof(defVal_5) !== "undefined" ) {
+            var fc_47 = defVal_5.vref_annotation.getFirst()
+            this.WalkNode(fc_47, ctx, wr);
           } else {
             ctx.addError(node, "Default argument was missing");
           }
           continue;
         }
-        var n_15 = givenArgs_9.children[i_157]
-        this.WalkNode(n_15, ctx, wr);
+        var n_17 = givenArgs_11.children[i_173]
+        this.WalkNode(n_17, ctx, wr);
       }
       ctx.unsetInExpr();
       wr.out(")", false);
@@ -9024,22 +9776,22 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
   
   writeNewCall(node ,ctx ,wr ) {
     if ( node.hasNewOper ) {
-      var cl_14 = node.clDesc
-      /** unused:  var fc_38 = node.getSecond()   **/ 
+      var cl_17 = node.clDesc
+      /** unused:  var fc_41 = node.getSecond()   **/ 
       wr.out(" new ", false);
       wr.out(node.clDesc.name, false);
       wr.out("(", false);
-      var constr_15 = cl_14.constructor_fn
-      var givenArgs_12 = node.getThird()
-      if ( typeof(constr_15) !== "undefined" ) {
-        for ( var i_159 = 0; i_159 < constr_15.params.length; i_159++) {
-          var arg_32 = constr_15.params[i_159];
-          var n_18 = givenArgs_12.children[i_159]
-          if ( i_159 > 0 ) {
+      var constr_19 = cl_17.constructor_fn
+      var givenArgs_14 = node.getThird()
+      if ( typeof(constr_19) !== "undefined" ) {
+        for ( var i_175 = 0; i_175 < constr_19.params.length; i_175++) {
+          var arg_35 = constr_19.params[i_175];
+          var n_20 = givenArgs_14.children[i_175]
+          if ( i_175 > 0 ) {
             wr.out(", ", false);
           }
-          if ( true || (typeof(arg_32.nameNode) !== "undefined") ) {
-            this.WalkNode(n_18, ctx, wr);
+          if ( true || (typeof(arg_35.nameNode) !== "undefined") ) {
+            this.WalkNode(n_20, ctx, wr);
           }
         }
       }
@@ -9048,108 +9800,108 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
   }
   
   writeClass(node ,ctx ,orig_wr ) {
-    var cl_17 = node.clDesc
-    if ( typeof(cl_17) === "undefined" ) {
+    var cl_20 = node.clDesc
+    if ( typeof(cl_20) === "undefined" ) {
       return;
     }
-    var wr_10 = orig_wr
-    /** unused:  var importFork_5 = wr_10.fork()   **/ 
+    var wr_11 = orig_wr
+    /** unused:  var importFork_5 = wr_11.fork()   **/ 
     if ( this.wrote_header == false ) {
-      wr_10.out("<? ", true);
-      wr_10.out("", true);
+      wr_11.out("<? ", true);
+      wr_11.out("", true);
       this.wrote_header = true;
     }
-    wr_10.out("class " + cl_17.name, false);
-    var parentClass_3
-    if ( (cl_17.extends_classes.length) > 0 ) {
-      wr_10.out(" extends ", false);
-      for ( var i_161 = 0; i_161 < cl_17.extends_classes.length; i_161++) {
-        var pName_8 = cl_17.extends_classes[i_161];
-        wr_10.out(pName_8, false);
-        parentClass_3 = ctx.findClass(pName_8);
+    wr_11.out("class " + cl_20.name, false);
+    var parentClass_4
+    if ( (cl_20.extends_classes.length) > 0 ) {
+      wr_11.out(" extends ", false);
+      for ( var i_177 = 0; i_177 < cl_20.extends_classes.length; i_177++) {
+        var pName_9 = cl_20.extends_classes[i_177];
+        wr_11.out(pName_9, false);
+        parentClass_4 = ctx.findClass(pName_9);
       }
     }
-    wr_10.out(" { ", true);
-    wr_10.indent(1);
-    for ( var i_165 = 0; i_165 < cl_17.variables.length; i_165++) {
-      var pvar_15 = cl_17.variables[i_165];
-      this.writeClassVarDef(pvar_15.node, ctx, wr_10);
+    wr_11.out(" { ", true);
+    wr_11.indent(1);
+    for ( var i_181 = 0; i_181 < cl_20.variables.length; i_181++) {
+      var pvar_17 = cl_20.variables[i_181];
+      this.writeClassVarDef(pvar_17.node, ctx, wr_11);
     }
-    wr_10.out("", true);
-    wr_10.out("function __construct(", false);
-    if ( cl_17.has_constructor ) {
-      var constr_18 = cl_17.constructor_fn
-      this.writeArgsDef(constr_18, ctx, wr_10);
+    wr_11.out("", true);
+    wr_11.out("function __construct(", false);
+    if ( cl_20.has_constructor ) {
+      var constr_22 = cl_20.constructor_fn
+      this.writeArgsDef(constr_22, ctx, wr_11);
     }
-    wr_10.out(" ) {", true);
-    wr_10.indent(1);
-    if ( typeof(parentClass_3) != "undefined" ) {
-      wr_10.out("parent::__construct();", true);
+    wr_11.out(" ) {", true);
+    wr_11.indent(1);
+    if ( typeof(parentClass_4) != "undefined" ) {
+      wr_11.out("parent::__construct();", true);
     }
-    for ( var i_168 = 0; i_168 < cl_17.variables.length; i_168++) {
-      var pvar_20 = cl_17.variables[i_168];
-      this.writeVarInitDef(pvar_20.node, ctx, wr_10);
+    for ( var i_184 = 0; i_184 < cl_20.variables.length; i_184++) {
+      var pvar_22 = cl_20.variables[i_184];
+      this.writeVarInitDef(pvar_22.node, ctx, wr_11);
     }
-    if ( cl_17.has_constructor ) {
-      var constr_22 = cl_17.constructor_fn
-      wr_10.newline();
-      var subCtx_39 = constr_22.fnCtx
-      subCtx_39.is_function = true;
-      this.WalkNode(constr_22.fnBody, subCtx_39, wr_10);
+    if ( cl_20.has_constructor ) {
+      var constr_26 = cl_20.constructor_fn
+      wr_11.newline();
+      var subCtx_43 = constr_26.fnCtx
+      subCtx_43.is_function = true;
+      this.WalkNode(constr_26.fnBody, subCtx_43, wr_11);
     }
-    wr_10.newline();
-    wr_10.indent(-1);
-    wr_10.out("}", true);
-    for ( var i_171 = 0; i_171 < cl_17.static_methods.length; i_171++) {
-      var variant_20 = cl_17.static_methods[i_171];
-      wr_10.out("", true);
-      if ( variant_20.nameNode.hasFlag("main") ) {
+    wr_11.newline();
+    wr_11.indent(-1);
+    wr_11.out("}", true);
+    for ( var i_187 = 0; i_187 < cl_20.static_methods.length; i_187++) {
+      var variant_25 = cl_20.static_methods[i_187];
+      wr_11.out("", true);
+      if ( variant_25.nameNode.hasFlag("main") ) {
         continue;
       } else {
-        wr_10.out("public static function ", false);
-        wr_10.out(variant_20.name + "(", false);
-        this.writeArgsDef(variant_20, ctx, wr_10);
-        wr_10.out(") {", true);
+        wr_11.out("public static function ", false);
+        wr_11.out(variant_25.name + "(", false);
+        this.writeArgsDef(variant_25, ctx, wr_11);
+        wr_11.out(") {", true);
       }
-      wr_10.indent(1);
-      wr_10.newline();
-      var subCtx_44 = variant_20.fnCtx
-      subCtx_44.is_function = true;
-      this.WalkNode(variant_20.fnBody, subCtx_44, wr_10);
-      wr_10.newline();
-      wr_10.indent(-1);
-      wr_10.out("}", true);
+      wr_11.indent(1);
+      wr_11.newline();
+      var subCtx_48 = variant_25.fnCtx
+      subCtx_48.is_function = true;
+      this.WalkNode(variant_25.fnBody, subCtx_48, wr_11);
+      wr_11.newline();
+      wr_11.indent(-1);
+      wr_11.out("}", true);
     }
-    for ( var i_174 = 0; i_174 < cl_17.defined_variants.length; i_174++) {
-      var fnVar_10 = cl_17.defined_variants[i_174];
-      var mVs_10 = cl_17.method_variants[fnVar_10]
-      for ( var i_181 = 0; i_181 < mVs_10.variants.length; i_181++) {
-        var variant_25 = mVs_10.variants[i_181];
-        wr_10.out("", true);
-        wr_10.out(("function " + variant_25.name) + "(", false);
-        this.writeArgsDef(variant_25, ctx, wr_10);
-        wr_10.out(") {", true);
-        wr_10.indent(1);
-        wr_10.newline();
-        var subCtx_47 = variant_25.fnCtx
-        subCtx_47.is_function = true;
-        this.WalkNode(variant_25.fnBody, subCtx_47, wr_10);
-        wr_10.newline();
-        wr_10.indent(-1);
-        wr_10.out("}", true);
+    for ( var i_190 = 0; i_190 < cl_20.defined_variants.length; i_190++) {
+      var fnVar_12 = cl_20.defined_variants[i_190];
+      var mVs_12 = cl_20.method_variants[fnVar_12]
+      for ( var i_197 = 0; i_197 < mVs_12.variants.length; i_197++) {
+        var variant_30 = mVs_12.variants[i_197];
+        wr_11.out("", true);
+        wr_11.out(("function " + variant_30.name) + "(", false);
+        this.writeArgsDef(variant_30, ctx, wr_11);
+        wr_11.out(") {", true);
+        wr_11.indent(1);
+        wr_11.newline();
+        var subCtx_51 = variant_30.fnCtx
+        subCtx_51.is_function = true;
+        this.WalkNode(variant_30.fnBody, subCtx_51, wr_11);
+        wr_11.newline();
+        wr_11.indent(-1);
+        wr_11.out("}", true);
       }
     }
-    wr_10.indent(-1);
-    wr_10.out("}", true);
-    for ( var i_180 = 0; i_180 < cl_17.static_methods.length; i_180++) {
-      var variant_28 = cl_17.static_methods[i_180];
+    wr_11.indent(-1);
+    wr_11.out("}", true);
+    for ( var i_196 = 0; i_196 < cl_20.static_methods.length; i_196++) {
+      var variant_33 = cl_20.static_methods[i_196];
       ctx.disableCurrentClass();
-      wr_10.out("", true);
-      if ( variant_28.nameNode.hasFlag("main") ) {
-        wr_10.out("/* static PHP main routine */", false);
-        wr_10.newline();
-        this.WalkNode(variant_28.fnBody, ctx, wr_10);
-        wr_10.newline();
+      wr_11.out("", true);
+      if ( variant_33.nameNode.hasFlag("main") ) {
+        wr_11.out("/* static PHP main routine */", false);
+        wr_11.newline();
+        this.WalkNode(variant_33.fnBody, ctx, wr_11);
+        wr_11.newline();
       }
     }
   }
@@ -9173,122 +9925,122 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   WriteVRef(node ,ctx ,wr ) {
     if ( node.eval_type == 11 ) {
       if ( (node.ns.length) > 1 ) {
-        var rootObjName_13 = node.ns[0]
-        var enumName_13 = node.ns[1]
-        var e_19 = ctx.getEnum(rootObjName_13)
-        if ( typeof(e_19) !== "undefined" ) {
-          wr.out("" + ((e_19.values[enumName_13])), false);
+        var rootObjName_14 = node.ns[0]
+        var enumName_14 = node.ns[1]
+        var e_20 = ctx.getEnum(rootObjName_14)
+        if ( typeof(e_20) !== "undefined" ) {
+          wr.out("" + ((e_20.values[enumName_14])), false);
           return;
         }
       }
     }
     if ( (node.nsp.length) > 0 ) {
-      for ( var i_162 = 0; i_162 < node.nsp.length; i_162++) {
-        var p_49 = node.nsp[i_162];
-        if ( i_162 > 0 ) {
+      for ( var i_178 = 0; i_178 < node.nsp.length; i_178++) {
+        var p_53 = node.nsp[i_178];
+        if ( i_178 > 0 ) {
           wr.out(".", false);
         }
-        if ( i_162 == 0 ) {
-          if ( p_49.nameNode.hasFlag("optional") ) {
+        if ( i_178 == 0 ) {
+          if ( p_53.nameNode.hasFlag("optional") ) {
           }
-          var part_21 = node.ns[0]
-          if ( (part_21 != "this") && ctx.isMemberVariable(part_21) ) {
+          var part_23 = node.ns[0]
+          if ( (part_23 != "this") && ctx.isMemberVariable(part_23) ) {
             var uc_4 = ctx.getCurrentClass()
             var currC_19 = uc_4
-            var up_12 = currC_19.findVariable(part_21)
+            var up_12 = currC_19.findVariable(part_23)
             if ( typeof(up_12) !== "undefined" ) {
               wr.out("this.", false);
             }
           }
-          if ( part_21 == "this" ) {
+          if ( part_23 == "this" ) {
             wr.out("this", false);
             continue;
           }
         }
-        if ( (p_49.compiledName.length) > 0 ) {
-          wr.out(this.adjustType(p_49.compiledName), false);
+        if ( (p_53.compiledName.length) > 0 ) {
+          wr.out(this.adjustType(p_53.compiledName), false);
         } else {
-          if ( (p_49.name.length) > 0 ) {
-            wr.out(this.adjustType(p_49.name), false);
+          if ( (p_53.name.length) > 0 ) {
+            wr.out(this.adjustType(p_53.name), false);
           } else {
-            wr.out(this.adjustType((node.ns[i_162])), false);
+            wr.out(this.adjustType((node.ns[i_178])), false);
           }
         }
       }
       return;
     }
     if ( node.hasParamDesc ) {
-      var part_26 = node.ns[0]
-      if ( (part_26 != "this") && ctx.isMemberVariable(part_26) ) {
+      var part_28 = node.ns[0]
+      if ( (part_28 != "this") && ctx.isMemberVariable(part_28) ) {
         var uc_9 = ctx.getCurrentClass()
         var currC_24 = uc_9
-        var up_17 = currC_24.findVariable(part_26)
+        var up_17 = currC_24.findVariable(part_28)
         if ( typeof(up_17) !== "undefined" ) {
           wr.out("this.", false);
         }
       }
-      var p_54 = node.paramDesc
-      wr.out(p_54.compiledName, false);
+      var p_58 = node.paramDesc
+      wr.out(p_58.compiledName, false);
       return;
     }
     var b_was_static_6 = false
-    for ( var i_167 = 0; i_167 < node.ns.length; i_167++) {
-      var part_29 = node.ns[i_167];
-      if ( i_167 > 0 ) {
-        if ( (i_167 == 1) && b_was_static_6 ) {
+    for ( var i_183 = 0; i_183 < node.ns.length; i_183++) {
+      var part_31 = node.ns[i_183];
+      if ( i_183 > 0 ) {
+        if ( (i_183 == 1) && b_was_static_6 ) {
           wr.out(".", false);
         } else {
           wr.out(".", false);
         }
       }
-      if ( i_167 == 0 ) {
-        if ( ctx.hasClass(part_29) ) {
+      if ( i_183 == 0 ) {
+        if ( ctx.hasClass(part_31) ) {
           b_was_static_6 = true;
         } else {
           wr.out("", false);
         }
-        if ( (part_29 != "this") && ctx.isMemberVariable(part_29) ) {
+        if ( (part_31 != "this") && ctx.isMemberVariable(part_31) ) {
           var uc_12 = ctx.getCurrentClass()
           var currC_27 = uc_12
-          var up_20 = currC_27.findVariable(part_29)
+          var up_20 = currC_27.findVariable(part_31)
           if ( typeof(up_20) !== "undefined" ) {
             wr.out("this.", false);
           }
         }
       }
-      wr.out(this.adjustType(part_29), false);
+      wr.out(this.adjustType(part_31), false);
     }
   }
   
   writeVarInitDef(node ,ctx ,wr ) {
     if ( node.hasParamDesc ) {
-      var nn_23 = node.children[1]
-      var p_54 = nn_23.paramDesc
+      var nn_26 = node.children[1]
+      var p_58 = nn_26.paramDesc
       var remove_unused = ctx.hasCompilerFlag("remove-unused-class-vars")
-      if ( (p_54.ref_cnt == 0) && (remove_unused || (p_54.is_class_variable == false)) ) {
+      if ( (p_58.ref_cnt == 0) && (remove_unused || (p_58.is_class_variable == false)) ) {
         wr.out("/** unused:  ", false);
       }
-      wr.out("this." + p_54.compiledName, false);
+      wr.out("this." + p_58.compiledName, false);
       if ( (node.children.length) > 2 ) {
         wr.out(" = ", false);
         ctx.setInExpr();
-        var value_17 = node.getThird()
-        this.WalkNode(value_17, ctx, wr);
+        var value_18 = node.getThird()
+        this.WalkNode(value_18, ctx, wr);
         ctx.unsetInExpr();
       } else {
-        if ( nn_23.value_type == 6 ) {
+        if ( nn_26.value_type == 6 ) {
           wr.out(" = []", false);
         }
-        if ( nn_23.value_type == 7 ) {
+        if ( nn_26.value_type == 7 ) {
           wr.out(" = {}", false);
         }
       }
-      if ( (p_54.ref_cnt == 0) && (remove_unused || (p_54.is_class_variable == false)) ) {
+      if ( (p_58.ref_cnt == 0) && (remove_unused || (p_58.is_class_variable == false)) ) {
         wr.out("   **/", true);
         return;
       }
       wr.out(";", false);
-      if ( (p_54.ref_cnt == 0) && (p_54.is_class_variable == true) ) {
+      if ( (p_58.ref_cnt == 0) && (p_58.is_class_variable == true) ) {
         wr.out("     /** note: unused */", false);
       }
       wr.newline();
@@ -9297,31 +10049,31 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   
   writeVarDef(node ,ctx ,wr ) {
     if ( node.hasParamDesc ) {
-      var nn_26 = node.children[1]
-      var p_56 = nn_26.paramDesc
+      var nn_29 = node.children[1]
+      var p_60 = nn_29.paramDesc
       /** unused:  var opt_js = ctx.hasCompilerFlag("optimize-js")   **/ 
-      if ( (p_56.ref_cnt == 0) && (p_56.is_class_variable == false) ) {
+      if ( (p_60.ref_cnt == 0) && (p_60.is_class_variable == false) ) {
         wr.out("/** unused:  ", false);
       }
-      wr.out("var " + p_56.compiledName, false);
+      wr.out("var " + p_60.compiledName, false);
       if ( (node.children.length) > 2 ) {
         wr.out(" = ", false);
         ctx.setInExpr();
-        var value_20 = node.getThird()
-        this.WalkNode(value_20, ctx, wr);
+        var value_21 = node.getThird()
+        this.WalkNode(value_21, ctx, wr);
         ctx.unsetInExpr();
       } else {
-        if ( nn_26.value_type == 6 ) {
+        if ( nn_29.value_type == 6 ) {
           wr.out(" = []", false);
         }
-        if ( nn_26.value_type == 7 ) {
+        if ( nn_29.value_type == 7 ) {
           wr.out(" = []", false);
         }
       }
-      if ( (p_56.ref_cnt == 0) && (p_56.is_class_variable == true) ) {
+      if ( (p_60.ref_cnt == 0) && (p_60.is_class_variable == true) ) {
         wr.out("     /** note: unused */", false);
       }
-      if ( (p_56.ref_cnt == 0) && (p_56.is_class_variable == false) ) {
+      if ( (p_60.ref_cnt == 0) && (p_60.is_class_variable == false) ) {
         wr.out("   **/ ", true);
       } else {
         wr.out("", false);
@@ -9334,116 +10086,116 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   }
   
   writeArgsDef(fnDesc ,ctx ,wr ) {
-    for ( var i_167 = 0; i_167 < fnDesc.params.length; i_167++) {
-      var arg_30 = fnDesc.params[i_167];
-      if ( i_167 > 0 ) {
+    for ( var i_183 = 0; i_183 < fnDesc.params.length; i_183++) {
+      var arg_33 = fnDesc.params[i_183];
+      if ( i_183 > 0 ) {
         wr.out(",", false);
       }
-      wr.out(arg_30.name + " ", false);
+      wr.out(arg_33.name + " ", false);
     }
   }
   
   writeClass(node ,ctx ,orig_wr ) {
-    var cl_16 = node.clDesc
-    if ( typeof(cl_16) === "undefined" ) {
+    var cl_19 = node.clDesc
+    if ( typeof(cl_19) === "undefined" ) {
       return;
     }
-    var wr_11 = orig_wr
-    /** unused:  var importFork_6 = wr_11.fork()   **/ 
+    var wr_12 = orig_wr
+    /** unused:  var importFork_6 = wr_12.fork()   **/ 
     if ( this.wrote_header == false ) {
-      wr_11.out("", true);
+      wr_12.out("", true);
       this.wrote_header = true;
     }
     var b_extd = false
-    wr_11.out(("class " + cl_16.name) + " ", false);
-    for ( var i_169 = 0; i_169 < cl_16.extends_classes.length; i_169++) {
-      var pName_9 = cl_16.extends_classes[i_169];
-      if ( i_169 == 0 ) {
-        wr_11.out(" extends ", false);
+    wr_12.out(("class " + cl_19.name) + " ", false);
+    for ( var i_185 = 0; i_185 < cl_19.extends_classes.length; i_185++) {
+      var pName_10 = cl_19.extends_classes[i_185];
+      if ( i_185 == 0 ) {
+        wr_12.out(" extends ", false);
       }
-      wr_11.out(pName_9, false);
+      wr_12.out(pName_10, false);
       b_extd = true;
     }
-    wr_11.out(" {", true);
-    wr_11.indent(1);
-    for ( var i_173 = 0; i_173 < cl_16.variables.length; i_173++) {
-      var pvar_17 = cl_16.variables[i_173];
-      this.writeClassVarDef(pvar_17.node, ctx, wr_11);
+    wr_12.out(" {", true);
+    wr_12.indent(1);
+    for ( var i_189 = 0; i_189 < cl_19.variables.length; i_189++) {
+      var pvar_19 = cl_19.variables[i_189];
+      this.writeClassVarDef(pvar_19.node, ctx, wr_12);
     }
-    wr_11.out("", true);
-    wr_11.out("constructor(", false);
-    if ( cl_16.has_constructor ) {
-      var constr_18 = cl_16.constructor_fn
-      this.writeArgsDef(constr_18, ctx, wr_11);
+    wr_12.out("", true);
+    wr_12.out("constructor(", false);
+    if ( cl_19.has_constructor ) {
+      var constr_22 = cl_19.constructor_fn
+      this.writeArgsDef(constr_22, ctx, wr_12);
     }
-    wr_11.out(" ) {", true);
-    wr_11.indent(1);
+    wr_12.out(" ) {", true);
+    wr_12.indent(1);
     if ( b_extd ) {
-      wr_11.out("super()", true);
+      wr_12.out("super()", true);
     }
-    for ( var i_176 = 0; i_176 < cl_16.variables.length; i_176++) {
-      var pvar_22 = cl_16.variables[i_176];
-      this.writeVarInitDef(pvar_22.node, ctx, wr_11);
+    for ( var i_192 = 0; i_192 < cl_19.variables.length; i_192++) {
+      var pvar_24 = cl_19.variables[i_192];
+      this.writeVarInitDef(pvar_24.node, ctx, wr_12);
     }
-    if ( cl_16.has_constructor ) {
-      var constr_23 = cl_16.constructor_fn
-      wr_11.newline();
-      var subCtx_42 = constr_23.fnCtx
-      subCtx_42.is_function = true;
-      this.WalkNode(constr_23.fnBody, subCtx_42, wr_11);
+    if ( cl_19.has_constructor ) {
+      var constr_27 = cl_19.constructor_fn
+      wr_12.newline();
+      var subCtx_46 = constr_27.fnCtx
+      subCtx_46.is_function = true;
+      this.WalkNode(constr_27.fnBody, subCtx_46, wr_12);
     }
-    wr_11.newline();
-    wr_11.indent(-1);
-    wr_11.out("}", true);
-    for ( var i_179 = 0; i_179 < cl_16.defined_variants.length; i_179++) {
-      var fnVar_11 = cl_16.defined_variants[i_179];
-      var mVs_11 = cl_16.method_variants[fnVar_11]
-      for ( var i_186 = 0; i_186 < mVs_11.variants.length; i_186++) {
-        var variant_23 = mVs_11.variants[i_186];
-        wr_11.out("", true);
-        wr_11.out(("" + variant_23.name) + "(", false);
-        this.writeArgsDef(variant_23, ctx, wr_11);
-        wr_11.out(") {", true);
-        wr_11.indent(1);
-        wr_11.newline();
-        var subCtx_47 = variant_23.fnCtx
-        subCtx_47.is_function = true;
-        this.WalkNode(variant_23.fnBody, subCtx_47, wr_11);
-        wr_11.newline();
-        wr_11.indent(-1);
-        wr_11.out("}", true);
+    wr_12.newline();
+    wr_12.indent(-1);
+    wr_12.out("}", true);
+    for ( var i_195 = 0; i_195 < cl_19.defined_variants.length; i_195++) {
+      var fnVar_13 = cl_19.defined_variants[i_195];
+      var mVs_13 = cl_19.method_variants[fnVar_13]
+      for ( var i_202 = 0; i_202 < mVs_13.variants.length; i_202++) {
+        var variant_28 = mVs_13.variants[i_202];
+        wr_12.out("", true);
+        wr_12.out(("" + variant_28.name) + "(", false);
+        this.writeArgsDef(variant_28, ctx, wr_12);
+        wr_12.out(") {", true);
+        wr_12.indent(1);
+        wr_12.newline();
+        var subCtx_51 = variant_28.fnCtx
+        subCtx_51.is_function = true;
+        this.WalkNode(variant_28.fnBody, subCtx_51, wr_12);
+        wr_12.newline();
+        wr_12.indent(-1);
+        wr_12.out("}", true);
       }
     }
-    wr_11.indent(-1);
-    wr_11.out("}", true);
-    for ( var i_185 = 0; i_185 < cl_16.static_methods.length; i_185++) {
-      var variant_28 = cl_16.static_methods[i_185];
-      wr_11.out("", true);
-      if ( variant_28.nameNode.hasFlag("main") ) {
+    wr_12.indent(-1);
+    wr_12.out("}", true);
+    for ( var i_201 = 0; i_201 < cl_19.static_methods.length; i_201++) {
+      var variant_33 = cl_19.static_methods[i_201];
+      wr_12.out("", true);
+      if ( variant_33.nameNode.hasFlag("main") ) {
         continue;
       } else {
-        wr_11.out(((cl_16.name + ".") + variant_28.name) + " = function(", false);
-        this.writeArgsDef(variant_28, ctx, wr_11);
-        wr_11.out(") {", true);
+        wr_12.out(((cl_19.name + ".") + variant_33.name) + " = function(", false);
+        this.writeArgsDef(variant_33, ctx, wr_12);
+        wr_12.out(") {", true);
       }
-      wr_11.indent(1);
-      wr_11.newline();
-      var subCtx_50 = variant_28.fnCtx
-      subCtx_50.is_function = true;
-      this.WalkNode(variant_28.fnBody, subCtx_50, wr_11);
-      wr_11.newline();
-      wr_11.indent(-1);
-      wr_11.out("}", true);
+      wr_12.indent(1);
+      wr_12.newline();
+      var subCtx_54 = variant_33.fnCtx
+      subCtx_54.is_function = true;
+      this.WalkNode(variant_33.fnBody, subCtx_54, wr_12);
+      wr_12.newline();
+      wr_12.indent(-1);
+      wr_12.out("}", true);
     }
-    for ( var i_188 = 0; i_188 < cl_16.static_methods.length; i_188++) {
-      var variant_31 = cl_16.static_methods[i_188];
+    for ( var i_204 = 0; i_204 < cl_19.static_methods.length; i_204++) {
+      var variant_36 = cl_19.static_methods[i_204];
       ctx.disableCurrentClass();
-      wr_11.out("", true);
-      if ( variant_31.nameNode.hasFlag("main") ) {
-        wr_11.out("/* static JavaSript main routine */", false);
-        wr_11.newline();
-        this.WalkNode(variant_31.fnBody, ctx, wr_11);
-        wr_11.newline();
+      wr_12.out("", true);
+      if ( variant_36.nameNode.hasFlag("main") ) {
+        wr_12.out("/* static JavaSript main routine */", false);
+        wr_12.newline();
+        this.WalkNode(variant_36.fnBody, ctx, wr_12);
+        wr_12.newline();
       }
     }
   }
@@ -9471,34 +10223,34 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
   }
   
   writeTypeDef(node ,ctx ,wr ) {
-    var v_type_9 = node.value_type
-    var t_name_3 = node.type_name
-    var a_name_5 = node.array_type
-    var k_name_3 = node.key_type
-    if ( ((v_type_9 == 8) || (v_type_9 == 9)) || (v_type_9 == 0) ) {
-      v_type_9 = node.typeNameAsType(ctx);
+    var v_type_10 = node.value_type
+    var t_name_4 = node.type_name
+    var a_name_6 = node.array_type
+    var k_name_4 = node.key_type
+    if ( ((v_type_10 == 8) || (v_type_10 == 9)) || (v_type_10 == 0) ) {
+      v_type_10 = node.typeNameAsType(ctx);
     }
     if ( node.eval_type != 0 ) {
-      v_type_9 = node.eval_type;
+      v_type_10 = node.eval_type;
       if ( (node.eval_type_name.length) > 0 ) {
-        t_name_3 = node.eval_type_name;
+        t_name_4 = node.eval_type_name;
       }
       if ( (node.eval_array_type.length) > 0 ) {
-        a_name_5 = node.eval_array_type;
+        a_name_6 = node.eval_array_type;
       }
       if ( (node.eval_key_type.length) > 0 ) {
-        k_name_3 = node.eval_key_type;
+        k_name_4 = node.eval_key_type;
       }
     }
-    if ( v_type_9 == 7 ) {
-      wr.out(((("[" + k_name_3) + ":") + a_name_5) + "]", false);
+    if ( v_type_10 == 7 ) {
+      wr.out(((("[" + k_name_4) + ":") + a_name_6) + "]", false);
       return;
     }
-    if ( v_type_9 == 6 ) {
-      wr.out(("[" + a_name_5) + "]", false);
+    if ( v_type_10 == 6 ) {
+      wr.out(("[" + a_name_6) + "]", false);
       return;
     }
-    wr.out(t_name_3, false);
+    wr.out(t_name_4, false);
   }
   
   WriteVRef(node ,ctx ,wr ) {
@@ -9507,10 +10259,10 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
   
   WriteVRefWithOpt(node ,ctx ,wr ) {
     wr.out(node.vref, false);
-    var flags = ["optional","weak","strong","temp","lives","returns"]
+    var flags = ["optional","weak","strong","temp","lives","returns","returnvalue"]
     var some_set = false
-    for ( var i_172 = 0; i_172 < flags.length; i_172++) {
-      var flag_2 = flags[i_172];
+    for ( var i_188 = 0; i_188 < flags.length; i_188++) {
+      var flag_2 = flags[i_188];
       if ( node.hasFlag(flag_2) ) {
         if ( false == some_set ) {
           wr.out("@(", false);
@@ -9528,17 +10280,17 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
   
   writeVarDef(node ,ctx ,wr ) {
     if ( node.hasParamDesc ) {
-      var nn_25 = node.children[1]
-      var p_53 = nn_25.paramDesc
+      var nn_28 = node.children[1]
+      var p_57 = nn_28.paramDesc
       wr.out("def ", false);
-      this.WriteVRefWithOpt(nn_25, ctx, wr);
+      this.WriteVRefWithOpt(nn_28, ctx, wr);
       wr.out(":", false);
-      this.writeTypeDef(p_53.nameNode, ctx, wr);
+      this.writeTypeDef(p_57.nameNode, ctx, wr);
       if ( (node.children.length) > 2 ) {
         wr.out(" ", false);
         ctx.setInExpr();
-        var value_19 = node.getThird()
-        this.WalkNode(value_19, ctx, wr);
+        var value_20 = node.getThird()
+        this.WalkNode(value_20, ctx, wr);
         ctx.unsetInExpr();
       }
       wr.newline();
@@ -9550,28 +10302,28 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
       if ( ctx.expressionLevel() > 0 ) {
         wr.out("(", false);
       }
-      var fc_36 = node.getFirst()
-      this.WriteVRef(fc_36, ctx, wr);
+      var fc_39 = node.getFirst()
+      this.WriteVRef(fc_39, ctx, wr);
       wr.out("(", false);
-      var givenArgs_11 = node.getSecond()
+      var givenArgs_13 = node.getSecond()
       ctx.setInExpr();
-      for ( var i_175 = 0; i_175 < node.fnDesc.params.length; i_175++) {
-        var arg_31 = node.fnDesc.params[i_175];
-        if ( i_175 > 0 ) {
+      for ( var i_191 = 0; i_191 < node.fnDesc.params.length; i_191++) {
+        var arg_34 = node.fnDesc.params[i_191];
+        if ( i_191 > 0 ) {
           wr.out(", ", false);
         }
-        if ( (givenArgs_11.children.length) <= i_175 ) {
-          var defVal_5 = arg_31.nameNode.getFlag("default")
-          if ( typeof(defVal_5) !== "undefined" ) {
-            var fc_47 = defVal_5.vref_annotation.getFirst()
-            this.WalkNode(fc_47, ctx, wr);
+        if ( (givenArgs_13.children.length) <= i_191 ) {
+          var defVal_6 = arg_34.nameNode.getFlag("default")
+          if ( typeof(defVal_6) !== "undefined" ) {
+            var fc_50 = defVal_6.vref_annotation.getFirst()
+            this.WalkNode(fc_50, ctx, wr);
           } else {
             ctx.addError(node, "Default argument was missing");
           }
           continue;
         }
-        var n_17 = givenArgs_11.children[i_175]
-        this.WalkNode(n_17, ctx, wr);
+        var n_19 = givenArgs_13.children[i_191]
+        this.WalkNode(n_19, ctx, wr);
       }
       ctx.unsetInExpr();
       wr.out(")", false);
@@ -9586,21 +10338,21 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
   
   writeNewCall(node ,ctx ,wr ) {
     if ( node.hasNewOper ) {
-      var cl_17 = node.clDesc
-      /** unused:  var fc_41 = node.getSecond()   **/ 
+      var cl_20 = node.clDesc
+      /** unused:  var fc_44 = node.getSecond()   **/ 
       wr.out("(new " + node.clDesc.name, false);
       wr.out("(", false);
-      var constr_20 = cl_17.constructor_fn
-      var givenArgs_14 = node.getThird()
-      if ( typeof(constr_20) !== "undefined" ) {
-        for ( var i_177 = 0; i_177 < constr_20.params.length; i_177++) {
-          var arg_34 = constr_20.params[i_177];
-          var n_20 = givenArgs_14.children[i_177]
-          if ( i_177 > 0 ) {
-            wr.out(", ", false);
+      var constr_24 = cl_20.constructor_fn
+      var givenArgs_16 = node.getThird()
+      if ( typeof(constr_24) !== "undefined" ) {
+        for ( var i_193 = 0; i_193 < constr_24.params.length; i_193++) {
+          var arg_37 = constr_24.params[i_193];
+          var n_22 = givenArgs_16.children[i_193]
+          if ( i_193 > 0 ) {
+            wr.out(" ", false);
           }
-          if ( true || (typeof(arg_34.nameNode) !== "undefined") ) {
-            this.WalkNode(n_20, ctx, wr);
+          if ( true || (typeof(arg_37.nameNode) !== "undefined") ) {
+            this.WalkNode(n_22, ctx, wr);
           }
         }
       }
@@ -9609,111 +10361,111 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
   }
   
   writeArgsDef(fnDesc ,ctx ,wr ) {
-    for ( var i_179 = 0; i_179 < fnDesc.params.length; i_179++) {
-      var arg_36 = fnDesc.params[i_179];
-      if ( i_179 > 0 ) {
+    for ( var i_195 = 0; i_195 < fnDesc.params.length; i_195++) {
+      var arg_39 = fnDesc.params[i_195];
+      if ( i_195 > 0 ) {
         wr.out(",", false);
       }
       wr.out(" ", false);
-      this.WriteVRefWithOpt(arg_36.nameNode, ctx, wr);
+      this.WriteVRefWithOpt(arg_39.nameNode, ctx, wr);
       wr.out(":", false);
-      this.writeTypeDef(arg_36.nameNode, ctx, wr);
+      this.writeTypeDef(arg_39.nameNode, ctx, wr);
     }
   }
   
   writeClass(node ,ctx ,orig_wr ) {
-    var cl_20 = node.clDesc
-    if ( typeof(cl_20) === "undefined" ) {
+    var cl_23 = node.clDesc
+    if ( typeof(cl_23) === "undefined" ) {
       return;
     }
-    var wr_12 = orig_wr
-    var importFork_7 = wr_12.fork()
-    wr_12.out("", true);
-    wr_12.out("class " + cl_20.name, false);
-    var parentClass_4
-    wr_12.out(" { ", true);
-    wr_12.indent(1);
-    if ( (cl_20.extends_classes.length) > 0 ) {
-      wr_12.out("Extends(", false);
-      for ( var i_181 = 0; i_181 < cl_20.extends_classes.length; i_181++) {
-        var pName_10 = cl_20.extends_classes[i_181];
-        wr_12.out(pName_10, false);
-        parentClass_4 = ctx.findClass(pName_10);
+    var wr_13 = orig_wr
+    var importFork_7 = wr_13.fork()
+    wr_13.out("", true);
+    wr_13.out("class " + cl_23.name, false);
+    var parentClass_5
+    wr_13.out(" { ", true);
+    wr_13.indent(1);
+    if ( (cl_23.extends_classes.length) > 0 ) {
+      wr_13.out("Extends(", false);
+      for ( var i_197 = 0; i_197 < cl_23.extends_classes.length; i_197++) {
+        var pName_11 = cl_23.extends_classes[i_197];
+        wr_13.out(pName_11, false);
+        parentClass_5 = ctx.findClass(pName_11);
       }
-      wr_12.out(")", true);
+      wr_13.out(")", true);
     }
-    wr_12.createTag("utilities");
-    for ( var i_185 = 0; i_185 < cl_20.variables.length; i_185++) {
-      var pvar_19 = cl_20.variables[i_185];
-      this.writeVarDef(pvar_19.node, ctx, wr_12);
+    wr_13.createTag("utilities");
+    for ( var i_201 = 0; i_201 < cl_23.variables.length; i_201++) {
+      var pvar_21 = cl_23.variables[i_201];
+      this.writeVarDef(pvar_21.node, ctx, wr_13);
     }
-    if ( cl_20.has_constructor ) {
-      var constr_23 = cl_20.constructor_fn
-      wr_12.out("", true);
-      wr_12.out("Constructor (", false);
-      this.writeArgsDef(constr_23, ctx, wr_12);
-      wr_12.out(" ) {", true);
-      wr_12.indent(1);
-      wr_12.newline();
-      var subCtx_45 = constr_23.fnCtx
-      subCtx_45.is_function = true;
-      this.WalkNode(constr_23.fnBody, subCtx_45, wr_12);
-      wr_12.newline();
-      wr_12.indent(-1);
-      wr_12.out("}", true);
+    if ( cl_23.has_constructor ) {
+      var constr_27 = cl_23.constructor_fn
+      wr_13.out("", true);
+      wr_13.out("Constructor (", false);
+      this.writeArgsDef(constr_27, ctx, wr_13);
+      wr_13.out(" ) {", true);
+      wr_13.indent(1);
+      wr_13.newline();
+      var subCtx_49 = constr_27.fnCtx
+      subCtx_49.is_function = true;
+      this.WalkNode(constr_27.fnBody, subCtx_49, wr_13);
+      wr_13.newline();
+      wr_13.indent(-1);
+      wr_13.out("}", true);
     }
-    for ( var i_188 = 0; i_188 < cl_20.static_methods.length; i_188++) {
-      var variant_26 = cl_20.static_methods[i_188];
-      wr_12.out("", true);
-      if ( variant_26.nameNode.hasFlag("main") ) {
-        wr_12.out("sfn m@(main):void () {", true);
+    for ( var i_204 = 0; i_204 < cl_23.static_methods.length; i_204++) {
+      var variant_31 = cl_23.static_methods[i_204];
+      wr_13.out("", true);
+      if ( variant_31.nameNode.hasFlag("main") ) {
+        wr_13.out("sfn m@(main):void () {", true);
       } else {
-        wr_12.out("sfn ", false);
-        this.WriteVRefWithOpt(variant_26.nameNode, ctx, wr_12);
-        wr_12.out(":", false);
-        this.writeTypeDef(variant_26.nameNode, ctx, wr_12);
-        wr_12.out(" (", false);
-        this.writeArgsDef(variant_26, ctx, wr_12);
-        wr_12.out(") {", true);
+        wr_13.out("sfn ", false);
+        this.WriteVRefWithOpt(variant_31.nameNode, ctx, wr_13);
+        wr_13.out(":", false);
+        this.writeTypeDef(variant_31.nameNode, ctx, wr_13);
+        wr_13.out(" (", false);
+        this.writeArgsDef(variant_31, ctx, wr_13);
+        wr_13.out(") {", true);
       }
-      wr_12.indent(1);
-      wr_12.newline();
-      var subCtx_50 = variant_26.fnCtx
-      subCtx_50.is_function = true;
-      this.WalkNode(variant_26.fnBody, subCtx_50, wr_12);
-      wr_12.newline();
-      wr_12.indent(-1);
-      wr_12.out("}", true);
+      wr_13.indent(1);
+      wr_13.newline();
+      var subCtx_54 = variant_31.fnCtx
+      subCtx_54.is_function = true;
+      this.WalkNode(variant_31.fnBody, subCtx_54, wr_13);
+      wr_13.newline();
+      wr_13.indent(-1);
+      wr_13.out("}", true);
     }
-    for ( var i_191 = 0; i_191 < cl_20.defined_variants.length; i_191++) {
-      var fnVar_12 = cl_20.defined_variants[i_191];
-      var mVs_12 = cl_20.method_variants[fnVar_12]
-      for ( var i_198 = 0; i_198 < mVs_12.variants.length; i_198++) {
-        var variant_31 = mVs_12.variants[i_198];
-        wr_12.out("", true);
-        wr_12.out("fn ", false);
-        this.WriteVRefWithOpt(variant_31.nameNode, ctx, wr_12);
-        wr_12.out(":", false);
-        this.writeTypeDef(variant_31.nameNode, ctx, wr_12);
-        wr_12.out(" ", false);
-        wr_12.out("(", false);
-        this.writeArgsDef(variant_31, ctx, wr_12);
-        wr_12.out(") {", true);
-        wr_12.indent(1);
-        wr_12.newline();
-        var subCtx_53 = variant_31.fnCtx
-        subCtx_53.is_function = true;
-        this.WalkNode(variant_31.fnBody, subCtx_53, wr_12);
-        wr_12.newline();
-        wr_12.indent(-1);
-        wr_12.out("}", true);
+    for ( var i_207 = 0; i_207 < cl_23.defined_variants.length; i_207++) {
+      var fnVar_14 = cl_23.defined_variants[i_207];
+      var mVs_14 = cl_23.method_variants[fnVar_14]
+      for ( var i_214 = 0; i_214 < mVs_14.variants.length; i_214++) {
+        var variant_36 = mVs_14.variants[i_214];
+        wr_13.out("", true);
+        wr_13.out("fn ", false);
+        this.WriteVRefWithOpt(variant_36.nameNode, ctx, wr_13);
+        wr_13.out(":", false);
+        this.writeTypeDef(variant_36.nameNode, ctx, wr_13);
+        wr_13.out(" ", false);
+        wr_13.out("(", false);
+        this.writeArgsDef(variant_36, ctx, wr_13);
+        wr_13.out(") {", true);
+        wr_13.indent(1);
+        wr_13.newline();
+        var subCtx_57 = variant_36.fnCtx
+        subCtx_57.is_function = true;
+        this.WalkNode(variant_36.fnBody, subCtx_57, wr_13);
+        wr_13.newline();
+        wr_13.indent(-1);
+        wr_13.out("}", true);
       }
     }
-    wr_12.indent(-1);
-    wr_12.out("}", true);
-    var import_list_4 = wr_12.getImports()
-    for ( var i_197 = 0; i_197 < import_list_4.length; i_197++) {
-      var codeStr_4 = import_list_4[i_197];
+    wr_13.indent(-1);
+    wr_13.out("}", true);
+    var import_list_4 = wr_13.getImports()
+    for ( var i_213 = 0; i_213 < import_list_4.length; i_213++) {
+      var codeStr_4 = import_list_4[i_213];
       importFork_7.out(("Import \"" + codeStr_4) + "\"", true);
     }
   }
@@ -9723,6 +10475,7 @@ class LiveCompiler  {
   constructor( ) {
     this.langWriter;
     this.hasCreatedPolyfill = {};     /** note: unused */
+    this.lastProcessedNode;
   }
   
   initWriter(ctx ) {
@@ -9749,6 +10502,9 @@ class LiveCompiler  {
       case "php" : 
         this.langWriter = new RangerPHPClassWriter();
         break;
+      case "cpp" : 
+        this.langWriter = new RangerCppClassWriter();
+        break;
       case "csharp" : 
         this.langWriter = new RangerCSharpClassWriter();
         break;
@@ -9768,41 +10524,42 @@ class LiveCompiler  {
   }
   
   EncodeString(node ,ctx ,wr ) {
-    /** unused:  var encoded_str_4 = ""   **/ 
-    var str_length_3 = node.string_value.length
-    var encoded_str_10 = ""
-    var ii_12 = 0
-    while (ii_12 < str_length_3) {var ch_6 = node.string_value.charCodeAt(ii_12 )
-      var cc_19 = ch_6
-      switch (cc_19 ) { 
+    /** unused:  var encoded_str_6 = ""   **/ 
+    var str_length_4 = node.string_value.length
+    var encoded_str_12 = ""
+    var ii_13 = 0
+    while (ii_13 < str_length_4) {
+      var ch_6 = node.string_value.charCodeAt(ii_13 )
+      var cc_21 = ch_6
+      switch (cc_21 ) { 
         case 8 : 
-          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(98));
+          encoded_str_12 = (encoded_str_12 + (String.fromCharCode(92))) + (String.fromCharCode(98));
           break;
         case 9 : 
-          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(116));
+          encoded_str_12 = (encoded_str_12 + (String.fromCharCode(92))) + (String.fromCharCode(116));
           break;
         case 10 : 
-          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(110));
+          encoded_str_12 = (encoded_str_12 + (String.fromCharCode(92))) + (String.fromCharCode(110));
           break;
         case 12 : 
-          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(102));
+          encoded_str_12 = (encoded_str_12 + (String.fromCharCode(92))) + (String.fromCharCode(102));
           break;
         case 13 : 
-          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(114));
+          encoded_str_12 = (encoded_str_12 + (String.fromCharCode(92))) + (String.fromCharCode(114));
           break;
         case 34 : 
-          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(34));
+          encoded_str_12 = (encoded_str_12 + (String.fromCharCode(92))) + (String.fromCharCode(34));
           break;
         case 92 : 
-          encoded_str_10 = (encoded_str_10 + (String.fromCharCode(92))) + (String.fromCharCode(92));
+          encoded_str_12 = (encoded_str_12 + (String.fromCharCode(92))) + (String.fromCharCode(92));
           break;
         default: 
-          encoded_str_10 = encoded_str_10 + (String.fromCharCode(ch_6));
+          encoded_str_12 = encoded_str_12 + (String.fromCharCode(ch_6));
           break;
       }
-      ii_12 = ii_12 + 1;
+      ii_13 = ii_13 + 1;
     }
-    return encoded_str_10;
+    return encoded_str_12;
   }
   
   WriteScalarValue(node ,ctx ,wr ) {
@@ -9828,19 +10585,19 @@ class LiveCompiler  {
     var args_6 = node.children[2]
     var body_2 = node.children[3]
     wr.out("(", false);
-    for ( var i_182 = 0; i_182 < args_6.children.length; i_182++) {
-      var arg_34 = args_6.children[i_182];
-      if ( i_182 > 0 ) {
+    for ( var i_198 = 0; i_198 < args_6.children.length; i_198++) {
+      var arg_37 = args_6.children[i_198];
+      if ( i_198 > 0 ) {
         wr.out(", ", false);
       }
-      wr.out(arg_34.vref, false);
+      wr.out(arg_37.vref, false);
     }
     wr.out(")", false);
     wr.out(" => { ", true);
     wr.indent(1);
     wr.out("// body ", true);
-    for ( var i_187 = 0; i_187 < body_2.children.length; i_187++) {
-      var item_9 = body_2.children[i_187];
+    for ( var i_203 = 0; i_203 < body_2.children.length; i_203++) {
+      var item_9 = body_2.children[i_203];
       this.WalkNode(item_9, ctx, wr);
     }
     wr.newline();
@@ -9857,11 +10614,11 @@ class LiveCompiler  {
     var args_9 = op.children[2]
     if ( (op.children.length) > 3 ) {
       var details = op.children[3]
-      for ( var i_187 = 0; i_187 < details.children.length; i_187++) {
-        var det_2 = details.children[i_187];
+      for ( var i_203 = 0; i_203 < details.children.length; i_203++) {
+        var det_2 = details.children[i_203];
         if ( (det_2.children.length) > 0 ) {
-          var fc_39 = det_2.children[0]
-          if ( fc_39.vref == "code" ) {
+          var fc_42 = det_2.children[0]
+          if ( fc_42.vref == "code" ) {
             var match_4 = new RangerArgMatch()
             var all_matched_3 = match_4.matchArguments(args_9, node, ctx, 1)
             if ( all_matched_3 == false ) {
@@ -9882,21 +10639,21 @@ class LiveCompiler  {
               m_11.is_static = true;
               m_11.nameNode = fnName_2;
               m_11.fnBody = theCode;
-              for ( var ii_15 = 0; ii_15 < args_9.children.length; ii_15++) {
-                var arg_37 = args_9.children[ii_15];
-                var p_54 = new RangerAppParamDesc()
-                p_54.name = arg_37.vref;
-                p_54.value_type = arg_37.value_type;
-                p_54.node = arg_37;
-                p_54.nameNode = arg_37;
-                p_54.refType = 1;
-                p_54.varType = 4;
-                m_11.params.push(p_54);
-                arg_37.hasParamDesc = true;
-                arg_37.paramDesc = p_54;
-                arg_37.eval_type = arg_37.value_type;
-                arg_37.eval_type_name = arg_37.type_name;
-                runCtx.defineVariable(p_54.name, p_54);
+              for ( var ii_16 = 0; ii_16 < args_9.children.length; ii_16++) {
+                var arg_40 = args_9.children[ii_16];
+                var p_58 = new RangerAppParamDesc()
+                p_58.name = arg_40.vref;
+                p_58.value_type = arg_40.value_type;
+                p_58.node = arg_40;
+                p_58.nameNode = arg_40;
+                p_58.refType = 1;
+                p_58.varType = 4;
+                m_11.params.push(p_58);
+                arg_40.hasParamDesc = true;
+                arg_40.paramDesc = p_58;
+                arg_40.eval_type = arg_40.value_type;
+                arg_40.eval_type_name = arg_40.type_name;
+                runCtx.defineVariable(p_58.name, p_58);
               }
               stdClass.addStaticMethod(m_11);
               var err_cnt_4 = ctx.compilerErrors.length
@@ -9908,15 +10665,15 @@ class LiveCompiler  {
               if ( err_delta > 0 ) {
                 b_failed = true;
                 console.log("Had following compiler errors:")
-                for ( var i_201 = 0; i_201 < ctx.compilerErrors.length; i_201++) {
-                  var e_20 = ctx.compilerErrors[i_201];
-                  if ( i_201 < err_cnt_4 ) {
+                for ( var i_217 = 0; i_217 < ctx.compilerErrors.length; i_217++) {
+                  var e_21 = ctx.compilerErrors[i_217];
+                  if ( i_217 < err_cnt_4 ) {
                     continue;
                   }
-                  var line_index_3 = e_20.node.getLine()
-                  console.log((e_20.node.getFilename() + " Line: ") + line_index_3)
-                  console.log(e_20.description)
-                  console.log(e_20.node.getLineString(line_index_3))
+                  var line_index_3 = e_21.node.getLine()
+                  console.log((e_21.node.getFilename() + " Line: ") + line_index_3)
+                  console.log(e_21.description)
+                  console.log(e_21.node.getLineString(line_index_3))
                 }
               } else {
                 console.log("no errors found")
@@ -9926,15 +10683,15 @@ class LiveCompiler  {
               wr.out("/* custom operator compilation failed */ ", false);
             } else {
               wr.out(("RangerStaticMethods." + stdFnName) + "(", false);
-              for ( var i_209 = 0; i_209 < node.children.length; i_209++) {
-                var cc_22 = node.children[i_209];
-                if ( i_209 == 0 ) {
+              for ( var i_225 = 0; i_225 < node.children.length; i_225++) {
+                var cc_24 = node.children[i_225];
+                if ( i_225 == 0 ) {
                   continue;
                 }
-                if ( i_209 > 1 ) {
+                if ( i_225 > 1 ) {
                   wr.out(", ", false);
                 }
-                this.WalkNode(cc_22, ctx, wr);
+                this.WalkNode(cc_24, ctx, wr);
               }
               wr.out(")", false);
             }
@@ -9951,14 +10708,14 @@ class LiveCompiler  {
     var langName_3 = ctx.getTargetLang()
     if ( (op.children.length) > 3 ) {
       var details_4 = op.children[3]
-      for ( var i_193 = 0; i_193 < details_4.children.length; i_193++) {
-        var det_5 = details_4.children[i_193];
+      for ( var i_209 = 0; i_209 < details_4.children.length; i_209++) {
+        var det_5 = details_4.children[i_209];
         if ( (det_5.children.length) > 0 ) {
-          var fc_42 = det_5.children[0]
-          if ( fc_42.vref == "templates" ) {
+          var fc_45 = det_5.children[0]
+          if ( fc_45.vref == "templates" ) {
             var tplList_2 = det_5.children[1]
-            for ( var i_205 = 0; i_205 < tplList_2.children.length; i_205++) {
-              var tpl_3 = tplList_2.children[i_205];
+            for ( var i_221 = 0; i_221 < tplList_2.children.length; i_221++) {
+              var tpl_3 = tplList_2.children[i_221];
               var tplName_2 = tpl_3.getFirst()
               var tplImpl_2
               tplImpl_2 = tpl_3.getSecond();
@@ -10008,6 +10765,7 @@ class LiveCompiler  {
       this.WriteScalarValue(node, ctx, wr);
       return;
     }
+    this.lastProcessedNode = node;
     if ( node.value_type == 9 ) {
       this.WriteVRef(node, ctx, wr);
       return;
@@ -10019,7 +10777,7 @@ class LiveCompiler  {
     if ( (node.children.length) > 0 ) {
       if ( node.has_operator ) {
         var op = ctx.findOperator(node)
-        /** unused:  var fc_44 = op.getFirst()   **/ 
+        /** unused:  var fc_47 = op.getFirst()   **/ 
         var tplImpl_5 = this.findOpTemplate(op, node, ctx, wr)
         var evalCtx = ctx
         if ( typeof(node.evalCtx) !== "undefined" ) {
@@ -10045,12 +10803,12 @@ class LiveCompiler  {
           return;
         }
       }
-      /** unused:  var fc_50 = node.getFirst()   **/ 
+      /** unused:  var fc_53 = node.getFirst()   **/ 
     }
     if ( node.expression ) {
-      for ( var i_197 = 0; i_197 < node.children.length; i_197++) {
-        var item_12 = node.children[i_197];
-        if ( (node.didReturnAtIndex >= 0) && (node.didReturnAtIndex < i_197) ) {
+      for ( var i_213 = 0; i_213 < node.children.length; i_213++) {
+        var item_12 = node.children[i_213];
+        if ( (node.didReturnAtIndex >= 0) && (node.didReturnAtIndex < i_213) ) {
           break;
         }
         this.WalkNode(item_12, ctx, wr);
@@ -10066,8 +10824,8 @@ class LiveCompiler  {
     if ( ctx.expressionLevel() > 1 ) {
       wr.out("(", false);
     }
-    for ( var i_199 = 0; i_199 < cmd.children.length; i_199++) {
-      var c_12 = cmd.children[i_199];
+    for ( var i_215 = 0; i_215 < cmd.children.length; i_215++) {
+      var c_12 = cmd.children[i_215];
       this.walkCommand(c_12, node, ctx, wr);
     }
     if ( ctx.expressionLevel() > 1 ) {
@@ -10083,110 +10841,117 @@ class LiveCompiler  {
       var cmdE = cmd.getFirst()
       var cmdArg = cmd.getSecond()
       switch (cmdE.vref ) { 
-        case "block" : 
+        case "str" : 
           var idx_8 = cmdArg.int_value
           if ( (node.children.length) > idx_8 ) {
-            var arg_39 = node.children[idx_8]
-            this.WalkNode(arg_39, ctx, wr);
+            var arg_42 = node.children[idx_8]
+            wr.out(arg_42.string_value, false);
+          }
+          break;
+        case "block" : 
+          var idx_17 = cmdArg.int_value
+          if ( (node.children.length) > idx_17 ) {
+            var arg_50 = node.children[idx_17]
+            this.WalkNode(arg_50, ctx, wr);
           }
           break;
         case "varname" : 
           if ( ctx.isVarDefined(cmdArg.vref) ) {
-            var p_57 = ctx.getVariableDef(cmdArg.vref)
-            wr.out(p_57.compiledName, false);
+            var p_61 = ctx.getVariableDef(cmdArg.vref)
+            wr.out(p_61.compiledName, false);
           }
           break;
         case "defvar" : 
-          var p_65 = new RangerAppParamDesc()
-          p_65.name = cmdArg.vref;
-          p_65.value_type = cmdArg.value_type;
-          p_65.node = cmdArg;
-          p_65.nameNode = cmdArg;
-          p_65.is_optional = false;
-          ctx.defineVariable(p_65.name, p_65);
+          var p_69 = new RangerAppParamDesc()
+          p_69.name = cmdArg.vref;
+          p_69.value_type = cmdArg.value_type;
+          p_69.node = cmdArg;
+          p_69.nameNode = cmdArg;
+          p_69.is_optional = false;
+          ctx.defineVariable(p_69.name, p_69);
           break;
         case "cc" : 
-          var idx_17 = cmdArg.int_value
-          if ( (node.children.length) > idx_17 ) {
-            var arg_47 = node.children[idx_17]
-            var cc_24 = arg_47.string_value.charCodeAt(0)
-            wr.out("" + (cc_24), false);
+          var idx_22 = cmdArg.int_value
+          if ( (node.children.length) > idx_22 ) {
+            var arg_55 = node.children[idx_22]
+            var cc_26 = arg_55.string_value.charCodeAt(0)
+            wr.out("" + (cc_26), false);
           }
           break;
         case "java_case" : 
-          var idx_22 = cmdArg.int_value
-          if ( (node.children.length) > idx_22 ) {
-            var arg_52 = node.children[idx_22]
-            this.WalkNode(arg_52, ctx, wr);
-            if ( arg_52.didReturnAtIndex < 0 ) {
+          var idx_27 = cmdArg.int_value
+          if ( (node.children.length) > idx_27 ) {
+            var arg_60 = node.children[idx_27]
+            this.WalkNode(arg_60, ctx, wr);
+            if ( arg_60.didReturnAtIndex < 0 ) {
               wr.newline();
               wr.out("break;", true);
             }
           }
           break;
         case "e" : 
-          var idx_27 = cmdArg.int_value
-          if ( (node.children.length) > idx_27 ) {
-            var arg_57 = node.children[idx_27]
+          var idx_32 = cmdArg.int_value
+          if ( (node.children.length) > idx_32 ) {
+            var arg_65 = node.children[idx_32]
             ctx.setInExpr();
-            this.WalkNode(arg_57, ctx, wr);
+            this.WalkNode(arg_65, ctx, wr);
             ctx.unsetInExpr();
           }
           break;
         case "goset" : 
-          var idx_32 = cmdArg.int_value
-          if ( (node.children.length) > idx_32 ) {
-            var arg_62 = node.children[idx_32]
+          var idx_37 = cmdArg.int_value
+          if ( (node.children.length) > idx_37 ) {
+            var arg_70 = node.children[idx_37]
             ctx.setInExpr();
-            this.langWriter.WriteSetterVRef(arg_62, ctx, wr);
+            this.langWriter.WriteSetterVRef(arg_70, ctx, wr);
             ctx.unsetInExpr();
           }
           break;
         case "pe" : 
-          var idx_37 = cmdArg.int_value
-          if ( (node.children.length) > idx_37 ) {
-            var arg_67 = node.children[idx_37]
-            this.WalkNode(arg_67, ctx, wr);
+          var idx_42 = cmdArg.int_value
+          if ( (node.children.length) > idx_42 ) {
+            var arg_75 = node.children[idx_42]
+            this.WalkNode(arg_75, ctx, wr);
           }
           break;
         case "ptr" : 
-          var idx_42 = cmdArg.int_value
-          if ( (node.children.length) > idx_42 ) {
-            var arg_72 = node.children[idx_42]
-            if ( arg_72.hasParamDesc ) {
-              if ( arg_72.paramDesc.nameNode.isAPrimitiveType() == false ) {
+          var idx_47 = cmdArg.int_value
+          if ( (node.children.length) > idx_47 ) {
+            var arg_80 = node.children[idx_47]
+            if ( arg_80.hasParamDesc ) {
+              if ( arg_80.paramDesc.nameNode.isAPrimitiveType() == false ) {
                 wr.out("*", false);
               }
             } else {
-              if ( arg_72.isAPrimitiveType() == false ) {
+              if ( arg_80.isAPrimitiveType() == false ) {
                 wr.out("*", false);
               }
             }
           }
           break;
         case "ptrsrc" : 
-          var idx_47 = cmdArg.int_value
-          if ( (node.children.length) > idx_47 ) {
-            var arg_77 = node.children[idx_47]
-            if ( (arg_77.isPrimitiveType() == false) && (arg_77.isPrimitive() == false) ) {
+          var idx_52 = cmdArg.int_value
+          if ( (node.children.length) > idx_52 ) {
+            var arg_85 = node.children[idx_52]
+            if ( (arg_85.isPrimitiveType() == false) && (arg_85.isPrimitive() == false) ) {
               wr.out("&", false);
             }
           }
           break;
         case "nameof" : 
-          var idx_52 = cmdArg.int_value
-          if ( (node.children.length) > idx_52 ) {
-            var arg_82 = node.children[idx_52]
-            wr.out(arg_82.vref, false);
+          var idx_57 = cmdArg.int_value
+          if ( (node.children.length) > idx_57 ) {
+            var arg_90 = node.children[idx_57]
+            wr.out(arg_90.vref, false);
           }
           break;
         case "list" : 
-          var idx_57 = cmdArg.int_value
-          if ( (node.children.length) > idx_57 ) {
-            var arg_87 = node.children[idx_57]
-            for ( var i_201 = 0; i_201 < arg_87.children.length; i_201++) {
-              var ch_9 = arg_87.children[i_201];
-              if ( i_201 > 0 ) {
+          var idx_62 = cmdArg.int_value
+          if ( (node.children.length) > idx_62 ) {
+            var arg_95 = node.children[idx_62]
+            for ( var i_217 = 0; i_217 < arg_95.children.length; i_217++) {
+              var ch_9 = arg_95.children[i_217];
+              if ( i_217 > 0 ) {
                 wr.out(" ", false);
               }
               ctx.setInExpr();
@@ -10196,12 +10961,12 @@ class LiveCompiler  {
           }
           break;
         case "comma" : 
-          var idx_62 = cmdArg.int_value
-          if ( (node.children.length) > idx_62 ) {
-            var arg_92 = node.children[idx_62]
-            for ( var i_209 = 0; i_209 < arg_92.children.length; i_209++) {
-              var ch_17 = arg_92.children[i_209];
-              if ( i_209 > 0 ) {
+          var idx_67 = cmdArg.int_value
+          if ( (node.children.length) > idx_67 ) {
+            var arg_100 = node.children[idx_67]
+            for ( var i_225 = 0; i_225 < arg_100.children.length; i_225++) {
+              var ch_17 = arg_100.children[i_225];
+              if ( i_225 > 0 ) {
                 wr.out(",", false);
               }
               ctx.setInExpr();
@@ -10211,42 +10976,42 @@ class LiveCompiler  {
           }
           break;
         case "swift_rc" : 
-          var idx_67 = cmdArg.int_value
-          if ( (node.children.length) > idx_67 ) {
-            var arg_97 = node.children[idx_67]
-            if ( arg_97.hasParamDesc ) {
-              if ( arg_97.paramDesc.ref_cnt == 0 ) {
+          var idx_72 = cmdArg.int_value
+          if ( (node.children.length) > idx_72 ) {
+            var arg_105 = node.children[idx_72]
+            if ( arg_105.hasParamDesc ) {
+              if ( arg_105.paramDesc.ref_cnt == 0 ) {
                 wr.out("_", false);
               } else {
-                wr.out(arg_97.vref, false);
+                wr.out(arg_105.vref, false);
               }
             } else {
-              wr.out(arg_97.vref, false);
+              wr.out(arg_105.vref, false);
             }
           }
           break;
         case "r_ktype" : 
-          var idx_72 = cmdArg.int_value
-          if ( (node.children.length) > idx_72 ) {
-            var arg_102 = node.children[idx_72]
-            if ( arg_102.hasParamDesc ) {
-              var ss = this.langWriter.getObjectTypeString(arg_102.paramDesc.nameNode.key_type, ctx)
+          var idx_77 = cmdArg.int_value
+          if ( (node.children.length) > idx_77 ) {
+            var arg_110 = node.children[idx_77]
+            if ( arg_110.hasParamDesc ) {
+              var ss = this.langWriter.getObjectTypeString(arg_110.paramDesc.nameNode.key_type, ctx)
               wr.out(ss, false);
             } else {
-              var ss_17 = this.langWriter.getObjectTypeString(arg_102.key_type, ctx)
+              var ss_17 = this.langWriter.getObjectTypeString(arg_110.key_type, ctx)
               wr.out(ss_17, false);
             }
           }
           break;
         case "r_atype" : 
-          var idx_77 = cmdArg.int_value
-          if ( (node.children.length) > idx_77 ) {
-            var arg_107 = node.children[idx_77]
-            if ( arg_107.hasParamDesc ) {
-              var ss_15 = this.langWriter.getObjectTypeString(arg_107.paramDesc.nameNode.array_type, ctx)
+          var idx_82 = cmdArg.int_value
+          if ( (node.children.length) > idx_82 ) {
+            var arg_115 = node.children[idx_82]
+            if ( arg_115.hasParamDesc ) {
+              var ss_15 = this.langWriter.getObjectTypeString(arg_115.paramDesc.nameNode.array_type, ctx)
               wr.out(ss_15, false);
             } else {
-              var ss_27 = this.langWriter.getObjectTypeString(arg_107.array_type, ctx)
+              var ss_27 = this.langWriter.getObjectTypeString(arg_115.array_type, ctx)
               wr.out(ss_27, false);
             }
           }
@@ -10255,24 +11020,24 @@ class LiveCompiler  {
           this.langWriter.CustomOperator(node, ctx, wr);
           break;
         case "arraytype" : 
-          var idx_82 = cmdArg.int_value
-          if ( (node.children.length) > idx_82 ) {
-            var arg_112 = node.children[idx_82]
-            if ( arg_112.hasParamDesc ) {
-              this.langWriter.writeArrayTypeDef(arg_112.paramDesc.nameNode, ctx, wr);
+          var idx_87 = cmdArg.int_value
+          if ( (node.children.length) > idx_87 ) {
+            var arg_120 = node.children[idx_87]
+            if ( arg_120.hasParamDesc ) {
+              this.langWriter.writeArrayTypeDef(arg_120.paramDesc.nameNode, ctx, wr);
             } else {
-              this.langWriter.writeArrayTypeDef(arg_112, ctx, wr);
+              this.langWriter.writeArrayTypeDef(arg_120, ctx, wr);
             }
           }
           break;
         case "rawtype" : 
-          var idx_87 = cmdArg.int_value
-          if ( (node.children.length) > idx_87 ) {
-            var arg_117 = node.children[idx_87]
-            if ( arg_117.hasParamDesc ) {
-              this.langWriter.writeRawTypeDef(arg_117.paramDesc.nameNode, ctx, wr);
+          var idx_92 = cmdArg.int_value
+          if ( (node.children.length) > idx_92 ) {
+            var arg_125 = node.children[idx_92]
+            if ( arg_125.hasParamDesc ) {
+              this.langWriter.writeRawTypeDef(arg_125.paramDesc.nameNode, ctx, wr);
             } else {
-              this.langWriter.writeRawTypeDef(arg_117, ctx, wr);
+              this.langWriter.writeRawTypeDef(arg_125, ctx, wr);
             }
           }
           break;
@@ -10300,13 +11065,13 @@ class LiveCompiler  {
           }
           break;
         case "typeof" : 
-          var idx_92 = cmdArg.int_value
-          if ( (node.children.length) >= idx_92 ) {
-            var arg_122 = node.children[idx_92]
-            if ( arg_122.hasParamDesc ) {
-              this.writeTypeDef(arg_122.paramDesc.nameNode, ctx, wr);
+          var idx_97 = cmdArg.int_value
+          if ( (node.children.length) >= idx_97 ) {
+            var arg_130 = node.children[idx_97]
+            if ( arg_130.hasParamDesc ) {
+              this.writeTypeDef(arg_130.paramDesc.nameNode, ctx, wr);
             } else {
-              this.writeTypeDef(arg_122, ctx, wr);
+              this.writeTypeDef(arg_130, ctx, wr);
             }
           }
           break;
@@ -10314,11 +11079,11 @@ class LiveCompiler  {
           this.langWriter.import_lib(cmdArg.string_value, ctx, wr);
           break;
         case "atype" : 
-          var idx_97 = cmdArg.int_value
-          if ( (node.children.length) >= idx_97 ) {
-            var arg_127 = node.children[idx_97]
-            var p_70 = this.findParamDesc(arg_127, ctx, wr)
-            var nameNode_3 = p_70.nameNode
+          var idx_102 = cmdArg.int_value
+          if ( (node.children.length) >= idx_102 ) {
+            var arg_135 = node.children[idx_102]
+            var p_74 = this.findParamDesc(arg_135, ctx, wr)
+            var nameNode_3 = p_74.nameNode
             var tn_3 = nameNode_3.array_type
             wr.out(this.getTypeString(tn_3, ctx), false);
           }
@@ -10337,8 +11102,8 @@ class LiveCompiler  {
             wr.indent(-1);
             break;
           case "op" : 
-            var fc_48 = node.getFirst()
-            wr.out(fc_48.vref, false);
+            var fc_51 = node.getFirst()
+            wr.out(fc_51.vref, false);
             break;
         }
       } else {
@@ -10363,9 +11128,9 @@ class LiveCompiler  {
       if ( (obj.ns.length) > 1 ) {
         var cnt_6 = obj.ns.length
         var classRefDesc_3
-        for ( var i_205 = 0; i_205 < obj.ns.length; i_205++) {
-          var strname_3 = obj.ns[i_205];
-          if ( i_205 == 0 ) {
+        for ( var i_221 = 0; i_221 < obj.ns.length; i_221++) {
+          var strname_3 = obj.ns[i_221];
+          if ( i_221 == 0 ) {
             if ( strname_3 == "this" ) {
               classDesc_4 = ctx.getCurrentClass();
               if ( set_nsp_2 ) {
@@ -10391,7 +11156,7 @@ class LiveCompiler  {
               classDesc_4 = ctx.findClass(classRefDesc_3.nameNode.type_name);
             }
           } else {
-            if ( i_205 < (cnt_6 - 1) ) {
+            if ( i_221 < (cnt_6 - 1) ) {
               varDesc_3 = classDesc_4.findVariable(strname_3);
               if ( typeof(varDesc_3) === "undefined" ) {
                 ctx.addError(obj, "Error, no description for refenced obj: " + strname_3);
@@ -10439,48 +11204,48 @@ class LiveCompiler  {
       }
       return varDesc_3;
     }
-    var cc_26 = ctx.getCurrentClass()
-    return cc_26;
+    var cc_28 = ctx.getCurrentClass()
+    return cc_28;
+  }
+}
+class CompilerInterface  {
+  
+  constructor( ) {
   }
 }
 
 
-LiveCompiler.displayCompilerErrors = function(appCtx ) {
-  for ( var i_203 = 0; i_203 < appCtx.compilerErrors.length; i_203++) {
-    var e_21 = appCtx.compilerErrors[i_203];
-    var line_index_4 = e_21.node.getLine()
-    console.log((e_21.node.getFilename() + " Line: ") + (1 + line_index_4))
-    console.log(e_21.description)
-    console.log(e_21.node.getLineString(line_index_4))
+CompilerInterface.displayCompilerErrors = function(appCtx ) {
+  for ( var i_215 = 0; i_215 < appCtx.compilerErrors.length; i_215++) {
+    var e_22 = appCtx.compilerErrors[i_215];
+    var line_index_4 = e_22.node.getLine()
+    console.log((e_22.node.getFilename() + " Line: ") + (1 + line_index_4))
+    console.log(e_22.description)
+    console.log(e_22.node.getLineString(line_index_4))
   }
 }
 
-LiveCompiler.displayParserErrors = function(appCtx ) {
+CompilerInterface.displayParserErrors = function(appCtx ) {
   if ( (appCtx.parserErrors.length) == 0 ) {
     console.log("no language test errors")
     return;
   }
   console.log("LANGUAGE TEST ERRORS:")
-  for ( var i_205 = 0; i_205 < appCtx.parserErrors.length; i_205++) {
-    var e_24 = appCtx.parserErrors[i_205];
-    var line_index_7 = e_24.node.getLine()
-    console.log((e_24.node.getFilename() + " Line: ") + (1 + line_index_7))
-    console.log(e_24.description)
-    console.log(e_24.node.getLineString(line_index_7))
+  for ( var i_217 = 0; i_217 < appCtx.parserErrors.length; i_217++) {
+    var e_25 = appCtx.parserErrors[i_217];
+    var line_index_7 = e_25.node.getLine()
+    console.log((e_25.node.getFilename() + " Line: ") + (1 + line_index_7))
+    console.log(e_25.description)
+    console.log(e_25.node.getLineString(line_index_7))
   }
 }
 
 /* static JavaSript main routine */
-var allowed_languages = ["es6","go","scala","java7","swift3","php"]
+var allowed_languages = ["es6","go","scala","java7","swift3","cpp","php","ranger"]
 if ( ((process.argv.length - 2 - process.execArgv.length)) < 5 ) {
-  console.log("Ranger compiler, version 2.01")
+  console.log("Ranger compiler, version 2.0.8")
   console.log("usage <file> <language-file> <language> <directory> <targetfile>")
-  var s_21 = ""
-  for ( var i_194 = 0; i_194 < allowed_languages.length; i_194++) {
-    var lang_2 = allowed_languages[i_194];
-    s_21 = (s_21 + " ") + lang_2;
-  }
-  console.log("allowed languages: " + s_21)
+  console.log("allowed languages: " + (allowed_languages.join(" ")))
   return;
 }
 var the_file = process.argv[ 2 + process.execArgv.length + 0]
@@ -10490,12 +11255,8 @@ var the_target_dir = process.argv[ 2 + process.execArgv.length + 3]
 var the_target = process.argv[ 2 + process.execArgv.length + 4]
 if ( (allowed_languages.indexOf(the_lang)) < 0 ) {
   console.log("Invalid language : " + the_lang)
-  var s_26 = ""
-  for ( var i_199 = 0; i_199 < allowed_languages.length; i_199++) {
-    var lang_7 = allowed_languages[i_199];
-    s_26 = (s_26 + " ") + lang_7;
-  }
-  console.log("allowed languages: " + s_26)
+  /** unused:  var s_23 = ""   **/ 
+  console.log("allowed languages: " + (allowed_languages.join(" ")))
   return;
 }
 if ( (require("fs").existsSync(process.cwd() + "/" + "." + "/" + the_file )) == false ) {
@@ -10514,88 +11275,106 @@ var code_3 = new SourceCode(c_13)
 code_3.filename = the_file;
 var parser_3 = new RangerLispParser(code_3)
 parser_3.parse();
+var lcc_2 = new LiveCompiler()
 var node_2 = parser_3.rootNode
 var flowParser_2 = new RangerFlowParser()
 var appCtx_2 = new RangerAppWriterContext()
-var wr_13 = new CodeWriter()
+var wr_14 = new CodeWriter()
 console.time("Total time");
-flowParser_2.mergeImports(node_2, appCtx_2, wr_13);
-var lang_str_2 = (require('fs').readFileSync( process.cwd() + '/' + "." + '/' + the_lang_file , 'utf8'))
-var lang_code_2 = new SourceCode(lang_str_2)
-lang_code_2.filename = the_lang_file;
-var lang_parser_2 = new RangerLispParser(lang_code_2)
-lang_parser_2.parse();
-appCtx_2.langOperators = lang_parser_2.rootNode;
-console.log("1. Collecting available methods.")
-flowParser_2.CollectMethods(node_2, appCtx_2, wr_13);
-if ( (appCtx_2.compilerErrors.length) > 0 ) {
-  LiveCompiler.displayCompilerErrors(appCtx_2);
+try {
+  flowParser_2.mergeImports(node_2, appCtx_2, wr_14);
+  var lang_str_2 = (require('fs').readFileSync( process.cwd() + '/' + "." + '/' + the_lang_file , 'utf8'))
+  var lang_code_2 = new SourceCode(lang_str_2)
+  lang_code_2.filename = the_lang_file;
+  var lang_parser_2 = new RangerLispParser(lang_code_2)
+  lang_parser_2.parse();
+  appCtx_2.langOperators = lang_parser_2.rootNode;
+  console.log("1. Collecting available methods.")
+  flowParser_2.CollectMethods(node_2, appCtx_2, wr_14);
+  if ( (appCtx_2.compilerErrors.length) > 0 ) {
+    CompilerInterface.displayCompilerErrors(appCtx_2);
+    return;
+  }
+  console.log("2. Analyzing the code.")
+  appCtx_2.targetLangName = the_lang;
+  flowParser_2.WalkNode(node_2, appCtx_2, wr_14);
+  if ( (appCtx_2.compilerErrors.length) > 0 ) {
+    CompilerInterface.displayCompilerErrors(appCtx_2);
+    CompilerInterface.displayParserErrors(appCtx_2);
+    return;
+  }
+  console.log("3. Compiling the source code.")
+  var fileSystem = new CodeFileSystem()
+  var file_5 = fileSystem.getFile(".", the_target)
+  var wr_22 = file_5.getWriter()
+  var staticMethods
+  var importFork_8 = wr_22.fork()
+  for ( var i_210 = 0; i_210 < appCtx_2.definedClassList.length; i_210++) {
+    var cName_2 = appCtx_2.definedClassList[i_210];
+    if ( cName_2 == "RangerStaticMethods" ) {
+      staticMethods = appCtx_2.definedClasses[cName_2];
+      continue;
+    }
+    var cl_22 = appCtx_2.definedClasses[cName_2]
+    if ( cl_22.is_system ) {
+      console.log(("--> system class " + cl_22.name) + ", skipping")
+      continue;
+    }
+    lcc_2.WalkNode(cl_22.classNode, appCtx_2, wr_22);
+  }
+  if ( typeof(staticMethods) !== "undefined" ) {
+    lcc_2.WalkNode(staticMethods.classNode, appCtx_2, wr_22);
+  }
+  var import_list_5 = wr_22.getImports()
+  if ( appCtx_2.targetLangName == "go" ) {
+    importFork_8.out("package main", true);
+    importFork_8.newline();
+    importFork_8.out("import (", true);
+    importFork_8.indent(1);
+  }
+  for ( var i_219 = 0; i_219 < import_list_5.length; i_219++) {
+    var codeStr_5 = import_list_5[i_219];
+    switch (appCtx_2.targetLangName ) { 
+      case "go" : 
+        if ( (codeStr_5.charCodeAt(0 )) == (("_".charCodeAt(0))) ) {
+          importFork_8.out((" _ \"" + (codeStr_5.substring(1, (codeStr_5.length) ))) + "\"", true);
+        } else {
+          importFork_8.out(("\"" + codeStr_5) + "\"", true);
+        }
+        break;
+      case "rust" : 
+        importFork_8.out(("use " + codeStr_5) + ";", true);
+        break;
+      case "cpp" : 
+        importFork_8.out(("#include  " + codeStr_5) + "", true);
+        break;
+      default: 
+        importFork_8.out(("import " + codeStr_5) + "", true);
+        break;
+    }
+  }
+  if ( appCtx_2.targetLangName == "go" ) {
+    importFork_8.indent(-1);
+    importFork_8.out(")", true);
+  }
+  fileSystem.saveTo(the_target_dir);
+  console.log("Ready.")
+  CompilerInterface.displayCompilerErrors(appCtx_2);
+  CompilerInterface.displayParserErrors(appCtx_2);
+} catch(e) {
+  if ( typeof(lcc_2.lastProcessedNode) != "undefined" ) {
+    console.log("Got compiler error close to")
+    console.log(lcc_2.lastProcessedNode.getLineAsString())
+    return;
+  }
+  if ( typeof(flowParser_2.lastProcessedNode) != "undefined" ) {
+    console.log("Got compiler error close to")
+    console.log(flowParser_2.lastProcessedNode.getLineAsString())
+    return;
+  }
+  console.log("Got unknown compiler error")
   return;
 }
-console.log("2. Analyzing the code.")
-appCtx_2.targetLangName = the_lang;
-flowParser_2.WalkNode(node_2, appCtx_2, wr_13);
-if ( (appCtx_2.compilerErrors.length) > 0 ) {
-  LiveCompiler.displayCompilerErrors(appCtx_2);
-  LiveCompiler.displayParserErrors(appCtx_2);
-  return;
-}
-console.log("3. Compiling the source code.")
-var fileSystem = new CodeFileSystem()
-var file_5 = fileSystem.getFile(".", the_target)
-var wr_20 = file_5.getWriter()
-var lcc_2 = new LiveCompiler()
-var staticMethods
-var importFork_8 = wr_20.fork()
-for ( var i_202 = 0; i_202 < appCtx_2.definedClassList.length; i_202++) {
-  var cName_2 = appCtx_2.definedClassList[i_202];
-  if ( cName_2 == "RangerStaticMethods" ) {
-    staticMethods = appCtx_2.definedClasses[cName_2];
-    continue;
-  }
-  var cl_19 = appCtx_2.definedClasses[cName_2]
-  if ( cl_19.is_system ) {
-    console.log(("--> system class " + cl_19.name) + ", skipping")
-    continue;
-  }
-  lcc_2.WalkNode(cl_19.classNode, appCtx_2, wr_20);
-}
-if ( typeof(staticMethods) !== "undefined" ) {
-  lcc_2.WalkNode(staticMethods.classNode, appCtx_2, wr_20);
-}
-var import_list_5 = wr_20.getImports()
-if ( appCtx_2.targetLangName == "go" ) {
-  importFork_8.out("package main", true);
-  importFork_8.newline();
-  importFork_8.out("import (", true);
-  importFork_8.indent(1);
-}
-for ( var i_207 = 0; i_207 < import_list_5.length; i_207++) {
-  var codeStr_5 = import_list_5[i_207];
-  switch (appCtx_2.targetLangName ) { 
-    case "go" : 
-      if ( (codeStr_5.charCodeAt(0 )) == (("_".charCodeAt(0))) ) {
-        importFork_8.out((" _ \"" + (codeStr_5.substring(1, (codeStr_5.length) ))) + "\"", true);
-      } else {
-        importFork_8.out(("\"" + codeStr_5) + "\"", true);
-      }
-      break;
-    case "rust" : 
-      importFork_8.out(("use " + codeStr_5) + ";", true);
-      break;
-    default: 
-      importFork_8.out(("import " + codeStr_5) + "", true);
-      break;
-  }
-}
-if ( appCtx_2.targetLangName == "go" ) {
-  importFork_8.indent(-1);
-  importFork_8.out(")", true);
-}
-fileSystem.saveTo(the_target_dir);
-console.log("Ready.")
-LiveCompiler.displayCompilerErrors(appCtx_2);
-LiveCompiler.displayParserErrors(appCtx_2);
 console.timeEnd("Total time");
 
 

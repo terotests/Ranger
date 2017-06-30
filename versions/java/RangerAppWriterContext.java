@@ -59,8 +59,8 @@ class RangerAppWriterContext {
     }
     final Optional<CodeNode> main = langOperators;
     Optional<CodeNode> lang = Optional.empty();
-    for ( int i_17 = 0; i_17 < main.get().children.size(); i_17++) {
-      CodeNode m_4 = main.get().children.get(i_17);
+    for ( int i_18 = 0; i_18 < main.get().children.size(); i_18++) {
+      CodeNode m_4 = main.get().children.get(i_18);
       final CodeNode fc_8 = m_4.getFirst();
       if ( fc_8.vref.equals("language") ) {
         lang = Optional.of(m_4);
@@ -68,8 +68,8 @@ class RangerAppWriterContext {
     }
     /** unused:  final Optional<CodeNode> cmds = Optional.empty()   **/ ;
     final CodeNode langNodes = lang.get().children.get(1);
-    for ( int i_22 = 0; i_22 < langNodes.children.size(); i_22++) {
-      CodeNode lch = langNodes.children.get(i_22);
+    for ( int i_23 = 0; i_23 < langNodes.children.size(); i_23++) {
+      CodeNode lch = langNodes.children.get(i_23);
       final CodeNode fc_13 = lch.getFirst();
       if ( fc_13.vref.equals("commands") ) {
         /** unused:  final CodeNode n_2 = lch.getSecond()   **/ ;
@@ -375,8 +375,8 @@ class RangerAppWriterContext {
   
   public void debugVars() {
     System.out.println(String.valueOf( "--- context vars ---" ) );
-    for ( int i_22 = 0; i_22 < localVarNames.size(); i_22++) {
-      String na = localVarNames.get(i_22);
+    for ( int i_23 = 0; i_23 < localVarNames.size(); i_23++) {
+      String na = localVarNames.get(i_23);
       System.out.println(String.valueOf( "var => " + na ) );
     }
     if ( parent.isPresent() ) {
@@ -467,12 +467,12 @@ class RangerAppWriterContext {
   }
   
   public ArrayList<RangerAppClassDesc> getClasses() {
-    ArrayList<RangerAppClassDesc> list = new ArrayList<RangerAppClassDesc>();
-    for ( int i_24 = 0; i_24 < definedClassList.size(); i_24++) {
-      String n_5 = definedClassList.get(i_24);
-      list.add((Optional.ofNullable(definedClasses.get(n_5))).get());
+    ArrayList<RangerAppClassDesc> list_3 = new ArrayList<RangerAppClassDesc>();
+    for ( int i_25 = 0; i_25 < definedClassList.size(); i_25++) {
+      String n_5 = definedClassList.get(i_25);
+      list_3.add((Optional.ofNullable(definedClasses.get(n_5))).get());
     }
-    return list;
+    return list_3;
   }
   
   public void addClass( String name , RangerAppClassDesc desc ) {

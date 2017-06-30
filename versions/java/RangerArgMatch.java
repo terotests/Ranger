@@ -9,9 +9,9 @@ class RangerArgMatch {
     /** unused:  final CodeNode fc_12 = callArgs.children.get(0)   **/ ;
     ArrayList<String> missed_args = new ArrayList<String>();
     boolean all_matched = true;
-    for ( int i_24 = 0; i_24 < args.children.size(); i_24++) {
-      CodeNode arg = args.children.get(i_24);
-      final CodeNode callArg = callArgs.children.get((i_24 + firstArgIndex));
+    for ( int i_25 = 0; i_25 < args.children.size(); i_25++) {
+      CodeNode arg = args.children.get(i_25);
+      final CodeNode callArg = callArgs.children.get((i_25 + firstArgIndex));
       if ( arg.hasFlag("ignore") ) {
         continue;
       }

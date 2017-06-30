@@ -16,10 +16,10 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
         return "Integer";
       case "string" : 
         return "String";
-      case "chararray" : 
-        return "char[]";
+      case "charbuffer" : 
+        return "byte[]";
       case "char" : 
-        return "char";
+        return "byte";
       case "boolean" : 
         return "Boolean";
       case "double" : 
@@ -34,10 +34,10 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
         return "int";
       case "string" : 
         return "String";
-      case "chararray" : 
-        return "char[]";
+      case "charbuffer" : 
+        return "byte[]";
       case "char" : 
-        return "char";
+        return "byte";
       case "boolean" : 
         return "boolean";
       case "double" : 
@@ -86,10 +86,10 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
           wr.out("Boolean", false);
           break;
         case 12 : 
-          wr.out("char", false);
+          wr.out("byte", false);
           break;
         case 13 : 
-          wr.out("char[]", false);
+          wr.out("byte[]", false);
           break;
         case 7 : 
           wr.out(((("HashMap<" + this.getObjectTypeString(k_name, ctx)) + ",") + this.getObjectTypeString(a_name_2, ctx)) + ">", false);
@@ -119,10 +119,10 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
           wr.out("double", false);
           break;
         case 12 : 
-          wr.out("char", false);
+          wr.out("byte", false);
           break;
         case 13 : 
-          wr.out("char[]", false);
+          wr.out("byte[]", false);
           break;
         case 4 : 
           wr.out("String", false);
@@ -170,16 +170,16 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
     }
     final int max_len = node.ns.size();
     if ( (node.nsp.size()) > 0 ) {
-      for ( int i_70 = 0; i_70 < node.nsp.size(); i_70++) {
-        RangerAppParamDesc p_17 = node.nsp.get(i_70);
-        if ( i_70 == 0 ) {
+      for ( int i_71 = 0; i_71 < node.nsp.size(); i_71++) {
+        RangerAppParamDesc p_17 = node.nsp.get(i_71);
+        if ( i_71 == 0 ) {
           final String part_2 = node.ns.get(0);
           if ( part_2.equals("this") ) {
             wr.out("this", false);
             continue;
           }
         }
-        if ( i_70 > 0 ) {
+        if ( i_71 > 0 ) {
           wr.out(".", false);
         }
         if ( (p_17.compiledName.length()) > 0 ) {
@@ -188,10 +188,10 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
           if ( (p_17.name.length()) > 0 ) {
             wr.out(this.adjustType(p_17.name), false);
           } else {
-            wr.out(this.adjustType((node.ns.get(i_70))), false);
+            wr.out(this.adjustType((node.ns.get(i_71))), false);
           }
         }
-        if ( i_70 < (max_len - 1) ) {
+        if ( i_71 < (max_len - 1) ) {
           if ( p_17.nameNode.get().hasFlag("optional") ) {
             wr.out(".get()", false);
           }
@@ -204,9 +204,9 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
       wr.out(p_22.get().compiledName, false);
       return;
     }
-    for ( int i_75 = 0; i_75 < node.ns.size(); i_75++) {
-      String part_7 = node.ns.get(i_75);
-      if ( i_75 > 0 ) {
+    for ( int i_76 = 0; i_76 < node.ns.size(); i_76++) {
+      String part_7 = node.ns.get(i_76);
+      if ( i_76 > 0 ) {
         wr.out(".", false);
       }
       wr.out(this.adjustType(part_7), false);
@@ -265,9 +265,9 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
   }
   
   public void writeArgsDef( RangerAppFunctionDesc fnDesc , RangerAppWriterContext ctx , CodeWriter wr ) {
-    for ( int i_75 = 0; i_75 < fnDesc.params.size(); i_75++) {
-      RangerAppParamDesc arg_14 = fnDesc.params.get(i_75);
-      if ( i_75 > 0 ) {
+    for ( int i_76 = 0; i_76 < fnDesc.params.size(); i_76++) {
+      RangerAppParamDesc arg_14 = fnDesc.params.get(i_76);
+      if ( i_76 > 0 ) {
         wr.out(",", false);
       }
       wr.out(" ", false);
@@ -319,11 +319,11 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
     }
     HashMap<String,Boolean> declaredVariable = new HashMap<String,Boolean>();
     if ( (cl_7.get().extends_classes.size()) > 0 ) {
-      for ( int i_77 = 0; i_77 < cl_7.get().extends_classes.size(); i_77++) {
-        String pName = cl_7.get().extends_classes.get(i_77);
+      for ( int i_78 = 0; i_78 < cl_7.get().extends_classes.size(); i_78++) {
+        String pName = cl_7.get().extends_classes.get(i_78);
         final RangerAppClassDesc pC = ctx.findClass(pName);
-        for ( int i_87 = 0; i_87 < pC.variables.size(); i_87++) {
-          RangerAppParamDesc pvar_3 = pC.variables.get(i_87);
+        for ( int i_88 = 0; i_88 < pC.variables.size(); i_88++) {
+          RangerAppParamDesc pvar_3 = pC.variables.get(i_88);
           declaredVariable.put(pvar_3.name, true);
         }
       }
@@ -335,8 +335,8 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
     Optional<RangerAppClassDesc> parentClass = Optional.empty();
     if ( (cl_7.get().extends_classes.size()) > 0 ) {
       wr_5.out(" extends ", false);
-      for ( int i_84 = 0; i_84 < cl_7.get().extends_classes.size(); i_84++) {
-        String pName_6 = cl_7.get().extends_classes.get(i_84);
+      for ( int i_85 = 0; i_85 < cl_7.get().extends_classes.size(); i_85++) {
+        String pName_6 = cl_7.get().extends_classes.get(i_85);
         wr_5.out(pName_6, false);
         parentClass = Optional.of(ctx.findClass(pName_6));
       }
@@ -344,8 +344,8 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
     wr_5.out(" { ", true);
     wr_5.indent(1);
     wr_5.createTag("utilities");
-    for ( int i_87 = 0; i_87 < cl_7.get().variables.size(); i_87++) {
-      RangerAppParamDesc pvar_8 = cl_7.get().variables.get(i_87);
+    for ( int i_88 = 0; i_88 < cl_7.get().variables.size(); i_88++) {
+      RangerAppParamDesc pvar_8 = cl_7.get().variables.get(i_88);
       if ( declaredVariable.containsKey(pvar_8.name) ) {
         continue;
       }
@@ -367,8 +367,8 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
       wr_5.indent(-1);
       wr_5.out("}", true);
     }
-    for ( int i_90 = 0; i_90 < cl_7.get().static_methods.size(); i_90++) {
-      RangerAppFunctionDesc variant_2 = cl_7.get().static_methods.get(i_90);
+    for ( int i_91 = 0; i_91 < cl_7.get().static_methods.size(); i_91++) {
+      RangerAppFunctionDesc variant_2 = cl_7.get().static_methods.get(i_91);
       wr_5.out("", true);
       if ( variant_2.nameNode.get().hasFlag("main") ) {
         wr_5.out("public static void main(String [] args ) {", true);
@@ -389,11 +389,11 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
       wr_5.indent(-1);
       wr_5.out("}", true);
     }
-    for ( int i_93 = 0; i_93 < cl_7.get().defined_variants.size(); i_93++) {
-      String fnVar_2 = cl_7.get().defined_variants.get(i_93);
+    for ( int i_94 = 0; i_94 < cl_7.get().defined_variants.size(); i_94++) {
+      String fnVar_2 = cl_7.get().defined_variants.get(i_94);
       final Optional<RangerAppMethodVariants> mVs_2 = Optional.ofNullable(cl_7.get().method_variants.get(fnVar_2));
-      for ( int i_100 = 0; i_100 < mVs_2.get().variants.size(); i_100++) {
-        RangerAppFunctionDesc variant_7 = mVs_2.get().variants.get(i_100);
+      for ( int i_101 = 0; i_101 < mVs_2.get().variants.size(); i_101++) {
+        RangerAppFunctionDesc variant_7 = mVs_2.get().variants.get(i_101);
         wr_5.out("", true);
         wr_5.out("public ", false);
         this.writeTypeDef(variant_7.nameNode.get(), ctx, wr_5);
@@ -414,8 +414,8 @@ class RangerJava7ClassWriter extends RangerGenericClassWriter {
     wr_5.indent(-1);
     wr_5.out("}", true);
     final ArrayList<String> import_list = wr_5.getImports();
-    for ( int i_99 = 0; i_99 < import_list.size(); i_99++) {
-      String codeStr = import_list.get(i_99);
+    for ( int i_100 = 0; i_100 < import_list.size(); i_100++) {
+      String codeStr = import_list.get(i_100);
       importFork.out(("import " + codeStr) + ";", true);
     }
   }
