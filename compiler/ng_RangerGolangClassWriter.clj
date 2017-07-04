@@ -1415,10 +1415,8 @@ class RangerGolangClassWriter {
       }
     }
 
-
-
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      if (variant.nameNode.hasFlag("main")) {
+      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
         wr.out("func main() {" true)
         wr.indent(1)
         wr.newline()

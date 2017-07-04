@@ -16,6 +16,7 @@ class RangerAppClassDesc {
   def systemInfo:CodeNode
   def is_interface:boolean false
   def is_template:boolean false
+  def is_serialized:boolean false
   def generic_params:CodeNode
   def ctx@(weak):RangerAppWriterContext
   def variables:[RangerAppParamDesc]
@@ -63,6 +64,12 @@ class RangerAppClassDesc {
     }
     return false
   }
+  fn hasOwnMethod:boolean (m_name:string) {
+    if (has defined_methods m_name) {
+      return true
+    }
+    return false
+  }  
   fn hasMethod:boolean (m_name:string) {
     if (has defined_methods m_name) {
       return true

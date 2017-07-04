@@ -154,7 +154,7 @@ class RangerJavaScriptClassWriter {
           wr.out(" = []" false)
         }
         if (nn.value_type == RangerNodeType.Hash) {
-          wr.out(" = []" false)
+          wr.out(" = {}" false)
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
@@ -173,9 +173,9 @@ class RangerJavaScriptClassWriter {
   fn writeArgsDef:void (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     for fnDesc.params arg:RangerAppParamDesc i {
       if (i > 0) {
-        wr.out("," false)
+        wr.out(", " false)
       }
-      wr.out((arg.name + " ") false)
+      wr.out( arg.name false)
     }
   }
 
@@ -208,7 +208,6 @@ class RangerJavaScriptClassWriter {
     for cl.variables pvar:RangerAppParamDesc i {
       this.writeClassVarDef(( unwrap pvar.node ) ctx wr)
     }
-    wr.out("" true)
     wr.out("constructor(" false)
     
     if cl.has_constructor {
@@ -238,7 +237,6 @@ class RangerJavaScriptClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
-        wr.out("" true)
         wr.out((("" + variant.name) + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") {" true)
@@ -255,7 +253,6 @@ class RangerJavaScriptClassWriter {
     wr.indent(-1)
     wr.out("}" true)
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      wr.out("" true)
       if (variant.nameNode.hasFlag("main")) {
         continue _
       } {
@@ -274,12 +271,16 @@ class RangerJavaScriptClassWriter {
     }
     for cl.static_methods variant:RangerAppFunctionDesc i {
       ctx.disableCurrentClass()
-      wr.out("" true)
-      if (variant.nameNode.hasFlag("main")) {
+      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
         wr.out("/* static JavaSript main routine */" false)
         wr.newline()
+        wr.out("function __js_main() {" true)
+        wr.indent(1)
         this.WalkNode(( unwrap variant.fnBody ) ctx wr)
         wr.newline()
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.out("__js_main();" true)
       }
     }
   }

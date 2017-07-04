@@ -462,7 +462,7 @@ class RangerAppWriterContext {
   fn addClass:void (name:string desc@(strong):RangerAppClassDesc) {
     def root:RangerAppWriterContext (this.getRoot())
     if (has root.definedClasses name) {
-      print ("ERROR: class " + name + " already defined")
+      ; skip definition...
     } {
       set root.definedClasses name desc
       push root.definedClassList name

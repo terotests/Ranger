@@ -76,9 +76,11 @@ language {
         ; Command line arguments
         shell_arg             cmdArg:string (index:int) {
             templates {
+                cpp ( "std::string(argv[" (e 1) "])")
                 php ( "$argv[" (e 1) " + 1]" )
                 java7 ( "args[" (e 1) "]")
                 go ( "os.Args[" (e 1) " + 1]"  (imp "os"))
+                swift3 ("CommandLine.arguments[" (e 1) " + 1]")
                 es6 ( "process.argv[ 2 + process.execArgv.length + " (e 1) "]")
                 ranger ("( shell_arg " (e 1) " )")
             }
@@ -86,6 +88,8 @@ language {
 
         shell_arg_cnt         cmdArg:int () {
             templates {
+                cpp ( "argc")
+                swift3 ("CommandLine.arguments.count")
                 php ( "(count($argv) - 1)" )
                 java7 ( "args.length")
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
@@ -113,6 +117,32 @@ language {
 
         file_exists          cmdIsDir:boolean (path:string filename:string) {
             templates {
+                cpp ( "r_cpp_file_exists( " (e 1) " + \"/\" + " (e 2) ")" (imp "<sys/stat.h>") (imp "<string>")
+(create_polyfill "
+bool r_cpp_file_exists(std::string name) 
+{
+  struct stat buffer;
+  return (stat (name.c_str(), &buffer) == 0);
+}    
+    ") )
+                swift3 ( "r_file_exists(fileName:" (e 1) ")" 
+
+(create_polyfill "
+func r_file_exists ( fileName:String ) -> Bool {
+    let fileManager = FileManager.default
+    var isDir : ObjCBool = false
+    if fileManager.fileExists(atPath: fileName, isDirectory:&isDir) {
+        if isDir.boolValue {
+            return false
+        } else {
+            return true
+        }
+    } else {
+        return false
+    }    
+}
+    ")                    
+                )
                 es6 ("require(\"fs\").existsSync(process.cwd() + \"/\" + " (e 1) " + \"/\" + " (e 2) " )")
                 ranger ("( file_exists " (e 1) " + \"/\" + " (e 2) "  )")
                 java7 ( "new File(" (e 1) " + '/' + " (e 2) ").exists()" (imp "java.io.File") )
@@ -134,6 +164,32 @@ func r_file_exists(pathName string, fileName string) bool {
 
         dir_exists          cmdIsDir:boolean (path:string) {
             templates {
+                swift3 ( "r_dir_exists( dirName: " (e 1) ")" 
+
+(create_polyfill "
+func r_dir_exists ( dirName:String ) -> Bool {
+    let fileManager = FileManager.default
+    var isDir : ObjCBool = false
+    if fileManager.fileExists(atPath: dirName, isDirectory:&isDir) {
+        if isDir.boolValue {
+            return true
+        } else {
+            return false
+        }
+    } else {
+        return false
+    }    
+}
+    ")                    
+                )
+                cpp ( "r_cpp_dir_exists( " (e 1) " + \"/\" + " (e 2) ")" (imp "<sys/stat.h>") (imp "<string>")
+(create_polyfill "
+bool  r_cpp_dir_exists(std::string name) 
+{
+  struct stat buffer;
+  return (stat (name.c_str(), &buffer) == 0);
+}    
+    ") )                 
                 java7 ( "new File(" (e 1) ").exists()" (imp "java.io.File") )
                 es6 ("require(\"fs\").existsSync(process.cwd() + \"/\" + " 
                         (e 1) " + \"/\" " (e 2) ")")
@@ -156,6 +212,15 @@ func r_dir_exists(pathName string) bool {
 
         create_dir          cmdCreateDir:void (path:string) {
             templates {
+
+                cpp ( "r_cpp_create_dir( " (e 1) " + \"/\" + " (e 2) ")" (imp "<sys/stat.h>") (imp "<sys/types.h>") (imp "<string>")
+(create_polyfill "
+std::string  r_cpp_create_dir(std::string name) 
+{
+  mkdir( name.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
+}    
+    ") )
+                swift3 ( nl )        
                 php (  nl "mkdir(" (e 1) ");" nl )
                 es6 ("require(\"fs\").mkdirSync(process.cwd() + \"/\" + " 
                         (e 1) ")")
@@ -183,6 +248,8 @@ static void createDir(String path)
 
         write_file          cmdWriteFile:void (path:string file:string data:string) {
             templates {
+                swift3 ( nl )   
+                cpp ( nl "/* write file not yet implemented */" nl)
                 ranger ( nl "write_file " (e 1) " " (e 2) " " (e 3) nl)
                 es6 ("require(\"fs\").writeFileSync(process.cwd() + \"/\" + " 
                         (e 1) " + \"/\"  + " (e 2) ", " (e 3) ")")
@@ -880,9 +947,11 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 scala ( nl "try {" nl I (block 1) i nl "} catch {" nl I nl "case e: Exception => {" nl I (block 2) i nl "}" i nl "}" nl )
                 java7 ( nl "try {" nl I (block 1) i nl "} catch( Exception e) {" nl I (block 2) i nl "}" nl )
                 go ( nl (block 1) nl )
+                swift3 ( nl "do {" nl I (block 1) i nl "} catch {" nl I (block 2) i nl "}" nl )
                 * ( nl "try {" nl I (block 1) i nl "} catch(e) {" nl I (block 2) i nl "}" nl )
             }
         }
+
 
         ; T.name is a bit of a problem ??        
         for             cmdFor@(newcontext):void          ( list:[T] item@(define):T indexName@(define ignore):int repeat_block:block)  {
@@ -915,12 +984,38 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             }
         }
 
+        for             cmdFor@(newcontext):void          ( hash:[string:T] item@(define):T itemName@(define ignore):string repeat_block:block)  {
+            templates {
+                es6 ("for( var " (e 3) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 3) ")) {" 
+                        nl I "var " (e 2) " = " (e 1) "[" (e 3) "] " nl (block 4) 
+                        nl i "} }"
+                     )
+            }
+        }    
+
+        for             cmdFor@(newcontext):void          ( hash:[string:T] itemName@(define ignore):string repeat_block:block)  {
+            templates {
+                es6 ("for( var " (e 2) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 2) ")) {" 
+                        nl I (block 3) 
+                        nl i "} " nl i "}"
+                     )
+            }
+        }              
+
         trim             cmdTrim:string          ( value:string ) { 
             templates {
                 ranger ( "(trim " (e 1 ) ")")                
                 swift3 ( (e 1 ) ".trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)" (imp "Foundation"))                
                 php ( "trim(" (e 1 ) ")")
-                cpp ( "boost::trim_right(" (e 1) ")" (imp "<boost/algorithm/string.hpp>"))
+                cpp ( "r_cpp_trim( " (e 1) ")" (imp "<cctype>") (imp "<string>") (imp "<algorithm>")
+(create_polyfill "
+inline std::string  r_cpp_trim(std::string &s) 
+{
+   auto wsfront=std::find_if_not(s.begin(),s.end(),[](int c){return std::isspace(c);});
+   auto wsback=std::find_if_not(s.rbegin(),s.rend(),[](int c){return std::isspace(c);}).base();
+   return (wsback<=wsfront ? std::string() : std::string(wsfront,wsback));
+}    
+    ") )  
                 scala ( (e 1) ".trim" )
                 csharp ( (e 1) ".Trim()" (imp "System"))
                 go ("strings.TrimSpace(" (e 1) ")" (imp "strings"))
@@ -1062,7 +1157,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 kotlin ( (e 1) "[" (e 2) "]")    
                 scala ( (e 1) "(" (e 2) ")")    
                 go ( "int64(" (e 1) "[" (e 2) "])")  
-                swift3 ( (e 1) "[" (e 2) "]")    
+                swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")    
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
         }        
@@ -1101,6 +1196,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 go ( "[]byte(" (e 1) ")[0]" )
                 php ( "ord(" (e 1) "[0])") 
                 java7 ( "((" (e 1) ".getBytes())[0])") 
+                swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")  
                 * ( (e 1) ".charCodeAt(0)" )
             }
         }
@@ -1116,7 +1212,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 ranger ( "(strfromcode " (e 1) ")")
                 csharp ( "((char)" (e 1) ").toString()") 
                 java7 ( "(new String( new char[] {" (e 1) " }))") 
-                swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ))))") 
+                swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([] byte{byte(" (e 1) ")})")       
@@ -1130,7 +1226,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 ranger ( "(strfromcode " (e 1) ")"))
                 csharp ( "((char)" (e 1) ").toString()") 
                 java7 ( "(new String( Character.toChars(" (e 1) ")))") 
-                swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ))))") 
+                swift3 ( "(String( Character( UnicodeScalar(" (e 1) " )! )))") 
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([] byte{byte(" (e 1) ")})")        
@@ -1173,7 +1269,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 php ( "strval(" (e 1) ")") 
                 scala ( "(" (e 1) ".toString)")
                 go ("strconv.FormatFloat(" (e 1) ",'f', 6, 64)" (imp "strconv"))
-                swfit3 ("String(" (e 1) ")")              
+                swift3 ("String(" (e 1) ")")              
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -1266,6 +1362,7 @@ static String joinStrings(ArrayList<String> list, String delimiter)
                 go ( "strings.Join(" (e 1) ", " (e 2) ")")
                 scala ( (e 1) ".mkString(" (e 2) ")" )
                 php ( "join(" (e 1) ", " (e 2) ")")
+                swift3 ( (e 1) ".joined(separator:" (e 2) ")")
                 * ( (e 1) ".join(" (e 2) ")" )
             }            
         }                 
@@ -1274,7 +1371,7 @@ static String joinStrings(ArrayList<String> list, String delimiter)
             templates {                
                 ranger ( "(has " (e 1) " " (e 2) ")") 
                 es5  ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
-                es6  ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
+                es6  ( "( typeof(" (e 1) "[" (e 2) "] ) != \"undefined\" && " (e 1) ".hasOwnProperty(" (e 2) ") )" )
                 ts   ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
                 flow ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
                 cpp ( (e 1) ".count(" (e 2) ")" )
@@ -1373,7 +1470,17 @@ i "}" nl ))
 "}" nl ))  
 
                  )
-
+                 swift3( "r_index_of(arr:" (e 1) ", elem:" (e 2)")"
+(macro ("
+func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
+    "if let idx = arr.index(of: elem) { " nl
+    "    return idx " nl
+    "} else { " nl
+    I "    return -1 " nl i
+    "}  " nl
+    i
+"}" nl ) )                
+                 )
                  * ( (e 1) ".indexOf(" (e 2) ")" )                                              
             }
         }

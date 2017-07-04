@@ -1,5 +1,8 @@
 
 Import "ng_LiveCompiler.clj"
+Import "ColorConsole.clj"
+Import "ng_DictNode.clj"
+Import "ng_RangerSerializeClass.clj"
 
 class CompilerInterface {
 
@@ -63,6 +66,7 @@ class CompilerInterface {
         def lang_parser:RangerLispParser (new RangerLispParser (lang_code))
         lang_parser.parse()
         appCtx.langOperators = (unwrap lang_parser.rootNode)
+        appCtx.setRootFile( the_file )
         print "1. Collecting available methods."
         flowParser.CollectMethods (node appCtx wr)
         if ( ( array_length appCtx.compilerErrors ) > 0 ) {
@@ -71,10 +75,10 @@ class CompilerInterface {
         }
         print "2. Analyzing the code."
         appCtx.targetLangName = the_lang
-        flowParser.WalkNode (node appCtx wr)
+        flowParser.StartWalk (node appCtx wr)
         if ( ( array_length appCtx.compilerErrors ) > 0 ) {
           CompilerInterface.displayCompilerErrors(appCtx)
-          CompilerInterface.displayParserErrors(appCtx)
+          ; CompilerInterface.displayParserErrors(appCtx)
           return
         }
         print "3. Compiling the source code."
@@ -138,7 +142,7 @@ class CompilerInterface {
         fileSystem.saveTo(the_target_dir)
         print "Ready."
         CompilerInterface.displayCompilerErrors(appCtx)
-        CompilerInterface.displayParserErrors(appCtx)
+        ; CompilerInterface.displayParserErrors(appCtx)
 
       }{
         if(lcc.lastProcessedNode) {
@@ -159,11 +163,13 @@ class CompilerInterface {
   }
 
   sfn displayCompilerErrors:void (appCtx@(weak):RangerAppWriterContext) {
+    def cons:ColorConsole (new ColorConsole())
+
     for appCtx.compilerErrors e:RangerCompilerMessage i {
         def line_index:int (e.node.getLine ())                      
-        print ( (e.node.getFilename ()) + " Line: " + (1 + line_index))
-        print e.description
-        print (e.node.getLineString(line_index))
+        cons.out( "gray" ( (e.node.getFilename ()) + " Line: " + (1 + line_index)) ) 
+        cons.out( "gray" e.description )
+        cons.out( "gray" (e.node.getLineString(line_index)) )
     }        
   }
 

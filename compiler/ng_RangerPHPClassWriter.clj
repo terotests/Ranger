@@ -406,7 +406,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     for cl.static_methods variant:RangerAppFunctionDesc i {
       ctx.disableCurrentClass()
       wr.out("" true)
-      if (variant.nameNode.hasFlag("main")) {
+      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
         wr.out("/* static PHP main routine */" false)
         wr.newline()
         this.WalkNode(( unwrap variant.fnBody ) ctx wr)

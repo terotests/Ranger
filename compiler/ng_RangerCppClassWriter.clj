@@ -542,7 +542,7 @@ class RangerCppClassWriter {
     ;}
 
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      if (variant.nameNode.hasFlag("main")) {
+      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
         wr.out("" true)
         wr.out("int main(int argc, char* argv[]) {" true)
         wr.indent(1)

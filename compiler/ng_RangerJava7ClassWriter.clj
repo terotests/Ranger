@@ -384,6 +384,9 @@ class RangerJava7ClassWriter {
     }
     for cl.static_methods variant:RangerAppFunctionDesc i {
       wr.out("" true)
+      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename != (ctx.getRootFile()))) {     
+        continue 
+      }
       if (variant.nameNode.hasFlag("main")) {
         wr.out("public static void main(String [] args ) {" true)
       } {

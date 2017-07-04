@@ -16,6 +16,9 @@ class RangerFlowParser {
 
   def stdCommands@(optional):CodeNode
   def lastProcessedNode@(weak):CodeNode
+  def collectWalkAtEnd:[CodeNode]
+  def walkAlso:[CodeNode]
+  def serializedClasses@(weak):[RangerAppClassDesc]
 
   fn cmdEnum:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fNameNode:CodeNode (itemAt node.children 1)
@@ -477,7 +480,7 @@ class RangerFlowParser {
     cName.vref = friendlyName
     cName.has_vref_annotation = false
     print (newClassNode.getCode())
-    this.CollectMethods(newClassNode ctx wr)
+    this.WalkCollectMethods(newClassNode ctx wr)
     this.WalkNode(newClassNode root wr)
     print "the class collected the methods..."
   }
@@ -1067,6 +1070,13 @@ class RangerFlowParser {
     }
     return false
   }
+  fn StartWalk:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; walkAlso
+    this.WalkNode(node ctx wr)
+    for walkAlso ch:CodeNode i {
+      this.WalkNode(ch ctx wr)
+    }
+  }
   fn WalkNode:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def line_index:int (node.getLine())
     if node.flow_done {
@@ -1097,6 +1107,10 @@ class RangerFlowParser {
       return true
     }
     if (node.isFirstVref("Extends")) {
+      return true
+    }
+    if (node.isFirstVref("extension")) {
+      this.EnterClass(node ctx wr)
       return true
     }
     if (node.isFirstVref("operators")) {
@@ -1220,12 +1234,30 @@ class RangerFlowParser {
       }
     }
   }
-
+  ;       this.CollectMethods( (unwrap parser.rootNode ) ctx wr)
   fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.WalkCollectMethods(node ctx wr)
+    for serializedClasses cl:RangerAppClassDesc i {
+      cl.is_serialized = true
+      def ser:RangerSerializeClass (new RangerSerializeClass())
+      def extWr:CodeWriter (new CodeWriter())
+      ser.createJSONSerializerFn( cl (unwrap cl.ctx) extWr )
+      def theCode:string (extWr.getCode())
+      def code:SourceCode (new SourceCode ( theCode))
+      code.filename = "extension " + (ctx.currentClass.name)
+      def parser:RangerLispParser (new RangerLispParser (code))
+      parser.parse()
+      def rn:CodeNode (unwrap parser.rootNode)
+      this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
+      push walkAlso rn
+    }
+  }
+
+
+  fn WalkCollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def find_more:boolean true
 
     if (node.isFirstVref("systemclass")) {
-      print "---------- found systemclass ------ "
       def nameNode@(lives):CodeNode (node.getSecond())
       def instances:CodeNode (node.getThird())
       def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
@@ -1395,7 +1427,7 @@ class RangerFlowParser {
       def parser:RangerLispParser (new RangerLispParser (code))
       parser.parse()
       def rnode:CodeNode parser.rootNode
-      this.CollectMethods( (unwrap rnode) ctx wr)
+      this.WalkCollectMethods( (unwrap rnode) ctx wr)
       find_more = false
     }
     if ((node.isFirstVref("StaticMethod")) || (node.isFirstVref("sfn"))) {
@@ -1433,10 +1465,27 @@ class RangerFlowParser {
       currC.addStaticMethod(m)
       find_more = false
     }
+    if (node.isFirstVref("extension")) {
+      def s:string (node.getVRefAt(1))
+      print ":: enters extension for " + s
+      def old_class@(lives):RangerAppClassDesc (ctx.findClass(s))
+      ctx.setCurrentClass( old_class )
+    }
+    
     if ((node.isFirstVref("PublicMethod")) || (node.isFirstVref("fn"))) {
       def cn:CodeNode (node.getSecond())
       def s:string (node.getVRefAt(1))
       def currC:RangerAppClassDesc ctx.currentClass
+      if(currC.hasOwnMethod(s)) {
+        ctx.addError( node "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!")
+        return
+      }
+
+      if(cn.hasFlag("main")) {
+        ctx.addError( node "Error: dynamic method declared as @(main). Use static 'sfn' instead of 'fn'.")
+        return        
+      }
+      
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = s
       m.node = node
@@ -1446,7 +1495,6 @@ class RangerFlowParser {
       } {
         m.refType = RangerNodeRefType.Weak
       }
-
       def subCtx:RangerAppWriterContext (currC.ctx.fork())
       subCtx.is_function = true
       subCtx.currentMethod = m
@@ -1456,7 +1504,6 @@ class RangerFlowParser {
       } {
         m.changeStrength(1 1 node)
       }
-
       def args:CodeNode (itemAt node.children 2)
       m.fnBody = (itemAt node.children 3)
       for args.children arg@(lives):CodeNode ii {
@@ -1497,9 +1544,15 @@ class RangerFlowParser {
     }
     if find_more {
       for node.children item:CodeNode i {
-        this.CollectMethods(item ctx wr)
+        this.WalkCollectMethods(item ctx wr)
       }
     }
+    ; serialize should be at end when all extensions have been added 
+
+    if(node.hasBooleanProperty("serialize")) {
+      push serializedClasses (ctx.currentClass)
+    }
+
   }
   fn FindWeakRefs:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def list:[RangerAppClassDesc] (ctx.getClasses())

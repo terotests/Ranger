@@ -2,6 +2,18 @@
 Import "ng_RangerFlowParser.clj"
 Import "ng_RangerLanguageWriters.clj"
 
+extension RangerAppWriterContext {
+  def rootFile:string "--not-defined--"
+  fn getRootFile:string () {
+    def root:RangerAppWriterContext (this.getRoot())
+    return root.rootFile
+  }   
+  fn setRootFile:void (file_name:string) {
+    def root:RangerAppWriterContext (this.getRoot())
+    root.rootFile = file_name
+  }    
+}
+
 class LiveCompiler {
 
   def langWriter:RangerGenericClassWriter
@@ -508,7 +520,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               if (arg.paramDesc.ref_cnt == 0) {
                 wr.out("_" false)
               } {
-                wr.out(arg.vref false)
+                def p:RangerAppParamDesc (ctx.getVariableDef(arg.vref))
+                wr.out(p.compiledName false)
               }
             } {
               wr.out(arg.vref false)

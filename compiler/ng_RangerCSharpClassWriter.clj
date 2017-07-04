@@ -232,6 +232,9 @@ class RangerCSharpClassWriter {
     }
     for cl.static_methods variant:RangerAppFunctionDesc i {
       wr.out("" true)
+      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename != (ctx.getRootFile()))) {
+        continue
+      }
       if (variant.nameNode.hasFlag("main")) {
         wr.out("static int Main( string [] args ) {" true)
       } {

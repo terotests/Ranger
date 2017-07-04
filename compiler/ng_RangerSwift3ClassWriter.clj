@@ -1,6 +1,7 @@
 class RangerSwift3ClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
+  def header_created:boolean false
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "self"
@@ -9,6 +10,7 @@ class RangerSwift3ClassWriter {
   }
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
+
       case "int" {
         return "Int"
       }
@@ -54,9 +56,24 @@ class RangerSwift3ClassWriter {
     return type_string
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    def v_type:RangerNodeType node.value_type
+    def v_type:RangerNodeType node.value_type    
+    def t_name:string node.type_name
+    def a_name:string node.array_type
+    def k_name:string node.key_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (node.typeNameAsType(ctx))
+    }
     if (node.eval_type != RangerNodeType.NoType) {
       v_type = node.eval_type
+      if ( (strlen node.eval_type_name) > 0 ) {
+        t_name = node.eval_type_name
+      }
+      if ( (strlen node.eval_array_type) > 0 ) {
+        a_name = node.eval_array_type
+      }
+      if ( (strlen node.eval_key_type) > 0 ) {
+        k_name = node.eval_key_type
+      }
     }
     switch v_type {
       case RangerNodeType.Enum {
@@ -81,17 +98,17 @@ class RangerSwift3ClassWriter {
         wr.out("Bool" false)
       }
       case RangerNodeType.Hash {
-        wr.out((((("[" + (this.getObjectTypeString(node.key_type ctx))) + ":") + (this.getObjectTypeString(node.array_type ctx))) + "]") false)
+        wr.out((((("[" + (this.getObjectTypeString(k_name ctx))) + ":") + (this.getObjectTypeString(a_name ctx))) + "]") false)
       }
       case RangerNodeType.Array {
-        wr.out((("[" + (this.getObjectTypeString(node.array_type ctx))) + "]") false)
+        wr.out((("[" + (this.getObjectTypeString(a_name ctx))) + "]") false)
       }
       default {
-        if (node.type_name == "void") {
+        if (t_name == "void") {
           wr.out("Void" false)
           return
         }
-        wr.out((this.getTypeString(node.type_name)) false)
+        wr.out((this.getTypeString(t_name)) false)
       }
     }
     if (node.hasFlag("optional")) {
@@ -321,6 +338,35 @@ class RangerSwift3ClassWriter {
     if (null? cl) {
       return
     }
+    def declaredVariable:[string:boolean]
+    def declaredFunction:[string:boolean]
+    def had_parent:boolean false
+    if ( ( array_length cl.extends_classes ) > 0 ) { 
+      for cl.extends_classes pName:string i {
+        def pC:RangerAppClassDesc (ctx.findClass(pName))
+        had_parent = true
+        for pC.variables pvar:RangerAppParamDesc i {
+          set declaredVariable pvar.name true
+        }
+        for pC.defined_variants fnVar:string i {
+          def mVs:RangerAppMethodVariants (get pC.method_variants fnVar)
+          for mVs.variants variant:RangerAppFunctionDesc i {
+            set declaredFunction variant.name true
+          }
+        }
+      }
+    }
+    if( header_created == false) {
+      wr.createTag("utilities")
+      header_created = true
+    }
+
+    wr.out("func ==(l: " + cl.name +  ", r: " + cl.name +  ") -> Bool {" , true)
+    wr.indent(1)
+    wr.out("return l == r" true)
+    wr.indent(-1)
+    wr.out("}" true)
+
     wr.out(("class " + cl.name) false)
 
     def parentClass:RangerAppClassDesc
@@ -331,11 +377,18 @@ class RangerSwift3ClassWriter {
         wr.out(pName false)
         parentClass = (ctx.findClass(pName))
       }
-    }    
+    } {
+      wr.out(" : Equatable " false )
+    }  
     
     wr.out( " { " true)
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
+      wr.out("// " + pvar.name , true)
+      if( has declaredVariable pvar.name ) {
+        wr.out("// WAS DECLARED : " + pvar.name , true)
+        continue
+      }
       this.writeVarDef( (unwrap pvar.node) ctx wr)
     }
     if cl.has_constructor {
@@ -397,6 +450,9 @@ class RangerSwift3ClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if(has declaredFunction variant.name) {
+          wr.out("override " false)
+        }
         wr.out((("func " + variant.name) + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") -> " false)
@@ -415,13 +471,18 @@ class RangerSwift3ClassWriter {
     wr.indent(-1)
     wr.out("}" true)
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      def b:boolean (variant.nameNode.hasFlag("main"))
-      if b {
+      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
         wr.newline()
+        wr.out("func __main__swift() {" true)
+        wr.indent(1)
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.is_function = true
         this.WalkNode( (unwrap variant.fnBody) subCtx wr)
         wr.newline()
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.out("// call the main function" true)
+        wr.out("__main__swift()" true)
       }
     }
   }
