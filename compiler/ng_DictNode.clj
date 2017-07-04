@@ -69,12 +69,6 @@ class DictNode {
     v.value_type = DictNodeType.Object
     return v
   }
-  sfn tester@(main):void () {
-    def oo:DictNode (DictNode.createEmptyObject())
-    def fb:DictNode (oo.addObject("foobar"))
-    fb.addString("key" "Somevalue")
-    print (oo.stringify())
-  }
   fn addString:void (key:string value:string) {
     if (value_type == DictNodeType.Object) {
       def v:DictNode (new DictNode ())
@@ -168,17 +162,9 @@ class DictNode {
        push children obj
      }
   }
-
   fn getDoubleAt:double (index:int) {
     if (index < (array_length children)) {
       def k:DictNode (itemAt children index)
-      return k.double_value
-    }
-    return 0.0
-  }
-  fn getDouble:double (key:string) {
-    if (has objects key) {
-      def k:DictNode (get objects key)
       return k.double_value
     }
     return 0.0
@@ -190,46 +176,85 @@ class DictNode {
     }
     return ""
   }
-  fn getString:string (key:string) {
+  fn getIntAt:int (index:int) {
+    if (index < (array_length children)) {
+      def k:DictNode (itemAt children index)
+      return k.int_value
+    }
+    return 0
+  }  
+  fn getBooleanAt:boolean (index:int) {
+    if (index < (array_length children)) {
+      def k:DictNode (itemAt children index)
+      return k.boolean_value
+    }
+    return false
+  } 
+  fn getString@(optional):string (key:string) {
+    def res@(optional):string
     if (has objects key) {
       def k:DictNode (get objects key)
-      return k.string_value
+      res = k.string_value
     }
-    return ""
+    return res
   }
+  fn getDouble@(optional):double (key:string) {
+    def res@(optional):double
+    if (has objects key) {
+      def k:DictNode (get objects key)
+      res = k.double_value
+    }
+    return res
+  }  
+  fn getInt@(optional):int (key:string) {
+    def res@(optional):int
+    if (has objects key) {
+      def k:DictNode (get objects key)
+      res = k.int_value
+    }
+    return res
+  }  
+  fn getBoolean@(optional):boolean (key:string) {
+    def res@(optional):boolean
+    if (has objects key) {
+      def k:DictNode (get objects key)
+      res = k.boolean_value
+    }
+    return res
+  }   
   fn getArray@(optional weak):DictNode (key:string) {
-    def toReturn@(optional lives weak):DictNode
+    def res@(weak optional):DictNode
     if (has objects key) {
       def obj:DictNode (get objects key)
       if obj.is_property {
-        toReturn = obj.object_value
-        return toReturn
+        res = obj.object_value
       }
     }
-    return toReturn
+    return res
   }
-  fn getArrayAt:DictNode (index:int) {
+  fn getArrayAt@(weak optional):DictNode (index:int) {
+    def res@(weak optional):DictNode
     if (index < (array_length children)) {
-      def k:DictNode (itemAt children index)
-      return k
+      res = (itemAt children index)
     }
-    return (new DictNode ())
+    return res
   }
-  fn getObject@(weak):DictNode (key:string) {
+  fn getObject@(weak optional):DictNode (key:string) {
+    def res@(weak optional):DictNode
     if (has objects key) {
       def obj:DictNode (get objects key)
       if obj.is_property {
-        return (unwrap obj.object_value )
+        res = obj.object_value
       }
     }
-    return (new DictNode ())
+    return res
   }
-  fn getObjectAt:DictNode (index:int) {
+  fn getObjectAt@(weak optional):DictNode (index:int) {
+    def res@(weak optional):DictNode
     if (index < (array_length children)) {
-      def k:DictNode (itemAt children index)
-      return k
+      res = (itemAt children index)
     }
-    return (new DictNode ())
+    return res
   }  
 
   fn stringify:string () {
@@ -310,7 +335,12 @@ class DictNode {
     }
     return ""
   }
-  
+  sfn tester@(main):void () {
+    def oo:DictNode (DictNode.createEmptyObject())
+    def fb:DictNode (oo.addObject("foobar"))
+    fb.addString("key" "Somevalue")
+    print (oo.stringify())
+  }  
 
 }
 

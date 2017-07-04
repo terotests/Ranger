@@ -1,11 +1,8 @@
-
 Import "ng_RangerAppMessages.clj"
-
 Import "ng_RangerAppParamDesc.clj"
 Import "ng_RangerAppFunctionDesc.clj"
 Import "ng_RangerAppClassDesc.clj"
 Import "ng_RangerTypeClass.clj"
-
 Import "ng_CodeNode.clj"
 Import "ng_RangerAppWriterContext.clj"
 Import "ng_writer.clj"
@@ -541,13 +538,14 @@ class RangerFlowParser {
           if has_default {
             continue _
           }
-          ctx.addError(node "Argument was not defined")
+          ctx.addError(node "Missing arguments for function")
+          ctx.addError( (unwrap param.nameNode) "To fix the previous error: Check original function declaration")
         }
 
         def argNode:CodeNode (itemAt params.children i)
 
         if (false == (this.areEqualTypes( (unwrap param.nameNode) argNode ctx))) {
-          ctx.addError(node ("ERROR, invalid argument types for " + currC.name + " constructor "))
+          ctx.addError(argNode ("ERROR, invalid argument type for " + currC.name + " constructor "))
         }
 
         def pNode:CodeNode (unwrap param.nameNode)
@@ -611,18 +609,24 @@ class RangerFlowParser {
             callArgP.moveRefTo(node fnArg ctx)
           }
         }
+        def cp_len:int (array_length callParams.children)
+        if( cp_len > ( array_length vFnDef.params )) {
+          def lastCallParam:CodeNode (itemAt callParams.children (cp_len - 1))
+          ctx.addError( lastCallParam "Too many arguments arguments for function")
+          ctx.addError( (unwrap vFnDef.nameNode) "NOTE: To fix the previous error: Check original function declaration which was")
+        }
         for vFnDef.params param:RangerAppParamDesc i {
-
           if( (array_length callParams.children) <= i) {
             if (param.nameNode.hasFlag("default")) {
               continue 
             }
-            ctx.addError(node "Argument was not defined")
+            ctx.addError(node "Missing arguments for function")
+            ctx.addError( (unwrap param.nameNode) "NOTE: To fix the previous error: Check original function declaration which was")
             break
           }
           def argNode:CodeNode (itemAt callParams.children i)
           if (false == (this.areEqualTypes( (unwrap param.nameNode) argNode ctx))) {
-            ctx.addError(node ("ERROR, invalid argument types for method " + vFnDef.name))
+            ctx.addError(argNode ("ERROR, invalid argument type for method " + vFnDef.name))
           }
           def pNode:CodeNode (unwrap param.nameNode)
           if( pNode.hasFlag("optional")) {
@@ -691,7 +695,7 @@ class RangerFlowParser {
                 
         def argNode:CodeNode (itemAt node.children (i + 1))
         if (false == (this.areEqualTypes( (unwrap param.nameNode) argNode ctx))) {
-          ctx.addError(node ("ERROR, invalid argument types for " + desc.name + " method " + fnDescr.name))
+          ctx.addError(argNode ("ERROR, invalid argument type for " + desc.name + " method " + fnDescr.name))
         }
       }
       def nn:CodeNode fnDescr.nameNode
@@ -842,6 +846,7 @@ class RangerFlowParser {
     for m.params v:RangerAppParamDesc i {
       v.nameNode.eval_type = (v.nameNode.typeNameAsType(subCtx))
       v.nameNode.eval_type_name = v.nameNode.type_name
+      ctx.hadValidType( (unwrap v.nameNode) )
     }
     subCtx.setInMethod()
     this.WalkNodeChildren(fnBody subCtx wr)

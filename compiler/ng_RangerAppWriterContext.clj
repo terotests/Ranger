@@ -138,16 +138,33 @@ class RangerAppWriterContext {
     if ((node.isPrimitiveType()) || (node.isPrimitive())) {
       return true
     }
-    if ((node.value_type == RangerNodeType.Array) && (this.isDefinedType(node.array_type))) {
-      return true
+    if(node.value_type == RangerNodeType.Array) {
+      if (this.isDefinedType(node.array_type)) {
+        return true
+      } {
+        this.addError(node ("Unknown type for array values: " + node.array_type))        
+        return false        
+      }
     }
-    if (((node.value_type == RangerNodeType.Hash) && (this.isDefinedType(node.array_type))) && (this.isPrimitiveType(node.key_type))) {
-      return true
+    if(node.value_type == RangerNodeType.Hash) {
+      if ( (this.isDefinedType(node.array_type)) && (this.isPrimitiveType(node.key_type)) ) {
+        return true
+      } {
+        if( (this.isDefinedType(node.array_type)) == false) {
+          this.addError(node ("Unknown type for map values: " + node.array_type))          
+        }
+        if( (this.isDefinedType(node.array_type)) == false) {
+          this.addError(node ("Unknown type for map keys: " + node.key_type))          
+        }
+        return false
+      }
     }
     if (this.isDefinedType(node.type_name)) {
       return true
+    } {
+      this.addError(node ("Unknown type: " + node.type_name))    
     }
-    this.addError(node ((((("Invalid or missing type definition: " + node.type_name) + " ") + node.key_type) + " ") + node.array_type))
+;    this.addError(node ((((("Invalid or missing type definition: " + node.type_name) + " ") + node.key_type) + " ") + node.array_type))
     return false
   }
   fn getTargetLang:string () {

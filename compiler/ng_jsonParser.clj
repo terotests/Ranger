@@ -321,10 +321,18 @@ class JSONParser:void {
 
   sfn testcase@(main):void () {
     def p:JSONParser (new JSONParser())
-    def n:DictNode (p.parse("{\"ok\":true}"))
+    def n:DictNode (p.parse("{\"n\":\"ClientMessage\",\"data\":{\"text\":\"-- text not filled --\",\"user\":{\"n\":\"UserInfo\",\"data\":{\"name\":\"Logged User\"}}}}"))
     if n {
       print "--> parsed"
       def nn:DictNode (unwrap n)
+      def name:string (nn.getString("n"))
+      if(name) {
+        print (unwrap name)
+        def data@(optional):DictNode (nn.getObject("data"))
+        if data {
+          print(data.stringify())
+        }
+      }
       print (nn.stringify())
     }
   }

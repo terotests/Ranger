@@ -36,7 +36,6 @@ class SourceCode {
         lines = (strsplit code_str "\n")
     }
     fn getLineString:string (line_index:int) {
-
         if (> (array_length lines) line_index) {
             return (itemAt lines line_index)
         }
@@ -49,6 +48,36 @@ class SourceCode {
             if (> cnt sp) {
               return i
             } 
+        }
+        return -1
+    } 
+    fn getColumnStr:string (sp:int) {
+        def cnt:int 0
+        def last:int 0
+        for lines str:string i {
+            cnt = (+ cnt (+ (strlen str) 1)))
+            if (> cnt sp) {
+              def ll:int (sp - last)
+              def ss:string ""
+              while (ll > 0) {
+                ss = ss + " "
+                ll = ll - 1
+              }
+              return ss
+            } 
+            last = cnt
+        }
+        return ""
+    } 
+    fn getColumn:int (sp:int) {
+        def cnt:int 0
+        def last:int 0
+        for lines str:string i {
+            cnt = (+ cnt (+ (strlen str) 1)))
+            if (> cnt sp) {
+              return (sp - last)
+            } 
+            last = cnt
         }
         return -1
     } 
@@ -373,6 +402,9 @@ class CodeNode {
   }
   fn getLineString:string (line_index:int) {
     return (code.getLineString(line_index))
+  }
+  fn getColStartString:string () {
+    return (code.getColumnStr(sp))
   }
   fn getLineAsString:string () {
     def idx:int (this.getLine())

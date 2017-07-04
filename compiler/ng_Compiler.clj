@@ -170,6 +170,7 @@ class CompilerInterface {
         cons.out( "gray" ( (e.node.getFilename ()) + " Line: " + (1 + line_index)) ) 
         cons.out( "gray" e.description )
         cons.out( "gray" (e.node.getLineString(line_index)) )
+        cons.out( "" ( (e.node.getColStartString()) + "^-------" ) )
     }        
   }
 

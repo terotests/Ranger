@@ -17,6 +17,7 @@ class RangerAppClassDesc {
   def is_interface:boolean false
   def is_template:boolean false
   def is_serialized:boolean false
+  def is_trait:boolean false
   def generic_params:CodeNode
   def ctx@(weak):RangerAppWriterContext
   def variables:[RangerAppParamDesc]
