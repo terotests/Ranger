@@ -35,6 +35,7 @@ class RangerAppClassDesc {
   def destructor_fn:RangerAppFunctionDesc
   def extends_classes:[string]
   def implements_interfaces:[string]
+  def consumes_traits:[string]
   def nameNode@(weak):CodeNode
   def classNode@(weak):CodeNode
   def contr_writers:[CodeWriter]
@@ -49,7 +50,6 @@ class RangerAppClassDesc {
   fn doesInherit:boolean () {
     return is_inherited
   }  
-
   fn isSameOrParentClass:boolean (class_name:string ctx@(weak):RangerAppWriterContext) {
     if (class_name == name) {
       return true
@@ -57,7 +57,16 @@ class RangerAppClassDesc {
     if ((indexOf extends_classes class_name) >= 0) {
       return true
     }
+    if ((indexOf consumes_traits class_name) >= 0) {
+      return true
+    }
     for extends_classes c_name:string i {
+      def c:RangerAppClassDesc (ctx.findClass(c_name))
+      if (c.isSameOrParentClass(class_name ctx)) {
+        return true
+      }
+    }
+    for consumes_traits c_name:string i {
       def c:RangerAppClassDesc (ctx.findClass(c_name))
       if (c.isSameOrParentClass(class_name ctx)) {
         return true

@@ -9,6 +9,11 @@ Import "ng_writer.clj"
 Import "ng_parser.clj"
 Import "ng_RangerArgMatch.clj"
 
+class ClassJoinPoint {
+  def class_def:RangerAppClassDesc
+  def node@(weak):CodeNode
+}
+
 class RangerFlowParser {
 
   def stdCommands@(optional):CodeNode
@@ -16,6 +21,7 @@ class RangerFlowParser {
   def collectWalkAtEnd:[CodeNode]
   def walkAlso:[CodeNode]
   def serializedClasses@(weak):[RangerAppClassDesc]
+  def classesWithTraits:[ClassJoinPoint]
 
   fn cmdEnum:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fNameNode:CodeNode (itemAt node.children 1)
@@ -612,7 +618,7 @@ class RangerFlowParser {
         def cp_len:int (array_length callParams.children)
         if( cp_len > ( array_length vFnDef.params )) {
           def lastCallParam:CodeNode (itemAt callParams.children (cp_len - 1))
-          ctx.addError( lastCallParam "Too many arguments arguments for function")
+          ctx.addError( lastCallParam "Too many arguments for function")
           ctx.addError( (unwrap vFnDef.nameNode) "NOTE: To fix the previous error: Check original function declaration which was")
         }
         for vFnDef.params param:RangerAppParamDesc i {
@@ -687,7 +693,6 @@ class RangerFlowParser {
         ctx.unsetInExpr()
       }
       for fnDescr.params param:RangerAppParamDesc i {
-
         if( (array_length node.children) <= (i + 1)) {
           ctx.addError(node "Argument was not defined")
           break
@@ -944,8 +949,7 @@ class RangerFlowParser {
           cn.setFlag("optional")
         }
       }
-      ctx.hadValidType(cn)
-      cn.defineNodeTypeTo(cn ctx)
+
       if ((strlen cn.vref) == 0) {
         ctx.addError(node "invalid variable definition")
       }
@@ -955,8 +959,6 @@ class RangerFlowParser {
         p.changeStrength(1 1 node)
       }
       node.hasVarDef = true
-      ; def ts:RangerTypeClass (cn.createTypeSignature(ctx))
-      ; node.typeClass = ts
       if ((array_length node.children) > 2) {
         p.init_cnt = 1
         p.def_value = (itemAt node.children 2)
@@ -986,6 +988,20 @@ class RangerFlowParser {
           cn.setFlag("optional")
         }
       }
+      ; simple local variable type inference
+      if ((array_length node.children) > 2) {
+          if( ( (strlen cn.type_name) == 0) && ( (strlen cn.array_type) == 0 ) ) {
+            def nodeValue:CodeNode (itemAt node.children 2)
+            cn.value_type = nodeValue.eval_type
+            cn.type_name = nodeValue.eval_type_name
+            cn.array_type = nodeValue.eval_array_type
+            cn.key_type = nodeValue.eval_key_type
+          }
+      }      
+      ; after type inference, check the validity of the type
+      ctx.hadValidType(cn)
+      cn.defineNodeTypeTo(cn ctx)
+
       p.name = cn.vref
       if (p.value_type == RangerNodeType.NoType) {
         if ((0 == (strlen cn.type_name)) && (!null? defaultArg)) {
@@ -1025,7 +1041,14 @@ class RangerFlowParser {
       cn.eval_type_name = cn.type_name
       if ((array_length node.children) > 2) {
         if (cn.eval_type != defaultArg.eval_type) {
-          ctx.addError(node ((("Variable was assigned an incompatible type. Types were " + cn.eval_type) + " vs ") + defaultArg.eval_type))
+          ; TODO: function to check compability
+          if( ( cn.eval_type == RangerNodeType.Char &&  defaultArg.eval_type == RangerNodeType.Integer ) ||
+              ( cn.eval_type == RangerNodeType.Integer &&  defaultArg.eval_type == RangerNodeType.Char ) )  {
+
+          } {
+            ctx.addError(node ((("Variable was assigned an incompatible type. Types were " + cn.eval_type) + " vs ") + defaultArg.eval_type))
+          }
+          
         }
       } {
         p.is_optional = true
@@ -1157,8 +1180,8 @@ class RangerFlowParser {
       return true
     }
     if (node.isFirstVref("fn")) {
-      this.EnterMethod(node ctx wr)
-      return true
+       this.EnterMethod(node ctx wr)
+       return true
     }
     if (node.isFirstVref("sfn")) {
       this.EnterStaticMethod(node ctx wr)
@@ -1242,6 +1265,34 @@ class RangerFlowParser {
   ;       this.CollectMethods( (unwrap parser.rootNode ) ctx wr)
   fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     this.WalkCollectMethods(node ctx wr)
+    for classesWithTraits point:ClassJoinPoint i {
+      def cl:RangerAppClassDesc (unwrap point.class_def)
+      def joinPoint:CodeNode (unwrap point.node)
+      def traitClassDef:CodeNode (itemAt point.node.children 1)
+      def name:string (traitClassDef.vref)
+        def t:RangerAppClassDesc (ctx.findClass(name))
+        if(t.has_constructor) {
+          ctx.addError( (unwrap point.node) ("Can not join class " + name + " because it has a constructor function" ))
+        } {
+          def clBody:CodeNode (itemAt t.node.children 2)
+          def origBody:CodeNode (itemAt cl.node.children 2)
+          def match:RangerArgMatch (new RangerArgMatch ())
+          def copy_of_body:CodeNode (clBody.rebuildWithType(match false))      
+          joinPoint.vref = "does"
+          joinPoint.value_type = RangerNodeType.NoType
+          joinPoint.expression = true
+          def chCnt:int (array_length joinPoint.children)
+          while( chCnt > 0 ) {
+            removeLast joinPoint.children
+            chCnt = chCnt - 1
+          }
+          ctx.setCurrentClass( cl )
+          for copy_of_body.children ch:CodeNode i {
+            push origBody.children ch
+            this.WalkCollectMethods( ch ctx wr )
+          }
+        }      
+    }
     for serializedClasses cl:RangerAppClassDesc i {
       cl.is_serialized = true
       def ser:RangerSerializeClass (new RangerSerializeClass())
@@ -1435,6 +1486,16 @@ class RangerFlowParser {
       this.WalkCollectMethods( (unwrap rnode) ctx wr)
       find_more = false
     }
+    ; consumes_traits
+    if (node.isFirstVref("does")) {
+      def defName:CodeNode (node.getSecond())
+      def currC@(lives):RangerAppClassDesc ctx.currentClass
+      push currC.consumes_traits defName.vref
+      def joinPoint@(lives):ClassJoinPoint (new ClassJoinPoint())
+      joinPoint.class_def = currC
+      joinPoint.node = node
+      push classesWithTraits joinPoint
+    }    
     if ((node.isFirstVref("StaticMethod")) || (node.isFirstVref("sfn"))) {
       def s:string (node.getVRefAt(1))
       def currC:RangerAppClassDesc ctx.currentClass
@@ -1458,14 +1519,12 @@ class RangerFlowParser {
         arg.paramDesc = p
         arg.eval_type = arg.value_type
         arg.eval_type_name = arg.type_name
-
         if (arg.hasFlag("strong")) {
           p.changeStrength(1 1 (unwrap p.nameNode))
         } {
           arg.setFlag("lives")
           p.changeStrength(0 1 (unwrap p.nameNode))
         }           
-        
       }
       currC.addStaticMethod(m)
       find_more = false
@@ -1485,12 +1544,10 @@ class RangerFlowParser {
         ctx.addError( node "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!")
         return
       }
-
       if(cn.hasFlag("main")) {
         ctx.addError( node "Error: dynamic method declared as @(main). Use static 'sfn' instead of 'fn'.")
         return        
-      }
-      
+      }      
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = s
       m.node = node
@@ -1531,18 +1588,15 @@ class RangerFlowParser {
         arg.hasParamDesc = true
         arg.paramDesc = p2
         arg.eval_type = arg.value_type
-        arg.eval_type_name = arg.type_name
-        
+        arg.eval_type_name = arg.type_name 
         if (arg.hasFlag("strong")) {
           p2.changeStrength(1 1 (unwrap p2.nameNode))
         } {
           arg.setFlag("lives")
           p2.changeStrength(0 1 (unwrap p2.nameNode))
         }           
-
         ; subCtx.hadValidType(p2.nameNode)
         subCtx.defineVariable(p2.name p2)
-
       }
       currC.addMethod(m)
       find_more = false
