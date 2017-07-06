@@ -623,16 +623,21 @@ class RangerLispParser {
           def vt_ep:int i
           c = (charAt s i)
           if (c == ((ccode "("))) {
-            def a_node3@(lives):CodeNode (new CodeNode(( unwrap code) sp ep))
-            a_node3.expression = true
-            curr_node = a_node3
-            push parents a_node3
-            i = i + 1
-            this.parse()
+
+            ; tring to parser as annotation...
+            def vann_arr2@(lives):CodeNode (this.parse_raw_annotation())
+            vann_arr2.expression = true
+
+            ;def a_node3@(lives):CodeNode (new CodeNode(( unwrap code) sp ep))
+            ;a_node3.expression = true
+            ;curr_node = a_node3
+            ;push parents a_node3
+            ;i = i + 1
+            ;this.parse()
             def new_expr_node:CodeNode (new CodeNode(( unwrap code) sp vt_ep))
             new_expr_node.vref = (substring s sp ep)
             new_expr_node.ns = ns_list
-            new_expr_node.expression_value = a_node3
+            new_expr_node.expression_value = vann_arr2
             new_expr_node.parsed_type = RangerNodeType.ExpressionType
             new_expr_node.value_type = RangerNodeType.ExpressionType
             if (vref_had_type_ann) {

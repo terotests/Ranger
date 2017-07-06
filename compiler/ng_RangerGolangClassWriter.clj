@@ -172,6 +172,18 @@ class RangerGolangClassWriter {
     }
 
     switch v_type {
+      case RangerNodeType.ExpressionType {
+        ; f func(string) string
+
+        def rv:CodeNode (itemAt node.expression_value.children 0)
+        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def fc:CodeNode (sec.getFirst())
+        wr.out("func(" false)
+        this.writeTypeDef2( fc ctx wr)
+        wr.out( ") " false)
+        this.writeTypeDef2( rv ctx wr)
+        ; wr.out( rv.type_name false)
+      }
       case RangerNodeType.Enum {
         wr.out("int64" false)
       }
@@ -857,6 +869,56 @@ class RangerGolangClassWriter {
       wr.out(")" false)
     }
   }
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fName:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    this.WriteVRef(fName ctx wr)
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.WalkNode( arg ctx wr)
+    }
+    wr.out(")" false)
+  }
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def fnNode:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    ; def nameNode:CodeNode (itemAt fnNode.expression_value.children 0)
+    wr.out("func (" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.WalkNode(arg lambdaCtx wr)
+      wr.out(" " false)
+      if (arg.hasFlag("optional")) {
+        wr.out("*GoNullable" false)
+      } {
+        this.writeTypeDef( arg lambdaCtx wr)
+      }        
+    }
+    wr.out(") " false)
+    
+    if (fnNode.hasFlag("optional")) {
+      wr.out("*GoNullable" false)
+    } {
+      this.writeTypeDef(fnNode lambdaCtx wr)
+    }    
+
+    wr.out(" {" true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("}" false)
+  }  
 
 
   ;   current:

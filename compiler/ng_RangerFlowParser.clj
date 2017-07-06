@@ -718,6 +718,30 @@ class RangerFlowParser {
       }      
       return true
     } 
+    ; TODO: first lambda call check comes here... continue to other variants later
+    if (ctx.isVarDefined(fnNode.vref)) {
+        def d (ctx.getVariableDef(fnNode.vref))
+
+        d.ref_cnt = (1 + d.ref_cnt)
+
+        if(d.nameNode.value_type == RangerNodeType.ExpressionType) {
+          def lambdaDefArgs (itemAt d.nameNode.expression_value.children 1)
+          def callParams:CodeNode (itemAt node.children 1)
+          for callParams.children arg:CodeNode i {
+            ctx.setInExpr()
+            this.WalkNode(arg ctx wr)
+            ctx.unsetInExpr()
+          }
+          ; function return value should be assigned 
+          def lambdaDef (itemAt d.nameNode.expression_value.children 0)
+          node.has_lambda_call = true
+
+          node.eval_type = (lambdaDef.typeNameAsType(ctx))
+          node.eval_type_name = lambdaDef.type_name
+          return true
+        })
+    }
+; -------------------------------------------------
     ctx.addError(node ("ERROR, could not find class " + desc.name + " method " + fnNode.vref))
     ctx.addError(node ("definition : " + (node.getCode())))
     if(expects_error) {
@@ -788,12 +812,13 @@ class RangerFlowParser {
   fn EnterTemplateClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
   }
   fn EnterClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-
     if( (array_length node.children) != 3) {
       ctx.addError(node "Invalid class declaration")
       return
     }
-
+    if(node.hasBooleanProperty("trait")) {
+      return
+    }
     def cn:CodeNode (itemAt node.children 1)
     def cBody:CodeNode (itemAt node.children 2)
     def desc:RangerAppClassDesc (ctx.findClass(cn.vref))
@@ -913,24 +938,76 @@ class RangerFlowParser {
       }
     }
   }
+
+  ; (fun:int 8)
   fn EnterLambdaMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    print "--> found a lambda method"
-    node.eval_type = RangerNodeType.Lambda
-    def args:CodeNode (itemAt node.children 2)
-    def body:CodeNode (itemAt node.children 3)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
     def subCtx:RangerAppWriterContext (ctx.fork())
-    for args.children arg@(lives):CodeNode i {
-      def v@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
-      v.name = arg.vref
-      v.node = arg
-      v.nameNode = arg
-      subCtx.defineVariable(v.name v)
-    }
+
+    ;for args.children arg@(lives):CodeNode i {
+    ;  def v@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
+    ;  v.name = arg.vref
+    ;  v.node = arg
+    ;  v.nameNode = arg
+    ;  arg.hasParamDesc = true
+    ;  arg.paramDesc = v
+    ;  subCtx.defineVariable(v.name v)
+    ;}
+    def cn:CodeNode (itemAt node.children 0)
+
+      def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
+      m.name = "lambda"
+      m.node = node
+      m.nameNode = (itemAt node.children 0)
+      subCtx.is_function = true
+      subCtx.currentMethod = m
+;      m.fnCtx = subCtx
+      if (cn.hasFlag("weak")) {
+        m.changeStrength(0 1 node)
+      } {
+        m.changeStrength(1 1 node)
+      }
+      m.fnBody = (itemAt node.children 2)
+      for args.children arg@(lives):CodeNode ii {
+        def p2@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
+        p2.name = arg.vref
+        p2.value_type = arg.value_type
+        p2.node = arg
+        p2.nameNode = arg
+        p2.refType = RangerNodeRefType.Weak
+        p2.initRefType = RangerNodeRefType.Weak
+        if (args.hasBooleanProperty("strong")) {
+          p2.refType = RangerNodeRefType.Strong
+          p2.initRefType = RangerNodeRefType.Strong
+        }
+        p2.varType = RangerContextVarType.FunctionParameter
+        push m.params p2
+        arg.hasParamDesc = true
+        arg.paramDesc = p2
+        arg.eval_type = arg.value_type
+        arg.eval_type_name = arg.type_name 
+        if (arg.hasFlag("strong")) {
+          p2.changeStrength(1 1 (unwrap p2.nameNode))
+        } {
+          arg.setFlag("lives")
+          p2.changeStrength(0 1 (unwrap p2.nameNode))
+        }           
+        ; subCtx.hadValidType(p2.nameNode)
+        subCtx.defineVariable(p2.name p2)
+      }
+
+    ; def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
+
     for body.children item:CodeNode i {
       this.WalkNode(item subCtx wr)
     }
-    print "--> EXITLAMBDA"
+    node.has_lambda = true
+    node.lambda_ctx = subCtx
+    node.eval_type = RangerNodeType.ExpressionType
+    node.eval_function = node
   }
+
   fn EnterVarDef:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (ctx.isInMethod()) {
       if ((array_length node.children) > 3) {
@@ -959,6 +1036,9 @@ class RangerFlowParser {
         p.changeStrength(1 1 node)
       }
       node.hasVarDef = true
+      if(cn.value_type == RangerNodeType.ExpressionType) {
+        print "Expression node..."
+      }
       if ((array_length node.children) > 2) {
         p.init_cnt = 1
         p.def_value = (itemAt node.children 2)
@@ -992,6 +1072,9 @@ class RangerFlowParser {
       if ((array_length node.children) > 2) {
           if( ( (strlen cn.type_name) == 0) && ( (strlen cn.array_type) == 0 ) ) {
             def nodeValue:CodeNode (itemAt node.children 2)
+            if(cn.value_type == RangerNodeType.ExpressionType) {
+              print "Expression node... evaluated type = " + nodeValue.eval_type + ", and " + nodeValue.eval_type_name
+            }            
             cn.value_type = nodeValue.eval_type
             cn.type_name = nodeValue.eval_type_name
             cn.array_type = nodeValue.eval_array_type
@@ -1130,7 +1213,7 @@ class RangerFlowParser {
       this.WriteComment(node ctx wr)
       return true
     }
-    if (node.isFirstVref("lambda")) {
+    if (node.isFirstVref("fun")) {
       this.EnterLambdaMethod(node ctx wr)
       return true
     }
@@ -1271,13 +1354,31 @@ class RangerFlowParser {
       def traitClassDef:CodeNode (itemAt point.node.children 1)
       def name:string (traitClassDef.vref)
         def t:RangerAppClassDesc (ctx.findClass(name))
+        if( (array_length t.extends_classes) > 0 ) {
+          ctx.addError( (unwrap point.node) ("Can not join class " + name + " because it is inherited. Currently on base classes can be used as traits." ))
+          continue
+        }
         if(t.has_constructor) {
           ctx.addError( (unwrap point.node) ("Can not join class " + name + " because it has a constructor function" ))
         } {
           def clBody:CodeNode (itemAt t.node.children 2)
           def origBody:CodeNode (itemAt cl.node.children 2)
           def match:RangerArgMatch (new RangerArgMatch ())
-          def copy_of_body:CodeNode (clBody.rebuildWithType(match false))      
+          def params (t.node.getExpressionProperty("params"))
+          def initParams (point.node.getExpressionProperty("params"))
+
+          if( (!null? params) && (!null? initParams) ) {
+            print "class " + cl.name + " has a valid template!!!"
+            for params.children typeName:CodeNode i {
+              print "--> trait has param " + typeName.vref
+              def pArg (itemAt initParams.children i)
+              match.add(typeName.vref pArg.vref ctx)
+            }
+          } {
+            match.add("T" cl.name ctx)
+          }
+
+          def copy_of_body:CodeNode (clBody.rebuildWithType(match true))      
           joinPoint.vref = "does"
           joinPoint.value_type = RangerNodeType.NoType
           joinPoint.expression = true
@@ -1287,6 +1388,7 @@ class RangerFlowParser {
             chCnt = chCnt - 1
           }
           ctx.setCurrentClass( cl )
+          print "==> set current class and then walking --> "  + cl.name
           for copy_of_body.children ch:CodeNode i {
             push origBody.children ch
             this.WalkCollectMethods( ch ctx wr )
@@ -1398,6 +1500,9 @@ class RangerFlowParser {
         ctx.addClass(s new_class)
         new_class.classNode = node
         new_class.node = node
+        if(node.hasBooleanProperty("trait")) {
+          new_class.is_trait = true
+        }
       }
     }
     if (node.isFirstVref("TemplateClass")) {

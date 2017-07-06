@@ -94,6 +94,9 @@ class CompilerInterface {
             continue _
           }
           def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
+          if(cl.is_trait) {
+            continue
+          }
           if(cl.is_system) {
             print "--> system class " + cl.name + ", skipping"
             continue _

@@ -98,6 +98,9 @@ class CodeNode {
   def infix_operator:boolean false
   def infix_node:CodeNode
   def infix_subnode:boolean false
+  def has_lambda:boolean false
+  def has_lambda_call:boolean false
+  def lambda_ctx:RangerAppWriterContext
   def operator_pred:int 0
   def to_the_right:boolean false
   def right_node:CodeNode
@@ -118,6 +121,7 @@ class CodeNode {
   def eval_type_name:string ""
   def eval_key_type:string ""
   def eval_array_type:string ""
+  def eval_function@(weak):CodeNode
   def flow_done:boolean false
   def ref_change_done:boolean false
   def eval_type_node:CodeNode
@@ -184,7 +188,14 @@ class CodeNode {
       newNode.type_annotation = (t_ann.rebuildWithType(match true))
     }
     for ns n:string i {
-      push newNode.ns n
+      if changeVref {
+        def new_ns (match.getTypeName(n))
+        push newNode.ns new_ns
+      } {
+        newNode.vref = vref
+        push newNode.ns n
+      }
+
     }
     switch value_type {
       case RangerNodeType.Double {
@@ -450,6 +461,11 @@ class CodeNode {
       eval_array_type = node.eval_array_type
       eval_type = RangerNodeType.Array
     }
+    if( node.value_type == RangerNodeType.ExpressionType ) {
+      eval_type = RangerNodeType.ExpressionType
+      eval_function = node.eval_function
+    }
+       
   }
   fn defineNodeTypeTo:void (node:CodeNode ctx:RangerAppWriterContext) {
     switch type_name {

@@ -26,7 +26,19 @@ language {
 
     commands {
 
-        golang_wait:void waiter:void (seconds:double ) {
+        fun   lambdaFunc:( _ ) ( args:expression fnbody:block ) {
+            templates {
+                * ( "<lambda>" )
+            }
+        }
+
+        fun   lambdaFunc:void ( fnbody:block ) {
+            templates {
+                * ( "<lambda>" )
+            }
+        }
+
+        golang_wait waiter:void (seconds:double ) {
             templates {
                 go ( "time.Sleep(time.Duration(" (e 1) " * float64(time.Second) )) " (imp "time") )
                 * ()

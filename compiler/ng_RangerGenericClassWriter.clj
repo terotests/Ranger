@@ -4,20 +4,12 @@ class RangerGenericClassWriter {
   def compiler:LiveCompiler
 
 fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-
-    ; TODO: check the encoding rules for the language...
-
     def encoded_str:string ""
     def str_length:int (strlen node.string_value)
-      
     def encoded_str:string ""
-
     def ii:int 0
-
     while (< ii str_length) {
-
       def cc:int (charAt node.string_value ii)
-
       switch cc {
         case 8 {
             encoded_str = encoded_str + (strfromcode 92 ) + (strfromcode 98 )  
@@ -48,9 +40,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       }
       ii = ii + 1
     }
-
     return encoded_str   
-
   }
 
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -228,6 +218,42 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         wr.out(";" true)
       }
     }
+  }
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fName:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    this.WriteVRef(fName ctx wr)
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.WalkNode( arg ctx wr)
+    }
+    wr.out(")" false)
+  }
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.WalkNode(arg lambdaCtx wr)
+    }
+    wr.out(")" false)
+    wr.out(" => { " true)
+    wr.indent(1)
+    wr.out("// body " true)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("}" true)
   }
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {

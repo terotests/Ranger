@@ -162,7 +162,12 @@ class RangerAppWriterContext {
     if (this.isDefinedType(node.type_name)) {
       return true
     } {
-      this.addError(node ("Unknown type: " + node.type_name))    
+      if (node.value_type == RangerNodeType.ExpressionType) {
+        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def fc:CodeNode (sec.getFirst())
+      } {
+        this.addError(node ("Unknown type: " + node.type_name + " type ID : " + node.value_type))    
+      }
     }
 ;    this.addError(node ((((("Invalid or missing type definition: " + node.type_name) + " ") + node.key_type) + " ") + node.array_type))
     return false

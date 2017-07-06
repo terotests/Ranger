@@ -130,26 +130,14 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     langWriter.writeTypeDef(node ctx wr)
   }
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    print "CreateLambdaCall was called"
+    langWriter.CreateLambdaCall(node ctx wr)
+  }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    def args:CodeNode (itemAt node.children 2)
-    def body:CodeNode (itemAt node.children 3)
-    wr.out("(" false)
-    for args.children arg:CodeNode i {
-      if (i > 0) {
-        wr.out(", " false)
-      }
-      wr.out(arg.vref false)
-    }
-    wr.out(")" false)
-    wr.out(" => { " true)
-    wr.indent(1)
-    wr.out("// body " true)
-    for body.children item:CodeNode i {
-      this.WalkNode(item ctx wr)
-    }
-    wr.newline()
-    wr.indent(-1)
-    wr.out("}" true)
+    print "CreateLambda was called"
+    langWriter.CreateLambda(node ctx wr)
+    print "CreateLambda did end"
   }
   fn getTypeString:string (str:string ctx:RangerAppWriterContext) {
     return ""
@@ -334,8 +322,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         }
         return
       }
-      if (node.isFirstVref("lambda")) {
+      if (node.has_lambda) {
         this.CreateLambda(node ctx wr)
+        return
+      }
+      if (node.has_lambda_call) {
+        this.CreateLambdaCall(node ctx wr)
         return
       }
       if ((array_length node.children) > 1) {
