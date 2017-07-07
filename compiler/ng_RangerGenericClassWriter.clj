@@ -246,7 +246,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     wr.out(")" false)
     wr.out(" => { " true)
     wr.indent(1)
-    wr.out("// body " true)
     lambdaCtx.restartExpressionLevel()
     for body.children item:CodeNode i {
       this.WalkNode(item lambdaCtx wr)

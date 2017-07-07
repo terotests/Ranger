@@ -580,6 +580,47 @@ class RangerFlowParser {
       }      
     }
   }
+
+  ; first use of "map" in the compiler...
+  fn transformParams:[CodeNode] ( list:[CodeNode] fnArgs:[RangerAppParamDesc] ctx:RangerAppWriterContext) {
+    def res:[CodeNode]
+    for list item:CodeNode i {
+      if(item.is_block_node) {
+        def newNode:CodeNode (new CodeNode ( (unwrap item.code) item.sp item.ep))
+        def fnArg:RangerAppParamDesc (itemAt fnArgs i)
+        ; arg:
+        def nn:CodeNode (fnArg.nameNode)
+        if(null? nn.expression_value) {
+          ctx.addError( item "Parameter is not lambda expression")
+          break
+        }
+        def fnDef:CodeNode (unwrap nn.expression_value)
+        def match:RangerArgMatch (new RangerArgMatch ())
+        def copyOf:CodeNode (fnDef.rebuildWithType( match false ))
+        ; example:
+        ;     fn  mapToStrings:[string] ( callback:( f:string (item:T))  ) {
+        def fc:CodeNode (itemAt copyOf.children 0)
+        fc.vref = "fun"
+        ; then add the block as the last children
+        def itemCopy:CodeNode (item.rebuildWithType (match false))
+        push copyOf.children itemCopy
+
+        def cnt:int ( array_length item.children )
+        while( cnt > 0) {
+          removeLast item.children
+          cnt = cnt - 1
+        }
+        for copyOf.children ch@(lives):CodeNode i {
+          push item.children ch
+        }
+        ;push res copyOf
+        ;continue
+      } 
+      push res item
+    }
+    return res
+  }
+
   fn cmdLocalCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fnNode@(lives):CodeNode (node.getFirst())
     def udesc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
@@ -605,7 +646,9 @@ class RangerFlowParser {
         subCtx.defineVariable(p.name p)
         this.WalkNode(fnNode subCtx wr)
         def callParams:CodeNode (itemAt node.children 1)
-        for callParams.children arg:CodeNode i {
+        def nodeList:[CodeNode] (this.transformParams( callParams.children vFnDef.params ctx))
+        for nodeList arg:CodeNode i {
+          ; expression as parameter is a lambda 
           ctx.setInExpr()
           this.WalkNode(arg subCtx wr)
           ctx.unsetInExpr()
@@ -649,6 +692,8 @@ class RangerFlowParser {
         def nn:CodeNode vFnDef.nameNode
         node.eval_type = (nn.typeNameAsType(ctx))
         node.eval_type_name = nn.type_name
+        node.eval_array_type = nn.array_type
+        node.eval_key_type = nn.key_type
 
         if(nn.hasFlag("optional")) {
           node.setFlag("optional")
@@ -735,9 +780,10 @@ class RangerFlowParser {
           ; function return value should be assigned 
           def lambdaDef (itemAt d.nameNode.expression_value.children 0)
           node.has_lambda_call = true
-
           node.eval_type = (lambdaDef.typeNameAsType(ctx))
           node.eval_type_name = lambdaDef.type_name
+          node.eval_array_type = lambdaDef.array_type
+          node.eval_key_type = lambdaDef.key_type
           return true
         })
     }
@@ -942,7 +988,7 @@ class RangerFlowParser {
   ; (fun:int 8)
   fn EnterLambdaMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def args:CodeNode (itemAt node.children 1)
-    def body:CodeNode (itemAt node.children 2)
+    def body@(lives):CodeNode (itemAt node.children 2)
     def subCtx:RangerAppWriterContext (ctx.fork())
 
     ;for args.children arg@(lives):CodeNode i {
@@ -955,7 +1001,10 @@ class RangerFlowParser {
     ;  subCtx.defineVariable(v.name v)
     ;}
     def cn:CodeNode (itemAt node.children 0)
-
+    def b_void_type false
+    if(cn.type_name == "void" || cn.eval_type_name == "void") {
+      b_void_type = true
+    }
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = "lambda"
       m.node = node
@@ -997,10 +1046,33 @@ class RangerFlowParser {
         subCtx.defineVariable(p2.name p2)
       }
 
+    def cnt:int ( array_length body.children )
     ; def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
-
     for body.children item:CodeNode i {
-      this.WalkNode(item subCtx wr)
+      if( i == (cnt - 1) && (b_void_type == false)) {
+        if( (array_length item.children ) > 0 ) {
+          def fc (itemAt item.children 0 )
+          if(fc.vref == "return") {
+            this.WalkNode(item subCtx wr)
+            break
+          }
+        } 
+        def cc:SourceCode (unwrap item.code)
+        ; then walk the node and then 
+        def newRet@(lives):CodeNode ( new CodeNode ( cc item.sp item.ep))
+        def chCopy:CodeNode (item.rebuildWithType ( (new RangerArgMatch ()) false ))
+        def newRetV:CodeNode ( new CodeNode (cc item.sp item.ep))
+        newRetV.vref = "return"
+        newRet.expression = true
+        push newRet.children newRetV
+        push newRet.children chCopy
+        removeLast body.children
+        push body.children newRet
+        newRet.parent = body
+        this.WalkNode ( newRet subCtx wr)
+      } {
+        this.WalkNode(item subCtx wr)
+      }
     }
     node.has_lambda = true
     node.lambda_ctx = subCtx
@@ -1368,9 +1440,7 @@ class RangerFlowParser {
           def initParams (point.node.getExpressionProperty("params"))
 
           if( (!null? params) && (!null? initParams) ) {
-            print "class " + cl.name + " has a valid template!!!"
             for params.children typeName:CodeNode i {
-              print "--> trait has param " + typeName.vref
               def pArg (itemAt initParams.children i)
               match.add(typeName.vref pArg.vref ctx)
             }
@@ -1388,7 +1458,6 @@ class RangerFlowParser {
             chCnt = chCnt - 1
           }
           ctx.setCurrentClass( cl )
-          print "==> set current class and then walking --> "  + cl.name
           for copy_of_body.children ch:CodeNode i {
             push origBody.children ch
             this.WalkCollectMethods( ch ctx wr )

@@ -173,16 +173,19 @@ class RangerGolangClassWriter {
 
     switch v_type {
       case RangerNodeType.ExpressionType {
-        ; f func(string) string
-
         def rv:CodeNode (itemAt node.expression_value.children 0)
         def sec:CodeNode (itemAt node.expression_value.children 1)
         def fc:CodeNode (sec.getFirst())
         wr.out("func(" false)
-        this.writeTypeDef2( fc ctx wr)
+
+        for sec.children arg:CodeNode i {
+          if( i > 0 ) {
+            wr.out(", " false)
+          }
+          this.writeTypeDef2( arg ctx wr)
+        }        
         wr.out( ") " false)
         this.writeTypeDef2( rv ctx wr)
-        ; wr.out( rv.type_name false)
       }
       case RangerNodeType.Enum {
         wr.out("int64" false)

@@ -76,6 +76,21 @@ class RangerSwift3ClassWriter {
       }
     }
     switch v_type {
+      case RangerNodeType.ExpressionType {
+        def rv:CodeNode (itemAt node.expression_value.children 0)
+        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def fc:CodeNode (sec.getFirst())
+        wr.out("(" false)
+        for sec.children arg:CodeNode i {
+          if( i > 0 ) {
+            wr.out(", " false)
+          }
+          wr.out(" _ : " , false )
+          this.writeTypeDef( arg ctx wr)
+        }
+        wr.out( ") -> " false)
+        this.writeTypeDef( rv ctx wr)
+      }      
       case RangerNodeType.Enum {
         wr.out("Int" false)
       }
@@ -282,6 +297,52 @@ class RangerSwift3ClassWriter {
       }
     }
   }
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fName:CodeNode (itemAt node.children 0)
+    def givenArgs:CodeNode (itemAt node.children 1)
+    this.WriteVRef(fName ctx wr)
+
+    def param (ctx.getVariableDef(fName.vref))
+    def args ( itemAt param.nameNode.expression_value.children 1)
+
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+        def n:CodeNode (itemAt givenArgs.children i)
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        ; wr.out((arg.vref + " : ") false)
+        this.WalkNode(n ctx wr)
+    }
+    wr.out(")" false)
+  }
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def fnNode:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    
+    wr.out("{ (" false)
+    for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        wr.out(arg.vref  false)
+        ; this.writeTypeDef(arg lambdaCtx wr)
+    }
+    wr.out(") ->  " false)
+    this.writeTypeDef(fnNode lambdaCtx wr)
+    wr.out(" in " true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("}" false)
+  }  
+  
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc

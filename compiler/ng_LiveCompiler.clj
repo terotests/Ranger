@@ -131,13 +131,10 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     langWriter.writeTypeDef(node ctx wr)
   }
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    print "CreateLambdaCall was called"
     langWriter.CreateLambdaCall(node ctx wr)
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    print "CreateLambda was called"
     langWriter.CreateLambda(node ctx wr)
-    print "CreateLambda did end"
   }
   fn getTypeString:string (str:string ctx:RangerAppWriterContext) {
     return ""
