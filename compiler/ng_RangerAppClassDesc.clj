@@ -21,6 +21,7 @@ class RangerAppClassDesc {
   def generic_params:CodeNode
   def ctx@(weak):RangerAppWriterContext
   def variables:[RangerAppParamDesc]
+  def capturedLocals@(weak):[RangerAppParamDesc]
   def methods:[RangerAppFunctionDesc]
   def defined_methods:[string:boolean]
   def static_methods:[RangerAppFunctionDesc]

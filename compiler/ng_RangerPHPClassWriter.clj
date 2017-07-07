@@ -242,6 +242,73 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       }
     }
   }
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fName:CodeNode (itemAt node.children 0)
+    def givenArgs:CodeNode (itemAt node.children 1)
+    this.WriteVRef(fName ctx wr)
+
+    def param (ctx.getVariableDef(fName.vref))
+    def args ( itemAt param.nameNode.expression_value.children 1)
+
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+        def n:CodeNode (itemAt givenArgs.children i)
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        this.WalkNode(n ctx wr)
+    }
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(");" true)
+    } {
+      wr.out(")" false)
+    }
+  }
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; maybe create a new class for certain interface types ???
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def fnNode:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+   
+    wr.out("function (" false)
+    for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        this.WalkNode(arg lambdaCtx wr)  
+    }    
+    wr.out(") " false)
+    def had_capture false
+    for lambdaCtx.captured_variables cname:string i {
+      if( i == 0 ) {
+        wr.out("use (" false)
+        had_capture = true
+      }
+      def vD (lambdaCtx.getVariableDef( cname ) )
+      ; this.WalkNode(arg lambdaCtx wr)  
+      wr.out("$" + vD.compiledName , false)
+;       wr.out( "// captured var " + cname , true)
+    }    
+    if had_capture {
+      wr.out(")" false)
+    }
+    
+    wr.out(" {" true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    for lambdaCtx.captured_variables cname:string i {
+      wr.out( "// captured var " + cname , true)
+    }
+    wr.indent(-1)
+    wr.out("}" true)
+ 
+  } 
+
   fn writeClassVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)

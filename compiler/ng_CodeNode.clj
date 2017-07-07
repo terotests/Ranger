@@ -89,6 +89,7 @@ class CodeNode {
   def sp:int 0
   def ep:int 0
   def has_operator:boolean false
+  def disabled_node:boolean false
   def op_index:int 0
   def is_system_class:boolean false
   def mutable_def:boolean false
@@ -266,7 +267,7 @@ class CodeNode {
     s = (s + (this.getVRefSignatureWithMatch(match)))
     return s
   }
-  fn buildTypeSignature:string () {
+  fn buildTypeSignature:string () {   
     switch value_type {
       case RangerNodeType.Double {
         return "double"
@@ -305,7 +306,6 @@ class CodeNode {
       return s
     }
     s = type_name
-    s = (s + (this.getVRefSignature()))
     return s
   }
 
@@ -781,7 +781,25 @@ class CodeNode {
         } {
           wr.out("false" false)
         }        
+      }    
+      case RangerNodeType.VRef {
+        wr.out(vref false)
       }      
+      case RangerNodeType.Hash {
+        wr.out(vref false)
+        wr.out(":[" + key_type + ":" + array_type + "]" , false)
+      } 
+      case RangerNodeType.Array {
+        wr.out(vref false)
+        wr.out(":[" + array_type + "]" , false)
+      } 
+    }
+    if expression {
+      wr.out("(" false)
+      for children ch:CodeNode i {
+       ch.writeCode(wr)
+      }
+      wr.out(")" false)
     }
   }
   fn getCode:string () {

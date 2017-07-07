@@ -36,6 +36,8 @@ class RangerAppWriterContext {
   def fileSystem:CodeFileSystem
   def is_function:boolean false
   def is_block:boolean false
+  def is_capturing:boolean false
+  def captured_variables:[string]
   def has_block_exited:boolean false
   def in_expression:boolean false
   def expr_stack:[boolean]
@@ -72,7 +74,53 @@ class RangerAppWriterContext {
   def todoList:[RangerAppTodo]
   def definedMacro:[string:boolean]
   def defCounts:[string:int]
-  this.Constructor()
+  fn isCapturing:boolean () {
+    if(is_capturing) {
+      return true
+    }
+    if parent {
+      return (parent.isCapturing())
+    }
+    return false
+  }
+  ; 1. isVarDefined
+  ; 2. isLocalToCapture, if false
+  ; 3. addCapturedVariable
+  fn isLocalToCapture:boolean (name:string) {
+    if( (has localVariables name) ) {
+      return true
+    }
+    ; not local, because this context is capturing
+    if(is_capturing) {
+      return false
+    }
+    if(parent) {
+      return (parent.isLocalToCapture(name))
+    }
+    return false
+  }
+  fn addCapturedVariable:void (name:string) {
+    if(is_capturing) {
+      if ( (indexOf captured_variables name) < 0 ) {
+        push captured_variables name
+      }      
+      return
+    }
+    if(parent) {
+      parent.addCapturedVariable( name )
+    }
+  }
+  fn getCapturedVariables@(weak):[string] () {
+    if(is_capturing) {
+      return captured_variables
+    }
+    if(parent) {
+      def r@(weak):[string] ( parent.getCapturedVariables() )
+      return r
+    }
+    def res:[string]
+    return res
+  }  
   fn initStdCommands:boolean () {
     if (!null? stdCommands) {
       return true

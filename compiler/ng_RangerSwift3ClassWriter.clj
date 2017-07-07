@@ -339,6 +339,11 @@ class RangerSwift3ClassWriter {
       this.WalkNode(item lambdaCtx wr)
     }
     wr.newline()
+
+    for lambdaCtx.captured_variables cname:string i {
+      wr.out( "// captured var " + cname , true)
+    }
+
     wr.indent(-1)
     wr.out("}" false)
   }  

@@ -1,7 +1,21 @@
 class RangerJava7ClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
+  
+  def signatures:[string:int]
+  def signature_cnt:int 0
+  def iface_created:[string:boolean]
 
+  fn getSignatureInterface:string (s:string) {
+    def idx@(optional) (get signatures s)
+    if(!null? idx) {
+      return ("LambdaSignature" + (unwrap idx))
+    }
+    signature_cnt = signature_cnt + 1
+    set signatures s signature_cnt
+    return ("LambdaSignature" + signature_cnt)
+    
+  }
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "this"
@@ -81,6 +95,37 @@ class RangerJava7ClassWriter {
       wr.addImport("java.util.Optional")
       wr.out("Optional<" false)
       switch v_type {
+        ; ClojureInterface1
+        case RangerNodeType.ExpressionType {
+          def sig (this.buildLambdaSignature( (unwrap node.expression_value)))
+          def iface_name (this.getSignatureInterface(sig)) 
+          wr.out( iface_name false)
+
+          if( ( has iface_created iface_name) == false ) {
+            def fnNode (itemAt node.expression_value.children 0)
+            def args (itemAt node.expression_value.children 1)
+            set iface_created iface_name true
+            def utilWr (wr.getFileWriter("." (iface_name + ".java")))
+            utilWr.out("public interface " + iface_name + " { " , true)
+            utilWr.indent(1)
+            utilWr.out("public " false)
+            this.writeTypeDef( fnNode ctx utilWr)
+            utilWr.out(" run(" false)
+            for args.children arg:CodeNode i {
+                if (i > 0) {
+                  utilWr.out(", " false)
+                }
+                this.writeTypeDef(arg ctx utilWr)
+                utilWr.out(" " false)
+                utilWr.out(arg.vref  false)
+                
+            }    
+            utilWr.out(");" true)
+            utilWr.indent(-1)
+            utilWr.out("}" true)
+          }
+
+        }
         case RangerNodeType.Enum {
           wr.out("Integer" false)
         }
@@ -120,6 +165,35 @@ class RangerJava7ClassWriter {
       }
     } {
       switch v_type {
+        case RangerNodeType.ExpressionType {
+          def sig (this.buildLambdaSignature( (unwrap node.expression_value)))
+          def iface_name (this.getSignatureInterface(sig)) 
+          wr.out( iface_name false)
+
+          if( ( has iface_created iface_name) == false ) {
+            def fnNode (itemAt node.expression_value.children 0)
+            def args (itemAt node.expression_value.children 1)
+            set iface_created iface_name true
+            def utilWr (wr.getFileWriter("." (iface_name + ".java")))
+            utilWr.out("public interface " + iface_name + " { " , true)
+            utilWr.indent(1)
+            utilWr.out("public " false)
+            this.writeTypeDef( fnNode ctx utilWr)
+            utilWr.out(" run(" false)
+            for args.children arg:CodeNode i {
+                if (i > 0) {
+                  utilWr.out(", " false)
+                }
+                this.writeTypeDef(arg ctx utilWr)
+                utilWr.out(" " false)
+                utilWr.out(arg.vref  false)
+                
+            }    
+            utilWr.out(");" true)
+            utilWr.indent(-1)
+            utilWr.out("}" true)
+          }
+        }        
         case RangerNodeType.Enum {
           wr.out("int" false)
         }
@@ -330,6 +404,109 @@ class RangerJava7ClassWriter {
     }
   }  
 
+  fn buildLambdaSignature:string (node:CodeNode) {
+      def exp node
+      def exp_s ""
+      def fc (exp.getFirst())
+      def args (exp.getSecond())
+      exp_s = exp_s + (fc.buildTypeSignature())
+      exp_s = exp_s + "("
+      for args.children arg:CodeNode i {
+        exp_s = exp_s + (arg.buildTypeSignature())
+        exp_s = exp_s + ","
+      }
+      exp_s = exp_s + ")"
+      return exp_s    
+  }
+
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fName:CodeNode (itemAt node.children 0)
+    def givenArgs:CodeNode (itemAt node.children 1)
+    this.WriteVRef(fName ctx wr)
+
+    def param (ctx.getVariableDef(fName.vref))
+    def args ( itemAt param.nameNode.expression_value.children 1)
+
+    wr.out(".run(" false)
+    for args.children arg:CodeNode i {
+        def n:CodeNode (itemAt givenArgs.children i)
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        ; wr.out((arg.vref + " : ") false)
+        this.WalkNode(n ctx wr)
+    }
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(");" true)
+    } {
+      wr.out(")" false)
+    }
+  }
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    ; maybe create a new class for certain interface types ???
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def fnNode:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+
+    def sig (this.buildLambdaSignature( node))
+    def iface_name (this.getSignatureInterface(sig)) 
+
+    if( ( has iface_created iface_name) == false ) {
+      set iface_created iface_name true
+      def utilWr (wr.getFileWriter("." (iface_name + ".java")))
+      utilWr.out("public interface " + iface_name + " { " , true)
+      utilWr.indent(1)
+      utilWr.out("public " false)
+      this.writeTypeDef( fnNode ctx utilWr)
+      utilWr.out(" run(" false)
+
+      for args.children arg:CodeNode i {
+          if (i > 0) {
+            utilWr.out(", " false)
+          }
+          this.writeTypeDef(arg lambdaCtx utilWr)
+          utilWr.out(" " false)
+          utilWr.out(arg.vref  false)
+          
+      }    
+      utilWr.out(");" true)
+      utilWr.indent(-1)
+      utilWr.out("}" true)
+    }
+    
+    wr.out("new " + iface_name + "() { " , true)
+    wr.indent(1)
+    wr.out("public " false)
+    this.writeTypeDef( fnNode ctx wr)
+    wr.out(" run(" false)
+
+    for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        this.writeTypeDef(arg lambdaCtx wr)
+        wr.out(" " false)
+        wr.out(arg.vref  false)
+        
+    }    
+    wr.out(") {" true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    for lambdaCtx.captured_variables cname:string i {
+      wr.out( "// captured var " + cname , true)
+    }
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.indent(-1)
+    wr.out("}" false)    
+  }   
+
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
@@ -344,9 +521,22 @@ class RangerJava7ClassWriter {
         }
       }
     }
-
     def wr:CodeWriter (orig_wr.getFileWriter("." (cl.name + ".java")))
     def importFork:CodeWriter (wr.fork())
+
+    for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
+      if(dd.is_class_variable == false ) {
+        wr.out("// local captured " + dd.name , true)
+        print "java captured"
+        print (dd.node.getLineAsString())
+        dd.node.disabled_node = true
+        cl.addVariable(dd)
+        def csubCtx:RangerAppWriterContext cl.ctx
+        csubCtx.defineVariable(dd.name dd)
+        dd.is_class_variable = true
+      }
+    }    
+
     wr.out("" true)
     wr.out(("class " + cl.name) false)
     def parentClass:RangerAppClassDesc  

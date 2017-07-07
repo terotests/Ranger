@@ -89,6 +89,7 @@ class RangerAppParamDesc {
   def is_mutating:boolean false
   def is_set:boolean false
   def is_class_variable:boolean false
+  def is_captured:boolean false
   def node@(weak):CodeNode
   def nameNode@(weak):CodeNode
   def description:string ""

@@ -319,7 +319,7 @@ class RangerFlowParser {
       return 
     }
     if (node.vref == (this.getThisName())) {
-      def  cd@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      def cd@(optional):RangerAppClassDesc (ctx.getCurrentClass())
       def thisClassDesc:RangerAppClassDesc cd
       node.eval_type = RangerNodeType.Object
       node.eval_type_name = thisClassDesc.name
@@ -328,6 +328,22 @@ class RangerFlowParser {
       ;node.typeClass = ts
       return
     }
+
+    if( ctx.isCapturing()) {
+      if( (ctx.isVarDefined(rootObjName)) ) {
+        if ( (ctx.isLocalToCapture(rootObjName)) == false ) {
+          ; is_captured
+          def captDef@(lives):RangerAppParamDesc (ctx.getVariableDef(rootObjName))
+          def cd@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          ; capturedLocals
+          push cd.capturedLocals captDef
+
+          captDef.is_captured = true
+          ctx.addCapturedVariable(  rootObjName) 
+        }    
+      }
+    }
+    
     if ( rootObjName == "this" || (ctx.isVarDefined(rootObjName)) ) {
       def vDef2:RangerAppParamDesc (ctx.getVariableDef(rootObjName))
       def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
@@ -580,15 +596,12 @@ class RangerFlowParser {
       }      
     }
   }
-
-  ; first use of "map" in the compiler...
   fn transformParams:[CodeNode] ( list:[CodeNode] fnArgs:[RangerAppParamDesc] ctx:RangerAppWriterContext) {
     def res:[CodeNode]
     for list item:CodeNode i {
       if(item.is_block_node) {
         def newNode:CodeNode (new CodeNode ( (unwrap item.code) item.sp item.ep))
         def fnArg:RangerAppParamDesc (itemAt fnArgs i)
-        ; arg:
         def nn:CodeNode (fnArg.nameNode)
         if(null? nn.expression_value) {
           ctx.addError( item "Parameter is not lambda expression")
@@ -604,7 +617,6 @@ class RangerFlowParser {
         ; then add the block as the last children
         def itemCopy:CodeNode (item.rebuildWithType (match false))
         push copyOf.children itemCopy
-
         def cnt:int ( array_length item.children )
         while( cnt > 0) {
           removeLast item.children
@@ -613,8 +625,6 @@ class RangerFlowParser {
         for copyOf.children ch@(lives):CodeNode i {
           push item.children ch
         }
-        ;push res copyOf
-        ;continue
       } 
       push res item
     }
@@ -991,6 +1001,8 @@ class RangerFlowParser {
     def body@(lives):CodeNode (itemAt node.children 2)
     def subCtx:RangerAppWriterContext (ctx.fork())
 
+    subCtx.is_capturing = true
+
     ;for args.children arg@(lives):CodeNode i {
     ;  def v@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
     ;  v.name = arg.vref
@@ -1078,6 +1090,10 @@ class RangerFlowParser {
     node.lambda_ctx = subCtx
     node.eval_type = RangerNodeType.ExpressionType
     node.eval_function = node
+
+    for subCtx.captured_variables cname:string i {
+      print "lambda captured variable : " + cname
+    }
   }
 
   fn EnterVarDef:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {

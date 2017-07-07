@@ -274,7 +274,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       return true
     }
     if node.hasVarDef {
-      langWriter.writeVarDef(node ctx wr)
+      if node.disabled_node {
+        wr.out("// disable variable definition from here " true)
+      } {
+        langWriter.writeVarDef(node ctx wr)
+      }
+      
       return true
     }
     if node.hasClassDescription {
