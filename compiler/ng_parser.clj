@@ -1,4 +1,8 @@
+
+Import "ng_CodeNode.clj"
+
 class RangerLispParser { 
+
   def code@(optional):SourceCode
   def buff@(optional):charbuffer
   def len:int 0
@@ -26,11 +30,7 @@ class RangerLispParser {
   fn joo:void ( cm@(lives):SourceCode) {
     def ll:int ( strlen cm.code)
   }
-  
-  fn getCode:string () {
-    return (rootNode.getCode())
-  }
-  
+    
   fn parse_raw_annotation:CodeNode () {
     def sp:int i
     def ep:int i

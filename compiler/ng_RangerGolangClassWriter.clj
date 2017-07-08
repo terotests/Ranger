@@ -514,8 +514,7 @@ class RangerGolangClassWriter {
             this.writeTypeDef( ( unwrap p.nameNode )ctx wr)
             wr.out(")" false)
           }
-        }
-        
+        }        
         if (p.isClass()) {
           had_static = true
         }
@@ -604,8 +603,8 @@ class RangerGolangClassWriter {
 
     def left:CodeNode arr_node
 
-    def len:int ( (array_length left.ns) - 1)
-    def last_part:string (itemAt left.ns len)
+    def a_len:int ( (array_length left.ns) - 1)
+    def last_part:string (itemAt left.ns a_len)
 
     def next_is_gs:boolean false
     def last_was_setter:boolean false
@@ -615,7 +614,7 @@ class RangerGolangClassWriter {
     for left.ns part:string i {
 
       if next_is_gs {
-        if( i == len) {
+        if( i == a_len) {
           wr.out(".Set_" false)
           last_was_setter = true      
         } {
@@ -881,7 +880,9 @@ class RangerGolangClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
-      this.WalkNode( arg ctx wr)
+      if(arg.value_type != RangerNodeType.NoType) {
+        this.WalkNode(arg ctx wr)
+      }    
     }
     wr.out(")" false)
   }
@@ -952,8 +953,8 @@ class RangerGolangClassWriter {
 
       if(left.hasParamDesc) {
 
-        def len:int ( (array_length left.ns) - 1)
-        def last_part:string (itemAt left.ns len)
+        def a_len:int ( (array_length left.ns) - 1)
+        def last_part:string (itemAt left.ns a_len)
 
         def next_is_gs:boolean false
         def last_was_setter:boolean false
@@ -962,7 +963,7 @@ class RangerGolangClassWriter {
         for left.ns part:string i {
 
           if next_is_gs {
-            if( i == len) {
+            if( i == a_len) {
               wr.out(".Set_" false)
               last_was_setter = true      
             } {
@@ -1191,7 +1192,7 @@ class RangerGolangClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
-        wr.out( variant.name + "(" , false)
+        wr.out( variant.compiledName + "(" , false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") " false)
         if (variant.nameNode.hasFlag("optional")) {
@@ -1312,7 +1313,7 @@ class RangerGolangClassWriter {
         continue _
       }
       wr.newline()
-      wr.out((((("func " + cl.name) + "_static_") + variant.name) + "(") false)
+      wr.out((((("func " + cl.name) + "_static_") + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(") " false)
       this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
@@ -1334,7 +1335,7 @@ class RangerGolangClassWriter {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
         set declaredFn variant.name true
-        wr.out((((("func (this *" + cl.name) + ") ") + variant.name) + " (") false)
+        wr.out((((("func (this *" + cl.name) + ") ") + variant.compiledName) + " (") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") " false)
         if (variant.nameNode.hasFlag("optional")) {
@@ -1368,7 +1369,7 @@ class RangerGolangClassWriter {
               continue
             }
 
-            wr.out((((("func (this *" + cl.name) + ") ") + variant.name) + " (") false)
+            wr.out((((("func (this *" + cl.name) + ") ") + variant.compiledName) + " (") false)
             this.writeArgsDef(variant ctx wr)
             wr.out(") " false)
             if (variant.nameNode.hasFlag("optional")) {

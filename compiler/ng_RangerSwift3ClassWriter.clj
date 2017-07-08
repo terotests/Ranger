@@ -312,7 +312,9 @@ class RangerSwift3ClassWriter {
           wr.out(", " false)
         }
         ; wr.out((arg.vref + " : ") false)
-        this.WalkNode(n ctx wr)
+        if(arg.value_type != RangerNodeType.NoType) {
+          this.WalkNode(n ctx wr)
+        }
     }
     wr.out(")" false)
   }
@@ -406,18 +408,16 @@ class RangerSwift3ClassWriter {
     }
     def declaredVariable:[string:boolean]
     def declaredFunction:[string:boolean]
-    def had_parent:boolean false
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       for cl.extends_classes pName:string i {
         def pC:RangerAppClassDesc (ctx.findClass(pName))
-        had_parent = true
         for pC.variables pvar:RangerAppParamDesc i {
           set declaredVariable pvar.name true
         }
         for pC.defined_variants fnVar:string i {
           def mVs:RangerAppMethodVariants (get pC.method_variants fnVar)
           for mVs.variants variant:RangerAppFunctionDesc i {
-            set declaredFunction variant.name true
+            set declaredFunction variant.compiledName true
           }
         }
       }
@@ -499,7 +499,7 @@ class RangerSwift3ClassWriter {
       if (variant.nameNode.hasFlag("main")) {
         continue _
       }
-      wr.out((("static func " + variant.name) + "(") false)
+      wr.out((("static func " + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(") -> " false)
       this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
@@ -519,7 +519,7 @@ class RangerSwift3ClassWriter {
         if(has declaredFunction variant.name) {
           wr.out("override " false)
         }
-        wr.out((("func " + variant.name) + "(") false)
+        wr.out((("func " + variant.compiledName) + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") -> " false)
         this.writeTypeDef( (unwrap variant.nameNode) ctx wr)

@@ -237,7 +237,7 @@ class RangerJavaScriptClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
-        wr.out((("" + variant.name) + "(") false)
+        wr.out((("" + variant.compiledName) + " (") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") {" true)
         wr.indent(1)
@@ -256,7 +256,7 @@ class RangerJavaScriptClassWriter {
       if (variant.nameNode.hasFlag("main")) {
         continue _
       } {
-        wr.out((((cl.name + ".") + variant.name) + " = function(") false)
+        wr.out((((cl.name + ".") + variant.compiledName) + " = function(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") {" true)
       }

@@ -256,7 +256,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         if (i > 0) {
           wr.out(", " false)
         }
-        this.WalkNode(n ctx wr)
+        if(arg.value_type != RangerNodeType.NoType) {
+          this.WalkNode(n ctx wr)
+        }        
     }
     if ((ctx.expressionLevel()) == 0) {
       wr.out(");" true)
@@ -438,7 +440,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         continue _
       } {
         wr.out("public static function " false)
-        wr.out((variant.name + "(") false)
+        wr.out((variant.compiledName  + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") {" true)
       }
@@ -455,7 +457,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
         wr.out("" true)
-        wr.out((("function " + variant.name) + "(") false)
+        wr.out((("function " + variant.compiledName ) + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") {" true)
         wr.indent(1)

@@ -136,6 +136,7 @@ class RangerFlowParser {
               p.node = callArg
               p.nameNode = callArg
               p.is_optional = false
+              p.init_cnt = 1
               ctx.defineVariable(p.name p)
 
               callArg.hasParamDesc = true
@@ -160,10 +161,10 @@ class RangerFlowParser {
 
             if is_macro {
               def macroNode:CodeNode ( this.buildMacro( langOper callArgs ctx ) )
-              def len:int (array_length callArgs.children)
-              while (len > 0 ) {
+              def arg_len:int (array_length callArgs.children)
+              while (arg_len > 0 ) {
                 removeLast callArgs.children
-                len = len - 1
+                arg_len = arg_len - 1
               }
               push callArgs.children macroNode
               macroNode.parent = callArgs
@@ -195,7 +196,11 @@ class RangerFlowParser {
                 } {
                   def returnedValue:CodeNode (itemAt callArgs.children 1)
                   if ((match.doesMatch( (unwrap activeFn.nameNode) returnedValue ctx)) == false) {
-                    ctx.addError(returnedValue "invalid return value type!!!")
+                    if(activeFn.nameNode.ifNoTypeSetToEvalTypeOf( returnedValue)) {
+                      ; sets the type
+                    } {
+                      ctx.addError(returnedValue "invalid return value type!!!")
+                    }
                   }
                   def argNode:CodeNode (unwrap activeFn.nameNode)
                   if( returnedValue.hasFlag("optional")) {
@@ -345,6 +350,7 @@ class RangerFlowParser {
     }
     
     if ( rootObjName == "this" || (ctx.isVarDefined(rootObjName)) ) {
+
       def vDef2:RangerAppParamDesc (ctx.getVariableDef(rootObjName))
       def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
       def vDef@(optional):RangerAppParamDesc (this.findParamDesc(node ctx wr))
@@ -504,9 +510,16 @@ class RangerFlowParser {
     print "the class collected the methods..."
   }
   fn cmdNew:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    if ((array_length node.children) < 3) {
-      ctx.addError(node "the new operator expects three arguments")
+    if ((array_length node.children) < 2) {
+      ctx.addError(node "the new operator expects at lest two arguments")
       return
+    }
+    if ((array_length node.children) < 3) {
+      def expr (new CodeNode ( (unwrap node.code) node.sp node.ep))
+      expr.expression = true
+      push node.children expr
+;      ctx.addError(node "the new operator expects at lest two arguments")
+;      return
     }
     def obj:CodeNode (node.getSecond())
     def params:CodeNode (node.getThird())
@@ -641,6 +654,15 @@ class RangerFlowParser {
       expects_error = true
     } 
     if ((array_length fnNode.ns) > 1) {
+
+      def rootName (itemAt fnNode.ns 0)
+      def vDef2 (ctx.getVariableDef(rootName))
+      if( (rootName != "this") && (vDef2.init_cnt == 0) && (vDef2.set_cnt == 0) ) {
+        if( (vDef2.is_class_variable == false ) && ( (ctx.isDefinedClass(rootName)) == false ) ) {
+          ctx.addError( node ("Call to uninitialized object " + rootName) )
+        }
+      }
+      
       def vFnDef@(optional):RangerAppFunctionDesc (this.findFunctionDesc(fnNode ctx wr))
       if (!null? vFnDef) {
         vFnDef.ref_cnt = (vFnDef.ref_cnt + 1)
@@ -789,6 +811,35 @@ class RangerFlowParser {
           }
           ; function return value should be assigned 
           def lambdaDef (itemAt d.nameNode.expression_value.children 0)
+          def lambdaArgs (itemAt d.nameNode.expression_value.children 1)
+          ; TODO: check the lambda function call arguments....
+          ;for lambdaArgs.children lArg:CodeNode i {
+          ;  lArg.defineNodeTypeTo( lArg ctx )
+          ;  if( (array_length callParams.children) <= i) {
+          ;    if (lArg.hasFlag("default")) {
+          ;      continue 
+          ;    }
+          ;    ctx.addError(node "Missing arguments for function")
+          ;    ctx.addError( lArg "NOTE: To fix the previous error: Check original function declaration which was")
+          ;    break
+          ;  }
+          ;  def argNode:CodeNode (itemAt callParams.children i)
+          ;  if (false == (this.areEqualTypes( lArg argNode ctx))) {
+          ;    ctx.addError(argNode ("ERROR, invalid argument type for lambda call "))
+          ;  }
+          ;  def pNode:CodeNode lArg
+          ;  if( pNode.hasFlag("optional")) {
+          ;    if ( false == (argNode.hasFlag("optional")) ) {
+          ;      ctx.addError(argNode ( "function parameter optionality does not match, consider making parameter optional " ) )          
+          ;    }
+          ;  }
+          ;  if( argNode.hasFlag("optional")) {
+          ;    if ( false == (pNode.hasFlag("optional")) ) {
+          ;      ctx.addError(lArg ( "function parameter optionality does not match, consider unwrapping ") )          
+          ;    }
+          ;  }
+          ;}          
+
           node.has_lambda_call = true
           node.eval_type = (lambdaDef.typeNameAsType(ctx))
           node.eval_type_name = lambdaDef.type_name
@@ -884,6 +935,7 @@ class RangerFlowParser {
     }
     def subCtx:RangerAppWriterContext (unwrap desc.ctx)
     subCtx.setCurrentClass(desc)
+    subCtx.class_level_context = true
     for desc.variables p:RangerAppParamDesc i {
       def vNode:CodeNode p.node
       if ((array_length vNode.children) > 2) {
@@ -923,11 +975,10 @@ class RangerFlowParser {
     def fnBody:CodeNode (itemAt node.children 3)
     def udesc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
     def desc:RangerAppClassDesc (unwrap udesc)   
-    
     def um@(optional):RangerAppFunctionDesc (desc.findMethod(cn.vref))
     def m:RangerAppFunctionDesc (unwrap um)
-
     def subCtx:RangerAppWriterContext (unwrap m.fnCtx)
+    subCtx.function_level_context = true
     subCtx.currentMethod = m
     for m.params v:RangerAppParamDesc i {
       v.nameNode.eval_type = (v.nameNode.typeNameAsType(subCtx))
@@ -979,6 +1030,7 @@ class RangerFlowParser {
     this.WalkNodeChildren(fnBody subCtx wr)
     subCtx.unsetInMethod()
     subCtx.in_static_method = false
+    subCtx.function_level_context = true
     if (fnBody.didReturnAtIndex == -1) {
       if (cn.type_name != "void") {
         ctx.addError(node "Function does not return any values!")
@@ -1013,10 +1065,6 @@ class RangerFlowParser {
     ;  subCtx.defineVariable(v.name v)
     ;}
     def cn:CodeNode (itemAt node.children 0)
-    def b_void_type false
-    if(cn.type_name == "void" || cn.eval_type_name == "void") {
-      b_void_type = true
-    }
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = "lambda"
       m.node = node
@@ -1060,31 +1108,17 @@ class RangerFlowParser {
 
     def cnt:int ( array_length body.children )
     ; def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
+
     for body.children item:CodeNode i {
-      if( i == (cnt - 1) && (b_void_type == false)) {
-        if( (array_length item.children ) > 0 ) {
-          def fc (itemAt item.children 0 )
-          if(fc.vref == "return") {
-            this.WalkNode(item subCtx wr)
-            break
+      this.WalkNode(item subCtx wr)
+      if( i == ( (array_length body.children ) - 1) ) {
+          if( (array_length item.children ) > 0) {
+            def fc (item.getFirst())
+            if(fc.vref != "return") {
+              cn.type_name = "void"
+            }
           }
-        } 
-        def cc:SourceCode (unwrap item.code)
-        ; then walk the node and then 
-        def newRet@(lives):CodeNode ( new CodeNode ( cc item.sp item.ep))
-        def chCopy:CodeNode (item.rebuildWithType ( (new RangerArgMatch ()) false ))
-        def newRetV:CodeNode ( new CodeNode (cc item.sp item.ep))
-        newRetV.vref = "return"
-        newRet.expression = true
-        push newRet.children newRetV
-        push newRet.children chCopy
-        removeLast body.children
-        push body.children newRet
-        newRet.parent = body
-        this.WalkNode ( newRet subCtx wr)
-      } {
-        this.WalkNode(item subCtx wr)
-      }
+      }      
     }
     node.has_lambda = true
     node.lambda_ctx = subCtx
@@ -1114,7 +1148,6 @@ class RangerFlowParser {
           cn.setFlag("optional")
         }
       }
-
       if ((strlen cn.vref) == 0) {
         ctx.addError(node "invalid variable definition")
       }
@@ -1160,8 +1193,13 @@ class RangerFlowParser {
       if ((array_length node.children) > 2) {
           if( ( (strlen cn.type_name) == 0) && ( (strlen cn.array_type) == 0 ) ) {
             def nodeValue:CodeNode (itemAt node.children 2)
-            if(cn.value_type == RangerNodeType.ExpressionType) {
-              print "Expression node... evaluated type = " + nodeValue.eval_type + ", and " + nodeValue.eval_type_name
+            if(nodeValue.eval_type == RangerNodeType.ExpressionType) {
+              if( (null? node.expression_value)) {
+                ; infer the node type 
+                def copyOf (nodeValue.rebuildWithType( (new RangerArgMatch () ) false))
+                removeLast copyOf.children
+                cn.expression_value = copyOf
+              }
             }            
             cn.value_type = nodeValue.eval_type
             cn.type_name = nodeValue.eval_type_name
@@ -1304,6 +1342,12 @@ class RangerFlowParser {
     if (node.isFirstVref("fun")) {
       this.EnterLambdaMethod(node ctx wr)
       return true
+    }
+    if (node.isFirstVref("fn")) {
+      if(ctx.isInMethod()) {
+        this.EnterLambdaMethod(node ctx wr)
+        return true
+      }
     }
     if (node.isFirstVref("Extends")) {
       return true
@@ -1615,6 +1659,11 @@ class RangerFlowParser {
       def s:string (node.getVRefAt(1))
       def vDef@(lives):CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc (new RangerAppParamDesc ())
+      
+      if( s != ((ctx.transformWord(s)))) {
+        ctx.addError( node "Can not use reserved word " + s + " as class propery")
+      }
+      ; transforming reserved words here 
       p.name = s
       p.value_type = vDef.value_type
       p.node = node
@@ -1636,8 +1685,21 @@ class RangerFlowParser {
 
       if ((array_length node.children) > 2) {
         p.set_cnt = 1
+        p.init_cnt = 1
         p.def_value = (itemAt node.children 2)
         p.is_optional = false
+        if(p.def_value.value_type == RangerNodeType.String) {
+          vDef.type_name = "string"
+        }
+        if(p.def_value.value_type == RangerNodeType.Integer) {
+          vDef.type_name = "int"
+        }
+        if(p.def_value.value_type == RangerNodeType.Double) {
+          vDef.type_name = "double"
+        }
+        if(p.def_value.value_type == RangerNodeType.Boolean) {
+          vDef.type_name = "boolean"
+        }
       } {
         p.is_optional = true
         if (false == ((vDef.value_type == RangerNodeType.Array) || (vDef.value_type == RangerNodeType.Hash))) {
@@ -1691,9 +1753,11 @@ class RangerFlowParser {
       def currC:RangerAppClassDesc ctx.currentClass
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = s
+      m.compiledName = (ctx.transformWord(s))
       m.node = node
       m.is_static = true
       m.nameNode = (itemAt node.children 1)
+      m.nameNode.ifNoTypeSetToVoid()
       def args:CodeNode (itemAt node.children 2)
       m.fnBody = (itemAt node.children 3)
       for args.children arg@(lives):CodeNode ii {
@@ -1701,6 +1765,7 @@ class RangerFlowParser {
         p.name = arg.vref
         p.value_type = arg.value_type
         p.node = arg
+        p.init_cnt = 1
         p.nameNode = arg
         p.refType = RangerNodeRefType.Weak
         p.varType = RangerContextVarType.FunctionParameter
@@ -1729,6 +1794,7 @@ class RangerFlowParser {
     if ((node.isFirstVref("PublicMethod")) || (node.isFirstVref("fn"))) {
       def cn:CodeNode (node.getSecond())
       def s:string (node.getVRefAt(1))
+      cn.ifNoTypeSetToVoid()
       def currC:RangerAppClassDesc ctx.currentClass
       if(currC.hasOwnMethod(s)) {
         ctx.addError( node "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!")
@@ -1740,6 +1806,8 @@ class RangerFlowParser {
       }      
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = s
+      m.compiledName = (ctx.transformWord(s))
+
       m.node = node
       m.nameNode = (itemAt node.children 1)
       if (node.hasBooleanProperty("strong")) {
@@ -1764,6 +1832,7 @@ class RangerFlowParser {
         p2.value_type = arg.value_type
         p2.node = arg
         p2.nameNode = arg
+        p2.init_cnt = 1
         p2.refType = RangerNodeRefType.Weak
         p2.initRefType = RangerNodeRefType.Weak
         p2.debugString = "--> collected "
@@ -1799,7 +1868,7 @@ class RangerFlowParser {
     ; serialize should be at end when all extensions have been added 
 
     if(node.hasBooleanProperty("serialize")) {
-      push serializedClasses (ctx.currentClass)
+      push serializedClasses (unwrap ctx.currentClass)
     }
 
   }

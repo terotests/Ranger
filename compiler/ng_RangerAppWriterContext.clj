@@ -28,6 +28,7 @@ class OpFindResult {
 class RangerAppWriterContext {
   def langOperators:CodeNode
   def stdCommands:CodeNode 
+  def reservedWords:CodeNode 
   def intRootCounter:int 1
   def targetLangName:string ""
   def parent:RangerAppWriterContext
@@ -35,6 +36,8 @@ class RangerAppWriterContext {
   def already_imported:[string:boolean]
   def fileSystem:CodeFileSystem
   def is_function:boolean false
+  def class_level_context:boolean false
+  def function_level_context:boolean false
   def is_block:boolean false
   def is_capturing:boolean false
   def captured_variables:[string]
@@ -74,6 +77,8 @@ class RangerAppWriterContext {
   def todoList:[RangerAppTodo]
   def definedMacro:[string:boolean]
   def defCounts:[string:int]
+  def refTransform:[string:string]
+
   fn isCapturing:boolean () {
     if(is_capturing) {
       return true
@@ -121,6 +126,43 @@ class RangerAppWriterContext {
     def res:[string]
     return res
   }  
+  fn transformWord:string (input_word:string) {
+    def root (this.getRoot())
+    root.initReservedWords()
+    if(has refTransform input_word) {
+      return (unwrap (get refTransform input_word))
+    }
+    return input_word
+  }
+  fn initReservedWords:boolean () {
+    ; reserved_word_transformations
+    if(!null? reservedWords) {
+      return true
+    }
+    def main:CodeNode langOperators
+    def lang:CodeNode
+    for main.children m:CodeNode i {
+      def fc:CodeNode (m.getFirst())
+      if (fc.vref == "language") {
+        lang = m
+      }
+    }
+    def cmds:CodeNode
+    def langNodes:CodeNode (itemAt lang.children 1)
+    for langNodes.children lch:CodeNode i {
+      def fc:CodeNode (lch.getFirst())
+      if (fc.vref == "reserved_words") {
+        def n:CodeNode (lch.getSecond())
+        reservedWords = (lch.getSecond())
+        for reservedWords.children ch:CodeNode i {
+          def word (ch.getFirst())
+          def transform (ch.getSecond())
+          set refTransform word.vref transform.vref
+        }
+      }
+    }
+    return true
+  }
   fn initStdCommands:boolean () {
     if (!null? stdCommands) {
       return true
@@ -211,8 +253,8 @@ class RangerAppWriterContext {
       return true
     } {
       if (node.value_type == RangerNodeType.ExpressionType) {
-        def sec:CodeNode (itemAt node.expression_value.children 1)
-        def fc:CodeNode (sec.getFirst())
+        ; def sec:CodeNode (itemAt node.expression_value.children 1)
+        ; def fc:CodeNode (sec.getFirst())
       } {
         this.addError(node ("Unknown type: " + node.type_name + " type ID : " + node.value_type))    
       }
@@ -484,6 +526,26 @@ class RangerAppWriterContext {
     }
     return ii
   }
+  fn getFnVarCnt3:int (name:string) {
+    def classLevel (this.findMethodLevelContext())    
+    def fnCtx:RangerAppWriterContext this
+    def ii:int 0
+    if (has fnCtx.defCounts name) {
+      ii = (unwrap (get fnCtx.defCounts name))
+      set fnCtx.defCounts name ( ii + 1)
+    } {
+      set fnCtx.defCounts name 1
+    }
+    if(classLevel.isVarDefined(name)) {
+      ii = ii + 1
+    }
+    def scope_has:boolean (this.isVarDefined((name + "_" + ii)))
+    while scope_has {
+      ii = (1 + ii)
+      scope_has = (this.isVarDefined((name + "_" + ii)))
+    }
+    return ii
+  }
   fn isMemberVariable:boolean (name:string) {
     if (this.isVarDefined(name)) {
       def vDef:RangerAppParamDesc (this.getVariableDef(name))
@@ -495,11 +557,16 @@ class RangerAppWriterContext {
   }
   fn defineVariable:void (name:string desc@(strong):RangerAppParamDesc) {
     def cnt:int 0
+    def fnLevel (this.findMethodLevelContext())
     if (false == ((desc.varType == RangerContextVarType.Property) || (desc.varType == RangerContextVarType.FunctionParameter) || (desc.varType == RangerContextVarType.Function))) {
-      cnt = (this.getFnVarCnt2(name))
+      cnt = (fnLevel.getFnVarCnt3(name))
     }
     if (0 == cnt) {
-      desc.compiledName = name
+      if (name == "len") {
+        desc.compiledName = "__len"
+      } {
+        desc.compiledName = name
+      }      
     } {
       desc.compiledName = (name + "_" + cnt)
     }
@@ -641,6 +708,30 @@ class RangerAppWriterContext {
   }
   fn unsetInMethod:void () {
     removeLast method_stack
+  }
+  fn findMethodLevelContext@(weak optional):RangerAppWriterContext () {
+    def res@(weak optional):RangerAppWriterContext
+    if function_level_context  {
+      res = this
+      return res
+    }
+    if(parent) {
+      return (parent.findMethodLevelContext())
+    }
+    res = this
+    return res
+  }
+  fn findClassLevelContext@(weak optional):RangerAppWriterContext () {
+    def res@(weak optional):RangerAppWriterContext
+    if class_level_context  {
+      res = this
+      return res
+    }
+    if(parent) {
+      return (parent.findClassLevelContext())
+    }
+    res = this
+    return res
   }
   fn fork:RangerAppWriterContext () {
     def new_ctx:RangerAppWriterContext (new RangerAppWriterContext ())

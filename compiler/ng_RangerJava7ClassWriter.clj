@@ -434,7 +434,9 @@ class RangerJava7ClassWriter {
           wr.out(", " false)
         }
         ; wr.out((arg.vref + " : ") false)
-        this.WalkNode(n ctx wr)
+        if(arg.value_type != RangerNodeType.NoType) {
+          this.WalkNode(n ctx wr)
+        }        
     }
     if ((ctx.expressionLevel()) == 0) {
       wr.out(");" true)
@@ -443,16 +445,12 @@ class RangerJava7ClassWriter {
     }
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-
-    ; maybe create a new class for certain interface types ???
     def lambdaCtx (unwrap node.lambda_ctx)
     def fnNode:CodeNode (itemAt node.children 0)
     def args:CodeNode (itemAt node.children 1)
     def body:CodeNode (itemAt node.children 2)
-
     def sig (this.buildLambdaSignature( node))
     def iface_name (this.getSignatureInterface(sig)) 
-
     if( ( has iface_created iface_name) == false ) {
       set iface_created iface_name true
       def utilWr (wr.getFileWriter("." (iface_name + ".java")))
@@ -583,7 +581,7 @@ class RangerJava7ClassWriter {
         wr.out("public static " false)
         this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
         wr.out(" " false)
-        wr.out((variant.name + "(") false)
+        wr.out((variant.compiledName  + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") {" true)
       }
@@ -603,7 +601,7 @@ class RangerJava7ClassWriter {
         wr.out("public " false)
         this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
         wr.out(" " false)
-        wr.out((variant.name + "(") false)
+        wr.out((variant.compiledName  + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") {" true)
         wr.indent(1)

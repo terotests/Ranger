@@ -23,6 +23,12 @@ language {
 
     toplevel_keywords (class systemclass Constructor fn sfn Import Extend Enum def let operators)
     annotation_keywors (weak strong lives temp)
+    
+    ; transformations for the reserved words for function names or other keywords
+    reserved_words {
+        map FnMap
+        forEach forEachItem
+    }
 
     commands {
 
@@ -972,8 +978,20 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 swift3 ( (forkctx _ ) (def 2) (def 3) nl "for ( " (swift_rc 3) " , " (e 2) " ) in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
 
-                rust ( (forkctx _ ) (def 2) (def 3) "for (" (e 3) ", " (e 2) " ) in " (e 1) ".enumerate() {" nl I (block 4) nl i "}" )              
+                rust ( (forkctx _ ) (def 2) (def 3) "for (" (e 3) ", " (e 2) " ) in " (e 1) ".enumerate() {" nl I (block 4) nl i "}" )     
 
+                ; idea of go for macro implementation, not working yet...         
+                go_idea  @macro(true) (nl 
+                "def cnt:int 0" nl
+                "def " (e 3) ":int -1" nl
+                "while (cnt < (array_length " (e 1) ")) {" nl I
+                    (e 3) " =  " (e 3) " + 1" nl
+                    " cnt =  cnt + 1" nl
+                    "def " (e 2) ":" (typeof 2) " (itemAt " (e 1) " (cnt - 1) );" nl     
+                    (block 4) nl
+                    i
+                "}" nl
+                )
                 go    (  (def 2) (def 3) "var " (e 3) " int64 = 0;  " nl "for ; " (e 3) " < int64(len(" (e 1) ")) ; " (e 3) "++ {" nl I nl (e 2) " := " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
 
                 php    ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " = 0; " (e 3) " < count(" (e 1) "); " (e 3) "++) {" nl I (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )

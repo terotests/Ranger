@@ -90,8 +90,8 @@ class RangerSerializeClass {
         wr.out("fn unserializeFromDict@(strong):" + cl.name + " (dict:DictNode) {" , true)
         wr.indent(1)
             wr.out("def obj:" + cl.name +" (new " + cl.name + "())" , true)
-            for cl.variables pvar:RangerAppParamDesc i {
-            }
+            ;for cl.variables pvar:RangerAppParamDesc i {
+            ;}
             wr.out( "return obj" true)
         wr.indent(-1)
         wr.out("}" true)
