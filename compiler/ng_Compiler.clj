@@ -107,6 +107,11 @@ class CompilerInterface {
           lcc.WalkNode( (unwrap staticMethods.classNode) appCtx (unwrap wr))
         }
 
+        for flowParser.collectedIntefaces ifDesc:RangerAppClassDesc i {
+            print "should define also interface " + ifDesc.name
+            lcc.langWriter.writeInterface( ifDesc appCtx (unwrap wr) )
+        }
+
         def import_list:[string] (wr.getImports ())
 
         if(appCtx.targetLangName == "go") {

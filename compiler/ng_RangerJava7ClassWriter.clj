@@ -299,6 +299,50 @@ class RangerJava7ClassWriter {
       wr.out((this.adjustType(part)) false)
     }
   }
+
+  fn disabledVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.hasParamDesc {
+      def nn:CodeNode (itemAt node.children 1)
+      def p:RangerAppParamDesc nn.paramDesc
+      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+        wr.out("/** unused:  " false)
+      }
+      wr.out(p.compiledName false)
+      if ((array_length node.children) > 2) {
+        wr.out(" = " false)
+        ctx.setInExpr()
+        def value:CodeNode (node.getThird())
+        this.WalkNode(value ctx wr)
+        ctx.unsetInExpr()
+      } {
+        def b_was_set:boolean false
+        if (nn.value_type == RangerNodeType.Array) {
+          wr.out(" = new " false)
+          this.writeTypeDef( (unwrap p.nameNode) ctx wr)
+          wr.out("()" false)
+          b_was_set = true
+        }
+        if (nn.value_type == RangerNodeType.Hash) {
+          wr.out(" = new " false)
+          this.writeTypeDef((unwrap p.nameNode)  ctx wr)
+          wr.out("()" false)
+          b_was_set = true
+        }
+        if ((b_was_set == false) && (nn.hasFlag("optional"))) {
+          wr.out(" = Optional.empty()" false)
+        }
+      }
+      if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
+        wr.out("     /** note: unused */" false)
+      }
+      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+        wr.out("   **/ ;" true)
+      } {
+        wr.out(";" false)
+        wr.newline()
+      }
+    }
+  }  
   fn writeVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)

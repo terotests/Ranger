@@ -231,6 +231,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       this.WalkNode( arg ctx wr)
     }
     wr.out(")" false)
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(";" true)
+    }
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def lambdaCtx (unwrap node.lambda_ctx)
@@ -307,6 +310,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.out(")" false)
     }
   }
+
+  fn writeInterface:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+  }
+  fn disabledVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+  }
+
   
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc

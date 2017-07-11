@@ -181,6 +181,12 @@ class RangerJavaScriptClassWriter {
 
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
+
+    if(cl.is_interface) {
+      orig_wr.out("// interface : " + cl.name , true)
+      return
+    }
+
     if (null? cl) {
       return
     }

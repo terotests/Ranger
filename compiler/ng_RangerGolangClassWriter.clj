@@ -252,6 +252,12 @@ class RangerGolangClassWriter {
           return
         }
 
+        def b_iface false
+        if(ctx.isDefinedClass(t_name)) {
+          def cc:RangerAppClassDesc (ctx.findClass(t_name))
+          b_iface = cc.is_interface
+        }
+
         if(ctx.isDefinedClass(t_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
           if(cc.doesInherit()) {
@@ -260,7 +266,7 @@ class RangerGolangClassWriter {
           }
         }
 
-        if ((write_raw_type == false) && ((node.isPrimitiveType()) == false)) {
+        if ((write_raw_type == false) && ((node.isPrimitiveType()) == false) && (b_iface == false)) {
           (wr.out("*" false))
         }        
 
@@ -885,6 +891,9 @@ class RangerGolangClassWriter {
       }    
     }
     wr.out(")" false)
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(";" true)
+    }
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def lambdaCtx (unwrap node.lambda_ctx)
@@ -961,7 +970,6 @@ class RangerGolangClassWriter {
         def needs_par:boolean false
 
         for left.ns part:string i {
-
           if next_is_gs {
             if( i == a_len) {
               wr.out(".Set_" false)
@@ -972,8 +980,7 @@ class RangerGolangClassWriter {
               next_is_gs = false
               last_was_setter = false
             }
-          }
-          
+          }          
           if( last_was_setter == false && needs_par == false) {
             if (i > 0) {
               if ((i == 1) && b_was_static) {
@@ -983,14 +990,11 @@ class RangerGolangClassWriter {
               }
             }
           }
-
           if (i == 0) {
-
             if(part == "this") {
               wr.out(thisName false)
               continue
             }        
-
             if (ctx.hasClass(part)) {
               b_was_static = true
             }
@@ -1102,15 +1106,12 @@ class RangerGolangClassWriter {
           ctx.unsetInExpr()
           wr.out("); "  true)
         } {
-
-          
           wr.out(" = " false)
           ctx.setInExpr()
           this.WalkNode(right ctx wr)
           ctx.unsetInExpr()
           wr.out("; " true)
         }
-
         return
         
       }
@@ -1123,7 +1124,28 @@ class RangerGolangClassWriter {
       wr.out("; /* custom */" true)
     }
   }
-  
+
+  fn writeInterface:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    wr.out((("type " + cl.name) + " interface { ") true)
+    wr.indent(1)
+    for cl.defined_variants fnVar:string i {
+      def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+      for mVs.variants variant:RangerAppFunctionDesc i {
+        wr.out( variant.compiledName + "(" , false)
+        this.writeArgsDef(variant ctx wr)
+        wr.out(") " false)
+        if (variant.nameNode.hasFlag("optional")) {
+          wr.out("*GoNullable" false)
+        } {
+          this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
+        }
+        wr.out("" true)
+      }
+    }     
+    wr.indent(-1)
+    wr.out("}" true)     
+  }
   fn writeClass:void  (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {

@@ -276,7 +276,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     }
     if node.hasVarDef {
       if node.disabled_node {
-        wr.out("// disable variable definition from here " true)
+        langWriter.disabledVarDef(node ctx wr)
       } {
         langWriter.writeVarDef(node ctx wr)
       }

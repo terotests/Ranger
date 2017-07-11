@@ -317,6 +317,9 @@ class RangerSwift3ClassWriter {
         }
     }
     wr.out(")" false)
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out("" true)
+    }    
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def lambdaCtx (unwrap node.lambda_ctx)
@@ -450,7 +453,6 @@ class RangerSwift3ClassWriter {
     wr.out( " { " true)
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
-      wr.out("// " + pvar.name , true)
       if( has declaredVariable pvar.name ) {
         wr.out("// WAS DECLARED : " + pvar.name , true)
         continue

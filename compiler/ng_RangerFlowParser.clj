@@ -22,6 +22,8 @@ class RangerFlowParser {
   def walkAlso:[CodeNode]
   def serializedClasses@(weak):[RangerAppClassDesc]
   def classesWithTraits:[ClassJoinPoint]
+  def collectedIntefaces:[RangerAppClassDesc]
+  def definedInterfaces:[string:boolean]
 
   fn cmdEnum:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fNameNode:CodeNode (itemAt node.children 1)
@@ -678,7 +680,7 @@ class RangerFlowParser {
         subCtx.defineVariable(p.name p)
         this.WalkNode(fnNode subCtx wr)
         def callParams:CodeNode (itemAt node.children 1)
-        def nodeList:[CodeNode] (this.transformParams( callParams.children vFnDef.params ctx))
+        def nodeList:[CodeNode] (this.transformParams( callParams.children vFnDef.params subCtx))
         for nodeList arg:CodeNode i {
           ; expression as parameter is a lambda 
           ctx.setInExpr()
@@ -1084,6 +1086,7 @@ class RangerFlowParser {
         p2.value_type = arg.value_type
         p2.node = arg
         p2.nameNode = arg
+        p2.init_cnt = 1
         p2.refType = RangerNodeRefType.Weak
         p2.initRefType = RangerNodeRefType.Weak
         if (args.hasBooleanProperty("strong")) {
@@ -1124,10 +1127,6 @@ class RangerFlowParser {
     node.lambda_ctx = subCtx
     node.eval_type = RangerNodeType.ExpressionType
     node.eval_function = node
-
-    for subCtx.captured_variables cname:string i {
-      print "lambda captured variable : " + cname
-    }
   }
 
   fn EnterVarDef:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1483,7 +1482,7 @@ class RangerFlowParser {
     for classesWithTraits point:ClassJoinPoint i {
       def cl:RangerAppClassDesc (unwrap point.class_def)
       def joinPoint:CodeNode (unwrap point.node)
-      def traitClassDef:CodeNode (itemAt point.node.children 1)
+      def traitClassDef@(lives):CodeNode (itemAt point.node.children 1)
       def name:string (traitClassDef.vref)
         def t:RangerAppClassDesc (ctx.findClass(name))
         if( (array_length t.extends_classes) > 0 ) {
@@ -1499,15 +1498,24 @@ class RangerFlowParser {
           def params (t.node.getExpressionProperty("params"))
           def initParams (point.node.getExpressionProperty("params"))
 
+          def iface_name:string name
+          def b_hadiface false
           if( (!null? params) && (!null? initParams) ) {
             for params.children typeName:CodeNode i {
               def pArg (itemAt initParams.children i)
               match.add(typeName.vref pArg.vref ctx)
+              print "-- trait " + name + " param " + pArg.vref
+              if( pArg.vref != iface_name ) {
+                iface_name = iface_name + pArg.vref
+              }
+            }
+            print " ==> INTERFACE name " + iface_name
+            if (iface_name != name ) {
+              b_hadiface = true
             }
           } {
             match.add("T" cl.name ctx)
           }
-
           def copy_of_body:CodeNode (clBody.rebuildWithType(match true))      
           joinPoint.vref = "does"
           joinPoint.value_type = RangerNodeType.NoType
@@ -1521,6 +1529,28 @@ class RangerFlowParser {
           for copy_of_body.children ch:CodeNode i {
             push origBody.children ch
             this.WalkCollectMethods( ch ctx wr )
+          }
+          if(b_hadiface) {
+            push cl.implements_interfaces iface_name
+          }
+          if(b_hadiface && ( false == (has definedInterfaces iface_name)) ) {
+            def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+            new_class.name = iface_name
+            ctx.setCurrentClass(new_class)
+            ; is_interface
+            ; clDesc
+            new_class.ctx = ctx
+            new_class.nameNode = traitClassDef
+            ctx.addClass(iface_name new_class)
+            new_class.classNode = point.node
+            new_class.node = point.node
+            new_class.is_interface = true
+            for copy_of_body.children ch:CodeNode i {
+              ; push origBody.children ch
+              this.WalkCollectMethods( ch ctx wr )
+            }
+            push collectedIntefaces new_class
+            set definedInterfaces iface_name true
           }
         }      
     }

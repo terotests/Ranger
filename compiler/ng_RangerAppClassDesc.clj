@@ -61,6 +61,9 @@ class RangerAppClassDesc {
     if ((indexOf consumes_traits class_name) >= 0) {
       return true
     }
+    if ((indexOf implements_interfaces class_name) >= 0) {
+      return true
+    }    
     for extends_classes c_name:string i {
       def c:RangerAppClassDesc (ctx.findClass(c_name))
       if (c.isSameOrParentClass(class_name ctx)) {
@@ -72,6 +75,13 @@ class RangerAppClassDesc {
       if (c.isSameOrParentClass(class_name ctx)) {
         return true
       }
+    }
+    for implements_interfaces i_name:string i {
+      def c:RangerAppClassDesc (ctx.findClass(i_name))
+      if (c.isSameOrParentClass(class_name ctx)) {
+        return true
+      }      
+      ; if(i_name == class_name) return true
     }
     return false
   }
