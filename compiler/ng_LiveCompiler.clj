@@ -497,7 +497,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           repeat_index = idx
           if ((array_length node.children) >= idx) {
             def cmdToRepeat@(lives):CodeNode (cmd.getThird())
-            for node.children node_ch:CodeNode i {
+            def i:int (idx)
+            while ( i < (array_length node.children)) {
               if(i >= idx) {
                 for cmdToRepeat.children cc:CodeNode ii {
                   if( (array_length cc.children ) > 0) {
@@ -517,6 +518,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
                   wr.out("," false)
                 }            
               }
+              i = i + 1
             }
           }          
         }

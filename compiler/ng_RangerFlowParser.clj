@@ -1598,7 +1598,6 @@ class RangerFlowParser {
       ctx.addClass(nameNode.vref new_class)
       new_class.is_system_union = true
       for instances.children ch:CodeNode i {
-        print "Adding " + ch.vref + " to " + new_class.name
         push new_class.is_union_of ch.vref
       }
       nameNode.clDesc = new_class
@@ -1846,7 +1845,6 @@ class RangerFlowParser {
     }
     if (node.isFirstVref("extension")) {
       def s:string (node.getVRefAt(1))
-      print ":: enters extension for " + s
       def old_class@(lives):RangerAppClassDesc (ctx.findClass(s))
       ctx.setCurrentClass( old_class )
     }
