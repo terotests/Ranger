@@ -20,6 +20,7 @@ class LiveCompiler {
   def langWriter:RangerGenericClassWriter
   def hasCreatedPolyfill:[string:boolean]
   def lastProcessedNode@(weak):CodeNode
+  def repeat_index:int 0
 
   fn initWriter:void (ctx:RangerAppWriterContext) {
     if (!null? langWriter) {
@@ -430,7 +431,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             ctx.unsetInExpr()
           }
         }       
-
         case "goset" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
@@ -440,7 +440,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             ctx.unsetInExpr()
           }
         }        
-
         case "pe" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
@@ -493,6 +492,34 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }
         }        
+        case "repeat_from" {
+          def idx:int cmdArg.int_value
+          repeat_index = idx
+          if ((array_length node.children) >= idx) {
+            def cmdToRepeat@(lives):CodeNode (cmd.getThird())
+            for node.children node_ch:CodeNode i {
+              if(i >= idx) {
+                for cmdToRepeat.children cc:CodeNode ii {
+                  if( (array_length cc.children ) > 0) {
+                    def fc (cc.getFirst())
+                    if(fc.vref == "e") {
+                      def dc (cc.getSecond())
+                      dc.int_value = i
+                    }
+                    if(fc.vref == "block") {
+                      def dc (cc.getSecond())
+                      dc.int_value = i
+                    }
+                  }
+                }
+                this.walkCommandList(cmdToRepeat node ctx wr)
+                if( (i + 1 ) < (array_length node.children)) {
+                  wr.out("," false)
+                }            
+              }
+            }
+          }          
+        }
         case "comma" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {

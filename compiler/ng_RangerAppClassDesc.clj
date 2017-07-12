@@ -15,6 +15,7 @@ class RangerAppClassDesc {
   def systemNames:[string:string]
   def systemInfo:CodeNode
   def is_interface:boolean false
+  def is_system_union:boolean false
   def is_template:boolean false
   def is_serialized:boolean false
   def is_trait:boolean false
@@ -37,6 +38,7 @@ class RangerAppClassDesc {
   def extends_classes:[string]
   def implements_interfaces:[string]
   def consumes_traits:[string]
+  def is_union_of:[string]
   def nameNode@(weak):CodeNode
   def classNode@(weak):CodeNode
   def contr_writers:[CodeWriter]
@@ -52,6 +54,14 @@ class RangerAppClassDesc {
     return is_inherited
   }  
   fn isSameOrParentClass:boolean (class_name:string ctx@(weak):RangerAppWriterContext) {
+
+    if(ctx.isPrimitiveType(class_name)) {
+      if ((indexOf is_union_of class_name) >= 0) {
+        return true
+      }    
+      return false      
+    }
+
     if (class_name == name) {
       return true
     }
@@ -62,6 +72,9 @@ class RangerAppClassDesc {
       return true
     }
     if ((indexOf implements_interfaces class_name) >= 0) {
+      return true
+    }    
+    if ((indexOf is_union_of class_name) >= 0) {
       return true
     }    
     for extends_classes c_name:string i {
@@ -81,8 +94,20 @@ class RangerAppClassDesc {
       if (c.isSameOrParentClass(class_name ctx)) {
         return true
       }      
-      ; if(i_name == class_name) return true
     }
+    for is_union_of i_name:string i {
+      if (this.isSameOrParentClass(i_name ctx)) {
+        return true
+      }
+      if (ctx.isDefinedClass(i_name)) {
+        def c:RangerAppClassDesc (ctx.findClass(i_name))
+        if (c.isSameOrParentClass(class_name ctx)) {
+          return true
+        }      
+      } {
+        print "did not find union class " + i_name
+      }
+    }    
     return false
   }
   fn hasOwnMethod:boolean (m_name:string) {

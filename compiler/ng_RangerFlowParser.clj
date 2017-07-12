@@ -116,8 +116,8 @@ class RangerFlowParser {
           ctx = (inCtx.fork())
           has_eval_ctx = true
         }       
-        if (callerArgCnt == fnArgCnt) {
-
+        def expanding_node:boolean (nameNode.hasFlag("expands"))
+        if ( (callerArgCnt == fnArgCnt) || expanding_node) {
           def details_list:CodeNode (itemAt ch.children 3)
           def langOper:CodeNode (this.findLanguageOper( details_list ctx ))
           if(null? langOper) {
@@ -129,7 +129,9 @@ class RangerFlowParser {
           }
           
           def match:RangerArgMatch (new RangerArgMatch ())
+          def last_walked:int 0
           for args.children arg:CodeNode i {
+            
             def callArg@(lives):CodeNode (itemAt callArgs.children (i + 1))
             if (arg.hasFlag("define")) {
               def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
@@ -155,10 +157,21 @@ class RangerFlowParser {
               continue _
             }
             ctx.setInExpr()
+            last_walked = (i + 1)
             this.WalkNode(callArg ctx wr)
             ctx.unsetInExpr()
           }
+          if expanding_node {
+            for callArgs.children caCh:CodeNode i2 {
+              if(i2 > last_walked) {
+                ctx.setInExpr()
+                this.WalkNode(caCh ctx wr)
+                ctx.unsetInExpr()                
+              }
+            }
+          }
           def all_matched:boolean (match.matchArguments(args callArgs ctx 1))
+
           if all_matched {
 
             if is_macro {
@@ -1361,6 +1374,9 @@ class RangerFlowParser {
     if (node.isFirstVref("systemclass")) {
       return true
     }
+    if (node.isFirstVref("systemunion")) {
+      return true
+    }
     if (node.isFirstVref("Import")) {
       this.cmdImport(node ctx wr)
       return true
@@ -1573,7 +1589,21 @@ class RangerFlowParser {
 
   fn WalkCollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def find_more:boolean true
-
+    if (node.isFirstVref("systemunion")) {
+      def nameNode@(lives):CodeNode (node.getSecond())
+      def instances:CodeNode (node.getThird())
+      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+      new_class.name = nameNode.vref
+      new_class.nameNode = nameNode
+      ctx.addClass(nameNode.vref new_class)
+      new_class.is_system_union = true
+      for instances.children ch:CodeNode i {
+        print "Adding " + ch.vref + " to " + new_class.name
+        push new_class.is_union_of ch.vref
+      }
+      nameNode.clDesc = new_class
+      return
+    }
     if (node.isFirstVref("systemclass")) {
       def nameNode@(lives):CodeNode (node.getSecond())
       def instances:CodeNode (node.getThird())

@@ -98,7 +98,9 @@ class CompilerInterface {
             continue
           }
           if(cl.is_system) {
-            print "--> system class " + cl.name + ", skipping"
+            continue _
+          }
+          if(cl.is_system_union) {
             continue _
           }
           lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))

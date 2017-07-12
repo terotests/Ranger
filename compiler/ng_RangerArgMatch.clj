@@ -4,8 +4,23 @@ class RangerArgMatch {
     def fc:CodeNode (itemAt callArgs.children 0)
     def missed_args:[string]
     def all_matched:boolean true
-    for args.children arg:CodeNode i {
-      def callArg:CodeNode (itemAt callArgs.children (i + firstArgIndex))
+    ; callArgs
+    if( (array_length args.children) == 0 && ( (array_length callArgs.children) > 1)) {
+      return false
+    }
+
+    def lastArg@(optional):CodeNode 
+    for callArgs.children callArg:CodeNode i {
+
+      if( i == 0 ) {
+        continue
+      }
+      def arg_index ( i - 1)
+      if( arg_index < (array_length args.children)) {
+        lastArg = (itemAt args.children arg_index)
+      } 
+      def arg (unwrap lastArg)
+      ; def callArg:CodeNode (itemAt callArgs.children (i + firstArgIndex))
       if (arg.hasFlag("ignore")) {
         continue _
       }
@@ -252,6 +267,14 @@ class RangerArgMatch {
         if ( c2.isSameOrParentClass (typename ctx)) {
             return true
         }
+    } {
+      ; could be union type still..
+      if(ctx.isDefinedClass(typename)) {
+        def c1:RangerAppClassDesc (ctx.findClass(typename))
+        if ( c1.isSameOrParentClass (type2 ctx)) {
+            return true
+        }        
+      }      
     }
     return (typename == type2)
   }

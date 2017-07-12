@@ -480,35 +480,14 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
         }        
         unwrap       cmdUnwrap:int        ( arg@(optional):int ) {
             templates {
-                ranger ( "( unwrap " (e 1) ")" )
-                scala ( (e 1) ".get" )
-                csharp ( (e 1) ".Value" )
-                java7 ( (e 1) ".get()" (imp "java.util.Optional") )
-                rust ( (e 1) ".unwrap()" )
-                php ( (e 1 ) )
-                kotlin ( (e 1) "!!" )
-                swift3 ( (e 1) "!" )
-                go ( (e 1) ".value.(" (typeof 1) ")" )
                 cpp ( (e 1) ".value" )
-                * ( (e 1) )
             }
         } 
         unwrap       cmdUnwrap:double        ( arg@(optional):double ) {
             templates {
-                ranger ( "( unwrap " (e 1) ")" )
-                scala ( (e 1) ".get" )
-                csharp ( (e 1) ".Value" )
-                java7 ( (e 1) ".get()" (imp "java.util.Optional") )
-                rust ( (e 1) ".unwrap()" )
-                php ( (e 1 ) )
-                kotlin ( (e 1) "!!" )
-                swift3 ( (e 1) "!" )
-                go ( (e 1) ".value.(" (typeof 1) ")" )
                 cpp ( (e 1) ".value" )
-                * ( (e 1) )
             }
         }        
-
 
         unwrap       cmdUnwrap:T        ( arg@(optional):T ) {
             templates {
@@ -840,39 +819,13 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         if              cmdIf:void              ( condition@(optional):int then_block:block )  {
             templates {
-                ranger ( "if ( " (e 1) ") ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
-                scala ( "if ( " (e 1) ".isDefined ) {" nl I (block 2) i nl "}" nl )
-                swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
-                kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
-                csharp ( "if ( " (e 1) ".HasValue) {" nl I (block 2) i nl "}" nl )
-                ; go ( "" (e 1 ) " == nil " ) 
-                ; is_some
-                php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
-                go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
                 cpp ( "if ( " (e 1) ".has_value ) {" nl I (block 2) i nl "}" nl )
-                rust ( "if " (e 1) ".is_some() {" nl I (block 2) i nl "}" nl )
-                * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" nl I (block 2) i nl "}" nl )
-
             }
         }  
 
         if              cmdIf:void              ( condition@(optional):double then_block:block )  {
             templates {
-                ranger ( "if ( " (e 1) ") ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
-                scala ( "if ( " (e 1) ".isDefined ) {" nl I (block 2) i nl "}" nl )
-                swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
-                kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
-                csharp ( "if ( " (e 1) ".HasValue) {" nl I (block 2) i nl "}" nl )
-                ; go ( "" (e 1 ) " == nil " ) 
-                ; is_some
-                php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
-                go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
                 cpp ( "if ( " (e 1) ".has_value ) {" nl I (block 2) i nl "}" nl )
-                rust ( "if " (e 1) ".is_some() {" nl I (block 2) i nl "}" nl )
-                * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" nl I (block 2) i nl "}" nl )
-
             }
         }        
 
@@ -1031,10 +984,6 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 * ( "while (" (e 1) ") {" nl I (block 2) i nl "}" )
             }
         }
-
-
-
-
         []         cmdArrayLiteral:[T] ( typeDef@(ignore):T listOf:expression ) {
             templates {
                 ranger ( "([] _:" (typeof 1) "(" (list 2) "))")
@@ -1044,6 +993,16 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 * ( "[" (comma 2) "]")
             }
         }
+        null?       cmdIsNotNull:boolean        ( arg@(optional):int ) {
+            templates {
+                cpp ((e 1) ".has_value == false")     
+            }
+        }  
+        null?       cmdIsNotNull:boolean        ( arg@(optional):double ) {
+            templates {
+                cpp ((e 1) ".has_value == false")     
+            }
+        }               
 
         null?       cmdIsNull:boolean        ( arg@(optional):T ) {
             templates {
@@ -1062,32 +1021,12 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
         }   
         !null?       cmdIsNotNull:boolean        ( arg@(optional):int ) {
             templates {
-                ranger ("(!null? " (e 1) ")")
-                php ( "(isset(" (e 1) "))")
-                scala ((e 1) ".isDefined")  
-                swift3 ((e 1) " != nil ")     
                 cpp ((e 1) ".has_value")     
-                java7 ((e 1) ".isPresent()")   
-                csharp ("!" (e 1) ".HasValue")
-                rust ((e 1) ".is_some()")     
-                kotlin ((e 1) " != null")     
-                go (  (goset 1 ) ".has_value" )
-                * ("typeof(" ( e 1 ) ") !== \"undefined\"")
             }
         }  
         !null?       cmdIsNotNull:boolean        ( arg@(optional):double ) {
             templates {
-                ranger ("(!null? " (e 1) ")")
-                php ( "(isset(" (e 1) "))")
-                scala ((e 1) ".isDefined")  
-                swift3 ((e 1) " != nil ")     
                 cpp ((e 1) ".has_value")     
-                java7 ((e 1) ".isPresent()")   
-                csharp ("!" (e 1) ".HasValue")
-                rust ((e 1) ".is_some()")     
-                kotlin ((e 1) " != null")     
-                go (  (goset 1 ) ".has_value" )
-                * ("typeof(" ( e 1 ) ") !== \"undefined\"")
             }
         }               
 
