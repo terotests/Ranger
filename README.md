@@ -13,7 +13,7 @@ The compiler is *self hosting*  which means that it has been written using the c
 on several platforms. At the moment the official platform is node.js, but it can also be run on browser or JVM or compiled
 to binary using Go target.
 
-The target languages suppoerted currently are `JavaScript`, `Java 7`, `Go`, `Swift 3`, `PHP` and To some extent C++. There is
+The supported target languages are `JavaScript`, `Java 7`, `Go`, `Swift 3`, `PHP` and To some extent C++. There is
 planned support for `C#` and `Scala` and possibility of including Kotlin is considered.
 
 The applications or modules compiled using Ranger can be integrated to various target platforms using custom operators and

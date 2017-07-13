@@ -54,11 +54,12 @@ class RangerCppClassWriter {
         return "double"
       }
     }
-
+    if(ctx.isEnumDefined(type_string)) {
+      return "int"
+    }      
     if(ctx.isDefinedClass(type_string)) {
       return "std::shared_ptr<" + type_string + ">"
     }
-
     return type_string
   }
   fn getTypeString2:string (type_string:string ctx:RangerAppWriterContext) {
@@ -82,6 +83,9 @@ class RangerCppClassWriter {
         return "double"
       }
     }
+    if(ctx.isEnumDefined(type_string)) {
+      return "int"
+    }     
     return type_string
   }
   
@@ -184,7 +188,7 @@ class RangerCppClassWriter {
         }
 
         if(node.hasFlag("optional")) {
-          wr.out("shared_ptr< vector<" false)
+          wr.out("std::shared_ptr<std::vector<" false)
           wr.out((this.getTypeString2(t_name ctx)) false)
           wr.out(">" false)
           return
@@ -345,22 +349,54 @@ class RangerCppClassWriter {
 
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    if( cmd == "return" ) {
+      if(ctx.isInMain()) {
+        wr.out("return 0;" true)
+      } {
+        wr.out("return;" true)
+      }
+      return
+    }
+
     if( cmd == "switch" ) {
       def condition:CodeNode (node.getSecond())
       def case_nodes:CodeNode (node.getThird())
       wr.newline()
+      
+
+      def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
+      p.name = "caseMatched"
+      p.value_type = RangerNodeType.Boolean
+      ctx.defineVariable(p.name p)      
+
+      wr.out("bool " + p.compiledName + " = false;" , true)
+
       for case_nodes.children ch:CodeNode i {
-        def caseValue (ch.getSecond())
-        def caseBlock (ch.getThird())
-        wr.out("if( " false)
-        this.WalkNode( condition ctx wr )
-        wr.out(" == " false)
-        this.WalkNode( caseValue ctx wr )
-        wr.out(") {" true)
-        wr.indent(1)
-        this.WalkNode( caseBlock ctx wr )
-        wr.indent(-1)
-        wr.out("}" true)
+        def blockName (ch.getFirst())
+        if (blockName.vref == "default") {
+          def defBlock (ch.getSecond())
+          wr.out("if( " false)
+          wr.out(p.compiledName false )
+          wr.out(") {" true)
+          wr.indent(1)
+          this.WalkNode( defBlock ctx wr )
+          wr.indent(-1)
+          wr.out("}" true)
+        } {
+          def caseValue (ch.getSecond())
+          def caseBlock (ch.getThird())
+          wr.out("if( " false)
+          this.WalkNode( condition ctx wr )
+          wr.out(" == " false)
+          this.WalkNode( caseValue ctx wr )
+          wr.out(") {" true)
+          wr.indent(1)
+          wr.out(p.compiledName + " = true;" , true)
+          this.WalkNode( caseBlock ctx wr )
+          wr.indent(-1)
+          wr.out("}" true)
+        }
       }
 
     }
@@ -530,7 +566,7 @@ class RangerCppClassWriter {
     def parentClass:RangerAppClassDesc
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" : " false)
-      wr.out(" public std::enable_shared_from_this<" + cl.name +  "> " , false)
+      ; wr.out(" public std::enable_shared_from_this<" + cl.name +  "> " , false)
       for cl.extends_classes pName:string i {
         wr.out("public " false)
         wr.out(pName false)
@@ -713,6 +749,7 @@ class RangerCppClassWriter {
         wr.indent(1)
         wr.newline()
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
+        subCtx.in_main = true
         subCtx.is_function = true
         this.WalkNode( (unwrap variant.fnBody ) subCtx wr)
         wr.newline()

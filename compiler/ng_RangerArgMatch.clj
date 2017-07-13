@@ -154,8 +154,8 @@ class RangerArgMatch {
     
     if ((arg.value_type != RangerNodeType.Hash) && (arg.value_type != RangerNodeType.Array)) {
       def eq:boolean (this.areEqualTypes(arg.type_name node.type_name ctx))
-      def typename:string arg.type_name
-      switch typename {
+      def t_name:string arg.type_name
+      switch t_name {
         case "expression" {
           return node.expression
         }
@@ -169,7 +169,7 @@ class RangerArgMatch {
           return (node.eval_type == RangerNodeType.VRef)
         }
         case "T.name" {
-          return (node.eval_type_name == typename)
+          return (node.eval_type_name == t_name)
         }
       }
       return eq
@@ -198,8 +198,8 @@ class RangerArgMatch {
 
     if ((arg.value_type != RangerNodeType.Hash) && (arg.value_type != RangerNodeType.Array)) {
       def eq:boolean (this.areEqualTypes(arg.type_name node.eval_type_name ctx))
-      def typename:string arg.type_name
-      switch typename {
+      def t_name:string arg.type_name
+      switch t_name {
         case "expression" {
           return node.expression
         }
@@ -213,7 +213,7 @@ class RangerArgMatch {
           return (node.eval_type == RangerNodeType.VRef)
         }
         case "T.name" {
-          return (node.eval_type_name == typename)
+          return (node.eval_type_name == t_name)
         }
       }
       return eq
@@ -230,11 +230,11 @@ class RangerArgMatch {
     return false
   }
   fn areEqualTypes:boolean (type1:string type2:string ctx:RangerAppWriterContext) {
-    def typename:string type1
+    def t_name:string type1
     if (has matched type1) {
-      typename = (unwrap (get matched type1))
+      t_name = (unwrap (get matched type1))
     }
-    switch typename {
+    switch t_name {
       case "string" {
         return (type2 == "string")
       }
@@ -258,45 +258,45 @@ class RangerArgMatch {
       }
     }
 
-    if( (ctx.isDefinedClass(typename)) && (ctx.isDefinedClass (type2))) {
-        def c1:RangerAppClassDesc (ctx.findClass(typename))
+    if( (ctx.isDefinedClass(t_name)) && (ctx.isDefinedClass (type2))) {
+        def c1:RangerAppClassDesc (ctx.findClass(t_name))
         def c2:RangerAppClassDesc (ctx.findClass(type2))
         if ( c1.isSameOrParentClass (type2 ctx)) {
             return true
         }
-        if ( c2.isSameOrParentClass (typename ctx)) {
+        if ( c2.isSameOrParentClass (t_name ctx)) {
             return true
         }
     } {
       ; could be union type still..
-      if(ctx.isDefinedClass(typename)) {
-        def c1:RangerAppClassDesc (ctx.findClass(typename))
+      if(ctx.isDefinedClass(t_name)) {
+        def c1:RangerAppClassDesc (ctx.findClass(t_name))
         if ( c1.isSameOrParentClass (type2 ctx)) {
             return true
         }        
       }      
     }
-    return (typename == type2)
+    return (t_name == type2)
   }
   fn getTypeName:string (n:string) {
-    def typename:string n
-    if (has matched typename) {
-      typename = (unwrap (get matched typename))
+    def t_name:string n
+    if (has matched t_name) {
+      t_name = (unwrap (get matched t_name))
     }
-    if (0 == (strlen typename)) {
+    if (0 == (strlen t_name)) {
       return ""
     }
-    return typename
+    return t_name
   }
   fn getType:RangerNodeType (n:string) {
-    def typename:string n
-    if (has matched typename) {
-      typename = (unwrap (get matched typename))
+    def t_name:string n
+    if (has matched t_name) {
+      t_name = (unwrap (get matched t_name))
     }
-    if (0 == (strlen typename)) {
+    if (0 == (strlen t_name)) {
       return RangerNodeType.NoType
     }
-    switch typename {
+    switch t_name {
       case "expression" {
         return RangerNodeType.Expression
       }

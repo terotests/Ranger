@@ -565,9 +565,9 @@ class RangerLispParser {
           }
         }
         def op_c:int 0
-        if (((array_length curr_node.children)) >= 0) {
+        ; if (((array_length curr_node.children)) >= 0) {
           op_c = (this.getOperator())
-        }
+        ; }
         def last_was_newline:boolean false
         if (op_c > 0 ) {
         } {

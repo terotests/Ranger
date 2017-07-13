@@ -667,6 +667,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           case "nl" {
             wr.newline()
           }
+          case "space" {
+            wr.out(" " false)
+          }
           case "I" {
             wr.indent(1)
           }

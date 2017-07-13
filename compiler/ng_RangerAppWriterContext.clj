@@ -38,6 +38,7 @@ class RangerAppWriterContext {
   def is_function:boolean false
   def class_level_context:boolean false
   def function_level_context:boolean false
+  def in_main:boolean false
   def is_block:boolean false
   def is_capturing:boolean false
   def captured_variables:[string]
@@ -694,6 +695,15 @@ class RangerAppWriterContext {
     }
     return false
   }
+  fn isInMain:boolean() {
+    if in_main {
+      return true
+    }
+    if parent {
+      return (parent.isInMain())
+    }
+    return false
+  }  
   fn isInMethod:boolean () {
     if ((array_length method_stack) > 0) {
       return true

@@ -114,7 +114,7 @@ language {
         ; Command line arguments
         shell_arg             cmdArg:string (index:int) {
             templates {
-                cpp ( "std::string(argv[" (e 1) "])")
+                cpp ( "std::string(argv[" (e 1) " + 1])")
                 php ( "$argv[" (e 1) " + 1]" )
                 java7 ( "args[" (e 1) "]")
                 go ( "os.Args[" (e 1) " + 1]"  (imp "os"))
@@ -220,7 +220,7 @@ func r_dir_exists ( dirName:String ) -> Bool {
 }
     ")                    
                 )
-                cpp ( "r_cpp_dir_exists( " (e 1) " + \"/\" + " (e 2) ")" (imp "<sys/stat.h>") (imp "<string>")
+                cpp ( "r_cpp_dir_exists( " (e 1) " )" (imp "<sys/stat.h>") (imp "<string>")
 (create_polyfill "
 bool  r_cpp_dir_exists(std::string name) 
 {
@@ -251,9 +251,9 @@ func r_dir_exists(pathName string) bool {
         create_dir          cmdCreateDir:void (path:string) {
             templates {
 
-                cpp ( "r_cpp_create_dir( " (e 1) " + \"/\" + " (e 2) ")" (imp "<sys/stat.h>") (imp "<sys/types.h>") (imp "<string>")
+                cpp ( "r_cpp_create_dir( " (e 1) " );" nl (imp "<sys/stat.h>") (imp "<sys/types.h>") (imp "<string>")
 (create_polyfill "
-std::string  r_cpp_create_dir(std::string name) 
+void  r_cpp_create_dir(std::string name) 
 {
   mkdir( name.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
 }    
@@ -568,6 +568,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         return  cmdReturn@():void          ( ) {
             templates {
+                cpp ( (custom _ ) )
                 ranger ( nl "return" nl ) 
                 * ( "return;" )
             }
@@ -637,6 +638,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     rust ( "[" (e 1) " , (" (e 2)".to_string()) ].join(\"\")" )
                     php ( (e 1) " . " (e 2) ) 
+                    cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     * ( (e 1) " + " (e 2) ) 
                 } 
             }
@@ -866,6 +868,19 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             }
         }       
 
+        case        cmdCase:void          (  condition:char case_block:block )  {
+            templates {
+                ranger ( nl "case " (e 1)" { " nl I (block 2) i nl "}" )
+                scala ( nl "case " (e 1)" => " nl I (block 2) nl i )
+                swift3 ( nl "case " (e 1)" : " nl I (block 2) nl i )
+                java7 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
+                go ( nl "case " (e 1)" : " nl I (block 2) nl i )
+                kotlin ( nl (e 1) " -> {" nl I (block 2) nl i "}" )
+                cpp ( nl "case " (e 1)" : " nl I "{" nl I (block 2) nl "break;" i nl "}" i )
+                * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
+            }
+        }         
+
         case        cmdCase:void          (  condition:int case_block:block )  {
             templates {
                 ranger ( nl "case " (e 1)" { " nl I (block 2) i nl "}" )
@@ -874,6 +889,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 java7 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
                 go ( nl "case " (e 1)" : " nl I (block 2) nl i )
                 kotlin ( nl (e 1) " -> {" nl I (block 2) nl i "}" )
+                cpp ( nl "case " (e 1)" : " nl I "{" nl I (block 2) nl "break;" i nl "}" i )
                 * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
             }
         }      
@@ -904,6 +920,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 java7 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
                 go ( nl "case " (e 1)" : " nl I (block 2) nl i )
                 kotlin ( nl (e 1) " -> {" nl I (block 2) nl i "}" )
+                cpp ( nl "case " (e 1)" : " nl I "{" nl I (block 2) nl "break;" i nl "}" i )
                 * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
             }
         }        
@@ -1055,6 +1072,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 java7 ( nl "try {" nl I (block 1) i nl "} catch( Exception e) {" nl I (block 2) i nl "}" nl )
                 go ( nl (block 1) nl )
                 swift3 ( nl "do {" nl I (block 1) i nl "} catch {" nl I (block 2) i nl "}" nl )
+                cpp ( nl "try {" nl I (block 1) i nl "} catch( ... ) {" nl I (block 2) i nl "}" nl )
                 * ( nl "try {" nl I (block 1) i nl "} catch(e) {" nl I (block 2) i nl "}" nl )
             }
         }
@@ -1099,7 +1117,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 )      
                 cpp ( (forkctx _ ) (def 2) (def 3) "for ( std::vector< " (typeof 2) ">::size_type " (e 3) " = 0; " (e 3) " != " (e 1) ".size(); " (e 3) "++) {" nl 
                             I (typeof 2) " " (e 2) " = " (e 1) ".at(" (e 3) ");" nl (block 4) nl i "}" )          
-                * ( (forkctx _ ) (def 2) (def 3) "for ( var " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
+                * ( (forkctx _ ) (def 2) (def 3) "for ( let " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
             }
         }
 
@@ -1155,6 +1173,26 @@ inline std::string  r_cpp_trim(std::string &s)
                 java7( "new ArrayList<String>(Arrays.asList(" (e 1) ".split(" (e 2) ")))" )
                 php ( "explode(" (e 2) ", " (e 1) ")")               
                 go ("strings.Split(" (e 1) ", " (e 2) ")" (imp "strings"))
+
+                cpp ( "r_str_split( " (e 1) ", " (e 2) ")"          (imp "<sstream>")
+
+(create_polyfill
+"
+std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
+    size_t first_index = 0;
+    size_t prev_index = 0;
+    std::vector<std::string> res;
+    while( std::string::npos != ( first_index = str.find_first_of( delimiter , prev_index ) )) {
+        res.push_back( str.substr( first_index, first_index - prev_index) );
+        prev_index = first_index + 1;
+    }
+    return res;
+}
+"
+)   
+
+                )
+
                 * ( (e 1) ".split(" (e 2) ")")
             }
         }
@@ -1291,7 +1329,7 @@ inline std::string  r_cpp_trim(std::string &s)
         charAt      cmdCharAt:int       ( text:string position:int ) { 
             templates {
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")
-                cpp ( (e 1) ".at( " (e 2) ")")    
+                cpp ( (e 1) ".at(" (e 2) ")")    
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( "(int)" (e 1) ".charAt(" (e 2) ")")  
@@ -1306,7 +1344,7 @@ inline std::string  r_cpp_trim(std::string &s)
         charAt      cmdCharAt:char       ( text:charbuffer position:int ) { 
             templates {
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")
-                cpp ( (e 1) "[ " (e 2) "]")    
+                cpp ( (e 1) "[" (e 2) "]")    
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( (e 1) "[" (e 2) "]")  
@@ -1357,7 +1395,8 @@ inline std::string  r_cpp_trim(std::string &s)
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
-                go ("string([] byte{byte(" (e 1) ")})")       
+                go ("string([] byte{byte(" (e 1) ")})")      
+                cpp ( "std::string(1, char(" (e 1) "))") 
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -1372,6 +1411,7 @@ inline std::string  r_cpp_trim(std::string &s)
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([] byte{byte(" (e 1) ")})")        
+                cpp ( "std::string(1, char(" (e 1) "))") 
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -1434,6 +1474,16 @@ class r_optional_primitive {
   public:
     bool has_value;
     T value;
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
 };
 "
 ) 
@@ -1489,6 +1539,16 @@ class r_optional_primitive {
   public:
     bool has_value;
     T value;
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
 };
 "
 ) 
@@ -1557,6 +1617,22 @@ static String joinStrings(ArrayList<String> list, String delimiter)
     ")                               
                 
                 )
+
+                cpp ( "join( " (e 1) " , " (e 2) ")" (imp "<sstream>") (imp "<string>") (imp "<iostream>")
+(create_polyfill "
+template <typename T>
+std::string join(const T& v, const std::string& delim) {
+    std::ostringstream s;
+    for (const auto& i : v) {
+        if (&i != &v[0]) {
+            s << delim;
+        }
+        s << i;
+    }
+    return s.str();
+}   
+    ") )  
+
                 go ( "strings.Join(" (e 1) ", " (e 2) ")")
                 scala ( (e 1) ".mkString(" (e 2) ")" )
                 php ( "implode(" (e 2) ", " (e 1) ")")
@@ -1590,6 +1666,50 @@ static String joinStrings(ArrayList<String> list, String delimiter)
                 * ( (e 1) "[" (e 2) "] != null" )
             }            
         }  
+
+        get             cmdGet@(optional weak):int          ( map:[K:int] key:K ) { 
+            templates {
+                cpp( "cpp_get_map_int_value<" (r_ktype 1) ">(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    bool has_value;
+    T value;
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+) 
+(macro
+("
+template<typename T>
+r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> m , " (typeof 2) space "  key) {
+    r_optional_primitive<int> result;
+    try {
+        result.value = m[key];
+        result.has_value = true;
+    } catch (...) {
+        
+    }
+    return result;
+}")
+) 
+
+                )
+            }
+        }
+
+         
 
         get             cmdGet@(optional weak):T          ( map:[K:T] key:K ) { 
             templates {
@@ -1647,7 +1767,7 @@ i "}" nl ))
         itemAt    cmdItemAt@(weak):T      ( array:[T] index:int ) { 
             templates {
                 ranger ( "(itemAt " (e 1) " " (e 2) ")" )
-                 cpp ( (e 1) ".at( " (e 2) ")" (imp "<vector>"))   
+                 cpp ( (e 1) ".at(" (e 2) ")" (imp "<vector>"))   
                  java7 ( (e 1) ".get(" (e 2) ")" )                                 
                  ; lift return optional type => safer                             
                  scala ( (e 1) "(" (e 2) ")" )  
@@ -1658,7 +1778,9 @@ i "}" nl ))
         indexOf    cmdIndexOf:int      ( array:[T] element:T ) { 
             templates {
                 ranger ( "(indexOf " (e 1) " " (e 2) ")")
-                 cpp ( (e 1) "std::distance( std::find( " (e 1) ".begin(), " (e 1) ".end(), " (e 2) ") )" (imp "<vector>"))   
+
+                 cpp ( "(" (e 1) ".begin() - ( std::find( " (e 1) ".begin(), " (e 1) ".end(), " (e 2) "))) " (imp "<vector>") (imp "<iterator>"))   
+                 cpp ( "std::distance( std::find( " (e 1) ".begin(), " (e 1) ".end(), " (e 2) ") )" (imp "<vector>") (imp "<iterator>"))   
                  rust ( (e 1) ".iter().position( |&r| r == " (e 2) " ).unwrap()" )   
                  php ( "array_search(" (e 2) ", " (e 1) ", true)")
                  go ( "r_indexof_arr_" (rawtype 1)  "(" (e 1) ", " (e 2) ")"
@@ -1789,6 +1911,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
             }
         }
 
+; vec.erase(vec.begin() + index);
         array_extract    cmdArrayExtract@(strong):T      ( array@(mutates):[T] position:int ) { 
             templates {
                 ranger ( "(array_extract " (e 1) " " (e 2) ")")
@@ -1802,6 +1925,18 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
 }" nl ))                  
                  
                  )
+
+                 cpp ( "r_m_arr_extract<" (typeof 1) ">(" (e 1) ", " (e 2 )")"
+
+(create_polyfill
+"template< typename T >
+auto r_m_arr_extract( T a, int i )  { 
+    auto elem = a.at(i); 
+    a.erase(a.begin() + i);
+    return elem;
+}" )                  
+                 
+                 )                 
                  kotlin ( (e 1) ".removeAt(" (e 2) ")" ) 
                  java7 ( (e 1) ".remove(" (e 2) ")" )
                  scala ( (e 1) ".remove(" (e 2) ")" )
