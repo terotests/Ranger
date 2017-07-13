@@ -265,7 +265,7 @@ fn foo:void ( callback:( fn:void (txt:string i:int)) ) {
 When giving lambda as a parameter, the formal type definition can be omitted, the named parameters are
 automatically declared to the block scope of the lambda.
 
-````
+```
 this.foo({
     print txt + " = " i
 })
