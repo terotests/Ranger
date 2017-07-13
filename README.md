@@ -256,7 +256,7 @@ if(myFilter("foo")) {
 To give declare Anonymous function as parameter of function you must include the full signature, for
 example for a callback taking `string` and `int` signature is `fn:void (txt:string i:int)`
 
-````
+```
 fn foo:void ( callback:( fn:void (txt:string i:int)) ) {
     callback("got this?" 10)
 }
