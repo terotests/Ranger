@@ -37,7 +37,9 @@ language {
                 es6 ("Math.PI")
                 go ( "math.Pi" (imp "math"))                                
                 swift3 ( "Double.pi" (imp "Foundation"))   
-                java7 ( "Math.PI" (imp "java.lang.Math"))                                
+                java7 ( "Math.PI" (imp "java.lang.Math"))         
+                php ("pi()")        
+                cpp ("M_PI" (imp "<math.h>"))               
             }
         }
 
@@ -46,27 +48,19 @@ language {
                 es6 ("Math.abs(" (e 1) ")")
                 go ( "math.Abs(" (e 1) ")" (imp "math"))                                
                 swift3 ( "abs(" (e 1) ")" (imp "Foundation"))   
-                java7 ( "Math.abs(" (e 1) ")" (imp "java.lang.Math"))                                
+                java7 ( "Math.abs(" (e 1) ")" (imp "java.lang.Math"))       
+                php ( "abs(" (e 1) ")")      
+                cpp ("fabs(" (e 1) ")" (imp "<cmath>"))                       
             }
         }
         tan tan:double ( v:double ) {
             templates {
                 es6 ("Math.tan(" (e 1) ")")
-                go ( "math.Tbs(" (e 1) ")" (imp "math"))                                
+                go ( "math.Tan(" (e 1) ")" (imp "math"))                                
                 swift3 ( "tan(" (e 1) ")" (imp "Foundation"))   
-                java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))                                
-            }
-        }
-
-        fun   lambdaFunc:( _ ) ( args:expression fnbody:block ) {
-            templates {
-                * ( "<lambda>" )
-            }
-        }
-
-        fun   lambdaFunc:void ( fnbody:block ) {
-            templates {
-                * ( "<lambda>" )
+                java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))     
+                php ( "tan(" (e 1) ")")     
+                cpp ("tan(" (e 1) ")" (imp "<math.h>"))                          
             }
         }
 
@@ -1565,7 +1559,7 @@ static String joinStrings(ArrayList<String> list, String delimiter)
                 )
                 go ( "strings.Join(" (e 1) ", " (e 2) ")")
                 scala ( (e 1) ".mkString(" (e 2) ")" )
-                php ( "join(" (e 1) ", " (e 2) ")")
+                php ( "implode(" (e 2) ", " (e 1) ")")
                 swift3 ( (e 1) ".joined(separator:" (e 2) ")")
                 * ( (e 1) ".join(" (e 2) ")" )
             }            
