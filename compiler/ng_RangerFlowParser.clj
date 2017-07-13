@@ -1401,6 +1401,10 @@ class RangerFlowParser {
       this.EnterClass(node ctx wr)
       return true
     }
+    if (node.isFirstVref("trait")) {
+      ; this.EnterClass(node ctx wr)
+      return true
+    }
     if (node.isFirstVref("PublicMethod")) {
       this.EnterMethod(node ctx wr)
       return true
@@ -1514,60 +1518,52 @@ class RangerFlowParser {
           def params (t.node.getExpressionProperty("params"))
           def initParams (point.node.getExpressionProperty("params"))
 
-          def iface_name:string name
-          def b_hadiface false
           if( (!null? params) && (!null? initParams) ) {
             for params.children typeName:CodeNode i {
               def pArg (itemAt initParams.children i)
               match.add(typeName.vref pArg.vref ctx)
-              print "-- trait " + name + " param " + pArg.vref
-              if( pArg.vref != iface_name ) {
-                iface_name = iface_name + pArg.vref
-              }
-            }
-            print " ==> INTERFACE name " + iface_name
-            if (iface_name != name ) {
-              b_hadiface = true
             }
           } {
             match.add("T" cl.name ctx)
           }
+
+          ctx.setCurrentClass( cl )          
+
+          def traitClass (ctx.findClass(traitClassDef.vref))
+          print "==> TRait " + traitClass.name
+          for traitClass.variables pvar:RangerAppParamDesc i {
+            print "---- trait variable " +pvar.name
+            def ccopy:CodeNode (pvar.node.rebuildWithType(match true))      
+            this.WalkCollectMethods( ccopy ctx wr )
+            push origBody.children ccopy
+
+;              this.writeVarInitDef(( unwrap pvar.node ) ctx wr)
+          }
+          for traitClass.defined_variants fnVar:string i {
+            def mVs:RangerAppMethodVariants (get traitClass.method_variants fnVar)
+            for mVs.variants variant:RangerAppFunctionDesc i {
+              print "---- trait method : " + variant.name
+              def ccopy:CodeNode (variant.node.rebuildWithType(match true))      
+              this.WalkCollectMethods( ccopy ctx wr )
+              push origBody.children ccopy
+            }            
+          }
+            
           def copy_of_body:CodeNode (clBody.rebuildWithType(match true))      
-          joinPoint.vref = "does"
-          joinPoint.value_type = RangerNodeType.NoType
-          joinPoint.expression = true
-          def chCnt:int (array_length joinPoint.children)
-          while( chCnt > 0 ) {
-            removeLast joinPoint.children
-            chCnt = chCnt - 1
-          }
-          ctx.setCurrentClass( cl )
-          for copy_of_body.children ch:CodeNode i {
-            push origBody.children ch
-            this.WalkCollectMethods( ch ctx wr )
-          }
-          if(b_hadiface) {
-            push cl.implements_interfaces iface_name
-          }
-          if(b_hadiface && ( false == (has definedInterfaces iface_name)) ) {
-            def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
-            new_class.name = iface_name
-            ctx.setCurrentClass(new_class)
-            ; is_interface
-            ; clDesc
-            new_class.ctx = ctx
-            new_class.nameNode = traitClassDef
-            ctx.addClass(iface_name new_class)
-            new_class.classNode = point.node
-            new_class.node = point.node
-            new_class.is_interface = true
-            for copy_of_body.children ch:CodeNode i {
-              ; push origBody.children ch
-              this.WalkCollectMethods( ch ctx wr )
-            }
-            push collectedIntefaces new_class
-            set definedInterfaces iface_name true
-          }
+          ;joinPoint.vref = "does"
+          ;joinPoint.value_type = RangerNodeType.NoType
+          ;joinPoint.expression = true
+          ;def chCnt:int (array_length joinPoint.children)
+          ;while( chCnt > 0 ) {
+          ;  removeLast joinPoint.children
+          ;  chCnt = chCnt - 1
+          ;}
+
+          ;ctx.setCurrentClass( cl )
+          ;for copy_of_body.children ch:CodeNode i {
+            ;push origBody.children ch
+           ; this.WalkCollectMethods( ch ctx wr )
+          ;}
         }      
     }
     for serializedClasses cl:RangerAppClassDesc i {
@@ -1668,6 +1664,21 @@ class RangerFlowParser {
       currC.constructor_fn = m
       find_more = false
     }
+    if (node.isFirstVref("trait")) {
+      def s:string (node.getVRefAt(1))
+      def classNameNode@(lives):CodeNode (node.getSecond())
+      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+      new_class.name = s
+      def subCtx@(lives):RangerAppWriterContext (ctx.fork())
+      ctx.setCurrentClass(new_class)
+      subCtx.setCurrentClass(new_class)
+      new_class.ctx = subCtx
+      new_class.nameNode = classNameNode
+      ctx.addClass(s new_class)
+      new_class.classNode = node
+      new_class.node = node
+      new_class.is_trait = true
+    }
     if ((node.isFirstVref("CreateClass")) || (node.isFirstVref("class"))) {
       def s:string (node.getVRefAt(1))
       def classNameNode@(lives):CodeNode (node.getSecond())
@@ -1700,7 +1711,7 @@ class RangerFlowParser {
     }
 
     if((node.isFirstVref("Extends"))) {
-
+      
       def list:CodeNode (itemAt node.children 1)
       for list.children cname:CodeNode i {
         def extC:RangerAppClassDesc (ctx.findClass(cname.vref))
@@ -1847,13 +1858,16 @@ class RangerFlowParser {
       def s:string (node.getVRefAt(1))
       def old_class@(lives):RangerAppClassDesc (ctx.findClass(s))
       ctx.setCurrentClass( old_class )
+      print "extension for " + s
     }
     
     if ((node.isFirstVref("PublicMethod")) || (node.isFirstVref("fn"))) {
       def cn:CodeNode (node.getSecond())
       def s:string (node.getVRefAt(1))
       cn.ifNoTypeSetToVoid()
+
       def currC:RangerAppClassDesc ctx.currentClass
+      print "fn " + s + "for " + currC.name
       if(currC.hasOwnMethod(s)) {
         ctx.addError( node "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!")
         return
