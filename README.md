@@ -14,7 +14,7 @@ on several platforms. At the moment the official platform is node.js, but it can
 to binary using Go target.
 
 The target languages suppoerted currently are `JavaScript`, `Java 7`, `Go`, `Swift 3`, `PHP` and To some extent C++. There is
-planned support for `C#` and `Scala` and possibility to inculde Kotlin is considered.
+planned support for `C#` and `Scala` and possibility of including Kotlin is considered.
 
 The applications or modules compiled using Ranger can be integrated to various target platforms using custom operators and
 system classes with native API's.
@@ -232,12 +232,25 @@ def usedKeywords:[string:string]
 def classMap:[string:myClass]
 ```
 
-## Arrays and Hashes
+### Operators for hashes
 
-Arrays and hashes are automatically initialized and are ready to be used after their declaration
+if we have a hashmap
 ```
-def list:[string]
-def usedKeywords:[string:string]
+  def someMap:[string:string]
+```
+Operator `set` can be used to set key/value pair
+```
+  set someMap "foo" "bar"
+```
+Operator `has` can be used to check if a key exists in the hash
+```
+    if (has someMap "a key") {
+        
+    }
+```
+Get is used to read the value associated with a key. The result is `@(optional)`
+```
+  (get someMap "foo")
 ```
 
 ## Anonymous functions / lambdas
@@ -271,35 +284,6 @@ this.foo({
 })
 ```
 
-
-# Operators for hashes
-
-## set 
-
-Set a map key to some value
-```
-  def someMap:[string:string]
-  set someMap "foo" "bar"
-```
-
-## has
-
-```
-    def hashTbl:[string:string]
-    set hashTbl "someKey" "foo"    
-    if (has hashTbl "someKey") {
-        print "did have"
-    }
-```
-
-## get
-
-Get a value associated to a key 
-```
-  def someMap:[string:string]
-  set someMap "foo" "bar"
-  def value (unwrap (get someMap "foor"))
-```
 
 
 # Automatically infixed math support 
@@ -386,7 +370,7 @@ that they may be implemented in the compiler core.
 
 # Modules, classes and operators
 
-The basic unit of the program is class. The functions of classes can not be overloaded at the moment, which meanse that you can not
+The basic unit of the program is class. The functions of classes can not be overloaded at the moment, which means that you can not
 have two functions with different parameters or different return values. 
 
 Each source file can import other files using `Import` command. 
