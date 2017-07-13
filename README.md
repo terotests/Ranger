@@ -114,6 +114,45 @@ x = y
 ```
 Instead of common lisp syntax `(= x y)`
 
+## Main function
+
+Each file can have a class with a function declared with `@(main)` annotation
+
+```   
+class Hello {
+    sfn hello@(main):void () {
+    }   
+}
+
+```
+This is a static function which marks the start of execution for the program.
+
+## Functions and Static functions
+
+```   
+class Hello {
+    fn SomeNonStaticFn () {
+    }      
+    sfn SomeStaticFn () {
+        ; static function which instantiates Hello and calls non-static
+        def o (new Hello)
+        o.SomeNonStaticFn()
+    }   
+}
+
+```
+
+Calling static function of a class can be done with
+
+```
+Hello.SomeStaticFn()
+```
+
+## Return values of functions
+
+Function not inferred or declared as `void` should always return value with `return` statement.
+
+
 ## Comments
 ```
 ; here is a comment
@@ -143,15 +182,19 @@ Basic primitive types are
 - char  
 - charbuffer
 
+Type of function returning nothing is
+- void
+
 Type which can be used as variable types, but require signature are
 - Arrays
 - Hashes
 - Anonymous functions
 
 Types which require type declaration are
-- Enums
+- Enum
 - class
 - systemclass
+- systemunion
 - trait
 
 ## String literals
@@ -196,6 +239,38 @@ Arrays and hashes are automatically initialized and are ready to be used after t
 def list:[string]
 def usedKeywords:[string:string]
 ```
+
+## Anonymous functions / lambdas
+
+Anonymous function type declaration is automatically inferred
+```
+def name "foo"
+def myFilter (fn:boolean (param:string) {
+    return (param == name)
+})
+if(myFilter("foo")) {
+    print "it was foo"
+}
+```
+
+To give declare Anonymous function as parameter of function you must include the full signature, for
+example for a callback taking `string` and `int` signature is `fn:void (txt:string i:int)`
+
+````
+fn foo:void ( callback:( fn:void (txt:string i:int)) ) {
+    callback("got this?" 10)
+}
+```
+
+When giving lambda as a parameter, the formal type definition can be omitted, the named parameters are
+automatically declared to the block scope of the lambda.
+
+````
+this.foo({
+    print txt + " = " i
+})
+```
+
 
 # Operators for hashes
 
@@ -259,18 +334,31 @@ a != b
 ```
 
 
-# The grammar file
+# Common set of Operators and the Grammar file
 
-The file `Lang.clj` is used by the compiler for the common set of operators and compilation rules.
+The file `Lang.clj` is used by the compiler for the common set of operators and compilation rules. The
+most common operators for example
 
-Reserved words section are declared in section `reserved_words`
+- to_double
+- read_file
+- array_length
+
+Are defined in this file. Using the Lang.clj -file it is quite easy to extend the language to support new operators
+or to modify the existing rules for better results, if so required. However, the Lang.clj is not ment for daily
+modifications, rather it describes common set of rules used and thus should be edited sparingly.
+
+The file has couple of sections, but the `reserved_words` and `commands`. The Reserved words section declares (surprise!)
+the reserved words and their transformation. This is required because for example in Go the word `map` is a keyword and can
+not be used unless it is conveted to some other name, for example to `FnMap`.
 ```
     reserved_words {
         map FnMap
         forEach forEachItem
     }
 ```
-The line `map FnMap` means that if possible the compiler will transform keyword `map` to keyword `fnMap`
+What the result should be is of course highly opinionated. In this example, the line `map FnMap` means that if possible the 
+compiler will transform anything named `map` to `fnMap` if possible. If transformation is not possible, compiler error is
+generated.
 
 The common operators are declared in section `commands`, which describe commands, their expected parameters
 and return values and rules on how they should be compiled into the target languages, possible imported libraries
@@ -552,7 +640,20 @@ class tester {
 
 Note: Definition of system classes will be revisited in near future and there will be potentially small changes to it.
 
+## Unions of system classes
+
+Sometimes the system class can be of union type. This means that the traget language can accept multiple types in place of 
+a single type.
+
+```
+systemunion DOMElementUnion ( DOMElement string )
+```
+The you can create operator which accepts either `DOMElement` or `string` and reduces that to a single type. 
+
+
 ## Traits
+
+Traits are like extensions, which can be plugged into several classes using `does` keyword.
 
 Traits 
 ```
@@ -562,10 +663,55 @@ trait bar {
     }
 }
 
+; foo implements "bar" trait 
 class foo {
     does bar
 }
 ```
+
+Traits are very useful when used together with custom operators, because operators can also match traits.
+
+Another useful feature of traits is their genericity. While classes can not be generic, traits can and thus
+it is possible to implement for example generic collections using generic traits.
+
+```
+trait GenericCollection @params(T S) {
+    def items:[T]
+    fn  add (item:T) {
+        push items item
+    }
+    fn  map:S ( callback:( f:T (item:T))  ) {
+        def res:S (new S ())
+        for items ch@(lives):T i {
+            def new_item@(lives):T (callback (ch))
+            res.add(new_item)
+        }
+        return res
+    }
+    ; ... TODO: add more collection functions...
+}
+
+; then create a specific "string" collection..
+class StringCollection {
+    does GenericCollection @params(string StringCollection)
+}
+
+class Main {
+    fn testCollection:void () {
+        def coll:StringCollection (new StringCollection)
+        coll.add("A")
+        coll.add("B")
+        def n (coll.map({
+            return ("item = " + item)
+        }))
+        print (join n.items " ")     
+    }
+    sfn hello@(main):void () {
+        def hello (new Main ())
+        hello.testCollection()
+    }   
+}
+``` 
 
 ## Variable definitions
 
@@ -584,6 +730,10 @@ def strObjMap:[string:someClass]    ; map of string -> object of type someClass
 # Annotations
 
 Compiler is using annotation syntax for specifying some parameters for class, trait and variable construction.
+
+## sfn someFn@(main)
+
+Static functions can be annotated to be the start point of compiled application using `@(main)` annotation.
 
 ## trait myTrait @params(...)
 
