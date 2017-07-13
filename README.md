@@ -1,60 +1,575 @@
 
 # Ranger cross language compiler
 
-```
-This is a work in progress, everything is subject to change at this point.
-```
+Status: `experimental`
 
-The goal is to have a common language which can be used to transform ideas and algorithms between different
-problem domains using easy to write and parse AST syntax form. The goal is to support eventually at least
+Ranger is a small self-hosting cross -language, cross -platform compiler to enable writing portable algorithms and applications.
+The language has type safety, classes, inheritance, operator overloading, lambda functions, generic traits, 
+class extensions, type inference and can integrate with host system API's using system classes. 
 
-- Java 7
-- swift 2 or swift 3
-- JavaScript, ES5 and ES6 
+## Host platforms and target languages
+
+The compiler is *self hosting*  which means that it has been written using the compiler itself and thus it can be hosted
+on several platforms. At the moment the official platform is node.js, but it can also be run on browser or JVM or compiled
+to binary using Go target.
+
+The target languages suppoerted currently are `JavaScript`, `Java 7`, `Go`, `Swift 3`, `PHP` and To some extent C++. There is
+planned support for `C#` and `Scala` and possibility to inculde Kotlin is considered.
+
+The applications or modules compiled using Ranger can be integrated to various target platforms using custom operators and
+system classes with native API's.
 
 ## Setup
+
+The compiler currently can compile itself at least to JavaScript, Java and Go language targets, but prebuild 
+version is available as node.js / npm module.
+
+To install the latest test version of the compiler using npm running
 
 ```
  npm install -g ranger-compiler
 ```
 
-## Hello World
+Download the language definition file into your working directory:
+https://github.com/terotests/Ranger/blob/master/compiler/Lang.clj
 
-Create file `Hello.ran`
+## Compiling a new version of the compiler
+
+Get the files from directory `https://github.com/terotests/Ranger/blob/master/compiler/`
+
+Then run command
 ```
-gitdoc "README.md" "
-# The Hello World -project
-"    
-    
+ranger-compiler ng_Compiler.clj Lang.clj es6 out compiler.js
+```
+The result will be written to directory `out/compiler.js` Then you can test the new version of the compiler running `node compiler.js`
+ 
+## Getting started with a Hello World
+
+Create file `Hello.clj`
+```   
 class Hello {
-    fn hello:void () {
+    fn sayHello:void () {
         print "Hello World"
     }
+    sfn hello@(main):void () {
+        def hello:Hello (new Hello ())
+        hello.sayHello()
+    }   
 }
 
 ```
 Then compile it using `ranger-compiler` using command line
 
 ```
-ranger-compiler Hello.ran es5 projectdir/hello none
+ranger-compiler Hello.clj Lang.clj es6 . hello.js
 ```
-NOTE; The last argument, which is here set to `none`, is for compilers internal messages used during development
 
-Then go to directory `projectdir/hello` and see the compiled result. You should see at least
+Then you can try running hello.js under node.js To compile to other languages simply change the language type
 
-- Hello.js
-- README.md
-- classdoc.md
+```
+ranger-compiler Hello.clj Lang.clj java7 . hello.java
+ranger-compiler Hello.clj Lang.clj go . hello.go
+ranger-compiler Hello.clj Lang.clj php . hello.php
+ranger-compiler Hello.clj Lang.clj swift3 . hello.swift
+```
+
+# Short notes about the syntax
+
+Ranger syntax is originally based on Lisp -language syntax and most operators will use prefix notation. However, the Ranger modifies
+the original Lisp so that inside block expression `{ ... }` there is no need to insert parenthesis which makes the language appear to
+be a bit more like standard languages. Thus you can write exressions like
+
+```
+class Hello {
+    fn sayHello:void () {
+        def x 20
+        if ( x < 10 ) {
+            print "x < 10"
+        } {
+            print "x >= 10"
+        }   
+    }
+}
+```
+
+However, when you go deeper in the expression you may have to include the parenthesis, for example when invoking object you have to write
+```
+def obj (new Hello) 
+```
+
+For most common mathematical symbols and boolean operators infix notation can be used and they are automatically converted to lisp expressions.
+Thus you can write expressions such as `(x + y * z)` instead of `(+ x (* y z))`
+
+```
+def x 100
+def y 200
+def z ( x + y * 10)    
+if ( x < 20 || y == 0 ) {
+
+}
+```
+The assigment operator is also automatically prefixed from infix notation so you can say
+```
+x = y
+```
+Instead of common lisp syntax `(= x y)`
+
+## Comments
+```
+; here is a comment
+class Hello {
+
+}
+```
+
+## Type inference and variable definition
+
+Type inference can be used to determine variable type for local variables and class properties
+
+```
+def x 100      ; inferred type = int
+def y:int 200
+def o (new myClass) ; inferred type myClass
+```
+
+## Standard types
+
+Basic primitive types are
+
+- int
+- boolean
+- string
+- double
+- char  
+- charbuffer
+
+Type which can be used as variable types, but require signature are
+- Arrays
+- Hashes
+- Anonymous functions
+
+Types which require type declaration are
+- Enums
+- class
+- systemclass
+- trait
+
+## String literals
+
+String literals are escaped using JSON escaping rules and can be multilne
+
+```
+def long_string "
+    this is
+    a multiline string
+"
+```
+
+## Enums
+
+Enums will be compiled to type `int` but are type checked by the Ranger preprosessor
+```
+Enum LineJoin (
+    Undefined
+    Miter
+    Round
+    Bevel
+)
+class foo {
+    def lineType:LineJoin LineJoin.Undefined
+}
+```
+
+## Arrays and Hashes
+
+Arrays and hashes are automatically initialized and are ready to be used after their declaration
+```
+def list:[string]
+def usedKeywords:[string:string]
+def classMap:[string:myClass]
+```
+
+## Arrays and Hashes
+
+Arrays and hashes are automatically initialized and are ready to be used after their declaration
+```
+def list:[string]
+def usedKeywords:[string:string]
+```
+
+# Operators for hashes
+
+## set 
+
+Set a map key to some value
+```
+  def someMap:[string:string]
+  set someMap "foo" "bar"
+```
+
+## has
+
+```
+    def hashTbl:[string:string]
+    set hashTbl "someKey" "foo"    
+    if (has hashTbl "someKey") {
+        print "did have"
+    }
+```
+
+## get
+
+Get a value associated to a key 
+```
+  def someMap:[string:string]
+  set someMap "foo" "bar"
+  def value (unwrap (get someMap "foor"))
+```
 
 
+# Automatically infixed math support 
+
+It is easy to define new mathetmatical operations in the Lang.clj file or in modules. However, some mathematical operations are automatically infixed
+for easier usage. Thus, instead of using common lips notation `(* 4 10)` you can use easier to read infixed `4 * 10` -syntax
+
+## Boolean logic operators
+
+```
+a && b
+a || b
+```
+
+## Math operators
+
+```
+a * b
+a / b
+a - b
+a + b
+```
+
+## Logical comparisions
+
+```
+a < b
+a <= b
+a > b
+a >= b
+a != b
+```
 
 
+# The grammar file
 
-# The Syntax
+The file `Lang.clj` is used by the compiler for the common set of operators and compilation rules.
+
+Reserved words section are declared in section `reserved_words`
+```
+    reserved_words {
+        map FnMap
+        forEach forEachItem
+    }
+```
+The line `map FnMap` means that if possible the compiler will transform keyword `map` to keyword `fnMap`
+
+The common operators are declared in section `commands`, which describe commands, their expected parameters
+and return values and rules on how they should be compiled into the target languages, possible imported libraries
+and possible macros or helper function which should be created if the operator is used.
+
+Example of simple operator is `(M_PI)` which will return double value of mathematical symbol "pi".
+```
+    commands {
+        M_PI mathPi:double () {
+            templates {
+                es6 ("Math.PI")
+                go ( "math.Pi" (imp "math"))                                
+                swift3 ( "Double.pi" (imp "Foundation"))   
+                java7 ( "Math.PI" (imp "java.lang.Math"))         
+                php ("pi()")        
+                cpp ("M_PI" (imp "<math.h>"))               
+            }
+        }
+        ...
+```
+
+Most operators are simple, but some require creating custom macros, helpoer functions and some of them are so complex
+that they may be implemented in the compiler core.
+
+
+# Modules, classes and operators
+
+The basic unit of the program is class. The functions of classes can not be overloaded at the moment, which meanse that you can not
+have two functions with different parameters or different return values. 
+
+Each source file can import other files using `Import` command. 
+``` 
+Import "Vec2.clj"  
+
+class vectorTest {
+    fn testVectors () {
+        def v (new Vec2 ( 5 4 ))
+    }
+}
+```
+
+## Class declaration
+
+``` 
+class fatherClass {
+    def msg "Hello "
+    fn foo:string ( txt:string ) {
+        return (msg + txt)
+    }
+}
+class childClass {
+    Extends( fatherClass )
+}
+class mainProgram {
+    sfn m@(main) {
+        ; invoke the class
+        def cc (new childClass)
+        cc.foo("World!")
+    }
+}
+
+```
+
+## Class constructor
+
+``` 
+class myClass {
+    def name:string ""
+    Constructor (n:string) {
+        name = s
+    }
+}
+```
+
+Notes:
+1. currently only a single variant of the constructor is possible. 
+2. as of this writing calling the parent class constructor does not work properly
+
+## Class invocation
+```
+def obj (new myClass ("name"))
+```
+classes without constructor can be invocated without arguments
+
+```
+def obj (new simpleClass)
+```
+
+## Creating a class extension
+
+Class extensions are useful for keeping classes simple and moving dependencies to external Modules
+which can extend the classes.
+
+Extension can
+
+- add new functions to the class
+- add new member variables to the class
+
+``` 
+extension childClass {
+    def name:string ""
+    fn bar:string ( txt:string ) {
+        return ("Hello from exteision: " + txt)
+    }
+}
+```
+
+## Optional variables
+
+In several target languages so called "optional" type can be used. In Ranger Option -type can be used as function or operator
+return value and as filter to opertors. To use optional variable directly it should be first unwrapped. Also, trying to unwrap
+non-nullable value should cause compiler error. In Ranger any variable which is declared not given value is considered optional.
+This corresponds to Swift `?` optional type.
+
+You can also declare variables optional using @optional annotation
+```
+    def item@(optional):myClass
+```
+
+Some operators also return optional values, for example `(get <hash> <key>)` operator is returning always optional value. To use
+the value you must use `(unwrap <value>)` operator
+```
+    def strMap:[string:string]
+    def str (get strMap "myKey")
+    if(!null? str) {
+        print (unwrap str)
+    }
+``` 
+
+**Warning***  currently optinal variables in Ranger are not "safe" in the sense the language makes sure that you can not make 
+programming errors - it is possible to create programming mistake by using a variable which automatically unwrapped. The plan
+is to try to make them safer in the future, and options are considered how to enable them 
+
+Another warning: Ranger does not protect you from mistakes when automatically unwrapping long reference chains like
+`obj.property.subProperty.foo` where `property` and `subProperty ` are optional variables. 
+
+## Control flow
+
+### if
+
+If statement is quite similar to other language, but `then` and `else` keywords are not used
+
+```
+def x 100
+if ( x < 10 ) {
+    ; then branch
+} {
+    ; else branch
+}
+```
+
+### switch - case 
+
+Note: currently case statement does not support multiple matching values, it is planned to add support for that later.
+
+```
+def name "John"
+switch name {
+    case "John" {
+
+    }
+    case "Flat Eric" {
+
+    }
+    default {
+
+    }
+}
+```
+
+## Loops
+
+### for -loop
+```
+def list:[string]
+for list s:string i {
+    print s
+}
+```
+You can use `break` and `continue` to control the for -loop.
+
+### while -loop
+```
+def cnt 10
+while (cnt > 0 ) {
+    print "round " + cnt
+}
+```
+
+You can use `break` and `continue` to control the while -loop.
+
+## Custom operators
+
+One of the most important features or Ranger is the ability to create custom operators which can target some specific language or all languages
+using macros. Together with `systemclass` they allow the system to integrate to target environment or to create new abstraction over existing
+native API's.
+
+Operators allow type matching against
+- defined primitive types
+- defined classes
+- Enums
+- optionality
+- traits
+
+Operators can be writing directly target language construct or they can be macros, which write code in Ranger and the compiler will then
+transform the resulting AST tree into the target language's code using the conventions of target language. Which is better depends on the
+situation, for example operators for system classes usually are written directly to the traget language while operators which are using
+Ranger's own classes or datatypes are usually better to write with macros.
+
+Simple example of useful macro is Matrix and Vector multiplication. Let's say that you have defined a Matrix class and
+want to overload the `*` -operator for easy matrix multiplication.
+
+```
+class Mat2 {
+  def m0 1.0
+  def m1 0.0
+  def m2 0.0
+  def m3 1.0
+  def m4 0.0
+  def m5 0.0
+  fn multiply:Mat2 ( b:Mat2 ) {
+      def t0 (m0*b.m0 + m1 * b.m2)
+      def t2 (m2*b.m0 + m3 * b.m2)
+      def t4 (m4*b.m0 + m5 * b.m2 + b.m4)
+
+      def res (new Mat2)
+      res.m1 = (m0 * b.m1 + m1 * b.m3)
+      res.m3 = (m2 * b.m1 + m3 * b.m3)
+      res.m5 = (m4 * b.m1 + m5 * b.m3 + b.m5)
+      res.m0 = t0
+      res.m2 = t2
+      res.m4 = t4
+      return res
+  }
+}
+operators {
+    *  base:Mat2 ( a:Mat2 b:Mat2) {
+        templates {
+            * @macro(true) ( (e 1 ) ".multiply(" (e 2) " )" )
+        }        
+    }
+}
+
+```
+The `* @macro(true)` means that we target all languages and this is a macro, not actual target language construct.
+
+
+## Custom operators and System classes
+
+To integrate with the target languages running environment,  Ranger modules can declare `systemclass` which can be used
+together with the code.
+
+```
+systemclass DOMElement {
+    es6 DOMElement
+}
+
+operators {
+    find  base:DOMElement ( id:string) {
+        templates {
+            es6 ("document.getElementById( " (e 1) " )")
+        }        
+    }
+    setAttribute  _:void ( elem:DOMElement name:string value:string) {
+        templates {
+            es6 ( (e 1) ".setAttribute(" (e 2) ", " (e 3) ")" )
+        }        
+    }
+}
+
+class tester {
+    fn modifyDom () {
+        def e (find "#someelem")
+        setAttribute( e "className", "activeElement")
+    }
+}
+```
+
+
+Note: Definition of system classes will be revisited in near future and there will be potentially small changes to it.
+
+## Traits
+
+Traits 
+```
+trait bar {
+    fn hello() {
+        print "Hello"
+    }
+}
+
+class foo {
+    does bar
+}
+```
 
 ## Variable definitions
 
-Values can be defined using `def` or `let` keyword.
+Values can be defined using `def` keyword.
 
 ```
 def x:double
@@ -66,909 +581,54 @@ def strObjMap:[string:someClass]    ; map of string -> object of type someClass
 ```
 
 
-## Annotaatiot
+# Annotations
 
-Annotaatiot ovat kääntäjälle tarkoitettua metatietoa, jota käytetään esimerkiksi paremetrien
-vahvuuden (strong, weak) tai genericsien määrittelemiseen. Annotaatioiden perusidea on mahdollistaa
-syntaksin laajentaminen tulevaisuudessa.
+Compiler is using annotation syntax for specifying some parameters for class, trait and variable construction.
 
-Ranger laajentaa Lispin syntaksiin kolme erityyppistä annotaatiota:
- - expression -annotaatiot
- - referenssi -annotaatiot
- - type -annotaatiot
+## trait myTrait @params(...)
 
-Expression annotaatio sijoitetaan S-expressionin sisällä erillisenä elementtinä
-```
-(
-    @todo("muista lisätä tuki Option tyyppisille arvoille") ; expression annotation
-)
-```
-
-Referenssiin (tai tokeniin) liittyvä annotaatio kirjoitetaan suoraan kiinni tokeniin johon se liittyy
-```
-(CreateC)lass myClass@(T) ; <-- referenssi annotaatio
-(PublicMethod foobar:void (myObj@(strong optional)) ; <-- referenssi annotaatio 
-```
-
-Tyyppi-annotaatio tulee osaksi Array tai Map tyyppiä.
-
-```
-def classList:myClass@(T) ; <-- @(T) on type annotaatio referenssille classList
-```
-
-Jokainen annotaatio on uusi S-expression tyyppiä `CodeNode` ja sijoitetaan luokan CodeNode propertyksi.
-
-Luokassa CodeNode referenssiannotaatio sijoitetaan propertyyn `vref_annotation` tyyppiannotaatio
-sijoitetaan `type_annotation` propertyyn ja expressionin annotaatiot sijoitetaan niiden avaimen
-mukaisesti `props` -propertyyn.
-
-```
-            (def has_vref_annotation:boolean false)
-            (def vref_annotation:CodeNode)
-
-            (def has_type_annotation:boolean false)            
-            (def type_annotation:CodeNode)
-
-            ; annotations or properties
-            (def props:[string:CodeNode])
-            (def prop_keys:[string])
-```
-
-
-
-## Kommentit
-
-Tällä hetkelä tuettuna on vain yhden rivin kommentit. Kommentit merkitään seuraavasti:
-
-```
-  ; this is a comment
-```
-
-Jatkossa pitäisi lisätä tuki myös usean rivin kommenteille.
-
-
-
-## Numeroarvot
-
-```
-(def i:int 0)
-(def x:double 0.0)  ; <- piste vaaditaan
-
-```
-
-Tuettuna kahta erilaista numeroarvoa:
-- int
-- double
-
-Double -literaalin tulee sisältää piste tai muu liukuluvun tunniste, jotta se tunnistetaan.
-
-Tuettuna ovat double sekä int -arvoille negatiiviset arvot sekä double -arvoille pyritään
-tunnistamaan myös exponenttimuoto. Parseri ei yritä tunnistaa virheitä double arvoissa toistaiseksi,
-joten lukuarvot joissa on esimerkiksi useampia desimaalierottimia tai e -arvoja menevät läpi.
-
-
-
-## Strings - Merkkijonot
-
-```
-(def hello:string "Hello World")
-(def str:string "
-  multiline string
-")
-```
-Merkkijono alkaa " -merkillä ja päättyy samaaan merkkiin. Välissä voi olla newline ja linefeed
-merkkejä. Escape charit ovat sama kuin JSON string koodauksessa, mutta newlineja ei tarvitse 
-escapeta.
-
-
-## Boolean
-
-```
-(def x:boolean true)
-(def y:boolean false)
-```
-Sallittuja literaaleja ovat `true` ja `false`
-
-
-
-## Referenssit
-
-```
-(= x 10) ; x = referenssi
-user.info.firstName ; referenssi, jossa on property accessor
-```
-Rererenssiksi tunnistetaan mikä tahansa yhtenäinen merkkijono mikä ei ole numero, string,
-S-expression, boolean tai annotaatio. 
-
-Referenssillä voi olla N namespacea, jotka käsitetään olion property accessoreiksi, esimerkiksi `obj.name`.
-
-
-
-## Array
-
-```
-(def myIntArray:[int]) 
-(def myStringArray:[string])
-(def myObjArray:[myClass]) 
-```
-
-## Map / Hash
-
-```
-(def mapFromInToInt:[int:int]) 
-(def example2:[int:string])
-(def myObjMap:[string:myClass]) 
-(def genericsHash:[string:List@(myClass)])  ; <-- using generics
-
-```
-
-
-
-## Tyyppimääritys - olio, string etc
-
-```
-(def myIntArray:<typename>)
-
-; esim 
-(def str:string)
-(def i:int)
-(def myHash:[string:myClass])
-(def myArray:[myClass])
-```
-
-
-
-
-## Alaviite parseriin: Syntaksin laajennus Generics supportille
-
-Ongelma: joissain tapauksissa variablet tarvitsevat itseensä kohdistettua metatietoa, esimerkiksi
-generics  esitettään tyypillisesti muodossa
-```
-class myClass<T,V> { ... }
-```
-Samoin `new` operaattori useissa kielissä käyttää samantyyppistä meta-informaatiota kun luokka määritellään jaluodaan
-```
- var obj:myClass = new myClass<T,V>(...-)
-```
-
-Lisp parseri ei anna tukea yksittäisten alkoiden meta-informaatiolle itsenään, joten Rangerin 
-annotaatio -syntaksio on laajennetu siten, että se tukee annotaatioita referensseillä kahdessa muodossa:
- - myClass@(...)
- - obj:[myClass@(...)]
-
-Ensimmäinen on referenssi-annottaatio `<CodeNode>.vref_annotation` ja jälkimmäinen `<CodeNode>.type_annotation`.
-
-Tämän jälkeen voidaan määritellä generics luokka esimerkiksi seuraavasti:
-```
-(CreateClass myClass@(T V)
-   ...
-)
-(def obj:myClass@(T V) (new myClass@(T V) ())) 
-```
-
-Arrayn tai Mapin sisällä oleva template voidaan määritellä seuraavasti:
-```
-(def myArray:[myClass@(T V)])
-(def myMap:[string:myClass@(T V)])
-```
-
-
-
-# Komentojen synktasi
-
-## muuttujien määrittely
-
-```
-(def x:double)
-(def len:int 10)
-```
-
-## heikot ja vahvat referenssit
-
-Joskus referenssi olioon on määriteltävä heikoksi, jotta sitä ei vapauteta kun funktiosta poistutaan
-tai kun kyseinen olio itsessään vapautetaan.
-
-```
-(def obj:myClass @weak(true))
-```
-
-## muuttujien sijoittaminen
-
-```
-(def x:double 20)
-(def y:double 10)
-(= x y )          ; x is now 10
-(= x (+ x 5))     ; x is now 15
-```
-
-## komentojen lisp -tyyppinen syntaksi
-
-Komennot noudattavat lisp -tyyppistä syntaksia:
-
-```
-(+ 10 5)     ; 15
-(== 5 12)    ; false
-(> 7 3)      ; true
-(&& (== 4 4) true)  ; true
-(&& (== 4 4) false) ; false
-
-(call myObj hello ()) ; calls object myObj funtion hello
-```
-
-
-
-
-## Enumeraatiot
-
-Enumeraatiot ovat tyyppiä int
-```
-    (Enum Fruits:int
-        (
-            Banana
-            Orange
-            Apple
-            Pineapple
-        )
-    )
-``` 
-
-Huom! Tällä hetkellä tyyppitarkastukset enumeroiduista tyypeistä eivät osaa tarkastaa virhellisiä
-enumeroituja tyyppejä vaan konvertoivat kaikki tyyppiin `int`. Tällöin on mahdollista sijoittaa
-muuttujaan jossa on tyyppiä
-
-
-
-## Import
-
-Lähdekoodin uudelleenkäyttäminen ja importointi, jossa haetaan tiedoston luokkamääritykset:
-
-```
-    (Import "sourcefile.ext")
-``` 
-
-
-
-## Luokan luominen
-
-```
-    (CreateClass myClass 
-        (
-            (PublicMethod hello:void ()
-                (
-                    (print "ello World!")
-                )
-            )
-        )
-    )
-    (def obj:myClass (new myClass ()))
-    (call obj hello ())
-``` 
-
-## Metodin määrittely luominen
-
-```
-    (PublicMethod hello:string (arg1:int arg2:string)
-``` 
-
-```
-    (StaticMethod hello:string (arg1:int arg2:string)
-``` 
-
-
-```
-    (CreateClass myClass 
-        (
-            (PublicMethod hello:string (arg1:int arg2:string)
-                (
-                )
-            )
-        )
-    )
-``` 
-
-
-## Periyttäminen
-
-Periyttäminen voidaan tehdä `Extends` komennolla luokan bodyn sisällä.
-
-```
-    (CreateClass childClass 
-        (
-            (Extends (myClass))
-        )
-    )
-
-    ; usage:
-    (def obj:childClass (new childClass ()))
-    (call obj hello ())
-    
-``` 
-
-## Heikot ja vanhvat paluuarvot
-
-Tällä hetkellä pohdinnassa syntaksi:
-```
-    (PublicMethod hello:myClass @strong(true) (arg1:int arg2:string)
-``` 
-
-Toinen vaihtoehto:
-```
-    (PublicMethod hello@(weak):myClass  (arg1:int arg2:string)
-``` 
-
-## Heikot ja vanhvat argumentit
-
-Tällä hetkellä pohdinnassa syntaksi:
-```
-    (PublicMethod hello:myClass (arg1@(strong):someClass)
-``` 
-Missä `arg1` on vahva argumentti ja siirtää variable omistuksen funktioon, minkä jälkeen
-kutsuja käsittelee annettua parametria weak -referenssinä ja funktio joka vastaanotti
-parametrin käsittelee argumenttia vahvana referenssinä.
-
-
-
-## Luokan rakentaja
-
-```
-    (CreateClass myClass 
-        (
-            (Constructor (str:string)
-                (
-                    (print (+ "Hello !" str))
-                )
-            )
-        )
-    )
-``` 
-
-Käyttö: `(new myClass ("World"))`
-
-
-
-## new -operaattori
-
-```
-    (def obj:myClass (new myClass ("World")))
-``` 
-
-
-
-## Luokan funktioiden kutsuminen
-
-Oliota, johon on olemassa referenssi voidaan kutsua `call` operaattorilla
-
-```
-  (call obj hello ())
-```
-
-Luokan metodit voivat kutsua oman luokan metodeja joko
-
-```
-  ; käyttäen suoraan this referenssiä
-  (call this say ("Hello World")) 
-
-  ; tai suoraan funktion nimellä
-  (say "Hello World")
-
-```
-
-Esimerkki:
-
-```
-    (CreateClass myClass 
-        (
-            (PublicMethod hello:void ()
-                (
-                    ; call function say
-                    (say "Hello World!")
-                )
-            )
-            (PublicMethod say:void (msg:string)
-                (
-                    (print msg)
-                )
-            )
-
-        )
-    )
-``` 
-
-
-
-## join
-
-Joins array of strings into a single string
-```
-  (def list:[string] (strsplit "list,of,items"))
-  (def str:string (join list ":")) ; list:of:items
-```
-
-
-
-## strsplit
-
-Spits string into array of strings
-```
-  (def list:[string] (strsplit "list,of,items"))
-  (def str:string (join list ":")) ; list:of:items
-```
-
-
-
-## trim
-
-Remove whitespace around the string
-```
-  (def str:string (trim "  abba   ")) ; "abba"
-```
-
-
-
-## strlen
-
-Return length of a  string
-```
-  (def len:int (strlen "abcdef")) ; 6
-```
-
-
-
-## substring
-
-Return copy of the string 
-```
-  (def s:string (substring "abcdef" 2 5)) ; "cde"
-```
-
-
-
-## charcode
-
-Return ASCII code of a character
-```
-  (def code:int (charcode "A")) ; <ASCII code of A>
-```
-
-
-
-## strfromcode
-
-```
-  (def str:string (strfromcode 65)) ; A
-```
-
-
-
-## charAt
-Get ASCII code of character at position
-```
-  (def code:int (charAt "DAA" 1)) ; 65
-```
-
-
-
-## str2int
-Convert string value to integer
-```
-  (def value:int (str2int "456" )) ; 456
-```
-
-
-
-## str2double
-Convert string value to double
-```
-  (def value:double (str2double "3.14" )) ; 3.14
-```
-
-
-
-## double2str
-Convert double value to string
-```
-  (def value:string (double2str 3.14 )) ; "3.14"
-```
-
-
-
-## array_length
-Return the length of array as integer
-```
-  (def value:int (array_length someArray )) ; length of the someArray
-```
-
-
-
-## print
-Prints some output to the console
-```
-  (print "This is fine.")
-```
-
-
-
-## Tuki ( gitdoc *file* *text* ) -komennolle
-
-Ohjelmakoodin sisällä voidaan luoda git-dokumentaatioon lisää entryjä komennolla
-
-```
-   (gitdoc "README.md" "# Hello Git!")
-```
-
-Tämä dokumentaatio on luotu käyttäen tätä synktaksia.
-
-
-## continue
-for, while loop continue statement
-```
-  (continue _)
-```
-
-
-
-## break
-for, while loop break statement
-```
-  (break _)
-```
-
-
-
-## throw
-
-Throws exception
-```
-  (throw "Something went wrong")
-```
-
-Virheiden käsittelijä on vielä työn alla. Koska tavoite on pystyä kääntämään myös Golang kielelle
-missä ei ole normaalia try... catch... käsittelijää ainakin toistaiseksi virhekäsittelijä on 
-funktiokohtainen annotaatio `@onError()` jonka sisällä oleva expression sisältää komennot jotka
-ajetaan virheen tapahtumisen jälkeen.
-
-```
-@onError(
-    (print "Got exception.")
-)
-```
-
-Virhekäsittelijästä puuttuu vielä kyky lähettää eri tyyppisiä virheilmoituksia esimerkiksi 
-enumeroituina Exceptioneina tai erillistettyinä Exception -luokkina. Lisäksi on pohdittava
-miten virhekäsittelijä suhtautuu paikallisiin variableihin, onko niiden käyttäminen 
-sallittua ja missä määrin.
-
-
-
-
-## return
-
-Return from function with or without value
-```
-  (return _)           ; <- nothing to return
-  (return value)       ; <- has return value
-```
-
-
-
-## remove_index
-
-Removes item from array without returning it
-```
-  (remove_index someArray 10)     
-```
-
-
-
-## indexOf
-
-Get index of item in array or -1 if not found
-```
-  (def idx:index (indexOf someArray item))     
-```
-
-
-
-## array_extract
-
-Gets and removes item from array at some index 
-```
-  (def item:ItemType (array_extract someArray 0))     
-```
-
-
-
-## removeLast 
-
-Removes the last element from the array without returning it
-```
-  (removeLast someArray )     
-```
-
-
-
-## push 
-
-Append item as last element of array
-```
-  (push someArray item)     
-```
-
-
-
-## itemAt 
-
-Returns item from array without removing it
-```
-  (def item:itemType (itemAt someArray 3)) ; get item from index 3     
-```
-
-
-
-## has 
+@params(...) annotation can be used to greate generic traits.
 
-Block syntax
 ```
-    def hashTbl:[string:string]
-    set hashTbl "someKey" "foo"
-    
-    if (has hashTbl "someKey") {
-        print "did have"
+trait GenericCollection @paras(T V) {
+    def items:[T]
+    fn  map:S ( callback:( f:T (item:T))  ) {
+        def res:S (new S ())
+        for children ch@(lives):T i {
+            def new_item@(lives):T (callback (ch))
+            res.add(new_item)
+        }
+        return res
     }
-```
+}
 
-Returns true if map has a key
-```
-  (has someMap someKey) ; returns true if map has defined key "someKey"
-```
+class StringCollection {
+    does GenericCollection @params(string StringCollection)
+}
+``` 
 
+## def variableName@(optional)
 
+Optional variables can be used as return values of functions where the result is not certain. You can
+force the unwrapping of the variable with `(unwrap <variable>)`
 
-## set 
+## def variableName@(weak)
 
-Set a map key to some value
-```
-  (def someMap:[string:string])
-  (set someMap "foo" "bar") ; map has now key-value pair foo:bar
-```
+Weak variables are ment to be compiled in the target language as weak references
 
+## def variableName@(strong)
 
+Weak variables are ment to be compiled in the target language as strong references
 
-## get 
+## def variableName@(lives)
 
-Get a value associated to a key 
+@(lives) annotation can be used to note the compiler that the variable is supposed to outlive it's current scope.
 
-General syntax:
-```
-  (def someMap:[string:string])
-  (set someMap "foo" "bar") ; map has now key-value pair foo:bar
-  (def value:string (get someMap "foo")) ; "bar"
-```
+The variables have lifetime, which determines the point where the variable should be removed. In garbage collected
+languages you do not have to worry about the lifetime, but in the future there can be target languages which require
+the lifetime calculations.
 
+## def variableName@(temp)
 
-
-## null? 
-
-Returns true if value is null
-```
-  (null? value)
-```
-
-
-
-## !null? 
-
-Returns true if value is not null
-```
-  (!null? value)
-```
-
-
-
-## Math library functions
-
-Following standard math library functions are defined from double values
-```
-  (sin value)
-  (cos value)
-  (tan value)
-  (atan value)
-  (log value)
-  (abs value)
-  (acos value)
-  (asin value)
-  (floor value)
-  (round value)
-  (sqrt value)
-```
-
-
-
-## Boolean comparision operators
-
-Following standard boolean operators are defined
-```
-  (== value1 value2)  ; equal values
-  (< value1 value2)   ; less than
-  (> value1 value2)   ; greater than
-  (!= value1 value2)  ; not equal
-  (>= value1 value2)  ; greater or equal
-  (<= value1 value2)  ; less or equal
-```
-The result value of comparision operator is boolean
-
-
-
-## Boolean logic operators
-
-Following standard boolean operators are defined for boolean values
-```
-  (&& value1 value2 value3 ...)   ; logical AND
-  (|| value1 value2 value3 ...)   ; logical OR
-```
-The result value of comparision operator is boolean
-
-
-
-## + add operator
-
-Addition is defined for numbers and strings. If the first parameter is string then
-numbers are atomatically converted to string. If first parameter is numeric then
-rest of the parameters are assumed to be numeric too.
-
-```
-(def age:int 26)
-(= x (+ x 1))
-(print (+ "Your age is now " age))
-```
-
-HUOM! Tyyppitarkastukset numeroille eivät vielä noudata tätä speksiä. Tarkastettava että ei
-tule JS tyyppisiä outouksia konversiosta.
-
-
-
-## Mathematical operators
-
-```
-(* 10 20) ; 200
-(/ 9 2)   ; 4.5
-(- 50 10) ; 40
-(% 5 2)   ; 1
-```
-
-
-
-## if
-
-```
-(if condition
-    (
-        ; then statements
-    )
-    (
-        ; else statements
-    )
-)
-```
-
-
-
-## for
-
-```
-(for someArray item:itemType i
-    (
-        ; loop expressions
-    )
-)
-```
-
-
-
-## while
-
-```
-(while condition
-    (
-        ; loop expressions
-    )
-)
-```
-
-
-
-## switch case
-
-Switch-case statement can multiple case statements having one or more matching arguments.
-
-```
-(switch condition
-    (case value
-        (
-            ; case expressions
-        )
-    )
-    (case (value1 value2 value2) ; multiple values
-        (
-
-        )
-    )
-    (default (
-        ; default expressions
-    ))
-)
-```
-
-
-
-# IO operators
-
-
-## file_read
-
-TODO: pohdittava pitäisikö olla verbi `read_file`
-
-```
-(def contents:string (file_read pathName fileName))
-```
-
-
-
-## file_write
-
-TODO: pohdittava pitäisikö olla verbi `write_file`
-
-```
-(file_write pathName fileName contentStr)
-```
-
-
-
-## dir_exists
-
-```
-(if (dir_exists pathName)
-    (
-        ; do something
-    )
-)
-```
-
-
-
-## file_exists
-
-```
-(if (file_exists pathName fileName)
-    (
-        ; do something
-    )
-)
-```
-
-
-
-## dir_create
-
-```
-(dir_create pathName)
-```
-
-
-
-# Environment functions
-
-## shell_arg
-```
-(def value:string (shell_arg 0)) ; first shell argument as string
-```
-
-
-
-
-## shell_arg_cnt
-```
-(def cnt:int (shell_arg_cnt _)) ; number of given shell arguments
-```
-
-
+@(temp) annotation can be used to note the compiler that it should not worry about freeing the variable, in case the
+target language has option to release the variable. 
