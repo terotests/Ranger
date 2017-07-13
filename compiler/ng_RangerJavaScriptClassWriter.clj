@@ -105,33 +105,39 @@ class RangerJavaScriptClassWriter {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       def remove_unused:boolean (ctx.hasCompilerFlag("remove-unused-class-vars"))
+
       if ((p.ref_cnt == 0) && (remove_unused || (p.is_class_variable == false))) {
-        wr.out("/** unused:  " false)
+       return
       }
-      wr.out(("this." + p.compiledName) , false)
+
+      def was_set false
+      
       if ((array_length node.children) > 2) {
-        wr.out(" = " false)
+        wr.out(("this." + p.compiledName + " = ") , false)
         ctx.setInExpr()
         def value:CodeNode (node.getThird())
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
+        was_set = true
       } {
         if (nn.value_type == RangerNodeType.Array) {
+          wr.out(("this." + p.compiledName ) , false)
           wr.out(" = []" false)
+          was_set = true
         }
         if (nn.value_type == RangerNodeType.Hash) {
+          wr.out(("this." + p.compiledName ) , false)
           wr.out(" = {}" false)
+          was_set = true
         }
       }
-      if ((p.ref_cnt == 0) && (remove_unused || (p.is_class_variable == false))) {
-        wr.out("   **/" true)
-        return
+      if was_set {
+        wr.out(";" false)
+        if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
+          wr.out("     /** note: unused */" false)
+        }
+        wr.newline()
       }
-      wr.out(";" false)
-      if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
-      }
-      wr.newline()
     }
   }
   fn writeVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -142,7 +148,17 @@ class RangerJavaScriptClassWriter {
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("/** unused:  " false)
       }
-      wr.out(("var " + p.compiledName) false)
+      def has_value false
+      if ((array_length node.children) > 2) {
+        has_value = true
+      }
+
+      if ((p.set_cnt > 0) || p.is_class_variable || (has_value == false)) {
+        wr.out(("let " + p.compiledName) false)
+      } {
+        wr.out(("const " + p.compiledName) false)
+      }      
+      
       if ((array_length node.children) > 2) {
         wr.out(" = " false)
         ctx.setInExpr()
@@ -163,7 +179,7 @@ class RangerJavaScriptClassWriter {
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("   **/ " true)
       } {
-        wr.out("" false)
+        wr.out(";" false)
         wr.newline()
       }
     }
@@ -220,7 +236,7 @@ class RangerJavaScriptClassWriter {
       def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
       this.writeArgsDef(constr ctx wr)
     }
-    wr.out(" ) {" true)
+    wr.out(") {" true)
     wr.indent(1)
 
     if(b_extd) {

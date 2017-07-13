@@ -1530,19 +1530,14 @@ class RangerFlowParser {
           ctx.setCurrentClass( cl )          
 
           def traitClass (ctx.findClass(traitClassDef.vref))
-          print "==> TRait " + traitClass.name
           for traitClass.variables pvar:RangerAppParamDesc i {
-            print "---- trait variable " +pvar.name
             def ccopy:CodeNode (pvar.node.rebuildWithType(match true))      
             this.WalkCollectMethods( ccopy ctx wr )
             push origBody.children ccopy
-
-;              this.writeVarInitDef(( unwrap pvar.node ) ctx wr)
           }
           for traitClass.defined_variants fnVar:string i {
             def mVs:RangerAppMethodVariants (get traitClass.method_variants fnVar)
             for mVs.variants variant:RangerAppFunctionDesc i {
-              print "---- trait method : " + variant.name
               def ccopy:CodeNode (variant.node.rebuildWithType(match true))      
               this.WalkCollectMethods( ccopy ctx wr )
               push origBody.children ccopy
@@ -1867,7 +1862,6 @@ class RangerFlowParser {
       cn.ifNoTypeSetToVoid()
 
       def currC:RangerAppClassDesc ctx.currentClass
-      print "fn " + s + "for " + currC.name
       if(currC.hasOwnMethod(s)) {
         ctx.addError( node "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!")
         return

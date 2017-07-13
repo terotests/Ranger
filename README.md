@@ -288,7 +288,7 @@ this.foo({
 
 # Automatically infixed math support 
 
-It is easy to define new mathetmatical operations in the Lang.clj file or in modules. However, some mathematical operations are automatically infixed
+It is easy to define new mathematical operations in the Lang.clj file or in modules. However, some mathematical operations are automatically infixed
 for easier usage. Thus, instead of using common lips notation `(* 4 10)` you can use easier to read infixed `4 * 10` -syntax
 
 ## Boolean logic operators
