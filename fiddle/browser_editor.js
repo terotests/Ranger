@@ -10492,7 +10492,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
           if ( p.nameNode.hasFlag("optional") ) {
           }
           const part_1 = node.ns[0];
-          if ( (part_1 != "this") && ctx.hasCurrentClass() ) {
+          if ( (part_1 != "this") && ctx.isMemberVariable(part_1) ) {
             const uc = ctx.getCurrentClass();
             const currC = uc;
             const up = currC.findVariable(part_1);
@@ -10518,7 +10518,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     if ( node.hasParamDesc ) {
       wr.out("$", false);
       const part_2 = node.ns[0];
-      if ( (part_2 != "this") && ctx.hasCurrentClass() ) {
+      if ( (part_2 != "this") && ctx.isMemberVariable(part_2) ) {
         const uc_1 = ctx.getCurrentClass();
         const currC_1 = uc_1;
         const up_1 = currC_1.findVariable(part_2);
