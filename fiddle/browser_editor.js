@@ -12696,6 +12696,7 @@ class CompilerInterface  {
   constructor() {
     this.had_errors = false;
     this.errorInfo = new CompilerErrorInfo();
+    this.fileSystem = new CodeFileSystem();
   }
   compile (code, the_lang) {
     const c = code;
@@ -12714,30 +12715,25 @@ class CompilerInterface  {
     try {
       flowParser.mergeImports(node, appCtx, wr);
       const lang_str = lang_data;
-      console.log(lang_str)
       const lang_code = new SourceCode(lang_str);
       lang_code.filename = "Lang.clj";
       const lang_parser = new RangerLispParser(lang_code);
       lang_parser.parse();
       appCtx.langOperators = lang_parser.rootNode;
       appCtx.setRootFile(code_1.filename);
-      console.log("1. Collecting available methods.")
       flowParser.CollectMethods(node, appCtx, wr);
       if ( (appCtx.compilerErrors.length) > 0 ) {
         this.displayCompilerErrors(appCtx);
         return "";
       }
-      console.log("2. Analyzing the code.")
       appCtx.targetLangName = the_lang;
-      console.log("selected language is " + appCtx.targetLangName)
       flowParser.StartWalk(node, appCtx, wr);
       if ( (appCtx.compilerErrors.length) > 0 ) {
         this.displayCompilerErrors(appCtx);
         return "";
       }
-      console.log("3. Compiling the source code.")
-      const fileSystem = new CodeFileSystem();
-      const file = fileSystem.getFile(".", the_target);
+      this.fileSystem = new CodeFileSystem();
+      const file = this.fileSystem.getFile(".", the_target);
       const wr_2 = file.getWriter();
       let staticMethods;
       const importFork = wr_2.fork();
@@ -12799,7 +12795,6 @@ class CompilerInterface  {
         importFork.indent(-1);
         importFork.out(")", true);
       }
-      console.log("Ready.")
       this.displayCompilerErrors(appCtx);
       return wr_2.getCode();
     } catch(e) {
@@ -13001,20 +12996,33 @@ class EditorPage  extends RedomBase {
     const btn = redom.el("button", "Compile code to C++");
     const btn_go = redom.el("button", "Compile code to Go");
     const btn_swift = redom.el("button", "Compile code to Swift");
+    const btn_java = redom.el("button", "Compile code to Java");
     const btn_php = redom.el("button", "Compile code to PHP");
-    const btn_js = redom.el("button", "Compile code to JavaScript");
+    const btn_js = redom.el(
+      "button",({ style: "border:1px solid gray; padding:2px; background-color:#eeffee;"} ),
+      (redom.svg(
+        "svg",(
+        ({ style: "width:10px;height:10px"} )),(
+        ({ "viewBox" : "0 0 1200 1200" })),(
+        (redom.svg("path", ({ "d" : "M 600,1200 C 268.65,1200 0,931.35 0,600 0,268.65 268.65,0 600,0 c 331.35,0 600,268.65 600,600 0,331.35 -268.65,600 -600,600 z M 450,300.45 450,899.55 900,600 450,300.45 z" }))))
+      )),
+      (redom.el("span", "Compile and Run code with JavaScript"))
+    );
     const editor = ace.edit(root);
     const results = ace.edit(results_div);
+    editor.$blockScrolling = Infinity
+    results.$blockScrolling = Infinity
     /** unused:  const res = redom.el("div")   **/ 
     let target_lang = "cpp";
     editor.getSession().setMode("ace/mode/java") 
     this.el = redom.el(
       "div",root,
+      btn_js,
       btn,
       btn_go,
       btn_swift,
       btn_php,
-      btn_js,
+      btn_java,
       results_div
     );
     editor.setValue("\r\nclass Vec2 {\r\n    def x 0.0\r\n    def y 0.0\r\n}\r\nclass HelloWorld {\r\n    sfn m@(main) () {\r\n        print \"Hello World!\"\r\n    }\r\n}\r\n        ")
@@ -13060,11 +13068,37 @@ class EditorPage  extends RedomBase {
       }
       target_lang = "php";
     }
-    btn_js.onclick = () => {
+    btn_java.onclick = () => {
       const compiler_5 = new CompilerInterface();
-      results.setValue(compiler_5.compile((editor.getValue()), "es6"))
+      compiler_5.compile(editor.getValue(), "java7");
       if ( (compiler_5.errorInfo.list.length) > 0 ) {
         results.setValue(compiler_5.errorInfo.list.join("\n"))
+      } else {
+        let txt = "";
+        for ( let i = 0; i < compiler_5.fileSystem.files.length; i++) {
+          var f = compiler_5.fileSystem.files[i];
+          const code = f.getCode();
+          if ( (code.length) > 0 ) {
+            txt = txt + "// ---------------------- file ------------------------\n";
+            txt = ((txt + "// ") + f.name) + "\n";
+            txt = txt + f.getCode();
+          }
+        }
+        results.setValue(txt)
+      }
+      target_lang = "java7";
+    }
+    btn_js.onclick = () => {
+      const compiler_6 = new CompilerInterface();
+      const js_code = compiler_6.compile((editor.getValue()), "es6");
+      if ( (compiler_6.errorInfo.list.length) > 0 ) {
+        results.setValue(compiler_6.errorInfo.list.join("\n"))
+      } else {
+        results.setValue(js_code)
+        try {
+          eval(js_code)
+        } catch(e) {
+        }
       }
       target_lang = "es6";
     }
