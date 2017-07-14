@@ -529,6 +529,7 @@ You can use `break` and `continue` to control the for -loop.
 def cnt 10
 while (cnt > 0 ) {
     print "round " + cnt
+    cnt = cnt - 1
 }
 ```
 
