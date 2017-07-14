@@ -13033,6 +13033,20 @@ class EditorPage  extends RedomBase {
       results.setValue(compiler.compile((editor.getValue()), target_lang))
       if ( (compiler.errorInfo.list.length) > 0 ) {
         results.setValue(compiler.errorInfo.list.join("\n"))
+      } else {
+        if ( target_lang == "java7" ) {
+          let txt = "";
+          for ( let i = 0; i < compiler.fileSystem.files.length; i++) {
+            var f = compiler.fileSystem.files[i];
+            const code = f.getCode();
+            if ( (code.length) > 0 ) {
+              txt = txt + "// ---------------------- file ------------------------\n";
+              txt = ((txt + "// ") + f.name) + "\n";
+              txt = txt + f.getCode();
+            }
+          }
+          results.setValue(txt)
+        }
       }
       } , 500)
     }) 
@@ -13074,17 +13088,17 @@ class EditorPage  extends RedomBase {
       if ( (compiler_5.errorInfo.list.length) > 0 ) {
         results.setValue(compiler_5.errorInfo.list.join("\n"))
       } else {
-        let txt = "";
-        for ( let i = 0; i < compiler_5.fileSystem.files.length; i++) {
-          var f = compiler_5.fileSystem.files[i];
-          const code = f.getCode();
-          if ( (code.length) > 0 ) {
-            txt = txt + "// ---------------------- file ------------------------\n";
-            txt = ((txt + "// ") + f.name) + "\n";
-            txt = txt + f.getCode();
+        let txt_1 = "";
+        for ( let i_1 = 0; i_1 < compiler_5.fileSystem.files.length; i_1++) {
+          var f_1 = compiler_5.fileSystem.files[i_1];
+          const code_1 = f_1.getCode();
+          if ( (code_1.length) > 0 ) {
+            txt_1 = txt_1 + "// ---------------------- file ------------------------\n";
+            txt_1 = ((txt_1 + "// ") + f_1.name) + "\n";
+            txt_1 = txt_1 + f_1.getCode();
           }
         }
-        results.setValue(txt)
+        results.setValue(txt_1)
       }
       target_lang = "java7";
     }
