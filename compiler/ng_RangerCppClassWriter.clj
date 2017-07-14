@@ -204,11 +204,13 @@ class RangerCppClassWriter {
     }
     if (node.eval_type == RangerNodeType.Enum) {
       def rootObjName:string (itemAt node.ns 0)
-      def enumName:string (itemAt node.ns 1)
-      def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
-      if (!null? e) {
-        wr.out(("" + (unwrap (get e.values enumName))) false)
-        return
+      if( ( array_length node.ns) > 1 ) {
+        def enumName:string (itemAt node.ns 1)
+        def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
+        if (!null? e) {
+          wr.out(("" + (unwrap (get e.values enumName))) false)
+          return
+        }
       }
     }
     def had_static:boolean false
@@ -376,7 +378,7 @@ class RangerCppClassWriter {
         def blockName (ch.getFirst())
         if (blockName.vref == "default") {
           def defBlock (ch.getSecond())
-          wr.out("if( " false)
+          wr.out("if( ! " false)
           wr.out(p.compiledName false )
           wr.out(") {" true)
           wr.indent(1)
@@ -563,6 +565,8 @@ class RangerCppClassWriter {
     ; wr.out((("#define " + cl.name) + "_HEADER ") true)
     wr.out(("class " + cl.name) , false)
     
+    ; virtual
+
     def parentClass:RangerAppClassDesc
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" : " false)
@@ -606,6 +610,9 @@ class RangerCppClassWriter {
       }
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if(cl.is_inherited) {
+          wr.out("virtual " false)
+        }        
         this.writeTypeDef((unwrap variant.nameNode) ctx wr)
         wr.out(((" " + variant.compiledName) + "(") false)
         this.writeArgsDef(variant ctx wr)
@@ -666,7 +673,29 @@ class RangerCppClassWriter {
       def constr:RangerAppFunctionDesc cl.constructor_fn
       this.writeArgsDef( (unwrap constr) ctx wr)
     }
-    wr.out(" ) {" true)
+    wr.out(" ) " false )
+    
+    if ( ( array_length cl.extends_classes ) > 0 ) { 
+      
+      ; wr.out(" public std::enable_shared_from_this<" + cl.name +  "> " , false)
+      for cl.extends_classes pName:string i {
+        def pcc (ctx.findClass(pName))
+        if pcc.has_constructor {
+          wr.out(" : " + pcc.name +"(" , false)
+          def constr:RangerAppFunctionDesc cl.constructor_fn
+          for constr.params arg:RangerAppParamDesc i {
+            if (i > 0) {
+              wr.out("," false)
+            }
+            wr.out(" " false)
+            wr.out(((" " + arg.name) + " ") false)
+          }
+          wr.out(")" false)
+        }        
+      }
+    }
+
+    wr.out("{" true)
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
       def nn:CodeNode (unwrap pvar.node)

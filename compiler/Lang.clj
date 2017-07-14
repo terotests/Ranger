@@ -287,7 +287,18 @@ static void createDir(String path)
         write_file          cmdWriteFile:void (path:string file:string data:string) {
             templates {
                 swift3 ( nl )   
-                cpp ( nl "/* write file not yet implemented */" nl)
+                cpp_old ( nl "/* write file not yet implemented */" nl)
+
+                cpp ( "r_cpp_write_file( " (e 1) " , " (e 2) " , " (e 3) "  );" nl (imp "<iostream>") (imp "<string>") 
+(create_polyfill "
+void  r_cpp_write_file(std::string path, std::string filename, std::string text) 
+{
+  std::ofstream outputFile;
+  outputFile.open(path + \"/\" + filename);
+  outputFile << text;
+  outputFile.close();
+}    
+    ") )                
                 ranger ( nl "write_file " (e 1) " " (e 2) " " (e 3) nl)
                 es6 ("require(\"fs\").writeFileSync(process.cwd() + \"/\" + " 
                         (e 1) " + \"/\"  + " (e 2) ", " (e 3) ")")
@@ -1183,14 +1194,16 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
     size_t prev_index = 0;
     std::vector<std::string> res;
     while( std::string::npos != ( first_index = str.find_first_of( delimiter , prev_index ) )) {
-        res.push_back( str.substr( first_index, first_index - prev_index) );
+        res.push_back( str.substr( prev_index, first_index - prev_index) );
         prev_index = first_index + 1;
     }
+    if(res.size() == 0 ) {
+      res.push_back(str);
+    }    
     return res;
 }
 "
 )   
-
                 )
 
                 * ( (e 1) ".split(" (e 2) ")")
@@ -1419,7 +1432,7 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
         to_int   cmdDoubleToString:string       ( value:int ) { 
             templates {
                 ranger ( "(to_int " (e 1) ")")
-                cpp ("std::to_string(" (e 1) ")" imp("<string>"))
+                cpp ("std::to_string(" (e 1) ")" (imp "<string>"))
                 java7 ( "String.valueOf(" (e 1) " )") 
                 php ( "strval(" (e 1) ")") 
                 scala ( "(" (e 1) ".toString)")
@@ -1432,7 +1445,7 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
         to_string   cmdIntToString:string       ( value:int ) { 
             templates {
                 ranger ( "(to_string " (e 1) ")")
-                cpp ("std::to_string(" (e 1) ")" imp("<string>"))
+                cpp ("std::to_string(" (e 1) ")" (imp "<string>"))
                 java7 ( "String.valueOf(" (e 1) " )") 
                 php ( "strval(" (e 1) ")") 
                 scala ( "(" (e 1) ".toString)")
@@ -1446,7 +1459,7 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
         double2str   cmdDoubleToString:string       ( value:double ) { 
             templates {
                 ranger ( "(double2str " (e 1) ")")
-                cpp ("std::to_string(" (e 1) ")" imp("<string>"))
+                cpp ("std::to_string(" (e 1) ")" (imp "<string>"))
                 java7 ( "String.valueOf(" (e 1) " )") 
                 php ( "strval(" (e 1) ")") 
                 scala ( "(" (e 1) ".toString)")
@@ -1465,7 +1478,7 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
         str2int   cmdStringToInt@(optional):int      ( value:string ) { 
             templates {
                 ranger ( "(str2int " (e 1) ")")
-                cpp ("cpp_str_to_int(" (e 1) ")" imp("<string>")
+                cpp ("cpp_str_to_int(" (e 1) ")" (imp "<string>")
                 
 (create_polyfill
 "
@@ -1531,7 +1544,7 @@ func r_str_2_i64(s string) *GoNullable {
         str2double   cmdStringToDouble@(optional):double      ( value:string ) { 
             templates {
                 ranger ( "(str2double " (e 1) ")")
-                cpp ("cpp_str_to_double(" (e 1) ")" imp("<string>")
+                cpp ("cpp_str_to_double(" (e 1) ")" (imp "<string>")
 (create_polyfill
 "
 template <class T>
@@ -1779,7 +1792,21 @@ i "}" nl ))
             templates {
                 ranger ( "(indexOf " (e 1) " " (e 2) ")")
 
-                 cpp ( "(" (e 1) ".begin() - ( std::find( " (e 1) ".begin(), " (e 1) ".end(), " (e 2) "))) " (imp "<vector>") (imp "<iterator>"))   
+                 cpp ( "r_arr_index_of<" (typeof 2) ">(" (e 1) ", " (e 2) ")" (imp "<vector>") (imp "<iterator>") (imp "<algorithm>")
+
+(create_polyfill
+"
+template< typename T >
+int r_arr_index_of( std::vector<T> vec, T elem )  { 
+    auto it = std::find(vec.begin(),vec.end(),elem);
+    if(it!=vec.end()) {
+        return it - vec.begin();
+    } 
+    return -1;
+}
+" )                   
+                 
+                 )   
                  cpp ( "std::distance( std::find( " (e 1) ".begin(), " (e 1) ".end(), " (e 2) ") )" (imp "<vector>") (imp "<iterator>"))   
                  rust ( (e 1) ".iter().position( |&r| r == " (e 2) " ).unwrap()" )   
                  php ( "array_search(" (e 2) ", " (e 1) ", true)")
@@ -1930,7 +1957,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
 
 (create_polyfill
 "template< typename T >
-auto r_m_arr_extract( T a, int i )  { 
+auto r_m_arr_extract( T & a, int i )  { 
     auto elem = a.at(i); 
     a.erase(a.begin() + i);
     return elem;

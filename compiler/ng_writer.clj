@@ -10,8 +10,7 @@ class CodeFile {
         name = fileName
         path_name = filePath
         writer = (new CodeWriter())
-        writer.createTag("imports")
-        writer.ownerFile = this
+        writer.createTag("imports")        
     }
 
     fn addImport:void (import_name:string) {
@@ -30,6 +29,7 @@ class CodeFile {
     }
 
     fn getWriter@(weak optional):CodeWriter () {
+        writer.ownerFile = this
         return writer
     }
 

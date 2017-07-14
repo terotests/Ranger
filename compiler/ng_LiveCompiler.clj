@@ -370,7 +370,14 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     }
   }
   fn walkCommand:void (cmd:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    if cmd.expression {
+    if ( cmd.expression ) {
+
+      if( ( array_length cmd.children) < 2) {
+        ctx.addError( node "Invalid command")
+        ctx.addError( cmd "Invalid command")
+        return
+      }
+
       def cmdE:CodeNode (cmd.getFirst())
       def cmdArg@(lives):CodeNode (cmd.getSecond())
       switch cmdE.vref {

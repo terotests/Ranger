@@ -1512,7 +1512,7 @@ class RangerFlowParser {
         if(t.has_constructor) {
           ctx.addError( (unwrap point.node) ("Can not join class " + name + " because it has a constructor function" ))
         } {
-          def clBody:CodeNode (itemAt t.node.children 2)
+          ; def clBody:CodeNode (itemAt t.node.children 2)
           def origBody:CodeNode (itemAt cl.node.children 2)
           def match:RangerArgMatch (new RangerArgMatch ())
           def params (t.node.getExpressionProperty("params"))
@@ -1544,7 +1544,7 @@ class RangerFlowParser {
             }            
           }
             
-          def copy_of_body:CodeNode (clBody.rebuildWithType(match true))      
+          ; def copy_of_body:CodeNode (clBody.rebuildWithType(match true))      
           ;joinPoint.vref = "does"
           ;joinPoint.value_type = RangerNodeType.NoType
           ;joinPoint.expression = true

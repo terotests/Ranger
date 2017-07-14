@@ -323,7 +323,7 @@ class RangerGolangClassWriter {
           }
         }
 
-        if(ctx.isDefinedClass(p.nameNode.type_name)) {
+        if( (!null? p.nameNode) && (ctx.isDefinedClass(p.nameNode.type_name))) {
           def c:RangerAppClassDesc (ctx.findClass(p.nameNode.type_name))
           if(c.doesInherit()) {
             next_is_gs = true
@@ -363,7 +363,7 @@ class RangerGolangClassWriter {
           needs_par = false
         }        
 
-        if ( (p.nameNode.hasFlag("optional")) && ( i != ns_last)) {
+        if ( (!null? p.nameNode) && (p.nameNode.hasFlag("optional")) && ( i != ns_last)) {
           wr.out(".value.(" false)
           this.writeTypeDef( (unwrap p.nameNode ) ctx wr)
           wr.out(")" false)

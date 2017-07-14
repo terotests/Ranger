@@ -31,8 +31,8 @@ class RangerJavaScriptClassWriter {
           wr.out("." false)
         }
         if (i == 0) {
-          if (p.nameNode.hasFlag("optional")) {
-          }
+          ; if (p.nameNode.hasFlag("optional")) {
+          ; }
           def part:string (itemAt node.ns 0)
           if ((part != "this") && (ctx.isMemberVariable(part))) {
             def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())

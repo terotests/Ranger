@@ -23,6 +23,8 @@ class CompilerInterface {
     def the_target_dir:string (shell_arg 3)
     def the_target:string (shell_arg 4)
 
+    print "language == " + the_lang
+
     if ( ( indexOf allowed_languages the_lang) < 0 ) {
       print "Invalid language : " + the_lang
       def s:string ""
@@ -75,6 +77,8 @@ class CompilerInterface {
         }
         print "2. Analyzing the code."
         appCtx.targetLangName = the_lang
+
+        print "selected language is " + appCtx.targetLangName 
         flowParser.StartWalk (node appCtx wr)
         if ( ( array_length appCtx.compilerErrors ) > 0 ) {
           CompilerInterface.displayCompilerErrors(appCtx)
