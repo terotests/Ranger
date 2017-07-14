@@ -29,6 +29,7 @@ class RangerAppParamDesc {
   public boolean is_mutating = false     /** note: unused */;
   public boolean is_set = false     /** note: unused */;
   public boolean is_class_variable = false;
+  public boolean is_captured = false;
   public Optional<CodeNode> node = Optional.empty();
   public Optional<CodeNode> nameNode = Optional.empty();
   public String description = ""     /** note: unused */;
@@ -160,8 +161,8 @@ class RangerAppParamDesc {
   }
   
   public int originalStrength() {
-    final int len = ownerHistory.size();
-    if ( len > 0 ) {
+    final int __len = ownerHistory.size();
+    if ( __len > 0 ) {
       final RangerRefForce firstEntry = ownerHistory.get(0);
       return firstEntry.strength;
     }
@@ -169,27 +170,27 @@ class RangerAppParamDesc {
   }
   
   public int getLifetime() {
-    final int len_4 = ownerHistory.size();
-    if ( len_4 > 0 ) {
-      final RangerRefForce lastEntry = ownerHistory.get((len_4 - 1));
+    final int __len = ownerHistory.size();
+    if ( __len > 0 ) {
+      final RangerRefForce lastEntry = ownerHistory.get((__len - 1));
       return lastEntry.lifetime;
     }
     return 1;
   }
   
   public int getStrength() {
-    final int len_6 = ownerHistory.size();
-    if ( len_6 > 0 ) {
-      final RangerRefForce lastEntry_4 = ownerHistory.get((len_6 - 1));
-      return lastEntry_4.strength;
+    final int __len = ownerHistory.size();
+    if ( __len > 0 ) {
+      final RangerRefForce lastEntry = ownerHistory.get((__len - 1));
+      return lastEntry.strength;
     }
     return 1;
   }
   
   public void debugRefChanges() {
     System.out.println(String.valueOf( ("variable " + name) + " ref history : " ) );
-    for ( int i_2 = 0; i_2 < ownerHistory.size(); i_2++) {
-      RangerRefForce h = ownerHistory.get(i_2);
+    for ( int i = 0; i < ownerHistory.size(); i++) {
+      RangerRefForce h = ownerHistory.get(i);
       System.out.println(String.valueOf( ((" => change to " + h.strength) + " by ") + h.changer.get().getCode() ) );
     }
   }
@@ -233,25 +234,25 @@ class RangerAppParamDesc {
         return is_object;
       }
       if ( nameNode.get().value_type == 9 ) {
-        boolean is_object_8 = true;
+        boolean is_object_1 = true;
         switch (nameNode.get().type_name ) { 
           case "string" : 
-            is_object_8 = false;
+            is_object_1 = false;
             break;
           case "int" : 
-            is_object_8 = false;
+            is_object_1 = false;
             break;
           case "boolean" : 
-            is_object_8 = false;
+            is_object_1 = false;
             break;
           case "double" : 
-            is_object_8 = false;
+            is_object_1 = false;
             break;
         }
         if ( ctx.isEnumDefined(nameNode.get().type_name) ) {
           return false;
         }
-        return is_object_8;
+        return is_object_1;
       }
     }
     return false;

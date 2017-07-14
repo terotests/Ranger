@@ -4,41 +4,41 @@ class RangerGenericClassWriter {
   public Optional<LiveCompiler> compiler = Optional.empty();
   
   public String EncodeString( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
-    /** unused:  final String encoded_str_2 = ""   **/ ;
-    final int str_length_2 = node.string_value.length();
-    String encoded_str_8 = "";
-    int ii_11 = 0;
-    while (ii_11 < str_length_2) {
-      final int cc_4 = (int)node.string_value.charAt(ii_11);
-      switch (cc_4 ) { 
+    /** unused:  final String encoded_str = ""   **/ ;
+    final int str_length = node.string_value.length();
+    String encoded_str_2 = "";
+    int ii = 0;
+    while (ii < str_length) {
+      final int cc = (int)node.string_value.charAt(ii);
+      switch (cc ) { 
         case 8 : 
-          encoded_str_8 = (encoded_str_8 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(98))));
+          encoded_str_2 = (encoded_str_2 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(98))));
           break;
         case 9 : 
-          encoded_str_8 = (encoded_str_8 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(116))));
+          encoded_str_2 = (encoded_str_2 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(116))));
           break;
         case 10 : 
-          encoded_str_8 = (encoded_str_8 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(110))));
+          encoded_str_2 = (encoded_str_2 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(110))));
           break;
         case 12 : 
-          encoded_str_8 = (encoded_str_8 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(102))));
+          encoded_str_2 = (encoded_str_2 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(102))));
           break;
         case 13 : 
-          encoded_str_8 = (encoded_str_8 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(114))));
+          encoded_str_2 = (encoded_str_2 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(114))));
           break;
         case 34 : 
-          encoded_str_8 = (encoded_str_8 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(34))));
+          encoded_str_2 = (encoded_str_2 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(34))));
           break;
         case 92 : 
-          encoded_str_8 = (encoded_str_8 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(92))));
+          encoded_str_2 = (encoded_str_2 + ((new String( Character.toChars(92))))) + ((new String( Character.toChars(92))));
           break;
         default: 
-          encoded_str_8 = encoded_str_8 + ((new String( Character.toChars(cc_4))));
+          encoded_str_2 = encoded_str_2 + ((new String( Character.toChars(cc))));
           break;
       }
-      ii_11 = ii_11 + 1;
+      ii = ii + 1;
     }
-    return encoded_str_8;
+    return encoded_str_2;
   }
   
   public void CustomOperator( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
@@ -52,16 +52,16 @@ class RangerGenericClassWriter {
   
   public void WriteEnum( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
     if ( node.eval_type == 11 ) {
-      final String rootObjName_2 = node.ns.get(0);
-      final Optional<RangerAppEnum> e_8 = ctx.getEnum(rootObjName_2);
-      if ( e_8.isPresent() ) {
-        final String enumName_2 = node.ns.get(1);
-        wr.out("" + ((Optional.ofNullable(e_8.get().values.get(enumName_2))).get()), false);
+      final String rootObjName = node.ns.get(0);
+      final Optional<RangerAppEnum> e = ctx.getEnum(rootObjName);
+      if ( e.isPresent() ) {
+        final String enumName = node.ns.get(1);
+        wr.out("" + ((Optional.ofNullable(e.get().values.get(enumName))).get()), false);
       } else {
         if ( node.hasParamDesc ) {
-          final Optional<RangerAppParamDesc> pp_4 = node.paramDesc;
-          final Optional<CodeNode> nn_8 = pp_4.get().nameNode;
-          this.WriteVRef(nn_8.get(), ctx, wr);
+          final Optional<RangerAppParamDesc> pp = node.paramDesc;
+          final Optional<CodeNode> nn = pp.get().nameNode;
+          this.WriteVRef(nn.get(), ctx, wr);
         }
       }
     }
@@ -73,8 +73,8 @@ class RangerGenericClassWriter {
         wr.out("" + node.double_value, false);
         break;
       case 4 : 
-        final String s_18 = this.EncodeString(node, ctx, wr);
-        wr.out(("\"" + s_18) + "\"", false);
+        final String s = this.EncodeString(node, ctx, wr);
+        wr.out(("\"" + s) + "\"", false);
         break;
       case 3 : 
         wr.out("" + node.int_value, false);
@@ -116,27 +116,27 @@ class RangerGenericClassWriter {
   }
   
   public void release_local_vars( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
-    for ( int i_62 = 0; i_62 < ctx.localVarNames.size(); i_62++) {
-      String n_7 = ctx.localVarNames.get(i_62);
-      final Optional<RangerAppParamDesc> p_14 = Optional.ofNullable(ctx.localVariables.get(n_7));
-      if ( p_14.get().ref_cnt == 0 ) {
+    for ( int i = 0; i < ctx.localVarNames.size(); i++) {
+      String n = ctx.localVarNames.get(i);
+      final Optional<RangerAppParamDesc> p = Optional.ofNullable(ctx.localVariables.get(n));
+      if ( p.get().ref_cnt == 0 ) {
         continue;
       }
-      if ( p_14.get().isAllocatedType() ) {
-        if ( 1 == p_14.get().getStrength() ) {
-          if ( p_14.get().nameNode.get().eval_type == 7 ) {
+      if ( p.get().isAllocatedType() ) {
+        if ( 1 == p.get().getStrength() ) {
+          if ( p.get().nameNode.get().eval_type == 7 ) {
           }
-          if ( p_14.get().nameNode.get().eval_type == 6 ) {
+          if ( p.get().nameNode.get().eval_type == 6 ) {
           }
-          if ( (p_14.get().nameNode.get().eval_type != 6) && (p_14.get().nameNode.get().eval_type != 7) ) {
+          if ( (p.get().nameNode.get().eval_type != 6) && (p.get().nameNode.get().eval_type != 7) ) {
           }
         }
-        if ( 0 == p_14.get().getStrength() ) {
-          if ( p_14.get().nameNode.get().eval_type == 7 ) {
+        if ( 0 == p.get().getStrength() ) {
+          if ( p.get().nameNode.get().eval_type == 7 ) {
           }
-          if ( p_14.get().nameNode.get().eval_type == 6 ) {
+          if ( p.get().nameNode.get().eval_type == 6 ) {
           }
-          if ( (p_14.get().nameNode.get().eval_type != 6) && (p_14.get().nameNode.get().eval_type != 7) ) {
+          if ( (p.get().nameNode.get().eval_type != 6) && (p.get().nameNode.get().eval_type != 7) ) {
           }
         }
       }
@@ -168,36 +168,36 @@ class RangerGenericClassWriter {
   public void WriteVRef( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
     if ( node.eval_type == 11 ) {
       if ( (node.ns.size()) > 1 ) {
-        final String rootObjName_5 = node.ns.get(0);
-        final String enumName_5 = node.ns.get(1);
-        final Optional<RangerAppEnum> e_11 = ctx.getEnum(rootObjName_5);
-        if ( e_11.isPresent() ) {
-          wr.out("" + ((Optional.ofNullable(e_11.get().values.get(enumName_5))).get()), false);
+        final String rootObjName = node.ns.get(0);
+        final String enumName = node.ns.get(1);
+        final Optional<RangerAppEnum> e = ctx.getEnum(rootObjName);
+        if ( e.isPresent() ) {
+          wr.out("" + ((Optional.ofNullable(e.get().values.get(enumName))).get()), false);
           return;
         }
       }
     }
     if ( (node.nsp.size()) > 0 ) {
-      for ( int i_65 = 0; i_65 < node.nsp.size(); i_65++) {
-        RangerAppParamDesc p_17 = node.nsp.get(i_65);
-        if ( i_65 > 0 ) {
+      for ( int i = 0; i < node.nsp.size(); i++) {
+        RangerAppParamDesc p = node.nsp.get(i);
+        if ( i > 0 ) {
           wr.out(".", false);
         }
-        if ( (p_17.compiledName.length()) > 0 ) {
-          wr.out(this.adjustType(p_17.compiledName), false);
+        if ( (p.compiledName.length()) > 0 ) {
+          wr.out(this.adjustType(p.compiledName), false);
         } else {
-          if ( (p_17.name.length()) > 0 ) {
-            wr.out(this.adjustType(p_17.name), false);
+          if ( (p.name.length()) > 0 ) {
+            wr.out(this.adjustType(p.name), false);
           } else {
-            wr.out(this.adjustType((node.ns.get(i_65))), false);
+            wr.out(this.adjustType((node.ns.get(i))), false);
           }
         }
       }
       return;
     }
-    for ( int i_69 = 0; i_69 < node.ns.size(); i_69++) {
-      String part = node.ns.get(i_69);
-      if ( i_69 > 0 ) {
+    for ( int i_1 = 0; i_1 < node.ns.size(); i_1++) {
+      String part = node.ns.get(i_1);
+      if ( i_1 > 0 ) {
         wr.out(".", false);
       }
       wr.out(this.adjustType(part), false);
@@ -206,17 +206,17 @@ class RangerGenericClassWriter {
   
   public void writeVarDef( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
     if ( node.hasParamDesc ) {
-      final Optional<RangerAppParamDesc> p_19 = node.paramDesc;
-      if ( p_19.get().set_cnt > 0 ) {
-        wr.out("var " + p_19.get().name, false);
+      final Optional<RangerAppParamDesc> p = node.paramDesc;
+      if ( p.get().set_cnt > 0 ) {
+        wr.out("var " + p.get().name, false);
       } else {
-        wr.out("const " + p_19.get().name, false);
+        wr.out("const " + p.get().name, false);
       }
       if ( (node.children.size()) > 2 ) {
         wr.out(" = ", false);
         ctx.setInExpr();
-        final CodeNode value_2 = node.getThird();
-        this.WalkNode(value_2, ctx, wr);
+        final CodeNode value = node.getThird();
+        this.WalkNode(value, ctx, wr);
         ctx.unsetInExpr();
         wr.out(";", true);
       } else {
@@ -225,30 +225,73 @@ class RangerGenericClassWriter {
     }
   }
   
+  public void CreateLambdaCall( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
+    final CodeNode fName = node.children.get(0);
+    final CodeNode args = node.children.get(1);
+    this.WriteVRef(fName, ctx, wr);
+    wr.out("(", false);
+    for ( int i = 0; i < args.children.size(); i++) {
+      CodeNode arg = args.children.get(i);
+      if ( i > 0 ) {
+        wr.out(", ", false);
+      }
+      this.WalkNode(arg, ctx, wr);
+    }
+    wr.out(")", false);
+    if ( ctx.expressionLevel() == 0 ) {
+      wr.out(";", true);
+    }
+  }
+  
+  public void CreateLambda( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
+    final RangerAppWriterContext lambdaCtx = node.lambda_ctx.get();
+    final CodeNode args = node.children.get(1);
+    final CodeNode body = node.children.get(2);
+    wr.out("(", false);
+    for ( int i = 0; i < args.children.size(); i++) {
+      CodeNode arg = args.children.get(i);
+      if ( i > 0 ) {
+        wr.out(", ", false);
+      }
+      this.WalkNode(arg, lambdaCtx, wr);
+    }
+    wr.out(")", false);
+    wr.out(" => { ", true);
+    wr.indent(1);
+    lambdaCtx.restartExpressionLevel();
+    for ( int i_1 = 0; i_1 < body.children.size(); i_1++) {
+      CodeNode item = body.children.get(i_1);
+      this.WalkNode(item, lambdaCtx, wr);
+    }
+    wr.newline();
+    wr.indent(-1);
+    wr.out("}", true);
+  }
+  
   public void writeFnCall( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
     if ( node.hasFnCall ) {
-      final CodeNode fc_20 = node.getFirst();
-      this.WriteVRef(fc_20, ctx, wr);
+      final CodeNode fc = node.getFirst();
+      this.WriteVRef(fc, ctx, wr);
       wr.out("(", false);
-      final CodeNode givenArgs_2 = node.getSecond();
+      final CodeNode givenArgs = node.getSecond();
       ctx.setInExpr();
-      for ( int i_69 = 0; i_69 < node.fnDesc.get().params.size(); i_69++) {
-        RangerAppParamDesc arg_12 = node.fnDesc.get().params.get(i_69);
-        if ( i_69 > 0 ) {
+      for ( int i = 0; i < node.fnDesc.get().params.size(); i++) {
+        RangerAppParamDesc arg = node.fnDesc.get().params.get(i);
+        if ( i > 0 ) {
           wr.out(", ", false);
         }
-        if ( (givenArgs_2.children.size()) <= i_69 ) {
-          final Optional<CodeNode> defVal = arg_12.nameNode.get().getFlag("default");
+        if ( (givenArgs.children.size()) <= i ) {
+          final Optional<CodeNode> defVal = arg.nameNode.get().getFlag("default");
           if ( defVal.isPresent() ) {
-            final CodeNode fc_31 = defVal.get().vref_annotation.get().getFirst();
-            this.WalkNode(fc_31, ctx, wr);
+            final CodeNode fc_1 = defVal.get().vref_annotation.get().getFirst();
+            this.WalkNode(fc_1, ctx, wr);
           } else {
             ctx.addError(node, "Default argument was missing");
           }
           continue;
         }
-        final CodeNode n_10 = givenArgs_2.children.get(i_69);
-        this.WalkNode(n_10, ctx, wr);
+        final CodeNode n = givenArgs.children.get(i);
+        this.WalkNode(n, ctx, wr);
       }
       ctx.unsetInExpr();
       wr.out(")", false);
@@ -260,21 +303,21 @@ class RangerGenericClassWriter {
   
   public void writeNewCall( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
     if ( node.hasNewOper ) {
-      final Optional<RangerAppClassDesc> cl_2 = node.clDesc;
-      /** unused:  final CodeNode fc_25 = node.getSecond()   **/ ;
+      final Optional<RangerAppClassDesc> cl = node.clDesc;
+      /** unused:  final CodeNode fc = node.getSecond()   **/ ;
       wr.out("new " + node.clDesc.get().name, false);
       wr.out("(", false);
-      final Optional<RangerAppFunctionDesc> constr = cl_2.get().constructor_fn;
-      final CodeNode givenArgs_5 = node.getThird();
+      final Optional<RangerAppFunctionDesc> constr = cl.get().constructor_fn;
+      final CodeNode givenArgs = node.getThird();
       if ( constr.isPresent() ) {
-        for ( int i_71 = 0; i_71 < constr.get().params.size(); i_71++) {
-          RangerAppParamDesc arg_15 = constr.get().params.get(i_71);
-          final CodeNode n_12 = givenArgs_5.children.get(i_71);
-          if ( i_71 > 0 ) {
+        for ( int i = 0; i < constr.get().params.size(); i++) {
+          RangerAppParamDesc arg = constr.get().params.get(i);
+          final CodeNode n = givenArgs.children.get(i);
+          if ( i > 0 ) {
             wr.out(", ", false);
           }
-          if ( true || (arg_15.nameNode.isPresent()) ) {
-            this.WalkNode(n_12, ctx, wr);
+          if ( true || (arg.nameNode.isPresent()) ) {
+            this.WalkNode(n, ctx, wr);
           }
         }
       }
@@ -282,31 +325,37 @@ class RangerGenericClassWriter {
     }
   }
   
+  public void writeInterface( RangerAppClassDesc cl , RangerAppWriterContext ctx , CodeWriter wr ) {
+  }
+  
+  public void disabledVarDef( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
+  }
+  
   public void writeClass( CodeNode node , RangerAppWriterContext ctx , CodeWriter wr ) {
-    final Optional<RangerAppClassDesc> cl_5 = node.clDesc;
-    if ( !cl_5.isPresent() ) {
+    final Optional<RangerAppClassDesc> cl = node.clDesc;
+    if ( !cl.isPresent() ) {
       return;
     }
-    wr.out(("class " + cl_5.get().name) + " { ", true);
+    wr.out(("class " + cl.get().name) + " { ", true);
     wr.indent(1);
-    for ( int i_73 = 0; i_73 < cl_5.get().variables.size(); i_73++) {
-      RangerAppParamDesc pvar = cl_5.get().variables.get(i_73);
+    for ( int i = 0; i < cl.get().variables.size(); i++) {
+      RangerAppParamDesc pvar = cl.get().variables.get(i);
       wr.out(((("/* var " + pvar.name) + " => ") + pvar.nameNode.get().parent.get().getCode()) + " */ ", true);
     }
-    for ( int i_77 = 0; i_77 < cl_5.get().static_methods.size(); i_77++) {
-      RangerAppFunctionDesc pvar_6 = cl_5.get().static_methods.get(i_77);
-      wr.out(("/* static " + pvar_6.name) + " */ ", true);
+    for ( int i_1 = 0; i_1 < cl.get().static_methods.size(); i_1++) {
+      RangerAppFunctionDesc pvar_1 = cl.get().static_methods.get(i_1);
+      wr.out(("/* static " + pvar_1.name) + " */ ", true);
     }
-    for ( int i_80 = 0; i_80 < cl_5.get().defined_variants.size(); i_80++) {
-      String fnVar = cl_5.get().defined_variants.get(i_80);
-      final Optional<RangerAppMethodVariants> mVs = Optional.ofNullable(cl_5.get().method_variants.get(fnVar));
-      for ( int i_87 = 0; i_87 < mVs.get().variants.size(); i_87++) {
-        RangerAppFunctionDesc variant = mVs.get().variants.get(i_87);
+    for ( int i_2 = 0; i_2 < cl.get().defined_variants.size(); i_2++) {
+      String fnVar = cl.get().defined_variants.get(i_2);
+      final Optional<RangerAppMethodVariants> mVs = Optional.ofNullable(cl.get().method_variants.get(fnVar));
+      for ( int i_3 = 0; i_3 < mVs.get().variants.size(); i_3++) {
+        RangerAppFunctionDesc variant = mVs.get().variants.get(i_3);
         wr.out(("function " + variant.name) + "() {", true);
         wr.indent(1);
         wr.newline();
-        final RangerAppWriterContext subCtx_14 = ctx.fork();
-        this.WalkNode(variant.fnBody.get(), subCtx_14, wr);
+        final RangerAppWriterContext subCtx = ctx.fork();
+        this.WalkNode(variant.fnBody.get(), subCtx, wr);
         wr.newline();
         wr.indent(-1);
         wr.out("}", true);

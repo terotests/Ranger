@@ -1,7 +1,7 @@
 import java.util.Optional;
 
 class RangerAppValue { 
-  public double double_value = 0     /** note: unused */;
+  public int double_value = 0     /** note: unused */;
   public String string_value = ""     /** note: unused */;
   public int int_value = 0     /** note: unused */;
   public boolean boolean_value = false     /** note: unused */;

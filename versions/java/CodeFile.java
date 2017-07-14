@@ -14,7 +14,6 @@ class CodeFile {
     path_name = filePath;
     writer = Optional.of(new CodeWriter());
     writer.get().createTag("imports");
-    writer.get().ownerFile = Optional.of(this);
   }
   
   public void addImport( String import_name ) {
@@ -33,6 +32,7 @@ class CodeFile {
   }
   
   public Optional<CodeWriter> getWriter() {
+    writer.get().ownerFile = Optional.of(this);
     return Optional.ofNullable((writer.isPresent() ? (CodeWriter)writer.get() : null ) );
   }
   

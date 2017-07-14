@@ -6,12 +6,23 @@ class RangerArgMatch {
   public HashMap<String,String> matched = new HashMap<String,String>();
   
   public boolean matchArguments( CodeNode args , CodeNode callArgs , RangerAppWriterContext ctx , int firstArgIndex ) {
-    /** unused:  final CodeNode fc_12 = callArgs.children.get(0)   **/ ;
+    /** unused:  final CodeNode fc = callArgs.children.get(0)   **/ ;
     ArrayList<String> missed_args = new ArrayList<String>();
     boolean all_matched = true;
-    for ( int i_25 = 0; i_25 < args.children.size(); i_25++) {
-      CodeNode arg = args.children.get(i_25);
-      final CodeNode callArg = callArgs.children.get((i_25 + firstArgIndex));
+    if ( ((args.children.size()) == 0) && ((callArgs.children.size()) > 1) ) {
+      return false;
+    }
+    Optional<CodeNode> lastArg = Optional.empty();
+    for ( int i = 0; i < callArgs.children.size(); i++) {
+      CodeNode callArg = callArgs.children.get(i);
+      if ( i == 0 ) {
+        continue;
+      }
+      final int arg_index = i - 1;
+      if ( arg_index < (args.children.size()) ) {
+        lastArg = Optional.of(args.children.get(arg_index));
+      }
+      final CodeNode arg = lastArg.get();
       if ( arg.hasFlag("ignore") ) {
         continue;
       }
@@ -29,9 +40,9 @@ class RangerArgMatch {
       }
       if ( arg.hasFlag("optional") ) {
         if ( callArg.hasParamDesc ) {
-          final Optional<RangerAppParamDesc> pa_8 = callArg.paramDesc;
-          final boolean b_8 = pa_8.get().nameNode.get().hasFlag("optional");
-          if ( b_8 == false ) {
+          final Optional<RangerAppParamDesc> pa_1 = callArg.paramDesc;
+          final boolean b_1 = pa_1.get().nameNode.get().hasFlag("optional");
+          if ( b_1 == false ) {
             missed_args.add("optional was missing");
             all_matched = false;
           }
@@ -108,11 +119,11 @@ class RangerArgMatch {
       return true;
     }
     if ( matched.containsKey(tplKeyword) ) {
-      final String s_12 = (Optional.ofNullable(matched.get(tplKeyword))).get();
-      if ( this.areEqualTypes(s_12, typeName, ctx) ) {
+      final String s = (Optional.ofNullable(matched.get(tplKeyword))).get();
+      if ( this.areEqualTypes(s, typeName, ctx) ) {
         return true;
       }
-      if ( s_12.equals(typeName) ) {
+      if ( s.equals(typeName) ) {
         return true;
       } else {
         return false;
@@ -132,8 +143,8 @@ class RangerArgMatch {
     }
     if ( (arg.value_type != 7) && (arg.value_type != 6) ) {
       final boolean eq = this.areEqualTypes(arg.type_name, node.type_name, ctx);
-      final String typename = arg.type_name;
-      switch (typename ) { 
+      final String t_name = arg.type_name;
+      switch (t_name ) { 
         case "expression" : 
           return node.expression;
         case "block" : 
@@ -143,7 +154,7 @@ class RangerArgMatch {
         case "keyword" : 
           return node.eval_type == 9;
         case "T.name" : 
-          return node.eval_type_name.equals(typename);
+          return node.eval_type_name.equals(t_name);
       }
       return eq;
     }
@@ -152,9 +163,9 @@ class RangerArgMatch {
       return same_arrays;
     }
     if ( (arg.value_type == 7) && (node.eval_type == 7) ) {
-      final boolean same_arrays_6 = this.areEqualTypes(arg.array_type, node.array_type, ctx);
+      final boolean same_arrays_1 = this.areEqualTypes(arg.array_type, node.array_type, ctx);
       final boolean same_keys = this.areEqualTypes(arg.key_type, node.key_type, ctx);
-      return same_arrays_6 && same_keys;
+      return same_arrays_1 && same_keys;
     }
     return false;
   }
@@ -168,9 +179,9 @@ class RangerArgMatch {
       }
     }
     if ( (arg.value_type != 7) && (arg.value_type != 6) ) {
-      final boolean eq_4 = this.areEqualTypes(arg.type_name, node.eval_type_name, ctx);
-      final String typename_4 = arg.type_name;
-      switch (typename_4 ) { 
+      final boolean eq = this.areEqualTypes(arg.type_name, node.eval_type_name, ctx);
+      final String t_name = arg.type_name;
+      switch (t_name ) { 
         case "expression" : 
           return node.expression;
         case "block" : 
@@ -180,28 +191,28 @@ class RangerArgMatch {
         case "keyword" : 
           return node.eval_type == 9;
         case "T.name" : 
-          return node.eval_type_name.equals(typename_4);
+          return node.eval_type_name.equals(t_name);
       }
-      return eq_4;
+      return eq;
     }
     if ( (arg.value_type == 6) && (node.eval_type == 6) ) {
-      final boolean same_arrays_6 = this.areEqualTypes(arg.array_type, node.eval_array_type, ctx);
-      return same_arrays_6;
+      final boolean same_arrays = this.areEqualTypes(arg.array_type, node.eval_array_type, ctx);
+      return same_arrays;
     }
     if ( (arg.value_type == 7) && (node.eval_type == 7) ) {
-      final boolean same_arrays_10 = this.areEqualTypes(arg.array_type, node.eval_array_type, ctx);
-      final boolean same_keys_4 = this.areEqualTypes(arg.key_type, node.eval_key_type, ctx);
-      return same_arrays_10 && same_keys_4;
+      final boolean same_arrays_1 = this.areEqualTypes(arg.array_type, node.eval_array_type, ctx);
+      final boolean same_keys = this.areEqualTypes(arg.key_type, node.eval_key_type, ctx);
+      return same_arrays_1 && same_keys;
     }
     return false;
   }
   
   public boolean areEqualTypes( String type1 , String type2 , RangerAppWriterContext ctx ) {
-    String typename_6 = type1;
+    String t_name = type1;
     if ( matched.containsKey(type1) ) {
-      typename_6 = (Optional.ofNullable(matched.get(type1))).get();
+      t_name = (Optional.ofNullable(matched.get(type1))).get();
     }
-    switch (typename_6 ) { 
+    switch (t_name ) { 
       case "string" : 
         return type2.equals("string");
       case "int" : 
@@ -217,39 +228,46 @@ class RangerArgMatch {
       case "charbuffer" : 
         return type2.equals("charbuffer");
     }
-    if ( ctx.isDefinedClass(typename_6) && ctx.isDefinedClass(type2) ) {
-      final RangerAppClassDesc c1 = ctx.findClass(typename_6);
-      final RangerAppClassDesc c2_3 = ctx.findClass(type2);
+    if ( ctx.isDefinedClass(t_name) && ctx.isDefinedClass(type2) ) {
+      final RangerAppClassDesc c1 = ctx.findClass(t_name);
+      final RangerAppClassDesc c2 = ctx.findClass(type2);
       if ( c1.isSameOrParentClass(type2, ctx) ) {
         return true;
       }
-      if ( c2_3.isSameOrParentClass(typename_6, ctx) ) {
+      if ( c2.isSameOrParentClass(t_name, ctx) ) {
         return true;
       }
+    } else {
+      if ( ctx.isDefinedClass(t_name) ) {
+        final RangerAppClassDesc c1_1 = ctx.findClass(t_name);
+        if ( c1_1.isSameOrParentClass(type2, ctx) ) {
+          return true;
+        }
+      }
     }
-    return typename_6.equals(type2);
+    return t_name.equals(type2);
   }
   
   public String getTypeName( String n ) {
-    String typename_8 = n;
-    if ( matched.containsKey(typename_8) ) {
-      typename_8 = (Optional.ofNullable(matched.get(typename_8))).get();
+    String t_name = n;
+    if ( matched.containsKey(t_name) ) {
+      t_name = (Optional.ofNullable(matched.get(t_name))).get();
     }
-    if ( 0 == (typename_8.length()) ) {
+    if ( 0 == (t_name.length()) ) {
       return "";
     }
-    return typename_8;
+    return t_name;
   }
   
   public int getType( String n ) {
-    String typename_10 = n;
-    if ( matched.containsKey(typename_10) ) {
-      typename_10 = (Optional.ofNullable(matched.get(typename_10))).get();
+    String t_name = n;
+    if ( matched.containsKey(t_name) ) {
+      t_name = (Optional.ofNullable(matched.get(t_name))).get();
     }
-    if ( 0 == (typename_10.length()) ) {
+    if ( 0 == (t_name.length()) ) {
       return 0;
     }
-    switch (typename_10 ) { 
+    switch (t_name ) { 
       case "expression" : 
         return 14;
       case "block" : 

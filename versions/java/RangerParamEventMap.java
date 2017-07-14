@@ -17,9 +17,9 @@ class RangerParamEventMap {
   
   public void fireEvent( String name , RangerAppParamDesc from ) {
     if ( events.containsKey(name) ) {
-      final RangerParamEventList list_4 = (Optional.ofNullable(events.get(name))).get();
-      for ( int i = 0; i < list_4.list.size(); i++) {
-        RangerParamEventHandler ev = list_4.list.get(i);
+      final RangerParamEventList list = (Optional.ofNullable(events.get(name))).get();
+      for ( int i = 0; i < list.list.size(); i++) {
+        RangerParamEventHandler ev = list.list.get(i);
         ev.callback(from);
       }
     }

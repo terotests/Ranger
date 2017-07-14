@@ -33,10 +33,10 @@ class CodeFileSystem {
   public ArrayList<CodeFile> files = new ArrayList<CodeFile>();
   
   public CodeFile getFile( String path , String name ) {
-    for ( int idx_2 = 0; idx_2 < files.size(); idx_2++) {
-      CodeFile file_2 = files.get(idx_2);
-      if ( (file_2.path_name.equals(path)) && (file_2.name.equals(name)) ) {
-        return file_2;
+    for ( int idx = 0; idx < files.size(); idx++) {
+      CodeFile file = files.get(idx);
+      if ( (file.path_name.equals(path)) && (file.name.equals(name)) ) {
+        return file;
       }
     }
     final CodeFile new_file = new CodeFile(path, name);
@@ -48,8 +48,8 @@ class CodeFileSystem {
   public void mkdir( String path ) {
     final ArrayList<String> parts = new ArrayList<String>(Arrays.asList(path.split("/")));
     String curr_path = "";
-    for ( int i_22 = 0; i_22 < parts.size(); i_22++) {
-      String p = parts.get(i_22);
+    for ( int i = 0; i < parts.size(); i++) {
+      String p = parts.get(i);
       curr_path = (curr_path + "/") + p;
       if ( false == (new File(curr_path).exists()) ) {
         createDir(curr_path);
@@ -58,14 +58,14 @@ class CodeFileSystem {
   }
   
   public void saveTo( String path ) {
-    for ( int idx_5 = 0; idx_5 < files.size(); idx_5++) {
-      CodeFile file_5 = files.get(idx_5);
-      final String file_path = (path + "/") + file_5.path_name;
+    for ( int idx = 0; idx < files.size(); idx++) {
+      CodeFile file = files.get(idx);
+      final String file_path = (path + "/") + file.path_name;
       this.mkdir(file_path);
-      System.out.println(String.valueOf( (("Writing to file " + file_path) + "/") + file_5.name ) );
-      final String file_content = file_5.getCode();
+      System.out.println(String.valueOf( (("Writing to file " + file_path) + "/") + file.name ) );
+      final String file_content = file.getCode();
       if ( (file_content.length()) > 0 ) {
-        writeFile(file_path + "/" + file_5.name , file_content );
+        writeFile(file_path + "/" + file.name , file_content );
       }
     }
   }

@@ -19,12 +19,46 @@ class SourceCode {
   
   public int getLine( int sp ) {
     int cnt = 0;
-    for ( int i_11 = 0; i_11 < lines.size(); i_11++) {
-      String str = lines.get(i_11);
+    for ( int i = 0; i < lines.size(); i++) {
+      String str = lines.get(i);
       cnt = cnt + ((str.length()) + 1);
       if ( cnt > sp ) {
-        return i_11;
+        return i;
       }
+    }
+    return -1;
+  }
+  
+  public String getColumnStr( int sp ) {
+    int cnt = 0;
+    int last = 0;
+    for ( int i = 0; i < lines.size(); i++) {
+      String str = lines.get(i);
+      cnt = cnt + ((str.length()) + 1);
+      if ( cnt > sp ) {
+        int ll = sp - last;
+        String ss = "";
+        while (ll > 0) {
+          ss = ss + " ";
+          ll = ll - 1;
+        }
+        return ss;
+      }
+      last = cnt;
+    }
+    return "";
+  }
+  
+  public int getColumn( int sp ) {
+    int cnt = 0;
+    int last = 0;
+    for ( int i = 0; i < lines.size(); i++) {
+      String str = lines.get(i);
+      cnt = cnt + ((str.length()) + 1);
+      if ( cnt > sp ) {
+        return sp - last;
+      }
+      last = cnt;
     }
     return -1;
   }
