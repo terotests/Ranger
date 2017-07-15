@@ -415,7 +415,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.systemNames = {};
     this.is_interface = false;
     this.is_system_union = false;
-    this.is_template = false;     /** note: unused */
+    this.is_template = false;
     this.is_serialized = false;
     this.is_trait = false;
     this.variables = [];
@@ -1664,6 +1664,9 @@ class RangerAppWriterContext  {
         return false;
       }
     }
+    if ( this.isEnumDefined(node.type_name) ) {
+      return true;
+    }
     if ( this.isDefinedType(node.type_name) ) {
       return true;
     } else {
@@ -1800,14 +1803,15 @@ class RangerAppWriterContext  {
     return this.parent.isEnumDefined(n);
   }
   getEnum (n) {
+    let res;
     if ( ( typeof(this.definedEnums[n] ) != "undefined" && this.definedEnums.hasOwnProperty(n) ) ) {
-      return this.definedEnums[n];
+      res = this.definedEnums[n];
+      return res;
     }
     if ( typeof(this.parent) !== "undefined" ) {
       return this.parent.getEnum(n);
     }
-    let none;
-    return none;
+    return res;
   }
   isVarDefined (name) {
     if ( ( typeof(this.localVariables[name] ) != "undefined" && this.localVariables.hasOwnProperty(name) ) ) {
@@ -2051,13 +2055,13 @@ class RangerAppWriterContext  {
     return false;
   }
   getCurrentClass () {
-    if ( this.in_class && (typeof(this.currentClass) !== "undefined") ) {
-      return this.currentClass;
+    const non = this.currentClass;
+    if ( this.in_class && (typeof(non) !== "undefined") ) {
+      return non;
     }
     if ( typeof(this.parent) !== "undefined" ) {
       return this.parent.getCurrentClass();
     }
-    let non;
     return non;
   }
   restartExpressionLevel () {
@@ -3609,6 +3613,477 @@ class RangerArgMatch  {
     return false;
   }
 }
+class DictNode  {
+  constructor() {
+    this.is_property = false;
+    this.is_property_value = false;
+    this.vref = "";
+    this.value_type = 6;
+    this.double_value = 0;
+    this.int_value = 0;
+    this.string_value = "";
+    this.boolean_value = false;
+    this.children = [];
+    this.objects = {};
+    this.keys = [];
+  }
+  EncodeString (orig_str) {
+    let encoded_str = "";
+    /** unused:  const str_length = orig_str.length   **/ 
+    let ii = 0;
+    const buff = orig_str;
+    const cb_len = buff.length;
+    while (ii < cb_len) {
+      const cc = buff.charCodeAt(ii );
+      switch (cc ) { 
+        case 8 : 
+          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(98));
+          break;
+        case 9 : 
+          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(116));
+          break;
+        case 10 : 
+          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(110));
+          break;
+        case 12 : 
+          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(102));
+          break;
+        case 13 : 
+          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(114));
+          break;
+        case 34 : 
+          encoded_str = (encoded_str + (String.fromCharCode(92))) + "\"";
+          break;
+        case 92 : 
+          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(92));
+          break;
+        case 47 : 
+          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(47));
+          break;
+        default: 
+          encoded_str = encoded_str + (String.fromCharCode(cc));
+          break;
+      }
+      ii = 1 + ii;
+    }
+    return encoded_str;
+  }
+  addString (key, value) {
+    if ( this.value_type == 6 ) {
+      const v = new DictNode();
+      v.string_value = value;
+      v.value_type = 3;
+      v.vref = key;
+      v.is_property = true;
+      this.keys.push(key);
+      this.objects[key] = v
+    }
+  }
+  addDouble (key, value) {
+    if ( this.value_type == 6 ) {
+      const v = new DictNode();
+      v.double_value = value;
+      v.value_type = 1;
+      v.vref = key;
+      v.is_property = true;
+      this.keys.push(key);
+      this.objects[key] = v
+    }
+  }
+  addInt (key, value) {
+    if ( this.value_type == 6 ) {
+      const v = new DictNode();
+      v.int_value = value;
+      v.value_type = 2;
+      v.vref = key;
+      v.is_property = true;
+      this.keys.push(key);
+      this.objects[key] = v
+    }
+  }
+  addBoolean (key, value) {
+    if ( this.value_type == 6 ) {
+      const v = new DictNode();
+      v.boolean_value = value;
+      v.value_type = 4;
+      v.vref = key;
+      v.is_property = true;
+      this.keys.push(key);
+      this.objects[key] = v
+    }
+  }
+  addObject (key) {
+    let v;
+    if ( this.value_type == 6 ) {
+      const p = new DictNode();
+      v = new DictNode();
+      p.value_type = 6;
+      p.vref = key;
+      p.is_property = true;
+      v.value_type = 6;
+      v.vref = key;
+      v.is_property_value = true;
+      p.object_value = v;
+      this.keys.push(key);
+      this.objects[key] = p
+      return v;
+    }
+    return v;
+  }
+  setObject (key, value) {
+    if ( this.value_type == 6 ) {
+      const p = new DictNode();
+      p.value_type = 6;
+      p.vref = key;
+      p.is_property = true;
+      value.is_property_value = true;
+      value.vref = key;
+      p.object_value = value;
+      this.keys.push(key);
+      this.objects[key] = p
+    }
+  }
+  addArray (key) {
+    let v;
+    if ( this.value_type == 6 ) {
+      v = new DictNode();
+      v.value_type = 5;
+      v.vref = key;
+      v.is_property = true;
+      this.keys.push(key);
+      this.objects[key] = v
+      return v;
+    }
+    return v;
+  }
+  push (obj) {
+    if ( this.value_type == 5 ) {
+      this.children.push(obj);
+    }
+  }
+  getDoubleAt (index) {
+    if ( index < (this.children.length) ) {
+      const k = this.children[index];
+      return k.double_value;
+    }
+    return 0;
+  }
+  getStringAt (index) {
+    if ( index < (this.children.length) ) {
+      const k = this.children[index];
+      return k.string_value;
+    }
+    return "";
+  }
+  getIntAt (index) {
+    if ( index < (this.children.length) ) {
+      const k = this.children[index];
+      return k.int_value;
+    }
+    return 0;
+  }
+  getBooleanAt (index) {
+    if ( index < (this.children.length) ) {
+      const k = this.children[index];
+      return k.boolean_value;
+    }
+    return false;
+  }
+  getString (key) {
+    let res;
+    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
+      const k = this.objects[key];
+      res = k.string_value;
+    }
+    return res;
+  }
+  getDouble (key) {
+    let res;
+    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
+      const k = this.objects[key];
+      res = k.double_value;
+    }
+    return res;
+  }
+  getInt (key) {
+    let res;
+    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
+      const k = this.objects[key];
+      res = k.int_value;
+    }
+    return res;
+  }
+  getBoolean (key) {
+    let res;
+    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
+      const k = this.objects[key];
+      res = k.boolean_value;
+    }
+    return res;
+  }
+  getArray (key) {
+    let res;
+    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
+      const obj = this.objects[key];
+      if ( obj.is_property ) {
+        res = obj.object_value;
+      }
+    }
+    return res;
+  }
+  getArrayAt (index) {
+    let res;
+    if ( index < (this.children.length) ) {
+      res = this.children[index];
+    }
+    return res;
+  }
+  getObject (key) {
+    let res;
+    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
+      const obj = this.objects[key];
+      if ( obj.is_property ) {
+        res = obj.object_value;
+      }
+    }
+    return res;
+  }
+  getObjectAt (index) {
+    let res;
+    if ( index < (this.children.length) ) {
+      res = this.children[index];
+    }
+    return res;
+  }
+  stringify () {
+    if ( this.is_property ) {
+      if ( this.value_type == 7 ) {
+        return (("\"" + this.vref) + "\"") + ":null";
+      }
+      if ( this.value_type == 4 ) {
+        if ( this.boolean_value ) {
+          return ((("\"" + this.vref) + "\"") + ":") + "true";
+        } else {
+          return ((("\"" + this.vref) + "\"") + ":") + "false";
+        }
+      }
+      if ( this.value_type == 1 ) {
+        return ((("\"" + this.vref) + "\"") + ":") + this.double_value;
+      }
+      if ( this.value_type == 2 ) {
+        return ((("\"" + this.vref) + "\"") + ":") + this.int_value;
+      }
+      if ( this.value_type == 3 ) {
+        return ((((("\"" + this.vref) + "\"") + ":") + "\"") + this.EncodeString(this.string_value)) + "\"";
+      }
+    } else {
+      if ( this.value_type == 7 ) {
+        return "null";
+      }
+      if ( this.value_type == 1 ) {
+        return "" + this.double_value;
+      }
+      if ( this.value_type == 2 ) {
+        return "" + this.int_value;
+      }
+      if ( this.value_type == 3 ) {
+        return ("\"" + this.EncodeString(this.string_value)) + "\"";
+      }
+      if ( this.value_type == 4 ) {
+        if ( this.boolean_value ) {
+          return "true";
+        } else {
+          return "false";
+        }
+      }
+    }
+    if ( this.value_type == 5 ) {
+      let str = "";
+      if ( this.is_property ) {
+        str = (("\"" + this.vref) + "\"") + ":[";
+      } else {
+        str = "[";
+      }
+      for ( let i = 0; i < this.children.length; i++) {
+        var item = this.children[i];
+        if ( i > 0 ) {
+          str = str + ",";
+        }
+        str = str + item.stringify();
+      }
+      str = str + "]";
+      return str;
+    }
+    if ( this.value_type == 6 ) {
+      let str_1 = "";
+      if ( this.is_property ) {
+        return ((("\"" + this.vref) + "\"") + ":") + this.object_value.stringify();
+      } else {
+        str_1 = "{";
+        for ( let i_1 = 0; i_1 < this.keys.length; i_1++) {
+          var key = this.keys[i_1];
+          if ( i_1 > 0 ) {
+            str_1 = str_1 + ",";
+          }
+          const item_1 = this.objects[key];
+          str_1 = str_1 + item_1.stringify();
+        }
+        str_1 = str_1 + "}";
+        return str_1;
+      }
+    }
+    return "";
+  }
+}
+DictNode.createEmptyObject = function() {
+  const v = new DictNode();
+  v.value_type = 6;
+  return v;
+}
+class RangerSerializeClass  {
+  constructor() {
+  }
+  isSerializedClass (cName, ctx) {
+    if ( ctx.hasClass(cName) ) {
+      const clDecl = ctx.findClass(cName);
+      if ( clDecl.is_serialized ) {
+        return true;
+      }
+    }
+    return false;
+  }
+  createWRWriter (pvar, nn, ctx, wr) {
+    wr.out("def key@(lives):DictNode (new DictNode())", true);
+    wr.out(("key.addString(\"n\" \"" + pvar.name) + "\")", true);
+    if ( nn.value_type == 6 ) {
+      if ( this.isSerializedClass(nn.array_type, ctx) ) {
+        wr.out(("def values:DictNode (keys.addArray(\"" + pvar.compiledName) + "\"))", true);
+        wr.out(((("for this." + pvar.compiledName) + " item:") + nn.array_type) + " i {", true);
+        wr.indent(1);
+        wr.out("def obj@(lives):DictNode (item.serializeToDict())", true);
+        wr.out("values.push( obj )", true);
+        wr.indent(-1);
+        wr.out("}", true);
+      }
+      return;
+    }
+    if ( nn.value_type == 7 ) {
+      if ( this.isSerializedClass(nn.array_type, ctx) ) {
+        wr.out(("def values:DictNode (keys.addObject(\"" + pvar.compiledName) + "\"))", true);
+        wr.out(("for this." + pvar.compiledName) + " keyname {", true);
+        wr.indent(1);
+        wr.out(("def item:DictNode (unwrap (get this." + pvar.compiledName) + " keyname))", true);
+        wr.out("def obj@(lives):DictNode (item.serializeToDict())", true);
+        wr.out("values.setObject( obj )", true);
+        wr.indent(-1);
+        wr.out("}", true);
+      }
+      if ( nn.key_type == "string" ) {
+        wr.out(("def values:DictNode (keys.addObject(\"" + pvar.compiledName) + "\"))", true);
+        wr.out(("for this." + pvar.compiledName) + " keyname {", true);
+        wr.indent(1);
+        if ( nn.array_type == "string" ) {
+          wr.out(("values.addString(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
+        }
+        if ( nn.array_type == "int" ) {
+          wr.out(("values.addInt(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
+        }
+        if ( nn.array_type == "boolean" ) {
+          wr.out(("values.addBoolean(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
+        }
+        if ( nn.array_type == "double" ) {
+          wr.out(("values.addDouble(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
+        }
+        wr.indent(-1);
+        wr.out("}", true);
+        return;
+      }
+      return;
+    }
+    if ( nn.type_name == "string" ) {
+      wr.out(((("keys.addString(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
+      return;
+    }
+    if ( nn.type_name == "double" ) {
+      wr.out(((("keys.addDouble(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
+      return;
+    }
+    if ( nn.type_name == "int" ) {
+      wr.out(((("keys.addInt(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
+      return;
+    }
+    if ( nn.type_name == "boolean" ) {
+      wr.out(((("keys.addBoolean(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
+      return;
+    }
+    if ( this.isSerializedClass(nn.type_name, ctx) ) {
+      wr.out(("def value@(lives):DictNode (this." + pvar.compiledName) + ".serializeToDict())", true);
+      wr.out(("keys.setObject(\"" + pvar.compiledName) + "\" value)", true);
+    }
+  }
+  createJSONSerializerFn (cl, ctx, wr) {
+    let declaredVariable = {};
+    wr.out("Import \"ng_DictNode.clj\"", true);
+    wr.out(("extension " + cl.name) + " {", true);
+    wr.indent(1);
+    wr.out(("fn unserializeFromDict@(strong):" + cl.name) + " (dict:DictNode) {", true);
+    wr.indent(1);
+    wr.out(((("def obj:" + cl.name) + " (new ") + cl.name) + "())", true);
+    wr.out("return obj", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.newline();
+    wr.out("fn serializeToDict:DictNode () {", true);
+    wr.indent(1);
+    wr.out("def res:DictNode (new DictNode ())", true);
+    wr.out(("res.addString(\"n\" \"" + cl.name) + "\")", true);
+    wr.out("def keys:DictNode (res.addObject(\"data\"))", true);
+    if ( (cl.extends_classes.length) > 0 ) {
+      for ( let i = 0; i < cl.extends_classes.length; i++) {
+        var pName = cl.extends_classes[i];
+        const pC = ctx.findClass(pName);
+        for ( let i_1 = 0; i_1 < pC.variables.length; i_1++) {
+          var pvar = pC.variables[i_1];
+          declaredVariable[pvar.name] = true
+          const nn = pvar.nameNode;
+          if ( nn.isPrimitive() ) {
+            wr.out("; extended ", true);
+            wr.out("def key@(lives):DictNode (new DictNode())", true);
+            wr.out(("key.addString(\"n\" \"" + pvar.name) + "\")", true);
+            wr.out(("key.addString(\"t\" \"" + pvar.value_type) + "\")", true);
+            wr.out("keys.push(key)", true);
+          }
+        }
+      }
+    }
+    for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
+      var pvar_1 = cl.variables[i_2];
+      if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
+        continue;
+      }
+      const nn_1 = pvar_1.nameNode;
+      if ( nn_1.hasFlag("optional") ) {
+        wr.out("; optional variable", true);
+        wr.out(("if (!null? this." + pvar_1.name) + ") {", true);
+        wr.indent(1);
+        this.createWRWriter(pvar_1, nn_1, ctx, wr);
+        wr.indent(-1);
+        wr.out("} {", true);
+        wr.indent(1);
+        wr.indent(-1);
+        wr.out("}", true);
+        continue;
+      }
+      wr.out("; not extended ", true);
+      this.createWRWriter(pvar_1, nn_1, ctx, wr);
+    }
+    wr.out("return res", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  }
+}
 class ClassJoinPoint  {
   constructor() {
   }
@@ -3636,6 +4111,7 @@ class RangerFlowParser  {
   }
   findLanguageOper (details, ctx) {
     const langName = ctx.getTargetLang();
+    let rv;
     for ( let i = 0; i < details.children.length; i++) {
       var det = details.children[i];
       if ( (det.children.length) > 0 ) {
@@ -3645,20 +4121,16 @@ class RangerFlowParser  {
           for ( let i_1 = 0; i_1 < tplList.children.length; i_1++) {
             var tpl = tplList.children[i_1];
             const tplName = tpl.getFirst();
-            let tplImpl;
-            tplImpl = tpl.getSecond();
             if ( (tplName.vref != "*") && (tplName.vref != langName) ) {
               continue;
             }
-            let rv;
             rv = tpl;
             return rv;
           }
         }
       }
     }
-    let none;
-    return none;
+    return rv;
   }
   buildMacro (langOper, args, ctx) {
     const subCtx = ctx.fork();
@@ -4475,7 +4947,7 @@ class RangerFlowParser  {
     }
     for ( let i_1 = 0; i_1 < cBody.children.length; i_1++) {
       var fNode = cBody.children[i_1];
-      if ( fNode.isFirstVref("fn") || fNode.isFirstVref("Constructor") ) {
+      if ( (fNode.isFirstVref("fn") || fNode.isFirstVref("constructor")) || fNode.isFirstVref("Constructor") ) {
         this.WalkNode(fNode, subCtx, wr);
       }
     }
@@ -4582,6 +5054,9 @@ class RangerFlowParser  {
     const args = node.children[1];
     const body = node.children[2];
     const subCtx = ctx.fork();
+    if ( ctx.isInStatic() ) {
+      ctx.addError(node, "Lambda definitions in static context are not allowed");
+    }
     subCtx.is_capturing = true;
     const cn = node.children[0];
     const m = new RangerAppFunctionDesc();
@@ -4858,6 +5333,9 @@ class RangerFlowParser  {
     if ( node.isFirstVref("Extends") ) {
       return true;
     }
+    if ( node.isFirstVref("extends") ) {
+      return true;
+    }
     if ( node.isFirstVref("extension") ) {
       this.EnterClass(node, ctx, wr);
       return true;
@@ -4918,12 +5396,15 @@ class RangerFlowParser  {
       this.cmdAssign(node, ctx, wr);
       return true;
     }
-    if ( node.isFirstVref("Constructor") ) {
+    if ( node.isFirstVref("Constructor") || node.isFirstVref("constructor") ) {
       this.Constructor(node, ctx, wr);
       return true;
     }
     if ( node.isFirstVref("new") ) {
       this.cmdNew(node, ctx, wr);
+      return true;
+    }
+    if ( node.isFirstVref("enum") ) {
       return true;
     }
     if ( this.matchNode(node, ctx, wr) ) {
@@ -4935,7 +5416,7 @@ class RangerFlowParser  {
         let was_called = true;
         switch (fc.vref ) { 
           case "Enum" : 
-            this.cmdEnum(node, ctx, wr);
+            was_called = true;
             break;
           default: 
             was_called = false;
@@ -5054,6 +5535,17 @@ class RangerFlowParser  {
       this.WalkCollectMethods(rn, cl_1.ctx, wr);
       this.walkAlso.push(rn);
     }
+    for ( let i_6 = 0; i_6 < ctx.definedClassList.length; i_6++) {
+      var cname = ctx.definedClassList[i_6];
+      const c = (ctx.definedClasses[cname]);
+      if ( ((c.is_system || c.is_interface) || c.is_template) || c.is_trait ) {
+        continue;
+      }
+      for ( let i_7 = 0; i_7 < c.variables.length; i_7++) {
+        var p = c.variables[i_7];
+        ctx.hadValidType(p.nameNode);
+      }
+    }
   }
   WalkCollectMethods (node, ctx, wr) {
     let find_more = true;
@@ -5090,21 +5582,31 @@ class RangerFlowParser  {
       nameNode_1.clDesc = new_class_1;
       return;
     }
-    if ( node.isFirstVref("Extends") ) {
-      const extList = node.children[1];
-      const currC = ctx.currentClass;
-      for ( let ii = 0; ii < extList.children.length; ii++) {
-        var ee = extList.children[ii];
+    if ( node.isFirstVref("extends") ) {
+      if ( (node.children.length) > 1 ) {
+        const ee = node.getSecond();
+        const currC = ctx.currentClass;
         currC.addParentClass(ee.vref);
         const ParentClass = ctx.findClass(ee.vref);
         ParentClass.is_inherited = true;
       }
+      find_more = false;
     }
-    if ( node.isFirstVref("Constructor") ) {
+    if ( node.isFirstVref("Extends") ) {
+      const extList = node.children[1];
       const currC_1 = ctx.currentClass;
-      const subCtx = currC_1.ctx.fork();
-      currC_1.has_constructor = true;
-      currC_1.constructor_node = node;
+      for ( let ii = 0; ii < extList.children.length; ii++) {
+        var ee_1 = extList.children[ii];
+        currC_1.addParentClass(ee_1.vref);
+        const ParentClass_1 = ctx.findClass(ee_1.vref);
+        ParentClass_1.is_inherited = true;
+      }
+    }
+    if ( node.isFirstVref("constructor") || node.isFirstVref("Constructor") ) {
+      const currC_2 = ctx.currentClass;
+      const subCtx = currC_2.ctx.fork();
+      currC_2.has_constructor = true;
+      currC_2.constructor_node = node;
       const m = new RangerAppFunctionDesc();
       m.name = "Constructor";
       m.node = node;
@@ -5128,7 +5630,30 @@ class RangerFlowParser  {
         arg.eval_type_name = arg.type_name;
         subCtx.defineVariable(p.name, p);
       }
-      currC_1.constructor_fn = m;
+      currC_2.constructor_fn = m;
+      find_more = false;
+    }
+    if ( node.isFirstVref("enum") ) {
+      const fNameNode = node.children[1];
+      const enumList = node.children[2];
+      const new_enum = new RangerAppEnum();
+      for ( let i_2 = 0; i_2 < enumList.children.length; i_2++) {
+        var item = enumList.children[i_2];
+        const fc = item.getFirst();
+        new_enum.add(fc.vref);
+      }
+      ctx.definedEnums[fNameNode.vref] = new_enum
+      find_more = false;
+    }
+    if ( node.isFirstVref("Enum") ) {
+      const fNameNode_1 = node.children[1];
+      const enumList_1 = node.children[2];
+      const new_enum_1 = new RangerAppEnum();
+      for ( let i_3 = 0; i_3 < enumList_1.children.length; i_3++) {
+        var item_1 = enumList_1.children[i_3];
+        new_enum_1.add(item_1.vref);
+      }
+      ctx.definedEnums[fNameNode_1.vref] = new_enum_1
       find_more = false;
     }
     if ( node.isFirstVref("trait") ) {
@@ -5178,13 +5703,13 @@ class RangerFlowParser  {
     }
     if ( node.isFirstVref("Extends") ) {
       const list = node.children[1];
-      for ( let i_2 = 0; i_2 < list.children.length; i_2++) {
-        var cname = list.children[i_2];
+      for ( let i_4 = 0; i_4 < list.children.length; i_4++) {
+        var cname = list.children[i_4];
         const extC = ctx.findClass(cname.vref);
-        for ( let i_3 = 0; i_3 < extC.variables.length; i_3++) {
-          var vv = extC.variables[i_3];
-          const currC_2 = ctx.currentClass;
-          const subCtx_3 = currC_2.ctx;
+        for ( let i_5 = 0; i_5 < extC.variables.length; i_5++) {
+          var vv = extC.variables[i_5];
+          const currC_3 = ctx.currentClass;
+          const subCtx_3 = currC_3.ctx;
           subCtx_3.defineVariable(vv.name, vv);
         }
       }
@@ -5237,23 +5762,23 @@ class RangerFlowParser  {
           vDef.setFlag("optional");
         }
       }
-      const currC_3 = ctx.currentClass;
-      currC_3.addVariable(p_1);
-      const subCtx_4 = currC_3.ctx;
+      const currC_4 = ctx.currentClass;
+      currC_4.addVariable(p_1);
+      const subCtx_4 = currC_4.ctx;
       subCtx_4.defineVariable(p_1.name, p_1);
       p_1.is_class_variable = true;
     }
     if ( node.isFirstVref("operators") ) {
       const listOf = node.getSecond();
-      for ( let i_4 = 0; i_4 < listOf.children.length; i_4++) {
-        var item = listOf.children[i_4];
-        ctx.createOperator(item);
+      for ( let i_6 = 0; i_6 < listOf.children.length; i_6++) {
+        var item_2 = listOf.children[i_6];
+        ctx.createOperator(item_2);
       }
       find_more = false;
     }
     if ( node.isFirstVref("Import") || node.isFirstVref("import") ) {
-      const fNameNode = node.children[1];
-      const import_file = fNameNode.string_value;
+      const fNameNode_2 = node.children[1];
+      const import_file = fNameNode_2.string_value;
       if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && ctx.already_imported.hasOwnProperty(import_file) ) ) {
         return;
       } else {
@@ -5270,16 +5795,16 @@ class RangerFlowParser  {
     }
     if ( node.isFirstVref("does") ) {
       const defName = node.getSecond();
-      const currC_4 = ctx.currentClass;
-      currC_4.consumes_traits.push(defName.vref);
+      const currC_5 = ctx.currentClass;
+      currC_5.consumes_traits.push(defName.vref);
       const joinPoint = new ClassJoinPoint();
-      joinPoint.class_def = currC_4;
+      joinPoint.class_def = currC_5;
       joinPoint.node = node;
       this.classesWithTraits.push(joinPoint);
     }
     if ( node.isFirstVref("StaticMethod") || node.isFirstVref("sfn") ) {
       const s_4 = node.getVRefAt(1);
-      const currC_5 = ctx.currentClass;
+      const currC_6 = ctx.currentClass;
       const m_1 = new RangerAppFunctionDesc();
       m_1.name = s_4;
       m_1.compiledName = ctx.transformWord(s_4);
@@ -5311,7 +5836,7 @@ class RangerFlowParser  {
           p_2.changeStrength(0, 1, p_2.nameNode);
         }
       }
-      currC_5.addStaticMethod(m_1);
+      currC_6.addStaticMethod(m_1);
       find_more = false;
     }
     if ( node.isFirstVref("extension") ) {
@@ -5324,8 +5849,8 @@ class RangerFlowParser  {
       const cn = node.getSecond();
       const s_6 = node.getVRefAt(1);
       cn.ifNoTypeSetToVoid();
-      const currC_6 = ctx.currentClass;
-      if ( currC_6.hasOwnMethod(s_6) ) {
+      const currC_7 = ctx.currentClass;
+      if ( currC_7.hasOwnMethod(s_6) ) {
         ctx.addError(node, "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!");
         return;
       }
@@ -5343,7 +5868,7 @@ class RangerFlowParser  {
       } else {
         m_2.refType = 1;
       }
-      const subCtx_5 = currC_6.ctx.fork();
+      const subCtx_5 = currC_7.ctx.fork();
       subCtx_5.is_function = true;
       subCtx_5.currentMethod = m_2;
       m_2.fnCtx = subCtx_5;
@@ -5385,13 +5910,13 @@ class RangerFlowParser  {
         }
         subCtx_5.defineVariable(p2.name, p2);
       }
-      currC_6.addMethod(m_2);
+      currC_7.addMethod(m_2);
       find_more = false;
     }
     if ( find_more ) {
-      for ( let i_5 = 0; i_5 < node.children.length; i_5++) {
-        var item_1 = node.children[i_5];
-        this.WalkCollectMethods(item_1, ctx, wr);
+      for ( let i_7 = 0; i_7 < node.children.length; i_7++) {
+        var item_3 = node.children[i_7];
+        this.WalkCollectMethods(item_3, ctx, wr);
       }
     }
     if ( node.hasBooleanProperty("serialize") ) {
@@ -6614,13 +7139,11 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     }
     wr.out("", true);
     wr.out("class " + cl.name, false);
-    let parentClass;
     if ( (cl.extends_classes.length) > 0 ) {
       wr.out(" extends ", false);
       for ( let i_3 = 0; i_3 < cl.extends_classes.length; i_3++) {
         var pName_1 = cl.extends_classes[i_3];
         wr.out(pName_1, false);
-        parentClass = ctx.findClass(pName_1);
       }
     }
     wr.out(" { ", true);
@@ -6918,6 +7441,11 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     if ( node.hasParamDesc ) {
       const nn = node.children[1];
       const p = nn.paramDesc;
+      if ( nn.hasFlag("optional") ) {
+        if ( ((p.set_cnt == 1) && (p.ref_cnt == 2)) && (p.is_class_variable == false) ) {
+          ctx.addError(node, "Optional variable is only set but never read.");
+        }
+      }
       if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
         wr.out("/** unused:  ", false);
       }
@@ -6962,6 +7490,20 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
         wr.out(", ", false);
       }
       wr.out(arg.name + " : ", false);
+      this.writeTypeDef(arg.nameNode, ctx, wr);
+    }
+  }
+  writeArgsDefWithLocals (fnDesc, localFnDesc, ctx, wr) {
+    for ( let i = 0; i < fnDesc.params.length; i++) {
+      var arg = fnDesc.params[i];
+      if ( i > 0 ) {
+        wr.out(", ", false);
+      }
+      const local = localFnDesc.params[i];
+      if ( local.name != arg.name ) {
+        wr.out(arg.name + " ", false);
+      }
+      wr.out(local.name + " : ", false);
       this.writeTypeDef(arg.nameNode, ctx, wr);
     }
   }
@@ -7100,6 +7642,39 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     }
     return true;
   }
+  CustomOperator (node, ctx, wr) {
+    const fc = node.getFirst();
+    const cmd = fc.vref;
+    if ( cmd == "switch" ) {
+      const condition = node.getSecond();
+      const case_nodes = node.getThird();
+      wr.newline();
+      wr.out("switch (", false);
+      this.WalkNode(condition, ctx, wr);
+      wr.out(") {", true);
+      wr.indent(1);
+      let found_default = false;
+      for ( let i = 0; i < case_nodes.children.length; i++) {
+        var ch = case_nodes.children[i];
+        const blockName = ch.getFirst();
+        if ( blockName.vref == "default" ) {
+          found_default = true;
+          this.WalkNode(ch, ctx, wr);
+        } else {
+          this.WalkNode(ch, ctx, wr);
+        }
+      }
+      if ( false == found_default ) {
+        wr.newline();
+        wr.out("default :", true);
+        wr.indent(1);
+        wr.out("break", true);
+        wr.indent(-1);
+      }
+      wr.indent(-1);
+      wr.out("}", true);
+    }
+  }
   writeClass (node, ctx, wr) {
     const cl = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
@@ -7107,6 +7682,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     }
     let declaredVariable = {};
     let declaredFunction = {};
+    let parentFunction = {};
     if ( (cl.extends_classes.length) > 0 ) {
       for ( let i = 0; i < cl.extends_classes.length; i++) {
         var pName = cl.extends_classes[i];
@@ -7120,7 +7696,8 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
           const mVs = pC.method_variants[fnVar];
           for ( let i_3 = 0; i_3 < mVs.variants.length; i_3++) {
             var variant = mVs.variants[i_3];
-            declaredFunction[variant.compiledName] = true
+            declaredFunction[variant.name] = true
+            parentFunction[variant.name] = variant
           }
         }
       }
@@ -7131,7 +7708,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     }
     wr.out(((("func ==(l: " + cl.name) + ", r: ") + cl.name) + ") -> Bool {", true);
     wr.indent(1);
-    wr.out("return l == r", true);
+    wr.out("return l === r", true);
     wr.indent(-1);
     wr.out("}", true);
     wr.out("class " + cl.name, false);
@@ -7217,7 +7794,11 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
           wr.out("override ", false);
         }
         wr.out(("func " + variant_2.compiledName) + "(", false);
-        this.writeArgsDef(variant_2, ctx, wr);
+        if ( ( typeof(parentFunction[variant_2.name] ) != "undefined" && parentFunction.hasOwnProperty(variant_2.name) ) ) {
+          this.writeArgsDefWithLocals((parentFunction[variant_2.name]), variant_2, ctx, wr);
+        } else {
+          this.writeArgsDef(variant_2, ctx, wr);
+        }
         wr.out(") -> ", false);
         this.writeTypeDef(variant_2.nameNode, ctx, wr);
         wr.out(" {", true);
@@ -7764,14 +8345,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       return;
     }
     wr.out("class " + cl.name, false);
-    let parentClass;
     if ( (cl.extends_classes.length) > 0 ) {
       wr.out(" : ", false);
       for ( let i = 0; i < cl.extends_classes.length; i++) {
         var pName = cl.extends_classes[i];
         wr.out("public ", false);
         wr.out(pName, false);
-        parentClass = ctx.findClass(pName);
       }
     } else {
       wr.out((" : public std::enable_shared_from_this<" + cl.name) + "> ", false);
@@ -10688,10 +11267,6 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       this.WalkNode(arg, lambdaCtx, wr);
     }
     wr.out(") ", false);
-    const had_capture = false;
-    if ( had_capture ) {
-      wr.out(")", false);
-    }
     wr.out(" {", true);
     wr.indent(1);
     lambdaCtx.restartExpressionLevel();
@@ -10860,6 +11435,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       subCtx_1.is_function = true;
       subCtx_1.in_static_method = true;
       this.WalkNode(variant.fnBody, subCtx_1, wr);
+      subCtx_1.in_static_method = false;
       wr.newline();
       wr.indent(-1);
       wr.out("}", true);
@@ -10877,6 +11453,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
         wr.newline();
         const subCtx_2 = variant_1.fnCtx;
         subCtx_2.is_function = true;
+        subCtx_2.in_static_method = false;
         this.WalkNode(variant_1.fnBody, subCtx_2, wr);
         wr.newline();
         wr.indent(-1);
@@ -10896,6 +11473,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
         this.WalkNode(variant_2.fnBody, ctx, wr);
         wr.newline();
       }
+      ctx.in_static_method = false;
     }
   }
 }
@@ -11367,7 +11945,6 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
     const importFork = wr.fork();
     wr.out("", true);
     wr.out("class " + cl.name, false);
-    let parentClass;
     wr.out(" { ", true);
     wr.indent(1);
     if ( (cl.extends_classes.length) > 0 ) {
@@ -11375,7 +11952,6 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
       for ( let i = 0; i < cl.extends_classes.length; i++) {
         var pName = cl.extends_classes[i];
         wr.out(pName, false);
-        parentClass = ctx.findClass(pName);
       }
       wr.out(")", true);
     }
@@ -11662,6 +12238,7 @@ class LiveCompiler  {
     /** unused:  const fnName = op.children[1]   **/ 
     /** unused:  const root = ctx.getRoot()   **/ 
     const langName = ctx.getTargetLang();
+    let tplImpl;
     if ( (op.children.length) > 3 ) {
       const details = op.children[3];
       for ( let i = 0; i < details.children.length; i++) {
@@ -11673,7 +12250,6 @@ class LiveCompiler  {
             for ( let i_1 = 0; i_1 < tplList.children.length; i_1++) {
               var tpl = tplList.children[i_1];
               const tplName = tpl.getFirst();
-              let tplImpl;
               tplImpl = tpl.getSecond();
               if ( (tplName.vref != "*") && (tplName.vref != langName) ) {
                 continue;
@@ -11689,8 +12265,7 @@ class LiveCompiler  {
         }
       }
     }
-    let non;
-    return non;
+    return tplImpl;
   }
   localCall (node, ctx, wr) {
     if ( node.hasFnCall ) {
@@ -12211,477 +12786,6 @@ class ColorConsole  {
   }
   out (color, str) {
     console.log(str)
-  }
-}
-class DictNode  {
-  constructor() {
-    this.is_property = false;
-    this.is_property_value = false;
-    this.vref = "";
-    this.value_type = 6;
-    this.double_value = 0;
-    this.int_value = 0;
-    this.string_value = "";
-    this.boolean_value = false;
-    this.children = [];
-    this.objects = {};
-    this.keys = [];
-  }
-  EncodeString (orig_str) {
-    let encoded_str = "";
-    /** unused:  const str_length = orig_str.length   **/ 
-    let ii = 0;
-    const buff = orig_str;
-    const cb_len = buff.length;
-    while (ii < cb_len) {
-      const cc = buff.charCodeAt(ii );
-      switch (cc ) { 
-        case 8 : 
-          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(98));
-          break;
-        case 9 : 
-          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(116));
-          break;
-        case 10 : 
-          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(110));
-          break;
-        case 12 : 
-          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(102));
-          break;
-        case 13 : 
-          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(114));
-          break;
-        case 34 : 
-          encoded_str = (encoded_str + (String.fromCharCode(92))) + "\"";
-          break;
-        case 92 : 
-          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(92));
-          break;
-        case 47 : 
-          encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(47));
-          break;
-        default: 
-          encoded_str = encoded_str + (String.fromCharCode(cc));
-          break;
-      }
-      ii = 1 + ii;
-    }
-    return encoded_str;
-  }
-  addString (key, value) {
-    if ( this.value_type == 6 ) {
-      const v = new DictNode();
-      v.string_value = value;
-      v.value_type = 3;
-      v.vref = key;
-      v.is_property = true;
-      this.keys.push(key);
-      this.objects[key] = v
-    }
-  }
-  addDouble (key, value) {
-    if ( this.value_type == 6 ) {
-      const v = new DictNode();
-      v.double_value = value;
-      v.value_type = 1;
-      v.vref = key;
-      v.is_property = true;
-      this.keys.push(key);
-      this.objects[key] = v
-    }
-  }
-  addInt (key, value) {
-    if ( this.value_type == 6 ) {
-      const v = new DictNode();
-      v.int_value = value;
-      v.value_type = 2;
-      v.vref = key;
-      v.is_property = true;
-      this.keys.push(key);
-      this.objects[key] = v
-    }
-  }
-  addBoolean (key, value) {
-    if ( this.value_type == 6 ) {
-      const v = new DictNode();
-      v.boolean_value = value;
-      v.value_type = 4;
-      v.vref = key;
-      v.is_property = true;
-      this.keys.push(key);
-      this.objects[key] = v
-    }
-  }
-  addObject (key) {
-    let v;
-    if ( this.value_type == 6 ) {
-      const p = new DictNode();
-      v = new DictNode();
-      p.value_type = 6;
-      p.vref = key;
-      p.is_property = true;
-      v.value_type = 6;
-      v.vref = key;
-      v.is_property_value = true;
-      p.object_value = v;
-      this.keys.push(key);
-      this.objects[key] = p
-      return v;
-    }
-    return v;
-  }
-  setObject (key, value) {
-    if ( this.value_type == 6 ) {
-      const p = new DictNode();
-      p.value_type = 6;
-      p.vref = key;
-      p.is_property = true;
-      value.is_property_value = true;
-      value.vref = key;
-      p.object_value = value;
-      this.keys.push(key);
-      this.objects[key] = p
-    }
-  }
-  addArray (key) {
-    let v;
-    if ( this.value_type == 6 ) {
-      v = new DictNode();
-      v.value_type = 5;
-      v.vref = key;
-      v.is_property = true;
-      this.keys.push(key);
-      this.objects[key] = v
-      return v;
-    }
-    return v;
-  }
-  push (obj) {
-    if ( this.value_type == 5 ) {
-      this.children.push(obj);
-    }
-  }
-  getDoubleAt (index) {
-    if ( index < (this.children.length) ) {
-      const k = this.children[index];
-      return k.double_value;
-    }
-    return 0;
-  }
-  getStringAt (index) {
-    if ( index < (this.children.length) ) {
-      const k = this.children[index];
-      return k.string_value;
-    }
-    return "";
-  }
-  getIntAt (index) {
-    if ( index < (this.children.length) ) {
-      const k = this.children[index];
-      return k.int_value;
-    }
-    return 0;
-  }
-  getBooleanAt (index) {
-    if ( index < (this.children.length) ) {
-      const k = this.children[index];
-      return k.boolean_value;
-    }
-    return false;
-  }
-  getString (key) {
-    let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const k = this.objects[key];
-      res = k.string_value;
-    }
-    return res;
-  }
-  getDouble (key) {
-    let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const k = this.objects[key];
-      res = k.double_value;
-    }
-    return res;
-  }
-  getInt (key) {
-    let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const k = this.objects[key];
-      res = k.int_value;
-    }
-    return res;
-  }
-  getBoolean (key) {
-    let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const k = this.objects[key];
-      res = k.boolean_value;
-    }
-    return res;
-  }
-  getArray (key) {
-    let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const obj = this.objects[key];
-      if ( obj.is_property ) {
-        res = obj.object_value;
-      }
-    }
-    return res;
-  }
-  getArrayAt (index) {
-    let res;
-    if ( index < (this.children.length) ) {
-      res = this.children[index];
-    }
-    return res;
-  }
-  getObject (key) {
-    let res;
-    if ( ( typeof(this.objects[key] ) != "undefined" && this.objects.hasOwnProperty(key) ) ) {
-      const obj = this.objects[key];
-      if ( obj.is_property ) {
-        res = obj.object_value;
-      }
-    }
-    return res;
-  }
-  getObjectAt (index) {
-    let res;
-    if ( index < (this.children.length) ) {
-      res = this.children[index];
-    }
-    return res;
-  }
-  stringify () {
-    if ( this.is_property ) {
-      if ( this.value_type == 7 ) {
-        return (("\"" + this.vref) + "\"") + ":null";
-      }
-      if ( this.value_type == 4 ) {
-        if ( this.boolean_value ) {
-          return ((("\"" + this.vref) + "\"") + ":") + "true";
-        } else {
-          return ((("\"" + this.vref) + "\"") + ":") + "false";
-        }
-      }
-      if ( this.value_type == 1 ) {
-        return ((("\"" + this.vref) + "\"") + ":") + this.double_value;
-      }
-      if ( this.value_type == 2 ) {
-        return ((("\"" + this.vref) + "\"") + ":") + this.int_value;
-      }
-      if ( this.value_type == 3 ) {
-        return ((((("\"" + this.vref) + "\"") + ":") + "\"") + this.EncodeString(this.string_value)) + "\"";
-      }
-    } else {
-      if ( this.value_type == 7 ) {
-        return "null";
-      }
-      if ( this.value_type == 1 ) {
-        return "" + this.double_value;
-      }
-      if ( this.value_type == 2 ) {
-        return "" + this.int_value;
-      }
-      if ( this.value_type == 3 ) {
-        return ("\"" + this.EncodeString(this.string_value)) + "\"";
-      }
-      if ( this.value_type == 4 ) {
-        if ( this.boolean_value ) {
-          return "true";
-        } else {
-          return "false";
-        }
-      }
-    }
-    if ( this.value_type == 5 ) {
-      let str = "";
-      if ( this.is_property ) {
-        str = (("\"" + this.vref) + "\"") + ":[";
-      } else {
-        str = "[";
-      }
-      for ( let i = 0; i < this.children.length; i++) {
-        var item = this.children[i];
-        if ( i > 0 ) {
-          str = str + ",";
-        }
-        str = str + item.stringify();
-      }
-      str = str + "]";
-      return str;
-    }
-    if ( this.value_type == 6 ) {
-      let str_1 = "";
-      if ( this.is_property ) {
-        return ((("\"" + this.vref) + "\"") + ":") + this.object_value.stringify();
-      } else {
-        str_1 = "{";
-        for ( let i_1 = 0; i_1 < this.keys.length; i_1++) {
-          var key = this.keys[i_1];
-          if ( i_1 > 0 ) {
-            str_1 = str_1 + ",";
-          }
-          const item_1 = this.objects[key];
-          str_1 = str_1 + item_1.stringify();
-        }
-        str_1 = str_1 + "}";
-        return str_1;
-      }
-    }
-    return "";
-  }
-}
-DictNode.createEmptyObject = function() {
-  const v = new DictNode();
-  v.value_type = 6;
-  return v;
-}
-class RangerSerializeClass  {
-  constructor() {
-  }
-  isSerializedClass (cName, ctx) {
-    if ( ctx.hasClass(cName) ) {
-      const clDecl = ctx.findClass(cName);
-      if ( clDecl.is_serialized ) {
-        return true;
-      }
-    }
-    return false;
-  }
-  createWRWriter (pvar, nn, ctx, wr) {
-    wr.out("def key@(lives):DictNode (new DictNode())", true);
-    wr.out(("key.addString(\"n\" \"" + pvar.name) + "\")", true);
-    if ( nn.value_type == 6 ) {
-      if ( this.isSerializedClass(nn.array_type, ctx) ) {
-        wr.out(("def values:DictNode (keys.addArray(\"" + pvar.compiledName) + "\"))", true);
-        wr.out(((("for this." + pvar.compiledName) + " item:") + nn.array_type) + " i {", true);
-        wr.indent(1);
-        wr.out("def obj@(lives):DictNode (item.serializeToDict())", true);
-        wr.out("values.push( obj )", true);
-        wr.indent(-1);
-        wr.out("}", true);
-      }
-      return;
-    }
-    if ( nn.value_type == 7 ) {
-      if ( this.isSerializedClass(nn.array_type, ctx) ) {
-        wr.out(("def values:DictNode (keys.addObject(\"" + pvar.compiledName) + "\"))", true);
-        wr.out(("for this." + pvar.compiledName) + " keyname {", true);
-        wr.indent(1);
-        wr.out(("def item:DictNode (unwrap (get this." + pvar.compiledName) + " keyname))", true);
-        wr.out("def obj@(lives):DictNode (item.serializeToDict())", true);
-        wr.out("values.setObject( obj )", true);
-        wr.indent(-1);
-        wr.out("}", true);
-      }
-      if ( nn.key_type == "string" ) {
-        wr.out(("def values:DictNode (keys.addObject(\"" + pvar.compiledName) + "\"))", true);
-        wr.out(("for this." + pvar.compiledName) + " keyname {", true);
-        wr.indent(1);
-        if ( nn.array_type == "string" ) {
-          wr.out(("values.addString(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
-        }
-        if ( nn.array_type == "int" ) {
-          wr.out(("values.addInt(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
-        }
-        if ( nn.array_type == "boolean" ) {
-          wr.out(("values.addBoolean(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
-        }
-        if ( nn.array_type == "double" ) {
-          wr.out(("values.addDouble(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
-        }
-        wr.indent(-1);
-        wr.out("}", true);
-        return;
-      }
-      return;
-    }
-    if ( nn.type_name == "string" ) {
-      wr.out(((("keys.addString(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
-      return;
-    }
-    if ( nn.type_name == "double" ) {
-      wr.out(((("keys.addDouble(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
-      return;
-    }
-    if ( nn.type_name == "int" ) {
-      wr.out(((("keys.addInt(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
-      return;
-    }
-    if ( nn.type_name == "boolean" ) {
-      wr.out(((("keys.addBoolean(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
-      return;
-    }
-    if ( this.isSerializedClass(nn.type_name, ctx) ) {
-      wr.out(("def value@(lives):DictNode (this." + pvar.compiledName) + ".serializeToDict())", true);
-      wr.out(("keys.setObject(\"" + pvar.compiledName) + "\" value)", true);
-    }
-  }
-  createJSONSerializerFn (cl, ctx, wr) {
-    let declaredVariable = {};
-    wr.out("Import \"ng_DictNode.clj\"", true);
-    wr.out(("extension " + cl.name) + " {", true);
-    wr.indent(1);
-    wr.out(("fn unserializeFromDict@(strong):" + cl.name) + " (dict:DictNode) {", true);
-    wr.indent(1);
-    wr.out(((("def obj:" + cl.name) + " (new ") + cl.name) + "())", true);
-    wr.out("return obj", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.newline();
-    wr.out("fn serializeToDict:DictNode () {", true);
-    wr.indent(1);
-    wr.out("def res:DictNode (new DictNode ())", true);
-    wr.out(("res.addString(\"n\" \"" + cl.name) + "\")", true);
-    wr.out("def keys:DictNode (res.addObject(\"data\"))", true);
-    if ( (cl.extends_classes.length) > 0 ) {
-      for ( let i = 0; i < cl.extends_classes.length; i++) {
-        var pName = cl.extends_classes[i];
-        const pC = ctx.findClass(pName);
-        for ( let i_1 = 0; i_1 < pC.variables.length; i_1++) {
-          var pvar = pC.variables[i_1];
-          declaredVariable[pvar.name] = true
-          const nn = pvar.nameNode;
-          if ( nn.isPrimitive() ) {
-            wr.out("; extended ", true);
-            wr.out("def key@(lives):DictNode (new DictNode())", true);
-            wr.out(("key.addString(\"n\" \"" + pvar.name) + "\")", true);
-            wr.out(("key.addString(\"t\" \"" + pvar.value_type) + "\")", true);
-            wr.out("keys.push(key)", true);
-          }
-        }
-      }
-    }
-    for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
-      var pvar_1 = cl.variables[i_2];
-      if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
-        continue;
-      }
-      const nn_1 = pvar_1.nameNode;
-      if ( nn_1.hasFlag("optional") ) {
-        wr.out("; optional variable", true);
-        wr.out(("if (!null? this." + pvar_1.name) + ") {", true);
-        wr.indent(1);
-        this.createWRWriter(pvar_1, nn_1, ctx, wr);
-        wr.indent(-1);
-        wr.out("} {", true);
-        wr.indent(1);
-        wr.indent(-1);
-        wr.out("}", true);
-        continue;
-      }
-      wr.out("; not extended ", true);
-      this.createWRWriter(pvar_1, nn_1, ctx, wr);
-    }
-    wr.out("return res", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.indent(-1);
-    wr.out("}", true);
   }
 }
 class CompilerErrorInfo  {
