@@ -250,6 +250,9 @@ class RangerAppWriterContext {
         return false
       }
     }
+    if (this.isEnumDefined(node.type_name)) {
+      return true
+    }
     if (this.isDefinedType(node.type_name)) {
       return true
     } {
@@ -391,15 +394,16 @@ class RangerAppWriterContext {
     }
     return (parent.isEnumDefined(n))
   }
-  fn getEnum@(optional):RangerAppEnum (n:string) {
+  fn getEnum@(optional weak):RangerAppEnum (n:string) {
+    def res@(optional):RangerAppEnum
     if (has definedEnums n) {
-      return (get definedEnums n)
+      res = (get definedEnums n)
+      return res
     }
     if (!null? parent) {
       return (parent.getEnum(n))
-    }
-    def none:RangerAppEnum
-    return none
+    }    
+    return res
   }
   fn isVarDefined:boolean (name:string) {
     if (has localVariables name) {
@@ -645,13 +649,13 @@ class RangerAppWriterContext {
     return false
   }
   fn getCurrentClass@(optional weak):RangerAppClassDesc () {
-    if (in_class && (!null? currentClass)) {
-      return currentClass
+    def non:RangerAppClassDesc currentClass
+    if (in_class && (!null? non)) {
+      return non
     }
     if (!null? parent) {
       return (parent.getCurrentClass())
-    }
-    def non:RangerAppClassDesc
+    }    
     return non
   }
   fn restartExpressionLevel:void () {

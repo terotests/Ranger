@@ -111,7 +111,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           if (p.nameNode.hasFlag("optional")) {
           }
           def part:string (itemAt node.ns 0)
-          if ((part != "this") && (ctx.hasCurrentClass())) {
+          if ((part != "this") && (ctx.isMemberVariable(part))) {
             def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
             def currC:RangerAppClassDesc (unwrap uc)
             def up@(optional):RangerAppParamDesc (currC.findVariable(part))
@@ -137,7 +137,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     if node.hasParamDesc {
       wr.out("$" false)
       def part:string (itemAt node.ns 0)
-      if ((part != "this") && (ctx.hasCurrentClass())) {
+      if ((part != "this") && (ctx.isMemberVariable(part))) {
 
         def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
         def currC:RangerAppClassDesc (unwrap uc)
@@ -310,22 +310,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         this.WalkNode(arg lambdaCtx wr)  
     }    
     wr.out(") " false)
-    def had_capture false
-    ;for lambdaCtx.captured_variables cname:string i {
-    ;  if( i == 0 ) {
-    ;    wr.out("use (" false)
-    ;    had_capture = true
-    ;  }
-    ;  if( i > 0 ) {
-    ;    wr.out("," false)
-    ;  }
-    ;  def vD (lambdaCtx.getVariableDef( cname ) )
-    ;  wr.out("$" + vD.compiledName , false)
-    ;}    
-    if had_capture {
-      wr.out(")" false)
-    }
-    
+   
     wr.out(" {" true)
     wr.indent(1)
     lambdaCtx.restartExpressionLevel()
@@ -493,6 +478,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       subCtx.is_function = true
       subCtx.in_static_method = true
       this.WalkNode(( unwrap variant.fnBody ) subCtx wr)
+      subCtx.in_static_method = false
       wr.newline()
       wr.indent(-1)
       wr.out("}" true)
@@ -508,6 +494,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         wr.newline()
         def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
         subCtx.is_function = true
+        subCtx.in_static_method = false
         this.WalkNode(( unwrap variant.fnBody ) subCtx wr)
         wr.newline()
         wr.indent(-1)
@@ -526,6 +513,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         this.WalkNode(( unwrap variant.fnBody ) ctx wr)
         wr.newline()
       }
+      ctx.in_static_method = false
     }
   }
 }

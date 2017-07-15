@@ -8,6 +8,9 @@ Import "ng_RangerAppWriterContext.clj"
 Import "ng_writer.clj"
 Import "ng_parser.clj"
 Import "ng_RangerArgMatch.clj"
+Import "ng_DictNode.clj"
+Import "ng_RangerSerializeClass.clj"
+
 
 class ClassJoinPoint {
   def class_def:RangerAppClassDesc
@@ -37,8 +40,9 @@ class RangerFlowParser {
   fn initStdCommands:void () {
   }
 
-  fn findLanguageOper@(optional):CodeNode (details:CodeNode ctx:RangerAppWriterContext) {
+  fn findLanguageOper@(optional weak):CodeNode (details:CodeNode ctx:RangerAppWriterContext) {
     def langName:string (ctx.getTargetLang())
+    def rv:CodeNode
     for details.children det:CodeNode i {        
       if ( (array_length det.children ) > 0) {
         def fc:CodeNode (itemAt det.children 0)
@@ -46,20 +50,18 @@ class RangerFlowParser {
           def tplList:CodeNode (itemAt det.children 1)
           for tplList.children tpl:CodeNode i {
             def tplName:CodeNode (tpl.getFirst())
-            def tplImpl@(optional):CodeNode 
-            tplImpl = (tpl.getSecond())
+            ; def tplImpl@(optional):CodeNode 
+            ; tplImpl = (tpl.getSecond())
             if ((tplName.vref != "*") && (tplName.vref != langName)) {
               continue 
-            }
-            def rv:CodeNode
+            }            
             rv = tpl
             return rv
           }
         }
       }
     }
-    def none:CodeNode
-    return none      
+    return rv      
   }
 
   fn buildMacro:CodeNode ( langOper@(optional):CodeNode args:CodeNode ctx:RangerAppWriterContext )  {
@@ -964,7 +966,7 @@ class RangerFlowParser {
       p.nameNode.eval_type_name = p.nameNode.type_name
     }
     for cBody.children fNode:CodeNode i {
-      if ((fNode.isFirstVref("fn")) || (fNode.isFirstVref("Constructor"))) {
+      if ((fNode.isFirstVref("fn")) || (fNode.isFirstVref("constructor")) || (fNode.isFirstVref("Constructor"))) {
         this.WalkNode(fNode subCtx wr)
       }
     }
@@ -1067,6 +1069,10 @@ class RangerFlowParser {
     def args:CodeNode (itemAt node.children 1)
     def body@(lives):CodeNode (itemAt node.children 2)
     def subCtx:RangerAppWriterContext (ctx.fork())
+
+    if(ctx.isInStatic()) {
+      ctx.addError(node "Lambda definitions in static context are not allowed")
+    }
 
     subCtx.is_capturing = true
 
@@ -1364,6 +1370,9 @@ class RangerFlowParser {
     if (node.isFirstVref("Extends")) {
       return true
     }
+    if (node.isFirstVref("extends")) {
+      return true
+    }
     if (node.isFirstVref("extension")) {
       this.EnterClass(node ctx wr)
       return true
@@ -1425,12 +1434,15 @@ class RangerFlowParser {
       this.cmdAssign(node ctx wr)
       return true
     }
-    if (node.isFirstVref("Constructor")) {
+    if ( (node.isFirstVref("Constructor")) || (node.isFirstVref("constructor")) ) {
       this.Constructor(node ctx wr)
       return true
     }
     if (node.isFirstVref("new")) {
       this.cmdNew(node ctx wr)
+      return true
+    }
+    if (node.isFirstVref("enum")) {
       return true
     }
     if (this.matchNode(node ctx wr)) {
@@ -1442,7 +1454,8 @@ class RangerFlowParser {
         def was_called:boolean true
         switch fc.vref {
           case "Enum" {
-            this.cmdEnum(node ctx wr)
+            ; this.cmdEnum(node ctx wr)
+            was_called = true
           }
           default {
             was_called = false
@@ -1575,6 +1588,17 @@ class RangerFlowParser {
       this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
       push walkAlso rn
     }
+    ;       ctx.hadValidType( (unwrap v.nameNode) )
+    for ctx.definedClassList cname:string i {
+      def c (unwrap (get ctx.definedClasses cname))
+      if( c.is_system || c.is_interface || c.is_template || c.is_trait) {
+        continue
+      }
+      for c.variables p:RangerAppParamDesc i {
+        ctx.hadValidType( (unwrap p.nameNode) )
+      }
+    }
+
   }
 
 
@@ -1611,18 +1635,27 @@ class RangerFlowParser {
       nameNode.clDesc = new_class
       return
     }
+    if (node.isFirstVref("extends")) {
+      if( ( array_length node.children ) > 1 ) {
+        def ee (node.getSecond())
+        def currC:RangerAppClassDesc ctx.currentClass
+        currC.addParentClass(ee.vref)
+        def ParentClass:RangerAppClassDesc (ctx.findClass(ee.vref))
+        ParentClass.is_inherited = true
+      }
+      find_more = false
+    }
     if (node.isFirstVref("Extends")) {
       def extList:CodeNode (itemAt node.children 1)
       def currC:RangerAppClassDesc ctx.currentClass
       for extList.children ee:CodeNode ii {
         currC.addParentClass(ee.vref)
-
         def ParentClass:RangerAppClassDesc (ctx.findClass(ee.vref))
         ParentClass.is_inherited = true
 
       }
     }
-    if (node.isFirstVref("Constructor")) {
+    if ( (node.isFirstVref("constructor")) || (node.isFirstVref("Constructor"))) {
 
       def currC:RangerAppClassDesc ctx.currentClass
       def subCtx:RangerAppWriterContext (currC.ctx.fork())
@@ -1657,6 +1690,27 @@ class RangerFlowParser {
         
       }
       currC.constructor_fn = m
+      find_more = false
+    }
+    if (node.isFirstVref("enum")) {
+      def fNameNode:CodeNode (itemAt node.children 1)
+      def enumList:CodeNode (itemAt node.children 2)
+      def new_enum:RangerAppEnum (new RangerAppEnum ())
+      for enumList.children item:CodeNode i {
+        def fc (item.getFirst())
+        new_enum.add(fc.vref)
+      }
+      set ctx.definedEnums fNameNode.vref new_enum      
+      find_more = false
+    }
+    if (node.isFirstVref("Enum")) {
+      def fNameNode:CodeNode (itemAt node.children 1)
+      def enumList:CodeNode (itemAt node.children 2)
+      def new_enum:RangerAppEnum (new RangerAppEnum ())
+      for enumList.children item:CodeNode i {
+        new_enum.add(item.vref)
+      }
+      set ctx.definedEnums fNameNode.vref new_enum      
       find_more = false
     }
     if (node.isFirstVref("trait")) {

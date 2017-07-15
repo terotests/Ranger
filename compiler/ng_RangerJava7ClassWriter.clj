@@ -581,12 +581,10 @@ class RangerJava7ClassWriter {
 
     wr.out("" true)
     wr.out(("class " + cl.name) false)
-    def parentClass:RangerAppClassDesc  
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" extends " false)
       for cl.extends_classes pName:string i {
         wr.out(pName false)
-        parentClass = (ctx.findClass(pName))
       }
     }    
     wr.out( " { " true)

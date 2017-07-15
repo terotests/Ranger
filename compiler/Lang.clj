@@ -82,6 +82,9 @@ language {
             templates {
                 es6 ( "setTimeout( () => { " nl I (block 2) i nl " }, 1000 * " (e 1) ")" )
                 go ( "go func() {" nl I "time.Sleep(time.Duration(" (e 1) " * float64(time.Second) )) " nl (block 2) i nl "}()" nl (imp "time") )
+                cpp ( "std::this_thread::sleep_for(std::chrono::milliseconds((int)(" (e 1) " * 1000)));" nl (block 2) nl (imp "<chrono>" ) (imp "<thread>" ) )
+                php ( "sleep(" (e 1) ");" nl (block 2) nl )
+                swift3 ( "usleep(UInt32(1000000*" (e 1) "));" nl (block 2) nl )
             }
         }
         
@@ -126,8 +129,8 @@ language {
 
         shell_arg_cnt         cmdArg:int () {
             templates {
-                cpp ( "argc")
-                swift3 ("CommandLine.arguments.count")
+                cpp ( "argc - 1")
+                swift3 ("CommandLine.arguments.count - 1")
                 php ( "(count($argv) - 1)" )
                 java7 ( "args.length")
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
@@ -163,7 +166,7 @@ bool r_cpp_file_exists(std::string name)
   return (stat (name.c_str(), &buffer) == 0);
 }    
     ") )
-                swift3 ( "r_file_exists(fileName:" (e 1) ")" 
+                swift3 ( "r_file_exists(fileName:" (e 1) " + \"/\" + " (e 2) " )" 
 
 (create_polyfill "
 func r_file_exists ( fileName:String ) -> Bool {
@@ -283,10 +286,26 @@ static void createDir(String path)
 
            }
         }
-
+; try text.write(to: path, atomically: false, encoding: String.Encoding.utf8)
         write_file          cmdWriteFile:void (path:string file:string data:string) {
             templates {
-                swift3 ( nl )   
+
+                swift3 ("r_write_file(dirName: " (e 1) " + \"/\" + " (e 2) ", dataToWrite: " (e 3) ") " 
+
+(create_polyfill "
+func r_write_file ( dirName:String, dataToWrite:String ) {
+    do {
+        let fileManager = FileManager.default
+        let url = NSURL(fileURLWithPath: fileManager.currentDirectoryPath)
+        let path = url.appendingPathComponent(dirName)
+        try dataToWrite.write(to:path!, atomically: false, encoding: String.Encoding.utf8)
+    } catch {
+
+    }
+}
+    ")                  
+                
+                ) 
                 cpp_old ( nl "/* write file not yet implemented */" nl)
 
                 cpp ( "r_cpp_write_file( " (e 1) " , " (e 2) " , " (e 3) "  );" nl (imp "<iostream>") (imp "<string>") 
@@ -363,7 +382,19 @@ std::string  r_cpp_readFile(std::string path, std::string filename)
             
                 )
                 php ("file_get_contents(" (e 1) " . \"/\" . " (e 2) ") " )
-                swift3 ("try String(contentsOfFile: " (e 1) " + \"/\" + " (e 2) ") " )
+                swift3 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
+(create_polyfill "
+func r_read_file ( dirName:String ) -> String? {
+    let res: String?
+    do {
+        res = try String(contentsOfFile:dirName)
+    } catch {
+        res = nil
+    }
+    return res
+}
+    ")                                  
+                )
                 java7 ( "Optional.of(readFile(" (e 1) " + \"/\" + " (e 2) " , StandardCharsets.UTF_8 ))"  
                     (imp "java.util.Optional")
                     (imp "java.nio.file.Paths") 
@@ -871,6 +902,12 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             }
         }
 
+        switch          cmdSwitch:void          ( condition:T case_list:block )  {
+            templates {
+                swift3 ( (custom _ ) )
+            }
+        } 
+
         switch          cmdSwitch:void          ( condition:int case_list:block )  {
             templates {
                 scala ( (e 1) " match { " I (block 2) i "}" )
@@ -1082,7 +1119,8 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 scala ( nl "try {" nl I (block 1) i nl "} catch {" nl I nl "case e: Exception => {" nl I (block 2) i nl "}" i nl "}" nl )
                 java7 ( nl "try {" nl I (block 1) i nl "} catch( Exception e) {" nl I (block 2) i nl "}" nl )
                 go ( nl (block 1) nl )
-                swift3 ( nl "do {" nl I (block 1) i nl "} catch {" nl I (block 2) i nl "}" nl )
+                ; with swift there is no do without try...
+                swift3 ( nl (block 1) nl )
                 cpp ( nl "try {" nl I (block 1) i nl "} catch( ... ) {" nl I (block 2) i nl "}" nl )
                 * ( nl "try {" nl I (block 1) i nl "} catch(e) {" nl I (block 2) i nl "}" nl )
             }

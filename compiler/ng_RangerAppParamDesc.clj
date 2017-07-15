@@ -48,7 +48,7 @@ class RangerAppHashValue {
   def d_values:[double:RangerAppValue]
 }
 class RangerAppValue {
-  def double_value:double 0
+  def double_value:double 0.0
   def string_value:string ""
   def int_value:int 0
   def boolean_value:boolean false

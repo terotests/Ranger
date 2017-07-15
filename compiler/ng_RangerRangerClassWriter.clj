@@ -180,15 +180,12 @@ class RangerRangerClassWriter {
     def importFork:CodeWriter (wr.fork())
     wr.out("" true)
     wr.out(("class " + cl.name) false)
-    def parentClass:RangerAppClassDesc   
     wr.out( " { " true)
     wr.indent(1)
-
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out("Extends(" false)
       for cl.extends_classes pName:string i {
         wr.out(pName false)
-        parentClass = (ctx.findClass(pName))
       }
       wr.out(")" true)
     }  

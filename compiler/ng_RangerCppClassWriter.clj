@@ -560,21 +560,12 @@ class RangerCppClassWriter {
     if (null? cl) {
       return
     }
-
-    ; wr.out((("#ifndef " + cl.name) + "_HEADER ") true)
-    ; wr.out((("#define " + cl.name) + "_HEADER ") true)
     wr.out(("class " + cl.name) , false)
-    
-    ; virtual
-
-    def parentClass:RangerAppClassDesc
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" : " false)
-      ; wr.out(" public std::enable_shared_from_this<" + cl.name +  "> " , false)
       for cl.extends_classes pName:string i {
         wr.out("public " false)
         wr.out(pName false)
-        parentClass = (ctx.findClass(pName))
       }
     } {
       wr.out(" : public std::enable_shared_from_this<" + cl.name +  "> " , false)

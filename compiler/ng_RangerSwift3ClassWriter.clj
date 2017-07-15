@@ -212,6 +212,14 @@ class RangerSwift3ClassWriter {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
+
+      if( nn.hasFlag("optional")) {
+        if( p.set_cnt == 1 && p.ref_cnt == 2 && p.is_class_variable == false) {
+          ctx.addError(node "Optional variable is only set but never read.")
+        }
+      }
+
+      ; wr.out("// set " + p.set_cnt +" ref " + p.ref_cnt , true)
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("/** unused:  " false)
       }
@@ -258,6 +266,22 @@ class RangerSwift3ClassWriter {
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
     }
   }
+
+  fn writeArgsDefWithLocals:void (fnDesc:RangerAppFunctionDesc localFnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    for fnDesc.params arg:RangerAppParamDesc i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      def local (itemAt localFnDesc.params i)
+      if( local.name != arg.name ) {
+        wr.out(arg.name + " " , false )
+      }
+      wr.out(local.name + " : " , false)
+      this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
+    }
+  }
+
+
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
@@ -403,6 +427,44 @@ class RangerSwift3ClassWriter {
       return true
   }
 
+  fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    def fc:CodeNode (node.getFirst())
+    def cmd:string fc.vref
+
+    if( cmd == "switch" ) {
+      def condition:CodeNode (node.getSecond())
+      def case_nodes:CodeNode (node.getThird())
+      wr.newline()
+      
+      wr.out("switch (" false)
+      this.WalkNode( condition ctx wr )
+      wr.out(") {" true)
+      wr.indent(1)
+
+      def found_default false
+      for case_nodes.children ch:CodeNode i {
+        def blockName (ch.getFirst())
+        if (blockName.vref == "default") {
+          found_default = true
+          this.WalkNode( ch ctx wr )
+        } {
+          this.WalkNode( ch ctx wr )
+        }
+      }
+      if ( false == found_default ) {
+        wr.newline()
+        wr.out("default :" true)
+        wr.indent(1)
+        wr.out("break" true) 
+        wr.indent(-1)
+      }
+      wr.indent(-1)
+      wr.out("}" true) 
+
+    }
+  }   
+
 
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
@@ -411,6 +473,7 @@ class RangerSwift3ClassWriter {
     }
     def declaredVariable:[string:boolean]
     def declaredFunction:[string:boolean]
+    def parentFunction@(weak):[string:RangerAppFunctionDesc]
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       for cl.extends_classes pName:string i {
         def pC:RangerAppClassDesc (ctx.findClass(pName))
@@ -420,7 +483,8 @@ class RangerSwift3ClassWriter {
         for pC.defined_variants fnVar:string i {
           def mVs:RangerAppMethodVariants (get pC.method_variants fnVar)
           for mVs.variants variant:RangerAppFunctionDesc i {
-            set declaredFunction variant.compiledName true
+            set declaredFunction variant.name true
+            set parentFunction variant.name variant
           }
         }
       }
@@ -432,7 +496,7 @@ class RangerSwift3ClassWriter {
 
     wr.out("func ==(l: " + cl.name +  ", r: " + cl.name +  ") -> Bool {" , true)
     wr.indent(1)
-    wr.out("return l == r" true)
+    wr.out("return l === r" true)
     wr.indent(-1)
     wr.out("}" true)
 
@@ -522,7 +586,13 @@ class RangerSwift3ClassWriter {
           wr.out("override " false)
         }
         wr.out((("func " + variant.compiledName) + "(") false)
-        this.writeArgsDef(variant ctx wr)
+
+        if(has parentFunction variant.name) {
+          this.writeArgsDefWithLocals( (unwrap (get parentFunction variant.name)) variant ctx wr)
+        } {
+          this.writeArgsDef(variant ctx wr)
+        }
+        
         wr.out(") -> " false)
         this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
         wr.out(" {" true)

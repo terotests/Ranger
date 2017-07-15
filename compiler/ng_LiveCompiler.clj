@@ -234,7 +234,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     def fnName:CodeNode (itemAt op.children 1)
     def root:RangerAppWriterContext (ctx.getRoot())
     def langName:string (ctx.getTargetLang())
-
+    def tplImpl@(optional):CodeNode 
     if ( (array_length op.children ) > 3) {
       def details:CodeNode (itemAt op.children 3)
       for details.children det:CodeNode i {
@@ -245,7 +245,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             def tplList:CodeNode (itemAt det.children 1)
             for tplList.children tpl:CodeNode i {
               def tplName:CodeNode (tpl.getFirst())
-              def tplImpl@(optional):CodeNode 
+              ; def tplImpl@(optional):CodeNode 
               tplImpl = (tpl.getSecond())
               if ((tplName.vref != "*") && (tplName.vref != langName)) {
                 continue _
@@ -261,8 +261,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         }
       }
     }
-    def non:CodeNode
-    return non
+    
+    return tplImpl
   }
   fn localCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
