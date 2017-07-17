@@ -1349,7 +1349,7 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
                 scala ( (e 1 ) ".toInt" )
                 rust ( (e 1 ) " as i64 " )
                 go ( "int64(" (e 1) ")")
-                php ( "ord(" (e 1) ")")
+                php ( (e 1) )
                 * ( (e 1) )
             }
         }        
@@ -1426,7 +1426,7 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
                 ranger ( "(charcode " (e 1) ")")
                 go ( "[]byte(" (e 1) ")[0]" )
                 cpp( (e 1) ".at(0)")
-                php ( "ord(" (e 1) "[0])") 
+                php ( "ord(" (e 1) ")") 
                 java7 ( "((" (e 1) ".getBytes())[0])") 
                 swift3 ( "UInt8( ( " (e 1) " as NSString ).character( at: 0 ) )")
                 swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")  
@@ -1962,6 +1962,36 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
             }
         }
         
+        clear    _:void      ( array:[T] ) { 
+            templates {
+                 ranger ( "(clear " (e 1) ")")
+                 cpp ( (e 1) ".clear()" )                                                              
+                 swift3 ( (e 1) ".removeAll()")
+                 php ( nl (e 1) " = array();" nl)
+                 java7 ( (e 1) ".clear()" )                                                              
+                 scala ( (e 1) ".clear()" )
+                 go ( (e 1) " = nil" )                                                     
+                 * ( (e 1) ".length = 0;" nl )                                              
+            }
+        }
+
+        has    _:boolean      ( array:[T] ) { 
+            templates {
+                * @macro(true) ("( (array_length " (e 1) ")  > 0 )")
+            }
+        }
+
+        last_index    _:int      ( array:[T] ) { 
+            templates {
+                * @macro(true) ("(array_length " (e 1) ") - 1")
+            }
+        }
+
+        last    _:T      ( array:[T] ) { 
+            templates {
+                * @macro(true) ("(itemAt " ( e 1 ) " ( (array_length " (e 1) ") - 1) )")
+            }
+        }
 
         array_length    cmdArrayLength:int      ( array:[T] ) { 
             templates {

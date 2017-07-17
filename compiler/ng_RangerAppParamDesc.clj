@@ -197,7 +197,7 @@ class RangerAppParamDesc {
       } {
         if (my_s == 0) {
           if (tmp_var == false) {
-            ctx.addError(node ("Can not move a weak reference to a strong target, at " + (node.getCode())))
+            ctx.addError(node "Can not move a weak reference to a strong target." )
             print "can not move weak refs to strong target:"
             this.debugRefChanges()
           }
