@@ -163,7 +163,7 @@ class RangerFlowParser {
             if (arg.hasFlag("ignore")) {
               continue _
             }
-            ctx.setInExpr()
+            
             last_walked = (i + 1)
             ; ctx = (inCtx.forkWithOps( (itemAt ch.children 3) ))
             if(arg.type_name == "block") {
@@ -173,23 +173,26 @@ class RangerFlowParser {
               last_was_block = true
             } {
               ; (inCtx.forkWithOps( (itemAt ch.children 3) ))
+              ctx.setInExpr()
               this.WalkNode(callArg ctx wr)
+              ctx.unsetInExpr()
               last_was_block = false
             }           
-            ctx.unsetInExpr()
+            
           }
           if expanding_node {
             for callArgs.children caCh:CodeNode i2 {
               if(i2 > last_walked) {
-                ctx.setInExpr()
+                
                 if last_was_block {
                   def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
                   this.WalkNode(caCh sCtx wr)
                 } {
+                  ctx.setInExpr()
                   this.WalkNode(caCh ctx wr)
-                }
-                
-                ctx.unsetInExpr()                
+                  ctx.unsetInExpr() 
+                }              
+                               
               }
             }
           }

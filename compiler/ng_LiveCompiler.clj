@@ -393,7 +393,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
-            this.WalkNode(arg ctx wr)
+            def sCtx (ctx.fork())
+            sCtx.restartExpressionLevel()
+            this.WalkNode(arg sCtx wr)
           }
         }
         case "varname" {
