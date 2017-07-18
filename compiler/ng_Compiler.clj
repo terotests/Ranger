@@ -69,6 +69,11 @@ class CompilerInterface {
         lang_parser.parse()
         appCtx.langOperators = (unwrap lang_parser.rootNode)
         appCtx.setRootFile( the_file )
+
+        def ops (new RangerActiveOperators)
+        ops.initFrom( (unwrap lang_parser.rootNode) )
+        appCtx.operators = ops
+
         print "1. Collecting available methods."
         flowParser.CollectMethods (node appCtx wr)
         if ( ( array_length appCtx.compilerErrors ) > 0 ) {

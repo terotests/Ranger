@@ -104,11 +104,15 @@ class RangerFlowParser {
     if( callArgs.hasBooleanProperty("error")) {
       expects_error = true
     } 
-    for cmds.children ch:CodeNode main_index {
+    ; print "stdParamMatch -> " + callFnName.vref
+    def op_list (ctx.getOperators(callFnName.vref))
+    for op_list ch@(lives):CodeNode main_index {
       def fc:CodeNode (ch.getFirst())
       def nameNode:CodeNode (ch.getSecond())
       def args:CodeNode (ch.getThird())
       if (callFnName.vref == fc.vref) {
+        ; print "matched operator " + fc.vref
+        
         def line_index:int (callArgs.getLine())
         def callerArgCnt:int ((array_length callArgs.children) - 1)
         def fnArgCnt:int (array_length args.children)
@@ -132,6 +136,7 @@ class RangerFlowParser {
           
           def match:RangerArgMatch (new RangerArgMatch ())
           def last_walked:int 0
+          def last_was_block false
           for args.children arg:CodeNode i {
             
             def callArg@(lives):CodeNode (itemAt callArgs.children (i + 1))
@@ -160,14 +165,30 @@ class RangerFlowParser {
             }
             ctx.setInExpr()
             last_walked = (i + 1)
-            this.WalkNode(callArg ctx wr)
+            ; ctx = (inCtx.forkWithOps( (itemAt ch.children 3) ))
+            if(arg.type_name == "block") {
+;               print "-> walking bloack arg " + (arg.getLineAsString())
+              def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
+              this.WalkNode(callArg sCtx wr)
+              last_was_block = true
+            } {
+              ; (inCtx.forkWithOps( (itemAt ch.children 3) ))
+              this.WalkNode(callArg ctx wr)
+              last_was_block = false
+            }           
             ctx.unsetInExpr()
           }
           if expanding_node {
             for callArgs.children caCh:CodeNode i2 {
               if(i2 > last_walked) {
                 ctx.setInExpr()
-                this.WalkNode(caCh ctx wr)
+                if last_was_block {
+                  def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
+                  this.WalkNode(caCh sCtx wr)
+                } {
+                  this.WalkNode(caCh ctx wr)
+                }
+                
                 ctx.unsetInExpr()                
               }
             }
@@ -261,6 +282,7 @@ class RangerFlowParser {
             some_matched = true
             callArgs.has_operator = true
             callArgs.op_index = main_index
+            callArgs.operator_node = ch
             for args.children arg:CodeNode arg_index {
               if arg.has_vref_annotation {
                 def anns:CodeNode arg.vref_annotation
@@ -1313,7 +1335,8 @@ class RangerFlowParser {
     }
     def fc:CodeNode (node.getFirst())
     stdCommands = (ctx.getStdCommands())
-    for stdCommands.children cmd:CodeNode i {
+    def op_list (ctx.getOperators(fc.vref))
+    for op_list cmd:CodeNode i {
       def cmdName:CodeNode (cmd.getFirst())
       if (cmdName.vref == fc.vref) {
         this.stdParamMatch(node ctx wr)

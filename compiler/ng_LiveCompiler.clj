@@ -2,6 +2,7 @@
 Import "ng_RangerFlowParser.clj"
 Import "ng_CodeNodeCompilerExtensions.clj"
 Import "ng_RangerLanguageWriters.clj"
+Import "ng_RangerActiveOperators.clj"
 
 extension RangerAppWriterContext {
   def rootFile:string "--not-defined--"

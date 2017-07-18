@@ -28,6 +28,7 @@ class OpFindResult {
 class RangerAppWriterContext {
   def langOperators:CodeNode
   def stdCommands:CodeNode 
+  def operators:RangerActiveOperators
   def reservedWords:CodeNode 
   def intRootCounter:int 1
   def targetLangName:string ""
@@ -88,6 +89,37 @@ class RangerAppWriterContext {
       return (parent.isCapturing())
     }
     return false
+  }
+  fn forkWithOps:RangerAppWriterContext (opNode:CodeNode) {
+    def ops (this.getOperatorDef())
+    def new_ops (ops.fork(opNode))
+    def new_ctx (this.fork())
+    new_ctx.operators = new_ops
+    return new_ctx
+  }
+
+  fn getOperatorDef:RangerActiveOperators () {
+    if(!null? operators) {
+      return (unwrap operators)
+    }
+    if(!null? parent) {
+      return (parent.getOperatorDef())
+    }
+    def nothingFound:RangerActiveOperators (new RangerActiveOperators)
+    return nothingFound
+  }  
+  fn getOperators:[CodeNode] (name:string) {
+    ;---
+    if(!null? operators) {
+      def op (unwrap operators)
+      return (op.getOperators(name))
+    }
+    if(!null? parent) {
+      return (parent.getOperators(name))
+    }
+    print " - no operators found ! - "
+    def nothingFound:[CodeNode]
+    return nothingFound
   }
   ; 1. isVarDefined
   ; 2. isLocalToCapture, if false
@@ -278,6 +310,9 @@ class RangerAppWriterContext {
   fn findOperator:CodeNode (node:CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
     root.initStdCommands()
+    if(!null? node.operator_node) {
+      return (unwrap node.operator_node)
+    }
     return (itemAt root.stdCommands.children node.op_index)
   }
   fn getStdCommands@(weak):CodeNode () {

@@ -52,6 +52,8 @@ extension CodeNode {
   def evalCtx:RangerAppWriterContext
   def evalState:NodeEvalState
 
+  def operator_node@(weak):CodeNode
+
   fn writeCode:void (wr:CodeWriter) {
     switch value_type {
       case RangerNodeType.Double {
