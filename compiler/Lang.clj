@@ -431,7 +431,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
    return res 
 }
 "))
-                es6 ( "(require('fs').readFileSync( process.cwd() + '/' + " (e 1) " + '/' + " (e 2) " , 'utf8'))" )
+                es6 ( "(require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'))" )
             }
         }
 
@@ -1792,6 +1792,19 @@ i "}" nl ))
             }            
         }                 
 
+        set             cmdSet@(moves@( 3 1 ) ):void          ( array@(mutates):[T] index:int value@( refto@(1) ):T ) { 
+            templates {
+                ranger ( "set " (e 1) " " (e 2) " " (e 3) )                
+                java7 ( (e 1) ".put(" (e 2) ", " (e 3) ");" )
+                rust ( (e 1) ".insert(" (e 2) ", " (e 3) ");" )
+                scala ( (e 1) ".put(" (e 2) ", " (e 3) ")" )
+                kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
+                php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                cpp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                * ( (e 1) "[" (e 2) "] = " (e 3) )
+            }            
+        } 
+        
         set             cmdSet@(moves@( 3 1 ) ):void          ( map@(mutates):[K:T] key:K value@( refto@(1) ):T ) { 
             templates {
                 ranger ( "set " (e 1) " " (e 2) " " (e 3) )                
@@ -1884,6 +1897,20 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  * ( (e 1) ".splice(" (e 2) ", 1).pop();" )                                              
             }
         }
+
+        insert    cmdPush@(moves@( 2 1 ) ):void  ( array@(mutates):[T] index:int item:T ) { 
+            templates {
+                 ranger ( nl "insert " (e 1) " " (e 2) " " (e 3) nl)
+                 es6 ( (e 1) ".splice(" (e 2) ", 0, " (e 3) ");" )                                              
+            }
+        }      
+        
+        remove    cmdRemove@(moves@( 2 1 ) ):void  ( array@(mutates):[T] index:int ) { 
+            templates {
+                 ranger ( nl "remove " (e 1) " " (e 2) nl)
+                 es6 ( (e 1) ".splice(" (e 2) ", 1);" )                                              
+            }
+        }         
 
         ; TODO: optional push to list....
         push    cmdPush@(moves@( 2 1 ) ):void  ( array@(mutates):[T] item@(optional):T ) { 

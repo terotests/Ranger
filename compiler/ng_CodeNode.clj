@@ -1,3 +1,4 @@
+Import "Collection.clj"
 Import "ng_RangerAppEnums.clj"
 
 class SourceCode {
@@ -8,6 +9,7 @@ class SourceCode {
         code = code_str
         lines = (strsplit code_str "\n")
     }
+    
     fn getLineString:string (line_index:int) {
         if (> (array_length lines) line_index) {
             return (itemAt lines line_index)
@@ -61,6 +63,8 @@ class CodeNode {
   def code:SourceCode
   def sp:int 0
   def ep:int 0
+  def row 0
+  def col 0
   def has_operator:boolean false
   def disabled_node:boolean false
   def op_index:int 0
@@ -107,6 +111,12 @@ class CodeNode {
     code = source
   }
 
+  fn forTree:void ( callback:( fn:void (item:CodeNode i:int)) ) {      
+    for children ch:CodeNode i {
+        callback(ch i)
+        ch.forTree(callback)
+    }
+  }    
   fn getParsedString:string () {
     return (substring code.code sp ep)
   }

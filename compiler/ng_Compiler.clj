@@ -96,8 +96,15 @@ class CompilerInterface {
         def wr@(optional):CodeWriter (file.getWriter())
         def staticMethods:RangerAppClassDesc
         def importFork:CodeWriter (wr.fork())
-        for appCtx.definedClassList cName:string i {
 
+        for appCtx.definedClassList cName:string i {
+          def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
+          if(cl.is_operator_class) {
+            lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
+          }
+        }
+
+        for appCtx.definedClassList cName:string i {
           if (cName == "RangerStaticMethods") {
             staticMethods = (get appCtx.definedClasses cName)
             continue _
@@ -109,6 +116,9 @@ class CompilerInterface {
           if(cl.is_system) {
             continue _
           }
+          if(cl.is_operator_class) {
+            continue
+          }
           if(cl.is_system_union) {
             continue _
           }
@@ -117,7 +127,6 @@ class CompilerInterface {
         if (!null? staticMethods) {
           lcc.WalkNode( (unwrap staticMethods.classNode) appCtx (unwrap wr))
         }
-
         for flowParser.collectedIntefaces ifDesc:RangerAppClassDesc i {
             print "should define also interface " + ifDesc.name
             lcc.langWriter.writeInterface( ifDesc appCtx (unwrap wr) )

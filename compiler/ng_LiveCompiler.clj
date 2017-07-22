@@ -158,7 +158,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               return
             }
             def origCode:CodeNode (itemAt det.children 1)
-            def theCode:CodeNode (origCode.rebuildWithType(match true))
+            def theCode@(lives):CodeNode (origCode.rebuildWithType(match true))
             def appCtx:RangerAppWriterContext (ctx.getRoot())
             def stdFnName:string (appCtx.createSignature(fnName.vref (fnName.vref + (theCode.getCode()))))
             def stdClass:RangerAppClassDesc (ctx.findClass("RangerStaticMethods"))

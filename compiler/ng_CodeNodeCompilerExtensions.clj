@@ -43,7 +43,7 @@ extension CodeNode {
   def hasVarDef:boolean false
   def hasClassDescription:boolean false
   def hasNewOper:boolean false
-  def clDesc:RangerAppClassDesc
+  def clDesc@(weak):RangerAppClassDesc
   def hasFnCall:boolean false
   def fnDesc:RangerAppFunctionDesc    
   def hasParamDesc:boolean false    
@@ -53,6 +53,7 @@ extension CodeNode {
   def evalState:NodeEvalState
 
   def operator_node@(weak):CodeNode
+  def flow_ctx@(weak):RangerAppWriterContext
 
   fn writeCode:void (wr:CodeWriter) {
     switch value_type {
@@ -243,6 +244,11 @@ extension CodeNode {
       s = (s + "]")
       return s
     }
+    if (value_type == RangerNodeType.ExpressionType) {
+      s = s + ":("  + (expression_value.buildTypeSignature()) + ")"
+      return s
+    }
+
     s = type_name
     return s
   }

@@ -7,6 +7,8 @@ class RangerLispParser {
   def buff@(optional):charbuffer
   def len:int 0
   def i:int 0
+  def last_line_start 0
+  def current_line_index 0
   def parents@(weak):[CodeNode]
   def next@(optional):CodeNode
   def paren_cnt:int 0
@@ -40,6 +42,7 @@ class RangerLispParser {
     if (i < len ) {
       def a_node2@(returnvalue):CodeNode (new CodeNode(( unwrap code) sp ep))
       a_node2.expression = true
+      a_node2.row = current_line_index
       curr_node = a_node2
       push parents a_node2
       i = i + 1
@@ -62,14 +65,33 @@ class RangerLispParser {
     while ((i < len) && (c <= 32)) {
       if (is_block_parent && ((c == 10) || (c == 13))) {
         this.end_expression()
+        current_line_index = current_line_index + 1
         did_break = true
         break
       }
-      i = 1 + i
-      if (i >= len) {
-        return true
+      ;         current_line_index = current_line_index + 1
+      def had_break false
+      while( c == 10 || c == 13) {
+        had_break = true
+        i = i + 1
+        if (i >= len) {
+          return true
+        }
+        c = (charAt s i)
+        if( c == 10 || c == 13) {
+        }
       }
-      c = (charAt s i)
+
+      if had_break {
+        current_line_index = current_line_index + 1
+      } {
+        i = 1 + i
+        if (i >= len) {
+          return true
+        }
+        c = (charAt s i)
+      }
+
     }
     return did_break
   }

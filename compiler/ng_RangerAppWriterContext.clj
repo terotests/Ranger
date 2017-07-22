@@ -80,6 +80,7 @@ class RangerAppWriterContext {
   def definedMacro:[string:boolean]
   def defCounts:[string:int]
   def refTransform:[string:string]
+  def staticClassBodies:[CodeNode]
 
   fn isCapturing:boolean () {
     if(is_capturing) {
@@ -108,6 +109,17 @@ class RangerAppWriterContext {
     def nothingFound:RangerActiveOperators (new RangerActiveOperators)
     return nothingFound
   }  
+  fn getAllOperators:[CodeNode] (limit:int) {
+    if(!null? operators) {
+      def op (unwrap operators)
+      return (op.getAllOperators(limit))
+    }
+    if(!null? parent) {
+      return (parent.getAllOperators(limit))
+    }
+    def nothingFound:[CodeNode]
+    return nothingFound
+  }
   fn getOperators:[CodeNode] (name:string) {
     ;---
     if(!null? operators) {
@@ -117,7 +129,6 @@ class RangerAppWriterContext {
     if(!null? parent) {
       return (parent.getOperators(name))
     }
-    print " - no operators found ! - "
     def nothingFound:[CodeNode]
     return nothingFound
   }
@@ -341,12 +352,114 @@ class RangerAppWriterContext {
     set classSignatures classSig sigName
     return sigName
   }
+
+  fn createStaticMethod:RangerAppFunctionDesc (withName:string currC:RangerAppClassDesc nameNode:CodeNode argsNode:CodeNode fnBody:CodeNode ) {
+    def s:string withName
+    def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
+    m.name = s
+    m.compiledName = (this.transformWord(s))
+    m.node = nameNode
+    m.nameNode = nameNode
+    def rCtx (this.getRoot())
+    m.fnCtx = (rCtx.fork())
+    m.is_static = true
+    m.nameNode.ifNoTypeSetToVoid()
+    def args:CodeNode argsNode
+    m.fnBody = fnBody
+    for args.children arg@(lives):CodeNode ii {
+      def p@(lives temp):RangerAppParamDesc (new RangerAppParamDesc ())
+      p.name = arg.vref
+      p.value_type = arg.value_type
+      p.node = arg
+      p.init_cnt = 1
+      p.nameNode = arg
+      p.refType = RangerNodeRefType.Weak
+      p.varType = RangerContextVarType.FunctionParameter
+      push m.params p
+      arg.hasParamDesc = true
+      arg.paramDesc = p
+      arg.eval_type = arg.value_type
+      arg.eval_type_name = arg.type_name
+      if (arg.hasFlag("strong")) {
+        p.changeStrength(1 1 (unwrap p.nameNode))
+      } {
+        arg.setFlag("lives")
+        p.changeStrength(0 1 (unwrap p.nameNode))
+      }        
+      ;m.fnCtx.defineVariable( arg.vref p)   
+    }
+    currC.addStaticMethod(m)
+    return m
+  }
+
+  fn createOpStaticClass@(weak):RangerAppClassDesc (name:string) {
+    def nameWillBe ("operatorsOf" + name)
+    def str ""
+    def i 0
+    def len (strlen nameWillBe)
+    while( i < len ) {
+      def c (charAt nameWillBe i)
+      if(c == (charcode ".")) {
+        str = str + "_"  
+      } {
+        str = str + (substring nameWillBe i (i + 1))
+      }
+      i = i + 1
+    }
+    if(this.isDefinedClass(str)) {
+      return (this.findClass(str))
+    }
+;     return 
+
+    def tpl_code ("class " + str + " {
+}")
+
+    def code:SourceCode (new SourceCode ( tpl_code ))
+    code.filename = str + ".ranger"
+    def parser:RangerLispParser (new RangerLispParser (code))
+    parser.parse()
+
+    def classRoot@(lives) (itemAt parser.rootNode.children 0)
+    def classNameNode@(lives) (classRoot.getSecond())
+    classNameNode.vref = str
+    def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+    new_class.name = str
+    new_class.is_operator_class = true
+    new_class.nameNode = classNameNode
+    new_class.classNode = classRoot
+
+    def subCtx@(lives):RangerAppWriterContext (this.fork())
+    subCtx.setCurrentClass(new_class)
+    new_class.ctx = subCtx
+
+    def root (this.getRoot())
+    root.addClass(str new_class)
+    classNameNode.clDesc = new_class
+    push staticClassBodies classRoot
+    return new_class
+  }
   fn createOperator:void (fromNode@(strong):CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
     if (root.initStdCommands()) {
       push root.stdCommands.children fromNode
       def fc:CodeNode (itemAt fromNode.children 0)
     }
+  }
+  fn findClassMethod@(weak optional):RangerAppFunctionDesc (cname:string fname:string) {
+    def res:RangerAppFunctionDesc
+    if(this.isDefinedClass(cname)) {
+      def cl (this.findClass(cname))
+      for cl.defined_variants fnVar:string i {
+          if(fnVar == fname) {
+            def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+            for mVs.variants variant:RangerAppFunctionDesc i {
+              res = variant
+              return res
+            }
+          }
+      }
+    }
+    return res
   }
 
   fn getFileWriter:CodeWriter (path:string fileName:string) {

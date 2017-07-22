@@ -20,6 +20,27 @@ class RangerActiveOperators {
     return newOps
   }
 
+  fn getAllOperators:[CodeNode] (limit:int) {
+    def results:[CodeNode]
+    def ops:RangerActiveOperators (this)
+    while(true) {
+      if(!null? ops.stdCommands) {
+        for ops.stdCommands.children lch:CodeNode i {
+          def fc:CodeNode (lch.getFirst())
+          push results lch
+          if( ( limit > 0 ) && ( (array_length results) >= limit ) ) {
+            break            
+          }
+        }
+      }
+      if(null? ops.parent) {
+        break
+      }
+      ops = (unwrap ops.parent)
+    }
+    return results
+  }
+
   fn getOperators:[CodeNode] (name:string) {
     def results:[CodeNode]
     def ops:RangerActiveOperators (this)

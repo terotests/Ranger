@@ -5,7 +5,7 @@ class RangerAppFunctionDesc {
   def ref_cnt:int 0
   def node@(weak):CodeNode
   def nameNode@(weak):CodeNode
-  def fnBody:CodeNode
+  def fnBody@(weak):CodeNode
   def params:[RangerAppParamDesc]
   def return_value:RangerAppParamDesc
   def is_method:boolean false
