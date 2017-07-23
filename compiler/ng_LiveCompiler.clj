@@ -432,6 +432,19 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }
         }
+        case "lambda" {
+          print "--> lambda arg..."
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            if(arg.value_type == RangerNodeType.ExpressionType) {
+              print "==> was given a lambda argument!!!"
+            }
+            ctx.setInExpr()
+            this.WalkNode(arg ctx wr)
+            ctx.unsetInExpr()
+          }
+        }         
         case "e" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {

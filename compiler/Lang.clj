@@ -1898,6 +1898,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
             }
         }
 
+        ; https://github.com/golang/go/wiki/SliceTricks
         insert    cmdPush@(moves@( 2 1 ) ):void  ( array@(mutates):[T] index:int item:T ) { 
             templates {
                  ranger ( nl "insert " (e 1) " " (e 2) " " (e 3) nl)

@@ -17,6 +17,11 @@ class ClassJoinPoint {
   def node@(weak):CodeNode
 }
 
+class WalkLater {
+  def arg@(weak):CodeNode
+  def callArg@(weak):CodeNode
+}
+
 class RangerFlowParser {
 
   def hasRootPath false
@@ -32,16 +37,25 @@ class RangerFlowParser {
   def definedInterfaces:[string:boolean]
 
   def signatureCnt 0
+  def argSignatureCnt 0
   def isDefinedSignature:[string:int]
+  def isDefinedArgSignature:[string:int]
 
   fn getNameSignature:string (node:CodeNode) {
-      def s (node.buildTypeSignature())
+      def s ( (node.type_name) + (node.buildTypeSignature()) )
       if(has isDefinedSignature s) {
-        return ("_" + (unwrap (get isDefinedSignature s)))
+        def cc (unwrap (get isDefinedSignature s))
+        if(cc == 1) {
+          return node.type_name
+        }        
+        return ("_" + cc)
       }
       signatureCnt = signatureCnt + 1
       set isDefinedSignature s signatureCnt
-      return ( "_" + signatureCnt )
+      if(signatureCnt == 1) {
+        return node.type_name
+      }
+      return ( node.type_name + "_" + signatureCnt )
   }  
 
   fn getArgsSignature:string (node:CodeNode) {
@@ -50,11 +64,18 @@ class RangerFlowParser {
         exp_s = exp_s + (arg.buildTypeSignature())
         exp_s = exp_s + ","
       }
-      if(has isDefinedSignature exp_s) {
-        return ("_" + (unwrap (get isDefinedSignature exp_s)))
+      if(has isDefinedArgSignature exp_s) {
+        def cc (unwrap (get isDefinedArgSignature exp_s))
+        if(cc == 1) {
+          return ""
+        }       
+        return ("_" + cc)
       }
       signatureCnt = signatureCnt + 1
-      set isDefinedSignature exp_s signatureCnt
+      set isDefinedArgSignature exp_s signatureCnt
+      if(signatureCnt == 1) {
+        return ""
+      }      
       return ( "_" + signatureCnt )
   }    
 
@@ -151,7 +172,7 @@ class RangerFlowParser {
         def is_static_fn false
         def static_fn_name ""
         def static_class_name ""
-        def static_nameNode:CodeNode
+        def static_nameNode@(weak):CodeNode
         if (nameNode.hasFlag("newcontext")) {
           ctx = (inCtx.fork())
           has_eval_ctx = true
@@ -176,7 +197,9 @@ class RangerFlowParser {
           def match:RangerArgMatch (new RangerArgMatch ())
           def last_walked:int 0
           def last_was_block false
-          for args.children arg:CodeNode i {
+          def walk_later:[WalkLater]
+
+          for args.children arg@(lives):CodeNode i {
             def callArg@(lives):CodeNode (itemAt callArgs.children (i + 1))
             if (arg.hasFlag("define")) {
               def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
@@ -203,7 +226,17 @@ class RangerFlowParser {
             }
             
             last_walked = (i + 1)
-            if(arg.value_type == RangerNodeType.ExpressionType ) {
+            if( arg.value_type == RangerNodeType.ExpressionType ) {
+              if(codeDef.is_block_node == false) {
+                ; transformParams idea here then...
+                ; transform block to a lambda expression...
+
+                def later (new WalkLater)
+                later.arg = arg
+                later.callArg = callArg
+                push walk_later later
+              
+              }  
 
             } {
               ; ctx = (inCtx.forkWithOps( (itemAt ch.children 3) ))
@@ -240,6 +273,36 @@ class RangerFlowParser {
 
           def all_matched:boolean (match.matchArguments(args callArgs ctx 1))
 
+          for walk_later later:WalkLater i {
+            def ca (unwrap later.callArg)
+            def aa (unwrap later.arg)
+
+            def newNode:CodeNode (new CodeNode ( (unwrap ca.code) ca.sp ca.ep))
+            ; def match:RangerArgMatch (new RangerArgMatch ())
+            def fnDef:CodeNode (unwrap aa.expression_value)
+            def copyOf:CodeNode (fnDef.rebuildWithType( match false ))
+            def ffc:CodeNode (itemAt copyOf.children 0)
+            ffc.vref = "fun"
+            def itemCopy:CodeNode (ca.rebuildWithType (match false))
+            push copyOf.children itemCopy
+            def cnt:int ( array_length ca.children )
+            while( cnt > 0) {
+              removeLast ca.children
+              cnt = cnt - 1
+            }
+            for copyOf.children ch@(lives):CodeNode i {
+              push ca.children ch
+            }
+            ; --> 
+            ; def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
+            def sCtx (ctx.fork())
+            print "--> should be walking a lambda expression from here on..."
+            print "--> the fn was " + fc.vref
+            this.WalkNode(ca sCtx wr)
+            ; last_was_block = true 
+
+          }
+         
           if(codeDef.is_block_node) {
             def arg0 (args.getFirst())
             def nSig ( (this.getNameSignature(arg0)) )
@@ -250,44 +313,50 @@ class RangerFlowParser {
             def nameCopy (nameNode.rebuildWithType(match true))
 
             def argsSig ( fc.vref + (this.getArgsSignature(argsCopy)) )
-            def sMethod ( ctx.createStaticMethod( argsSig new_cl nameCopy argsCopy bodyCopy) )
-            static_nameNode = nameCopy
-            def fCtx (unwrap sMethod.fnCtx)
-            fCtx.currentMethod = sMethod 
-            fCtx.is_function = true
-            def m:RangerAppFunctionDesc sMethod
-            fCtx.in_static_method = true
-            if (nameCopy.hasFlag("weak")) {
-              m.changeStrength(0 1 nameNode)
-            } {
-              m.changeStrength(1 1 nameNode)
-            }
-            fCtx.setInMethod()
-            for m.params v@(lives):RangerAppParamDesc i {
-              fCtx.defineVariable(v.name v)
-              v.nameNode.eval_type = (v.nameNode.typeNameAsType(fCtx))
-              v.nameNode.eval_type_name = v.nameNode.type_name
-            }
-            this.WalkNodeChildren( bodyCopy fCtx wr)
-            fCtx.unsetInMethod()
-            fCtx.in_static_method = false
-            fCtx.function_level_context = true
-            ;if (fnBody.didReturnAtIndex == -1) {
-            ;  if (cn.type_name != "void") {
-            ;    ctx.addError(node "Function does not return any values!")
-            ;  }
-            ;}
-            for fCtx.localVarNames n:string i {
-              def p:RangerAppParamDesc (get fCtx.localVariables n)
-              if (p.set_cnt > 0) {
-                def defNode:CodeNode p.node
-                defNode.setFlag("mutable")
-                def nNode:CodeNode p.nameNode
-                nNode.setFlag("mutable")
+
+            if( false == (new_cl.hasStaticMethod(argsSig))) {
+              def sMethod ( ctx.createStaticMethod( argsSig new_cl nameCopy argsCopy bodyCopy) )
+              static_nameNode = nameCopy
+              def fCtx (unwrap sMethod.fnCtx)
+              fCtx.currentMethod = sMethod 
+              fCtx.is_function = true
+              def m:RangerAppFunctionDesc sMethod
+              fCtx.in_static_method = true
+              if (nameCopy.hasFlag("weak")) {
+                m.changeStrength(0 1 nameNode)
+              } {
+                m.changeStrength(1 1 nameNode)
               }
-            }            
+              fCtx.setInMethod()
+              for m.params v@(lives):RangerAppParamDesc i {
+                fCtx.defineVariable(v.name v)
+                v.nameNode.eval_type = (v.nameNode.typeNameAsType(fCtx))
+                v.nameNode.eval_type_name = v.nameNode.type_name
+              }
+              this.WalkNodeChildren( bodyCopy fCtx wr)
+              fCtx.unsetInMethod()
+              fCtx.in_static_method = false
+              fCtx.function_level_context = true
+              ;if (fnBody.didReturnAtIndex == -1) {
+              ;  if (cn.type_name != "void") {
+              ;    ctx.addError(node "Function does not return any values!")
+              ;  }
+              ;}
+              for fCtx.localVarNames n:string i {
+                def p:RangerAppParamDesc (get fCtx.localVariables n)
+                if (p.set_cnt > 0) {
+                  def defNode:CodeNode p.node
+                  defNode.setFlag("mutable")
+                  def nNode:CodeNode p.nameNode
+                  nNode.setFlag("mutable")
+                }
+              }       
+            } {
+              def sMethod ( new_cl.findStaticMethod( argsSig ) )
+              static_nameNode = sMethod.nameNode            
+            }     
             is_static_fn = true
-            static_fn_name = sMethod.name
+            static_fn_name = argsSig
             static_class_name = new_cl.name
           }
           if all_matched {
@@ -1221,6 +1290,7 @@ class RangerFlowParser {
 
   ; (fun:int 8)
   fn EnterLambdaMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    print "--> EnterLambdaMethod"
     def args:CodeNode (itemAt node.children 1)
     def body@(lives):CodeNode (itemAt node.children 2)
     def subCtx:RangerAppWriterContext (ctx.fork())
@@ -1253,7 +1323,9 @@ class RangerFlowParser {
         m.changeStrength(1 1 node)
       }
       m.fnBody = (itemAt node.children 2)
+      print "lambda arguments -->"
       for args.children arg@(lives):CodeNode ii {
+        print "arg : " + arg.vref + "type : " + arg.type_name
         def p2@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
         
         p2.name = arg.vref
