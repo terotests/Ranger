@@ -367,6 +367,11 @@ class RangerAppWriterContext {
     def args:CodeNode argsNode
     m.fnBody = fnBody
     for args.children arg@(lives):CodeNode ii {
+
+      if(arg.hasFlag("noeval")) {
+        continue
+      }
+
       def p@(lives temp):RangerAppParamDesc (new RangerAppParamDesc ())
       p.name = arg.vref
       p.value_type = arg.value_type

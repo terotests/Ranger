@@ -1,4 +1,5 @@
 class RangerArgMatch {
+  def _debug false
   def matched:[string:string]
   fn matchArguments:boolean (args:CodeNode callArgs:CodeNode ctx:RangerAppWriterContext firstArgIndex:int) {
     def fc:CodeNode (itemAt callArgs.children 0)
@@ -8,11 +9,12 @@ class RangerArgMatch {
     if( (array_length args.children) == 0 && ( (array_length callArgs.children) > 1)) {
       return false
     }
-
     def lastArg@(optional):CodeNode 
     for callArgs.children callArg:CodeNode i {
-
       if( i == 0 ) {
+        continue
+      }
+      if(callArg.is_part_of_chain) {
         continue
       }
       def arg_index ( i - 1)
@@ -37,6 +39,9 @@ class RangerArgMatch {
         }
       }
       if (arg.hasFlag("optional")) {
+        if _debug {
+          print "--> arg.has optional " + arg.vref
+        }
         if callArg.hasParamDesc {
           def pa:RangerAppParamDesc callArg.paramDesc
           def b:boolean (pa.nameNode.hasFlag("optional"))
@@ -51,9 +56,14 @@ class RangerArgMatch {
           }
         }
       }
-      if (callArg.hasFlag("optional")) {
+      if (callArg.hasFlag("optional")) {    
         if (false == (arg.hasFlag("optional"))) {
-          all_matched = false
+          if(callArg.is_block_node) {
+            ; block nodes can not be optional
+          } {
+            all_matched = false
+          }
+          
         }
       }
       if ((arg.value_type != RangerNodeType.Hash) && (arg.value_type != RangerNodeType.Array)) {
@@ -61,6 +71,9 @@ class RangerArgMatch {
           if (arg.type_name == "enum") {
             continue _
           }
+        }
+        if _debug {
+          print "-> trying to add type " + arg.type_name 
         }
         if (false == (this.add(arg.type_name callArg.eval_type_name ctx))) {
           all_matched = false

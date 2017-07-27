@@ -136,6 +136,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     langWriter.CreateLambdaCall(node ctx wr)
   }
+  fn CreateCallExpression:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    langWriter.CreateCallExpression(node ctx wr)
+  }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     langWriter.CreateLambda(node ctx wr)
   }
@@ -335,6 +338,14 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         this.CreateLambdaCall(node ctx wr)
         return
       }
+      ; skip elents which are part of the chain...
+      if(node.is_part_of_chain) {
+        return
+      }
+      if (node.has_call) {
+        this.CreateCallExpression(node ctx wr)
+        return
+      }
       if ((array_length node.children) > 1) {
         if (this.localCall(node ctx wr)) {
           return
@@ -433,13 +444,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           }
         }
         case "lambda" {
-          print "--> lambda arg..."
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
-            if(arg.value_type == RangerNodeType.ExpressionType) {
-              print "==> was given a lambda argument!!!"
-            }
             ctx.setInExpr()
             this.WalkNode(arg ctx wr)
             ctx.unsetInExpr()

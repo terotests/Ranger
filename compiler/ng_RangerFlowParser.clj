@@ -26,6 +26,9 @@ class RangerFlowParser {
 
   def hasRootPath false
   def rootPath:string ""
+  def _debug false
+  ; def is_chaining false
+  ; def chainRoot:CodeNode
 
   def stdCommands@(optional):CodeNode
   def lastProcessedNode@(weak):CodeNode
@@ -141,7 +144,7 @@ class RangerFlowParser {
       return node
   }
 
-  fn stdParamMatch:boolean (callArgs@(lives):CodeNode inCtx:RangerAppWriterContext wr:CodeWriter) {
+  fn stdParamMatch:boolean (callArgs@(lives):CodeNode inCtx:RangerAppWriterContext wr:CodeWriter require_all_match:boolean) {
     stdCommands = (inCtx.getStdCommands())
     def callFnName:CodeNode (callArgs.getFirst())
     def cmds:CodeNode stdCommands
@@ -155,6 +158,25 @@ class RangerFlowParser {
     if( callArgs.hasBooleanProperty("error")) {
       expects_error = true
     } 
+
+    ; TODO: continue pushing the operators into the methodChain
+    ; + add into the method chain the detected operator
+    ; + check that chain can be a mix of actual operators or calls
+    ; surround_static( (static_fn_foo()).map() ).filter()
+    def in_chain false
+    def call_arg_cnt 0
+    for callArgs.children ca:CodeNode i {
+      def name (ca.vref)
+      if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
+        in_chain = true
+        ca.is_part_of_chain = true
+      }
+      if in_chain {
+        ca.is_part_of_chain = true
+      } {
+        call_arg_cnt = call_arg_cnt + 1
+      }
+    }
     ; print "stdParamMatch -> " + callFnName.vref
     def op_list (ctx.getOperators(callFnName.vref))
     for op_list ch@(lives):CodeNode main_index {
@@ -165,7 +187,8 @@ class RangerFlowParser {
         ; print "matched operator " + fc.vref
         
         def line_index:int (callArgs.getLine())
-        def callerArgCnt:int ((array_length callArgs.children) - 1)
+        ; def callerArgCnt:int (((array_length callArgs.children) - 1))
+        def callerArgCnt (call_arg_cnt - 1)
         def fnArgCnt:int (array_length args.children)
         def has_eval_ctx:boolean false
         def is_macro:boolean false
@@ -224,7 +247,13 @@ class RangerFlowParser {
             if (arg.hasFlag("ignore")) {
               continue _
             }
-            
+            if (arg.hasFlag("noeval")) {
+              callArg.eval_type = callArg.value_type
+              callArg.eval_type_name = callArg.type_name
+              callArg.eval_array_type = callArg.array_type
+              callArg.eval_key_type = callArg.key_type
+              continue _
+            }            
             last_walked = (i + 1)
             if( arg.value_type == RangerNodeType.ExpressionType ) {
               if(codeDef.is_block_node == false) {
@@ -270,7 +299,7 @@ class RangerFlowParser {
               }
             }
           }
-
+          
           def all_matched:boolean (match.matchArguments(args callArgs ctx 1))
 
           for walk_later later:WalkLater i {
@@ -296,8 +325,7 @@ class RangerFlowParser {
             ; --> 
             ; def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
             def sCtx (ctx.fork())
-            print "--> should be walking a lambda expression from here on..."
-            print "--> the fn was " + fc.vref
+
             this.WalkNode(ca sCtx wr)
             ; last_was_block = true 
 
@@ -373,8 +401,17 @@ class RangerFlowParser {
               push firstArg.ns static_fn_name
 
               def newArgs:CodeNode (new CodeNode ( (unwrap callArgs.code) callArgs.sp callArgs.ep) )
+              ; note: noeval flag is used here to mark a parameter which is matched but not evaluated
+              ; if(arg.hasFlag("noeval"))
               for callArgs.children ca:CodeNode i {
+                if ca.is_part_of_chain {
+                  continue
+                }
                 if( i > 0) {
+                  def arg (itemAt args.children (i - 1))
+                  if( arg.hasFlag("noeval")) {
+                    continue
+                  }                
                   push newArgs.children ca
                 }
               }
@@ -392,6 +429,7 @@ class RangerFlowParser {
             }
 
             if is_macro {
+              ; TODO: check the effect of chaining here...
               def macroNode:CodeNode ( this.buildMacro( langOper callArgs ctx ) )
               def arg_len:int (array_length callArgs.children)
               while (arg_len > 0 ) {
@@ -440,6 +478,7 @@ class RangerFlowParser {
                         ctx.addError(callArgs ( "function return value optionality does not match, expected non-optional return value, optional given at " + (argNode.getCode())) )      
                     }
                   }
+                  
                   if( argNode.hasFlag("optional")) {
                     if ( false == (returnedValue.hasFlag("optional")) ) {
                         ctx.addError(callArgs ( "function return value optionality does not match, expected optional return value " + (argNode.getCode())) )          
@@ -495,7 +534,7 @@ class RangerFlowParser {
         }
       }
     }
-    if (some_matched == false) {
+    if ( require_all_match == true && some_matched == false) {
       ;print "===================== MATCH ERROR 2 ====================="
       ;print ("stdMatch -> Could not match argument types for " + callFnName.vref)
       ;print (callArgs.getCode())
@@ -505,6 +544,13 @@ class RangerFlowParser {
       ;  print ((((((("arg " + i) + " eval_type : ") + ca.eval_type) + " eval_type_name = ") + ca.eval_type_name) + " type : ") + ca.type_name)
       ;}
       ctx.addError(callArgs ("stdMatch -> Could not match argument types for " + callFnName.vref))
+    }
+    if in_chain {
+      if some_matched {
+        print "in_chain AND matched"
+      } {
+        print "in_chain and DID NOT match"
+      }
     }
     if(expects_error) {
       def cnt_now:int (ctx.getErrorCount())
@@ -517,8 +563,7 @@ class RangerFlowParser {
         ctx.addParserError( callArgs "LANGUAGE_PARSER_ERROR: did not expect generated error, err counts : " + err_cnt + " : " +cnt_now)
       }      
     }
-
-    return true
+    return some_matched
   }
   fn cmdImport:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     return false
@@ -878,7 +923,71 @@ class RangerFlowParser {
     return res
   }
 
+  fn cmdCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    
+    def obj (node.getSecond())
+    def method (node.getThird())
+    def callArgs (itemAt node.children 3)
+
+    ; test if the method could be operator
+    ; (call 4 + (5))
+    def possible_cmd method.vref
+    def op_list (ctx.getOperators(possible_cmd))
+    for op_list cmd:CodeNode i {
+
+      def altVersion ( node.newExpressionNode() )
+      def origCopy  ( node.copy() )
+
+      altVersion.push( (node.newVRefNode( possible_cmd)) )
+      altVersion.push( (obj.copy()) )      
+      for callArgs.children ca:CodeNode i {
+        altVersion.push( (ca.copy()) )
+      }
+      altVersion.parent = node
+      node.getChildrenFrom( altVersion )
+      if ( this.stdParamMatch(node ctx wr false) ) {
+        return true
+      } {
+        ; no match
+        node.getChildrenFrom( origCopy )
+      }
+    }
+    this.WalkNode( obj ctx wr )
+
+    if(ctx.isDefinedClass(obj.eval_type_name)) {
+      def cl (ctx.findClass(obj.eval_type_name))
+      def m (cl.findMethod(method.vref))
+      if(!null? m) {
+        node.has_call = true
+        ctx.setInExpr()
+        for callArgs.children callArg:CodeNode i {
+          this.WalkNode( callArg ctx wr)
+        }
+        ctx.unsetInExpr()
+
+        def nn:CodeNode m.nameNode
+        node.eval_type = (nn.typeNameAsType(ctx))
+        node.eval_type_name = nn.type_name
+        node.eval_array_type = nn.array_type
+        node.eval_key_type = nn.key_type
+
+        return true
+      } {
+        ctx.addError(node ("Class " + obj.eval_type_name + " does not have method " + method.vref))
+        return false
+      }
+    }
+    ; TODO: set the correct return value from the function call:
+
+    def op_list (ctx.getOperators(method.vref))
+    for op_list cmd:CodeNode i {
+    }
+    
+    return true
+  }  
+
   fn cmdLocalCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; " 
     def fnNode@(lives):CodeNode (node.getFirst())
     def udesc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
     def desc:RangerAppClassDesc (unwrap udesc)
@@ -887,6 +996,57 @@ class RangerFlowParser {
     if( node.hasBooleanProperty("error")) {
       expects_error = true
     } 
+
+    ; print "localCall : " + (node.getCode())
+    ; print "childnode count : " + (array_length node.children)
+    ; collect also the chain here..
+
+    ; obj.foo() .bar() .foor2()
+    ; --> obj.foo() will be the innerNode...
+
+    def chlen (array_length node.children)
+
+    if( chlen > 2) {
+      def i 2
+      def chainRoot:CodeNode (node)
+      def innerNode@(weak):CodeNode
+      def newNode (node.newExpressionNode())
+      def sc (node.getSecond())
+      newNode.push( (fnNode.copy()) )
+      newNode.push( (sc.copy()) )
+      innerNode = newNode
+
+      def chain_cnt 0
+      ; push the first into bottom of stack
+      ; obj.foo.something ()
+      while ( i < (chlen - 1) ) {
+        def fc (itemAt node.children i)
+        def args@(lives) (itemAt node.children (i + 1))
+        def name (fc.vref)
+        if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
+          def method_name (substring name 1 (strlen name))
+          def newNode (node.newExpressionNode())
+          newNode.push( (node.newVRefNode("call") ) ) 
+          newNode.push( (innerNode.copy() ) )
+          newNode.push( (node.newVRefNode(method_name)) )
+          newNode.push( (args.copy()))
+          innerNode = newNode
+          chain_cnt = chain_cnt + 1
+        } {
+          ctx.addError(node "Invalid chaining op")
+        }
+        i = i + 2
+      }
+      if ( chain_cnt > 0 ) {
+        node.getChildrenFrom( (unwrap innerNode ) )
+        node.tag = "chainroot"
+        node.flow_done = false
+        this.WalkNode( node ctx wr)
+        return true
+      }
+    }
+
+
     if ((array_length fnNode.ns) > 1) {
 
       def rootName (itemAt fnNode.ns 0)
@@ -1135,6 +1295,67 @@ class RangerFlowParser {
     }
   }
   fn cmdAssign:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    def chlen (array_length node.children)
+    ; res = test.foo()  <- 4 nodes
+    if(chlen > 3) {
+      def i 3
+      def chainRoot:CodeNode (node.getThird())  ; test.foo
+      def innerNode@(weak) (chainRoot)
+      def chain_cnt 0
+      if( chainRoot.expression == false) {
+        def args (itemAt node.children 3)         ; ()
+        def newNode (node.newExpressionNode())
+        def sc (node.getSecond())
+        newNode.push( (chainRoot.copy()) )
+        newNode.push( (args.copy()) )
+        innerNode = newNode
+        args.is_part_of_chain = true
+        i = i + 1
+        chain_cnt = chain_cnt + 1
+      }
+      ; push the first into bottom of stack
+      ; obj.foo.something ()
+      while ( i < (chlen - 1) ) {
+        ; TODO: error checks if no args given ? i + 1 may fail
+        def fc (itemAt node.children i)
+        def args@(lives) (itemAt node.children (i + 1))
+        def name (fc.vref)
+        if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
+          def method_name (substring name 1 (strlen name))
+          def newNode (node.newExpressionNode())
+          newNode.push( (node.newVRefNode("call") ) ) 
+          newNode.push( (innerNode.copy() ) )
+          newNode.push( (node.newVRefNode(method_name)) )
+          newNode.push( (args.copy()))
+          innerNode = newNode
+          chain_cnt = chain_cnt + 1
+          fc.is_part_of_chain = true
+          args.is_part_of_chain = true
+        } {
+          ctx.addError(node ( "Invalid chaining op -> " + (fc.getCode()) ) )
+          ctx.addError(node ("assign with invalid code = " + (node.getCode())))
+        }
+        i = i + 2
+      }
+      if ( chain_cnt > 0 ) {
+        def remove_cnt (chlen - 3)
+        while(remove_cnt > 0 ) {
+          removeLast node.children
+          remove_cnt = remove_cnt - 1
+        }
+        chainRoot.getChildrenFrom( innerNode )
+        chainRoot.tag = "chainroot"
+        chainRoot.flow_done = false
+        chainRoot.expression = true
+        chainRoot.vref = ""
+        chainRoot.value_type = RangerNodeType.NoType
+        node.flow_done = false
+        this.WalkNode( node ctx wr)
+        return true
+      }    
+    }
+
     wr.newline()
     def n1:CodeNode (node.getSecond())
     def n2:CodeNode (node.getThird())
@@ -1154,8 +1375,7 @@ class RangerFlowParser {
         ctx.addError(node "Can not assign optional to non-optional type")
       }
     }
-
-    this.stdParamMatch(node ctx wr)
+    this.stdParamMatch(node ctx wr true)
   }
   fn EnterTemplateClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
   }
@@ -1290,7 +1510,7 @@ class RangerFlowParser {
 
   ; (fun:int 8)
   fn EnterLambdaMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    print "--> EnterLambdaMethod"
+
     def args:CodeNode (itemAt node.children 1)
     def body@(lives):CodeNode (itemAt node.children 2)
     def subCtx:RangerAppWriterContext (ctx.fork())
@@ -1323,9 +1543,7 @@ class RangerFlowParser {
         m.changeStrength(1 1 node)
       }
       m.fnBody = (itemAt node.children 2)
-      print "lambda arguments -->"
       for args.children arg@(lives):CodeNode ii {
-        print "arg : " + arg.vref + "type : " + arg.type_name
         def p2@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
         
         p2.name = arg.vref
@@ -1377,6 +1595,68 @@ class RangerFlowParser {
 
   fn EnterVarDef:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (ctx.isInMethod()) {
+
+      def chlen (array_length node.children)
+      ; res = test.foo()  <- 4 nodes
+      if(chlen > 3) {
+        def i 3
+        def chainRoot:CodeNode (node.getThird())  ; test.foo
+        def innerNode@(weak) (chainRoot)
+        def chain_cnt 0
+        if( chainRoot.expression == false) {
+          def args (itemAt node.children 3)         ; ()
+          def newNode (node.newExpressionNode())
+          def sc (node.getSecond())
+          newNode.push( (chainRoot.copy()) )
+          newNode.push( (args.copy()) )
+          innerNode = newNode
+          
+          ; should you just remove the "last" items ?
+          args.is_part_of_chain = true
+          i = i + 1
+        }
+        ; push the first into bottom of stack
+        ; obj.foo.something ()
+        while ( i < (chlen - 1) ) {
+          ; TODO: error checks if no args given ? i + 1 may fail
+          def fc (itemAt node.children i)
+          def args@(lives) (itemAt node.children (i + 1))
+          def name (fc.vref)
+          if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
+            def method_name (substring name 1 (strlen name))
+            def newNode (node.newExpressionNode())
+            newNode.push( (node.newVRefNode("call") ) ) 
+            newNode.push( (innerNode.copy() ) )
+            newNode.push( (node.newVRefNode(method_name)) )
+            newNode.push( (args.copy()))
+            innerNode = newNode
+            chain_cnt = chain_cnt + 1
+            fc.is_part_of_chain = true
+            args.is_part_of_chain = true
+          } {
+            ctx.addError(node ( "Invalid chaining op -> " + (fc.getCode()) ) )
+            ctx.addError(node ("assign with invalid code = " + (node.getCode())))
+          }
+          i = i + 2
+        }
+        if ( chain_cnt > 0 ) {
+          def remove_cnt (chlen - 3)
+          while(remove_cnt > 0 ) {
+            removeLast node.children
+            remove_cnt = remove_cnt - 1
+          }
+          chainRoot.getChildrenFrom( innerNode )
+          chainRoot.tag = "chainroot"
+          chainRoot.flow_done = false
+          chainRoot.expression = true
+          chainRoot.vref = ""
+          chainRoot.value_type = RangerNodeType.NoType
+          node.flow_done = false
+          this.WalkNode( node ctx wr)
+          return true
+        }    
+      }
+      
       if ((array_length node.children) > 3) {
         ctx.addError(node "invalid variable definition")
         return
@@ -1389,7 +1669,7 @@ class RangerFlowParser {
       def p:RangerAppParamDesc (new RangerAppParamDesc ())
       def defaultArg:CodeNode
       if ((array_length node.children) == 2) {
-        if ((cn.value_type != RangerNodeType.Array) && (cn.value_type != RangerNodeType.Hash)) {
+        if ((cn.value_type != RangerNodeType.Array) && (cn.value_type != RangerNodeType.Hash)) {       
           cn.setFlag("optional")
         }
       }
@@ -1416,6 +1696,7 @@ class RangerFlowParser {
         if (defaultArg.hasFlag("optional")) {
           cn.setFlag("optional")
         }
+
         if (defaultArg.eval_type == RangerNodeType.Array) {
           node.op_index = 1
         }
@@ -1527,6 +1808,63 @@ class RangerFlowParser {
       ctx.addTodo(node (node.getStringProperty("todo")))
     }
     if node.expression {
+      def is_chaining false
+      def last_is_assign false
+      def chainRoot@(weak):CodeNode
+      def innerNode@(weak):CodeNode
+      def assignNode@(weak):CodeNode
+      def newNode:CodeNode
+      ;"
+      def ch_len (array_length node.children)
+      for node.children item:CodeNode i {
+        def did_find false
+        if(has item.children) {
+          def fc (item.getFirst())
+          def name (fc.vref)
+          
+          if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
+            did_find = true
+            if(i>0) {
+              def last_line (itemAt node.children (i - 1))
+              if (is_chaining == false ) {
+                last_line.createChainTarget()
+                is_chaining = true
+                if(!null? last_line.chainTarget) {
+                  chainRoot = last_line.chainTarget
+                  innerNode = last_line.chainTarget
+                  assignNode = last_line
+                  last_is_assign = true
+                } {
+                  chainRoot = last_line
+                  innerNode = last_line
+                }
+              }
+              def method_name (substring name 1 (strlen name))
+              def mArgs (item.getSecond())
+              if(last_is_assign) {
+                push assignNode.children (fc.copy())
+                push assignNode.children (mArgs.copy())
+              } {
+                newNode = (node.newExpressionNode())
+                newNode.push( (node.newVRefNode("call") ) ) 
+                newNode.push( (innerNode.copy() ) )
+                newNode.push( (node.newVRefNode(method_name)) )
+                newNode.push( (mArgs.copy()) )
+                innerNode = newNode
+              }
+              item.is_part_of_chain = true
+            }
+          } 
+        }
+        if(did_find == false || (i == (ch_len - 1) ) ) {
+          if( is_chaining && (last_is_assign == false)) {
+            chainRoot.getChildrenFrom( (unwrap innerNode ) )
+            chainRoot.tag = "chainroot"
+          }
+          is_chaining = false
+          last_is_assign = false
+        }
+      }
       for node.children item:CodeNode i {
         item.parent = node
         this.WalkNode(item ctx wr)
@@ -1544,9 +1882,9 @@ class RangerFlowParser {
     for op_list cmd:CodeNode i {
       def cmdName:CodeNode (cmd.getFirst())
       if (cmdName.vref == fc.vref) {
-        this.stdParamMatch(node ctx wr)
+        this.stdParamMatch(node ctx wr true)
         if (!null? node.parent) {
-          node.parent.copyEvalResFrom(node)
+          ; node.parent.copyEvalResFrom(node)
         }
         return true
       }
@@ -1558,6 +1896,8 @@ class RangerFlowParser {
         
         def m (new RangerArgMatch)        
         def altVersion ( node.rebuildWithType (m false) )
+        def origCopy  ( node.rebuildWithType (m false) )
+
         def vRef (new CodeNode( (unwrap node.code) node.sp node.ep))
         vRef.vref = possible_cmd
         push vRef.ns possible_cmd
@@ -1565,15 +1905,19 @@ class RangerFlowParser {
         def sc (altVersion.getSecond())
         removeLast sc.ns
         sc.vref = (join sc.ns ".")
+
+        altVersion.parent = node
         clear node.children
         for altVersion.children ch:CodeNode i {
           push node.children ch
+        }   
+        if ( this.stdParamMatch(node ctx wr false) ) {
+          return true
         }
-        this.stdParamMatch(node ctx wr)
-        if (!null? node.parent) {
-          node.parent.copyEvalResFrom(node)
-        }
-        return true                
+        clear node.children
+        for origCopy.children ch:CodeNode i {
+          push node.children ch
+        }           
       }
     }
     
@@ -1597,6 +1941,10 @@ class RangerFlowParser {
     if (node.hasStringProperty("todo")) {
       ctx.addTodo(node (node.getStringProperty("todo")))
     }
+    ; currently skip...
+    if(node.is_part_of_chain) {
+      return true
+    }
     if (node.isPrimitive()) {
       if ((ctx.expressionLevel()) == 0) {
         ctx.addError( node "Primitive element at top level!")
@@ -1610,6 +1958,10 @@ class RangerFlowParser {
     }
     if (node.value_type == RangerNodeType.Comment) {
       this.WriteComment(node ctx wr)
+      return true
+    }
+    if (node.isFirstVref("call")) {
+      this.cmdCall(node ctx wr)
       return true
     }
     if (node.isFirstVref("fun")) {
@@ -2185,7 +2537,7 @@ class RangerFlowParser {
         }
       } {
         p.is_optional = true
-        if (false == ((vDef.value_type == RangerNodeType.Array) || (vDef.value_type == RangerNodeType.Hash))) {
+        if (false == ((vDef.value_type == RangerNodeType.Array) || (vDef.value_type == RangerNodeType.Hash))) {         
           vDef.setFlag("optional")
         }
       }

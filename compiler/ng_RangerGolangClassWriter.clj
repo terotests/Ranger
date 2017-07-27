@@ -882,14 +882,19 @@ class RangerGolangClassWriter {
     def args:CodeNode (itemAt node.children 1)
     this.WriteVRef(fName ctx wr)
     wr.out("(" false)
+    def subCtx (ctx.fork())
+    subCtx.setInExpr()
     for args.children arg:CodeNode i {
       if (i > 0) {
         wr.out(", " false)
       }
       if(arg.value_type != RangerNodeType.NoType) {
-        this.WalkNode(arg ctx wr)
-      }    
+        this.WalkNode(arg subCtx wr)
+      } {
+        this.WalkNode(arg subCtx wr)
+      }   
     }
+    subCtx.unsetInExpr()
     wr.out(")" false)
     if ((ctx.expressionLevel()) == 0) {
       wr.out(";" true)

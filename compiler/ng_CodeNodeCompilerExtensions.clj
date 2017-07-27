@@ -1,3 +1,10 @@
+
+class CallChain {
+  def methodName:string ""
+  def method@(weak):CodeNode
+  def args@(weak):CodeNode
+}
+
 class NodeEvalState {
   def ctx@(weak):RangerAppWriterContext
   def is_running:boolean false
@@ -55,6 +62,14 @@ extension CodeNode {
   def operator_node@(weak):CodeNode
   def flow_ctx@(weak):RangerAppWriterContext
 
+  def is_part_of_chain false
+  def methodChain:[CallChain]
+
+  def chainTarget:CodeNode
+
+  ; tag for debugging the nodes if necessary...
+  def tag ""
+  
   fn writeCode:void (wr:CodeWriter) {
     switch value_type {
       case RangerNodeType.Double {
@@ -90,7 +105,22 @@ extension CodeNode {
       for children ch:CodeNode i {
        ch.writeCode(wr)
       }
-      wr.out(")" false)
+      wr.out(")" false)  ; "
+    }
+  }
+  
+  fn createChainTarget() {
+    def chCnt (array_length children)
+    if( chCnt > 2 ) {
+      def fc (this.getFirst())
+      ; def xyz something
+      if(fc.vref == "def" ) {
+        chainTarget = (this.getThird())
+      }
+      ; obj = foobba
+      if(fc.vref == "=" ) {
+        chainTarget = (this.getThird())
+      }    
     }
   }
 
@@ -98,6 +128,39 @@ extension CodeNode {
     def wr:CodeWriter (new CodeWriter ())
     this.writeCode(wr)
     return (wr.getCode())
+  }
+
+  fn copy:CodeNode () {
+    def match (new RangerArgMatch)
+    def cp (this.rebuildWithType( match false))
+    return cp
+  }
+
+  fn push (node@(strong):CodeNode) {
+    push this.children node
+    node.parent = this
+  }
+
+  fn newVRefNode:CodeNode (name:string) {
+    def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
+    newNode.vref = name
+    newNode.value_type = RangerNodeType.VRef
+    newNode.ns = (strsplit name ".")
+    return newNode
+  }
+
+  fn newExpressionNode:CodeNode () {
+    def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
+    newNode.expression = true
+    return newNode    
+  }
+
+  fn getChildrenFrom (otherNode:CodeNode) {
+    clear this.children
+    for otherNode.children ch@(lives):CodeNode i {
+      this.push(ch)
+    }
+    clear otherNode.children
   }
   
   fn rebuildWithType:CodeNode (match:RangerArgMatch changeVref:boolean) {
@@ -329,9 +392,19 @@ extension CodeNode {
     }
     eval_type = node.eval_type
     eval_type_name = node.eval_type_name
-    if (node.hasFlag("optional")) {
-      this.setFlag("optional")
+
+    ; here -> get optionality from operator if possible
+    if( !null? node.operator_node ) {
+      def nn (itemAt node.operator_node.children 1 )
+      if (nn.hasFlag("optional")) {
+        this.setFlag("optional")    
+      } 
+    } {
+      if (node.hasFlag("optional")) {
+        this.setFlag("optional")
+      }
     }
+
     if (node.value_type == RangerNodeType.Hash) {
       eval_key_type = node.eval_key_type
       eval_array_type = node.eval_array_type

@@ -78,6 +78,7 @@ class CodeNode {
   def infix_subnode:boolean false
   def has_lambda:boolean false
   def has_lambda_call:boolean false
+  def has_call false
   def operator_pred:int 0
   def to_the_right:boolean false
   def right_node:CodeNode
@@ -148,7 +149,7 @@ class CodeNode {
       }
     }
     return false
-  }
+  }  
   fn setFlag:void (flagName:string) {
     if (false == has_vref_annotation) {
       vref_annotation = (new CodeNode ((unwrap code) sp ep))

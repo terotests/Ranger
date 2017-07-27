@@ -1043,6 +1043,21 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 * ( "while (" (e 1) ") {" nl I (block 2) i nl "}" )
             }
         }
+
+
+        make         cmdArrayLiteral:[T] ( typeDef@(ignore):[T] size:int ) {
+            templates {
+                ranger ( "(make  _:" (typeof 1) " " (e 2) ")" )
+                go ( "make(" (typeof 1) "," (e 2) ")" )
+                cpp (  (typeof 1) "(" (e 2) ")")
+                ; new ArrayList<Double>( Arrays.asList( new Double[len_2] ) );
+                java7 (  "new " (typeof 1) "( Arrays.asList( new " (r_atype 1) "[" (e 2) "]))")
+                java7 ( "new " (typeof 1) "(" (e 2) ")")
+                es6 ( "new Array(" (e 2) ")")                
+                * ( "[" (comma 2) "]")
+            }
+        }
+
         []         cmdArrayLiteral:[T] ( typeDef@(ignore):T listOf:expression ) {
             templates {
                 ranger ( "([] _:" (typeof 1) "(" (list 2) "))")
@@ -1125,7 +1140,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 * ( nl "try {" nl I (block 1) i nl "} catch(e) {" nl I (block 2) i nl "}" nl )
             }
         }
-
+               
 
         ; T.name is a bit of a problem ??        
         for             cmdFor@(newcontext):void          ( list:[T] item@(define):T indexName@(define ignore):int repeat_block:block)  {
@@ -1170,6 +1185,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             }
         }
 
+        
         for             cmdFor@(newcontext):void          ( hash:[string:T] item@(define):T itemName@(define ignore):string repeat_block:block)  {
             templates {
                 es6 ("for( var " (e 3) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 3) ")) {" 
@@ -1392,6 +1408,21 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
         }        
+
+        ; https://stackoverflow.com/questions/41690156/how-to-get-the-keys-as-string-array-from-map-in-go-lang
+        ; https://stackoverflow.com/questions/110157/how-to-retrieve-all-keys-or-values-from-a-stdmap-and-put-them-into-a-vector
+        keys        _:[string]           ( map:[string:T] ) {
+            templates {
+                es6 ( "Object.keys(" (e 1) ")")
+                go ("(func() []string {" nl I
+                        "keys := reflect.ValueOf(" (e 1) ").MapKeys()" nl
+                        "strkeys := make([]string, len(keys))" nl
+                        "for i := 0; i < len(keys); i++ {" nl I
+                          "strkeys[i] = keys[i].String()" nl i "}" nl
+                        "return strkeys" nl i "})()"
+                    (imp "reflect"))
+            }
+        } 
 
         charAt      cmdCharAt:char       ( text:charbuffer position:int ) { 
             templates {
@@ -1763,7 +1794,11 @@ r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> 
         }
 
          
-
+        test_get             cmdGet@(weak):T          ( map:[K:T] key:K ) { 
+            templates {
+                * ( (e 1) "[" (e 2) "]" )
+            }
+        }
         get             cmdGet@(optional weak):T          ( map:[K:T] key:K ) { 
             templates {
                 ranger ( "(get " (e 1) " " (e 2) ")")                 
@@ -1795,7 +1830,7 @@ i "}" nl ))
         set             cmdSet@(moves@( 3 1 ) ):void          ( array@(mutates):[T] index:int value@( refto@(1) ):T ) { 
             templates {
                 ranger ( "set " (e 1) " " (e 2) " " (e 3) )                
-                java7 ( (e 1) ".put(" (e 2) ", " (e 3) ");" )
+                java7 ( (e 1) ".set(" (e 2) ", " (e 3) ");" )
                 rust ( (e 1) ".insert(" (e 2) ", " (e 3) ");" )
                 scala ( (e 1) ".put(" (e 2) ", " (e 3) ")" )
                 kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
@@ -2083,7 +2118,7 @@ auto r_m_arr_extract( T & a, int i )  {
                  php ( nl "echo( " (e 1) " . \"\\n\");" nl )               
                  csharp ( nl "Console.Writeline(" (e 1) ")" nl (imp "System"))
                  swift3 ( nl "print(" (e 1) ")" nl)
-                 * ( nl "console.log(" (e 1) ")" nl)                                                                
+                 * ( nl "console.log(" (e 1) ");" nl)                                                                
             }
         }
 
