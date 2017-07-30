@@ -141,6 +141,11 @@ extension CodeNode {
     node.parent = this
   }
 
+  fn add (node@(strong):CodeNode) {
+    push this.children node
+    node.parent = this
+  }  
+
   fn newVRefNode:CodeNode (name:string) {
     def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
     newNode.vref = name

@@ -203,10 +203,10 @@ class RangerFlowParser {
         if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
           def method_name (substring name 1 (strlen name))
           def newNode (callArgs.newExpressionNode())
-          newNode.push( (callArgs.newVRefNode("call") ) ) 
-          newNode.push( (innerNode.copy() ) )
-          newNode.push( (callArgs.newVRefNode(method_name)) )
-          newNode.push( (args.copy()))
+          newNode.add( (callArgs.newVRefNode("call") ) ) 
+          newNode.add( (innerNode.copy() ) )
+          newNode.add( (callArgs.newVRefNode(method_name)) )
+          newNode.add( (args.copy()))
           innerNode = newNode
           chain_cnt = chain_cnt + 1
         } {
@@ -1005,10 +1005,10 @@ class RangerFlowParser {
       def altVersion ( node.newExpressionNode() )
       def origCopy  ( node.copy() )
 
-      altVersion.push( (node.newVRefNode( possible_cmd)) )
-      altVersion.push( (obj.copy()) )      
+      altVersion.add( (node.newVRefNode( possible_cmd)) )
+      altVersion.add( (obj.copy()) )      
       for callArgs.children ca:CodeNode i {
-        altVersion.push( (ca.copy()) )
+        altVersion.add( (ca.copy()) )
       }
       altVersion.parent = node
       node.getChildrenFrom( altVersion )
@@ -1079,8 +1079,8 @@ class RangerFlowParser {
       def innerNode@(weak):CodeNode
       def newNode (node.newExpressionNode())
       def sc (node.getSecond())
-      newNode.push( (fnNode.copy()) )
-      newNode.push( (sc.copy()) )
+      newNode.add( (fnNode.copy()) )
+      newNode.add( (sc.copy()) )
       innerNode = newNode
 
       def chain_cnt 0
@@ -1093,10 +1093,10 @@ class RangerFlowParser {
         if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
           def method_name (substring name 1 (strlen name))
           def newNode (node.newExpressionNode())
-          newNode.push( (node.newVRefNode("call") ) ) 
-          newNode.push( (innerNode.copy() ) )
-          newNode.push( (node.newVRefNode(method_name)) )
-          newNode.push( (args.copy()))
+          newNode.add( (node.newVRefNode("call") ) ) 
+          newNode.add( (innerNode.copy() ) )
+          newNode.add( (node.newVRefNode(method_name)) )
+          newNode.add( (args.copy()))
           innerNode = newNode
           chain_cnt = chain_cnt + 1
         } {
@@ -1393,8 +1393,8 @@ class RangerFlowParser {
         def args (itemAt node.children 3)         ; ()
         def newNode (node.newExpressionNode())
         def sc (node.getSecond())
-        newNode.push( (chainRoot.copy()) )
-        newNode.push( (args.copy()) )
+        newNode.add( (chainRoot.copy()) )
+        newNode.add( (args.copy()) )
         innerNode = newNode
         args.is_part_of_chain = true
         i = i + 1
@@ -1410,10 +1410,10 @@ class RangerFlowParser {
         if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
           def method_name (substring name 1 (strlen name))
           def newNode (node.newExpressionNode())
-          newNode.push( (node.newVRefNode("call") ) ) 
-          newNode.push( (innerNode.copy() ) )
-          newNode.push( (node.newVRefNode(method_name)) )
-          newNode.push( (args.copy()))
+          newNode.add( (node.newVRefNode("call") ) ) 
+          newNode.add( (innerNode.copy() ) )
+          newNode.add( (node.newVRefNode(method_name)) )
+          newNode.add( (args.copy()))
           innerNode = newNode
           chain_cnt = chain_cnt + 1
           fc.is_part_of_chain = true
@@ -1699,8 +1699,8 @@ class RangerFlowParser {
           def args (itemAt node.children 3)         ; ()
           def newNode (node.newExpressionNode())
           def sc (node.getSecond())
-          newNode.push( (chainRoot.copy()) )
-          newNode.push( (args.copy()) )
+          newNode.add( (chainRoot.copy()) )
+          newNode.add( (args.copy()) )
           innerNode = newNode
           
           ; should you just remove the "last" items ?
@@ -1717,10 +1717,10 @@ class RangerFlowParser {
           if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
             def method_name (substring name 1 (strlen name))
             def newNode (node.newExpressionNode())
-            newNode.push( (node.newVRefNode("call") ) ) 
-            newNode.push( (innerNode.copy() ) )
-            newNode.push( (node.newVRefNode(method_name)) )
-            newNode.push( (args.copy()))
+            newNode.add( (node.newVRefNode("call") ) ) 
+            newNode.add( (innerNode.copy() ) )
+            newNode.add( (node.newVRefNode(method_name)) )
+            newNode.add( (args.copy()))
             innerNode = newNode
             chain_cnt = chain_cnt + 1
             fc.is_part_of_chain = true
@@ -1958,10 +1958,10 @@ class RangerFlowParser {
                 push assignNode.children (mArgs.copy())
               } {
                 newNode = (node.newExpressionNode())
-                newNode.push( (node.newVRefNode("call") ) ) 
-                newNode.push( (innerNode.copy() ) )
-                newNode.push( (node.newVRefNode(method_name)) )
-                newNode.push( (mArgs.copy()) )
+                newNode.add( (node.newVRefNode("call") ) ) 
+                newNode.add( (innerNode.copy() ) )
+                newNode.add( (node.newVRefNode(method_name)) )
+                newNode.add( (mArgs.copy()) )
                 innerNode = newNode
               }
               item.is_part_of_chain = true
@@ -2018,10 +2018,10 @@ class RangerFlowParser {
         def objName (join nn.ns ".")
 
         def newNode (node.newExpressionNode())
-        newNode.push( ( node.newVRefNode("call")) )
-        newNode.push( ( node.newVRefNode(objName)) )
-        newNode.push( ( node.newVRefNode(possible_cmd)))
-        newNode.push( ( args.copy()))
+        newNode.add( ( node.newVRefNode("call")) )
+        newNode.add( ( node.newVRefNode(objName)) )
+        newNode.add( ( node.newVRefNode(possible_cmd)))
+        newNode.add( ( args.copy()))
         node.getChildrenFrom( newNode )
 
         node.flow_done = false
