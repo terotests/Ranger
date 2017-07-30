@@ -185,6 +185,7 @@ class RangerAppClassDesc {
   }
   fn addVariable:void (desc@(strong):RangerAppParamDesc) {
     push variables desc
+    desc.propertyClass = this
   }
   fn addMethod:void (desc@(strong):RangerAppFunctionDesc) {
     set defined_methods desc.name true

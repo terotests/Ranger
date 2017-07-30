@@ -10,7 +10,7 @@ Import "ng_parser.clj"
 Import "ng_RangerArgMatch.clj"
 Import "ng_DictNode.clj"
 Import "ng_RangerSerializeClass.clj"
-
+Import "ng_RangerImmutableExtension.clj"
 
 class ClassJoinPoint {
   def class_def:RangerAppClassDesc
@@ -35,6 +35,7 @@ class RangerFlowParser {
   def collectWalkAtEnd:[CodeNode]
   def walkAlso:[CodeNode]
   def serializedClasses@(weak):[RangerAppClassDesc]
+  def immutableClasses@(weak):[RangerAppClassDesc]
   def classesWithTraits:[ClassJoinPoint]
   def collectedIntefaces:[RangerAppClassDesc]
   def definedInterfaces:[string:boolean]
@@ -168,8 +169,10 @@ class RangerFlowParser {
     for callArgs.children ca:CodeNode i {
       def name (ca.vref)
       if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
+        ; list.add(2).add(2)
         in_chain = true
         ca.is_part_of_chain = true
+        print "operator chain at" + (callArgs.getLineAsString())
       }
       if in_chain {
         ca.is_part_of_chain = true
@@ -177,6 +180,52 @@ class RangerFlowParser {
         call_arg_cnt = call_arg_cnt + 1
       }
     }
+
+    if in_chain {
+      def fc (callArgs.getFirst())   
+      def sc (callArgs.getSecond())
+      def thrd (callArgs.getThird())
+      def i call_arg_cnt
+      def chainRoot:CodeNode (callArgs)
+      def innerNode@(weak):CodeNode
+      def newNode (callArgs.newExpressionNode())
+      newNode.children.push( (fc.copy()) ) ;   
+      newNode.children.push( (sc.copy()) ) ; 
+      newNode.children.push( (thrd.copy()) ) ; 
+      innerNode = newNode
+      def chain_cnt 0
+      def chlen (array_length callArgs.children)
+
+      while ( i < (chlen - 1) ) {
+        def fc (itemAt callArgs.children i)
+        def args@(lives) (itemAt callArgs.children (i + 1))
+        def name (fc.vref)
+        if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
+          def method_name (substring name 1 (strlen name))
+          def newNode (callArgs.newExpressionNode())
+          newNode.push( (callArgs.newVRefNode("call") ) ) 
+          newNode.push( (innerNode.copy() ) )
+          newNode.push( (callArgs.newVRefNode(method_name)) )
+          newNode.push( (args.copy()))
+          innerNode = newNode
+          chain_cnt = chain_cnt + 1
+        } {
+          ctx.addError(callArgs "Invalid chaining op")
+        }
+        i = i + 2
+      }
+      if ( chain_cnt > 0 ) {
+        callArgs.getChildrenFrom( (unwrap innerNode ) )
+        callArgs.tag = "chainroot"
+        callArgs.flow_done = false
+        this.WalkNode( callArgs ctx wr)
+        return true
+      } {
+        ctx.addError( callArgs "Invalid chain")
+        return true
+      }
+    }
+
     ; print "stdParamMatch -> " + callFnName.vref
     def op_list (ctx.getOperators(callFnName.vref))
     for op_list ch@(lives):CodeNode main_index {
@@ -184,8 +233,6 @@ class RangerFlowParser {
       def nameNode:CodeNode (ch.getSecond())
       def args:CodeNode (ch.getThird())
       if (callFnName.vref == fc.vref) {
-        ; print "matched operator " + fc.vref
-        
         def line_index:int (callArgs.getLine())
         ; def callerArgCnt:int (((array_length callArgs.children) - 1))
         def callerArgCnt (call_arg_cnt - 1)
@@ -208,7 +255,7 @@ class RangerFlowParser {
 ;            ctx.addError( callArgs "Did not find language based operator")
             continue
           }
-          if(langOper.hasBooleanProperty("macro")) {
+          if( ( langOper.hasBooleanProperty("macro") ) || ( (nameNode.hasFlag("macro")))  ) {
             is_macro = true
           }
 
@@ -280,6 +327,20 @@ class RangerFlowParser {
                 ctx.unsetInExpr()
                 last_was_block = false
               }
+              if( arg.hasFlag("mutates")) {
+                if(callArg.hasParamDesc) {
+                  if(callArg.paramDesc && (!null? callArg.paramDesc.propertyClass)) {
+                    if(callArg.paramDesc.propertyClass.nameNode.hasFlag("immutable")) {
+                      def propC (callArg.paramDesc.propertyClass)
+                      def currC (ctx.getCurrentClass())
+                      if( (unwrap currC) != (unwrap propC) ) {
+                        ctx.addError(callArg "Not possible to modify immutable class property")
+                      }                 
+                    }
+                  }
+                }
+              }
+              
             }
            
             
@@ -373,6 +434,9 @@ class RangerFlowParser {
               for fCtx.localVarNames n:string i {
                 def p:RangerAppParamDesc (get fCtx.localVariables n)
                 if (p.set_cnt > 0) {
+                  if(p.is_immutable) {
+                    ctx.addError( callArgs "Immutable variable was assigned")
+                  }
                   def defNode:CodeNode p.node
                   defNode.setFlag("mutable")
                   def nNode:CodeNode p.nameNode
@@ -722,6 +786,9 @@ class RangerFlowParser {
     for subCtx.localVarNames n:string i {
       def p:RangerAppParamDesc (get subCtx.localVariables n)
       if (p.set_cnt > 0) {
+        if(p.is_immutable) {
+          ctx.addError( node "Immutable variable was assigned a value")
+        }        
         def defNode:CodeNode p.node
         defNode.setFlag("mutable")
         def nNode:CodeNode p.nameNode
@@ -1296,6 +1363,25 @@ class RangerFlowParser {
   }
   fn cmdAssign:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
+    def target:CodeNode (node.getSecond())
+    this.WalkNode(target ctx wr)
+
+    if(target.hasParamDesc) {
+      if( !null? target.paramDesc.propertyClass) {
+        def nn (unwrap target.paramDesc.propertyClass.nameNode)
+        if(nn.hasFlag("immutable")) {
+          def propC (target.paramDesc.propertyClass)
+          def currC (ctx.getCurrentClass())
+
+          if( (unwrap currC) == (unwrap propC) ) {
+
+          } {
+            ctx.addError( node "Assigment to immutable class node")
+          }
+        }
+      }
+    }
+
     def chlen (array_length node.children)
     ; res = test.foo()  <- 4 nodes
     if(chlen > 3) {
@@ -1390,10 +1476,10 @@ class RangerFlowParser {
     def cn:CodeNode (itemAt node.children 1)
     def cBody:CodeNode (itemAt node.children 2)
     def desc@(lives):RangerAppClassDesc (ctx.findClass(cn.vref))
-    if cn.has_vref_annotation {
-      print "--> generic class, not processed"
-      return
-    }
+    ;if cn.has_vref_annotation {
+    ;  print "--> generic class, not processed"
+    ;  return
+    ;}
     def subCtx:RangerAppWriterContext (unwrap desc.ctx)
     subCtx.setCurrentClass(desc)
     subCtx.class_level_context = true
@@ -1457,6 +1543,9 @@ class RangerFlowParser {
     for subCtx.localVarNames n:string i {
       def p:RangerAppParamDesc (get subCtx.localVariables n)
       if (p.set_cnt > 0) {
+        if(p.is_immutable) {
+          ctx.addError( (unwrap p.nameNode) "Immutable variable was assigned a value")
+        }        
         def defNode:CodeNode p.node
         defNode.setFlag("mutable")
         def nNode:CodeNode p.nameNode
@@ -1500,6 +1589,9 @@ class RangerFlowParser {
     for subCtx.localVarNames n:string i {
       def p:RangerAppParamDesc (get subCtx.localVariables n)
       if (p.set_cnt > 0) {
+        if(p.is_immutable) {
+          ctx.addError( (unwrap p.nameNode) "Immutable variable was assigned a value")
+        }        
         def defNode:CodeNode p.node
         defNode.setFlag("mutable")
         def nNode:CodeNode p.nameNode
@@ -1668,6 +1760,7 @@ class RangerFlowParser {
       def cn@(lives):CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc (new RangerAppParamDesc ())
       def defaultArg:CodeNode
+      def is_immutable false
       if ((array_length node.children) == 2) {
         if ((cn.value_type != RangerNodeType.Array) && (cn.value_type != RangerNodeType.Hash)) {       
           cn.setFlag("optional")
@@ -1695,6 +1788,22 @@ class RangerFlowParser {
         ctx.unsetInExpr()
         if (defaultArg.hasFlag("optional")) {
           cn.setFlag("optional")
+        }
+
+        if( defaultArg.hasParamDesc ) {
+          def paramDesc (unwrap defaultArg.paramDesc)
+          if( !null? paramDesc.propertyClass) {
+            if( paramDesc.propertyClass.nameNode.hasFlag("immutable") ) {
+              ; TODO: add hash support
+              if (defaultArg.eval_type == RangerNodeType.Array || defaultArg.eval_type == RangerNodeType.Hash) {
+                is_immutable = true
+;                ctx.addError( node "creating a mutable copy of immutable array is currently not permitted")
+              }              
+            }        
+          }
+          if( paramDesc.is_immutable) {
+            is_immutable = true
+          }
         }
 
         if (defaultArg.eval_type == RangerNodeType.Array) {
@@ -1751,6 +1860,9 @@ class RangerFlowParser {
       p.node = node
       p.nameNode = cn
       p.varType = RangerContextVarType.LocalVariable
+      if is_immutable {
+        p.is_immutable = is_immutable
+      }
       if cn.has_vref_annotation {
         ctx.log(node "ann" "At a variable -> Found has_vref_annotation annotated reference ")
         def ann:CodeNode cn.vref_annotation
@@ -1889,6 +2001,7 @@ class RangerFlowParser {
         return true
       }
     }
+    ; convert into  a call because it handles the lambda functions correctly
     if( (array_length fc.ns) > 1 ) {
       def possible_cmd (last fc.ns)
       def op_list (ctx.getOperators(possible_cmd))
@@ -1898,27 +2011,23 @@ class RangerFlowParser {
         def altVersion ( node.rebuildWithType (m false) )
         def origCopy  ( node.rebuildWithType (m false) )
 
-        def vRef (new CodeNode( (unwrap node.code) node.sp node.ep))
-        vRef.vref = possible_cmd
-        push vRef.ns possible_cmd
-        insert altVersion.children 0 vRef
-        def sc (altVersion.getSecond())
-        removeLast sc.ns
-        sc.vref = (join sc.ns ".")
+        def args (node.getSecond())
+        def nn (fc.copy())
+        removeLast nn.ns
 
-        altVersion.parent = node
-        clear node.children
-        for altVersion.children ch:CodeNode i {
-          push node.children ch
-        }   
-        if ( this.stdParamMatch(node ctx wr false) ) {
-          return true
-        }
-        clear node.children
-        for origCopy.children ch:CodeNode i {
-          push node.children ch
-        }           
-      }
+        def objName (join nn.ns ".")
+
+        def newNode (node.newExpressionNode())
+        newNode.push( ( node.newVRefNode("call")) )
+        newNode.push( ( node.newVRefNode(objName)) )
+        newNode.push( ( node.newVRefNode(possible_cmd)))
+        newNode.push( ( args.copy()))
+        node.getChildrenFrom( newNode )
+
+        node.flow_done = false
+        this.WalkNode( node ctx wr)
+        return true
+     }
     }
     
     return false
@@ -2205,6 +2314,20 @@ class RangerFlowParser {
       this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
       push walkAlso rn
     }
+    
+    for immutableClasses cl:RangerAppClassDesc i {
+      def ser (new RangerImmutableExtension)
+      def extWr (new CodeWriter())
+      ser.createImmutableExtension( cl (unwrap cl.ctx) extWr )
+      def theCode (extWr.getCode())
+      def code (new SourceCode ( theCode ))
+      code.filename = "extension " + (cl.name)
+      def parser (new RangerLispParser (code))
+      parser.parse()
+      def rn:CodeNode (unwrap parser.rootNode)
+      this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
+      push walkAlso rn
+    }
     ;       ctx.hadValidType( (unwrap v.nameNode) )
     for ctx.definedClassList cname:string i {
       def c (unwrap (get ctx.definedClasses cname))
@@ -2282,6 +2405,9 @@ class RangerFlowParser {
           ; nameNode
           def opThisNode (nameNode.rebuildWithType( (new RangerArgMatch) false))
           opThisNode.vref = "self"
+          if(nameNode.hasFlag("mutates")) {
+            opThisNode.setFlag("mutates")
+          }
           insert opArgs.children 0 opThisNode
 
           push opN.children opArgs
@@ -2299,6 +2425,15 @@ class RangerFlowParser {
           push actualCode.children opLangDef
           push actualCode.children opCodeNode
 
+          if(opLangDef.vref == "*") {
+            if(opCode.is_block_node == false) {
+              opSig.setFlag("macro")
+            }
+          }
+          if(nameNode.hasFlag("macro")) {
+            opSig.setFlag("macro")
+          }
+          
           push opTemplatesList.children actualCode 
 
           ctx.createOperator(opN)
@@ -2447,7 +2582,7 @@ class RangerFlowParser {
     if ((node.isFirstVref("CreateClass")) || (node.isFirstVref("class"))) {
       def s:string (node.getVRefAt(1))
       def classNameNode@(lives):CodeNode (node.getSecond())
-      if classNameNode.has_vref_annotation {
+      if false {
         print "%% vref_annotation"
         def ann:CodeNode classNameNode.vref_annotation
         print (classNameNode.vref + " : " + (ann.getCode()))
@@ -2466,6 +2601,10 @@ class RangerFlowParser {
         new_class.node = node
         if(node.hasBooleanProperty("trait")) {
           new_class.is_trait = true
+        }
+        if(classNameNode.hasFlag("immutable")) {
+          push immutableClasses new_class
+          new_class.is_immutable = true
         }
       }
     }
@@ -2498,6 +2637,13 @@ class RangerFlowParser {
       if( s != ((ctx.transformWord(s)))) {
         ctx.addError( node "Can not use reserved word " + s + " as class propery")
       }
+      def currC:RangerAppClassDesc ctx.currentClass
+
+      ; immutable classes have only weak properties
+      if currC.is_immutable {
+        vDef.setFlag("weak")
+      }      
+
       ; transforming reserved words here 
       p.name = s
       p.value_type = vDef.value_type
@@ -2541,7 +2687,6 @@ class RangerFlowParser {
           vDef.setFlag("optional")
         }
       }
-      def currC:RangerAppClassDesc ctx.currentClass
       currC.addVariable(p)
 
       def subCtx:RangerAppWriterContext currC.ctx

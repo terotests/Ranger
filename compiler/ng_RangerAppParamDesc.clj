@@ -78,6 +78,8 @@ class RangerAppParamDesc {
   def default_value:RangerNodeValue
   def isThis:boolean false
   def classDesc:RangerAppClassDesc
+  def is_immutable false
+  def propertyClass@(weak):RangerAppClassDesc
   def fnDesc:RangerAppFunctionDesc
   def ownerHistory:[RangerRefForce]
   def varType:RangerContextVarType RangerContextVarType.NoType
