@@ -1,6 +1,6 @@
 
 operator type:[K:T] es6 {
-    fn immutable_set:[K:T] (n:K v:T) ( "Object.assign({}, " (e 1) ", {" (e 2) " : " (e 2) "})" )
+    fn immutable_set:[K:T] (n:K v:T) ( "((k,v) => { var o = {}; o[k]=v; return Object.assign({}, " (e 1) ", o); })(" (e 2) ", " (e 3) ")" )
 }
 
 operator type:[K:T] all {
