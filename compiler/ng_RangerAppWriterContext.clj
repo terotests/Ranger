@@ -170,6 +170,21 @@ class RangerAppWriterContext {
     def res:[string]
     return res
   }  
+  fn transformOpNameWord:string (input_word:string) {
+     def len (strlen input_word)
+    def i 0
+    def res ""
+    while (i < len) {
+      def cc (charAt input_word i)
+      if ( ((cc >= (ccode "a")) && (cc <= (ccode "z")) )  || ( ((cc >= (ccode "A")) && (cc <= (ccode "Y")) ) )) {
+        res = res + (strfromcode cc)
+      } {
+        res = res + "c"+ (cc)
+      }
+      i = i + 1
+    }
+    return res
+  }
   fn transformWord:string (input_word:string) {
     def root (this.getRoot())
     root.initReservedWords()
@@ -356,6 +371,11 @@ class RangerAppWriterContext {
   fn createStaticMethod:RangerAppFunctionDesc (withName:string currC:RangerAppClassDesc nameNode:CodeNode argsNode:CodeNode fnBody:CodeNode ) {
     def s:string withName
     def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
+
+    ;print "createStaticMethod -> name " + withName + "namenode type == " + nameNode.type_name
+    ;print "body of the static method ==> " + (fnBody.getCode())
+    ;print "arguments of static => " + (argsNode.getCode())
+
     m.name = s
     m.compiledName = (this.transformWord(s))
     m.node = nameNode
@@ -443,6 +463,106 @@ class RangerAppWriterContext {
     push staticClassBodies classRoot
     return new_class
   }
+
+  fn createTraitInstanceClass@(optional weak):RangerAppClassDesc ( traitName:string instanceName:string initParams:CodeNode flowParser:RangerFlowParser ) {
+    def res@(optional weak):RangerAppClassDesc
+    def ctx (this.fork())
+    def wr (new CodeWriter)
+    if(this.isDefinedClass( instanceName) ) {
+      return res
+    }
+    if( (this.isDefinedClass( traitName )) == false) {
+      this.addError( initParams ( "Could not find the trait " + traitName ) )
+      return res
+    }
+
+    ; 1. create the base class
+    def tpl_code ("class " + instanceName + " {
+}")
+
+    def code:SourceCode (new SourceCode ( tpl_code ))
+    code.filename = instanceName + ".ranger"
+    def parser:RangerLispParser (new RangerLispParser (code))
+    parser.parse()
+
+    def classRoot@(lives) (itemAt parser.rootNode.children 0)
+    def classNameNode@(lives) (classRoot.getSecond())
+    classNameNode.vref = instanceName
+    def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+    new_class.name = instanceName
+    new_class.nameNode = classNameNode
+    new_class.node = classRoot
+    new_class.classNode = classRoot   
+    new_class.is_generic_instance = true
+    push new_class.consumes_traits traitName
+    def root (this.getRoot())
+
+    new_class.ctx = (root.fork())
+    root.addClass(instanceName new_class)
+    classNameNode.clDesc = new_class    
+
+    def cl:RangerAppClassDesc new_class
+    def t:RangerAppClassDesc (this.findClass(traitName))
+
+    def traitClassDef@(lives):CodeNode (unwrap t.node)
+    def name:string t.name
+
+    print "creating a new trait " + name + " to class " + cl.name
+    def t:RangerAppClassDesc (ctx.findClass(name))
+    if( (array_length t.extends_classes) > 0 ) {
+      ctx.addError( traitClassDef ("Can not join trait " + name + " because it is inherited. Currently on base classes can be used as traits." ))
+      return res
+    }
+    if(t.has_constructor) {
+      ctx.addError( traitClassDef ("Can not join trait " + name + " because it has a constructor function" ))
+    } {
+      def origBody:CodeNode (itemAt cl.node.children 2)
+      def match:RangerArgMatch (new RangerArgMatch ())
+
+      def params (t.node.getExpressionProperty("params"))
+      def traitParams (new RangerTraitParams)
+
+      if( (!null? params) ) {
+        for params.children typeName:CodeNode i {
+          def set_value ""
+          if( ( array_length initParams.children) > i ) {
+            def pArg (itemAt initParams.children i)
+            match.add(typeName.vref pArg.vref ctx)
+            set_value = pArg.vref
+          } {
+            match.add(typeName.vref instanceName ctx)
+            set_value = instanceName
+          }
+          push traitParams.param_names typeName.vref
+          set traitParams.values typeName.vref set_value
+        }
+        set cl.trait_params name traitParams
+      } {
+        match.add("T" cl.name ctx)
+      }
+
+      ctx.setCurrentClass( cl )          
+
+      def traitClass t
+      for traitClass.variables pvar:RangerAppParamDesc i {
+        def ccopy:CodeNode (pvar.node.rebuildWithType(match true))      
+        flowParser.WalkCollectMethods( ccopy ctx wr )
+        push origBody.children ccopy
+      }
+      for traitClass.defined_variants fnVar:string i {
+        def mVs:RangerAppMethodVariants (get traitClass.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc i {
+          def ccopy:CodeNode (variant.node.rebuildWithType(match true))      
+          flowParser.WalkCollectMethods( ccopy ctx wr )
+          push origBody.children ccopy
+        }            
+      }
+      res = new_class
+      push flowParser.walkAlso new_class.node
+    }      
+    return res
+  }
+
   fn createOperator:void (fromNode@(strong):CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
     if (root.initStdCommands()) {

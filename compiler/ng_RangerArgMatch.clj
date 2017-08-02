@@ -1,3 +1,7 @@
+
+; match and possibly collect the trait parameters also for the match...
+; match.add(typeName.vref pArg.vref ctx)
+
 class RangerArgMatch {
   def _debug false
   def matched:[string:string]
@@ -38,10 +42,33 @@ class RangerArgMatch {
           all_matched = false
         }
       }
-      if (arg.hasFlag("optional")) {
-        if _debug {
-          print "--> arg.has optional " + arg.vref
+
+      def call_arg_immutable false
+      if callArg.hasParamDesc {
+        def pa:RangerAppParamDesc callArg.paramDesc
+        if(!null? pa.nameNode) {
+          def b_immutable:boolean (pa.nameNode.hasFlag("immutable"))
+          if ( (arg.hasFlag("immutable")) != b_immutable ) {
+            all_matched = false
+          }     
+          call_arg_immutable = b_immutable    
+        } {
+          call_arg_immutable = pa.is_immutable
         }
+      }
+      if(callArg.hasFlag("immutable")) {
+        call_arg_immutable = true
+      }
+
+      if (arg.hasFlag("immutable")) {
+        if (false == call_arg_immutable) {
+          all_matched = false
+        }
+      }
+      ; 
+
+
+      if (arg.hasFlag("optional")) {
         if callArg.hasParamDesc {
           def pa:RangerAppParamDesc callArg.paramDesc
           def b:boolean (pa.nameNode.hasFlag("optional"))
@@ -109,6 +136,9 @@ class RangerArgMatch {
     return all_matched
   }
 
+  fn force_add:void ( tplKeyword:string typeName:string ctx:RangerAppWriterContext) {
+    set matched tplKeyword typeName    
+  }
   fn add:boolean ( tplKeyword:string typeName:string ctx:RangerAppWriterContext) {
     switch tplKeyword {
       case "string" {
@@ -274,10 +304,37 @@ class RangerArgMatch {
     if( (ctx.isDefinedClass(t_name)) && (ctx.isDefinedClass (type2))) {
         def c1:RangerAppClassDesc (ctx.findClass(t_name))
         def c2:RangerAppClassDesc (ctx.findClass(type2))
+        def trait1 (c1.hasTrait(type2 ctx))
+        if(!null? trait1) {
+          this.force_add( type2 c1.name ctx)
+          if( has c1.trait_params type2 ) {
+            def pms (unwrap (get c1.trait_params type2))
+            for pms.param_names pn:string i {
+              def pn_value (unwrap (get pms.values pn))
+              this.add( pn pn_value ctx)
+            }
+          }
+        }
+        def trait1 (c2.hasTrait(t_name ctx))
+        if(!null? trait1) {
+          this.force_add( t_name c2.name ctx)
+          if( has c2.trait_params t_name ) {
+            def pms (unwrap (get c2.trait_params t_name))
+            for pms.param_names pn:string i {
+              def pn_value (unwrap (get pms.values pn))
+              this.add( pn pn_value ctx)
+            }
+          } {
+
+          }
+        }
+
         if ( c1.isSameOrParentClass (type2 ctx)) {
+            ; trait_params
             return true
         }
         if ( c2.isSameOrParentClass (t_name ctx)) {
+            ; trait_params
             return true
         }
     } {
@@ -285,6 +342,7 @@ class RangerArgMatch {
       if(ctx.isDefinedClass(t_name)) {
         def c1:RangerAppClassDesc (ctx.findClass(t_name))
         if ( c1.isSameOrParentClass (type2 ctx)) {
+          ; trait_params
             return true
         }        
       }      
@@ -347,6 +405,9 @@ class RangerArgMatch {
     if (arg.hasFlag("optional")) {
       node.setFlag("optional")
     }
+    if (arg.hasFlag("immutable")) {
+      node.setFlag("immutable")
+    }    
     if ((arg.value_type != RangerNodeType.Hash) && (arg.value_type != RangerNodeType.Array)) {
       node.eval_type = (this.getType(arg.type_name))
       node.eval_type_name = (this.getTypeName(arg.type_name))

@@ -55,7 +55,7 @@ class RangerImmutableExtension {
                     wr.out("def res (new " + cl.name + ")" , true)
                     for cl.variables ivar:RangerAppParamDesc ii {
                         if( ivar == pvar ) {
-                            wr.out("res."+pvar.compiledName + " = (this." + pvar.compiledName +".immutable_set( new_key new_value ))" , true)
+                            wr.out("res."+pvar.compiledName + " = this." + pvar.compiledName +".immutable_set( new_key new_value )" , true)
                         } {
                             wr.out("res."+ivar.compiledName + " = this." + ivar.compiledName , true)                    
                         }
@@ -65,12 +65,12 @@ class RangerImmutableExtension {
                     wr.out("}" true)
                 }
                 if(nn.value_type == RangerNodeType.Array) {
-                   wr.out("fn push_" + pvar.name + ":" + cl.name + " ( new_value:" + nn.array_type + ") {" , true)
+                   wr.out("fn push_" + pvar.name + "@(immutable):" + cl.name + " ( new_value:" + nn.array_type + ") {" , true)
                     wr.indent(1)
                     wr.out("def res (new " + cl.name + ")" , true)
                     for cl.variables ivar:RangerAppParamDesc ii {
                         if( ivar == pvar ) {
-                            wr.out("res."+pvar.compiledName + " = (this." + pvar.compiledName +".add( new_value ))" , true)
+                            wr.out("res."+pvar.compiledName + " = this." + pvar.compiledName +".add( new_value )" , true)
                         } {
                             wr.out("res."+ivar.compiledName + " = this." + ivar.compiledName , true)                    
                         }

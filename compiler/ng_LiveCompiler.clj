@@ -241,8 +241,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     def tplImpl@(optional):CodeNode 
     if ( (array_length op.children ) > 3) {
       def details:CodeNode (itemAt op.children 3)
-      for details.children det:CodeNode i {
-        
+      for details.children det:CodeNode i {        
         if ( (array_length det.children ) > 0) {
           def fc:CodeNode (itemAt det.children 0)
           if (fc.vref == "templates") {
@@ -264,8 +263,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           }
         }
       }
-    }
-    
+    }    
     return tplImpl
   }
   fn localCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {

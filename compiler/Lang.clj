@@ -30,7 +30,23 @@ language {
         forEach forEachItem
     }
 
+    
     commands {
+        
+        ; immutable operators, maybe used by the compiler...
+        ; https://github.com/Workiva/go-datastructures
+        create_immutable_array _@(immutable):[T] () {
+            templates {
+                es6 ("require('immutable').List() /** imm **/")
+                go ("seq.NewList()")
+            }
+        }
+        create_immutable_hash _@(immutable):[K:T] () {
+            templates {
+                es6 ("require('immutable').Map()")
+                go ("seq.NewHashMap()")
+            }
+        }
 
         M_PI mathPi:double () {
             templates {
@@ -435,7 +451,15 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             }
         }
 
-        ; 
+        =               cmdAssign@(moves@( 2 1 ) ):void            ( immutable_left@(immutable):T immutable_right@(immutable):T )  { 
+            templates { 
+                ranger ( nl (e 1) " = " (e 2) nl )  
+                scala ( nl (e 1) " = " (e 2) nl )   
+                go ( (custom _ ) )              
+                * ( nl (e 1) " = " (e 2) ";" nl ) 
+            } 
+        }   
+        
         =               cmdAssign@(moves@( 2 1 ) ):void            ( left:T right:T )  { 
             templates { 
                 ranger ( nl (e 1) " = " (e 2) nl )  
@@ -444,6 +468,8 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }   
+
+      
 
 
         =               cmdAssign@(moves@( 2 1 ) ):void            ( left@(optional):T right:T )  { 
@@ -757,6 +783,9 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 * ( (e 1) " = " (e 2) ";" )
             }
         }
+
+
+
 
         int2double      cmdIntToDouble:double            ( value:int ) { 
                 templates {

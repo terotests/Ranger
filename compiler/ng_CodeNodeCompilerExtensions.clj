@@ -90,6 +90,7 @@ extension CodeNode {
       }    
       case RangerNodeType.VRef {
         wr.out(vref false)
+        wr.out(":" + type_name , false)
       }      
       case RangerNodeType.Hash {
         wr.out(vref false)
@@ -403,11 +404,17 @@ extension CodeNode {
       def nn (itemAt node.operator_node.children 1 )
       if (nn.hasFlag("optional")) {
         this.setFlag("optional")    
+      }
+      if( nn.hasFlag("immutable")) {
+        this.setFlag("immutable")        
       } 
     } {
       if (node.hasFlag("optional")) {
         this.setFlag("optional")
       }
+      if( node.hasFlag("immutable")) {
+        this.setFlag("immutable")        
+      }      
     }
 
     if (node.value_type == RangerNodeType.Hash) {

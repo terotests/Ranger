@@ -7,6 +7,10 @@ class RangerAppInterfaceImpl {
   def name:string ""
   def typeParams:CodeNode
 }
+class RangerTraitParams {
+  def param_names:[string]
+  def values:[string:string]
+}
 class RangerAppClassDesc {
   Extends (RangerAppParamDesc)
   def name:string ""
@@ -20,6 +24,7 @@ class RangerAppClassDesc {
   def is_serialized:boolean false
   def is_trait:boolean false
   def is_operator_class false
+  def is_generic_instance false
   def generic_params:CodeNode
   def ctx@(weak):RangerAppWriterContext
   def variables:[RangerAppParamDesc]
@@ -39,6 +44,7 @@ class RangerAppClassDesc {
   def extends_classes:[string]
   def implements_interfaces:[string]
   def consumes_traits:[string]
+  def trait_params:[string:RangerTraitParams]
   def is_union_of:[string]
   def nameNode@(weak):CodeNode
   def classNode@(weak):CodeNode
@@ -53,7 +59,18 @@ class RangerAppClassDesc {
   }
   fn doesInherit:boolean () {
     return is_inherited
-  }  
+  }    
+  fn hasTrait@(optional weak):RangerAppClassDesc (class_name:string ctx@(weak):RangerAppWriterContext) {
+    def res@(optional):RangerAppClassDesc
+    for consumes_traits c_name:string i {
+      def c:RangerAppClassDesc (ctx.findClass(c_name))
+      if( c_name == class_name) {
+        res = c
+        return res
+      }
+    }
+    return res
+  }
   fn isSameOrParentClass:boolean (class_name:string ctx@(weak):RangerAppWriterContext) {
 
     if(ctx.isPrimitiveType(class_name)) {

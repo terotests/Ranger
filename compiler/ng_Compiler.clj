@@ -102,6 +102,9 @@ class CompilerInterface {
           if(cl.is_operator_class) {
             lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
           }
+          if(cl.is_generic_instance) {
+            lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
+          }
         }
 
         for appCtx.definedClassList cName:string i {
@@ -119,6 +122,9 @@ class CompilerInterface {
           if(cl.is_operator_class) {
             continue
           }
+          if(cl.is_generic_instance) {
+            continue
+          }          
           if(cl.is_system_union) {
             continue _
           }

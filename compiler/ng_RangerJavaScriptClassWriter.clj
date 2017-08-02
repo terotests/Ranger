@@ -122,12 +122,21 @@ class RangerJavaScriptClassWriter {
       } {
         if (nn.value_type == RangerNodeType.Array) {
           wr.out(("this." + p.compiledName ) , false)
-          wr.out(" = []" false)
+          if(nn.hasFlag("immutable")) {
+            wr.out(" = require('immutable').List()" false)
+          } {
+             wr.out(" = []" false)
+          }
           was_set = true
         }
         if (nn.value_type == RangerNodeType.Hash) {
           wr.out(("this." + p.compiledName ) , false)
-          wr.out(" = {}" false)
+          ; wr.out(" = {}" false)
+          if(nn.hasFlag("immutable")) {
+            wr.out(" = require('immutable').Map()" false)
+          } {
+             wr.out(" = {}" false)
+          }          
           was_set = true
         }
       }
@@ -166,11 +175,20 @@ class RangerJavaScriptClassWriter {
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
       } {
+        ; the compiler could call the operators here with possibly some parameters ?
         if (nn.value_type == RangerNodeType.Array) {
-          wr.out(" = []" false)
+          if(nn.hasFlag("immutable")) {
+            wr.out(" = require('immutable').List()" false)
+          } {
+            wr.out(" = []" false)
+          }          
         }
         if (nn.value_type == RangerNodeType.Hash) {
-          wr.out(" = {}" false)
+          if(nn.hasFlag("immutable")) {
+            wr.out(" = require('immutable').Map()" false)
+          } {
+            wr.out(" = {}" false)
+          }          
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {

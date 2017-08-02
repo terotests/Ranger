@@ -33,7 +33,7 @@ class RangerFlowParser {
   def stdCommands@(optional):CodeNode
   def lastProcessedNode@(weak):CodeNode
   def collectWalkAtEnd:[CodeNode]
-  def walkAlso:[CodeNode]
+  def walkAlso@(weak):[CodeNode]
   def serializedClasses@(weak):[RangerAppClassDesc]
   def immutableClasses@(weak):[RangerAppClassDesc]
   def classesWithTraits:[ClassJoinPoint]
@@ -393,7 +393,10 @@ class RangerFlowParser {
           }
          
           if(codeDef.is_block_node) {
+
             def arg0 (args.getFirst())
+            ;print "---- static method ----"
+            ;print "arg0 " + (arg0.getCode())
             def nSig ( (this.getNameSignature(arg0)) )
             def new_cl ( ctx.createOpStaticClass(  nSig ) )
             this.WalkNode( (unwrap new_cl.classNode ) ctx wr)
@@ -401,7 +404,13 @@ class RangerFlowParser {
             def argsCopy (args.rebuildWithType(match true))
             def nameCopy (nameNode.rebuildWithType(match true))
 
-            def argsSig ( fc.vref + (this.getArgsSignature(argsCopy)) )
+            def sigN (ctx.transformOpNameWord( fc.vref ))
+
+            def argsSig ( sigN + (this.getArgsSignature(argsCopy)) )
+
+            ; def argsSig ( "op_" + (this.getArgsSignature(argsCopy)) )
+
+            ; print "Args sig == " + (argsSig)
 
             if( false == (new_cl.hasStaticMethod(argsSig))) {
               def sMethod ( ctx.createStaticMethod( argsSig new_cl nameCopy argsCopy bodyCopy) )
@@ -599,22 +608,17 @@ class RangerFlowParser {
       }
     }
     if ( require_all_match == true && some_matched == false) {
-      ;print "===================== MATCH ERROR 2 ====================="
-      ;print ("stdMatch -> Could not match argument types for " + callFnName.vref)
-      ;print (callArgs.getCode())
-      ;def line_index:int (callArgs.getLine())
-      ;print ((callArgs.getFilename()) + " Line: " + line_index)
-      ;for callArgs.children ca:CodeNode i {
-      ;  print ((((((("arg " + i) + " eval_type : ") + ca.eval_type) + " eval_type_name = ") + ca.eval_type_name) + " type : ") + ca.type_name)
-      ;}
-      ctx.addError(callArgs ("stdMatch -> Could not match argument types for " + callFnName.vref))
-    }
-    if in_chain {
-      if some_matched {
-        print "in_chain AND matched"
-      } {
-        print "in_chain and DID NOT match"
+      print "===================== MATCH ERROR 2 ====================="
+      print ("stdMatch -> Could not match argument types for " + callFnName.vref)
+      print (callArgs.getCode())
+      def line_index:int (callArgs.getLine())
+      print ((callArgs.getFilename()) + " Line: " + line_index)
+      for callArgs.children ca:CodeNode i {
+        print ((((((("arg " + i) + " eval_type : ") + ca.eval_type) + " eval_type_name = ") + ca.eval_type_name) + " type : ") + ca.type_name)
       }
+      ctx.addError(callArgs ("stdMatch -> Could not match argument types for " + callFnName.vref))
+    } {
+      ; match OK
     }
     if(expects_error) {
       def cnt_now:int (ctx.getErrorCount())
@@ -734,7 +738,16 @@ class RangerFlowParser {
       if (false == class_or_this) {
         def udesc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
         def desc:RangerAppClassDesc (unwrap udesc)
-        ctx.addError(node ("WriteVREF -> Undefined variable " + rootObjName + " in class " + desc.name))
+
+        if(node.vref == "fun") {
+          ; print "TODO: fix the 'fun'"
+          ; ctx.addError(node "fun problem")
+        } {
+          ctx.addError(node ("WriteVREF -> Undefined variable " + node.vref + " in class " + desc.name + " node : " + (node.getCode())))
+          ctx.addError(node ("WriteVREF -> Undefined variable " + rootObjName + " in class " + desc.name + " node : " + (node.parent.getCode())))
+        }
+
+
       }
       return
     }
@@ -854,6 +867,7 @@ class RangerFlowParser {
     print "the class collected the methods..."
   }
   fn cmdNew:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; "
     if ((array_length node.children) < 2) {
       ctx.addError(node "the new operator expects at lest two arguments")
       return
@@ -875,6 +889,22 @@ class RangerFlowParser {
     if( node.hasBooleanProperty("error")) {
       expects_error = true
     } 
+
+    ; transform generic trait into a class if necessary
+    if(obj.has_vref_annotation) {
+      def testC (ctx.findClass(obj.vref))
+      if(testC.is_trait) {
+        if (testC.node.hasExpressionProperty("params")) {
+          def params (testC.node.getExpressionProperty("params"))
+          def fp (obj.vref_annotation.getFirst())
+          def class_name ( testC.name + "_" + fp.vref)
+          def ann (unwrap obj.vref_annotation)
+          ctx.createTraitInstanceClass( testC.name  class_name ann this )
+          obj.vref = class_name
+          obj.has_vref_annotation = false
+        }
+      }
+    }
     
     if (ctx.hasTemplateNode(obj.vref)) {
       print " ==> template class"
@@ -1374,7 +1404,9 @@ class RangerFlowParser {
           def currC (ctx.getCurrentClass())
 
           if( (unwrap currC) == (unwrap propC) ) {
-
+            if( (itemAt target.ns 0) == "this" ) {
+              ctx.addError( node "Assigment to immutable class this variable")            
+            }
           } {
             ctx.addError( node "Assigment to immutable class node")
           }
@@ -1689,6 +1721,32 @@ class RangerFlowParser {
     if (ctx.isInMethod()) {
 
       def chlen (array_length node.children)
+
+      if(chlen > 1) {
+        def tName (node.getSecond())
+        ; transform type def into generic trait into a class if necessary
+        ; def obj:foo@(double)
+        if(tName.has_type_annotation) {
+          def tAnn (tName.type_annotation)
+          if(false == (ctx.isDefinedClass(tName.type_name))) {
+            ctx.addError(node ("Trait class " + tName.type_name + " is not defined"))
+          } {
+            def testC (ctx.findClass(tName.type_name))
+            if(testC.is_trait) {
+              if (testC.node.hasExpressionProperty("params")) {
+                def params (testC.node.getExpressionProperty("params"))
+                def fp (tAnn.getFirst())
+                def class_name ( testC.name + "_" + fp.vref)
+                def ann (unwrap tAnn)
+                ctx.createTraitInstanceClass( testC.name  class_name ann this )
+                tName.type_name = class_name
+                tName.has_type_annotation = false
+              }
+            }
+          }
+        }
+      }
+      
       ; res = test.foo()  <- 4 nodes
       if(chlen > 3) {
         def i 3
@@ -1788,6 +1846,9 @@ class RangerFlowParser {
         ctx.unsetInExpr()
         if (defaultArg.hasFlag("optional")) {
           cn.setFlag("optional")
+        }
+        if (defaultArg.hasFlag("immutable")) {
+          cn.setFlag("immutable")
         }
 
         if( defaultArg.hasParamDesc ) {
@@ -2238,11 +2299,13 @@ class RangerFlowParser {
   ;       this.CollectMethods( (unwrap parser.rootNode ) ctx wr)
   fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     this.WalkCollectMethods(node ctx wr)
+
     for classesWithTraits point:ClassJoinPoint i {
       def cl:RangerAppClassDesc (unwrap point.class_def)
       def joinPoint:CodeNode (unwrap point.node)
       def traitClassDef@(lives):CodeNode (itemAt point.node.children 1)
       def name:string (traitClassDef.vref)
+      print "trait " + name + " to class " + cl.name
         def t:RangerAppClassDesc (ctx.findClass(name))
         if( (array_length t.extends_classes) > 0 ) {
           ctx.addError( (unwrap point.node) ("Can not join class " + name + " because it is inherited. Currently on base classes can be used as traits." ))
@@ -2256,12 +2319,17 @@ class RangerFlowParser {
           def match:RangerArgMatch (new RangerArgMatch ())
           def params (t.node.getExpressionProperty("params"))
           def initParams (point.node.getExpressionProperty("params"))
+          def traitParams (new RangerTraitParams)
 
           if( (!null? params) && (!null? initParams) ) {
             for params.children typeName:CodeNode i {
               def pArg (itemAt initParams.children i)
               match.add(typeName.vref pArg.vref ctx)
+              print "param " + typeName.vref + " arg " + pArg.vref
+              push traitParams.param_names typeName.vref
+              set traitParams.values typeName.vref pArg.vref
             }
+            set cl.trait_params name traitParams
           } {
             match.add("T" cl.name ctx)
           }
@@ -2310,7 +2378,7 @@ class RangerFlowParser {
       code.filename = "extension " + (ctx.currentClass.name)
       def parser:RangerLispParser (new RangerLispParser (code))
       parser.parse()
-      def rn:CodeNode (unwrap parser.rootNode)
+      def rn@(lives):CodeNode (unwrap parser.rootNode)
       this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
       push walkAlso rn
     }
@@ -2324,7 +2392,7 @@ class RangerFlowParser {
       code.filename = "extension " + (cl.name)
       def parser (new RangerLispParser (code))
       parser.parse()
-      def rn:CodeNode (unwrap parser.rootNode)
+      def rn@(lives):CodeNode (unwrap parser.rootNode)
       this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
       push walkAlso rn
     }
@@ -2395,7 +2463,6 @@ class RangerFlowParser {
           push opTemplatesMain.children opTemplatesList
           push opTpls.children opTemplatesMain
 
-
           push opN.children opName
           opName.vref = nn.vref
           opSig.vref = nn.vref
@@ -2407,6 +2474,9 @@ class RangerFlowParser {
           opThisNode.vref = "self"
           if(nameNode.hasFlag("mutates")) {
             opThisNode.setFlag("mutates")
+          }
+          if(nameNode.hasFlag("immutable")) {
+            opThisNode.setFlag("immutable")
           }
           insert opArgs.children 0 opThisNode
 
@@ -2633,15 +2703,45 @@ class RangerFlowParser {
       def s:string (node.getVRefAt(1))
       def vDef@(lives):CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc (new RangerAppParamDesc ())
-      
+
+      ; TODO: check also for new...
+      ; TODO: may not work if trait has not been declared
+      if(vDef.has_type_annotation) {
+        def tAnn (vDef.type_annotation)
+        if(false == (ctx.isDefinedClass(vDef.type_name))) {
+          ctx.addError(node ("Trait class " + vDef.type_name + " is not defined"))
+        } {
+          def testC (ctx.findClass(vDef.type_name))
+          if(testC.is_trait) {
+            if (testC.node.hasExpressionProperty("params")) {
+              def params (testC.node.getExpressionProperty("params"))
+              def fp (tAnn.getFirst())
+              def class_name ( testC.name + "_" + fp.vref)
+              def ann (unwrap tAnn)
+              ctx.createTraitInstanceClass( testC.name  class_name ann this )
+              vDef.type_name = class_name
+              vDef.has_type_annotation = false
+            }
+          }
+        }
+      }
       if( s != ((ctx.transformWord(s)))) {
-        ctx.addError( node "Can not use reserved word " + s + " as class propery")
+        ; ctx.addError( node "Can not use reserved word " + s + " as class propery")
       }
       def currC:RangerAppClassDesc ctx.currentClass
 
       ; immutable classes have only weak properties
       if currC.is_immutable {
         vDef.setFlag("weak")
+        if( vDef.value_type == RangerNodeType.Array || vDef.value_type == RangerNodeType.Hash) {
+          vDef.setFlag("immutable")
+          if(vDef.value_type == RangerNodeType.Array) {
+              vDef.value_type == RangerNodeType.ImmutableArray
+          }
+          if(vDef.value_type == RangerNodeType.Hash) {
+              vDef.value_type == RangerNodeType.ImmutableHash
+          }          
+        }
       }      
 
       ; transforming reserved words here 

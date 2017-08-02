@@ -346,6 +346,35 @@ class RangerCppClassWriter {
     }
   }
 
+    fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.has_call {
+      def obj:CodeNode (node.getSecond())
+      def method:CodeNode (node.getThird())
+      def args:CodeNode (itemAt node.children 3)
+
+      wr.out("(" false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out(")->" false)
+      wr.out(method.vref false)
+;       this.WriteVRef(fc ctx wr)
+      wr.out("(" false)
+      ctx.setInExpr()
+      for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        ; TODO: optionality check here ?
+        this.WalkNode(arg ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+    }    
+  }
 
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 

@@ -27,6 +27,8 @@ Enum RangerNodeType:int (
   Boolean
   Array
   Hash
+  ImmutableArray
+  ImmutableHash
   Object
   VRef
   Comment

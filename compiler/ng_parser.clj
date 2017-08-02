@@ -706,7 +706,6 @@ class RangerLispParser {
                 def vann_hash:CodeNode (this.parse_raw_annotation())
                 new_hash_node.type_annotation = vann_hash
                 new_hash_node.has_type_annotation = true
-                print "--> parsed HASH TYPE annotation"
               }
               new_hash_node.parent = curr_node
               push curr_node.children new_hash_node
