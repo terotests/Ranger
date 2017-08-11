@@ -172,7 +172,6 @@ extension CodeNode {
   fn rebuildWithType:CodeNode (match:RangerArgMatch changeVref:boolean) {
     def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
     if( has match.nodes vref) {
-      print "found AST match!" + (this.getCode())
       def ast (unwrap (get match.nodes vref))
       return (ast.rebuildWithType(match true))
     }
