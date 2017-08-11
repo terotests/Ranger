@@ -2166,6 +2166,12 @@ auto r_m_arr_extract( T & a, int i )  {
             }
         }
 
+        to_int _:int (value:string) {
+            templates {
+                php ("intvalu(" (e 1)")")
+            }
+        }
+
         ; ----------------------------------------------------------------------------------------------------------
 
         ==              cmdEqual:boolean ( left:string right:string ) { 

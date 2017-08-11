@@ -5,6 +5,8 @@
 class RangerArgMatch {
   def _debug false
   def matched:[string:string]
+  def nodes@(weak):[string:CodeNode]
+
   fn matchArguments:boolean (args:CodeNode callArgs:CodeNode ctx:RangerAppWriterContext firstArgIndex:int) {
     def fc:CodeNode (itemAt callArgs.children 0)
     def missed_args:[string]
@@ -139,6 +141,11 @@ class RangerArgMatch {
   fn force_add:void ( tplKeyword:string typeName:string ctx:RangerAppWriterContext) {
     set matched tplKeyword typeName    
   }
+
+  fn addNode (name:string node@(weak):CodeNode) {
+    set nodes name node
+  }
+
   fn add:boolean ( tplKeyword:string typeName:string ctx:RangerAppWriterContext) {
     switch tplKeyword {
       case "string" {

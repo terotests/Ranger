@@ -1,4 +1,4 @@
-trait immutableVector @params( T S ) {
+trait Vector @params( T S ) {
 
     def start:int 0
     def cardinality 3
@@ -175,7 +175,7 @@ trait immutableVector @params( T S ) {
 }
 
 
-operator type:immutableVector all {
+operator type:Vector all {
 
     ; couple of trait test functions for now...
     fn hello@(weak):S () {

@@ -1668,6 +1668,9 @@ class RangerFlowParser {
       }
       m.fnBody = (itemAt node.children 2)
       for args.children arg@(lives):CodeNode ii {
+
+        this.CheckTypeAnnotationOf( arg subCtx wr )
+        
         def p2@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
         
         p2.name = arg.vref
@@ -1717,6 +1720,63 @@ class RangerFlowParser {
     node.eval_function = node
   }
 
+  ; myClass@(xxx)
+  fn CheckVRefTypeAnnotationOf:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if(node.has_vref_annotation) {
+      def tAnn (node.vref_annotation)
+      if(false == (ctx.isDefinedClass(node.vref))) {
+        ctx.addError(node ("Trait class " + node.vref + " is not defined"))
+      } {
+        def testC (ctx.findClass(node.vref))
+        if(testC.is_trait) {
+          if (testC.node.hasExpressionProperty("params")) {
+            def params (testC.node.getExpressionProperty("params"))
+            def fp (tAnn.getFirst())
+            this.CheckVRefTypeAnnotationOf( fp ctx wr ) 
+            def class_name ( testC.name + "_" + fp.vref)
+            print "VRef TypeAnn class name => " + class_name
+            def ann (unwrap tAnn)
+            ctx.createTraitInstanceClass( testC.name  class_name ann this )
+            node.vref = class_name
+            node.has_vref_annotation = false
+            print "CheckVrefTypeAnnotationOf worked for " + node.vref + "<" + fp.vref + ">"
+            return true
+          }
+        }
+      }
+    }    
+    return false
+  }
+
+  ; def xxx:vectorOf@(int)
+  fn CheckTypeAnnotationOf:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if(node.has_type_annotation) {
+      def tAnn (node.type_annotation)
+      if(false == (ctx.isDefinedClass(node.type_name))) {
+        ctx.addError(node ("Trait class " + node.type_name + " is not defined"))
+      } {
+        def testC (ctx.findClass(node.type_name))
+        if(testC.is_trait) {
+          if (testC.node.hasExpressionProperty("params")) {
+            def params (testC.node.getExpressionProperty("params"))
+            def fp (tAnn.getFirst())
+            
+            this.CheckVRefTypeAnnotationOf( fp ctx wr ) 
+            def class_name ( testC.name + "_" + fp.vref)
+            print "TypeAnn class name => " + class_name
+            def ann (unwrap tAnn)
+            ctx.createTraitInstanceClass( testC.name  class_name ann this )
+            node.type_name = class_name
+            node.has_type_annotation = false
+            print "CheckTypeAnnotationOf worked for " + node.type_name + "<" + fp.vref + ">"
+            return true
+          }
+        }
+      }
+    }    
+    return false
+  }
+
   fn EnterVarDef:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (ctx.isInMethod()) {
 
@@ -1724,27 +1784,9 @@ class RangerFlowParser {
 
       if(chlen > 1) {
         def tName (node.getSecond())
+        this.CheckTypeAnnotationOf(tName ctx wr)
         ; transform type def into generic trait into a class if necessary
         ; def obj:foo@(double)
-        if(tName.has_type_annotation) {
-          def tAnn (tName.type_annotation)
-          if(false == (ctx.isDefinedClass(tName.type_name))) {
-            ctx.addError(node ("Trait class " + tName.type_name + " is not defined"))
-          } {
-            def testC (ctx.findClass(tName.type_name))
-            if(testC.is_trait) {
-              if (testC.node.hasExpressionProperty("params")) {
-                def params (testC.node.getExpressionProperty("params"))
-                def fp (tAnn.getFirst())
-                def class_name ( testC.name + "_" + fp.vref)
-                def ann (unwrap tAnn)
-                ctx.createTraitInstanceClass( testC.name  class_name ann this )
-                tName.type_name = class_name
-                tName.has_type_annotation = false
-              }
-            }
-          }
-        }
       }
       
       ; res = test.foo()  <- 4 nodes
@@ -2324,7 +2366,12 @@ class RangerFlowParser {
           if( (!null? params) && (!null? initParams) ) {
             for params.children typeName:CodeNode i {
               def pArg (itemAt initParams.children i)
-              match.add(typeName.vref pArg.vref ctx)
+              if ( 0 == (strlen pArg.vref) ) {
+                print "--> added AST node"
+                match.addNode( typeName.vref pArg)
+              } {
+                match.add(typeName.vref pArg.vref ctx)
+              }
               print "param " + typeName.vref + " arg " + pArg.vref
               push traitParams.param_names typeName.vref
               set traitParams.values typeName.vref pArg.vref
@@ -2350,7 +2397,12 @@ class RangerFlowParser {
               push origBody.children ccopy
             }            
           }
-            
+          for traitClass.static_methods variant:RangerAppFunctionDesc i {
+            def ccopy:CodeNode (variant.node.rebuildWithType(match true))      
+            this.WalkCollectMethods( ccopy ctx wr )
+            push origBody.children ccopy
+          }            
+          
           ; def copy_of_body:CodeNode (clBody.rebuildWithType(match true))      
           ;joinPoint.vref = "does"
           ;joinPoint.value_type = RangerNodeType.NoType
@@ -2707,23 +2759,7 @@ class RangerFlowParser {
       ; TODO: check also for new...
       ; TODO: may not work if trait has not been declared
       if(vDef.has_type_annotation) {
-        def tAnn (vDef.type_annotation)
-        if(false == (ctx.isDefinedClass(vDef.type_name))) {
-          ctx.addError(node ("Trait class " + vDef.type_name + " is not defined"))
-        } {
-          def testC (ctx.findClass(vDef.type_name))
-          if(testC.is_trait) {
-            if (testC.node.hasExpressionProperty("params")) {
-              def params (testC.node.getExpressionProperty("params"))
-              def fp (tAnn.getFirst())
-              def class_name ( testC.name + "_" + fp.vref)
-              def ann (unwrap tAnn)
-              ctx.createTraitInstanceClass( testC.name  class_name ann this )
-              vDef.type_name = class_name
-              vDef.has_type_annotation = false
-            }
-          }
-        }
+        this.CheckTypeAnnotationOf( vDef ctx wr )
       }
       if( s != ((ctx.transformWord(s)))) {
         ; ctx.addError( node "Can not use reserved word " + s + " as class propery")
@@ -2913,6 +2949,9 @@ class RangerFlowParser {
       def args:CodeNode (itemAt node.children 2)
       m.fnBody = (itemAt node.children 3)
       for args.children arg@(lives):CodeNode ii {
+
+        this.CheckTypeAnnotationOf( arg subCtx wr )
+        
         def p2@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
         p2.name = arg.vref
         p2.value_type = arg.value_type
