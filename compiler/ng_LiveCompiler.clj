@@ -391,6 +391,10 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def cmdE:CodeNode (cmd.getFirst())
       def cmdArg@(lives):CodeNode (cmd.getSecond())
       switch cmdE.vref {
+
+        case "log" {
+          print cmdArg.string_value
+        }      
         case "str" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {

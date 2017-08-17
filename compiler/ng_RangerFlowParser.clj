@@ -1051,6 +1051,8 @@ class RangerFlowParser {
     }
     this.WalkNode( obj ctx wr )
 
+;    node.eval_type_name = obj.eval_type_name
+
     if(ctx.isDefinedClass(obj.eval_type_name)) {
       def cl (ctx.findClass(obj.eval_type_name))
       def m (cl.findMethod(method.vref))
@@ -1932,11 +1934,15 @@ class RangerFlowParser {
           if( ( (strlen cn.type_name) == 0) && ( (strlen cn.array_type) == 0 ) ) {
             def nodeValue:CodeNode (itemAt node.children 2)
             if(nodeValue.eval_type == RangerNodeType.ExpressionType) {
-              if( (null? node.expression_value)) {
-                ; infer the node type 
-                def copyOf (nodeValue.rebuildWithType( (new RangerArgMatch () ) false))
-                removeLast copyOf.children
-                cn.expression_value = copyOf
+              if(!null? nodeValue.expression_value) {
+                cn.expression_value = ( nodeValue.expression_value.copy() )
+              } {
+                if( (null? node.expression_value)) {
+                  ; infer the node type 
+                  def copyOf (nodeValue.rebuildWithType( (new RangerArgMatch () ) false))
+                  removeLast copyOf.children
+                  cn.expression_value = copyOf
+                }
               }
             }            
             cn.value_type = nodeValue.eval_type
@@ -2347,7 +2353,7 @@ class RangerFlowParser {
       def joinPoint:CodeNode (unwrap point.node)
       def traitClassDef@(lives):CodeNode (itemAt point.node.children 1)
       def name:string (traitClassDef.vref)
-      print "trait " + name + " to class " + cl.name
+      ; print "trait " + name + " to class " + cl.name
         def t:RangerAppClassDesc (ctx.findClass(name))
         if( (array_length t.extends_classes) > 0 ) {
           ctx.addError( (unwrap point.node) ("Can not join class " + name + " because it is inherited. Currently on base classes can be used as traits." ))
@@ -2367,12 +2373,10 @@ class RangerFlowParser {
             for params.children typeName:CodeNode i {
               def pArg (itemAt initParams.children i)
               if ( 0 == (strlen pArg.vref) ) {
-                print "--> added AST node"
                 match.addNode( typeName.vref pArg)
               } {
                 match.add(typeName.vref pArg.vref ctx)
               }
-              print "param " + typeName.vref + " arg " + pArg.vref
               push traitParams.param_names typeName.vref
               set traitParams.values typeName.vref pArg.vref
             }
@@ -2471,7 +2475,7 @@ class RangerFlowParser {
       def opClassName (nameNode.vref)
 
       if (nameNode.vref == "class") {
-        print "Found operator class " + nameNode.type_name
+;        print "Found operator class " + nameNode.type_name
         def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
         new_class.name = nameNode.type_name
         new_class.nameNode = nameNode
@@ -2909,7 +2913,7 @@ class RangerFlowParser {
       def s:string (node.getVRefAt(1))
       def old_class@(lives):RangerAppClassDesc (ctx.findClass(s))
       ctx.setCurrentClass( old_class )
-      print "extension for " + s
+      ; print "extension for " + s
     }
     
     if ((node.isFirstVref("PublicMethod")) || (node.isFirstVref("fn"))) {
@@ -2918,7 +2922,7 @@ class RangerFlowParser {
       cn.ifNoTypeSetToVoid()
 
       def currC:RangerAppClassDesc ctx.currentClass
-      if(currC.hasOwnMethod(s)) {
+      if( (currC.hasOwnMethod(s)) && (false == (cn.hasFlag("override"))) ) {
         ctx.addError( node "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!")
         return
       }

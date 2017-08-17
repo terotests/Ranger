@@ -28,6 +28,7 @@ language {
     reserved_words {
         map FnMap
         forEach forEachItem
+        self _self
     }
 
     

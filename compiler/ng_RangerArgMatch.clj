@@ -6,6 +6,7 @@ class RangerArgMatch {
   def _debug false
   def matched:[string:string]
   def nodes@(weak):[string:CodeNode]
+  def matchedLambdas@(weak):[string:CodeNode]
 
   fn matchArguments:boolean (args:CodeNode callArgs:CodeNode ctx:RangerAppWriterContext firstArgIndex:int) {
     def fc:CodeNode (itemAt callArgs.children 0)
@@ -96,6 +97,14 @@ class RangerArgMatch {
         }
       }
       if ((arg.value_type != RangerNodeType.Hash) && (arg.value_type != RangerNodeType.Array)) {
+
+        if(!null? callArg.paramDesc) {
+          if( (!null? callArg.paramDesc.nameNode) && (!null? callArg.paramDesc.nameNode.expression_value) ) {
+            set matched arg.type_name ""
+            set matchedLambdas arg.type_name (unwrap callArg.paramDesc.nameNode.expression_value)
+            return true
+          }
+        }
         if (callArg.eval_type == RangerNodeType.Enum) {
           if (arg.type_name == "enum") {
             continue _
@@ -416,6 +425,14 @@ class RangerArgMatch {
       node.setFlag("immutable")
     }    
     if ((arg.value_type != RangerNodeType.Hash) && (arg.value_type != RangerNodeType.Array)) {
+
+      if( has matchedLambdas arg.type_name ) {
+        def lam (get matchedLambdas arg.type_name)
+        node.eval_type = RangerNodeType.ExpressionType
+        node.expression_value = (lam.copy())
+        return true
+      }
+
       node.eval_type = (this.getType(arg.type_name))
       node.eval_type_name = (this.getTypeName(arg.type_name))
       return true

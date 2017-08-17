@@ -845,7 +845,7 @@ class RangerGolangClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
-      wr.out((arg.name + " ") false)
+      wr.out((arg.compiledName + " ") false)
 
       if (arg.nameNode.hasFlag("optional")) {
         wr.out("*GoNullable" false)
@@ -1048,9 +1048,16 @@ class RangerGolangClassWriter {
           if( (array_length left.nsp ) >= (i+1)) {
             def pp:RangerAppParamDesc (itemAt left.nsp i)
             if(pp.nameNode.hasFlag("optional")) {
-              wr.out(".value.(" false)
-              this.writeTypeDef((unwrap pp.nameNode) ctx wr)
-              wr.out(")" false)                
+              if( (array_length left.nsp ) > (i+1)) {
+                wr.out(".value.(" false)
+                this.writeTypeDef((unwrap pp.nameNode) ctx wr)
+                wr.out(")" false)                 
+              } { 
+                wr.out(".value" false)
+                if( (right.hasFlag("optional")) == false) {
+                  wr.out(" /* right is not optional, should set the has_value -> true */" false)
+                }
+              }
             }
           }          
 
@@ -1164,6 +1171,8 @@ class RangerGolangClassWriter {
     }
     
     def declaredVariable:[string:boolean]
+    def declaredFunction:[string:boolean]
+    def declaredIfFunction:[string:boolean]
 
     wr.out((("type " + cl.name) + " struct { ") true)
     wr.indent(1)
@@ -1219,6 +1228,10 @@ class RangerGolangClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if(has declaredIfFunction variant.name) {
+          continue
+        }
+        set declaredIfFunction variant.name true         
         wr.out( variant.compiledName + "(" , false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") " false)
@@ -1361,6 +1374,11 @@ class RangerGolangClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+
+        if(has declaredFunction variant.name) {
+          continue
+        }
+        set declaredFunction variant.name true      
         set declaredFn variant.name true
         wr.out((((("func (this *" + cl.name) + ") ") + variant.compiledName) + " (") false)
         this.writeArgsDef(variant ctx wr)
@@ -1395,6 +1413,11 @@ class RangerGolangClassWriter {
               ; print variant.name + "was declared already!"
               continue
             }
+
+;            if(has declaredFunction variant.name) {
+;              continue
+;            }
+;            set declaredFunction variant.name true            
 
             wr.out((((("func (this *" + cl.name) + ") ") + variant.compiledName) + " (") false)
             this.writeArgsDef(variant ctx wr)
@@ -1470,7 +1493,6 @@ class RangerGolangClassWriter {
           if( has declaredGetter p.name ) {
             continue
           }
-
           wr.newline()
           wr.out("// getter for variable " + p.name , true)
           wr.out( "func (this *" + cl.name + ") " , false)

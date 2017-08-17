@@ -338,7 +338,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       if (i > 0) {
         wr.out("," false)
       }
-      wr.out(((" $" + arg.name) + " ") false)
+      wr.out(((" $" + arg.compiledName) + " ") false)
     }
   }
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -397,11 +397,42 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.out(")" false)
     }
   }
+
+  fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.has_call {
+      def obj:CodeNode (node.getSecond())
+      def method:CodeNode (node.getThird())
+      def args:CodeNode (itemAt node.children 3)
+
+      wr.out("" false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out("->" false)
+      wr.out(method.vref false)
+;       this.WriteVRef(fc ctx wr)
+      wr.out("(" false)
+      ctx.setInExpr()
+      for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        ; TODO: optionality check here ?
+        this.WalkNode(arg ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+    }    
+  }  
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
       return
     }
+    def declaredFunction:[string:boolean]
     def wr:CodeWriter orig_wr
     def importFork:CodeWriter (wr.fork())
     for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
@@ -486,6 +517,10 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if(has declaredFunction variant.name) {
+         continue
+        }
+        set declaredFunction variant.name true
         wr.out("" true)
         wr.out((("function " + variant.compiledName ) + "(") false)
         this.writeArgsDef(variant ctx wr)

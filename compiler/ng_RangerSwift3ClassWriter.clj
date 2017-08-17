@@ -262,7 +262,7 @@ class RangerSwift3ClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
-      wr.out((arg.name + " : ") false)
+      wr.out((arg.compiledName + " : ") false)
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
     }
   }
@@ -274,11 +274,63 @@ class RangerSwift3ClassWriter {
       }
       def local (itemAt localFnDesc.params i)
       if( local.name != arg.name ) {
-        wr.out(arg.name + " " , false )
+        wr.out(arg.compiledName + " " , false )
       }
-      wr.out(local.name + " : " , false)
+      wr.out(local.compiledName + " : " , false)
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
     }
+  }
+
+  fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.has_call {
+      def obj:CodeNode (node.getSecond())
+      def method:CodeNode (node.getThird())
+      def args:CodeNode (itemAt node.children 3)
+
+      print "Swift call expression : target class == " + (obj.eval_type_name)
+
+      wr.out("(" false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out(")." false)
+      wr.out(method.vref false)
+;       this.WriteVRef(fc ctx wr)
+      wr.out("(" false)
+      ctx.setInExpr()
+      for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        ; TODO: optionality check here ?
+        ; this.WalkNode(arg ctx wr)
+        ; got to find the target method somehow here...
+        ; Continue the swift compiler here...
+        print "call expression : target class == " + (obj.eval_type_name)
+
+        if( ctx.isDefinedClass(obj.eval_type_name)) {
+          def clDef (ctx.findClass(obj.eval_type_name))
+          def clMethod (clDef.findMethod(method.vref))
+          if(!null? clMethod) {
+            def mm (unwrap clMethod)
+            def pDesc (itemAt mm.params i)
+    ;        def n:CodeNode (itemAt givenArgs.children i)
+            wr.out((pDesc.compiledName + " : ") false)
+            this.WalkNode(arg ctx wr)
+            continue
+          } 
+        } {
+          ctx.addError(arg "Could not find evaluated class for the call")          
+        }
+        this.WalkNode(arg ctx wr)          
+
+      }
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+    }    
   }
 
 
@@ -311,7 +363,7 @@ class RangerSwift3ClassWriter {
           continue 
         }
         def n:CodeNode (itemAt givenArgs.children i)
-        wr.out((arg.name + " : ") false)
+        wr.out((arg.compiledName + " : ") false)
         this.WalkNode(n ctx wr)
       }
       ctx.unsetInExpr()
@@ -472,7 +524,9 @@ class RangerSwift3ClassWriter {
       return
     }
     def declaredVariable:[string:boolean]
+    def dblDeclaredFunction:[string:boolean]
     def declaredFunction:[string:boolean]
+    def declaredStaticFunction:[string:boolean]
     def parentFunction@(weak):[string:RangerAppFunctionDesc]
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       for cl.extends_classes pName:string i {
@@ -486,6 +540,9 @@ class RangerSwift3ClassWriter {
             set declaredFunction variant.name true
             set parentFunction variant.name variant
           }
+        }
+        for pC.static_methods variant:RangerAppFunctionDesc i {
+          set declaredStaticFunction variant.name true
         }
       }
     }
@@ -565,7 +622,10 @@ class RangerSwift3ClassWriter {
       if (variant.nameNode.hasFlag("main")) {
         continue _
       }
-      wr.out((("static func " + variant.compiledName) + "(") false)
+      if ( has declaredStaticFunction variant.name ) {
+        wr.out("override " false)
+      }
+      wr.out((("class func " + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(") -> " false)
       this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
@@ -582,9 +642,14 @@ class RangerSwift3ClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if(has dblDeclaredFunction variant.name) {
+          continue
+        }
         if(has declaredFunction variant.name) {
           wr.out("override " false)
         }
+
+        set dblDeclaredFunction variant.name true
         wr.out((("func " + variant.compiledName) + "(") false)
 
         if(has parentFunction variant.name) {

@@ -209,7 +209,7 @@ class RangerJavaScriptClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
-      wr.out( arg.name false)
+      wr.out( arg.compiledName false)
     }
   }
 

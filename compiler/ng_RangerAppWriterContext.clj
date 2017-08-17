@@ -394,6 +394,9 @@ class RangerAppWriterContext {
 
       def p@(lives temp):RangerAppParamDesc (new RangerAppParamDesc ())
       p.name = arg.vref
+      if(p.name == "self") {
+        p.compiledName = "__self"
+      }
       p.value_type = arg.value_type
       p.node = arg
       p.init_cnt = 1
@@ -840,11 +843,15 @@ class RangerAppWriterContext {
       cnt = (fnLevel.getFnVarCnt3(name))
     }
     if (0 == cnt) {
-      if (name == "len") {
-        desc.compiledName = "__len"
+      if (name == "self") {
+        desc.compiledName = "__self"
       } {
-        desc.compiledName = name
-      }      
+        if (name == "len") {
+          desc.compiledName = "__len"
+        } {
+          desc.compiledName = name
+        }      
+      }
     } {
       desc.compiledName = (name + "_" + cnt)
     }
