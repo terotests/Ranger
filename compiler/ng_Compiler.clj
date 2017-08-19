@@ -6,12 +6,47 @@ Import "ng_RangerSerializeClass.clj"
 
 class CompilerInterface {
 
-  sfn hello@(main):void () {
+  ; main function 
+
+  sfn m@(main) () {
+    def o (new CompilerInterface)
+    o.run()
+  }
+
+  fn possiblePaths:[string] ( envVarName:string) {
+      def r_lib (env_var envVarName)
+      def res:[string]
+      if(!null? r_lib) {
+          def parts (strsplit (unwrap r_lib) ";")
+          for parts str:string i {
+              def s (trim str)
+              if( (strlen s) > 0) {
+                  def dirNames (strsplit s "/")
+                  removeLast dirNames
+                  def theDir ((join dirNames "/"))
+                  push res theDir
+              }
+          }
+      }
+      push res "./"
+      return res
+  } 
+
+  fn searchLib:string (paths:[string] libname:string) {
+      for paths path:string i {
+          if( file_exists path libname ) {
+              return path 
+          }
+      }
+      return ""
+  }  
+
+  fn run () {
 
     def allowed_languages:[string] ([] _:string ("es6" "go" "scala" "java7" "swift3" "cpp" "php" "ranger" ))
 
     if ( (shell_arg_cnt) < 5  ) {
-      print "Ranger compiler, version 2.0.8"
+      print "Ranger compiler, version 2.0.34"
       print "usage <file> <language-file> <language> <directory> <targetfile>"
       print "allowed languages: " + (join allowed_languages " ")
       return 
@@ -32,19 +67,34 @@ class CompilerInterface {
       return
     }
 
+    def langLibEnv (env_var "RANGER_LIB")
+
+    if(null? langLibEnv) {
+      print "please define RANGER_LIB environment variable "
+      return
+    }    
+      
     if ( (file_exists "." the_file) == false) {
       print "Could not compile."
       print "File not found: " + the_file
       return
     }
 
-    if ( (file_exists "." the_lang_file) == false) {
-      print "language file " + the_lang_file + " not found!"
+    def langFilePaths (this.possiblePaths("RANGER_LIB"))
+    def langFilePath ( this.searchLib(langFilePaths the_lang_file) )
+    
+    if ( (file_exists langFilePath the_lang_file) == false) {
+      print "language file " + the_lang_file + " not found! Check the RANGER_LIB enviroment variable"
+      print "currently pointing at : " + (unwrap langLibEnv)
       print "download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.clj"
       return
-    }        
+    } {
+      print "Using language file from : " + langFilePath 
+    }       
 
     print "File to be compiled: " + the_file
+
+    def langFileDirs (this.possiblePaths("RANGER_LIB"))
 
     def c:string (read_file "." the_file)    
     def code:SourceCode (new SourceCode ((unwrap c)))
@@ -58,11 +108,26 @@ class CompilerInterface {
     def flowParser:RangerFlowParser (new RangerFlowParser ())
     def appCtx:RangerAppWriterContext (new RangerAppWriterContext()))
     def wr:CodeWriter (new CodeWriter())
+    
+    appCtx.outputPath = ( current_directory )
+    def outputPath (env_var "RANGER_OUTPUT_DIR")
+    if(!null? outputPath) {
+        print "defined output directory to " + (unwrap outputPath)
+        appCtx.outputPath = (unwrap outputPath)
+    }
+
+    appCtx.libraryPaths = (this.possiblePaths("RANGER_LIB"))
+
+    for appCtx.libraryPaths include_path:string i {
+      print "include-path : " + include_path
+    }
+   
+    ; // 
 
     timer "Total time" {
       try {
         flowParser.mergeImports(node appCtx wr)
-        def lang_str:string (read_file "." the_lang_file)
+        def lang_str:string (read_file langFilePath the_lang_file)
         def lang_code:SourceCode (new SourceCode ( (unwrap lang_str)) )
         lang_code.filename = the_lang_file
         def lang_parser:RangerLispParser (new RangerLispParser (lang_code))
@@ -173,7 +238,7 @@ class CompilerInterface {
           importFork.indent(-1)
           importFork.out(")" true)
         }
-        fileSystem.saveTo(the_target_dir)
+        fileSystem.saveTo(appCtx.outputPath + the_target_dir)
         print "Ready."
         CompilerInterface.displayCompilerErrors(appCtx)
         ; CompilerInterface.displayParserErrors(appCtx)

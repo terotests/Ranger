@@ -524,6 +524,38 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }
         }        
+
+        case "repeat" {
+          def idx:int cmdArg.int_value
+          repeat_index = idx
+          if ((array_length node.children) >= idx) {
+            def cmdToRepeat@(lives):CodeNode (cmd.getThird())
+            def i:int (idx)
+            while ( i < (array_length node.children)) {
+              if(i >= idx) {
+                for cmdToRepeat.children cc:CodeNode ii {
+                  if( (array_length cc.children ) > 0) {
+                    def fc (cc.getFirst())
+                    if(fc.vref == "e") {
+                      def dc (cc.getSecond())
+                      dc.int_value = i
+                    }
+                    if(fc.vref == "block") {
+                      def dc (cc.getSecond())
+                      dc.int_value = i
+                    }
+                  }
+                }
+                this.walkCommandList(cmdToRepeat node ctx wr)
+;                if( (i + 1 ) < (array_length node.children)) {
+;                  wr.out("," false)
+;                }            
+              }
+              i = i + 1
+            }
+          }          
+        }
+        
         case "repeat_from" {
           def idx:int cmdArg.int_value
           repeat_index = idx

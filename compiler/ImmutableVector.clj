@@ -144,7 +144,7 @@ trait Vector @params( T S ) {
             return (itemAt p.elements (idx - p.start))
         }
         return (itemAt elements 0)
-    }
+    }    
     fn add:S (item:T) {
         if((end - start) >= cardinality) {
             def res (new S)
@@ -188,9 +188,10 @@ operator type:Vector all {
     }
     ; fn get:T (idx:int) {
     fn itemAt:T (idx:int) { 
-        def val:T  (self.get(idx))
+        ; def val:T  (self.get(idx))
+        def val (self.get(idx))
         return val
-    }
+    } 
     ; fn push:S () {}
     fn push:S (item:T) {
         return (self.add(item))

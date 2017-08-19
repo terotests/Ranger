@@ -131,6 +131,31 @@ language {
             }
         }
 
+        env_var cmdEnvVar@(optional):string ( name:string ) {
+            templates {
+                go (
+        "r_io_get_env(" (e 1) ")"
+        (imp "os") 
+(create_polyfill "
+// polyfill for reading environment variable
+func r_io_get_env( name string) *GoNullable {
+   res := new(GoNullable);
+   value := os.Getenv(name)
+   if len(value) > 0 {
+     res.has_value = true
+     res.value = value
+   } else {
+     res.has_value = false
+   }
+   return res 
+}
+")
+    )
+                es6 ("process.env[" (e 1) "]")
+                * ("/* environment variable reading not implemented */")
+            }
+        }
+
         ; Command line arguments
         shell_arg             cmdArg:string (index:int) {
             templates {
@@ -201,7 +226,7 @@ func r_file_exists ( fileName:String ) -> Bool {
 }
     ")                    
                 )
-                es6 ("require(\"fs\").existsSync(process.cwd() + \"/\" + " (e 1) " + \"/\" + " (e 2) " )")
+                es6 ("require(\"fs\").existsSync(" (e 1) " + \"/\" + " (e 2) " )")
                 ranger ("( file_exists " (e 1) " + \"/\" + " (e 2) "  )")
                 java7 ( "new File(" (e 1) " + '/' + " (e 2) ").exists()" (imp "java.io.File") )
                 php ( "file_exists(" (e 1) ".'/'." (e 2) ")" )
@@ -249,8 +274,7 @@ bool  r_cpp_dir_exists(std::string name)
 }    
     ") )                 
                 java7 ( "new File(" (e 1) ").exists()" (imp "java.io.File") )
-                es6 ("require(\"fs\").existsSync(process.cwd() + \"/\" + " 
-                        (e 1) " + \"/\" " (e 2) ")")
+                es6 ("require(\"fs\").existsSync( " (e 1) " )")
                 ranger ("( dir_exists " (e 1) " )")
                 php ( "is_dir(" (e 1) ")" )
                 go ( "r_dir_exists(" (e 1) ")"
@@ -280,8 +304,7 @@ void  r_cpp_create_dir(std::string name)
     ") )
                 swift3 ( nl )        
                 php (  nl "mkdir(" (e 1) ");" nl )
-                es6 ("require(\"fs\").mkdirSync(process.cwd() + \"/\" + " 
-                        (e 1) ")")
+                es6 ("require(\"fs\").mkdirSync( " (e 1) ")")
                 go ( nl "_ = os.Mkdir( " (e 1 ) " , os.ModePerm)" nl (imp "os") )
 
                 ranger ( nl "create_dir " (e 1) nl)
@@ -336,7 +359,7 @@ void  r_cpp_write_file(std::string path, std::string filename, std::string text)
 }    
     ") )                
                 ranger ( nl "write_file " (e 1) " " (e 2) " " (e 3) nl)
-                es6 ("require(\"fs\").writeFileSync(process.cwd() + \"/\" + " 
+                es6 ("require(\"fs\").writeFileSync( \"/\" + " 
                         (e 1) " + \"/\"  + " (e 2) ", " (e 3) ")")
 
                 php (  nl "file_put_contents(" (e 1) ".'/'." (e 2) " , " (e 3) ");" nl )

@@ -45,6 +45,15 @@ class RangerFlowParser {
   def isDefinedSignature:[string:int]
   def isDefinedArgSignature:[string:int]
 
+  fn searchLib:string (paths:[string] libname:string) {
+      for paths path:string i {
+          if( file_exists path libname ) {
+              return path 
+          }
+      }
+      return ""
+  }   
+
   fn getNameSignature:string (node:CodeNode) {
       def s ( (node.type_name) + (node.buildTypeSignature()) )
       if(has isDefinedSignature s) {
@@ -172,7 +181,6 @@ class RangerFlowParser {
         ; list.add(2).add(2)
         in_chain = true
         ca.is_part_of_chain = true
-        print "operator chain at" + (callArgs.getLineAsString())
       }
       if in_chain {
         ca.is_part_of_chain = true
@@ -269,7 +277,14 @@ class RangerFlowParser {
           def last_was_block false
           def walk_later:[WalkLater]
 
+          def not_enough_args false
           for args.children arg@(lives):CodeNode i {
+
+            if( (array_length callArgs.children) <= (i + 1)) {
+              not_enough_args = true
+              break
+            }
+
             def callArg@(lives):CodeNode (itemAt callArgs.children (i + 1))
             if (arg.hasFlag("define")) {
               def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
@@ -342,8 +357,10 @@ class RangerFlowParser {
               }
               
             }
-           
-            
+          }
+
+          if not_enough_args {
+            continue
           }
 
           if expanding_node {
@@ -602,6 +619,7 @@ class RangerFlowParser {
                 }
               }
             }
+            ; print "some_matched for op operator_node -> " + (ch.getLineAsString())
             break _
           }
         }
@@ -907,11 +925,9 @@ class RangerFlowParser {
     }
     
     if (ctx.hasTemplateNode(obj.vref)) {
-      print " ==> template class"
       b_template = true
       def tpl:CodeNode (ctx.findTemplateNode(obj.vref))
       if obj.has_vref_annotation {
-        print "generic class OK"
         this.buildGenericClass(tpl node ctx wr)
         currC = (ctx.findClassWithSign(obj))
         if (!null? currC) {
@@ -1049,9 +1065,13 @@ class RangerFlowParser {
         node.getChildrenFrom( origCopy )
       }
     }
-    this.WalkNode( obj ctx wr )
 
-;    node.eval_type_name = obj.eval_type_name
+    ; refresh the variables...
+    def obj (node.getSecond())
+    def method (node.getThird())
+    def callArgs (itemAt node.children 3)
+
+    this.WalkNode( obj ctx wr ) 
 
     if(ctx.isDefinedClass(obj.eval_type_name)) {
       def cl (ctx.findClass(obj.eval_type_name))
@@ -1367,7 +1387,6 @@ class RangerFlowParser {
   fn cmdReturn:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     node.has_operator = true
     node.op_index = 5
-    print "cmdReturn"
     if ((array_length node.children) > 1) {
       def fc:CodeNode (node.getSecond())
       if (fc.vref == "_") {
@@ -1382,14 +1401,10 @@ class RangerFlowParser {
         }
         def currFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
         if fc.hasParamDesc {
-          print "cmdReturn move-->"
           def pp:RangerAppParamDesc fc.paramDesc
           pp.moveRefTo(node currFn ctx)
         } {
-          print "cmdReturn had no param desc"
-        }
-
-        
+        }        
       }
     }
   }
@@ -1736,12 +1751,10 @@ class RangerFlowParser {
             def fp (tAnn.getFirst())
             this.CheckVRefTypeAnnotationOf( fp ctx wr ) 
             def class_name ( testC.name + "_" + fp.vref)
-            print "VRef TypeAnn class name => " + class_name
             def ann (unwrap tAnn)
             ctx.createTraitInstanceClass( testC.name  class_name ann this )
             node.vref = class_name
             node.has_vref_annotation = false
-            print "CheckVrefTypeAnnotationOf worked for " + node.vref + "<" + fp.vref + ">"
             return true
           }
         }
@@ -1765,12 +1778,10 @@ class RangerFlowParser {
             
             this.CheckVRefTypeAnnotationOf( fp ctx wr ) 
             def class_name ( testC.name + "_" + fp.vref)
-            print "TypeAnn class name => " + class_name
             def ann (unwrap tAnn)
             ctx.createTraitInstanceClass( testC.name  class_name ann this )
             node.type_name = class_name
             node.has_type_annotation = false
-            print "CheckTypeAnnotationOf worked for " + node.type_name + "<" + fp.vref + ">"
             return true
           }
         }
@@ -1790,7 +1801,6 @@ class RangerFlowParser {
         ; transform type def into generic trait into a class if necessary
         ; def obj:foo@(double)
       }
-      
       ; res = test.foo()  <- 4 nodes
       if(chlen > 3) {
         def i 3
@@ -1846,8 +1856,11 @@ class RangerFlowParser {
           chainRoot.vref = ""
           chainRoot.value_type = RangerNodeType.NoType
           node.flow_done = false
-          this.WalkNode( node ctx wr)
+          this.WalkNode( chainRoot ctx wr)
+          ; this.WalkNode( node ctx wr)
           return true
+        } {
+          this.WalkNode( chainRoot ctx wr)
         }    
       }
       
@@ -2325,7 +2338,17 @@ class RangerFlowParser {
         root_path = rootPath
       }
 
-      def c:string (read_file root_path import_file)
+      ; --
+      def rootCtx (ctx.getRoot())
+      def filePathIs (this.searchLib( rootCtx.libraryPaths import_file ))
+
+      if( ( file_exists filePathIs import_file ) == false ) {
+        ctx.addError(node ("Could not import file "  + import_file))
+        return
+        ;"
+      }
+              
+      def c:string (read_file filePathIs import_file)
       def code:SourceCode (new SourceCode ( (unwrap c)))
       code.filename = import_file
       def parser:RangerLispParser (new RangerLispParser (code))
@@ -2854,7 +2877,15 @@ class RangerFlowParser {
       if hasRootPath {
         root_path = rootPath
       }      
-      def c:string (read_file root_path import_file)
+      def rootCtx (ctx.getRoot())
+      def filePathIs (this.searchLib( rootCtx.libraryPaths import_file ))
+
+      if( ( file_exists filePathIs import_file ) == false ) {
+        ctx.addError(node ("Could not import file "  + import_file))
+        return
+        ;"
+      }
+      def c:string (read_file filePathIs import_file)
       def code:SourceCode (new SourceCode ( (unwrap c)))
       code.filename = import_file
       def parser:RangerLispParser (new RangerLispParser (code))

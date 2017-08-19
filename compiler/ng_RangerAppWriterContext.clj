@@ -82,6 +82,10 @@ class RangerAppWriterContext {
   def refTransform:[string:string]
   def staticClassBodies:[CodeNode]
 
+  def langFilePath:string ""
+  def libraryPaths:[string]
+  def outputPath ""
+  
   fn isCapturing:boolean () {
     if(is_capturing) {
       return true
