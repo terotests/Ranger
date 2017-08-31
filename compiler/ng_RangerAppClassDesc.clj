@@ -223,6 +223,17 @@ class RangerAppClassDesc {
   fn addStaticMethod:void (desc@(strong):RangerAppFunctionDesc) {
     set defined_static_methods desc.name true
     push static_methods desc
+
+    if(desc.name == "main") {
+      def nn (desc.nameNode)
+      if(nn.has_vref_annotation == false) {
+        def vAnn (node.newExpressionNode())
+        nn.has_vref_annotation = true
+        nn.vref_annotation = vAnn
+      } 
+      nn.vref_annotation.push( (nn.vref_annotation.newVRefNode("main")))
+
+    }
   }
 }
 

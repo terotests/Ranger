@@ -27,8 +27,10 @@ class LiveCompiler {
     if (!null? langWriter) {
       return
     }
-    def root:RangerAppWriterContext (ctx.getRoot())
-    switch root.targetLangName {
+    ; def root:RangerAppWriterContext (ctx.getRoot())    
+    def langName (ctx.getTargetLang())
+    print "Livecompiler starting with language => " + langName
+    switch langName {
       case "go" {
         langWriter = (new RangerGolangClassWriter ())
       }

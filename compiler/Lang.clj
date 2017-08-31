@@ -164,7 +164,7 @@ func r_io_get_env( name string) *GoNullable {
                 java7 ( "args[" (e 1) "]")
                 go ( "os.Args[" (e 1) " + 1]"  (imp "os"))
                 swift3 ("CommandLine.arguments[" (e 1) " + 1]")
-                es6 ( "process.argv[ 2 + process.execArgv.length + " (e 1) "]")
+                es6 ( "process.argv[ 2 + " (e 1) "]")
                 ranger ("( shell_arg " (e 1) " )")
             }
         }
@@ -176,7 +176,7 @@ func r_io_get_env( name string) *GoNullable {
                 php ( "(count($argv) - 1)" )
                 java7 ( "args.length")
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
-                es6 ( "(process.argv.length - 2 - process.execArgv.length)" )
+                es6 ( "(process.argv.length - 2)" )
                 ranger ("( shell_arg_cnt )")
             }
         }        
@@ -1098,8 +1098,9 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
         }
 
 
-        make         cmdArrayLiteral:[T] ( typeDef@(ignore):[T] size:int ) {
+        make         cmdArrayLiteral:[T] ( typeDef@(ignore):[T] size:int repeatItem:T ) {
             templates {
+                swift3 ( "" (typeof 1)"(repeating:" (e 3) ", count:" (e 2) ")" )
                 ranger ( "(make  _:" (typeof 1) " " (e 2) ")" )
                 go ( "make(" (typeof 1) "," (e 2) ")" )
                 cpp (  (typeof 1) "(" (e 2) ")")
@@ -1466,6 +1467,8 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
         ; https://stackoverflow.com/questions/110157/how-to-retrieve-all-keys-or-values-from-a-stdmap-and-put-them-into-a-vector
         keys        _:[string]           ( map:[string:T] ) {
             templates {
+                swift3 ("Array(" (e 1) ".keys)")
+                php ("array_keys(" (e 1) ")")
                 es6 ( "Object.keys(" (e 1) ")")
                 go ("(func() []string {" nl I
                         "keys := reflect.ValueOf(" (e 1) ").MapKeys()" nl
@@ -2077,7 +2080,6 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 * ( (e 1) ".length")
             }
         }
-        
         clear    _:void      ( array:[T] ) { 
             templates {
                  ranger ( "(clear " (e 1) ")")

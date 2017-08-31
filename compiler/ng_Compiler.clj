@@ -1,12 +1,11 @@
 
+
 Import "ng_LiveCompiler.clj"
 Import "ColorConsole.clj"
 Import "ng_DictNode.clj"
 Import "ng_RangerSerializeClass.clj"
 
 class CompilerInterface {
-
-  ; main function 
 
   sfn m@(main) () {
     def o (new CompilerInterface)
@@ -79,7 +78,6 @@ class CompilerInterface {
       print "File not found: " + the_file
       return
     }
-
     def langFilePaths (this.possiblePaths("RANGER_LIB"))
     def langFilePath ( this.searchLib(langFilePaths the_lang_file) )
     
@@ -91,7 +89,6 @@ class CompilerInterface {
     } {
       print "Using language file from : " + langFilePath 
     }       
-
     print "File to be compiled: " + the_file
 
     def langFileDirs (this.possiblePaths("RANGER_LIB"))

@@ -95,6 +95,56 @@ class RangerRangerClassWriter {
     } 
   }
 
+
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fName:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    this.WriteVRef(fName ctx wr)
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.WalkNode( arg ctx wr)
+    }
+    wr.out(")" false)
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(" " true)
+    }
+  }
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+
+    def nn:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    wr.out("(fn:" false)
+    this.writeTypeDef( nn ctx wr)
+    wr.out(" (" false)
+
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(" " false)
+      }
+      this.WriteVRefWithOpt( arg ctx wr )
+      wr.out(":" false)
+      this.writeTypeDef(arg ctx wr)
+    }
+    wr.out(")" false)
+    wr.out(" { " true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    ; print "==> walking the lambda Ctx... target language is ==> " + (lambdaCtx.getTargetLang())
+    def newLambdaCtx (lambdaCtx.fork())
+    newLambdaCtx.targetLangName = "ranger"
+    ; print "==> walking the lambda Ctx... newLambdaCtx language is ==> " + (newLambdaCtx.getTargetLang())
+    for body.children item:CodeNode i {
+      this.WalkNode(item newLambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("})" true)
+  }
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
 
@@ -108,7 +158,7 @@ class RangerRangerClassWriter {
       ctx.setInExpr();
       for node.fnDesc.params arg:RangerAppParamDesc i {
         if (i > 0) {
-          wr.out(", " false)
+          wr.out(" " false)
         }
         if( (array_length givenArgs.children) <= i) {
           def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
@@ -168,6 +218,36 @@ class RangerRangerClassWriter {
       wr.out(":" false)
       this.writeTypeDef((unwrap arg.nameNode) ctx wr)
     }
+  }
+
+  fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.has_call {
+      def obj:CodeNode (node.getSecond())
+      def method:CodeNode (node.getThird())
+      def args:CodeNode (itemAt node.children 3)
+
+      wr.out("(call " false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out(" " false)
+      wr.out(method.vref false)
+;       this.WriteVRef(fc ctx wr)
+      wr.out("(" false)
+      ctx.setInExpr()
+      for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(" " false)
+        }
+        ; TODO: optionality check here ?
+        this.WalkNode(arg ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out("))" false)
+      if ((ctx.expressionLevel()) == 0) {
+        ; wr.out(";" true)
+      }
+    }    
   }
 
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {

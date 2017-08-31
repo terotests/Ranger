@@ -1,3 +1,11 @@
+
+
+; immutable map type
+trait Map @params( K T S ) {
+    def elements@(weak):[K:T]    
+}
+
+
 trait Vector @params( T S ) {
 
     def start:int 0
@@ -23,7 +31,7 @@ trait Vector @params( T S ) {
 
         if( idx >= start ) {
             def res (this.localCopy())
-            res.elements = (make _:[T] (res.cardinality))
+            res.elements = (make _:[T] (res.cardinality) item)
             for elements e@(lives):T i {
                 if ( (res.start + i) != idx ) {
                     set res.elements i e
@@ -46,7 +54,7 @@ trait Vector @params( T S ) {
             }
         }
         def newSlice@(lives) (p.localCopy())
-        newSlice.elements = (make _:[T] (newSlice.cardinality))
+        newSlice.elements = (make _:[T] (newSlice.cardinality) item)
         for p.elements e@(lives):T i {
             set newSlice.elements i e           
         }
@@ -62,7 +70,7 @@ trait Vector @params( T S ) {
             if( ( array_length res.elements) >= (use_card - 1) ) {
                 use_card = ( array_length res.elements) + 1
             }
-            res.elements = (make _:[T] (use_card))
+            res.elements = (make _:[T] (use_card) item)
             for elements e@(lives):T i {
                 if ( res.start + i < idx ) {
                     set res.elements i e
@@ -104,7 +112,7 @@ trait Vector @params( T S ) {
         if( ( array_length p.elements) >= (use_card - 1) ) {
             use_card = ( array_length p.elements) + 1
         }
-        newSlice.elements = (make _:[T] (use_card))
+        newSlice.elements = (make _:[T] (use_card) item)
         for p.elements e@(lives):T i {
             if ( newSlice.start + i < idx ) {
                 set newSlice.elements i e
@@ -152,12 +160,12 @@ trait Vector @params( T S ) {
             res.end = (this.end + 1)
             res.parent = this
             res.cardinality = (cardinality + 1)
-            res.elements = (make _:[T] (res.cardinality))
+            res.elements = (make _:[T] (res.cardinality) item)
             set res.elements 0 item
             return res
         }
         def res (new S)
-        res.elements = (make _:[T] (cardinality))
+        res.elements = (make _:[T] (cardinality) item)
         for elements e@(lives):T i {
             set res.elements i e
         }
@@ -172,6 +180,38 @@ trait Vector @params( T S ) {
     fn count:int () {
         return end
     }
+
+    ; TODO: faster version ....
+    fn map:S (cb:(_:T (item:T)) ) {
+        def len (this.count())
+        def res:S (new S)
+        def cnt (this.count())
+        def i 0
+        while( i < cnt ) {
+            def item (this.get(i))
+            ; set res i (cb(item))
+            def new_value (cb(item))
+            res = (res.add(new_value))
+            i = i + 1
+        }
+        return res
+    }     
+
+    fn mapper:S (cb:(_:T (item:T)) ) {
+        def len (this.count())
+        def res:S (new S)
+        def cnt (this.count())
+        def i 0
+        while( i < cnt ) {
+            def item (this.get(i))
+            ; set res i (cb(item))
+            def new_value (cb(item))
+            res = (res.add(new_value))
+            i = i + 1
+        }
+        return res
+    }      
+
 }
 
 
@@ -192,6 +232,11 @@ operator type:Vector all {
         def val (self.get(idx))
         return val
     } 
+    fn imm_itemAt:T (idx:int) { 
+        ; def val:T  (self.get(idx))
+        def val (self.get(idx))
+        return val
+    } 
     ; fn push:S () {}
     fn push:S (item:T) {
         return (self.add(item))
@@ -205,6 +250,9 @@ operator type:Vector all {
         ; return (self.get( last_idx ))
         return (itemAt self ((self.count()) - 1) )
     }
+    fn array_length:int () {
+        return (self.count())
+    }    
     fn length:int () {
         return (self.count())
     }    
@@ -217,16 +265,100 @@ operator type:Vector all {
             i = i + 1
         }
     }
-    fn map:[K] (cb:(_:K (item:T)) to@(noeval):[K] ) {
+
+    fn map:S ( cb:(_:T (item:T)) ) {
         def len (self.count())
-        def res:[K] (make _:[K] len)
+        def res (new S) 
         def cnt (self.count())
         def i 0
         while( i < cnt ) {
             def item (itemAt self i)
-            set res i (cb(item))
+            ; set res i (cb(item)
+            def value (cb(item))
+            res = res.add(value)
             i = i + 1
         }
         return res
     }     
+
+    ; TODO: faster version ....
+    fn map:[K] (cb:(_:K (item:T)) to@(noeval):[K] ) {
+        def len (self.count())
+        def res:[K] 
+        def cnt (self.count())
+        def i 0
+        while( i < cnt ) {
+            def item (itemAt self i)
+            ; set res i (cb(item))
+            push res (cb(item))
+            i = i + 1
+        }
+        return res
+    }     
+
+
 }
+
+operator type:Map all {
+    fn  imm_keys:[K] () {
+        return (keys self.elements)
+    }
+    fn  keys:[K] () {
+        return (keys self.elements)
+    }
+    fn  get@(optional):T (key:K) {
+        return (get self.elements key)
+    }
+    fn  imm_get@(optional):T (key:K) {
+        return (get self.elements key)
+    }
+    fn  remap:S () {
+        def obj (new S)
+        return obj
+    }
+    fn  imm_has:boolean (key:K) {
+        return (has self.elements key)
+    }
+    fn  has:boolean (key:K) {
+        return (has self.elements key)
+    }
+    fn  imm_set:S (key:K value:T) {
+        def c (new S)        
+        def keys ( keys self.elements)
+        for keys k:string i {
+            if(k==key) {
+
+            } {
+                set c.elements k (unwrap (get self.elements k))
+            }
+        }
+        set c.elements key value
+        return c
+    }
+}
+
+operator type:Map all {
+    fn  set:S (key:K value:T) {
+        def c (new S)        
+        def keys ( keys self.elements)
+        for keys k:string i {
+            if(k==key) {
+
+            } {
+                set c.elements k (unwrap (get self.elements k))
+            }
+        }
+        set c.elements key value
+        return c
+    }
+    fn  forEach@(weak):S ( cb:(_:void (value:T key:K)) ) {
+        def keys (keys self.elements)
+        for keys key:K i {
+            cb( (unwrap (get self.elements key)) key )
+        }
+        return self
+    }
+
+}
+
+

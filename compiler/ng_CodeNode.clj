@@ -112,6 +112,10 @@ class CodeNode {
     code = source
   }
 
+  fn chlen:int () {
+    return (array_length children)
+  }
+
   fn forTree:void ( callback:( fn:void (item:CodeNode i:int)) ) {      
     for children ch:CodeNode i {
         callback(ch i)

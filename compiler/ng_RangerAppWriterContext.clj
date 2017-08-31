@@ -190,6 +190,14 @@ class RangerAppWriterContext {
     return res
   }
   fn transformWord:string (input_word:string) {
+    switch input_word {
+        case "map" {
+          return "_map"
+        }
+        default {
+          
+        }
+    }
     def root (this.getRoot())
     root.initReservedWords()
     if(has refTransform input_word) {
@@ -372,7 +380,7 @@ class RangerAppWriterContext {
     return sigName
   }
 
-  fn createStaticMethod:RangerAppFunctionDesc (withName:string currC:RangerAppClassDesc nameNode:CodeNode argsNode:CodeNode fnBody:CodeNode ) {
+  fn createStaticMethod:RangerAppFunctionDesc (withName:string currC:RangerAppClassDesc nameNode:CodeNode argsNode:CodeNode fnBody:CodeNode parser:RangerFlowParser ) {
     def s:string withName
     def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
 
@@ -390,6 +398,10 @@ class RangerAppWriterContext {
     m.nameNode.ifNoTypeSetToVoid()
     def args:CodeNode argsNode
     m.fnBody = fnBody
+    def wr (new CodeWriter)
+    ; --> 
+    parser.CheckTypeAnnotationOf( (unwrap m.nameNode) rCtx wr )
+
     for args.children arg@(lives):CodeNode ii {
 
       if(arg.hasFlag("noeval")) {
@@ -405,6 +417,9 @@ class RangerAppWriterContext {
       p.node = arg
       p.init_cnt = 1
       p.nameNode = arg
+
+      parser.CheckTypeAnnotationOf( arg rCtx wr )
+      
       p.refType = RangerNodeRefType.Weak
       p.varType = RangerContextVarType.FunctionParameter
       push m.params p
@@ -450,6 +465,8 @@ class RangerAppWriterContext {
     code.filename = str + ".ranger"
     def parser:RangerLispParser (new RangerLispParser (code))
     parser.parse()
+
+    ; this.CheckTypeAnnotationOf( (unwrap m.nameNode) ctx wr )
 
     def classRoot@(lives) (itemAt parser.rootNode.children 0)
     def classNameNode@(lives) (classRoot.getSecond())
@@ -514,7 +531,7 @@ class RangerAppWriterContext {
     def traitClassDef@(lives):CodeNode (unwrap t.node)
     def name:string t.name
 
-    print "creating a new trait " + name + " to class " + cl.name
+    ; print "creating a new trait " + name + " to class " + cl.name
     def t:RangerAppClassDesc (ctx.findClass(name))
     if( (array_length t.extends_classes) > 0 ) {
       ctx.addError( traitClassDef ("Can not join trait " + name + " because it is inherited. Currently on base classes can be used as traits." ))
@@ -535,9 +552,11 @@ class RangerAppWriterContext {
           if( ( array_length initParams.children) > i ) {
             def pArg (itemAt initParams.children i)
             match.add(typeName.vref pArg.vref ctx)
+            ;print "- match " + typeName.vref + " -> " + pArg.vref
             set_value = pArg.vref
           } {
             match.add(typeName.vref instanceName ctx)
+            ;print "- match " + typeName.vref + " -> " + instanceName
             set_value = instanceName
           }
           push traitParams.param_names typeName.vref
@@ -847,14 +866,19 @@ class RangerAppWriterContext {
       cnt = (fnLevel.getFnVarCnt3(name))
     }
     if (0 == cnt) {
-      if (name == "self") {
-        desc.compiledName = "__self"
-      } {
-        if (name == "len") {
+      switch name {
+        case "self" {
+          desc.compiledName = "__self"
+        }
+        case "process" {
+          desc.compiledName = "_process"
+        }
+        case "len" {
           desc.compiledName = "__len"
-        } {
+        }
+        default {
           desc.compiledName = name
-        }      
+        }
       }
     } {
       desc.compiledName = (name + "_" + cnt)

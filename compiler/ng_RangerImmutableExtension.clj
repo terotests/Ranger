@@ -9,6 +9,12 @@ class RangerImmutableExtension {
         if(p.value_type == RangerNodeType.Hash) {
             return ("[" + nn.key_type+ ":" + nn.array_type + "]")
         }
+        if(nn.value_type == RangerNodeType.Array) {
+            return ("[" + nn.array_type + "]")
+        }
+        if(nn.value_type == RangerNodeType.Hash) {
+            return ("[" + nn.key_type+ ":" + nn.array_type + "]")
+        }
         return nn.type_name
     }
 
@@ -35,6 +41,7 @@ class RangerImmutableExtension {
             def nn:CodeNode (unwrap pvar.nameNode)
 
             if(true) {
+;                print "Immutable type -> " + (this.typeDefOf(pvar))
                 wr.out("fn set_" + pvar.name + ":" + cl.name + " (new_value_of_" + pvar.name + ":" + (this.typeDefOf(pvar)) + ") {" , true)
                 wr.indent(1)
                 wr.out("def res (new " + cl.name + ")" , true)
@@ -48,6 +55,8 @@ class RangerImmutableExtension {
                 wr.out("return res" true)
                 wr.indent(-1)
                 wr.out("}" true)
+
+;                print (wr.getCode())
             } {
                 ; TODO: use immutable vector / map types instead
             }

@@ -1356,7 +1356,14 @@ class RangerGolangClassWriter {
       wr.out((((("func " + cl.name) + "_static_") + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(") " false)
-      this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
+
+      def vnn (unwrap variant.nameNode)
+      if (vnn.hasFlag("optional")) {
+        wr.out("*GoNullable" false)
+      } {
+        this.writeTypeDef(vnn ctx wr)
+      }        
+;       this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
       wr.out(" {" true)
       wr.indent(1)
       wr.newline()
