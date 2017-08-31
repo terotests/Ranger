@@ -260,13 +260,11 @@ trait Vector @params( T S ) {
 
     ; TODO: create faster version which uses (make ) operator
     fn map:S (cb:(_:T (item:T)) ) {
-        def len (this.count())
         def res:S (new S)
         def cnt (this.count())
         def i 0
         while( i < cnt ) {
             def item (this.get(i))
-            ; set res i (cb(item))
             def new_value (cb(item))
             res = (res.add(new_value))
             i = i + 1
@@ -305,13 +303,11 @@ operator type:Vector all {
     }
 
     fn map:S ( cb:(_:T (item:T)) ) {
-        def len (self.count())
         def res (new S) 
         def cnt (self.count())
         def i 0
         while( i < cnt ) {
             def item (itemAt self i)
-            ; set res i (cb(item)
             def value (cb(item))
             res = res.add(value)
             i = i + 1
@@ -321,13 +317,11 @@ operator type:Vector all {
 
     ; TODO: faster version ....
     fn map:[K] (cb:(_:K (item:T)) to@(noeval):[K] ) {
-        def len (self.count())
         def res:[K] 
         def cnt (self.count())
         def i 0
         while( i < cnt ) {
             def item (itemAt self i)
-            ; set res i (cb(item))
             push res (cb(item))
             i = i + 1
         }
