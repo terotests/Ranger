@@ -1,7 +1,3 @@
-;operator type:[T] es6 {
-;    fn map:[T] (cb:(_:T (item:T))) ( (e 1) ".map(" (e 2) ")")
-;    fn filter:[T] (cb:(_:boolean (item:T))) ( (e 1) ".filter(" (lambda 2) ")")
-;}
 
 operator type:[string:T] all {
     fn forEach:void (cb:(_:void (item:T index:string )) ) {
