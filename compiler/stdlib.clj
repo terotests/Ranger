@@ -16,7 +16,6 @@ operator type:[string:T] all {
 }
 
 operator type:[T] all {
-
     fn forEach:void (cb:(_:void (item:T))) {
         for self it:T i {
             cb(it)
@@ -259,7 +258,7 @@ trait Vector @params( T S ) {
         return end
     }
 
-    ; TODO: faster version ....
+    ; TODO: create faster version which uses (make ) operator
     fn map:S (cb:(_:T (item:T)) ) {
         def len (this.count())
         def res:S (new S)
@@ -274,58 +273,19 @@ trait Vector @params( T S ) {
         }
         return res
     }     
-
-    fn mapper:S (cb:(_:T (item:T)) ) {
-        def len (this.count())
-        def res:S (new S)
-        def cnt (this.count())
-        def i 0
-        while( i < cnt ) {
-            def item (this.get(i))
-            ; set res i (cb(item))
-            def new_value (cb(item))
-            res = (res.add(new_value))
-            i = i + 1
-        }
-        return res
-    }      
-
 }
 
 
 operator type:Vector all {
 
-    ; couple of trait test functions for now...
-    fn hello@(weak):S () {
-        print "immutable says hi! my size is " + (self.count())
-        return self
-    }
-    fn hello@(weak):S (msg:string) {
-        print "immutable sends message " + msg + " AND my size is " + (self.count())
-        return self
-    }
-    ; fn get:T (idx:int) {
     fn itemAt:T (idx:int) { 
-        ; def val:T  (self.get(idx))
         def val (self.get(idx))
         return val
     } 
-    fn imm_itemAt:T (idx:int) { 
-        ; def val:T  (self.get(idx))
-        def val (self.get(idx))
-        return val
-    } 
-    ; fn push:S () {}
     fn push:S (item:T) {
         return (self.add(item))
     }
-    fn +:S (item:T) {
-        return (self.add(item))
-    }
     fn last:T () {
-        ; def len (self.count())
-        ; def last_idx ((self.count()) - 1)
-        ; return (self.get( last_idx ))
         return (itemAt self ((self.count()) - 1) )
     }
     fn array_length:int () {
@@ -383,10 +343,6 @@ operator type:Map all {
     }
     fn  get@(optional):T (key:K) {
         return (get self.elements key)
-    }
-    fn  remap:S () {
-        def obj (new S)
-        return obj
     }
     fn  has:boolean (key:K) {
         return (has self.elements key)
