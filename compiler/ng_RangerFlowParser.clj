@@ -45,6 +45,7 @@ class RangerFlowParser {
 
   def signatureCnt 0
   def argSignatureCnt 0
+  def mainCnt 0
   def isDefinedSignature:[string:int]
   def isDefinedArgSignature:[string:int]
 
@@ -399,36 +400,36 @@ class RangerFlowParser {
           }
           
           def all_matched:boolean (match.matchArguments(args callArgs ctx 1))
+          if all_matched {
+            for walk_later later:WalkLater i {
+              def ca (unwrap later.callArg)
+              def aa (unwrap later.arg)
 
-          for walk_later later:WalkLater i {
-            def ca (unwrap later.callArg)
-            def aa (unwrap later.arg)
+              def newNode:CodeNode (new CodeNode ( (unwrap ca.code) ca.sp ca.ep))
+              ; def match:RangerArgMatch (new RangerArgMatch ())
+              def fnDef:CodeNode (unwrap aa.expression_value)
+              def copyOf:CodeNode (fnDef.rebuildWithType( match false ))
+              def ffc:CodeNode (itemAt copyOf.children 0)
+              ffc.vref = "fun"
+              def itemCopy:CodeNode (ca.rebuildWithType (match false))
+              push copyOf.children itemCopy
+              def cnt:int ( array_length ca.children )
+              while( cnt > 0) {
+                removeLast ca.children
+                cnt = cnt - 1
+              }
+              for copyOf.children ch@(lives):CodeNode i {
+                push ca.children ch
+              }
+              ; --> 
+              ; def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
+              def sCtx (ctx.fork())
 
-            def newNode:CodeNode (new CodeNode ( (unwrap ca.code) ca.sp ca.ep))
-            ; def match:RangerArgMatch (new RangerArgMatch ())
-            def fnDef:CodeNode (unwrap aa.expression_value)
-            def copyOf:CodeNode (fnDef.rebuildWithType( match false ))
-            def ffc:CodeNode (itemAt copyOf.children 0)
-            ffc.vref = "fun"
-            def itemCopy:CodeNode (ca.rebuildWithType (match false))
-            push copyOf.children itemCopy
-            def cnt:int ( array_length ca.children )
-            while( cnt > 0) {
-              removeLast ca.children
-              cnt = cnt - 1
+              this.WalkNode(ca sCtx wr)
+              ; last_was_block = true 
+
             }
-            for copyOf.children ch@(lives):CodeNode i {
-              push ca.children ch
-            }
-            ; --> 
-            ; def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
-            def sCtx (ctx.fork())
-
-            this.WalkNode(ca sCtx wr)
-            ; last_was_block = true 
-
-          }
-         
+          }         
           if(codeDef.is_block_node  && (all_matched)) {
 
             def nSig ""
@@ -572,6 +573,7 @@ class RangerFlowParser {
               }
             }
             if (nameNode.hasFlag("returns")) {
+;              print "==> returns flag for " + (callArgs.getLineAsString())
               def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
               if (activeFn.nameNode.type_name != "void") {
                 
@@ -650,15 +652,15 @@ class RangerFlowParser {
       }
     }
     if ( require_all_match == true && some_matched == false) {
-      print "===================== MATCH ERROR 2 ====================="
-      print ("stdMatch -> Could not match argument types for " + callFnName.vref)
-      print (callArgs.getCode())
-      def line_index:int (callArgs.getLine())
-      print ((callArgs.getFilename()) + " Line: " + line_index)
-      for callArgs.children ca:CodeNode i {
-        print ((((((("arg " + i) + " eval_type : ") + ca.eval_type) + " eval_type_name = ") + ca.eval_type_name) + " type : ") + ca.type_name)
-      }
-      ctx.addError(callArgs ("stdMatch -> Could not match argument types for " + callFnName.vref))
+      ;print "===================== MATCH ERROR 2 ====================="
+      ;print ("stdMatch -> Could not match argument types for " + callFnName.vref)
+      ;print (callArgs.getCode())
+      ;def line_index:int (callArgs.getLine())
+      ;print ((callArgs.getFilename()) + " Line: " + line_index)
+      ;for callArgs.children ca:CodeNode i {
+      ;  print ((((((("arg " + i) + " eval_type : ") + ca.eval_type) + " eval_type_name = ") + ca.eval_type_name) + " type : ") + ca.type_name)
+      ;}
+      ctx.addError(callArgs ("Could not match argument types for " + callFnName.vref))
     } {
       ; match OK
     }
@@ -783,7 +785,6 @@ class RangerFlowParser {
 
         if(node.vref == "fun") {
           ; print "TODO: fix the 'fun'"
-          ; ctx.addError(node "fun problem")
         } {
           ctx.addError(node ("WriteVREF -> Undefined variable " + node.vref + " in class " + desc.name + " node : " + (node.getCode())))
           ctx.addError(node ("WriteVREF -> Undefined variable " + rootObjName + " in class " + desc.name + " node : " + (node.parent.getCode())))
@@ -966,6 +967,10 @@ class RangerFlowParser {
     node.clDesc = currC
     def fnDescr:RangerAppFunctionDesc currC.constructor_fn
     if (!null? fnDescr) {
+      if( (array_length fnDescr.params) > (array_length params.children)) {
+        ctx.addError(node "Not enough arguments for class constructor " + (fnDescr.node.getLineAsString()))
+        return
+      }
       for fnDescr.params param:RangerAppParamDesc i {
         def has_default:boolean false
         if (param.nameNode.hasFlag("default")) {
@@ -1490,6 +1495,17 @@ class RangerFlowParser {
           }
 
           if do_transform {
+
+            def n1:CodeNode (node.getSecond())
+            def n2:CodeNode (node.getThird())
+            this.WalkNode(n1 ctx wr)
+            ctx.setInExpr()
+            this.WalkNode(n2 ctx wr)
+            ctx.unsetInExpr()
+
+            ; --> should test here
+            this.shouldBeEqualTypes( n1 n2 ctx "Can not assign variable.")
+
             def immAss (this.transformImmutableAssigment(node))
             ; print "immutable assigment => " + (immAss.getCode())
             node.getChildrenFrom( immAss )
@@ -1583,6 +1599,7 @@ class RangerFlowParser {
       }
     }
     this.stdParamMatch(node ctx wr true)
+    this.shouldBeEqualTypes( n1 n2 ctx "Can not assign variable.")
   }
   fn EnterTemplateClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
   }
@@ -3171,6 +3188,11 @@ class RangerFlowParser {
       push classesWithTraits joinPoint
     } 
 
+    def b_is_main false
+    if ( node.code.filename == (ctx.getRootFile()) )  {
+      b_is_main = true
+    }
+
     if ((node.isFirstVref("static")) ) {
       ; static fn foo () {}
       if( (node.chlen()) < 5 ) {
@@ -3178,6 +3200,14 @@ class RangerFlowParser {
         return
       }
       def s:string (node.getVRefAt(2))
+      if( s == "main" ) {
+        if b_is_main {
+          this.mainCnt = this.mainCnt + 1
+          if(this.mainCnt > 1) {
+            ctx.addError( node "main function can be declared only once")
+          }
+        }
+      }
       def currC:RangerAppClassDesc ctx.currentClass
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = s
@@ -3215,6 +3245,16 @@ class RangerFlowParser {
       })      
       currC.addStaticMethod(m)
       find_more = false
+
+      if( m.nameNode.hasFlag("main") ) {
+        if b_is_main {
+          this.mainCnt = this.mainCnt + 1
+          if(this.mainCnt > 1) {
+            ctx.addError( node "main function can be declared only once")
+          }
+        }
+      }
+
     }
     if (node.isFirstVref("extension")) {
       def s:string (node.getVRefAt(1))

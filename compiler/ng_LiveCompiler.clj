@@ -354,6 +354,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def fc:CodeNode (node.getFirst())
     }
     if node.expression {
+;      wr.out( ("/* did return at index == " + node.didReturnAtIndex + "*/" ) false)
       for node.children item:CodeNode i {
         if ((node.didReturnAtIndex >= 0) && (node.didReturnAtIndex < i)) {
           break _
@@ -371,7 +372,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     if ((ctx.expressionLevel()) > 1) {
       wr.out("(" false)
     }
-    for cmd.children c:CodeNode i {
+    for cmd.children c:CodeNode i {      
       this.walkCommand(c node ctx wr)
     }
     if ((ctx.expressionLevel()) > 1) {

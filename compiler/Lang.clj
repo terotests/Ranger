@@ -658,7 +658,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             }
         }       
 
-        return  cmdReturn@():void          ( ) {
+        return  cmdReturn@(returns):void          ( ) {
             templates {
                 cpp ( (custom _ ) )
                 ranger ( nl "return" nl ) 
@@ -1457,7 +1457,7 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
                 kotlin ( (e 1) "[" (e 2) "]")    
                 scala ( (e 1) "(" (e 2) ")")    
                 go ( "int64(" (e 1) "[" (e 2) "])")  
-                swift3 ( "Int( ( " (e 1) " as NSString ).character( at: " (e 2) " ) )")
+                swift3 ( "Int( ( NSString(string: " (e 1) " ) ).character( at: " (e 2) " ) )")
                 swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")    
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
@@ -1515,7 +1515,7 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
                 cpp( (e 1) ".at(0)")
                 php ( "ord(" (e 1) ")") 
                 java7 ( "((" (e 1) ".getBytes())[0])") 
-                swift3 ( "UInt8( ( " (e 1) " as NSString ).character( at: 0 ) )")
+                swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
                 swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")  
                 * ( (e 1) ".charCodeAt(0)" )
             }

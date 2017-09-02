@@ -29,9 +29,9 @@ operator type:[T] all {
 
     fn map:[T] (cb:(_:T (item:T))) {
         def len (array_length self)
-        def res:[T] (make _:[T] len)
+        def res:[T] 
         for self it:T i {
-            set res i (cb(it))
+            push res (cb(it))
         }
         return res
     }  
@@ -45,7 +45,7 @@ operator type:[T] all {
         return res
     }  
 
-    fn filter:[T] (cb:(_:boolean (value:T))) {
+    fn filter:[T] (cb:(_:boolean (item:T))) {
         def res:[T]
         for self it:T i {
             if( cb(it) )  {
@@ -81,7 +81,6 @@ operator type:[T] all {
 trait Map @params( K T S ) {
     def elements@(weak):[K:T]    
 }
-
 
 trait Vector @params( T S ) {
 
