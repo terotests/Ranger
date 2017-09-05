@@ -2,10 +2,17 @@
 ; Mahdollisesti:
 ; https://github.com/terotests/Ranger/blob/master/compiler/ng_LiveCompiler.clj#L311
 
+class OpList {
+  def list@(weak):[CodeNode]
+}
+
 class RangerActiveOperators {
 
   def stdCommands:CodeNode 
   def parent@(weak optional):RangerActiveOperators 
+
+  def opHash:[string:OpList]
+  def initialized false
 
   fn fork:RangerActiveOperators (fromOperator:CodeNode) {
     def newOps@(lives) (new RangerActiveOperators)
@@ -20,28 +27,37 @@ class RangerActiveOperators {
     return newOps
   }
 
-  fn getAllOperators:[CodeNode] (limit:int) {
-    def results:[CodeNode]
-    def ops:RangerActiveOperators (this)
-    while(true) {
-      if(!null? ops.stdCommands) {
-        for ops.stdCommands.children lch:CodeNode i {
-          def fc:CodeNode (lch.getFirst())
-          push results lch
-          if( ( limit > 0 ) && ( (array_length results) >= limit ) ) {
-            break            
-          }
+
+  fn getOperators@(weak):[CodeNode] (name:string) {
+
+    def results@(weak):[CodeNode]
+    if initialized {
+      def items (get opHash name)
+      if(!null? items) {
+        return items.list
+      } {
+        ; print "could not find operator " + name
+      }
+    } {
+      ; print "---> initializing the operator cache----"
+      for stdCommands.children lch@(lives):CodeNode i {
+        def fc:CodeNode (lch.getFirst())
+        if( has opHash fc.vref ) {
+          def opList (unwrap (get opHash fc.vref ))
+          push opList.list lch
+        } {
+          def newOpList (new OpList)
+          set opHash fc.vref newOpList
+          push newOpList.list lch
         }
-      }
-      if(null? ops.parent) {
-        break
-      }
-      ops = (unwrap ops.parent)
+        if (fc.vref == name) {
+          push results lch
+        }
+      }      
+      initialized = true
     }
     return results
-  }
 
-  fn getOperators:[CodeNode] (name:string) {
     def results:[CodeNode]
     def ops:RangerActiveOperators (this)
     while(true) {

@@ -190,6 +190,9 @@ class CompilerInterface {
           if(cl.is_system_union) {
             continue _
           }
+          if(cl.is_union) {
+            continue _
+          }          
           lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
         }
         if (!null? staticMethods) {

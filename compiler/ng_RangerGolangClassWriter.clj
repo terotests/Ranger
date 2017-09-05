@@ -15,7 +15,7 @@ class RangerGolangClassWriter {
         wr.out((("\"" + s) + "\"") false)
       }
       case RangerNodeType.Integer {
-        wr.out(("" + node.int_value) false)
+        wr.out(("int64(" + node.int_value+")") false)
       }
       case RangerNodeType.Boolean {
         if node.boolean_value {
@@ -33,6 +33,11 @@ class RangerGolangClassWriter {
 
     if(ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
+
+      if(cc.is_union) {
+        return "interface{}"
+      }
+
       if(cc.doesInherit()) {
         return "IFACE_" + (ctx.transformTypeName(type_string))
       }
@@ -84,6 +89,13 @@ class RangerGolangClassWriter {
         return "[]byte"
       }
     }
+
+    if(ctx.isDefinedClass(type_string)) {
+      def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if(cc.is_union) {
+        return "interface{}"
+      }
+    }    
     return (ctx.transformTypeName(type_string))
   }
   fn writeRawTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -115,6 +127,10 @@ class RangerGolangClassWriter {
       case RangerNodeType.Hash {
         if(ctx.isDefinedClass(a_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(a_name))
+          if(cc.is_union) {
+            wr.out("interface{}" , false)
+            return
+          }
           if(cc.doesInherit()) {
             wr.out("IFACE_" + (this.getTypeString2(a_name ctx)) , false)
             return
@@ -130,6 +146,10 @@ class RangerGolangClassWriter {
 
         if(ctx.isDefinedClass(a_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(a_name))
+          if(cc.is_union) {
+            wr.out("interface{}" , false)
+            return
+          }
           if(cc.doesInherit()) {
             wr.out("IFACE_" + (this.getTypeString2(a_name ctx)) , false)
             return
@@ -216,6 +236,10 @@ class RangerGolangClassWriter {
 
           if(ctx.isDefinedClass(a_name)) {
             def cc:RangerAppClassDesc (ctx.findClass(a_name))
+            if(cc.is_union) {
+              wr.out("interface{}" , false)
+              return
+            }
             if(cc.doesInherit()) {
               wr.out("IFACE_" + (this.getTypeString2(a_name ctx)) , false)
               return
@@ -235,6 +259,10 @@ class RangerGolangClassWriter {
 
         if(ctx.isDefinedClass(a_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(a_name))
+          if(cc.is_union) {
+            wr.out("interface{}" , false)
+            return
+          }          
           if(cc.doesInherit()) {
             wr.out("IFACE_" + (this.getTypeString2(a_name ctx)) , false)
             return
@@ -260,6 +288,11 @@ class RangerGolangClassWriter {
 
         if(ctx.isDefinedClass(t_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
+
+          if(cc.is_union) {
+            wr.out("interface{}" false)
+            return
+          }
           if(cc.doesInherit()) {
             wr.out("IFACE_" + (this.getTypeString2(t_name ctx)) , false)
             return

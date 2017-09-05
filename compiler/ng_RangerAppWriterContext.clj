@@ -82,10 +82,68 @@ class RangerAppWriterContext {
   def refTransform:[string:string]
   def staticClassBodies:[CodeNode]
 
+  def opNs:[string]
+
   def langFilePath:string ""
   def libraryPaths:[string]
   def outputPath ""
+
+  fn addOpNs ( n:string ) {
+    push opNs n
+  }
+
+  fn removeOpNs ( n:string ) {
+    def idx (indexOf opNs n )
+    if( idx >= 0 ) {
+      remove_index opNs idx
+    }
+  }  
+
+  fn writeContextVars( wr:CodeWriter ) {
+    localVariables.forEach({
+      ; item, index
+      wr.out( ("def " + index + ":" ) false)
+      if(!null? item.nameNode) {
+        def r (new RangerRangerClassWriter)
+        r.writeTypeDef( (unwrap item.nameNode) this wr)
+      }
+      wr.out( ( "(" + item.compiledName + ")" ) false )
+      wr.out("" true)
+    })
+  }
   
+  fn writeContextInfo( wr:CodeWriter) {
+    def cList@(weak):[RangerAppWriterContext]
+    def c@(lives) (this)
+  
+    cList.push(c)
+    while( (!null? c.parent) ) {
+      c = (unwrap c.parent)
+      cList.push(c)
+    }
+
+    def idx (array_length cList)
+    def cnt idx
+    while( idx > 0) {
+      idx = idx - 1
+      wr.out("{" true)
+      wr.indent(1)
+      def cc ( itemAt cList idx)
+      cc.writeContextVars( wr )
+    }
+    while (cnt > 0 ) {
+      wr.indent(-1)
+      wr.out("}" true)     
+      cnt = cnt - 1 
+    }
+  }
+
+  fn getContextInfo:string () {
+    def wr (new CodeWriter)
+    this.writeContextInfo( wr )
+    return (wr.getCode())
+  }
+
   fn isCapturing:boolean () {
     if(is_capturing) {
       return true
@@ -113,25 +171,43 @@ class RangerAppWriterContext {
     def nothingFound:RangerActiveOperators (new RangerActiveOperators)
     return nothingFound
   }  
-  fn getAllOperators:[CodeNode] (limit:int) {
-    if(!null? operators) {
-      def op (unwrap operators)
-      return (op.getAllOperators(limit))
-    }
-    if(!null? parent) {
-      return (parent.getAllOperators(limit))
-    }
-    def nothingFound:[CodeNode]
-    return nothingFound
-  }
+
   fn getOperators:[CodeNode] (name:string) {
-    ;---
-    if(!null? operators) {
-      def op (unwrap operators)
-      return (op.getOperators(name))
+    def root (this.getRoot())
+    def cc this
+    def opNamespace:[string]
+    if( (array_length opNs) > 0) {
+      for opNs nsName:string i {
+        push opNamespace nsName
+      }
     }
-    if(!null? parent) {
-      return (parent.getOperators(name))
+    while (!null? cc.parent) {
+      cc = (unwrap cc.parent)
+      if( (array_length cc.opNs) > 0) {
+        for cc.opNs nsName:string i {
+          push opNamespace nsName
+        }
+      }  
+    }
+    if(!null? root.operators) {
+      def op (unwrap root.operators)
+      def listOfOps:[CodeNode]
+      def handled:[string:boolean]
+      for opNamespace ss:string i {
+        if( has handled ss ) {
+          continue
+        }
+        set handled ss true
+        def nsOps (op.getOperators(ss + "." + name))
+        for nsOps ns_op:CodeNode i {
+          push listOfOps ns_op
+        }
+      }
+      def plainOps (op.getOperators(name))
+      for plainOps ppn@(lives):CodeNode i {
+        push listOfOps ppn
+      }
+      return listOfOps
     }
     def nothingFound:[CodeNode]
     return nothingFound
@@ -195,7 +271,7 @@ class RangerAppWriterContext {
           return "_map"
         }
         default {
-          
+
         }
     }
     def root (this.getRoot())

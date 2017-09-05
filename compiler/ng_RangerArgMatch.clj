@@ -46,6 +46,17 @@ class RangerArgMatch {
         }
       }
 
+      if (arg.hasFlag("union")) {
+          if((ctx.isDefinedClass(callArg.eval_type_name))) {
+            def cc (ctx.findClass(callArg.eval_type_name))
+            if( cc.is_union == false ) {
+              all_matched = false
+            }
+          } {
+            all_matched = false          
+          }
+      }
+
       def call_arg_immutable false
       if callArg.hasParamDesc {
         def pa:RangerAppParamDesc callArg.paramDesc
@@ -321,6 +332,12 @@ class RangerArgMatch {
         def c1:RangerAppClassDesc (ctx.findClass(t_name))
         def c2:RangerAppClassDesc (ctx.findClass(type2))
         def trait1 (c1.hasTrait(type2 ctx))
+
+        ; can not push union into a regular type
+        if( (c2.is_union == true) && (c1.is_union == false)) {
+          return false
+        }
+
         if(!null? trait1) {
           this.force_add( type2 c1.name ctx)
           if( has c1.trait_params type2 ) {

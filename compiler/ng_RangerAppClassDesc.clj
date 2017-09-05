@@ -18,6 +18,8 @@ class RangerAppClassDesc {
   def compiledName:string ""
   def systemNames:[string:string]
   def systemInfo:CodeNode
+  
+  ; --- following could be compined into a enum -type
   def is_interface:boolean false
   def is_system_union:boolean false
   def is_template:boolean false
@@ -25,6 +27,9 @@ class RangerAppClassDesc {
   def is_trait:boolean false
   def is_operator_class false
   def is_generic_instance false
+  def is_union false
+
+  
   def generic_params:CodeNode
   def ctx@(weak):RangerAppWriterContext
   def variables:[RangerAppParamDesc]
@@ -114,9 +119,10 @@ class RangerAppClassDesc {
       }      
     }
     for is_union_of i_name:string i {
-      if (this.isSameOrParentClass(i_name ctx)) {
-        return true
-      }
+      ;def c:RangerAppClassDesc (ctx.findClass(i_name))
+      ;if (c.isSameOrParentClass(class_name ctx)) {
+      ;  return true
+      ;}
       if (ctx.isDefinedClass(i_name)) {
         def c:RangerAppClassDesc (ctx.findClass(i_name))
         if (c.isSameOrParentClass(class_name ctx)) {

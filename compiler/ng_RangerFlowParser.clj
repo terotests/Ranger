@@ -1,6 +1,5 @@
 
-Import "CollectionOps.clj"
-
+Import "stdlib.clj"
 Import "ng_RangerAppMessages.clj"
 Import "ng_RangerAppParamDesc.clj"
 Import "ng_RangerAppFunctionDesc.clj"
@@ -178,11 +177,13 @@ class RangerFlowParser {
     def cmds:CodeNode stdCommands
     def some_matched:boolean false
     def found_fn:boolean false
+    def added_ns ""
     def missed_args:[string]
     def ctx:RangerAppWriterContext (inCtx.fork())
     def lang_name:string (ctx.getTargetLang())
     def expects_error:boolean false
     def err_cnt:int (inCtx.getErrorCount())
+    def arg_eval_start 0 
     if( callArgs.hasBooleanProperty("error")) {
       expects_error = true
     } 
@@ -252,404 +253,421 @@ class RangerFlowParser {
       }
     }
 
-    ; print "stdParamMatch -> " + callFnName.vref
+    ; print "stdParamMatch -> " + callFnName.vref    
     def op_list (ctx.getOperators(callFnName.vref))
+
     for op_list ch@(lives):CodeNode main_index {
       def fc:CodeNode (ch.getFirst())
       def nameNode:CodeNode (ch.getSecond())
       def args:CodeNode (ch.getThird())
-      if (callFnName.vref == fc.vref) {
-        def line_index:int (callArgs.getLine())
-        ; def callerArgCnt:int (((array_length callArgs.children) - 1))
-        def callerArgCnt (call_arg_cnt - 1)
-        def fnArgCnt:int (array_length args.children)
-        def has_eval_ctx:boolean false
-        def is_macro:boolean false
-        def is_static_fn false
-        def static_fn_name ""
-        def static_class_name ""
-        def static_nameNode@(weak):CodeNode
-        if (nameNode.hasFlag("newcontext")) {
-          ctx = (inCtx.fork())
-          has_eval_ctx = true
-        }       
-        def expanding_node:boolean (nameNode.hasFlag("expands"))
-        if ( (callerArgCnt == fnArgCnt) || expanding_node) {
-          def details_list:CodeNode (itemAt ch.children 3)
-          def langOper:CodeNode (this.findLanguageOper( details_list ctx ))
-          if(null? langOper) {
-;            ctx.addError( callArgs "Did not find language based operator")
-            continue
-          }
-          if( ( langOper.hasBooleanProperty("macro") ) || ( (nameNode.hasFlag("macro")))  ) {
-            is_macro = true
-          }
+      
+      ; if loop is done two times, remove the old NS definition
+      ctx.removeOpNs( added_ns )
+      ctx.addOpNs( fc.vref )
+      added_ns = fc.vref
 
-          def codeDef (langOper.getSecond())
-          
+      def line_index:int (callArgs.getLine())
+      ; def callerArgCnt:int (((array_length callArgs.children) - 1))
+      def callerArgCnt (call_arg_cnt - 1)
+      def fnArgCnt:int (array_length args.children)
+      def has_eval_ctx:boolean false
+      def is_macro:boolean false
+      def is_static_fn false
+      def static_fn_name ""
+      def static_class_name ""
+      def static_nameNode@(weak):CodeNode
+      if (nameNode.hasFlag("newcontext")) {
+        ctx = (inCtx.fork())
+        has_eval_ctx = true
+      }       
+      def expanding_node:boolean (nameNode.hasFlag("expands"))
+      if ( (callerArgCnt == fnArgCnt) || expanding_node) {
+        def details_list:CodeNode (itemAt ch.children 3)
+        def langOper:CodeNode (this.findLanguageOper( details_list ctx ))
+        if(null? langOper) {
+;            ctx.addError( callArgs "Did not find language based operator")
+          continue
+        }
+        if( ( langOper.hasBooleanProperty("macro") ) || ( (nameNode.hasFlag("macro")))  ) {
+          is_macro = true
+        }
+
+        def codeDef (langOper.getSecond())
+        
 ;          if(codeDef.is_block_node) {
 ;            args = (args.rebuildWithType( (new RangerArgMatch) false ))
 ;          }
-          def match:RangerArgMatch (new RangerArgMatch ())
-          def last_walked:int 0
-          def last_was_block false
-          def walk_later:[WalkLater]
+        def match:RangerArgMatch (new RangerArgMatch ())
+        def last_walked:int 0
+        def last_was_block false
+        def walk_later:[WalkLater]
 
-          def not_enough_args false
-          for args.children arg@(lives):CodeNode i {
+        def not_enough_args false
+        for args.children arg@(lives):CodeNode i {
 
-            if( (array_length callArgs.children) <= (i + 1)) {
-              not_enough_args = true
-              break
-            }
-
-            def callArg@(lives):CodeNode (itemAt callArgs.children (i + 1))
-            if (arg.hasFlag("define")) {
-              def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
-              p.name = callArg.vref
-              p.value_type = arg.value_type
-              p.node = callArg
-              p.nameNode = callArg
-              p.is_optional = false
-              p.init_cnt = 1
-              ctx.defineVariable(p.name p)
-
-              callArg.hasParamDesc = true
-              callArg.ownParamDesc = p
-              callArg.paramDesc = p
-              if ((strlen callArg.type_name) == 0) {
-                callArg.type_name = arg.type_name
-                callArg.value_type = arg.value_type
-              }
-              callArg.eval_type = arg.value_type
-              callArg.eval_type_name = arg.type_name
-            }
-            if (arg.hasFlag("ignore")) {
-              continue _
-            }
-            if (arg.hasFlag("noeval")) {
-              callArg.eval_type = callArg.value_type
-              callArg.eval_type_name = callArg.type_name
-              callArg.eval_array_type = callArg.array_type
-              callArg.eval_key_type = callArg.key_type
-              continue _
-            }            
-            last_walked = (i + 1)
-            if( arg.value_type == RangerNodeType.ExpressionType ) {
-              if(codeDef.is_block_node == false) {
-                ; transformParams idea here then...
-                ; transform block to a lambda expression...
-
-                def later (new WalkLater)
-                later.arg = arg
-                later.callArg = callArg
-                push walk_later later
-              
-              }  
-
-            } {
-              ; ctx = (inCtx.forkWithOps( (itemAt ch.children 3) ))
-              if(arg.type_name == "block" || (arg.hasFlag("block"))) {
-                def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
-                this.WalkNode(callArg sCtx wr)
-                last_was_block = true
-              } {
-                ; (inCtx.forkWithOps( (itemAt ch.children 3) ))
-                ctx.setInExpr()
-                this.WalkNode(callArg ctx wr)
-                ctx.unsetInExpr()
-                last_was_block = false
-              }
-              if( arg.hasFlag("mutates")) {
-                if(callArg.hasParamDesc) {
-                  if(callArg.paramDesc && (!null? callArg.paramDesc.propertyClass)) {
-                    if(callArg.paramDesc.propertyClass.nameNode.hasFlag("immutable")) {
-                      def propC (callArg.paramDesc.propertyClass)
-                      def currC (ctx.getCurrentClass())
-                      if( (unwrap currC) != (unwrap propC) ) {
-                        ; --> skip as if error
-                        
-                        not_enough_args = true
-                        ; ctx.addError(callArg "Not possible to modify immutable class property")
-                      }                 
-                    }
-                  }
-                }
-              }
-              
-            }
-          }
-
-          if not_enough_args {
+          if( i < arg_eval_start) {
             continue
           }
+          arg_eval_start = i
 
-          if expanding_node {
-            for callArgs.children caCh:CodeNode i2 {
-              if(i2 > last_walked) {
-                if last_was_block {
-                  def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
-                  this.WalkNode(caCh sCtx wr)
-                } {
-                  ctx.setInExpr()
-                  this.WalkNode(caCh ctx wr)
-                  ctx.unsetInExpr() 
-                }                                             
-              }
-            }
+          if( (array_length callArgs.children) <= (i + 1)) {
+            not_enough_args = true
+            break
           }
-          
-          def all_matched:boolean (match.matchArguments(args callArgs ctx 1))
-          if all_matched {
-            for walk_later later:WalkLater i {
-              def ca (unwrap later.callArg)
-              def aa (unwrap later.arg)
 
-              def newNode:CodeNode (new CodeNode ( (unwrap ca.code) ca.sp ca.ep))
-              ; def match:RangerArgMatch (new RangerArgMatch ())
-              def fnDef:CodeNode (unwrap aa.expression_value)
-              def copyOf:CodeNode (fnDef.rebuildWithType( match false ))
-              def ffc:CodeNode (itemAt copyOf.children 0)
-              ffc.vref = "fun"
-              def itemCopy:CodeNode (ca.rebuildWithType (match false))
-              push copyOf.children itemCopy
-              def cnt:int ( array_length ca.children )
-              while( cnt > 0) {
-                removeLast ca.children
-                cnt = cnt - 1
-              }
-              for copyOf.children ch@(lives):CodeNode i {
-                push ca.children ch
-              }
-              ; --> 
-              ; def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
-              def sCtx (ctx.fork())
+          def callArg@(lives):CodeNode (itemAt callArgs.children (i + 1))
+          if (arg.hasFlag("define")) {
+            def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
+            p.name = callArg.vref
+            p.value_type = arg.value_type
+            p.node = callArg
+            p.nameNode = callArg
+            p.is_optional = false
+            p.init_cnt = 1
+            ctx.defineVariable(p.name p)
 
-              this.WalkNode(ca sCtx wr)
-              ; last_was_block = true 
-
+            callArg.hasParamDesc = true
+            callArg.ownParamDesc = p
+            callArg.paramDesc = p
+            if ((strlen callArg.type_name) == 0) {
+              callArg.type_name = arg.type_name
+              callArg.value_type = arg.value_type
             }
-          }         
-          if(codeDef.is_block_node  && (all_matched)) {
-
-            def nSig ""
-            if( (array_length args.children) > 0) {
-              def arg0 (args.getFirst())
-              nSig = ( (this.getNameSignature(arg0)) )
-            } {
-              nSig = ( (this.getVoidNameSignature()) )              
-            }
-            ;print "---- static method ----"
-            ;print "arg0 " + (arg0.getCode())
-            def new_cl ( ctx.createOpStaticClass(  nSig ) )
-            this.WalkNode( (unwrap new_cl.classNode ) ctx wr)
-            def bodyCopy (codeDef.rebuildWithType(match true))
-            def argsCopy (args.rebuildWithType(match true))
-            def nameCopy (nameNode.rebuildWithType(match true))
-
-            def sigN (ctx.transformOpNameWord( fc.vref ))
-            def argsSig ( sigN + (this.getArgsSignature(argsCopy)) )
-
- ;            print "Args sig for " + nSig + " == " + (argsSig)
-
-            if( false == (new_cl.hasStaticMethod(argsSig))) {
-              def sMethod ( ctx.createStaticMethod( argsSig new_cl nameCopy argsCopy bodyCopy this) )
-              static_nameNode = nameCopy
-              def fCtx (unwrap sMethod.fnCtx)
-              fCtx.currentMethod = sMethod 
-              fCtx.is_function = true
-              def m:RangerAppFunctionDesc sMethod
-              fCtx.in_static_method = true
-              if (nameCopy.hasFlag("weak")) {
-                m.changeStrength(0 1 nameNode)
-              } {
-                m.changeStrength(1 1 nameNode)
-              }
-              fCtx.setInMethod()
-              for m.params v@(lives):RangerAppParamDesc i {
-                fCtx.defineVariable(v.name v)
-                v.nameNode.eval_type = (v.nameNode.typeNameAsType(fCtx))
-                v.nameNode.eval_type_name = v.nameNode.type_name
-              }
-              this.WalkNodeChildren( bodyCopy fCtx wr)
-              fCtx.unsetInMethod()
-              fCtx.in_static_method = false
-              fCtx.function_level_context = true
-              ;if (fnBody.didReturnAtIndex == -1) {
-              ;  if (cn.type_name != "void") {
-              ;    ctx.addError(node "Function does not return any values!")
-              ;  }
-              ;}
-              for fCtx.localVarNames n:string i {
-                def p:RangerAppParamDesc (get fCtx.localVariables n)
-                if (p.set_cnt > 0) {
-                  if(p.is_immutable) {
-                    ctx.addError( callArgs "Immutable variable was assigned")
-                  }
-                  def defNode:CodeNode p.node
-                  defNode.setFlag("mutable")
-                  def nNode:CodeNode p.nameNode
-                  nNode.setFlag("mutable")
-                }
-              }       
-            } {
-              def sMethod ( new_cl.findStaticMethod( argsSig ) )
-              static_nameNode = sMethod.nameNode            
-            }     
-            is_static_fn = true
-            static_fn_name = argsSig
-            static_class_name = new_cl.name
+            callArg.eval_type = arg.value_type
+            callArg.eval_type_name = arg.type_name
           }
-          if all_matched {
-
-            if is_static_fn {
-              ;is_static_fn = true
-              ;static_fn_name = sMethod.name
-              def firstArg (callArgs.getFirst())
-              firstArg.vref = static_class_name + "." + static_fn_name
-              firstArg.flow_done = false
-              firstArg.value_type = RangerNodeType.VRef
-              clear firstArg.ns
-              push firstArg.ns static_class_name
-              push firstArg.ns static_fn_name
-
-              def newArgs:CodeNode (new CodeNode ( (unwrap callArgs.code) callArgs.sp callArgs.ep) )
-              ; note: noeval flag is used here to mark a parameter which is matched but not evaluated
-              ; if(arg.hasFlag("noeval"))
-              for callArgs.children ca:CodeNode i {
-                if ca.is_part_of_chain {
-                  continue
-                }
-                if( i > 0) {
-                  def arg (itemAt args.children (i - 1))
-                  if( arg.hasFlag("noeval")) {
-                    continue
-                  }                
-                  push newArgs.children ca
-                }
-              }
-              def arg_len:int (array_length callArgs.children)
-              while (arg_len > 1 ) {
-                removeLast callArgs.children
-                arg_len = arg_len - 1
-              }
-              push callArgs.children newArgs
-
-              callArgs.flow_done = false
-              this.WalkNode ( callArgs ctx wr)
-              match.setRvBasedOn((unwrap static_nameNode) callArgs)             
-              return true
-            }
-
-            if is_macro {
-              ; TODO: check the effect of chaining here...
-              def macroNode:CodeNode ( this.buildMacro( langOper callArgs ctx ) )
-              ; print "macro: " + (macroNode.getCode())
-              def arg_len:int (array_length callArgs.children)
-              while (arg_len > 0 ) {
-                removeLast callArgs.children
-                arg_len = arg_len - 1
-              }
-              push callArgs.children macroNode
-              macroNode.parent = callArgs
-              this.WalkNode( macroNode ctx wr)
-              match.setRvBasedOn(nameNode callArgs)       
-              ; print "--- macro was walked -- "      
-              return true 
-            }
-
-            if (nameNode.hasFlag("moves")) {
-              def moves_opt@(optional):CodeNode (nameNode.getFlag("moves"))
-              def moves:CodeNode (unwrap moves_opt)
-              def ann:CodeNode moves.vref_annotation
-              def from:CodeNode (ann.getFirst())
-              def to:CodeNode (ann.getSecond())
-              def cA:CodeNode (itemAt callArgs.children from.int_value)
-              def cA2:CodeNode (itemAt callArgs.children to.int_value)
-              if cA.hasParamDesc {
-                def pp:RangerAppParamDesc cA.paramDesc
-                def pp2:RangerAppParamDesc cA2.paramDesc
-                pp.moveRefTo(callArgs (unwrap pp2) ctx)
-              }
-            }
-            if (nameNode.hasFlag("returns")) {
-;              print "==> returns flag for " + (callArgs.getLineAsString())
-              def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
-              if (activeFn.nameNode.type_name != "void") {
-                
-                if ( (array_length callArgs.children) < 2 ) {
-                  ctx.addError(callArgs " missing return value !!!")
-                } {
-                  def returnedValue:CodeNode (itemAt callArgs.children 1)
-                  if ((match.doesMatch( (unwrap activeFn.nameNode) returnedValue ctx)) == false) {
-                    if(activeFn.nameNode.ifNoTypeSetToEvalTypeOf( returnedValue)) {
-                      ; sets the type
-                    } {
-                      ctx.addError(returnedValue "invalid return value type!!!")
-                    }
-                  }
-                  def argNode:CodeNode (unwrap activeFn.nameNode)
-                  if( returnedValue.hasFlag("optional")) {
-                    if ( false == (argNode.hasFlag("optional")) ) {
-                        ctx.addError(callArgs ( "function return value optionality does not match, expected non-optional return value, optional given at " + (argNode.getCode())) )      
-                    }
-                  }
-                  
-                  if( argNode.hasFlag("optional")) {
-                    if ( false == (returnedValue.hasFlag("optional")) ) {
-                        ctx.addError(callArgs ( "function return value optionality does not match, expected optional return value " + (argNode.getCode())) )          
-                    }
-                  }
-                  
-                  def pp:RangerAppParamDesc returnedValue.paramDesc
-                  if (!null? pp) {
-                    pp.moveRefTo(callArgs activeFn ctx)
-                  }
-
-
-                }
-              }
-              if (null? callArgs.parent) {
-                ctx.addError(callArgs "did not have parent")
-                print ("no parent => " + (callArgs.getCode()))
-              }
-              callArgs.parent.didReturnAtIndex = (indexOf callArgs.parent.children callArgs)
-            }
-            if ((nameNode.hasFlag("returns")) == false) {
-              match.setRvBasedOn(nameNode callArgs)
-            }
-            if has_eval_ctx {
-              callArgs.evalCtx = ctx
-            }
-            def nodeP:CodeNode callArgs.parent
-            if (!null? nodeP) {
+          if (arg.hasFlag("ignore")) {
+            continue _
+          }
+          if (arg.hasFlag("noeval")) {
+            callArg.eval_type = callArg.value_type
+            callArg.eval_type_name = callArg.type_name
+            callArg.eval_array_type = callArg.array_type
+            callArg.eval_key_type = callArg.key_type
+            continue _
+          }            
+          last_walked = (i + 1)
+          if( arg.value_type == RangerNodeType.ExpressionType ) {
+            if(codeDef.is_block_node == false) {
+              def later (new WalkLater)
+              later.arg = arg
+              later.callArg = callArg
+              push walk_later later              
+            }  
+          } {
+            ; ctx = (inCtx.forkWithOps( (itemAt ch.children 3) ))
+            if(arg.type_name == "block" || (arg.hasFlag("block"))) {
+              ;def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
+              ;print "-- walking block with context "
+              ;print (sCtx.getContextInfo())
+              this.WalkNode(callArg ctx wr)
+              last_was_block = true
             } {
+              ; (inCtx.forkWithOps( (itemAt ch.children 3) ))
+              ctx.setInExpr()
+              this.WalkNode(callArg ctx wr)
+              ctx.unsetInExpr()
+
+              ; union conversion...
+              if( (strlen arg.type_name) > 0 ) {
+                this.convertToUnion( arg.type_name callArg ctx wr)
+              }
+              last_was_block = false
             }
-            def sig:string (nameNode.buildTypeSignatureUsingMatch(match))
-            ; def ts:RangerTypeClass (callArgs.createTypeSignatureForName(sig ctx))
-            ; callArgs.typeClass = ts
-            some_matched = true
-            callArgs.has_operator = true
-            callArgs.op_index = main_index
-            callArgs.operator_node = ch
-            for args.children arg:CodeNode arg_index {
-              if arg.has_vref_annotation {
-                def anns:CodeNode arg.vref_annotation
-                for anns.children ann:CodeNode i {
-                  if (ann.vref == "mutates") {
-                    def theArg:CodeNode (itemAt callArgs.children (arg_index + 1))
-                    if theArg.hasParamDesc {
-                      theArg.paramDesc.set_cnt = (theArg.paramDesc.set_cnt + 1)
-                    }
+            if( arg.hasFlag("mutates")) {
+              if(callArg.hasParamDesc) {
+                if(callArg.paramDesc && (!null? callArg.paramDesc.propertyClass)) {
+                  if(callArg.paramDesc.propertyClass.nameNode.hasFlag("immutable")) {
+                    def propC (callArg.paramDesc.propertyClass)
+                    def currC (ctx.getCurrentClass())
+                    if( (unwrap currC) != (unwrap propC) ) {
+                      ; --> skip as if error
+                      
+                      not_enough_args = true
+                      ; ctx.addError(callArg "Not possible to modify immutable class property")
+                    }                 
                   }
                 }
               }
             }
-            ; print "some_matched for op operator_node -> " + (ch.getLineAsString())
-            break _
+            
           }
         }
+
+        if not_enough_args {
+          continue
+        }
+
+        if expanding_node {
+          for callArgs.children caCh:CodeNode i2 {
+            if(i2 > last_walked) {
+              if last_was_block {
+                def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
+                this.WalkNode(caCh sCtx wr)
+              } {
+                ctx.setInExpr()
+                this.WalkNode(caCh ctx wr)
+                ctx.unsetInExpr() 
+              }                                             
+            }
+          }
+        }
+        
+        def all_matched:boolean (match.matchArguments(args callArgs ctx 1))
+        if all_matched {
+          for walk_later later:WalkLater i {
+            def ca (unwrap later.callArg)
+            def aa (unwrap later.arg)
+
+            def newNode:CodeNode (new CodeNode ( (unwrap ca.code) ca.sp ca.ep))
+            ; def match:RangerArgMatch (new RangerArgMatch ())
+            def fnDef:CodeNode (unwrap aa.expression_value)
+            def copyOf:CodeNode (fnDef.rebuildWithType( match false ))
+            def ffc:CodeNode (itemAt copyOf.children 0)
+            ffc.vref = "fun"
+            def itemCopy:CodeNode (ca.rebuildWithType (match false))
+            push copyOf.children itemCopy
+            def cnt:int ( array_length ca.children )
+            while( cnt > 0) {
+              removeLast ca.children
+              cnt = cnt - 1
+            }
+            for copyOf.children ch@(lives):CodeNode i {
+              push ca.children ch
+            }
+            ; --> 
+            ; def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
+            def sCtx (ctx.fork())
+
+            this.WalkNode(ca sCtx wr)
+            ; last_was_block = true 
+
+          }
+        }         
+        if(codeDef.is_block_node  && (all_matched)) {
+
+          def nSig ""
+          if( (array_length args.children) > 0) {
+            def arg0 (args.getFirst())
+            nSig = ( (this.getNameSignature(arg0)) )
+          } {
+            nSig = ( (this.getVoidNameSignature()) )              
+          }
+          ;print "---- static method ----"
+          ;print "arg0 " + (arg0.getCode())
+          def new_cl ( ctx.createOpStaticClass(  nSig ) )
+          this.WalkNode( (unwrap new_cl.classNode ) ctx wr)
+          def bodyCopy (codeDef.rebuildWithType(match true))
+          def argsCopy (args.rebuildWithType(match true))
+          def nameCopy (nameNode.rebuildWithType(match true))
+
+          def sigN (ctx.transformOpNameWord( fc.vref ))
+          def argsSig ( sigN + (this.getArgsSignature(argsCopy)) )
+
+;            print "Args sig for " + nSig + " == " + (argsSig)
+
+          if( false == (new_cl.hasStaticMethod(argsSig))) {
+            def sMethod ( ctx.createStaticMethod( argsSig new_cl nameCopy argsCopy bodyCopy this) )
+            static_nameNode = nameCopy
+            def fCtx (unwrap sMethod.fnCtx)
+            fCtx.currentMethod = sMethod 
+            fCtx.is_function = true
+            def m:RangerAppFunctionDesc sMethod
+            fCtx.in_static_method = true
+            if (nameCopy.hasFlag("weak")) {
+              m.changeStrength(0 1 nameNode)
+            } {
+              m.changeStrength(1 1 nameNode)
+            }
+            fCtx.setInMethod()
+            for m.params v@(lives):RangerAppParamDesc i {
+              fCtx.defineVariable(v.name v)
+              v.nameNode.eval_type = (v.nameNode.typeNameAsType(fCtx))
+              v.nameNode.eval_type_name = v.nameNode.type_name
+            }
+            this.WalkNodeChildren( bodyCopy fCtx wr)
+            fCtx.unsetInMethod()
+            fCtx.in_static_method = false
+            fCtx.function_level_context = true
+            ;if (fnBody.didReturnAtIndex == -1) {
+            ;  if (cn.type_name != "void") {
+            ;    ctx.addError(node "Function does not return any values!")
+            ;  }
+            ;}
+            for fCtx.localVarNames n:string i {
+              def p:RangerAppParamDesc (get fCtx.localVariables n)
+              if (p.set_cnt > 0) {
+                if(p.is_immutable) {
+                  ctx.addError( callArgs "Immutable variable was assigned")
+                }
+                def defNode:CodeNode p.node
+                defNode.setFlag("mutable")
+                def nNode:CodeNode p.nameNode
+                nNode.setFlag("mutable")
+              }
+            }       
+          } {
+            def sMethod ( new_cl.findStaticMethod( argsSig ) )
+            static_nameNode = sMethod.nameNode            
+          }     
+          is_static_fn = true
+          static_fn_name = argsSig
+          static_class_name = new_cl.name
+        }
+        if all_matched {
+
+          if is_static_fn {
+            
+            ;is_static_fn = true
+            ;static_fn_name = sMethod.name
+
+            def firstArg (callArgs.getFirst())
+            firstArg.vref = static_class_name + "." + static_fn_name
+            firstArg.flow_done = false
+            firstArg.value_type = RangerNodeType.VRef
+            clear firstArg.ns
+            push firstArg.ns static_class_name
+            push firstArg.ns static_fn_name
+
+            def newArgs:CodeNode (new CodeNode ( (unwrap callArgs.code) callArgs.sp callArgs.ep) )
+            ; note: noeval flag is used here to mark a parameter which is matched but not evaluated
+            ; if(arg.hasFlag("noeval"))
+            for callArgs.children ca:CodeNode i {
+              if ca.is_part_of_chain {
+                continue
+              }
+              if( i > 0) {
+                def arg (itemAt args.children (i - 1))
+                if( arg.hasFlag("noeval")) {
+                  continue
+                }                
+                push newArgs.children ca
+              }
+            }
+            def arg_len:int (array_length callArgs.children)
+            while (arg_len > 1 ) {
+              removeLast callArgs.children
+              arg_len = arg_len - 1
+            }
+            push callArgs.children newArgs
+
+            callArgs.flow_done = false
+            this.WalkNode ( callArgs ctx wr)
+            match.setRvBasedOn((unwrap static_nameNode) callArgs)        
+            ctx.removeOpNs( added_ns )      
+            return true
+          }
+
+          if is_macro {
+            ; TODO: check the effect of chaining here...
+            def macroNode:CodeNode ( this.buildMacro( langOper callArgs ctx ) )
+            ; print "macro: " + (macroNode.getCode())
+            def arg_len:int (array_length callArgs.children)
+            while (arg_len > 0 ) {
+              removeLast callArgs.children
+              arg_len = arg_len - 1
+            }
+            push callArgs.children macroNode
+            macroNode.parent = callArgs
+            this.WalkNode( macroNode ctx wr)
+            match.setRvBasedOn(nameNode callArgs)       
+            ; print "--- macro was walked -- " 
+            ctx.removeOpNs( added_ns )      
+            return true 
+          }
+
+          if (nameNode.hasFlag("moves")) {
+            def moves_opt@(optional):CodeNode (nameNode.getFlag("moves"))
+            def moves:CodeNode (unwrap moves_opt)
+            def ann:CodeNode moves.vref_annotation
+            def from:CodeNode (ann.getFirst())
+            def to:CodeNode (ann.getSecond())
+            def cA:CodeNode (itemAt callArgs.children from.int_value)
+            def cA2:CodeNode (itemAt callArgs.children to.int_value)
+            if cA.hasParamDesc {
+              def pp:RangerAppParamDesc cA.paramDesc
+              def pp2:RangerAppParamDesc cA2.paramDesc
+              pp.moveRefTo(callArgs (unwrap pp2) ctx)
+            }
+          }
+          if (nameNode.hasFlag("returns")) {
+;              print "==> returns flag for " + (callArgs.getLineAsString())
+            def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
+            if (activeFn.nameNode.type_name != "void") {
+              
+              if ( (array_length callArgs.children) < 2 ) {
+                ctx.addError(callArgs " missing return value !!!")
+              } {
+                def returnedValue:CodeNode (itemAt callArgs.children 1)
+                if ((match.doesMatch( (unwrap activeFn.nameNode) returnedValue ctx)) == false) {
+                  if(activeFn.nameNode.ifNoTypeSetToEvalTypeOf( returnedValue)) {
+                    ; sets the type
+                  } {
+                    ctx.addError(returnedValue "invalid return value type!!!")
+                  }
+                }
+                def argNode:CodeNode (unwrap activeFn.nameNode)
+                if( returnedValue.hasFlag("optional")) {
+                  if ( false == (argNode.hasFlag("optional")) ) {
+                      ctx.addError(callArgs ( "function return value optionality does not match, expected non-optional return value, optional given at " + (argNode.getCode())) )      
+                  }
+                }
+                
+                if( argNode.hasFlag("optional")) {
+                  if ( false == (returnedValue.hasFlag("optional")) ) {
+                      ctx.addError(callArgs ( "function return value optionality does not match, expected optional return value " + (argNode.getCode())) )          
+                  }
+                }
+                
+                def pp:RangerAppParamDesc returnedValue.paramDesc
+                if (!null? pp) {
+                  pp.moveRefTo(callArgs activeFn ctx)
+                }
+
+
+              }
+            }
+            if (null? callArgs.parent) {
+              ctx.addError(callArgs "did not have parent")
+              print ("no parent => " + (callArgs.getCode()))
+            }
+            callArgs.parent.didReturnAtIndex = (indexOf callArgs.parent.children callArgs)
+          }
+          if ((nameNode.hasFlag("returns")) == false) {
+            match.setRvBasedOn(nameNode callArgs)
+          }
+          if has_eval_ctx {
+            callArgs.evalCtx = ctx
+          }
+          def nodeP:CodeNode callArgs.parent
+          if (!null? nodeP) {
+          } {
+          }
+          def sig:string (nameNode.buildTypeSignatureUsingMatch(match))
+          ; def ts:RangerTypeClass (callArgs.createTypeSignatureForName(sig ctx))
+          ; callArgs.typeClass = ts
+          some_matched = true
+          callArgs.has_operator = true
+          callArgs.op_index = main_index
+          callArgs.operator_node = ch
+          for args.children arg:CodeNode arg_index {
+            if arg.has_vref_annotation {
+              def anns:CodeNode arg.vref_annotation
+              for anns.children ann:CodeNode i {
+                if (ann.vref == "mutates") {
+                  def theArg:CodeNode (itemAt callArgs.children (arg_index + 1))
+                  if theArg.hasParamDesc {
+                    theArg.paramDesc.set_cnt = (theArg.paramDesc.set_cnt + 1)
+                  }
+                }
+              }
+            }
+          }
+          ; print "some_matched for op operator_node -> " + (ch.getLineAsString())
+          break _
+        }
       }
+    
     }
     if ( require_all_match == true && some_matched == false) {
       ;print "===================== MATCH ERROR 2 ====================="
@@ -675,6 +693,7 @@ class RangerFlowParser {
         ctx.addParserError( callArgs "LANGUAGE_PARSER_ERROR: did not expect generated error, err counts : " + err_cnt + " : " +cnt_now)
       }      
     }
+    ctx.removeOpNs( added_ns )
     return some_matched
   }
   fn cmdImport:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1503,6 +1522,8 @@ class RangerFlowParser {
             this.WalkNode(n2 ctx wr)
             ctx.unsetInExpr()
 
+            this.convertToUnion( n1.eval_type_name n2 ctx wr) 
+
             ; --> should test here
             this.shouldBeEqualTypes( n1 n2 ctx "Can not assign variable.")
 
@@ -1599,6 +1620,7 @@ class RangerFlowParser {
       }
     }
     this.stdParamMatch(node ctx wr true)
+    this.convertToUnion( n1.eval_type_name n2 ctx wr) 
     this.shouldBeEqualTypes( n1 n2 ctx "Can not assign variable.")
   }
   fn EnterTemplateClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -2165,7 +2187,14 @@ class RangerFlowParser {
       node.paramDesc = p
       cn.eval_type = (cn.typeNameAsType(ctx))
       cn.eval_type_name = cn.type_name
+
+
       if ((array_length node.children) > 2) {
+        
+        if(!null? defaultArg) {
+          this.convertToUnion( cn.eval_type_name (unwrap defaultArg) ctx wr) 
+        }
+
         if (cn.eval_type != defaultArg.eval_type) {
           ; TODO: function to check compability
           if( ( cn.eval_type == RangerNodeType.Char &&  defaultArg.eval_type == RangerNodeType.Integer ) ||
@@ -2384,6 +2413,9 @@ class RangerFlowParser {
     if (node.isFirstVref("systemunion")) {
       return true
     }
+    if (node.isFirstVref("union")) {
+      return true
+    }    
     if (node.isFirstVref("Import")) {
       this.cmdImport(node ctx wr)
       return true
@@ -2476,7 +2508,11 @@ class RangerFlowParser {
     if node.expression {
       for node.children item:CodeNode i {
         item.parent = node
-        this.WalkNode(item ctx wr)
+        if(!null? item.evalCtx) {
+          this.WalkNode(item (unwrap item.evalCtx) wr)
+        } {
+          this.WalkNode(item ctx wr)
+        }
         node.copyEvalResFrom(item)
       }
       return true
@@ -2739,7 +2775,9 @@ class RangerFlowParser {
           def opCode (itemAt op.children 3)
 
           def opN@(lives) (new CodeNode ( (unwrap op.code) op.sp op.ep ) )
-          def opName (new CodeNode ( (unwrap op.code) op.sp op.ep ) )
+
+          def opName (nn.copy())
+;          def opName (new CodeNode ( (unwrap op.code) op.sp op.ep ) )
 
           def opSig (nn.rebuildWithType( (new RangerArgMatch) false))
           def opArgs (args.rebuildWithType( (new RangerArgMatch) false))
@@ -2757,7 +2795,10 @@ class RangerFlowParser {
           push opTpls.children opTemplatesMain
 
           push opN.children opName
-          opName.vref = nn.vref
+;          opName.vref = nn.vref
+          if(nn.hasFlag("newcontext")) {
+            opName.setFlag("newcontext")
+          }
           opSig.vref = nn.vref
           push opN.children opSig
 
@@ -2822,6 +2863,21 @@ class RangerFlowParser {
       nameNode.clDesc = new_class
       return
     }
+
+    if (node.isFirstVref("union")) {
+      def nameNode@(lives):CodeNode (node.getSecond())
+      def instances:CodeNode (node.getThird())
+      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+      new_class.name = nameNode.vref
+      new_class.nameNode = nameNode
+      ctx.addClass(nameNode.vref new_class)
+      new_class.is_union = true
+      for instances.children ch:CodeNode i {
+        push new_class.is_union_of ch.vref
+      }
+      nameNode.clDesc = new_class
+      return
+    }    
 
     if (node.isFirstVref("systemunion")) {
       def nameNode@(lives):CodeNode (node.getSecond())
@@ -3534,6 +3590,31 @@ class RangerFlowParser {
     def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
     return cc
   }
+
+  fn convertToUnion( unionName:string node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+      
+      if( (ctx.isDefinedClass(unionName)) ) {
+        def c1:RangerAppClassDesc (ctx.findClass(unionName))
+        if( c1.is_union ) {
+            if( (node.type_name != c1.name) && (node.eval_type_name != c1.name ) ) {
+              def toEx (node.newExpressionNode())
+              def toVref (node.newVRefNode("to"))
+              def argType (node.newVRefNode("_"))
+              def targetNode (node.copy())
+              argType.type_name = unionName
+              toEx.push( toVref )
+              toEx.push( argType )
+              toEx.push( targetNode )
+              node.expression = true
+              node.flow_done = false
+              node.value_type = RangerNodeType.NoType
+              node.getChildrenFrom( toEx )
+              def wr (new CodeWriter)
+              this.WalkNode( node ctx wr )
+            }
+          }
+      }
+  }
   fn areEqualTypes:boolean (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext) {
 
     if ((n1.eval_type != RangerNodeType.NoType) && (n2.eval_type != RangerNodeType.NoType) && ((strlen n1.eval_type_name) > 0) && ((strlen n2.eval_type_name) > 0)) {
@@ -3554,8 +3635,32 @@ class RangerFlowParser {
         }
 
         if( (ctx.isDefinedClass(n1.eval_type_name)) && (ctx.isDefinedClass (n2.eval_type_name))) {
+
             def c1:RangerAppClassDesc (ctx.findClass(n1.eval_type_name))
             def c2:RangerAppClassDesc (ctx.findClass(n2.eval_type_name))
+
+            if( c1.is_union ) {
+                if( c2.is_union == false ) {
+
+                  this.convertToUnion( n1.eval_type_name n2 ctx (new CodeWriter))
+                  if(n2.eval_type_name == n1.eval_type_name) {
+                    return true
+                  } {
+                    return false
+                  }
+                }
+            }
+
+            if( (c2.is_union != c1.is_union ) ) {
+              ctx.addError( n1 ("Can not convert union to type "))
+              return false
+            }      
+
+            if( (c2.is_union == true) && (c1.is_union == true)) {
+              ctx.addError( n1 ("Union types must be the same =>  " + n1.eval_type_name + " <> " + n2.eval_type_name))
+              return false
+            }   
+
             if ( c1.isSameOrParentClass (n2.eval_type_name ctx)) {
                 return true
             }

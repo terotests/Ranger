@@ -9,6 +9,14 @@ class RangerSwift3ClassWriter {
     return tn
   }
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+
+    if(ctx.isDefinedClass(type_string)) {
+      def cc (ctx.findClass(type_string))
+      if(cc.is_union) {
+        return "Any"
+      }
+    }
+
     switch type_string {
 
       case "int" {
@@ -81,6 +89,7 @@ class RangerSwift3ClassWriter {
         def sec:CodeNode (itemAt node.expression_value.children 1)
         def fc:CodeNode (sec.getFirst())
         wr.out("(" false)
+        wr.out("(" false)
         for sec.children arg:CodeNode i {
           if( i > 0 ) {
             wr.out(", " false)
@@ -90,6 +99,7 @@ class RangerSwift3ClassWriter {
         }
         wr.out( ") -> " false)
         this.writeTypeDef( rv ctx wr)
+        wr.out(")" false)
       }      
       case RangerNodeType.Enum {
         wr.out("Int" false)
@@ -123,6 +133,17 @@ class RangerSwift3ClassWriter {
           wr.out("Void" false)
           return
         }
+
+        if(ctx.isDefinedClass(t_name)) {
+          def cc (ctx.findClass(t_name))
+          if(cc.is_union) {
+            wr.out("Any" false)
+            if (node.hasFlag("optional")) {
+              wr.out("?" false)
+            }            
+            return
+          }
+        }        
         wr.out((this.getTypeString(t_name)) false)
       }
     }
@@ -263,6 +284,12 @@ class RangerSwift3ClassWriter {
         wr.out(", " false)
       }
       wr.out((arg.compiledName + " : ") false)
+      def nn (unwrap arg.nameNode)
+      if( nn.hasFlag("strong") ) {
+        if(nn.value_type == RangerNodeType.ExpressionType ) {
+          wr.out("  @escaping  " false)
+        }
+      }
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
     }
   }
@@ -277,6 +304,12 @@ class RangerSwift3ClassWriter {
         wr.out(arg.compiledName + " " , false )
       }
       wr.out(local.compiledName + " : " , false)
+      def nn (unwrap arg.nameNode)
+      if( nn.hasFlag("strong") ) {
+        if(nn.value_type == RangerNodeType.ExpressionType ) {
+          wr.out("  @escaping  " false)
+        }
+      }    
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
     }
   }
@@ -378,9 +411,12 @@ class RangerSwift3ClassWriter {
     def givenArgs:CodeNode (itemAt node.children 1)
     this.WriteVRef(fName ctx wr)
 
+    ;def subCtx (ctx.fork())
+    ;subCtx.setInExpr()
+
     def param (ctx.getVariableDef(fName.vref))
     def args ( itemAt param.nameNode.expression_value.children 1)
-
+    ctx.setInExpr()
     wr.out("(" false)
     for args.children arg:CodeNode i {
         def n:CodeNode (itemAt givenArgs.children i)
@@ -392,6 +428,7 @@ class RangerSwift3ClassWriter {
           this.WalkNode(n ctx wr)
         }
     }
+    ctx.unsetInExpr()
     wr.out(")" false)
     if ((ctx.expressionLevel()) == 0) {
       wr.out("" true)
