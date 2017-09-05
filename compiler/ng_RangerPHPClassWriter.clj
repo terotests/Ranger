@@ -315,7 +315,29 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         this.WalkNode(arg lambdaCtx wr)  
     }    
     wr.out(") " false)
-   
+    
+    ; --> captured 
+    def captCnt 0
+    for lambdaCtx.captured_variables cname:string i {
+      def pp (lambdaCtx.getVariableDef(cname))
+      if(pp.set_cnt == 0) {
+        if(captCnt == 0) {
+          wr.out( "use (", false)
+        } {
+          wr.out(" " false)
+        }
+        wr.out( ("$" + cname) false)
+        captCnt = captCnt + 1
+      } {
+        if(pp.varType == RangerContextVarType.FunctionParameter) {
+          ctx.addError( node "Mutating captured function parameter is not allowed")
+        }        
+      }      
+    }
+    if( captCnt > 0 ) {
+      wr.out(")" false)
+    }
+
     wr.out(" {" true)
     wr.indent(1)
     lambdaCtx.restartExpressionLevel()
@@ -442,14 +464,19 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     def importFork:CodeWriter (wr.fork())
     for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
       if(dd.is_class_variable == false ) {
-        wr.out("// local captured " + dd.name , true)
-        ;print "C++ captured"
-        ;print (dd.node.getLineAsString())
-        dd.node.disabled_node = true
-        cl.addVariable(dd)
-        def csubCtx:RangerAppWriterContext cl.ctx
-        csubCtx.defineVariable(dd.name dd)
-        dd.is_class_variable = true
+        ; capture only if variable is modified...
+        if ( dd.set_cnt > 0 ) {
+          if(dd.varType == RangerContextVarType.FunctionParameter) {
+            ctx.addError( (unwrap dd.nameNode) "Mutating captured function parameter is not allowed")
+            return
+          }         
+          wr.out("// local captured " + dd.name , true)
+          dd.node.disabled_node = true
+          cl.addVariable(dd)
+          def csubCtx:RangerAppWriterContext cl.ctx
+          csubCtx.defineVariable(dd.name dd)
+          dd.is_class_variable = true
+        }
       }
     }   
 
@@ -472,7 +499,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     for cl.variables pvar:RangerAppParamDesc i  {
       this.writeClassVarDef(( unwrap pvar.node ) ctx wr)
     }
-    wr.out("" true)
     wr.out("function __construct(" false)
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
@@ -499,7 +525,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     wr.indent(-1)
     wr.out("}" true)
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      wr.out("" true)
       if (variant.nameNode.hasFlag("main")) {
         continue _
       } {
@@ -526,7 +551,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
          continue
         }
         set declaredFunction variant.name true
-        wr.out("" true)
         wr.out((("function " + variant.compiledName ) + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") {" true)
@@ -546,7 +570,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     for cl.static_methods variant:RangerAppFunctionDesc i {
       ctx.disableCurrentClass()
       ctx.in_static_method = true
-      wr.out("" true)
       if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
         wr.out("/* static PHP main routine */" false)
         wr.newline()

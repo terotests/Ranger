@@ -226,6 +226,9 @@ class CompilerInterface {
             case "rust" {
               importFork.out (( "use " + codeStr + ";") , true)
             }
+            case "java7" {
+              importFork.out (("import "  + codeStr + ";") , true)
+            }            
             case "cpp" {
               importFork.out (( "#include  " + codeStr + "") , true)
             }

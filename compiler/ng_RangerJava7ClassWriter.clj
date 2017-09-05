@@ -568,14 +568,20 @@ class RangerJava7ClassWriter {
 
     for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
       if(dd.is_class_variable == false ) {
-        wr.out("// local captured " + dd.name , true)
-        print "java captured"
-        print (dd.node.getLineAsString())
-        dd.node.disabled_node = true
-        cl.addVariable(dd)
-        def csubCtx:RangerAppWriterContext cl.ctx
-        csubCtx.defineVariable(dd.name dd)
-        dd.is_class_variable = true
+        if ( dd.set_cnt > 0 ) {
+          if(dd.varType == RangerContextVarType.FunctionParameter) {
+            ctx.addError( (unwrap dd.nameNode) "Mutating captured function parameter is not allowed")
+            return
+          }          
+          wr.out("// local captured " + dd.name , true)
+          print "java captured"
+          print (dd.node.getLineAsString())
+          dd.node.disabled_node = true
+          cl.addVariable(dd)
+          def csubCtx:RangerAppWriterContext cl.ctx
+          csubCtx.defineVariable(dd.name dd)
+          dd.is_class_variable = true
+        }
       }
     }    
 

@@ -229,6 +229,7 @@ class RangerAppWriterContext {
     return false
   }
   fn addCapturedVariable:void (name:string) {
+
     if(is_capturing) {
       if ( (indexOf captured_variables name) < 0 ) {
         push captured_variables name
