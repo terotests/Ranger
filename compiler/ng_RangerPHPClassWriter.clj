@@ -273,7 +273,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   }  
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
-    print "--> entering PHP CreateLambdaCall"
     def fName:CodeNode (itemAt node.children 0)
     def givenArgs:CodeNode (itemAt node.children 1)
     this.WriteVRef(fName ctx wr)
@@ -296,9 +295,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     } {
       wr.out(")" false)
     }
-
-    print "--> exiting PHP CreateLambdaCall"
-
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     ; maybe create a new class for certain interface types ???

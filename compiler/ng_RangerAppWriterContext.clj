@@ -41,6 +41,7 @@ class RangerAppWriterContext {
   def function_level_context:boolean false
   def in_main:boolean false
   def is_block:boolean false
+  def is_lambda:boolean false
   def is_capturing:boolean false
   def captured_variables:[string]
   def has_block_exited:boolean false
@@ -98,6 +99,16 @@ class RangerAppWriterContext {
       remove_index opNs idx
     }
   }  
+
+  fn inLambda:boolean () {
+    if( is_lambda ) {
+      return true
+    }
+    if( !null? parent ) {
+      return (parent.inLambda())
+    }
+    return false
+  }
 
   fn writeContextVars( wr:CodeWriter ) {
     localVariables.forEach({

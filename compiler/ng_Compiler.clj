@@ -212,7 +212,13 @@ class CompilerInterface {
           importFork.indent(1)
         }
 
+        def added_import:[string:boolean]
         for import_list codeStr:string i {
+
+          if( has added_import codeStr) {
+            continue
+          }
+          set added_import codeStr true
 
           switch appCtx.targetLangName {
             case "go" {

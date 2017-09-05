@@ -44,6 +44,12 @@ class RangerJava7ClassWriter {
         return "Double"
       }
     }
+    if(ctx.isDefinedClass(type_string)) {
+      def cc (ctx.findClass(type_string))
+      if(cc.is_union) {
+        return "Object"
+      }
+    }
     return type_string
   }
   fn getTypeString:string (type_string:string) {
@@ -66,7 +72,7 @@ class RangerJava7ClassWriter {
       case "double" {
         return "double"
       }
-    }
+    }  
     return type_string
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -224,11 +230,23 @@ class RangerJava7ClassWriter {
           wr.addImport("java.util.*")
         }
         default {
-          if (t_name == "void") {
-            wr.out("void" false)
-          } {
-            wr.out((this.getTypeString(t_name)) , false)
+
+          def b_object_set false
+          if(ctx.isDefinedClass(t_name)) {
+            def cc (ctx.findClass(t_name))
+            if(cc.is_union) {
+              wr.out("Object" false)
+              b_object_set = true
+            }
+          }          
+          if( b_object_set == false) {
+            if (t_name == "void") {
+              wr.out("void" false)
+            } {
+              wr.out((this.getTypeString(t_name)) , false)
+            }
           }
+
         }
       }
     }
@@ -239,7 +257,12 @@ class RangerJava7ClassWriter {
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     if (node.vref == "this") {
-      wr.out("this" false)
+      if( ctx.inLambda() ) {
+        def currC (ctx.getCurrentClass())
+        wr.out( (currC.name + ".this") false)
+      } {
+        wr.out("this" false)
+      } 
       return
     }
 
@@ -261,7 +284,12 @@ class RangerJava7ClassWriter {
         if (i == 0) {
           def part:string (itemAt node.ns 0)
           if(part == "this") {
-            wr.out("this" false)
+            if( ctx.inLambda() ) {
+              def currC (ctx.getCurrentClass())
+              wr.out( (currC.name + ".this") false)
+            } {
+              wr.out("this" false)
+            }            
             continue
           } 
         }
@@ -296,6 +324,13 @@ class RangerJava7ClassWriter {
       if (i > 0) {
         wr.out("." false)
       }
+      if(part == "this") {
+        if( ctx.inLambda() ) {
+          def currC (ctx.getCurrentClass())
+          wr.out( (currC.name + ".this") false)
+          continue
+        }  
+      }          
       wr.out((this.adjustType(part)) false)
     }
   }
@@ -400,7 +435,7 @@ class RangerJava7ClassWriter {
       }
       wr.out(" " false)
       this.writeTypeDef((unwrap arg.nameNode) ctx wr)
-      wr.out(((" " + arg.name) + " ") false)
+      wr.out(((" " + arg.compiledName) + " ") false)
     }
   }
 
@@ -536,6 +571,7 @@ class RangerJava7ClassWriter {
     wr.out(") {" true)
     wr.indent(1)
     lambdaCtx.restartExpressionLevel()
+    lambdaCtx.is_lambda = true
     for body.children item:CodeNode i {
       this.WalkNode(item lambdaCtx wr)
     }
