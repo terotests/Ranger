@@ -16,9 +16,9 @@ operator type:[string:T] all {
 }
 
 operator type:[T] all {
-    fn forEach:void (cb:(_:void (item:T))) {
+    fn forEach:void (cb:(_:void (item:T index:int))) {
         for self it:T i {
-            cb(it)
+            cb(it i)
         }
     }  
 

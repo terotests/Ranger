@@ -285,11 +285,11 @@ class RangerSwift3ClassWriter {
       }
       wr.out((arg.compiledName + " : ") false)
       def nn (unwrap arg.nameNode)
-      if( nn.hasFlag("strong") ) {
+;      if( nn.hasFlag("strong") ) {
         if(nn.value_type == RangerNodeType.ExpressionType ) {
           wr.out("  @escaping  " false)
         }
-      }
+;      }
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
     }
   }
@@ -409,13 +409,22 @@ class RangerSwift3ClassWriter {
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fName:CodeNode (itemAt node.children 0)
     def givenArgs:CodeNode (itemAt node.children 1)
-    this.WriteVRef(fName ctx wr)
 
     ;def subCtx (ctx.fork())
     ;subCtx.setInExpr()
 
     def param (ctx.getVariableDef(fName.vref))
+    def rv ( itemAt param.nameNode.expression_value.children 0)
     def args ( itemAt param.nameNode.expression_value.children 1)
+
+    if ((ctx.expressionLevel()) == 0) {
+      if (rv.type_name != "void") {
+        wr.out("_ = " false)
+      }
+    }
+
+    this.WriteVRef(fName ctx wr)
+    
     ctx.setInExpr()
     wr.out("(" false)
     for args.children arg:CodeNode i {
@@ -445,6 +454,7 @@ class RangerSwift3ClassWriter {
         if (i > 0) {
           wr.out(", " false)
         }
+        ; --> TODO could be walking the node instead of just using the vref
         wr.out(arg.vref  false)
         ; this.writeTypeDef(arg lambdaCtx wr)
     }

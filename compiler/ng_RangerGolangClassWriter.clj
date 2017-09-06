@@ -944,7 +944,8 @@ class RangerGolangClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
-      this.WalkNode(arg lambdaCtx wr)
+      wr.out(arg.vref false)
+      ; this.WalkNode(arg lambdaCtx wr)
       wr.out(" " false)
       if (arg.hasFlag("optional")) {
         wr.out("*GoNullable" false)

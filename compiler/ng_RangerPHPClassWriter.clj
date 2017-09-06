@@ -320,7 +320,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         if(captCnt == 0) {
           wr.out( "use (", false)
         } {
-          wr.out(" " false)
+          wr.out(", " false)
         }
         wr.out( ("$" + cname) false)
         captCnt = captCnt + 1

@@ -72,7 +72,7 @@ class CodeFileSystem {
             print "Writing to file " + file_path + "/" + file.name
             def file_content:string (file.getCode())
             if ((strlen file_content) > 0) {
-                write_file file_path file.name file_content
+                write_file file_path (trim file.name) file_content
             }
         }
     }

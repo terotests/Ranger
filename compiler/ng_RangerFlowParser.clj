@@ -593,17 +593,43 @@ class RangerFlowParser {
           if (nameNode.hasFlag("returns")) {
 ;              print "==> returns flag for " + (callArgs.getLineAsString())
             def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
-            if (activeFn.nameNode.type_name != "void") {
+            if ( (activeFn.nameNode.type_name != "void") || (activeFn.nameNode.value_type == RangerNodeType.ExpressionType)) {
               
               if ( (array_length callArgs.children) < 2 ) {
                 ctx.addError(callArgs " missing return value !!!")
               } {
                 def returnedValue:CodeNode (itemAt callArgs.children 1)
-                if ((match.doesMatch( (unwrap activeFn.nameNode) returnedValue ctx)) == false) {
-                  if(activeFn.nameNode.ifNoTypeSetToEvalTypeOf( returnedValue)) {
-                    ; sets the type
+                def validated_returnvalue false
+                if(activeFn.nameNode.value_type == RangerNodeType.ExpressionType) {
+                  validated_returnvalue = true
+                  ; lambda format of the called function
+                  def fnExpr (activeFn.nameNode.expression_value)
+                  if(null? fnExpr) {
+                    ctx.addError( (unwrap activeFn.nameNode) "returned anonymous function should have a method signature")
                   } {
-                    ctx.addError(returnedValue "invalid return value type!!!")
+                    if( (returnedValue.value_type != RangerNodeType.ExpressionType ) &&
+                        (returnedValue.eval_type != RangerNodeType.ExpressionType) ) {
+                        ctx.addError(returnedValue "Function should return anonymous function!")
+                    } {
+                      
+                      if( returnedValue.hasParamDesc && (!null? returnedValue.paramDesc.nameNode)) {
+                        def rExpr returnedValue.paramDesc.nameNode.expression_value
+                        this.matchLambdaArgs( (unwrap fnExpr) (unwrap rExpr) ctx wr )
+                      } {
+                        def rExpr returnedValue.expression_value
+                        this.matchLambdaArgs( (unwrap fnExpr) (unwrap rExpr) ctx wr )
+                      }
+                    }
+                  }
+                }
+
+                if( validated_returnvalue == false ) {
+                  if ((match.doesMatch( (unwrap activeFn.nameNode) returnedValue ctx)) == false) {
+                    if(activeFn.nameNode.ifNoTypeSetToEvalTypeOf( returnedValue)) {
+                      ; sets the type
+                    } {
+                      ctx.addError(returnedValue "invalid return value type!!!")
+                    }
                   }
                 }
                 def argNode:CodeNode (unwrap activeFn.nameNode)
@@ -1141,6 +1167,83 @@ class RangerFlowParser {
     
     return true
   }  
+ 
+  ; getAnon:(_:string ( n:string )) () 
+  ; (fn:string (nn:string) {
+  fn matchLambdaArgs:boolean (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def chLen1 (array_length n1.children)
+    def chLen2 (array_length n2.children)
+    if(chLen1 < 2) {
+      ctx.addError(n1 "Invalid Lambda definition, missing args or return value")
+      return false
+    }
+    if(chLen2 < 2) {
+      ctx.addError(n2 "Invalid Lambda definition, missing args or return value")
+      return false
+    }
+    ; create copies, just in case...
+    def rv1 (n1.getFirst())
+    def args1 (n1.getSecond())
+    def rv2 (n2.getFirst())
+    def args2 (n2.getSecond())
+
+    def rvExpr1 (n1.newExpressionNode())
+    rvExpr1.push( (rv1.copy()) )
+    def rvExpr2 (n2.newExpressionNode())
+    rvExpr2.push( (rv2.copy()) )
+
+    def argsExpr1 (args1.copy())
+    def argsExpr2 (args2.copy())
+
+    def all_matched true
+
+    if( (array_length argsExpr1.children) != (array_length argsExpr2.children) ) {
+      ctx.addError(n2 "Invalid parameter count for the lambda expression")
+      return false
+    }
+
+    argsExpr1.children.forEach({
+      def item2 (itemAt argsExpr2.children index)
+      if ( item2.value_type != item.value_type ) {
+        all_matched = false
+      }
+      if ( item2.type_name != item.type_name ) {
+        all_matched = false
+      }
+      if ( item2.array_type != item.array_type ) {
+        all_matched = false
+      }
+      if ( item2.key_type != item.key_type ) {
+        all_matched = false
+      }
+    })
+    if( all_matched == false) {
+      ctx.addError(n2 "Invalid lambda argument types")
+      return false
+    }
+
+    rvExpr1.children.forEach({
+      def item2 (itemAt rvExpr2.children index)
+      if ( item2.value_type != item.value_type ) {
+        all_matched = false
+      }
+      if ( item2.type_name != item.type_name ) {
+        all_matched = false
+      }
+      if ( item2.array_type != item.array_type ) {
+        all_matched = false
+      }
+      if ( item2.key_type != item.key_type ) {
+        all_matched = false
+      }
+    })
+
+    if( all_matched == false) {
+      ctx.addError(n2 "Invalid lambda return value type")
+      return false
+    }     
+    return true
+  }
 
   fn cmdLocalCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     ; " 
@@ -1284,6 +1387,11 @@ class RangerFlowParser {
         node.eval_array_type = nn.array_type
         node.eval_key_type = nn.key_type
 
+        if(node.eval_type == RangerNodeType.ExpressionType) {
+;           console.log("Call expression ", vFnDef.name, nn.expression_value.getCode())
+          node.expression_value = (nn.expression_value.copy())
+        }
+
         if(nn.hasFlag("optional")) {
           node.setFlag("optional")
         }
@@ -1359,6 +1467,10 @@ class RangerFlowParser {
         d.ref_cnt = (1 + d.ref_cnt)
 
         if(d.nameNode.value_type == RangerNodeType.ExpressionType) {
+
+          def cnNode1 (itemAt node.children 0)
+          this.WalkNode(cnNode1 ctx wr)
+          
           def lambdaDefArgs (itemAt d.nameNode.expression_value.children 1)
           def callParams:CodeNode (itemAt node.children 1)
           for callParams.children arg:CodeNode i {
@@ -1369,6 +1481,35 @@ class RangerFlowParser {
           ; function return value should be assigned 
           def lambdaDef (itemAt d.nameNode.expression_value.children 0)
           def lambdaArgs (itemAt d.nameNode.expression_value.children 1)
+
+          def all_matched true
+          if( (array_length callParams.children) != (array_length lambdaArgs.children) ) {
+            ctx.addError(node "Invalid parameter count for the lambda expression")
+          }
+
+          lambdaArgs.children.forEach({
+            def item2 (itemAt callParams.children index)
+            ; note: eval types can be different
+            if ( item2.eval_type_name != item.type_name ) {
+              print "--> eval eval_type_name " + item2.eval_type_name + " <> " + item.type_name
+              all_matched = false
+            }
+            if ( item2.eval_array_type != item.array_type ) {
+              print "--> eval eval_array_type " + item2.eval_array_type + " <> " + item.array_type
+              all_matched = false
+            }
+            if ( item2.eval_key_type != item.key_type ) {
+              print "--> eval eval_key_type " + item2.eval_key_type + " <> " + item.key_type
+              all_matched = false
+            }
+          })
+          if( all_matched == false) {
+            ctx.addError(node "Invalid types for lambda call")
+          }
+
+          ; matchLambdaArgs
+
+
           ; TODO: check the lambda function call arguments....
           ;for lambdaArgs.children lArg:CodeNode i {
           ;  lArg.defineNodeTypeTo( lArg ctx )
@@ -1898,6 +2039,7 @@ class RangerFlowParser {
     node.lambda_ctx = subCtx
     node.eval_type = RangerNodeType.ExpressionType
     node.eval_function = node
+    node.expression_value = (node.copy())
   }
 
   ; myClass@(xxx)
@@ -3616,6 +3758,28 @@ class RangerFlowParser {
       }
   }
   fn areEqualTypes:boolean (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext) {
+
+    if(n1.eval_type == RangerNodeType.ExpressionType) {
+
+      def n1Expr@(weak) (n1.expression_value)
+      def n2Expr@(weak) (n2.expression_value)
+
+      if(null? n1Expr) {
+        if(n1.hasParamDesc && (!null? n1.paramDesc.nameNode)) {
+          n1Expr = n1.paramDesc.nameNode.expression_value
+        }
+      }
+      if(null? n2Expr) {
+        if(n2.hasParamDesc && (!null? n2.paramDesc.nameNode)) {
+          n2Expr = n2.paramDesc.nameNode.expression_value
+        }
+      }
+      if( (!null? n1Expr) && (!null? n2Expr) ) {
+        return (this.matchLambdaArgs( (unwrap n1Expr) (unwrap n2Expr) ctx (new CodeWriter)))
+      }
+      ctx.addError(n2 "Was not able to evaluate lambda expression types")
+      return false
+    }    
 
     if ((n1.eval_type != RangerNodeType.NoType) && (n2.eval_type != RangerNodeType.NoType) && ((strlen n1.eval_type_name) > 0) && ((strlen n2.eval_type_name) > 0)) {
       if (n1.eval_type_name == n2.eval_type_name) {
