@@ -363,6 +363,10 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       }
     } {
       ; print "no expression, exiting"
+      if(node.value_type == RangerNodeType.ExpressionType) {
+        this.WriteVRef(node ctx wr)
+      }
+
     }
   }
   fn walkCommandList:void (cmd:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {

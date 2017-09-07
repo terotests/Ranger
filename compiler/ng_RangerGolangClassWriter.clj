@@ -284,8 +284,17 @@ class RangerGolangClassWriter {
         if(ctx.isDefinedClass(t_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
           b_iface = cc.is_interface
+          if(cc.is_system) {
+            def sysName (get cc.systemNames "go")
+            if(!null? sysName) {
+              wr.out( (unwrap sysName) false)
+            } {
+              ctx.addError(node ( "No system class " + t_name +  "defined for Go "))
+            }
+            return
+          }
         }
-
+        
         if(ctx.isDefinedClass(t_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
 

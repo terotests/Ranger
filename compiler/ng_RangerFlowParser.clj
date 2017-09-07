@@ -1216,6 +1216,11 @@ class RangerFlowParser {
       if ( item2.key_type != item.key_type ) {
         all_matched = false
       }
+      if ( all_matched && item.value_type == RangerNodeType.ExpressionType ) {
+       if( false == (this.matchLambdaArgs( (unwrap item.expression_value) (unwrap item2.expression_value) ctx wr) ) ) {
+         all_matched = false
+       }
+      }
     })
     if( all_matched == false) {
       ctx.addError(n2 "Invalid lambda argument types")
@@ -1235,6 +1240,11 @@ class RangerFlowParser {
       }
       if ( item2.key_type != item.key_type ) {
         all_matched = false
+      }
+      if ( all_matched && item.value_type == RangerNodeType.ExpressionType ) {
+       if( false == (this.matchLambdaArgs( (unwrap item.expression_value) (unwrap item2.expression_value) ctx wr) ) ) {
+         all_matched = false
+       }
       }
     })
 
@@ -1953,7 +1963,6 @@ class RangerFlowParser {
     }
   }
 
-  ; (fun:int 8)
   fn EnterLambdaMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def args:CodeNode (itemAt node.children 1)

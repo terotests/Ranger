@@ -15,6 +15,16 @@ class RangerSwift3ClassWriter {
       if(cc.is_union) {
         return "Any"
       }
+
+      if(cc.is_system) {
+        def sysName (get cc.systemNames "swift3")
+        if(!null? sysName) {
+          return (unwrap sysName)
+        } {
+          def node (new CodeNode( (new SourceCode("")) 0 0 ))
+          ctx.addError(node ( "No system class " + type_string +  "defined for Swift "))
+        }
+      }      
     }
 
     switch type_string {
@@ -143,6 +153,17 @@ class RangerSwift3ClassWriter {
             }            
             return
           }
+
+          if(cc.is_system) {
+            def sysName (get cc.systemNames "swift3")
+            if(!null? sysName) {
+              wr.out( (unwrap sysName) false)
+            } {
+              ctx.addError(node ( "No system class " + t_name +  "defined for Swift "))
+            }
+            return
+          }      
+
         }        
         wr.out((this.getTypeString(t_name)) false)
       }
