@@ -103,7 +103,7 @@ class RangerRangerClassWriter {
     wr.out("(" false)
     for args.children arg:CodeNode i {
       if (i > 0) {
-        wr.out(", " false)
+        wr.out(" " false)
       }
       this.WalkNode( arg ctx wr)
     }

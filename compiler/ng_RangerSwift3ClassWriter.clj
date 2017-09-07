@@ -341,8 +341,6 @@ class RangerSwift3ClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      print "Swift call expression : target class == " + (obj.eval_type_name)
-
       wr.out("(" false)
       ctx.setInExpr()
       this.WalkNode( obj ctx wr)
@@ -360,7 +358,6 @@ class RangerSwift3ClassWriter {
         ; this.WalkNode(arg ctx wr)
         ; got to find the target method somehow here...
         ; Continue the swift compiler here...
-        print "call expression : target class == " + (obj.eval_type_name)
 
         if( ctx.isDefinedClass(obj.eval_type_name)) {
           def clDef (ctx.findClass(obj.eval_type_name))

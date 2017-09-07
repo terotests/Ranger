@@ -1288,7 +1288,7 @@ inline std::string  r_cpp_trim(std::string &s)
                 ; TODO: C++ version, requires perhaps external lib to do it directly to vector<std::string>
                 scala ( (e 1) ".split(" (e 2) ").to[collection.mutable.ArrayBuffer]")  
                 csharp ( (e 1) ".Split(" (e 2) ")")
-                swift3 ( (e 1) ".components( separatedBy : " (e 2) ")")
+                swift3 ( (e 1) ".components( separatedBy : " (e 2) ")" (imp "Foundation"))
                 java7( "new ArrayList<String>(Arrays.asList(" (e 1) ".split(" (e 2) ")))" )
                 php ( "explode(" (e 2) ", " (e 1) ")")               
                 go ("strings.Split(" (e 1) ", " (e 2) ")" (imp "strings"))
@@ -1470,6 +1470,7 @@ std::vector<std::string> r_str_split(std::string str, std::string  delimiter) {
                 swift3 ("Array(" (e 1) ".keys)")
                 php ("array_keys(" (e 1) ")")
                 es6 ( "Object.keys(" (e 1) ")")
+                java7 ( "new ArrayList<>(" (e 1) ".keySet())")
                 go ("(func() []string {" nl I
                         "keys := reflect.ValueOf(" (e 1) ").MapKeys()" nl
                         "strkeys := make([]string, len(keys))" nl

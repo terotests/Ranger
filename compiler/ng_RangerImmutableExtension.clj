@@ -34,6 +34,17 @@ class RangerImmutableExtension {
                 }
             }
         }
+
+        wr.out("fn __CopySelf:" + cl.name + " () {" , true)
+        wr.indent(1)
+        wr.out("def res (new " + cl.name + ")" , true)
+        for cl.variables ivar:RangerAppParamDesc ii {
+            wr.out("res."+ivar.compiledName + " = this." + ivar.compiledName , true)                    
+        }
+        wr.out("return res" true)
+        wr.indent(-1)
+        wr.out("}" true)
+
         for cl.variables pvar:RangerAppParamDesc i {
             if( has declaredVariable pvar.name ) {
                 continue
@@ -44,13 +55,11 @@ class RangerImmutableExtension {
 ;                print "Immutable type -> " + (this.typeDefOf(pvar))
                 wr.out("fn set_" + pvar.name + ":" + cl.name + " (new_value_of_" + pvar.name + ":" + (this.typeDefOf(pvar)) + ") {" , true)
                 wr.indent(1)
-                wr.out("def res (new " + cl.name + ")" , true)
+                wr.out("def res (this.__CopySelf())" , true)
                 for cl.variables ivar:RangerAppParamDesc ii {
                     if( ivar == pvar ) {
                         wr.out("res."+pvar.compiledName + " = new_value_of_" + pvar.name , true)
-                    } {
-                        wr.out("res."+ivar.compiledName + " = this." + ivar.compiledName , true)                    
-                    }
+                    } 
                 }
                 wr.out("return res" true)
                 wr.indent(-1)

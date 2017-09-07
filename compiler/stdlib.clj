@@ -275,6 +275,36 @@ trait Vector @params( T S ) {
 
 operator type:Vector all {
 
+    ; TODO: strict type checking for this
+    fn for (iIndex@(ignore):T iteIndex@(ignore):int code:block ) (        
+        "def " (e 3) ":int 0" nl
+        "def loop_cnt (" (e 1) ".count())" nl
+        "while( " (e 3) "  < loop_cnt ) {" nl
+            I 
+            "def " (e 2) " (" (e 1) ".get(" (e 3) "))" nl
+            (block 4)
+            (e 3) " = " (e 3) " + 1" nl
+            i
+        "}" nl
+    )
+
+    fn indexOf:int ( elem:T ) {
+        def cnt (self.count())
+        def i 0
+        while( i < cnt ) {
+            def item (itemAt self i)
+            if(item == elem) {
+                return i
+            }
+            i = i + 1
+        }        
+        return -1
+    }
+    fn clear:T (idx:int) { 
+        ; def val (self.get(idx))
+        return (new T)
+    }     
+
     fn itemAt:T (idx:int) { 
         def val (self.get(idx))
         return val
