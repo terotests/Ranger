@@ -1970,7 +1970,7 @@ class RangerFlowParser {
     def subCtx:RangerAppWriterContext (ctx.fork())
 
     if(ctx.isInStatic()) {
-      ctx.addError(node "Lambda definitions in static context are not allowed")
+      ; ctx.addError(node "Lambda definitions in static context are not allowed")
     }
     subCtx.is_capturing = true
 

@@ -1242,52 +1242,50 @@ class RangerGolangClassWriter {
     wr.indent(-1)
     wr.out("}" true)
 
-
-    wr.out((("type IFACE_" + cl.name) + " interface { ") true)
-    wr.indent(1)
-    for cl.variables p:RangerAppParamDesc i {
-
-        wr.out("Get_" false)
-        wr.out((p.compiledName + "() ") false)
-        if (p.nameNode.hasFlag("optional")) {
-          wr.out("*GoNullable" false)
-        } {
-          this.writeTypeDef(( unwrap p.nameNode )ctx wr)
+    if(cl.doesInherit()) {
+      wr.out((("type IFACE_" + cl.name) + " interface { ") true)
+      wr.indent(1)
+      for cl.variables p:RangerAppParamDesc i {
+          wr.out("Get_" false)
+          wr.out((p.compiledName + "() ") false)
+          if (p.nameNode.hasFlag("optional")) {
+            wr.out("*GoNullable" false)
+          } {
+            this.writeTypeDef(( unwrap p.nameNode )ctx wr)
+          }
+          wr.out("" true)
+          wr.out("Set_" false)
+          wr.out(p.compiledName + "(value " , false )
+          if (p.nameNode.hasFlag("optional")) {
+            wr.out("*GoNullable" false)
+          } {
+            this.writeTypeDef(( unwrap p.nameNode )ctx wr)
+          }
+          wr.out(") " true)       
+      }
+      for cl.defined_variants fnVar:string i {
+        def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc i {
+          if(has declaredIfFunction variant.name) {
+            continue
+          }
+          set declaredIfFunction variant.name true         
+          wr.out( variant.compiledName + "(" , false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(") " false)
+          if (variant.nameNode.hasFlag("optional")) {
+            wr.out("*GoNullable" false)
+          } {
+            this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
+          }
+          wr.out("" true)
         }
-        wr.out("" true)
-
-        wr.out("Set_" false)
-        wr.out(p.compiledName + "(value " , false )
-
-        if (p.nameNode.hasFlag("optional")) {
-          wr.out("*GoNullable" false)
-        } {
-          this.writeTypeDef(( unwrap p.nameNode )ctx wr)
-        }
-
-        wr.out(") " true)       
+      }     
+      wr.indent(-1)
+      wr.out("}" true)    
+      
     }
 
-    for cl.defined_variants fnVar:string i {
-      def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
-      for mVs.variants variant:RangerAppFunctionDesc i {
-        if(has declaredIfFunction variant.name) {
-          continue
-        }
-        set declaredIfFunction variant.name true         
-        wr.out( variant.compiledName + "(" , false)
-        this.writeArgsDef(variant ctx wr)
-        wr.out(") " false)
-        if (variant.nameNode.hasFlag("optional")) {
-          wr.out("*GoNullable" false)
-        } {
-          this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
-        }
-        wr.out("" true)
-      }
-    }     
-    wr.indent(-1)
-    wr.out("}" true)    
 
 
     thisName = "me"
@@ -1369,8 +1367,6 @@ class RangerGolangClassWriter {
             wr.out((("me." + pvar.compiledName) + " = new(GoNullable);") true)
           }
         }
-
-
         if pC.has_constructor {
           def constr:RangerAppFunctionDesc pC.constructor_fn
           def subCtx:RangerAppWriterContext ( unwrap constr.fnCtx )
@@ -1495,54 +1491,12 @@ class RangerGolangClassWriter {
 
     def declaredGetter:[string:boolean]
 
-    for cl.variables p:RangerAppParamDesc i {
+    if(cl.doesInherit()) {
 
-        set declaredGetter p.name true
+      for cl.variables p:RangerAppParamDesc i {
 
-        wr.newline()
-        wr.out("// getter for variable " + p.name , true)
-        wr.out( "func (this *" + cl.name + ") " , false)
-        wr.out("Get_" false)
-        wr.out((p.compiledName + "() ") false)
-        if (p.nameNode.hasFlag("optional")) {
-          wr.out("*GoNullable" false)
-        } {
-          this.writeTypeDef(( unwrap p.nameNode )ctx wr)
-        }
-        wr.out(" {" true)
-          wr.indent(1)
-          wr.out("return this." + p.compiledName , true)
-          wr.indent(-1)
-        wr.out("}" true)
+          set declaredGetter p.name true
 
-        wr.newline()
-        wr.out("// setter for variable " + p.name , true)
-        wr.out( "func (this *" + cl.name + ") " , false)
-        wr.out("Set_" false)
-        wr.out(p.compiledName + "( value " , false)
-        if (p.nameNode.hasFlag("optional")) {
-          wr.out("*GoNullable" false)
-        } {
-          this.writeTypeDef(( unwrap p.nameNode )ctx wr)
-        }        
-        wr.out(") " false)
-
-        wr.out(" {" true)
-          wr.indent(1)
-          wr.out("this." + p.compiledName +" = value " , true)
-          wr.indent(-1)
-        wr.out("}" true)     
-    }    
-
-    if ( ( array_length cl.extends_classes ) > 0 ) { 
-      for cl.extends_classes pName:string i {
-        def pC:RangerAppClassDesc (ctx.findClass(pName))
-        wr.out("// inherited getters and setters from the parent class " + pName , true)
-        for pC.variables p:RangerAppParamDesc i {
-
-          if( has declaredGetter p.name ) {
-            continue
-          }
           wr.newline()
           wr.out("// getter for variable " + p.name , true)
           wr.out( "func (this *" + cl.name + ") " , false)
@@ -1560,7 +1514,7 @@ class RangerGolangClassWriter {
           wr.out("}" true)
 
           wr.newline()
-          wr.out("// getter for variable " + p.name , true)
+          wr.out("// setter for variable " + p.name , true)
           wr.out( "func (this *" + cl.name + ") " , false)
           wr.out("Set_" false)
           wr.out(p.compiledName + "( value " , false)
@@ -1575,7 +1529,52 @@ class RangerGolangClassWriter {
             wr.indent(1)
             wr.out("this." + p.compiledName +" = value " , true)
             wr.indent(-1)
-          wr.out("}" true) 
+          wr.out("}" true)     
+      }    
+
+      if ( ( array_length cl.extends_classes ) > 0 ) { 
+        for cl.extends_classes pName:string i {
+          def pC:RangerAppClassDesc (ctx.findClass(pName))
+          wr.out("// inherited getters and setters from the parent class " + pName , true)
+          for pC.variables p:RangerAppParamDesc i {
+
+            if( has declaredGetter p.name ) {
+              continue
+            }
+            wr.newline()
+            wr.out("// getter for variable " + p.name , true)
+            wr.out( "func (this *" + cl.name + ") " , false)
+            wr.out("Get_" false)
+            wr.out((p.compiledName + "() ") false)
+            if (p.nameNode.hasFlag("optional")) {
+              wr.out("*GoNullable" false)
+            } {
+              this.writeTypeDef(( unwrap p.nameNode )ctx wr)
+            }
+            wr.out(" {" true)
+              wr.indent(1)
+              wr.out("return this." + p.compiledName , true)
+              wr.indent(-1)
+            wr.out("}" true)
+
+            wr.newline()
+            wr.out("// getter for variable " + p.name , true)
+            wr.out( "func (this *" + cl.name + ") " , false)
+            wr.out("Set_" false)
+            wr.out(p.compiledName + "( value " , false)
+            if (p.nameNode.hasFlag("optional")) {
+              wr.out("*GoNullable" false)
+            } {
+              this.writeTypeDef(( unwrap p.nameNode )ctx wr)
+            }        
+            wr.out(") " false)
+
+            wr.out(" {" true)
+              wr.indent(1)
+              wr.out("this." + p.compiledName +" = value " , true)
+              wr.indent(-1)
+            wr.out("}" true) 
+          }
         }
       }
     }
