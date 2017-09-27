@@ -1,5 +1,5 @@
 
-Enum DictNodeType:int (
+enum DictNodeType {
   NoType
   Double
   Integer
@@ -8,7 +8,7 @@ Enum DictNodeType:int (
   Array
   Object
   Null
-)
+}
 
 class DictNode {
   def is_property:boolean false

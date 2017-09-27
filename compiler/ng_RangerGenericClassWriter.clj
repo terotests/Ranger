@@ -2,6 +2,8 @@
 class RangerGenericClassWriter {
 
   def compiler:LiveCompiler
+  def compFlags:[string:boolean]
+  
 
 fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def encoded_str:string ""
@@ -272,6 +274,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     for args.children arg:CodeNode i {
       if (i > 0) {
         wr.out(", " false)
+      }
+      if(arg.flow_done == false) {
+        this.compiler.parser.WalkNode( arg lambdaCtx wr)  
       }
       this.WalkNode(arg lambdaCtx wr)
     }

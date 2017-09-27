@@ -54,11 +54,57 @@ class RangerCSharpClassWriter {
     return type_string
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    def v_type:RangerNodeType node.value_type
+    def v_type:RangerNodeType node.value_type    
+    def t_name:string node.type_name
+    def a_name:string node.array_type
+    def k_name:string node.key_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (node.typeNameAsType(ctx))
+    }
     if (node.eval_type != RangerNodeType.NoType) {
       v_type = node.eval_type
+      if ( (strlen node.eval_type_name) > 0 ) {
+        t_name = node.eval_type_name
+      }
+      if ( (strlen node.eval_array_type) > 0 ) {
+        a_name = node.eval_array_type
+      }
+      if ( (strlen node.eval_key_type) > 0 ) {
+        k_name = node.eval_key_type
+      }
     }
+
     switch v_type {
+
+      case RangerNodeType.ExpressionType {
+        def rv:CodeNode (itemAt node.expression_value.children 0)
+        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def fc:CodeNode (sec.getFirst())
+;        this.import_lib("<functional>" ctx wr)
+        def is_void false
+        if(rv.type_name == "void" || rv.eval_type_name == "void") {
+          is_void = true
+        }
+        if is_void {
+          wr.out("Action<" false)
+        } {
+          wr.out("Func<" false)
+        }
+        for sec.children arg:CodeNode i {
+          if( i > 0 ) {
+            wr.out(", " false)
+          }
+          this.writeTypeDef( arg ctx wr)
+        }
+        if( is_void == false ) {
+          if( (array_length sec.children) > 0 ) {
+            wr.out(", " false)
+          }
+          this.writeTypeDef( rv ctx wr)
+        }
+        wr.out(">" false)
+      }   
+      
       case RangerNodeType.Enum {
         wr.out("int" false)
       }
@@ -83,10 +129,12 @@ class RangerCSharpClassWriter {
       case RangerNodeType.Hash {
         wr.out((((("Dictionary<" + (this.getObjectTypeString(node.key_type ctx))) + ",") + (this.getObjectTypeString(node.array_type ctx))) + ">") false)
         wr.addImport("System.Collections")
+        wr.addImport("System.Collections.Generic")
       }
       case RangerNodeType.Array {
         wr.out((("List<" + (this.getObjectTypeString(node.array_type ctx))) + ">") false)
         wr.addImport("System.Collections")
+        wr.addImport("System.Collections.Generic")
       }
       default {
         if (node.type_name == "void") {
@@ -96,9 +144,10 @@ class RangerCSharpClassWriter {
         }
       }
     }
-    if (node.hasFlag("optional")) {
-      wr.out("?" false)
-    }
+
+    ; if (node.hasFlag("optional")) {
+    ;   wr.out("?" false)
+    ; }
   }
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.eval_type == RangerNodeType.Enum) {
@@ -117,6 +166,21 @@ class RangerCSharpClassWriter {
         if (i > 0) {
           wr.out("." false)
         }
+  
+        if (i == 0) {
+          def part:string (itemAt node.ns 0)
+          if(part == "this") {
+            if( ctx.inLambda() ) {
+              wr.out("this" false)
+              ; def currC (ctx.getCurrentClass())
+              ; wr.out( (currC.name + ".this") false)
+            } {
+              wr.out("this" false)
+            }            
+            continue
+          } 
+        }
+
         if (i == 0) {
           if (p.nameNode.hasFlag("optional")) {
           }
@@ -155,7 +219,8 @@ class RangerCSharpClassWriter {
       if ((p.set_cnt > 0) || p.is_class_variable) {
         wr.out("" false)
       } {
-        wr.out("const " false)
+        ; const could be set here, if detected correctly
+        wr.out("" false)
       }
       this.writeTypeDef(( unwrap p.nameNode ) ctx wr)
       wr.out(" " false)
@@ -197,7 +262,7 @@ class RangerCSharpClassWriter {
       }
       wr.out(" " false)
       this.writeTypeDef( (unwrap arg.nameNode ) ctx wr)
-      wr.out(((" " + arg.name) + " ") false)
+      wr.out(((" " + arg.compiledName) + " ") false)
     }
   }
 
@@ -206,8 +271,18 @@ class RangerCSharpClassWriter {
     if (null? cl) {
       return
     }
-    def wr:CodeWriter (orig_wr.getFileWriter("." (cl.name + ".cs")))
-    def importFork:CodeWriter (wr.fork())
+
+    def wr orig_wr
+
+    ; def wr:CodeWriter (orig_wr.getFileWriter("." (cl.name + ".cs")))
+    ; def importFork:CodeWriter (wr.fork())
+    
+    this.import_lib("System" ctx wr)
+
+    wr.out("" true)
+    wr.createTag("utilities")
+    wr.out("" true)
+    
     wr.out("" true)
     wr.out((("class " + cl.name) + " {") true)
     wr.indent(1)
@@ -236,7 +311,7 @@ class RangerCSharpClassWriter {
         continue
       }
       if (variant.nameNode.hasFlag("main")) {
-        wr.out("static int Main( string [] args ) {" true)
+        wr.out("static void Main( string [] args ) {" true)
       } {
         wr.out("public static " false)
         this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
@@ -276,10 +351,6 @@ class RangerCSharpClassWriter {
     }
     wr.indent(-1)
     wr.out("}" true)
-    def import_list:[string] (wr.getImports())
-    for import_list codeStr:string i {
-      importFork.out(("using " + codeStr + ";") true)
-    }
   }
 }
 

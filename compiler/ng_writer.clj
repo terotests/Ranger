@@ -58,7 +58,7 @@ class CodeFileSystem {
         def parts:[string] (strsplit path "/")
         def curr_path:string ""
         for parts p:string i {
-            curr_path = curr_path + "/" + p
+            curr_path = curr_path + p + "/"
             if (false == (dir_exists curr_path)) {
                 create_dir curr_path
             }

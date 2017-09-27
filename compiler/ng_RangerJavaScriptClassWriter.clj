@@ -214,15 +214,24 @@ class RangerJavaScriptClassWriter {
   }
 
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+
     def cl:RangerAppClassDesc node.clDesc
+    def is_react_native:boolean false
+    def is_rn_default false
 
     if(cl.is_interface) {
       orig_wr.out("// interface : " + cl.name , true)
       return
     }
-
     if (null? cl) {
       return
+    }
+    if(cl.nameNode.hasFlag("ReactNative")) {
+      is_react_native = true
+      set this.compFlags "ReactNative" true
+    }
+    if(cl.nameNode.hasFlag("default")) {
+      is_rn_default = true
     }
     def wr:CodeWriter orig_wr
     def importFork:CodeWriter (wr.fork())
@@ -230,50 +239,64 @@ class RangerJavaScriptClassWriter {
       wr.out("" true)
       wrote_header = true
     }
-
     def b_extd:boolean false
-    wr.out("class " + cl.name +" " , false)
-    
-    for cl.extends_classes pName:string i {
-      if( i == 0) {
-        wr.out(" extends " false)
+
+    if( is_react_native ) {
+      wr.out("export " false)
+      if(is_rn_default) {
+        wr.out(" default " false)
       }
-      wr.out(pName false)
-      b_extd = true
     }
 
+    wr.out("class " + cl.name +" " , false)
+    
+    if is_react_native {
+      wr.out(" extends Component " false)
+    } {
+      for cl.extends_classes pName:string i {
+        if( i == 0) {
+          wr.out(" extends " false)
+        }
+        wr.out(pName false)
+        b_extd = true
+      }
+    }
     
     wr.out( " {" true)
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
       this.writeClassVarDef(( unwrap pvar.node ) ctx wr)
     }
+
+    if(is_react_native == false) {
+
     wr.out("constructor(" false)
     
-    if cl.has_constructor {
-      def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
-      this.writeArgsDef(constr ctx wr)
-    }
-    wr.out(") {" true)
-    wr.indent(1)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        this.writeArgsDef(constr ctx wr)
+      }
+      wr.out(") {" true)
+      wr.indent(1)
 
-    if(b_extd) {
-      wr.out("super()" true)
-    }
+      if(b_extd) {
+        wr.out("super()" true)
+      }
 
-    for cl.variables pvar:RangerAppParamDesc i {
-      this.writeVarInitDef(( unwrap pvar.node ) ctx wr)
-    }
-    if cl.has_constructor {
-      def constr:RangerAppFunctionDesc cl.constructor_fn
+      for cl.variables pvar:RangerAppParamDesc i {
+        this.writeVarInitDef(( unwrap pvar.node ) ctx wr)
+      }
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc cl.constructor_fn
+        wr.newline()
+        def subCtx:RangerAppWriterContext ( unwrap constr.fnCtx )
+        subCtx.is_function = true
+        this.WalkNode(( unwrap constr.fnBody ) subCtx wr)
+      }
       wr.newline()
-      def subCtx:RangerAppWriterContext ( unwrap constr.fnCtx )
-      subCtx.is_function = true
-      this.WalkNode(( unwrap constr.fnBody ) subCtx wr)
+      wr.indent(-1)
+      wr.out("}" true)
     }
-    wr.newline()
-    wr.indent(-1)
-    wr.out("}" true)
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {

@@ -464,18 +464,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         if ( dd.set_cnt > 0 ) {
           ctx.addError( (unwrap dd.nameNode) "Mutating captured variable is not allowed")
           return
-;          wr.out("// local captured " + dd.name , true)
-;          dd.node.disabled_node = true
-;          cl.addVariable(dd)
-;          def csubCtx:RangerAppWriterContext cl.ctx
-;          csubCtx.defineVariable(dd.name dd)
-;          dd.is_class_variable = true
         }
       }
     }   
 
     if (wrote_header == false) {
-      wr.out("<? " true)
+      wr.out("<?php " true)
       wr.out("" true)
       wrote_header = true
     }

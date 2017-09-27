@@ -55,7 +55,7 @@ class RangerJava7ClassWriter {
   fn getTypeString:string (type_string:string) {
     switch type_string {
       case "int" {
-        return "int"
+        return "Integer"
       }
       case "string" {
         return "String"
@@ -67,10 +67,10 @@ class RangerJava7ClassWriter {
         return "byte"
       }
       case "boolean" {
-        return "boolean"
+        return "Boolean"
       }
       case "double" {
-        return "double"
+        return "Double"
       }
     }  
     return type_string
@@ -98,8 +98,8 @@ class RangerJava7ClassWriter {
       }
     }
     if (node.hasFlag("optional")) {
-      wr.addImport("java.util.Optional")
-      wr.out("Optional<" false)
+      ;wr.addImport("java.util.Optional")
+      ;wr.out("Optional<" false)
       switch v_type {
         ; ClojureInterface1
         case RangerNodeType.ExpressionType {
@@ -112,6 +112,12 @@ class RangerJava7ClassWriter {
             def args (itemAt node.expression_value.children 1)
             set iface_created iface_name true
             def utilWr (wr.getFileWriter("." (iface_name + ".java")))
+
+            def package_name (ctx.getCompilerSetting("package"))
+            if( (strlen package_name) > 0) {
+              utilWr.out("package " + package_name + ";" , true)
+            }
+            
             utilWr.out("public interface " + iface_name + " { " , true)
             utilWr.indent(1)
             utilWr.out("public " false)
@@ -181,6 +187,11 @@ class RangerJava7ClassWriter {
             def args (itemAt node.expression_value.children 1)
             set iface_created iface_name true
             def utilWr (wr.getFileWriter("." (iface_name + ".java")))
+            def package_name (ctx.getCompilerSetting("package"))
+            if( (strlen package_name) > 0) {
+              utilWr.out("package " + package_name + ";" , true)
+            }
+
             utilWr.out("public interface " + iface_name + " { " , true)
             utilWr.indent(1)
             utilWr.out("public " false)
@@ -250,9 +261,9 @@ class RangerJava7ClassWriter {
         }
       }
     }
-    if (node.hasFlag("optional")) {
-      wr.out(">" false)
-    }
+    ;if (node.hasFlag("optional")) {
+    ;  wr.out(">" false)
+    ;}
   }
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
@@ -309,7 +320,7 @@ class RangerJava7ClassWriter {
 
         if (i < (max_len - 1) ) {
           if (p.nameNode.hasFlag("optional")) {
-            wr.out(".get()" false)
+            ; wr.out(".get()" false)
           }
         }
       }
@@ -364,7 +375,7 @@ class RangerJava7ClassWriter {
           b_was_set = true
         }
         if ((b_was_set == false) && (nn.hasFlag("optional"))) {
-          wr.out(" = Optional.empty()" false)
+          wr.out(" = null" false)
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
@@ -414,7 +425,7 @@ class RangerJava7ClassWriter {
           b_was_set = true
         }
         if ((b_was_set == false) && (nn.hasFlag("optional"))) {
-          wr.out(" = Optional.empty()" false)
+          wr.out(" = null" false)
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
@@ -447,30 +458,7 @@ class RangerJava7ClassWriter {
       if( (array_length node.children ) > 1 ) {
         def value:CodeNode (node.getSecond())
 
-        if( value.hasParamDesc ) {
-          def nn:CodeNode (unwrap value.paramDesc.nameNode )
-          if ( ctx.isDefinedClass(nn.type_name) ) {
-              def cl:RangerAppClassDesc (ctx.findClass(nn.type_name))
-              def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
-              def fnNameNode:CodeNode (unwrap activeFn.nameNode)
-              if(fnNameNode.hasFlag("optional")) {
-
-                ; Optional.ofNullable( ( none_2.isPresent() ? (CodeNode)none_2.get() : null ) );
-                ; Optional.of((RangerAppParamDesc)ctx.getCurrentClass().get())
-                wr.out("return Optional.ofNullable((" false)
-                ; this.writeTypeDef( fnNameNode ctx wr)
-
-                this.WalkNode( value ctx wr )
-                wr.out(".isPresent() ? (" false)
-                wr.out(fnNameNode.type_name false)
-                wr.out(")" false)
-                this.WalkNode( value ctx wr )
-                wr.out(".get() : null ) );" true)
-                return
-              }
-          }
-        }
-
+        ; removed the optional special case
         wr.out("return " false)
         ctx.setInExpr()
         this.WalkNode( value ctx wr )
@@ -533,6 +521,11 @@ class RangerJava7ClassWriter {
     if( ( has iface_created iface_name) == false ) {
       set iface_created iface_name true
       def utilWr (wr.getFileWriter("." (iface_name + ".java")))
+      def package_name (ctx.getCompilerSetting("package"))
+      if( (strlen package_name) > 0) {
+        utilWr.out("package " + package_name + ";" , true)
+      }
+      
       utilWr.out("public interface " + iface_name + " { " , true)
       utilWr.indent(1)
       utilWr.out("public " false)
@@ -600,6 +593,12 @@ class RangerJava7ClassWriter {
       }
     }
     def wr:CodeWriter (orig_wr.getFileWriter("." (cl.name + ".java")))
+
+    def package_name (ctx.getCompilerSetting("package"))
+    if( (strlen package_name) > 0) {
+      wr.out("package " + package_name + ";" , true)
+    }
+
     def importFork:CodeWriter (wr.fork())
 
     for cl.capturedLocals dd@(lives):RangerAppParamDesc i {

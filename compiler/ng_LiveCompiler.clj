@@ -18,6 +18,7 @@ extension RangerAppWriterContext {
 
 class LiveCompiler {
 
+  def parser:RangerFlowParser
   def langWriter:RangerGenericClassWriter
   def hasCreatedPolyfill:[string:boolean]
   def lastProcessedNode@(weak):CodeNode
@@ -302,10 +303,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       return
     }
     this.lastProcessedNode = node
-    if (node.value_type == RangerNodeType.VRef) {
+
+    if (node.value_type == RangerNodeType.VRef || node.value_type == RangerNodeType.Hash || node.value_type == RangerNodeType.Array) { 
       this.WriteVRef(node ctx wr)
-      return
+      return    
     }
+    
     if (node.value_type == RangerNodeType.Lambda) {
       this.WriteVRef(node ctx wr)
       return
@@ -645,6 +648,25 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               wr.out(ss false)
             } {
               def ss:string (langWriter.getObjectTypeString(arg.array_type ctx))
+              wr.out(ss false)
+            }
+          }
+        }
+        case "r_atype_fname" {
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            if arg.hasParamDesc {
+              def ss:string (langWriter.getObjectTypeString(arg.paramDesc.nameNode.array_type ctx))
+              if(ss == "interface{}") {
+                ss = "interface"
+              }
+              wr.out(ss false)
+            } {
+              def ss:string (langWriter.getObjectTypeString(arg.array_type ctx))
+              if(ss == "interface{}") {
+                ss = "interface"
+              }
               wr.out(ss false)
             }
           }

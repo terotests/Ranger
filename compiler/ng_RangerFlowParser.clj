@@ -8,7 +8,7 @@ Import "ng_RangerTypeClass.clj"
 Import "ng_CodeNode.clj"
 Import "ng_RangerAppWriterContext.clj"
 Import "ng_writer.clj"
-Import "ng_parser.clj"
+Import "ng_parser_v2.clj"
 Import "ng_RangerArgMatch.clj"
 Import "ng_DictNode.clj"
 Import "ng_RangerSerializeClass.clj"
@@ -1092,7 +1092,6 @@ class RangerFlowParser {
           ; ch.flow_done = false
           push item.children ch
         }
-        
       } 
       push res item
     } 
@@ -1286,6 +1285,7 @@ class RangerFlowParser {
       innerNode = newNode
 
       def chain_cnt 0
+      def b_valid true
       ; push the first into bottom of stack
       ; obj.foo.something ()
       while ( i < (chlen - 1) ) {
@@ -1302,11 +1302,12 @@ class RangerFlowParser {
           innerNode = newNode
           chain_cnt = chain_cnt + 1
         } {
-          ctx.addError(node "Invalid chaining op")
+          b_valid = false
+          ; ctx.addError(node "Invalid chaining op")
         }
         i = i + 2
       }
-      if ( chain_cnt > 0 ) {
+      if ( b_valid && (chain_cnt > 0 ) ) {
         node.getChildrenFrom( (unwrap innerNode ) )
         node.tag = "chainroot"
         node.flow_done = false
@@ -2461,7 +2462,7 @@ class RangerFlowParser {
       }
     }
     ; convert into  a call because it handles the lambda functions correctly
-    if( (array_length fc.ns) > 1 ) {
+    if( ( (array_length fc.ns) > 1 ) && ( ( array_length node.children) > 1) ) {
       def possible_cmd (last fc.ns)
       def op_list (ctx.getOperators(possible_cmd))
       for op_list cmd:CodeNode i {
@@ -2520,7 +2521,7 @@ class RangerFlowParser {
       this.WriteScalarValue(node ctx wr)
       return true
     }
-    if (node.value_type == RangerNodeType.VRef) { 
+    if (node.value_type == RangerNodeType.VRef || node.value_type == RangerNodeType.Hash || node.value_type == RangerNodeType.Array) { 
       this.WriteVRef(node ctx wr)
       return true
     }
@@ -2565,6 +2566,9 @@ class RangerFlowParser {
       return true
     }
     if (node.isFirstVref("union")) {
+      return true
+    }    
+    if (node.isFirstVref("flag")) {
       return true
     }    
     if (node.isFirstVref("Import")) {
@@ -2668,6 +2672,35 @@ class RangerFlowParser {
       }
       return true
     }
+
+    if(node.value_type == RangerNodeType.XMLNode) {
+      print "-> found XML node"
+      print (node.getLineAsString())
+      def viewName ""
+      node.attrs.forEach({
+        print "attr " + item.vref + " == " + item.string_value
+        if(item.vref == "name") {
+          viewName = item.string_value
+        }
+      })
+      ; could call here the XML node generator...
+      if( (strlen viewName) > 0 ) {
+        print " adding view class " + viewName
+        ctx.addViewClassBody( viewName node )
+      }
+      print "Tag is " + node.vref
+      node.children.forEach({
+        switch item.value_type {
+          case RangerNodeType.XMLNode {
+            print "node " + item.vref
+          }
+          case RangerNodeType.XMLText {
+            print "text " + item.string_value
+          }
+        }
+      })
+      return true
+    }
     ctx.addError(node "Could not understand this part")
 
     return true
@@ -2734,6 +2767,9 @@ class RangerFlowParser {
   fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     this.WalkCollectMethods(node ctx wr)
 ; 
+
+    def allTypes:[string]
+
     extendedClasses.forEach({
       def ch (ctx.findClass(index))
       def parent (ctx.findClass(item))
@@ -2829,7 +2865,8 @@ class RangerFlowParser {
       cl.is_serialized = true
       def ser:RangerSerializeClass (new RangerSerializeClass())
       def extWr:CodeWriter (new CodeWriter())
-      ser.createJSONSerializerFn( cl (unwrap cl.ctx) extWr )
+;      ser.createJSONSerializerFn( cl (unwrap cl.ctx) extWr )
+      ser.createJSONSerializerFn2( cl (unwrap cl.ctx) extWr )
       def theCode:string (extWr.getCode())
       def code:SourceCode (new SourceCode ( theCode))
       code.filename = "extension " + (ctx.currentClass.name)
@@ -2855,6 +2892,7 @@ class RangerFlowParser {
     }
     ;       ctx.hadValidType( (unwrap v.nameNode) )
     for ctx.definedClassList cname:string i {
+      push allTypes cname
       def c (unwrap (get ctx.definedClasses cname))
       if( c.is_system || c.is_interface || c.is_template || c.is_trait) {
         continue
@@ -2863,6 +2901,30 @@ class RangerFlowParser {
         ctx.hadValidType( (unwrap p.nameNode) )
       }
     }
+
+    for ctx.definedClassList cname:string i {
+      push allTypes cname
+    }
+
+    push allTypes "integer"
+    push allTypes "string"
+    push allTypes "boolean"
+    push allTypes "double"
+
+    def Anynn@(lives) (node.newVRefNode("Any"))
+
+    def rootCtx (ctx.getRoot())
+
+    def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+    new_class.name = "Any"
+    new_class.nameNode = Anynn
+    rootCtx.addClass("Any" new_class)
+    new_class.is_union = true
+    for allTypes typeName:string i {
+      push new_class.is_union_of typeName
+    }
+    Anynn.clDesc = new_class
+        
 
   }
 
@@ -2891,6 +2953,10 @@ class RangerFlowParser {
 
   fn WalkCollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def find_more:boolean true
+
+    if (node.isFirstVref("flag")) {
+      return 
+    }    
 
     if (node.isFirstVref("operator")) {
 
@@ -3925,4 +3991,3 @@ class RangerFlowParser {
     }
   }
 }
-

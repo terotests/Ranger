@@ -1,4 +1,6 @@
-Import "Collection.clj"
+Import "stdlib.clj"
+
+; Import "Collection.clj"
 Import "ng_RangerAppEnums.clj"
 
 class SourceCode {
@@ -105,6 +107,7 @@ class CodeNode {
   def comments:[CodeNode]
   def children:[CodeNode]
   def parent@(weak):CodeNode
+  def attrs:[CodeNode]
 
   Constructor (source:SourceCode start:int end:int) {
     sp = start
@@ -416,6 +419,8 @@ class CodeNode {
   fn getString:string () {
     return (substring code.code sp ep)
   }
+
+
   fn walk:void () {
     switch value_type {
       case RangerNodeType.Double {

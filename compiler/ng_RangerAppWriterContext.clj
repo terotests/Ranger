@@ -82,12 +82,30 @@ class RangerAppWriterContext {
   def defCounts:[string:int]
   def refTransform:[string:string]
   def staticClassBodies:[CodeNode]
+  def viewClassBody@(weak):[string:CodeNode]
 
   def opNs:[string]
 
   def langFilePath:string ""
   def libraryPaths:[string]
   def outputPath ""
+
+  fn addViewClassBody ( name:string classDef:CodeNode ) {
+    def root (this.getRoot())
+    set root.viewClassBody name classDef
+  }
+
+  fn getViewClass@(optional):CodeNode (s_name:string) {
+    def res@(optional temp):CodeNode
+    if (has viewClassBody s_name) {
+      res = (get viewClassBody s_name)
+      return res
+    }
+    if (null? parent) {
+      return res
+    }
+    return (parent.getViewClass(s_name))
+  }
 
   fn addOpNs ( n:string ) {
     push opNs n
@@ -372,6 +390,9 @@ class RangerAppWriterContext {
     return false
   }
   fn isDefinedType:boolean (typeName:string) {
+    if( typeName == "Any") {
+      return true
+    }
     if ((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "boolean")) {
       return true
     }
@@ -402,7 +423,7 @@ class RangerAppWriterContext {
         if( (this.isDefinedType(node.array_type)) == false) {
           this.addError(node ("Unknown type for map values: " + node.array_type))          
         }
-        if( (this.isDefinedType(node.array_type)) == false) {
+        if( (this.isDefinedType(node.key_type)) == false) {
           this.addError(node ("Unknown type for map keys: " + node.key_type))          
         }
         return false

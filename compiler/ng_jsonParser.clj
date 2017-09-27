@@ -325,8 +325,8 @@ class JSONParser:void {
     if n {
       print "--> parsed"
       def nn:DictNode (unwrap n)
-      def name:string (nn.getString("n"))
-      if(name) {
+      def name@(optional):string (nn.getString("n"))
+      if(!null? name) {
         print (unwrap name)
         def data@(optional):DictNode (nn.getObject("data"))
         if data {

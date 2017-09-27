@@ -143,5 +143,264 @@ class RangerSerializeClass {
         wr.indent(-1)
         wr.out("}" true)
     }
-    
+
+    fn createWRWriter2:void (pvar:RangerAppParamDesc nn:CodeNode  ctx:RangerAppWriterContext wr:CodeWriter) {
+
+        ; pvar.name        
+        if(nn.value_type == RangerNodeType.Array) {
+            ; TODO: serializing primitives...
+            if(this.isSerializedClass(nn.array_type ctx)) {
+                wr.out("def values:JSONArrayObject (json_array)" , true)
+                wr.out("for this." + pvar.compiledName +" item:"+nn.array_type + " i {" , true)
+                    wr.indent(1)
+                    wr.out("def obj@(lives):JSONDataObject (item.toDictionary())" true)
+                    wr.out("push values obj" true)
+                    wr.indent(-1)
+                wr.out("}" true)          
+                wr.out("set res  \"" + pvar.name + "\" values " , true)
+            }            
+            return
+        }
+        if(nn.value_type == RangerNodeType.Hash) {
+            if(this.isSerializedClass(nn.array_type ctx)) {
+                wr.out("def values:JSONDataObject (json_object)" , true)
+                wr.out("for this." + pvar.compiledName + " keyname {" , true)
+                    wr.indent(1)
+                    wr.out("def item (unwrap (get this." + pvar.compiledName + " keyname))" , true)
+
+                    if( ctx.isDefinedClass(nn.array_type) ) {
+                      wr.out("def obj@(lives):JSONDataObject (item.toDictionary())" true)
+                      wr.out("set values keyname obj " true)
+                    } {
+                      wr.out("set values keyname item " true)                      
+                    }
+                    wr.indent(-1)
+                wr.out("}" true)          
+                wr.out("set res  \"" + pvar.name + "\" values " , true)
+            } {
+                if( (ctx.isDefinedClass(nn.array_type) ) == false ) {
+                    wr.out("def values:JSONDataObject (json_object)" , true)
+                    wr.out("for this." + pvar.compiledName + " keyname {" , true)
+                        wr.indent(1)
+                        wr.out("def item (unwrap (get this." + pvar.compiledName + " keyname))" , true)
+                        wr.out("set values keyname item " true)                      
+                        wr.indent(-1)
+                    wr.out("}" true)          
+                    wr.out("set res  \"" + pvar.name + "\" values " , true)  
+                }              
+            }
+            return
+        }
+        if(nn.hasFlag("optional")) {
+            if( (ctx.isDefinedClass(nn.type_name) ) == false ) {
+                wr.out("set res  \"" + pvar.name + "\" (unwrap this." + pvar.compiledName +") " , true )
+            } {
+                wr.out("set res  \"" + pvar.name + "\" (call (unwrap this." + pvar.compiledName +") toDictionary ()) " , true )
+            }
+        } {
+            if( (ctx.isDefinedClass(nn.type_name) ) == false ) {
+                wr.out("set res  \"" + pvar.name + "\" (this." + pvar.compiledName +") " , true )
+            } {
+                wr.out("set res  \"" + pvar.name + "\" (this." + pvar.compiledName +".toDictionar()) " , true )
+            }
+        }
+    }
+
+    fn createWRReader2:void (pvar:RangerAppParamDesc nn:CodeNode  ctx:RangerAppWriterContext wr:CodeWriter) {
+
+        ; pvar.name        
+        if(nn.value_type == RangerNodeType.Array) {
+            ; TODO: serializing primitives...
+            if(this.isSerializedClass(nn.array_type ctx)) {
+                wr.out("def values:JSONArrayObject (getArray dict \"" + pvar.name + "\")" , true)
+                wr.out("if(!null? values) {" true)
+                wr.indent(1)
+                wr.out("def arr (unwrap values)" true)
+                wr.out("arr.forEach({" , true)
+                    wr.indent(1)
+                    wr.out("def newObj (" + nn.array_type + ".fromDictionary(item))" , true)
+                    wr.out("push obj." + pvar.name + " newObj" , true)
+                    wr.indent(-1)
+                wr.out("})" true)          
+                wr.indent(-1)
+                wr.out("}" true)
+            }            
+            return
+        }
+        if(nn.value_type == RangerNodeType.Hash) {
+            if(this.isSerializedClass(nn.array_type ctx)) {
+                wr.out("def values (getObject dict \"" + pvar.name + "\")" , true)
+                wr.out("if(!null? values) {" true)
+                wr.indent(1)                
+                wr.out("def theObj" + pvar.name + " (unwrap values)" , true)    
+                wr.out("def keys (keys theObj" + pvar.name + ")" , true)
+                wr.out("keys.forEach({" , true)
+                    wr.indent(1)
+                    if( ctx.isDefinedClass(nn.array_type) ) {
+                      wr.out("def theValue (getObject theObj" + pvar.name + " item ) " , true)
+                      wr.out("if(!null? theValue) {" true)
+                      wr.indent(1)
+                      wr.out("def newObj@(lives) (" + nn.array_type + ".fromDictionary((unwrap theValue)))" , true)
+                      wr.out("set obj." + pvar.name + " item newObj " , true)
+                      wr.indent(-1)
+                      wr.out("}" true)
+                    } {
+                    }
+                    wr.indent(-1)
+                wr.out("})" true)          
+                wr.indent(-1)
+                wr.out("}" true)
+            } {
+
+                wr.out("def values (getObject dict \"" + pvar.name + "\")" , true)
+                wr.out("if(!null? values) {" true)
+                wr.indent(1)                
+                wr.out("def theObj" + pvar.name + " (unwrap values)" , true)    
+                wr.out("def keys (keys theObj" + pvar.name + ")" , true)
+                wr.out("keys.forEach({" , true)
+                    wr.indent(1)
+                    if( ctx.isDefinedClass(nn.array_type) ) {
+
+                    } {
+                      ; TODO: different data types
+                      switch nn.array_type {
+                          case "string" {
+                              wr.out("def v (getStr theObj" + pvar.name + " item)" , true)
+                              wr.out("if(!null? v) {" true)
+                                wr.indent(1)
+                                wr.out("set obj." + pvar.name + " item (unwrap v) " , true)
+                                wr.indent(-1)
+                              wr.out("}" true)
+                          }
+                          case "int" {
+                              wr.out("def v (getInt theObj" + pvar.name + " item)" , true)
+                              wr.out("if(!null? v) {" true)
+                                wr.indent(1)
+                                wr.out("set obj." + pvar.name + " item (unwrap v) " , true)
+                                wr.indent(-1)
+                              wr.out("}" true)
+                          }
+                          case "double" {
+                              wr.out("def v (getDouble theObj" + pvar.name + " item)" , true)
+                              wr.out("if(!null? v) {" true)
+                                wr.indent(1)
+                                wr.out("set obj." + pvar.name + " item (unwrap v) " , true)
+                                wr.indent(-1)
+                              wr.out("}" true)
+                          }
+                          case "boolean" {
+                              wr.out("def v (getBoolean theObj" + pvar.name + " item)" , true)
+                              wr.out("if(!null? v) {" true)
+                                wr.indent(1)
+                                wr.out("set obj." + pvar.name + " item (unwrap v) " , true)
+                                wr.indent(-1)
+                              wr.out("}" true)
+                          }
+                        }
+                    }
+                    wr.indent(-1)
+                wr.out("})" true)          
+                wr.indent(-1)
+                wr.out("}" true)
+                
+            }    
+            return
+        }
+        switch nn.type_name {
+            case "string" {
+                wr.out("def v (getStr dict \"" + pvar.name +  "\")" , true)
+                wr.out("if(!null? v) {" true)
+                wr.indent(1)
+                wr.out("obj." + pvar.name + " = (unwrap v) " , true)
+                wr.indent(-1)
+                wr.out("}" true)
+            }
+            case "int" {
+                wr.out("def v (getInt dict \"" + pvar.name +  "\")" , true)
+                wr.out("if(!null? v) {" true)
+                wr.indent(1)
+                wr.out("obj." + pvar.name + " = (unwrap v) " , true)
+                wr.indent(-1)
+                wr.out("}" true)
+            }
+            case "double" {
+                wr.out("def v (getDouble dict \"" + pvar.name +  "\")" , true)
+                wr.out("if(!null? v) {" true)
+                wr.indent(1)
+                wr.out("obj." + pvar.name + " = (unwrap v) " , true)
+                wr.indent(-1)
+                wr.out("}" true)
+            }
+            case "boolean" {
+                wr.out("def v (getBoolean dict \"" + pvar.name +  "\")" , true)
+                wr.out("if(!null? v) {" true)
+                wr.indent(1)
+                wr.out("obj." + pvar.name + " = (unwrap v) " , true)
+                wr.indent(-1)
+                wr.out("}" true)
+            }
+        }
+    }
+
+    ; class extension...
+    fn createJSONSerializerFn2:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+        def declaredVariable:[string:boolean]        
+        wr.out("extension " + cl.name + " {" , true)
+        wr.indent(1)
+        wr.out("static fn fromDictionary@(strong):" + cl.name + " (dict:JSONDataObject) {" , true)
+        wr.indent(1)
+            wr.out("def obj:" + cl.name +" (new " + cl.name + "())" , true)
+            ;for cl.variables pvar:RangerAppParamDesc i {
+            ;}
+            for cl.variables pvar:RangerAppParamDesc i {
+                if( has declaredVariable pvar.name ) {
+                    continue
+                }
+                def nn:CodeNode (unwrap pvar.nameNode)
+                this.createWRReader2( pvar nn ctx wr)            
+            }        
+            wr.out( "return obj" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.newline()
+        wr.out("fn toDictionary:JSONDataObject () {" true)
+        wr.indent(1)
+        wr.out("def res:JSONDataObject (json_object)" true)
+
+        ; TODO: extended class serialization...
+        if ( ( array_length cl.extends_classes ) > 0 ) { 
+            for cl.extends_classes pName:string i {
+                def pC:RangerAppClassDesc (ctx.findClass(pName))
+                for pC.variables pvar:RangerAppParamDesc i {
+                    set declaredVariable pvar.name true
+                    def nn:CodeNode (unwrap pvar.nameNode)
+
+                }
+            }
+        }
+        for cl.variables pvar:RangerAppParamDesc i {
+            if( has declaredVariable pvar.name ) {
+                continue
+            }
+            def nn:CodeNode (unwrap pvar.nameNode)
+            if(nn.hasFlag("optional")) {
+                wr.out("; optional variable" true)
+                wr.out("if (!null? this." + pvar.compiledName + ") {",  true)
+                    wr.indent(1)
+                    this.createWRWriter2( pvar nn ctx wr)            
+                    wr.indent(-1)
+                wr.out("}" true)
+                continue
+            }
+            wr.out("; not extended " true)
+            this.createWRWriter2( pvar nn ctx wr)            
+        }        
+        wr.out("return res" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.indent(-1)
+        wr.out("}" true)
+    }
+
+
 }

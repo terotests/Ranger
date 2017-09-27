@@ -34,6 +34,12 @@ language {
     
     commands {
         
+        nullify   _:void (ptr@(optional):T) {
+            templates {
+                es6 ( (e 1) " = undefined;" nl)
+            }
+        }
+
         ; immutable operators, maybe used by the compiler...
         ; https://github.com/Workiva/go-datastructures
         create_immutable_array _@(immutable):[T] () {
@@ -193,7 +199,35 @@ func r_io_get_env( name string) *GoNullable {
         current_directory         cmdArg:string () {
             templates {
                 es6 ( "process.cwd()" )
+                csharp( "Directory.GetCurrentDirectory()" (imp "System") (imp "System.IO"))
                 ranger ("( current_directory )")
+                cpp ( "__cpp_curr_dir()"
+(imp "<stdio.h>")
+(create_polyfill
+"
+
+#ifdef _MSC_VER
+    #include <direct.h>
+    #define __RGetCurrentDir _getcwd
+#else
+    #include <unistd.h>
+    #define __RGetCurrentDir getcwd
+#endif
+
+std::string __cpp_curr_dir() {
+    char cCurrentPath[FILENAME_MAX];
+    if (!__RGetCurrentDir(cCurrentPath, sizeof(cCurrentPath)))
+        {
+            return \"\";
+        }
+    cCurrentPath[sizeof(cCurrentPath) - 1] = '\\0';
+    std::string result(cCurrentPath);
+    return result;
+}
+"
+)
+
+                )
                 * ( "\".\"")
             }
         }               
@@ -348,7 +382,7 @@ func r_write_file ( dirName:String, dataToWrite:String ) {
                 ) 
                 cpp_old ( nl "/* write file not yet implemented */" nl)
 
-                cpp ( "r_cpp_write_file( " (e 1) " , " (e 2) " , " (e 3) "  );" nl (imp "<iostream>") (imp "<string>") 
+                cpp ( "r_cpp_write_file( " (e 1) " , " (e 2) " , " (e 3) "  );" nl (imp "<iostream>") (imp "<string>") (imp "<fstream>")
 (create_polyfill "
 void  r_cpp_write_file(std::string path, std::string filename, std::string text) 
 {
@@ -359,7 +393,7 @@ void  r_cpp_write_file(std::string path, std::string filename, std::string text)
 }    
     ") )                
                 ranger ( nl "write_file " (e 1) " " (e 2) " " (e 3) nl)
-                es6 ("require(\"fs\").writeFileSync( \"/\" + " 
+                es6 ("require(\"fs\").writeFileSync( " 
                         (e 1) " + \"/\"  + " (e 2) ", " (e 3) ")")
 
                 php (  nl "file_put_contents(" (e 1) ".'/'." (e 2) " , " (e 3) ");" nl )
@@ -435,8 +469,7 @@ func r_read_file ( dirName:String ) -> String? {
 }
     ")                                  
                 )
-                java7 ( "Optional.of(readFile(" (e 1) " + \"/\" + " (e 2) " , StandardCharsets.UTF_8 ))"  
-                    (imp "java.util.Optional")
+                java7 ( "readFile(" (e 1) " + \"/\" + " (e 2) " , StandardCharsets.UTF_8 )"  
                     (imp "java.nio.file.Paths") 
                     (imp "java.io.File")
                     (imp "java.nio.file.Files") 
@@ -501,7 +534,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 ranger ( nl (e 1) " = " (e 2) nl ) 
                 scala ( nl (e 1) " = Some(" (e 2) ")" nl )  
                 swift ( nl (e 1) " = Optional(" (e 2) ");" nl )   
-                java7 ( nl (e 1) " = Optional.of(" (e 2) ");" nl (imp "java.util.Optional") )   
+                java7 ( nl (e 1) " = " (e 2) ";" nl )   
                 go ( nl (goset 1) ".value = " (e 2) ";" nl nl (goset 1) ".has_value = true; /* detected as non-optional */" nl )  
                 cpp ( nl ( e 1) "  = " (e 2) ";" nl )                 
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
@@ -516,7 +549,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     "if " (goset 1) ".value != nil {" nl I (goset 1) ".has_value = true" nl i "}" nl
                     )  
                 cpp ( nl ( e 1) "  = " (e 2) ";" nl )   
-                java7 ( nl (e 1) " = " (e 2) ";" nl   (imp "java.util.Optional") )        
+                java7 ( nl (e 1) " = " (e 2) ";" nl )        
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }  
@@ -540,7 +573,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 swift3 (  "Optional(" (e 1) ")" )
                 csharp ( "(" (typeof 1) "?)" (e 1)  )
                 cpp ( (e 1) )
-                java7 ( "Optional.of(" (e 1 ) ")" (imp "java.util.Optional"))
+                java7 ( (e 1 ))
                 go ( (e 1 ) )
                 php ( (e 1 ) )
                 * ( (e 1) )
@@ -580,7 +613,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 ranger ( "( unwrap " (e 1) ")" )
                 scala ( (e 1) ".get" )
                 csharp ( (e 1) ".Value" )
-                java7 ( (e 1) ".get()" (imp "java.util.Optional") )
+                java7 ( (e 1) )
                 rust ( (e 1) ".unwrap()" )
                 php ( (e 1 ) )
                 kotlin ( (e 1) "!!" )
@@ -1100,6 +1133,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         make         cmdArrayLiteral:[T] ( typeDef@(ignore):[T] size:int repeatItem:T ) {
             templates {
+                csharp ( "new " (typeof 1) "( new " (r_atype 1) "[" (e 2)"])")
                 swift3 ( "" (typeof 1)"(repeating:" (e 3) ", count:" (e 2) ")" )
                 ranger ( "(make  _:" (typeof 1) " " (e 2) ")" )
                 go ( "make(" (typeof 1) "," (e 2) ")" )
@@ -1138,8 +1172,8 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 php ( "(!isset(" (e 1) "))")                                
                 cpp ((e 1) " == NULL")                                
                 swift3 ((e 1) " == nil")  
-                java7 ("!" (e 1) ".isPresent()")  
-                csharp ((e 1) ".HasValue")  
+                java7 ( (e 1) " != null")  
+                csharp ((e 1) " != null ")  
                 rust ((e 1) ".is_null()")  
                 go ( "!" (goset 1 ) ".has_value " )             
                 kotlin ((e 1) "== null")     
@@ -1165,8 +1199,8 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 scala ((e 1) ".isDefined")  
                 swift3 ((e 1) " != nil ")     
                 cpp ((e 1) " != NULL ")     
-                java7 ((e 1) ".isPresent()")   
-                csharp ("!" (e 1) ".HasValue")
+                java7 ((e 1) " != null ")   
+                csharp ("" (e 1) " != null")
                 rust ((e 1) ".is_some()")     
                 kotlin ((e 1) " != null")     
                 go (  (goset 1 ) ".has_value" )
@@ -1221,6 +1255,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
                 php    ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " = 0; " (e 3) " < count(" (e 1) "); " (e 3) "++) {" nl I (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
                 java7 ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".size(); " (e 3) "++) {" nl I (typeof 2) " " (e 2) " = " (e 1) ".get(" (e 3) ");" nl (block 4) nl i "}" )
+                csharp ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".Count; " (e 3) "++) {" nl I (typeof 2) " " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
                 scala ( 
                     (forkctx _ ) (def 2) (def 3) 
                     "try {" nl I
@@ -1795,10 +1830,10 @@ std::string join(const T& v, const std::string& delim) {
                 kotlin ( (e 1) ".containsKey(" (e 2) ")" )
                 go ( 
 
-(macro (nl "func r_has_key_" (r_ktype 1)  "_" (r_atype 1) "( a "  (typeof 1) ", key " (r_ktype 1) " ) bool { " nl I 
+(macro (nl "func r_has_key_" (r_ktype 1)  "_" (r_atype_fname 1) "( a "  (typeof 1) ", key " (r_ktype 1) " ) bool { " nl I 
     "_, ok := a[key]" nl "return ok" nl i "
 }" nl ))                   
-                    "r_has_key_" (r_ktype 1)  "_" (r_atype 1) "(" (e 1) ", " (e 2) ")"
+                    "r_has_key_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
                 )
                 rust ( (e 1 ) ".contains_key(&" (e 2) ")")
                 csharp ( (e 1) ".ContainsKey(" (e 2) ")" )
@@ -1859,13 +1894,13 @@ r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> 
         get             cmdGet@(optional weak):T          ( map:[K:T] key:K ) { 
             templates {
                 ranger ( "(get " (e 1) " " (e 2) ")")                 
-                java7 ( "Optional.ofNullable(" (e 1) ".get(" (e 2) "))" (imp "java.util.Optional"))
+                java7 ( (e 1) ".get(" (e 2) ")" )
                 rust ( (e 1) ".get(" (e 2) ")" )
                 scala ( (e 1) ".get(" (e 2) ").asInstanceOf[" (atype 1) "]" )
 
                 go ( 
 
-(macro (nl "func r_get_" (r_ktype 1)  "_" (r_atype 1) "( a " (typeof 1) ", key " (r_ktype 1) " ) *GoNullable  { " nl I 
+(macro (nl "func r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "( a " (typeof 1) ", key " (r_ktype 1) " ) *GoNullable  { " nl I 
     "res := new(GoNullable)" nl  
     "v, ok := a[key]" nl 
     "if ok { " nl
@@ -1878,7 +1913,7 @@ r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> 
     "res.has_value = false" nl
     "return res" nl
 i "}" nl ))                   
-                    "r_get_" (r_ktype 1)  "_" (r_atype 1) "(" (e 1) ", " (e 2) ")"
+                    "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
                 )                
                 * ( (e 1) "[" (e 2) "]" )
             }            
@@ -1893,7 +1928,8 @@ i "}" nl ))
                 kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 cpp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
-                * ( (e 1) "[" (e 2) "] = " (e 3) )
+                ; * ( (e 1) "[" (e 2) "] = " (e 3) )
+                * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             }            
         } 
         
@@ -2016,7 +2052,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  go ( (custom _) )
                  go ( (e 1) " = append("  (e 1) ","  (e 2) ");" )
                  kotlin ( (e 1) ".add(" (e 2) ");" )
-                 csharp ( (e 1) ".Add(" (e 2) ")" ) 
+                 csharp ( (e 1) ".Add(" (e 2) ");" ) 
                  scala ( (e 1) ".append(" (e 2) ")" )
                  * ( (e 1) ".push(" (e 2) ");" )                                              
             }
@@ -2032,7 +2068,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  go ( (custom _) )
                  go ( (e 1) " = append("  (e 1) ","  (e 2) ");" )
                  kotlin ( (e 1) ".add(" (e 2) ");" )
-                 csharp ( (e 1) ".Add(" (e 2) ")" ) 
+                 csharp ( (e 1) ".Add(" (e 2) ");" ) 
                  scala ( (e 1) ".append(" (e 2) ")" )
                  * ( (e 1) ".push(" (e 2) ");" )                                              
             }
@@ -2112,6 +2148,28 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
             }
         }
 
+        ; go sort.slice...
+        sort _:[T] ( array:[T] cb:(_:int (left:T right:T))) {
+            templates {
+                es6 ( (e 1) ".slice().sort(" ( e 2) ")")
+                go ( "(func(list " (typeof 1) ") " (typeof 1) " {" nl 
+                    I "sort.Slice(" (e 1) ", func(i, j int) bool { " nl
+                    I "sortfn := " (e 2) nl
+                      "sortval := sortfn(" (e 1)"[i], " (e 1)"[j])" nl
+                      "return (sortval < 0)" nl i
+                      "})" nl
+                      "return list" nl 
+                    i "}(" (e 1) "))"
+                    (imp "sort"))
+            }            
+        }
+
+        reverse _:[T] (array:[T]) {
+            templates {
+                es6 ( (e 1) ".slice().reverse()")
+            }            
+        }
+
         array_length    cmdArrayLength:int      ( array:[T] ) { 
             templates {
                 ranger ( "(array_length " (e 1) ")")
@@ -2122,7 +2180,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  scala ( (e 1) ".length" )
                  rust ( (e 1 ) ".len()" )
                  go ( "int64(len(" (e 1 ) "))" )
-                 kotlin ( (e 1) ".size" )                                                              
+                 kotlin ( (e 1) ".size" )       
+                 csharp ( (e 1) ".Count")                                                       
                  * ( (e 1) ".length" )                                              
             }
         }
@@ -2164,15 +2223,15 @@ auto r_m_arr_extract( T & a, int i )  {
         
         print           cmdPrint:void           ( text:string) { 
             templates {
-                ranger ( nl "print " (e 1) nl)
-                 cpp (ln "std::cout << " (e 1) " << std::endl;" nl (imp "<iostream>"))
+                 ranger ( nl "print " (e 1) nl)
+                 cpp (ln "std::cout << " (e 1) " << std::endl;" nl (imp "<iostream>") (imp "<string>"))
                  kotlin ( nl "println( " (e 1) " )" nl )                                              
                  scala ( nl "println( " (e 1) " )" nl ) 
                  go ( nl "fmt.Println( " (e 1) " )" nl (imp "fmt")             ) 
                  rust ( nl "println!( \"{}\", " (e 1) " );" nl )                              
                  java7 ( nl "System.out.println(String.valueOf( " (e 1) " ) );" nl (imp "java.io.*"))                              
                  php ( nl "echo( " (e 1) " . \"\\n\");" nl )               
-                 csharp ( nl "Console.Writeline(" (e 1) ")" nl (imp "System"))
+                 csharp ( nl "Console.WriteLine(" (e 1) ");" nl (imp "System"))
                  swift3 ( nl "print(" (e 1) ")" nl)
                  * ( nl "console.log(" (e 1) ");" nl)                                                                
             }
