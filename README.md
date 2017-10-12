@@ -13,13 +13,13 @@ The compiler is *self hosting*  which means that it has been written using the c
 on several platforms. At the moment the official platform is node.js, but it can also be run on browser or JVM or compiled
 to binary using Go target.
 
-The supported target languages are `JavaScript`, `Java 7`, `Go`, `Swift 3`, `PHP` and To some extent C++. There is
-planned support for `C#` and `Scala` and possibility of including Kotlin is considered.
+The target languages suppoerted currently are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#` and `Scala`. The Scala
+and C# are lagging behind int the support. Adding support to  Kotlin is considered.
 
 The applications or modules compiled using Ranger can be integrated to various target platforms using custom operators and
 system classes with native API's.
 
-## Setup
+## Installing the compiler
 
 The compiler currently can compile itself at least to JavaScript, Java and Go language targets, but prebuild 
 version is available as node.js / npm module.
@@ -30,48 +30,249 @@ To install the latest test version of the compiler using npm running
  npm install -g ranger-compiler
 ```
 
-Download the language definition file into your working directory:
-https://github.com/terotests/Ranger/blob/master/compiler/Lang.clj
+Then you can run the command `ranger-compiler` which gives you the output, which is something like this:
 
-## Compiling a new version of the compiler
-
-Get the files from directory `https://github.com/terotests/Ranger/blob/master/compiler/`
-
-Then run command
 ```
-ranger-compiler ng_Compiler.clj Lang.clj es6 out compiler.js
+Usage: <file> <options> <flags>
+Options: -<option>=<value>
+  -l=<value>             Selected language, one of es6, go, scala, java7, swift3, cpp, php, csharp
+  -d=<value>             output directory, default directory is 'bin/'
+  -o=<value>             output file, default is 'output.<language>'
+  -classdoc=<value>      write class documentation .md file
+  -operatordoc=<value>   write operator documention into .md file
+Flags: -<flag>
+  -typescript    Writes JavaScript code with TypeScript annotations
+  -npm           Write the package.json to the output directory
+  -nodecli       Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file
+  -nodemodule    Export the classes as node.js modules (this option will disable the static main function)
+  -pages         create pages for the platform
+  -services      create services for the platform
+  -client        the code is ment to be run in the client environment
+  -scalafiddle   scalafiddle.io compatible output
+  -compiler      recompile the compiler
+  -copysrc       copy all the source codes into the target directory
 ```
-The result will be written to directory `out/compiler.js` Then you can test the new version of the compiler running `node compiler.js`
- 
-## Getting started with a Hello World
 
-Create file `Hello.clj`
+## Getting started with Hello World
+
+Create file `hello.clj`
 ```   
 class Hello {
-    fn sayHello:void () {
+    static fn main () {
         print "Hello World"
     }
-    sfn hello@(main):void () {
-        def hello:Hello (new Hello ())
-        hello.sayHello()
-    }   
 }
 
 ```
 Then compile it using `ranger-compiler` using command line
 
 ```
-ranger-compiler Hello.clj Lang.clj es6 . hello.js
+ranger-compiler hello.clj
 ```
 
-Then you can try running hello.js under node.js To compile to other languages simply change the language type
+The result will be outputtted into directory `bin/hello.js`
 
-```
-ranger-compiler Hello.clj Lang.clj java7 . hello.java
-ranger-compiler Hello.clj Lang.clj go . hello.go
-ranger-compiler Hello.clj Lang.clj php . hello.php
-ranger-compiler Hello.clj Lang.clj swift3 . hello.swift
-```
+# Quick Reference
+
+## Statements
+  `def` ,   `for` ,   `set` ,   `remove_index` ,   `insert` ,   `remove` ,   `push` ,   `removeLast` ,   `clear` ,   `forEach` ,   `forKeys` 
+
+| operator | returns | arguments | description |
+| -------- | ------- | --------- | ------------| 
+| def | |   (`varname`:[T]  )| | 
+| for | |   (`list`:[T]  `item`:T  `indexName`:int  `repeat_block`:block  )| | 
+| set | |   (`array`:[T]  `index`:int  `value`:T  )| | 
+| remove_index | |   (`array`:[T]  `index`:int  )| | 
+| insert | |   (`array`:[T]  `index`:int  `item`:T  )| | 
+| remove | |   (`array`:[T]  `index`:int  )| | 
+| push | |   (`array`:[T]  `item`:<optional>T  )| | 
+| removeLast | |   (`array`:[T]  )| | 
+| clear | |   (`array`:[T]  )| | 
+| forEach | |   (`self`:[T]  `cb`:  )| | 
+| forKeys | |   (`self`:[T]  `cb`:  )| | 
+
+## Operators without arguments
+  `create_immutable_array` ,   `create_immutable_hash` ,   `M_PI` ,   `shell_arg_cnt` ,   `install_directory` ,   `current_directory` ,   `error_msg` ,   `has_console_colors` 
+
+| operator | returns | arguments | description |
+| -------- | ------- | --------- | ------------| 
+| create_immutable_array | `[T]` |   ( )| | 
+| create_immutable_hash | `[T]` |   ( )| | 
+| M_PI | `double` |   ( )| | 
+| shell_arg_cnt | `int` |   ( )| return the number of arguments for command line utility| 
+| install_directory | `string` |   ( )| | 
+| current_directory | `string` |   ( )| | 
+| error_msg | `string` |   ( )| | 
+| has_console_colors | `boolean` |   ( )| | 
+
+## Generic operators
+  `empty` ,   `wrap` ,   `!!` ,   `unwrap` ,   `return` ,   `??` ,   `[]` ,   `null?` ,   `!null?` ,   `==` ,   `!=` ,   `&&` ,   `cast` ,   `to` 
+
+| operator | returns | arguments | description |
+| -------- | ------- | --------- | ------------| 
+| empty | `<optional>T` |   (`node`:T  )| | 
+| wrap | `<optional>T` |   (`arg`:T  )| | 
+| !! | `T` |   (`arg`:<optional>T  )| | 
+| unwrap | `T` |   (`arg`:<optional>T  )| | 
+| return | `T` |   (`value`:T  )| | 
+| ?? | `T` |   (`left`:<optional>T  `right`:T  )| | 
+| [] | `[T]` |   (`typeDef`:T  `listOf`:expression  )| | 
+| null? | `boolean` |   (`arg`:<optional>T  )| | 
+| !null? | `boolean` |   (`arg`:<optional>T  )| | 
+| == | `boolean` |   (`left`:T  `right`:T  )| | 
+| != | `boolean` |   (`left`:T  `right`:T  )| | 
+| && | `boolean` |   (`left`:<optional>T  `right`:<optional>S  )| | 
+| cast | `S` |   (`arg`:T  `target`:S  )| | 
+| to | `T` |   (`to`:T  `item`:T  )| | 
+
+## Numeric operators
+  `fabs` ,   `tan` ,   `shell_arg` ,   `unwrap` ,   `unwrap` ,   `-` ,   `-` ,   `+` ,   `+` ,   `*` ,   `*` ,   `/` ,   `/` ,   `int2double` ,   `acos` ,   `cos` ,   `sin` ,   `sqrt` ,   `null?` ,   `null?` ,   `!null?` ,   `!null?` ,   `to_string` ,   `to_int` ,   `to_int` ,   `strfromcode` ,   `double2str` ,   `to_double` ,   `==` ,   `==` ,   `>` ,   `>` ,   `<=` ,   `<=` ,   `<` ,   `<` ,   `!=` ,   `>=` ,   `>=` ,   `r.value` ,   `r.value` 
+
+| operator | returns | arguments | description |
+| -------- | ------- | --------- | ------------| 
+| fabs | `double` |   (`v`:double  )| | 
+| tan | `double` |   (`v`:double  )| | 
+| shell_arg | `string` |   (`index`:int  )| | 
+| unwrap | `int` |   (`arg`:<optional>int  )| | 
+| unwrap | `double` |   (`arg`:<optional>double  )| | 
+| - | `double` |   (`left`:double  `right`:double  )| | 
+| - | `int` |   (`left`:int  `right`:int  )| | 
+| + | `double` |   (`left`:double  `right`:double  )| | 
+| + | `int` |   (`left`:int  `right`:<optional>int  )| | 
+| * | `double` |   (`left`:double  `right`:double  )| | 
+| * | `int` |   (`left`:int  `right`:int  )| | 
+| / | `double` |   (`left`:double  `right`:double  )| | 
+| / | `double` |   (`left`:int  `right`:int  )| | 
+| int2double | `double` |   (`value`:int  )| | 
+| acos | `double` |   (`value`:double  )| | 
+| cos | `double` |   (`value`:double  )| | 
+| sin | `double` |   (`value`:double  )| | 
+| sqrt | `double` |   (`value`:double  )| | 
+| null? | `boolean` |   (`arg`:<optional>int  )| | 
+| null? | `boolean` |   (`arg`:<optional>double  )| | 
+| !null? | `boolean` |   (`arg`:<optional>int  )| | 
+| !null? | `boolean` |   (`arg`:<optional>double  )| | 
+| to_string | `string` |   (`value`:int  )| | 
+| to_int | `int` |   (`value`:double  )| | 
+| to_int | `string` |   (`value`:int  )| | 
+| strfromcode | `string` |   (`code`:int  )| | 
+| double2str | `string` |   (`value`:double  )| | 
+| to_double | `double` |   (`input`:int  )| | 
+| == | `boolean` |   (`left`:int  `right`:char  )| | 
+| == | `boolean` |   (`left`:double  `right`:double  )| | 
+| > | `boolean` |   (`left`:double  `right`:double  )| | 
+| > | `boolean` |   (`left`:int  `right`:int  )| | 
+| <= | `boolean` |   (`left`:int  `right`:char  )| | 
+| <= | `boolean` |   (`left`:double  `right`:double  )| | 
+| < | `boolean` |   (`left`:int  `right`:char  )| | 
+| < | `boolean` |   (`left`:double  `right`:double  )| | 
+| != | `boolean` |   (`left`:int  `right`:char  )| | 
+| >= | `boolean` |   (`left`:int  `right`:char  )| | 
+| >= | `boolean` |   (`left`:double  `right`:double  )| | 
+| r.value | `CodeNode` |   (`n`:double  )| | 
+| r.value | `CodeNode` |   (`n`:int  )| | 
+
+## String operators
+  `has_option` ,   `get_option` ,   `get_required_option` ,   `sha256` ,   `md5` ,   `env_var` ,   `file_exists` ,   `dir_exists` ,   `read_file` ,   `+` ,   `null?` ,   `!null?` ,   `trim` ,   `strsplit` ,   `strlen` ,   `substring` ,   `to_charbuffer` ,   `to_int` ,   `length` ,   `charAt` ,   `charcode` ,   `ccode` ,   `str2int` ,   `str2double` ,   `to_double` ,   `indexOf` ,   `to_uppercase` ,   `==` ,   `!=` ,   `r.op` ,   `r.vref` ,   `r.value` 
+
+| operator | returns | arguments | description |
+| -------- | ------- | --------- | ------------| 
+| has_option | `boolean` |   (`name`:string  )| | 
+| get_option | `string` |   (`name`:string  )| | 
+| get_required_option | `string` |   (`n`:string  )| | 
+| sha256 | `string` |   (`input`:string  )| | 
+| md5 | `string` |   (`input`:string  )| | 
+| env_var | `<optional>string` |   (`name`:string  )| | 
+| file_exists | `boolean` |   (`path`:string  `filename`:string  )| | 
+| dir_exists | `boolean` |   (`path`:string  )| | 
+| read_file | `<optional>string` |   (`path`:string  `filename`:string  )| | 
+| + | `string` |   (`left`:string  `right`:enum  )| | 
+| null? | `boolean` |   (`arg`:<optional>string  )| | 
+| !null? | `boolean` |   (`arg`:<optional>string  )| | 
+| trim | `string` |   (`value`:string  )| | 
+| strsplit | `[string]` |   (`strToSplit`:string  `delimiter`:string  )| | 
+| strlen | `int` |   (`text`:string  )| | 
+| substring | `string` |   (`text`:string  `start`:int  `end`:int  )| | 
+| to_charbuffer | `charbuffer` |   (`text`:string  )| | 
+| to_int | `<optional>int` |   (`txt`:string  )| | 
+| length | `int` |   (`text`:string  )| | 
+| charAt | `int` |   (`text`:string  `position`:int  )| | 
+| charcode | `char` |   (`text`:string  )| | 
+| ccode | `char` |   (`text`:string  )| | 
+| str2int | `<optional>int` |   (`value`:string  )| | 
+| str2double | `<optional>double` |   (`value`:string  )| | 
+| to_double | `<optional>double` |   (`value`:string  )| | 
+| indexOf | `int` |   (`str`:string  `key`:string  )| | 
+| to_uppercase | `string` |   (`s`:string  )| | 
+| == | `boolean` |   (`left`:string  `right`:string  )| | 
+| != | `boolean` |   (`left`:string  `right`:string  )| | 
+| r.op | `CodeNode` |   (`n`:string  )| | 
+| r.vref | `CodeNode` |   (`n`:string  `t`:string  )| | 
+| r.value | `CodeNode` |   (`n`:string  )| | 
+
+
+## Array operators
+  `def` ,   `make` ,   `for` ,   `length` ,   `join` ,   `has` ,   `set` ,   `lift` ,   `itemAt` ,   `indexOf` ,   `clone` ,   `contains` ,   `remove_index` ,   `insert` ,   `remove` ,   `push` ,   `removeLast` ,   `clear` ,   `last_index` ,   `last` ,   `sort` ,   `reverse` ,   `array_length` ,   `array_extract` ,   `forEach` ,   `map` ,   `filter` ,   `reduce` ,   `groupBy` ,   `find` ,   `count` 
+
+| operator | returns | arguments | description |
+| -------- | ------- | --------- | ------------| 
+| def | |   (`varname`:[T]  )| | 
+| make | `[T]` |   (`typeDef`:[T]  `size`:int  `repeatItem`:T  )| | 
+| for | |   (`list`:[T]  `item`:T  `indexName`:int  `repeat_block`:block  )| | 
+| length | `int` |   (`array`:[T]  )| | 
+| join | `string` |   (`array`:[string]  `delimiter`:string  )| | 
+| has | `boolean` |   (`array`:[T]  )| | 
+| set | |   (`array`:[T]  `index`:int  `value`:T  )| | 
+| lift | `<optional>T` |   (`array`:[T]  `index`:int  )| | 
+| itemAt | `T` |   (`array`:[T]  `index`:int  )| | 
+| indexOf | `int` |   (`array`:[T]  `element`:T  )| | 
+| clone | `[T]` |   (`array`:[T]  )| Create a copy of this buffer| 
+| contains | `boolean` |   (`array`:[T]  `element`:T  )| | 
+| remove_index | |   (`array`:[T]  `index`:int  )| | 
+| insert | |   (`array`:[T]  `index`:int  `item`:T  )| | 
+| remove | |   (`array`:[T]  `index`:int  )| | 
+| push | |   (`array`:[T]  `item`:<optional>T  )| | 
+| removeLast | |   (`array`:[T]  )| | 
+| clear | |   (`array`:[T]  )| | 
+| last_index | `int` |   (`array`:[T]  )| | 
+| last | `T` |   (`array`:[T]  )| | 
+| sort | `[T]` |   (`array`:[T]  `cb`:  )| | 
+| reverse | `[T]` |   (`array`:[T]  )| | 
+| array_length | `int` |   (`array`:[T]  )| | 
+| array_extract | `T` |   (`array`:[T]  `position`:int  )| | 
+| forEach | |   (`self`:[T]  `cb`:  )| Call `fb` for each item in array| 
+| map | `[S]` |   (`self`:[T]  `cb`:  `to`:[S]  )| | 
+| filter | `[T]` |   (`self`:[T]  `cb`:  )| | 
+| reduce | `T` |   (`self`:[T]  `cb`:  `initialValue`:T  )| | 
+| groupBy | `[T]` |   (`self`:[T]  `cb`:  )| | 
+| find | `<optional>T` |   (`self`:[T]  `cb`:  )| | 
+| count | `int` |   (`self`:[T]  `cb`:  )| | 
+
+## Map operators
+  `def` ,   `for` ,   `keys` ,   `has` ,   `get` ,   `get` ,   `set` ,   `forEach` ,   `forKeys` 
+
+| operator | returns | arguments | description |
+| -------- | ------- | --------- | ------------| 
+| def | |   (`varname`:[T]  )| | 
+| for | |   (`hash`:[T]  `item`:T  `itemName`:string  `repeat_block`:block  )| | 
+| keys | `[string]` |   (`map`:[T]  )| | 
+| has | `boolean` |   (`map`:[T]  `key`:K  )| | 
+| get | `<optional>int` |   (`map`:[int]  `key`:K  )| | 
+| get | `<optional>T` |   (`map`:[T]  `key`:K  )| | 
+| set | |   (`map`:[T]  `key`:K  `value`:T  )| | 
+| forEach | |   (`self`:[T]  `cb`:  )| | 
+| forKeys | |   (`self`:[T]  `cb`:  )| | 
+
+## Boolean operators... 
+  `?` ,   `==` ,   `&&` ,   `||` ,   `r.value` 
+
+| operator | returns | arguments | description |
+| -------- | ------- | --------- | ------------| 
+| ? | `T` |   (`condition`:boolean  `left`:T  `right`:T  )| | 
+| == | `boolean` |   (`left`:boolean  `right`:boolean  )| | 
+| && | `boolean` |   (`left`:boolean  `right`:<optional>S  )| | 
+| &#124;&#124; | `boolean` |   (`left`:boolean  `right`:boolean  )| | 
+| r.value | `CodeNode` |   (`n`:boolean  )| | 
 
 # Short notes about the syntax
 
@@ -529,7 +730,6 @@ You can use `break` and `continue` to control the for -loop.
 def cnt 10
 while (cnt > 0 ) {
     print "round " + cnt
-    cnt = cnt - 1
 }
 ```
 
@@ -710,6 +910,17 @@ def strList:[string]        ; list of Strings
 def strMap:[string:string]  ; map of string -> string
 def strObjMap:[string:someClass]    ; map of string -> object of type someClass
 ```
+
+# Advanced topics
+
+
+## Compiling a new version of the compiler
+
+Then run command
+```
+ranger-compiler -compiler -copysrc
+```
+The result will be written to directory `bin/ng_Compiler.js`.
 
 
 # Annotations
