@@ -75,21 +75,33 @@ The result will be outputtted into directory `bin/hello.js`
 # Quick Reference
 
 ## Statements
-  `def` ,   `for` ,   `set` ,   `remove_index` ,   `insert` ,   `remove` ,   `push` ,   `removeLast` ,   `clear` ,   `forEach` ,   `forKeys` 
+  `nullify` ,   `golang_wait` ,   `wait` ,   `timer` ,   `create_dir` ,   `write_file` ,   `=` ,   `def` ,   `return` ,   `gitdoc` ,   `if` ,   `switch` ,   `case` ,   `default` ,   `break` ,   `continue` ,   `while` ,   `throw` ,   `try` ,   `print` ,   `forEach` ,   `forUntil` ,   `color_print` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
-| def | |   (`varname`:[T]  )| | 
-| for | |   (`list`:[T]  `item`:T  `indexName`:int  `repeat_block`:block  )| | 
-| set | |   (`array`:[T]  `index`:int  `value`:T  )| | 
-| remove_index | |   (`array`:[T]  `index`:int  )| | 
-| insert | |   (`array`:[T]  `index`:int  `item`:T  )| | 
-| remove | |   (`array`:[T]  `index`:int  )| | 
-| push | |   (`array`:[T]  `item`:<optional>T  )| | 
-| removeLast | |   (`array`:[T]  )| | 
-| clear | |   (`array`:[T]  )| | 
-| forEach | |   (`self`:[T]  `cb`:  )| | 
-| forKeys | |   (`self`:[T]  `cb`:  )| | 
+| nullify | |   (`ptr`:<optional>T  )| | 
+| golang_wait | |   (`seconds`:double  )| | 
+| wait | |   (`seconds`:double  )| | 
+| timer | |   (`name`:string  `code`:block  )| | 
+| create_dir | |   (`path`:string  )| | 
+| write_file | |   (`path`:string  `file`:string  `data`:string  )| | 
+| = | |   (`immutable_left`:T  `immutable_right`:T  )| | 
+| def | |   (`varname`:T  )| | 
+| return | |   ( )| | 
+| gitdoc | |   (`value`:string  )| | 
+| if | |   (`condition`:boolean  `then_block`:block  `else_block`:block  )| | 
+| switch | |   (`condition`:char  `case_list`:block  )| | 
+| case | |   (`condition`:char  `case_block`:block  )| | 
+| default | |   (`default_block`:block  )| | 
+| break | |   ( )| | 
+| continue | |   ( )| | 
+| while | |   (`condition`:boolean  `whileLoop`:block  )| | 
+| throw | |   (`eInfo`:string  )| | 
+| try | |   (`run_block`:block  `catch_block`:block  )| | 
+| print | |   (`text`:string  )| | 
+| forEach | |   (`self`:Vector  `cb`:  )| | 
+| forUntil | |   (`self`:Vector  `cb`:  )| | 
+| color_print | |   (`cname`:string  `text`:string  )| | 
 
 ## Operators without arguments
   `create_immutable_array` ,   `create_immutable_hash` ,   `M_PI` ,   `shell_arg_cnt` ,   `install_directory` ,   `current_directory` ,   `error_msg` ,   `has_console_colors` 
@@ -273,6 +285,7 @@ The result will be outputtted into directory `bin/hello.js`
 | && | `boolean` |   (`left`:boolean  `right`:<optional>S  )| | 
 | &#124;&#124; | `boolean` |   (`left`:boolean  `right`:boolean  )| | 
 | r.value | `CodeNode` |   (`n`:boolean  )| | 
+
 
 # Short notes about the syntax
 
