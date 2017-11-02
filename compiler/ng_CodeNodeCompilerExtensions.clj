@@ -1,4 +1,6 @@
 
+Import "TTypes.clj"
+
 class CallChain {
   def methodName:string ""
   def method@(weak):CodeNode
@@ -34,7 +36,12 @@ class NodeEvalState {
 }
 
 extension CodeNode {
-  def typeClass@(weak):RangerTypeClass    
+
+  ; the evaluated type class...
+  ; 
+  def definedTypeClass@(weak):RangerTypeClass    
+  def evalTypeClass@(weak):RangerTypeClass    
+
   def lambda_ctx:RangerAppWriterContext    
   def nsp@(weak):[RangerAppParamDesc]
   def eval_type:RangerNodeType RangerNodeType.NoType
@@ -56,7 +63,7 @@ extension CodeNode {
   def hasParamDesc:boolean false    
   def paramDesc@(weak optional):RangerAppParamDesc
   def ownParamDesc@(optional):RangerAppParamDesc
-  def evalCtx:RangerAppWriterContext
+  def evalCtx@(weak):RangerAppWriterContext
   def evalState:NodeEvalState
 
   def operator_node@(weak):CodeNode
@@ -100,13 +107,41 @@ extension CodeNode {
         wr.out(vref false)
         wr.out(":[" + array_type + "]" , false)
       } 
-    }
-    if expression {
-      wr.out("(" false)
-      for children ch:CodeNode i {
-       ch.writeCode(wr)
+      case RangerNodeType.ExpressionType {
+        wr.out("(fn--> " false) ; "
+        for children ch:CodeNode i {
+        ch.writeCode(wr)
+        }
+        wr.out(")" false)  ; "
       }
-      wr.out(")" false)  ; "
+      default {
+        if expression {
+          wr.out("(" false)
+          for children ch:CodeNode i {
+            if( i > 0) {
+              wr.out(' ' false)
+            }
+            ch.writeCode(wr)
+          }
+          wr.out(")" false)  ; "
+        } {
+          if is_block_node {
+            wr.out("{" true)
+            for children ch:CodeNode i {
+              ch.writeCode(wr)
+            }
+            wr.out("}" true)
+          } {
+            wr.out("<unknown>" false)
+            wr.out("{" true)
+            for children ch:CodeNode i {
+              ch.writeCode(wr)
+            }
+            wr.out("}" true)
+          }
+        }
+
+      }
     }
   }
   
@@ -125,10 +160,148 @@ extension CodeNode {
     }
   }
 
+  fn inferDefExpressionTypeFromValue ( node:CodeNode ) {
+    def cn (itemAt node.children 1)
+    def nodeValue:CodeNode (itemAt node.children 2)
+    print " > Infer value type " + nodeValue.value_type
+    print " > Infer eval_tyåe type " + nodeValue.eval_type
+
+    if( !null? cn.expression_value ) {
+      print "^ but has expression value"
+      cn.value_type = RangerNodeType.ExpressionType
+      cn.parsed_type = RangerNodeType.ExpressionType
+      cn.has_vref_annotation = true
+
+      print "==> expression : " + (cn.expression_value.getCode())
+    }
+
+    if(nodeValue.eval_type == RangerNodeType.ExpressionType) {
+      if(!null? nodeValue.expression_value) {
+        cn.expression_value = ( nodeValue.expression_value.copy() )
+      } {
+        if( (null? node.expression_value)) {
+          ; infer the node type 
+          def copyOf (nodeValue.rebuildWithType( (new RangerArgMatch () ) false))
+          removeLast copyOf.children
+          cn.expression_value = copyOf
+        }
+      }
+      cn.value_type = RangerNodeType.ExpressionType
+    }            
+  }
+
+  fn inferDefTypeFromValue ( node:CodeNode ) {
+    def cn (itemAt node.children 1)
+    def nodeValue:CodeNode (itemAt node.children 2)
+
+    cn.value_type = nodeValue.eval_type
+    cn.type_name = nodeValue.eval_type_name
+    cn.array_type = nodeValue.eval_array_type
+    cn.key_type = nodeValue.eval_key_type
+
+    if(nodeValue.eval_type == RangerNodeType.ExpressionType) {
+      if(!null? nodeValue.expression_value) {
+        cn.expression_value = ( nodeValue.expression_value.copy() )
+      } {
+        if( (null? node.expression_value)) {
+          ; infer the node type 
+          def copyOf (nodeValue.rebuildWithType( (new RangerArgMatch () ) false))
+          removeLast copyOf.children
+          cn.expression_value = copyOf
+        }
+      }
+      cn.type_name = ""
+    }            
+  }
+
   fn getCode:string () {
     def wr:CodeWriter (new CodeWriter ())
     this.writeCode(wr)
     return (wr.getCode())
+  }
+
+  ; cleans away the flow parser information from the node...
+  fn cleanNode ( ) {  
+
+    def cp@(temp) this
+
+    nullify cp.evalTypeClass
+    nullify cp.lambda_ctx
+    clear cp.nsp
+
+    cp.eval_type = RangerNodeType.NoType
+    cp.eval_type_name = ""
+    cp.eval_key_type = ""
+    cp.eval_array_type = ""
+    
+    nullify cp.eval_function
+    cp.flow_done = false
+    cp.ref_change_done = false
+    nullify cp.eval_type_node
+    cp.didReturnAtIndex = -1
+    cp.hasVarDef = false
+    cp.hasClassDescription = false
+    cp.hasNewOper = false
+    nullify cp.clDesc
+    cp.hasFnCall = false
+    nullify cp.fnDesc
+    cp.hasParamDesc = false
+    nullify cp.paramDesc
+    nullify cp.ownParamDesc
+    nullify cp.evalCtx
+    nullify cp.evalState 
+    nullify cp.operator_node
+    nullify cp.flow_ctx
+    cp.is_part_of_chain = false
+    clear cp.methodChain
+    nullify cp.chainTarget
+    cp.tag = ""
+
+    cp.has_operator = false
+    cp.disabled_node = false
+    cp.op_index = 0
+    cp.is_array_literal = false
+    cp.is_system_class = false
+    cp.is_plugin = false
+
+    cp.mutable_def = false
+    cp.has_lambda = false
+    cp.has_lambda_call = false
+    cp.has_call = false
+
+    cp.type_type = type_type
+    cp.value_type = parsed_type
+
+    ; TODO:
+
+    ; def has_vref_annotation:boolean false
+    ; def vref_annotation:CodeNode
+    ; def has_type_annotation:boolean false
+    ; def type_annotation:CodeNode
+    ; def ref_type:RangerNodeRefType RangerNodeRefType.NoType
+    ; def ref_need_assign:int 0
+    ; def expression_value:CodeNode
+    ; def props:[string:CodeNode]
+    ; def prop_keys:[string]
+    ; def comments:[CodeNode]
+    ; def children:[CodeNode]
+    ; def parent@(weak):CodeNode
+    ; def attrs:[CodeNode]
+    ; def appGUID:string ""
+    ; def register_name:string ""
+
+    cp.children.forEach({
+      item.cleanNode()
+    })
+
+  }
+
+  ; creates copy that should be ready to be re-compiled
+  fn cleanCopy:CodeNode () {
+    def match (new RangerArgMatch)
+    def cp (this.rebuildWithType( match false))
+    cp.cleanNode()
+    return cp
   }
 
   fn copy:CodeNode () {
@@ -151,7 +324,16 @@ extension CodeNode {
     def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
     newNode.vref = name
     newNode.value_type = RangerNodeType.VRef
+    newNode.parsed_type = RangerNodeType.VRef
     newNode.ns = (strsplit name ".")
+    return newNode
+  }
+
+  fn newStringNode:CodeNode (name:string) {
+    def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
+    newNode.string_value = name
+    newNode.value_type = RangerNodeType.String
+    newNode.parsed_type = RangerNodeType.VRef
     return newNode
   }
 
@@ -161,10 +343,12 @@ extension CodeNode {
     return newNode    
   }
 
+
   fn getChildrenFrom (otherNode:CodeNode) {
     clear this.children
     for otherNode.children ch@(lives):CodeNode i {
       this.push(ch)
+      ch.parent = this
     }
     clear otherNode.children
   }
@@ -179,6 +363,8 @@ extension CodeNode {
     newNode.op_index = op_index
     newNode.mutable_def = mutable_def
     newNode.expression = expression
+    newNode.register_name = register_name
+    newNode.operator_node = operator_node
     if changeVref {
       newNode.vref = (match.getTypeName(vref))
     } {
@@ -190,6 +376,7 @@ extension CodeNode {
     newNode.key_type = (match.getTypeName(key_type))
     newNode.array_type = (match.getTypeName(array_type))
     newNode.value_type = value_type
+    newNode.parsed_type = parsed_type
     if has_vref_annotation {
       newNode.has_vref_annotation = true
       def ann:CodeNode vref_annotation
@@ -278,26 +465,10 @@ extension CodeNode {
     s = (s + (this.getVRefSignatureWithMatch(match)))
     return s
   }
+
   fn buildTypeSignature:string () {   
-    switch value_type {
-      case RangerNodeType.Double {
-        return "double"
-      }
-      case RangerNodeType.String {
-        return "string"
-      }
-      case RangerNodeType.Integer {
-        return "int"
-      }
-      case RangerNodeType.Boolean {
-        return "boolean"
-      }
-      case RangerNodeType.Char {
-        return "char"
-      }
-      case RangerNodeType.CharBuffer {
-        return "charbuffer"
-      }
+    if( TTypes.isPrimitive( value_type ) ) {
+      return (TTypes.valueAsString(value_type))
     }
     def s:string ""
     if (value_type == RangerNodeType.Array) {
@@ -317,10 +488,14 @@ extension CodeNode {
       return s
     }
     if (value_type == RangerNodeType.ExpressionType) {
-      s = s + ":("  + (expression_value.buildTypeSignature()) + ")"
+      def fnNode (expression_value.getFirst())
+      def argNode (expression_value.getSecond())
+      s = s + "(_:" + (fnNode.buildTypeSignature())
+      s = s + " ("  + (join (map argNode.children {
+        return ("_:" + (item.buildTypeSignature()))
+      } to:[string]) " ") + "))"
       return s
     }
-
     s = type_name
     return s
   }
@@ -354,39 +529,23 @@ extension CodeNode {
   
 
   fn typeNameAsType:RangerNodeType (ctx:RangerAppWriterContext) {
-    switch type_name {
-      case "double" {
-        return RangerNodeType.Double
-      }
-      case "int" {
-        return RangerNodeType.Integer
-      }
-      case "string" {
-        return RangerNodeType.String
-      }   
-      case "boolean" {
-        return RangerNodeType.Boolean
-      }         
-      case "char" {
-        return RangerNodeType.Char
-      }
-      case "charbuffer" {
-        return RangerNodeType.CharBuffer
-      }
-      default {
-          if (== true expression) {
-              (return RangerNodeType.ExpressionType)
-          }
-           
-          if (== value_type RangerNodeType.VRef) {
-              if(ctx.isEnumDefined(type_name)) {
-                  return RangerNodeType.Enum
-              }
-              if(ctx.isDefinedClass(type_name)) {
-                  return RangerNodeType.Object
-              }
-          }
-      }
+    if(value_type == RangerNodeType.ExpressionType || eval_type == RangerNodeType.ExpressionType ) {
+        return RangerNodeType.ExpressionType
+    }
+    def conv (TTypes.nameToValue(type_name))
+    if(conv != RangerNodeType.NoType) {
+      return conv
+    }
+    if (== true expression) {
+        (return RangerNodeType.ExpressionType)
+    }      
+    if (== value_type RangerNodeType.VRef) {
+        if(ctx.isEnumDefined(type_name)) {
+            return RangerNodeType.Enum
+        }
+        if(ctx.isDefinedClass(type_name)) {
+            return RangerNodeType.Object
+        }
     }
     return value_type
   }
@@ -396,8 +555,8 @@ extension CodeNode {
       hasParamDesc = node.hasParamDesc
       paramDesc = node.paramDesc
     }
-    if (!null? node.typeClass) {
-      typeClass = node.typeClass
+    if (!null? node.evalTypeClass) {
+      evalTypeClass = node.evalTypeClass
     }
     eval_type = node.eval_type
     eval_type_name = node.eval_type_name
@@ -436,7 +595,13 @@ extension CodeNode {
     }
        
   }
+
   fn defineNodeTypeTo:void (node:CodeNode ctx:RangerAppWriterContext) {
+    ; TODO: this function may have some problems
+    if(node.value_type == RangerNodeType.ExpressionType || node.eval_type == RangerNodeType.ExpressionType ) {
+        return
+    }
+
     switch type_name {
       case "double" {
         node.value_type = RangerNodeType.Double

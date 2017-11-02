@@ -58,6 +58,13 @@ class RangerCppClassWriter {
       return "int"
     }      
     if(ctx.isDefinedClass(type_string)) {
+
+      def cc (ctx.findClass(type_string))
+      if(cc.is_union) {
+        ; TODO: how about optionals?
+        return ("r_union_" + type_string)
+      }
+      
       return "std::shared_ptr<" + type_string + ">"
     }
     return type_string
@@ -121,6 +128,8 @@ class RangerCppClassWriter {
         def rv:CodeNode (itemAt node.expression_value.children 0)
         def sec:CodeNode (itemAt node.expression_value.children 1)
         def fc:CodeNode (sec.getFirst())
+        this.import_lib("<functional>" ctx wr)
+
         wr.out("std::function<" false)
         this.writeTypeDef( rv ctx wr)
         wr.out("(" false)
@@ -178,9 +187,20 @@ class RangerCppClassWriter {
           return
         }
 
-        if(ctx.isDefinedClass(t_name)) {
-          def cc:RangerAppClassDesc (ctx.findClass(t_name))
+        ; r_union_myValues
 
+        if(ctx.isDefinedClass(t_name)) {
+
+          def cc (ctx.findClass(t_name))
+          if(cc.is_union) {
+            wr.out("r_union_" false)
+            wr.out(t_name false)
+;            if (node.hasFlag("optional")) {
+;              wr.out("?" false)
+;            }            
+            return
+          }          
+          def cc:RangerAppClassDesc (ctx.findClass(t_name))
           wr.out("std::shared_ptr<" false)
           wr.out(cc.name false)
           wr.out(">" false)
@@ -199,6 +219,16 @@ class RangerCppClassWriter {
   }
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
+      ; std::dynamic_pointer_cast<RangerAppClassDesc>
+
+      def currC (ctx.getCurrentClass())
+      if(!null? currC) {
+        def cc (unwrap currC)
+        if( (array_length cc.extends_classes) > 0 ) {
+          wr.out("std::dynamic_pointer_cast<" + cc.name + ">(shared_from_this())" , false)
+          return
+        }
+      }
       wr.out("shared_from_this()" false)
       return
     }
@@ -401,8 +431,16 @@ class RangerCppClassWriter {
       p.value_type = RangerNodeType.Boolean
       ctx.defineVariable(p.name p)      
 
-      wr.out("bool " + p.compiledName + " = false;" , true)
-
+      def b_has_default false
+      for case_nodes.children ch:CodeNode i {
+        def blockName (ch.getFirst())
+        if (blockName.vref == "default") {
+          b_has_default = true
+        }
+      }
+      if b_has_default {
+        wr.out("bool " + p.compiledName + " = false;" , true)
+      }
       for case_nodes.children ch:CodeNode i {
         def blockName (ch.getFirst())
         if (blockName.vref == "default") {
@@ -423,7 +461,9 @@ class RangerCppClassWriter {
           this.WalkNode( caseValue ctx wr )
           wr.out(") {" true)
           wr.indent(1)
-          wr.out(p.compiledName + " = true;" , true)
+          if b_has_default {
+            wr.out(p.compiledName + " = true;" , true)
+          }
           this.WalkNode( caseBlock ctx wr )
           wr.indent(-1)
           wr.out("}" true)
@@ -432,13 +472,56 @@ class RangerCppClassWriter {
 
     }
   }  
+
+  fn CreateMethodCall(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; property access...
+      def obj:CodeNode (node.getFirst())
+      def args:CodeNode (node.getSecond())
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out('(' false)
+      ctx.setInExpr()
+      for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(', ' false)
+        }
+        ; TODO: optionality check here ?
+        this.WalkNode(arg ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(')' false)
+  }
+
+
+  fn CreatePropertyGet(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; property access...
+      def obj:CodeNode (node.getSecond())
+      def prop:CodeNode (node.getThird())
+      wr.out('(' false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out(')->' false)
+      this.WalkNode(prop ctx wr)
+  }
+
+
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    
     def fName:CodeNode (itemAt node.children 0)
     def givenArgs:CodeNode (itemAt node.children 1)
-    this.WriteVRef(fName ctx wr)
 
-    def param (ctx.getVariableDef(fName.vref))
-    def args ( itemAt param.nameNode.expression_value.children 1)
+    def args:CodeNode
+    if( (!null? fName.expression_value) ) {
+      args  = ( itemAt fName.expression_value.children 1)      
+    } {
+      def param (ctx.getVariableDef(fName.vref))
+      args  = ( itemAt param.nameNode.expression_value.children 1)
+    }
+
+    ctx.setInExpr()
+    this.WalkNode(fName ctx wr)
 
     wr.out("(" false)
     for args.children arg:CodeNode i {
@@ -452,23 +535,52 @@ class RangerCppClassWriter {
         }
     }
     wr.out(")" false)
+    ctx.unsetInExpr()
     if ((ctx.expressionLevel()) == 0) {
       wr.out(";" true)
     }    
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    this.import_lib("<functional>" ctx wr)
+
     def lambdaCtx (unwrap node.lambda_ctx)
     def fnNode:CodeNode (itemAt node.children 0)
     def args:CodeNode (itemAt node.children 1)
     def body:CodeNode (itemAt node.children 2)
+
+    ; capture by reference, not value
+    ; http://en.cppreference.com/w/cpp/language/lambda
+    ; [=] captures all automatic values by copy and current object by reference
+    ; [&] all by reference
     
-    wr.out("[this" false)
+    wr.out("[&" false)
+
+
+    for lambdaCtx.captured_variables cname:string i {
+      def vD (lambdaCtx.getVariableDef( cname ) )
+
+      if( vD.varType == RangerContextVarType.FunctionParameter ) {
+        wr.out(', ' false)
+        wr.out( (vD.compiledName) false)     
+      }
+
+      ; is function parameter ?
+;      if(vD.)
+;      wr.out(', ' false)
+;      wr.out( ("&" + vD.compiledName) false)
+    }    
+
     ;for lambdaCtx.captured_variables cname:string i {
-    ;  if(i>0) {
+    ;  if(i>=0) {
     ;    wr.out(", " false)
     ;  }
     ;  def vD (lambdaCtx.getVariableDef( cname ) )
-    ;  wr.out( vD.compiledName false)
+      ; capture by reference, not value
+      ; http://en.cppreference.com/w/cpp/language/lambda
+      ; [=] captures all automatic values by copy and current object by reference
+      ; [&] all by reference
+    ;  wr.out( ("&" + vD.compiledName) false)
     ;}    
     wr.out("](" false)
 
@@ -527,7 +639,7 @@ class RangerCppClassWriter {
       }
       wr.out(" " false)
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
-      wr.out(((" " + arg.name) + " ") false)
+      wr.out(((" " + arg.compiledName) + " ") false)
     }
   }
   fn writeFnCall:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -584,17 +696,46 @@ class RangerCppClassWriter {
       wr.out(")" false)
     }
   }
+;           this.createPolyfill( cmdArgs.string_value )
+
+  fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    this.compiler.createPolyfill("
+template< typename T, size_t N >
+std::vector<T> r_make_vector_from_array( const T (&data)[N] )
+{
+    return std::vector<T>(data, data+N);
+}
+" ctx wr)     
+    wr.out("r_make_vector_from_array( (" false)
+    ; this.writeTypeDef( node ctx wr)
+    wr.out( (this.getObjectTypeString( node.eval_array_type ctx )) false )
+    wr.out("[] ) {" false)
+    node.children.forEach({
+      if( index > 0 ) {
+        wr.out(", " false)
+      }
+      this.WalkNode( item ctx wr )
+    })
+    wr.out("} )" false)
+  }
+  
   fn writeClassHeader:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
       return
     }
+    def inheritedVars:[string:boolean]
     wr.out(("class " + cl.name) , false)
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" : " false)
       for cl.extends_classes pName:string i {
         wr.out("public " false)
         wr.out(pName false)
+        def extC (ctx.findClass(pName))
+        for extC.variables pvar:RangerAppParamDesc i {
+          set inheritedVars pvar.name true
+        }
       }
     } {
       wr.out(" : public std::enable_shared_from_this<" + cl.name +  "> " , false)
@@ -605,7 +746,9 @@ class RangerCppClassWriter {
     wr.out("public :" true)
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
-      this.writeCppHeaderVar( (unwrap pvar.node) ctx wr false)
+      if( (has inheritedVars pvar.name) == false) {
+        this.writeCppHeaderVar( (unwrap pvar.node) ctx wr false)
+      }
     }
     wr.out("/* class constructor */ " true)
     wr.out((cl.name + "(") false)
@@ -645,6 +788,44 @@ class RangerCppClassWriter {
     ; wr.out("#endif " true)
   }
 
+  fn CreateUnions (parser:RangerFlowParser ctx:RangerAppWriterContext wr:CodeWriter) {
+    def root (ctx.getRoot())
+    root.definedClasses.forEach({
+      ; index == name
+      ; item == class description
+      if(item.is_union) {
+        this.compiler.installFile( "variant.hpp" ctx wr)
+        ; TODO: implement system class unions too...
+        wr.out("typedef mpark::variant<" false)
+        wr.indent(1)
+          def cnt 0
+          item.is_union_of.forEach({
+            if (ctx.isDefinedClass(item)) {
+              def cl (ctx.findClass(item))
+              if( false == (cl.isNormalClass() ) ) {
+                return
+              }
+              if( cnt > 0 ) {
+                wr.out(", " false)
+              }
+              wr.out( (this.getObjectTypeString( item ctx ) ) false ) 
+              cnt = cnt + 1
+            } {
+              if( cnt > 0 ) {
+                wr.out(", " false)
+              }
+              wr.out( (this.getObjectTypeString( item ctx ) ) false ) 
+              cnt = cnt + 1
+            }
+          })
+        wr.indent(-1)
+        wr.out(">  r_union_" + index + ";" , true)
+        wr.addImport("\"variant.hpp\"")
+      }
+    })
+  }
+
+
   fn writeClass:void  (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
 
     def cl:RangerAppClassDesc node.clDesc
@@ -652,17 +833,37 @@ class RangerCppClassWriter {
     if (null? cl) {
       return
     }
+
+    this.import_lib("<memory>" ctx wr)
+
+    for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
+      if(dd.is_class_variable == false ) {
+        if ( dd.set_cnt > 0 ) {
+          if( ctx.hasCompilerFlag("dont-allow-mutate")) {
+            ctx.addError( (unwrap dd.nameNode) "Mutating captured variable is not allowed")
+            return
+          } 
+        }
+      }
+    }        
+
     if( header_created == false) {
       wr.createTag("c++Imports")
       wr.out("" true)
       wr.out("// define classes here to avoid compiler errors" true)
       wr.createTag("c++ClassDefs")
       wr.out("" true)
+      wr.createTag("c++unions")
       wr.createTag("utilities")
       wr.out("" true)
       wr.out("// header definitions" true)      
       wr.createTag("c++Header")
       wr.out("" true)
+
+      wr.out("int __g_argc;" true)
+      wr.out("char **__g_argv;" true)
+
+      this.CreateUnions( (unwrap this.compiler.parser) ctx (wr.getTag("c++unions")))
       
       header_created = true
     }
@@ -670,24 +871,23 @@ class RangerCppClassWriter {
     def headerWriter:CodeWriter (orig_wr.getTag("c++Header"))
     def projectName:string "project"
 
-    for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
-      if(dd.is_class_variable == false ) {
-        wr.out("// local captured " + dd.name , true)
-        ;print "C++ captured"
-        ;print (dd.node.getLineAsString())
-        dd.node.disabled_node = true
-        cl.addVariable(dd)
-        def csubCtx:RangerAppWriterContext cl.ctx
-        csubCtx.defineVariable(dd.name dd)
-        dd.is_class_variable = true
-      }
-    }      
+    ; for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
+    ;  if(dd.is_class_variable == false ) {
+    ;    wr.out("// local captured " + dd.name , true)
+    ;    ;print "C++ captured"
+    ;    ;print (dd.node.getLineAsString())
+    ;    dd.node.disabled_node = true
+    ;    cl.addVariable(dd)
+    ;    def csubCtx:RangerAppWriterContext cl.ctx
+    ;    csubCtx.defineVariable(dd.name dd)
+    ;    dd.is_class_variable = true
+    ;  }
+    ; }      
 
     classWriter.out("class " + cl.name + ";" , true)
 
     this.writeClassHeader(node ctx headerWriter)
 
-    wr.out("" true)
     wr.out((((cl.name + "::") + cl.name) + "(") false)
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc cl.constructor_fn
@@ -719,9 +919,9 @@ class RangerCppClassWriter {
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
       def nn:CodeNode (unwrap pvar.node)
-      if(pvar.is_captured) {
-        continue
-      }
+;      if(pvar.is_captured) {
+;        continue
+;      }
       if ((array_length nn.children) > 2) {
         def valueNode:CodeNode (itemAt nn.children 2)
         wr.out((("this->" + pvar.compiledName) + " = ") false)
@@ -745,8 +945,6 @@ class RangerCppClassWriter {
       if (variant.nameNode.hasFlag("main")) {
         continue _
       }
-
-      wr.out("" true)
       ; wr.out("static " false)
       this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
       wr.out(" " false)
@@ -766,7 +964,6 @@ class RangerCppClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
-        wr.out("" true)
         this.writeTypeDef((unwrap variant.nameNode )ctx wr)
         ;this.writePtr((unwrap variant.nameNode ) ctx wr)
         wr.out(" " false)
@@ -793,10 +990,12 @@ class RangerCppClassWriter {
 
     for cl.static_methods variant:RangerAppFunctionDesc i {
       if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
-        wr.out("" true)
         wr.out("int main(int argc, char* argv[]) {" true)
         wr.indent(1)
-        wr.newline()
+
+        wr.out("__g_argc = argc;" true)
+        wr.out("__g_argv = argv;" true)
+        
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.in_main = true
         subCtx.is_function = true

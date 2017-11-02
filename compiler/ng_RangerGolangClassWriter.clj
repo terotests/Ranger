@@ -379,11 +379,10 @@ class RangerGolangClassWriter {
             continue
           } 
 
-          if ((part != thisName) && (ctx.isMemberVariable(part))) {
-            def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          if ((part != thisName) && (!null? cc) && (false == (ctx.isInStatic())) ) {
             def currC:RangerAppClassDesc (unwrap cc)
-            def up@(optional):RangerAppParamDesc (currC.findVariable(part))
-            
+            def up@(optional):RangerAppParamDesc (currC.findVariable(part))            
             if (!null? up) {
               def p3:RangerAppParamDesc (unwrap up)
               wr.out((thisName + ".") false)
@@ -420,8 +419,10 @@ class RangerGolangClassWriter {
     }
     if node.hasParamDesc {
       def part:string (itemAt node.ns 0)
-      if ((part != thisName) && (ctx.isMemberVariable(part))) {
-          def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      
+      if ((part != thisName) && (!null? cc) && (false == (ctx.isInStatic()))) {
+;          def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
           def currC:RangerAppClassDesc (unwrap cc)
           def up@(optional):RangerAppParamDesc (currC.findVariable(part))
           
@@ -453,11 +454,10 @@ class RangerGolangClassWriter {
         if (ctx.hasClass(part)) {
           b_was_static = true
         }
-        if ((part != "this") && (ctx.isMemberVariable(part))) {
-          def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())      
+        if ((part != "this") && (!null? cc) && (false == (ctx.isInStatic()))) {
           def currC:RangerAppClassDesc (unwrap cc)
-          def up@(optional):RangerAppParamDesc (currC.findVariable(part))
-          
+          def up@(optional):RangerAppParamDesc (currC.findVariable(part))          
           if (!null? up) {
             def p3:RangerAppParamDesc (unwrap up)
             wr.out((thisName + ".") false)
@@ -529,11 +529,11 @@ class RangerGolangClassWriter {
             continue
           } 
 
-          if ((part != thisName) && (ctx.isMemberVariable(part))) {
-            def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+
+          if ((part != thisName) && (!null? cc) && (false == (ctx.isInStatic()))) {
             def currC:RangerAppClassDesc (unwrap cc)
-            def up@(optional):RangerAppParamDesc (currC.findVariable(part))
-            
+            def up@(optional):RangerAppParamDesc (currC.findVariable(part))            
             if (!null? up) {
               def p3:RangerAppParamDesc (unwrap up)
               wr.out((thisName + ".") false)
@@ -572,8 +572,9 @@ class RangerGolangClassWriter {
     }
     if node.hasParamDesc {
       def part:string (itemAt node.ns 0)
-      if ((part != thisName) && (ctx.isMemberVariable(part))) {
-        def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())      
+      if ((part != thisName) && (!null? cc) && (false == (ctx.isInStatic()))) {
+;        def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
         def currC:RangerAppClassDesc (unwrap cc)
         def up@(optional):RangerAppParamDesc (currC.findVariable(part))
         
@@ -605,8 +606,9 @@ class RangerGolangClassWriter {
         if (ctx.hasClass(part)) {
           b_was_static = true
         }
-        if ((part != "this") && (ctx.isMemberVariable(part))) {
-          def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())              
+        if ((part != "this") && (!null? cc) && (false == (ctx.isInStatic()))) {
+;          def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
           def currC:RangerAppClassDesc (unwrap cc)
           def up@(optional):RangerAppParamDesc (currC.findVariable(part))
           
@@ -704,11 +706,12 @@ class RangerGolangClassWriter {
           }
         }
 
-        if ((part != "this") && (ctx.isMemberVariable(part))) {
-          def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        
+        def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        ;ctx.isMemberVariable(part)
+        if ((part != "this") && (!null? cc) && (false == (ctx.isInStatic())) ) {
           def currC:RangerAppClassDesc (unwrap cc)
           def up@(optional):RangerAppParamDesc (currC.findVariable(part))
-          
           if (!null? up) {
             def p3:RangerAppParamDesc (unwrap up)
             wr.out((thisName + ".") false)
@@ -772,6 +775,7 @@ class RangerGolangClassWriter {
       if (p.ref_cnt == 0) {
         wr.out(" /**  unused  **/ " false)
       }
+      wr.out( (' `json:"' + p.name +  '"` ') false)
       wr.out("" true)
       if (p.nameNode.hasFlag("optional")) {
       }
@@ -783,9 +787,34 @@ class RangerGolangClassWriter {
       def p:RangerAppParamDesc nn.paramDesc
       def b_not_used:boolean false
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out((("/** unused:  " + p.compiledName) + "*/") true)
-        b_not_used = true
-        return
+
+        ; testing if variable definition can be omitted is here...
+        def b_can_skip true
+        if ((array_length node.children) > 2) {
+          def value:CodeNode (node.getThird())
+          if(value.has_call || value.has_lambda_call) {
+            b_can_skip = false
+          }
+          value.forTree({
+            ; can you detect operators with side effects ? 
+            if(item.has_call || item.has_lambda_call) {
+              b_can_skip = false
+            }
+          })
+          if( b_can_skip == false ) {
+            wr.out(" _ = " false)
+            ctx.setInExpr()
+            this.WalkNode(value ctx wr)
+            ctx.unsetInExpr()
+            wr.out('' true)
+            return            
+          }
+        }
+        if b_can_skip {
+          wr.out((("/** unused:  " + p.compiledName) + "*/") true)
+          b_not_used = true
+          return
+        }
       }
       def map_or_hash:boolean ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash))
       if (nn.hasFlag("optional")) {
@@ -836,9 +865,11 @@ class RangerGolangClassWriter {
           wr.out((("var " + p.compiledName) + " ") false)
         }
       }
-      
-      this.writeTypeDef2(( unwrap p.nameNode )ctx wr)
 
+      def ti_ok (ctx.canUseTypeInference( (unwrap p.nameNode) ))     
+      if( (false == ti_ok ) || ( (false == (p.nameNode.hasFlag("optional"))) && ( (array_length node.children) == 2) ) ) {    
+        this.writeTypeDef2(( unwrap p.nameNode )ctx wr)
+      } 
       if ((array_length node.children) > 2) {
         def value:CodeNode (node.getThird())
         if (value.expression && ((array_length value.children) > 1)) {
@@ -850,9 +881,15 @@ class RangerGolangClassWriter {
             return
           } 
         }
-        wr.out(" = " false)
+        wr.out("= " false)
         ctx.setInExpr()
+        if( p.nameNode.eval_type_name == "char") {
+          wr.out("byte(" false)
+        }
         this.WalkNode(value ctx wr)
+        if( p.nameNode.eval_type_name == "char") {
+          wr.out(")" false)
+        }
         ctx.unsetInExpr()
       } {
         if (nn.value_type == RangerNodeType.Array) {
@@ -871,7 +908,7 @@ class RangerGolangClassWriter {
         wr.out("     /** note: unused */" false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("   **/ " true)
+
       } {
         wr.newline()
       }
@@ -919,24 +956,46 @@ class RangerGolangClassWriter {
       wr.out(")" false)
     }
   }
+
+  fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.writeTypeDef(node ctx wr)
+    wr.out(" {" false)
+    node.children.forEach({
+      if( index > 0 ) {
+        wr.out(", " false)
+      }
+      this.WalkNode( item ctx wr )
+    })
+    wr.out("}" false)
+  }
+  
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fName:CodeNode (itemAt node.children 0)
-    def args:CodeNode (itemAt node.children 1)
-    this.WriteVRef(fName ctx wr)
+    def givenArgs:CodeNode (itemAt node.children 1)
+
+    def args:CodeNode
+    if( (!null? fName.expression_value) ) {
+      args  = ( itemAt fName.expression_value.children 1)      
+    } {
+      def param (ctx.getVariableDef(fName.vref))
+      args  = ( itemAt param.nameNode.expression_value.children 1)
+    }
+    ctx.setInExpr()
+    this.WalkNode(fName ctx wr)
     wr.out("(" false)
     def subCtx (ctx.fork())
-    subCtx.setInExpr()
     for args.children arg:CodeNode i {
+      def n:CodeNode (itemAt givenArgs.children i)
       if (i > 0) {
         wr.out(", " false)
       }
       if(arg.value_type != RangerNodeType.NoType) {
-        this.WalkNode(arg subCtx wr)
+        this.WalkNode(n subCtx wr)
       } {
-        this.WalkNode(arg subCtx wr)
+        this.WalkNode(n subCtx wr)
       }   
     }
-    subCtx.unsetInExpr()
+    ctx.unsetInExpr()
     wr.out(")" false)
     if ((ctx.expressionLevel()) == 0) {
       wr.out(";" true)
@@ -994,6 +1053,98 @@ class RangerGolangClassWriter {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
 
+    if(cmd == "return" ) {
+      if( (array_length node.children ) > 1 ) {
+        def rValue (node.getSecond())
+        if( (ctx.isCatchBlock()) || (ctx.isTryBlock()) ) {
+          wr.out("__ex_returned = true" true)
+          wr.out("__exReturn = " false)
+          ctx.setInExpr()
+          this.WalkNode( rValue ctx wr )
+          ctx.unsetInExpr()
+          wr.newline()
+          if( ctx.isTryBlock() ) {
+            wr.out("return __ex_returned, __exReturn" true)
+          }
+        } {
+          wr.out("return " false)
+          ctx.setInExpr()
+          this.WalkNode( rValue ctx wr )
+          ctx.unsetInExpr()
+          wr.newline()
+        }
+      } {
+        if(ctx.isCatchBlock()) {
+          wr.out("__ex_returned = true" true)
+        }
+        if(ctx.isTryBlock()) {
+          wr.out("return false, nil" true)
+        }
+        wr.out("return" true)
+      }
+      return
+    }
+
+    ; create custom try... catch... operator 
+    if(cmd == "try" ) {
+      
+      def tryBlock (node.getSecond())
+      def catchBlock (node.getThird())
+
+      def currFn (ctx.getCurrentMethod())
+      ; def ex1 (create_var ctx "did_throw" "boolean")
+      def ex2 (create_var ctx "did_return" "boolean")
+      def ex3 (create_var ctx "ex_result" (unwrap currFn.nameNode) )
+
+      if( currFn.nameNode.type_name == "void") {
+        wr.out( ex2.compiledName + ", _ := (func () ( __ex_returned bool,  __exReturn interface{}) {" , true)
+        ; wr.out( "(func () ( __ex_returned bool, __exReturn interface{}) {" , true)
+      } {
+        wr.out( ex2.compiledName + ", " + ex3.compiledName + " := (func () ( __ex_returned bool,  __exReturn interface{}) {" , true)
+      }
+
+        wr.indent(1)
+          wr.out("defer func() {" true)
+          wr.indent(1)
+            wr.out("if r:= recover(); r != nil {" true)
+            wr.indent(1)
+
+            def subCtx (ctx.fork())
+            subCtx.is_catch_block = true            
+            ; -- here the return should be converted
+            this.WalkNode( catchBlock subCtx wr)
+            wr.indent(-1)
+            wr.out("}" true)
+          wr.indent(-1)
+        wr.out("}()" true)
+        ; the try block here...   
+        def subCtx (ctx.fork())
+        subCtx.is_try_block = true
+        this.WalkNode( tryBlock subCtx wr)
+        ; wr.out("if")
+        wr.out("return __ex_returned, __exReturn" true)
+        wr.indent(-1)
+      wr.out("})()" true)
+
+      if( currFn.nameNode.type_name != "void") {
+        wr.out("if " + ex2.compiledName + " {" , true)
+        wr.indent(1)
+          wr.out("return " + ex3.compiledName , false)
+          wr.out(".(" false)
+          this.writeTypeDef((unwrap currFn.nameNode) ctx wr)
+          wr.out(")" true)                 
+          
+        wr.indent(-1)
+        wr.out("}" true)
+      } {
+        wr.out("if " + ex2.compiledName + " {" , true)
+        wr.indent(1)
+          wr.out("return ", true)
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+      return
+    }
 
     if(cmd == "=" || cmd == "push" || cmd == "removeLast") {
 
@@ -1046,8 +1197,9 @@ class RangerGolangClassWriter {
             if (ctx.hasClass(part)) {
               b_was_static = true
             }
-            if ((part != "this") && (ctx.isMemberVariable(part))) {
-              def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+            def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())      
+            if ((part != "this") && (!null? cc) && (false == (ctx.isInStatic())) ) {
+;              def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
               def currC:RangerAppClassDesc (unwrap cc)
               def up@(optional):RangerAppParamDesc (currC.findVariable(part))
               
@@ -1242,7 +1394,7 @@ class RangerGolangClassWriter {
     wr.indent(-1)
     wr.out("}" true)
 
-    if(cl.doesInherit()) {
+    if( (cl.doesInherit()) || (has cl.extends_classes) ) {
       wr.out((("type IFACE_" + cl.name) + " interface { ") true)
       wr.indent(1)
       for cl.variables p:RangerAppParamDesc i {
@@ -1408,7 +1560,9 @@ class RangerGolangClassWriter {
       wr.newline()
       def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
       subCtx.is_function = true
+      subCtx.in_static_method = true
       this.WalkNode(( unwrap variant.fnBody ) subCtx wr)
+      subCtx.in_static_method = false
       wr.newline()
       wr.indent(-1)
       wr.out("}" true)
@@ -1491,7 +1645,7 @@ class RangerGolangClassWriter {
 
     def declaredGetter:[string:boolean]
 
-    if(cl.doesInherit()) {
+    if( (cl.doesInherit())  || (has cl.extends_classes) ) {
 
       for cl.variables p:RangerAppParamDesc i {
 
@@ -1586,7 +1740,14 @@ class RangerGolangClassWriter {
         wr.newline()
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.is_function = true
+        subCtx.in_static_method = true
         this.WalkNode(( unwrap variant.fnBody ) subCtx wr)
+        subCtx.in_static_method = false
+        
+        if( ctx.hasCompilerFlag('forever')) {
+          wr.out(`for {}` true)
+        }
+        
         wr.newline()
         wr.indent(-1)
         wr.out("}" true)

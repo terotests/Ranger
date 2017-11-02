@@ -43,9 +43,9 @@ class RangerAppHashValue {
   def key_type_name:string ""
   def value_type_name:string ""
   def s_values:[string:RangerAppValue]
-  def i_values:[int:RangerAppValue]
-  def b_values:[boolean:RangerAppValue]
-  def d_values:[double:RangerAppValue]
+  def i_values:[string:RangerAppValue]
+  def b_values:[string:RangerAppValue]
+  def d_values:[string:RangerAppValue]
 }
 class RangerAppValue {
   def double_value:double 0.0
@@ -67,6 +67,7 @@ class RangerAppParamDesc {
   def value:RangerAppValue
   def compiledName:string ""
   def debugString:string ""
+  def is_register false
   def ref_cnt:int 0
   def init_cnt:int 0
   def set_cnt:int 0
@@ -79,6 +80,7 @@ class RangerAppParamDesc {
   def isThis:boolean false
   def classDesc:RangerAppClassDesc
   def is_immutable false
+  def is_static false
   def propertyClass@(weak):RangerAppClassDesc
   def fnDesc:RangerAppFunctionDesc
   def ownerHistory:[RangerRefForce]
@@ -99,6 +101,7 @@ class RangerAppParamDesc {
   def has_events:boolean false
   def eMap:RangerParamEventMap
 
+
   fn addEvent:void (name:string e@(strong lives):RangerParamEventHandler) {
     if( has_events == false ) {
       eMap = (new RangerParamEventMap())
@@ -113,10 +116,16 @@ class RangerAppParamDesc {
     entry.changer = changer
     push ownerHistory entry
   }
+  fn isFunction:boolean () {
+    return false
+  }
   fn isProperty:boolean () {
     return true
   }
   fn isClass:boolean () {
+    return false
+  }
+  fn isOperator:boolean () {
     return false
   }
   fn doesInherit:boolean () {

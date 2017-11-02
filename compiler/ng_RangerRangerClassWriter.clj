@@ -19,6 +19,18 @@ class RangerRangerClassWriter {
       return type_string
   }
 
+  fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out("([] " false)
+    node.children.forEach({
+      if( index > 0 ) {
+        wr.out(" " false)
+      }
+      this.WalkNode( item ctx wr )
+    })
+    wr.out(")" false)
+  }
+  
+
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def v_type:RangerNodeType node.value_type    
@@ -112,6 +124,7 @@ class RangerRangerClassWriter {
       wr.out(" " true)
     }
   }
+  ; the lambda transform...
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def lambdaCtx (unwrap node.lambda_ctx)
 

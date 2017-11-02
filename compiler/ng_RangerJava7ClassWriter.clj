@@ -1,3 +1,6 @@
+
+Import "ng_AndroidPageWriter.clj"
+
 class RangerJava7ClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -23,7 +26,7 @@ class RangerJava7ClassWriter {
     return tn
   }
 
-  fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+  fn getObjectTypeString2:string (type_string:string ctx:RangerAppWriterContext wr:CodeWriter) {
     switch type_string {
       case "int" {
         return "Integer"
@@ -46,6 +49,17 @@ class RangerJava7ClassWriter {
     }
     if(ctx.isDefinedClass(type_string)) {
       def cc (ctx.findClass(type_string))
+      if(cc.is_system) {
+        def current_sys (ctx)
+        def sName (unwrap (get cc.systemNames "java7"))
+        if(sName == "JSONObject") {
+            wr.addImport("org.json.JSONObject")                
+        }
+        if(sName == "JSONArray") {
+            wr.addImport("org.json.JSONArray")                
+        }
+        return sName        
+      }
       if(cc.is_union) {
         return "Object"
       }
@@ -107,16 +121,28 @@ class RangerJava7ClassWriter {
           def iface_name (this.getSignatureInterface(sig)) 
           wr.out( iface_name false)
 
+          if( this.isPackaged(ctx)) {
+            def package_name (ctx.getCompilerSetting("package"))
+            wr.addImport( ((package_name) + ".interfaces.*") )
+          }
+
           if( ( has iface_created iface_name) == false ) {
             def fnNode (itemAt node.expression_value.children 0)
             def args (itemAt node.expression_value.children 1)
             set iface_created iface_name true
-            def utilWr (wr.getFileWriter("." (iface_name + ".java")))
-
-            def package_name (ctx.getCompilerSetting("package"))
-            if( (strlen package_name) > 0) {
-              utilWr.out("package " + package_name + ";" , true)
+            def iface_dir "."
+            if( this.isPackaged(ctx)) {
+              iface_dir = "./interfaces/"
             }
+            def utilWr (wr.getFileWriter( iface_dir (iface_name + ".java")))
+
+            if( this.isPackaged(ctx)) {
+              def package_name (ctx.getCompilerSetting("package"))
+              if( (strlen package_name) > 0) {
+                utilWr.out("package " + package_name + ".interfaces;" , true)
+                utilWr.out("import " + package_name + ".*;" , true)
+              }
+            } 
             
             utilWr.out("public interface " + iface_name + " { " , true)
             utilWr.indent(1)
@@ -127,6 +153,7 @@ class RangerJava7ClassWriter {
                 if (i > 0) {
                   utilWr.out(", " false)
                 }
+                utilWr.out(" final " false)
                 this.writeTypeDef(arg ctx utilWr)
                 utilWr.out(" " false)
                 utilWr.out(arg.vref  false)
@@ -160,18 +187,18 @@ class RangerJava7ClassWriter {
           wr.out("byte[]" false)
         }
         case RangerNodeType.Hash {
-          wr.out( (((("HashMap<" + (this.getObjectTypeString(k_name ctx))) + ",") + (this.getObjectTypeString(a_name ctx))) + ">") , false)
+          wr.out( (((("HashMap<" + (this.getObjectTypeString2(k_name ctx wr))) + ",") + (this.getObjectTypeString2(a_name ctx wr))) + ">") , false)
           wr.addImport("java.util.*")
         }
         case RangerNodeType.Array {
-          wr.out((("ArrayList<" + (this.getObjectTypeString(a_name ctx))) + ">") , false)
+          wr.out((("ArrayList<" + (this.getObjectTypeString2(a_name ctx wr))) + ">") , false)
           wr.addImport("java.util.*")
         }
         default {
           if (t_name== "void") {
             wr.out("void" false)
           } {
-            wr.out((this.getObjectTypeString(t_name ctx) ), false)
+            wr.out((this.getObjectTypeString2(t_name ctx wr) ), false)
           }
         }
       }
@@ -182,15 +209,26 @@ class RangerJava7ClassWriter {
           def iface_name (this.getSignatureInterface(sig)) 
           wr.out( iface_name false)
 
+          def package_name (ctx.getCompilerSetting("package"))
+          ; wr.addImport( ((package_name) + ".interfaces.*") )
+
           if( ( has iface_created iface_name) == false ) {
             def fnNode (itemAt node.expression_value.children 0)
             def args (itemAt node.expression_value.children 1)
             set iface_created iface_name true
-            def utilWr (wr.getFileWriter("." (iface_name + ".java")))
-            def package_name (ctx.getCompilerSetting("package"))
-            if( (strlen package_name) > 0) {
-              utilWr.out("package " + package_name + ";" , true)
+            def iface_dir "."
+            if( this.isPackaged(ctx)) {
+              iface_dir = "./interfaces/"
             }
+            def utilWr (wr.getFileWriter( iface_dir (iface_name + ".java")))
+
+            if( this.isPackaged(ctx)) {
+              def package_name (ctx.getCompilerSetting("package"))
+              if( (strlen package_name) > 0) {
+                utilWr.out("package " + package_name + ".interfaces;" , true)
+                utilWr.out("import " + package_name + ".*;" , true)
+              }
+            } 
 
             utilWr.out("public interface " + iface_name + " { " , true)
             utilWr.indent(1)
@@ -201,6 +239,7 @@ class RangerJava7ClassWriter {
                 if (i > 0) {
                   utilWr.out(", " false)
                 }
+                utilWr.out(" final " false)
                 this.writeTypeDef(arg ctx utilWr)
                 utilWr.out(" " false)
                 utilWr.out(arg.vref  false)
@@ -212,13 +251,13 @@ class RangerJava7ClassWriter {
           }
         }        
         case RangerNodeType.Enum {
-          wr.out("int" false)
+          wr.out("Integer" false)
         }
         case RangerNodeType.Integer {
-          wr.out("int" false)
+          wr.out("Integer" false)
         }
         case RangerNodeType.Double {
-          wr.out("double" false)
+          wr.out("Double" false)
         }
         case RangerNodeType.Char {
           wr.out("byte" false)
@@ -230,14 +269,14 @@ class RangerJava7ClassWriter {
           wr.out("String" false)
         }
         case RangerNodeType.Boolean {
-          wr.out("boolean" false)
+          wr.out("Boolean" false)
         }
         case RangerNodeType.Hash {
-          wr.out((((("HashMap<" + (this.getObjectTypeString(k_name ctx))) + ",") + (this.getObjectTypeString(a_name ctx)))) + ">" , false)
+          wr.out((((("HashMap<" + (this.getObjectTypeString2(k_name ctx wr))) + ",") + (this.getObjectTypeString2(a_name ctx wr)))) + ">" , false)
           wr.addImport("java.util.*")
         }
         case RangerNodeType.Array {
-          wr.out((("ArrayList<" + (this.getObjectTypeString(a_name ctx)))) + ">" , false)
+          wr.out((("ArrayList<" + (this.getObjectTypeString2(a_name ctx wr)))) + ">" , false)
           wr.addImport("java.util.*")
         }
         default {
@@ -249,6 +288,18 @@ class RangerJava7ClassWriter {
               wr.out("Object" false)
               b_object_set = true
             }
+            if(cc.is_system) {
+              def sName (unwrap (get cc.systemNames "java7"))
+              if(sName == "JSONObject") {
+                  wr.addImport("org.json.JSONObject")                
+              }
+              if(sName == "JSONArray") {
+                  wr.addImport("org.json.JSONArray")                
+              }
+              wr.out( sName false )
+              return   
+            }
+            ; lambda signature ?? 
           }          
           if( b_object_set == false) {
             if (t_name == "void") {
@@ -293,16 +344,25 @@ class RangerJava7ClassWriter {
       for node.nsp p:RangerAppParamDesc i {
 
         if (i == 0) {
+          def p_captured_mutable ( (p.set_cnt > 0 ) && (p.is_captured)  && (p.is_class_variable == false)) 
+          if( p.nameNode.value_type == RangerNodeType.Hash || p.nameNode.value_type == RangerNodeType.Array ) {
+            p_captured_mutable = false
+          }
+          
           def part:string (itemAt node.ns 0)
           if(part == "this") {
             if( ctx.inLambda() ) {
               def currC (ctx.getCurrentClass())
               wr.out( (currC.name + ".this") false)
             } {
-              wr.out("this" false)
+              def currC (ctx.getCurrentClass())
+              wr.out( (currC.name + ".this") false)
             }            
             continue
           } 
+          if( p_captured_mutable ) {
+            wr.out("[0]" false)
+          }
         }
 
         if (i > 0) {
@@ -317,7 +377,6 @@ class RangerJava7ClassWriter {
             wr.out((this.adjustType((itemAt node.ns i))) false)
           }
         }
-
         if (i < (max_len - 1) ) {
           if (p.nameNode.hasFlag("optional")) {
             ; wr.out(".get()" false)
@@ -329,6 +388,14 @@ class RangerJava7ClassWriter {
     if node.hasParamDesc {
       def p:RangerAppParamDesc node.paramDesc
       wr.out(p.compiledName false)
+      def p_captured_mutable ( (p.set_cnt > 0 ) && (p.is_captured)  && (p.is_class_variable == false) )
+      if( p.nameNode.value_type == RangerNodeType.Hash || p.nameNode.value_type == RangerNodeType.Array ) {
+        p_captured_mutable = false
+      }
+      if( p_captured_mutable ) {
+        wr.out("[0]" false)
+      }
+      
       return
     }
     for node.ns part:string i {
@@ -393,39 +460,66 @@ class RangerJava7ClassWriter {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
+
+      def p_captured_mutable ( (p.set_cnt > 0 ) && (p.is_captured) && (p.is_class_variable == false))
+      if( nn.value_type == RangerNodeType.Hash || nn.value_type == RangerNodeType.Array ) {
+        p_captured_mutable = false
+      }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("/** unused:  " false)
       }
-      if ((p.set_cnt > 0) || p.is_class_variable) {
+      if ( (p_captured_mutable == false ) && ( (p.set_cnt > 0) || p.is_class_variable) ) {
         wr.out("" false)
       } {
         wr.out("final " false)
       }
       this.writeTypeDef((unwrap p.nameNode) ctx wr)
+      if(p_captured_mutable) {
+        wr.out("[]" false)
+      }
+
       wr.out(" " false)
+
+      
       wr.out(p.compiledName false)
       if ((array_length node.children) > 2) {
         wr.out(" = " false)
         ctx.setInExpr()
         def value:CodeNode (node.getThird())
+
+        if(p_captured_mutable) {
+          wr.out(" new " false)
+          this.writeTypeDef((unwrap p.nameNode) ctx wr)
+           wr.out("[]{" false)
+        }
+        
         this.WalkNode(value ctx wr)
+        if(p_captured_mutable) {
+          wr.out("}" false)
+        }
         ctx.unsetInExpr()
       } {
-        def b_was_set:boolean false
-        if (nn.value_type == RangerNodeType.Array) {
+        if(p_captured_mutable) {
           wr.out(" = new " false)
-          this.writeTypeDef( (unwrap p.nameNode) ctx wr)
-          wr.out("()" false)
-          b_was_set = true
-        }
-        if (nn.value_type == RangerNodeType.Hash) {
-          wr.out(" = new " false)
-          this.writeTypeDef((unwrap p.nameNode)  ctx wr)
-          wr.out("()" false)
-          b_was_set = true
-        }
-        if ((b_was_set == false) && (nn.hasFlag("optional"))) {
-          wr.out(" = null" false)
+          this.writeTypeDef((unwrap p.nameNode) ctx wr)
+          wr.out("[]{ null }" false)
+        } {
+          def b_was_set:boolean false
+          if (nn.value_type == RangerNodeType.Array) {
+            wr.out(" = new " false)
+            this.writeTypeDef( (unwrap p.nameNode) ctx wr)
+            wr.out("()" false)
+            b_was_set = true
+          }
+          if (nn.value_type == RangerNodeType.Hash) {
+            wr.out(" = new " false)
+            this.writeTypeDef((unwrap p.nameNode)  ctx wr)
+            wr.out("()" false)
+            b_was_set = true
+          }
+          if ((b_was_set == false) && (nn.hasFlag("optional"))) {
+            wr.out(" = null" false)
+          }
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
@@ -444,7 +538,7 @@ class RangerJava7ClassWriter {
       if (i > 0) {
         wr.out("," false)
       }
-      wr.out(" " false)
+      wr.out(" final " false)
       this.writeTypeDef((unwrap arg.nameNode) ctx wr)
       wr.out(((" " + arg.compiledName) + " ") false)
     }
@@ -489,10 +583,19 @@ class RangerJava7ClassWriter {
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fName:CodeNode (itemAt node.children 0)
     def givenArgs:CodeNode (itemAt node.children 1)
-    this.WriteVRef(fName ctx wr)
 
-    def param (ctx.getVariableDef(fName.vref))
-    def args ( itemAt param.nameNode.expression_value.children 1)
+    def rv:CodeNode 
+    def args:CodeNode
+    if( (!null? fName.expression_value) ) {
+      rv  = ( itemAt fName.expression_value.children 0)
+      args  = ( itemAt fName.expression_value.children 1)      
+    } {
+      def param (ctx.getVariableDef(fName.vref))
+      rv  = ( itemAt param.nameNode.expression_value.children 0)
+      args  = ( itemAt param.nameNode.expression_value.children 1)
+    }
+
+    this.WalkNode(fName ctx wr)
 
     wr.out(".run(" false)
     for args.children arg:CodeNode i {
@@ -511,6 +614,23 @@ class RangerJava7ClassWriter {
       wr.out(")" false)
     }
   }
+
+  fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.addImport("java.util.*")
+    wr.out("new ArrayList<" false)
+    wr.out( (this.getObjectTypeString2( node.eval_array_type ctx wr)) false )
+    wr.out(">(Arrays.asList( new " false)
+    wr.out( (this.getObjectTypeString2( node.eval_array_type ctx wr)) false )
+    wr.out("[] {" false)
+    node.children.forEach({
+      if( index > 0 ) {
+        wr.out(", " false)
+      }
+      this.WalkNode( item ctx wr )
+    })
+    wr.out("}))" false)
+  }
+  
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def lambdaCtx (unwrap node.lambda_ctx)
     def fnNode:CodeNode (itemAt node.children 0)
@@ -518,14 +638,26 @@ class RangerJava7ClassWriter {
     def body:CodeNode (itemAt node.children 2)
     def sig (this.buildLambdaSignature( node))
     def iface_name (this.getSignatureInterface(sig)) 
+
+    def package_name (ctx.getCompilerSetting("package"))
+    
     if( ( has iface_created iface_name) == false ) {
       set iface_created iface_name true
-      def utilWr (wr.getFileWriter("." (iface_name + ".java")))
-      def package_name (ctx.getCompilerSetting("package"))
-      if( (strlen package_name) > 0) {
-        utilWr.out("package " + package_name + ";" , true)
+      def utilWr (wr.getFileWriter("./interfaces/" (iface_name + ".java")))
+      def iface_dir "."
+      if( this.isPackaged(ctx)) {
+        iface_dir = "./interfaces/"
       }
-      
+      def utilWr (wr.getFileWriter( iface_dir (iface_name + ".java")))
+
+      if( this.isPackaged(ctx)) {
+        def package_name (ctx.getCompilerSetting("package"))
+        if( (strlen package_name) > 0) {
+          utilWr.out("package " + package_name + ".interfaces;" , true)
+          utilWr.out("import " + package_name + ".*;" , true)
+        }
+      } 
+
       utilWr.out("public interface " + iface_name + " { " , true)
       utilWr.indent(1)
       utilWr.out("public " false)
@@ -536,6 +668,7 @@ class RangerJava7ClassWriter {
           if (i > 0) {
             utilWr.out(", " false)
           }
+          utilWr.out(" final " false)
           this.writeTypeDef(arg lambdaCtx utilWr)
           utilWr.out(" " false)
           utilWr.out(arg.vref  false)
@@ -556,6 +689,7 @@ class RangerJava7ClassWriter {
         if (i > 0) {
           wr.out(", " false)
         }
+        wr.out(" final " false)
         this.writeTypeDef(arg lambdaCtx wr)
         wr.out(" " false)
         wr.out(arg.vref  false)
@@ -576,7 +710,30 @@ class RangerJava7ClassWriter {
     wr.out("}" true)
     wr.indent(-1)
     wr.out("}" false)    
-  }   
+  }  
+
+  fn getCounters:TypeCounts (ctx:RangerAppWriterContext) {
+    def root ( ctx.getRoot() )
+    
+    def counters ( root.counters )
+
+    if( counters.b_counted  == false ) {
+      def list (keys root.definedClasses)
+      for list name:string i {
+        if( (indexOf name "operatorsOf") == 0 ) {
+          counters.operator_cnt = counters.operator_cnt + 1
+        }
+        if( (indexOf name "Map_") == 0 ) {
+          counters.immutable_cnt = counters.immutable_cnt + 1
+        }
+        if( (indexOf name "Vector_") == 0 ) {
+          counters.immutable_cnt = counters.immutable_cnt + 1
+        }
+      }
+    }
+    counters.b_counted = true
+    return counters
+  } 
 
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
@@ -592,26 +749,70 @@ class RangerJava7ClassWriter {
         }
       }
     }
-    def wr:CodeWriter (orig_wr.getFileWriter("." (cl.name + ".java")))
 
+    def class_dir "."
+    def package_end ""
+
+    if( this.isPackaged(ctx)) {
+      if( (indexOf cl.name "operatorsOf") == 0) {
+        class_dir = "./operators/"
+        package_end = ".operators"
+      }
+      if( (indexOf cl.name "Map_") == 0) {
+        class_dir = "./immutables/"
+        package_end = ".immutables"
+      }
+      if( (indexOf cl.name "Vector_") == 0) {
+        class_dir = "./immutables/"
+        package_end = ".immutables"
+      }
+    }
+    def wr:CodeWriter (orig_wr.getFileWriter(class_dir (cl.name + ".java")))
     def package_name (ctx.getCompilerSetting("package"))
-    if( (strlen package_name) > 0) {
-      wr.out("package " + package_name + ";" , true)
+
+    if( this.isPackaged(ctx)) {
+      if( (strlen package_name) > 0) {
+        wr.out("package " + package_name + package_end + ";" , true)
+      }
     }
 
     def importFork:CodeWriter (wr.fork())
+;    importFork.addImport("org.json.JSONObject")
+;    importFork.addImport("org.json.JSONArray")
+
+    if( this.isPackaged(ctx)) {
+      def counters (this.getCounters(ctx))
+      if( counters.interface_cnt > 0 ) {
+        importFork.addImport( (package_name + ".interfaces.*"))
+      }
+      if( counters.immutable_cnt > 0 ) {
+        importFork.addImport( (package_name + ".immutables.*"))
+      }
+      if( counters.operator_cnt > 0 ) {
+        importFork.addImport( (package_name + ".operators.*"))
+      }
+      if( (strlen package_end) > 0 ) {
+        importFork.addImport( (package_name + ".*"))
+      }
+    }
 
     for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
       if(dd.is_class_variable == false ) {
         if ( dd.set_cnt > 0 ) {
-          ctx.addError( (unwrap dd.nameNode) "Mutating captured variable is not allowed")
-          return
+
+          if( ctx.hasCompilerFlag("allow-mutate")) {
+
+          } {
+            ; ctx.addError( (unwrap dd.nameNode) "Mutating captured variable is not allowed")
+            ; return
+          }
+
         }
       }
     }    
 
     wr.out("" true)
-    wr.out(("class " + cl.name) false)
+    wr.out(("public class " + cl.name) false)
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" extends " false)
       for cl.extends_classes pName:string i {
@@ -694,5 +895,34 @@ class RangerJava7ClassWriter {
       importFork.out(("import " + codeStr + ";") true)
     }
   }
+
+  fn CreateServices (parser:RangerFlowParser ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+
+    return
+
+    if( (ctx.hasCompilerFlag("client")) || (ctx.hasCompilerSetting("client")) ) {
+      print "--> could create Client services for Java here..."
+      def root (ctx.getRoot())
+      root.appServices.forEach({
+        print " - service " + index
+      })
+    } 
+  }
+
+  fn CreatePages (parser:RangerFlowParser ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+      ; TODO: the application container could be here
+      ctx.appPages.forEach({
+        this.CreatePage(parser item ctx orig_wr)
+      })
+  }
+
+  fn CreatePage (parser:RangerFlowParser node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def writer (new AndroidPageWriter)
+    writer.classWriter = this
+    writer.CreatePage( parser node ctx orig_wr )
+  }
+
+
+  
 }
 

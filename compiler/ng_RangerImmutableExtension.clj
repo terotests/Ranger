@@ -21,7 +21,7 @@ class RangerImmutableExtension {
     ; class extension...
     fn createImmutableExtension:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
         def declaredVariable:[string:boolean]        
-        wr.out("Import \"ImmutableCollections.clj\""  true)
+        ; wr.out("Import \"ImmutableCollections.clj\""  true)
         wr.out("extension " + cl.name + " {" , true)
         wr.indent(1)
         ; for extended classes TODO

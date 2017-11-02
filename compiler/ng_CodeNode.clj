@@ -1,6 +1,9 @@
 Import "stdlib.clj"
 
 ; Import "Collection.clj"
+
+Import "TFactory.clj"
+Import "TNodeFactory.clj"
 Import "ng_RangerAppEnums.clj"
 
 class SourceCode {
@@ -70,7 +73,10 @@ class CodeNode {
   def has_operator:boolean false
   def disabled_node:boolean false
   def op_index:int 0
+  def is_array_literal false
   def is_system_class:boolean false
+  def is_plugin false
+  def is_direct_method_call false
   def mutable_def:boolean false
   def expression:boolean false
   def vref:string ""
@@ -81,6 +87,7 @@ class CodeNode {
   def has_lambda:boolean false
   def has_lambda_call:boolean false
   def has_call false
+;  def method_type:RangerMethodCallType RangerMethodCallType.NoType
   def operator_pred:int 0
   def to_the_right:boolean false
   def right_node:CodeNode
@@ -108,11 +115,151 @@ class CodeNode {
   def children:[CodeNode]
   def parent@(weak):CodeNode
   def attrs:[CodeNode]
+  def appGUID:string ""
+  def register_name:string ""
 
   Constructor (source:SourceCode start:int end:int) {
     sp = start
     ep = end
     code = source
+  }
+
+ fn childCnt:int () {
+    return (array_length children)
+  }
+
+  fn getChild@(optional):CodeNode ( index:int ) {
+    def res:CodeNode 
+    if( (index >=0 ) && ((array_length children) > index ) ) {
+      res = (itemAt children index)
+    }
+    return res
+  }
+
+  static fn vref1:CodeNode (name:string) {
+    def code (new SourceCode( name 0 (strlen name)))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 (strlen name)))
+    newNode.vref = name
+    newNode.value_type = RangerNodeType.VRef
+    newNode.parsed_type = RangerNodeType.VRef
+    newNode.ns = (strsplit name ".")
+    return newNode
+  }
+
+  static fn vref2:CodeNode (name:string typeName:string) {
+    def code (new SourceCode( name 0 (strlen name)))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 (strlen name)))
+    newNode.vref = name
+    newNode.type_name = typeName
+    newNode.value_type = RangerNodeType.VRef
+    newNode.parsed_type = RangerNodeType.VRef
+    newNode.ns = (strsplit name ".")
+    return newNode
+  }
+
+  static fn newStr:CodeNode (name:string) {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.string_value = name
+    newNode.value_type = RangerNodeType.String
+    newNode.parsed_type = RangerNodeType.String
+    return newNode
+  }
+
+  static fn newBool:CodeNode (value:boolean) {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.boolean_value = value
+    newNode.value_type = RangerNodeType.Boolean
+    newNode.parsed_type = RangerNodeType.Boolean
+    return newNode
+  }
+
+  static fn newInt:CodeNode (value:int) {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.int_value = value
+    newNode.value_type = RangerNodeType.Integer
+    newNode.parsed_type = RangerNodeType.Integer
+    return newNode
+  }
+
+  static fn newDouble:CodeNode (value:double) {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.double_value = value
+    newNode.value_type = RangerNodeType.Double
+    newNode.parsed_type = RangerNodeType.Double
+    return newNode
+  }
+
+  static fn op:CodeNode ( opName:string ) {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.expression = true
+    def opNode (r.vref opName)
+    push newNode.children opNode
+    return newNode
+  }
+
+  static fn op2:CodeNode ( opName:string param1@(strong):CodeNode ) {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.expression = true
+    def opNode (r.vref opName)
+    push newNode.children opNode
+    push newNode.children param1
+    return newNode
+  }
+
+  static fn op3:CodeNode ( opName:string list:[CodeNode] ) {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.expression = true
+    def opNode (r.vref opName)
+    push newNode.children opNode
+    for list item@(lives):CodeNode i {
+      push newNode.children item
+    }
+    return newNode
+  }
+
+  static fn fromList:CodeNode ( list:[CodeNode] ) {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.expression = true
+    for list item@(lives):CodeNode i {
+      push newNode.children item
+      item.parent = newNode
+    }
+    return newNode
+  }
+  
+  static fn expressionNode:CodeNode () {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.expression = true
+    return newNode
+  }
+  
+  static fn blockNode:CodeNode () {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.is_block_node = true
+    newNode.expression = true
+    return newNode
+  }
+  
+  static fn blockFromList:CodeNode ( list:[CodeNode] ) {
+    def code (new SourceCode( "" 0 0))
+    def newNode@(lives):CodeNode (new CodeNode (code 0 0))
+    newNode.is_block_node = true
+    newNode.expression = true
+    for list item@(lives):CodeNode i {
+      push newNode.children item
+      item.parent = newNode
+    }
+    return newNode
   }
 
   fn chlen:int () {
@@ -125,6 +272,15 @@ class CodeNode {
         ch.forTree(callback)
     }
   }    
+
+  fn walkTreeUntil:void ( callback:( fn:boolean (item:CodeNode i:int)) ) {      
+    for children ch:CodeNode i {
+        if( callback(ch i) ) {
+          ch.walkTreeUntil( callback )
+        }
+    }
+  }    
+
   fn getParsedString:string () {
     return (substring code.code sp ep)
   }
@@ -167,6 +323,7 @@ class CodeNode {
     def flag:CodeNode (new CodeNode ((unwrap code) sp ep))
     flag.vref = flagName
     flag.value_type = RangerNodeType.VRef
+    flag.parsed_type = flag.value_type
     push vref_annotation.children flag
     has_vref_annotation = true
   }
@@ -233,33 +390,16 @@ class CodeNode {
     return ""
   }
   fn isParsedAsPrimitive:boolean () {
-    if ((parsed_type == RangerNodeType.Double) || (parsed_type == RangerNodeType.String) || (parsed_type == RangerNodeType.Integer) || (parsed_type == RangerNodeType.Char) || (parsed_type == RangerNodeType.CharBuffer) || (parsed_type == RangerNodeType.Boolean)) {
-      return true
-    }
-    return false
+    return (TTypes.isPrimitive(parsed_type))
   }
   fn isPrimitive:boolean () {
-    if ((value_type == RangerNodeType.Double) || (value_type == RangerNodeType.String) || (value_type == RangerNodeType.Integer) || (value_type == RangerNodeType.Char) || (value_type == RangerNodeType.CharBuffer) || (value_type == RangerNodeType.Boolean)) {
-      return true
-    }
-    return false
+    return (TTypes.isPrimitive(value_type))
   }
   fn isPrimitiveType:boolean () {
-    def tn:string type_name
-    if ((tn == "double") || (tn == "string") || (tn == "int") || (tn == "char") || (tn == "charbuffer") || (tn == "boolean")) {
-      return true
-    }
-    return false
+    return (TTypes.isPrimitive((TTypes.nameToValue(type_name))))    
   }
   fn isAPrimitiveType:boolean () {
-    def tn:string type_name
-    if ((value_type == RangerNodeType.Array) || (value_type == RangerNodeType.Hash)) {
-      tn = array_type
-    }
-    if ((tn == "double") || (tn == "string") || (tn == "int") || (tn == "char") || (tn == "charbuffer") || (tn == "boolean")) {
-      return true
-    }
-    return false
+    return (TTypes.isPrimitive((TTypes.nameToValue(array_type))))    
   }
   fn getFirst:CodeNode () {
     return (itemAt children 0)
@@ -358,6 +498,9 @@ class CodeNode {
       }
     }
     return 0.0
+  }
+  fn setStringProperty (name:string value:string) {
+    set props name (r.value value)
   }
   fn hasStringProperty:boolean (name:string) {
     if( false == (has props name) ) {

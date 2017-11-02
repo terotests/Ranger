@@ -20,6 +20,10 @@ class CodeFile {
         }
     }
 
+    fn rewrite (newString:string ) {
+        writer.rewrite(newString)
+    }
+    
     fn testCreateWriter@(strong):CodeWriter () {
         return (new CodeWriter ())
     }
@@ -65,11 +69,14 @@ class CodeFileSystem {
         }
     }
 
-    fn saveTo:void (path:string) {
+    fn saveTo:void (path:string verbose:boolean) {
+        print "Saving results to path : " + path         
         for files file:CodeFile idx {
             def file_path:string (path + "/" + file.path_name)
             this.mkdir(file_path)
-            print "Writing to file " + file_path + "/" + file.name
+            if( verbose ) {
+                print "Writing to file " + file_path + "/" + file.name
+            }
             def file_content:string (file.getCode())
             if ((strlen file_content) > 0) {
                 write_file file_path (trim file.name) file_content
@@ -118,7 +125,34 @@ class CodeWriter {
         current_slice = new_slice
     }
 
+    fn rewrite (newString:string ) {
+        clear slices
+        clear forks
+        currentLine = ""
+        def new_slice:CodeSlice (new CodeSlice ())
+        push slices new_slice
+        new_slice.code = newString
+        current_slice = new_slice
+    }
+
+    fn getFilesystem:CodeFileSystem () {
+        if( null? ownerFile ) {
+            if(!null? parent) {
+                return (parent.getFilesystem())
+            }
+        }
+        def fs:CodeFileSystem ownerFile.fileSystem
+        return (unwrap fs)       
+    }
+
     fn getFileWriter:CodeWriter (path:string fileName:string) {
+        if( null? ownerFile ) {
+            if(!null? parent) {
+                return (parent.getFileWriter(path fileName))
+            }
+            ; functions should be able to raise exceptions too
+            ; throw "File writer not defined"
+        }
         def fs:CodeFileSystem ownerFile.fileSystem
         def file:CodeFile (fs.getFile(path fileName))
         def wr@(optional):CodeWriter (file.getWriter())
@@ -228,6 +262,14 @@ class CodeWriter {
         if ( (strlen currentLine) > 0) {
             this.out("" true)
         }
+    }
+
+    fn line_end:void (str:string) {
+        if ( (strlen currentLine) > 0) {
+            if ( (charcode str) != (charAt currentLine ( (strlen currentLine) - 1) ) ) {
+                this.out(str false)
+            }    
+        } 
     }
 
     fn writeSlice:void (str:string newLine:boolean) {

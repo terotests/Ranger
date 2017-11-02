@@ -232,9 +232,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       } {
         if (nn.value_type == RangerNodeType.Array) {
           wr.out(" = array()" false)
-        }
-        if (nn.value_type == RangerNodeType.Hash) {
-          wr.out(" = array()" false)
+        } {
+          if (nn.value_type == RangerNodeType.Hash) {
+            wr.out(" = array()" false)
+          } {
+            wr.out(" = null" false)
+          }
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
@@ -271,25 +274,70 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.newline()
     }
   }  
+
+  fn CreateMethodCall(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; property access...
+      def obj:CodeNode (node.getFirst())
+      def args:CodeNode (node.getSecond())
+      ctx.setInExpr()
+;      wr.out('(' false)
+      this.WalkNode( obj ctx wr)
+;      wr.out(')' false)     
+      ctx.unsetInExpr()
+      wr.out('(' false)
+      ctx.setInExpr()
+      for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(', ' false)
+        }
+        ; TODO: optionality check here ?
+        this.WalkNode(arg ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(')' false)
+  }
+
+
+  fn CreatePropertyGet(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+      def obj:CodeNode (node.getSecond())
+      def prop:CodeNode (node.getThird())
+      wr.out('(' false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out(')' false)
+      wr.out('->' false)
+      wr.out(prop.vref false)
+  }
+  
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def fName:CodeNode (itemAt node.children 0)
     def givenArgs:CodeNode (itemAt node.children 1)
-    this.WriteVRef(fName ctx wr)
 
-    def param (ctx.getVariableDef(fName.vref))
-    def args ( itemAt param.nameNode.expression_value.children 1)
+    def args:CodeNode
+    if( (!null? fName.expression_value) ) {
+      args  = ( itemAt fName.expression_value.children 1)      
+    } {
+      def param (ctx.getVariableDef(fName.vref))
+      args  = ( itemAt param.nameNode.expression_value.children 1)
+    }
+    ctx.setInExpr()
+    wr.out('call_user_func(' false)
+    this.WalkNode(fName ctx wr)
 
-    wr.out("(" false)
     for args.children arg:CodeNode i {
         def n:CodeNode (itemAt givenArgs.children i)
-        if (i > 0) {
-          wr.out(", " false)
+        if (i >= 0) {
+          wr.out(', ' false)
         }
         if(arg.value_type != RangerNodeType.NoType) {
           this.WalkNode(n ctx wr)
         }        
     }
+
+    ctx.unsetInExpr()
+    
     if ((ctx.expressionLevel()) == 0) {
       wr.out(");" true)
     } {
@@ -303,7 +351,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     def args:CodeNode (itemAt node.children 1)
     def body:CodeNode (itemAt node.children 2)
    
-    wr.out("function (" false)
+    wr.out("(function (" false)
     for args.children arg:CodeNode i {
         if (i > 0) {
           wr.out(", " false)
@@ -316,13 +364,13 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     def captCnt 0
     for lambdaCtx.captured_variables cname:string i {
       def pp (lambdaCtx.getVariableDef(cname))
-      if(pp.set_cnt == 0) {
+      if(pp.set_cnt >= 0) {
         if(captCnt == 0) {
           wr.out( "use (", false)
         } {
           wr.out(", " false)
         }
-        wr.out( ("$" + cname) false)
+        wr.out( (" &$" + cname) false)
         captCnt = captCnt + 1
       } {
         if(pp.varType == RangerContextVarType.FunctionParameter) {
@@ -345,7 +393,11 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.out( "// captured var " + cname , true)
     }
     wr.indent(-1)
-    wr.out("}" true)
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out("});" true)
+    } {
+      wr.out("})" false)
+    }
  
   } 
 
@@ -364,6 +416,18 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.out(((" $" + arg.compiledName) + " ") false)
     }
   }
+
+  fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out("array(" false)
+    node.children.forEach({
+      if( index > 0 ) {
+        wr.out(", " false)
+      }
+      this.WalkNode( item ctx wr )
+    })
+    wr.out(")" false)
+  }
+  
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
@@ -429,7 +493,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
 
       wr.out("" false)
       ctx.setInExpr()
+      wr.out('(' false)
       this.WalkNode( obj ctx wr)
+      wr.out(')' false)
       ctx.unsetInExpr()
       wr.out("->" false)
       wr.out(method.vref false)
@@ -462,8 +528,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       if(dd.is_class_variable == false ) {
         ; capture only if variable is modified...
         if ( dd.set_cnt > 0 ) {
-          ctx.addError( (unwrap dd.nameNode) "Mutating captured variable is not allowed")
-          return
+          ; ctx.addError( (unwrap dd.nameNode) "Mutating captured variable is not allowed")
+          ; return
         }
       }
     }   

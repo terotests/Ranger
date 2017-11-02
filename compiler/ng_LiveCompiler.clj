@@ -18,11 +18,12 @@ extension RangerAppWriterContext {
 
 class LiveCompiler {
 
-  def parser:RangerFlowParser
+  def parser@(weak):RangerFlowParser
   def langWriter:RangerGenericClassWriter
   def hasCreatedPolyfill:[string:boolean]
   def lastProcessedNode@(weak):CodeNode
   def repeat_index:int 0
+  def installedFile:[string:boolean]
 
   fn initWriter:void (ctx:RangerAppWriterContext) {
     if (!null? langWriter) {
@@ -148,6 +149,31 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   fn getTypeString:string (str:string ctx:RangerAppWriterContext) {
     return ""
   }
+  fn createPolyfill ( code:string ctx:RangerAppWriterContext wr:CodeWriter ) {
+    def p_write:CodeWriter (wr.getTag("utilities"))
+    if ((has p_write.compiledTags code) == false) {
+      p_write.raw(code true)
+      set p_write.compiledTags code true
+    }
+  }
+  fn installFile (filename:string ctx:RangerAppWriterContext wr:CodeWriter) {
+    if( has installedFile filename ) {
+      return
+    }
+    set installedFile filename true
+    def fName ( (install_directory ) + "/" + filename) )
+    if( (file_exists ( (install_directory ) + "/") filename ) ) {
+      def fileData (read_file  ( (install_directory ) + "/") filename)
+      if(!null? fileData) {
+        def file_wr:CodeWriter ( wr.getFileWriter("." (filename)))
+        file_wr.raw( (unwrap fileData) false )
+      } {
+        print "did not get contents of " + (filename)      
+      }
+    } {
+      print "did not find installed file " + (install_directory) + (filename)
+    } 
+  }
   fn findOpCode:void (op:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fnName@(lives):CodeNode (itemAt op.children 1)
     def args:CodeNode (itemAt op.children 2)
@@ -213,23 +239,23 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
                   print (e.node.getLineString(line_index))
                 }
               } {
-                print "no errors found"
+                print 'no errors found'
               }
             }
             if b_failed {
-              wr.out("/* custom operator compilation failed */ " false)
+              wr.out('/* custom operator compilation failed */ ' false)
             } {
-              wr.out((("RangerStaticMethods." + stdFnName) + "(") false)
+              wr.out((('RangerStaticMethods.' + stdFnName) + '(') false)
               for node.children cc:CodeNode i {
                 if (i == 0) {
                   continue _
                 }
                 if (i > 1) {
-                  wr.out(", " false)
+                  wr.out(', ' false)
                 }
                 this.WalkNode(cc ctx wr)
               }
-              wr.out(")" false)
+              wr.out(')' false)
             }
             return
           }
@@ -298,11 +324,29 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   fn WalkNode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     
     this.initWriter(ctx)
+    
+    if(node.value_type == RangerNodeType.Comment) {
+      return
+    }
+    
     if (node.isPrimitive()) {
       this.WriteScalarValue(node ctx wr)
       return
     }
     this.lastProcessedNode = node
+
+    if(node.isFirstVref('property')) {
+      langWriter.CreatePropertyGet( node ctx wr)
+      return
+    }
+
+    if( node.is_plugin ) {
+      return
+    }
+    if( node.is_array_literal ) {
+      langWriter.writeArrayLiteral( node ctx wr)
+      return
+    }
 
     if (node.value_type == RangerNodeType.VRef || node.value_type == RangerNodeType.Hash || node.value_type == RangerNodeType.Array) { 
       this.WriteVRef(node ctx wr)
@@ -333,6 +377,10 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         }
         return
       }
+      if( node.is_direct_method_call) {
+        langWriter.CreateMethodCall(node ctx wr)
+        return        
+      }
       if (node.has_lambda) {
         this.CreateLambda(node ctx wr)
         return
@@ -357,6 +405,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def fc:CodeNode (node.getFirst())
     }
     if node.expression {
+
 ;      wr.out( ("/* did return at index == " + node.didReturnAtIndex + "*/" ) false)
       for node.children item:CodeNode i {
         if ((node.didReturnAtIndex >= 0) && (node.didReturnAtIndex < i)) {
@@ -374,18 +423,29 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   }
   fn walkCommandList:void (cmd:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if ((ctx.expressionLevel()) == 0) {
-      wr.newline()
+      wr.newline()      
+      if( (ctx.getTargetLang()) == 'swift3') {
+        def opn (unwrap node.operator_node)
+        def nn (opn.getSecond())
+      
+        if( nn.type_name != 'void' ) {
+            wr.out('_ = ' false)
+        }
+        ; def cmdNode
+        ; 
+      }
     }
     if ((ctx.expressionLevel()) > 1) {
-      wr.out("(" false)
+      wr.out('(' false)
     }
     for cmd.children c:CodeNode i {      
       this.walkCommand(c node ctx wr)
     }
     if ((ctx.expressionLevel()) > 1) {
-      wr.out(")" false)
+      wr.out(')' false)
     }
     if ((ctx.expressionLevel()) == 0) {
+      wr.line_end( (langWriter.lineEnding()) )
       wr.newline()
     }
   }
@@ -401,6 +461,21 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def cmdE:CodeNode (cmd.getFirst())
       def cmdArg@(lives):CodeNode (cmd.getSecond())
       switch cmdE.vref {
+        case "service_id" {
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) >= idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            def root (ctx.getRoot())
+            def sNode (get root.appServices arg.vref)
+            if(!null? sNode) {
+              wr.out( sNode.appGUID false)
+            } {
+              ctx.addError( arg "Service not found")
+            }
+          } {
+              ctx.addError( node "Service not found")
+          }
+        }
 
         case "log" {
           print cmdArg.string_value
@@ -442,6 +517,28 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             def arg:CodeNode (itemAt node.children idx)
             def cc:char (charcode arg.string_value)
             wr.out(("" + (to_int cc)) false)
+          }
+        }
+        case "optional_option" {
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            if( ctx.hasCompilerSetting(arg.string_value) ) {
+              def setting (ctx.getCompilerSetting(arg.string_value))
+              wr.out( setting false)
+            } 
+          }
+        }
+        case "required_option" {
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            if( ctx.hasCompilerSetting(arg.string_value) ) {
+              def setting (ctx.getCompilerSetting(arg.string_value))
+              wr.out( setting false)
+            } {
+              ctx.addError( node ("This source code requires compiler option -" + arg.string_value + "=<> to be set ") )
+            }
           }
         }
         case "java_case" {
@@ -526,7 +623,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             def arg:CodeNode (itemAt node.children idx)
             for arg.children ch:CodeNode i {
               if (i > 0) {
-                wr.out(" " false)
+                wr.out(' ' false)
               }
               ctx.setInExpr()
               this.WalkNode(ch ctx wr)
@@ -718,13 +815,11 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             
           }
         }
+        case "install_file" {
+          this.installFile( cmdArg.string_value ctx wr)
+        }
         case "create_polyfill" {
-          def p_write:CodeWriter (wr.getTag("utilities"))
-          def p_str:string cmdArg.string_value
-          if ((has p_write.compiledTags p_str) == false) {
-            p_write.raw(p_str true)
-            set p_write.compiledTags p_str true
-          }
+          this.createPolyfill( cmdArg.string_value ctx wr)
         }
         case "typeof" {
           def idx:int cmdArg.int_value
@@ -760,16 +855,16 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           case "nl" {
             wr.newline()
           }
-          case "space" {
-            wr.out(" " false)
+          case 'space' {
+            wr.out(' ' false)
           }
-          case "I" {
+          case 'I' {
             wr.indent(1)
           }
-          case "i" {
+          case 'i' {
             wr.indent(-1)
           }
-          case "op" {
+          case 'op' {
             def fc:CodeNode (node.getFirst())
             wr.out(fc.vref false)
           }
@@ -814,7 +909,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               }
               classRefDesc = (ctx.getVariableDef(strname))
               if (null? classRefDesc) {
-                ctx.addError(obj ("Error, no description for called object: " + strname))
+                ctx.addError(obj ('Error, no description for called object: ' + strname))
                 break _
               }
               if set_nsp {
@@ -827,7 +922,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             if (i < (cnt - 1)) {
               varDesc = (classDesc.findVariable(strname))
               if (null? varDesc) {
-                ctx.addError(obj ("Error, no description for refenced obj: " + strname))
+                ctx.addError(obj ('Error, no description for refenced obj: ' + strname))
               }
               def subClass:string (varDesc.getTypeName())
               classDesc = (ctx.findClass(subClass))
@@ -843,7 +938,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
                 if (null? classMethod) {
                   classMethod = (classDesc.findStaticMethod(strname))
                   if (null? classMethod) {
-                    ctx.addError(obj ("variable not found " + strname))
+                    ctx.addError(obj ('variable not found ' + strname))
                   }
                 }
                 if (!null? classMethod) {
@@ -864,11 +959,11 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       varDesc = (ctx.getVariableDef(obj.vref))
       if (!null? varDesc.nameNode) {
       } {
-        print ("findParamDesc : description not found for " + obj.vref)
+        print ('findParamDesc : description not found for ' + obj.vref)
         if (!null? varDesc) {
-          print ("Vardesc was found though..." + varDesc.name)
+          print ('Vardesc was found though...' + varDesc.name)
         }
-        ctx.addError(obj ("Error, no description for called object: " + obj.vref))
+        ctx.addError(obj ('Error, no description for called object: ' + obj.vref))
       }
       return varDesc
     }

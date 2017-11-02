@@ -1,4 +1,20 @@
 
+operator type:void all {
+  fn r.funcdesc:RangerAppFunctionDesc ( node:CodeNode ctx:RangerAppWriterContext ) {
+    def m@(lives temp):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
+    def cn:CodeNode (node.getSecond())
+    m.name = cn.vref
+    m.compiledName = (ctx.transformWord(cn.vref))
+    m.node = node
+    m.nameNode = (itemAt node.children 1)
+    if (node.hasBooleanProperty("strong")) {
+      m.refType = RangerNodeRefType.Strong
+    } {
+      m.refType = RangerNodeRefType.Weak
+    }
+    return m    
+  }
+}
 class RangerAppFunctionDesc {
   Extends (RangerAppParamDesc)
   def name:string ""
@@ -13,6 +29,10 @@ class RangerAppFunctionDesc {
   def container_class:RangerAppClassDesc
   def refType:RangerNodeRefType RangerNodeRefType.NoType
   def fnCtx:RangerAppWriterContext
+
+  fn isFunction:boolean () {
+    return true
+  }  
   fn isClass:boolean () {
     return false
   }

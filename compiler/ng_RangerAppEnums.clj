@@ -6,6 +6,12 @@ Enum RangerAnnType:int (
   VRef
 )
 
+Enum RangerMethodCallType:int (
+  None
+  Method
+  Static  
+)
+
 Enum RangerWrap:int (
   None
   Optional
@@ -23,14 +29,14 @@ Enum RangerNodeType:int (
   InvalidType
   Double
   Integer
-  String
-  Boolean
+  String     
+  Boolean      ; 5
   Array
   Hash
   ImmutableArray
   ImmutableHash
-  Object
-  VRef
+  Object      ; 10
+  VRef        ; 11
   Comment
   Enum
   Char
@@ -53,6 +59,7 @@ Enum RangerNodeType:int (
   Literal
   Quasiliteral
   Null
+  ArrayLiteral
 )
 
 Enum RangerNodeRefType:int (

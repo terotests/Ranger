@@ -33,28 +33,12 @@ class RangerArgMatch {
       if (arg.hasFlag("ignore")) {
         continue _
       }
-      if (arg.hasFlag("mutable")) {
-        if callArg.hasParamDesc {
-          def pa:RangerAppParamDesc callArg.paramDesc
-          def b:boolean (pa.nameNode.hasFlag("mutable"))
-          if (b == false) {
-            push missed_args "was mutable"
-            all_matched = false
-          }
-        } {
-          all_matched = false
-        }
-      }
 
-      if (arg.hasFlag("union")) {
-          if((ctx.isDefinedClass(callArg.eval_type_name))) {
-            def cc (ctx.findClass(callArg.eval_type_name))
-            if( cc.is_union == false ) {
-              all_matched = false
-            }
-          } {
-            all_matched = false          
-          }
+      if( arg.isPrimitiveType() ) {
+        if( callArg.value_type == RangerNodeType.ExpressionType || callArg.eval_type == RangerNodeType.ExpressionType ) {
+          all_matched = false
+          break
+        }
       }
 
       def call_arg_immutable false
@@ -77,8 +61,48 @@ class RangerArgMatch {
       if (arg.hasFlag("immutable")) {
         if (false == call_arg_immutable) {
           all_matched = false
+          break
         }
       }
+
+
+      if true {
+        if(arg.type_name == "block" || (arg.hasFlag("block"))) {
+          if(callArg.is_block_node) {
+            continue
+          } {
+            ; print "BLOCK MATCH ERROR"
+            ; print (callArg.getLineAsString())
+            all_matched = false
+          }
+        }
+
+      }
+      
+      if (arg.hasFlag("mutable")) {
+        if callArg.hasParamDesc {
+          def pa:RangerAppParamDesc callArg.paramDesc
+          def b:boolean (pa.nameNode.hasFlag("mutable"))
+          if (b == false) {
+            push missed_args "was mutable"
+            all_matched = false
+          }
+        } {
+          all_matched = false
+        }
+      }
+
+      if (arg.hasFlag("union")) {
+          if((ctx.isDefinedClass(callArg.eval_type_name))) {
+            def cc (ctx.findClass(callArg.eval_type_name))
+            if( cc.is_union == false && cc.is_system_union == false ) {
+              all_matched = false
+            }
+          } {
+            all_matched = false          
+          }
+      }
+
       ; 
 
 
@@ -110,10 +134,13 @@ class RangerArgMatch {
       if ((arg.value_type != RangerNodeType.Hash) && (arg.value_type != RangerNodeType.Array)) {
 
         if(!null? callArg.paramDesc) {
+          ; TODO: lambda matching has some problems
+          ; check this code and implement proper lambda matching, perhaps even parameter matching
           if( (!null? callArg.paramDesc.nameNode) && (!null? callArg.paramDesc.nameNode.expression_value) ) {
             set matched arg.type_name ""
             set matchedLambdas arg.type_name (unwrap callArg.paramDesc.nameNode.expression_value)
-            return true
+            ; return true
+            continue
           }
         }
         if (callArg.eval_type == RangerNodeType.Enum) {
@@ -131,17 +158,14 @@ class RangerArgMatch {
       }
       if (arg.value_type == RangerNodeType.Array) {
         if (false == (this.add(arg.array_type callArg.eval_array_type ctx))) {
-          print "--> Failed to add the argument  "
           all_matched = false
         }
       }
       if (arg.value_type == RangerNodeType.Hash) {
         if (false == (this.add(arg.key_type callArg.eval_key_type  ctx))) {
-          print "--> Failed to add the key argument  "
           all_matched = false
         }
         if (false == (this.add(arg.array_type callArg.eval_array_type ctx))) {
-          print "--> Failed to add the key argument  "
           all_matched = false
         }
       }
@@ -337,6 +361,11 @@ class RangerArgMatch {
         if( (c2.is_union == true) && (c1.is_union == false)) {
           return false
         }
+
+        if( (c2.is_system_union == true) && (c1.is_system_union == false)) {
+          return false
+        }
+
 
         if(!null? trait1) {
           this.force_add( type2 c1.name ctx)

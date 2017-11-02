@@ -1,0 +1,10 @@
+{
+  "name" : "ranger-compiler",
+  "version" : "2.1.33",
+  "description" : "Cross-language compiler and build tool",
+  "author" : "Tero Tolonen",
+  "license" : "MIT",
+  "bin": {"ranger-compiler":"index.js"},
+  "scripts":{},
+  "main":"index.js"
+}

@@ -22,7 +22,7 @@ class RangerSwift3ClassWriter {
           return (unwrap sysName)
         } {
           def node (new CodeNode( (new SourceCode("")) 0 0 ))
-          ctx.addError(node ( "No system class " + type_string +  "defined for Swift "))
+          ctx.addError(node ( 'No system class ' + type_string +  "defined for Swift "))
         }
       }      
     }
@@ -102,14 +102,14 @@ class RangerSwift3ClassWriter {
         wr.out("(" false)
         for sec.children arg:CodeNode i {
           if( i > 0 ) {
-            wr.out(", " false)
+            wr.out(', ' false)
           }
-          wr.out(" _ : " , false )
+          wr.out(' _ : ' , false )
           this.writeTypeDef( arg ctx wr)
         }
-        wr.out( ") -> " false)
+        wr.out( ') -> ' false)
         this.writeTypeDef( rv ctx wr)
-        wr.out(")" false)
+        wr.out(')' false)
       }      
       case RangerNodeType.Enum {
         wr.out("Int" false)
@@ -153,7 +153,6 @@ class RangerSwift3ClassWriter {
             }            
             return
           }
-
           if(cc.is_system) {
             def sysName (get cc.systemNames "swift3")
             if(!null? sysName) {
@@ -161,9 +160,11 @@ class RangerSwift3ClassWriter {
             } {
               ctx.addError(node ( "No system class " + t_name +  "defined for Swift "))
             }
+            if (node.hasFlag("optional")) {
+              wr.out("?" false)
+            }            
             return
           }      
-
         }        
         wr.out((this.getTypeString(t_name)) false)
       }
@@ -216,8 +217,18 @@ class RangerSwift3ClassWriter {
             wr.out("self" false)
             continue
           } 
+          if ((part != "this") && (ctx.isMemberVariable(part))) {
+            def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+            def currC:RangerAppClassDesc (unwrap uc)
+            def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+            if (!null? up) {
+              if( false == (ctx.isInStatic()) ) {
+                wr.out("self." false)
+              }               
+            }
+          }
         }
-        
+
         if (i > 0) {
           wr.out("." false)
         }
@@ -240,10 +251,39 @@ class RangerSwift3ClassWriter {
     }
     if node.hasParamDesc {
       def p:RangerAppParamDesc node.paramDesc
+      def part:string (itemAt node.ns 0)
+      if ((part != "this") && (ctx.isMemberVariable(part))) {
+        def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        def currC:RangerAppClassDesc (unwrap uc)
+        def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+        if (!null? up) {
+          if( false == (ctx.isInStatic()) ) {
+            wr.out("self." false)
+          }               
+        }
+      }        
+
       wr.out(p.compiledName false)
       return
     }
     for node.ns part:string i {
+      if( i == 0) {
+        if ((part != "this") && (ctx.isMemberVariable(part))) {
+          def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          def currC:RangerAppClassDesc (unwrap uc)
+          def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+          if (!null? up) {
+            if( false == (ctx.isInStatic()) ) {
+              wr.out("self." false)
+            }               
+          }
+        }        
+        if(ctx.hasClass(part)) {
+          def classDesc (ctx.findClass(part))
+          wr.out(classDesc.compiledName false)
+          continue
+        }
+      }
       if (i > 0) {
         wr.out("." false)
       }
@@ -316,6 +356,11 @@ class RangerSwift3ClassWriter {
   }
 
   fn writeArgsDefWithLocals:void (fnDesc:RangerAppFunctionDesc localFnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    if( (array_length fnDesc.params) != (array_length localFnDesc.params) ) {
+      ctx.addError( (unwrap localFnDesc.node) "Parameter count does not match with the function prototype")
+      return
+    }
     for fnDesc.params arg:RangerAppParamDesc i {
       if (i > 0) {
         wr.out(", " false)
@@ -427,23 +472,24 @@ class RangerSwift3ClassWriter {
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fName:CodeNode (itemAt node.children 0)
     def givenArgs:CodeNode (itemAt node.children 1)
-
-    ;def subCtx (ctx.fork())
-    ;subCtx.setInExpr()
-
-    def param (ctx.getVariableDef(fName.vref))
-    def rv ( itemAt param.nameNode.expression_value.children 0)
-    def args ( itemAt param.nameNode.expression_value.children 1)
+    def rv:CodeNode 
+    def args:CodeNode
+    if( (!null? fName.expression_value) ) {
+      rv  = ( itemAt fName.expression_value.children 0)
+      args  = ( itemAt fName.expression_value.children 1)      
+    } {
+      def param (ctx.getVariableDef(fName.vref))
+      rv  = ( itemAt param.nameNode.expression_value.children 0)
+      args  = ( itemAt param.nameNode.expression_value.children 1)
+    }
 
     if ((ctx.expressionLevel()) == 0) {
       if (rv.type_name != "void") {
         wr.out("_ = " false)
       }
     }
-
-    this.WriteVRef(fName ctx wr)
-    
     ctx.setInExpr()
+    this.WalkNode(fName ctx wr)
     wr.out("(" false)
     for args.children arg:CodeNode i {
         def n:CodeNode (itemAt givenArgs.children i)
@@ -458,7 +504,7 @@ class RangerSwift3ClassWriter {
     ctx.unsetInExpr()
     wr.out(")" false)
     if ((ctx.expressionLevel()) == 0) {
-      wr.out("" true)
+      wr.out(';' true)
     }    
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -467,7 +513,7 @@ class RangerSwift3ClassWriter {
     def args:CodeNode (itemAt node.children 1)
     def body:CodeNode (itemAt node.children 2)
     
-    wr.out("{ (" false)
+    wr.out("({ (" false)
     for args.children arg:CodeNode i {
         if (i > 0) {
           wr.out(", " false)
@@ -491,7 +537,7 @@ class RangerSwift3ClassWriter {
     }
 
     wr.indent(-1)
-    wr.out("}" false)
+    wr.out("})" false)
   }  
   
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -616,21 +662,21 @@ class RangerSwift3ClassWriter {
       header_created = true
     }
 
-    wr.out("func ==(l: " + cl.name +  ", r: " + cl.name +  ") -> Bool {" , true)
+    wr.out("func ==(l: " + cl.compiledName +  ", r: " + cl.compiledName +  ") -> Bool {" , true)
     wr.indent(1)
     wr.out("return l === r" true)
     wr.indent(-1)
     wr.out("}" true)
 
-    wr.out(("class " + cl.name) false)
+    wr.out(("class " + cl.compiledName) false)
 
     def parentClass:RangerAppClassDesc
     
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" : " false)
       for cl.extends_classes pName:string i {
-        wr.out(pName false)
         parentClass = (ctx.findClass(pName))
+        wr.out(parentClass.compiledName false)
       }
     } {
       wr.out(" : Equatable " false )
@@ -740,17 +786,22 @@ class RangerSwift3ClassWriter {
     wr.out("}" true)
     for cl.static_methods variant:RangerAppFunctionDesc i {
       if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
-        wr.newline()
-        wr.out("func __main__swift() {" true)
-        wr.indent(1)
+        def theEnd (wr.getTag("file_end"))
+
+        theEnd.newline()
+        theEnd.out("func __main__swift() {" true)
+        theEnd.indent(1)
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.is_function = true
-        this.WalkNode( (unwrap variant.fnBody) subCtx wr)
-        wr.newline()
-        wr.indent(-1)
-        wr.out("}" true)
-        wr.out("// call the main function" true)
-        wr.out("__main__swift()" true)
+        this.WalkNode( (unwrap variant.fnBody) subCtx theEnd)
+        theEnd.newline()
+        theEnd.indent(-1)
+        theEnd.out("}" true)
+        theEnd.out("// call the main function" true)
+        theEnd.out("__main__swift()" true)
+        if( ctx.hasCompilerFlag('forever')) {
+          theEnd.out('CFRunLoopRun()' true)
+        }
       }
     }
   }

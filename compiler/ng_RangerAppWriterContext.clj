@@ -1,4 +1,11 @@
 
+class TypeCounts {
+  def b_counted false
+  def interface_cnt 0
+  def operator_cnt 0
+  def immutable_cnt 0
+}
+
 class RangerNodeValue {
   def double_value:double
   def string_value:string
@@ -21,14 +28,71 @@ class RangerAppEnum {
     cnt = (cnt + 1)
   }
 }
+
 class OpFindResult {
   def did_find:boolean false
   def node:CodeNode
 }
+
+
+operator type:RangerAppWriterContext all {
+
+  fn create_var:RangerAppParamDesc ( name:string type_name:string ) {
+      def fieldNode@(lives) (r.vref name type_name)
+      fieldNode.value_type = (fieldNode.typeNameAsType(self))
+      def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
+      p.name = name
+      p.value_type = fieldNode.value_type
+      p.node = fieldNode
+      p.nameNode = fieldNode
+      p.is_optional = false
+      self.defineVariable(p.name p)
+      return p
+  }
+  
+  fn create_var:RangerAppParamDesc ( name:string usingNode:CodeNode ) {
+      def fieldNode (r.vref name)
+      def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
+      p.name = name
+      p.value_type = usingNode.value_type
+      p.node = usingNode
+      p.nameNode = usingNode
+      p.is_optional = false
+      self.defineVariable(p.name p)
+      return p
+  }
+
+  fn create_register:RangerAppParamDesc ( name:string usingNode:CodeNode ) {
+      def fieldNode (r.vref name)
+      def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
+      p.name = name
+      p.value_type = usingNode.value_type
+      p.node = usingNode
+      p.nameNode = usingNode
+      p.is_optional = false
+      self.defineVariable(p.name p)
+      return p
+  }
+
+}
+
+class RangerOperatorList {
+  def items:[RangerAppOperatorDesc]
+}
+class RangerNodeList {
+  def items:[CodeNode]
+}
+
+class RangerRegisteredPlugin {
+  def name:string ""
+  def features:[string]
+}
+
 class RangerAppWriterContext {
   def langOperators:CodeNode
   def stdCommands:CodeNode 
   def operators:RangerActiveOperators
+  def op_list:[string:RangerOperatorList]
   def reservedWords:CodeNode 
   def intRootCounter:int 1
   def targetLangName:string ""
@@ -43,6 +107,8 @@ class RangerAppWriterContext {
   def is_block:boolean false
   def is_lambda:boolean false
   def is_capturing:boolean false
+  def is_catch_block:boolean false
+  def is_try_block:boolean false
   def captured_variables:[string]
   def has_block_exited:boolean false
   def in_expression:boolean false
@@ -56,13 +122,15 @@ class RangerAppWriterContext {
   def in_class:boolean false
   def in_static_method:boolean false
   def currentClass@(weak):RangerAppClassDesc
-  def currentMethod:RangerAppFunctionDesc
+  def currentMethod@(weak):RangerAppFunctionDesc
   def thisName:string "this"
   def definedEnums:[string:RangerAppEnum]
   def definedInterfaces:[string:RangerAppClassDesc]
   def definedInterfaceList:[string]
   def definedClasses:[string:RangerAppClassDesc]
   def definedClassList:[string]
+  ; NEW: list of tasks defined 
+  def definedTasks:[string:RangerAppFunctionDesc]
   def templateClassNodes@(weak):[string:CodeNode]
   def templateClassList:[string]
   def classSignatures:[string:string]
@@ -71,6 +139,9 @@ class RangerAppWriterContext {
   def classStaticWriters@(weak):[string:CodeWriter]
   def localVariables:[string:RangerAppParamDesc]
   def localVarNames:[string]
+  
+  def contextFlags:[string:boolean]
+  def settings:[string:string]
   def compilerFlags:[string:boolean]
   def compilerSettings:[string:string]
   def parserErrors:[RangerCompilerMessage]
@@ -82,19 +153,321 @@ class RangerAppWriterContext {
   def defCounts:[string:int]
   def refTransform:[string:string]
   def staticClassBodies:[CodeNode]
-  def viewClassBody@(weak):[string:CodeNode]
 
+  ; operators reserved only for the plugin
+  def pluginSpecificOperators:[string:boolean]
+
+  def viewClassBody@(weak):[string:CodeNode]
+  def appPages@(weak):[string:CodeNode]
+  def appServices@(weak):[string:CodeNode]
+  
   def opNs:[string]
 
   def langFilePath:string ""
   def libraryPaths:[string]
   def outputPath ""
 
+  def counters:TypeCounts (new TypeCounts)
+  def parser:RangerFlowParser
+  def compiler:LiveCompiler
+  def pluginNodes:[string:RangerNodeList]
+  def typedNodes:[string:RangerNodeList]
+  def registered_plugins:[RangerRegisteredPlugin]
+
+  def operatorFunction:(_:CodeNode (name:string) )
+
+  fn addPluginOp( name:string ) {
+    def root (this.getRoot())
+    set root.pluginSpecificOperators name true
+  }
+
+  fn removePluginOp( name:string ) {
+    def root (this.getRoot())
+    set root.pluginSpecificOperators name false
+  }
+  
+  fn isPluginOp:boolean ( node:CodeNode ) {
+    if (has node.children)  {
+        def fc (node.getFirst())
+        if( has fc.ns ) {
+          def firstNS (itemAt fc.ns 0)
+          def root (this.getRoot())
+          if(has root.pluginSpecificOperators firstNS) {
+            return (unwrap (get root.pluginSpecificOperators firstNS))
+          }
+        }
+    }
+    return false
+  }
+  fn addPlugin ( p@(temp):RangerRegisteredPlugin) {
+    def root (this.getRoot())
+    push root.registered_plugins p
+  }
+
+  fn findPluginsFor:[string] ( featureName:string ) {
+    def res:[string]
+    for registered_plugins p@(lives):RangerRegisteredPlugin i {
+      if( (indexOf p.features featureName) >= 0) {
+        push res p.name
+      }
+    }
+    return res
+  }
+
+  fn addTypeClass@(weak):RangerTypeClass (name:string) {
+    def root (this.getRoot())
+    if( false == (has root.typeClasses name)) {
+      def newClass ( new RangerTypeClass )
+      set root.typeClasses name newClass
+      return newClass
+    }
+    return (unwrap (get root.typeClasses name))
+  }
+
+  fn getTypeClass@(optional):RangerTypeClass (name:string) {
+    def root (this.getRoot())
+    return (get root.typeClasses name)
+  }
+
+  fn getParser@(weak optional):RangerFlowParser () {
+    if(null? parser) {
+      if(!null? parent) {
+        return (parent.getParser())
+      }
+    }
+    return parser
+  }
+
+  fn getCompiler@(weak optional):LiveCompiler () {
+    if(null? compiler) {
+      if(!null? parent) {
+        return (parent.getCompiler())
+      }
+    }
+    return compiler
+  }
+  ; typedNodes
+  fn getTypedNodes:[CodeNode] (name:string) {
+    def root (this.getRoot())
+    def res:[CodeNode]
+    def list (get root.typedNodes name)
+    if(!null? list) {
+      list.items.forEach({
+        def tmp@(lives) item
+        push res tmp
+      })
+    }
+    return res
+  }
+  fn addTypedNode ( name:string op@(temp):CodeNode ) {
+    def root (this.getRoot())
+    if( has root.typedNodes name ) {
+      def orig_list (unwrap (get root.typedNodes name))
+      push orig_list.items op
+    } {
+      def new_list (new RangerNodeList)
+      push new_list.items op
+      set root.typedNodes name new_list
+    }
+  }
+
+  fn getPluginNodes:[CodeNode] (name:string) {
+    def root (this.getRoot())
+    def res:[CodeNode]
+    def list (get root.pluginNodes name)
+    if(!null? list) {
+      list.items.forEach({
+        def tmp@(lives) item
+        push res tmp
+      })
+    }
+    return res
+  }
+
+  fn addPluginNode ( name:string op@(temp):CodeNode ) {
+    def root (this.getRoot())
+    if( has root.pluginNodes name ) {
+      def orig_list (unwrap (get root.pluginNodes name))
+      push orig_list.items op
+    } {
+      def new_list (new RangerNodeList)
+      push new_list.items op
+      set root.pluginNodes name new_list
+    }
+  }
+
+  ; the operator listing
+  fn addOperator ( op@(temp strong):RangerAppOperatorDesc ) {
+    def root (this.getRoot())
+    if( (strlen op.name) > 0 ) {
+      if( has root.op_list op.name ) {
+        def orig_list (unwrap (get root.op_list op.name))
+        push orig_list.items op
+      } {
+        def new_list (new RangerOperatorList)
+        push new_list.items op
+        set root.op_list op.name new_list
+      }
+    }
+  }
+
+  fn getAllOperators:[RangerAppOperatorDesc] () {
+    def root (this.getRoot())
+    def res:[RangerAppOperatorDesc]
+    root.op_list.forEach({
+      item.items.forEach({
+        def tmp@(lives) item
+        push res tmp
+      })
+    })
+    return res
+  }
+
+  fn getOperatorsOf:[RangerAppOperatorDesc] (name:string) {
+    ; support for context specific operators ? 
+    def root (this.getRoot())
+    def res:[RangerAppOperatorDesc]
+    def list (get root.op_list name)
+    if(!null? list) {
+      return (clone list.items)
+    }
+    return res
+  }
+
+  fn initOpList () {
+    def root (this.getRoot())
+    if(!null? root.operators) {
+        def op (unwrap root.operators) ; RangerActiveOperators
+        
+        op.initializeOpCache()
+
+        def foo (op.getOperators("+"))
+        if( (array_length foo) > 0 ) {
+          op.opHash.forEach({
+              def op_name index
+              item.list.forEach({
+                  def fc:CodeNode (item.getFirst())
+                  def nameNode@(lives):CodeNode (item.getSecond())
+                  def args:CodeNode (item.getThird())
+                  def newOp@(lives) (new RangerAppOperatorDesc)
+                  newOp.name = op_name
+                  newOp.node = item
+                  newOp.nameNode = nameNode
+                  newOp.op_params = args.children
+                  if( (array_length args.children) > 0 ) {
+                    newOp.firstArg = (itemAt args.children 0)
+                  }
+                  this.addOperator( newOp )
+              })
+          })
+
+        }
+    } {
+
+;       print ">> could not initialize the operator list!!!"
+    }
+  }
+
+  ; assuming there is a node which defines the type, for example current function
+  ; return value or something like that
+
+  fn incLambdaCnt() {
+    def root (this.getRoot())
+    root.counters.interface_cnt = root.counters.interface_cnt + 1
+  }
+
+  fn isTryBlock:boolean () {
+    if is_try_block {
+      return true
+    }
+    if(!null? parent) {
+      return (parent.isTryBlock())
+    }
+    return false
+  }
+
+  fn isCatchBlock:boolean () {
+    if is_catch_block {
+      return true
+    }
+    if(!null? parent) {
+      return (parent.isCatchBlock())
+    }
+    return false
+  }
+
+  fn pushAndCollectAst (rootNode:CodeNode wr:CodeWriter ) {
+    def myParser (new RangerFlowParser())
+    myParser.CollectMethods( rootNode this wr )
+  }
+
+  fn pushAndCompileAst (rootNode:CodeNode wr:CodeWriter ) {
+    def myParser (new RangerFlowParser())
+    myParser.CollectMethods( rootNode this wr )
+    myParser.StartWalk( rootNode this wr)
+  }
+
+  fn pushAst (source_code:string node:CodeNode wr:CodeWriter ) {
+
+      def code:SourceCode (new SourceCode ( source_code ))
+      code.filename = 'dynamically_generated'
+      def parser:RangerLispParser (new RangerLispParser (code))
+      parser.parse((this.hasCompilerFlag("no-op-transform")))
+
+      if(parser.rootNode) {
+        def root (unwrap parser.rootNode)
+        push node.children root
+
+;        def rootCtx (this.getRoot())
+;        myParser.CollectMethods( root rootCtx wr )
+;        myParser.StartWalk( root rootCtx wr)
+;        print "--> did push new source code"
+      }
+  }
+
+  fn pushAndCollectCode (source_code:string wr:CodeWriter ) {
+      def code:SourceCode (new SourceCode ( source_code ))
+      code.filename = 'dynamically_generated'
+      def parser:RangerLispParser (new RangerLispParser (code))
+      parser.parse((this.hasCompilerFlag("no-op-transform")))
+      if(parser.rootNode) {
+        def root (unwrap parser.rootNode)
+        def myParser (new RangerFlowParser())
+        def rootCtx (this.getRoot())
+        myParser.CollectMethods( root rootCtx wr )
+      }
+  }
+
+  fn pushCode (source_code:string wr:CodeWriter ) {
+
+      def code:SourceCode (new SourceCode ( source_code ))
+      code.filename = 'dynamically_generated'
+      def parser:RangerLispParser (new RangerLispParser (code))
+      parser.parse((this.hasCompilerFlag("no-op-transform")))
+
+      if(parser.rootNode) {
+        def root (unwrap parser.rootNode)
+        def myParser (new RangerFlowParser())
+;        def myParser (this.getParser())
+        def rootCtx (this.getRoot())
+        myParser.CollectMethods( root rootCtx wr )
+        myParser.StartWalk( root rootCtx wr)
+        print "--> did push new source code"
+      }
+  }
+
   fn addViewClassBody ( name:string classDef:CodeNode ) {
     def root (this.getRoot())
     set root.viewClassBody name classDef
   }
-
+  fn addPage ( name:string classDef:CodeNode ) {
+    def root (this.getRoot())
+    set root.appPages name classDef
+  }
+  fn addService ( name:string classDef:CodeNode ) {
+    def root (this.getRoot())
+    set root.appServices name classDef
+  }
   fn getViewClass@(optional):CodeNode (s_name:string) {
     def res@(optional temp):CodeNode
     if (has viewClassBody s_name) {
@@ -235,6 +608,21 @@ class RangerAppWriterContext {
       def plainOps (op.getOperators(name))
       for plainOps ppn@(lives):CodeNode i {
         push listOfOps ppn
+      }
+      
+      if_javascript {
+        def cc@(weak):RangerAppWriterContext
+        cc = this
+        while(!null? cc) {
+          if(!null? cc.operatorFunction) {
+            def opFn:(_:CodeNode (name:string)) (unwrap cc.operatorFunction)
+            def suggestedOp (opFn(name))
+            suggestedOp.children.forEach({
+              insert listOfOps 0 (item.copy())
+            })
+          }
+          cc = cc.parent
+        }
       }
       return listOfOps
     }
@@ -493,7 +881,7 @@ class RangerAppWriterContext {
     def s:string withName
     def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
 
-    ;print "createStaticMethod -> name " + withName + "namenode type == " + nameNode.type_name
+    ;print "createStaticMethod -> name " + withName + " namenode type == " + nameNode.type_name + " class " + currC.name
     ;print "body of the static method ==> " + (fnBody.getCode())
     ;print "arguments of static => " + (argsNode.getCode())
 
@@ -510,6 +898,8 @@ class RangerAppWriterContext {
     def wr (new CodeWriter)
     ; --> 
     parser.CheckTypeAnnotationOf( (unwrap m.nameNode) rCtx wr )
+
+    ; print "---> compiled to " + m.compiledName
 
     for args.children arg@(lives):CodeNode ii {
 
@@ -548,6 +938,22 @@ class RangerAppWriterContext {
     return m
   }
 
+  fn canUseTypeInference:boolean ( nameNode:CodeNode ) {
+      def b_allow_ti (this.hasCompilerFlag('allowti'))
+      def b_multitype false
+      if( b_allow_ti ) {
+        def t_name (nameNode.type_name)
+        if( has nameNode.eval_type_name) {
+          t_name = nameNode.eval_type_name
+        }
+        if(this.isDefinedClass(t_name)) {
+          def cc (this.findClass(t_name))
+          b_multitype = cc.is_union || cc.is_system || cc.is_system_union || cc.is_trait || cc.is_inherited || ( (array_length cc.extends_classes) > 0 ) 
+        }
+      }
+      return (b_allow_ti && (false == b_multitype) )     
+  }
+
   fn createOpStaticClass@(weak):RangerAppClassDesc (name:string) {
     def nameWillBe ("operatorsOf" + name)
     def str ""
@@ -573,7 +979,7 @@ class RangerAppWriterContext {
     def code:SourceCode (new SourceCode ( tpl_code ))
     code.filename = str + ".ranger"
     def parser:RangerLispParser (new RangerLispParser (code))
-    parser.parse()
+    parser.parse(false)
 
     ; this.CheckTypeAnnotationOf( (unwrap m.nameNode) ctx wr )
 
@@ -582,6 +988,7 @@ class RangerAppWriterContext {
     classNameNode.vref = str
     def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
     new_class.name = str
+    new_class.compiledName = str
     new_class.is_operator_class = true
     new_class.nameNode = classNameNode
     new_class.classNode = classRoot
@@ -616,13 +1023,14 @@ class RangerAppWriterContext {
     def code:SourceCode (new SourceCode ( tpl_code ))
     code.filename = instanceName + ".ranger"
     def parser:RangerLispParser (new RangerLispParser (code))
-    parser.parse()
+    parser.parse(false)
 
     def classRoot@(lives) (itemAt parser.rootNode.children 0)
     def classNameNode@(lives) (classRoot.getSecond())
     classNameNode.vref = instanceName
     def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
     new_class.name = instanceName
+    new_class.compiledName = instanceName
     new_class.nameNode = classNameNode
     new_class.node = classRoot
     new_class.classNode = classRoot   
@@ -702,7 +1110,9 @@ class RangerAppWriterContext {
     def root:RangerAppWriterContext (this.getRoot())
     if (root.initStdCommands()) {
       push root.stdCommands.children fromNode
-      def fc:CodeNode (itemAt fromNode.children 0)
+
+;      def fc:CodeNode (itemAt fromNode.children 0)
+;      print ":: created op"  + (fromNode.getCode())
     }
   }
   fn findClassMethod@(weak optional):RangerAppFunctionDesc (cname:string fname:string) {
@@ -822,6 +1232,41 @@ class RangerAppWriterContext {
     }
     return (parent.isVarDefined(name))
   }
+
+  fn setFlag(name:string value:boolean) {
+    set contextFlags name value
+  }
+  fn getFlag:boolean (name:string) {
+    if(has contextFlags name) {
+      return (unwrap (get contextFlags name))
+    }
+    if(!null? parent) {
+      return (parent.getFlag(name))
+    }
+    return false
+  }
+  fn setSetting(name:string value:string) {
+    set settings name value
+  }
+  fn hasSetting:boolean (name:string) {
+    if(has settings name) {
+      return true
+    }
+    if(!null? parent) {
+      return (parent.hasSetting(name))
+    }
+    return false
+  }
+  fn getSetting:string (name:string) {
+    if(has settings name) {
+      return (unwrap (get settings name))
+    }
+    if(!null? parent) {
+      return (parent.getSetting(name))
+    }
+    return ""
+  }
+
   fn setCompilerFlag:void (name:string value:boolean) {
     set compilerFlags name value
   }
@@ -991,6 +1436,17 @@ class RangerAppWriterContext {
       }
     } {
       desc.compiledName = (name + "_" + cnt)
+    }
+    if( desc.varType == RangerContextVarType.Property) {
+
+;      if( (this.getCompilerSetting("l")) == "go" ) {
+;        def ss ( desc.compiledName)
+;        def firstC (substring ss 0 1)
+;        def restOf (substring ss 1 (strlen ss))
+;        def res_str ( (to_uppercase firstC) + restOf )
+;        desc.compiledName = res_str
+;      }
+
     }
     set localVariables name desc
     push localVarNames name

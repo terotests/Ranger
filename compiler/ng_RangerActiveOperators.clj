@@ -27,53 +27,37 @@ class RangerActiveOperators {
     return newOps
   }
 
+  fn initializeOpCache() {
+
+    ; clear old cache
+    opHash.forEach({
+      clear item.list
+    })
+    
+    for stdCommands.children lch@(lives):CodeNode i {
+      def fc:CodeNode (lch.getFirst())
+      if( has opHash fc.vref ) {
+        def opList (unwrap (get opHash fc.vref ))
+        push opList.list lch
+      } {
+        def newOpList (new OpList)
+        set opHash fc.vref newOpList
+        push newOpList.list lch
+      }
+    }      
+    initialized = true    
+  }
 
   fn getOperators@(weak):[CodeNode] (name:string) {
 
     def results@(weak):[CodeNode]
-    if initialized {
-      def items (get opHash name)
-      if(!null? items) {
-        return items.list
-      } {
-        ; print "could not find operator " + name
-      }
-    } {
-      ; print "---> initializing the operator cache----"
-      for stdCommands.children lch@(lives):CodeNode i {
-        def fc:CodeNode (lch.getFirst())
-        if( has opHash fc.vref ) {
-          def opList (unwrap (get opHash fc.vref ))
-          push opList.list lch
-        } {
-          def newOpList (new OpList)
-          set opHash fc.vref newOpList
-          push newOpList.list lch
-        }
-        if (fc.vref == name) {
-          push results lch
-        }
-      }      
-      initialized = true
+    if( false == initialized) {
+      this.initializeOpCache()
     }
-    return results
-
-    def results:[CodeNode]
-    def ops:RangerActiveOperators (this)
-    while(true) {
-      if(!null? ops.stdCommands) {
-        for ops.stdCommands.children lch:CodeNode i {
-          def fc:CodeNode (lch.getFirst())
-          if (fc.vref == name) {
-            push results lch
-          }
-        }
-      }
-      if(null? ops.parent) {
-        break
-      }
-      ops = (unwrap ops.parent)
-    }
+    def items (get opHash name)
+    if(!null? items) {
+      return items.list
+    } 
     return results
   }
 

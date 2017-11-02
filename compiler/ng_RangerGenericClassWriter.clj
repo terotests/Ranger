@@ -1,8 +1,28 @@
 
+
+
+;    // This is the kind of code that needs to be implemented...
+;    Button btn = (Button) (view.findViewById(R.id.move_tofp));
+;    btn.setOnClickListener(new View.OnClickListener() {
+;      @Override
+;      public void onClick(View view) {
+;        Fragment fragment = new frontpage();
+;        FragmentManager fragmentManager = login.this.getActivity().getSupportFragmentManager();
+;        FragmentTransaction fragmentTransaction = fragmentManager.beginTransaction();
+;        fragmentTransaction.replace(R.id.view_content_target, fragment);
+;        fragmentTransaction.addToBackStack(null);
+;        fragmentTransaction.commit();
+;      }
+;    });
+
 class RangerGenericClassWriter {
 
   def compiler:LiveCompiler
   def compFlags:[string:boolean]
+
+  fn lineEnding:string () {
+    return ""
+  }
   
 
 fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -73,7 +93,13 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
-        wr.out(("" + node.double_value) , false)
+        def dd_str ("" + node.double_value)
+        def ii_str ("" + (to_int node.double_value))
+        if( dd_str == ii_str ) {
+          wr.out(("" + node.double_value+".0") , false)
+        } {
+          wr.out(("" + node.double_value) , false)
+        } 
       }
       case RangerNodeType.String {
         def s:string (this.EncodeString(node ctx wr))
@@ -153,6 +179,20 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     }
   }
   fn WalkNode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; ---------------------------------------------------------------------------------------
+    ; TODO: find out why this ugly hack is necessary, at some point the target language changes
+    ; and eval context is set to the parent language 
+    ; print "lang:" + (ctx.getTargetLang()) + " code " + (node.getCode())
+    node.children.forEach({
+      if(!null? item.evalCtx) {
+        ;print " - item lang:" + (item.evalCtx.getTargetLang()) + " code " + (item.getCode())
+        if( (item.evalCtx.getTargetLang())  != (ctx.getTargetLang())) {
+          item.evalCtx.targetLangName = (ctx.getTargetLang())
+          ;print "--> changing the code lang to " + ((ctx.getTargetLang()))
+        }
+      }
+    })
+    ; ------------------------------------------------------------------------------------------
     this.compiler.WalkNode(node ctx wr)
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -250,10 +290,86 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       }
     }    
   }
+
+;         langWriter.CreateMethodCall(node ctx wr)
+
+  fn CreateMethodCall(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; property access...
+      def obj:CodeNode (node.getFirst())
+      def args:CodeNode (node.getSecond())
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out('(' false)
+      ctx.setInExpr()
+      for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(', ' false)
+        }
+        ; TODO: optionality check here ?
+        this.WalkNode(arg ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(')' false)
+  }
+
+
+  fn CreatePropertyGet(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; property access...
+      def obj:CodeNode (node.getSecond())
+      def prop:CodeNode (node.getThird())
+      wr.out('(' false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out(').' false)
+      this.WalkNode(prop ctx wr)
+  }
+
+
+;    // This is the kind of code that needs to be implemented...
+;    Button btn = (Button) (view.findViewById(R.id.move_tofp));
+;    btn.setOnClickListener(new View.OnClickListener() {
+;      @Override
+;      public void onClick(View view) {
+;        Fragment fragment = new frontpage();
+;        FragmentManager fragmentManager = login.this.getActivity().getSupportFragmentManager();
+;        FragmentTransaction fragmentTransaction = fragmentManager.beginTransaction();
+;        fragmentTransaction.replace(R.id.view_content_target, fragment);
+;        fragmentTransaction.addToBackStack(null);
+;        fragmentTransaction.commit();
+;      }
+;    });
+
+  fn isPackaged:boolean ( ctx:RangerAppWriterContext ) {
+    def package_name (ctx.getCompilerSetting("package"))
+    if( (strlen package_name) > 0 ) {
+      return true
+    }
+    return false
+  }
+
+  
+  fn CreateUnions (parser:RangerFlowParser ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+
+  }
+
+  fn CreateServices (parser:RangerFlowParser ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+
+  }
+
+  fn CreatePages (parser:RangerFlowParser ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+  }
+
+  fn CreatePage (parser:RangerFlowParser node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    ctx.addError(node "CreatePage not implemented for the build target")
+  }
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fName:CodeNode (itemAt node.children 0)
     def args:CodeNode (itemAt node.children 1)
-    this.WriteVRef(fName ctx wr)
+    ctx.setInExpr()
+    this.WalkNode( fName ctx wr)
+;    this.WriteVRef(fName ctx wr)
     wr.out("(" false)
     for args.children arg:CodeNode i {
       if (i > 0) {
@@ -262,6 +378,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       this.WalkNode( arg ctx wr)
     }
     wr.out(")" false)
+    ctx.unsetInExpr()
     if ((ctx.expressionLevel()) == 0) {
       wr.out(";" true)
     }
@@ -370,6 +487,16 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   fn disabledVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
   }
 
+  fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out("[" false)
+    node.children.forEach({
+      if( index > 0 ) {
+        wr.out(", " false)
+      }
+      this.WalkNode( item ctx wr )
+    })
+    wr.out("]" false)
+  }
   
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
