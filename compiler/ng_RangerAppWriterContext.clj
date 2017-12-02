@@ -377,6 +377,9 @@ class RangerAppWriterContext {
   }
 
   fn isTryBlock:boolean () {
+    if expr_restart {
+      return false
+    }
     if is_try_block {
       return true
     }
@@ -387,6 +390,9 @@ class RangerAppWriterContext {
   }
 
   fn isCatchBlock:boolean () {
+    if expr_restart {
+      return false
+    }
     if is_catch_block {
       return true
     }

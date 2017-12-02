@@ -1029,9 +1029,10 @@ class RangerGolangClassWriter {
       this.writeTypeDef(fnNode lambdaCtx wr)
     }    
 
-    wr.out(" {" true)
+    wr.out(" { /* lambda */" true)
     wr.indent(1)
     lambdaCtx.restartExpressionLevel()
+
     for body.children item:CodeNode i {
       this.WalkNode(item lambdaCtx wr)
     }
