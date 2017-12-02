@@ -14,9 +14,9 @@ $min = 0;
 $max = 0;
 $total = 0;
 operatorsOf::forEach_2($list, (function ($item, $index) use ( &$value,  &$n_idx,  &$min,  &$max,  &$total) {
-  $val = intval($item);
-  if ( (isset($val)) ) {
-    $value = ($val) + ($value * 10);
+  $iValue = is_numeric($item) ? intval($item) : NULL ;
+  if ( (isset($iValue)) ) {
+    $value = ($iValue) + ($value * 10);
     $n_idx = $n_idx + 1;
   } else {
     if ( $n_idx > 1 ) {
@@ -34,7 +34,7 @@ operatorsOf::forEach_2($list, (function ($item, $index) use ( &$value,  &$n_idx,
     }
     $value = 0;
     $n_idx = 1;
-    if ( $item == "\n" ) {
+    if ( ((ord($item[0])) == (10)) || ((ord($item[0])) == (13)) ) {
       $total = $total + ($max - $min);
       $max = 0;
       $min = 0;

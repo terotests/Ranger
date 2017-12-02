@@ -23,9 +23,9 @@ public class day_one {
     final Integer[] total =  new Integer[]{0};
     operatorsOf.forEach_2(list, new LambdaSignature1() { 
       public void run( final String item,  final Integer index) {
-        final Integer val = _getIntegerOrNull(item );
-        if ( val != null  ) {
-          value[0] = (val) + (value[0] * 10);
+        final Integer iValue = _getIntegerOrNull(item );
+        if ( iValue != null  ) {
+          value[0] = (iValue) + (value[0] * 10);
           n_idx[0] = n_idx[0] + 1;
         } else {
           if ( n_idx[0] > 1 ) {
@@ -43,7 +43,7 @@ public class day_one {
           }
           value[0] = 0;
           n_idx[0] = 1;
-          if ( item.equals("\n") ) {
+          if ( (((int)item.charAt(0)) == (10)) || (((int)item.charAt(0)) == (13)) ) {
             total[0] = total[0] + (max[0] - min[0]);
             max[0] = 0;
             min[0] = 0;

@@ -93,9 +93,9 @@ int main(int argc, char* argv[]) {
   int max = 0;
   int total = 0;
   operatorsOf::forEach_2(list, [&](std::string item, int index) mutable { 
-     r_optional_primitive<int>  val = cpp_str_to_int(item);
-    if ( val.has_value ) {
-      value = (/*unwrap int*/val.value) + (value * 10);
+     r_optional_primitive<int>  iValue = cpp_str_to_int(item);
+    if ( iValue.has_value ) {
+      value = (/*unwrap int*/iValue.value) + (value * 10);
       n_idx = n_idx + 1;
     } else {
       if ( n_idx > 1 ) {
@@ -113,7 +113,7 @@ int main(int argc, char* argv[]) {
       }
       value = 0;
       n_idx = 1;
-      if ( item == std::string("\n") ) {
+      if ( ((item.at(0)) == (10)) || ((item.at(0)) == (13)) ) {
         total = total + (max - min);
         max = 0;
         min = 0;

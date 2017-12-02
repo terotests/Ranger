@@ -28,9 +28,9 @@ class day_one {
     def max 0
     def total 0 
     list.forEach({
-      def val (to_int item)
-      if(!null? val) {
-        value = ( (unwrap val) + value * 10)
+      def iValue (to_int item)
+      if(!null? iValue) {
+        value = ( (unwrap iValue) + value * 10)
         n_idx = n_idx + 1
       } {
         if(n_idx > 1) {
@@ -48,7 +48,7 @@ class day_one {
         }
         value = 0
         n_idx = 1
-        if( item == '\n' ) {
+        if( (charAt item 0 ) == (ccode '\n') || (charAt item 0 ) == (ccode '\r') ) {
           total = total + (max - min)
           max = 0
           min = 0

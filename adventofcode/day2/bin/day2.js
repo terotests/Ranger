@@ -13,9 +13,9 @@ function __js_main() {
   let max = 0;
   let total = 0;
   list.forEach(((item, index) => { 
-    const val = isNaN( parseInt(item) ) ? undefined : parseInt(item);
-    if ( typeof(val) !== "undefined" ) {
-      value = (val) + (value * 10);
+    const iValue = isNaN( parseInt(item) ) ? undefined : parseInt(item);
+    if ( typeof(iValue) !== "undefined" ) {
+      value = (iValue) + (value * 10);
       n_idx = n_idx + 1;
     } else {
       if ( n_idx > 1 ) {
@@ -33,7 +33,7 @@ function __js_main() {
       }
       value = 0;
       n_idx = 1;
-      if ( item == "\n" ) {
+      if ( ((item.charCodeAt(0 )) == (10)) || ((item.charCodeAt(0 )) == (13)) ) {
         total = total + (max - min);
         max = 0;
         min = 0;

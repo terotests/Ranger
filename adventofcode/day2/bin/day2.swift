@@ -24,9 +24,9 @@ func __main__swift() {
   var max : Int = 0
   var total : Int = 0
   operatorsOf.forEach_2(__self : list, cb : ({ (item, index) ->  Void in 
-    let val : Int? = Int(item)
-    if ( val != nil  ) {
-      value = (val!) + (value * 10);
+    let iValue : Int? = Int(item)
+    if ( iValue != nil  ) {
+      value = (iValue!) + (value * 10);
       n_idx = n_idx + 1;
     } else {
       if ( n_idx > 1 ) {
@@ -44,7 +44,7 @@ func __main__swift() {
       }
       value = 0;
       n_idx = 1;
-      if ( item == "\n" ) {
+      if ( ((Int( ( NSString(string: item ) ).character( at: 0 ) )) == (10)) || ((Int( ( NSString(string: item ) ).character( at: 0 ) )) == (13)) ) {
         total = total + (max - min);
         max = 0;
         min = 0;

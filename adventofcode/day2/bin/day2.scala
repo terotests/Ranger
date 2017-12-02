@@ -12,9 +12,9 @@ var min : Int = 0
 var max : Int = 0
 var total : Int = 0
 operatorsOf.forEach_2(list, ((item : String, index : Int) => { 
-  val val : Option[Int] = Try(item.toInt).toOption
-  if ( val.isDefined ) {
-    value = (val.get) + (value * 10)
+  val iValue : Option[Int] = Try(item.toInt).toOption
+  if ( iValue.isDefined ) {
+    value = (iValue.get) + (value * 10)
     n_idx = n_idx + 1
   } else {
     if ( n_idx > 1 ) {
@@ -32,7 +32,7 @@ operatorsOf.forEach_2(list, ((item : String, index : Int) => {
     }
     value = 0
     n_idx = 1
-    if ( item == "\n" ) {
+    if ( ((item(0)) == (10)) || ((item(0)) == (13)) ) {
       total = total + (max - min)
       max = 0
       min = 0

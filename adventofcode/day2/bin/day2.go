@@ -39,10 +39,10 @@ func main() {
   var max int64= int64(0);
   var total int64= int64(0);
   operatorsOf_static_forEach_2(list, func (item string, index int64) () {
-    var val *GoNullable = new(GoNullable); 
-    val = r_str_2_i64(item);
-    if  val.has_value {
-      value = (val.value.(int64)) + (value * int64(10)); 
+    var iValue *GoNullable = new(GoNullable); 
+    iValue = r_str_2_i64(item);
+    if  iValue.has_value {
+      value = (iValue.value.(int64)) + (value * int64(10)); 
       n_idx = n_idx + int64(1); 
     } else {
       if  n_idx > int64(1) {
@@ -60,7 +60,7 @@ func main() {
       }
       value = int64(0); 
       n_idx = int64(1); 
-      if  item == "\n" {
+      if  ((int64(item[int64(0)])) == int64((10))) || ((int64(item[int64(0)])) == int64((13))) {
         total = total + (max - min); 
         max = int64(0); 
         min = int64(0); 
