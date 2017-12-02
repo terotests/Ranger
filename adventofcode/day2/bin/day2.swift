@@ -1,8 +1,8 @@
 import Foundation
-func ==(l: day_one, r: day_one) -> Bool {
+func ==(l: day_two, r: day_two) -> Bool {
   return l === r
 }
-class day_one : Equatable  { 
+class day_two : Equatable  { 
 }
 func ==(l: operatorsOf, r: operatorsOf) -> Bool {
   return l === r

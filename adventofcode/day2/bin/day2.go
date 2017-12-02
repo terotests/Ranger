@@ -22,11 +22,11 @@ func r_str_2_i64(s string) *GoNullable {
    return res
 }
 
-type day_one struct { 
+type day_two struct { 
 }
 
-func CreateNew_day_one() *day_one {
-  me := new(day_one)
+func CreateNew_day_two() *day_two {
+  me := new(day_two)
   return me;
 }
 func main() {

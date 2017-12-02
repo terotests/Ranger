@@ -8,10 +8,10 @@
 #include  <iostream>
 
 // define classes here to avoid compiler errors
-class day_one;
+class day_two;
 class operatorsOf;
 
-typedef mpark::variant<std::shared_ptr<day_one>, int, std::string, bool, double>  r_union_Any;
+typedef mpark::variant<std::shared_ptr<day_two>, int, std::string, bool, double>  r_union_Any;
 
 std::vector<std::string> r_str_split(std::string data, std::string token) {
     std::vector<std::string> output;
@@ -62,10 +62,10 @@ r_optional_primitive<int> cpp_str_to_int(std::string s) {
 }
 
 // header definitions
-class day_one : public std::enable_shared_from_this<day_one>  { 
+class day_two : public std::enable_shared_from_this<day_two>  { 
   public :
     /* class constructor */ 
-    day_one( );
+    day_two( );
     /* static methods */ 
     static void main();
 };
@@ -79,7 +79,7 @@ class operatorsOf : public std::enable_shared_from_this<operatorsOf>  {
 
 int __g_argc;
 char **__g_argv;
-day_one::day_one( ) {
+day_two::day_two( ) {
 }
 int main(int argc, char* argv[]) {
   __g_argc = argc;

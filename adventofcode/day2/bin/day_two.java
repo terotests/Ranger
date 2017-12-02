@@ -1,7 +1,7 @@
 import java.util.*;
 import java.io.*;
 
-public class day_one { 
+public class day_two { 
   
   static Integer _getIntegerOrNull ( String str ) {
       try {

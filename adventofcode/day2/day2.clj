@@ -1,6 +1,6 @@
 
 
-class day_one {
+class day_two {
   static fn main() {
     def data `
 3751	3769	2769	2039	2794	240	3579	1228	4291	220	324	3960	211	1346	237	1586

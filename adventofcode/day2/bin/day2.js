@@ -1,4 +1,4 @@
-class day_one  {
+class day_two  {
   constructor() {
   }
 }
