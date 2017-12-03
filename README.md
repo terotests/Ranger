@@ -14,7 +14,7 @@ on several platforms. At the moment the official platform is node.js, but it can
 to binary using Go target.
 
 The target languages suppoerted currently are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#` and `Scala`. The Scala
-and C# are lagging behind int the support. Adding support to  Kotlin is considered.
+and C# are lagging behind in the support. Adding support to Kotlin is considered.
 
 The applications or modules compiled using Ranger can be integrated to various target platforms using custom operators and
 system classes with native API's.
