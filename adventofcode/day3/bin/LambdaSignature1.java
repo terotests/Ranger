@@ -1,4 +1,3 @@
-import java.util.*;
 public interface LambdaSignature1 { 
-  public ArrayList<Integer> run( final Integer s);
+  public Integer run( final Integer dx,  final Integer dy);
 }
