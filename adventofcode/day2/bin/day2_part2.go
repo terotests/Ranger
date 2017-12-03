@@ -58,12 +58,12 @@ func main() {
           var outer_index int64= index;
           operatorsOf_static_forEach_3(row, func (item int64, index int64) () {
             if  index != outer_index {
-              var divRes float64= (float64( item1 )) / (float64( item ));
-              if  (divRes > 1.0) && ((float64( (int64(divRes)) )) == divRes) {
+              var divRes float64= (float64( item )) / (float64( item1 ));
+              if  (item % item1) == int64(0) {
                 theValue = int64(divRes); 
               }
-              var divRes_1 float64= (float64( item )) / (float64( item1 ));
-              if  (divRes_1 > 1.0) && ((float64( (int64(divRes_1)) )) == divRes_1) {
+              var divRes_1 float64= (float64( item1 )) / (float64( item ));
+              if  (item1 % item) == int64(0) {
                 theValue = int64(divRes_1); 
               }
             }

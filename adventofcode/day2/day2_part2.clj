@@ -46,12 +46,12 @@ class day_two_part_two {
             def outer_index index
             row.forEach({
               if(index != outer_index) {
-                def divRes ((to_double item1) / (to_double item))
-                if( divRes > 1.0 && ( (to_double (to_int divRes) ) == divRes  )) {
+                def divRes ((to_double item) / (to_double item1))
+                if( item % item1 == 0) {
                   theValue = (to_int divRes)
                 }
-                def divRes ((to_double item) / (to_double item1))
-                if( divRes > 1.0 && ( (to_double (to_int divRes) ) == divRes  )) {
+                def divRes ((to_double item1) / (to_double item))
+                if( item1 % item == 0) {
                   theValue = (to_int divRes)
                 }
               }

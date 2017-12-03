@@ -113,12 +113,12 @@ int main(int argc, char* argv[]) {
           int outer_index = index;
           operatorsOf::forEach_3(row, [&](int item, int index) mutable { 
             if ( index != outer_index ) {
-              double divRes = ((double)(item1)) / ((double)(item));
-              if ( (divRes > 1) && (((double)(((int)floor( divRes)))) == divRes) ) {
+              double divRes = ((double)(item)) / ((double)(item1));
+              if ( (item % item1) == 0 ) {
                 theValue = (int)floor( divRes);
               }
-              double divRes_1 = ((double)(item)) / ((double)(item1));
-              if ( (divRes_1 > 1) && (((double)(((int)floor( divRes_1)))) == divRes_1) ) {
+              double divRes_1 = ((double)(item1)) / ((double)(item));
+              if ( (item1 % item) == 0 ) {
                 theValue = (int)floor( divRes_1);
               }
             }

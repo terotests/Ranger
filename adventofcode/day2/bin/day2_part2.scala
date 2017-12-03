@@ -29,12 +29,12 @@ operatorsOf.forEach_2(list, ((item : String, index : Int) => {
         val item1 : Int = item
         val outer_index : Int = index
         operatorsOf.forEach_3(row, ((item : Int, index : Int) => (if ( (index != outer_index) ) {
-          val divRes : Double = (item1.toDouble) / (item.toDouble)
-          if ( (divRes > 1.0) && (((divRes.toInt).toDouble) == divRes) ) {
+          val divRes : Double = (item.toDouble) / (item1.toDouble)
+          if ( (item % item1) == 0 ) {
             theValue = divRes.toInt
           }
-          val divRes_1 : Double = (item.toDouble) / (item1.toDouble)
-          if ( (divRes_1 > 1.0) && (((divRes_1.toInt).toDouble) == divRes_1) ) {
+          val divRes_1 : Double = (item1.toDouble) / (item.toDouble)
+          if ( (item1 % item) == 0 ) {
             theValue = divRes_1.toInt
           }
         }

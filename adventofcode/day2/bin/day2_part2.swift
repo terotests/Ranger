@@ -47,12 +47,12 @@ func __main__swift() {
           let outer_index : Int = index
           operatorsOf.forEach_3(__self : row, cb : ({ (item, index) ->  Void in 
             if ( index != outer_index ) {
-              let divRes : Double = (Double(item1)) / (Double(item))
-              if ( (divRes > 1.0) && ((Double((Int(divRes)))) == divRes) ) {
+              let divRes : Double = (Double(item)) / (Double(item1))
+              if ( (item % item1) == 0 ) {
                 theValue = Int(divRes);
               }
-              let divRes_1 : Double = (Double(item)) / (Double(item1))
-              if ( (divRes_1 > 1.0) && ((Double((Int(divRes_1)))) == divRes_1) ) {
+              let divRes_1 : Double = (Double(item1)) / (Double(item))
+              if ( (item1 % item) == 0 ) {
                 theValue = Int(divRes_1);
               }
             }

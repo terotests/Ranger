@@ -43,12 +43,12 @@ public class day_two_part_two {
                 operatorsOf.forEach_3(row, new LambdaSignature2() { 
                   public void run( final Integer item,  final Integer index) {
                     if ( index != outer_index ) {
-                      final Double divRes = (Double.valueOf(item1)) / (Double.valueOf(item));
-                      if ( (divRes > 1.0) && ((Double.valueOf((Double.valueOf(divRes).intValue()))) == divRes) ) {
+                      final Double divRes = (Double.valueOf(item)) / (Double.valueOf(item1));
+                      if ( (item % item1) == 0 ) {
                         theValue[0] = Double.valueOf(divRes).intValue();
                       }
-                      final Double divRes_1 = (Double.valueOf(item)) / (Double.valueOf(item1));
-                      if ( (divRes_1 > 1.0) && ((Double.valueOf((Double.valueOf(divRes_1).intValue()))) == divRes_1) ) {
+                      final Double divRes_1 = (Double.valueOf(item1)) / (Double.valueOf(item));
+                      if ( (item1 % item) == 0 ) {
                         theValue[0] = Double.valueOf(divRes_1).intValue();
                       }
                     }

@@ -31,12 +31,12 @@ function __js_main() {
           const outer_index = index;
           row.forEach(((item, index) => { 
             if ( index != outer_index ) {
-              const divRes = (item1) / (item);
-              if ( (divRes > 1.0) && (((Math.floor( divRes))) == divRes) ) {
+              const divRes = (item) / (item1);
+              if ( (item % item1) == 0 ) {
                 theValue = Math.floor( divRes);
               }
-              const divRes_1 = (item) / (item1);
-              if ( (divRes_1 > 1.0) && (((Math.floor( divRes_1))) == divRes_1) ) {
+              const divRes_1 = (item1) / (item);
+              if ( (item1 % item) == 0 ) {
                 theValue = Math.floor( divRes_1);
               }
             }

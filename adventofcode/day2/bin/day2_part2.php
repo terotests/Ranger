@@ -32,12 +32,12 @@ operatorsOf::forEach_2($list, (function ($item, $index) use ( &$value,  &$n_idx,
         $outer_index = $index;
         operatorsOf::forEach_3($row, (function ($item, $index) use ( &$outer_index,  &$item1,  &$theValue) {
           if ( $index != $outer_index ) {
-            $divRes = ($item1) / ($item);
-            if ( ($divRes > 1) && (((floor($divRes))) == $divRes) ) {
+            $divRes = ($item) / ($item1);
+            if ( ($item % $item1) == 0 ) {
               $theValue = floor($divRes);
             }
-            $divRes_1 = ($item) / ($item1);
-            if ( ($divRes_1 > 1) && (((floor($divRes_1))) == $divRes_1) ) {
+            $divRes_1 = ($item1) / ($item);
+            if ( ($item1 % $item) == 0 ) {
               $theValue = floor($divRes_1);
             }
           }
