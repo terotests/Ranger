@@ -58,6 +58,7 @@ public class day_two_part_two {
                   }
                 });
                 // captured var row
+                // captured var theValue
               }
             });
             total[0] = total[0] + theValue[0];

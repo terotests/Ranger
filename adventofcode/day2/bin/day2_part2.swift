@@ -61,6 +61,7 @@ func __main__swift() {
             // captured var theValue
           }))
           // captured var row
+          // captured var theValue
         }))
         total = total + theValue;
         max = 0;

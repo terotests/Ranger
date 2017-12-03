@@ -27,7 +27,7 @@ operatorsOf::forEach_2($list, (function ($item, $index) use ( &$value,  &$n_idx,
     $n_idx = 1;
     if ( ((ord($item[0])) == (10)) || ((ord($item[0])) == (13)) ) {
       $theValue = 0;
-      operatorsOf::forEach_3($row, (function ($item, $index) use ( &$row) {
+      operatorsOf::forEach_3($row, (function ($item, $index) use ( &$row,  &$theValue) {
         $item1 = $item;
         $outer_index = $index;
         operatorsOf::forEach_3($row, (function ($item, $index) use ( &$outer_index,  &$item1,  &$theValue) {
@@ -46,6 +46,7 @@ operatorsOf::forEach_2($list, (function ($item, $index) use ( &$value,  &$n_idx,
           // captured var theValue
         }));
         // captured var row
+        // captured var theValue
       }));
       $total = $total + $theValue;
       $max = 0;
