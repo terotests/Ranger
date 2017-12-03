@@ -8,4 +8,11 @@ public class operatorsOf {
       cb.run(it, i);
     }
   }
+  
+  public static void forEach_3( final ArrayList<Integer> __self , final LambdaSignature2 cb ) {
+    for ( int i_1 = 0; i_1 < __self.size(); i_1++) {
+      Integer it_1 = __self.get(i_1);
+      cb.run(it_1, i_1);
+    }
+  }
 }
