@@ -12,7 +12,7 @@ class extensions, type inference and can integrate with host system API's using 
 The compiler is *self hosting*  which means that it has been written using the compiler itself and thus it can be hosted
 on several platforms. At the moment the official platform is node.js, but it can also be run on browser or JVM or compiled
 to binary using Go target.
-
+    
 The target languages suppoerted currently are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#` and `Scala`. The Scala
 and C# are lagging behind in the support. Adding support to Kotlin is considered.
 
