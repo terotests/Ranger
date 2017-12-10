@@ -52,8 +52,41 @@ systemclass Texture3D {
 systemclass Quaternion3D {
   es6 Object
 }
+systemclass PhysicsObject3D {
+  es6 Object
+}
+systemclass PhysicsShape3D {
+  es6 Object
+}
+systemclass PhysicsOptions3D {
+  es6 Object
+}
+systemclass HighlightLayer3D {
+
+}
+systemclass Vector4 {
+  es6 BABYLON.Vector4
+}
+systemclass FaceUV {
+  es6 BABYLON.Vector4
+}
+systemclass Matrix3D {
+  es6 BABYLON.Matrix
+}
+
+
+systemunion AnyLight3D (Light3D HemisphericLight3D)
 
 operators  {
+
+  ; generic math ops
+
+  near _:boolean (value:double compareTo:double delta:double) {
+    templates {
+      * @macro(true) ( '( (fabs ( ' (e 1) ' - ' (e 2) ') ) < ' (e 3) ' ) ' )
+    }
+  }
+
 
   content_ready _:void ( code:block) {
     templates {
@@ -66,6 +99,12 @@ operators  {
       es6 ( (e 1) '.runRenderLoop(()=>{' nl I '(' (e 2) ') () ' i nl ' });' nl  )
     }
   }
+
+  vec _:Vector4 ( x:double y:double z:double w:double ) {
+    templates {
+      es6 ('new BABYLON.Vector4(' (e 1) ', ' (e 2) ',' (e 3) ',' (e 4) ')')
+    }
+  } 
 
   vec3 _:Vector3 ( x:double y:double z:double ) {
     templates {
@@ -91,6 +130,181 @@ operators  {
     }
   }
 
+  ; color 
+  color _:Color3 ( r:double g:double b:double ) {
+    templates {
+      es6 ('new BABYLON.Color3(' (e 1) ', ' (e 2) ', ' (e 3) ')')
+    }
+  }
+
+  ; setting color
+  setDiffuse _:void (o:Material3D color:Color3 ) {
+    templates {
+      es6 ( (e 1) '.diffuseColor = ' (e 2))
+    }
+  }
+  setSpecular _:void (o:Material3D color:Color3 ) {
+    templates {
+      es6 ( (e 1) '.specularColor  = ' (e 2))
+    }
+  }
+  setEmissive _:void (o:Material3D color:Color3 ) {
+    templates {
+      es6 ( (e 1) '.emissiveColor   = ' (e 2))
+    }
+  }
+  setAmbitent _:void (o:Material3D color:Color3 ) {
+    templates {
+      es6 ( (e 1) '.ambientColor  = ' (e 2))
+    }
+  }
+
+  setAlpha _:void (o:Material3D alpha:double) {
+    templates {
+      es6 ( (e 1) '.alpha = ' (e 2))
+    }
+  }
+
+  setAlpha _:void (o:Texture3D alpha:bolean) {
+    templates {
+      es6 ( (e 1) '.hasAlpha = ' (e 2))
+    }
+  }
+
+  ; Interesting ideas:
+  ; https://doc.babylonjs.com/how_to/ribbon_tutorial
+  ; https://doc.babylonjs.com/how_to/render_scene_on_a_png
+  ; physics engine rules...
+  ; https://doc.babylonjs.com/how_to/using_the_physics_engine
+
+  enablePhysics _:void (scene:Scene3D) {
+    templates {
+      es6 ( (e 1) '.enablePhysics()')
+    }
+  }
+
+  physicsOptions _:PhysicsOptions3D () {
+    templates {
+      es6 ('{}')
+    }
+  }
+  mass _:void (o:PhysicsOptions3D value:double) {
+    templates {
+      es6 ( (e 1) '.mass = ' (e 2))
+    }
+  }
+  friction _:void (o:PhysicsOptions3D value:double) {
+    templates {
+      es6 ( (e 1) '.friction = ' (e 2))
+    }
+  }
+  restitution _:void (o:PhysicsOptions3D value:double) {
+    templates {
+      es6 ( (e 1) '.restitution = ' (e 2))
+    }
+  }
+
+  physicsBox _:PhysicsShape3D () {
+    templates {
+      es6 ('BABYLON.PhysicsImpostor.BoxImpostor')
+    }
+  }
+  physicsSphere _:PhysicsShape3D () {
+    templates {
+      es6 ('BABYLON.PhysicsImpostor.SphereImpostor')
+    }
+  }
+  physicsPlane _:PhysicsShape3D () {
+    templates {
+      es6 ('BABYLON.PhysicsImpostor.PlaneImpostor')
+    }
+  }
+  physicsMesh _:PhysicsShape3D () {
+    templates {
+      es6 ('BABYLON.PhysicsImpostor.MeshImpostor')
+    }
+  }
+  physicsCylinder _:PhysicsShape3D () {
+    templates {
+      es6 ('BABYLON.PhysicsImpostor.CylinderImpostor')
+    }
+  }
+
+  physics _:PhysicsObject3D (scene:Scene3D obj:Object3D shape:PhysicsShape3D options:PhysicsOptions3D ) {
+    templates {
+      es6 ( 'new BABYLON.PhysicsImpostor(' (e 2) ', '( e 3) ', ' (e 4) ', ' (e 1) ')')
+    }
+  }
+
+  setPhysics _:void (obj:Object3D shape:PhysicsObject3D) {
+    templates {
+      es6 ( (e 1) '.physicsImpostor = ' (e 2))
+    }
+  }
+
+  ; impostor.applyImpulse(new BABYLON.Vector3(10, 10, 0), sphere.getAbsolutePosition());
+  impulse _:void (o:PhysicsObject3D forceVector:Vector3 forcePosition:Vector3) {
+    templates {
+      es6 ( (e 1) '.applyImpulse(' (e 2) ', ' (e 3) ' ) ' )
+    }
+  }
+
+  ; lights
+
+  newSpotLight _:Light3D (scene:Scene3D start:Vector3 end:Vector3 angle:double distance:double name:string) {
+    templates {
+      es6 ('new BABYLON.SpotLight(' (e 6) ',' (e 2) ',' (e 3) ',' (e 4) ',' (e 5) ',' (e 1) ')')
+    }
+  }
+  newDirectionalLight _:Light3D (scene:Scene3D direction:Vector3  name:string) {
+    templates {
+      es6 ('new BABYLON.DirectionalLight(' (e 3) ',' (e 2) ',' (e 1) ')')
+    }
+  }
+
+  setDiffuse _:void (o:Light3D color:Color3 ) {
+    templates {
+      es6 ( (e 1) '.diffuse = ' (e 2))
+    }
+  }
+  setSpecular _:void (o:Light3D color:Color3 ) {
+    templates {
+      es6 ( (e 1) '.specular  = ' (e 2))
+    }
+  }
+  setGround _:void (o:HemisphericLight3D color:Color3 ) {
+    templates {
+      es6 ( (e 1) '.groundColor  = ' (e 2))
+    }
+  }
+
+  intensity _:void (l:Light3D amount:double) {
+    templates {
+      es6 ( (e 1) '.intensity = ' (e 2))
+    }
+  }
+
+  range _:void (l:Light3D range:double) {
+    templates {
+      es6 ( (e 1) '.range = ' (e 2))
+    }
+  }
+
+  enableFor _void ( l:Light3D list:[Object3D]) {
+    templates {
+      es6 ( (e 1) '.excludedMeshes = ' (e 2))
+    }
+  }
+  disableFor _void ( l:Light3D list:[Object3D]) {
+    templates {
+      es6 ( (e 1) '.includedOnlyMeshes = ' (e 2))
+    }
+  }
+  
+
+  
+
+ 
   
   ; vector math ops
   
@@ -161,6 +375,95 @@ operators  {
     }
   }
   
+  ; Matrix operators
+  toArray _:[double] ( o:Matrix3D ) {
+    templates {
+      es6 ( (e 1) '.toArray()')
+    }
+  }
+
+  invert _:Matrix3D ( o:Matrix3D ) {
+    templates {
+      es6 ( (e 1) '.invert()')
+    }
+  }
+  
+  add _:Matrix3D ( o:Matrix3D other:Matrix3D ) {
+    templates {
+      es6 ( (e 1) '.add(' (e 2) ')')
+    }
+  }
+
+  + _:Matrix3D ( o:Matrix3D other:Matrix3D ) {
+    templates {
+      es6 ( (e 1) '.add(' (e 2) ')')
+    }
+  }
+
+  setTranslate _:Matrix3D ( o:Matrix3D v:Vector3 ) {
+    templates {
+      es6 ( (e 1) '.setTranslation(' (e 2) ')')
+    }
+  }
+
+  getTranslate _:Vector3 ( o:Matrix3D ) {
+    templates {
+      es6 ( (e 1) '.getTranslation()')
+    }
+  }
+
+  resetRotateAndScale _:Matrix3D ( o:Matrix3D ) {
+    templates {
+      es6 ( (e 1) '.removeRotationAndScaling()')
+    }
+  }
+
+  * _:Matrix3D ( o:Matrix3D other:Matrix3D ) {
+    templates {
+      es6 ( (e 1) '.mutiply(' (e 2) ')')
+    }
+  }
+
+  copyFrom _:Matrix3D ( o:Matrix3D other:Matrix3D ) {
+    templates {
+      es6 ( (e 1) '.copyFrom(' (e 2) ')')
+    }
+  }
+  
+  == _:Matrix3D ( o:Matrix3D other:Matrix3D ) {
+    templates {
+      es6 ( (e 1) '.equals(' (e 2) ')')
+    }
+  }
+
+  clone _:Matrix3D ( o:Matrix3D ) {
+    templates {
+      es6 ( (e 1) '.clone()')
+    }
+  }
+
+  identity_matrix _:Matrix3D (  ) {
+    templates {
+      es6 ( 'BABYLON.Matrix.Identity()')
+    }
+  }
+  
+
+  getRow _:Vector4 ( o:Matrix3D index:int ) {
+    templates {
+      es6 ( (e 1) '.getRow(' (e 2) ')')
+    }
+  }
+
+  cell _:double (o:Matrix3D row:int col:int) {
+    templates {
+      es6 ( (e 1) '.m[' (e 2) ' * 4 + ' (e 3) ']')
+    }
+  }
+  
+
+
+
   
 
   newCamera _:Camera3D ( scene:Scene3D position:Vector3 name:string) {
@@ -169,11 +472,13 @@ operators  {
     }
   }
 
-  newHemisphericLight _:Light3D ( scene:Scene3D position:Vector3 name:string) {
+  newHemisphericLight _:HemisphericLight3D ( scene:Scene3D position:Vector3 name:string) {
     templates {
       es6 ('new BABYLON.HemisphericLight(' (e 3) ', ' (e 2)', ' (e 1)')')
     }
   }
+
+  ; standard object types
 
   newSphere _:Object3D ( scene:Scene3D width:double height:double name:string) {
     templates {
@@ -181,9 +486,66 @@ operators  {
     }
   }
 
+  tube _:Object3D ( scene:Scene3D path:[Vector3] radiusFn:(_:double (i:int distance:double)) ) {
+    templates {
+      es6 ('BABYLON.MeshBuilder.CreateTube("tube", {path: ' (e 2)', radiusFunction:'(e 3)', cap:BABYLON.Mesh.CAP_ALL}, ' (e 1) ')')
+    }
+  }
+
+  box _:Object3D ( scene:Scene3D size:double name:string) {
+    templates {
+      es6 ('BABYLON.Mesh.CreateBox(' (e 3)', ' (e 2) ', ' (e 1) ')')
+    }
+  }
+
+  box _:Object3D ( scene:Scene3D width:double height:double depth:double name:string) {
+    templates {
+      es6 ('BABYLON.MeshBuilder.CreateBox(' (e 5)', {width:' (e 2) ', height:' (e 3) ', depth:'(e 4)'}, ' (e 1) ')')
+    }
+  }
+
+  box _:Object3D ( scene:Scene3D  width:double height:double depth:double faces:[Vector4] name:string) {
+    templates {
+      es6 ('BABYLON.MeshBuilder.CreateBox(' (e 6)', {width:' (e 2) ', height:' (e 3) ', depth:'(e 4)', faceUV:'(e 5)'}, ' (e 1) ')')
+    }
+  }
+
+  merge _:Object3D ( meshes:[Object3D]) {
+    templates {
+      es6 ( 'BABYLON.Mesh.MergeMeshes(' (e 1) ')')
+    }
+  }
+
+
   render _:void (s:Scene3D) {
     templates {
       es6 ((e 1)'.render()')
+    }
+  }
+
+  ; object routines
+
+  getQuat _:Quaternion3D (o:Object3D) {
+    templates {
+      es6 ( (e 1 ) '.rotation.toQuaternion()')
+    }
+  }
+
+  wireframe _:void (o:Object3D is:boolean) {
+    templates {
+      es6 ( (e 1) '.wireframe = ' (e 2))
+    }
+  }
+
+  getAbsolutePosition _:Vector3 (obj:Object3D) {
+    templates {
+      es6 ( (e 1) '.getAbsolutePosition()')
+    }
+  }
+
+  setPosition _:void (obj:Object3D v:Vector3) {
+    templates {
+      es6 ( (e 1) '.position = ' (e 2))
     }
   }
 
@@ -269,6 +631,12 @@ operators  {
   quat _:Quaternion3D ( v:Vector3 rotation:double) {
     templates {
       es6 ('new BABYLON.Quaternion.RotationAxis(' (e 1) ', ' (e 2) ')')
+    }
+  }
+
+  getWorldMatrix _:Matrix3D ( o:Object3D ) {
+    templates {
+      es6 ( (e 1) '.getWorldMatrix()')
     }
   }
   
@@ -367,7 +735,7 @@ operators  {
   }
   createEngine3D _:Engine3D (c:Canvas3D) {
     templates {
-      es6 ('new BABYLON.Engine(' (e 1) ', true)')
+      es6 ('new BABYLON.Engine(' (e 1) ', true, {stencil: true})')
     }
   }
   createScene _:Scene3D (c:Engine3D) {
@@ -415,6 +783,19 @@ operators  {
       es6 ('new BABYLON.StandardMaterial(' (e 2) ', ' (e 1) ')')
     }
   }
+  ; new BABYLON.WoodProceduralTexture("texture", 1024, scene);
+  grassTexture _:Texture3D (scene:Scene3D grassColor:Color3 groundColor:Color3 size:int) {
+    templates {
+      es6 ('( (c,g)=>{ var t = new BABYLON.GrassProceduralTexture( "grass" , ' (e 4) ', ' (e 1) ');t.grassColor = c; t.groundColor=g; return t;})(' (e 2) ', ' (e 3) ')') 
+    }
+  }
+
+  woodTexture _:Texture3D (scene:Scene3D grassColor:Color3 scale:int size:int) {
+    templates {
+      es6 ('( (c,g)=>{ var t = new BABYLON.WoodProceduralTexture( "grass" , ' (e 4) ', ' (e 1) ');t.woodColor = c; t.ampScale=g; return t;})(' (e 2) ', ' (e 3) ')') 
+    }
+  }
+  
   createTexture _:Texture3D (scene:Scene3D imageName:string ) {
     templates {
       es6 ('new BABYLON.Texture(' (e 2) ', ' (e 1) ')')
@@ -423,6 +804,39 @@ operators  {
   setTexture _:void (m:Material3D text:Texture3D) {
     templates {
       es6 ( (e 1) '.diffuseTexture = ' (e 2))
+    }
+  }
+  setNormalMap _:void (m:Material3D text:Texture3D) {
+    templates {
+      es6 ( (e 1) '.bumpTexture = ' (e 2) )
+    }
+  }
+
+  highlight _:HighlightLayer3D (s:Scene3D name:string) {
+    templates {
+      es6 ('new BABYLON.HighlightLayer(' (e 2) ', ' (e 1) ')')
+    }
+  }
+  outerGlow _:void (hl:HighlightLayer3D value:boolean) {
+    templates {
+      es6 ( (e 1) '.outerGlow = ' (e 2))
+    }
+  }
+  innerGlow _:void (hl:HighlightLayer3D value:boolean) {
+    templates {
+      es6 ( (e 1) '.innerGlow = ' (e 2))
+    }
+  }
+
+  add _:void ( hl:HighlightLayer3D o:Object3D color:Color3) {
+    templates {
+      es6 ( (e 1) '.addMesh(' (e 2) ', ' (e 3) ')' )
+    }
+  }
+
+  remove _:void ( hl:HighlightLayer3D o:Object3D ) {
+    templates {
+      es6 ( (e 1) '.removeMesh(' (e 2) ')' )
     }
   }
 
