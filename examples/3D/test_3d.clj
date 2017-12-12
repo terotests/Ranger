@@ -263,6 +263,7 @@ class test_3d {
           cnt = cnt - 1
         }        
       })
+
       
       def cnt 10
       while( cnt > 0 ) {
@@ -301,6 +302,8 @@ class test_3d {
           last_i = i
           last_j = j
           last_k = k
+
+          
           if( diceStabileCnt == 0 ) {
             ; nopan heiton suuruuden määritys...
             def diffAmount 0.3
@@ -359,8 +362,9 @@ class test_3d {
                         impulse (unwrap data.physics) (vec 0 30 0) ( (getAbsolutePosition item) + (vec 0.1 0.1 0.1))   
                       }
                     }
-                  }                                  
+                  }                                                    
                 }
+                
               }
               diceThrow = false
             }

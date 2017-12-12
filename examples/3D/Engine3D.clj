@@ -771,7 +771,6 @@ operators  {
       es6 ( (e 1) '.loadedMeshes')
     }
   }
-
   textureLoader _:LoadTask3D (loader:AssetLoader3D name:string url:string ) {
     templates {
       es6 ( (e 1) '.addTextureTask(' (e 2)',  '(e 3)')')
