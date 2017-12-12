@@ -1,7 +1,7 @@
 
 extension RangerFlowParser {
 
-  fn findLanguageOper@(optional weak):CodeNode (details:CodeNode ctx:RangerAppWriterContext) {
+  fn findLanguageOper@(optional weak):CodeNode (details:CodeNode ctx:RangerAppWriterContext opDef:CodeNode) {
     def langName:string (ctx.getTargetLang())
     def rv:CodeNode
     for details.children det:CodeNode i {        
@@ -28,6 +28,25 @@ extension RangerFlowParser {
             rv = tpl
             return rv
           }
+          ; op _:void () { templates {}}
+          if(langName == 'ranger') {
+            ; es6 ( '(operator ' (e 1) ' ' ))
+            def opNameNode (opDef.getFirst())
+            def opArgs (opDef.getThird())
+            def rangerTpl (r.expression (r.value ('(' + opNameNode.vref + ' ' ) ) ) )
+
+            def cnt 1
+            opArgs.children.forEach({
+              if(item.type_name == 'block') {
+                push rangerTpl.children (r.expression (r.vref 'block') (r.value cnt ))            
+              } {
+                push rangerTpl.children (r.expression (r.vref 'e') (r.value cnt ))            
+              }
+              cnt = cnt + 1
+            })
+            push rangerTpl.children (r.value ')')
+            rv = (r.expression (r.vref 'ranger') rangerTpl )
+          }
         }
       }
     }
@@ -50,6 +69,7 @@ extension RangerFlowParser {
       def cmdList:CodeNode (macroNode.getSecond())
       if(ctx.hasCompilerFlag("show-macros")) {
         print "Building macro " + macroNode.vref + " : " + (cmdList.getCode())
+        print "Arguments : " + (args.getCode())
       }
       ;walkCommandList:void (cmd:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
       lcc.walkCommandList( cmdList args subCtx wr )
@@ -157,6 +177,9 @@ extension RangerFlowParser {
       def fnArgCnt:int (array_length args.children)
       def has_eval_ctx:boolean false
       def is_macro:boolean false
+      def plugin_name "operator"
+      def plugin_fn ""
+      def is_plugin false
       def is_pure false
       def is_static_fn false
       def static_fn_name ""
@@ -167,11 +190,12 @@ extension RangerFlowParser {
         has_eval_ctx = true
       }       
       def throws_exception ( nameNode.hasFlag("throws"))
+      def is_async ( nameNode.hasFlag("async"))
       ; if (nameNode)
       def expanding_node:boolean (nameNode.hasFlag("expands"))
       if ( (callerArgCnt == fnArgCnt) || expanding_node) {
         def details_list:CodeNode (itemAt ch.children 3)
-        def langOper:CodeNode (this.findLanguageOper( details_list ctx ))
+        def langOper:CodeNode (this.findLanguageOper( details_list ctx ch ))
         if(null? langOper) {
 ;            ctx.addError( callArgs "Did not find language based operator")
           continue
@@ -179,6 +203,15 @@ extension RangerFlowParser {
         is_pure = ( nameNode.hasFlag("pure"))
         if( ( langOper.hasBooleanProperty("macro") ) || ( (nameNode.hasFlag("macro")))  ) {
           is_macro = true
+        }
+        if( langOper.hasStringProperty("plugin") ) {
+          plugin_name = ( langOper.getStringProperty('plugin') )
+          is_plugin = true
+          def pluginFn ( langOper.getStringProperty('fn'))
+          if( has pluginFn ) {
+            plugin_fn = pluginFn
+            print "Function : " + plugin_fn
+          }
         }
         def codeDef (langOper.getSecond())        
 ;          if(codeDef.is_block_node) {
@@ -201,19 +234,16 @@ extension RangerFlowParser {
                 continue
             } 
         }
-
+        ctx.setInExpr()
         for args.children arg@(lives):CodeNode i {
-
           if( i < arg_eval_start) {
             continue
           }
           arg_eval_start = i
-
           if( (array_length callArgs.children) <= (i + 1)) {
             not_enough_args = true
             break
           }
-
           def callArg@(lives):CodeNode (itemAt callArgs.children (i + 1))
           if (arg.hasFlag("define")) {
             def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
@@ -254,14 +284,7 @@ extension RangerFlowParser {
               push walk_later later              
             }  
           } {
-            ; ctx = (inCtx.forkWithOps( (itemAt ch.children 3) ))
             if(arg.type_name == "block" || (arg.hasFlag("block"))) {
-              ;def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
-              ;print "-- walking block with context "
-              ;print (sCtx.getContextInfo())
-
-              ; push blocksToWalkLater callArg
-              ; --> is this a try block
               if( arg.hasFlag("try_block")) {
                 def tmpCtx@(lives) (ctx.fork())
                 tmpCtx.is_try_block = true
@@ -275,7 +298,6 @@ extension RangerFlowParser {
 
               last_was_block = true
             } {
-              ; (inCtx.forkWithOps( (itemAt ch.children 3) ))
               ctx.setInExpr()
               this.WalkNode(callArg ctx wr)
               ctx.unsetInExpr()
@@ -303,11 +325,10 @@ extension RangerFlowParser {
             }            
           }
         }
-
+        ctx.unsetInExpr()
         if not_enough_args {
           continue
         }
-
         if expanding_node {
           for callArgs.children caCh:CodeNode i2 {
             ; do not walk immediately the blocks
@@ -332,10 +353,22 @@ extension RangerFlowParser {
         
         def all_matched:boolean (match.matchArguments(args callArgs ctx 1))
         if all_matched {
+          if is_async {
+            def activeFn (ctx.getCurrentMethod())            
+            if( (!null? activeFn.nameNode) ) {
+              activeFn.nameNode.setFlag('async')
+            }
+            while( !null? activeFn.insideFn) {
+              activeFn = (unwrap activeFn.insideFn)
+              if( (!null? activeFn.nameNode) ) {
+                activeFn.nameNode.setFlag('async')
+              }
+            }
+          }
           if throws_exception {
               if( false == (ctx.isTryBlock())) {
                   def activeFn (ctx.getCurrentMethod())
-                  if(activeFn.nameNode.hasFlag("throws")) {
+                  if( (!null? activeFn.nameNode) &&  ( activeFn.nameNode.hasFlag("throws")) ) {
                       ; if marked as throws it's ok
                   } {
                       ctx.addError(callArgs ('The operator ' + fc.vref + " potentially throws an exception, try { } block is required"))
@@ -382,6 +415,8 @@ extension RangerFlowParser {
 
           }
         }         
+        def staticMethod:RangerAppFunctionDesc
+
         if(codeDef.is_block_node  && (all_matched)) {
 
           def pure_transform (ctx.hasCompilerFlag("pure"))
@@ -430,15 +465,19 @@ extension RangerFlowParser {
           def sigN (ctx.transformOpNameWord( fc.vref ))
           def argsSig ( sigN + (this.getArgsSignature(argsCopy)) )
 
-          ; print "Args sig for " + nSig + " == " + (argsSig)
-
           if( false == (new_cl.hasStaticMethod(argsSig))) {
-            def sMethod@(lives) ( ctx.createStaticMethod( argsSig new_cl nameCopy argsCopy bodyCopy this) )
+            
+            def sMethod@(lives) ( ctx.createStaticMethod( argsSig new_cl nameCopy argsCopy bodyCopy this wr) )
+            staticMethod = sMethod
+            def currM (ctx.getCurrentMethod())
+            currM.addCallTo( sMethod )
+
             static_nameNode = nameCopy
             def fCtx (unwrap sMethod.fnCtx)
             fCtx.currentMethod = sMethod 
             fCtx.is_function = true
             def m:RangerAppFunctionDesc sMethod
+
             fCtx.in_static_method = true
             if (nameCopy.hasFlag("weak")) {
               m.changeStrength(0 1 nameNode)
@@ -475,6 +514,9 @@ extension RangerFlowParser {
           } {
             def sMethod ( new_cl.findStaticMethod( argsSig ) )
             static_nameNode = sMethod.nameNode            
+            def currM (ctx.getCurrentMethod())
+            currM.addCallTo((unwrap sMethod ) )
+            staticMethod = sMethod
           }     
           is_static_fn = true
           static_fn_name = argsSig
@@ -484,14 +526,8 @@ extension RangerFlowParser {
 
           if is_static_fn {
             
-            ; --> transfer code to static function call
-
-            ;is_static_fn = true
-            ;static_fn_name = sMethod.name
-
             def firstArg (callArgs.getFirst())
             firstArg.vref = static_class_name + "." + static_fn_name
-
             firstArg.flow_done = false
             firstArg.value_type = RangerNodeType.VRef
             clear firstArg.ns
@@ -522,15 +558,57 @@ extension RangerFlowParser {
 
             callArgs.flow_done = false
             this.WalkNode ( callArgs ctx wr)
+
+            def currMM@(lives) (ctx.getCurrentMethod())
+
+            for newArgs.children ca:CodeNode i {
+              if(ca.eval_type == RangerNodeType.ExpressionType) {
+                ; print "--> EXPRESSION"
+                if(!null? ca.lambdaFnDesc) {
+                  ; print "--> and has lambdaFnDesc"
+                  if(!null? staticMethod) {
+                    ; is it possible to call using async operator?
+                    staticMethod.addCallTo( (unwrap ca.lambdaFnDesc ) )
+                    if( ca.lambdaFnDesc.nameNode.hasFlag('async')) {
+                      ; print "ASYNC with lambdaFnDesc"
+                      staticMethod.nameNode.setFlag('async')
+                    }
+                  }
+                }
+              }
+              ca.forTree({
+                if( (!null? item.fnDesc) ) {
+                  if(!null? staticMethod) {
+                    ; print "--> CA tree had also call"
+                    staticMethod.addCallTo( (unwrap item.fnDesc ) )
+                  }
+                }
+              })
+            }
+            
             match.setRvBasedOn((unwrap static_nameNode) callArgs)        
             ctx.removeOpNs( added_ns )      
             return true
           }
+          if is_plugin {
+            try {
+              def fileName ( (current_directory) + "/" + plugin_name)
+              print "trying to load plugin: " + fileName
+              def plugin (load_compiler_plugin fileName )
+              call_plugin plugin plugin_fn callArgs ctx wr
+              callArgs.flow_done = false
+              this.WalkNode( callArgs ctx wr)
+              match.setRvBasedOn(nameNode callArgs)       
+              ctx.removeOpNs( added_ns )      
+              print "plugin ready..."
+            } {
+              ctx.addError( callArgs ('Plugin operator failed ' + (error_msg)) )
+            }
+            return true 
+          }
 
           if is_macro {
-            ; TODO: check the effect of chaining here...
             def macroNode:CodeNode ( this.buildMacro( langOper callArgs ctx ) )
-            ; print "macro: " + (macroNode.getCode())
             def arg_len:int (array_length callArgs.children)
             while (arg_len > 0 ) {
               removeLast callArgs.children

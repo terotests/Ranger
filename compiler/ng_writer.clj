@@ -104,6 +104,7 @@ class CodeWriter {
     def codeStr:string ""
     def currentLine:string ""
     def tabStr:string "  "
+    def nlStr "\n"
     def lineNumber:int 1
     def indentAmount:int 0
 
@@ -118,6 +119,15 @@ class CodeWriter {
     def parent@(weak):CodeWriter
 
     def had_nl:boolean true
+
+    static fn emptyWithFS:CodeWriter () {
+        def wr@(temp) (new CodeWriter)
+        def file@(temp lives) (new CodeFile ("." "emptyFile.txt"))
+        file.writer = wr
+        file.fileSystem = (new CodeFileSystem)
+        wr.ownerFile = file
+        return wr
+    }
  
     Constructor() {
         def new_slice:CodeSlice (new CodeSlice ())
@@ -140,6 +150,7 @@ class CodeWriter {
             if(!null? parent) {
                 return (parent.getFilesystem())
             }
+            return (new CodeFileSystem())
         }
         def fs:CodeFileSystem ownerFile.fileSystem
         return (unwrap fs)       
@@ -276,7 +287,7 @@ class CodeWriter {
         this.addIndent()
         currentLine = currentLine + str
         if newLine {
-            current_slice.code = current_slice.code + currentLine + "\n"
+            current_slice.code = current_slice.code + currentLine + nlStr
             currentLine = ""
         }
     }

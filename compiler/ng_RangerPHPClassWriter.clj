@@ -493,15 +493,21 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
 
       wr.out("" false)
       ctx.setInExpr()
-      wr.out('(' false)
-      this.WalkNode( obj ctx wr)
-      wr.out(')' false)
-      ctx.unsetInExpr()
-      wr.out("->" false)
-      wr.out(method.vref false)
-;       this.WriteVRef(fc ctx wr)
-      wr.out("(" false)
-      ctx.setInExpr()
+      if( ctx.hasCompilerFlag('php54')) {
+        wr.out('call_user_method("' + method.vref + '",' , false)
+        this.WalkNode( obj ctx wr)
+      } {
+        wr.out('(' false)      
+        this.WalkNode( obj ctx wr)
+        wr.out(')' false)      
+        ctx.unsetInExpr()
+        wr.out("->" false)
+        wr.out(method.vref false)
+  ;       this.WriteVRef(fc ctx wr)
+        wr.out("(" false)
+        ctx.setInExpr()
+      }
+
       for args.children arg:CodeNode i {
         if (i > 0) {
           wr.out(", " false)

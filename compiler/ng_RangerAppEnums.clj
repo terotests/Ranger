@@ -50,7 +50,7 @@ Enum RangerNodeType:int (
   XMLCDATA
   Dictionary
   Any
-  Class
+  Class       ; 25
   GenericClass
   ClassRef
   Method

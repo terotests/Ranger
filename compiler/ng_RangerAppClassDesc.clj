@@ -17,6 +17,7 @@ class RangerAppClassDesc {
   def is_system:boolean false
   def compiledName:string ""
   def systemNames:[string:string]
+  def systemNodes@(weak):[string:CodeNode]
   def systemInfo:CodeNode
   
   ; --- following could be compined into a enum -type
@@ -29,7 +30,9 @@ class RangerAppClassDesc {
   def is_generic_instance false
   def is_union false
 
-  
+  def is_used_by_main false
+  def is_not_used false
+
   def generic_params:CodeNode
   def ctx@(weak):RangerAppWriterContext
   def variables:[RangerAppParamDesc]
@@ -167,9 +170,9 @@ Tests if the `class name` is either
   fn findMethod@(optional weak):RangerAppFunctionDesc (f_name:string) {
     def res@(weak lives):RangerAppFunctionDesc    
     def vNames (keys method_variants)
-    for vNames name:string i {
-      if(name == f_name) {
-        def list (unwrap (get method_variants name))
+    for vNames mname:string i {
+      if(mname == f_name) {
+        def list (unwrap (get method_variants mname))
         res = (itemAt list.variants 0)
         return res
       }
@@ -375,6 +378,7 @@ Tests if the `class name` is either
       def new_v2:RangerAppMethodVariants (unwrap defVs)
       push new_v2.variants desc
     }
+    desc.container_class = this
   
   }
   fn addStaticMethod:void (desc@(strong):RangerAppFunctionDesc) {

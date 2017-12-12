@@ -56,6 +56,104 @@ class RangerJavaScriptClassWriter {
       }
     })
   }
+
+  fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.hasFnCall {
+      def fc:CodeNode (node.getFirst())
+
+      if( (!null? node.fnDesc) && (!null? node.fnDesc.nameNode) ) {
+        def fnName:CodeNode node.fnDesc.nameNode
+        if( fnName.hasFlag('async') ) {
+          wr.out('await ' false)
+        }
+      }
+
+      this.WriteVRef(fc ctx wr)
+      wr.out("(" false)
+      def givenArgs:CodeNode (node.getSecond())
+      ctx.setInExpr();
+      for node.fnDesc.params arg:RangerAppParamDesc i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        if( (array_length givenArgs.children) <= i) {
+          def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
+          if (!null? defVal) {
+            def fc:CodeNode (defVal.vref_annotation.getFirst())
+            this.WalkNode(fc ctx wr)
+          } {
+            ctx.addError(node "Default argument was missing")
+          }
+          continue 
+        }
+        def n:CodeNode (itemAt givenArgs.children i)
+        this.WalkNode(n ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(")" false)
+
+      if(has node.methodChain) {
+        ; wr.newline()
+        ; wr.indent(1)
+        for node.methodChain cc:CallChain i {
+          wr.out("." + cc.methodName , false)
+          wr.out("(" false)
+          ctx.setInExpr()
+          for cc.args.children arg:CodeNode i {
+            if (i > 0) {
+              wr.out(", " false)
+            }
+            this.WalkNode( arg ctx wr)            
+          }
+          ctx.unsetInExpr()
+          wr.out(")" false)
+        }
+        ; wr.indent(-1)
+      }
+
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+    }
+  }
+  
+  fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.has_call {
+      def obj:CodeNode (node.getSecond())
+      def method:CodeNode (node.getThird())
+      def args:CodeNode (itemAt node.children 3)
+
+      if( (!null? node.fnDesc) && (!null? node.fnDesc.nameNode) ) {
+        def fnName:CodeNode node.fnDesc.nameNode
+        if( fnName.hasFlag('async') ) {
+          wr.out('await ' false)
+        }
+      }
+
+      wr.out("(" false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out(")." false)
+      wr.out(method.vref false)
+;       this.WriteVRef(fc ctx wr)
+      wr.out("(" false)
+      ctx.setInExpr()
+      for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        ; TODO: optionality check here ?
+        this.WalkNode(arg ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+    }    
+  }
+
   ; typescript type 
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
@@ -419,6 +517,32 @@ class RangerJavaScriptClassWriter {
       }
   }
 
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fName:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    ctx.setInExpr()
+
+    def currM ( ctx.getCurrentMethod( ))
+
+    if( (!null? currM.nameNode) && (currM.nameNode.hasFlag('async'))) {
+        wr.out('await ' false)      
+    }
+    this.WalkNode( fName ctx wr)
+;    this.WriteVRef(fName ctx wr)
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.WalkNode( arg ctx wr)
+    }
+    wr.out(")" false)
+    ctx.unsetInExpr()
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(";" true)
+    }
+  }
+
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def lambdaCtx (unwrap node.lambda_ctx)
     def fName:CodeNode (itemAt node.children 0)    
@@ -427,6 +551,10 @@ class RangerJavaScriptClassWriter {
 
     if ((ctx.expressionLevel()) > 0) {
       wr.out('(' false)
+    }
+
+    if( fName.hasFlag('async') ) {
+      wr.out('async ' false)
     }
     
     wr.out("(" false)
@@ -484,6 +612,12 @@ class RangerJavaScriptClassWriter {
     def cl:RangerAppClassDesc node.clDesc
     def is_react_native:boolean false
     def is_rn_default false
+
+    if( ctx.hasCompilerFlag('dead4main')) {
+      if(cl.is_used_by_main == false) {
+        return
+      }
+    }
 
     if(cl.is_interface) {
       orig_wr.out("// interface : " + cl.name , true)
@@ -590,6 +724,10 @@ class RangerJavaScriptClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+
+        if( variant.nameNode.hasFlag('async') ) {
+          wr.out('async ' false)
+        }
         wr.out((("" + variant.compiledName) + " (") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(")" false)
@@ -650,7 +788,11 @@ class RangerJavaScriptClassWriter {
         if (variant.nameNode.hasFlag("main")) {
           continue _
         } {
-          wr.out((((cl.name + ".") + variant.compiledName) + " = function(") false)
+          def asyncKeyword ""
+          if( variant.nameNode.hasFlag('async') ) {
+            asyncKeyword = 'async '
+          }
+          wr.out((((cl.name + ".") + variant.compiledName) + " = " + asyncKeyword + "function(") false)
           this.writeArgsDef(variant ctx wr)
           wr.out(") {" true)
         }
@@ -668,10 +810,16 @@ class RangerJavaScriptClassWriter {
       for cl.static_methods variant:RangerAppFunctionDesc i {
         ctx.disableCurrentClass()
         if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {  
+
+          def asyncKeyword ""
+          if( variant.nameNode.hasFlag('async') ) {
+            asyncKeyword = 'async '
+          }
+
           def theEnd (wr.getTag("file_end"))
           theEnd.out("/* static JavaSript main routine at the end of the JS file */" false)
           theEnd.newline()
-          theEnd.out("function __js_main() {" true)
+          theEnd.out( (asyncKeyword + "function __js_main() {") true)
           theEnd.indent(1)
           this.WalkNode(( unwrap variant.fnBody ) ctx theEnd)
           theEnd.newline()

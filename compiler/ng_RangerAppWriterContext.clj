@@ -458,7 +458,7 @@ class RangerAppWriterContext {
         def rootCtx (this.getRoot())
         myParser.CollectMethods( root rootCtx wr )
         myParser.StartWalk( root rootCtx wr)
-        print "--> did push new source code"
+;        print "--> did push new source code"
       }
   }
 
@@ -883,7 +883,7 @@ class RangerAppWriterContext {
     return sigName
   }
 
-  fn createStaticMethod:RangerAppFunctionDesc (withName:string currC:RangerAppClassDesc nameNode:CodeNode argsNode:CodeNode fnBody:CodeNode parser:RangerFlowParser ) {
+  fn createStaticMethod:RangerAppFunctionDesc (withName:string currC:RangerAppClassDesc nameNode:CodeNode argsNode:CodeNode fnBody:CodeNode parser:RangerFlowParser wr:CodeWriter ) {
     def s:string withName
     def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
 
@@ -900,9 +900,7 @@ class RangerAppWriterContext {
     m.is_static = true
     m.nameNode.ifNoTypeSetToVoid()
     def args:CodeNode argsNode
-    m.fnBody = fnBody
-    def wr (new CodeWriter)
-    ; --> 
+    m.fnBody = fnBody  
     parser.CheckTypeAnnotationOf( (unwrap m.nameNode) rCtx wr )
 
     ; print "---> compiled to " + m.compiledName
@@ -1010,10 +1008,9 @@ class RangerAppWriterContext {
     return new_class
   }
 
-  fn createTraitInstanceClass@(optional weak):RangerAppClassDesc ( traitName:string instanceName:string initParams:CodeNode flowParser:RangerFlowParser ) {
+  fn createTraitInstanceClass@(optional weak):RangerAppClassDesc ( traitName:string instanceName:string initParams:CodeNode flowParser:RangerFlowParser wr:CodeWriter ) {
     def res@(optional weak):RangerAppClassDesc
     def ctx (this.fork())
-    def wr (new CodeWriter)
     if(this.isDefinedClass( instanceName) ) {
       return res
     }
@@ -1107,7 +1104,7 @@ class RangerAppWriterContext {
         }            
       }
       res = new_class
-      push flowParser.walkAlso new_class.node
+      push flowParser.walkAlso (unwrap new_class.node)
     }      
     return res
   }
@@ -1274,7 +1271,8 @@ class RangerAppWriterContext {
   }
 
   fn setCompilerFlag:void (name:string value:boolean) {
-    set compilerFlags name value
+    def root (this.getRoot())
+    set root.compilerFlags name value
   }
   fn hasCompilerFlag:boolean (s_name:string) {
     if (has compilerFlags s_name) {
@@ -1284,6 +1282,10 @@ class RangerAppWriterContext {
       return false
     }
     return (parent.hasCompilerFlag(s_name))
+  }
+  fn setCompilerSetting:void (name:string value:string) {
+    def root (this.getRoot())
+    set root.compilerSettings name value
   }
   fn getCompilerSetting:string (s_name:string) {
     if (has compilerSettings s_name) {

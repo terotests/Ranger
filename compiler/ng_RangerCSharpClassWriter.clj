@@ -405,7 +405,6 @@ class RangerCSharpClassWriter {
     
     this.import_lib("System" ctx wr)
 
-    wr.createTag("utilities")
     wr.out(("class " + cl.name + " ") false )
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" : " false)
@@ -417,6 +416,9 @@ class RangerCSharpClassWriter {
       
     wr.out(  " {" true)
     wr.indent(1)
+
+    wr.createTag("utilities")
+
     for cl.variables pvar:RangerAppParamDesc i {
       wr.out("public " false)
       this.writeVarDef( (unwrap pvar.node) ctx wr)

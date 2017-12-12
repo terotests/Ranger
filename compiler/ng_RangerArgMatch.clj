@@ -157,7 +157,7 @@ class RangerArgMatch {
         }
       }
       if (arg.value_type == RangerNodeType.Array) {
-        if (false == (this.add(arg.array_type callArg.eval_array_type ctx))) {
+        if (false == (this.add_atype(arg.array_type callArg.eval_array_type ctx))) {
           all_matched = false
         }
       }
@@ -165,7 +165,7 @@ class RangerArgMatch {
         if (false == (this.add(arg.key_type callArg.eval_key_type  ctx))) {
           all_matched = false
         }
-        if (false == (this.add(arg.array_type callArg.eval_array_type ctx))) {
+        if (false == (this.add_atype(arg.array_type callArg.eval_array_type ctx))) {
           all_matched = false
         }
       }
@@ -234,6 +234,51 @@ class RangerArgMatch {
     (set matched tplKeyword typeName)
     return true
   }
+
+  fn add_atype:boolean ( tplKeyword:string typeName:string ctx:RangerAppWriterContext) {
+    switch tplKeyword {
+      case "string" {
+          return true
+      }
+      case "int" {
+          return true
+      }
+      case "double" {
+          return true
+      }
+      case "boolean" {
+          return true
+      }        
+      case "enum" {
+          return true
+      }
+      case "char" {
+          return true
+      }
+      case "charbuffer" {
+          return true
+      }
+    }
+
+    if ((strlen tplKeyword) > 1) {
+      return true
+    }
+
+    if (has matched tplKeyword) {
+      def s:string (unwrap (get matched tplKeyword) )
+      if(this.areEqualATypes(s typeName ctx)) {
+          return true
+      }
+      if (s == typeName ) {
+          return true
+      } {
+          return false
+      }
+    }
+    (set matched tplKeyword typeName)
+    return true
+  }
+  
 
 
   fn doesDefsMatch:boolean (arg:CodeNode node:CodeNode ctx:RangerAppWriterContext) {
@@ -411,6 +456,88 @@ class RangerArgMatch {
     }
     return (t_name == type2)
   }
+
+  fn areEqualATypes:boolean (type1:string type2:string ctx:RangerAppWriterContext) {
+    def t_name:string type1
+    if (has matched type1) {
+      t_name = (unwrap (get matched type1))
+    }
+    switch t_name {
+      case "string" {
+        return (type2 == "string")
+      }
+      case "int" {
+        return (type2 == "int")
+      }
+      case "double" {
+        return (type2 == "double")
+      }
+      case "boolean" {
+        return (type2 == "boolean")
+      }
+      case "enum" {
+        return (type2 == "enum")
+      }
+      case "char" {
+        return (type2 == "char")
+      }
+      case "charbuffer" {
+        return (type2 == "charbuffer")
+      }
+    }
+
+    if( (ctx.isDefinedClass(t_name)) && (ctx.isDefinedClass (type2))) {
+        def c1:RangerAppClassDesc (ctx.findClass(t_name))
+        def c2:RangerAppClassDesc (ctx.findClass(type2))
+        def trait1 (c1.hasTrait(type2 ctx))
+
+        ; can not push union into a regular type
+        if( (c2.is_union == true) && (c1.is_union == false)) {
+          return false
+        }
+
+        if( (c2.is_system_union == true) && (c1.is_system_union == false)) {
+          return false
+        }
+
+        if(!null? trait1) {
+          this.force_add( type2 c1.name ctx)
+          if( has c1.trait_params type2 ) {
+            def pms (unwrap (get c1.trait_params type2))
+            for pms.param_names pn:string i {
+              def pn_value (unwrap (get pms.values pn))
+              this.add( pn pn_value ctx)
+            }
+          }
+        }
+        def trait1 (c2.hasTrait(t_name ctx))
+        if(!null? trait1) {
+          this.force_add( t_name c2.name ctx)
+          if( has c2.trait_params t_name ) {
+            def pms (unwrap (get c2.trait_params t_name))
+            for pms.param_names pn:string i {
+              def pn_value (unwrap (get pms.values pn))
+              this.add( pn pn_value ctx)
+            }
+          } {
+
+          }
+        }
+
+        if ( c1.isSameOrParentClass (type2 ctx)) {
+            ; trait_params
+            return true
+        }
+        if ( c2.isSameOrParentClass (t_name ctx)) {
+            ; trait_params
+            return true
+        }
+    } {
+      ; union type check disabled from Array type comparisions      
+    }
+    return (t_name == type2)
+  }
+  
   fn getTypeName:string (n:string) {
     def t_name:string n
     if (has matched t_name) {

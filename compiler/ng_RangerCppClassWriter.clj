@@ -795,6 +795,14 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
       ; item == class description
       if(item.is_union) {
         this.compiler.installFile( "variant.hpp" ctx wr)
+
+        ctx.addPluginNode('makefile' (r.expression (r.expression
+              (r.vref 'dep')
+              (r.value 'variant.hpp')
+              (r.value 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')
+            )))
+;                 (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
+        
         ; TODO: implement system class unions too...
         wr.out("typedef mpark::variant<" false)
         wr.indent(1)
@@ -990,6 +998,9 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
 
     for cl.static_methods variant:RangerAppFunctionDesc i {
       if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+
+        ctx.setCompilerSetting( 'mainclass' (cl.name) )
+
         wr.out("int main(int argc, char* argv[]) {" true)
         wr.indent(1)
 

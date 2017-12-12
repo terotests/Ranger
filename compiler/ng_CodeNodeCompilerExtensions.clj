@@ -1,4 +1,4 @@
-
+Import "TFactory.clj"
 Import "TTypes.clj"
 
 class CallChain {
@@ -60,6 +60,7 @@ extension CodeNode {
   def clDesc@(weak):RangerAppClassDesc
   def hasFnCall:boolean false
   def fnDesc:RangerAppFunctionDesc    
+  def lambdaFnDesc@(weak):RangerAppFunctionDesc
   def hasParamDesc:boolean false    
   def paramDesc@(weak optional):RangerAppParamDesc
   def ownParamDesc@(optional):RangerAppParamDesc
@@ -76,6 +77,21 @@ extension CodeNode {
 
   ; tag for debugging the nodes if necessary...
   def tag ""
+
+  fn isParsedAsPrimitive:boolean () {
+    return (TTypes.isPrimitive(parsed_type))
+  }
+
+;  fn isPrimitive:boolean () {
+;    return (TTypes.isPrimitive(value_type))
+;  }
+  fn isPrimitiveType:boolean () {
+    return (TTypes.isPrimitive((TTypes.nameToValue(type_name))))    
+  }
+  fn isAPrimitiveType:boolean () {
+    return (TTypes.isPrimitive((TTypes.nameToValue(array_type))))    
+  }
+  
   
   fn writeCode:void (wr:CodeWriter) {
     switch value_type {
@@ -97,7 +113,9 @@ extension CodeNode {
       }    
       case RangerNodeType.VRef {
         wr.out(vref false)
-        wr.out(":" + type_name , false)
+        if(has type_name) {
+          wr.out(":" + type_name , false)
+        }
       }      
       case RangerNodeType.Hash {
         wr.out(vref false)
@@ -163,16 +181,16 @@ extension CodeNode {
   fn inferDefExpressionTypeFromValue ( node:CodeNode ) {
     def cn (itemAt node.children 1)
     def nodeValue:CodeNode (itemAt node.children 2)
-    print " > Infer value type " + nodeValue.value_type
-    print " > Infer eval_tyåe type " + nodeValue.eval_type
+    ; print " > Infer value type " + nodeValue.value_type
+    ; print " > Infer eval_tyåe type " + nodeValue.eval_type
 
     if( !null? cn.expression_value ) {
-      print "^ but has expression value"
+      ; print "^ but has expression value"
       cn.value_type = RangerNodeType.ExpressionType
       cn.parsed_type = RangerNodeType.ExpressionType
       cn.has_vref_annotation = true
 
-      print "==> expression : " + (cn.expression_value.getCode())
+      ; print "==> expression : " + (cn.expression_value.getCode())
     }
 
     if(nodeValue.eval_type == RangerNodeType.ExpressionType) {

@@ -20,7 +20,7 @@ operators {
 
     call_plugin _@(throws):Any (plugin:RangerCompilerPlugin fnName:string root:CodeNode ctx:RangerAppWriterContext wr:CodeWriter ) {
         templates {
-            es6 ( '(new ' (e 1) '.Plugin () ).' (str 2) '( ' (e 3) ', ' (e 4) ' , ' (e 5) ' )' )
+            es6 ( '( (new ' (e 1) '.Plugin () )[' (e 2) '] )( ' (e 3) ', ' (e 4) ' , ' (e 5) ' )' )
             * ()
         }
     }

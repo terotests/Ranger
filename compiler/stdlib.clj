@@ -5,19 +5,24 @@ Import "JSON.clj"
 
 operators {
 
-    cast _:Any  (arg:T target@(noeval):Any) {
-        templates {
-            go ( (e 1) )
-        }
-    }
     cast _:S  (arg:T target@(noeval):S) {
         templates {
             ranger ("(cast " (e 1) " " (e 2) ":" (typeof 2) " )")
             es6 ( (e 1) )
             java7 ( "((" (typeof 2) ")" (e 1) ")" )
             swift3 ( (e 1) " as " (typeof 2) "" )
-            cpp ( "mpark::get<" (typeof 2) ">(" (e 1) ")" )
+            cpp ( "mpark::get<" (typeof 2) ">(" (e 1) ")" 
+            
+                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
+            )
             go ( (e 1) ".(" (typeof 2) ")" )
+            php ( (e 1) )
+        }
+    }
+
+    cast _:Any  (arg:T target@(noeval):Any) {
+        templates {
+            go ( (e 1) )
         }
     }
 
@@ -117,7 +122,7 @@ operators {
                         nl i "}"
             ) 
             swift3 (
-                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  /*swift version*/ {" nl I
+                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
                         "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
                         (block 3)
                         
@@ -136,6 +141,8 @@ operators {
                         (block 3)
                         
                         nl i "}"
+
+                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))
             ) 
             scala (
                 (forkctx _ ) (def 2) (e 1) " match {" nl
@@ -184,20 +191,7 @@ operator type:[string:T] all {
     }      
 }
 
-operator type:[T] es6 {
-    fn map:[T] (cb:(_:T (item:T index:int))) (
-        (e 1) ".map(" (e 2) ")"
-    )
-;    fn map:[S] (cb:(_:S (item:T index:int)) to@(noeval):[S] ) (
-;        (e 1) ".map(" (e 2) ")"
-;    )
-    fn forEach:void (cb:(_:void (item:T index:int)) ) (
-        (e 1) ".forEach(" (e 2) ")"
-    )
-    fn filter:[T] (cb:(_:boolean (item:T index:int)) ) (
-        (e 1) ".filter(" (e 2) ")"
-    )
-}
+; commented out native ops, because they are not compatible with async operators
 operator type:[T] all {
 
     ; pure function or operator could be simply inlined...
@@ -239,22 +233,22 @@ operator type:[T] all {
         }
         return res
     } 
-    fn reduce@(weak):T (cb:(_:T (left:T right:T)) initialValue:T) {
+    fn reduce@(weak):T (cb:(_:T (left:T right:T index:int)) initialValue:T) {
         def len (array_length self)
         def res:T initialValue
         if( len >= 1 ) {
             for self it:T i {
-                res = ( cb ( res it ))
+                res = ( cb ( res it i))
             }
         }        
         return res
     }     
-    fn reduce@(weak):K (cb:(_:K (left:K right:T)) initialValue:K) {
+    fn reduce@(weak):K (cb:(_:K (left:K right:T index:int)) initialValue:K) {
         def len (array_length self)
         def res initialValue
         if( len >= 1 ) {
             for self it:T i {
-                res = ( cb ( res it ))
+                res = ( cb ( res it i ))
             }
         }        
         return res

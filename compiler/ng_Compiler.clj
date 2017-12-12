@@ -2,7 +2,7 @@
 
 flag npm (
   name "ranger-lib"
-  version "2.1.33"
+  version "2.1.56"
   description "Cross-language compiler and build tool"
   author "Tero Tolonen"
   license "MIT"
@@ -107,6 +107,8 @@ class CompilerInterface {
 
     def valid_flags:[string] ([] _:string
       (
+      'deadcode' 'Eliminate functions which are not called by any other functions'
+      'dead4main' 'Eliminate functions and classes which are unreachable from the main function'
       'forever' 'Leave the main program into eternal loop (Go, Swift)'
       'allowti' 'Allow type inference at target lang (creates slightly smaller code)'
       'plugins-only' 'ignore built-in language output and use only plugins'
@@ -173,7 +175,6 @@ class CompilerInterface {
     def the_target_dir:string ((current_directory) + "/bin")  ; (shell_arg 3)
     def the_target:string "output"
     def package_name ""
-    def plugin_separator ","         
     def comp_attrs:[string:string]
 
     def outDir (params.getParam("o"))
@@ -288,7 +289,9 @@ class CompilerInterface {
           }
           clear ch.children
           for inserted_nodes new_node@(lives):CodeNode i {
-            push ch.children new_node
+            print " *** Inserting " + (new_node.getCode())
+            insert root.children 0 new_node
+;            push ch.children new_node
           }
         }
       }
@@ -405,10 +408,12 @@ class CompilerInterface {
     appCtx.parser = flowParser
     appCtx.compiler = lcc
 
+    lcc.parser = flowParser
+
     if_javascript {
       if( appCtx.hasCompilerSetting("plugins")) {
         def val (appCtx.getCompilerSetting("plugins"))
-        def list (strsplit val plugin_separator)
+        def list (strsplit val ",")
         list.forEach({
           try {
             def plugin (load_compiler_plugin item)
@@ -448,6 +453,10 @@ class CompilerInterface {
         ops.initFrom( (unwrap lang_parser.rootNode) )
         appCtx.operators = ops
 
+        appCtx.targetLangName = the_lang
+
+        lcc.initWriter( appCtx )
+
         if_javascript {
           def ppList (appCtx.findPluginsFor("generate_ast"))
           ppList.forEach({
@@ -466,7 +475,6 @@ class CompilerInterface {
           return
         }
 
-        appCtx.targetLangName = the_lang
         if_javascript {
           def ppList (appCtx.findPluginsFor("pre_flow"))
           ppList.forEach({
@@ -532,6 +540,8 @@ class CompilerInterface {
           print "3. Plugins only enabled, ignoring the source code generation"
         } {
 
+          flowParser.SolveAsyncFuncs( root appCtx (unwrap wr))
+
           print "3. Compiling the source code."
           switch appCtx.targetLangName {
             case "java7" {
@@ -569,8 +579,6 @@ class CompilerInterface {
           def theEnd (wr.createTag("file_end"))
 
           wr = contentFork
-          lcc.parser = flowParser
-          lcc.initWriter( appCtx )
 
           def handledClasses:[string:boolean]
 
@@ -689,16 +697,9 @@ class CompilerInterface {
             lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
           }        
 
-          def fileSystem2:CodeFileSystem (new CodeFileSystem())
-          def file2:CodeFile (fileSystem2.getFile("." the_target))
-          def write1 (unwrap (file2.getWriter()) )
-
-          for appCtx.definedClassList cName:string i {
-            def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
-            if(cl.is_operator_class) {
-              lcc.WalkNode( (unwrap cl.classNode ) appCtx write1)
-            }
-          }
+;          def fileSystem2:CodeFileSystem (new CodeFileSystem())
+;          def file2:CodeFile (fileSystem2.getFile("." the_target))
+;          def write1 (unwrap (file2.getWriter()) )
 
           for appCtx.definedClassList cName:string i {
             def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
@@ -706,6 +707,13 @@ class CompilerInterface {
               lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
             }
           }
+
+;          for appCtx.definedClassList cName:string i {
+;            def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
+;            if(cl.is_operator_class) {
+;              lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
+;            }
+;          }
 
           def import_list:[string] (wr.getImports ())
 
@@ -786,7 +794,7 @@ class CompilerInterface {
             }
           })
         }
-        fileSystem.saveTo(the_target_dir (appCtx.hasCompilerFlag("show-fs-writes")))
+        fileSystem.saveTo(the_target_dir (appCtx.hasCompilerFlag("show-writes")))
         print "Ready."
         CompilerInterface.displayCompilerErrors(appCtx)
         ; CompilerInterface.displayParserErrors(appCtx)

@@ -76,6 +76,11 @@ class RangerLispParser {
     def c:char (charAt s i)
     def bb:boolean c == ((ccode "."))
     while ((i < len) && (c <= 32)) {
+      if( c < 8 ) {
+        i = len
+        return true
+;        throw "Invalid string"
+      }
       if (is_block_parent && ((c == 10) || (c == 13))) {
         this.end_expression()
         current_line_index = current_line_index + 1
@@ -84,7 +89,7 @@ class RangerLispParser {
       }
       ;         current_line_index = current_line_index + 1
       def had_break false
-      while( c == 10 || c == 13) {
+      while( (i < len ) &&  c == 10 || c == 13) {
         had_break = true
         i = i + 1
         if (i >= len) {
@@ -1156,7 +1161,8 @@ class RangerLispParser {
                   def ii:int 0
                   def start_from:int ch_cnt - 2
                   def keep_nodes:CodeNode (new CodeNode(( unwrap code) sp ep))
-                  while (ch_cnt > 0) {def n_ch:CodeNode (array_extract curr_node.children 0)
+                  while (ch_cnt > 0) {
+                    def n_ch:CodeNode (array_extract curr_node.children 0)
                     def p_target:CodeNode if_node
                     if ((ii < start_from) || n_ch.infix_subnode) {
                       p_target = keep_nodes
@@ -1165,7 +1171,7 @@ class RangerLispParser {
                     ch_cnt = ch_cnt - 1
                     ii = 1 + ii
                   }
-                  for keep_nodes.children keep:CodeNode i {
+                  for keep_nodes.children keep:CodeNode i2 {
                     push curr_node.children keep
                   }
                   push curr_node.children if_node
@@ -1194,7 +1200,8 @@ class RangerLispParser {
                   push new_op_node.children last_value
                 } {
                   if (false == just_continue) {
-                    while (until_index > 0) {def what_to_add:CodeNode (array_extract ifNode.children 0)
+                    while (until_index > 0) {
+                      def what_to_add:CodeNode (array_extract ifNode.children 0)
                       push new_op_node.children what_to_add
                       until_index = until_index - 1
                     }

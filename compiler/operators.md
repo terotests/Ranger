@@ -1,5 +1,5 @@
 ## Statements
-  `nullify` ,   `golang_wait` ,   `wait` ,   `timer` ,   `create_dir` ,   `write_file` ,   `=` ,   `def` ,   `return` ,   `gitdoc` ,   `if` ,   `switch` ,   `case` ,   `default` ,   `break` ,   `continue` ,   `while` ,   `throw` ,   `try` ,   `set` ,   `push` ,   `print` ,   `forEach` ,   `forUntil` ,   `color_print` ,   `plugin_preprocess` ,   `plugin_postprocess` 
+  `nullify` ,   `golang_wait` ,   `wait` ,   `timer` ,   `create_dir` ,   `write_file` ,   `localStorage` ,   `=` ,   `def` ,   `return` ,   `gitdoc` ,   `if` ,   `switch` ,   `case` ,   `default` ,   `break` ,   `continue` ,   `while` ,   `throw` ,   `try` ,   `set` ,   `push` ,   `print` ,   `forEach` ,   `forUntil` ,   `trace` ,   `color_print` ,   `plugin_preprocess` ,   `plugin_postprocess` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -9,6 +9,7 @@
 | timer | |   (`name`:string  `code`:block  )| | 
 | create_dir | |   (`path`:string  )| | 
 | write_file | |   (`path`:string  `file`:string  `data`:string  )| | 
+| localStorage | |   (`path`:string  `value`:string  )| | 
 | = | |   (`immutable_left`:T  `immutable_right`:T  )| | 
 | def | |   (`varname`:T  )| | 
 | return | |   (`value`:T  )| | 
@@ -22,11 +23,12 @@
 | while | |   (`condition`:boolean  `whileLoop`:block  )| | 
 | throw | |   (`eInfo`:string  )| | 
 | try | |   (`try_block`:block  `catch_block`:block  )| | 
-| set | |   (`e`:JSONDataObject  `key`:string  `value`:JSONValueUnion  )| | 
+| set | |   (`e`:JSONDataObject  `key`:string  `value`:enum  )| | 
 | push | |   (`e`:JSONArrayObject  `el`:JSONArrayUnion  )| | 
 | print | |   (`text`:string  )| | 
 | forEach | |   (`self`:Vector  `cb`:(fn:void (item: T))  )| | 
 | forUntil | |   (`self`:Vector  `cb`:(fn:boolean (item: T))  )| | 
+| trace | |   ( )| | 
 | color_print | |   (`cname`:string  `text`:string  )| | 
 | plugin_preprocess | |   (`plugin`:RangerCompilerPlugin  `root`:CodeNode  `ctx`:RangerAppWriterContext  `wr`:CodeWriter  )| | 
 | plugin_postprocess | |   (`plugin`:RangerCompilerPlugin  `root`:CodeNode  `ctx`:RangerAppWriterContext  `wr`:CodeWriter  )| | 
@@ -79,11 +81,11 @@
 | == | `boolean` |   (`left`:T  `right`:T  )| | 
 | != | `boolean` |   (`left`:T  `right`:T  )| | 
 | && | `boolean` |   (`left`:<optional>T  `right`:<optional>S  )| | 
-| cast | `Any` |   (`arg`:T  `target`:Any  )| | 
+| cast | `S` |   (`arg`:T  `target`:S  )| | 
 | to | `T` |   (`to`:T  `item`:T  )| | 
 
 ## Numeric operators
-  `fabs` ,   `tan` ,   `unwrap` ,   `unwrap` ,   `-` ,   `-` ,   `+` ,   `+` ,   `%` ,   `*` ,   `*` ,   `/` ,   `/` ,   `int2double` ,   `acos` ,   `cos` ,   `sin` ,   `sqrt` ,   `to_int` ,   `to_double` 
+  `fabs` ,   `tan` ,   `unwrap` ,   `unwrap` ,   `-` ,   `-` ,   `+` ,   `+` ,   `%` ,   `*` ,   `*` ,   `/` ,   `/` ,   `int2double` ,   `ceil` ,   `floor` ,   `asin` ,   `acos` ,   `cos` ,   `sin` ,   `sqrt` ,   `to_int` ,   `to_double` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -101,6 +103,9 @@
 | / | `double` |   (`left`:double  `right`:double  )| | 
 | / | `double` |   (`left`:int  `right`:int  )| | 
 | int2double | `double` |   (`value`:int  )| | 
+| ceil | `int` |   (`value`:double  )| | 
+| floor | `int` |   (`value`:double  )| | 
+| asin | `double` |   (`value`:double  )| | 
 | acos | `double` |   (`value`:double  )| | 
 | cos | `double` |   (`value`:double  )| | 
 | sin | `double` |   (`value`:double  )| | 
@@ -109,19 +114,20 @@
 | to_double | `double` |   (`input`:int  )| | 
 
 ## Miscellaneous operators
-  `shell_arg` ,   `to_string` ,   `strfromcode` ,   `double2str` ,   `r.value` ,   `r.value` 
+  `shell_arg` ,   `to_string` ,   `to_string` ,   `strfromcode` ,   `double2str` ,   `r.value` ,   `r.value` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
 | shell_arg | `string` |   (`index`:int  )| | 
 | to_string | `string` |   (`value`:int  )| | 
+| to_string | `string` |   (`value`:double  )| | 
 | strfromcode | `string` |   (`code`:int  )| | 
 | double2str | `string` |   (`value`:double  )| | 
 | r.value | `CodeNode` |   (`n`:double  )| | 
 | r.value | `CodeNode` |   (`n`:int  )| | 
 
 ## String operators
-  `has` ,   `has_option` ,   `get_option` ,   `get_required_option` ,   `sha256` ,   `md5` ,   `env_var` ,   `file_exists` ,   `dir_exists` ,   `read_file` ,   `+` ,   `null?` ,   `!null?` ,   `trim` ,   `strsplit` ,   `strlen` ,   `substring` ,   `to_charbuffer` ,   `to_int` ,   `length` ,   `at` ,   `charAt` ,   `charcode` ,   `ccode` ,   `str2int` ,   `str2double` ,   `to_double` ,   `indexOf` ,   `first` ,   `to_uppercase` ,   `==` ,   `!=` ,   `from_string` ,   `json_obj.attr` ,   `json.attr` ,   `r.op` ,   `r.vref` ,   `r.value` ,   `load_compiler_plugin` 
+  `has` ,   `has_option` ,   `get_option` ,   `get_required_option` ,   `sha256` ,   `md5` ,   `env_var` ,   `file_exists` ,   `dir_exists` ,   `localStorage` ,   `read_file` ,   `+` ,   `||` ,   `null?` ,   `!null?` ,   `trim` ,   `strsplit` ,   `strlen` ,   `substring` ,   `to_charbuffer` ,   `to_int` ,   `length` ,   `at` ,   `charAt` ,   `charcode` ,   `ccode` ,   `str2int` ,   `str2double` ,   `to_double` ,   `indexOf` ,   `first` ,   `to_uppercase` ,   `==` ,   `!=` ,   `from_string` ,   `json_obj.attr` ,   `json.attr` ,   `r.op` ,   `r.vref` ,   `r.value` ,   `load_compiler_plugin` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -134,8 +140,10 @@
 | env_var | `<optional>string` |   (`name`:string  )| | 
 | file_exists | `boolean` |   (`path`:string  `filename`:string  )| | 
 | dir_exists | `boolean` |   (`path`:string  )| | 
+| localStorage | `<optional>string` |   (`path`:string  )| | 
 | read_file | `<optional>string` |   (`path`:string  `filename`:string  )| | 
 | + | `string` |   (`left`:string  `right`:enum  )| | 
+| &#124;&#124; | `string` |   (`left`:string  `right`:string  )| selects the first string if length > 0, else the second...| 
 | null? | `boolean` |   (`arg`:<optional>string  )| | 
 | !null? | `boolean` |   (`arg`:<optional>string  )| | 
 | trim | `string` |   (`value`:string  )| | 
@@ -167,7 +175,7 @@
 
 
 ## Array operators
-  `has` ,   `def` ,   `make` ,   `for` ,   `length` ,   `at` ,   `join` ,   `set` ,   `lift` ,   `itemAt` ,   `indexOf` ,   `clone` ,   `remove_index` ,   `insert` ,   `remove` ,   `push` ,   `removeLast` ,   `clear` ,   `last_index` ,   `last` ,   `first` ,   `size` ,   `sort` ,   `reverse` ,   `array_length` ,   `array_extract` ,   `forEach` ,   `map` ,   `filter` ,   `reduce` ,   `groupBy` ,   `find` ,   `count` ,   `contains` ,   `r.expression` ,   `r.block` 
+  `has` ,   `def` ,   `make` ,   `for` ,   `length` ,   `at` ,   `join` ,   `set` ,   `lift` ,   `itemAt` ,   `indexOf` ,   `remove_index` ,   `insert` ,   `remove` ,   `push` ,   `removeLast` ,   `clear` ,   `last_index` ,   `last` ,   `first` ,   `size` ,   `sort` ,   `reverse` ,   `array_length` ,   `array_extract` ,   `forEach` ,   `map` ,   `filter` ,   `reduce` ,   `groupBy` ,   `clone` ,   `find` ,   `count` ,   `contains` ,   `r.expression` ,   `r.block` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -182,7 +190,6 @@
 | lift | `<optional>T` |   (`array`:[T]  `index`:int  )| | 
 | itemAt | `T` |   (`array`:[T]  `index`:int  )| | 
 | indexOf | `int` |   (`array`:[T]  `element`:T  )| | 
-| clone | `[T]` |   (`array`:[T]  )| Create a copy of this buffer| 
 | remove_index | |   (`array`:[T]  `index`:int  )| | 
 | insert | |   (`array`:[T]  `index`:int  `item`:T  )| | 
 | remove | |   (`array`:[T]  `index`:int  )| | 
@@ -197,11 +204,12 @@
 | reverse | `[T]` |   (`array`:[T]  )| | 
 | array_length | `int` |   (`array`:[T]  )| | 
 | array_extract | `T` |   (`array`:[T]  `position`:int  )| | 
-| forEach | |   (`self`:[T]  `cb`:(fn:void (item: T, index: int))  )| | 
+| forEach | |   (`self`:[T]  `cb`:(fn:void (item: T, index: int))  )| Call `fb` for each item in array| 
 | map | `[T]` |   (`self`:[T]  `cb`:(fn:T (item: T, index: int))  )| | 
 | filter | `[T]` |   (`self`:[T]  `cb`:(fn:boolean (item: T, index: int))  )| | 
-| reduce | `T` |   (`self`:[T]  `cb`:(fn:T (left: T, right: T))  `initialValue`:T  )| | 
+| reduce | `T` |   (`self`:[T]  `cb`:(fn:T (left: T, right: T, index: int))  `initialValue`:T  )| | 
 | groupBy | `[T]` |   (`self`:[T]  `cb`:(fn:string (item: T))  )| | 
+| clone | `[T]` |   (`self`:[T]  )| | 
 | find | `<optional>T` |   (`self`:[T]  `cb`:(fn:boolean (item: T))  )| | 
 | count | `int` |   (`self`:[T]  `cb`:(fn:boolean (item: T))  )| | 
 | contains | `boolean` |   (`self`:[T]  `cb`:(fn:boolean (item: T))  )| | 
@@ -224,7 +232,7 @@
 | forKeys | |   (`self`:[string:T]  `cb`:(fn:void (index: string))  )| | 
 
 ## Boolean / test operators
-  `has` ,   `has` ,   `has` ,   `has` ,   `has_option` ,   `file_exists` ,   `dir_exists` ,   `null?` ,   `null?` ,   `null?` ,   `null?` ,   `!null?` ,   `!null?` ,   `!null?` ,   `!null?` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `>` ,   `>` ,   `>` ,   `<=` ,   `<=` ,   `<=` ,   `<` ,   `<` ,   `<` ,   `!=` ,   `!=` ,   `!=` ,   `!=` ,   `>=` ,   `>=` ,   `>=` ,   `&&` ,   `&&` ,   `||` ,   `getBoolean` ,   `isArray` ,   `contains` ,   `is_not_limiter` 
+  `has` ,   `has` ,   `has` ,   `has` ,   `has_option` ,   `file_exists` ,   `dir_exists` ,   `||` ,   `null?` ,   `null?` ,   `null?` ,   `null?` ,   `!null?` ,   `!null?` ,   `!null?` ,   `!null?` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `>` ,   `>` ,   `>` ,   `<=` ,   `<=` ,   `<=` ,   `<` ,   `<` ,   `<` ,   `!=` ,   `!=` ,   `!=` ,   `!=` ,   `>=` ,   `>=` ,   `>=` ,   `&&` ,   `&&` ,   `getBoolean` ,   `isArray` ,   `contains` ,   `is_not_limiter` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -235,6 +243,7 @@
 | has_option | `boolean` |   (`name`:string  )| | 
 | file_exists | `boolean` |   (`path`:string  `filename`:string  )| | 
 | dir_exists | `boolean` |   (`path`:string  )| | 
+| &#124;&#124; | `boolean` |   (`left`:boolean  `right`:boolean  )| | 
 | null? | `boolean` |   (`arg`:<optional>int  )| | 
 | null? | `boolean` |   (`arg`:<optional>double  )| | 
 | null? | `boolean` |   (`arg`:<optional>string  )| | 
@@ -268,7 +277,6 @@
 | >= | `boolean` |   (`left`:double  `right`:double  )| | 
 | && | `boolean` |   (`left`:<optional>T  `right`:<optional>S  )| | 
 | && | `boolean` |   (`left`:boolean  `right`:<optional>S  )| | 
-| &#124;&#124; | `boolean` |   (`left`:boolean  `right`:boolean  )| | 
 | getBoolean | `<optional>boolean` |   (`e`:JSONDataObject  `key`:string  )| | 
 | isArray | `boolean` |   (`e`:JSONValueUnion  )| | 
 | contains | `boolean` |   (`self`:[T]  `cb`:(fn:boolean (item: T))  )| | 

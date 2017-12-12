@@ -267,7 +267,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     def fnName:CodeNode (itemAt op.children 1)
     def root:RangerAppWriterContext (ctx.getRoot())
     def langName:string (ctx.getTargetLang())
-    def tplImpl@(optional):CodeNode 
+    def rv@(optional):CodeNode 
+    def opDef op
     if ( (array_length op.children ) > 3) {
       def details:CodeNode (itemAt op.children 3)
       for details.children det:CodeNode i {        
@@ -277,7 +278,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             def tplList:CodeNode (itemAt det.children 1)
             for tplList.children tpl:CodeNode i {
               def tplName:CodeNode (tpl.getFirst())
-              ; def tplImpl@(optional):CodeNode 
+              def tplImpl@(optional):CodeNode 
               tplImpl = (tpl.getSecond())
               if ((tplName.vref != "*") && (tplName.vref != langName)) {
                 continue _
@@ -287,13 +288,32 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
                   continue _
                 }
               }
-              return tplImpl
+              rv = tplImpl
+              return rv
             }
+
+            if(langName == 'ranger') {
+              def opNameNode (opDef.getFirst())
+              def opArgs (opDef.getThird())
+              def rangerTpl (r.expression (r.value ('(' + opNameNode.vref + ' ' ) ) ) )
+              def cnt 1
+              opArgs.children.forEach({
+                if(item.type_name == 'block') {
+                  push rangerTpl.children (r.expression (r.vref 'block') (r.value cnt ))            
+                } {
+                  push rangerTpl.children (r.expression (r.vref 'e') (r.value cnt ))            
+                }
+                cnt = cnt + 1
+              })
+              push rangerTpl.children (r.value ')')
+              rv = rangerTpl 
+            }
+            
           }
         }
       }
     }    
-    return tplImpl
+    return rv
   }
   fn localCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
@@ -552,6 +572,17 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }
         }
+
+        ; fn addPluginNode ( name:string op@(temp):CodeNode ) {
+        case 'plugin' {
+          ; --> (plugin 'maven')
+          if( (size cmd.children) > 2) {
+            def cmdData@(lives):CodeNode (cmd.getThird())
+            def name cmdArg.string_value
+            ctx.addPluginNode( name cmdData)
+          }
+        }
+
         case "lambda" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
@@ -784,6 +815,29 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }  
         }
+
+        case "java_class" {
+          ; (java_class 'className' '<code>')          
+          try {
+            def fName (cmdArg.string_value + ".java")
+            def p_write:CodeWriter (wr.getTag("utilities"))
+            if ((has p_write.compiledTags fName) == false) {
+              def code (cmd.getThird())
+              def classWr (wr.getFileWriter( "." fName))
+              if( has (classWr.getCode())) {
+
+              } {
+                def package_name (ctx.getCompilerSetting("package"))
+                classWr.out("package " + package_name +  ";" , true)
+                classWr.raw( code.string_value false)
+                set p_write.compiledTags fName true
+              }
+            }            
+          } {
+
+          }
+        }
+
         case "rawtype" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
@@ -797,10 +851,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         }        
         case "macro" {
           ; compiledTags
+
           def p_write:CodeWriter (wr.getTag("utilities"))
           def newWriter:CodeWriter (new CodeWriter ())
           def testCtx:RangerAppWriterContext (ctx.fork())
           testCtx.restartExpressionLevel()
+          testCtx.targetLangName = "ranger"
 
           this.walkCommandList(cmdArg node testCtx newWriter)
           def p_str:string (newWriter.getCode())
@@ -811,6 +867,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             
             def mCtx:RangerAppWriterContext (ctx.fork())
             mCtx.restartExpressionLevel()
+            mCtx.targetLangName = "ranger"
             this.walkCommandList(cmdArg node mCtx p_write)
             
           }

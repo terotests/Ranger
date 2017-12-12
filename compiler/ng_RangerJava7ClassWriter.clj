@@ -1,6 +1,14 @@
 
 Import "ng_AndroidPageWriter.clj"
 
+operators {
+  trace _:void () {
+    templates {
+      es6 ('console.trace()')
+    }
+  }
+}
+
 class RangerJava7ClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -52,12 +60,7 @@ class RangerJava7ClassWriter {
       if(cc.is_system) {
         def current_sys (ctx)
         def sName (unwrap (get cc.systemNames "java7"))
-        if(sName == "JSONObject") {
-            wr.addImport("org.json.JSONObject")                
-        }
-        if(sName == "JSONArray") {
-            wr.addImport("org.json.JSONArray")                
-        }
+        this.addSystemImport( cc ctx wr )
         return sName        
       }
       if(cc.is_union) {
@@ -89,6 +92,8 @@ class RangerJava7ClassWriter {
     }  
     return type_string
   }
+
+  
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def v_type:RangerNodeType node.value_type    
@@ -111,6 +116,7 @@ class RangerJava7ClassWriter {
         k_name = node.eval_key_type
       }
     }
+
     if (node.hasFlag("optional")) {
       ;wr.addImport("java.util.Optional")
       ;wr.out("Optional<" false)
@@ -135,7 +141,6 @@ class RangerJava7ClassWriter {
               iface_dir = "./interfaces/"
             }
             def utilWr (wr.getFileWriter( iface_dir (iface_name + ".java")))
-
             if( this.isPackaged(ctx)) {
               def package_name (ctx.getCompilerSetting("package"))
               if( (strlen package_name) > 0) {
@@ -143,7 +148,9 @@ class RangerJava7ClassWriter {
                 utilWr.out("import " + package_name + ".*;" , true)
               }
             } 
-            
+            def importFork (utilWr.fork())
+
+
             utilWr.out("public interface " + iface_name + " { " , true)
             utilWr.indent(1)
             utilWr.out("public " false)
@@ -162,6 +169,11 @@ class RangerJava7ClassWriter {
             utilWr.out(");" true)
             utilWr.indent(-1)
             utilWr.out("}" true)
+
+            forEach (utilWr.getImports ()) {
+              importFork.out (("import "  + item + ";") , true)
+            }
+
           }
 
         }
@@ -200,6 +212,12 @@ class RangerJava7ClassWriter {
           } {
             wr.out((this.getObjectTypeString2(t_name ctx wr) ), false)
           }
+          if(ctx.isDefinedClass(t_name)) {
+            def cc (ctx.findClass(t_name))
+            if(cc.is_system) {
+              this.addSystemImport( cc ctx wr )
+            }
+          }
         }
       }
     } {
@@ -221,14 +239,16 @@ class RangerJava7ClassWriter {
               iface_dir = "./interfaces/"
             }
             def utilWr (wr.getFileWriter( iface_dir (iface_name + ".java")))
-
             if( this.isPackaged(ctx)) {
               def package_name (ctx.getCompilerSetting("package"))
               if( (strlen package_name) > 0) {
                 utilWr.out("package " + package_name + ".interfaces;" , true)
                 utilWr.out("import " + package_name + ".*;" , true)
+                
               }
             } 
+
+            def importFork (utilWr.fork())
 
             utilWr.out("public interface " + iface_name + " { " , true)
             utilWr.indent(1)
@@ -248,6 +268,10 @@ class RangerJava7ClassWriter {
             utilWr.out(");" true)
             utilWr.indent(-1)
             utilWr.out("}" true)
+
+            forEach (utilWr.getImports ()) {
+              importFork.out (("import "  + item + ";") , true)
+            }
           }
         }        
         case RangerNodeType.Enum {
@@ -282,6 +306,7 @@ class RangerJava7ClassWriter {
         default {
 
           def b_object_set false
+  ;        print "Type == " + t_name
           if(ctx.isDefinedClass(t_name)) {
             def cc (ctx.findClass(t_name))
             if(cc.is_union) {
@@ -289,13 +314,8 @@ class RangerJava7ClassWriter {
               b_object_set = true
             }
             if(cc.is_system) {
+              this.addSystemImport( cc ctx wr )
               def sName (unwrap (get cc.systemNames "java7"))
-              if(sName == "JSONObject") {
-                  wr.addImport("org.json.JSONObject")                
-              }
-              if(sName == "JSONArray") {
-                  wr.addImport("org.json.JSONArray")                
-              }
               wr.out( sName false )
               return   
             }
@@ -468,10 +488,14 @@ class RangerJava7ClassWriter {
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("/** unused:  " false)
       }
-      if ( (p_captured_mutable == false ) && ( (p.set_cnt > 0) || p.is_class_variable) ) {
-        wr.out("" false)
+      if( p.is_captured && (p.is_class_variable == false) && (nn.value_type == RangerNodeType.Hash || nn.value_type == RangerNodeType.Array ) ) {
+          wr.out("final " false)      
       } {
-        wr.out("final " false)
+        if ( (p_captured_mutable == false ) && ( (p.set_cnt > 0) || p.is_class_variable) ) {
+          wr.out("" false)
+        } {
+          wr.out("final " false)
+        }
       }
       this.writeTypeDef((unwrap p.nameNode) ctx wr)
       if(p_captured_mutable) {
@@ -598,6 +622,7 @@ class RangerJava7ClassWriter {
     this.WalkNode(fName ctx wr)
 
     wr.out(".run(" false)
+    ctx.setInExpr()
     for args.children arg:CodeNode i {
         def n:CodeNode (itemAt givenArgs.children i)
         if (i > 0) {
@@ -608,6 +633,7 @@ class RangerJava7ClassWriter {
           this.WalkNode(n ctx wr)
         }        
     }
+    ctx.unsetInExpr()
     if ((ctx.expressionLevel()) == 0) {
       wr.out(");" true)
     } {
@@ -657,6 +683,7 @@ class RangerJava7ClassWriter {
           utilWr.out("import " + package_name + ".*;" , true)
         }
       } 
+      def importFork (utilWr.fork())
 
       utilWr.out("public interface " + iface_name + " { " , true)
       utilWr.indent(1)
@@ -677,6 +704,11 @@ class RangerJava7ClassWriter {
       utilWr.out(");" true)
       utilWr.indent(-1)
       utilWr.out("}" true)
+
+      forEach (utilWr.getImports ()) {
+        importFork.out (("import "  + item + ";") , true)
+      }
+
     }
     
     wr.out("new " + iface_name + "() { " , true)
@@ -850,6 +882,7 @@ class RangerJava7ClassWriter {
         continue 
       }
       if (variant.nameNode.hasFlag("main")) {
+        ctx.setCompilerSetting( 'mainclass' (cl.name) )
         wr.out("public static void main(String [] args ) {" true)
       } {
         wr.out("public static " false)

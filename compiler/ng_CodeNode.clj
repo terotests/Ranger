@@ -2,7 +2,7 @@ Import "stdlib.clj"
 
 ; Import "Collection.clj"
 
-Import "TFactory.clj"
+; Import "TFactory.clj"
 Import "TNodeFactory.clj"
 Import "ng_RangerAppEnums.clj"
 
@@ -63,6 +63,120 @@ class SourceCode {
     } 
 }
 
+
+class CodeNodeLiteral @serialize(true) {
+  def expression:boolean false
+  def vref:string ""
+  def is_block_node:boolean false
+  def type_name:string ""
+  def key_type:string ""
+  def array_type:string ""
+  def ns:[string]
+  def has_vref_annotation:boolean false
+  def vref_annotation:CodeNodeLiteral
+  def has_type_annotation:boolean false
+  def type_annotation:CodeNodeLiteral
+  def parsed_type:RangerNodeType RangerNodeType.NoType
+  def value_type:RangerNodeType RangerNodeType.NoType
+  def double_value:double 0.0
+  def string_value:string ""
+  def int_value:int 0
+  def boolean_value:boolean false
+  def expression_value:CodeNodeLiteral
+  def props:[string:CodeNodeLiteral]
+  def prop_keys:[string]
+  def comments:[CodeNodeLiteral]
+  def children:[CodeNodeLiteral]
+  def attrs:[CodeNodeLiteral]
+}
+
+operator type:void all {
+  fn toLiteral:CodeNodeLiteral ( node:CodeNode ) {
+    def nn (new CodeNodeLiteral)
+    nn.expression = node.expression
+    nn.vref = node.vref
+    nn.is_block_node = node.is_block_node
+    nn.type_name = node.type_name
+    nn.key_type = node.key_type
+    nn.array_type = node.array_type
+    nn.ns = (clone node.ns)
+    nn.has_vref_annotation = node.has_vref_annotation
+    if(!null? node.vref_annotation) {
+      nn.vref_annotation = (toLiteral (unwrap node.vref_annotation))
+    }
+    nn.has_type_annotation = node.has_type_annotation
+    if(!null? node.type_annotation) {
+      nn.type_annotation = (toLiteral (unwrap node.type_annotation))
+    }
+    nn.parsed_type = node.parsed_type
+    nn.value_type = node.value_type
+    nn.double_value = node.double_value
+    nn.string_value = node.string_value
+    nn.int_value = node.int_value
+    nn.boolean_value = node.boolean_value
+    if(!null? node.expression_value) {
+      nn.expression_value = (toLiteral (unwrap node.expression_value))
+    }
+    forEach node.props {
+      set nn.props index (toLiteral item)
+    }
+    nn.prop_keys = (clone node.prop_keys)
+    forEach node.comments {
+      push nn.comments (toLiteral item)
+    }
+    forEach node.children {
+      push nn.children (toLiteral item)
+    }
+    forEach node.attrs {
+      push nn.attrs (toLiteral item)
+    }
+    return nn
+  }
+
+  fn fromLiteral:CodeNode ( node:CodeNodeLiteral ) {
+    def source (new SourceCode('<literal>'))
+    def nn (new CodeNode(source 0 0))
+    nn.expression = node.expression
+    nn.vref = node.vref
+    nn.is_block_node = node.is_block_node
+    nn.type_name = node.type_name
+    nn.key_type = node.key_type
+    nn.array_type = node.array_type
+    nn.ns = (clone node.ns)
+    nn.has_vref_annotation = node.has_vref_annotation
+    if(!null? node.vref_annotation) {
+      nn.vref_annotation = (fromLiteral (unwrap node.vref_annotation))
+    }
+    nn.has_type_annotation = node.has_type_annotation
+    if(!null? node.type_annotation) {
+      nn.type_annotation = (fromLiteral (unwrap node.type_annotation))
+    }
+    nn.parsed_type = node.parsed_type
+    nn.value_type = node.value_type
+    nn.double_value = node.double_value
+    nn.string_value = node.string_value
+    nn.int_value = node.int_value
+    nn.boolean_value = node.boolean_value
+    if(!null? node.expression_value) {
+      nn.expression_value = (fromLiteral (unwrap node.expression_value))
+    }
+    forEach node.props {
+      set nn.props index (fromLiteral item)
+    }
+    nn.prop_keys = (clone node.prop_keys)
+    forEach node.comments {
+      push nn.comments (fromLiteral item)
+    }
+    forEach node.children {
+      push nn.children (fromLiteral item)
+    }
+    forEach node.attrs {
+      push nn.attrs (fromLiteral item)
+    }
+    return nn
+  }
+
+}
 
 class CodeNode {
   def code:SourceCode
@@ -373,6 +487,14 @@ class CodeNode {
     def line_name_idx:int (idx + 1)
     return ((this.getFilename()) + ", line " + line_name_idx + " : " + (code.getLineString(idx)))
   }
+  fn getSource:string () {
+    if (ep > sp)  {
+      def start:int sp
+      def end:int ep
+      return (substring code.code start end)
+    }
+    return ""
+  }
   fn getPositionalString:string () {
     if ((ep > sp) && ((ep - sp) < 50)) {
       def start:int sp
@@ -389,18 +511,34 @@ class CodeNode {
     }
     return ""
   }
-  fn isParsedAsPrimitive:boolean () {
-    return (TTypes.isPrimitive(parsed_type))
-  }
+
   fn isPrimitive:boolean () {
-    return (TTypes.isPrimitive(value_type))
+    switch value_type {
+        case RangerNodeType.Double {
+            return true
+        }
+        case RangerNodeType.String {
+            return true
+        }
+        case RangerNodeType.Integer {
+            return true
+        }
+        case RangerNodeType.Boolean {
+            return true
+        }
+        case RangerNodeType.Char {
+            return true
+        }
+        case RangerNodeType.CharBuffer {
+            return true
+        }
+        case RangerNodeType.Enum {
+            return true
+        }
+    }        
+    return false
   }
-  fn isPrimitiveType:boolean () {
-    return (TTypes.isPrimitive((TTypes.nameToValue(type_name))))    
-  }
-  fn isAPrimitiveType:boolean () {
-    return (TTypes.isPrimitive((TTypes.nameToValue(array_type))))    
-  }
+
   fn getFirst:CodeNode () {
     return (itemAt children 0)
   }

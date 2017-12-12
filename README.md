@@ -10,47 +10,48 @@ class extensions, type inference and can integrate with host system API's using 
 ## Host platforms and target languages
 
 The compiler is *self hosting*  which means that it has been written using the compiler itself and thus it can be hosted
-on several platforms. At the moment the official platform is node.js, but it can also be run on browser or JVM or compiled
-to binary using Go target.
-    
-The target languages suppoerted currently are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#` and `Scala`. The Scala
-and C# are lagging behind in the support. Adding support to Kotlin is considered.
+on several platforms. At the moment the official platform is node.js, because external plugins are only available as npm packages.
 
-The applications or modules compiled using Ranger can be integrated to various target platforms using custom operators and
-system classes with native API's.
+The target languages supported are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#` and `Scala`. The quality
+of the target translation still varies and at the moment of this writing the compiler can only be compiled fully to JavaSript
+target. However, most targets already can compile reasonably good code. 
 
 ## Installing the compiler
 
-The compiler currently can compile itself at least to JavaScript, Java and Go language targets, but prebuild 
-version is available as node.js / npm module.
-
-To install the latest test version of the compiler using npm running
+To install the latest test version of the compiler using npm run
 
 ```
  npm install -g ranger-compiler
 ```
 
-Then you can run the command `ranger-compiler` which gives you the output, which is something like this:
+Running `ranger-compiler` without arguments shows available command-line options:
 
 ```
+Ranger compiler, version 2.1.33
+Installed at: C:\dev\static\tools\ranger-compiler
 Usage: <file> <options> <flags>
 Options: -<option>=<value>
   -l=<value>             Selected language, one of es6, go, scala, java7, swift3, cpp, php, csharp
-  -d=<value>             output directory, default directory is 'bin/'
-  -o=<value>             output file, default is 'output.<language>'
+  -d=<value>             output directory, default directory is "bin/"
+  -o=<value>             output file, default is "output.<language>"
   -classdoc=<value>      write class documentation .md file
   -operatordoc=<value>   write operator documention into .md file
 Flags: -<flag>
+  -forever       Leave the main program into eternal loop (Go, Swift)
+  -allowti       Allow type inference at target lang (creates slightly smaller code)
+  -plugins-only  ignore built-in language output and use only plugins
+  -plugins       (node compiler only) run specified npm plugins -plugins="plugin1,plugin2"
+  -strict        Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.
   -typescript    Writes JavaScript code with TypeScript annotations
   -npm           Write the package.json to the output directory
   -nodecli       Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file
   -nodemodule    Export the classes as node.js modules (this option will disable the static main function)
-  -pages         create pages for the platform
-  -services      create services for the platform
   -client        the code is ment to be run in the client environment
   -scalafiddle   scalafiddle.io compatible output
   -compiler      recompile the compiler
   -copysrc       copy all the source codes into the target directory
+Pragmas: (inside the source code files)
+   @noinfix(true)   disable operator infix parsing and automatic type definition checking
 ```
 
 ## Getting started with Hello World
@@ -72,11 +73,72 @@ ranger-compiler hello.clj
 
 The result will be outputtted into directory `bin/hello.js`
 
+## Switching to different target language
+
+Include command line parameter `-l=<language>` and the compiler will produce the output files for the language in the output directory.
+Available languages are listed when you run the compiler without any parameters.
+
+## Languages and versions supported
+
+Currently the compiler supports at least following language versions:
+
+- JavaScript ES2015
+- PHP versions 5.4 and above
+- C++ version C++14
+- Java version 7 
+- Swift version 3
+- Golang version 1.8
+- Scala 2.xx 
+- CSharp 7.0 
+
+However, it is possible to add support for older versions by implementing custom operators, which target to certain compiler flags.
+
+Additionally, JavaScript has '-typescript' flag, which will add typescript annotations to the source file.
+
+
 # Operators
 
-For a quick reference of operators see [Operators doc](operators.md)
+Operators enable creating short, funtional commands like 'get' or 'push' that operate on certain, typed parameters. Whenever there is
+need for some functionality it is woth considering whether it is best implemented using operator or a function or a class method. A 
+simple operator definition would be `M_PI` which is defined in the Compilers internal Lang.clj file as
 
-# Short notes about the syntax
+```
+    M_PI mathPi:double () {
+        templates {
+            es6 ("Math.PI")
+            go ( "math.Pi" (imp "math"))                                
+            swift3 ( "Double.pi" (imp "Foundation"))   
+            java7 ( "Math.PI" (imp "java.lang.Math"))         
+            php ("pi()")        
+            cpp ("M_PI" (imp "<math.h>"))               
+        }
+    }
+```
+
+Oops! Looks like C# defintion is missing! It should be `Math.PI` and it requires `System`. We can add that easily to Lang.clj 
+
+```
+    M_PI mathPi:double () {
+        templates {
+            es6 ("Math.PI")
+            go ( "math.Pi" (imp "math"))                                
+            swift3 ( "Double.pi" (imp "Foundation"))   
+            java7 ( "Math.PI" (imp "java.lang.Math"))         
+            php ("pi()")        
+            cpp ("M_PI" (imp "<math.h>"))               
+            csharp ("Math.PI" (imp "System"))               
+        }
+    }
+```
+
+Thus, the platform specific code is implemented using operators, which can also implement native polyfills in the target language.
+
+Operators also be written can be as macros in Ranger language itself.
+
+For a quick reference of available basic operators see [Operators doc](operators.md)
+
+
+# Notes about the syntax
 
 Ranger syntax is originally based on Lisp -language syntax and most operators will use prefix notation. However, the Ranger modifies
 the original Lisp so that inside block expression `{ ... }` there is no need to insert parenthesis which makes the language appear to
@@ -119,11 +181,11 @@ Instead of common lisp syntax `(= x y)`
 
 ## Main function
 
-Each file can have a class with a function declared with `@(main)` annotation
+Each file can have a static main function, which is executed as the main program.
 
 ```   
 class Hello {
-    sfn hello@(main):void () {
+    static fn main() {
     }   
 }
 

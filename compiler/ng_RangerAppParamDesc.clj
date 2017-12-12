@@ -168,8 +168,8 @@ class RangerAppParamDesc {
     }
     return false
   }
-  fn moveRefTo:void (node:CodeNode target:RangerAppParamDesc ctx:RangerAppWriterContext) {
-    if node.ref_change_done {
+  fn moveRefTo:void (nodeToMove:CodeNode target:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if nodeToMove.ref_change_done {
       return
     }
     if (false == (target.isAllocatedType())) {
@@ -178,7 +178,7 @@ class RangerAppParamDesc {
     if (false == (this.isAllocatedType())) {
       return
     }
-    node.ref_change_done = true
+    nodeToMove.ref_change_done = true
     def other_s:int (target.getStrength())
     def my_s:int (this.getStrength())
     def my_lifetime:int (this.getLifetime())
@@ -204,16 +204,16 @@ class RangerAppParamDesc {
         if (other_lifetime > my_lifetime) {
           lt = other_lifetime
         }
-        this.changeStrength(0 lt node)
+        this.changeStrength(0 lt nodeToMove)
       } {
         if (my_s == 0) {
           if (tmp_var == false) {
-            ctx.addError(node "Can not move a weak reference to a strong target." )
+            ctx.addError(nodeToMove "Can not move a weak reference to a strong target." )
             print "can not move weak refs to strong target:"
             this.debugRefChanges()
           }
         } {
-          ctx.addError(node ("Can not move immutable reference to a strong target, evald type " + nameNode.eval_type_name))
+          ctx.addError(nodeToMove ("Can not move immutable reference to a strong target, evald type " + nameNode.eval_type_name))
         }
       }
     } {
@@ -221,7 +221,7 @@ class RangerAppParamDesc {
       } {
         if ((my_lifetime < other_lifetime) && (return_cnt == 0)) {
           if ((nameNode.hasFlag("returnvalue")) == false) {
-            ctx.addError(node ("Can not create a weak reference if target has longer lifetime than original, current lifetime == " + my_lifetime))
+            ctx.addError(nodeToMove ("Can not create a weak reference if target has longer lifetime than original, current lifetime == " + my_lifetime))
           }
         }
       }

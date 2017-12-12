@@ -57,9 +57,8 @@ def fnObj@(lives) (r.func node (unwrap currC.ctx))
 }
 
 operator type:void all {
-  fn r.func:RangerAppFunctionDesc ( node:CodeNode ctx:RangerAppWriterContext ) {
+  fn r.func:RangerAppFunctionDesc ( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter ) {
     def parser (new RangerFlowParser)
-    def wr (new CodeWriter)
     return (parser.CreateFunctionObject(node ctx wr))
   }
 }
@@ -231,6 +230,20 @@ class RangerFlowParser {
         }
       }
     }    
+
+    if( (size node.children) == 1 ) {
+      def fc (first node.children)
+      if( ctx.isVarDefined( fc.vref )) {
+        fc.parent = node
+        if(!null? fc.evalCtx) {
+          this.WalkNode(fc (unwrap fc.evalCtx) wr)
+        } {
+          this.WalkNode(fc ctx wr)
+        }
+        node.copyEvalResFrom(fc)
+        return true        
+      }
+    }
 
     def skip_if ([] "Extends" "operator" "extends" "operators" "systemclass" "systemunion" "union" "flag" "trait" "enum" "Import")
     if( has node.children ) {
@@ -716,6 +729,16 @@ class RangerFlowParser {
         node.paramDesc = vDef
         vDef.ref_cnt = (1 + vDef.ref_cnt)
         def vNameNode:CodeNode vDef.nameNode
+
+        if( ctx.isDefinedClass( node.type_name)) {
+          def m (ctx.getCurrentMethod())
+          m.addClassUsage( (ctx.findClass(node.type_name)) ctx)
+        }
+        if( ctx.isDefinedClass( node.eval_type_name)) {
+          def m (ctx.getCurrentMethod())
+          m.addClassUsage( (ctx.findClass(node.eval_type_name)) ctx)
+        }
+
         if (!null? vNameNode)  {
           if (vNameNode.hasFlag("optional")) {
             node.setFlag("optional")
@@ -743,6 +766,8 @@ class RangerFlowParser {
         class_or_this = true
         node.eval_type = RangerNodeType.Class
         node.eval_type_name = rootObjName
+        def m (ctx.getCurrentMethod())
+        m.addClassUsage( (ctx.findClass(rootObjName)) ctx)
       }
       if (ctx.hasTemplateNode(rootObjName)) {
         class_or_this = true
@@ -880,6 +905,8 @@ class RangerFlowParser {
     node.eval_type_name = obj.vref
     if (b_template == false) {
       currC = (ctx.findClass(obj.vref))
+      def currM (ctx.getCurrentMethod())
+      currM.addClassUsage( (unwrap currC) ctx )
     }
     node.hasNewOper = true
     node.clDesc = currC
@@ -1008,6 +1035,219 @@ class RangerFlowParser {
     return res
   }
 
+  fn SolveAsyncFuncs (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    def root (ctx.getRoot())
+    root.definedClasses.forEach({
+
+      item.static_methods.forEach({
+          def thisFn (item)
+          def set_async (fn:void (f:RangerAppFunctionDesc) {
+
+          })
+          set_async = (fn:void (f:RangerAppFunctionDesc) {
+            if( f == thisFn ) {
+              return
+            }
+            if( (!null? f.nameNode) ) {
+              f.nameNode.setFlag('async')
+            }
+            f.isCalledBy.forEach({
+              set_async( item )
+            })            
+            if( !null? f.insideFn) {
+              set_async( (unwrap f.insideFn ))
+            }
+          })
+          if( (!null? item.nameNode) ) {
+            if(item.nameNode.hasFlag("async")) {
+              item.isCalledBy.forEach({
+                set_async( item )
+              })
+              item.forOtherVersions( ctx {
+                set_async(item)
+              })
+              if( !null? item.insideFn) {
+                set_async( (unwrap item.insideFn ))
+              }
+            }
+          }
+          item.myLambdas.forEach({
+            if( (!null? item.nameNode) ) {
+              if(item.nameNode.hasFlag("async")) {
+                item.isCalledBy.forEach({
+                  set_async( item )
+                })
+                if( !null? item.insideFn) {
+                  set_async( (unwrap item.insideFn ))
+                }
+              }
+            }
+          })            
+      })
+      
+      item.method_variants.forEach({
+        item.variants.forEach({
+
+          def thisFn (item)
+          def set_async (fn:void (f:RangerAppFunctionDesc) {
+
+          })
+          set_async = (fn:void (f:RangerAppFunctionDesc) {
+            if( f == thisFn ) {
+              return
+            }
+            ; TODO: must also iterate all the inherited class functions...
+            if( (!null? f.nameNode) ) {
+              f.nameNode.setFlag('async')
+            }
+            f.forOtherVersions( ctx {
+              set_async(item)
+            })
+            f.isCalledBy.forEach({
+              set_async( item )
+            })            
+            if( !null? f.insideFn) {
+              set_async( (unwrap f.insideFn ))
+            }
+          })
+          if( (!null? item.nameNode) ) {
+            if(item.nameNode.hasFlag("async")) {
+              item.isCalledBy.forEach({
+                set_async( item )
+              })
+              item.forOtherVersions( ctx {
+                set_async(item)
+              })
+              if( !null? item.insideFn) {
+                set_async( (unwrap item.insideFn ))
+              }
+            }
+          }
+          item.myLambdas.forEach({
+            if( (!null? item.nameNode) ) {
+              if(item.nameNode.hasFlag("async")) {
+                item.isCalledBy.forEach({
+                  set_async( item )
+                })
+                if( !null? item.insideFn) {
+                  set_async( (unwrap item.insideFn ))
+                }
+              }
+            }            
+          })
+        })
+      })
+    })
+
+    def notUsedFunctionCnt 0
+
+    root.definedClasses.forEach({
+      item.method_variants.forEach({
+        item.variants.forEach({
+          if( (size item.isCalledBy ) == 0 ) {
+            if( !null? item.container_class) {
+              def cc (unwrap item.container_class)
+              if( (has cc.extends_classes ) || cc.is_inherited )  {
+                def eC (at cc.extends_classes 0)
+                ctx.findClass( eC )
+                ; not sure if this function is necessary or not...
+              } {
+                ; print " unused function " + item.name + " in class " + item.container_class.name
+                notUsedFunctionCnt = notUsedFunctionCnt + 1
+                item.is_unsed = true
+              }
+            } 
+          }
+        })
+      })
+    })
+
+    if(ctx.hasCompilerFlag('dead4main')) {
+
+      def mainFn:RangerAppFunctionDesc
+      root.definedClasses.forEach({
+        def cl item
+        for cl.static_methods variant@(lives):RangerAppFunctionDesc i {
+          ctx.disableCurrentClass()
+          if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {  
+            mainFn = variant
+            mainFn.addClassUsage( cl ctx )
+          }
+        }
+      })
+      if(!null? mainFn) {
+        def set_called (fn:void (f:RangerAppFunctionDesc) {
+
+        })
+        set_called = (fn:void (f:RangerAppFunctionDesc) {
+          if(f.is_called_from_main) {
+            return
+          }
+          f.is_called_from_main = true
+          f.isUsingClasses.forEach({
+            item.is_used_by_main = true
+            if(!null? item.constructor_fn) {
+              set_called( (unwrap item.constructor_fn))
+            }          
+          })
+          f.forOtherVersions( ctx {
+            set_called(item)
+          })
+          f.isCalling.forEach({
+            set_called( item )
+          })
+          f.myLambdas.forEach({
+            set_called( item )
+          })
+          if( !null? f.container_class) {
+            if(!null? f.container_class.constructor_fn) {
+              set_called( (unwrap f.container_class.constructor_fn))
+            }                      
+          }          
+        })
+        set_called( (unwrap mainFn ))
+        def verbose (ctx.hasCompilerFlag('verbose'))
+        root.definedClasses.forEach({
+          if( item.is_used_by_main == false ) {
+            print "class not used by main : " + item.name
+          }
+          item.static_methods = (filter item.static_methods {
+            def cc (unwrap item.container_class)
+            if( item.is_called_from_main == false ) {
+              if verbose {
+                print "removing as dead " + item.name + " from " + cc.name
+              }
+            }
+            return item.is_called_from_main
+          })
+          
+          item.method_variants.forEach({
+            item.variants = (filter item.variants {
+              def cc (unwrap item.container_class)
+              if( item.is_called_from_main == false ) {
+                if verbose {
+                  print "removing as dead " + item.name + " from " + cc.name
+                }
+              }
+              return item.is_called_from_main
+            })
+          })
+        })
+      }
+    }
+    
+    if(ctx.hasCompilerFlag('deadcode')) {
+      root.definedClasses.forEach({
+        item.method_variants.forEach({
+          item.variants = (filter item.variants {
+            return (item.is_unsed == false)
+          })
+        })
+      })
+    }
+  }
+
   fn cmdCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     
     def obj (node.getSecond())
@@ -1055,6 +1295,10 @@ class RangerFlowParser {
       def m (cl.findMethod(method.vref))
       if(!null? m) {
         node.has_call = true
+
+        def currM (ctx.getCurrentMethod())
+        currM.addCallTo( (unwrap m) )
+
         ctx.setInExpr()
         for callArgs.children callArg:CodeNode i {
           this.WalkNode( callArg ctx wr)
@@ -1235,7 +1479,7 @@ class RangerFlowParser {
       newNode.add( (sc.copy()) )
       innerNode = newNode
 
-      print "Chaining " + (node.getCode())
+;       print "Chaining " + (node.getCode())
 
       def chain_cnt 0
       def b_valid true
@@ -1287,6 +1531,10 @@ class RangerFlowParser {
           }
         }
 
+        def currM@(lives) (ctx.getCurrentMethod())
+        currM.addCallTo( (unwrap vFnDef) )
+
+
         vFnDef.ref_cnt = (vFnDef.ref_cnt + 1)
         def subCtx:RangerAppWriterContext (ctx.fork())
         node.hasFnCall = true
@@ -1301,18 +1549,43 @@ class RangerFlowParser {
         this.WalkNode(fnNode subCtx wr)
         def callParams:CodeNode (at node.children 1)
         def nodeList:[CodeNode] (this.transformParams( callParams.children vFnDef.params subCtx))
-        
-        
+        if(ctx.hasCompilerFlag('dbg')) {
+          print "Local: " + vFnDef.name
+        }
+              
         for nodeList arg:CodeNode i {
           ; expression as parameter is a lambda 
           ctx.setInExpr()
+          def was_lambda false
           if(arg.isFirstVref("fun")) {
             arg.flow_done = false
             arg.forTree({
               item.flow_done = false
             })
+            was_lambda = true
           }       
           this.WalkNode(arg subCtx wr)
+
+          if was_lambda {
+            def currM@(lives) (ctx.getCurrentMethod())
+            if(!null? arg.lambdaFnDesc) {
+              vFnDef.addCallTo( (unwrap arg.lambdaFnDesc))
+              currM.addCallTo( (unwrap vFnDef ) )
+              push currM.myLambdas (unwrap arg.lambdaFnDesc)
+              push vFnDef.myLambdas (unwrap arg.lambdaFnDesc)
+            }
+            arg.forTree({
+              if(!null? item.lambdaFnDesc) {
+                item.lambdaFnDesc.insideFn = currM
+              }
+              if(!null? item.fnDesc) {
+                if(!null? arg.lambdaFnDesc) {
+                  arg.lambdaFnDesc.addCallTo( (unwrap item.fnDesc) )
+                } 
+                vFnDef.addCallTo( (unwrap item.fnDesc ) )
+              }
+            })
+          }       
           ctx.unsetInExpr()
           def fnArg:RangerAppParamDesc (at vFnDef.params i)
           def callArgP:RangerAppParamDesc arg.paramDesc
@@ -1389,7 +1662,15 @@ class RangerFlowParser {
           ctx.addError(node ('The method ' + fnDescr.name + " potentially throws an exception, try { } block is required"))
         }
       }
-      
+
+      def currM (ctx.getCurrentMethod())
+      currM.addCallTo( (unwrap fnDescr) )
+
+      if(ctx.hasCompilerFlag('dbg')) {
+        print "Local 2 : " + fnDescr.name
+      }
+
+
       def subCtx:RangerAppWriterContext (ctx.fork())
       node.hasFnCall = true
       node.fnDesc = fnDescr
@@ -1572,7 +1853,6 @@ class RangerFlowParser {
             ctx.unsetInExpr()
 
             this.convertToUnion( n1.eval_type_name n2 ctx wr) 
-
             ; --> should test here
             this.shouldBeEqualTypes( n1 n2 ctx "Can not assign variable.")
 
@@ -1888,52 +2168,59 @@ class RangerFlowParser {
 
     node.evalTypeClass = (TFactory.new_lambda_signature(node ctx wr))
 
-    def cn:CodeNode (at node.children 0)
-      def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
-      m.name = "lambda"
-      m.node = node
-      m.nameNode = (at node.children 0)
-      subCtx.is_function = true
-      subCtx.currentMethod = m
-;      m.fnCtx = subCtx
-      if (cn.hasFlag("weak")) {
-        m.changeStrength(0 1 node)
-      } {
-        m.changeStrength(1 1 node)
-      }
-      m.fnBody = (at node.children 2)
-      for args.children arg@(lives):CodeNode ii {
+    def currM@(lives) (ctx.getCurrentMethod())
 
-        this.CheckTypeAnnotationOf( arg subCtx wr )
-        
-        def p2@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
-        
-        p2.name = arg.vref
-        p2.value_type = arg.value_type
-        p2.node = arg
-        p2.nameNode = arg
-        p2.init_cnt = 1
-        p2.refType = RangerNodeRefType.Weak
-        p2.initRefType = RangerNodeRefType.Weak
-        if (args.hasBooleanProperty("strong")) {
-          p2.refType = RangerNodeRefType.Strong
-          p2.initRefType = RangerNodeRefType.Strong
-        }
-        p2.varType = RangerContextVarType.FunctionParameter
-        push m.params p2
-        arg.hasParamDesc = true
-        arg.paramDesc = p2
-        arg.eval_type = arg.value_type
-        arg.eval_type_name = arg.type_name 
-        if (arg.hasFlag("strong")) {
-          p2.changeStrength(1 1 (unwrap p2.nameNode))
-        } {
-          arg.setFlag("lives")
-          p2.changeStrength(0 1 (unwrap p2.nameNode))
-        }           
-        ; subCtx.hadValidType(p2.nameNode)
-        subCtx.defineVariable(p2.name p2)
+    def cn:CodeNode (at node.children 0)
+    def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
+    m.name = "lambda"
+    m.node = node
+    m.is_lambda = true
+    m.nameNode = (at node.children 0)
+    m.insideFn = currM
+
+    currM.myLambdas.push( m )
+
+    subCtx.is_function = true
+    subCtx.currentMethod = m
+;      m.fnCtx = subCtx
+    if (cn.hasFlag("weak")) {
+      m.changeStrength(0 1 node)
+    } {
+      m.changeStrength(1 1 node)
+    }
+    m.fnBody = (at node.children 2)
+    for args.children arg@(lives):CodeNode ii {
+
+      this.CheckTypeAnnotationOf( arg subCtx wr )
+      
+      def p2@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
+      
+      p2.name = arg.vref
+      p2.value_type = arg.value_type
+      p2.node = arg
+      p2.nameNode = arg
+      p2.init_cnt = 1
+      p2.refType = RangerNodeRefType.Weak
+      p2.initRefType = RangerNodeRefType.Weak
+      if (args.hasBooleanProperty("strong")) {
+        p2.refType = RangerNodeRefType.Strong
+        p2.initRefType = RangerNodeRefType.Strong
       }
+      p2.varType = RangerContextVarType.FunctionParameter
+      push m.params p2
+      arg.hasParamDesc = true
+      arg.paramDesc = p2
+      arg.eval_type = arg.value_type
+      arg.eval_type_name = arg.type_name 
+      if (arg.hasFlag("strong")) {
+        p2.changeStrength(1 1 (unwrap p2.nameNode))
+      } {
+        arg.setFlag("lives")
+        p2.changeStrength(0 1 (unwrap p2.nameNode))
+      }           
+      ; subCtx.hadValidType(p2.nameNode)
+      subCtx.defineVariable(p2.name p2)
+    }
 
     def cnt:int ( size body.children )
     ; def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
@@ -1954,6 +2241,17 @@ class RangerFlowParser {
     node.eval_type = RangerNodeType.ExpressionType
     node.eval_function = node
     node.expression_value = (node.copy())
+    node.lambdaFnDesc = m
+    ; capture 2nd tier
+    if((ctx.isCapturing())) {
+      node.lambda_ctx.captured_variables.forEach({
+        if( (ctx.isVarDefined(item)) ) {
+          if ( (ctx.isLocalToCapture(item)) == false ) {
+            ctx.addCapturedVariable( item )
+          }
+        }
+      })
+    }
   }
 
   ; myClass@(xxx)
@@ -1976,7 +2274,7 @@ class RangerFlowParser {
             }
             def class_name ( testC.name + tstr)
             def ann (unwrap tAnn)
-            ctx.createTraitInstanceClass( testC.name class_name ann this )
+            ctx.createTraitInstanceClass( testC.name class_name ann this wr )
             node.vref = class_name
             node.has_vref_annotation = false
             return true
@@ -2007,7 +2305,7 @@ class RangerFlowParser {
             }
             def class_name ( testC.name + tstr)
             def ann (unwrap tAnn)
-            ctx.createTraitInstanceClass( testC.name class_name ann this )
+            ctx.createTraitInstanceClass( testC.name class_name ann this wr )
             node.type_name = class_name
             node.has_type_annotation = false
             return true
@@ -2932,9 +3230,10 @@ class RangerFlowParser {
         }
         cl.is_system = true
         def instances:CodeNode (node.getThird())
-        for instances.children ch:CodeNode i {
+        for instances.children ch@(lives):CodeNode i {
           def langName:CodeNode (ch.getFirst())
           def langClassName:CodeNode (ch.getSecond())
+          set cl.systemNodes langName.vref ch
           if( (strlen langClassName.vref ) > 0 ) {
             set cl.systemNames langName.vref langClassName.vref
           }
@@ -2950,9 +3249,10 @@ class RangerFlowParser {
       new_class.nameNode = nameNode
       ctx.addClass(nameNode.vref new_class)
       new_class.is_system = true
-      for instances.children ch:CodeNode i {
+      for instances.children ch@(lives):CodeNode i {
         def langName:CodeNode (ch.getFirst())
         def langClassName:CodeNode (ch.getSecond())
+        set new_class.systemNodes langName.vref ch
         ; set new_class.systemNames langName.vref langClassName.vref
         if( (strlen langClassName.vref ) > 0 ) {
           set new_class.systemNames langName.vref langClassName.vref
@@ -3391,7 +3691,7 @@ class RangerFlowParser {
     if ((node.isFirstVref("PublicMethod")) || (node.isFirstVref("fn"))) {
       ; --> new shortcut for function creators
       def currC:RangerAppClassDesc ctx.currentClass
-      def fnObj@(lives) (r.func node (unwrap currC.ctx))
+      def fnObj@(lives) (r.func node (unwrap currC.ctx) wr)
       def cn (fnObj.nameNode)
       if( (currC.hasOwnMethod(fnObj.name)) && (false == (cn.hasFlag("override"))) ) {
         ctx.addError( node "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!")
@@ -3631,6 +3931,9 @@ class RangerFlowParser {
         fnArg.vref = "fn"
         def subNode (node.copy())
         subNode.flow_done = false
+        def argsExpr (map args {
+                                      return (item.copy())
+                                    })
         def staticLambda (r.expression
                             fnArg
                             (r.expression args )
@@ -3643,9 +3946,7 @@ class RangerFlowParser {
                                   subNode
                                   ; parameters...
                                   (r.expression
-                                    (map args {
-                                      return (item.copy())
-                                    })
+                                    argsExpr
                                   )
                                 )
                               )

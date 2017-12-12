@@ -53,6 +53,9 @@ class RangerSerializeClass {
                     if(nn.array_type == "double") {
                         wr.out("values.addDouble(keyname (unwrap (get this." + pvar.compiledName + " keyname)))" , true)
                     }                    
+                    if(nn.value_type == RangerNodeType.Enum) {
+                        wr.out("values.addInt(keyname (unwrap (get this." + pvar.compiledName + " keyname)))" , true)
+                    }
                     wr.indent(-1)
                 wr.out("}" true)                  
                 return
@@ -73,6 +76,10 @@ class RangerSerializeClass {
         }
         if(nn.type_name == "boolean") {
             wr.out("keys.addBoolean(\"" + pvar.compiledName + "\" (this." + pvar.compiledName +"))" , true)
+            return
+        }
+        if(nn.value_type == RangerNodeType.Enum) {
+            wr.out("keys.addInt(\"" + pvar.compiledName + "\" (this." + pvar.compiledName +"))" , true)
             return
         }
         if(this.isSerializedClass(nn.type_name ctx)) {
@@ -212,7 +219,7 @@ class RangerSerializeClass {
             if( (ctx.isDefinedClass(nn.type_name) ) == false ) {
                 wr.out("set res  \"" + pvar.name + "\" (this." + pvar.compiledName +") " , true )
             } {
-                wr.out("set res  \"" + pvar.name + "\" (this." + pvar.compiledName +".toDictionar()) " , true )
+                wr.out("set res  \"" + pvar.name + "\" (this." + pvar.compiledName +".toDictionary()) " , true )
             }
         }
     }
@@ -269,8 +276,8 @@ class RangerSerializeClass {
                 wr.out("keys.forEach({" , true)
                     wr.indent(1)
                     if( ctx.isDefinedClass(nn.array_type) ) {
-                      wr.out("try {" true)
-                      wr.indent(1)
+                      ;wr.out("try {" true)
+                      ;wr.indent(1)
                       wr.out("def theValue (getObject theObj" + pvar.name + " item ) " , true)
                       wr.out("if(!null? theValue) {" true)
                       wr.indent(1)
@@ -278,9 +285,9 @@ class RangerSerializeClass {
                       wr.out("set obj." + pvar.name + " item newObj " , true)
                       wr.indent(-1)
                       wr.out("}" true)
-                      wr.indent(-1)
-                      wr.out("} {" true)                      
-                      wr.out("}" true)
+                      ;wr.indent(-1)
+                      ;wr.out("} {" true)                      
+                      ;wr.out("}" true)
                     } {
                     }
                     wr.indent(-1)
@@ -377,11 +384,40 @@ class RangerSerializeClass {
                 wr.out("}" true)
             }
         }
+
+        if( ctx.isDefinedClass(nn.type_name) ) {
+            ; wr.out("try {" true)
+            ; wr.indent(1)
+            wr.out("def theValue (getObject dict \"" + pvar.name +  "\") " , true)
+            wr.out("if(!null? theValue) {" true)
+            wr.indent(1)
+            wr.out("def newObj@(lives) (" + nn.type_name + ".fromDictionary((unwrap theValue)))" , true)
+            wr.out("obj." + pvar.name + " = newObj " , true)
+            wr.indent(-1)
+            wr.out("}" true)
+            ; wr.indent(-1)
+            ; wr.out("} {" true)                      
+            ; wr.out("}" true)
+        } {
+        }
+
+
+        if(nn.value_type == RangerNodeType.Enum) {
+                wr.out("def v (getInt dict \"" + pvar.name +  "\")" , true)
+                wr.out("if(!null? v) {" true)
+                wr.indent(1)
+                wr.out("obj." + pvar.name + " = (unwrap v) " , true)
+                wr.indent(-1)
+                wr.out("}" true)
+        }
+      
     }
 
     ; class extension...
     fn createJSONSerializerFn2:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
 
+
+        def use_exceptions ( (ctx.getTargetLang()) != "swift3")        
 
         def declaredVariable:[string:boolean]        
         wr.out("extension " + cl.name + " {" , true)
@@ -389,8 +425,10 @@ class RangerSerializeClass {
         wr.out("static fn fromDictionary@(strong):" + cl.name + " (dict:JSONDataObject) {" , true)
         wr.indent(1)
             wr.out("def obj:" + cl.name +" (new " + cl.name + "())" , true)
-            wr.out("try {" true)
-            wr.indent(1)
+            if use_exceptions {
+                wr.out("try {" true)
+                wr.indent(1)
+            }
             for cl.variables pvar:RangerAppParamDesc i {
                 if( has declaredVariable pvar.name ) {
                     continue
@@ -398,9 +436,11 @@ class RangerSerializeClass {
                 def nn:CodeNode (unwrap pvar.nameNode)
                 this.createWRReader2( pvar nn ctx wr)            
             }        
-            wr.indent(-1)
-            wr.out("} {" true)
-            wr.out("}" true)
+            if use_exceptions {
+                wr.indent(-1)
+                wr.out("} {" true)
+                wr.out("}" true)
+            }
             wr.out( "return obj" true)
         wr.indent(-1)
         wr.out("}" true)
@@ -411,8 +451,10 @@ class RangerSerializeClass {
 
         ; def is_golang ("go" == (ctx.getCompilerSetting("l")))
 
-        wr.out("try {" true)
-        wr.indent(1)
+        if use_exceptions {
+            wr.out("try {" true)
+            wr.indent(1)
+        }
         ; TODO: extended class serialization...
         if ( ( array_length cl.extends_classes ) > 0 ) { 
             for cl.extends_classes pName:string i {
@@ -440,12 +482,14 @@ class RangerSerializeClass {
             wr.out("; not extended " true)
             this.createWRWriter2( pvar nn ctx wr)            
         }        
-        wr.indent(-1)
-        wr.out("} {" true)
-            wr.indent(1)
-            wr.out("" true)
+        if use_exceptions {
             wr.indent(-1)
-        wr.out("}" true)
+            wr.out("} {" true)
+                wr.indent(1)
+                wr.out("" true)
+                wr.indent(-1)
+            wr.out("}" true)
+        }
 
         wr.out("return res" true)
         wr.indent(-1)

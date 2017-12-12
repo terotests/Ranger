@@ -23,9 +23,26 @@ class RangerGenericClassWriter {
   fn lineEnding:string () {
     return ""
   }
-  
 
-fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+  fn addSystemImport:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if cl.is_system {
+      def langName (ctx.getTargetLang())
+      if( has cl.systemNodes langName ) {
+        def sNode (unwrap (get cl.systemNodes langName))
+        if( (size sNode.children) > 2) {
+          def impDefs (at sNode.children 2)   ; java7 LayoutInflater ( (imp "android.view.LayoutInflater") )
+          impDefs.forTree({
+            if(item.isFirstVref('imp')) {
+              def name (item.getSecond())
+              wr.addImport(name.string_value)
+            }
+          })
+        }      
+      }
+    }
+  }
+
+  fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def encoded_str:string ""
     def str_length:int (strlen node.string_value)
     def encoded_str:string ""

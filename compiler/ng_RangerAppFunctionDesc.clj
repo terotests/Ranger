@@ -26,9 +26,70 @@ class RangerAppFunctionDesc {
   def return_value:RangerAppParamDesc
   def is_method:boolean false
   def is_static:boolean false
+  def is_lambda false
+  def is_unsed false
+  def is_called_from_main false
   def container_class:RangerAppClassDesc
   def refType:RangerNodeRefType RangerNodeRefType.NoType
   def fnCtx:RangerAppWriterContext
+
+  def insideFn@(weak):RangerAppFunctionDesc
+  def call_graph_done false
+  def isCalling@(weak):[RangerAppFunctionDesc]
+  def isCalledBy@(weak):[RangerAppFunctionDesc]
+  def isUsingClasses@(weak):[RangerAppClassDesc]
+
+  def myLambdas@(weak):[RangerAppFunctionDesc]
+
+  fn addCallTo( m@(weak):RangerAppFunctionDesc) {
+    if( (indexOf m.isCalledBy this) < 0 ) {
+      push m.isCalledBy this
+      push isCalling m
+    }
+  }
+
+  fn addClassUsage( m@(weak):RangerAppClassDesc  ctx:RangerAppWriterContext ) {
+    if( (indexOf this.isUsingClasses m) < 0 ) {
+      push this.isUsingClasses m
+      m.variables.forEach({
+        def nn item.nameNode
+        if( ctx.isDefinedClass( nn.type_name )) {
+          def cc (ctx.findClass(nn.type_name))
+          this.addClassUsage( cc ctx )
+        }
+        if( ctx.isDefinedClass( nn.array_type )) {
+          def cc (ctx.findClass(nn.array_type))
+          this.addClassUsage( cc ctx )
+        }
+      })
+      
+    }
+  }
+  
+
+  fn forOtherVersions ( ctx:RangerAppWriterContext cb:(_:void (item:RangerAppFunctionDesc))) {
+    if(null? this.container_class) {
+      return
+    }
+    def f this
+    def cc (unwrap f.container_class)
+    cc.extends_classes.forEach({
+      def otherClass (ctx.findClass(item))
+      if(otherClass.hasMethod(f.name)) {
+        def m (otherClass.findMethod(f.name))
+        cb( m )
+      }
+    })
+    def root (ctx.getRoot())
+    root.definedClasses.forEach({
+      if( (indexOf item.extends_classes f.container_class.name) >= 0 ) {
+        if(item.hasMethod(f.name)) {
+          def m (item.findMethod(f.name))
+          cb( m )                
+        }
+      }
+    })
+  }
 
   fn isFunction:boolean () {
     return true
