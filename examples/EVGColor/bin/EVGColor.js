@@ -235,11 +235,6 @@ class EVGColor  {
     }
   };
 }
-EVGColor.noColor = function() {
-  const c = new EVGColor();
-  c.is_set = false;
-  return c;
-};
 EVGColor.hue2rgb = function(p, q, tt) {
   let t = tt;
   if ( t < 0.0 ) {
@@ -283,24 +278,6 @@ EVGColor.hslToRgb = function(hh, ss, ll) {
   rv.b = b * 255.0;
   return rv;
 };
-class EVGColorStop  {
-  constructor() {
-    this.is_set = false;     /** note: unused */
-    this.is_linear = true;     /** note: unused */
-    this.x = 0.0;     /** note: unused */
-    this.y = 0.0;     /** note: unused */
-    this.percentage = 0.0;     /** note: unused */
-    this.color = new EVGColor();     /** note: unused */
-  }
-}
-class EVGGradientColor  {
-  constructor() {
-    this.is_set = false;     /** note: unused */
-    this.is_linear = false;     /** note: unused */
-    this.degree = 0.0;     /** note: unused */
-    this.stops = [];     /** note: unused */
-  }
-}
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
   const c = new EVGColor();
