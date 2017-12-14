@@ -1,5 +1,5 @@
 ## Statements
-  `nullify` ,   `golang_wait` ,   `wait` ,   `timer` ,   `create_dir` ,   `write_file` ,   `localStorage` ,   `=` ,   `def` ,   `return` ,   `gitdoc` ,   `if` ,   `switch` ,   `case` ,   `default` ,   `break` ,   `continue` ,   `while` ,   `throw` ,   `try` ,   `set` ,   `push` ,   `print` ,   `forEach` ,   `forUntil` ,   `trace` ,   `color_print` ,   `plugin_preprocess` ,   `plugin_postprocess` 
+  `nullify` ,   `golang_wait` ,   `wait` ,   `timer` ,   `create_dir` ,   `write_file` ,   `=` ,   `def` ,   `return` ,   `gitdoc` ,   `if` ,   `switch` ,   `case` ,   `default` ,   `break` ,   `continue` ,   `while` ,   `throw` ,   `try` ,   `set` ,   `push` ,   `print` ,   `forEach` ,   `forUntil` ,   `trace` ,   `color_print` ,   `plugin_preprocess` ,   `plugin_postprocess` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -9,7 +9,6 @@
 | timer | |   (`name`:string  `code`:block  )| | 
 | create_dir | |   (`path`:string  )| | 
 | write_file | |   (`path`:string  `file`:string  `data`:string  )| | 
-| localStorage | |   (`path`:string  `value`:string  )| | 
 | = | |   (`immutable_left`:T  `immutable_right`:T  )| | 
 | def | |   (`varname`:T  )| | 
 | return | |   (`value`:T  )| | 
@@ -127,7 +126,7 @@
 | r.value | `CodeNode` |   (`n`:int  )| | 
 
 ## String operators
-  `has` ,   `has_option` ,   `get_option` ,   `get_required_option` ,   `sha256` ,   `md5` ,   `env_var` ,   `file_exists` ,   `dir_exists` ,   `localStorage` ,   `read_file` ,   `+` ,   `||` ,   `null?` ,   `!null?` ,   `trim` ,   `strsplit` ,   `strlen` ,   `substring` ,   `to_charbuffer` ,   `to_int` ,   `length` ,   `at` ,   `charAt` ,   `charcode` ,   `ccode` ,   `str2int` ,   `str2double` ,   `to_double` ,   `indexOf` ,   `first` ,   `to_uppercase` ,   `==` ,   `!=` ,   `from_string` ,   `json_obj.attr` ,   `json.attr` ,   `r.op` ,   `r.vref` ,   `r.value` ,   `load_compiler_plugin` 
+  `has` ,   `has_option` ,   `get_option` ,   `get_required_option` ,   `sha256` ,   `md5` ,   `env_var` ,   `file_exists` ,   `dir_exists` ,   `read_file` ,   `+` ,   `||` ,   `null?` ,   `!null?` ,   `trim` ,   `strsplit` ,   `strlen` ,   `substring` ,   `to_charbuffer` ,   `to_int` ,   `length` ,   `at` ,   `charAt` ,   `charcode` ,   `ccode` ,   `str2int` ,   `str2double` ,   `to_double` ,   `indexOf` ,   `first` ,   `to_uppercase` ,   `==` ,   `!=` ,   `from_string` ,   `json_obj.attr` ,   `json.attr` ,   `r.op` ,   `r.vref` ,   `r.value` ,   `load_compiler_plugin` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -140,7 +139,6 @@
 | env_var | `<optional>string` |   (`name`:string  )| | 
 | file_exists | `boolean` |   (`path`:string  `filename`:string  )| | 
 | dir_exists | `boolean` |   (`path`:string  )| | 
-| localStorage | `<optional>string` |   (`path`:string  )| | 
 | read_file | `<optional>string` |   (`path`:string  `filename`:string  )| | 
 | + | `string` |   (`left`:string  `right`:enum  )| | 
 | &#124;&#124; | `string` |   (`left`:string  `right`:string  )| selects the first string if length > 0, else the second...| 

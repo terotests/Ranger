@@ -2,7 +2,7 @@
 
 flag npm (
   name "ranger-lib"
-  version "2.1.56"
+  version "2.1.57"
   description "Cross-language compiler and build tool"
   author "Tero Tolonen"
   license "MIT"

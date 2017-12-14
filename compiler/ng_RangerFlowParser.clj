@@ -1163,8 +1163,41 @@ class RangerFlowParser {
       })
     })
 
-    if(ctx.hasCompilerFlag('dead4main')) {
+    def add_dce_fn (fn:void (theFn:RangerAppFunctionDesc) {
+      def set_called (fn:void (f:RangerAppFunctionDesc) {
 
+      })
+      set_called = (fn:void (f:RangerAppFunctionDesc) {
+        if(f.is_called_from_main) {
+          return
+        }
+        f.is_called_from_main = true
+        f.isUsingClasses.forEach({
+          item.is_used_by_main = true
+          if(!null? item.constructor_fn) {
+            set_called( (unwrap item.constructor_fn))
+          }          
+        })
+        f.forOtherVersions( ctx {
+          set_called(item)
+        })
+        f.isCalling.forEach({
+          set_called( item )
+        })
+        f.myLambdas.forEach({
+          set_called( item )
+        })
+        if( !null? f.container_class) {
+          if(!null? f.container_class.constructor_fn) {
+            set_called( (unwrap f.container_class.constructor_fn))
+          }                      
+        }          
+      })
+      set_called(theFn)
+    }) 
+
+    def use_dce false
+    if(ctx.hasCompilerFlag('dead4main')) {
       def mainFn:RangerAppFunctionDesc
       root.definedClasses.forEach({
         def cl item
@@ -1177,42 +1210,47 @@ class RangerFlowParser {
         }
       })
       if(!null? mainFn) {
-        def set_called (fn:void (f:RangerAppFunctionDesc) {
+        add_dce_fn( (unwrap mainFn))
+        use_dce = true
+      }
+    }
+    if(ctx.hasCompilerSetting('dceclass')) {
+      def dc (ctx.getCompilerSetting('dceclass'))
+      print "DCE : " + dc
+      root.definedClasses.forEach({
+        def cl item
+        if(cl.name == dc) {
+          use_dce = true
+          cl.is_used_by_main = true
+          for cl.static_methods variant@(lives):RangerAppFunctionDesc i {
+            add_dce_fn( variant )
+          }
+          item.method_variants.forEach({
+            item.variants.forEach({
+              add_dce_fn(item)
+            })
+          })          
+        }
+      })
+    }
 
-        })
-        set_called = (fn:void (f:RangerAppFunctionDesc) {
-          if(f.is_called_from_main) {
-            return
+    if use_dce {
+      def verbose (ctx.hasCompilerFlag('verbose'))
+      root.definedClasses.forEach({
+        if( item.is_used_by_main == false && verbose ) {
+          print "class not used by main : " + item.name
+        }
+        item.static_methods = (filter item.static_methods {
+          def cc (unwrap item.container_class)
+          if( item.is_called_from_main == false ) {
+            if verbose {
+              print "removing as dead " + item.name + " from " + cc.name
+            }
           }
-          f.is_called_from_main = true
-          f.isUsingClasses.forEach({
-            item.is_used_by_main = true
-            if(!null? item.constructor_fn) {
-              set_called( (unwrap item.constructor_fn))
-            }          
-          })
-          f.forOtherVersions( ctx {
-            set_called(item)
-          })
-          f.isCalling.forEach({
-            set_called( item )
-          })
-          f.myLambdas.forEach({
-            set_called( item )
-          })
-          if( !null? f.container_class) {
-            if(!null? f.container_class.constructor_fn) {
-              set_called( (unwrap f.container_class.constructor_fn))
-            }                      
-          }          
-        })
-        set_called( (unwrap mainFn ))
-        def verbose (ctx.hasCompilerFlag('verbose'))
-        root.definedClasses.forEach({
-          if( item.is_used_by_main == false ) {
-            print "class not used by main : " + item.name
-          }
-          item.static_methods = (filter item.static_methods {
+          return item.is_called_from_main
+        })        
+        item.method_variants.forEach({
+          item.variants = (filter item.variants {
             def cc (unwrap item.container_class)
             if( item.is_called_from_main == false ) {
               if verbose {
@@ -1221,20 +1259,8 @@ class RangerFlowParser {
             }
             return item.is_called_from_main
           })
-          
-          item.method_variants.forEach({
-            item.variants = (filter item.variants {
-              def cc (unwrap item.container_class)
-              if( item.is_called_from_main == false ) {
-                if verbose {
-                  print "removing as dead " + item.name + " from " + cc.name
-                }
-              }
-              return item.is_called_from_main
-            })
-          })
         })
-      }
+      })      
     }
     
     if(ctx.hasCompilerFlag('deadcode')) {
@@ -2039,6 +2065,15 @@ class RangerFlowParser {
       v.nameNode.eval_type = (v.nameNode.typeNameAsType(subCtx))
       v.nameNode.eval_type_name = v.nameNode.type_name
       ctx.hadValidType( (unwrap v.nameNode) )
+
+      if( (ctx.isDefinedClass(v.nameNode.type_name)) ) {
+        def cl (ctx.findClass(v.nameNode.type_name))
+        m.addClassUsage( cl ctx )
+      }
+      if( (ctx.isDefinedClass(v.nameNode.array_type)) ) {
+        def cl (ctx.findClass(v.nameNode.array_type))
+        m.addClassUsage( cl ctx )
+      }      
     }
     subCtx.setInMethod()
     this.WalkNodeChildren(fnBody subCtx wr)
@@ -2490,6 +2525,7 @@ class RangerFlowParser {
       }      
       ; after type inference, check the validity of the type
 
+  
       ctx.hadValidType(cn)
       cn.defineNodeTypeTo(cn ctx)
 
@@ -2561,6 +2597,21 @@ class RangerFlowParser {
       if ((size node.children) > 2) {
         this.shouldBeEqualTypes(cn (unwrap p.def_value) ctx "Variable was assigned an incompatible type.")
       }
+
+      def currM ( ctx.getCurrentMethod())
+      if(ctx.isDefinedClass(cn.type_name)) {
+        def cl (ctx.findClass(cn.type_name))
+        currM.addClassUsage(cl ctx)
+      }
+      if(ctx.isDefinedClass(cn.eval_type_name)) {
+        def cl (ctx.findClass(cn.eval_type_name))
+        currM.addClassUsage(cl ctx)
+      }
+      if(ctx.isDefinedClass(cn.eval_array_type)) {
+        def cl (ctx.findClass(cn.eval_array_type))
+        currM.addClassUsage(cl ctx)
+      }
+      
       ; cn.evalTypeClass can be defined
     } {
       def cn:CodeNode (at node.children 1)

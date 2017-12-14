@@ -38,6 +38,7 @@ class RangerAppFunctionDesc {
   def isCalling@(weak):[RangerAppFunctionDesc]
   def isCalledBy@(weak):[RangerAppFunctionDesc]
   def isUsingClasses@(weak):[RangerAppClassDesc]
+  def isDirectlyUsingClasses@(weak):[RangerAppClassDesc]
 
   def myLambdas@(weak):[RangerAppFunctionDesc]
 
@@ -48,21 +49,43 @@ class RangerAppFunctionDesc {
     }
   }
 
-  fn addClassUsage( m@(weak):RangerAppClassDesc  ctx:RangerAppWriterContext ) {
+  fn addIndirectClassUsage( m@(weak):RangerAppClassDesc  ctx:RangerAppWriterContext ) {
     if( (indexOf this.isUsingClasses m) < 0 ) {
       push this.isUsingClasses m
       m.variables.forEach({
         def nn item.nameNode
         if( ctx.isDefinedClass( nn.type_name )) {
           def cc (ctx.findClass(nn.type_name))
-          this.addClassUsage( cc ctx )
+          this.addIndirectClassUsage( cc ctx )
         }
         if( ctx.isDefinedClass( nn.array_type )) {
           def cc (ctx.findClass(nn.array_type))
-          this.addClassUsage( cc ctx )
+          this.addIndirectClassUsage( cc ctx )
         }
-      })
-      
+      })      
+    }
+  }
+  
+
+  fn addClassUsage( m@(weak):RangerAppClassDesc  ctx:RangerAppWriterContext ) {
+    if( (indexOf this.isUsingClasses m) < 0 ) {
+      push this.isUsingClasses m
+      push this.isDirectlyUsingClasses m
+      m.variables.forEach({
+        def nn item.nameNode
+        if( ctx.isDefinedClass( nn.type_name )) {
+          def cc (ctx.findClass(nn.type_name))
+          this.addIndirectClassUsage( cc ctx )
+        }
+        if( ctx.isDefinedClass( nn.array_type )) {
+          def cc (ctx.findClass(nn.array_type))
+          this.addIndirectClassUsage( cc ctx )
+        }
+      })      
+    } {
+      if( (indexOf this.isDirectlyUsingClasses m) < 0 ) {
+        push this.isDirectlyUsingClasses m
+      }    
     }
   }
   

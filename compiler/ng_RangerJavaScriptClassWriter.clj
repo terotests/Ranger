@@ -613,7 +613,7 @@ class RangerJavaScriptClassWriter {
     def is_react_native:boolean false
     def is_rn_default false
 
-    if( ctx.hasCompilerFlag('dead4main')) {
+    if( (ctx.hasCompilerFlag('dead4main')) || (ctx.hasCompilerSetting('dceclass'))) {
       if(cl.is_used_by_main == false) {
         return
       }
@@ -646,6 +646,12 @@ class RangerJavaScriptClassWriter {
       if(ctx.hasCompilerFlag("nodemodule")) {
         def root (ctx.getRoot())
         root.definedClasses.forEach({
+
+          if( (ctx.hasCompilerFlag('dead4main')) || (ctx.hasCompilerSetting('dceclass'))) {
+            if(item.is_used_by_main == false) {
+              return
+            }
+          }          
           if(item.isNormalClass()) {
               def theEnd (wr.getTag("file_end"))
               theEnd.out( ("module.exports." + item.name + " = " + item.name + ";") true )
