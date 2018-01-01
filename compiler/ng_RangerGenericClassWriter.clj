@@ -203,14 +203,18 @@ class RangerGenericClassWriter {
     node.children.forEach({
       if(!null? item.evalCtx) {
         ;print " - item lang:" + (item.evalCtx.getTargetLang()) + " code " + (item.getCode())
-        if( (item.evalCtx.getTargetLang())  != (ctx.getTargetLang())) {
+        if( (getTargetLang (unwrap item.evalCtx ) )  != (ctx.getTargetLang())) {
           item.evalCtx.targetLangName = (ctx.getTargetLang())
           ;print "--> changing the code lang to " + ((ctx.getTargetLang()))
         }
       }
     })
     ; ------------------------------------------------------------------------------------------
-    this.compiler.WalkNode(node ctx wr)
+    if( !null? node.evalCtx ) {
+      this.compiler.WalkNode(node (unwrap node.evalCtx) wr)
+    } {
+      this.compiler.WalkNode(node ctx wr)
+    }
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     wr.out(node.type_name false)

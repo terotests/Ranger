@@ -33,11 +33,11 @@ class SourceCode {
     } 
     fn getColumnStr:string (sp:int) {
         def cnt:int 0
-        def last:int 0
+        def last_col:int 0
         for lines str:string i {
             cnt = (+ cnt (+ (strlen str) 1)))
             if (> cnt sp) {
-              def ll:int (sp - last)
+              def ll:int (sp - last_col)
               def ss:string ""
               while (ll > 0) {
                 ss = ss + " "
@@ -45,19 +45,19 @@ class SourceCode {
               }
               return ss
             } 
-            last = cnt
+            last_col = cnt
         }
         return ""
     } 
     fn getColumn:int (sp:int) {
         def cnt:int 0
-        def last:int 0
+        def last_col:int 0
         for lines str:string i {
             cnt = (+ cnt (+ (strlen str) 1)))
             if (> cnt sp) {
-              return (sp - last)
+              return (sp - last_col)
             } 
-            last = cnt
+            last_col = cnt
         }
         return -1
     } 
@@ -230,7 +230,11 @@ class CodeNode {
   def parent@(weak):CodeNode
   def attrs:[CodeNode]
   def appGUID:string ""
+
+  ; register expressions are expressions that must be moved before this expression
   def register_name:string ""
+  def register_expressions:[CodeNode]
+  def after_expression:[CodeNode]
 
   Constructor (source:SourceCode start:int end:int) {
     sp = start
@@ -386,6 +390,32 @@ class CodeNode {
         ch.forTree(callback)
     }
   }    
+
+  fn parallelTree:void ( otherTree:CodeNode callback:( fn:void (left@(optional):CodeNode right@(optional):CodeNode i:int)) ) {   
+    def left_cnt (size this.children)
+    def right_cnt (size otherTree.children)
+
+    def cnt (max left_cnt right_cnt)
+    def i 0
+    while ( i < cnt ) {
+      def left@(optional):CodeNode
+      def right@(optional):CodeNode
+      if( i < left_cnt ) {
+        left = (at this.children i)
+      }
+      if( i < right_cnt ) {
+        right = (at otherTree.children i)
+      }
+      callback( left right i)
+      if( (!null? left) && (!null? right)) {
+        if(has left.children) {
+          left.parallelTree( (unwrap right) callback)
+        }
+      }
+      i = i + 1
+    }
+  }    
+  
 
   fn walkTreeUntil:void ( callback:( fn:boolean (item:CodeNode i:int)) ) {      
     for children ch:CodeNode i {

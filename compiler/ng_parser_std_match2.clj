@@ -2,7 +2,7 @@
 extension RangerFlowParser {
 
   fn findLanguageOper@(optional weak):CodeNode (details:CodeNode ctx:RangerAppWriterContext opDef:CodeNode) {
-    def langName:string (ctx.getTargetLang())
+    def langName (ctx.getTargetLang())
     def rv:CodeNode
     for details.children det:CodeNode i {        
       if ( (array_length det.children ) > 0) {
@@ -80,6 +80,17 @@ extension RangerFlowParser {
       lang_parser.parse((ctx.hasCompilerFlag("no-op-transform")))
 
       def node@(lives):CodeNode (unwrap lang_parser.rootNode)
+
+      if(has args.register_expressions) {
+        node.register_expressions = (clone args.register_expressions)
+      }
+      args.children.forEach({
+        item.register_expressions.forEach({
+          def re@(temp) item
+          push node.register_expressions re
+        })
+      })
+
       return node
   }
 
@@ -98,73 +109,29 @@ extension RangerFlowParser {
     def arg_eval_start 0 
     if( callArgs.hasBooleanProperty("error")) {
       expects_error = true
-    } 
+    }
 
-    ; TODO: continue pushing the operators into the methodChain
-    ; + add into the method chain the detected operator
-    ; + check that chain can be a mix of actual operators or calls
-    ; surround_static( (static_fn_foo()).map() ).filter()
+    if( ( (inCtx.expressionLevel()) == 0 ) ) {
+      ; print " expr level zero for " + (callArgs.getCode())
+      inCtx.lastBlockOp = callArgs
+    } {
+      ; print " expr level " + (inCtx.expressionLevel()) + " -> " + (callArgs.getCode())
+    }
+     
+    
     def in_chain false
-    def call_arg_cnt 0
-    for callArgs.children ca:CodeNode i {
-      def name (ca.vref)
-      if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
-        in_chain = true
-        ca.is_part_of_chain = true
-      }
-      if in_chain {
-        ca.is_part_of_chain = true
-      } {
-        call_arg_cnt = call_arg_cnt + 1
-      }
-    }
-
-    if in_chain {
-;      print "in chain " + (callArgs.getCode())
-      def fc (callArgs.getFirst())   
-      def sc (callArgs.getSecond())
-      def thrd (callArgs.getThird())
-      def i call_arg_cnt
-      def chainRoot:CodeNode (callArgs)
-      def innerNode@(weak):CodeNode
-
-      def newNode (r.expression (fc.copy()) (sc.copy()) (thrd.copy()) )
-      innerNode = newNode
-      def chain_cnt 0
-      def chlen (array_length callArgs.children)
-
-      while ( i < (chlen - 1) ) {
-        def fc (itemAt callArgs.children i)
-        def args@(lives) (itemAt callArgs.children (i + 1))
-        def name (fc.vref)
-        if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
-          def method_name (substring name 1 (strlen name))          
-          def newNode (r.op "call" (innerNode.copy()) (r.vref method_name) (args.copy()) )          
-          innerNode = newNode
-          chain_cnt = chain_cnt + 1
-        } {
-          ctx.addError(callArgs "Invalid chaining op")
-        }
-        i = i + 2
-      }
-      if ( chain_cnt > 0 ) {
-        callArgs.getChildrenFrom( (unwrap innerNode ) )
-        callArgs.tag = "chainroot"
-        callArgs.flow_done = false
-        this.WalkNode( callArgs ctx wr)
-        return true
-      } {
-        ctx.addError( callArgs "Invalid chain")
-        return true
-      }
-    }
+    def call_arg_cnt (size callArgs.children)
     def op_list (ctx.getOperators(callFnName.vref))
-
     for op_list ch@(lives):CodeNode main_index {
 
       def fc:CodeNode (ch.getFirst())
       def nameNode:CodeNode (ch.getSecond())
       def args:CodeNode (ch.getThird())
+
+      ; variable disables operator usage...
+      if( inCtx.isVarDefined( fc.vref )) {
+        return false
+      }
       
       ; if loop is done two times, remove the old NS definition
       ctx.removeOpNs( added_ns )
@@ -268,6 +235,9 @@ extension RangerFlowParser {
           if (arg.hasFlag("ignore")) {
             continue _
           }
+          if (arg.hasFlag("keyword")) {
+            continue _
+          }
           if (arg.hasFlag("noeval")) {
             callArg.eval_type = callArg.value_type
             callArg.eval_type_name = callArg.type_name
@@ -289,11 +259,13 @@ extension RangerFlowParser {
                 def tmpCtx@(lives) (ctx.fork())
                 tmpCtx.is_try_block = true
                 callArg.evalCtx = tmpCtx            
+                tmpCtx.newBlock()
                 this.WalkNode(callArg tmpCtx wr)
               } {
-                def tmpCtx@(lives) ctx
+                def tmpCtx@(lives) (ctx.fork())
+                tmpCtx.newBlock()
                 callArg.evalCtx = tmpCtx            
-                this.WalkNode(callArg ctx wr)
+                this.WalkNode(callArg tmpCtx wr)
               }
 
               last_was_block = true
@@ -352,6 +324,246 @@ extension RangerFlowParser {
         }
         
         def all_matched:boolean (match.matchArguments(args callArgs ctx 1))
+
+        if all_matched {
+
+          def expr_level (ctx.expressionLevel())
+          def is_last false
+          
+          if(!null? callArgs.parent) {
+            is_last = ( (size callArgs.parent.children) == ( 1 + ( indexOf callArgs.parent.children callArgs ) ) )
+          }
+
+          if(  (fc.vref == 'if') && (ctx.hasCompilerFlag('voidexpr')) && ( expr_level > 0 || is_last) ) {
+
+            print "IF expr leve == " +( ctx.expressionLevel() )
+
+            print (callArgs.getCode())
+
+            ; simple eval test, works only for strings...
+            def thenBlock (at callArgs.children 2)
+            def lastRow (last thenBlock.children)
+
+            print "Last row == " + (lastRow.getCode())
+
+            def BlockOP (ctx.getLastBlockOp())
+            def regName (ctx.createNewRegName())
+            def regExpr (r.expression (r.vref 'def') (r.vref regName lastRow.eval_type_name) )
+
+            callArgs.eval_type = lastRow.eval_type
+            callArgs.eval_type_name = lastRow.eval_type_name
+
+            def fnC (ctx.findFunctionCtx())
+
+            this.WalkNode( regExpr fnC wr )
+            def realRegName ( (at regExpr.children 1) .paramDesc.compiledName ) 
+            
+            def then_regs false
+            if( has lastRow.register_name ) {
+              def newLastRow (r.expression (r.vref '=') (r.vref regName) (r.vref lastRow.register_name) ))
+              this.WalkNode( newLastRow ctx wr )
+              push thenBlock.children newLastRow
+              then_regs = true
+            } {
+              def vCopy (lastRow.cleanCopy())
+              lastRow.expression = true
+              lastRow.vref = ""
+              lastRow.value_type = RangerNodeType.NoType
+              lastRow.flow_done = false  
+              lastRow.getChildrenFrom( (r.expression (r.vref '=') (r.vref regName) vCopy ))
+              this.WalkNode( lastRow ctx wr )
+            }
+
+            if( (size callArgs.children ) == 4) {
+              def elseBlock (at callArgs.children 3)
+              def lastRow (last elseBlock.children)
+              if( has lastRow.register_name ) {
+                def newLastRow (r.expression (r.vref '=') (r.vref regName) (r.vref lastRow.register_name) ))
+                this.WalkNode( newLastRow ctx wr )
+                push elseBlock.children newLastRow
+                then_regs = true
+              } {
+                def vCopy (lastRow.cleanCopy())
+                lastRow.expression = true
+                lastRow.vref = ""
+                lastRow.value_type = RangerNodeType.NoType
+                lastRow.flow_done = false  
+                lastRow.getChildrenFrom( (r.expression (r.vref '=') (r.vref regName) vCopy ))
+                print " lastRow value --> " + (vCopy.getCode())
+                this.WalkNode( lastRow ctx wr )             
+              }
+            }
+            def tmp@(temp) (callArgs.clone())
+            BlockOP.register_expressions.push( regExpr )     
+            BlockOP.register_expressions.push( tmp )             
+            ; callArgs.register_name = realRegName
+            callArgs.register_name = regName
+            callArgs.reg_compiled_name = realRegName
+
+            tmp.has_operator = true
+            tmp.op_index = main_index
+            tmp.operator_node = ch
+
+
+            return true
+          }
+
+          ; (fc.vref != 'if') && (fc.vref != 'if!')
+          if(  (fc.vref != 'for') && (ctx.hasCompilerFlag('new')) ) {
+            def opDef (langOper.getSecond())
+            def opCnts:[int:int]
+            def regNames:[int:string]
+            def firstRef@(weak):[int:CodeNode]
+            ; possible multiple evaluations for an item...              
+            forEach args.children {
+              def opArg item
+              if( (opArg.hasFlag('loopcondition')) ) {
+
+                def loopBlock:CodeNode  
+                forEach args.children {
+                  if(item.hasFlag('loopblock')) {
+                    def tmp@(temp) (at callArgs.children (index + 1))
+                    loopBlock = tmp
+                  }
+                }
+                if(null? loopBlock) {
+                  ctx.addError( args "Invalid operator: Loop condition without block ")
+                  return
+                }
+
+                def opName (index + 1)
+                def item (callArgs.children.at( (index + 1) ))
+                ; print "LOOP condition found " + (item.getCode())
+                def regName ""
+                def realArg (at callArgs.children (opName))
+
+                if( has realArg.register_name ) {
+                  regName = realArg.register_name
+                } {
+                  regName = (ctx.createNewRegName())
+                }
+                def argCopy (realArg.copy())
+                def regExpr (r.expression (r.vref 'def') (r.vref regName) argCopy)
+                ; should be function ctx ? 
+                ; def fnC (ctx.findFunctionCtx())
+
+                ; print "while last op was " + (lastOp.getCode())
+
+                ctx.lastBlockOp = callArgs
+                this.WalkNode( regExpr ctx wr )
+
+                def realRegName ( (at regExpr.children 1) .paramDesc.compiledName ) 
+
+                def regArg (at regExpr.children 1)
+                regArg.paramDesc.set_cnt = 1
+                regArg.paramDesc.ref_cnt = 1
+
+                def BlockOP (ctx.getLastBlockOp())
+                BlockOP.register_expressions.push( regExpr )
+
+                realArg.register_name = regName
+                realArg.reg_compiled_name = realRegName
+                forEach callArgs.children {
+                  if(item.is_block_node) {
+                    def argCopy (realArg.copy())
+                    argCopy.register_name = ""
+                    argCopy.forTree({
+                      item.register_name = ""
+                    })
+                    def eval_expr@(lives) (r.expression (r.vref '=') (r.vref regName) argCopy)
+
+                    def lastOp@(lives) (at loopBlock.children ( (size loopBlock.children) - 1) )
+                    ctx.lastBlockOp = eval_expr
+
+                    this.WalkNode( eval_expr ctx wr )
+                    push item.children eval_expr
+                    ; print "pushed " + (eval_expr.getCode())
+                  }
+                }
+              }
+            }
+
+            opDef.children.forEach({
+              if(item.isFirstVref('e')) {
+                if( (item.hasFlag('ignore')) || (item.hasFlag('noeval')) ) {
+                  return
+                }
+                def opName ((item.getSecond()).int_value)
+                def opArg (at args.children (opName - 1))
+                if( (has opCnts opName ) ) {
+                  ; print (langOper.getCode())
+                  ; print "several uses of e " + opName + " => " + (callArgs.getCode())
+                  ; print "  ^ " + (opDef.getCode())
+                  ; find function level context              
+
+                  def regName ""
+                  def realArg (at callArgs.children (opName))
+                  def just_vref (fn:boolean (a:CodeNode) {
+                  })
+
+                  just_vref = (fn:boolean (a:CodeNode) {
+                    if( has a.vref ) {
+                      return true
+                    }
+                    if( TTypes.isPrimitive( a.value_type ) )  {
+                      return true
+                    }
+                    if( (size a.children ) == 1 ) {
+                      return ( just_vref( (at a.children 0)) )
+                    }
+                    return false
+                  })
+                  if(just_vref(realArg)) {
+                    return
+                  }
+
+                  if( has regNames opName ) {
+                    if( has realArg.register_name ) {
+                      regName = realArg.register_name
+                    } {
+                      regName = (unwrap (get regNames opName))
+                    }
+                    realArg.register_name = regName
+                  } {
+                    if( has realArg.register_name ) {
+                      regName = realArg.register_name
+                    } {
+                      regName = (ctx.createNewRegName())
+                      ; print "creating def for " + regName
+                      set regNames opName regName
+                      ; define the register...
+                      def argCopy (realArg.copy())
+                      def regExpr (r.expression (r.vref 'def') (r.vref regName) argCopy)
+                      ; should be function ctx ? 
+                      ; def fnC (ctx.findFunctionCtx())
+                      this.WalkNode( regExpr ctx wr )
+                      def regArg (at regExpr.children 1)
+                      def realRegName ( (at regExpr.children 1) .paramDesc.compiledName ) 
+                      regArg.paramDesc.set_cnt = 1
+                      regArg.paramDesc.ref_cnt = 1
+
+                      def BlockOP (ctx.getLastBlockOp())
+                      BlockOP.register_expressions.push( regExpr )
+
+                      ; realArg.register_expressions.push( regExpr )
+                      realArg.register_name = regName
+                      realArg.reg_compiled_name = realRegName
+
+                      ; print "last block was" + (BlockOP.getCode())
+                    }
+                  }
+
+                } {
+                  set opCnts opName 1
+                  set firstRef opName item
+                }
+              }
+            })
+            
+          }
+
+        }
+
         if all_matched {
           if is_async {
             def activeFn (ctx.getCurrentMethod())            
@@ -409,7 +621,7 @@ extension RangerFlowParser {
             ; --> 
             ; def sCtx (ctx.forkWithOps( (itemAt ch.children 3) ))
             def sCtx (ctx.fork())
-
+            sCtx.newBlock()
             this.WalkNode(ca sCtx wr)
             ; last_was_block = true 
 
@@ -429,8 +641,8 @@ extension RangerFlowParser {
                   def vName (item.copy())
                   def caCopy (callArg.copy())
                   def prms (this.transformParams2( ([] _:CodeNode (callArg) ) ([] _:CodeNode (arg) ) (ctx) ))
-                  def first (itemAt prms 0)
-                  def ad (r.op "def" vName first )
+                  def firstp (itemAt prms 0)
+                  def ad (r.op "def" vName firstp )
                   return ad
                 }))
             ))
@@ -628,9 +840,9 @@ extension RangerFlowParser {
             def moves:CodeNode (unwrap moves_opt)
             def ann:CodeNode moves.vref_annotation
             def from:CodeNode (ann.getFirst())
-            def to:CodeNode (ann.getSecond())
+            def toItem:CodeNode (ann.getSecond())
             def cA:CodeNode (itemAt callArgs.children from.int_value)
-            def cA2:CodeNode (itemAt callArgs.children to.int_value)
+            def cA2:CodeNode (itemAt callArgs.children toItem.int_value)
             if cA.hasParamDesc {
               def pp:RangerAppParamDesc cA.paramDesc
               def pp2:RangerAppParamDesc cA2.paramDesc

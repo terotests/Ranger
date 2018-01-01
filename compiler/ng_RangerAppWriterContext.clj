@@ -1,9 +1,11 @@
+Import "ContextOperators.clj"
 
 class TypeCounts {
   def b_counted false
   def interface_cnt 0
   def operator_cnt 0
   def immutable_cnt 0
+  def register_cnt 0
 }
 
 class RangerNodeValue {
@@ -32,48 +34,6 @@ class RangerAppEnum {
 class OpFindResult {
   def did_find:boolean false
   def node:CodeNode
-}
-
-
-operator type:RangerAppWriterContext all {
-
-  fn create_var:RangerAppParamDesc ( name:string type_name:string ) {
-      def fieldNode@(lives) (r.vref name type_name)
-      fieldNode.value_type = (fieldNode.typeNameAsType(self))
-      def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
-      p.name = name
-      p.value_type = fieldNode.value_type
-      p.node = fieldNode
-      p.nameNode = fieldNode
-      p.is_optional = false
-      self.defineVariable(p.name p)
-      return p
-  }
-  
-  fn create_var:RangerAppParamDesc ( name:string usingNode:CodeNode ) {
-      def fieldNode (r.vref name)
-      def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
-      p.name = name
-      p.value_type = usingNode.value_type
-      p.node = usingNode
-      p.nameNode = usingNode
-      p.is_optional = false
-      self.defineVariable(p.name p)
-      return p
-  }
-
-  fn create_register:RangerAppParamDesc ( name:string usingNode:CodeNode ) {
-      def fieldNode (r.vref name)
-      def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
-      p.name = name
-      p.value_type = usingNode.value_type
-      p.node = usingNode
-      p.nameNode = usingNode
-      p.is_optional = false
-      self.defineVariable(p.name p)
-      return p
-  }
-
 }
 
 class RangerOperatorList {
@@ -114,6 +74,7 @@ class RangerAppWriterContext {
   def in_expression:boolean false
   def expr_stack:[boolean]
   def expr_restart:boolean false
+  def expr_restart_block:boolean false
   def in_method:boolean false
   def method_stack:[boolean]
   def typeNames:[string]
@@ -175,10 +136,45 @@ class RangerAppWriterContext {
   def registered_plugins:[RangerRegisteredPlugin]
 
   def operatorFunction:(_:CodeNode (name:string) )
+  def lastBlockOp@(weak):CodeNode
 
-  fn addPluginOp( name:string ) {
-    def root (this.getRoot())
-    set root.pluginSpecificOperators name true
+  def opFnsList@(weak):[string:CodeNode]
+
+  fn addOpFn (name:string code@(strong):CodeNode) {
+    if(! (has opFnsList name)) {
+      set opFnsList name (r.expression)
+    }
+    def rootNode (unwrap (get opFnsList name))
+    push rootNode.children code
+  }
+
+  fn getOpFns:[CodeNode] (name:string) {
+    def rv:[CodeNode]
+    if (has opFnsList name) {
+      def ol (unwrap (get opFnsList name))
+      forEach ol.children {
+        def tmp@(temp) item
+        push rv tmp
+      }
+    }
+    if(!null? parent ) {
+      def list2 (this.parent.getOpFns(name))
+      forEach list2 {
+        def tmp@(temp) item
+        push rv tmp
+      }
+    }
+    return rv
+  }
+
+  fn getLastBlockOp@(optional weak):CodeNode () {
+    if(!null? lastBlockOp) {
+      return lastBlockOp
+    }
+    if(!null? parent) {
+      return (this.parent.getLastBlockOp())
+    }
+    return lastBlockOp
   }
 
   fn removePluginOp( name:string ) {
@@ -376,6 +372,12 @@ class RangerAppWriterContext {
     root.counters.interface_cnt = root.counters.interface_cnt + 1
   }
 
+  fn createNewRegName:string () {
+    def root (this.findFunctionCtx())
+    root.counters.register_cnt = root.counters.register_cnt + 1
+    return ( '__REGx' + root.counters.register_cnt )
+  }
+  
   fn isTryBlock:boolean () {
     if expr_restart {
       return false
@@ -806,7 +808,7 @@ class RangerAppWriterContext {
       if (this.isDefinedType(node.array_type)) {
         return true
       } {
-        this.addError(node ("Unknown type for array values: " + node.array_type))        
+        this.addError(node ('Unknown type for array values: ' + node.array_type))        
         return false        
       }
     }
@@ -815,10 +817,10 @@ class RangerAppWriterContext {
         return true
       } {
         if( (this.isDefinedType(node.array_type)) == false) {
-          this.addError(node ("Unknown type for map values: " + node.array_type))          
+          this.addError(node ('Unknown type for map values: ' + node.array_type))          
         }
         if( (this.isDefinedType(node.key_type)) == false) {
-          this.addError(node ("Unknown type for map keys: " + node.key_type))          
+          this.addError(node ('Unknown type for map keys: ' + node.key_type))          
         }
         return false
       }
@@ -833,20 +835,11 @@ class RangerAppWriterContext {
         ; def sec:CodeNode (itemAt node.expression_value.children 1)
         ; def fc:CodeNode (sec.getFirst())
       } {
-        this.addError(node ("Unknown type: " + node.type_name + " type ID : " + node.value_type))    
+        this.addError(node ('Unknown type: ' + node.type_name + " type ID : " + node.value_type))    
       }
     }
-;    this.addError(node ((((("Invalid or missing type definition: " + node.type_name) + " ") + node.key_type) + " ") + node.array_type))
+;    this.addError(node ((((('Invalid or missing type definition: ' + node.type_name) + " ") + node.key_type) + " ") + node.array_type))
     return false
-  }
-  fn getTargetLang:string () {
-    if( (strlen targetLangName) > 0) {
-       return targetLangName
-    }
-    if(parent) {
-      return (parent.getTargetLang())
-    }
-    return "ranger"
   }
   fn findOperator:CodeNode (node:CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
@@ -860,6 +853,15 @@ class RangerAppWriterContext {
     def root:RangerAppWriterContext (this.getRoot())
     root.initStdCommands()
     return (unwrap root.stdCommands)
+  }
+  fn findOperatorsWithName@(weak):[CodeNode] (name:string) {
+    def res@(weak lives):[CodeNode]
+    forEach ((this.getStdCommands()) .children) {
+      if(item.isFirstVref(name)) {
+        push res item
+      }
+    }
+    return res
   }
   fn findClassWithSign:RangerAppClassDesc (node:CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
@@ -1104,7 +1106,10 @@ class RangerAppWriterContext {
         }            
       }
       res = new_class
-      push flowParser.walkAlso (unwrap new_class.node)
+      ; --> try to walk immediately...
+      def rootCtx (this.getRoot())
+      flowParser.WalkNode( (unwrap new_class.node) ctx wr)
+      ; push flowParser.walkAlso (unwrap new_class.node)
     }      
     return res
   }
@@ -1423,6 +1428,13 @@ class RangerAppWriterContext {
   }
   fn defineVariable:void (name:string desc@(strong):RangerAppParamDesc) {
     def cnt:int 0
+
+    ; *** code to warn about variable name and operator name clash **
+    ; def opList (this.findOperatorsWithName(name))
+    ; if( (size opList) > 0) {
+    ;   this.addError( (unwrap desc.nameNode) ('variable clashes with operator ' + name) )
+    ; }
+
     def fnLevel (this.findMethodLevelContext())
     if (false == ((desc.varType == RangerContextVarType.Property) || (desc.varType == RangerContextVarType.FunctionParameter) || (desc.varType == RangerContextVarType.Function))) {
       cnt = (fnLevel.getFnVarCnt3(name))
@@ -1542,18 +1554,21 @@ class RangerAppWriterContext {
   fn restartExpressionLevel:void () {
     expr_restart = true
   }
+  fn newBlock () {
+    expr_restart_block = true
+  }
   fn isInExpression:boolean () {
     if ((array_length expr_stack) > 0) {
       return true
     }
-    if ((!null? parent) && (expr_restart == false)) {
+    if ((!null? parent) && (expr_restart_block == false) && (expr_restart == false )) {
       return (parent.isInExpression())
     }
     return false
   }
   fn expressionLevel:int () {
     def level:int (array_length expr_stack)
-    if ((!null? parent) && (expr_restart == false)) {
+    if ((!null? parent) && (expr_restart == false) && (expr_restart_block == false)) {
       return (level + (parent.expressionLevel()))
     }
     return level

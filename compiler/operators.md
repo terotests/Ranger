@@ -1,5 +1,5 @@
 ## Statements
-  `nullify` ,   `golang_wait` ,   `wait` ,   `timer` ,   `create_dir` ,   `write_file` ,   `=` ,   `def` ,   `return` ,   `gitdoc` ,   `if` ,   `switch` ,   `case` ,   `default` ,   `break` ,   `continue` ,   `while` ,   `throw` ,   `try` ,   `set` ,   `push` ,   `print` ,   `forEach` ,   `forUntil` ,   `trace` ,   `color_print` ,   `plugin_preprocess` ,   `plugin_postprocess` 
+  `nullify` ,   `golang_wait` ,   `wait` ,   `timer` ,   `create_dir` ,   `write_file` ,   `=` ,   `def` ,   `return` ,   `gitdoc` ,   `if` ,   `if!` ,   `switch` ,   `case` ,   `default` ,   `break` ,   `continue` ,   `while` ,   `throw` ,   `try` ,   `set` ,   `push` ,   `print` ,   `forEach` ,   `forUntil` ,   `addUsage` ,   `EnterVarDef` ,   `trace` ,   `color_print` ,   `plugin_preprocess` ,   `plugin_postprocess` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -13,7 +13,8 @@
 | def | |   (`varname`:T  )| | 
 | return | |   (`value`:T  )| | 
 | gitdoc | |   (`value`:string  )| | 
-| if | |   (`condition`:boolean  `then_block`:block  `else_block`:block  )| | 
+| if | |   (`condition`:boolean  `then_block`:block  `else`:  `else_block`:block  )| | 
+| if! | |   (`condition`:boolean  `then_block`:block  `else`:  `else_block`:block  )| | 
 | switch | |   (`condition`:char  `case_list`:block  )| | 
 | case | |   (`condition`:char  `case_block`:block  )| | 
 | default | |   (`default_block`:block  )| | 
@@ -27,6 +28,8 @@
 | print | |   (`text`:string  )| | 
 | forEach | |   (`self`:Vector  `cb`:(fn:void (item: T))  )| | 
 | forUntil | |   (`self`:Vector  `cb`:(fn:boolean (item: T))  )| | 
+| addUsage | |   (`self`:RangerAppWriterContext  `cn`:CodeNode  )| | 
+| EnterVarDef | |   (`self`:RangerFlowParser  `node`:CodeNode  `ctx`:RangerAppWriterContext  `wr`:CodeWriter  )| | 
 | trace | |   ( )| | 
 | color_print | |   (`cname`:string  `text`:string  )| | 
 | plugin_preprocess | |   (`plugin`:RangerCompilerPlugin  `root`:CodeNode  `ctx`:RangerAppWriterContext  `wr`:CodeWriter  )| | 
@@ -47,10 +50,11 @@
 | if_scala | |   (`code`:block  )| run this code only for Scala target| 
 
 ## Operators without arguments
-  `create_immutable_array` ,   `create_immutable_hash` ,   `M_PI` ,   `shell_arg_cnt` ,   `install_directory` ,   `current_directory` ,   `error_msg` ,   `json_array` ,   `json_object` ,   `r.expression` ,   `r.block` ,   `has_console_colors` 
+  `random` ,   `create_immutable_array` ,   `create_immutable_hash` ,   `M_PI` ,   `shell_arg_cnt` ,   `install_directory` ,   `current_directory` ,   `error_msg` ,   `json_array` ,   `json_object` ,   `r.expression` ,   `r.block` ,   `has_console_colors` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
+| random | `double` |   ( )| | 
 | create_immutable_array | `[T]` |   ( )| | 
 | create_immutable_hash | `[K:T]` |   ( )| | 
 | M_PI | `double` |   ( )| | 
@@ -84,10 +88,11 @@
 | to | `T` |   (`to`:T  `item`:T  )| | 
 
 ## Numeric operators
-  `fabs` ,   `tan` ,   `unwrap` ,   `unwrap` ,   `-` ,   `-` ,   `+` ,   `+` ,   `%` ,   `*` ,   `*` ,   `/` ,   `/` ,   `int2double` ,   `ceil` ,   `floor` ,   `asin` ,   `acos` ,   `cos` ,   `sin` ,   `sqrt` ,   `to_int` ,   `to_double` 
+  `random` ,   `fabs` ,   `tan` ,   `unwrap` ,   `unwrap` ,   `-` ,   `-` ,   `+` ,   `+` ,   `%` ,   `*` ,   `*` ,   `/` ,   `/` ,   `int2double` ,   `ceil` ,   `floor` ,   `asin` ,   `acos` ,   `cos` ,   `sin` ,   `sqrt` ,   `to_int` ,   `max` ,   `to_double` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
+| random | `int` |   (`min`:int  `max`:int  )| | 
 | fabs | `double` |   (`v`:double  )| | 
 | tan | `double` |   (`v`:double  )| | 
 | unwrap | `int` |   (`arg`:<optional>int  )| | 
@@ -110,6 +115,7 @@
 | sin | `double` |   (`value`:double  )| | 
 | sqrt | `double` |   (`value`:double  )| | 
 | to_int | `int` |   (`value`:double  )| | 
+| max | `int` |   (`left`:int  `right`:int  )| | 
 | to_double | `double` |   (`input`:int  )| | 
 
 ## Miscellaneous operators
@@ -126,7 +132,7 @@
 | r.value | `CodeNode` |   (`n`:int  )| | 
 
 ## String operators
-  `has` ,   `has_option` ,   `get_option` ,   `get_required_option` ,   `sha256` ,   `md5` ,   `env_var` ,   `file_exists` ,   `dir_exists` ,   `read_file` ,   `+` ,   `||` ,   `null?` ,   `!null?` ,   `trim` ,   `strsplit` ,   `strlen` ,   `substring` ,   `to_charbuffer` ,   `to_int` ,   `length` ,   `at` ,   `charAt` ,   `charcode` ,   `ccode` ,   `str2int` ,   `str2double` ,   `to_double` ,   `indexOf` ,   `first` ,   `to_uppercase` ,   `==` ,   `!=` ,   `from_string` ,   `json_obj.attr` ,   `json.attr` ,   `r.op` ,   `r.vref` ,   `r.value` ,   `load_compiler_plugin` 
+  `has` ,   `has_option` ,   `get_option` ,   `get_required_option` ,   `sha256` ,   `md5` ,   `env_var` ,   `file_exists` ,   `dir_exists` ,   `read_file` ,   `+` ,   `||` ,   `null?` ,   `!null?` ,   `trim` ,   `strsplit` ,   `strlen` ,   `substring` ,   `to_charbuffer` ,   `to_int` ,   `length` ,   `at` ,   `charAt` ,   `charcode` ,   `ccode` ,   `str2int` ,   `str2double` ,   `to_double` ,   `indexOf` ,   `first` ,   `to_lowercase` ,   `to_uppercase` ,   `==` ,   `!=` ,   `from_string` ,   `json_obj.attr` ,   `json.attr` ,   `r.op` ,   `r.vref` ,   `r.value` ,   `load_compiler_plugin` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -160,6 +166,7 @@
 | to_double | `<optional>double` |   (`value`:string  )| | 
 | indexOf | `int` |   (`str`:string  `key`:string  )| | 
 | first | `string` |   (`str`:string  )| | 
+| to_lowercase | `string` |   (`s`:string  )| | 
 | to_uppercase | `string` |   (`s`:string  )| | 
 | == | `boolean` |   (`left`:string  `right`:string  )| | 
 | != | `boolean` |   (`left`:string  `right`:string  )| | 
@@ -173,7 +180,7 @@
 
 
 ## Array operators
-  `has` ,   `def` ,   `make` ,   `for` ,   `length` ,   `at` ,   `join` ,   `set` ,   `lift` ,   `itemAt` ,   `indexOf` ,   `remove_index` ,   `insert` ,   `remove` ,   `push` ,   `removeLast` ,   `clear` ,   `last_index` ,   `last` ,   `first` ,   `size` ,   `sort` ,   `reverse` ,   `array_length` ,   `array_extract` ,   `forEach` ,   `map` ,   `filter` ,   `reduce` ,   `groupBy` ,   `clone` ,   `find` ,   `count` ,   `contains` ,   `r.expression` ,   `r.block` 
+  `has` ,   `def` ,   `make` ,   `for` ,   `length` ,   `at` ,   `join` ,   `get` ,   `set` ,   `lift` ,   `itemAt` ,   `indexOf` ,   `remove_index` ,   `insert` ,   `remove` ,   `push` ,   `removeLast` ,   `clear` ,   `last_index` ,   `last` ,   `first` ,   `size` ,   `sort` ,   `reverse` ,   `array_length` ,   `array_extract` ,   `forEach` ,   `map` ,   `filter` ,   `reduce` ,   `groupBy` ,   `clone` ,   `find` ,   `count` ,   `contains` ,   `r.expression` ,   `r.block` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -184,6 +191,7 @@
 | length | `int` |   (`array`:[T]  )| | 
 | at | `T` |   (`array`:[T]  `index`:int  )| | 
 | join | `string` |   (`array`:[string]  `delimiter`:string  )| | 
+| get | `<optional>T` |   (`a`:[T]  `index`:int  )| | 
 | set | |   (`array`:[T]  `index`:int  `value`:T  )| | 
 | lift | `<optional>T` |   (`array`:[T]  `index`:int  )| | 
 | itemAt | `T` |   (`array`:[T]  `index`:int  )| | 
@@ -191,7 +199,7 @@
 | remove_index | |   (`array`:[T]  `index`:int  )| | 
 | insert | |   (`array`:[T]  `index`:int  `item`:T  )| | 
 | remove | |   (`array`:[T]  `index`:int  )| | 
-| push | |   (`array`:[T]  `item`:<optional>T  )| | 
+| push | |   (`array`:[T]  `item`:T  )| | 
 | removeLast | |   (`array`:[T]  )| | 
 | clear | |   (`array`:[T]  )| | 
 | last_index | `int` |   (`array`:[T]  )| | 
@@ -230,7 +238,7 @@
 | forKeys | |   (`self`:[string:T]  `cb`:(fn:void (index: string))  )| | 
 
 ## Boolean / test operators
-  `has` ,   `has` ,   `has` ,   `has` ,   `has_option` ,   `file_exists` ,   `dir_exists` ,   `||` ,   `null?` ,   `null?` ,   `null?` ,   `null?` ,   `!null?` ,   `!null?` ,   `!null?` ,   `!null?` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `>` ,   `>` ,   `>` ,   `<=` ,   `<=` ,   `<=` ,   `<` ,   `<` ,   `<` ,   `!=` ,   `!=` ,   `!=` ,   `!=` ,   `>=` ,   `>=` ,   `>=` ,   `&&` ,   `&&` ,   `getBoolean` ,   `isArray` ,   `contains` ,   `is_not_limiter` 
+  `has` ,   `has` ,   `has` ,   `has` ,   `has_option` ,   `file_exists` ,   `dir_exists` ,   `!` ,   `||` ,   `null?` ,   `null?` ,   `null?` ,   `null?` ,   `!null?` ,   `!null?` ,   `!null?` ,   `!null?` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `==` ,   `>` ,   `>` ,   `>` ,   `<=` ,   `<=` ,   `<=` ,   `<` ,   `<` ,   `<` ,   `!=` ,   `!=` ,   `!=` ,   `!=` ,   `>=` ,   `>=` ,   `>=` ,   `&&` ,   `&&` ,   `getBoolean` ,   `isArray` ,   `contains` ,   `is_not_limiter` 
 
 | operator | returns | arguments | description |
 | -------- | ------- | --------- | ------------| 
@@ -241,6 +249,7 @@
 | has_option | `boolean` |   (`name`:string  )| | 
 | file_exists | `boolean` |   (`path`:string  `filename`:string  )| | 
 | dir_exists | `boolean` |   (`path`:string  )| | 
+| ! | `boolean` |   (`arg`:boolean  )| | 
 | &#124;&#124; | `boolean` |   (`left`:boolean  `right`:boolean  )| | 
 | null? | `boolean` |   (`arg`:<optional>int  )| | 
 | null? | `boolean` |   (`arg`:<optional>double  )| | 

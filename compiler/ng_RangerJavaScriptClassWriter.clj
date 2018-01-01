@@ -560,26 +560,30 @@ class RangerJavaScriptClassWriter {
     wr.out("(" false)
     for args.children arg:CodeNode i {
       if (i > 0) {
-        wr.out(", " false)
+        wr.out(', ' false)
       }
       if(arg.flow_done == false) {
         this.compiler.parser.WalkNode( arg lambdaCtx wr)  
       }
       this.WalkNode(arg lambdaCtx wr)
       if target_typescript {
-        wr.out(" : " false)
+        wr.out(' : ' false)
         this.writeTypeDef( arg ctx wr)      
       }
     }
-    wr.out(")" false)
+    wr.out(')' false)
     if(target_typescript) {
       wr.out(":" false)
       this.writeTypeDef( fName ctx wr)      
     }
-    wr.out(" => { " true)
+    wr.out(' => { ' true)
     wr.indent(1)
     lambdaCtx.restartExpressionLevel()
     for body.children item:CodeNode i {
+      ; print "lambda row " + (item.getCode())
+      ; if(has item.register_expressions) {
+      ;   print "Lambda had register expressions at : " + (item.getCode())
+      ; }
       this.WalkNode(item lambdaCtx wr)
     }
     wr.newline()

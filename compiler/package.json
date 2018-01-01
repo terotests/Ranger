@@ -1,6 +1,6 @@
 {
   "name" : "ranger-compiler",
-  "version" : "2.1.57",
+  "version" : "2.1.61",
   "description" : "Cross-language compiler and build tool",
   "author" : "Tero Tolonen",
   "license" : "MIT",

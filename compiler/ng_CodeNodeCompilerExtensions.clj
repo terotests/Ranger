@@ -75,6 +75,9 @@ extension CodeNode {
 
   def chainTarget:CodeNode
 
+  def register_set false
+  def reg_compiled_name ""
+
   ; tag for debugging the nodes if necessary...
   def tag ""
 
@@ -325,6 +328,13 @@ extension CodeNode {
   fn copy:CodeNode () {
     def match (new RangerArgMatch)
     def cp (this.rebuildWithType( match false))
+    cp.register_expressions = (clone this.register_expressions)
+    return cp
+  }
+
+  fn clone:CodeNode () {
+    def match (new RangerArgMatch)
+    def cp (this.cloneWithType( match false))
     return cp
   }
 
@@ -370,6 +380,87 @@ extension CodeNode {
     }
     clear otherNode.children
   }
+
+  fn cloneWithType:CodeNode (match:RangerArgMatch changeVref:boolean) {
+    def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
+    if( has match.nodes vref) {
+      def ast (unwrap (get match.nodes vref))
+      return (ast.rebuildWithType(match true))
+    }
+    newNode.has_operator = has_operator
+    newNode.op_index = op_index
+    newNode.mutable_def = mutable_def
+    newNode.expression = expression
+    newNode.register_name = register_name
+    newNode.operator_node = operator_node
+    if changeVref {
+      newNode.vref = (match.getTypeName(vref))
+    } {
+      newNode.vref = vref
+    }
+    newNode.is_block_node = is_block_node
+    newNode.type_type = (match.getTypeName(type_type))
+    newNode.type_name = (match.getTypeName(type_name))
+    newNode.key_type = (match.getTypeName(key_type))
+    newNode.array_type = (match.getTypeName(array_type))
+    newNode.value_type = value_type
+    newNode.parsed_type = parsed_type
+
+    newNode.copyEvalResFrom( this )
+    newNode.register_expressions = (clone this.register_expressions)
+
+    if has_vref_annotation {
+      newNode.has_vref_annotation = true
+      def ann:CodeNode vref_annotation
+      newNode.vref_annotation = (ann.cloneWithType(match true))
+    }
+    if has_type_annotation {
+      newNode.has_type_annotation = true
+      def t_ann:CodeNode type_annotation
+      newNode.type_annotation = (t_ann.cloneWithType(match true))
+    }
+    for ns n:string i {
+      if changeVref {
+        def new_ns (match.getTypeName(n))
+        push newNode.ns new_ns
+      } {
+        newNode.vref = vref
+        push newNode.ns n
+      }
+    }
+    switch value_type {
+      case RangerNodeType.Double {
+        newNode.double_value = double_value
+      }
+      case RangerNodeType.String {
+        newNode.string_value = string_value
+      }
+      case RangerNodeType.Integer {
+        newNode.int_value = int_value
+      }
+      case RangerNodeType.Boolean {
+        newNode.boolean_value = boolean_value
+      }
+      case RangerNodeType.ExpressionType {
+        if (!null? expression_value) {
+          newNode.expression_value = (expression_value.cloneWithType(match changeVref))
+        }
+      }
+    }
+    for prop_keys key:string i {
+      push newNode.prop_keys key
+      def oldp:CodeNode (get props key)
+      def np:CodeNode (oldp.cloneWithType(match changeVref))
+      set newNode.props key np
+    }
+    for children ch:CodeNode i {
+      def newCh:CodeNode (ch.cloneWithType(match changeVref))
+      newCh.parent = newNode
+      push newNode.children newCh
+    }
+    return newNode
+  }
+  
   
   fn rebuildWithType:CodeNode (match:RangerArgMatch changeVref:boolean) {
     def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
@@ -382,6 +473,7 @@ extension CodeNode {
     newNode.mutable_def = mutable_def
     newNode.expression = expression
     newNode.register_name = register_name
+    newNode.reg_compiled_name = reg_compiled_name
     newNode.operator_node = operator_node
     if changeVref {
       newNode.vref = (match.getTypeName(vref))

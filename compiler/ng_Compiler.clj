@@ -2,7 +2,7 @@
 
 flag npm (
   name "ranger-lib"
-  version "2.1.57"
+  version "2.1.61"
   description "Cross-language compiler and build tool"
   author "Tero Tolonen"
   license "MIT"
@@ -474,6 +474,13 @@ class CompilerInterface {
           CompilerInterface.displayCompilerErrors(appCtx)
           return
         }
+
+        flowParser.CreateCTTI( node appCtx (unwrap wr))
+
+        if(appCtx.hasCompilerFlag('rtti')) {
+          flowParser.CreateRTTI( node appCtx (unwrap wr))
+        }
+
 
         if_javascript {
           def ppList (appCtx.findPluginsFor("pre_flow"))

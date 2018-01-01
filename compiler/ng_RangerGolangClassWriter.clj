@@ -275,7 +275,7 @@ class RangerGolangClassWriter {
         wr.out(((this.getObjectTypeString(a_name ctx)) + "") false)
       }
       default {
-        if (node.type_name == "void") {
+        if( (node.type_name == "void") || (! (has node.type_name)) )  {
           (wr.out("()" false))
           return
         }

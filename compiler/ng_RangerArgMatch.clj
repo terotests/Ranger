@@ -34,6 +34,15 @@ class RangerArgMatch {
         continue _
       }
 
+      if (arg.hasFlag("keyword")) {
+        if( callArg.vref == arg.vref ) {
+          continue _
+        } {
+          all_matched = false
+          break
+        }
+      }
+      
       if( arg.isPrimitiveType() ) {
         if( callArg.value_type == RangerNodeType.ExpressionType || callArg.eval_type == RangerNodeType.ExpressionType ) {
           all_matched = false
@@ -57,6 +66,7 @@ class RangerArgMatch {
       if(callArg.hasFlag("immutable")) {
         call_arg_immutable = true
       }
+
 
       if (arg.hasFlag("immutable")) {
         if (false == call_arg_immutable) {

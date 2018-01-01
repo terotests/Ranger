@@ -341,9 +341,57 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     }
     return false
   }
-  fn WalkNode:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+  fn WalkNode:void (node:CodeNode in_ctx:RangerAppWriterContext wr:CodeWriter) {
     
-    this.initWriter(ctx)
+    this.initWriter(in_ctx)
+
+    if(node.disabled_node) {
+      return
+    }
+
+    def ctx (in_ctx)
+
+    if(!null? node.evalCtx) {
+      ctx = (unwrap node.evalCtx)
+    }
+
+    ; if! node.flow_done {
+    ;   print "^^ flow not done here"
+    ; }
+    ; if(node.hasFnCall) {
+    ;   print "^ 3rd has hasFnCall " + (node.getCode())
+    ; }
+
+   ; if( (ctx.hasCompilerFlag('new')) )  { 
+      if(has node.register_name ) {
+        if( (ctx.expressionLevel()) >  0) {
+          if( has node.reg_compiled_name ) {
+            wr.out(node.reg_compiled_name false)
+          } {
+            print "Could not find compiled name for " + node.register_name + " at " + (node.getCode())
+          }
+        } {
+            print "zero level reg " + node.register_name        
+        }
+        return
+      }
+
+    ; if( (ctx.hasCompilerFlag('new')) )  {
+      def liveNodes@(weak):[CodeNode]
+      def rootItem node
+      if( has node.register_expressions) {
+        node.register_expressions.forEach({
+          push liveNodes item
+        })
+      }
+      liveNodes.forEach({
+        if( item.register_set == false ) {
+          item.register_set = true
+          this.WalkNode(item ctx wr)
+        }
+      })                  
+    ; }
+    
     
     if(node.value_type == RangerNodeType.Comment) {
       return
@@ -431,6 +479,34 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         if ((node.didReturnAtIndex >= 0) && (node.didReturnAtIndex < i)) {
           break _
         }
+        ; if( (ctx.hasCompilerFlag('new'))  )  {
+          if(node.is_block_node) {
+            def liveNodes@(weak):[CodeNode]
+            def rootItem item
+            if( has item.register_expressions) {
+              item.register_expressions.forEach({
+                push liveNodes item
+              })
+            }
+            item.walkTreeUntil({
+              if(item.is_block_node) {
+                return false
+              }
+              if( has item.register_expressions) {
+                item.register_expressions.forEach({
+                  insert liveNodes 0 item
+                })
+              }
+              return true
+            })
+            liveNodes.forEach({
+              if( item.register_set == false ) {
+                item.register_set = true
+                this.WalkNode(item ctx wr)
+              }
+            })            
+          }
+        ; }
         this.WalkNode(item ctx wr)
       }
     } {

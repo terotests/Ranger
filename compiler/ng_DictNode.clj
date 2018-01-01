@@ -22,7 +22,7 @@ class DictNode {
   def object_value:DictNode
   def children:[DictNode]
   def objects:[string:DictNode]
-  def keys:[string]
+  def dict_keys:[string]
   fn EncodeString:string (orig_str:string) {
     def encoded_str:string ""
     def str_length:int (strlen orig_str)
@@ -76,7 +76,7 @@ class DictNode {
       v.value_type = DictNodeType.String
       v.vref = key
       v.is_property = true
-      push keys key
+      push dict_keys key
       set objects key v
     }
   }
@@ -87,7 +87,7 @@ class DictNode {
       v.value_type = DictNodeType.Double
       v.vref = key
       v.is_property = true
-      push keys key
+      push dict_keys key
       set objects key v
     }
   }  
@@ -98,7 +98,7 @@ class DictNode {
       v.value_type = DictNodeType.Integer
       v.vref = key
       v.is_property = true
-      push keys key
+      push dict_keys key
       set objects key v
     }
   }  
@@ -109,7 +109,7 @@ class DictNode {
       v.value_type = DictNodeType.Boolean
       v.vref = key
       v.is_property = true
-      push keys key
+      push dict_keys key
       set objects key v
     }
   }  
@@ -125,7 +125,7 @@ class DictNode {
       v.vref = key
       v.is_property_value = true
       p.object_value = v
-      push keys key
+      push dict_keys key
       set objects key p
       return v
     }
@@ -140,7 +140,7 @@ class DictNode {
       value.is_property_value = true
       value.vref = key
       p.object_value = value
-      push keys key
+      push dict_keys key
       set objects key p
     }
   }
@@ -151,7 +151,7 @@ class DictNode {
       v.value_type = DictNodeType.Array
       v.vref = key
       v.is_property = true
-      push keys key
+      push dict_keys key
       set objects key (unwrap v)
       return v
     }
@@ -322,7 +322,7 @@ class DictNode {
         return (((("\"" + vref) + "\"") + ":") + (object_value.stringify()))
       } {
         str = "{"
-        for keys key:string i {
+        for dict_keys key:string i {
           if (i > 0) {
             str = (str + ",")
           }
