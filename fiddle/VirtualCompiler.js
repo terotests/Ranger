@@ -7138,6 +7138,15 @@ class TFiles  {
   constructor() {
   }
 }
+TFiles.searchEnv = function(env, paths, fileName) {
+  for ( let i = 0; i < paths.length; i++) {
+    var path = paths[i];
+    if ( operatorsOf_8.filec95exists_9(env, path, fileName) ) {
+      return path;
+    }
+  };
+  return "";
+};
 TFiles.search = function(paths, fileName) {
   for ( let i = 0; i < paths.length; i++) {
     var path = paths[i];
@@ -9869,7 +9878,7 @@ class RangerFlowParser  {
       ctx.already_imported[import_file] = true;
       const rootCtx = ctx.getRoot();
       if ( (source_code.length) == 0 ) {
-        const filePathIs = TFiles.search(rootCtx.libraryPaths, import_file);
+        const filePathIs = TFiles.searchEnv(env, rootCtx.libraryPaths, import_file);
         if ( operatorsOf_8.filec95exists_9(env, filePathIs, import_file) == false ) {
           if ( ctx.hasCompilerFlag("verbose") ) {
             console.log("import did not find the file: " + import_file);
