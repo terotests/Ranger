@@ -21988,9 +21988,9 @@ class VirtualCompiler  {
     if ( (typeof(outDir) !== "undefined" && outDir != null )  ) {
       the_target = outDir;
     }
-    const langLibEnv = process.env["RANGER_LIB"];
-    if ( typeof(langLibEnv) === "undefined" ) {
-      console.log("note: RANGER_LIB environment variable not defined");
+    let langLibEnv = operatorsOf_8.envc95var_52(env, "RANGER_LIB");
+    if ( false == ((langLibEnv.length) > 0) ) {
+      langLibEnv = "/;/lib/";
     }
     const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_52(env, "RANGER_LIB"));
     const theFilePath = this.searchLib(theFilePaths, the_file);
@@ -22003,7 +22003,7 @@ class VirtualCompiler  {
     const langFilePath = this.searchLib(langFilePaths, the_lang_file);
     if ( operatorsOf_8.filec95exists_9(env, langFilePath, the_lang_file) == false ) {
       console.log(("language file " + the_lang_file) + " not found! Check the library directory or RANGER_LIB enviroment variable");
-      console.log("currently pointing at : " + (langLibEnv));
+      console.log("currently pointing at : " + langLibEnv);
       console.log("download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.clj");
       return res;
     } else {
