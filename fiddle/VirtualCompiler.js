@@ -22454,6 +22454,24 @@ VirtualCompiler.create_env = async function() {
   operatorsOf_3.createc95file_4(env.filesystem, "JSON.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "hello_world.clj", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
 };
+VirtualCompiler.test_compilation = async function() {
+  try {
+    console.log("Virtual compiler compiled OK...");
+    const env = await InputEnv.fromDictionary((window._Ranger_compiler_environment_));
+    env.commandLine.params["l"] = "es6";
+    env.commandLine.values.push("hello_world.clj");
+    const virtualComp = new VirtualCompiler();
+    const res = await virtualComp.run(env);
+    console.log("Results of the compile:");
+    if ( (typeof(res.fileSystem) !== "undefined" && res.fileSystem != null )  ) {
+      operatorsOf.forEach_56(res.fileSystem.files, ((item, index) => { 
+        console.log("FILE " + item.name);
+        console.log(item.getCode());
+      }));
+    }
+  } catch(e) {
+  }
+};
 VirtualCompiler.displayCompilerErrors = function(appCtx) {
   const cons = new ColorConsole();
   for ( let i = 0; i < appCtx.compilerErrors.length; i++) {
@@ -23423,23 +23441,3 @@ operatorsOf_57.forEach_58 = async function(__self, cb) {
     i_33 = i_33 + 1;
   };
 };
-/* static JavaSript main routine at the end of the JS file */
-async function __js_main() {
-  try {
-    console.log("Virtual compiler compiled OK...");
-    const env = await InputEnv.fromDictionary((window._Ranger_compiler_environment_));
-    env.commandLine.params["l"] = "es6";
-    env.commandLine.values.push("hello_world.clj");
-    const virtualComp = new VirtualCompiler();
-    const res = await virtualComp.run(env);
-    console.log("Results of the compile:");
-    if ( (typeof(res.fileSystem) !== "undefined" && res.fileSystem != null )  ) {
-      operatorsOf.forEach_56(res.fileSystem.files, ((item, index) => { 
-        console.log("FILE " + item.name);
-        console.log(item.getCode());
-      }));
-    }
-  } catch(e) {
-  }
-}
-__js_main();
