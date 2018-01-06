@@ -2239,6 +2239,10 @@ class CodeNode  {
     const newNode = new CodeNode(this.code, this.sp, this.ep);
     if ( ( typeof(match.nodes[this.vref] ) != "undefined" && match.nodes.hasOwnProperty(this.vref) ) ) {
       const ast = (match.nodes[this.vref]);
+      if ( ast == this ) {
+        const tmp = this;
+        return tmp;
+      }
       const newNode_2 = ast.rebuildWithType(match, true);
       match.builtNodes[this.vref] = newNode_2;
       return newNode_2;
@@ -10666,14 +10670,14 @@ class RangerFlowParser  {
       } else {
         ctx.already_imported[import_file] = true;
       }
-      const rootCtx = ctx.getRoot();
-      const filePathIs = TFiles.search(rootCtx.libraryPaths, import_file);
       const envOpt = ctx.getEnv();
       if ( typeof(envOpt) === "undefined" ) {
         ctx.addError(node, "Environment not defined");
         return;
       }
       const env = envOpt;
+      const rootCtx = ctx.getRoot();
+      const filePathIs = TFiles.searchEnv(env, rootCtx.libraryPaths, import_file);
       if ( operatorsOf_8.filec95exists_9(env, filePathIs, import_file) == false ) {
         ctx.addError(node, "Could not import file " + import_file);
         return;
@@ -20489,10 +20493,11 @@ class LiveCompiler  {
     if ( ( typeof(this.installedFile[filename] ) != "undefined" && this.installedFile.hasOwnProperty(filename) ) ) {
       return;
     }
+    const env = ctx.env();
     this.installedFile[filename] = true;
-    /** unused:  const fName = ((__dirname) + "/") + filename   **/ 
-    if ( require("fs").existsSync(((__dirname) + "/") + "/" + filename ) ) {
-      const fileData = await (new Promise(resolve => { require('fs').readFile( ((__dirname) + "/") + '/' + filename , 'utf8', (err,data)=>{ resolve(data) }) } ));
+    /** unused:  const fName = (operatorsOf_8.installc95directory_50(env) + "/") + filename   **/ 
+    if ( operatorsOf_8.filec95exists_9(env, (operatorsOf_8.installc95directory_50(env) + "/"), filename) ) {
+      const fileData = await (new Promise(resolve => { require('fs').readFile( (operatorsOf_8.installc95directory_50(env) + "/") + '/' + filename , 'utf8', (err,data)=>{ resolve(data) }) } ));
       if ( (typeof(fileData) !== "undefined" && fileData != null )  ) {
         const file_wr = wr.getFileWriter(".", filename);
         file_wr.raw(fileData, false);
@@ -20500,7 +20505,7 @@ class LiveCompiler  {
         console.log("did not get contents of " + filename);
       }
     } else {
-      console.log(("did not find installed file " + (__dirname)) + filename);
+      console.log(("did not find installed file " + operatorsOf_8.installc95directory_50(env)) + filename);
     }
   };
   async findOpCode (op, node, ctx, wr) {
@@ -21538,7 +21543,7 @@ class RangerDocGenerator  {
     if ( ctx.hasCompilerSetting("operatordoc") ) {
       const wr = orig_wr.getFileWriter(".", ctx.getCompilerSetting("operatordoc"));
       const allOps = await ctx.getAllOperators();
-      let statements = operatorsOf.filter_50(allOps, ((item, index) => { 
+      let statements = operatorsOf.filter_51(allOps, ((item, index) => { 
         let is_map_array = false;
         if ( typeof(item.firstArg) != "undefined" ) {
           is_map_array = (item.firstArg.value_type == 6) || (item.firstArg.value_type == 7);
@@ -21548,23 +21553,23 @@ class RangerDocGenerator  {
         }
         return (item.nameNode.type_name == "void") && (false == is_map_array);
       }));
-      const lang_statements = operatorsOf.filter_50(allOps, ((item, index) => { 
+      const lang_statements = operatorsOf.filter_51(allOps, ((item, index) => { 
         if ( (item.name.indexOf("if_")) == 0 ) {
           return true;
         }
         return false;
       }));
-      statements = operatorsOf.groupBy_51(statements, ((item) => { 
+      statements = operatorsOf.groupBy_52(statements, ((item) => { 
         return item.name;
       }));
-      const operator_list = operatorsOf.filter_50(allOps, ((item, index) => { 
+      const operator_list = operatorsOf.filter_51(allOps, ((item, index) => { 
         let is_map_array_1 = false;
         if ( typeof(item.firstArg) != "undefined" ) {
           is_map_array_1 = (item.firstArg.value_type == 6) || (item.firstArg.value_type == 7);
         }
         return is_map_array_1 || (item.nameNode.type_name != "void");
       }));
-      const nList = operatorsOf.groupBy_51(operator_list, ((item) => { 
+      const nList = operatorsOf.groupBy_52(operator_list, ((item) => { 
         let key = item.name;
         const fc = item.firstArg;
         if ( typeof(fc) != "undefined" ) {
@@ -21895,13 +21900,14 @@ class viewbuilder_Web  {
 }
 class CompilerResults  {
   constructor() {
+    this.target_dir = "";
   }
 }
 class VirtualCompiler  {
   constructor() {
   }
   getEnvVar (name) {
-    return operatorsOf_8.envc95var_52((this.envObj), name);
+    return operatorsOf_8.envc95var_53((this.envObj), name);
   };
   possiblePaths (envVarName) {
     let res = [];
@@ -21917,7 +21923,7 @@ class VirtualCompiler  {
         res.push(theDir);
       }
     };
-    res.push(operatorsOf_8.installc95directory_53((this.envObj)));
+    res.push(operatorsOf_8.installc95directory_50((this.envObj)));
     return res;
   };
   searchLib (paths, libname) {
@@ -21956,7 +21962,7 @@ class VirtualCompiler  {
     } else {
       if ( (params.values.length) < 1 ) {
         console.log("Ranger compiler, version " + "");
-        console.log("Installed at: " + operatorsOf_8.installc95directory_53(env));
+        console.log("Installed at: " + operatorsOf_8.installc95directory_50(env));
         console.log("Usage: <file> <options> <flags>");
         console.log("Options: -<option>=<value> ");
         let optCnt = 0;
@@ -21989,7 +21995,7 @@ class VirtualCompiler  {
     let root_file = the_file;
     const the_lang_file = "Lang.clj";
     let the_lang = "es6";
-    let the_target_dir = operatorsOf_8.currentc95directory_53(env) + "/bin";
+    let the_target_dir = operatorsOf_8.currentc95directory_50(env) + "/bin";
     let the_target = "output";
     let package_name = "";
     let comp_attrs = {};
@@ -21997,11 +22003,11 @@ class VirtualCompiler  {
     if ( (typeof(outDir) !== "undefined" && outDir != null )  ) {
       the_target = outDir;
     }
-    let langLibEnv = operatorsOf_8.envc95var_52(env, "RANGER_LIB");
+    let langLibEnv = operatorsOf_8.envc95var_53(env, "RANGER_LIB");
     if ( false == ((langLibEnv.length) > 0) ) {
       langLibEnv = "/;/lib/";
     }
-    const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_52(env, "RANGER_LIB"));
+    const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_53(env, "RANGER_LIB"));
     const theFilePath = this.searchLib(theFilePaths, the_file);
     if ( operatorsOf_8.filec95exists_9(env, theFilePath, the_file) == false ) {
       console.log("Could not compile.");
@@ -22064,7 +22070,7 @@ class VirtualCompiler  {
                     the_target_dir = sc.string_value;
                     break;
                   case "relative_output_dir" : 
-                    the_target_dir = ((process.cwd()) + "/") + sc.string_value;
+                    the_target_dir = (operatorsOf_8.currentc95directory_50(env) + "/") + sc.string_value;
                     break;
                   case "package" : 
                     package_name = sc.string_value;
@@ -22105,7 +22111,7 @@ class VirtualCompiler  {
     comp_attrs["o"] = the_target;
     const outDir_3 = params.getParam("d");
     if ( (typeof(outDir_3) !== "undefined" && outDir_3 != null )  ) {
-      the_target_dir = ((process.cwd()) + "/") + (outDir_3);
+      the_target_dir = (operatorsOf_8.currentc95directory_50(env) + "/") + (outDir_3);
     }
     comp_attrs["d"] = the_target_dir;
     const pLang = params.getParam("l");
@@ -22438,9 +22444,22 @@ class VirtualCompiler  {
         await gen_1.createOperatorDoc(root, appCtx, wr);
       }
       VirtualCompiler.displayCompilerErrors(appCtx);
+      res.target_dir = the_target_dir;
       res.fileSystem = fileSystem;
       res.ctx = appCtx;
     } catch(e) {
+      console.log(( e.toString()));
+      if ( typeof(lcc.lastProcessedNode) != "undefined" ) {
+        console.log("Got compiler error close to");
+        console.log(lcc.lastProcessedNode.getLineAsString());
+        return res;
+      }
+      if ( typeof(flowParser.lastProcessedNode) != "undefined" ) {
+        console.log("Got compiler error close to");
+        console.log(flowParser.lastProcessedNode.getLineAsString());
+        return res;
+      }
+      console.log("Got unknown compiler error");
     }
     return res;
   };
@@ -22638,7 +22657,7 @@ operatorsOf.map_47 = function(__self, cb) {
   };
   return res_11;
 };
-operatorsOf.filter_50 = function(__self, cb) {
+operatorsOf.filter_51 = function(__self, cb) {
   let res_12 = [];
   for ( let i_27 = 0; i_27 < __self.length; i_27++) {
     var it_18 = __self[i_27];
@@ -22648,7 +22667,7 @@ operatorsOf.filter_50 = function(__self, cb) {
   };
   return res_12;
 };
-operatorsOf.groupBy_51 = function(__self, cb) {
+operatorsOf.groupBy_52 = function(__self, cb) {
   let res_13 = [];
   let mapper = {};
   for ( let i_28 = 0; i_28 < __self.length; i_28++) {
@@ -22806,16 +22825,32 @@ operatorsOf_8.readc95file_9 = async function(env, path, name) {
   return resStr_1;
 };
 operatorsOf_8.filec95exists_9 = function(env, path, name) {
+  if ( env.use_real ) {
+    return require("fs").existsSync(path + "/" + name );
+  }
   const fo = operatorsOf_8.findc95file_9(env, path, name);
   return (typeof(fo) !== "undefined" && fo != null ) ;
 };
-operatorsOf_8.envc95var_52 = function(env, name) {
-  return ((typeof((env.envVars[name])) !== "undefined" && (env.envVars[name]) != null ) ) ? ((env.envVars[name])) : "";
-};
-operatorsOf_8.installc95directory_53 = function(env) {
+operatorsOf_8.installc95directory_50 = function(env) {
+  if ( env.use_real ) {
+    return __dirname;
+  }
   return "/";
 };
-operatorsOf_8.currentc95directory_53 = function(env) {
+operatorsOf_8.envc95var_53 = function(env, name) {
+  if ( env.use_real ) {
+    const ev = process.env[name];
+    if ( (typeof(ev) !== "undefined" && ev != null )  ) {
+      return ev;
+    }
+    return "";
+  }
+  return ((typeof((env.envVars[name])) !== "undefined" && (env.envVars[name]) != null ) ) ? ((env.envVars[name])) : "";
+};
+operatorsOf_8.currentc95directory_50 = function(env) {
+  if ( env.use_real ) {
+    return process.cwd();
+  }
   return "/";
 };
 class operatorsOf_13  {
