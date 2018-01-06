@@ -2827,13 +2827,6 @@ class RangerAppWriterContext  {
     this.transactions = [];
     this.rootFile = "--not-defined--";
   }
-  env () {
-    const e = this.getEnv();
-    if ( typeof(e) === "undefined" ) {
-      return new InputEnv();
-    }
-    return e;
-  };
   getEnv () {
     const root = this.getRoot();
     return root.env;
@@ -20493,7 +20486,7 @@ class LiveCompiler  {
     if ( ( typeof(this.installedFile[filename] ) != "undefined" && this.installedFile.hasOwnProperty(filename) ) ) {
       return;
     }
-    const env = ctx.env();
+    const env = ctx.getEnv();
     this.installedFile[filename] = true;
     /** unused:  const fName = (operatorsOf_8.installc95directory_50(env) + "/") + filename   **/ 
     if ( operatorsOf_8.filec95exists_9(env, (operatorsOf_8.installc95directory_50(env) + "/"), filename) ) {
