@@ -10044,10 +10044,19 @@ class RangerFlowParser  {
       if ( ((c.is_system || c.is_interface) || c.is_template) || c.is_trait ) {
         continue;
       }
+      let varNames = {};
       for ( let i_9 = 0; i_9 < c.variables.length; i_9++) {
         var p = c.variables[i_9];
         ctx.hadValidType(p.nameNode);
+        varNames[p.name] = true;
       };
+      await operatorsOf_13.forEach_30(c.method_variants, (async (item, index) => { 
+        await operatorsOf.forEach_29(item.variants, ((item, index) => { 
+          if ( ( typeof(varNames[item.name] ) != "undefined" && varNames.hasOwnProperty(item.name) ) ) {
+            ctx.addError(item.nameNode, "Class has defined method and variable of the same name.");
+          }
+        }));
+      }));
     };
     for ( let i_10 = 0; i_10 < ctx.definedClassList.length; i_10++) {
       var cname_1 = ctx.definedClassList[i_10];
@@ -10189,6 +10198,9 @@ class RangerFlowParser  {
           return;
         }
       }
+    }
+    if ( node.isFirstVref("defn") ) {
+      return;
     }
     if ( node.isFirstVref("flag") ) {
       return;
