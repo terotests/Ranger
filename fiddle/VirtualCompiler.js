@@ -22483,7 +22483,7 @@ VirtualCompiler.create_env = async function() {
   operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "JSON.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "hello_world.clj", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
-  require("fs").writeFileSync( "." + "/"  + "compileEnv.json", JSON.stringify(env.toDictionary()));
+  require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
 };
 VirtualCompiler.test_compilation = async function() {
   try {
@@ -23488,3 +23488,7 @@ operatorsOf_57.forEach_58 = async function(__self, cb) {
     i_33 = i_33 + 1;
   };
 };
+/* static JavaSript main routine at the end of the JS file */
+function __js_main() {
+}
+__js_main();
