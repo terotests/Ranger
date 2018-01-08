@@ -22475,8 +22475,15 @@ VirtualCompiler.create_env = async function() {
   env.commandLine = new CmdParams();
   operatorsOf_3.createc95file_4(env.filesystem, "Lang.clj", (await (new Promise(resolve => { require('fs').readFile( "." + '/' + "Lang.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "stdlib.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdlib.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "stdops.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdops.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "Timers.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Timers.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "DOMLib.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "Ajax.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Ajax.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "Crypto.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Crypto.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "JSON.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "hello_world.clj", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
+  require("fs").writeFileSync( "." + "/"  + "compileEnv.json", JSON.stringify(env.toDictionary()));
 };
 VirtualCompiler.test_compilation = async function() {
   try {
