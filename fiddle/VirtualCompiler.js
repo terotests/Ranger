@@ -22481,6 +22481,7 @@ VirtualCompiler.create_env = async function() {
   operatorsOf_3.createc95file_4(env.filesystem, "Ajax.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Ajax.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "Crypto.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Crypto.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "Storage.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Storage.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "JSON.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "hello_world.clj", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
   require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
