@@ -19,6 +19,16 @@ defn CreateFile (folder name data) (create_file folder name data)
 defn CreateFile (folder name data) (create_file (unwrap folder) name data)
 defn CreateFile (name data) (create_file (unwrap env.filesystem) name data)
 
+operators {
+  normalize cmdArg:string ( arg:string ) {
+      templates {
+          es6 ( 'require("path").normalize(' (e 1) ')')
+          ranger ('( normalize ' (e 1) ' )')
+          * ( "\"./\"")
+      }
+  }  
+}
+
 operator type:void es6 {
   fn get_compiler_data:JSONDataObject () ('window._Ranger_compiler_environment_')
 }
@@ -746,6 +756,17 @@ class tester {
         }
       
         VirtualCompiler.displayCompilerErrors(appCtx)
+
+        if_javascript {
+          def ppList (appCtx.findPluginsFor('postprocess'))
+          ppList.forEach({
+            try {
+              def plugin (load_compiler_plugin item)
+              call_plugin plugin "postprocess" root appCtx (unwrap wr)
+            } {
+            }
+          })
+        }        
       
         res.target_dir = the_target_dir
         res.fileSystem = fileSystem

@@ -22671,6 +22671,14 @@ class VirtualCompiler  {
         await gen_1.createOperatorDoc(root, appCtx, wr);
       }
       VirtualCompiler.displayCompilerErrors(appCtx);
+      const ppList_1 = appCtx.findPluginsFor("postprocess");
+      await operatorsOf.forEach_12(ppList_1, ((item, index) => { 
+        try {
+          const plugin_2 = require( item );
+          ( (new plugin_2.Plugin () )["postprocess"] )( root, appCtx , wr );
+        } catch(e) {
+        }
+      }));
       res.target_dir = the_target_dir;
       res.fileSystem = fileSystem;
       res.ctx = appCtx;

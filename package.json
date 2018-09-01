@@ -1,6 +1,6 @@
 {
   "name": "ranger-compiler",
-  "version": "2.1.67",
+  "version": "2.1.68",
   "description": "Ranger Compiler NPM environment",
   "main": "index.js",
   "bin": {

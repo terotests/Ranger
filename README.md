@@ -137,6 +137,36 @@ Operators also be written can be as macros in Ranger language itself.
 
 For a quick reference of available basic operators see [Operators doc](operators.md)
 
+# Plugins
+
+Compiling
+```
+ranger-compiler hello.clj -npm  -nodemodule
+```
+
+Example
+
+```javascript
+Import "VirtualCompiler.clj"
+
+flag npm (
+  name "hello"
+  version "0.0.1"
+  description "Plugin Hello World"
+  author "Tero Tolonen"
+  license "MIT"
+)
+
+class Plugin {
+  fn features:[string] () {
+      return ([]  "postprocess")
+  }
+  fn postprocess (root:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {  
+    print "*** plugin postprocess was called ***"
+  }
+}
+```
+
 
 # Notes about the syntax
 
