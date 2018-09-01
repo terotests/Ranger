@@ -6,21 +6,6 @@ Import "JSON.clj"
 
 operators {
 
-    cast _:S  (arg:T target@(noeval):S) {
-        templates {
-            ranger ("(cast " (e 1) " " (e 2) ":" (typeof 2) " )")
-            es6 ( (e 1) )
-            java7 ( "((" (typeof 2) ")" (e 1) ")" )
-            swift3 ( (e 1) " as " (typeof 2) "" )
-            cpp ( "mpark::get<" (typeof 2) ">(" (e 1) ")" 
-            
-                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
-            )
-            go ( (e 1) ".(" (typeof 2) ")" )
-            php ( (e 1) )
-        }
-    }
-
     cast _:Any  (arg:T target@(noeval):Any) {
         templates {
             go ( (e 1) )

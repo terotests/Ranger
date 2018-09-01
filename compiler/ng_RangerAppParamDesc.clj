@@ -96,11 +96,13 @@ class RangerAppParamDesc {
   def is_captured:boolean false
   def node@(weak):CodeNode
   def nameNode@(weak):CodeNode
+  def fnBody@(weak):CodeNode
+  def params:[RangerAppParamDesc]
+  def return_value:RangerAppParamDesc
   def description:string ""
   def git_doc:string ""
   def has_events:boolean false
   def eMap:RangerParamEventMap
-
 
   fn addEvent:void (name:string e@(strong lives):RangerParamEventHandler) {
     if( has_events == false ) {
@@ -149,10 +151,6 @@ class RangerAppParamDesc {
         }
         return true
       }
-      if (nameNode.eval_type == RangerNodeType.Enum) {
-          return false
-      }
-
       if (nameNode.value_type == RangerNodeType.VRef) {
         
         if (false == (nameNode.isPrimitive())) {
@@ -170,7 +168,7 @@ class RangerAppParamDesc {
   }
   fn moveRefTo:void (nodeToMove:CodeNode target:RangerAppParamDesc ctx:RangerAppWriterContext) {
 
-    def b_disable_errors true
+    def b_disable_errors ( (ctx.hasCompilerFlag('refcnt')) == false )
 
     if nodeToMove.ref_change_done {
       return

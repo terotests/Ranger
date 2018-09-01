@@ -255,10 +255,22 @@ class RangerJavaScriptClassWriter {
           }
           this.WalkNode( arg ctx wr )
           wr.out(":" false)
-          this.writeTypeDef( arg ctx wr)
+          this.writeTypeDef( arg ctx wr)         
         }
         wr.out(") => " false )
+
+        if( target_typescript ) {
+          if(node.hasFlag('async')) {
+            wr.out('Promise<' false)
+          }
+        }
         this.writeTypeDef( rv ctx wr)
+
+        if( target_typescript ) {
+          if(node.hasFlag('async')) {
+            wr.out('>' false)
+          }
+        }         
         
       }   
       case RangerNodeType.Enum {
@@ -299,7 +311,6 @@ class RangerJavaScriptClassWriter {
           if(cc.is_system) {
             def current_sys (ctx)
             def sName (unwrap (get cc.systemNames "es6"))
-            print " typedef for system class " + sName
             wr.out(sName false)
             return         
           }
@@ -310,7 +321,6 @@ class RangerJavaScriptClassWriter {
             return
           }          
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
-          print " typedef for class " + cc.name
           wr.out(cc.name false)
           return
         }
@@ -638,6 +648,8 @@ class RangerJavaScriptClassWriter {
     def is_react_native:boolean false
     def is_rn_default false
 
+    target_typescript = (ctx.hasCompilerFlag("typescript"))    
+
     if( (ctx.hasCompilerFlag('dead4main')) || (ctx.hasCompilerSetting('dceclass'))) {
       if(cl.is_used_by_main == false) {
         return
@@ -668,7 +680,7 @@ class RangerJavaScriptClassWriter {
       }
 
       ; write the npm exports at the end of the file if required...
-      if(ctx.hasCompilerFlag("nodemodule")) {
+      if( (ctx.hasCompilerFlag("nodemodule")) && (target_typescript == false)) {
         def root (ctx.getRoot())
         root.definedClasses.forEach({
 
@@ -685,7 +697,6 @@ class RangerJavaScriptClassWriter {
       }
       ; javascript option for the flow types...
       target_flow = (ctx.hasCompilerFlag("flow"))
-      target_typescript = (ctx.hasCompilerFlag("typescript"))
       if( target_typescript ) {
         this.CreateTsUnions( (unwrap this.compiler.parser) ctx wr )
       }
@@ -695,7 +706,16 @@ class RangerJavaScriptClassWriter {
     }
     def b_extd:boolean false
 
-    if( is_react_native ) {
+    def do_export false
+
+    if( is_react_native || target_typescript ) {
+      do_export = true
+      if( cl.is_system || cl.is_operator_class ) {
+        do_export = false
+      }
+    }
+
+    if do_export {
       wr.out("export " false)
       if(is_rn_default) {
         wr.out(" default " false)
@@ -799,6 +819,7 @@ class RangerJavaScriptClassWriter {
           continue _
         } 
 
+        wr.out("// typescript static " true)
      
         wr.out("static " false)
         if( variant.nameNode.hasFlag('async') ) {

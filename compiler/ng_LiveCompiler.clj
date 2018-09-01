@@ -281,6 +281,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               def tplName:CodeNode (tpl.getFirst())
               def tplImpl@(optional):CodeNode 
               tplImpl = (tpl.getSecond())
+
+              def is_ts (ctx.hasCompilerFlag('typescript'))
+              if( is_ts && ( tplName.vref == 'typescript' || tplName.vref == 'ts') ) {
+                rv = tplImpl 
+                return rv
+              }               
               if ((tplName.vref != "*") && (tplName.vref != langName)) {
                 continue _
               }
@@ -491,11 +497,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             item.walkTreeUntil({
               if(item.is_block_node) {
                 return false
-              }
-              if( has item.register_expressions) {
-                item.register_expressions.forEach({
-                  ; insert liveNodes 0 item
-                })
               }
               return true
             })

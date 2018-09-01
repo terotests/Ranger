@@ -1,6 +1,5 @@
-#!/usr/bin/env node
 declare type union_Any = CmdParams | test_cmdparams | InputFSFolder | InputFSFile | InputEnv | test_input_filesystem | RangerAppTodo | RangerCompilerMessage | RangerParamEventHandler | RangerParamEventList | RangerParamEventMap | RangerAppArrayValue | RangerAppHashValue | RangerAppValue | RangerRefForce | RangerAppParamDesc | RangerAppFunctionDesc | RangerAppMethodVariants | RangerAppInterfaceImpl | RangerTraitParams | RangerAppClassDesc | RangerTypeClass | SourceCode | CodeNodeLiteral | CodeNode | TypeCounts | RangerNodeValue | RangerBackReference | RangerAppEnum | OpFindResult | RangerOperatorList | RangerNodeList | ContextTransaction | ContextTransactionMutation | RangerRegisteredPlugin | RangerAppWriterContext | CodeFile | CodeFileSystem | CodeSlice | CodeWriter | RangerLispParser | RangerArgMatch | DictNode | RangerSerializeClass | RangerImmutableExtension | RangerServiceBuilder | RangerAppOperatorDesc | TFiles | TTypes | ClassJoinPoint | WalkLater | RangerFlowParser | TFactory | CallChain | NodeEvalState | RangerGenericClassWriter | AndroidPageWriter | RangerJava7ClassWriter | RangerSwift3ClassWriter | RangerCppClassWriter | RangerKotlinClassWriter | RangerCSharpClassWriter | RangerScalaClassWriter | RangerGolangClassWriter | RangerPHPClassWriter | WebPageWriter | RangerJavaScriptClassWriter | RangerRangerClassWriter | OpList | RangerActiveOperators | LiveCompiler | ColorConsole | RangerDocGenerator | viewbuilder_Android | viewbuilder_Web | CompilerResults | VirtualCompiler | CompilerInterface | number | string | boolean | number;
-declare class CmdParams {
+export declare class CmdParams {
     flags: {
         [key: string]: boolean;
     };
@@ -15,11 +14,11 @@ declare class CmdParams {
     toDictionary(): Object;
     static fromDictionary(dict: Object): Promise<CmdParams>;
 }
-declare class test_cmdparams {
+export declare class test_cmdparams {
     constructor();
     run(): void;
 }
-declare class InputFSFolder {
+export declare class InputFSFolder {
     name: string;
     data: string;
     is_folder: boolean;
@@ -31,7 +30,7 @@ declare class InputFSFolder {
     toDictionary(): Object;
     static fromDictionary(dict: Object): Promise<InputFSFolder>;
 }
-declare class InputFSFile {
+export declare class InputFSFile {
     name: string;
     data: string;
     is_folder: boolean;
@@ -40,7 +39,7 @@ declare class InputFSFile {
     toDictionary(): Object;
     static fromDictionary(dict: Object): InputFSFile;
 }
-declare class InputEnv {
+export declare class InputEnv {
     use_real: boolean;
     filesystem: InputFSFolder;
     envVars: {
@@ -52,15 +51,15 @@ declare class InputEnv {
     toDictionary(): Object;
     static fromDictionary(dict: Object): Promise<InputEnv>;
 }
-declare class test_input_filesystem {
+export declare class test_input_filesystem {
     constructor();
 }
-declare class RangerAppTodo {
+export declare class RangerAppTodo {
     description: string;
     todonode: CodeNode;
     constructor();
 }
-declare class RangerCompilerMessage {
+export declare class RangerCompilerMessage {
     error_level: number;
     code_line: number;
     fileName: string;
@@ -68,15 +67,15 @@ declare class RangerCompilerMessage {
     node: CodeNode;
     constructor();
 }
-declare class RangerParamEventHandler {
+export declare class RangerParamEventHandler {
     constructor();
     callback(param: RangerAppParamDesc): void;
 }
-declare class RangerParamEventList {
+export declare class RangerParamEventList {
     list: Array<RangerParamEventHandler>;
     constructor();
 }
-declare class RangerParamEventMap {
+export declare class RangerParamEventMap {
     events: {
         [key: string]: RangerParamEventList;
     };
@@ -85,13 +84,13 @@ declare class RangerParamEventMap {
     addEvent(name: string, e: RangerParamEventHandler): void;
     fireEvent(name: string, from: RangerAppParamDesc): void;
 }
-declare class RangerAppArrayValue {
+export declare class RangerAppArrayValue {
     value_type: number;
     value_type_name: string;
     values: Array<RangerAppValue>;
     constructor();
 }
-declare class RangerAppHashValue {
+export declare class RangerAppHashValue {
     value_type: number;
     key_type_name: string;
     value_type_name: string;
@@ -109,7 +108,7 @@ declare class RangerAppHashValue {
     };
     constructor();
 }
-declare class RangerAppValue {
+export declare class RangerAppValue {
     double_value: number;
     string_value: string;
     int_value: number;
@@ -118,13 +117,13 @@ declare class RangerAppValue {
     hash: RangerAppHashValue;
     constructor();
 }
-declare class RangerRefForce {
+export declare class RangerRefForce {
     strength: number;
     lifetime: number;
     changer: CodeNode;
     constructor();
 }
-declare class RangerAppParamDesc {
+export declare class RangerAppParamDesc {
     name: string;
     value: RangerAppValue;
     compiledName: string;
@@ -158,6 +157,9 @@ declare class RangerAppParamDesc {
     is_captured: boolean;
     node: CodeNode;
     nameNode: CodeNode;
+    fnBody: CodeNode;
+    params: Array<RangerAppParamDesc>;
+    return_value: RangerAppParamDesc;
     description: string;
     git_doc: string;
     has_events: boolean;
@@ -185,7 +187,7 @@ declare class RangerAppParamDesc {
     getVarTypeName(): string;
     getTypeName(): string;
 }
-declare class RangerAppFunctionDesc extends RangerAppParamDesc {
+export declare class RangerAppFunctionDesc extends RangerAppParamDesc {
     name: string;
     ref_cnt: number;
     node: CodeNode;
@@ -217,24 +219,24 @@ declare class RangerAppFunctionDesc extends RangerAppParamDesc {
     isClass(): boolean;
     isProperty(): boolean;
 }
-declare class RangerAppMethodVariants {
+export declare class RangerAppMethodVariants {
     name: string;
     variants: Array<RangerAppFunctionDesc>;
     constructor();
 }
-declare class RangerAppInterfaceImpl {
+export declare class RangerAppInterfaceImpl {
     name: string;
     typeParams: CodeNode;
     constructor();
 }
-declare class RangerTraitParams {
+export declare class RangerTraitParams {
     param_names: Array<string>;
     values: {
         [key: string]: string;
     };
     constructor();
 }
-declare class RangerAppClassDesc extends RangerAppParamDesc {
+export declare class RangerAppClassDesc extends RangerAppParamDesc {
     name: string;
     is_system: boolean;
     compiledName: string;
@@ -307,7 +309,7 @@ declare class RangerAppClassDesc extends RangerAppParamDesc {
     addMethod(desc: RangerAppFunctionDesc): void;
     addStaticMethod(desc: RangerAppFunctionDesc): void;
 }
-declare class RangerTypeClass {
+export declare class RangerTypeClass {
     name: string;
     compiledName: string;
     value_type: number;
@@ -333,7 +335,7 @@ declare class RangerTypeClass {
     templateParams: CodeNode;
     constructor();
 }
-declare class SourceCode {
+export declare class SourceCode {
     code: string;
     lines: Array<string>;
     filename: string;
@@ -343,7 +345,7 @@ declare class SourceCode {
     getColumnStr(sp: number): string;
     getColumn(sp: number): number;
 }
-declare class CodeNodeLiteral {
+export declare class CodeNodeLiteral {
     expression: boolean;
     vref: string;
     is_block_node: boolean;
@@ -373,7 +375,7 @@ declare class CodeNodeLiteral {
     toDictionary(): Object;
     static fromDictionary(dict: Object): Promise<CodeNodeLiteral>;
 }
-declare class CodeNode {
+export declare class CodeNode {
     code: SourceCode;
     sp: number;
     ep: number;
@@ -470,7 +472,7 @@ declare class CodeNode {
     chlen(): number;
     forTree(callback: (item: CodeNode, i: number) => void): Promise<void>;
     parallelTree(otherTree: CodeNode, callback: (left: CodeNode, right: CodeNode, i: number) => void): void;
-    walkTreeUntil(callback: (item: CodeNode, i: number) => boolean): Promise<void>;
+    walkTreeUntil(callback: (item: CodeNode, i: number) => boolean): void;
     getParsedString(): string;
     getFilename(): string;
     getFlag(flagName: string): CodeNode;
@@ -551,7 +553,7 @@ declare class CodeNode {
     static blockNode(): CodeNode;
     static blockFromList(list: Array<CodeNode>): CodeNode;
 }
-declare class TypeCounts {
+export declare class TypeCounts {
     b_counted: boolean;
     interface_cnt: number;
     operator_cnt: number;
@@ -560,7 +562,7 @@ declare class TypeCounts {
     opfn_cnt: number;
     constructor();
 }
-declare class RangerNodeValue {
+export declare class RangerNodeValue {
     double_value: number;
     string_value: string;
     int_value: number;
@@ -568,13 +570,13 @@ declare class RangerNodeValue {
     expression_value: CodeNode;
     constructor();
 }
-declare class RangerBackReference {
+export declare class RangerBackReference {
     from_class: string;
     var_name: string;
     ref_type: string;
     constructor();
 }
-declare class RangerAppEnum {
+export declare class RangerAppEnum {
     name: string;
     cnt: number;
     values: {
@@ -584,20 +586,20 @@ declare class RangerAppEnum {
     constructor();
     add(n: string): void;
 }
-declare class OpFindResult {
+export declare class OpFindResult {
     did_find: boolean;
     node: CodeNode;
     constructor();
 }
-declare class RangerOperatorList {
+export declare class RangerOperatorList {
     items: Array<RangerAppOperatorDesc>;
     constructor();
 }
-declare class RangerNodeList {
+export declare class RangerNodeList {
     items: Array<CodeNode>;
     constructor();
 }
-declare class ContextTransaction {
+export declare class ContextTransaction {
     name: string;
     desc: string;
     ended: boolean;
@@ -608,18 +610,18 @@ declare class ContextTransaction {
     children: Array<ContextTransaction>;
     constructor();
 }
-declare class ContextTransactionMutation {
+export declare class ContextTransactionMutation {
     sourceNode: CodeNode;
     targetNode: CodeNode;
     addedNode: CodeNode;
     constructor();
 }
-declare class RangerRegisteredPlugin {
+export declare class RangerRegisteredPlugin {
     name: string;
     features: Array<string>;
     constructor();
 }
-declare class RangerAppWriterContext {
+export declare class RangerAppWriterContext {
     langOperators: CodeNode;
     stdCommands: CodeNode;
     operators: RangerActiveOperators;
@@ -898,7 +900,7 @@ declare class RangerAppWriterContext {
     getRootFile(): string;
     setRootFile(file_name: string): void;
 }
-declare class CodeFile {
+export declare class CodeFile {
     path_name: string;
     name: string;
     writer: CodeWriter;
@@ -915,20 +917,20 @@ declare class CodeFile {
     getWriter(): CodeWriter;
     getCode(): string;
 }
-declare class CodeFileSystem {
+export declare class CodeFileSystem {
     files: Array<CodeFile>;
     constructor();
     getFile(path: string, name: string): CodeFile;
     mkdir(path: string): void;
     saveTo(path: string, verbose: boolean): void;
 }
-declare class CodeSlice {
+export declare class CodeSlice {
     code: string;
     writer: CodeWriter;
     constructor();
     getCode(): string;
 }
-declare class CodeWriter {
+export declare class CodeWriter {
     tagName: string;
     codeStr: string;
     currentLine: string;
@@ -969,7 +971,7 @@ declare class CodeWriter {
     getCode(): string;
     static emptyWithFS(): CodeWriter;
 }
-declare class RangerLispParser {
+export declare class RangerLispParser {
     code: SourceCode;
     buff: string;
     __len: number;
@@ -997,7 +999,7 @@ declare class RangerLispParser {
     parseXML(): void;
     parse(disable_ops: boolean): void;
 }
-declare class RangerArgMatch {
+export declare class RangerArgMatch {
     _debug: boolean;
     matched: {
         [key: string]: string;
@@ -1025,7 +1027,7 @@ declare class RangerArgMatch {
     getType(n: string): number;
     setRvBasedOn(arg: CodeNode, node: CodeNode): boolean;
 }
-declare class DictNode {
+export declare class DictNode {
     is_property: boolean;
     is_property_value: boolean;
     vref: string;
@@ -1065,7 +1067,7 @@ declare class DictNode {
     stringify(): string;
     static createEmptyObject(): DictNode;
 }
-declare class RangerSerializeClass {
+export declare class RangerSerializeClass {
     constructor();
     isSerializedClass(cName: string, ctx: RangerAppWriterContext): boolean;
     createWRWriter(pvar: RangerAppParamDesc, nn: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
@@ -1074,17 +1076,17 @@ declare class RangerSerializeClass {
     createWRReader2(pvar: RangerAppParamDesc, nn: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     createJSONSerializerFn2(cl: RangerAppClassDesc, ctx: RangerAppWriterContext, wr: CodeWriter): void;
 }
-declare class RangerImmutableExtension {
+export declare class RangerImmutableExtension {
     constructor();
     typeDefOf(p: RangerAppParamDesc): string;
     createImmutableExtension(cl: RangerAppClassDesc, ctx: RangerAppWriterContext, wr: CodeWriter): void;
 }
-declare class RangerServiceBuilder {
+export declare class RangerServiceBuilder {
     constructor();
     createOpStaticClass(ctx: RangerAppWriterContext, name: string): RangerAppClassDesc;
     CreateServices(parser: RangerFlowParser, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class RangerAppOperatorDesc extends RangerAppParamDesc {
+export declare class RangerAppOperatorDesc extends RangerAppParamDesc {
     name: string;
     ref_cnt: number;
     node: CodeNode;
@@ -1096,29 +1098,29 @@ declare class RangerAppOperatorDesc extends RangerAppParamDesc {
     isOperator(): boolean;
     isProperty(): boolean;
 }
-declare class TFiles {
+export declare class TFiles {
     constructor();
     static searchEnv(env: InputEnv, paths: Array<string>, fileName: string): string;
     static search(paths: Array<string>, fileName: string): string;
 }
-declare class TTypes {
+export declare class TTypes {
     constructor();
     static nameToValue(name: string): number;
     static isPrimitive(valueType: number): boolean;
     static valueAsString(valueType: number): string;
     static baseTypeAsEval(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
 }
-declare class ClassJoinPoint {
+export declare class ClassJoinPoint {
     class_def: RangerAppClassDesc;
     node: CodeNode;
     constructor();
 }
-declare class WalkLater {
+export declare class WalkLater {
     arg: CodeNode;
     callArg: CodeNode;
     constructor();
 }
-declare class RangerFlowParser {
+export declare class RangerFlowParser {
     hasRootPath: boolean;
     rootPath: string;
     _debug: boolean;
@@ -1210,7 +1212,7 @@ declare class RangerFlowParser {
     buildMacro(langOper: CodeNode, args: CodeNode, ctx: RangerAppWriterContext): Promise<CodeNode>;
     stdParamMatch(callArgs: CodeNode, inCtx: RangerAppWriterContext, wr: CodeWriter, require_all_match: boolean): Promise<boolean>;
 }
-declare class TFactory {
+export declare class TFactory {
     constructor();
     static new_class_signature(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): RangerTypeClass;
     static new_lambda_signature(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): RangerTypeClass;
@@ -1222,13 +1224,13 @@ declare class TFactory {
     static lambdaSignature(node: CodeNode): string;
     static baseSignature(node: CodeNode): string;
 }
-declare class CallChain {
+export declare class CallChain {
     methodName: string;
     method: CodeNode;
     args: CodeNode;
     constructor();
 }
-declare class NodeEvalState {
+export declare class NodeEvalState {
     ctx: RangerAppWriterContext;
     is_running: boolean;
     child_index: number;
@@ -1251,7 +1253,7 @@ declare class NodeEvalState {
     evaluating_cmd: CodeNode;
     constructor();
 }
-declare class RangerGenericClassWriter {
+export declare class RangerGenericClassWriter {
     compiler: LiveCompiler;
     compFlags: {
         [key: string]: boolean;
@@ -1292,13 +1294,13 @@ declare class RangerGenericClassWriter {
     writeArrayLiteral(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
 }
-declare class AndroidPageWriter {
+export declare class AndroidPageWriter {
     classWriter: RangerGenericClassWriter;
     constructor();
     BuildAST(code_string: string): CodeNode;
     CreatePage(parser: RangerFlowParser, node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class RangerJava7ClassWriter extends RangerGenericClassWriter {
+export declare class RangerJava7ClassWriter extends RangerGenericClassWriter {
     compiler: LiveCompiler;
     signatures: {
         [key: string]: number;
@@ -1328,7 +1330,7 @@ declare class RangerJava7ClassWriter extends RangerGenericClassWriter {
     CreatePages(parser: RangerFlowParser, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
     CreatePage(parser: RangerFlowParser, node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class RangerSwift3ClassWriter extends RangerGenericClassWriter {
+export declare class RangerSwift3ClassWriter extends RangerGenericClassWriter {
     compiler: LiveCompiler;
     header_created: boolean;
     constructor();
@@ -1350,7 +1352,7 @@ declare class RangerSwift3ClassWriter extends RangerGenericClassWriter {
     CustomOperator(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
 }
-declare class RangerCppClassWriter extends RangerGenericClassWriter {
+export declare class RangerCppClassWriter extends RangerGenericClassWriter {
     compiler: LiveCompiler;
     header_created: boolean;
     constructor();
@@ -1378,7 +1380,7 @@ declare class RangerCppClassWriter extends RangerGenericClassWriter {
     CreateUnions(parser: RangerFlowParser, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class RangerKotlinClassWriter extends RangerGenericClassWriter {
+export declare class RangerKotlinClassWriter extends RangerGenericClassWriter {
     compiler: LiveCompiler;
     constructor();
     WriteScalarValue(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
@@ -1393,7 +1395,7 @@ declare class RangerKotlinClassWriter extends RangerGenericClassWriter {
     writeNewCall(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class RangerCSharpClassWriter extends RangerGenericClassWriter {
+export declare class RangerCSharpClassWriter extends RangerGenericClassWriter {
     compiler: LiveCompiler;
     constructor();
     adjustType(tn: string): string;
@@ -1408,7 +1410,7 @@ declare class RangerCSharpClassWriter extends RangerGenericClassWriter {
     writeArrayLiteral(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class RangerScalaClassWriter extends RangerGenericClassWriter {
+export declare class RangerScalaClassWriter extends RangerGenericClassWriter {
     compiler: LiveCompiler;
     init_done: boolean;
     constructor();
@@ -1426,7 +1428,7 @@ declare class RangerScalaClassWriter extends RangerGenericClassWriter {
     writeArrayLiteral(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class RangerGolangClassWriter extends RangerGenericClassWriter {
+export declare class RangerGolangClassWriter extends RangerGenericClassWriter {
     compiler: LiveCompiler;
     thisName: string;
     write_raw_type: boolean;
@@ -1453,7 +1455,7 @@ declare class RangerGolangClassWriter extends RangerGenericClassWriter {
     writeInterface(cl: RangerAppClassDesc, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class RangerPHPClassWriter extends RangerGenericClassWriter {
+export declare class RangerPHPClassWriter extends RangerGenericClassWriter {
     compiler: LiveCompiler;
     thisName: string;
     wrote_header: boolean;
@@ -1477,12 +1479,12 @@ declare class RangerPHPClassWriter extends RangerGenericClassWriter {
     CreateCallExpression(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class WebPageWriter {
+export declare class WebPageWriter {
     classWriter: RangerGenericClassWriter;
     constructor();
     CreatePage(parser: RangerFlowParser, node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
+export declare class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
     compiler: LiveCompiler;
     thisName: string;
     wrote_header: boolean;
@@ -1511,7 +1513,7 @@ declare class RangerJavaScriptClassWriter extends RangerGenericClassWriter {
     CreatePage(parser: RangerFlowParser, node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
     writeNpmPackage(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class RangerRangerClassWriter extends RangerGenericClassWriter {
+export declare class RangerRangerClassWriter extends RangerGenericClassWriter {
     compiler: LiveCompiler;
     constructor();
     adjustType(tn: string): string;
@@ -1530,11 +1532,11 @@ declare class RangerRangerClassWriter extends RangerGenericClassWriter {
     CreateCallExpression(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class OpList {
+export declare class OpList {
     list: Array<CodeNode>;
     constructor();
 }
-declare class RangerActiveOperators {
+export declare class RangerActiveOperators {
     stdCommands: CodeNode;
     parent: RangerActiveOperators;
     opHash: {
@@ -1547,7 +1549,7 @@ declare class RangerActiveOperators {
     getOperators(name: string): Promise<Array<CodeNode>>;
     initFrom(main: CodeNode): void;
 }
-declare class LiveCompiler {
+export declare class LiveCompiler {
     parser: RangerFlowParser;
     langWriter: RangerGenericClassWriter;
     hasCreatedPolyfill: {
@@ -1580,11 +1582,11 @@ declare class LiveCompiler {
     compile(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): void;
     findParamDesc(obj: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): RangerAppParamDesc;
 }
-declare class ColorConsole {
+export declare class ColorConsole {
     constructor();
     out(color: string, str: string): void;
 }
-declare class RangerDocGenerator {
+export declare class RangerDocGenerator {
     constructor();
     writeTypeDef(item: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeArgDefs(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1593,14 +1595,14 @@ declare class RangerDocGenerator {
     writeTypeDoc(list: Array<RangerAppOperatorDesc>, tester: (item: RangerAppOperatorDesc) => boolean, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     createOperatorDoc(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class viewbuilder_Android {
+export declare class viewbuilder_Android {
     constructor();
     _attr(wr: CodeWriter, name: string, value: string): void;
     elWithText(name: string, node: CodeNode, wr: CodeWriter): Promise<void>;
     WalkNode(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, orig_wr: CodeWriter): Promise<void>;
 }
-declare class viewbuilder_Web {
+export declare class viewbuilder_Web {
     constructor();
     _attr(wr: CodeWriter, name: string, value: string): void;
     tagAttrs(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -1610,13 +1612,13 @@ declare class viewbuilder_Web {
     CreateViews(ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
     writeClass(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
 }
-declare class CompilerResults {
+export declare class CompilerResults {
     ctx: RangerAppWriterContext;
     fileSystem: CodeFileSystem;
     target_dir: string;
     constructor();
 }
-declare class VirtualCompiler {
+export declare class VirtualCompiler {
     envObj: InputEnv;
     constructor();
     getEnvVar(name: string): string;
@@ -1628,136 +1630,8 @@ declare class VirtualCompiler {
     static displayCompilerErrors(appCtx: RangerAppWriterContext): void;
     static displayParserErrors(appCtx: RangerAppWriterContext): void;
 }
-declare class CompilerInterface {
+export declare class CompilerInterface {
     constructor();
     static create_env(): InputEnv;
 }
-declare class operatorsOf {
-    constructor();
-    static forEach_2(__self: Array<InputFSFolder>, cb: (item: InputFSFolder, index: number) => void): void;
-    static filter_6(__self: Array<InputFSFile>, cb: (item: InputFSFile, index: number) => boolean): Array<InputFSFile>;
-    static filter_7(__self: Array<InputFSFolder>, cb: (item: InputFSFolder, index: number) => boolean): Array<InputFSFolder>;
-    static forEach_10(__self: Array<InputFSFile>, cb: (item: InputFSFile, index: number) => void): void;
-    static forEach_11(__self: Array<RangerAppParamDesc>, cb: (item: RangerAppParamDesc, index: number) => void): void;
-    static forEach_12(__self: Array<string>, cb: (item: string, index: number) => void): Promise<void>;
-    static forEach_15(__self: Array<CodeNode>, cb: (item: CodeNode, index: number) => void): Promise<void>;
-    static forEach_17(__self: Array<RangerAppOperatorDesc>, cb: (item: RangerAppOperatorDesc, index: number) => void): Promise<void>;
-    static clone_18(__self: Array<RangerAppOperatorDesc>): Array<RangerAppOperatorDesc>;
-    static forEach_29(__self: Array<RangerAppFunctionDesc>, cb: (item: RangerAppFunctionDesc, index: number) => void): Promise<void>;
-    static forEach_31(__self: Array<RangerAppClassDesc>, cb: (item: RangerAppClassDesc, index: number) => void): void;
-    static filter_32(__self: Array<RangerAppFunctionDesc>, cb: (item: RangerAppFunctionDesc, index: number) => boolean): Array<RangerAppFunctionDesc>;
-    static filter_36(__self: Array<CodeNode>, cb: (item: CodeNode, index: number) => boolean): Array<CodeNode>;
-    static forEach_37(__self: Array<RangerCompilerMessage>, cb: (item: RangerCompilerMessage, index: number) => void): void;
-    static map_44(__self: Array<RangerAppParamDesc>, cb: (item: RangerAppParamDesc, index: number) => CodeNode): Array<CodeNode>;
-    static map_45(__self: Array<CodeNode>, cb: (item: CodeNode, index: number) => CodeNode): Array<CodeNode>;
-    static clone_46(__self: Array<CodeNode>): Array<CodeNode>;
-    static map_47(__self: Array<CodeNode>, cb: (item: CodeNode, index: number) => string): Array<string>;
-    static filter_50(__self: Array<RangerAppParamDesc>, cb: (item: RangerAppParamDesc, index: number) => boolean): Array<RangerAppParamDesc>;
-    static filter_52(__self: Array<RangerAppOperatorDesc>, cb: (item: RangerAppOperatorDesc, index: number) => boolean): Array<RangerAppOperatorDesc>;
-    static groupBy_53(__self: Array<RangerAppOperatorDesc>, cb: (item: RangerAppOperatorDesc) => string): Array<RangerAppOperatorDesc>;
-    static clone_56(__self: Array<string>): Array<string>;
-}
-declare class operatorsOfInputFSFolder_3 {
-    constructor();
-    static createc95file_4(fs: InputFSFolder, name: string, data: string): InputFSFile;
-}
-declare class operatorsOf_3 {
-    constructor();
-    static createc95file_5(fs: InputFSFolder, name: string): InputFSFile;
-    static createc95file_4(fs: InputFSFolder, name: string, data: string): InputFSFile;
-    static createc95folder_5(fs: InputFSFolder, name: string): InputFSFolder;
-}
-declare class operatorsOfInputEnv_8 {
-    constructor();
-    static readc95file_9(env: InputEnv, path: string, name: string): Promise<string>;
-}
-declare class operatorsOf_8 {
-    constructor();
-    static findc95file_9(env: InputEnv, path: string, name: string): InputFSFile;
-    static readc95file_9(env: InputEnv, path: string, name: string): Promise<string>;
-    static filec95exists_9(env: InputEnv, path: string, name: string): boolean;
-    static installc95directory_51(env: InputEnv): string;
-    static envc95var_54(env: InputEnv, name: string): string;
-    static currentc95directory_51(env: InputEnv): string;
-}
-declare class operatorsOf_13 {
-    constructor();
-    static forEach_14(__self: {
-        [key: string]: RangerAppClassDesc;
-    }, cb: (item: RangerAppClassDesc, index: string) => void): Promise<void>;
-    static forEach_16(__self: {
-        [key: string]: RangerOperatorList;
-    }, cb: (item: RangerOperatorList, index: string) => void): Promise<void>;
-    static forEach_19(__self: {
-        [key: string]: OpList;
-    }, cb: (item: OpList, index: string) => void): Promise<void>;
-    static forEach_20(__self: {
-        [key: string]: RangerAppParamDesc;
-    }, cb: (item: RangerAppParamDesc, index: string) => void): Promise<void>;
-    static forEach_25(__self: {
-        [key: string]: CodeNode;
-    }, cb: (item: CodeNode, index: string) => void): Promise<void>;
-    static forEach_30(__self: {
-        [key: string]: RangerAppMethodVariants;
-    }, cb: (item: RangerAppMethodVariants, index: string) => void): Promise<void>;
-    static forEach_40(__self: {
-        [key: string]: string;
-    }, cb: (item: string, index: string) => void): void;
-    static forEach_55(__self: {
-        [key: string]: boolean;
-    }, cb: (item: boolean, index: string) => void): void;
-}
-declare class operatorsOfRangerAppWriterContext_21 {
-    constructor();
-    static getTargetLang_22(__self: RangerAppWriterContext): string;
-}
-declare class operatorsOf_21 {
-    constructor();
-    static getTargetLang_22(__self: RangerAppWriterContext): string;
-    static addUsage_28(__self: RangerAppWriterContext, cn: CodeNode): void;
-    static getActiveTransaction_22(c: RangerAppWriterContext): ContextTransaction;
-    static createc95var_48(__self: RangerAppWriterContext, name: string, type_name: string): RangerAppParamDesc;
-    static createc95var_49(__self: RangerAppWriterContext, name: string, usingNode: CodeNode): RangerAppParamDesc;
-}
-declare class operatorsOfchar_23 {
-    constructor();
-    static isc95notc95limiter_24(c: number): boolean;
-}
-declare class operatorsOfRangerFlowParser_26 {
-    constructor();
-    static EnterVarDef_27(__self: RangerFlowParser, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
-}
-declare class operatorsOf_26 {
-    constructor();
-    static EnterVarDef_27(__self: RangerFlowParser, node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
-}
-declare class operatorsOfstring_33 {
-    constructor();
-    static transactionc95depth_34(name: string, c: RangerAppWriterContext): number;
-}
-declare class operatorsOf_33 {
-    constructor();
-    static startc95transaction_35(name: string, desc: string, c: RangerAppWriterContext): ContextTransaction;
-    static transactionc95depth_34(name: string, c: RangerAppWriterContext): number;
-}
-declare class operatorsOfContextTransaction_38 {
-    constructor();
-    static endc95transaction_39(t: ContextTransaction): void;
-}
-declare class operatorsOfCodeNode_41 {
-    constructor();
-    static rc46funcdesc_42(node: CodeNode, ctx: RangerAppWriterContext): RangerAppFunctionDesc;
-}
-declare class operatorsOf_41 {
-    constructor();
-    static rc46func_43(node: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<RangerAppFunctionDesc>;
-}
-declare class operatorsOfJSONArrayObject_57 {
-    constructor();
-    static forEach_58(__self: Array<any>, cb: (item: Object, index: number) => void): void;
-}
-declare class operatorsOf_57 {
-    constructor();
-    static forEach_58(__self: Array<any>, cb: (item: Object, index: number) => void): Promise<void>;
-}
-declare function __js_main(): Promise<void>;
+export {};

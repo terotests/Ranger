@@ -1,8 +1,9 @@
 {
   "name": "ranger-compiler",
-  "version": "2.1.68",
+  "version": "2.1.69",
   "description": "Ranger Compiler NPM environment",
-  "main": "index.js",
+  "main": "dist/bin/api.js",
+  "types": "dist/bin/api.d.ts",
   "bin": {
     "ranger-compiler": "bin/output.js"
   },
@@ -11,8 +12,11 @@
     "lib": "lib"
   },
   "scripts": {
-    "compile": "ranger-compiler -es6 ./compiler/ng_Compiler.clj -nodecli",
-    "compilets": "ranger-compiler -es6 -typescript ./compiler/ng_Compiler.clj -nodecli && tsc",
+    "compileg": "ranger-compiler -es6 ./compiler/ng_Compiler.clj -nodecli",
+    "compile": "node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli",
+    "try": "node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli -o=try.js",
+    "compilets": "node bin/output.js -es6 -typescript ./compiler/ng_Compiler.clj -o=compiler.ts -nodecli && tsc",
+    "module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.clj -o=api.ts && tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

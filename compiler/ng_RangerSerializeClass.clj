@@ -53,9 +53,9 @@ class RangerSerializeClass {
                     if(nn.array_type == "double") {
                         wr.out("values.addDouble(keyname (unwrap (get this." + pvar.compiledName + " keyname)))" , true)
                     }                    
-                    if(nn.value_type == RangerNodeType.Enum) {
-                        wr.out("values.addInt(keyname (unwrap (get this." + pvar.compiledName + " keyname)))" , true)
-                    }
+                    ;if(nn.value_type == RangerNodeType.Enum) {
+                    ;    wr.out("values.addInt(keyname (unwrap (get this." + pvar.compiledName + " keyname)))" , true)
+                    ;}
                     wr.indent(-1)
                 wr.out("}" true)                  
                 return

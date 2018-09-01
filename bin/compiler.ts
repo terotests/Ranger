@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 type union_Any = CmdParams|test_cmdparams|InputFSFolder|InputFSFile|InputEnv|test_input_filesystem|RangerAppTodo|RangerCompilerMessage|RangerParamEventHandler|RangerParamEventList|RangerParamEventMap|RangerAppArrayValue|RangerAppHashValue|RangerAppValue|RangerRefForce|RangerAppParamDesc|RangerAppFunctionDesc|RangerAppMethodVariants|RangerAppInterfaceImpl|RangerTraitParams|RangerAppClassDesc|RangerTypeClass|SourceCode|CodeNodeLiteral|CodeNode|TypeCounts|RangerNodeValue|RangerBackReference|RangerAppEnum|OpFindResult|RangerOperatorList|RangerNodeList|ContextTransaction|ContextTransactionMutation|RangerRegisteredPlugin|RangerAppWriterContext|CodeFile|CodeFileSystem|CodeSlice|CodeWriter|RangerLispParser|RangerArgMatch|DictNode|RangerSerializeClass|RangerImmutableExtension|RangerServiceBuilder|RangerAppOperatorDesc|TFiles|TTypes|ClassJoinPoint|WalkLater|RangerFlowParser|TFactory|CallChain|NodeEvalState|RangerGenericClassWriter|AndroidPageWriter|RangerJava7ClassWriter|RangerSwift3ClassWriter|RangerCppClassWriter|RangerKotlinClassWriter|RangerCSharpClassWriter|RangerScalaClassWriter|RangerGolangClassWriter|RangerPHPClassWriter|WebPageWriter|RangerJavaScriptClassWriter|RangerRangerClassWriter|OpList|RangerActiveOperators|LiveCompiler|ColorConsole|RangerDocGenerator|viewbuilder_Android|viewbuilder_Web|CompilerResults|VirtualCompiler|CompilerInterface|number|string|boolean|number;
-class CmdParams  {
+export class CmdParams  {
   flags: {[key:string]:boolean};
   params: {[key:string]:string};
   values: Array<string>;
@@ -69,6 +69,7 @@ class CmdParams  {
     }
     return res;
   };
+  // typescript static 
   static async fromDictionary (dict : Object) :  Promise<CmdParams>   {
     const obj : CmdParams  = new CmdParams();
     try {
@@ -110,7 +111,7 @@ class CmdParams  {
     return obj;
   };
 }
-class test_cmdparams  {
+export class test_cmdparams  {
   constructor() {
   }
   run () : void  {
@@ -135,7 +136,7 @@ class test_cmdparams  {
     };
   };
 }
-class InputFSFolder  {
+export class InputFSFolder  {
   name: string;
   data: string;
   is_folder: boolean;
@@ -181,6 +182,7 @@ class InputFSFolder  {
     }
     return res;
   };
+  // typescript static 
   static async fromDictionary (dict : Object) :  Promise<InputFSFolder>   {
     const obj : InputFSFolder  = new InputFSFolder();
     try {
@@ -229,7 +231,7 @@ class InputFSFolder  {
     return obj;
   };
 }
-class InputFSFile  {
+export class InputFSFile  {
   name: string;
   data: string;
   is_folder: boolean;
@@ -251,6 +253,7 @@ class InputFSFile  {
     }
     return res;
   };
+  // typescript static 
   static fromDictionary (dict : Object) : InputFSFile  {
     const obj : InputFSFile  = new InputFSFile();
     try {
@@ -277,7 +280,7 @@ class InputFSFile  {
     return obj;
   };
 }
-class InputEnv  {
+export class InputEnv  {
   use_real: boolean;
   filesystem: InputFSFolder;
   envVars: {[key:string]:string};
@@ -311,6 +314,7 @@ class InputEnv  {
     }
     return res;
   };
+  // typescript static 
   static async fromDictionary (dict : Object) :  Promise<InputEnv>   {
     const obj : InputEnv  = new InputEnv();
     try {
@@ -345,18 +349,18 @@ class InputEnv  {
     return obj;
   };
 }
-class test_input_filesystem  {
+export class test_input_filesystem  {
   constructor() {
   }
 }
-class RangerAppTodo  {
+export class RangerAppTodo  {
   description: string;
   todonode: CodeNode;
   constructor() {
     this.description = "";
   }
 }
-class RangerCompilerMessage  {
+export class RangerCompilerMessage  {
   error_level: number;
   code_line: number;
   fileName: string;
@@ -369,19 +373,19 @@ class RangerCompilerMessage  {
     this.description = "";
   }
 }
-class RangerParamEventHandler  {
+export class RangerParamEventHandler  {
   constructor() {
   }
   callback (param : RangerAppParamDesc) : void  {
   };
 }
-class RangerParamEventList  {
+export class RangerParamEventList  {
   list: Array<RangerParamEventHandler>;
   constructor() {
     this.list = [];
   }
 }
-class RangerParamEventMap  {
+export class RangerParamEventMap  {
   events: {[key:string]:RangerParamEventList};
   constructor() {
     this.events = {};
@@ -405,7 +409,7 @@ class RangerParamEventMap  {
     }
   };
 }
-class RangerAppArrayValue  {
+export class RangerAppArrayValue  {
   value_type: number;
   value_type_name: string;
   values: Array<RangerAppValue>;
@@ -415,7 +419,7 @@ class RangerAppArrayValue  {
     this.values = [];     /** note: unused */
   }
 }
-class RangerAppHashValue  {
+export class RangerAppHashValue  {
   value_type: number;
   key_type_name: string;
   value_type_name: string;
@@ -433,7 +437,7 @@ class RangerAppHashValue  {
     this.d_values = {};     /** note: unused */
   }
 }
-class RangerAppValue  {
+export class RangerAppValue  {
   double_value: number;
   string_value: string;
   int_value: number;
@@ -447,7 +451,7 @@ class RangerAppValue  {
     this.boolean_value = false;     /** note: unused */
   }
 }
-class RangerRefForce  {
+export class RangerRefForce  {
   strength: number;
   lifetime: number;
   changer: CodeNode;
@@ -456,7 +460,7 @@ class RangerRefForce  {
     this.lifetime = 1;
   }
 }
-class RangerAppParamDesc  {
+export class RangerAppParamDesc  {
   name: string;
   value: RangerAppValue;
   compiledName: string;
@@ -490,6 +494,9 @@ class RangerAppParamDesc  {
   is_captured: boolean;
   node: CodeNode;
   nameNode: CodeNode;
+  fnBody: CodeNode;
+  params: Array<RangerAppParamDesc>;
+  return_value: RangerAppParamDesc;
   description: string;
   git_doc: string;
   has_events: boolean;
@@ -519,6 +526,7 @@ class RangerAppParamDesc  {
     this.is_set = false;     /** note: unused */
     this.is_class_variable = false;
     this.is_captured = false;
+    this.params = [];     /** note: unused */
     this.description = "";     /** note: unused */
     this.git_doc = "";
     this.has_events = false;
@@ -569,9 +577,6 @@ class RangerAppParamDesc  {
         }
         return true;
       }
-      if ( this.nameNode.eval_type == 13 ) {
-        return false;
-      }
       if ( this.nameNode.value_type == 11 ) {
         if ( false == this.nameNode.isPrimitive() ) {
           return true;
@@ -587,7 +592,7 @@ class RangerAppParamDesc  {
     return false;
   };
   moveRefTo (nodeToMove : CodeNode, target : RangerAppParamDesc, ctx : RangerAppWriterContext) : void  {
-    const b_disable_errors : boolean  = true;
+    const b_disable_errors : boolean  = ctx.hasCompilerFlag("refcnt") == false;
     if ( nodeToMove.ref_change_done ) {
       return;
     }
@@ -800,7 +805,7 @@ class RangerAppParamDesc  {
     return s;
   };
 }
-class RangerAppFunctionDesc  extends RangerAppParamDesc {
+export class RangerAppFunctionDesc  extends RangerAppParamDesc {
   name: string;
   ref_cnt: number;
   node: CodeNode;
@@ -917,7 +922,7 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
     return false;
   };
 }
-class RangerAppMethodVariants  {
+export class RangerAppMethodVariants  {
   name: string;
   variants: Array<RangerAppFunctionDesc>;
   constructor() {
@@ -925,14 +930,14 @@ class RangerAppMethodVariants  {
     this.variants = [];
   }
 }
-class RangerAppInterfaceImpl  {
+export class RangerAppInterfaceImpl  {
   name: string;
   typeParams: CodeNode;
   constructor() {
     this.name = "";     /** note: unused */
   }
 }
-class RangerTraitParams  {
+export class RangerTraitParams  {
   param_names: Array<string>;
   values: {[key:string]:string};
   constructor() {
@@ -940,7 +945,7 @@ class RangerTraitParams  {
     this.values = {};
   }
 }
-class RangerAppClassDesc  extends RangerAppParamDesc {
+export class RangerAppClassDesc  extends RangerAppParamDesc {
   name: string;
   is_system: boolean;
   compiledName: string;
@@ -1320,7 +1325,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     }
   };
 }
-class RangerTypeClass  {
+export class RangerTypeClass  {
   name: string;
   compiledName: string;
   value_type: number;
@@ -1365,7 +1370,7 @@ class RangerTypeClass  {
     this.is_lambda = false;
   }
 }
-class SourceCode  {
+export class SourceCode  {
   code: string;
   lines: Array<string>;
   filename: string;
@@ -1426,7 +1431,7 @@ class SourceCode  {
     return -1;
   };
 }
-class CodeNodeLiteral  {
+export class CodeNodeLiteral  {
   expression: boolean;
   vref: string;
   is_block_node: boolean;
@@ -1544,6 +1549,7 @@ class CodeNodeLiteral  {
     }
     return res;
   };
+  // typescript static 
   static async fromDictionary (dict : Object) :  Promise<CodeNodeLiteral>   {
     const obj : CodeNodeLiteral  = new CodeNodeLiteral();
     try {
@@ -1687,7 +1693,7 @@ class CodeNodeLiteral  {
     return obj;
   };
 }
-class CodeNode  {
+export class CodeNode  {
   code: SourceCode;
   sp: number;
   ep: number;
@@ -1890,11 +1896,11 @@ class CodeNode  {
       i = i + 1;
     };
   };
-  async walkTreeUntil (callback : (item:CodeNode, i:number) => boolean) :  Promise<void>  {
+  walkTreeUntil (callback : (item:CodeNode, i:number) => boolean) : void  {
     for ( let i = 0; i < this.children.length; i++) {
       var ch = this.children[i];
-      if ( await callback(ch, i) ) {
-        await ch.walkTreeUntil(callback);
+      if ( callback(ch, i) ) {
+        ch.walkTreeUntil(callback);
       }
     };
   };
@@ -2889,6 +2895,7 @@ class CodeNode  {
     }
     return false;
   };
+  // typescript static 
   static vref1 (name : string) : CodeNode  {
     const code : SourceCode  = new SourceCode(name);
     const newNode : CodeNode  = new CodeNode(code, 0, name.length);
@@ -2898,6 +2905,7 @@ class CodeNode  {
     newNode.ns = name.split(".");
     return newNode;
   };
+  // typescript static 
   static vref2 (name : string, typeName : string) : CodeNode  {
     const code : SourceCode  = new SourceCode(name);
     const newNode : CodeNode  = new CodeNode(code, 0, name.length);
@@ -2908,6 +2916,7 @@ class CodeNode  {
     newNode.ns = name.split(".");
     return newNode;
   };
+  // typescript static 
   static newStr (name : string) : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
@@ -2916,6 +2925,7 @@ class CodeNode  {
     newNode.parsed_type = 4;
     return newNode;
   };
+  // typescript static 
   static newBool (value : boolean) : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
@@ -2924,6 +2934,7 @@ class CodeNode  {
     newNode.parsed_type = 5;
     return newNode;
   };
+  // typescript static 
   static newInt (value : number) : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
@@ -2932,6 +2943,7 @@ class CodeNode  {
     newNode.parsed_type = 3;
     return newNode;
   };
+  // typescript static 
   static newDouble (value : number) : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
@@ -2940,6 +2952,7 @@ class CodeNode  {
     newNode.parsed_type = 2;
     return newNode;
   };
+  // typescript static 
   static op (opName : string) : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
@@ -2948,6 +2961,7 @@ class CodeNode  {
     newNode.children.push(opNode);
     return newNode;
   };
+  // typescript static 
   static op2 (opName : string, param1 : CodeNode) : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
@@ -2957,6 +2971,7 @@ class CodeNode  {
     newNode.children.push(param1);
     return newNode;
   };
+  // typescript static 
   static op3 (opName : string, list : Array<CodeNode>) : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
@@ -2969,6 +2984,7 @@ class CodeNode  {
     };
     return newNode;
   };
+  // typescript static 
   static fromList (list : Array<CodeNode>) : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
@@ -2980,12 +2996,14 @@ class CodeNode  {
     };
     return newNode;
   };
+  // typescript static 
   static expressionNode () : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
     newNode.expression = true;
     return newNode;
   };
+  // typescript static 
   static blockNode () : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
@@ -2993,6 +3011,7 @@ class CodeNode  {
     newNode.expression = true;
     return newNode;
   };
+  // typescript static 
   static blockFromList (list : Array<CodeNode>) : CodeNode  {
     const code : SourceCode  = new SourceCode("");
     const newNode : CodeNode  = new CodeNode(code, 0, 0);
@@ -3006,7 +3025,7 @@ class CodeNode  {
     return newNode;
   };
 }
-class TypeCounts  {
+export class TypeCounts  {
   b_counted: boolean;
   interface_cnt: number;
   operator_cnt: number;
@@ -3022,7 +3041,7 @@ class TypeCounts  {
     this.opfn_cnt = 0;
   }
 }
-class RangerNodeValue  {
+export class RangerNodeValue  {
   double_value: number;
   string_value: string;
   int_value: number;
@@ -3031,14 +3050,14 @@ class RangerNodeValue  {
   constructor() {
   }
 }
-class RangerBackReference  {
+export class RangerBackReference  {
   from_class: string;
   var_name: string;
   ref_type: string;
   constructor() {
   }
 }
-class RangerAppEnum  {
+export class RangerAppEnum  {
   name: string;
   cnt: number;
   values: {[key:string]:number};
@@ -3053,26 +3072,26 @@ class RangerAppEnum  {
     this.cnt = this.cnt + 1;
   };
 }
-class OpFindResult  {
+export class OpFindResult  {
   did_find: boolean;
   node: CodeNode;
   constructor() {
     this.did_find = false;     /** note: unused */
   }
 }
-class RangerOperatorList  {
+export class RangerOperatorList  {
   items: Array<RangerAppOperatorDesc>;
   constructor() {
     this.items = [];
   }
 }
-class RangerNodeList  {
+export class RangerNodeList  {
   items: Array<CodeNode>;
   constructor() {
     this.items = [];
   }
 }
-class ContextTransaction  {
+export class ContextTransaction  {
   name: string;
   desc: string;
   ended: boolean;
@@ -3090,14 +3109,14 @@ class ContextTransaction  {
     this.children = [];
   }
 }
-class ContextTransactionMutation  {
+export class ContextTransactionMutation  {
   sourceNode: CodeNode;
   targetNode: CodeNode;
   addedNode: CodeNode;
   constructor() {
   }
 }
-class RangerRegisteredPlugin  {
+export class RangerRegisteredPlugin  {
   name: string;
   features: Array<string>;
   constructor() {
@@ -3105,7 +3124,7 @@ class RangerRegisteredPlugin  {
     this.features = [];
   }
 }
-class RangerAppWriterContext  {
+export class RangerAppWriterContext  {
   langOperators: CodeNode;
   stdCommands: CodeNode;
   operators: RangerActiveOperators;
@@ -4701,7 +4720,7 @@ class RangerAppWriterContext  {
     root.rootFile = file_name;
   };
 }
-class CodeFile  {
+export class CodeFile  {
   path_name: string;
   name: string;
   writer: CodeWriter;
@@ -4741,7 +4760,7 @@ class CodeFile  {
     return this.writer.getCode();
   };
 }
-class CodeFileSystem  {
+export class CodeFileSystem  {
   files: Array<CodeFile>;
   constructor() {
     this.files = [];
@@ -4785,7 +4804,7 @@ class CodeFileSystem  {
     };
   };
 }
-class CodeSlice  {
+export class CodeSlice  {
   code: string;
   writer: CodeWriter;
   constructor() {
@@ -4798,7 +4817,7 @@ class CodeSlice  {
     return this.writer.getCode();
   };
 }
-class CodeWriter  {
+export class CodeWriter  {
   tagName: string;
   codeStr: string;
   currentLine: string;
@@ -5009,6 +5028,7 @@ class CodeWriter  {
     res = res + this.currentLine;
     return res;
   };
+  // typescript static 
   static emptyWithFS () : CodeWriter  {
     const wr : CodeWriter  = new CodeWriter();
     const file : CodeFile  = new CodeFile(".", "emptyFile.txt");
@@ -5018,7 +5038,7 @@ class CodeWriter  {
     return wr;
   };
 }
-class RangerLispParser  {
+export class RangerLispParser  {
   code: SourceCode;
   buff: string;
   __len: number;
@@ -6154,7 +6174,7 @@ class RangerLispParser  {
     };
   };
 }
-class RangerArgMatch  {
+export class RangerArgMatch  {
   _debug: boolean;
   matched: {[key:string]:string};
   nodes: {[key:string]:CodeNode};
@@ -6683,7 +6703,7 @@ class RangerArgMatch  {
     return false;
   };
 }
-class DictNode  {
+export class DictNode  {
   is_property: boolean;
   is_property_value: boolean;
   vref: string;
@@ -7016,13 +7036,14 @@ class DictNode  {
     }
     return "";
   };
+  // typescript static 
   static createEmptyObject () : DictNode  {
     const v : DictNode  = new DictNode();
     v.value_type = 6;
     return v;
   };
 }
-class RangerSerializeClass  {
+export class RangerSerializeClass  {
   constructor() {
   }
   isSerializedClass (cName : string, ctx : RangerAppWriterContext) : boolean  {
@@ -7075,9 +7096,6 @@ class RangerSerializeClass  {
         }
         if ( nn.array_type == "double" ) {
           wr.out(("values.addDouble(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
-        }
-        if ( nn.value_type == 13 ) {
-          wr.out(("values.addInt(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -7485,7 +7503,7 @@ class RangerSerializeClass  {
     wr.out("}", true);
   };
 }
-class RangerImmutableExtension  {
+export class RangerImmutableExtension  {
   constructor() {
   }
   typeDefOf (p : RangerAppParamDesc) : string  {
@@ -7555,7 +7573,7 @@ class RangerImmutableExtension  {
     wr.out("}", true);
   };
 }
-class RangerServiceBuilder  {
+export class RangerServiceBuilder  {
   constructor() {
   }
   createOpStaticClass (ctx : RangerAppWriterContext, name : string) : RangerAppClassDesc  {
@@ -7609,7 +7627,7 @@ class RangerServiceBuilder  {
     }
   };
 }
-class RangerAppOperatorDesc  extends RangerAppParamDesc {
+export class RangerAppOperatorDesc  extends RangerAppParamDesc {
   name: string;
   ref_cnt: number;
   node: CodeNode;
@@ -7630,9 +7648,10 @@ class RangerAppOperatorDesc  extends RangerAppParamDesc {
     return false;
   };
 }
-class TFiles  {
+export class TFiles  {
   constructor() {
   }
+  // typescript static 
   static searchEnv (env : InputEnv, paths : Array<string>, fileName : string) : string  {
     for ( let i = 0; i < paths.length; i++) {
       var path = paths[i];
@@ -7642,6 +7661,7 @@ class TFiles  {
     };
     return "";
   };
+  // typescript static 
   static search (paths : Array<string>, fileName : string) : string  {
     for ( let i = 0; i < paths.length; i++) {
       var path = paths[i];
@@ -7652,9 +7672,10 @@ class TFiles  {
     return "";
   };
 }
-class TTypes  {
+export class TTypes  {
   constructor() {
   }
+  // typescript static 
   static nameToValue (name : string) : number  {
     switch (name ) { 
       case "double" : 
@@ -7672,6 +7693,7 @@ class TTypes  {
     };
     return 0;
   };
+  // typescript static 
   static isPrimitive (valueType : number) : boolean  {
     switch (valueType ) { 
       case 2 : 
@@ -7691,6 +7713,7 @@ class TTypes  {
     };
     return false;
   };
+  // typescript static 
   static valueAsString (valueType : number) : string  {
     switch (valueType ) { 
       case 2 : 
@@ -7769,6 +7792,7 @@ class TTypes  {
     };
     return "";
   };
+  // typescript static 
   static baseTypeAsEval (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
     const vType : number  = node.value_type;
     node.eval_type = vType;
@@ -7784,19 +7808,19 @@ class TTypes  {
     node.eval_key_type = vType2;
   };
 }
-class ClassJoinPoint  {
+export class ClassJoinPoint  {
   class_def: RangerAppClassDesc;
   node: CodeNode;
   constructor() {
   }
 }
-class WalkLater  {
+export class WalkLater  {
   arg: CodeNode;
   callArg: CodeNode;
   constructor() {
   }
 }
-class RangerFlowParser  {
+export class RangerFlowParser  {
   hasRootPath: boolean;
   rootPath: string;
   _debug: boolean;
@@ -8332,8 +8356,7 @@ class RangerFlowParser  {
         node.copyEvalResFrom(item);
         if ( (i == 0) && ((node.children.length) == 2) ) {
           if ( (item.eval_type == 28) && ((typeof(item.paramDesc) !== "undefined" && item.paramDesc != null ) ) ) {
-            const pDesc : RangerAppParamDesc  = item.paramDesc;
-            const mDesc : RangerAppFunctionDesc  = pDesc;
+            const mDesc : RangerAppParamDesc  = item.paramDesc;
             node.eval_type = mDesc.nameNode.value_type;
             node.eval_type_name = mDesc.nameNode.type_name;
             node.eval_array_type = mDesc.nameNode.array_type;
@@ -9170,6 +9193,9 @@ class RangerFlowParser  {
     const argsExpr1 : CodeNode  = args1.copy();
     const argsExpr2 : CodeNode  = args2.copy();
     let all_matched : boolean  = true;
+    if ( ctx.hasCompilerFlag("notreallyexistingflag") ) {
+      all_matched = false;
+    }
     if ( (argsExpr1.children.length) != (argsExpr2.children.length) ) {
       ctx.addError(n2, "Invalid parameter count for the lambda expression");
       return false;
@@ -9218,6 +9244,9 @@ class RangerFlowParser  {
         }
       }
     }));
+    if ( ctx.hasCompilerFlag("notreallyexistingflag") ) {
+      all_matched = false;
+    }
     if ( all_matched == false ) {
       ctx.addError(n2, "Invalid lambda return value type");
       return false;
@@ -10535,7 +10564,7 @@ class RangerFlowParser  {
       if ( (ppList.length) > 0 ) {
         try {
           await operatorsOf.forEach_12(ppList, ((item : string, index : number):void => { 
-            const plugin : Object  = require( item );
+            const plugin : any  = require( item );
             const ss : union_Any  = ( (new plugin.Plugin () )["import_loader"] )( node, ctx , wr );
             if( typeof(ss) === 'string' ) /* union case for string */ {
               var str = ss;
@@ -11748,7 +11777,7 @@ class RangerFlowParser  {
         }
       }
       if ( n2.eval_type == 28 ) {
-        const pDesc : RangerAppParamDesc  = n2.paramDesc;
+        const pDesc : RangerAppFunctionDesc  = (n2.paramDesc) as RangerAppFunctionDesc;
         await this.transformMethodToLambda(n2, pDesc, ctx, wr);
         return true;
       }
@@ -11883,6 +11912,7 @@ class RangerFlowParser  {
               const flagList : CodeNode  = tpl.getExpressionProperty("flags");
               let b_matched : boolean  = false;
               await operatorsOf.forEach_15(flagList.children, ((item : CodeNode, index : number):void => { 
+                console.log("FLAG " + item.vref);
                 b_matched = b_matched || ctx.hasCompilerFlag(item.vref);
               }));
               if ( b_matched == false ) {
@@ -11890,6 +11920,11 @@ class RangerFlowParser  {
               }
             }
             const tplName : CodeNode  = tpl.getFirst();
+            const is_ts : boolean  = ctx.hasCompilerFlag("typescript");
+            if ( is_ts && ((tplName.vref == "typescript") || (tplName.vref == "ts")) ) {
+              rv = tpl;
+              return rv;
+            }
             if ( (tplName.vref != "*") && (tplName.vref != langName) ) {
               continue;
             }
@@ -12295,6 +12330,7 @@ class RangerFlowParser  {
                   let regName_2 : string  = "";
                   const realArg_1 : CodeNode  = callArgs.children[opName_1];
                   let just_vref : (a:CodeNode) => boolean  = ((a : CodeNode):boolean => { 
+                    return false;
                   });
                   just_vref = ((a : CodeNode):boolean => { 
                     if ( (a.vref.length) > 0 ) {
@@ -12546,7 +12582,7 @@ class RangerFlowParser  {
             try {
               const fileName : string  = ((process.cwd()) + "/") + plugin_name;
               console.log("trying to load plugin: " + fileName);
-              const plugin : Object  = require( fileName );
+              const plugin : any  = require( fileName );
               ( (new plugin.Plugin () )[plugin_fn] )( callArgs, ctx , wr );
               callArgs.flow_done = false;
               await this.WalkNode(callArgs, ctx, wr);
@@ -12704,9 +12740,10 @@ class RangerFlowParser  {
     return some_matched;
   };
 }
-class TFactory  {
+export class TFactory  {
   constructor() {
   }
+  // typescript static 
   static new_class_signature (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : RangerTypeClass  {
     const sig : string  = node.vref;
     const tc : RangerTypeClass  = ctx.getTypeClass(sig);
@@ -12719,6 +12756,7 @@ class TFactory  {
     }
     return tc;
   };
+  // typescript static 
   static new_lambda_signature (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : RangerTypeClass  {
     const sig : string  = TFactory.lambdaSignature(node);
     const tc : RangerTypeClass  = ctx.getTypeClass(sig);
@@ -12731,6 +12769,7 @@ class TFactory  {
     }
     return tc;
   };
+  // typescript static 
   static new_def_signature_from_simple_string (sig : string, ctx : RangerAppWriterContext, wr : CodeWriter) : RangerTypeClass  {
     const tc : RangerTypeClass  = ctx.getTypeClass(sig);
     if ( typeof(tc) === "undefined" ) {
@@ -12745,9 +12784,11 @@ class TFactory  {
     }
     return tc;
   };
+  // typescript static 
   static sig (sig : string, ctx : RangerAppWriterContext, wr : CodeWriter) : RangerTypeClass  {
     return TFactory.new_def_signature_from_simple_string(sig, ctx, wr);
   };
+  // typescript static 
   static new_def_signature (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : RangerTypeClass  {
     const sig : string  = TFactory.baseSignature(node);
     const tc : RangerTypeClass  = ctx.getTypeClass(sig);
@@ -12773,6 +12814,7 @@ class TFactory  {
     }
     return tc;
   };
+  // typescript static 
   static new_scalar_signature (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : RangerTypeClass  {
     const sig : string  = TFactory.baseSignature(node);
     const tc : RangerTypeClass  = ctx.getTypeClass(sig);
@@ -12785,12 +12827,14 @@ class TFactory  {
     }
     return tc;
   };
+  // typescript static 
   static type_annotation (node : CodeNode) : string  {
     if ( node.has_type_annotation ) {
       return ("@(" + TFactory.baseSignature((node.type_annotation))) + ")";
     }
     return "";
   };
+  // typescript static 
   static lambdaSignature (node : CodeNode) : string  {
     const fnNode : CodeNode  = node.getFirst();
     const argNode : CodeNode  = node.getSecond();
@@ -12801,6 +12845,7 @@ class TFactory  {
     })).join(" "))) + "))";
     return s;
   };
+  // typescript static 
   static baseSignature (node : CodeNode) : string  {
     if ( TTypes.isPrimitive(node.value_type) ) {
       return TTypes.valueAsString(node.value_type);
@@ -12833,7 +12878,7 @@ class TFactory  {
     return s;
   };
 }
-class CallChain  {
+export class CallChain  {
   methodName: string;
   method: CodeNode;
   args: CodeNode;
@@ -12841,7 +12886,7 @@ class CallChain  {
     this.methodName = "";
   }
 }
-class NodeEvalState  {
+export class NodeEvalState  {
   ctx: RangerAppWriterContext;
   is_running: boolean;
   child_index: number;
@@ -12883,7 +12928,7 @@ class NodeEvalState  {
     this.ask_eval_end = 0;     /** note: unused */
   }
 }
-class RangerGenericClassWriter  {
+export class RangerGenericClassWriter  {
   compiler: LiveCompiler;
   compFlags: {[key:string]:boolean};
   constructor() {
@@ -13386,7 +13431,7 @@ class RangerGenericClassWriter  {
     wr.out("}", true);
   };
 }
-class AndroidPageWriter  {
+export class AndroidPageWriter  {
   classWriter: RangerGenericClassWriter;
   constructor() {
   }
@@ -13584,7 +13629,7 @@ class AndroidPageWriter  {
     };
   };
 }
-class RangerJava7ClassWriter  extends RangerGenericClassWriter {
+export class RangerJava7ClassWriter  extends RangerGenericClassWriter {
   compiler: LiveCompiler;
   signatures: {[key:string]:number};
   signature_cnt: number;
@@ -14441,7 +14486,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     await writer.CreatePage(parser, node, ctx, orig_wr);
   };
 }
-class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
+export class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
   compiler: LiveCompiler;
   header_created: boolean;
   constructor() {
@@ -15198,7 +15243,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     };
   };
 }
-class RangerCppClassWriter  extends RangerGenericClassWriter {
+export class RangerCppClassWriter  extends RangerGenericClassWriter {
   compiler: LiveCompiler;
   header_created: boolean;
   constructor() {
@@ -16063,7 +16108,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     };
   };
 }
-class RangerKotlinClassWriter  extends RangerGenericClassWriter {
+export class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   compiler: LiveCompiler;
   constructor() {
     super()
@@ -16434,7 +16479,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     };
   };
 }
-class RangerCSharpClassWriter  extends RangerGenericClassWriter {
+export class RangerCSharpClassWriter  extends RangerGenericClassWriter {
   compiler: LiveCompiler;
   constructor() {
     super()
@@ -16857,7 +16902,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
     wr.out("}", true);
   };
 }
-class RangerScalaClassWriter  extends RangerGenericClassWriter {
+export class RangerScalaClassWriter  extends RangerGenericClassWriter {
   compiler: LiveCompiler;
   init_done: boolean;
   constructor() {
@@ -17607,7 +17652,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     }
   };
 }
-class RangerGolangClassWriter  extends RangerGenericClassWriter {
+export class RangerGolangClassWriter  extends RangerGenericClassWriter {
   compiler: LiveCompiler;
   thisName: string;
   write_raw_type: boolean;
@@ -19183,7 +19228,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     };
   };
 }
-class RangerPHPClassWriter  extends RangerGenericClassWriter {
+export class RangerPHPClassWriter  extends RangerGenericClassWriter {
   compiler: LiveCompiler;
   thisName: string;
   wrote_header: boolean;
@@ -19804,7 +19849,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     };
   };
 }
-class WebPageWriter  {
+export class WebPageWriter  {
   classWriter: RangerGenericClassWriter;
   constructor() {
   }
@@ -19830,7 +19875,7 @@ class WebPageWriter  {
     wr.out("}", true);
   };
 }
-class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
+export class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   compiler: LiveCompiler;
   thisName: string;
   wrote_header: boolean;
@@ -20057,7 +20102,17 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           await this.writeTypeDef(arg, ctx, wr);
         };
         wr.out(") => ", false);
+        if ( this.target_typescript ) {
+          if ( node.hasFlag("async") ) {
+            wr.out("Promise<", false);
+          }
+        }
         await this.writeTypeDef(rv, ctx, wr);
+        if ( this.target_typescript ) {
+          if ( node.hasFlag("async") ) {
+            wr.out(">", false);
+          }
+        }
         break;
       case 13 : 
         wr.out("number", false);
@@ -20096,7 +20151,6 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           if ( cc.is_system ) {
             /** unused:  const current_sys : RangerAppWriterContext  = ctx   **/ 
             const sName : string  = (cc.systemNames["es6"]);
-            console.log(" typedef for system class " + sName);
             wr.out(sName, false);
             return;
           }
@@ -20106,7 +20160,6 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
             return;
           }
           const cc_1 : RangerAppClassDesc  = ctx.findClass(t_name);
-          console.log(" typedef for class " + cc_1.name);
           wr.out(cc_1.name, false);
           return;
         }
@@ -20410,6 +20463,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     const cl : RangerAppClassDesc  = node.clDesc;
     let is_react_native : boolean  = false;
     let is_rn_default : boolean  = false;
+    this.target_typescript = ctx.hasCompilerFlag("typescript");
     if ( ctx.hasCompilerFlag("dead4main") || ctx.hasCompilerSetting("dceclass") ) {
       if ( cl.is_used_by_main == false ) {
         return;
@@ -20436,7 +20490,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       if ( ctx.hasCompilerFlag("nodecli") ) {
         wr.out("#!/usr/bin/env node", true);
       }
-      if ( ctx.hasCompilerFlag("nodemodule") ) {
+      if ( ctx.hasCompilerFlag("nodemodule") && (this.target_typescript == false) ) {
         const root : RangerAppWriterContext  = ctx.getRoot();
         await operatorsOf_13.forEach_14(root.definedClasses, ((item : RangerAppClassDesc, index : string):void => { 
           if ( ctx.hasCompilerFlag("dead4main") || ctx.hasCompilerSetting("dceclass") ) {
@@ -20451,7 +20505,6 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         }));
       }
       this.target_flow = ctx.hasCompilerFlag("flow");
-      this.target_typescript = ctx.hasCompilerFlag("typescript");
       if ( this.target_typescript ) {
         await this.CreateTsUnions(this.compiler.parser, ctx, wr);
       }
@@ -20460,7 +20513,14 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     }
     let b_extd : boolean  = false;
-    if ( is_react_native ) {
+    let do_export : boolean  = false;
+    if ( is_react_native || this.target_typescript ) {
+      do_export = true;
+      if ( cl.is_system || cl.is_operator_class ) {
+        do_export = false;
+      }
+    }
+    if ( do_export ) {
       wr.out("export ", false);
       if ( is_rn_default ) {
         wr.out(" default ", false);
@@ -20555,6 +20615,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         if ( variant_1.nameNode.hasFlag("main") ) {
           continue;
         }
+        wr.out("// typescript static ", true);
         wr.out("static ", false);
         if ( variant_1.nameNode.hasFlag("async") ) {
           wr.out("async ", false);
@@ -20742,7 +20803,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     wr.out("}", true);
   };
 }
-class RangerRangerClassWriter  extends RangerGenericClassWriter {
+export class RangerRangerClassWriter  extends RangerGenericClassWriter {
   compiler: LiveCompiler;
   constructor() {
     super()
@@ -21082,13 +21143,13 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
     };
   };
 }
-class OpList  {
+export class OpList  {
   list: Array<CodeNode>;
   constructor() {
     this.list = [];
   }
 }
-class RangerActiveOperators  {
+export class RangerActiveOperators  {
   stdCommands: CodeNode;
   parent: RangerActiveOperators;
   opHash: {[key:string]:OpList};
@@ -21164,7 +21225,7 @@ class RangerActiveOperators  {
     return;
   };
 }
-class LiveCompiler  {
+export class LiveCompiler  {
   parser: RangerFlowParser;
   langWriter: RangerGenericClassWriter;
   hasCreatedPolyfill: {[key:string]:boolean};
@@ -21301,7 +21362,7 @@ class LiveCompiler  {
     this.installedFile[filename] = true;
     /** unused:  const fName : string  = (operatorsOf_8.installc95directory_51(env) + "/") + filename   **/ 
     if ( operatorsOf_8.filec95exists_9(env, (operatorsOf_8.installc95directory_51(env) + "/"), filename) ) {
-      const fileData : string  = await (new Promise(resolve => { require('fs').readFile( (operatorsOf_8.installc95directory_51(env) + "/") + '/' + filename , 'utf8', (err,data)=>{ resolve(data) }) } ));
+      const fileData : string  = await (new Promise<string>(resolve => { require('fs').readFile( (operatorsOf_8.installc95directory_51(env) + "/") + '/' + filename , 'utf8', (err,data)=>{ resolve(data) }) } ));
       if ( (typeof(fileData) !== "undefined" && fileData != null )  ) {
         const file_wr : CodeWriter  = wr.getFileWriter(".", filename);
         file_wr.raw(fileData, false);
@@ -21423,6 +21484,11 @@ class LiveCompiler  {
               const tplName : CodeNode  = tpl.getFirst();
               let tplImpl : CodeNode ;
               tplImpl = tpl.getSecond();
+              const is_ts : boolean  = ctx.hasCompilerFlag("typescript");
+              if ( is_ts && ((tplName.vref == "typescript") || (tplName.vref == "ts")) ) {
+                rv = tplImpl;
+                return rv;
+              }
               if ( (tplName.vref != "*") && (tplName.vref != langName) ) {
                 continue;
               }
@@ -21601,13 +21667,9 @@ class LiveCompiler  {
               liveNodes_2.push(item);
             }));
           }
-          await item.walkTreeUntil((async (item : CodeNode, i : number): Promise<boolean> => { 
+          item.walkTreeUntil(((item : CodeNode, i : number):boolean => { 
             if ( item.is_block_node ) {
               return false;
-            }
-            if ( (item.register_expressions.length) > 0 ) {
-              await operatorsOf.forEach_15(item.register_expressions, ((item : CodeNode, index : number):void => { 
-              }));
             }
             return true;
           }));
@@ -22185,14 +22247,14 @@ class LiveCompiler  {
     return cc;
   };
 }
-class ColorConsole  {
+export class ColorConsole  {
   constructor() {
   }
   out (color : string, str : string) : void  {
     console.log(str);
   };
 }
-class RangerDocGenerator  {
+export class RangerDocGenerator  {
   constructor() {
   }
   async writeTypeDef (item : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
@@ -22455,7 +22517,7 @@ class RangerDocGenerator  {
     }
   };
 }
-class viewbuilder_Android  {
+export class viewbuilder_Android  {
   constructor() {
   }
   _attr (wr : CodeWriter, name : string, value : string) : void  {
@@ -22613,7 +22675,7 @@ class viewbuilder_Android  {
     wr.out(("</" + viewTag) + ">", true);
   };
 }
-class viewbuilder_Web  {
+export class viewbuilder_Web  {
   constructor() {
   }
   _attr (wr : CodeWriter, name : string, value : string) : void  {
@@ -22702,7 +22764,7 @@ class viewbuilder_Web  {
     wr.out("</div>", true);
   };
 }
-class CompilerResults  {
+export class CompilerResults  {
   ctx: RangerAppWriterContext;
   fileSystem: CodeFileSystem;
   target_dir: string;
@@ -22710,7 +22772,7 @@ class CompilerResults  {
     this.target_dir = "";
   }
 }
-class VirtualCompiler  {
+export class VirtualCompiler  {
   envObj: InputEnv;
   constructor() {
   }
@@ -23011,7 +23073,7 @@ class VirtualCompiler  {
       const list : Array<string>  = val.split(",");
       await operatorsOf.forEach_12(list, (async (item : string, index : number): Promise<void> => { 
         try {
-          const plugin : Object  = require( item );
+          const plugin : any  = require( item );
           const features : Array<string>  = (new plugin.Plugin () ).features();
           if ( appCtx.hasCompilerFlag("verbose") ) {
             console.log(("Plugin " + item) + " registered with features ");
@@ -23057,7 +23119,7 @@ class VirtualCompiler  {
       const ppList : Array<string>  = appCtx.findPluginsFor("pre_flow");
       await operatorsOf.forEach_12(ppList, ((item : string, index : number):void => { 
         try {
-          const plugin_1 : Object  = require( item );
+          const plugin_1 : any  = require( item );
           ( (new plugin_1.Plugin () )["pre_flow"] )( root, appCtx , wr );
         } catch(e) {
         }
@@ -23261,7 +23323,7 @@ class VirtualCompiler  {
       const ppList_1 : Array<string>  = appCtx.findPluginsFor("postprocess");
       await operatorsOf.forEach_12(ppList_1, ((item : string, index : number):void => { 
         try {
-          const plugin_2 : Object  = require( item );
+          const plugin_2 : any  = require( item );
           ( (new plugin_2.Plugin () )["postprocess"] )( root, appCtx , wr );
         } catch(e) {
         }
@@ -23285,23 +23347,25 @@ class VirtualCompiler  {
     }
     return res;
   };
+  // typescript static 
   static async create_env () :  Promise<void>   {
     const env : InputEnv  = new InputEnv();
     env.filesystem = new InputFSFolder();
     env.commandLine = new CmdParams();
-    operatorsOf_3.createc95file_4(env.filesystem, "Lang.clj", (await (new Promise(resolve => { require('fs').readFile( "." + '/' + "Lang.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-    operatorsOf_3.createc95file_4(env.filesystem, "stdlib.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdlib.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-    operatorsOf_3.createc95file_4(env.filesystem, "stdops.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdops.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-    operatorsOf_3.createc95file_4(env.filesystem, "Timers.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Timers.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-    operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "DOMLib.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-    operatorsOf_3.createc95file_4(env.filesystem, "Ajax.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Ajax.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-    operatorsOf_3.createc95file_4(env.filesystem, "Crypto.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Crypto.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-    operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-    operatorsOf_3.createc95file_4(env.filesystem, "Storage.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Storage.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-    operatorsOf_3.createc95file_4(env.filesystem, "JSON.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Lang.clj", (await (new Promise<string>(resolve => { require('fs').readFile( "." + '/' + "Lang.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "stdlib.clj", (await (new Promise<string>(resolve => { require('fs').readFile( "../lib/" + '/' + "stdlib.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "stdops.clj", (await (new Promise<string>(resolve => { require('fs').readFile( "../lib/" + '/' + "stdops.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Timers.clj", (await (new Promise<string>(resolve => { require('fs').readFile( "../lib/" + '/' + "Timers.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.clj", (await (new Promise<string>(resolve => { require('fs').readFile( "../lib/" + '/' + "DOMLib.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Ajax.clj", (await (new Promise<string>(resolve => { require('fs').readFile( "../lib/" + '/' + "Ajax.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Crypto.clj", (await (new Promise<string>(resolve => { require('fs').readFile( "../lib/" + '/' + "Crypto.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.clj", (await (new Promise<string>(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Storage.clj", (await (new Promise<string>(resolve => { require('fs').readFile( "../lib/" + '/' + "Storage.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "JSON.clj", (await (new Promise<string>(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
     operatorsOf_3.createc95file_4(env.filesystem, "hello_world.clj", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
     require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
   };
+  // typescript static 
   static displayCompilerErrors (appCtx : RangerAppWriterContext) : void  {
     const cons : ColorConsole  = new ColorConsole();
     for ( let i = 0; i < appCtx.compilerErrors.length; i++) {
@@ -23313,6 +23377,7 @@ class VirtualCompiler  {
       cons.out("", e.node.getColStartString() + "^-------");
     };
   };
+  // typescript static 
   static displayParserErrors (appCtx : RangerAppWriterContext) : void  {
     if ( (appCtx.parserErrors.length) == 0 ) {
       console.log("no language test errors");
@@ -23328,9 +23393,10 @@ class VirtualCompiler  {
     };
   };
 }
-class CompilerInterface  {
+export class CompilerInterface  {
   constructor() {
   }
+  // typescript static 
   static create_env () : InputEnv  {
     const env : InputEnv  = new InputEnv();
     env.use_real = true;
@@ -23342,12 +23408,14 @@ class CompilerInterface  {
 class operatorsOf  {
   constructor() {
   }
+  // typescript static 
   static forEach_2 (__self : Array<InputFSFolder>, cb : (item:InputFSFolder, index:number) => void) : void  {
     for ( let i = 0; i < __self.length; i++) {
       var it = __self[i];
       cb(it, i);
     };
   };
+  // typescript static 
   static filter_6 (__self : Array<InputFSFile>, cb : (item:InputFSFile, index:number) => boolean) : Array<InputFSFile>  {
     let res_1 : Array<InputFSFile>  = [];
     for ( let i_1 = 0; i_1 < __self.length; i_1++) {
@@ -23358,6 +23426,7 @@ class operatorsOf  {
     };
     return res_1;
   };
+  // typescript static 
   static filter_7 (__self : Array<InputFSFolder>, cb : (item:InputFSFolder, index:number) => boolean) : Array<InputFSFolder>  {
     let res_2 : Array<InputFSFolder>  = [];
     for ( let i_2 = 0; i_2 < __self.length; i_2++) {
@@ -23368,36 +23437,42 @@ class operatorsOf  {
     };
     return res_2;
   };
+  // typescript static 
   static forEach_10 (__self : Array<InputFSFile>, cb : (item:InputFSFile, index:number) => void) : void  {
     for ( let i_4 = 0; i_4 < __self.length; i_4++) {
       var it_3 = __self[i_4];
       cb(it_3, i_4);
     };
   };
+  // typescript static 
   static forEach_11 (__self : Array<RangerAppParamDesc>, cb : (item:RangerAppParamDesc, index:number) => void) : void  {
     for ( let i_5 = 0; i_5 < __self.length; i_5++) {
       var it_4 = __self[i_5];
       cb(it_4, i_5);
     };
   };
+  // typescript static 
   static async forEach_12 (__self : Array<string>, cb : (item:string, index:number) => void) :  Promise<void>   {
     for ( let i_6 = 0; i_6 < __self.length; i_6++) {
       var it_5 = __self[i_6];
       await cb(it_5, i_6);
     };
   };
+  // typescript static 
   static async forEach_15 (__self : Array<CodeNode>, cb : (item:CodeNode, index:number) => void) :  Promise<void>   {
     for ( let i_8 = 0; i_8 < __self.length; i_8++) {
       var it_6 = __self[i_8];
       await cb(it_6, i_8);
     };
   };
+  // typescript static 
   static async forEach_17 (__self : Array<RangerAppOperatorDesc>, cb : (item:RangerAppOperatorDesc, index:number) => void) :  Promise<void>   {
     for ( let i_10 = 0; i_10 < __self.length; i_10++) {
       var it_7 = __self[i_10];
       await cb(it_7, i_10);
     };
   };
+  // typescript static 
   static clone_18 (__self : Array<RangerAppOperatorDesc>) : Array<RangerAppOperatorDesc>  {
     let res_5 : Array<RangerAppOperatorDesc>  = [];
     for ( let i_11 = 0; i_11 < __self.length; i_11++) {
@@ -23406,18 +23481,21 @@ class operatorsOf  {
     };
     return res_5;
   };
+  // typescript static 
   static async forEach_29 (__self : Array<RangerAppFunctionDesc>, cb : (item:RangerAppFunctionDesc, index:number) => void) :  Promise<void>   {
     for ( let i_15 = 0; i_15 < __self.length; i_15++) {
       var it_9 = __self[i_15];
       await cb(it_9, i_15);
     };
   };
+  // typescript static 
   static forEach_31 (__self : Array<RangerAppClassDesc>, cb : (item:RangerAppClassDesc, index:number) => void) : void  {
     for ( let i_17 = 0; i_17 < __self.length; i_17++) {
       var it_10 = __self[i_17];
       cb(it_10, i_17);
     };
   };
+  // typescript static 
   static filter_32 (__self : Array<RangerAppFunctionDesc>, cb : (item:RangerAppFunctionDesc, index:number) => boolean) : Array<RangerAppFunctionDesc>  {
     let res_6 : Array<RangerAppFunctionDesc>  = [];
     for ( let i_18 = 0; i_18 < __self.length; i_18++) {
@@ -23428,6 +23506,7 @@ class operatorsOf  {
     };
     return res_6;
   };
+  // typescript static 
   static filter_36 (__self : Array<CodeNode>, cb : (item:CodeNode, index:number) => boolean) : Array<CodeNode>  {
     let res_7 : Array<CodeNode>  = [];
     for ( let i_19 = 0; i_19 < __self.length; i_19++) {
@@ -23438,12 +23517,14 @@ class operatorsOf  {
     };
     return res_7;
   };
+  // typescript static 
   static forEach_37 (__self : Array<RangerCompilerMessage>, cb : (item:RangerCompilerMessage, index:number) => void) : void  {
     for ( let i_20 = 0; i_20 < __self.length; i_20++) {
       var it_13 = __self[i_20];
       cb(it_13, i_20);
     };
   };
+  // typescript static 
   static map_44 (__self : Array<RangerAppParamDesc>, cb : (item:RangerAppParamDesc, index:number) => CodeNode) : Array<CodeNode>  {
     /** unused:  const __len : number  = __self.length   **/ 
     let res_8 : Array<CodeNode>  = [];
@@ -23453,6 +23534,7 @@ class operatorsOf  {
     };
     return res_8;
   };
+  // typescript static 
   static map_45 (__self : Array<CodeNode>, cb : (item:CodeNode, index:number) => CodeNode) : Array<CodeNode>  {
     /** unused:  const len_1 : number  = __self.length   **/ 
     let res_9 : Array<CodeNode>  = [];
@@ -23462,6 +23544,7 @@ class operatorsOf  {
     };
     return res_9;
   };
+  // typescript static 
   static clone_46 (__self : Array<CodeNode>) : Array<CodeNode>  {
     let res_10 : Array<CodeNode>  = [];
     for ( let i_25 = 0; i_25 < __self.length; i_25++) {
@@ -23470,6 +23553,7 @@ class operatorsOf  {
     };
     return res_10;
   };
+  // typescript static 
   static map_47 (__self : Array<CodeNode>, cb : (item:CodeNode, index:number) => string) : Array<string>  {
     /** unused:  const len_2 : number  = __self.length   **/ 
     let res_11 : Array<string>  = [];
@@ -23479,6 +23563,7 @@ class operatorsOf  {
     };
     return res_11;
   };
+  // typescript static 
   static filter_50 (__self : Array<RangerAppParamDesc>, cb : (item:RangerAppParamDesc, index:number) => boolean) : Array<RangerAppParamDesc>  {
     let res_12 : Array<RangerAppParamDesc>  = [];
     for ( let i_27 = 0; i_27 < __self.length; i_27++) {
@@ -23489,6 +23574,7 @@ class operatorsOf  {
     };
     return res_12;
   };
+  // typescript static 
   static filter_52 (__self : Array<RangerAppOperatorDesc>, cb : (item:RangerAppOperatorDesc, index:number) => boolean) : Array<RangerAppOperatorDesc>  {
     let res_13 : Array<RangerAppOperatorDesc>  = [];
     for ( let i_28 = 0; i_28 < __self.length; i_28++) {
@@ -23499,6 +23585,7 @@ class operatorsOf  {
     };
     return res_13;
   };
+  // typescript static 
   static groupBy_53 (__self : Array<RangerAppOperatorDesc>, cb : (item:RangerAppOperatorDesc) => string) : Array<RangerAppOperatorDesc>  {
     let res_14 : Array<RangerAppOperatorDesc>  = [];
     let mapper : {[key:string]:boolean}  = {};
@@ -23512,6 +23599,7 @@ class operatorsOf  {
     };
     return res_14;
   };
+  // typescript static 
   static clone_56 (__self : Array<string>) : Array<string>  {
     let res_15 : Array<string>  = [];
     for ( let i_31 = 0; i_31 < __self.length; i_31++) {
@@ -23524,6 +23612,7 @@ class operatorsOf  {
 class operatorsOfInputFSFolder_3  {
   constructor() {
   }
+  // typescript static 
   static createc95file_4 (fs : InputFSFolder, name : string, data : string) : InputFSFile  {
     const f_1 : InputFSFile  = operatorsOf_3.createc95file_5(fs, name);
     if ( (typeof(f_1) !== "undefined" && f_1 != null )  ) {
@@ -23535,6 +23624,7 @@ class operatorsOfInputFSFolder_3  {
 class operatorsOf_3  {
   constructor() {
   }
+  // typescript static 
   static createc95file_5 (fs : InputFSFolder, name : string) : InputFSFile  {
     let res : InputFSFile ;
     const files : Array<InputFSFile>  = operatorsOf.filter_6(fs.files, ((item : InputFSFile, index : number):boolean => { 
@@ -23555,6 +23645,7 @@ class operatorsOf_3  {
     }
     return res;
   };
+  // typescript static 
   static createc95file_4 (fs : InputFSFolder, name : string, data : string) : InputFSFile  {
     const f_2 : InputFSFile  = operatorsOf_3.createc95file_5(fs, name);
     if ( (typeof(f_2) !== "undefined" && f_2 != null )  ) {
@@ -23562,6 +23653,7 @@ class operatorsOf_3  {
     }
     return f_2;
   };
+  // typescript static 
   static createc95folder_5 (fs : InputFSFolder, name : string) : InputFSFolder  {
     let res_3 : InputFSFolder ;
     const files_1 : Array<InputFSFile>  = operatorsOf.filter_6(fs.files, ((item : InputFSFile, index : number):boolean => { 
@@ -23586,9 +23678,10 @@ class operatorsOf_3  {
 class operatorsOfInputEnv_8  {
   constructor() {
   }
+  // typescript static 
   static async readc95file_9 (env : InputEnv, path : string, name : string) :  Promise<string>   {
     if ( env.use_real ) {
-      return await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
+      return await (new Promise<string>(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
     }
     let resStr : string ;
     const f_4 : InputFSFile  = operatorsOf_8.findc95file_9(env, path, name);
@@ -23601,6 +23694,7 @@ class operatorsOfInputEnv_8  {
 class operatorsOf_8  {
   constructor() {
   }
+  // typescript static 
   static findc95file_9 (env : InputEnv, path : string, name : string) : InputFSFile  {
     let res_4 : InputFSFile ;
     if ( path == "/" ) {
@@ -23639,9 +23733,10 @@ class operatorsOf_8  {
     }
     return res_4;
   };
+  // typescript static 
   static async readc95file_9 (env : InputEnv, path : string, name : string) :  Promise<string>   {
     if ( env.use_real ) {
-      return await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
+      return await (new Promise<string>(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
     }
     let resStr_1 : string ;
     const f_5 : InputFSFile  = operatorsOf_8.findc95file_9(env, path, name);
@@ -23650,6 +23745,7 @@ class operatorsOf_8  {
     }
     return resStr_1;
   };
+  // typescript static 
   static filec95exists_9 (env : InputEnv, path : string, name : string) : boolean  {
     if ( env.use_real ) {
       return require("fs").existsSync(path + "/" + name );
@@ -23657,12 +23753,14 @@ class operatorsOf_8  {
     const fo : InputFSFile  = operatorsOf_8.findc95file_9(env, path, name);
     return (typeof(fo) !== "undefined" && fo != null ) ;
   };
+  // typescript static 
   static installc95directory_51 (env : InputEnv) : string  {
     if ( env.use_real ) {
       return __dirname;
     }
     return "/";
   };
+  // typescript static 
   static envc95var_54 (env : InputEnv, name : string) : string  {
     if ( env.use_real ) {
       if ( ( typeof(env.envVars[name] ) != "undefined" && env.envVars.hasOwnProperty(name) ) ) {
@@ -23676,6 +23774,7 @@ class operatorsOf_8  {
     }
     return ((typeof((env.envVars[name])) !== "undefined" && (env.envVars[name]) != null ) ) ? ((env.envVars[name])) : "";
   };
+  // typescript static 
   static currentc95directory_51 (env : InputEnv) : string  {
     if ( env.use_real ) {
       return process.cwd();
@@ -23686,6 +23785,7 @@ class operatorsOf_8  {
 class operatorsOf_13  {
   constructor() {
   }
+  // typescript static 
   static async forEach_14 (__self : {[key:string]:RangerAppClassDesc}, cb : (item:RangerAppClassDesc, index:string) => void) :  Promise<void>   {
     const list : Array<string>  = Object.keys(__self);
     for ( let i_7 = 0; i_7 < list.length; i_7++) {
@@ -23694,6 +23794,7 @@ class operatorsOf_13  {
       await cb(value, kk);
     };
   };
+  // typescript static 
   static async forEach_16 (__self : {[key:string]:RangerOperatorList}, cb : (item:RangerOperatorList, index:string) => void) :  Promise<void>   {
     const list_1 : Array<string>  = Object.keys(__self);
     for ( let i_9 = 0; i_9 < list_1.length; i_9++) {
@@ -23702,6 +23803,7 @@ class operatorsOf_13  {
       await cb(value_1, kk_1);
     };
   };
+  // typescript static 
   static async forEach_19 (__self : {[key:string]:OpList}, cb : (item:OpList, index:string) => void) :  Promise<void>   {
     const list_2 : Array<string>  = Object.keys(__self);
     for ( let i_12 = 0; i_12 < list_2.length; i_12++) {
@@ -23710,6 +23812,7 @@ class operatorsOf_13  {
       await cb(value_2, kk_2);
     };
   };
+  // typescript static 
   static async forEach_20 (__self : {[key:string]:RangerAppParamDesc}, cb : (item:RangerAppParamDesc, index:string) => void) :  Promise<void>   {
     const list_3 : Array<string>  = Object.keys(__self);
     for ( let i_13 = 0; i_13 < list_3.length; i_13++) {
@@ -23718,6 +23821,7 @@ class operatorsOf_13  {
       await cb(value_3, kk_3);
     };
   };
+  // typescript static 
   static async forEach_25 (__self : {[key:string]:CodeNode}, cb : (item:CodeNode, index:string) => void) :  Promise<void>   {
     const list_4 : Array<string>  = Object.keys(__self);
     for ( let i_14 = 0; i_14 < list_4.length; i_14++) {
@@ -23726,6 +23830,7 @@ class operatorsOf_13  {
       await cb(value_4, kk_4);
     };
   };
+  // typescript static 
   static async forEach_30 (__self : {[key:string]:RangerAppMethodVariants}, cb : (item:RangerAppMethodVariants, index:string) => void) :  Promise<void>   {
     const list_5 : Array<string>  = Object.keys(__self);
     for ( let i_16 = 0; i_16 < list_5.length; i_16++) {
@@ -23734,6 +23839,7 @@ class operatorsOf_13  {
       await cb(value_5, kk_5);
     };
   };
+  // typescript static 
   static forEach_40 (__self : {[key:string]:string}, cb : (item:string, index:string) => void) : void  {
     const list_6 : Array<string>  = Object.keys(__self);
     for ( let i_22 = 0; i_22 < list_6.length; i_22++) {
@@ -23742,6 +23848,7 @@ class operatorsOf_13  {
       cb(value_6, kk_6);
     };
   };
+  // typescript static 
   static forEach_55 (__self : {[key:string]:boolean}, cb : (item:boolean, index:string) => void) : void  {
     const list_7 : Array<string>  = Object.keys(__self);
     for ( let i_30 = 0; i_30 < list_7.length; i_30++) {
@@ -23754,6 +23861,7 @@ class operatorsOf_13  {
 class operatorsOfRangerAppWriterContext_21  {
   constructor() {
   }
+  // typescript static 
   static getTargetLang_22 (__self : RangerAppWriterContext) : string  {
     if ( (__self.targetLangName.length) > 0 ) {
       return __self.targetLangName;
@@ -23767,6 +23875,7 @@ class operatorsOfRangerAppWriterContext_21  {
 class operatorsOf_21  {
   constructor() {
   }
+  // typescript static 
   static getTargetLang_22 (__self : RangerAppWriterContext) : string  {
     if ( (__self.targetLangName.length) > 0 ) {
       return __self.targetLangName;
@@ -23776,6 +23885,7 @@ class operatorsOf_21  {
     }
     return "ranger";
   };
+  // typescript static 
   static addUsage_28 (__self : RangerAppWriterContext, cn : CodeNode) : void  {
     const ctx : RangerAppWriterContext  = __self;
     const currM : RangerAppFunctionDesc  = ctx.getCurrentMethod();
@@ -23792,6 +23902,7 @@ class operatorsOf_21  {
       currM.addClassUsage(cl_2, ctx);
     }
   };
+  // typescript static 
   static getActiveTransaction_22 (c : RangerAppWriterContext) : ContextTransaction  {
     let rValue : ContextTransaction ;
     if ( (c.activeTransaction.length) > 0 ) {
@@ -23803,6 +23914,7 @@ class operatorsOf_21  {
     }
     return rValue;
   };
+  // typescript static 
   static createc95var_48 (__self : RangerAppWriterContext, name : string, type_name : string) : RangerAppParamDesc  {
     const fieldNode : CodeNode  = CodeNode.vref2(name, type_name);
     fieldNode.value_type = fieldNode.typeNameAsType(__self);
@@ -23815,6 +23927,7 @@ class operatorsOf_21  {
     __self.defineVariable(p_2.name, p_2);
     return p_2;
   };
+  // typescript static 
   static createc95var_49 (__self : RangerAppWriterContext, name : string, usingNode : CodeNode) : RangerAppParamDesc  {
     /** unused:  const fieldNode_1 : CodeNode  = CodeNode.vref1(name)   **/ 
     const p_3 : RangerAppParamDesc  = new RangerAppParamDesc();
@@ -23830,6 +23943,7 @@ class operatorsOf_21  {
 class operatorsOfchar_23  {
   constructor() {
   }
+  // typescript static 
   static isc95notc95limiter_24 (c : number) : boolean  {
     return (((((c > 32) && (c != (59))) && (c != (41))) && (c != (40))) && (c != (125))) && (c != (44));
   };
@@ -23837,6 +23951,7 @@ class operatorsOfchar_23  {
 class operatorsOfRangerFlowParser_26  {
   constructor() {
   }
+  // typescript static 
   static async EnterVarDef_27 (__self : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>   {
     if ( ctx.isInMethod() ) {
       if ( (node.children.length) < 2 ) {
@@ -24038,6 +24153,7 @@ class operatorsOfRangerFlowParser_26  {
 class operatorsOf_26  {
   constructor() {
   }
+  // typescript static 
   static async EnterVarDef_27 (__self : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>   {
     if ( ctx.isInMethod() ) {
       if ( (node.children.length) < 2 ) {
@@ -24239,6 +24355,7 @@ class operatorsOf_26  {
 class operatorsOfstring_33  {
   constructor() {
   }
+  // typescript static 
   static transactionc95depth_34 (name : string, c : RangerAppWriterContext) : number  {
     let t : ContextTransaction  = operatorsOf_21.getActiveTransaction_22(c);
     let d : number  = 0;
@@ -24254,6 +24371,7 @@ class operatorsOfstring_33  {
 class operatorsOf_33  {
   constructor() {
   }
+  // typescript static 
   static startc95transaction_35 (name : string, desc : string, c : RangerAppWriterContext) : ContextTransaction  {
     const t_1 : ContextTransaction  = new ContextTransaction();
     t_1.name = name;
@@ -24268,6 +24386,7 @@ class operatorsOf_33  {
     }
     return t_1;
   };
+  // typescript static 
   static transactionc95depth_34 (name : string, c : RangerAppWriterContext) : number  {
     let t_2 : ContextTransaction  = operatorsOf_21.getActiveTransaction_22(c);
     let d_1 : number  = 0;
@@ -24283,6 +24402,7 @@ class operatorsOf_33  {
 class operatorsOfContextTransaction_38  {
   constructor() {
   }
+  // typescript static 
   static endc95transaction_39 (t : ContextTransaction) : void  {
     const c : RangerAppWriterContext  = t.ctx;
     const i_21 : number  = c.activeTransaction.indexOf(t);
@@ -24295,6 +24415,7 @@ class operatorsOfContextTransaction_38  {
 class operatorsOfCodeNode_41  {
   constructor() {
   }
+  // typescript static 
   static rc46funcdesc_42 (node : CodeNode, ctx : RangerAppWriterContext) : RangerAppFunctionDesc  {
     const m : RangerAppFunctionDesc  = new RangerAppFunctionDesc();
     const cn_4 : CodeNode  = node.getSecond();
@@ -24313,6 +24434,7 @@ class operatorsOfCodeNode_41  {
 class operatorsOf_41  {
   constructor() {
   }
+  // typescript static 
   static async rc46func_43 (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<RangerAppFunctionDesc>   {
     const parser : RangerFlowParser  = new RangerFlowParser();
     return await parser.CreateFunctionObject(node, ctx, wr);
@@ -24321,6 +24443,7 @@ class operatorsOf_41  {
 class operatorsOfJSONArrayObject_57  {
   constructor() {
   }
+  // typescript static 
   static forEach_58 (__self : Array<any>, cb : (item:Object, index:number) => void) : void  {
     let cnt : number  = __self.length;
     let i_32 : number  = 0;
@@ -24335,6 +24458,7 @@ class operatorsOfJSONArrayObject_57  {
 class operatorsOf_57  {
   constructor() {
   }
+  // typescript static 
   static async forEach_58 (__self : Array<any>, cb : (item:Object, index:number) => void) :  Promise<void>   {
     let cnt_1 : number  = __self.length;
     let i_33 : number  = 0;

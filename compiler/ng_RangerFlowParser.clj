@@ -736,8 +736,8 @@ class RangerFlowParser {
           
           if(item.eval_type == RangerNodeType.Method && (!null? item.paramDesc) ) {
             
-            def pDesc (unwrap item.paramDesc)
-            def mDesc (cast pDesc to:RangerAppFunctionDesc)
+            def mDesc (unwrap item.paramDesc)
+            ;def mDesc (cast pDesc to:RangerAppFunctionDesc)
 
             node.eval_type = mDesc.nameNode.value_type
             node.eval_type_name = mDesc.nameNode.type_name
@@ -1369,11 +1369,17 @@ class RangerFlowParser {
     root.definedClasses.forEach({
 
       item.static_methods.forEach({
+
           def thisFn (item)
           def set_async (fn:void (f:RangerAppFunctionDesc) {
 
           })
           def visited@(weak):[RangerAppFunctionDesc]
+
+          ;thisFn.params.forEach({
+          ;  item.nameNode.setFlag('async')
+          ;})
+
           set_async = (fn:void (f:RangerAppFunctionDesc) {
             if( (indexOf visited f ) >= 0 ) {
               return
@@ -1424,6 +1430,11 @@ class RangerFlowParser {
 
           })
           def visited@(weak):[RangerAppFunctionDesc]
+
+          ;thisFn.params.forEach({
+          ;  item.nameNode.setFlag('async')
+          ;})
+
           set_async = (fn:void (f:RangerAppFunctionDesc) {
             if( (indexOf visited f ) >= 0 ) {
               return
@@ -1721,6 +1732,11 @@ class RangerFlowParser {
 
     def all_matched true
 
+    ; to work around typescript bug
+    if(ctx.hasCompilerFlag('notreallyexistingflag')) {
+      all_matched = false
+    }
+
     if( (size argsExpr1.children) != (size argsExpr2.children) ) {
       ctx.addError(n2 "Invalid parameter count for the lambda expression")
       return false
@@ -1772,6 +1788,9 @@ class RangerFlowParser {
       }
     })
 
+    if(ctx.hasCompilerFlag('notreallyexistingflag')) {
+      all_matched = false
+    }
     if( all_matched == false) {
       ctx.addError(n2 "Invalid lambda return value type")
       return false
@@ -4831,8 +4850,9 @@ class RangerFlowParser {
       
 
       if( n2.eval_type == RangerNodeType.Method ) {
-        def pDesc (unwrap n2.paramDesc)
-        this.transformMethodToLambda( n2 (cast pDesc to:RangerAppFunctionDesc) ctx wr )
+        def pDesc:RangerAppFunctionDesc (cast (unwrap n2.paramDesc) to:RangerAppFunctionDesc)
+        ; (cast pDesc to:RangerAppFunctionDesc)
+        this.transformMethodToLambda( n2 pDesc ctx wr )
         return true        
       }
       

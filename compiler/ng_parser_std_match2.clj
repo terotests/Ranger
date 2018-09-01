@@ -15,13 +15,19 @@ extension RangerFlowParser {
                 def flagList (tpl.getExpressionProperty("flags"))
                 def b_matched false
                 flagList.children.forEach({
-                    b_matched = (b_matched || (ctx.hasCompilerFlag(item.vref))) 
+                  print "FLAG " + item.vref
+                  b_matched = (b_matched || (ctx.hasCompilerFlag(item.vref))) 
                 })
                 if( b_matched == false ) { 
                     continue
                 } 
             }
             def tplName:CodeNode (tpl.getFirst())
+            def is_ts (ctx.hasCompilerFlag('typescript'))
+            if( is_ts && ( tplName.vref == 'typescript' || tplName.vref == 'ts')) {
+              rv = tpl 
+              return rv
+            } 
             if ((tplName.vref != "*") && (tplName.vref != langName)) {
               continue 
             }            
@@ -516,6 +522,7 @@ extension RangerFlowParser {
                   def regName ""
                   def realArg (at callArgs.children (opName))
                   def just_vref (fn:boolean (a:CodeNode) {
+                    return false
                   })
 
                   just_vref = (fn:boolean (a:CodeNode) {

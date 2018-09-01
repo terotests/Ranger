@@ -1,6 +1,6 @@
 
 systemclass RangerCompilerPlugin {
-    es6 Object    
+    es6 any    
 }
 
 operators {

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+"use strict";
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
         extendStatics = Object.setPrototypeOf ||
@@ -47,6 +47,7 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
+Object.defineProperty(exports, "__esModule", { value: true });
 var CmdParams = /** @class */ (function () {
     function CmdParams() {
         this.flags = {};
@@ -124,6 +125,7 @@ var CmdParams = /** @class */ (function () {
         return res;
     };
     ;
+    // typescript static 
     CmdParams.fromDictionary = function (dict) {
         return __awaiter(this, void 0, void 0, function () {
             var obj, values, theObjflags_1, obj_keys, values_1, theObjparams_1, obj_keys_1, values_2, arr, e_1;
@@ -185,6 +187,7 @@ var CmdParams = /** @class */ (function () {
     ;
     return CmdParams;
 }());
+exports.CmdParams = CmdParams;
 var test_cmdparams = /** @class */ (function () {
     function test_cmdparams() {
     }
@@ -215,6 +218,7 @@ var test_cmdparams = /** @class */ (function () {
     ;
     return test_cmdparams;
 }());
+exports.test_cmdparams = test_cmdparams;
 var InputFSFolder = /** @class */ (function () {
     function InputFSFolder() {
         this.name = "";
@@ -260,6 +264,7 @@ var InputFSFolder = /** @class */ (function () {
         return res;
     };
     ;
+    // typescript static 
     InputFSFolder.fromDictionary = function (dict) {
         return __awaiter(this, void 0, void 0, function () {
             var obj, v, v_1, v_2, v_3, values, arr, values_1, arr_1, e_2;
@@ -338,6 +343,7 @@ var InputFSFolder = /** @class */ (function () {
     ;
     return InputFSFolder;
 }());
+exports.InputFSFolder = InputFSFolder;
 var InputFSFile = /** @class */ (function () {
     function InputFSFile() {
         this.name = "";
@@ -358,6 +364,7 @@ var InputFSFile = /** @class */ (function () {
         return res;
     };
     ;
+    // typescript static 
     InputFSFile.fromDictionary = function (dict) {
         var obj = new InputFSFile();
         try {
@@ -385,6 +392,7 @@ var InputFSFile = /** @class */ (function () {
     ;
     return InputFSFile;
 }());
+exports.InputFSFile = InputFSFile;
 var InputEnv = /** @class */ (function () {
     function InputEnv() {
         this.use_real = false;
@@ -419,6 +427,7 @@ var InputEnv = /** @class */ (function () {
         return res;
     };
     ;
+    // typescript static 
     InputEnv.fromDictionary = function (dict) {
         return __awaiter(this, void 0, void 0, function () {
             var obj, v, theValue, newObj, values, theObjenvVars_1, obj_keys, theValue_1, newObj_1, e_3;
@@ -474,17 +483,20 @@ var InputEnv = /** @class */ (function () {
     ;
     return InputEnv;
 }());
+exports.InputEnv = InputEnv;
 var test_input_filesystem = /** @class */ (function () {
     function test_input_filesystem() {
     }
     return test_input_filesystem;
 }());
+exports.test_input_filesystem = test_input_filesystem;
 var RangerAppTodo = /** @class */ (function () {
     function RangerAppTodo() {
         this.description = "";
     }
     return RangerAppTodo;
 }());
+exports.RangerAppTodo = RangerAppTodo;
 var RangerCompilerMessage = /** @class */ (function () {
     function RangerCompilerMessage() {
         this.error_level = 0; /** note: unused */
@@ -494,6 +506,7 @@ var RangerCompilerMessage = /** @class */ (function () {
     }
     return RangerCompilerMessage;
 }());
+exports.RangerCompilerMessage = RangerCompilerMessage;
 var RangerParamEventHandler = /** @class */ (function () {
     function RangerParamEventHandler() {
     }
@@ -502,12 +515,14 @@ var RangerParamEventHandler = /** @class */ (function () {
     ;
     return RangerParamEventHandler;
 }());
+exports.RangerParamEventHandler = RangerParamEventHandler;
 var RangerParamEventList = /** @class */ (function () {
     function RangerParamEventList() {
         this.list = [];
     }
     return RangerParamEventList;
 }());
+exports.RangerParamEventList = RangerParamEventList;
 var RangerParamEventMap = /** @class */ (function () {
     function RangerParamEventMap() {
         this.events = {};
@@ -536,6 +551,7 @@ var RangerParamEventMap = /** @class */ (function () {
     ;
     return RangerParamEventMap;
 }());
+exports.RangerParamEventMap = RangerParamEventMap;
 var RangerAppArrayValue = /** @class */ (function () {
     function RangerAppArrayValue() {
         this.value_type = 0; /** note: unused */
@@ -544,6 +560,7 @@ var RangerAppArrayValue = /** @class */ (function () {
     }
     return RangerAppArrayValue;
 }());
+exports.RangerAppArrayValue = RangerAppArrayValue;
 var RangerAppHashValue = /** @class */ (function () {
     function RangerAppHashValue() {
         this.value_type = 0; /** note: unused */
@@ -556,6 +573,7 @@ var RangerAppHashValue = /** @class */ (function () {
     }
     return RangerAppHashValue;
 }());
+exports.RangerAppHashValue = RangerAppHashValue;
 var RangerAppValue = /** @class */ (function () {
     function RangerAppValue() {
         this.double_value = 0.0; /** note: unused */
@@ -565,6 +583,7 @@ var RangerAppValue = /** @class */ (function () {
     }
     return RangerAppValue;
 }());
+exports.RangerAppValue = RangerAppValue;
 var RangerRefForce = /** @class */ (function () {
     function RangerRefForce() {
         this.strength = 0;
@@ -572,6 +591,7 @@ var RangerRefForce = /** @class */ (function () {
     }
     return RangerRefForce;
 }());
+exports.RangerRefForce = RangerRefForce;
 var RangerAppParamDesc = /** @class */ (function () {
     function RangerAppParamDesc() {
         this.name = "";
@@ -598,6 +618,7 @@ var RangerAppParamDesc = /** @class */ (function () {
         this.is_set = false; /** note: unused */
         this.is_class_variable = false;
         this.is_captured = false;
+        this.params = []; /** note: unused */
         this.description = ""; /** note: unused */
         this.git_doc = "";
         this.has_events = false;
@@ -655,9 +676,6 @@ var RangerAppParamDesc = /** @class */ (function () {
                 }
                 return true;
             }
-            if (this.nameNode.eval_type == 13) {
-                return false;
-            }
             if (this.nameNode.value_type == 11) {
                 if (false == this.nameNode.isPrimitive()) {
                     return true;
@@ -674,7 +692,7 @@ var RangerAppParamDesc = /** @class */ (function () {
     };
     ;
     RangerAppParamDesc.prototype.moveRefTo = function (nodeToMove, target, ctx) {
-        var b_disable_errors = true;
+        var b_disable_errors = ctx.hasCompilerFlag("refcnt") == false;
         if (nodeToMove.ref_change_done) {
             return;
         }
@@ -911,6 +929,7 @@ var RangerAppParamDesc = /** @class */ (function () {
     ;
     return RangerAppParamDesc;
 }());
+exports.RangerAppParamDesc = RangerAppParamDesc;
 var RangerAppFunctionDesc = /** @class */ (function (_super) {
     __extends(RangerAppFunctionDesc, _super);
     function RangerAppFunctionDesc() {
@@ -1032,6 +1051,7 @@ var RangerAppFunctionDesc = /** @class */ (function (_super) {
     ;
     return RangerAppFunctionDesc;
 }(RangerAppParamDesc));
+exports.RangerAppFunctionDesc = RangerAppFunctionDesc;
 var RangerAppMethodVariants = /** @class */ (function () {
     function RangerAppMethodVariants() {
         this.name = ""; /** note: unused */
@@ -1039,12 +1059,14 @@ var RangerAppMethodVariants = /** @class */ (function () {
     }
     return RangerAppMethodVariants;
 }());
+exports.RangerAppMethodVariants = RangerAppMethodVariants;
 var RangerAppInterfaceImpl = /** @class */ (function () {
     function RangerAppInterfaceImpl() {
         this.name = ""; /** note: unused */
     }
     return RangerAppInterfaceImpl;
 }());
+exports.RangerAppInterfaceImpl = RangerAppInterfaceImpl;
 var RangerTraitParams = /** @class */ (function () {
     function RangerTraitParams() {
         this.param_names = [];
@@ -1052,6 +1074,7 @@ var RangerTraitParams = /** @class */ (function () {
     }
     return RangerTraitParams;
 }());
+exports.RangerTraitParams = RangerTraitParams;
 var RangerAppClassDesc = /** @class */ (function (_super) {
     __extends(RangerAppClassDesc, _super);
     function RangerAppClassDesc() {
@@ -1452,6 +1475,7 @@ var RangerAppClassDesc = /** @class */ (function (_super) {
     ;
     return RangerAppClassDesc;
 }(RangerAppParamDesc));
+exports.RangerAppClassDesc = RangerAppClassDesc;
 var RangerTypeClass = /** @class */ (function () {
     function RangerTypeClass() {
         this.name = "";
@@ -1475,6 +1499,7 @@ var RangerTypeClass = /** @class */ (function () {
     }
     return RangerTypeClass;
 }());
+exports.RangerTypeClass = RangerTypeClass;
 var SourceCode = /** @class */ (function () {
     function SourceCode(code_str) {
         this.code = "";
@@ -1542,6 +1567,7 @@ var SourceCode = /** @class */ (function () {
     ;
     return SourceCode;
 }());
+exports.SourceCode = SourceCode;
 var CodeNodeLiteral = /** @class */ (function () {
     function CodeNodeLiteral() {
         this.expression = false;
@@ -1645,6 +1671,7 @@ var CodeNodeLiteral = /** @class */ (function () {
         return res;
     };
     ;
+    // typescript static 
     CodeNodeLiteral.fromDictionary = function (dict) {
         return __awaiter(this, void 0, void 0, function () {
             var obj, v, v_1, v_2, v_3, v_4, v_5, values, arr, v_6, theValue, newObj, v_7, theValue_1, newObj_1, v_8, v_9, v_10, v_11, theValue_2, newObj_2, values_1, theObjprops_1, obj_keys, values_2, arr_1, values_3, arr_2, values_4, arr_3, values_5, arr_4, e_5;
@@ -1866,6 +1893,7 @@ var CodeNodeLiteral = /** @class */ (function () {
     ;
     return CodeNodeLiteral;
 }());
+exports.CodeNodeLiteral = CodeNodeLiteral;
 var CodeNode = /** @class */ (function () {
     function CodeNode(source, start, end) {
         this.sp = 0;
@@ -2009,32 +2037,13 @@ var CodeNode = /** @class */ (function () {
     };
     ;
     CodeNode.prototype.walkTreeUntil = function (callback) {
-        return __awaiter(this, void 0, void 0, function () {
-            var i, ch;
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0:
-                        i = 0;
-                        _a.label = 1;
-                    case 1:
-                        if (!(i < this.children.length)) return [3 /*break*/, 5];
-                        ch = this.children[i];
-                        return [4 /*yield*/, callback(ch, i)];
-                    case 2:
-                        if (!_a.sent()) return [3 /*break*/, 4];
-                        return [4 /*yield*/, ch.walkTreeUntil(callback)];
-                    case 3:
-                        _a.sent();
-                        _a.label = 4;
-                    case 4:
-                        i++;
-                        return [3 /*break*/, 1];
-                    case 5:
-                        ;
-                        return [2 /*return*/];
-                }
-            });
-        });
+        for (var i = 0; i < this.children.length; i++) {
+            var ch = this.children[i];
+            if (callback(ch, i)) {
+                ch.walkTreeUntil(callback);
+            }
+        }
+        ;
     };
     ;
     CodeNode.prototype.getParsedString = function () {
@@ -3162,6 +3171,7 @@ var CodeNode = /** @class */ (function () {
         return false;
     };
     ;
+    // typescript static 
     CodeNode.vref1 = function (name) {
         var code = new SourceCode(name);
         var newNode = new CodeNode(code, 0, name.length);
@@ -3172,6 +3182,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.vref2 = function (name, typeName) {
         var code = new SourceCode(name);
         var newNode = new CodeNode(code, 0, name.length);
@@ -3183,6 +3194,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.newStr = function (name) {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3192,6 +3204,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.newBool = function (value) {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3201,6 +3214,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.newInt = function (value) {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3210,6 +3224,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.newDouble = function (value) {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3219,6 +3234,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.op = function (opName) {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3228,6 +3244,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.op2 = function (opName, param1) {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3238,6 +3255,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.op3 = function (opName, list) {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3252,6 +3270,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.fromList = function (list) {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3265,6 +3284,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.expressionNode = function () {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3272,6 +3292,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.blockNode = function () {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3280,6 +3301,7 @@ var CodeNode = /** @class */ (function () {
         return newNode;
     };
     ;
+    // typescript static 
     CodeNode.blockFromList = function (list) {
         var code = new SourceCode("");
         var newNode = new CodeNode(code, 0, 0);
@@ -3296,6 +3318,7 @@ var CodeNode = /** @class */ (function () {
     ;
     return CodeNode;
 }());
+exports.CodeNode = CodeNode;
 var TypeCounts = /** @class */ (function () {
     function TypeCounts() {
         this.b_counted = false;
@@ -3307,16 +3330,19 @@ var TypeCounts = /** @class */ (function () {
     }
     return TypeCounts;
 }());
+exports.TypeCounts = TypeCounts;
 var RangerNodeValue = /** @class */ (function () {
     function RangerNodeValue() {
     }
     return RangerNodeValue;
 }());
+exports.RangerNodeValue = RangerNodeValue;
 var RangerBackReference = /** @class */ (function () {
     function RangerBackReference() {
     }
     return RangerBackReference;
 }());
+exports.RangerBackReference = RangerBackReference;
 var RangerAppEnum = /** @class */ (function () {
     function RangerAppEnum() {
         this.name = ""; /** note: unused */
@@ -3330,24 +3356,28 @@ var RangerAppEnum = /** @class */ (function () {
     ;
     return RangerAppEnum;
 }());
+exports.RangerAppEnum = RangerAppEnum;
 var OpFindResult = /** @class */ (function () {
     function OpFindResult() {
         this.did_find = false; /** note: unused */
     }
     return OpFindResult;
 }());
+exports.OpFindResult = OpFindResult;
 var RangerOperatorList = /** @class */ (function () {
     function RangerOperatorList() {
         this.items = [];
     }
     return RangerOperatorList;
 }());
+exports.RangerOperatorList = RangerOperatorList;
 var RangerNodeList = /** @class */ (function () {
     function RangerNodeList() {
         this.items = [];
     }
     return RangerNodeList;
 }());
+exports.RangerNodeList = RangerNodeList;
 var ContextTransaction = /** @class */ (function () {
     function ContextTransaction() {
         this.name = "";
@@ -3359,11 +3389,13 @@ var ContextTransaction = /** @class */ (function () {
     }
     return ContextTransaction;
 }());
+exports.ContextTransaction = ContextTransaction;
 var ContextTransactionMutation = /** @class */ (function () {
     function ContextTransactionMutation() {
     }
     return ContextTransactionMutation;
 }());
+exports.ContextTransactionMutation = ContextTransactionMutation;
 var RangerRegisteredPlugin = /** @class */ (function () {
     function RangerRegisteredPlugin() {
         this.name = "";
@@ -3371,6 +3403,7 @@ var RangerRegisteredPlugin = /** @class */ (function () {
     }
     return RangerRegisteredPlugin;
 }());
+exports.RangerRegisteredPlugin = RangerRegisteredPlugin;
 var RangerAppWriterContext = /** @class */ (function () {
     function RangerAppWriterContext() {
         this.op_list = {};
@@ -5345,6 +5378,7 @@ var RangerAppWriterContext = /** @class */ (function () {
     ;
     return RangerAppWriterContext;
 }());
+exports.RangerAppWriterContext = RangerAppWriterContext;
 var CodeFile = /** @class */ (function () {
     function CodeFile(filePath, fileName) {
         this.path_name = "";
@@ -5386,6 +5420,7 @@ var CodeFile = /** @class */ (function () {
     ;
     return CodeFile;
 }());
+exports.CodeFile = CodeFile;
 var CodeFileSystem = /** @class */ (function () {
     function CodeFileSystem() {
         this.files = [];
@@ -5436,6 +5471,7 @@ var CodeFileSystem = /** @class */ (function () {
     ;
     return CodeFileSystem;
 }());
+exports.CodeFileSystem = CodeFileSystem;
 var CodeSlice = /** @class */ (function () {
     function CodeSlice() {
         this.code = "";
@@ -5449,6 +5485,7 @@ var CodeSlice = /** @class */ (function () {
     ;
     return CodeSlice;
 }());
+exports.CodeSlice = CodeSlice;
 var CodeWriter = /** @class */ (function () {
     function CodeWriter() {
         this.tagName = ""; /** note: unused */
@@ -5673,6 +5710,7 @@ var CodeWriter = /** @class */ (function () {
         return res;
     };
     ;
+    // typescript static 
     CodeWriter.emptyWithFS = function () {
         var wr = new CodeWriter();
         var file = new CodeFile(".", "emptyFile.txt");
@@ -5684,6 +5722,7 @@ var CodeWriter = /** @class */ (function () {
     ;
     return CodeWriter;
 }());
+exports.CodeWriter = CodeWriter;
 var RangerLispParser = /** @class */ (function () {
     function RangerLispParser(code_module) {
         this.__len = 0;
@@ -6866,6 +6905,7 @@ var RangerLispParser = /** @class */ (function () {
     ;
     return RangerLispParser;
 }());
+exports.RangerLispParser = RangerLispParser;
 var RangerArgMatch = /** @class */ (function () {
     function RangerArgMatch() {
         this._debug = false;
@@ -7432,6 +7472,7 @@ var RangerArgMatch = /** @class */ (function () {
     ;
     return RangerArgMatch;
 }());
+exports.RangerArgMatch = RangerArgMatch;
 var DictNode = /** @class */ (function () {
     function DictNode() {
         this.is_property = false;
@@ -7784,6 +7825,7 @@ var DictNode = /** @class */ (function () {
         return "";
     };
     ;
+    // typescript static 
     DictNode.createEmptyObject = function () {
         var v = new DictNode();
         v.value_type = 6;
@@ -7792,6 +7834,7 @@ var DictNode = /** @class */ (function () {
     ;
     return DictNode;
 }());
+exports.DictNode = DictNode;
 var RangerSerializeClass = /** @class */ (function () {
     function RangerSerializeClass() {
     }
@@ -7846,9 +7889,6 @@ var RangerSerializeClass = /** @class */ (function () {
                 }
                 if (nn.array_type == "double") {
                     wr.out(("values.addDouble(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
-                }
-                if (nn.value_type == 13) {
-                    wr.out(("values.addInt(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
                 }
                 wr.indent(-1);
                 wr.out("}", true);
@@ -8282,6 +8322,7 @@ var RangerSerializeClass = /** @class */ (function () {
     ;
     return RangerSerializeClass;
 }());
+exports.RangerSerializeClass = RangerSerializeClass;
 var RangerImmutableExtension = /** @class */ (function () {
     function RangerImmutableExtension() {
     }
@@ -8361,6 +8402,7 @@ var RangerImmutableExtension = /** @class */ (function () {
     ;
     return RangerImmutableExtension;
 }());
+exports.RangerImmutableExtension = RangerImmutableExtension;
 var RangerServiceBuilder = /** @class */ (function () {
     function RangerServiceBuilder() {
     }
@@ -8431,6 +8473,7 @@ var RangerServiceBuilder = /** @class */ (function () {
     ;
     return RangerServiceBuilder;
 }());
+exports.RangerServiceBuilder = RangerServiceBuilder;
 var RangerAppOperatorDesc = /** @class */ (function (_super) {
     __extends(RangerAppOperatorDesc, _super);
     function RangerAppOperatorDesc() {
@@ -8450,9 +8493,11 @@ var RangerAppOperatorDesc = /** @class */ (function (_super) {
     ;
     return RangerAppOperatorDesc;
 }(RangerAppParamDesc));
+exports.RangerAppOperatorDesc = RangerAppOperatorDesc;
 var TFiles = /** @class */ (function () {
     function TFiles() {
     }
+    // typescript static 
     TFiles.searchEnv = function (env, paths, fileName) {
         for (var i = 0; i < paths.length; i++) {
             var path = paths[i];
@@ -8464,6 +8509,7 @@ var TFiles = /** @class */ (function () {
         return "";
     };
     ;
+    // typescript static 
     TFiles.search = function (paths, fileName) {
         for (var i = 0; i < paths.length; i++) {
             var path = paths[i];
@@ -8477,9 +8523,11 @@ var TFiles = /** @class */ (function () {
     ;
     return TFiles;
 }());
+exports.TFiles = TFiles;
 var TTypes = /** @class */ (function () {
     function TTypes() {
     }
+    // typescript static 
     TTypes.nameToValue = function (name) {
         switch (name) {
             case "double":
@@ -8499,6 +8547,7 @@ var TTypes = /** @class */ (function () {
         return 0;
     };
     ;
+    // typescript static 
     TTypes.isPrimitive = function (valueType) {
         switch (valueType) {
             case 2:
@@ -8520,6 +8569,7 @@ var TTypes = /** @class */ (function () {
         return false;
     };
     ;
+    // typescript static 
     TTypes.valueAsString = function (valueType) {
         switch (valueType) {
             case 2:
@@ -8600,6 +8650,7 @@ var TTypes = /** @class */ (function () {
         return "";
     };
     ;
+    // typescript static 
     TTypes.baseTypeAsEval = function (node, ctx, wr) {
         var vType = node.value_type;
         node.eval_type = vType;
@@ -8618,16 +8669,19 @@ var TTypes = /** @class */ (function () {
     ;
     return TTypes;
 }());
+exports.TTypes = TTypes;
 var ClassJoinPoint = /** @class */ (function () {
     function ClassJoinPoint() {
     }
     return ClassJoinPoint;
 }());
+exports.ClassJoinPoint = ClassJoinPoint;
 var WalkLater = /** @class */ (function () {
     function WalkLater() {
     }
     return WalkLater;
 }());
+exports.WalkLater = WalkLater;
 var RangerFlowParser = /** @class */ (function () {
     function RangerFlowParser() {
         this.hasRootPath = false; /** note: unused */
@@ -8747,7 +8801,7 @@ var RangerFlowParser = /** @class */ (function () {
     ;
     RangerFlowParser.prototype.WalkNode = function (node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function () {
-            var regInfo, fc, opBody_2, opTpl, currCnt_1, walk_xml_1, fc_3, pName, fc_4, skip_if, fc_5, fnCtx, exprFc, b_found, opFn, _a, sc, sc_1, params, paramClass, rvClassDef, paramClassDef_4, fc_6, sec_2, parts, method_name_2, classDesc_2, calledItem_3, m, m_1, sec_1_1, third, parts_1_1, method_name_1, classDesc_1_1, calledItem_1_1, calledItem_2, was_called, i, item, pDesc, mDesc, second, lambdaNode, nn;
+            var regInfo, fc, opBody_2, opTpl, currCnt_1, walk_xml_1, fc_3, pName, fc_4, skip_if, fc_5, fnCtx, exprFc, b_found, opFn, _a, sc, sc_1, params, paramClass, rvClassDef, paramClassDef_4, fc_6, sec_2, parts, method_name_2, classDesc_2, calledItem_3, m, m_1, sec_1_1, third, parts_1_1, method_name_1, classDesc_1_1, calledItem_1_1, calledItem_2, was_called, i, item, mDesc, second, lambdaNode, nn;
             var _this = this;
             return __generator(this, function (_b) {
                 switch (_b.label) {
@@ -9292,8 +9346,7 @@ var RangerFlowParser = /** @class */ (function () {
                         node.copyEvalResFrom(item);
                         if ((i == 0) && ((node.children.length) == 2)) {
                             if ((item.eval_type == 28) && ((typeof (item.paramDesc) !== "undefined" && item.paramDesc != null))) {
-                                pDesc = item.paramDesc;
-                                mDesc = pDesc;
+                                mDesc = item.paramDesc;
                                 node.eval_type = mDesc.nameNode.value_type;
                                 node.eval_type_name = mDesc.nameNode.type_name;
                                 node.eval_array_type = mDesc.nameNode.array_type;
@@ -10496,6 +10549,9 @@ var RangerFlowParser = /** @class */ (function () {
                         argsExpr1 = args1.copy();
                         argsExpr2 = args2.copy();
                         all_matched = true;
+                        if (ctx.hasCompilerFlag("notreallyexistingflag")) {
+                            all_matched = false;
+                        }
                         if ((argsExpr1.children.length) != (argsExpr2.children.length)) {
                             ctx.addError(n2, "Invalid parameter count for the lambda expression");
                             return [2 /*return*/, false];
@@ -10568,6 +10624,9 @@ var RangerFlowParser = /** @class */ (function () {
                             }); }))];
                     case 2:
                         _a.sent();
+                        if (ctx.hasCompilerFlag("notreallyexistingflag")) {
+                            all_matched = false;
+                        }
                         if (all_matched == false) {
                             ctx.addError(n2, "Invalid lambda return value type");
                             return [2 /*return*/, false];
@@ -13936,7 +13995,7 @@ var RangerFlowParser = /** @class */ (function () {
                     case 6: return [2 /*return*/, _a.sent()];
                     case 7:
                         if (!(n2.eval_type == 28)) return [3 /*break*/, 9];
-                        pDesc = n2.paramDesc;
+                        pDesc = (n2.paramDesc);
                         return [4 /*yield*/, this.transformMethodToLambda(n2, pDesc, ctx, wr)];
                     case 8:
                         _a.sent();
@@ -14093,7 +14152,7 @@ var RangerFlowParser = /** @class */ (function () {
                                         if (!(fc.vref == "templates")) return [3 /*break*/, 6];
                                         tplList = det.children[1];
                                         _loop_4 = function (i_1) {
-                                            var flagList, b_matched_1, tplName;
+                                            var flagList, b_matched_1, tplName, is_ts;
                                             return __generator(this, function (_a) {
                                                 switch (_a.label) {
                                                     case 0:
@@ -14102,6 +14161,7 @@ var RangerFlowParser = /** @class */ (function () {
                                                         flagList = tpl.getExpressionProperty("flags");
                                                         b_matched_1 = false;
                                                         return [4 /*yield*/, operatorsOf.forEach_15(flagList.children, (function (item, index) {
+                                                                console.log("FLAG " + item.vref);
                                                                 b_matched_1 = b_matched_1 || ctx.hasCompilerFlag(item.vref);
                                                             }))];
                                                     case 1:
@@ -14112,6 +14172,11 @@ var RangerFlowParser = /** @class */ (function () {
                                                         _a.label = 2;
                                                     case 2:
                                                         tplName = tpl.getFirst();
+                                                        is_ts = ctx.hasCompilerFlag("typescript");
+                                                        if (is_ts && ((tplName.vref == "typescript") || (tplName.vref == "ts"))) {
+                                                            rv = tpl;
+                                                            return [2 /*return*/, { value: rv }];
+                                                        }
                                                         if ((tplName.vref != "*") && (tplName.vref != langName)) {
                                                             return [2 /*return*/, "continue"];
                                                         }
@@ -14669,6 +14734,7 @@ var RangerFlowParser = /** @class */ (function () {
                                                             regName_2 = "";
                                                             realArg_1 = callArgs.children[opName_1];
                                                             just_vref_1 = (function (a) {
+                                                                return false;
                                                             });
                                                             just_vref_1 = (function (a) {
                                                                 if ((a.vref.length) > 0) {
@@ -15188,9 +15254,11 @@ var RangerFlowParser = /** @class */ (function () {
     ;
     return RangerFlowParser;
 }());
+exports.RangerFlowParser = RangerFlowParser;
 var TFactory = /** @class */ (function () {
     function TFactory() {
     }
+    // typescript static 
     TFactory.new_class_signature = function (node, ctx, wr) {
         var sig = node.vref;
         var tc = ctx.getTypeClass(sig);
@@ -15204,6 +15272,7 @@ var TFactory = /** @class */ (function () {
         return tc;
     };
     ;
+    // typescript static 
     TFactory.new_lambda_signature = function (node, ctx, wr) {
         var sig = TFactory.lambdaSignature(node);
         var tc = ctx.getTypeClass(sig);
@@ -15217,6 +15286,7 @@ var TFactory = /** @class */ (function () {
         return tc;
     };
     ;
+    // typescript static 
     TFactory.new_def_signature_from_simple_string = function (sig, ctx, wr) {
         var tc = ctx.getTypeClass(sig);
         if (typeof (tc) === "undefined") {
@@ -15232,10 +15302,12 @@ var TFactory = /** @class */ (function () {
         return tc;
     };
     ;
+    // typescript static 
     TFactory.sig = function (sig, ctx, wr) {
         return TFactory.new_def_signature_from_simple_string(sig, ctx, wr);
     };
     ;
+    // typescript static 
     TFactory.new_def_signature = function (node, ctx, wr) {
         var sig = TFactory.baseSignature(node);
         var tc = ctx.getTypeClass(sig);
@@ -15262,6 +15334,7 @@ var TFactory = /** @class */ (function () {
         return tc;
     };
     ;
+    // typescript static 
     TFactory.new_scalar_signature = function (node, ctx, wr) {
         var sig = TFactory.baseSignature(node);
         var tc = ctx.getTypeClass(sig);
@@ -15275,6 +15348,7 @@ var TFactory = /** @class */ (function () {
         return tc;
     };
     ;
+    // typescript static 
     TFactory.type_annotation = function (node) {
         if (node.has_type_annotation) {
             return ("@(" + TFactory.baseSignature((node.type_annotation))) + ")";
@@ -15282,6 +15356,7 @@ var TFactory = /** @class */ (function () {
         return "";
     };
     ;
+    // typescript static 
     TFactory.lambdaSignature = function (node) {
         var fnNode = node.getFirst();
         var argNode = node.getSecond();
@@ -15293,6 +15368,7 @@ var TFactory = /** @class */ (function () {
         return s;
     };
     ;
+    // typescript static 
     TFactory.baseSignature = function (node) {
         if (TTypes.isPrimitive(node.value_type)) {
             return TTypes.valueAsString(node.value_type);
@@ -15327,12 +15403,14 @@ var TFactory = /** @class */ (function () {
     ;
     return TFactory;
 }());
+exports.TFactory = TFactory;
 var CallChain = /** @class */ (function () {
     function CallChain() {
         this.methodName = "";
     }
     return CallChain;
 }());
+exports.CallChain = CallChain;
 var NodeEvalState = /** @class */ (function () {
     function NodeEvalState() {
         this.is_running = false; /** note: unused */
@@ -15356,6 +15434,7 @@ var NodeEvalState = /** @class */ (function () {
     }
     return NodeEvalState;
 }());
+exports.NodeEvalState = NodeEvalState;
 var RangerGenericClassWriter = /** @class */ (function () {
     function RangerGenericClassWriter() {
         this.compFlags = {};
@@ -16224,6 +16303,7 @@ var RangerGenericClassWriter = /** @class */ (function () {
     ;
     return RangerGenericClassWriter;
 }());
+exports.RangerGenericClassWriter = RangerGenericClassWriter;
 var AndroidPageWriter = /** @class */ (function () {
     function AndroidPageWriter() {
     }
@@ -16456,6 +16536,7 @@ var AndroidPageWriter = /** @class */ (function () {
     ;
     return AndroidPageWriter;
 }());
+exports.AndroidPageWriter = AndroidPageWriter;
 var RangerJava7ClassWriter = /** @class */ (function (_super) {
     __extends(RangerJava7ClassWriter, _super);
     function RangerJava7ClassWriter() {
@@ -17720,6 +17801,7 @@ var RangerJava7ClassWriter = /** @class */ (function (_super) {
     ;
     return RangerJava7ClassWriter;
 }(RangerGenericClassWriter));
+exports.RangerJava7ClassWriter = RangerJava7ClassWriter;
 var RangerSwift3ClassWriter = /** @class */ (function (_super) {
     __extends(RangerSwift3ClassWriter, _super);
     function RangerSwift3ClassWriter() {
@@ -18821,6 +18903,7 @@ var RangerSwift3ClassWriter = /** @class */ (function (_super) {
     ;
     return RangerSwift3ClassWriter;
 }(RangerGenericClassWriter));
+exports.RangerSwift3ClassWriter = RangerSwift3ClassWriter;
 var RangerCppClassWriter = /** @class */ (function (_super) {
     __extends(RangerCppClassWriter, _super);
     function RangerCppClassWriter() {
@@ -20174,6 +20257,7 @@ var RangerCppClassWriter = /** @class */ (function (_super) {
     ;
     return RangerCppClassWriter;
 }(RangerGenericClassWriter));
+exports.RangerCppClassWriter = RangerCppClassWriter;
 var RangerKotlinClassWriter = /** @class */ (function (_super) {
     __extends(RangerKotlinClassWriter, _super);
     function RangerKotlinClassWriter() {
@@ -20728,6 +20812,7 @@ var RangerKotlinClassWriter = /** @class */ (function (_super) {
     ;
     return RangerKotlinClassWriter;
 }(RangerGenericClassWriter));
+exports.RangerKotlinClassWriter = RangerKotlinClassWriter;
 var RangerCSharpClassWriter = /** @class */ (function (_super) {
     __extends(RangerCSharpClassWriter, _super);
     function RangerCSharpClassWriter() {
@@ -21379,6 +21464,7 @@ var RangerCSharpClassWriter = /** @class */ (function (_super) {
     ;
     return RangerCSharpClassWriter;
 }(RangerGenericClassWriter));
+exports.RangerCSharpClassWriter = RangerCSharpClassWriter;
 var RangerScalaClassWriter = /** @class */ (function (_super) {
     __extends(RangerScalaClassWriter, _super);
     function RangerScalaClassWriter() {
@@ -22477,6 +22563,7 @@ var RangerScalaClassWriter = /** @class */ (function (_super) {
     ;
     return RangerScalaClassWriter;
 }(RangerGenericClassWriter));
+exports.RangerScalaClassWriter = RangerScalaClassWriter;
 var RangerGolangClassWriter = /** @class */ (function (_super) {
     __extends(RangerGolangClassWriter, _super);
     function RangerGolangClassWriter() {
@@ -24656,6 +24743,7 @@ var RangerGolangClassWriter = /** @class */ (function (_super) {
     ;
     return RangerGolangClassWriter;
 }(RangerGenericClassWriter));
+exports.RangerGolangClassWriter = RangerGolangClassWriter;
 var RangerPHPClassWriter = /** @class */ (function (_super) {
     __extends(RangerPHPClassWriter, _super);
     function RangerPHPClassWriter() {
@@ -25591,6 +25679,7 @@ var RangerPHPClassWriter = /** @class */ (function (_super) {
     ;
     return RangerPHPClassWriter;
 }(RangerGenericClassWriter));
+exports.RangerPHPClassWriter = RangerPHPClassWriter;
 var WebPageWriter = /** @class */ (function () {
     function WebPageWriter() {
     }
@@ -25631,6 +25720,7 @@ var WebPageWriter = /** @class */ (function () {
     ;
     return WebPageWriter;
 }());
+exports.WebPageWriter = WebPageWriter;
 var RangerJavaScriptClassWriter = /** @class */ (function (_super) {
     __extends(RangerJavaScriptClassWriter, _super);
     function RangerJavaScriptClassWriter() {
@@ -25981,9 +26071,19 @@ var RangerJavaScriptClassWriter = /** @class */ (function (_super) {
                     case 6:
                         ;
                         wr.out(") => ", false);
+                        if (this.target_typescript) {
+                            if (node.hasFlag("async")) {
+                                wr.out("Promise<", false);
+                            }
+                        }
                         return [4 /*yield*/, this.writeTypeDef(rv, ctx, wr)];
                     case 7:
                         _b.sent();
+                        if (this.target_typescript) {
+                            if (node.hasFlag("async")) {
+                                wr.out(">", false);
+                            }
+                        }
                         return [3 /*break*/, 18];
                     case 8:
                         wr.out("number", false);
@@ -26021,7 +26121,6 @@ var RangerJavaScriptClassWriter = /** @class */ (function (_super) {
                             cc = ctx.findClass(t_name);
                             if (cc.is_system) {
                                 sName = (cc.systemNames["es6"]);
-                                console.log(" typedef for system class " + sName);
                                 wr.out(sName, false);
                                 return [2 /*return*/];
                             }
@@ -26031,7 +26130,6 @@ var RangerJavaScriptClassWriter = /** @class */ (function (_super) {
                                 return [2 /*return*/];
                             }
                             cc_1 = ctx.findClass(t_name);
-                            console.log(" typedef for class " + cc_1.name);
                             wr.out(cc_1.name, false);
                             return [2 /*return*/];
                         }
@@ -26478,13 +26576,14 @@ var RangerJavaScriptClassWriter = /** @class */ (function (_super) {
     ;
     RangerJavaScriptClassWriter.prototype.writeClass = function (node, ctx, orig_wr) {
         return __awaiter(this, void 0, void 0, function () {
-            var cl, is_react_native, is_rn_default, wr, root, b_extd, i, pName, i_1, pvar, constr, i_2, pvar_1, constr_1, subCtx, i_3, fnVar, mVs, i_4, variant, subCtx_1, i_5, variant_1, subCtx_2, i_6, variant_2, asyncKeyword, subCtx_3, i_7, variant_3, asyncKeyword_1, theEnd_1;
+            var cl, is_react_native, is_rn_default, wr, root, b_extd, do_export, i, pName, i_1, pvar, constr, i_2, pvar_1, constr_1, subCtx, i_3, fnVar, mVs, i_4, variant, subCtx_1, i_5, variant_1, subCtx_2, i_6, variant_2, asyncKeyword, subCtx_3, i_7, variant_3, asyncKeyword_1, theEnd_1;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
                         cl = node.clDesc;
                         is_react_native = false;
                         is_rn_default = false;
+                        this.target_typescript = ctx.hasCompilerFlag("typescript");
                         if (ctx.hasCompilerFlag("dead4main") || ctx.hasCompilerSetting("dceclass")) {
                             if (cl.is_used_by_main == false) {
                                 return [2 /*return*/];
@@ -26510,7 +26609,7 @@ var RangerJavaScriptClassWriter = /** @class */ (function (_super) {
                         if (ctx.hasCompilerFlag("nodecli")) {
                             wr.out("#!/usr/bin/env node", true);
                         }
-                        if (!ctx.hasCompilerFlag("nodemodule")) return [3 /*break*/, 2];
+                        if (!(ctx.hasCompilerFlag("nodemodule") && (this.target_typescript == false))) return [3 /*break*/, 2];
                         root = ctx.getRoot();
                         return [4 /*yield*/, operatorsOf_13.forEach_14(root.definedClasses, (function (item, index) {
                                 if (ctx.hasCompilerFlag("dead4main") || ctx.hasCompilerSetting("dceclass")) {
@@ -26528,7 +26627,6 @@ var RangerJavaScriptClassWriter = /** @class */ (function (_super) {
                         _a.label = 2;
                     case 2:
                         this.target_flow = ctx.hasCompilerFlag("flow");
-                        this.target_typescript = ctx.hasCompilerFlag("typescript");
                         if (!this.target_typescript) return [3 /*break*/, 4];
                         return [4 /*yield*/, this.CreateTsUnions(this.compiler.parser, ctx, wr)];
                     case 3:
@@ -26542,7 +26640,14 @@ var RangerJavaScriptClassWriter = /** @class */ (function (_super) {
                         _a.label = 6;
                     case 6:
                         b_extd = false;
-                        if (is_react_native) {
+                        do_export = false;
+                        if (is_react_native || this.target_typescript) {
+                            do_export = true;
+                            if (cl.is_system || cl.is_operator_class) {
+                                do_export = false;
+                            }
+                        }
+                        if (do_export) {
                             wr.out("export ", false);
                             if (is_rn_default) {
                                 wr.out(" default ", false);
@@ -26694,6 +26799,7 @@ var RangerJavaScriptClassWriter = /** @class */ (function (_super) {
                         if (variant_1.nameNode.hasFlag("main")) {
                             return [3 /*break*/, 35];
                         }
+                        wr.out("// typescript static ", true);
                         wr.out("static ", false);
                         if (variant_1.nameNode.hasFlag("async")) {
                             wr.out("async ", false);
@@ -26989,6 +27095,7 @@ var RangerJavaScriptClassWriter = /** @class */ (function (_super) {
     ;
     return RangerJavaScriptClassWriter;
 }(RangerGenericClassWriter));
+exports.RangerJavaScriptClassWriter = RangerJavaScriptClassWriter;
 var RangerRangerClassWriter = /** @class */ (function (_super) {
     __extends(RangerRangerClassWriter, _super);
     function RangerRangerClassWriter() {
@@ -27590,12 +27697,14 @@ var RangerRangerClassWriter = /** @class */ (function (_super) {
     ;
     return RangerRangerClassWriter;
 }(RangerGenericClassWriter));
+exports.RangerRangerClassWriter = RangerRangerClassWriter;
 var OpList = /** @class */ (function () {
     function OpList() {
         this.list = [];
     }
     return OpList;
 }());
+exports.OpList = OpList;
 var RangerActiveOperators = /** @class */ (function () {
     function RangerActiveOperators() {
         this.opHash = {};
@@ -27699,6 +27808,7 @@ var RangerActiveOperators = /** @class */ (function () {
     ;
     return RangerActiveOperators;
 }());
+exports.RangerActiveOperators = RangerActiveOperators;
 var LiveCompiler = /** @class */ (function () {
     function LiveCompiler() {
         this.hasCreatedPolyfill = {}; /** note: unused */
@@ -28049,7 +28159,7 @@ var LiveCompiler = /** @class */ (function () {
                         if (!((op.children.length) > 3)) return [3 /*break*/, 5];
                         details = op.children[3];
                         _loop_7 = function (i) {
-                            var fc, tplList, i_1, tplName, tplImpl, opNameNode, opArgs, rangerTpl_2, cnt_5;
+                            var fc, tplList, i_1, tplName, tplImpl, is_ts, opNameNode, opArgs, rangerTpl_2, cnt_5;
                             return __generator(this, function (_a) {
                                 switch (_a.label) {
                                     case 0:
@@ -28063,6 +28173,11 @@ var LiveCompiler = /** @class */ (function () {
                                             tplName = tpl.getFirst();
                                             tplImpl = void 0;
                                             tplImpl = tpl.getSecond();
+                                            is_ts = ctx.hasCompilerFlag("typescript");
+                                            if (is_ts && ((tplName.vref == "typescript") || (tplName.vref == "ts"))) {
+                                                rv = tplImpl;
+                                                return [2 /*return*/, { value: rv }];
+                                            }
                                             if ((tplName.vref != "*") && (tplName.vref != langName)) {
                                                 continue;
                                             }
@@ -28317,7 +28432,7 @@ var LiveCompiler = /** @class */ (function () {
                                         if ((node.didReturnAtIndex >= 0) && (node.didReturnAtIndex < i)) {
                                             return [2 /*return*/, "break"];
                                         }
-                                        if (!node.is_block_node) return [3 /*break*/, 5];
+                                        if (!node.is_block_node) return [3 /*break*/, 4];
                                         liveNodes_2_1 = [];
                                         if (!((item.register_expressions.length) > 0)) return [3 /*break*/, 2];
                                         return [4 /*yield*/, operatorsOf.forEach_15(item.register_expressions, (function (item, index) {
@@ -28326,25 +28441,13 @@ var LiveCompiler = /** @class */ (function () {
                                     case 1:
                                         _a.sent();
                                         _a.label = 2;
-                                    case 2: return [4 /*yield*/, item.walkTreeUntil((function (item, i) { return __awaiter(_this, void 0, void 0, function () {
-                                            return __generator(this, function (_a) {
-                                                switch (_a.label) {
-                                                    case 0:
-                                                        if (item.is_block_node) {
-                                                            return [2 /*return*/, false];
-                                                        }
-                                                        if (!((item.register_expressions.length) > 0)) return [3 /*break*/, 2];
-                                                        return [4 /*yield*/, operatorsOf.forEach_15(item.register_expressions, (function (item, index) {
-                                                            }))];
-                                                    case 1:
-                                                        _a.sent();
-                                                        _a.label = 2;
-                                                    case 2: return [2 /*return*/, true];
-                                                }
-                                            });
-                                        }); }))];
-                                    case 3:
-                                        _a.sent();
+                                    case 2:
+                                        item.walkTreeUntil((function (item, i) {
+                                            if (item.is_block_node) {
+                                                return false;
+                                            }
+                                            return true;
+                                        }));
                                         return [4 /*yield*/, operatorsOf.forEach_15(liveNodes_2_1, (function (item, index) { return __awaiter(_this, void 0, void 0, function () {
                                                 return __generator(this, function (_a) {
                                                     switch (_a.label) {
@@ -28359,11 +28462,11 @@ var LiveCompiler = /** @class */ (function () {
                                                     }
                                                 });
                                             }); }))];
-                                    case 4:
+                                    case 3:
                                         _a.sent();
-                                        _a.label = 5;
-                                    case 5: return [4 /*yield*/, this_4.WalkNode(item, ctx, wr)];
-                                    case 6:
+                                        _a.label = 4;
+                                    case 4: return [4 /*yield*/, this_4.WalkNode(item, ctx, wr)];
+                                    case 5:
                                         _a.sent();
                                         return [2 /*return*/];
                                 }
@@ -29108,6 +29211,7 @@ var LiveCompiler = /** @class */ (function () {
     ;
     return LiveCompiler;
 }());
+exports.LiveCompiler = LiveCompiler;
 var ColorConsole = /** @class */ (function () {
     function ColorConsole() {
     }
@@ -29117,6 +29221,7 @@ var ColorConsole = /** @class */ (function () {
     ;
     return ColorConsole;
 }());
+exports.ColorConsole = ColorConsole;
 var RangerDocGenerator = /** @class */ (function () {
     function RangerDocGenerator() {
     }
@@ -29554,6 +29659,7 @@ var RangerDocGenerator = /** @class */ (function () {
     ;
     return RangerDocGenerator;
 }());
+exports.RangerDocGenerator = RangerDocGenerator;
 var viewbuilder_Android = /** @class */ (function () {
     function viewbuilder_Android() {
     }
@@ -29801,6 +29907,7 @@ var viewbuilder_Android = /** @class */ (function () {
     ;
     return viewbuilder_Android;
 }());
+exports.viewbuilder_Android = viewbuilder_Android;
 var viewbuilder_Web = /** @class */ (function () {
     function viewbuilder_Web() {
     }
@@ -29994,12 +30101,14 @@ var viewbuilder_Web = /** @class */ (function () {
     ;
     return viewbuilder_Web;
 }());
+exports.viewbuilder_Web = viewbuilder_Web;
 var CompilerResults = /** @class */ (function () {
     function CompilerResults() {
         this.target_dir = "";
     }
     return CompilerResults;
 }());
+exports.CompilerResults = CompilerResults;
 var VirtualCompiler = /** @class */ (function () {
     function VirtualCompiler() {
     }
@@ -30728,6 +30837,7 @@ var VirtualCompiler = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     VirtualCompiler.create_env = function () {
         return __awaiter(this, void 0, void 0, function () {
             var env, _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5;
@@ -30795,6 +30905,7 @@ var VirtualCompiler = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     VirtualCompiler.displayCompilerErrors = function (appCtx) {
         var cons = new ColorConsole();
         for (var i = 0; i < appCtx.compilerErrors.length; i++) {
@@ -30808,6 +30919,7 @@ var VirtualCompiler = /** @class */ (function () {
         ;
     };
     ;
+    // typescript static 
     VirtualCompiler.displayParserErrors = function (appCtx) {
         if ((appCtx.parserErrors.length) == 0) {
             console.log("no language test errors");
@@ -30826,9 +30938,11 @@ var VirtualCompiler = /** @class */ (function () {
     ;
     return VirtualCompiler;
 }());
+exports.VirtualCompiler = VirtualCompiler;
 var CompilerInterface = /** @class */ (function () {
     function CompilerInterface() {
     }
+    // typescript static 
     CompilerInterface.create_env = function () {
         var env = new InputEnv();
         env.use_real = true;
@@ -30839,9 +30953,11 @@ var CompilerInterface = /** @class */ (function () {
     ;
     return CompilerInterface;
 }());
+exports.CompilerInterface = CompilerInterface;
 var operatorsOf = /** @class */ (function () {
     function operatorsOf() {
     }
+    // typescript static 
     operatorsOf.forEach_2 = function (__self, cb) {
         for (var i = 0; i < __self.length; i++) {
             var it = __self[i];
@@ -30850,6 +30966,7 @@ var operatorsOf = /** @class */ (function () {
         ;
     };
     ;
+    // typescript static 
     operatorsOf.filter_6 = function (__self, cb) {
         var res_1 = [];
         for (var i_1 = 0; i_1 < __self.length; i_1++) {
@@ -30862,6 +30979,7 @@ var operatorsOf = /** @class */ (function () {
         return res_1;
     };
     ;
+    // typescript static 
     operatorsOf.filter_7 = function (__self, cb) {
         var res_2 = [];
         for (var i_2 = 0; i_2 < __self.length; i_2++) {
@@ -30874,6 +30992,7 @@ var operatorsOf = /** @class */ (function () {
         return res_2;
     };
     ;
+    // typescript static 
     operatorsOf.forEach_10 = function (__self, cb) {
         for (var i_4 = 0; i_4 < __self.length; i_4++) {
             var it_3 = __self[i_4];
@@ -30882,6 +31001,7 @@ var operatorsOf = /** @class */ (function () {
         ;
     };
     ;
+    // typescript static 
     operatorsOf.forEach_11 = function (__self, cb) {
         for (var i_5 = 0; i_5 < __self.length; i_5++) {
             var it_4 = __self[i_5];
@@ -30890,6 +31010,7 @@ var operatorsOf = /** @class */ (function () {
         ;
     };
     ;
+    // typescript static 
     operatorsOf.forEach_12 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var i_6, it_5;
@@ -30916,6 +31037,7 @@ var operatorsOf = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf.forEach_15 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var i_8, it_6;
@@ -30942,6 +31064,7 @@ var operatorsOf = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf.forEach_17 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var i_10, it_7;
@@ -30968,6 +31091,7 @@ var operatorsOf = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf.clone_18 = function (__self) {
         var res_5 = [];
         for (var i_11 = 0; i_11 < __self.length; i_11++) {
@@ -30978,6 +31102,7 @@ var operatorsOf = /** @class */ (function () {
         return res_5;
     };
     ;
+    // typescript static 
     operatorsOf.forEach_29 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var i_15, it_9;
@@ -31004,6 +31129,7 @@ var operatorsOf = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf.forEach_31 = function (__self, cb) {
         for (var i_17 = 0; i_17 < __self.length; i_17++) {
             var it_10 = __self[i_17];
@@ -31012,6 +31138,7 @@ var operatorsOf = /** @class */ (function () {
         ;
     };
     ;
+    // typescript static 
     operatorsOf.filter_32 = function (__self, cb) {
         var res_6 = [];
         for (var i_18 = 0; i_18 < __self.length; i_18++) {
@@ -31024,6 +31151,7 @@ var operatorsOf = /** @class */ (function () {
         return res_6;
     };
     ;
+    // typescript static 
     operatorsOf.filter_36 = function (__self, cb) {
         var res_7 = [];
         for (var i_19 = 0; i_19 < __self.length; i_19++) {
@@ -31036,6 +31164,7 @@ var operatorsOf = /** @class */ (function () {
         return res_7;
     };
     ;
+    // typescript static 
     operatorsOf.forEach_37 = function (__self, cb) {
         for (var i_20 = 0; i_20 < __self.length; i_20++) {
             var it_13 = __self[i_20];
@@ -31044,6 +31173,7 @@ var operatorsOf = /** @class */ (function () {
         ;
     };
     ;
+    // typescript static 
     operatorsOf.map_44 = function (__self, cb) {
         /** unused:  const __len : number  = __self.length   **/
         var res_8 = [];
@@ -31055,6 +31185,7 @@ var operatorsOf = /** @class */ (function () {
         return res_8;
     };
     ;
+    // typescript static 
     operatorsOf.map_45 = function (__self, cb) {
         /** unused:  const len_1 : number  = __self.length   **/
         var res_9 = [];
@@ -31066,6 +31197,7 @@ var operatorsOf = /** @class */ (function () {
         return res_9;
     };
     ;
+    // typescript static 
     operatorsOf.clone_46 = function (__self) {
         var res_10 = [];
         for (var i_25 = 0; i_25 < __self.length; i_25++) {
@@ -31076,6 +31208,7 @@ var operatorsOf = /** @class */ (function () {
         return res_10;
     };
     ;
+    // typescript static 
     operatorsOf.map_47 = function (__self, cb) {
         /** unused:  const len_2 : number  = __self.length   **/
         var res_11 = [];
@@ -31087,6 +31220,7 @@ var operatorsOf = /** @class */ (function () {
         return res_11;
     };
     ;
+    // typescript static 
     operatorsOf.filter_50 = function (__self, cb) {
         var res_12 = [];
         for (var i_27 = 0; i_27 < __self.length; i_27++) {
@@ -31099,6 +31233,7 @@ var operatorsOf = /** @class */ (function () {
         return res_12;
     };
     ;
+    // typescript static 
     operatorsOf.filter_52 = function (__self, cb) {
         var res_13 = [];
         for (var i_28 = 0; i_28 < __self.length; i_28++) {
@@ -31111,6 +31246,7 @@ var operatorsOf = /** @class */ (function () {
         return res_13;
     };
     ;
+    // typescript static 
     operatorsOf.groupBy_53 = function (__self, cb) {
         var res_14 = [];
         var mapper = {};
@@ -31126,6 +31262,7 @@ var operatorsOf = /** @class */ (function () {
         return res_14;
     };
     ;
+    // typescript static 
     operatorsOf.clone_56 = function (__self) {
         var res_15 = [];
         for (var i_31 = 0; i_31 < __self.length; i_31++) {
@@ -31141,6 +31278,7 @@ var operatorsOf = /** @class */ (function () {
 var operatorsOfInputFSFolder_3 = /** @class */ (function () {
     function operatorsOfInputFSFolder_3() {
     }
+    // typescript static 
     operatorsOfInputFSFolder_3.createc95file_4 = function (fs, name, data) {
         var f_1 = operatorsOf_3.createc95file_5(fs, name);
         if ((typeof (f_1) !== "undefined" && f_1 != null)) {
@@ -31154,6 +31292,7 @@ var operatorsOfInputFSFolder_3 = /** @class */ (function () {
 var operatorsOf_3 = /** @class */ (function () {
     function operatorsOf_3() {
     }
+    // typescript static 
     operatorsOf_3.createc95file_5 = function (fs, name) {
         var res;
         var files = operatorsOf.filter_6(fs.files, (function (item, index) {
@@ -31176,6 +31315,7 @@ var operatorsOf_3 = /** @class */ (function () {
         return res;
     };
     ;
+    // typescript static 
     operatorsOf_3.createc95file_4 = function (fs, name, data) {
         var f_2 = operatorsOf_3.createc95file_5(fs, name);
         if ((typeof (f_2) !== "undefined" && f_2 != null)) {
@@ -31184,6 +31324,7 @@ var operatorsOf_3 = /** @class */ (function () {
         return f_2;
     };
     ;
+    // typescript static 
     operatorsOf_3.createc95folder_5 = function (fs, name) {
         var res_3;
         var files_1 = operatorsOf.filter_6(fs.files, (function (item, index) {
@@ -31211,6 +31352,7 @@ var operatorsOf_3 = /** @class */ (function () {
 var operatorsOfInputEnv_8 = /** @class */ (function () {
     function operatorsOfInputEnv_8() {
     }
+    // typescript static 
     operatorsOfInputEnv_8.readc95file_9 = function (env, path, name) {
         return __awaiter(this, void 0, void 0, function () {
             var resStr, f_4;
@@ -31236,6 +31378,7 @@ var operatorsOfInputEnv_8 = /** @class */ (function () {
 var operatorsOf_8 = /** @class */ (function () {
     function operatorsOf_8() {
     }
+    // typescript static 
     operatorsOf_8.findc95file_9 = function (env, path, name) {
         var res_4;
         if (path == "/") {
@@ -31282,6 +31425,7 @@ var operatorsOf_8 = /** @class */ (function () {
         return res_4;
     };
     ;
+    // typescript static 
     operatorsOf_8.readc95file_9 = function (env, path, name) {
         return __awaiter(this, void 0, void 0, function () {
             var resStr_1, f_5;
@@ -31302,6 +31446,7 @@ var operatorsOf_8 = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf_8.filec95exists_9 = function (env, path, name) {
         if (env.use_real) {
             return require("fs").existsSync(path + "/" + name);
@@ -31310,6 +31455,7 @@ var operatorsOf_8 = /** @class */ (function () {
         return (typeof (fo) !== "undefined" && fo != null);
     };
     ;
+    // typescript static 
     operatorsOf_8.installc95directory_51 = function (env) {
         if (env.use_real) {
             return __dirname;
@@ -31317,6 +31463,7 @@ var operatorsOf_8 = /** @class */ (function () {
         return "/";
     };
     ;
+    // typescript static 
     operatorsOf_8.envc95var_54 = function (env, name) {
         if (env.use_real) {
             if ((typeof (env.envVars[name]) != "undefined" && env.envVars.hasOwnProperty(name))) {
@@ -31331,6 +31478,7 @@ var operatorsOf_8 = /** @class */ (function () {
         return ((typeof ((env.envVars[name])) !== "undefined" && (env.envVars[name]) != null)) ? ((env.envVars[name])) : "";
     };
     ;
+    // typescript static 
     operatorsOf_8.currentc95directory_51 = function (env) {
         if (env.use_real) {
             return process.cwd();
@@ -31343,6 +31491,7 @@ var operatorsOf_8 = /** @class */ (function () {
 var operatorsOf_13 = /** @class */ (function () {
     function operatorsOf_13() {
     }
+    // typescript static 
     operatorsOf_13.forEach_14 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var list, i_7, kk, value;
@@ -31371,6 +31520,7 @@ var operatorsOf_13 = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf_13.forEach_16 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var list_1, i_9, kk_1, value_1;
@@ -31399,6 +31549,7 @@ var operatorsOf_13 = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf_13.forEach_19 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var list_2, i_12, kk_2, value_2;
@@ -31427,6 +31578,7 @@ var operatorsOf_13 = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf_13.forEach_20 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var list_3, i_13, kk_3, value_3;
@@ -31455,6 +31607,7 @@ var operatorsOf_13 = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf_13.forEach_25 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var list_4, i_14, kk_4, value_4;
@@ -31483,6 +31636,7 @@ var operatorsOf_13 = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf_13.forEach_30 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var list_5, i_16, kk_5, value_5;
@@ -31511,6 +31665,7 @@ var operatorsOf_13 = /** @class */ (function () {
         });
     };
     ;
+    // typescript static 
     operatorsOf_13.forEach_40 = function (__self, cb) {
         var list_6 = Object.keys(__self);
         for (var i_22 = 0; i_22 < list_6.length; i_22++) {
@@ -31521,6 +31676,7 @@ var operatorsOf_13 = /** @class */ (function () {
         ;
     };
     ;
+    // typescript static 
     operatorsOf_13.forEach_55 = function (__self, cb) {
         var list_7 = Object.keys(__self);
         for (var i_30 = 0; i_30 < list_7.length; i_30++) {
@@ -31536,6 +31692,7 @@ var operatorsOf_13 = /** @class */ (function () {
 var operatorsOfRangerAppWriterContext_21 = /** @class */ (function () {
     function operatorsOfRangerAppWriterContext_21() {
     }
+    // typescript static 
     operatorsOfRangerAppWriterContext_21.getTargetLang_22 = function (__self) {
         if ((__self.targetLangName.length) > 0) {
             return __self.targetLangName;
@@ -31551,6 +31708,7 @@ var operatorsOfRangerAppWriterContext_21 = /** @class */ (function () {
 var operatorsOf_21 = /** @class */ (function () {
     function operatorsOf_21() {
     }
+    // typescript static 
     operatorsOf_21.getTargetLang_22 = function (__self) {
         if ((__self.targetLangName.length) > 0) {
             return __self.targetLangName;
@@ -31561,6 +31719,7 @@ var operatorsOf_21 = /** @class */ (function () {
         return "ranger";
     };
     ;
+    // typescript static 
     operatorsOf_21.addUsage_28 = function (__self, cn) {
         var ctx = __self;
         var currM = ctx.getCurrentMethod();
@@ -31578,6 +31737,7 @@ var operatorsOf_21 = /** @class */ (function () {
         }
     };
     ;
+    // typescript static 
     operatorsOf_21.getActiveTransaction_22 = function (c) {
         var rValue;
         if ((c.activeTransaction.length) > 0) {
@@ -31591,6 +31751,7 @@ var operatorsOf_21 = /** @class */ (function () {
         return rValue;
     };
     ;
+    // typescript static 
     operatorsOf_21.createc95var_48 = function (__self, name, type_name) {
         var fieldNode = CodeNode.vref2(name, type_name);
         fieldNode.value_type = fieldNode.typeNameAsType(__self);
@@ -31604,6 +31765,7 @@ var operatorsOf_21 = /** @class */ (function () {
         return p_2;
     };
     ;
+    // typescript static 
     operatorsOf_21.createc95var_49 = function (__self, name, usingNode) {
         /** unused:  const fieldNode_1 : CodeNode  = CodeNode.vref1(name)   **/
         var p_3 = new RangerAppParamDesc();
@@ -31621,6 +31783,7 @@ var operatorsOf_21 = /** @class */ (function () {
 var operatorsOfchar_23 = /** @class */ (function () {
     function operatorsOfchar_23() {
     }
+    // typescript static 
     operatorsOfchar_23.isc95notc95limiter_24 = function (c) {
         return (((((c > 32) && (c != (59))) && (c != (41))) && (c != (40))) && (c != (125))) && (c != (44));
     };
@@ -31630,6 +31793,7 @@ var operatorsOfchar_23 = /** @class */ (function () {
 var operatorsOfRangerFlowParser_26 = /** @class */ (function () {
     function operatorsOfRangerFlowParser_26() {
     }
+    // typescript static 
     operatorsOfRangerFlowParser_26.EnterVarDef_27 = function (__self, node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function () {
             var tName, cn, p, defaultArg, is_immutable, paramDesc, ann, fc, ann_1, fc_1, rr, b1, b2, cn_1;
@@ -31863,6 +32027,7 @@ var operatorsOfRangerFlowParser_26 = /** @class */ (function () {
 var operatorsOf_26 = /** @class */ (function () {
     function operatorsOf_26() {
     }
+    // typescript static 
     operatorsOf_26.EnterVarDef_27 = function (__self, node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function () {
             var tName_1, cn_2, p_1, defaultArg_1, is_immutable_1, paramDesc_1, ann_2, fc_2, ann_3, fc_3, rr_1, b1_1, b2_1, cn_3;
@@ -32096,6 +32261,7 @@ var operatorsOf_26 = /** @class */ (function () {
 var operatorsOfstring_33 = /** @class */ (function () {
     function operatorsOfstring_33() {
     }
+    // typescript static 
     operatorsOfstring_33.transactionc95depth_34 = function (name, c) {
         var t = operatorsOf_21.getActiveTransaction_22(c);
         var d = 0;
@@ -32114,6 +32280,7 @@ var operatorsOfstring_33 = /** @class */ (function () {
 var operatorsOf_33 = /** @class */ (function () {
     function operatorsOf_33() {
     }
+    // typescript static 
     operatorsOf_33.startc95transaction_35 = function (name, desc, c) {
         var t_1 = new ContextTransaction();
         t_1.name = name;
@@ -32129,6 +32296,7 @@ var operatorsOf_33 = /** @class */ (function () {
         return t_1;
     };
     ;
+    // typescript static 
     operatorsOf_33.transactionc95depth_34 = function (name, c) {
         var t_2 = operatorsOf_21.getActiveTransaction_22(c);
         var d_1 = 0;
@@ -32147,6 +32315,7 @@ var operatorsOf_33 = /** @class */ (function () {
 var operatorsOfContextTransaction_38 = /** @class */ (function () {
     function operatorsOfContextTransaction_38() {
     }
+    // typescript static 
     operatorsOfContextTransaction_38.endc95transaction_39 = function (t) {
         var c = t.ctx;
         var i_21 = c.activeTransaction.indexOf(t);
@@ -32161,6 +32330,7 @@ var operatorsOfContextTransaction_38 = /** @class */ (function () {
 var operatorsOfCodeNode_41 = /** @class */ (function () {
     function operatorsOfCodeNode_41() {
     }
+    // typescript static 
     operatorsOfCodeNode_41.rc46funcdesc_42 = function (node, ctx) {
         var m = new RangerAppFunctionDesc();
         var cn_4 = node.getSecond();
@@ -32182,6 +32352,7 @@ var operatorsOfCodeNode_41 = /** @class */ (function () {
 var operatorsOf_41 = /** @class */ (function () {
     function operatorsOf_41() {
     }
+    // typescript static 
     operatorsOf_41.rc46func_43 = function (node, ctx, wr) {
         return __awaiter(this, void 0, void 0, function () {
             var parser;
@@ -32201,6 +32372,7 @@ var operatorsOf_41 = /** @class */ (function () {
 var operatorsOfJSONArrayObject_57 = /** @class */ (function () {
     function operatorsOfJSONArrayObject_57() {
     }
+    // typescript static 
     operatorsOfJSONArrayObject_57.forEach_58 = function (__self, cb) {
         var cnt = __self.length;
         var i_32 = 0;
@@ -32218,6 +32390,7 @@ var operatorsOfJSONArrayObject_57 = /** @class */ (function () {
 var operatorsOf_57 = /** @class */ (function () {
     function operatorsOf_57() {
     }
+    // typescript static 
     operatorsOf_57.forEach_58 = function (__self, cb) {
         return __awaiter(this, void 0, void 0, function () {
             var cnt_1, i_33, value_9;
@@ -32246,25 +32419,4 @@ var operatorsOf_57 = /** @class */ (function () {
     ;
     return operatorsOf_57;
 }());
-/* static JavaSript main routine at the end of the JS file */
-function __js_main() {
-    return __awaiter(this, void 0, void 0, function () {
-        var env, o, res;
-        return __generator(this, function (_a) {
-            switch (_a.label) {
-                case 0:
-                    env = CompilerInterface.create_env();
-                    o = new VirtualCompiler();
-                    return [4 /*yield*/, o.run(env)];
-                case 1:
-                    res = _a.sent();
-                    if ((res.target_dir.length) > 0) {
-                        res.fileSystem.saveTo(res.target_dir, false);
-                    }
-                    return [2 /*return*/];
-            }
-        });
-    });
-}
-__js_main();
-//# sourceMappingURL=output.js.js.map
+//# sourceMappingURL=api.js.map

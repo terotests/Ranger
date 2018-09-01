@@ -40,6 +40,22 @@ language {
             }
         }
 
+        cast _:S  (arg:T target@(noeval):S) {
+            templates {
+                ranger ("(cast " (e 1) " " (e 2) ":" (typeof 2) " )")
+                ts ( (e 1) " as " (typeof 2) )
+                es6 ( (e 1) )
+                java7 ( "((" (typeof 2) ")" (e 1) ")" )
+                swift3 ( (e 1) " as " (typeof 2) "" )
+                cpp ( "mpark::get<" (typeof 2) ">(" (e 1) ")" 
+                
+                    (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
+                )
+                go ( (e 1) ".(" (typeof 2) ")" )
+                php ( (e 1) )
+            }
+        }        
+
         random        _:int ( min:int max:int) {
             templates {
                 es6 ('Math.floor(Math.random()*(' (e 2) ' - ' (e 1)' + 1) + ' (e 1)')')
@@ -610,6 +626,7 @@ func r_write_text_file(pathName string, fileName string, txtData string)  {
 
         async_read_file  _@(optional async):string (path:string filename:string) {
             templates {
+                es6 @flags('typescript') ( "await (new Promise<string>(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 es6 ( "await (new Promise(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
             }
         }
@@ -617,6 +634,7 @@ func r_write_text_file(pathName string, fileName string, txtData string)  {
         read_file        cmdReadFile@(optional async):string (path:string filename:string) {
 
             templates {
+                ts ( "await (new Promise<string>(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 es6 ( "await (new Promise(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 ranger (  "(read_file " (e 1) " " (e 2) ")" )
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
