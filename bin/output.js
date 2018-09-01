@@ -19548,6 +19548,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           if ( cc.is_system ) {
             /** unused:  const current_sys = ctx   **/ 
             const sName = (cc.systemNames["es6"]);
+            console.log(" typedef for system class " + sName);
             wr.out(sName, false);
             return;
           }
@@ -19557,6 +19558,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
             return;
           }
           const cc_1 = ctx.findClass(t_name);
+          console.log(" typedef for class " + cc_1.name);
           wr.out(cc_1.name, false);
           return;
         }
@@ -19811,7 +19813,13 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     wr.out(")", false);
     if ( this.target_typescript ) {
       wr.out(":", false);
+      if ( fName.hasFlag("async") ) {
+        wr.out(" Promise<", false);
+      }
       await this.writeTypeDef(fName, ctx, wr);
+      if ( fName.hasFlag("async") ) {
+        wr.out(">", false);
+      }
     }
     wr.out(" => { ", true);
     wr.indent(1);
@@ -19968,7 +19976,13 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out(")", false);
         if ( this.target_typescript ) {
           wr.out(" : ", false);
+          if ( variant.nameNode.hasFlag("async") ) {
+            wr.out(" Promise<", false);
+          }
           await this.writeTypeDef(variant.nameNode, ctx, wr);
+          if ( variant.nameNode.hasFlag("async") ) {
+            wr.out(">", false);
+          }
           wr.out(" ", false);
         }
         wr.out(" {", true);
@@ -19994,11 +20008,20 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           continue;
         }
         wr.out("static ", false);
+        if ( variant_1.nameNode.hasFlag("async") ) {
+          wr.out("async ", false);
+        }
         wr.out(("" + variant_1.compiledName) + " (", false);
         await this.writeArgsDef(variant_1, ctx, wr);
         wr.out(")", false);
         wr.out(" : ", false);
+        if ( variant_1.nameNode.hasFlag("async") ) {
+          wr.out(" Promise<", false);
+        }
         await this.writeTypeDef(variant_1.nameNode, ctx, wr);
+        if ( variant_1.nameNode.hasFlag("async") ) {
+          wr.out("> ", false);
+        }
         wr.out(" ", false);
         wr.out(" {", true);
         wr.indent(1);

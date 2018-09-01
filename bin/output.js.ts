@@ -59,7 +59,7 @@ class CmdParams  {
         values_2[keyname_1] = item_1;
       };
       res["params"] = values_2;
-      let values_3 : JSONArrayObject2  = [];
+      let values_3 : Array<any>  = [];
       for ( let i = 0; i < this.values.length; i++) {
         var item_2 = this.values[i];
         values_3.push(item_2);
@@ -69,7 +69,7 @@ class CmdParams  {
     }
     return res;
   };
-  static fromDictionary (dict : Object) : CmdParams  {
+  static async fromDictionary (dict : Object) :  Promise<CmdParams>   {
     const obj : CmdParams  = new CmdParams();
     try {
       const values : Object  = (dict["flags"] instanceof Object ) ? dict ["flags"] : undefined ;
@@ -95,9 +95,9 @@ class CmdParams  {
           }
         }));
       }
-      const values_2 : JSONArrayObject2  = (dict["values"] instanceof Array ) ? dict ["values"] : undefined ;
+      const values_2 : Array<any>  = (dict["values"] instanceof Array ) ? dict ["values"] : undefined ;
       if ( (typeof(values_2) !== "undefined" && values_2 != null )  ) {
-        const arr : JSONArrayObject2  = values_2;
+        const arr : Array<any>  = values_2;
         operatorsOfJSONArrayObject_57.forEach_58(arr, ((item : Object, index : number):void => { 
           if( typeof(item) === 'string' ) /* union case for string */ {
             var oo = item;
@@ -163,14 +163,14 @@ class InputFSFolder  {
       res["data"] = this.data;
       res["is_folder"] = this.is_folder;
       res["base64bin"] = this.base64bin;
-      let values : JSONArrayObject2  = [];
+      let values : Array<any>  = [];
       for ( let i = 0; i < this.folders.length; i++) {
         var item = this.folders[i];
         const obj : Object  = item.toDictionary();
         values.push(obj);
       };
       res["folders"] = values;
-      let values_1 : JSONArrayObject2  = [];
+      let values_1 : Array<any>  = [];
       for ( let i_1 = 0; i_1 < this.files.length; i_1++) {
         var item_1 = this.files[i_1];
         const obj_1 : Object  = item_1.toDictionary();
@@ -181,7 +181,7 @@ class InputFSFolder  {
     }
     return res;
   };
-  static fromDictionary (dict : Object) : InputFSFolder  {
+  static async fromDictionary (dict : Object) :  Promise<InputFSFolder>   {
     const obj : InputFSFolder  = new InputFSFolder();
     try {
       const v : string  = (typeof (dict ["name"]) != "string" ) ? undefined : dict ["name"] 
@@ -202,10 +202,10 @@ class InputFSFolder  {
       if ( (typeof(v_3) !== "undefined" && v_3 != null )  ) {
         obj.base64bin = v_3;
       }
-      const values : JSONArrayObject2  = (dict["folders"] instanceof Array ) ? dict ["folders"] : undefined ;
+      const values : Array<any>  = (dict["folders"] instanceof Array ) ? dict ["folders"] : undefined ;
       if ( (typeof(values) !== "undefined" && values != null )  ) {
-        const arr : JSONArrayObject2  = values;
-        await operatorsOf_57.forEach_58(arr, (async (item : Object, index : number):void => { 
+        const arr : Array<any>  = values;
+        await operatorsOf_57.forEach_58(arr, (async (item : Object, index : number): Promise<void> => { 
           if( item instanceof Object ) /* union case */ {
             var oo = item;
             const newObj : InputFSFolder  = await InputFSFolder.fromDictionary(oo);
@@ -213,9 +213,9 @@ class InputFSFolder  {
           };
         }));
       }
-      const values_1 : JSONArrayObject2  = (dict["files"] instanceof Array ) ? dict ["files"] : undefined ;
+      const values_1 : Array<any>  = (dict["files"] instanceof Array ) ? dict ["files"] : undefined ;
       if ( (typeof(values_1) !== "undefined" && values_1 != null )  ) {
-        const arr_1 : JSONArrayObject2  = values_1;
+        const arr_1 : Array<any>  = values_1;
         await operatorsOf_57.forEach_58(arr_1, ((item : Object, index : number):void => { 
           if( item instanceof Object ) /* union case */ {
             var oo_1 = item;
@@ -286,6 +286,9 @@ class InputEnv  {
     this.use_real = false;
     this.envVars = {};
   }
+  setEnv (name : string, value : string) : void  {
+    this.envVars[name] = value;
+  };
   toDictionary () : Object  {
     let res : Object  = {};
     try {
@@ -308,7 +311,7 @@ class InputEnv  {
     }
     return res;
   };
-  static fromDictionary (dict : Object) : InputEnv  {
+  static async fromDictionary (dict : Object) :  Promise<InputEnv>   {
     const obj : InputEnv  = new InputEnv();
     try {
       const v : boolean  = typeof(dict ["use_real"]) === "undefined" ? undefined :(dict ["use_real"]) ;
@@ -584,6 +587,7 @@ class RangerAppParamDesc  {
     return false;
   };
   moveRefTo (nodeToMove : CodeNode, target : RangerAppParamDesc, ctx : RangerAppWriterContext) : void  {
+    const b_disable_errors : boolean  = true;
     if ( nodeToMove.ref_change_done ) {
       return;
     }
@@ -623,12 +627,16 @@ class RangerAppParamDesc  {
       } else {
         if ( my_s == 0 ) {
           if ( tmp_var == false ) {
-            ctx.addError(nodeToMove, "Can not move a weak reference to a strong target.");
-            console.log("can not move weak refs to strong target:");
-            this.debugRefChanges();
+            if ( false == b_disable_errors ) {
+              ctx.addError(nodeToMove, "Can not move a weak reference to a strong target.");
+              console.log("can not move weak refs to strong target:");
+              this.debugRefChanges();
+            }
           }
         } else {
-          ctx.addError(nodeToMove, "Can not move immutable reference to a strong target, evald type " + this.nameNode.eval_type_name);
+          if ( false == b_disable_errors ) {
+            ctx.addError(nodeToMove, "Can not move immutable reference to a strong target, evald type " + this.nameNode.eval_type_name);
+          }
         }
       }
     } else {
@@ -636,7 +644,9 @@ class RangerAppParamDesc  {
       } else {
         if ( (my_lifetime < other_lifetime) && (this.return_cnt == 0) ) {
           if ( this.nameNode.hasFlag("returnvalue") == false ) {
-            ctx.addError(nodeToMove, "Can not create a weak reference if target has longer lifetime than original, current lifetime == " + my_lifetime);
+            if ( false == b_disable_errors ) {
+              ctx.addError(nodeToMove, "Can not create a weak reference if target has longer lifetime than original, current lifetime == " + my_lifetime);
+            }
           }
         }
       }
@@ -874,7 +884,7 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
       }
     }
   };
-  async forOtherVersions (ctx : RangerAppWriterContext, cb : (item:RangerAppFunctionDesc) => void) : void  {
+  async forOtherVersions (ctx : RangerAppWriterContext, cb : (item:RangerAppFunctionDesc) => void) :  Promise<void>  {
     if ( typeof(this.container_class) === "undefined" ) {
       return;
     }
@@ -1166,7 +1176,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
   addParentClass (p_name : string) : void  {
     this.extends_classes.push(p_name);
   };
-  async createVariable (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async createVariable (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     try {
       const parser : RangerFlowParser  = ctx.getParser();
       const s : string  = node.getVRefAt(1);
@@ -1471,7 +1481,7 @@ class CodeNodeLiteral  {
       res["type_name"] = this.type_name;
       res["key_type"] = this.key_type;
       res["array_type"] = this.array_type;
-      let values : JSONArrayObject2  = [];
+      let values : Array<any>  = [];
       for ( let i = 0; i < this.ns.length; i++) {
         var item = this.ns[i];
         values.push(item);
@@ -1503,27 +1513,27 @@ class CodeNodeLiteral  {
         values_1[keyname] = obj;
       };
       res["props"] = values_1;
-      let values_2 : JSONArrayObject2  = [];
+      let values_2 : Array<any>  = [];
       for ( let i_1 = 0; i_1 < this.prop_keys.length; i_1++) {
         var item_2 = this.prop_keys[i_1];
         values_2.push(item_2);
       };
       res["prop_keys"] = values_2;
-      let values_3 : JSONArrayObject2  = [];
+      let values_3 : Array<any>  = [];
       for ( let i_2 = 0; i_2 < this.comments.length; i_2++) {
         var item_3 = this.comments[i_2];
         const obj_1 : Object  = item_3.toDictionary();
         values_3.push(obj_1);
       };
       res["comments"] = values_3;
-      let values_4 : JSONArrayObject2  = [];
+      let values_4 : Array<any>  = [];
       for ( let i_3 = 0; i_3 < this.children.length; i_3++) {
         var item_4 = this.children[i_3];
         const obj_2 : Object  = item_4.toDictionary();
         values_4.push(obj_2);
       };
       res["children"] = values_4;
-      let values_5 : JSONArrayObject2  = [];
+      let values_5 : Array<any>  = [];
       for ( let i_4 = 0; i_4 < this.attrs.length; i_4++) {
         var item_5 = this.attrs[i_4];
         const obj_3 : Object  = item_5.toDictionary();
@@ -1534,7 +1544,7 @@ class CodeNodeLiteral  {
     }
     return res;
   };
-  static fromDictionary (dict : Object) : CodeNodeLiteral  {
+  static async fromDictionary (dict : Object) :  Promise<CodeNodeLiteral>   {
     const obj : CodeNodeLiteral  = new CodeNodeLiteral();
     try {
       const v : boolean  = typeof(dict ["expression"]) === "undefined" ? undefined :(dict ["expression"]) ;
@@ -1565,9 +1575,9 @@ class CodeNodeLiteral  {
       if ( (typeof(v_5) !== "undefined" && v_5 != null )  ) {
         obj.array_type = v_5;
       }
-      const values : JSONArrayObject2  = (dict["ns"] instanceof Array ) ? dict ["ns"] : undefined ;
+      const values : Array<any>  = (dict["ns"] instanceof Array ) ? dict ["ns"] : undefined ;
       if ( (typeof(values) !== "undefined" && values != null )  ) {
-        const arr : JSONArrayObject2  = values;
+        const arr : Array<any>  = values;
         await operatorsOf_57.forEach_58(arr, ((item : Object, index : number):void => { 
           if( typeof(item) === 'string' ) /* union case for string */ {
             var oo = item;
@@ -1621,7 +1631,7 @@ class CodeNodeLiteral  {
       if ( (typeof(values_1) !== "undefined" && values_1 != null )  ) {
         const theObjprops : Object  = values_1;
         const obj_keys : Array<string>  = Object.keys(theObjprops);
-        await operatorsOf.forEach_12(obj_keys, (async (item : string, index : number):void => { 
+        await operatorsOf.forEach_12(obj_keys, (async (item : string, index : number): Promise<void> => { 
           const theValue_3 : Object  = (theObjprops[item] instanceof Object ) ? theObjprops [item] : undefined ;
           if ( (typeof(theValue_3) !== "undefined" && theValue_3 != null )  ) {
             const newObj_3 : CodeNodeLiteral  = await CodeNodeLiteral.fromDictionary((theValue_3));
@@ -1629,9 +1639,9 @@ class CodeNodeLiteral  {
           }
         }));
       }
-      const values_2 : JSONArrayObject2  = (dict["prop_keys"] instanceof Array ) ? dict ["prop_keys"] : undefined ;
+      const values_2 : Array<any>  = (dict["prop_keys"] instanceof Array ) ? dict ["prop_keys"] : undefined ;
       if ( (typeof(values_2) !== "undefined" && values_2 != null )  ) {
-        const arr_1 : JSONArrayObject2  = values_2;
+        const arr_1 : Array<any>  = values_2;
         await operatorsOf_57.forEach_58(arr_1, ((item : Object, index : number):void => { 
           if( typeof(item) === 'string' ) /* union case for string */ {
             var oo_1 = item;
@@ -1639,10 +1649,10 @@ class CodeNodeLiteral  {
           };
         }));
       }
-      const values_3 : JSONArrayObject2  = (dict["comments"] instanceof Array ) ? dict ["comments"] : undefined ;
+      const values_3 : Array<any>  = (dict["comments"] instanceof Array ) ? dict ["comments"] : undefined ;
       if ( (typeof(values_3) !== "undefined" && values_3 != null )  ) {
-        const arr_2 : JSONArrayObject2  = values_3;
-        await operatorsOf_57.forEach_58(arr_2, (async (item : Object, index : number):void => { 
+        const arr_2 : Array<any>  = values_3;
+        await operatorsOf_57.forEach_58(arr_2, (async (item : Object, index : number): Promise<void> => { 
           if( item instanceof Object ) /* union case */ {
             var oo_2 = item;
             const newObj_4 : CodeNodeLiteral  = await CodeNodeLiteral.fromDictionary(oo_2);
@@ -1650,10 +1660,10 @@ class CodeNodeLiteral  {
           };
         }));
       }
-      const values_4 : JSONArrayObject2  = (dict["children"] instanceof Array ) ? dict ["children"] : undefined ;
+      const values_4 : Array<any>  = (dict["children"] instanceof Array ) ? dict ["children"] : undefined ;
       if ( (typeof(values_4) !== "undefined" && values_4 != null )  ) {
-        const arr_3 : JSONArrayObject2  = values_4;
-        await operatorsOf_57.forEach_58(arr_3, (async (item : Object, index : number):void => { 
+        const arr_3 : Array<any>  = values_4;
+        await operatorsOf_57.forEach_58(arr_3, (async (item : Object, index : number): Promise<void> => { 
           if( item instanceof Object ) /* union case */ {
             var oo_3 = item;
             const newObj_5 : CodeNodeLiteral  = await CodeNodeLiteral.fromDictionary(oo_3);
@@ -1661,10 +1671,10 @@ class CodeNodeLiteral  {
           };
         }));
       }
-      const values_5 : JSONArrayObject2  = (dict["attrs"] instanceof Array ) ? dict ["attrs"] : undefined ;
+      const values_5 : Array<any>  = (dict["attrs"] instanceof Array ) ? dict ["attrs"] : undefined ;
       if ( (typeof(values_5) !== "undefined" && values_5 != null )  ) {
-        const arr_4 : JSONArrayObject2  = values_5;
-        await operatorsOf_57.forEach_58(arr_4, (async (item : Object, index : number):void => { 
+        const arr_4 : Array<any>  = values_5;
+        await operatorsOf_57.forEach_58(arr_4, (async (item : Object, index : number): Promise<void> => { 
           if( item instanceof Object ) /* union case */ {
             var oo_4 = item;
             const newObj_6 : CodeNodeLiteral  = await CodeNodeLiteral.fromDictionary(oo_4);
@@ -1765,6 +1775,7 @@ class CodeNode  {
   did_walk: boolean;
   reg_compiled_name: string;
   tag: string;
+  matched_type: string;
   constructor(source : SourceCode, start : number, end : number) {
     this.sp = 0;
     this.ep = 0;
@@ -1831,6 +1842,7 @@ class CodeNode  {
     this.did_walk = false;     /** note: unused */
     this.reg_compiled_name = "";
     this.tag = "";
+    this.matched_type = "";
     this.sp = start;
     this.ep = end;
     this.code = source;
@@ -1848,7 +1860,7 @@ class CodeNode  {
   chlen () : number  {
     return this.children.length;
   };
-  async forTree (callback : (item:CodeNode, i:number) => void) : void  {
+  async forTree (callback : (item:CodeNode, i:number) => void) :  Promise<void>  {
     for ( let i = 0; i < this.children.length; i++) {
       var ch = this.children[i];
       await callback(ch, i);
@@ -1878,7 +1890,7 @@ class CodeNode  {
       i = i + 1;
     };
   };
-  async walkTreeUntil (callback : (item:CodeNode, i:number) => boolean) : void  {
+  async walkTreeUntil (callback : (item:CodeNode, i:number) => boolean) :  Promise<void>  {
     for ( let i = 0; i < this.children.length; i++) {
       var ch = this.children[i];
       if ( await callback(ch, i) ) {
@@ -2343,7 +2355,7 @@ class CodeNode  {
     this.writeCode(wr);
     return wr.getCode();
   };
-  async cleanNode () : void  {
+  async cleanNode () :  Promise<void>  {
     const cp : CodeNode  = this;
     cp.evalTypeClass = undefined;
     cp.lambda_ctx = undefined;
@@ -2386,11 +2398,11 @@ class CodeNode  {
     cp.has_call = false;
     cp.type_type = this.type_type;
     cp.value_type = this.parsed_type;
-    await operatorsOf.forEach_15(cp.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(cp.children, (async (item : CodeNode, index : number): Promise<void> => { 
       await item.cleanNode();
     }));
   };
-  async cleanCopy () : CodeNode  {
+  async cleanCopy () :  Promise<CodeNode>  {
     const match : RangerArgMatch  = new RangerArgMatch();
     const cp : CodeNode  = this.rebuildWithType(match, false);
     await cp.cleanNode();
@@ -2490,6 +2502,7 @@ class CodeNode  {
         newNode.ns.push(n);
       }
     };
+    newNode.string_value = this.string_value;
     switch (this.value_type ) { 
       case 2 : 
         newNode.double_value = this.double_value;
@@ -2522,6 +2535,11 @@ class CodeNode  {
       newCh.parent = newNode;
       newNode.children.push(newCh);
     };
+    for ( let i_3 = 0; i_3 < this.attrs.length; i_3++) {
+      var ch_1 = this.attrs[i_3];
+      const newCh_1 : CodeNode  = ch_1.rebuildWithType(match, changeVref);
+      newNode.attrs.push(newCh_1);
+    };
     return newNode;
   };
   rebuildWithType (match : RangerArgMatch, changeVref : boolean) : CodeNode  {
@@ -2543,6 +2561,7 @@ class CodeNode  {
     newNode.register_name = this.register_name;
     newNode.reg_compiled_name = this.reg_compiled_name;
     newNode.operator_node = this.operator_node;
+    newNode.matched_type = this.matched_type;
     if ( changeVref ) {
       newNode.vref = match.getTypeName(this.vref);
     } else {
@@ -2575,6 +2594,7 @@ class CodeNode  {
         newNode.ns.push(n);
       }
     };
+    newNode.string_value = this.string_value;
     switch (this.value_type ) { 
       case 2 : 
         newNode.double_value = this.double_value;
@@ -2606,6 +2626,11 @@ class CodeNode  {
       const newCh : CodeNode  = ch.rebuildWithType(match, changeVref);
       newCh.parent = newNode;
       newNode.children.push(newCh);
+    };
+    for ( let i_3 = 0; i_3 < this.attrs.length; i_3++) {
+      var ch_1 = this.attrs[i_3];
+      const newCh_1 : CodeNode  = ch_1.rebuildWithType(match, changeVref);
+      newNode.attrs.push(newCh_1);
     };
     return newNode;
   };
@@ -2643,6 +2668,9 @@ class CodeNode  {
     return s;
   };
   buildTypeSignature () : string  {
+    if ( this.hasFlag("keyword") ) {
+      return this.vref + "::keyword";
+    }
     if ( TTypes.isPrimitive(this.value_type) ) {
       return TTypes.valueAsString(this.value_type);
     }
@@ -3262,7 +3290,7 @@ class RangerAppWriterContext  {
     const rootNode : CodeNode  = (this.opFnsList[name]);
     rootNode.children.push(code);
   };
-  async getOpFns (name : string) : Array<CodeNode>  {
+  async getOpFns (name : string) :  Promise<Array<CodeNode>>  {
     let rv : Array<CodeNode>  = [];
     if ( ( typeof(this.opFnsList[name] ) != "undefined" && this.opFnsList.hasOwnProperty(name) ) ) {
       const ol : CodeNode  = (this.opFnsList[name]);
@@ -3354,7 +3382,7 @@ class RangerAppWriterContext  {
     }
     return this.compiler;
   };
-  async getTypedNodes (name : string) : Array<CodeNode>  {
+  async getTypedNodes (name : string) :  Promise<Array<CodeNode>>  {
     const root : RangerAppWriterContext  = this.getRoot();
     let res : Array<CodeNode>  = [];
     const list : RangerNodeList  = root.typedNodes[name];
@@ -3377,7 +3405,7 @@ class RangerAppWriterContext  {
       root.typedNodes[name] = new_list;
     }
   };
-  async getPluginNodes (name : string) : Array<CodeNode>  {
+  async getPluginNodes (name : string) :  Promise<Array<CodeNode>>  {
     const root : RangerAppWriterContext  = this.getRoot();
     let res : Array<CodeNode>  = [];
     const list : RangerNodeList  = root.pluginNodes[name];
@@ -3413,10 +3441,10 @@ class RangerAppWriterContext  {
       }
     }
   };
-  async getAllOperators () : Array<RangerAppOperatorDesc>  {
+  async getAllOperators () :  Promise<Array<RangerAppOperatorDesc>>  {
     const root : RangerAppWriterContext  = this.getRoot();
     let res : Array<RangerAppOperatorDesc>  = [];
-    await operatorsOf_13.forEach_16(root.op_list, (async (item : RangerOperatorList, index : string):void => { 
+    await operatorsOf_13.forEach_16(root.op_list, (async (item : RangerOperatorList, index : string): Promise<void> => { 
       await operatorsOf.forEach_17(item.items, ((item : RangerAppOperatorDesc, index : number):void => { 
         const tmp : RangerAppOperatorDesc  = item;
         res.push(tmp);
@@ -3433,14 +3461,14 @@ class RangerAppWriterContext  {
     }
     return res;
   };
-  async initOpList () : void  {
+  async initOpList () :  Promise<void>  {
     const root : RangerAppWriterContext  = this.getRoot();
     if ( (typeof(root.operators) !== "undefined" && root.operators != null )  ) {
       const op : RangerActiveOperators  = root.operators;
       await op.initializeOpCache();
       const foo : Array<CodeNode>  = await op.getOperators("+");
       if ( (foo.length) > 0 ) {
-        await operatorsOf_13.forEach_19(op.opHash, (async (item : OpList, index : string):void => { 
+        await operatorsOf_13.forEach_19(op.opHash, (async (item : OpList, index : string): Promise<void> => { 
           const op_name : string  = index;
           await operatorsOf.forEach_15(item.list, ((item : CodeNode, index : number):void => { 
             /** unused:  const fc : CodeNode  = item.getFirst()   **/ 
@@ -3499,11 +3527,11 @@ class RangerAppWriterContext  {
     }
     return false;
   };
-  async pushAndCollectAst (rootNode : CodeNode, wr : CodeWriter) : void  {
+  async pushAndCollectAst (rootNode : CodeNode, wr : CodeWriter) :  Promise<void>  {
     const myParser : RangerFlowParser  = new RangerFlowParser();
     await myParser.CollectMethods(rootNode, this, wr);
   };
-  async pushAndCompileAst (rootNode : CodeNode, wr : CodeWriter) : void  {
+  async pushAndCompileAst (rootNode : CodeNode, wr : CodeWriter) :  Promise<void>  {
     const myParser : RangerFlowParser  = new RangerFlowParser();
     await myParser.CollectMethods(rootNode, this, wr);
     await myParser.StartWalk(rootNode, this, wr);
@@ -3518,7 +3546,7 @@ class RangerAppWriterContext  {
       node.children.push(root);
     }
   };
-  async pushAndCollectCode (source_code : string, wr : CodeWriter) : void  {
+  async pushAndCollectCode (source_code : string, wr : CodeWriter) :  Promise<void>  {
     const code : SourceCode  = new SourceCode(source_code);
     code.filename = "dynamically_generated";
     const parser_1 : RangerLispParser  = new RangerLispParser(code);
@@ -3530,7 +3558,7 @@ class RangerAppWriterContext  {
       await myParser.CollectMethods(root, rootCtx, wr);
     }
   };
-  async pushCode (source_code : string, wr : CodeWriter) : void  {
+  async pushCode (source_code : string, wr : CodeWriter) :  Promise<void>  {
     const code : SourceCode  = new SourceCode(source_code);
     code.filename = "dynamically_generated";
     const parser_1 : RangerLispParser  = new RangerLispParser(code);
@@ -3584,7 +3612,7 @@ class RangerAppWriterContext  {
     }
     return false;
   };
-  async variableTypeUsage () : Array<string>  {
+  async variableTypeUsage () :  Promise<Array<string>>  {
     let res : {[key:string]:boolean}  = {};
     let cc : RangerAppWriterContext  = this;
     while ((typeof(cc) !== "undefined" && cc != null ) ) {
@@ -3599,8 +3627,8 @@ class RangerAppWriterContext  {
     };
     return Object.keys(res);
   };
-  async writeContextVars (wr : CodeWriter) : void  {
-    await operatorsOf_13.forEach_20(this.localVariables, (async (item : RangerAppParamDesc, index : string):void => { 
+  async writeContextVars (wr : CodeWriter) :  Promise<void>  {
+    await operatorsOf_13.forEach_20(this.localVariables, (async (item : RangerAppParamDesc, index : string): Promise<void> => { 
       wr.out(("def " + index) + ":", false);
       if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
         const r : RangerRangerClassWriter  = new RangerRangerClassWriter();
@@ -3610,7 +3638,7 @@ class RangerAppWriterContext  {
       wr.out("", true);
     }));
   };
-  async writeContextInfo (wr : CodeWriter) : void  {
+  async writeContextInfo (wr : CodeWriter) :  Promise<void>  {
     let cList : Array<RangerAppWriterContext>  = [];
     let c : RangerAppWriterContext  = this;
     cList.push(c);
@@ -3633,7 +3661,7 @@ class RangerAppWriterContext  {
       cnt = cnt - 1;
     };
   };
-  async getContextInfo () : string  {
+  async getContextInfo () :  Promise<string>  {
     const wr : CodeWriter  = new CodeWriter();
     await this.writeContextInfo(wr);
     return wr.getCode();
@@ -3664,7 +3692,7 @@ class RangerAppWriterContext  {
     const nothingFound : RangerActiveOperators  = new RangerActiveOperators();
     return nothingFound;
   };
-  async getOperators (name : string) : Array<CodeNode>  {
+  async getOperators (name : string) :  Promise<Array<CodeNode>>  {
     const root : RangerAppWriterContext  = this.getRoot();
     let cc : RangerAppWriterContext  = this;
     let opNamespace : Array<string>  = [];
@@ -3930,7 +3958,7 @@ class RangerAppWriterContext  {
     root.initStdCommands();
     return root.stdCommands;
   };
-  async findOperatorsWithName (name : string) : Array<CodeNode>  {
+  async findOperatorsWithName (name : string) :  Promise<Array<CodeNode>>  {
     let res : Array<CodeNode>  = [];
     await operatorsOf.forEach_15((this.getStdCommands()).children, ((item : CodeNode, index : number):void => { 
       if ( item.isFirstVref(name) ) {
@@ -3960,7 +3988,7 @@ class RangerAppWriterContext  {
     this.classSignatures[classSig] = sigName;
     return sigName;
   };
-  async createStaticMethod (withName : string, currC : RangerAppClassDesc, nameNode : CodeNode, argsNode : CodeNode, fnBody : CodeNode, parser : RangerFlowParser, wr : CodeWriter) : RangerAppFunctionDesc  {
+  async createStaticMethod (withName : string, currC : RangerAppClassDesc, nameNode : CodeNode, argsNode : CodeNode, fnBody : CodeNode, parser : RangerFlowParser, wr : CodeWriter) :  Promise<RangerAppFunctionDesc>  {
     const s : string  = withName;
     const m : RangerAppFunctionDesc  = new RangerAppFunctionDesc();
     m.name = s;
@@ -4061,7 +4089,7 @@ class RangerAppWriterContext  {
     this.staticClassBodies.push(classRoot);
     return new_class;
   };
-  async createTraitInstanceClass (traitName : string, instanceName : string, initParams : CodeNode, flowParser : RangerFlowParser, wr : CodeWriter) : RangerAppClassDesc  {
+  async createTraitInstanceClass (traitName : string, instanceName : string, initParams : CodeNode, flowParser : RangerFlowParser, wr : CodeWriter) :  Promise<RangerAppClassDesc>  {
     let res : RangerAppClassDesc ;
     const ctx : RangerAppWriterContext  = this.fork();
     if ( this.isDefinedClass(instanceName) ) {
@@ -5341,7 +5369,6 @@ class RangerLispParser  {
       }
       c = s.charCodeAt(this.i );
       if ( c == (123) ) {
-        console.log("--> attribute had a code child....");
         const cNode : CodeNode  = this.curr_node;
         const new_attr : CodeNode  = new CodeNode(this.code, sp, ep);
         new_attr.value_type = 21;
@@ -7570,7 +7597,7 @@ class RangerServiceBuilder  {
     root.staticClassBodies.push(classRoot);
     return new_class;
   };
-  async CreateServices (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreateServices (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     if ( ctx.hasCompilerFlag("client") || ctx.hasCompilerSetting("client") ) {
       console.log("--> could create Client services for Java here...");
       const root : RangerAppWriterContext  = ctx.getRoot();
@@ -7790,6 +7817,7 @@ class RangerFlowParser  {
   extendedClasses: {[key:string]:string};
   allNewRNodes: Array<CodeNode>;
   infinite_recursion: boolean;
+  match_types: {[key:string]:string};
   constructor() {
     this.hasRootPath = false;     /** note: unused */
     this.rootPath = "";     /** note: unused */
@@ -7809,8 +7837,9 @@ class RangerFlowParser  {
     this.extendedClasses = {};
     this.allNewRNodes = [];     /** note: unused */
     this.infinite_recursion = false;
+    this.match_types = {};
   }
-  async WalkNodeChildren (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WalkNodeChildren (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasStringProperty("todo") ) {
       ctx.addTodo(node, node.getStringProperty("todo"));
     }
@@ -7882,7 +7911,7 @@ class RangerFlowParser  {
       };
     }
   };
-  async WalkNode (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : boolean  {
+  async WalkNode (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<boolean>  {
     /** unused:  const line_index : number  = node.getLine()   **/ 
     if ( node.flow_done ) {
       return true;
@@ -7922,47 +7951,171 @@ class RangerFlowParser  {
           node.copyEvalResFrom(regInfo.nameNode);
           return true;
         } else {
-          ctx.addError(node, "compiler error: could not find temporary register " + node.register_name);
         }
       } else {
-        ctx.addError(node, "compiler error: could not find temporary register " + node.register_name);
       }
       return true;
     }
+    if ( node.value_type == 19 ) {
+      const fc : CodeNode  = node;
+      if ( fc.value_type == 19 ) {
+        const opBody : CodeNode  = CodeNode.blockNode();
+        const opTpl : CodeNode  = CodeNode.fromList([CodeNode.vref1("defn"), CodeNode.vref1("tmp_create"), CodeNode.expressionNode()]);
+        let currCnt : number  = 1;
+        let walk_xml : (xmlNode:CodeNode, regName:string) => void  = ((xmlNode : CodeNode, regName : string):void => { 
+        });
+        walk_xml = (async (xmlNode : CodeNode, regName : string): Promise<void> => { 
+          const rootClassDef : RangerAppClassDesc  = ctx.findClass(xmlNode.vref);
+          if ( rootClassDef.is_system ) {
+            opBody.children.push(CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName), CodeNode.fromList([CodeNode.vref1("create"), CodeNode.vref1(xmlNode.vref)])]));
+            await operatorsOf.forEach_15(xmlNode.attrs, ((item : CodeNode, index : number):void => { 
+              if ( (item.children.length) > 0 ) {
+                const fc_1 : CodeNode  = item.children[0];
+                opBody.children.push(CodeNode.fromList([CodeNode.vref1("attr"), CodeNode.vref1(regName), CodeNode.vref1(item.vref), fc_1.copy()]));
+                return;
+              }
+              if ( (item.string_value.length) > 0 ) {
+                opBody.children.push(CodeNode.fromList([CodeNode.vref1("attr"), CodeNode.vref1(regName), CodeNode.vref1(item.vref), CodeNode.newStr(item.string_value)]));
+              }
+            }));
+            await operatorsOf.forEach_15(xmlNode.children, (async (item : CodeNode, index : number): Promise<void> => { 
+              if ( item.value_type != 19 ) {
+                if ( item.expression ) {
+                  const itemCopy : CodeNode  = item.copy();
+                  const theNode : CodeNode  = item;
+                  ctx.setTestCompile();
+                  await this.WalkNode(itemCopy, ctx, wr);
+                  ctx.unsetTestCompile();
+                  if ( ctx.hasClass(itemCopy.eval_array_type) ) {
+                    /** unused:  const paramClassDef : RangerAppClassDesc  = ctx.findClass(itemCopy.eval_array_type)   **/ 
+                    /** unused:  const chNode : CodeNode  = item   **/ 
+                    const t : CodeNode  = CodeNode.vref1("tmp");
+                    t.setFlag("temp");
+                    opBody.children.push(CodeNode.fromList([CodeNode.vref1("forEach"), theNode.copy(), CodeNode.blockFromList([CodeNode.fromList([CodeNode.vref1("def"), t, CodeNode.vref1("item")]), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(regName), CodeNode.vref1("tmp")])])]));
+                  } else {
+                    if ( ctx.hasClass(itemCopy.eval_type_name) ) {
+                      opBody.children.push(CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(regName), theNode.copy()]));
+                    }
+                  }
+                } else {
+                }
+              }
+              if ( item.value_type == 19 ) {
+                if ( ctx.hasClass(item.vref) ) {
+                  /** unused:  const paramClassDef_1 : RangerAppClassDesc  = ctx.findClass(item.vref)   **/ 
+                  const chNode_1 : CodeNode  = item;
+                  currCnt = currCnt + 1;
+                  const regN : string  = "r" + currCnt;
+                  await walk_xml(chNode_1, regN);
+                  opBody.children.push(CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(regName), CodeNode.vref1(regN)]));
+                }
+              }
+            }));
+          } else {
+            const match : RangerArgMatch  = new RangerArgMatch();
+            opBody.children.push(CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName), CodeNode.fromList([CodeNode.vref1("new"), CodeNode.vref1(xmlNode.vref)])]));
+            await operatorsOf.forEach_15(xmlNode.attrs, ((item : CodeNode, index : number):void => { 
+              if ( (item.children.length) > 0 ) {
+                const fc_2 : CodeNode  = item.children[0];
+                opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.vref)), fc_2.copy()]));
+                return;
+              }
+              if ( (item.string_value.length) > 0 ) {
+                opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.vref)), CodeNode.newStr(item.string_value)]));
+              }
+              if ( item.parsed_type == 3 ) {
+                opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.vref)), CodeNode.newInt(item.int_value)]));
+              }
+            }));
+            await operatorsOf.forEach_15(xmlNode.children, (async (item : CodeNode, index : number): Promise<void> => { 
+              if ( item.value_type != 19 ) {
+                if ( item.expression ) {
+                  const itemCopy_1 : CodeNode  = item.copy();
+                  const theNode_1 : CodeNode  = item;
+                  ctx.setTestCompile();
+                  await this.WalkNode(itemCopy_1, ctx, wr);
+                  ctx.unsetTestCompile();
+                  if ( ctx.hasClass(itemCopy_1.eval_array_type) ) {
+                    /** unused:  const paramClassDef_2 : RangerAppClassDesc  = ctx.findClass(itemCopy_1.eval_array_type)   **/ 
+                    /** unused:  const chNode_2 : CodeNode  = item   **/ 
+                    operatorsOf.forEach_11(rootClassDef.variables, ((item : RangerAppParamDesc, index : number):void => { 
+                      if ( match.areEqualATypes(item.nameNode.array_type, itemCopy_1.eval_array_type, ctx) ) {
+                        const t_1 : CodeNode  = CodeNode.vref1("tmp");
+                        t_1.setFlag("temp");
+                        opBody.children.push(CodeNode.fromList([CodeNode.vref1("forEach"), theNode_1.copy(), CodeNode.blockFromList([CodeNode.fromList([CodeNode.vref1("def"), t_1, CodeNode.vref1("item")]), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.vref1("tmp")])])]));
+                      }
+                    }));
+                  } else {
+                    console.log("could not find class" + itemCopy_1.eval_array_type);
+                  }
+                }
+              }
+              if ( item.value_type == 19 ) {
+                if ( ctx.hasClass(item.vref) ) {
+                  const paramClassDef_3 : RangerAppClassDesc  = ctx.findClass(item.vref);
+                  const chNode_3 : CodeNode  = item;
+                  operatorsOf.forEach_11(rootClassDef.variables, ((item : RangerAppParamDesc, index : number):void => { 
+                    if ( match.areEqualATypes(item.nameNode.array_type, chNode_3.vref, ctx) ) {
+                      currCnt = currCnt + 1;
+                      const regN_1 : string  = "r" + currCnt;
+                      walk_xml(chNode_3, regN_1);
+                      if ( paramClassDef_3.is_immutable ) {
+                        opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.vref1(regN_1)])]));
+                      } else {
+                        opBody.children.push(CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(((regName + ".") + item.name)), CodeNode.vref1(regN_1)]));
+                      }
+                    }
+                  }));
+                }
+              }
+            }));
+          }
+        });
+        await walk_xml(fc, "r1");
+        opBody.children.push(CodeNode.fromList([CodeNode.vref1("ret"), CodeNode.vref1("r1")]));
+        opTpl.children.push(opBody);
+        node.value_type = 0;
+        node.getChildrenFrom(CodeNode.fromList([CodeNode.vref1("tmp_create")]));
+        node.value_type = 0;
+        node.expression = true;
+        await this.TransformOpFn([opTpl], node, ctx, wr);
+        return true;
+      }
+    }
     if ( (node.children.length) > 0 ) {
-      const fc : CodeNode  = node.getFirst();
-      if ( (fc.ns.length) > 1 ) {
-        if ( (fc.ns[0]) == "plugin" ) {
+      const fc_3 : CodeNode  = node.getFirst();
+      if ( (fc_3.ns.length) > 1 ) {
+        if ( (fc_3.ns[0]) == "plugin" ) {
           if ( node.is_plugin ) {
             return true;
           }
           node.is_plugin = true;
-          const pName : string  = fc.ns[1];
+          const pName : string  = fc_3.ns[1];
           ctx.addPluginNode(pName, node);
           return true;
         }
       }
     }
     if ( (node.children.length) == 1 ) {
-      const fc_1 : CodeNode  = node.children[0];
-      if ( ctx.isVarDefined(fc_1.vref) ) {
-        fc_1.parent = node;
-        if ( (typeof(fc_1.evalCtx) !== "undefined" && fc_1.evalCtx != null )  ) {
-          await this.WalkNode(fc_1, fc_1.evalCtx, wr);
+      const fc_4 : CodeNode  = node.children[0];
+      if ( ctx.isVarDefined(fc_4.vref) ) {
+        fc_4.parent = node;
+        if ( (typeof(fc_4.evalCtx) !== "undefined" && fc_4.evalCtx != null )  ) {
+          await this.WalkNode(fc_4, fc_4.evalCtx, wr);
         } else {
-          await this.WalkNode(fc_1, ctx, wr);
+          await this.WalkNode(fc_4, ctx, wr);
         }
-        node.copyEvalResFrom(fc_1);
+        node.copyEvalResFrom(fc_4);
         return true;
       }
     }
     const skip_if : Array<string>  = ["Extends", "operator", "extends", "operators", "systemclass", "systemunion", "union", "flag", "trait", "enum", "Import"];
     if ( (node.children.length) > 0 ) {
-      const fc_2 : CodeNode  = node.children[0];
-      if ( (skip_if.indexOf(fc_2.vref)) >= 0 ) {
+      const fc_5 : CodeNode  = node.children[0];
+      if ( (skip_if.indexOf(fc_5.vref)) >= 0 ) {
         return true;
       }
-      if ( fc_2.vref == "#" ) {
+      if ( fc_5.vref == "#" ) {
         const fnCtx : RangerAppWriterContext  = ctx.findFunctionCtx();
         await this.DefineArrowOpFn(node, fnCtx, wr);
         node.value_type = 11;
@@ -7975,20 +8128,20 @@ class RangerFlowParser  {
         node.hasParamDesc = false;
         return true;
       } else {
-        if ( fc_2.expression && ((fc_2.children.length) > 0) ) {
-          const exprFc : CodeNode  = fc_2.children[0];
+        if ( fc_5.expression && ((fc_5.children.length) > 0) ) {
+          const exprFc : CodeNode  = fc_5.children[0];
           if ( exprFc.vref == "#" ) {
-            await this.DefineArrowOpFn(fc_2, ctx, wr);
+            await this.DefineArrowOpFn(fc_5, ctx, wr);
           }
         }
       }
       let b_found : boolean  = true;
-      const opFn : Array<CodeNode>  = await ctx.getOpFns(fc_2.vref);
+      const opFn : Array<CodeNode>  = await ctx.getOpFns(fc_5.vref);
       if ( (opFn.length) > 0 ) {
         await this.TransformOpFn(opFn, node, ctx, wr);
         return true;
       }
-      switch (fc_2.vref ) { 
+      switch (fc_5.vref ) { 
         case "page" : 
           const sc : CodeNode  = node.getSecond();
           ctx.addPage(sc.vref, node);
@@ -8058,8 +8211,8 @@ class RangerFlowParser  {
             ctx.addService(sc_1.vref, node);
             const paramClass : CodeNode  = params.getFirst();
             const rvClassDef : RangerAppClassDesc  = ctx.findClass(sc_1.type_name);
-            const paramClassDef : RangerAppClassDesc  = ctx.findClass(paramClass.type_name);
-            node.appGUID = (sc_1.vref + "_") + (require('crypto').createHash('sha256').update((rvClassDef.node.getCode() + paramClassDef.node.getCode())).digest('hex'));
+            const paramClassDef_4 : RangerAppClassDesc  = ctx.findClass(paramClass.type_name);
+            node.appGUID = (sc_1.vref + "_") + (require('crypto').createHash('sha256').update((rvClassDef.node.getCode() + paramClassDef_4.node.getCode())).digest('hex'));
           } catch(e) {
             ctx.addError(node, "invalid service definition");
           }
@@ -8076,17 +8229,17 @@ class RangerFlowParser  {
       return true;
     }
     if ( (node.children.length) > 0 ) {
-      const fc_3 : CodeNode  = node.children[0];
-      if ( fc_3.expression && ((node.children.length) == 2) ) {
+      const fc_6 : CodeNode  = node.children[0];
+      if ( fc_6.expression && ((node.children.length) == 2) ) {
         const sec : CodeNode  = node.getSecond();
         if ( ((sec.vref.length) > 0) && ((sec.vref[0]) == ".") ) {
-          await this.WalkNode(fc_3, ctx, wr);
-          if ( ((fc_3.eval_type_name.length) > 0) && ctx.isDefinedClass(fc_3.eval_type_name) ) {
+          await this.WalkNode(fc_6, ctx, wr);
+          if ( ((fc_6.eval_type_name.length) > 0) && ctx.isDefinedClass(fc_6.eval_type_name) ) {
             const parts : Array<string>  = (sec.vref.substring(1, (sec.vref.length) )).split(".");
             let method_name : string  = parts[0];
-            let classDesc : RangerAppClassDesc  = ctx.findClass(fc_3.eval_type_name);
-            /** unused:  const objExpr : CodeNode  = fc_3.copy()   **/ 
-            let calledItem : CodeNode  = CodeNode.fromList([CodeNode.vref1("property"), fc_3.copy(), CodeNode.vref1(method_name)]);
+            let classDesc : RangerAppClassDesc  = ctx.findClass(fc_6.eval_type_name);
+            /** unused:  const objExpr : CodeNode  = fc_6.copy()   **/ 
+            let calledItem : CodeNode  = CodeNode.fromList([CodeNode.vref1("property"), fc_6.copy(), CodeNode.vref1(method_name)]);
             await operatorsOf.forEach_12(parts, ((item : string, index : number):void => { 
               if ( index > 0 ) {
                 try {
@@ -8116,16 +8269,16 @@ class RangerFlowParser  {
           }
         }
       }
-      if ( fc_3.expression && ((node.children.length) == 3) ) {
+      if ( fc_6.expression && ((node.children.length) == 3) ) {
         const sec_1 : CodeNode  = node.getSecond();
         const third : CodeNode  = node.getThird();
         if ( ((sec_1.vref.length) > 0) && ((sec_1.vref[0]) == ".") ) {
-          await this.WalkNode(fc_3, ctx, wr);
+          await this.WalkNode(fc_6, ctx, wr);
           const parts_1 : Array<string>  = (sec_1.vref.substring(1, (sec_1.vref.length) )).split(".");
           const method_name_1 : string  = parts_1[((parts_1.length) - 1)];
-          let classDesc_1 : RangerAppClassDesc  = ctx.findClass(fc_3.eval_type_name);
-          /** unused:  const objExpr_1 : CodeNode  = fc_3.copy()   **/ 
-          let calledItem_1 : CodeNode  = fc_3.copy();
+          let classDesc_1 : RangerAppClassDesc  = ctx.findClass(fc_6.eval_type_name);
+          /** unused:  const objExpr_1 : CodeNode  = fc_6.copy()   **/ 
+          let calledItem_1 : CodeNode  = fc_6.copy();
           await operatorsOf.forEach_12(parts_1, ((item : string, index : number):void => { 
             if ( index < ((parts_1.length) - 1) ) {
               try {
@@ -8144,9 +8297,9 @@ class RangerFlowParser  {
           return true;
         }
       }
-      if ( fc_3.value_type == 11 ) {
+      if ( fc_6.value_type == 11 ) {
         let was_called : boolean  = true;
-        switch (fc_3.vref ) { 
+        switch (fc_6.vref ) { 
           case "Enum" : 
             was_called = true;
             break;
@@ -8217,18 +8370,6 @@ class RangerFlowParser  {
       };
       return true;
     }
-    if ( node.value_type == 19 ) {
-      let viewName : string  = "";
-      await operatorsOf.forEach_15(node.attrs, ((item : CodeNode, index : number):void => { 
-        if ( item.vref == "name" ) {
-          viewName = item.string_value;
-        }
-      }));
-      if ( (viewName.length) > 0 ) {
-        ctx.addViewClassBody(viewName, node);
-      }
-      return true;
-    }
     ctx.addError(node, "Could not understand this part");
     return true;
   };
@@ -8282,7 +8423,7 @@ class RangerFlowParser  {
   getThisName () : string  {
     return "this";
   };
-  async GetProperty (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async GetProperty (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( (node.children.length) != 3 ) {
       ctx.addError(node, "Invalid property descriptor");
       return;
@@ -8337,7 +8478,7 @@ class RangerFlowParser  {
       ctx.addError(obj, "Can not access property of a non-class value");
     }
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.vref == "_" ) {
       return;
     }
@@ -8436,7 +8577,7 @@ class RangerFlowParser  {
         const udesc : RangerAppClassDesc  = ctx.getCurrentClass();
         const desc : RangerAppClassDesc  = udesc;
         const opList : Array<CodeNode>  = await ctx.getOpFns(node.vref);
-        if ( (((opList.length) > 0) || (node.vref == "fun")) || (node.vref == "fn") ) {
+        if ( ((((opList.length) > 0) || (node.vref == "fun")) || (node.vref == "fn")) || node.hasFlag("keyword") ) {
         } else {
           ctx.addError(node, (((("WriteVREF -> Undefined variable " + node.vref) + " in class ") + desc.name) + " node : ") + node.getCode());
           ctx.addError(node, (((("WriteVREF -> Undefined variable " + rootObjName) + " in class ") + desc.name) + " node : ") + node.parent.getCode());
@@ -8448,7 +8589,7 @@ class RangerFlowParser  {
       return;
     }
   };
-  async EnterFn (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter, callback : (node:CodeNode, ctx:RangerAppWriterContext, wr:CodeWriter, nameNode:CodeNode, fnArgs:CodeNode, fnBody:CodeNode, desc:RangerAppClassDesc) => void) : void  {
+  async EnterFn (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter, callback : (node:CodeNode, ctx:RangerAppWriterContext, wr:CodeWriter, nameNode:CodeNode, fnArgs:CodeNode, fnBody:CodeNode, desc:RangerAppClassDesc) => void) :  Promise<void>  {
     try {
       if ( (node.children.length) < 4 ) {
         ctx.addError(node, "Function has too few arguments");
@@ -8471,7 +8612,7 @@ class RangerFlowParser  {
       ctx.addError(node, "Error parsing function " + (( e.toString())));
     }
   };
-  async Constructor (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async Constructor (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     this.shouldHaveChildCnt(3, node, ctx, "Method expexts four arguments");
     /** unused:  const cn : CodeNode  = node.children[1]   **/ 
     const fnBody : CodeNode  = node.children[2];
@@ -8509,7 +8650,7 @@ class RangerFlowParser  {
     TTypes.baseTypeAsEval(node, ctx, wr);
     node.evalTypeClass = TFactory.new_scalar_signature(node, ctx, wr);
   };
-  async cmdNew (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async cmdNew (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( (node.children.length) < 2 ) {
       ctx.addError(node, "the new operator expects at lest two arguments");
       return;
@@ -8558,6 +8699,9 @@ class RangerFlowParser  {
         let has_default : boolean  = false;
         if ( param.nameNode.hasFlag("default") ) {
           has_default = true;
+        }
+        if ( param.nameNode.hasFlag("keyword") ) {
+          continue;
         }
         if ( (params.children.length) <= i_1 ) {
           if ( has_default ) {
@@ -8661,7 +8805,7 @@ class RangerFlowParser  {
     };
     return res;
   };
-  async CreateCTTI (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreateCTTI (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const root : RangerAppWriterContext  = ctx.getRoot();
     const wr : CodeWriter  = new CodeWriter();
     await operatorsOf_13.forEach_14(root.definedClasses, ((item : RangerAppClassDesc, index : string):void => { 
@@ -8671,7 +8815,7 @@ class RangerFlowParser  {
     }));
     await root.pushAndCollectCode(wr.getCode(), orig_wr);
   };
-  async CreateRTTI (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreateRTTI (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const root : RangerAppWriterContext  = ctx.getRoot();
     const wr : CodeWriter  = new CodeWriter();
     wr.out("operator type:void all {", true);
@@ -8711,15 +8855,15 @@ class RangerFlowParser  {
     wr.out("}", true);
     await root.pushAndCollectCode(wr.getCode(), orig_wr);
   };
-  async SolveAsyncFuncs (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async SolveAsyncFuncs (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const root : RangerAppWriterContext  = ctx.getRoot();
-    await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string):void => { 
-      await operatorsOf.forEach_29(item.static_methods, (async (item : RangerAppFunctionDesc, index : number):void => { 
+    await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string): Promise<void> => { 
+      await operatorsOf.forEach_29(item.static_methods, (async (item : RangerAppFunctionDesc, index : number): Promise<void> => { 
         /** unused:  const thisFn : RangerAppFunctionDesc  = item   **/ 
         let set_async : (f:RangerAppFunctionDesc) => void  = ((f : RangerAppFunctionDesc):void => { 
         });
         let visited : Array<RangerAppFunctionDesc>  = [];
-        set_async = (async (f : RangerAppFunctionDesc):void => { 
+        set_async = (async (f : RangerAppFunctionDesc): Promise<void> => { 
           if ( (visited.indexOf(f)) >= 0 ) {
             return;
           }
@@ -8747,7 +8891,7 @@ class RangerFlowParser  {
             }
           }
         }
-        await operatorsOf.forEach_29(item.myLambdas, (async (item : RangerAppFunctionDesc, index : number):void => { 
+        await operatorsOf.forEach_29(item.myLambdas, (async (item : RangerAppFunctionDesc, index : number): Promise<void> => { 
           if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
             if ( item.nameNode.hasFlag("async") ) {
               await operatorsOf.forEach_29(item.isCalledBy, ((item : RangerAppFunctionDesc, index : number):void => { 
@@ -8760,13 +8904,13 @@ class RangerFlowParser  {
           }
         }));
       }));
-      await operatorsOf_13.forEach_30(item.method_variants, (async (item : RangerAppMethodVariants, index : string):void => { 
-        await operatorsOf.forEach_29(item.variants, (async (item : RangerAppFunctionDesc, index : number):void => { 
+      await operatorsOf_13.forEach_30(item.method_variants, (async (item : RangerAppMethodVariants, index : string): Promise<void> => { 
+        await operatorsOf.forEach_29(item.variants, (async (item : RangerAppFunctionDesc, index : number): Promise<void> => { 
           /** unused:  const thisFn_1 : RangerAppFunctionDesc  = item   **/ 
           let set_async_1 : (f:RangerAppFunctionDesc) => void  = ((f : RangerAppFunctionDesc):void => { 
           });
           let visited_1 : Array<RangerAppFunctionDesc>  = [];
-          set_async_1 = (async (f : RangerAppFunctionDesc):void => { 
+          set_async_1 = (async (f : RangerAppFunctionDesc): Promise<void> => { 
             if ( (visited_1.indexOf(f)) >= 0 ) {
               return;
             }
@@ -8797,7 +8941,7 @@ class RangerFlowParser  {
               }
             }
           }
-          await operatorsOf.forEach_29(item.myLambdas, (async (item : RangerAppFunctionDesc, index : number):void => { 
+          await operatorsOf.forEach_29(item.myLambdas, (async (item : RangerAppFunctionDesc, index : number): Promise<void> => { 
             if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
               if ( item.nameNode.hasFlag("async") ) {
                 await operatorsOf.forEach_29(item.isCalledBy, ((item : RangerAppFunctionDesc, index : number):void => { 
@@ -8813,8 +8957,8 @@ class RangerFlowParser  {
       }));
     }));
     let notUsedFunctionCnt : number  = 0;
-    await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string):void => { 
-      await operatorsOf_13.forEach_30(item.method_variants, (async (item : RangerAppMethodVariants, index : string):void => { 
+    await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string): Promise<void> => { 
+      await operatorsOf_13.forEach_30(item.method_variants, (async (item : RangerAppMethodVariants, index : string): Promise<void> => { 
         await operatorsOf.forEach_29(item.variants, ((item : RangerAppFunctionDesc, index : number):void => { 
           if ( (item.isCalledBy.length) == 0 ) {
             if ( (typeof(item.container_class) !== "undefined" && item.container_class != null )  ) {
@@ -8831,10 +8975,10 @@ class RangerFlowParser  {
         }));
       }));
     }));
-    const add_dce_fn : (theFn:RangerAppFunctionDesc) => void  = (async (theFn : RangerAppFunctionDesc):void => { 
+    const add_dce_fn : (theFn:RangerAppFunctionDesc) => void  = (async (theFn : RangerAppFunctionDesc): Promise<void> => { 
       let set_called : (f:RangerAppFunctionDesc) => void  = ((f : RangerAppFunctionDesc):void => { 
       });
-      set_called = (async (f : RangerAppFunctionDesc):void => { 
+      set_called = (async (f : RangerAppFunctionDesc): Promise<void> => { 
         if ( f.is_called_from_main ) {
           return;
         }
@@ -8884,7 +9028,7 @@ class RangerFlowParser  {
     if ( ctx.hasCompilerSetting("dceclass") ) {
       const dc : string  = ctx.getCompilerSetting("dceclass");
       console.log("DCE : " + dc);
-      await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string):void => { 
+      await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string): Promise<void> => { 
         const cl_1 : RangerAppClassDesc  = item;
         if ( cl_1.name == dc ) {
           use_dce = true;
@@ -8893,7 +9037,7 @@ class RangerFlowParser  {
             var variant_1 = cl_1.static_methods[i_1];
             await add_dce_fn(variant_1);
           };
-          await operatorsOf_13.forEach_30(item.method_variants, (async (item : RangerAppMethodVariants, index : string):void => { 
+          await operatorsOf_13.forEach_30(item.method_variants, (async (item : RangerAppMethodVariants, index : string): Promise<void> => { 
             await operatorsOf.forEach_29(item.variants, ((item : RangerAppFunctionDesc, index : number):void => { 
               add_dce_fn(item);
             }));
@@ -8903,7 +9047,7 @@ class RangerFlowParser  {
     }
     if ( use_dce ) {
       const verbose : boolean  = ctx.hasCompilerFlag("verbose");
-      await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string):void => { 
+      await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string): Promise<void> => { 
         if ( (item.is_used_by_main == false) && verbose ) {
           console.log("class not used by main : " + item.name);
         }
@@ -8930,7 +9074,7 @@ class RangerFlowParser  {
       }));
     }
     if ( ctx.hasCompilerFlag("deadcode") ) {
-      await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string):void => { 
+      await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string): Promise<void> => { 
         await operatorsOf_13.forEach_30(item.method_variants, ((item : RangerAppMethodVariants, index : string):void => { 
           item.variants = operatorsOf.filter_32(item.variants, ((item : RangerAppFunctionDesc, index : number):boolean => { 
             return item.is_unsed == false;
@@ -8939,7 +9083,7 @@ class RangerFlowParser  {
       }));
     }
   };
-  async cmdCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : boolean  {
+  async cmdCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<boolean>  {
     const obj : CodeNode  = node.getSecond();
     const method : CodeNode  = node.getThird();
     const callArgs : CodeNode  = node.children[3];
@@ -9002,7 +9146,7 @@ class RangerFlowParser  {
     }
     return true;
   };
-  async matchLambdaArgs (n1 : CodeNode, n2 : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : boolean  {
+  async matchLambdaArgs (n1 : CodeNode, n2 : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<boolean>  {
     const chLen1 : number  = n1.children.length;
     const chLen2 : number  = n2.children.length;
     if ( chLen1 < 2 ) {
@@ -9030,7 +9174,7 @@ class RangerFlowParser  {
       ctx.addError(n2, "Invalid parameter count for the lambda expression");
       return false;
     }
-    await operatorsOf.forEach_15(argsExpr1.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(argsExpr1.children, (async (item : CodeNode, index : number): Promise<void> => { 
       const item2 : CodeNode  = argsExpr2.children[index];
       if ( item2.value_type != item.value_type ) {
         all_matched = false;
@@ -9054,7 +9198,7 @@ class RangerFlowParser  {
       ctx.addError(n2, "Invalid lambda argument types");
       return false;
     }
-    await operatorsOf.forEach_15(rvExpr1.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(rvExpr1.children, (async (item : CodeNode, index : number): Promise<void> => { 
       const item2_1 : CodeNode  = rvExpr2.children[index];
       if ( item2_1.value_type != item.value_type ) {
         all_matched = false;
@@ -9080,7 +9224,7 @@ class RangerFlowParser  {
     }
     return true;
   };
-  async testLambdaCallArgs (lambda_expression : CodeNode, callParams : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : boolean  {
+  async testLambdaCallArgs (lambda_expression : CodeNode, callParams : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<boolean>  {
     /** unused:  const lambdaDef : CodeNode  = lambda_expression.children[0]   **/ 
     const lambdaArgs : CodeNode  = lambda_expression.children[1];
     let all_matched : boolean  = true;
@@ -9111,7 +9255,7 @@ class RangerFlowParser  {
     }
     return all_matched;
   };
-  async cmdLocalCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : boolean  {
+  async cmdLocalCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<boolean>  {
     const fnNode : CodeNode  = node.getFirst();
     const udesc : RangerAppClassDesc  = ctx.getCurrentClass();
     const desc : RangerAppClassDesc  = udesc;
@@ -9188,6 +9332,13 @@ class RangerFlowParser  {
         subCtx.defineVariable(p.name, p);
         await this.WalkNode(fnNode, subCtx, wr);
         const callParams : CodeNode  = node.children[1];
+        let keyword_cnt : number  = 0;
+        operatorsOf.forEach_11(vFnDef.params, ((item : RangerAppParamDesc, index : number):void => { 
+          if ( item.nameNode.hasFlag("keyword") ) {
+            keyword_cnt = keyword_cnt + 1;
+            (callParams.children[index]).setFlag("keyword");
+          }
+        }));
         const nodeList : Array<CodeNode>  = this.transformParams(callParams.children, vFnDef.params, subCtx);
         if ( ctx.hasCompilerFlag("dbg") ) {
           console.log("Local: " + vFnDef.name);
@@ -9233,7 +9384,7 @@ class RangerFlowParser  {
             }
           }
         };
-        const cp_len : number  = callParams.children.length;
+        const cp_len : number  = (callParams.children.length) - keyword_cnt;
         if ( cp_len > (vFnDef.params.length) ) {
           const lastCallParam : CodeNode  = callParams.children[(cp_len - 1)];
           ctx.addError(lastCallParam, "Too many arguments for function");
@@ -9248,6 +9399,9 @@ class RangerFlowParser  {
             ctx.addError(node, "Missing arguments for function");
             ctx.addError(param.nameNode, "NOTE: To fix the previous error: Check original function declaration which was");
             break;
+          }
+          if ( param.nameNode.hasFlag("keyword") ) {
+            continue;
           }
           const argNode : CodeNode  = callParams.children[i_2];
           if ( false == await this.areEqualTypes((param.nameNode), argNode, ctx, wr) ) {
@@ -9434,7 +9588,7 @@ class RangerFlowParser  {
     };
     return root;
   };
-  async cmdAssign (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async cmdAssign (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const target : CodeNode  = node.getSecond();
     await this.WalkNode(target, ctx, wr);
     if ( target.hasParamDesc ) {
@@ -9494,7 +9648,7 @@ class RangerFlowParser  {
   };
   EnterTemplateClass (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
   };
-  async EnterClass (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async EnterClass (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const body_index : number  = node.chlen() - 1;
     if ( (node.children.length) != 3 ) {
       if ( node.chlen() == 5 ) {
@@ -9562,7 +9716,7 @@ class RangerFlowParser  {
     node.clDesc = desc;
     desc.classNode = node;
   };
-  async walkFunctionBody (m : RangerAppFunctionDesc, fnBody : CodeNode, ctx : RangerAppWriterContext, subCtx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async walkFunctionBody (m : RangerAppFunctionDesc, fnBody : CodeNode, ctx : RangerAppWriterContext, subCtx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     /** unused:  const prev_fnc : boolean  = subCtx.function_level_context   **/ 
     /** unused:  const prev_isfn : boolean  = subCtx.is_function   **/ 
     subCtx.function_level_context = true;
@@ -9619,15 +9773,15 @@ class RangerFlowParser  {
       }
     };
   };
-  async EnterMethod (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
-    await this.EnterFn(node, ctx, wr, (async (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter, nameNode : CodeNode, fnArgs : CodeNode, fnBody : CodeNode, desc : RangerAppClassDesc):void => { 
+  async EnterMethod (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
+    await this.EnterFn(node, ctx, wr, (async (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter, nameNode : CodeNode, fnArgs : CodeNode, fnBody : CodeNode, desc : RangerAppClassDesc): Promise<void> => { 
       const m : RangerAppFunctionDesc  = desc.findMethod(nameNode.vref);
       const subCtx : RangerAppWriterContext  = m.fnCtx;
       await this.walkFunctionBody(m, fnBody, ctx, subCtx, wr);
     }));
   };
-  async EnterStaticMethod (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
-    await this.EnterFn(node, ctx, wr, (async (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter, nameNode : CodeNode, fnArgs : CodeNode, fnBody : CodeNode, desc : RangerAppClassDesc):void => { 
+  async EnterStaticMethod (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
+    await this.EnterFn(node, ctx, wr, (async (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter, nameNode : CodeNode, fnArgs : CodeNode, fnBody : CodeNode, desc : RangerAppClassDesc): Promise<void> => { 
       const m : RangerAppFunctionDesc  = desc.findStaticMethod(nameNode.vref);
       const subCtx : RangerAppWriterContext  = ctx.fork();
       m.fnCtx = subCtx;
@@ -9636,7 +9790,7 @@ class RangerFlowParser  {
       subCtx.in_static_method = false;
     }));
   };
-  async DefineArrowOpFn (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async DefineArrowOpFn (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const myName : string  = ctx.createNewOpFnName();
     const argsNode : CodeNode  = CodeNode.expressionNode();
     const fBody : CodeNode  = node.copy();
@@ -9649,20 +9803,40 @@ class RangerFlowParser  {
         i = i + 1;
       };
     });
-    await fBody.forTree(((item : CodeNode, i : number):void => { 
+    await fBody.forTree((async (item : CodeNode, i : number): Promise<void> => { 
+      await operatorsOf.forEach_15(item.attrs, (async (item : CodeNode, index : number): Promise<void> => { 
+        await item.forTree(((item : CodeNode, i : number):void => { 
+          if ( (item.vref.length) > 0 ) {
+            if ( item.vref == "_" ) {
+              setArg(0);
+              item.vref = myName + "_arg0";
+            }
+            const parts : Array<string>  = item.vref.split("_");
+            if ( (parts.length) == 2 ) {
+              const rest : string  = parts[1];
+              const nbr : number  = isNaN( parseInt(rest) ) ? undefined : parseInt(rest);
+              if ( (typeof(nbr) !== "undefined" && nbr != null )  ) {
+                const n : number  = nbr;
+                setArg(n - 1);
+                item.vref = (myName + "_arg") + (n - 1);
+              }
+            }
+          }
+        }));
+      }));
       if ( (item.vref.length) > 0 ) {
         if ( item.vref == "_" ) {
-          setArg(0);
+          await setArg(0);
           item.vref = myName + "_arg0";
         }
-        const parts : Array<string>  = item.vref.split("_");
-        if ( (parts.length) == 2 ) {
-          const rest : string  = parts[1];
-          const nbr : number  = isNaN( parseInt(rest) ) ? undefined : parseInt(rest);
-          if ( (typeof(nbr) !== "undefined" && nbr != null )  ) {
-            const n : number  = nbr;
-            setArg(n - 1);
-            item.vref = (myName + "_arg") + (n - 1);
+        const parts_1 : Array<string>  = item.vref.split("_");
+        if ( (parts_1.length) == 2 ) {
+          const rest_1 : string  = parts_1[1];
+          const nbr_1 : number  = isNaN( parseInt(rest_1) ) ? undefined : parseInt(rest_1);
+          if ( (typeof(nbr_1) !== "undefined" && nbr_1 != null )  ) {
+            const n_1 : number  = nbr_1;
+            await setArg(n_1 - 1);
+            item.vref = (myName + "_arg") + (n_1 - 1);
           }
         }
       }
@@ -9686,7 +9860,7 @@ class RangerFlowParser  {
     node.disabled_node = true;
     node.flow_done = true;
   };
-  async testCompile (opFn : CodeNode, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : {[key:string]:CodeNode}  {
+  async testCompile (opFn : CodeNode, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<{[key:string]:CodeNode}>  {
     /** unused:  const ok : boolean  = false   **/ 
     const rootCtx : RangerAppWriterContext  = ctx.getRoot();
     /** unused:  const errCnt : number  = rootCtx.compilerErrors.length   **/ 
@@ -9711,7 +9885,7 @@ class RangerFlowParser  {
     let regParams : {[key:string]:boolean}  = {};
     let regNames : {[key:string]:string}  = {};
     if ( false == ((node.register_name.length) > 0) ) {
-      await opBody.forTree((async (item : CodeNode, i : number):void => { 
+      await opBody.forTree((async (item : CodeNode, i : number): Promise<void> => { 
         if ( ( typeof(regToArg[item.vref] ) != "undefined" && regToArg.hasOwnProperty(item.vref) ) ) {
           if ( ( typeof(opParamSet[item.vref] ) != "undefined" && opParamSet.hasOwnProperty(item.vref) ) ) {
             if ( false == (( typeof(regParams[item.vref] ) != "undefined" && regParams.hasOwnProperty(item.vref) )) ) {
@@ -9757,7 +9931,7 @@ class RangerFlowParser  {
     }
     return am.builtNodes;
   };
-  async TransformOpFn (opFnList : Array<CodeNode>, origNode : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async TransformOpFn (opFnList : Array<CodeNode>, origNode : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( this.infinite_recursion ) {
       return;
     }
@@ -9780,35 +9954,41 @@ class RangerFlowParser  {
           origNode.copyEvalResFrom(regInfo.nameNode);
           return;
         } else {
-          ctx.addError(origNode, "compiler error: could not find temporary register " + origNode.register_name);
         }
       } else {
-        ctx.addError(origNode, "compiler error: could not find temporary register " + origNode.register_name);
       }
     }
     const fc : CodeNode  = origNode.children[0];
     const myT : ContextTransaction  = operatorsOf_33.startc95transaction_35("TransformOpFn", fc.vref, ctx);
     let newOps : Array<CodeNode>  = [];
     let tryTypes : Array<string>  = ["string", "int", "double", "boolean"];
+    const codeStrHash : string  = origNode.getSource();
+    if ( ( typeof(this.match_types[codeStrHash] ) != "undefined" && this.match_types.hasOwnProperty(codeStrHash) ) ) {
+      tryTypes.splice(0, 0, (this.match_types[codeStrHash]));
+    }
     const cList : Array<RangerAppClassDesc>  = (ctx.getRoot()).getClasses().slice().reverse();
     operatorsOf.forEach_31(cList, ((item : RangerAppClassDesc, index : number):void => { 
-      if ( item.isNormalClass() ) {
-        tryTypes.push(item.name);
+      if ( item.isNormalClass() || item.is_system ) {
+        if ( (codeStrHash.indexOf(item.name)) >= 0 ) {
+          tryTypes.splice(0, 0, item.name);
+        } else {
+          tryTypes.push(item.name);
+        }
       }
     }));
-    await operatorsOf.forEach_15(opFnList, (async (item : CodeNode, index : number):void => { 
-      const opFn : CodeNode  = item.copy();
-      /** unused:  const opParams : CodeNode  = opFn.children[2]   **/ 
-      const opBody : CodeNode  = opFn.children[3];
+    await operatorsOf.forEach_15(opFnList, (async (item : CodeNode, index : number): Promise<void> => { 
       let had_v : boolean  = false;
-      await opBody.forTree(((item : CodeNode, i : number):void => { 
+      await item.forTree(((item : CodeNode, i : number):void => { 
         if ( ((item.array_type == "?") || (item.key_type == "?")) || (item.type_name == "?") ) {
           had_v = true;
         }
       }));
       if ( had_v ) {
+        const opFn : CodeNode  = item.copy();
+        /** unused:  const opParams : CodeNode  = opFn.children[2]   **/ 
+        /** unused:  const opBody : CodeNode  = opFn.children[3]   **/ 
         let typeName : string  = "";
-        await operatorsOf.forEach_12(tryTypes, (async (item : string, index : number):void => { 
+        await operatorsOf.forEach_12(tryTypes, (async (item : string, index : number): Promise<void> => { 
           const copyOfFn : CodeNode  = opFn.copy();
           typeName = item;
           await copyOfFn.forTree(((item : CodeNode, i : number):void => { 
@@ -9822,13 +10002,15 @@ class RangerFlowParser  {
               item.type_name = typeName;
             }
           }));
+          copyOfFn.matched_type = typeName;
           newOps.push(copyOfFn);
         }));
       }
     }));
     if ( (newOps.length) > 0 ) {
       await operatorsOf.forEach_15(newOps, ((item : CodeNode, index : number):void => { 
-        opFnList.push(item.copy());
+        /** unused:  const tmp : CodeNode  = item   **/ 
+        opFnList.push(item);
       }));
     }
     const oNodeParams : number  = origNode.children.length;
@@ -9836,7 +10018,7 @@ class RangerFlowParser  {
       const opParams_1 : CodeNode  = item.children[2];
       return oNodeParams == ((opParams_1.children.length) - 1);
     }));
-    await operatorsOf.forEach_15(opFnList, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(opFnList, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( ok ) {
         return;
       } else {
@@ -9848,8 +10030,8 @@ class RangerFlowParser  {
             let i : number  = errCnt;
             least_errs.length = 0;
             while (i < currentErrCnt) {
-              const tmp : RangerCompilerMessage  = rootCtx.compilerErrors[i];
-              least_errs.push(tmp);
+              const tmp_1 : RangerCompilerMessage  = rootCtx.compilerErrors[i];
+              least_errs.push(tmp_1);
               i = i + 1;
             };
           }
@@ -9860,29 +10042,12 @@ class RangerFlowParser  {
           };
         }
       }
-      if ( false ) {
-        if ( false == ctx.isTestCompile() ) {
-          const node : CodeNode  = origNode.copy();
-          const subCtx : RangerAppWriterContext  = ctx.fork();
-          const itemCopy : CodeNode  = item.copy();
-          const codeStr : string  = node.getCode();
-          subCtx.setTestCompile();
-          const results : {[key:string]:CodeNode}  = await this.testCompile(itemCopy, node, subCtx, wr);
-          await operatorsOf_13.forEach_25(results, ((item : CodeNode, index : string):void => { 
-            console.log((((((("Test compile got " + item.getCode()) + " with type ") + item.eval_type) + " array type ") + item.eval_type_name) + " / ") + item.array_type);
-            if ( (item.eval_array_type.length) > 0 ) {
-              console.log("^ array type " + item.eval_array_type);
-            }
-          }));
-          console.log("Done Testing " + codeStr);
-          subCtx.unsetTestCompile();
-        }
-      }
-      const node_1 : CodeNode  = origNode.copy();
+      const originalOpFn : CodeNode  = item;
+      const node : CodeNode  = origNode.copy();
       const opFn_1 : CodeNode  = item;
       const opParams_2 : CodeNode  = opFn_1.children[2];
       const opBody_1 : CodeNode  = opFn_1.children[3];
-      const xValue : CodeNode  = node_1.copy();
+      const xValue : CodeNode  = node.copy();
       xValue.children.splice(0, 1);
       await opBody_1.forTree(((item : CodeNode, i : number):void => { 
         if ( item.vref == "return" ) {
@@ -9907,8 +10072,8 @@ class RangerFlowParser  {
       const BlockOP : CodeNode  = ctx.getLastBlockOp();
       let newDefNodes : Array<CodeNode>  = [];
       let newRNodes : Array<CodeNode>  = [];
-      if ( false == ((node_1.register_name.length) > 0) ) {
-        await opBody_1.forTree((async (item : CodeNode, i : number):void => { 
+      if ( false == ((node.register_name.length) > 0) ) {
+        await opBody_1.forTree((async (item : CodeNode, i : number): Promise<void> => { 
           if ( ( typeof(regToArg[item.vref] ) != "undefined" && regToArg.hasOwnProperty(item.vref) ) ) {
             if ( ( typeof(opParamSet[item.vref] ) != "undefined" && opParamSet.hasOwnProperty(item.vref) ) ) {
               if ( false == (( typeof(regParams[item.vref] ) != "undefined" && regParams.hasOwnProperty(item.vref) )) ) {
@@ -9926,8 +10091,8 @@ class RangerFlowParser  {
                     const opCnt : number  = BlockOP.register_expressions.length;
                     let i_2 : number  = cnt;
                     while (i_2 < opCnt) {
-                      const tmp_1 : CodeNode  = BlockOP.register_expressions[i_2];
-                      newRNodes.push(tmp_1);
+                      const tmp_2 : CodeNode  = BlockOP.register_expressions[i_2];
+                      newRNodes.push(tmp_2);
                       i_2 = i_2 + 1;
                     };
                     i_2 = cnt;
@@ -9957,26 +10122,29 @@ class RangerFlowParser  {
         }));
       }
       const newNode : CodeNode  = opBody_1.rebuildWithType(am, true);
-      node_1.getChildrenFrom(newNode);
-      node_1.flow_done = false;
+      node.getChildrenFrom(newNode);
+      node.flow_done = false;
       ctx.setTestCompile();
       if ( opBody_1.is_block_node ) {
         const blockCtx : RangerAppWriterContext  = ctx.fork();
         blockCtx.newBlock();
-        await this.WalkNode(node_1, blockCtx, wr);
+        await this.WalkNode(node, blockCtx, wr);
       } else {
-        await this.WalkNode(node_1, ctx, wr);
+        await this.WalkNode(node, ctx, wr);
       }
       if ( errCnt == (rootCtx.compilerErrors.length) ) {
         ctx.unsetTestCompile();
+        if ( (originalOpFn.matched_type.length) > 0 ) {
+          this.match_types[codeStrHash] = originalOpFn.matched_type;
+        }
         if ( false == ctx.isTestCompile() ) {
           await operatorsOf.forEach_15(newDefNodes, ((item : CodeNode, index : number):void => { 
-            const tmp_2 : CodeNode  = item;
-            BlockOP.register_expressions.push(tmp_2);
-          }));
-          await operatorsOf.forEach_15(newRNodes, ((item : CodeNode, index : number):void => { 
             const tmp_3 : CodeNode  = item;
             BlockOP.register_expressions.push(tmp_3);
+          }));
+          await operatorsOf.forEach_15(newRNodes, ((item : CodeNode, index : number):void => { 
+            const tmp_4 : CodeNode  = item;
+            BlockOP.register_expressions.push(tmp_4);
           }));
         }
         ok = true;
@@ -10050,8 +10218,8 @@ class RangerFlowParser  {
         let i_3 : number  = errCnt;
         least_errs.length = 0;
         while (i_3 < currentErrCnt_1) {
-          const tmp_4 : RangerCompilerMessage  = rootCtx.compilerErrors[i_3];
-          least_errs.push(tmp_4);
+          const tmp_5 : RangerCompilerMessage  = rootCtx.compilerErrors[i_3];
+          least_errs.push(tmp_5);
           i_3 = i_3 + 1;
         };
       }
@@ -10063,9 +10231,10 @@ class RangerFlowParser  {
     }
     if ( errDelta_3 > 0 ) {
       operatorsOf.forEach_37(least_errs, ((item : RangerCompilerMessage, index : number):void => { 
-        const tmp_5 : RangerCompilerMessage  = item;
-        rootCtx.compilerErrors.push(tmp_5);
+        const tmp_6 : RangerCompilerMessage  = item;
+        rootCtx.compilerErrors.push(tmp_6);
       }));
+      console.log("^ had errors...");
       ctx.addError(origNode, "Could not find suitable match for the operator node");
     }
     if ( this.infinite_recursion ) {
@@ -10073,7 +10242,7 @@ class RangerFlowParser  {
     }
     operatorsOfContextTransaction_38.endc95transaction_39(myT);
   };
-  async cmdArray (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async cmdArray (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( (node.children.length) == 3 ) {
       const sc : CodeNode  = node.getSecond();
       if ( ((sc.vref.length) > 0) && ((sc.type_name.length) > 0) ) {
@@ -10141,7 +10310,7 @@ class RangerFlowParser  {
     node.is_array_literal = true;
     node.getChildrenFrom(arrayItems_1);
   };
-  async EnterLambdaMethod (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async EnterLambdaMethod (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const args : CodeNode  = node.children[1];
     const body : CodeNode  = node.children[2];
     const subCtx : RangerAppWriterContext  = ctx.fork();
@@ -10201,6 +10370,8 @@ class RangerFlowParser  {
     /** unused:  const cnt : number  = body.children.length   **/ 
     for ( let i = 0; i < body.children.length; i++) {
       var item = body.children[i];
+      const tmp : CodeNode  = item;
+      subCtx.lastBlockOp = tmp;
       await this.WalkNode(item, subCtx, wr);
       if ( i == ((body.children.length) - 1) ) {
         if ( (item.children.length) > 0 ) {
@@ -10227,7 +10398,7 @@ class RangerFlowParser  {
       }));
     }
   };
-  async CheckVRefTypeAnnotationOf (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : boolean  {
+  async CheckVRefTypeAnnotationOf (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<boolean>  {
     if ( node.has_vref_annotation ) {
       const tAnn : CodeNode  = node.vref_annotation;
       if ( false == ctx.isDefinedClass(node.vref) ) {
@@ -10256,7 +10427,7 @@ class RangerFlowParser  {
     }
     return false;
   };
-  async CheckTypeAnnotationOf (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : boolean  {
+  async CheckTypeAnnotationOf (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<boolean>  {
     if ( node.has_type_annotation ) {
       const tAnn : CodeNode  = node.type_annotation;
       if ( false == ctx.isDefinedClass(node.type_name) ) {
@@ -10285,7 +10456,7 @@ class RangerFlowParser  {
     }
     return false;
   };
-  async matchNode (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : boolean  {
+  async matchNode (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<boolean>  {
     if ( 0 == (node.children.length) ) {
       return false;
     }
@@ -10326,7 +10497,7 @@ class RangerFlowParser  {
     }
     return false;
   };
-  async StartWalk (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async StartWalk (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await this.WalkNode(node, ctx, wr);
     for ( let i = 0; i < this.walkAlso.length; i++) {
       var ch = this.walkAlso[i];
@@ -10346,7 +10517,7 @@ class RangerFlowParser  {
       };
     }
   };
-  async mergeImports (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async mergeImports (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const envOpt : InputEnv  = ctx.getEnv();
     if ( typeof(envOpt) === "undefined" ) {
       ctx.addError(node, "Environment not defined");
@@ -10415,7 +10586,7 @@ class RangerFlowParser  {
       };
     }
   };
-  async CollectMethods (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CollectMethods (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await this.WalkCollectMethods(node, ctx, wr);
     let allTypes : Array<string>  = [];
     const serviceBuilder : RangerServiceBuilder  = new RangerServiceBuilder();
@@ -10553,7 +10724,7 @@ class RangerFlowParser  {
         ctx.hadValidType(p.nameNode);
         varNames[p.name] = true;
       };
-      await operatorsOf_13.forEach_30(c.method_variants, (async (item : RangerAppMethodVariants, index : string):void => { 
+      await operatorsOf_13.forEach_30(c.method_variants, (async (item : RangerAppMethodVariants, index : string): Promise<void> => { 
         await operatorsOf.forEach_29(item.variants, ((item : RangerAppFunctionDesc, index : number):void => { 
           if ( ( typeof(varNames[item.name] ) != "undefined" && varNames.hasOwnProperty(item.name) ) ) {
             ctx.addError(item.nameNode, "Class has defined method and variable of the same name.");
@@ -10587,7 +10758,7 @@ class RangerFlowParser  {
     };
     Anynn.clDesc = new_class;
   };
-  async defineFunctionParam (method : RangerAppFunctionDesc, arg : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async defineFunctionParam (method : RangerAppFunctionDesc, arg : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await this.CheckTypeAnnotationOf(arg, ctx, wr);
     const p : RangerAppParamDesc  = new RangerAppParamDesc();
     p.name = arg.vref;
@@ -10636,7 +10807,7 @@ class RangerFlowParser  {
     }
     return node;
   };
-  async CreateFunctionObject (orig_node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : RangerAppFunctionDesc  {
+  async CreateFunctionObject (orig_node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<RangerAppFunctionDesc>  {
     const subCtx : RangerAppWriterContext  = ctx.fork();
     const node : CodeNode  = this.spliceFunctionBody(3, orig_node, subCtx, wr);
     const cn : CodeNode  = node.getSecond();
@@ -10686,7 +10857,7 @@ class RangerFlowParser  {
     };
     return m;
   };
-  async WalkCollectMethods (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WalkCollectMethods (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     let find_more : boolean  = true;
     if ( (node.children.length) > 0 ) {
       const fc : CodeNode  = node.getFirst();
@@ -10715,6 +10886,7 @@ class RangerFlowParser  {
       return;
     }
     if ( node.isFirstVref("operator") ) {
+      const opRef : CodeNode  = node.children[0];
       const nameNode : CodeNode  = node.getSecond();
       /** unused:  const opClassName : string  = nameNode.vref   **/ 
       if ( nameNode.vref == "class" ) {
@@ -10728,9 +10900,14 @@ class RangerFlowParser  {
         new_class.is_system = true;
         nameNode.clDesc = new_class;
       }
-      const b_is_void : boolean  = nameNode.type_name == "void";
-      const opLang : CodeNode  = node.children[2];
-      const opsList : CodeNode  = node.children[3];
+      const b_is_void : boolean  = (nameNode.type_name == "void") || nameNode.is_block_node;
+      const langRef : CodeNode  = CodeNode.vref1(operatorsOf_21.getTargetLang_22(ctx));
+      if ( (opRef.type_name.length) > 0 ) {
+        langRef.vref = opRef.type_name;
+        console.log("OP type " + opRef.type_name);
+      }
+      const opLang : CodeNode  = ((node.children.length) > 2) ? (node.children[2]) : langRef;
+      const opsList : CodeNode  = node.children[((node.children.length) - 1)];
       for ( let i = 0; i < opsList.children.length; i++) {
         var op = opsList.children[i];
         const fc_1 : CodeNode  = op.getFirst();
@@ -11238,7 +11415,7 @@ class RangerFlowParser  {
       const args_2 : CodeNode  = node.children[3];
       m_1.fnBody = node.children[4];
       await this.CheckTypeAnnotationOf(m_1.nameNode, ctx, wr);
-      await operatorsOf.forEach_15(args_2.children, (async (item : CodeNode, index : number):void => { 
+      await operatorsOf.forEach_15(args_2.children, (async (item : CodeNode, index : number): Promise<void> => { 
         await this.defineFunctionParam(m_1, item, ctx, wr);
       }));
       currC_6.addStaticMethod(m_1);
@@ -11259,7 +11436,7 @@ class RangerFlowParser  {
       const args_3 : CodeNode  = node.children[2];
       m_2.fnBody = node.children[3];
       await this.CheckTypeAnnotationOf(m_2.nameNode, ctx, wr);
-      await operatorsOf.forEach_15(args_3.children, (async (item : CodeNode, index : number):void => { 
+      await operatorsOf.forEach_15(args_3.children, (async (item : CodeNode, index : number): Promise<void> => { 
         await this.defineFunctionParam(m_2, item, ctx, wr);
       }));
       currC_7.addStaticMethod(m_2);
@@ -11474,7 +11651,7 @@ class RangerFlowParser  {
     const cc : RangerAppClassDesc  = ctx.getCurrentClass();
     return cc;
   };
-  async convertToUnion (unionName : string, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async convertToUnion (unionName : string, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( ctx.isDefinedClass(unionName) ) {
       const c1 : RangerAppClassDesc  = ctx.findClass(unionName);
       if ( c1.is_union ) {
@@ -11497,7 +11674,7 @@ class RangerFlowParser  {
       }
     }
   };
-  async transformMethodToLambda (node : CodeNode, vFnDef : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async transformMethodToLambda (node : CodeNode, vFnDef : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( vFnDef.isFunction() ) {
       const args : Array<CodeNode>  = operatorsOf.map_44(vFnDef.params, ((item : RangerAppParamDesc, index : number):CodeNode => { 
         return item.nameNode.copy();
@@ -11523,7 +11700,7 @@ class RangerFlowParser  {
       await this.WalkNode(node, ctx, wr);
     }
   };
-  async areEqualTypes (n1 : CodeNode, n2 : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : boolean  {
+  async areEqualTypes (n1 : CodeNode, n2 : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<boolean>  {
     if ( n1.eval_type == 17 ) {
       let n1Expr : CodeNode  = n1.expression_value;
       let n2Expr : CodeNode  = n2.expression_value;
@@ -11691,7 +11868,7 @@ class RangerFlowParser  {
       ctx.addError(n1, msg);
     }
   };
-  async findLanguageOper (details : CodeNode, ctx : RangerAppWriterContext, opDef : CodeNode) : CodeNode  {
+  async findLanguageOper (details : CodeNode, ctx : RangerAppWriterContext, opDef : CodeNode) :  Promise<CodeNode>  {
     const langName : string  = operatorsOf_21.getTargetLang_22(ctx);
     let rv : CodeNode ;
     for ( let i = 0; i < details.children.length; i++) {
@@ -11740,7 +11917,7 @@ class RangerFlowParser  {
     };
     return rv;
   };
-  async buildMacro (langOper : CodeNode, args : CodeNode, ctx : RangerAppWriterContext) : CodeNode  {
+  async buildMacro (langOper : CodeNode, args : CodeNode, ctx : RangerAppWriterContext) :  Promise<CodeNode>  {
     const subCtx : RangerAppWriterContext  = ctx.fork();
     const wr : CodeWriter  = new CodeWriter();
     const lcc : LiveCompiler  = new LiveCompiler();
@@ -11764,7 +11941,7 @@ class RangerFlowParser  {
     if ( (args.register_expressions.length) > 0 ) {
       node.register_expressions = operatorsOf.clone_46(args.register_expressions);
     }
-    await operatorsOf.forEach_15(args.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(args.children, (async (item : CodeNode, index : number): Promise<void> => { 
       await operatorsOf.forEach_15(item.register_expressions, ((item : CodeNode, index : number):void => { 
         const re : CodeNode  = item;
         node.register_expressions.push(re);
@@ -11772,7 +11949,7 @@ class RangerFlowParser  {
     }));
     return node;
   };
-  async stdParamMatch (callArgs : CodeNode, inCtx : RangerAppWriterContext, wr : CodeWriter, require_all_match : boolean) : boolean  {
+  async stdParamMatch (callArgs : CodeNode, inCtx : RangerAppWriterContext, wr : CodeWriter, require_all_match : boolean) :  Promise<boolean>  {
     this.stdCommands = inCtx.getStdCommands();
     const callFnName : CodeNode  = callArgs.getFirst();
     /** unused:  const cmds : CodeNode  = this.stdCommands   **/ 
@@ -11897,6 +12074,9 @@ class RangerFlowParser  {
             continue;
           }
           if ( arg.hasFlag("keyword") ) {
+            if ( callArg.vref != arg.vref ) {
+              not_enough_args = true;
+            }
             continue;
           }
           if ( arg.hasFlag("noeval") ) {
@@ -12053,7 +12233,7 @@ class RangerFlowParser  {
             let opCnts : {[key:number]:number}  = {};
             let regNames : {[key:number]:string}  = {};
             let firstRef : {[key:number]:CodeNode}  = {};
-            await operatorsOf.forEach_15(args.children, (async (item : CodeNode, index : number):void => { 
+            await operatorsOf.forEach_15(args.children, (async (item : CodeNode, index : number): Promise<void> => { 
               const opArg : CodeNode  = item;
               if ( opArg.hasFlag("loopcondition") ) {
                 let loopBlock : CodeNode ;
@@ -12088,7 +12268,7 @@ class RangerFlowParser  {
                 BlockOP_1.register_expressions.push(regExpr_1);
                 realArg.register_name = regName_1;
                 realArg.reg_compiled_name = realRegName_1;
-                await operatorsOf.forEach_15(callArgs.children, (async (item : CodeNode, index : number):void => { 
+                await operatorsOf.forEach_15(callArgs.children, (async (item : CodeNode, index : number): Promise<void> => { 
                   if ( item.is_block_node ) {
                     const argCopy_1 : CodeNode  = realArg.copy();
                     argCopy_1.register_name = "";
@@ -12104,7 +12284,7 @@ class RangerFlowParser  {
                 }));
               }
             }));
-            await operatorsOf.forEach_15(opDef.children, (async (item : CodeNode, index : number):void => { 
+            await operatorsOf.forEach_15(opDef.children, (async (item : CodeNode, index : number): Promise<void> => { 
               if ( item.isFirstVref("e") ) {
                 if ( item.hasFlag("ignore") || item.hasFlag("noeval") ) {
                   return;
@@ -12712,7 +12892,7 @@ class RangerGenericClassWriter  {
   lineEnding () : string  {
     return "";
   };
-  async addSystemImport (cl : RangerAppClassDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async addSystemImport (cl : RangerAppClassDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( cl.is_system ) {
       const langName : string  = operatorsOf_21.getTargetLang_22(ctx);
       if ( ( typeof(cl.systemNodes[langName] ) != "undefined" && cl.systemNodes.hasOwnProperty(langName) ) ) {
@@ -12766,13 +12946,13 @@ class RangerGenericClassWriter  {
     };
     return encoded_str_2;
   };
-  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
   };
-  async WriteSetterVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteSetterVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
   };
   writeArrayTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
   };
-  async WriteEnum (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteEnum (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.eval_type == 13 ) {
       const rootObjName : string  = node.ns[0];
       const e : RangerAppEnum  = ctx.getEnum(rootObjName);
@@ -12871,7 +13051,7 @@ class RangerGenericClassWriter  {
       this.release_local_vars(node, ctx.parent, wr);
     }
   };
-  async WalkNode (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WalkNode (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await operatorsOf.forEach_15(node.children, ((item : CodeNode, index : number):void => { 
       if ( (typeof(item.evalCtx) !== "undefined" && item.evalCtx != null )  ) {
         if ( operatorsOf_21.getTargetLang_22((item.evalCtx)) != operatorsOf_21.getTargetLang_22(ctx) ) {
@@ -12885,16 +13065,16 @@ class RangerGenericClassWriter  {
       await this.compiler.WalkNode(node, ctx, wr);
     }
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.out(node.type_name, false);
   };
-  async writeRawTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeRawTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await this.writeTypeDef(node, ctx, wr);
   };
   adjustType (tn : string) : string  {
     return tn;
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.eval_type == 13 ) {
       if ( (node.ns.length) > 1 ) {
         const rootObjName : string  = node.ns[0];
@@ -12932,7 +13112,7 @@ class RangerGenericClassWriter  {
       wr.out(this.adjustType(part), false);
     };
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const p : RangerAppParamDesc  = node.paramDesc;
       if ( p.set_cnt > 0 ) {
@@ -12952,7 +13132,7 @@ class RangerGenericClassWriter  {
       }
     }
   };
-  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.has_call ) {
       const obj : CodeNode  = node.getSecond();
       const method : CodeNode  = node.getThird();
@@ -12965,8 +13145,14 @@ class RangerGenericClassWriter  {
       wr.out(method.vref, false);
       wr.out("(", false);
       ctx.setInExpr();
-      for ( let i = 0; i < args.children.length; i++) {
-        var arg = args.children[i];
+      const pms : Array<CodeNode>  = operatorsOf.filter_36(args.children, ((item : CodeNode, index : number):boolean => { 
+        if ( item.hasFlag("keyword") ) {
+          return false;
+        }
+        return true;
+      }));
+      for ( let i = 0; i < pms.length; i++) {
+        var arg = pms[i];
         if ( i > 0 ) {
           wr.out(", ", false);
         }
@@ -12979,7 +13165,7 @@ class RangerGenericClassWriter  {
       }
     }
   };
-  async CreateMethodCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateMethodCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const obj : CodeNode  = node.getFirst();
     const args : CodeNode  = node.getSecond();
     ctx.setInExpr();
@@ -12987,8 +13173,14 @@ class RangerGenericClassWriter  {
     ctx.unsetInExpr();
     wr.out("(", false);
     ctx.setInExpr();
-    for ( let i = 0; i < args.children.length; i++) {
-      var arg = args.children[i];
+    const pms : Array<CodeNode>  = operatorsOf.filter_36(args.children, ((item : CodeNode, index : number):boolean => { 
+      if ( item.hasFlag("keyword") ) {
+        return false;
+      }
+      return true;
+    }));
+    for ( let i = 0; i < pms.length; i++) {
+      var arg = pms[i];
       if ( i > 0 ) {
         wr.out(", ", false);
       }
@@ -12997,7 +13189,7 @@ class RangerGenericClassWriter  {
     ctx.unsetInExpr();
     wr.out(")", false);
   };
-  async CreatePropertyGet (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreatePropertyGet (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const obj : CodeNode  = node.getSecond();
     const prop : CodeNode  = node.getThird();
     wr.out("(", false);
@@ -13014,16 +13206,16 @@ class RangerGenericClassWriter  {
     }
     return false;
   };
-  async CreateUnions (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreateUnions (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
   };
-  async CreateServices (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreateServices (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
   };
-  async CreatePages (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreatePages (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
   };
-  async CreatePage (parser : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreatePage (parser : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     ctx.addError(node, "CreatePage not implemented for the build target");
   };
-  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fName : CodeNode  = node.children[0];
     const args : CodeNode  = node.children[1];
     ctx.setInExpr();
@@ -13042,7 +13234,7 @@ class RangerGenericClassWriter  {
       wr.out(";", true);
     }
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const lambdaCtx : RangerAppWriterContext  = node.lambda_ctx;
     const args : CodeNode  = node.children[1];
     const body : CodeNode  = node.children[2];
@@ -13069,18 +13261,23 @@ class RangerGenericClassWriter  {
     wr.indent(-1);
     wr.out("}", true);
   };
-  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasFnCall ) {
       const fc : CodeNode  = node.getFirst();
       await this.WriteVRef(fc, ctx, wr);
       wr.out("(", false);
       const givenArgs : CodeNode  = node.getSecond();
       ctx.setInExpr();
+      let cnt : number  = 0;
       for ( let i = 0; i < node.fnDesc.params.length; i++) {
         var arg = node.fnDesc.params[i];
-        if ( i > 0 ) {
+        if ( arg.nameNode.hasFlag("keyword") ) {
+          continue;
+        }
+        if ( cnt > 0 ) {
           wr.out(", ", false);
         }
+        cnt = cnt + 1;
         if ( (givenArgs.children.length) <= i ) {
           const defVal : CodeNode  = arg.nameNode.getFlag("default");
           if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
@@ -13118,7 +13315,7 @@ class RangerGenericClassWriter  {
       }
     }
   };
-  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasNewOper ) {
       const cl : RangerAppClassDesc  = node.clDesc;
       /** unused:  const fc : CodeNode  = node.getSecond()   **/ 
@@ -13141,13 +13338,13 @@ class RangerGenericClassWriter  {
       wr.out(")", false);
     }
   };
-  async writeInterface (cl : RangerAppClassDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeInterface (cl : RangerAppClassDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
   };
-  async disabledVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async disabledVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
   };
-  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.out("[", false);
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -13155,7 +13352,7 @@ class RangerGenericClassWriter  {
     }));
     wr.out("]", false);
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
       return;
@@ -13201,7 +13398,7 @@ class AndroidPageWriter  {
     const node : CodeNode  = lang_parser.rootNode;
     return node;
   };
-  async CreatePage (parser : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreatePage (parser : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const sc : CodeNode  = node.getSecond();
     const pageName : string  = sc.vref;
     const wr : CodeWriter  = orig_wr.getFileWriter(".", (pageName + ".java"));
@@ -13413,7 +13610,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     }
     return tn;
   };
-  async getObjectTypeString2 (type_string : string, ctx : RangerAppWriterContext, wr : CodeWriter) : string  {
+  async getObjectTypeString2 (type_string : string, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<string>  {
     switch (type_string ) { 
       case "int" : 
         return "Integer";
@@ -13459,7 +13656,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     };
     return type_string;
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     let v_type : number  = node.value_type;
     let t_name : string  = node.type_name;
     let a_name : string  = node.array_type;
@@ -13674,7 +13871,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       };
     }
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.vref == "this" ) {
       if ( ctx.inLambda() ) {
         const currC : RangerAppClassDesc  = ctx.getCurrentClass();
@@ -13765,7 +13962,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part_1), false);
     };
   };
-  async disabledVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async disabledVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -13808,7 +14005,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -13883,7 +14080,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     for ( let i = 0; i < fnDesc.params.length; i++) {
       var arg = fnDesc.params[i];
       if ( i > 0 ) {
@@ -13894,7 +14091,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       wr.out((" " + arg.compiledName) + " ", false);
     };
   };
-  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fc : CodeNode  = node.getFirst();
     const cmd : string  = fc.vref;
     if ( cmd == "return" ) {
@@ -13926,7 +14123,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     exp_s = exp_s + ")";
     return exp_s;
   };
-  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fName : CodeNode  = node.children[0];
     const givenArgs : CodeNode  = node.children[1];
     let rv : CodeNode ;
@@ -13959,14 +14156,14 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       wr.out(")", false);
     }
   };
-  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.addImport("java.util.*");
     wr.out("new ArrayList<", false);
     wr.out(await this.getObjectTypeString2(node.eval_array_type, ctx, wr), false);
     wr.out(">(Arrays.asList( new ", false);
     wr.out(await this.getObjectTypeString2(node.eval_array_type, ctx, wr), false);
     wr.out("[] {", false);
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -13974,7 +14171,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     }));
     wr.out("}))", false);
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const lambdaCtx : RangerAppWriterContext  = node.lambda_ctx;
     const fnNode : CodeNode  = node.children[0];
     const args : CodeNode  = node.children[1];
@@ -14074,7 +14271,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     counters.b_counted = true;
     return counters;
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
       return;
@@ -14230,15 +14427,15 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       importFork.out(("import " + codeStr) + ";", true);
     };
   };
-  async CreateServices (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreateServices (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     return;
   };
-  async CreatePages (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
-    await operatorsOf_13.forEach_25(ctx.appPages, (async (item : CodeNode, index : string):void => { 
+  async CreatePages (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
+    await operatorsOf_13.forEach_25(ctx.appPages, (async (item : CodeNode, index : string): Promise<void> => { 
       await this.CreatePage(parser, item, ctx, orig_wr);
     }));
   };
-  async CreatePage (parser : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreatePage (parser : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const writer : AndroidPageWriter  = new AndroidPageWriter();
     writer.classWriter = this;
     await writer.CreatePage(parser, node, ctx, orig_wr);
@@ -14306,7 +14503,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     };
     return type_string;
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     let v_type : number  = node.value_type;
     let t_name : string  = node.type_name;
     let a_name : string  = node.array_type;
@@ -14406,7 +14603,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out("?", false);
     }
   };
-  async WriteEnum (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteEnum (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.eval_type == 13 ) {
       const rootObjName : string  = node.ns[0];
       const e : RangerAppEnum  = ctx.getEnum(rootObjName);
@@ -14422,7 +14619,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.vref == "this" ) {
       wr.out("self", false);
       return;
@@ -14520,7 +14717,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part_2), false);
     };
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -14566,7 +14763,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     for ( let i = 0; i < fnDesc.params.length; i++) {
       var arg = fnDesc.params[i];
       if ( i > 0 ) {
@@ -14580,7 +14777,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       await this.writeTypeDef(arg.nameNode, ctx, wr);
     };
   };
-  async writeArgsDefWithLocals (fnDesc : RangerAppFunctionDesc, localFnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArgsDefWithLocals (fnDesc : RangerAppFunctionDesc, localFnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( (fnDesc.params.length) != (localFnDesc.params.length) ) {
       ctx.addError(localFnDesc.node, "Parameter count does not match with the function prototype");
       return;
@@ -14604,7 +14801,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       await this.writeTypeDef(arg.nameNode, ctx, wr);
     };
   };
-  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.has_call ) {
       const obj : CodeNode  = node.getSecond();
       const method : CodeNode  = node.getThird();
@@ -14644,7 +14841,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasFnCall ) {
       const fc : CodeNode  = node.getFirst();
       const fnName : CodeNode  = node.fnDesc.nameNode;
@@ -14683,7 +14880,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fName : CodeNode  = node.children[0];
     const givenArgs : CodeNode  = node.children[1];
     let rv : CodeNode ;
@@ -14720,7 +14917,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out(";", true);
     }
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const lambdaCtx : RangerAppWriterContext  = node.lambda_ctx;
     const fnNode : CodeNode  = node.children[0];
     const args : CodeNode  = node.children[1];
@@ -14750,7 +14947,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     wr.indent(-1);
     wr.out("})", false);
   };
-  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasNewOper ) {
       const cl : RangerAppClassDesc  = node.clDesc;
       /** unused:  const fc : CodeNode  = node.getSecond()   **/ 
@@ -14794,7 +14991,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     };
     return true;
   };
-  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fc : CodeNode  = node.getFirst();
     const cmd : string  = fc.vref;
     if ( cmd == "switch" ) {
@@ -14827,7 +15024,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out("}", true);
     }
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
       return;
@@ -15087,7 +15284,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       return;
     }
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     let v_type : number  = node.value_type;
     let t_name : string  = node.type_name;
     let a_name : string  = node.array_type;
@@ -15191,7 +15388,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         break;
     };
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.vref == "this" ) {
       const currC : RangerAppClassDesc  = ctx.getCurrentClass();
       if ( (typeof(currC) !== "undefined" && currC != null )  ) {
@@ -15270,7 +15467,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part_1), false);
     };
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -15304,7 +15501,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async disabledVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async disabledVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -15326,7 +15523,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       wr.newline();
     }
   };
-  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.has_call ) {
       const obj : CodeNode  = node.getSecond();
       const method : CodeNode  = node.getThird();
@@ -15353,7 +15550,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fc : CodeNode  = node.getFirst();
     const cmd : string  = fc.vref;
     if ( cmd == "return" ) {
@@ -15414,7 +15611,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       };
     }
   };
-  async CreateMethodCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateMethodCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const obj : CodeNode  = node.getFirst();
     const args : CodeNode  = node.getSecond();
     ctx.setInExpr();
@@ -15432,7 +15629,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     ctx.unsetInExpr();
     wr.out(")", false);
   };
-  async CreatePropertyGet (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreatePropertyGet (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const obj : CodeNode  = node.getSecond();
     const prop : CodeNode  = node.getThird();
     wr.out("(", false);
@@ -15442,7 +15639,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     wr.out(")->", false);
     await this.WalkNode(prop, ctx, wr);
   };
-  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fName : CodeNode  = node.children[0];
     const givenArgs : CodeNode  = node.children[1];
     let args : CodeNode ;
@@ -15471,7 +15668,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       wr.out(";", true);
     }
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     this.import_lib("<functional>", ctx, wr);
     const lambdaCtx : RangerAppWriterContext  = node.lambda_ctx;
     /** unused:  const fnNode : CodeNode  = node.children[0]   **/ 
@@ -15507,7 +15704,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     wr.indent(-1);
     wr.out("}", false);
   };
-  async writeCppHeaderVar (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter, do_initialize : boolean) : void  {
+  async writeCppHeaderVar (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter, do_initialize : boolean) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -15533,7 +15730,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     for ( let i = 0; i < fnDesc.params.length; i++) {
       var arg = fnDesc.params[i];
       if ( i > 0 ) {
@@ -15544,7 +15741,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       wr.out((" " + arg.compiledName) + " ", false);
     };
   };
-  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasFnCall ) {
       const fc : CodeNode  = node.getFirst();
       await this.WriteVRef(fc, ctx, wr);
@@ -15576,7 +15773,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasNewOper ) {
       const cl : RangerAppClassDesc  = node.clDesc;
       /** unused:  const fc : CodeNode  = node.getSecond()   **/ 
@@ -15600,12 +15797,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       wr.out(")", false);
     }
   };
-  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     this.compiler.createPolyfill("\ntemplate< typename T, size_t N >\nstd::vector<T> r_make_vector_from_array( const T (&data)[N] )\n{\n    return std::vector<T>(data, data+N);\n}\n", ctx, wr);
     wr.out("r_make_vector_from_array( (", false);
     wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
     wr.out("[] ) {", false);
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -15613,7 +15810,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }));
     wr.out("} )", false);
   };
-  async writeClassHeader (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeClassHeader (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
       return;
@@ -15684,9 +15881,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     wr.indent(-1);
     wr.out("};", true);
   };
-  async CreateUnions (parser : RangerFlowParser, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateUnions (parser : RangerFlowParser, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const root : RangerAppWriterContext  = ctx.getRoot();
-    await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string):void => { 
+    await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string): Promise<void> => { 
       if ( item.is_union ) {
         await this.compiler.installFile("variant.hpp", ctx, wr);
         ctx.addPluginNode("makefile", CodeNode.fromList([CodeNode.fromList([CodeNode.vref1("dep"), CodeNode.newStr("variant.hpp"), CodeNode.newStr("https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp")])]));
@@ -15718,7 +15915,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }));
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     const wr : CodeWriter  = orig_wr;
     if ( typeof(cl) === "undefined" ) {
@@ -15932,7 +16129,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     };
     return type_string;
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     let v_type : number  = node.value_type;
     if ( node.eval_type != 0 ) {
       v_type = node.eval_type;
@@ -15977,7 +16174,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       wr.out("?", false);
     }
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.eval_type == 13 ) {
       if ( (node.ns.length) > 1 ) {
         const rootObjName : string  = node.ns[0];
@@ -16025,7 +16222,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part), false);
     };
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -16066,7 +16263,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     for ( let i = 0; i < fnDesc.params.length; i++) {
       var arg = fnDesc.params[i];
       if ( i > 0 ) {
@@ -16077,7 +16274,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       await this.writeTypeDef(arg.nameNode, ctx, wr);
     };
   };
-  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasFnCall ) {
       const fc : CodeNode  = node.getFirst();
       await this.WriteVRef(fc, ctx, wr);
@@ -16107,7 +16304,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasNewOper ) {
       const cl : RangerAppClassDesc  = node.clDesc;
       /** unused:  const fc : CodeNode  = node.getSecond()   **/ 
@@ -16131,7 +16328,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       wr.out(")", false);
     }
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
       return;
@@ -16297,7 +16494,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
     };
     return type_string;
   };
-  async writeLambdaType (expression_value : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeLambdaType (expression_value : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const rv : CodeNode  = expression_value.children[0];
     const sec : CodeNode  = expression_value.children[1];
     /** unused:  const fc : CodeNode  = sec.getFirst()   **/ 
@@ -16334,7 +16531,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
       wr.out(">", false);
     }
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     let v_type : number  = node.value_type;
     let t_name : string  = node.type_name;
     let a_name : string  = node.array_type;
@@ -16414,7 +16611,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
         break;
     };
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.eval_type == 13 ) {
       if ( (node.ns.length) > 1 ) {
         const rootObjName : string  = node.ns[0];
@@ -16472,7 +16669,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part_1), false);
     };
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -16516,7 +16713,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const lambdaCtx : RangerAppWriterContext  = node.lambda_ctx;
     /** unused:  const fName : CodeNode  = node.children[1]   **/ 
     const body : CodeNode  = node.children[2];
@@ -16553,7 +16750,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
       wr.out(";", true);
     }
   };
-  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     for ( let i = 0; i < fnDesc.params.length; i++) {
       var arg = fnDesc.params[i];
       if ( i > 0 ) {
@@ -16564,11 +16761,11 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
       wr.out((" " + arg.compiledName) + " ", false);
     };
   };
-  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.out("new List<", false);
     wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
     wr.out("> {", false);
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -16576,7 +16773,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
     }));
     wr.out("}", false);
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
       return;
@@ -16707,7 +16904,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     };
     return type_string;
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasFlag("optional") ) {
       wr.out("Option[", false);
     }
@@ -16806,7 +17003,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       wr.out("]", false);
     }
   };
-  async writeTypeDefNoOption (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDefNoOption (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     let v_type : number  = node.value_type;
     if ( node.eval_type != 0 ) {
       v_type = node.eval_type;
@@ -16874,7 +17071,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         break;
     };
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.vref == "this" ) {
       wr.out("this", false);
       return;
@@ -16933,7 +17130,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part_1), false);
     };
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const p : RangerAppParamDesc  = node.paramDesc;
       /** unused:  const nn : CodeNode  = node.children[1]   **/ 
@@ -16984,7 +17181,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     for ( let i = 0; i < fnDesc.params.length; i++) {
       var arg = fnDesc.params[i];
       if ( i > 0 ) {
@@ -16995,7 +17192,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       await this.writeTypeDef(arg.nameNode, ctx, wr);
     };
   };
-  async writeFnEnd (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeFnEnd (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.indent(-1);
     wr.out("} catch {", true);
     wr.indent(1);
@@ -17015,7 +17212,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     wr.out("try {", true);
     wr.indent(1);
   };
-  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fc : CodeNode  = node.getFirst();
     const cmd : string  = fc.vref;
     if ( cmd == "for" ) {
@@ -17124,7 +17321,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       return;
     }
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const lambdaCtx : RangerAppWriterContext  = node.lambda_ctx;
     const fnDef : CodeNode  = node.children[0];
     const args : CodeNode  = node.children[1];
@@ -17207,9 +17404,9 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     }
     wr.out(")", false);
   };
-  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.out("collection.mutable.ArrayBuffer(", false);
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -17217,7 +17414,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     }));
     wr.out(")", false);
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     let declaredFunction : {[key:string]:boolean}  = {};
     const cl : RangerAppClassDesc  = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
@@ -17497,12 +17694,12 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
     return ctx.transformTypeName(type_string);
   };
-  async writeRawTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeRawTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     this.write_raw_type = true;
     await this.writeTypeDef(node, ctx, wr);
     this.write_raw_type = false;
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     this.writeTypeDef2(node, ctx, wr);
   };
   writeArrayTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
@@ -17692,7 +17889,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         break;
     };
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.vref == "this" ) {
       wr.out(this.thisName, false);
       return;
@@ -17829,7 +18026,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part_2), false);
     };
   };
-  async WriteSetterVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteSetterVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.vref == "this" ) {
       wr.out(this.thisName, false);
       return;
@@ -17966,7 +18163,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part_2), false);
     };
   };
-  async goExtractAssign (value : CodeNode, p : RangerAppParamDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async goExtractAssign (value : CodeNode, p : RangerAppParamDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const arr_node : CodeNode  = value.children[1];
     wr.newline();
     wr.out("", true);
@@ -18078,7 +18275,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
     wr.out("", true);
   };
-  async writeStructField (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeStructField (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -18097,7 +18294,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -18228,7 +18425,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     for ( let i = 0; i < fnDesc.params.length; i++) {
       var arg = fnDesc.params[i];
       if ( i > 0 ) {
@@ -18242,7 +18439,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       }
     };
   };
-  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasNewOper ) {
       const cl : RangerAppClassDesc  = node.clDesc;
       /** unused:  const fc : CodeNode  = node.getSecond()   **/ 
@@ -18264,10 +18461,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       wr.out(")", false);
     }
   };
-  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await this.writeTypeDef(node, ctx, wr);
     wr.out(" {", false);
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -18275,7 +18472,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }));
     wr.out("}", false);
   };
-  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fName : CodeNode  = node.children[0];
     const givenArgs : CodeNode  = node.children[1];
     let args : CodeNode ;
@@ -18307,7 +18504,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       wr.out(";", true);
     }
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const lambdaCtx : RangerAppWriterContext  = node.lambda_ctx;
     const fnNode : CodeNode  = node.children[0];
     const args : CodeNode  = node.children[1];
@@ -18343,7 +18540,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     wr.indent(-1);
     wr.out("}", false);
   };
-  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CustomOperator (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fc : CodeNode  = node.getFirst();
     const cmd : string  = fc.vref;
     if ( cmd == "return" ) {
@@ -18588,7 +18785,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       wr.out("; /* custom */", true);
     }
   };
-  async writeInterface (cl : RangerAppClassDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeInterface (cl : RangerAppClassDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.out(("type " + cl.name) + " interface { ", true);
     wr.indent(1);
     for ( let i = 0; i < cl.defined_variants.length; i++) {
@@ -18610,7 +18807,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     wr.indent(-1);
     wr.out("}", true);
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
       return;
@@ -19062,7 +19259,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
         break;
     };
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.vref == "this" ) {
       wr.out("$this", false);
       return;
@@ -19166,7 +19363,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part_3), false);
     };
   };
-  async writeVarInitDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarInitDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -19199,7 +19396,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       wr.newline();
     }
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -19235,7 +19432,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async disabledVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async disabledVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -19258,7 +19455,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       wr.newline();
     }
   };
-  async CreateMethodCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateMethodCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const obj : CodeNode  = node.getFirst();
     const args : CodeNode  = node.getSecond();
     ctx.setInExpr();
@@ -19276,7 +19473,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     ctx.unsetInExpr();
     wr.out(")", false);
   };
-  async CreatePropertyGet (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreatePropertyGet (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const obj : CodeNode  = node.getSecond();
     const prop : CodeNode  = node.getThird();
     wr.out("(", false);
@@ -19287,7 +19484,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     wr.out("->", false);
     wr.out(prop.vref, false);
   };
-  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fName : CodeNode  = node.children[0];
     const givenArgs : CodeNode  = node.children[1];
     let args : CodeNode ;
@@ -19317,7 +19514,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       wr.out(")", false);
     }
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const lambdaCtx : RangerAppWriterContext  = node.lambda_ctx;
     /** unused:  const fnNode : CodeNode  = node.children[0]   **/ 
     const args : CodeNode  = node.children[1];
@@ -19387,9 +19584,9 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       wr.out((" $" + arg.compiledName) + " ", false);
     };
   };
-  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.out("array(", false);
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -19397,7 +19594,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     }));
     wr.out(")", false);
   };
-  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasFnCall ) {
       const fc : CodeNode  = node.getFirst();
       await this.WriteVRef(fc, ctx, wr);
@@ -19429,7 +19626,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasNewOper ) {
       const cl : RangerAppClassDesc  = node.clDesc;
       /** unused:  const fc : CodeNode  = node.getSecond()   **/ 
@@ -19453,7 +19650,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       wr.out(")", false);
     }
   };
-  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.has_call ) {
       const obj : CodeNode  = node.getSecond();
       const method : CodeNode  = node.getThird();
@@ -19487,7 +19684,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
       return;
@@ -19611,7 +19808,7 @@ class WebPageWriter  {
   classWriter: RangerGenericClassWriter;
   constructor() {
   }
-  async CreatePage (parser : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreatePage (parser : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const sc : CodeNode  = node.getSecond();
     const wr : CodeWriter  = orig_wr;
     wr.out("// created by WebPageWriter ", true);
@@ -19655,9 +19852,9 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     }
     return tn;
   };
-  async CreateTsUnions (parser : RangerFlowParser, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateTsUnions (parser : RangerFlowParser, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const root : RangerAppWriterContext  = ctx.getRoot();
-    await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string):void => { 
+    await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string): Promise<void> => { 
       if ( item.is_union ) {
         wr.out(("type union_" + index) + " = ", false);
         wr.indent(1);
@@ -19686,7 +19883,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     }));
   };
-  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasFnCall ) {
       const fc : CodeNode  = node.getFirst();
       if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && ((typeof(node.fnDesc.nameNode) !== "undefined" && node.fnDesc.nameNode != null ) ) ) {
@@ -19699,11 +19896,16 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       wr.out("(", false);
       const givenArgs : CodeNode  = node.getSecond();
       ctx.setInExpr();
+      let cnt : number  = 0;
       for ( let i = 0; i < node.fnDesc.params.length; i++) {
         var arg = node.fnDesc.params[i];
-        if ( i > 0 ) {
+        if ( arg.nameNode.hasFlag("keyword") ) {
+          continue;
+        }
+        if ( cnt > 0 ) {
           wr.out(", ", false);
         }
+        cnt = cnt + 1;
         if ( (givenArgs.children.length) <= i ) {
           const defVal : CodeNode  = arg.nameNode.getFlag("default");
           if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
@@ -19741,7 +19943,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.has_call ) {
       const obj : CodeNode  = node.getSecond();
       const method : CodeNode  = node.getThird();
@@ -19819,7 +20021,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     };
     return type_string;
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     let v_type : number  = node.value_type;
     let t_name : string  = node.type_name;
     let a_name : string  = node.array_type;
@@ -19894,6 +20096,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           if ( cc.is_system ) {
             /** unused:  const current_sys : RangerAppWriterContext  = ctx   **/ 
             const sName : string  = (cc.systemNames["es6"]);
+            console.log(" typedef for system class " + sName);
             wr.out(sName, false);
             return;
           }
@@ -19903,6 +20106,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
             return;
           }
           const cc_1 : RangerAppClassDesc  = ctx.findClass(t_name);
+          console.log(" typedef for class " + cc_1.name);
           wr.out(cc_1.name, false);
           return;
         }
@@ -19910,7 +20114,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         break;
     };
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.eval_type == 13 ) {
       if ( (node.ns.length) > 1 ) {
         const rootObjName : string  = node.ns[0];
@@ -19997,7 +20201,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part_2), false);
     };
   };
-  async writeVarInitDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarInitDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -20042,7 +20246,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -20097,7 +20301,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeClassVarDef (p : RangerAppParamDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeClassVarDef (p : RangerAppParamDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( this.target_typescript ) {
       wr.out(p.compiledName, false);
       wr.out(": ", false);
@@ -20105,7 +20309,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       wr.out(";", true);
     }
   };
-  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fName : CodeNode  = node.children[0];
     const args : CodeNode  = node.children[1];
     ctx.setInExpr();
@@ -20128,7 +20332,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       wr.out(";", true);
     }
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const lambdaCtx : RangerAppWriterContext  = node.lambda_ctx;
     const fName : CodeNode  = node.children[0];
     const args : CodeNode  = node.children[1];
@@ -20157,7 +20361,13 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     wr.out(")", false);
     if ( this.target_typescript ) {
       wr.out(":", false);
+      if ( fName.hasFlag("async") ) {
+        wr.out(" Promise<", false);
+      }
       await this.writeTypeDef(fName, ctx, wr);
+      if ( fName.hasFlag("async") ) {
+        wr.out(">", false);
+      }
     }
     wr.out(" => { ", true);
     wr.indent(1);
@@ -20175,12 +20385,20 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       wr.out("", true);
     }
   };
-  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
-    for ( let i = 0; i < fnDesc.params.length; i++) {
-      var arg = fnDesc.params[i];
-      if ( i > 0 ) {
+  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
+    let cnt : number  = 0;
+    const pms : Array<RangerAppParamDesc>  = operatorsOf.filter_50(fnDesc.params, ((item : RangerAppParamDesc, index : number):boolean => { 
+      if ( item.nameNode.hasFlag("keyword") ) {
+        return false;
+      }
+      return true;
+    }));
+    for ( let i = 0; i < pms.length; i++) {
+      var arg = pms[i];
+      if ( cnt > 0 ) {
         wr.out(", ", false);
       }
+      cnt = cnt + 1;
       wr.out(arg.compiledName, false);
       if ( this.target_typescript ) {
         wr.out(" : ", false);
@@ -20188,7 +20406,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     };
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     let is_react_native : boolean  = false;
     let is_rn_default : boolean  = false;
@@ -20306,7 +20524,13 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out(")", false);
         if ( this.target_typescript ) {
           wr.out(" : ", false);
+          if ( variant.nameNode.hasFlag("async") ) {
+            wr.out(" Promise<", false);
+          }
           await this.writeTypeDef(variant.nameNode, ctx, wr);
+          if ( variant.nameNode.hasFlag("async") ) {
+            wr.out(">", false);
+          }
           wr.out(" ", false);
         }
         wr.out(" {", true);
@@ -20332,11 +20556,20 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           continue;
         }
         wr.out("static ", false);
+        if ( variant_1.nameNode.hasFlag("async") ) {
+          wr.out("async ", false);
+        }
         wr.out(("" + variant_1.compiledName) + " (", false);
         await this.writeArgsDef(variant_1, ctx, wr);
         wr.out(")", false);
         wr.out(" : ", false);
+        if ( variant_1.nameNode.hasFlag("async") ) {
+          wr.out(" Promise<", false);
+        }
         await this.writeTypeDef(variant_1.nameNode, ctx, wr);
+        if ( variant_1.nameNode.hasFlag("async") ) {
+          wr.out("> ", false);
+        }
         wr.out(" ", false);
         wr.out(" {", true);
         wr.indent(1);
@@ -20406,7 +20639,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     const node : CodeNode  = lang_parser.rootNode;
     return node;
   };
-  async CreateServices (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreateServices (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     if ( ctx.hasCompilerFlag("client") ) {
       ctx.addError(CodeNode.blockNode(), "client service writing for target JavaScript is not implemented");
       return;
@@ -20472,22 +20705,22 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     await parser.WalkNode(codeNode, root, theEnd);
     theEnd.out("(new test_webservice).run();", true);
   };
-  async CreatePages (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreatePages (parser : RangerFlowParser, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const wr : CodeWriter  = orig_wr.getFileWriter(".", "pages.js");
     wr.out("class theApplicationClass {", true);
     wr.indent(1);
-    await operatorsOf_13.forEach_25(ctx.appPages, (async (item : CodeNode, index : string):void => { 
+    await operatorsOf_13.forEach_25(ctx.appPages, (async (item : CodeNode, index : string): Promise<void> => { 
       await this.CreatePage(parser, item, ctx, wr);
     }));
     wr.indent(-1);
     wr.out("}", true);
   };
-  async CreatePage (parser : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async CreatePage (parser : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const writer : WebPageWriter  = new WebPageWriter();
     writer.classWriter = this;
     await writer.CreatePage(parser, node, ctx, orig_wr);
   };
-  async writeNpmPackage (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeNpmPackage (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const wr : CodeWriter  = orig_wr.getFileWriter(".", "package.json");
     const opts : Array<string>  = ["name", "version", "description", "author", "license"];
     wr.out("{", true);
@@ -20526,9 +20759,9 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
   getTypeString (type_string : string) : string  {
     return type_string;
   };
-  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArrayLiteral (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.out("([] ", false);
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( index > 0 ) {
         wr.out(" ", false);
       }
@@ -20536,7 +20769,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
     }));
     wr.out(")", false);
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     let v_type : number  = node.value_type;
     let t_name : string  = node.type_name;
     let a_name : string  = node.array_type;
@@ -20566,7 +20799,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
     }
     wr.out(t_name, false);
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.out(node.vref, false);
   };
   WriteVRefWithOpt (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
@@ -20589,7 +20822,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
       wr.out(")", false);
     }
   };
-  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeVarDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasParamDesc ) {
       const nn : CodeNode  = node.children[1];
       const p : RangerAppParamDesc  = nn.paramDesc;
@@ -20607,7 +20840,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
       wr.newline();
     }
   };
-  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fName : CodeNode  = node.children[0];
     const args : CodeNode  = node.children[1];
     await this.WriteVRef(fName, ctx, wr);
@@ -20624,7 +20857,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
       wr.out(" ", true);
     }
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const lambdaCtx : RangerAppWriterContext  = node.lambda_ctx;
     const nn : CodeNode  = node.children[0];
     const args : CodeNode  = node.children[1];
@@ -20655,7 +20888,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
     wr.indent(-1);
     wr.out("})", true);
   };
-  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeFnCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasFnCall ) {
       if ( ctx.expressionLevel() > 0 ) {
         wr.out("(", false);
@@ -20693,7 +20926,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeNewCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.hasNewOper ) {
       const cl : RangerAppClassDesc  = node.clDesc;
       /** unused:  const fc : CodeNode  = node.getSecond()   **/ 
@@ -20716,7 +20949,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
       wr.out("))", false);
     }
   };
-  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeArgsDef (fnDesc : RangerAppFunctionDesc, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     for ( let i = 0; i < fnDesc.params.length; i++) {
       var arg = fnDesc.params[i];
       if ( i > 0 ) {
@@ -20728,7 +20961,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
       await this.writeTypeDef(arg.nameNode, ctx, wr);
     };
   };
-  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( node.has_call ) {
       const obj : CodeNode  = node.getSecond();
       const method : CodeNode  = node.getThird();
@@ -20754,7 +20987,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     const cl : RangerAppClassDesc  = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
       return;
@@ -20877,7 +21110,7 @@ class RangerActiveOperators  {
     };
     return newOps;
   };
-  async initializeOpCache () : void  {
+  async initializeOpCache () :  Promise<void>  {
     await operatorsOf_13.forEach_19(this.opHash, ((item : OpList, index : string):void => { 
       item.list.length = 0;
     }));
@@ -20895,7 +21128,7 @@ class RangerActiveOperators  {
     };
     this.initialized = true;
   };
-  async getOperators (name : string) : Array<CodeNode>  {
+  async getOperators (name : string) :  Promise<Array<CodeNode>>  {
     let results : Array<CodeNode>  = [];
     if ( false == this.initialized ) {
       await this.initializeOpCache();
@@ -21035,19 +21268,19 @@ class LiveCompiler  {
     }
     return tn;
   };
-  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WriteVRef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await this.langWriter.WriteVRef(node, ctx, wr);
   };
-  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await this.langWriter.writeTypeDef(node, ctx, wr);
   };
-  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambdaCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await this.langWriter.CreateLambdaCall(node, ctx, wr);
   };
-  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateCallExpression (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await this.langWriter.CreateCallExpression(node, ctx, wr);
   };
-  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateLambda (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await this.langWriter.CreateLambda(node, ctx, wr);
   };
   getTypeString (str : string, ctx : RangerAppWriterContext) : string  {
@@ -21060,15 +21293,15 @@ class LiveCompiler  {
       p_write.compiledTags[code] = true;
     }
   };
-  async installFile (filename : string, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async installFile (filename : string, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( ( typeof(this.installedFile[filename] ) != "undefined" && this.installedFile.hasOwnProperty(filename) ) ) {
       return;
     }
     const env : InputEnv  = ctx.getEnv();
     this.installedFile[filename] = true;
-    /** unused:  const fName : string  = (operatorsOf_8.installc95directory_50(env) + "/") + filename   **/ 
-    if ( operatorsOf_8.filec95exists_9(env, (operatorsOf_8.installc95directory_50(env) + "/"), filename) ) {
-      const fileData : string  = await (new Promise(resolve => { require('fs').readFile( (operatorsOf_8.installc95directory_50(env) + "/") + '/' + filename , 'utf8', (err,data)=>{ resolve(data) }) } ));
+    /** unused:  const fName : string  = (operatorsOf_8.installc95directory_51(env) + "/") + filename   **/ 
+    if ( operatorsOf_8.filec95exists_9(env, (operatorsOf_8.installc95directory_51(env) + "/"), filename) ) {
+      const fileData : string  = await (new Promise(resolve => { require('fs').readFile( (operatorsOf_8.installc95directory_51(env) + "/") + '/' + filename , 'utf8', (err,data)=>{ resolve(data) }) } ));
       if ( (typeof(fileData) !== "undefined" && fileData != null )  ) {
         const file_wr : CodeWriter  = wr.getFileWriter(".", filename);
         file_wr.raw(fileData, false);
@@ -21076,10 +21309,10 @@ class LiveCompiler  {
         console.log("did not get contents of " + filename);
       }
     } else {
-      console.log(("did not find installed file " + operatorsOf_8.installc95directory_50(env)) + filename);
+      console.log(("did not find installed file " + operatorsOf_8.installc95directory_51(env)) + filename);
     }
   };
-  async findOpCode (op : CodeNode, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async findOpCode (op : CodeNode, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fnName : CodeNode  = op.children[1];
     const args : CodeNode  = op.children[2];
     if ( (op.children.length) > 3 ) {
@@ -21171,7 +21404,7 @@ class LiveCompiler  {
       };
     }
   };
-  async findOpTemplate (op : CodeNode, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : CodeNode  {
+  async findOpTemplate (op : CodeNode, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<CodeNode>  {
     /** unused:  const fnName : CodeNode  = op.children[1]   **/ 
     /** unused:  const root : RangerAppWriterContext  = ctx.getRoot()   **/ 
     const langName : string  = operatorsOf_21.getTargetLang_22(ctx);
@@ -21223,7 +21456,7 @@ class LiveCompiler  {
     }
     return rv;
   };
-  async localCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : boolean  {
+  async localCall (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<boolean>  {
     if ( node.hasFnCall ) {
       if ( (typeof(this.langWriter) !== "undefined" && this.langWriter != null )  ) {
         await this.langWriter.writeFnCall(node, ctx, wr);
@@ -21248,7 +21481,7 @@ class LiveCompiler  {
     }
     return false;
   };
-  async WalkNode (node : CodeNode, in_ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WalkNode (node : CodeNode, in_ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     this.initWriter(in_ctx);
     if ( node.disabled_node ) {
       return;
@@ -21274,7 +21507,7 @@ class LiveCompiler  {
         liveNodes.push(item);
       }));
     }
-    await operatorsOf.forEach_15(liveNodes, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(liveNodes, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( item.register_set == false ) {
         item.register_set = true;
         await this.WalkNode(item, ctx, wr);
@@ -21368,7 +21601,7 @@ class LiveCompiler  {
               liveNodes_2.push(item);
             }));
           }
-          await item.walkTreeUntil((async (item : CodeNode, i : number):boolean => { 
+          await item.walkTreeUntil((async (item : CodeNode, i : number): Promise<boolean> => { 
             if ( item.is_block_node ) {
               return false;
             }
@@ -21378,7 +21611,7 @@ class LiveCompiler  {
             }
             return true;
           }));
-          await operatorsOf.forEach_15(liveNodes_2, (async (item : CodeNode, index : number):void => { 
+          await operatorsOf.forEach_15(liveNodes_2, (async (item : CodeNode, index : number): Promise<void> => { 
             if ( item.register_set == false ) {
               item.register_set = true;
               await this.WalkNode(item, ctx, wr);
@@ -21393,7 +21626,7 @@ class LiveCompiler  {
       }
     }
   };
-  async walkCommandList (cmd : CodeNode, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async walkCommandList (cmd : CodeNode, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( ctx.expressionLevel() == 0 ) {
       wr.newline();
       if ( operatorsOf_21.getTargetLang_22(ctx) == "swift3" ) {
@@ -21419,7 +21652,7 @@ class LiveCompiler  {
       wr.newline();
     }
   };
-  async walkCommand (cmd : CodeNode, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async walkCommand (cmd : CodeNode, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( cmd.expression ) {
       if ( (cmd.children.length) < 2 ) {
         ctx.addError(node, "Invalid command");
@@ -21962,7 +22195,7 @@ class ColorConsole  {
 class RangerDocGenerator  {
   constructor() {
   }
-  async writeTypeDef (item : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDef (item : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     if ( item.hasFlag("optional") ) {
       wr.out("<optional>", false);
     }
@@ -21980,7 +22213,7 @@ class RangerDocGenerator  {
           const args : CodeNode  = item.expression_value.children[1];
           await this.writeTypeDef(rv, ctx, wr);
           wr.out(" (", false);
-          await operatorsOf.forEach_15(args.children, (async (item : CodeNode, index : number):void => { 
+          await operatorsOf.forEach_15(args.children, (async (item : CodeNode, index : number): Promise<void> => { 
             if ( index > 0 ) {
               wr.out(", ", false);
             }
@@ -22000,8 +22233,8 @@ class RangerDocGenerator  {
         break;
     };
   };
-  async writeArgDefs (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+  async writeArgDefs (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       if ( index > 0 ) {
         wr.out(" ", false);
       }
@@ -22011,7 +22244,7 @@ class RangerDocGenerator  {
       wr.out(" ", false);
     }));
   };
-  async createClassDoc (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async createClassDoc (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     if ( ctx.hasCompilerSetting("classdoc") ) {
       const b_only_documented : boolean  = false == ctx.hasCompilerFlag("allowempty");
       const wr : CodeWriter  = orig_wr.getFileWriter(".", ctx.getCompilerSetting("classdoc"));
@@ -22019,7 +22252,7 @@ class RangerDocGenerator  {
         wr.out("# Classes", true);
       }
       const root : RangerAppWriterContext  = ctx.getRoot();
-      await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string):void => { 
+      await operatorsOf_13.forEach_14(root.definedClasses, (async (item : RangerAppClassDesc, index : string): Promise<void> => { 
         if ( false == item.isNormalClass() ) {
           return;
         }
@@ -22027,8 +22260,8 @@ class RangerDocGenerator  {
           wr.out("## " + index, true);
         }
         const theClass : RangerAppClassDesc  = item;
-        await operatorsOf_13.forEach_30(item.method_variants, (async (item : RangerAppMethodVariants, index : string):void => { 
-          await operatorsOf.forEach_29(item.variants, (async (item : RangerAppFunctionDesc, index : number):void => { 
+        await operatorsOf_13.forEach_30(item.method_variants, (async (item : RangerAppMethodVariants, index : string): Promise<void> => { 
+          await operatorsOf.forEach_29(item.variants, (async (item : RangerAppFunctionDesc, index : number): Promise<void> => { 
             if ( b_only_documented ) {
               if ( (item.git_doc.length) == 0 ) {
                 return;
@@ -22062,7 +22295,7 @@ class RangerDocGenerator  {
       }));
     }
   };
-  async writeOpDesc (item : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeOpDesc (item : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const fc : CodeNode  = item.getFirst();
     const nameNode : CodeNode  = item.getSecond();
     const args : CodeNode  = item.getThird();
@@ -22092,14 +22325,14 @@ class RangerDocGenerator  {
     wr.out("| ", false);
     wr.out("", true);
   };
-  async writeTypeDoc (list : Array<RangerAppOperatorDesc>, tester : (item:RangerAppOperatorDesc) => boolean, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeTypeDoc (list : Array<RangerAppOperatorDesc>, tester : (item:RangerAppOperatorDesc) => boolean, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     const www : CodeWriter  = wr.fork();
     wr.out("", true);
     wr.out("", true);
     wr.out("| operator | returns | arguments | description |", true);
     wr.out("| -------- | ------- | --------- | ------------| ", true);
     let cnt : number  = 0;
-    await operatorsOf.forEach_17(list, (async (item : RangerAppOperatorDesc, index : number):void => { 
+    await operatorsOf.forEach_17(list, (async (item : RangerAppOperatorDesc, index : number): Promise<void> => { 
       if ( await tester(item) ) {
         if ( cnt > 0 ) {
           www.out(", ", false);
@@ -22110,11 +22343,11 @@ class RangerDocGenerator  {
       }
     }));
   };
-  async createOperatorDoc (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async createOperatorDoc (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     if ( ctx.hasCompilerSetting("operatordoc") ) {
       const wr : CodeWriter  = orig_wr.getFileWriter(".", ctx.getCompilerSetting("operatordoc"));
       const allOps : Array<RangerAppOperatorDesc>  = await ctx.getAllOperators();
-      let statements : Array<RangerAppOperatorDesc>  = operatorsOf.filter_51(allOps, ((item : RangerAppOperatorDesc, index : number):boolean => { 
+      let statements : Array<RangerAppOperatorDesc>  = operatorsOf.filter_52(allOps, ((item : RangerAppOperatorDesc, index : number):boolean => { 
         let is_map_array : boolean  = false;
         if ( typeof(item.firstArg) != "undefined" ) {
           is_map_array = (item.firstArg.value_type == 6) || (item.firstArg.value_type == 7);
@@ -22124,23 +22357,23 @@ class RangerDocGenerator  {
         }
         return (item.nameNode.type_name == "void") && (false == is_map_array);
       }));
-      const lang_statements : Array<RangerAppOperatorDesc>  = operatorsOf.filter_51(allOps, ((item : RangerAppOperatorDesc, index : number):boolean => { 
+      const lang_statements : Array<RangerAppOperatorDesc>  = operatorsOf.filter_52(allOps, ((item : RangerAppOperatorDesc, index : number):boolean => { 
         if ( (item.name.indexOf("if_")) == 0 ) {
           return true;
         }
         return false;
       }));
-      statements = operatorsOf.groupBy_52(statements, ((item : RangerAppOperatorDesc):string => { 
+      statements = operatorsOf.groupBy_53(statements, ((item : RangerAppOperatorDesc):string => { 
         return item.name;
       }));
-      const operator_list : Array<RangerAppOperatorDesc>  = operatorsOf.filter_51(allOps, ((item : RangerAppOperatorDesc, index : number):boolean => { 
+      const operator_list : Array<RangerAppOperatorDesc>  = operatorsOf.filter_52(allOps, ((item : RangerAppOperatorDesc, index : number):boolean => { 
         let is_map_array_1 : boolean  = false;
         if ( typeof(item.firstArg) != "undefined" ) {
           is_map_array_1 = (item.firstArg.value_type == 6) || (item.firstArg.value_type == 7);
         }
         return is_map_array_1 || (item.nameNode.type_name != "void");
       }));
-      const nList : Array<RangerAppOperatorDesc>  = operatorsOf.groupBy_52(operator_list, ((item : RangerAppOperatorDesc):string => { 
+      const nList : Array<RangerAppOperatorDesc>  = operatorsOf.groupBy_53(operator_list, ((item : RangerAppOperatorDesc):string => { 
         let key : string  = item.name;
         const fc : CodeNode  = item.firstArg;
         if ( typeof(fc) != "undefined" ) {
@@ -22228,7 +22461,7 @@ class viewbuilder_Android  {
   _attr (wr : CodeWriter, name : string, value : string) : void  {
     wr.out((((("android:" + name) + "=") + "\"") + value) + "\" ", true);
   };
-  async elWithText (name : string, node : CodeNode, wr : CodeWriter) : void  {
+  async elWithText (name : string, node : CodeNode, wr : CodeWriter) :  Promise<void>  {
     wr.out(("<" + name) + " ", true);
     wr.indent(1);
     let width : string  = "match_parent";
@@ -22263,7 +22496,7 @@ class viewbuilder_Android  {
     wr.out("/>", true);
     wr.indent(-1);
   };
-  async WalkNode (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WalkNode (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     switch (node.vref ) { 
       case "ScrollView" : 
         wr.out("<ScrollView ", true);
@@ -22277,7 +22510,7 @@ class viewbuilder_Android  {
         }));
         wr.out(">", true);
         wr.indent(1);
-        await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+        await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
           await this.WalkNode(item, ctx, wr);
         }));
         wr.indent(-1);
@@ -22302,7 +22535,7 @@ class viewbuilder_Android  {
         this._attr(wr, "weightSum", "100");
         wr.out(">", true);
         wr.indent(1);
-        await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+        await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
           await this.WalkNode(item, ctx, wr);
         }));
         wr.indent(-1);
@@ -22343,7 +22576,7 @@ class viewbuilder_Android  {
         break;
     };
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, orig_wr : CodeWriter) :  Promise<void>  {
     let viewName : string  = "";
     let b_scroll : boolean  = false;
     await operatorsOf.forEach_15(node.attrs, ((item : CodeNode, index : number):void => { 
@@ -22373,7 +22606,7 @@ class viewbuilder_Android  {
     }
     this._attr(wr, "id", "@+id/view_id_" + viewName);
     wr.out(">", true);
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       await this.WalkNode(item, ctx, wr);
     }));
     wr.indent(-1);
@@ -22386,7 +22619,7 @@ class viewbuilder_Web  {
   _attr (wr : CodeWriter, name : string, value : string) : void  {
     wr.out(((((" " + name) + "=") + "\"") + value) + "\" ", false);
   };
-  async tagAttrs (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async tagAttrs (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await operatorsOf.forEach_15(node.attrs, ((item : CodeNode, index : number):void => { 
       if ( item.vref == "id" ) {
         this._attr(wr, "x-id", item.string_value);
@@ -22398,7 +22631,7 @@ class viewbuilder_Web  {
       }
     }));
   };
-  async tagText (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async tagText (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     await operatorsOf.forEach_15(node.children, ((item : CodeNode, index : number):void => { 
       switch (item.value_type ) { 
         case 20 : 
@@ -22407,14 +22640,14 @@ class viewbuilder_Web  {
       };
     }));
   };
-  async tag (name : string, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async tag (name : string, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.out("<" + name, false);
     await this.tagAttrs(node, ctx, wr);
     wr.out(">", false);
     await this.tagText(node, ctx, wr);
     wr.out(("</" + name) + ">", true);
   };
-  async WalkNode (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async WalkNode (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     switch (node.vref ) { 
       case "LinearLayout" : 
         await this.tag("div", node, ctx, wr);
@@ -22436,7 +22669,7 @@ class viewbuilder_Web  {
         break;
     };
   };
-  async CreateViews (ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async CreateViews (ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     wr.out("<!DOCTYPE html>", true);
     wr.out("<html>", true);
     wr.indent(1);
@@ -22446,13 +22679,13 @@ class viewbuilder_Web  {
     wr.indent(-1);
     wr.out("</head>", true);
     wr.out("<body>", true);
-    await operatorsOf_13.forEach_25(ctx.viewClassBody, (async (item : CodeNode, index : string):void => { 
+    await operatorsOf_13.forEach_25(ctx.viewClassBody, (async (item : CodeNode, index : string): Promise<void> => { 
       await this.writeClass(item, ctx, wr);
     }));
     wr.out("</body>", true);
     wr.out("</html>", true);
   };
-  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  async writeClass (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>  {
     let viewName : string  = "";
     await operatorsOf.forEach_15(node.attrs, ((item : CodeNode, index : number):void => { 
       if ( item.vref == "name" ) {
@@ -22462,7 +22695,7 @@ class viewbuilder_Web  {
     wr.out("", true);
     wr.out(("<div id=\"" + viewName) + "\">", true);
     wr.indent(1);
-    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number):void => { 
+    await operatorsOf.forEach_15(node.children, (async (item : CodeNode, index : number): Promise<void> => { 
       await this.WalkNode(item, ctx, wr);
     }));
     wr.indent(-1);
@@ -22482,7 +22715,7 @@ class VirtualCompiler  {
   constructor() {
   }
   getEnvVar (name : string) : string  {
-    return operatorsOf_8.envc95var_53((this.envObj), name);
+    return operatorsOf_8.envc95var_54((this.envObj), name);
   };
   possiblePaths (envVarName : string) : Array<string>  {
     let res : Array<string>  = [];
@@ -22498,7 +22731,7 @@ class VirtualCompiler  {
         res.push(theDir);
       }
     };
-    res.push(operatorsOf_8.installc95directory_50((this.envObj)));
+    res.push(operatorsOf_8.installc95directory_51((this.envObj)));
     return res;
   };
   searchLib (paths : Array<string>, libname : string) : string  {
@@ -22519,7 +22752,7 @@ class VirtualCompiler  {
     };
     return s;
   };
-  async run (env : InputEnv) : CompilerResults  {
+  async run (env : InputEnv) :  Promise<CompilerResults>  {
     const res : CompilerResults  = new CompilerResults();
     this.envObj = env;
     const allowed_languages : Array<string>  = ["es6", "go", "scala", "java7", "swift3", "cpp", "php", "csharp"];
@@ -22536,8 +22769,8 @@ class VirtualCompiler  {
       the_file = "ng_Compiler.clj";
     } else {
       if ( (params.values.length) < 1 ) {
-        console.log("Ranger compiler, version " + "");
-        console.log("Installed at: " + operatorsOf_8.installc95directory_50(env));
+        console.log("Ranger compiler, version " + "2.1.67");
+        console.log("Installed at: " + operatorsOf_8.installc95directory_51(env));
         console.log("Usage: <file> <options> <flags>");
         console.log("Options: -<option>=<value> ");
         let optCnt : number  = 0;
@@ -22570,7 +22803,7 @@ class VirtualCompiler  {
     let root_file : string  = the_file;
     const the_lang_file : string  = "Lang.clj";
     let the_lang : string  = "es6";
-    let the_target_dir : string  = operatorsOf_8.currentc95directory_50(env) + "/bin";
+    let the_target_dir : string  = operatorsOf_8.currentc95directory_51(env) + "/bin";
     let the_target : string  = "output";
     let package_name : string  = "";
     let comp_attrs : {[key:string]:string}  = {};
@@ -22578,11 +22811,12 @@ class VirtualCompiler  {
     if ( (typeof(outDir) !== "undefined" && outDir != null )  ) {
       the_target = outDir;
     }
-    let langLibEnv : string  = operatorsOf_8.envc95var_53(env, "RANGER_LIB");
-    if ( false == ((langLibEnv.length) > 0) ) {
-      langLibEnv = "/;/lib/";
-    }
-    const theFilePaths : Array<string>  = this.possiblePaths(operatorsOf_8.envc95var_53(env, "RANGER_LIB"));
+    let langLibEnv : string  = operatorsOf_8.envc95var_54(env, "RANGER_LIB");
+    const idir : string  = __dirname;
+    langLibEnv = ((((require("path").normalize((idir + "/../compiler/"))) + ";") + (require("path").normalize((idir + "/../lib/")))) + ";") + langLibEnv;
+    env.setEnv("RANGER_LIB", langLibEnv);
+    console.log("ENV: " + operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
+    const theFilePaths : Array<string>  = this.possiblePaths(operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
     const theFilePath : string  = this.searchLib(theFilePaths, the_file);
     if ( operatorsOf_8.filec95exists_9(env, theFilePath, the_file) == false ) {
       console.log("Could not compile.");
@@ -22645,7 +22879,7 @@ class VirtualCompiler  {
                     the_target_dir = sc.string_value;
                     break;
                   case "relative_output_dir" : 
-                    the_target_dir = (operatorsOf_8.currentc95directory_50(env) + "/") + sc.string_value;
+                    the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + sc.string_value;
                     break;
                   case "package" : 
                     package_name = sc.string_value;
@@ -22686,7 +22920,7 @@ class VirtualCompiler  {
     comp_attrs["o"] = the_target;
     const outDir_3 : string  = params.getParam("d");
     if ( (typeof(outDir_3) !== "undefined" && outDir_3 != null )  ) {
-      the_target_dir = (operatorsOf_8.currentc95directory_50(env) + "/") + (outDir_3);
+      the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + (outDir_3);
     }
     comp_attrs["d"] = the_target_dir;
     const pLang : string  = params.getParam("l");
@@ -22703,7 +22937,7 @@ class VirtualCompiler  {
         console.log("include-path : " + include_path);
       };
     }
-    operatorsOf_13.forEach_54(params.flags, ((item : boolean, index : string):void => { 
+    operatorsOf_13.forEach_55(params.flags, ((item : boolean, index : string):void => { 
       const n : string  = index;
       appCtx.compilerFlags[n] = true;
     }));
@@ -22775,7 +23009,7 @@ class VirtualCompiler  {
     if ( appCtx.hasCompilerSetting("plugins") ) {
       const val : string  = appCtx.getCompilerSetting("plugins");
       const list : Array<string>  = val.split(",");
-      await operatorsOf.forEach_12(list, (async (item : string, index : number):void => { 
+      await operatorsOf.forEach_12(list, (async (item : string, index : number): Promise<void> => { 
         try {
           const plugin : Object  = require( item );
           const features : Array<string>  = (new plugin.Plugin () ).features();
@@ -22787,7 +23021,7 @@ class VirtualCompiler  {
           }
           const regPlug : RangerRegisteredPlugin  = new RangerRegisteredPlugin();
           regPlug.name = item;
-          regPlug.features = operatorsOf.clone_55(features);
+          regPlug.features = operatorsOf.clone_56(features);
           appCtx.addPlugin(regPlug);
         } catch(e) {
           console.log("Failed to register plugin " + item);
@@ -22843,7 +23077,7 @@ class VirtualCompiler  {
             const file_2 : CodeFile  = resFs.getFile(".", "README.txt");
             const wr_2 : CodeWriter  = file_2.getWriter();
             const builder : viewbuilder_Android  = new viewbuilder_Android();
-            await operatorsOf_13.forEach_25(appCtx.viewClassBody, (async (item : CodeNode, index : string):void => { 
+            await operatorsOf_13.forEach_25(appCtx.viewClassBody, (async (item : CodeNode, index : string): Promise<void> => { 
               await builder.writeClass(item, appCtx, wr_2);
             }));
             resFs.saveTo(resDir, appCtx.hasCompilerFlag("show-writes"));
@@ -22978,8 +23212,13 @@ class VirtualCompiler  {
         switch (appCtx.targetLangName ) { 
           case "es6" : 
             const parts : Array<string>  = codeStr.split(".");
+            const p0 : string  = parts[0];
             if ( (parts.length) > 1 ) {
-              importFork.out(((("import  { " + (parts[1])) + " } from  '") + (parts[0])) + "';", true);
+              const p1 : string  = parts[1];
+              importFork.out(((((("const " + p1) + " = require('") + p0) + "').") + p1) + ";", true);
+            }
+            if ( (parts.length) == 1 ) {
+              importFork.out(((("const " + p0) + " = require('") + p0) + "');", true);
             }
             break;
           case "go" : 
@@ -23019,6 +23258,14 @@ class VirtualCompiler  {
         await gen_1.createOperatorDoc(root, appCtx, wr);
       }
       VirtualCompiler.displayCompilerErrors(appCtx);
+      const ppList_1 : Array<string>  = appCtx.findPluginsFor("postprocess");
+      await operatorsOf.forEach_12(ppList_1, ((item : string, index : number):void => { 
+        try {
+          const plugin_2 : Object  = require( item );
+          ( (new plugin_2.Plugin () )["postprocess"] )( root, appCtx , wr );
+        } catch(e) {
+        }
+      }));
       res.target_dir = the_target_dir;
       res.fileSystem = fileSystem;
       res.ctx = appCtx;
@@ -23038,7 +23285,7 @@ class VirtualCompiler  {
     }
     return res;
   };
-  static create_env () : void  {
+  static async create_env () :  Promise<void>   {
     const env : InputEnv  = new InputEnv();
     env.filesystem = new InputFSFolder();
     env.commandLine = new CmdParams();
@@ -23054,24 +23301,6 @@ class VirtualCompiler  {
     operatorsOf_3.createc95file_4(env.filesystem, "JSON.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
     operatorsOf_3.createc95file_4(env.filesystem, "hello_world.clj", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
     require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
-  };
-  static test_compilation () : void  {
-    try {
-      console.log("Virtual compiler compiled OK...");
-      const env : InputEnv  = await InputEnv.fromDictionary((window._Ranger_compiler_environment_));
-      env.commandLine.params["l"] = "es6";
-      env.commandLine.values.push("hello_world.clj");
-      const virtualComp : VirtualCompiler  = new VirtualCompiler();
-      const res : CompilerResults  = await virtualComp.run(env);
-      console.log("Results of the compile:");
-      if ( (typeof(res.fileSystem) !== "undefined" && res.fileSystem != null )  ) {
-        operatorsOf.forEach_56(res.fileSystem.files, ((item : CodeFile, index : number):void => { 
-          console.log("FILE " + item.name);
-          console.log(item.getCode());
-        }));
-      }
-    } catch(e) {
-    }
   };
   static displayCompilerErrors (appCtx : RangerAppWriterContext) : void  {
     const cons : ColorConsole  = new ColorConsole();
@@ -23151,19 +23380,19 @@ class operatorsOf  {
       cb(it_4, i_5);
     };
   };
-  static forEach_12 (__self : Array<string>, cb : (item:string, index:number) => void) : void  {
+  static async forEach_12 (__self : Array<string>, cb : (item:string, index:number) => void) :  Promise<void>   {
     for ( let i_6 = 0; i_6 < __self.length; i_6++) {
       var it_5 = __self[i_6];
       await cb(it_5, i_6);
     };
   };
-  static forEach_15 (__self : Array<CodeNode>, cb : (item:CodeNode, index:number) => void) : void  {
+  static async forEach_15 (__self : Array<CodeNode>, cb : (item:CodeNode, index:number) => void) :  Promise<void>   {
     for ( let i_8 = 0; i_8 < __self.length; i_8++) {
       var it_6 = __self[i_8];
       await cb(it_6, i_8);
     };
   };
-  static forEach_17 (__self : Array<RangerAppOperatorDesc>, cb : (item:RangerAppOperatorDesc, index:number) => void) : void  {
+  static async forEach_17 (__self : Array<RangerAppOperatorDesc>, cb : (item:RangerAppOperatorDesc, index:number) => void) :  Promise<void>   {
     for ( let i_10 = 0; i_10 < __self.length; i_10++) {
       var it_7 = __self[i_10];
       await cb(it_7, i_10);
@@ -23177,7 +23406,7 @@ class operatorsOf  {
     };
     return res_5;
   };
-  static forEach_29 (__self : Array<RangerAppFunctionDesc>, cb : (item:RangerAppFunctionDesc, index:number) => void) : void  {
+  static async forEach_29 (__self : Array<RangerAppFunctionDesc>, cb : (item:RangerAppFunctionDesc, index:number) => void) :  Promise<void>   {
     for ( let i_15 = 0; i_15 < __self.length; i_15++) {
       var it_9 = __self[i_15];
       await cb(it_9, i_15);
@@ -23250,8 +23479,8 @@ class operatorsOf  {
     };
     return res_11;
   };
-  static filter_51 (__self : Array<RangerAppOperatorDesc>, cb : (item:RangerAppOperatorDesc, index:number) => boolean) : Array<RangerAppOperatorDesc>  {
-    let res_12 : Array<RangerAppOperatorDesc>  = [];
+  static filter_50 (__self : Array<RangerAppParamDesc>, cb : (item:RangerAppParamDesc, index:number) => boolean) : Array<RangerAppParamDesc>  {
+    let res_12 : Array<RangerAppParamDesc>  = [];
     for ( let i_27 = 0; i_27 < __self.length; i_27++) {
       var it_18 = __self[i_27];
       if ( cb(it_18, i_27) ) {
@@ -23260,32 +23489,36 @@ class operatorsOf  {
     };
     return res_12;
   };
-  static groupBy_52 (__self : Array<RangerAppOperatorDesc>, cb : (item:RangerAppOperatorDesc) => string) : Array<RangerAppOperatorDesc>  {
+  static filter_52 (__self : Array<RangerAppOperatorDesc>, cb : (item:RangerAppOperatorDesc, index:number) => boolean) : Array<RangerAppOperatorDesc>  {
     let res_13 : Array<RangerAppOperatorDesc>  = [];
-    let mapper : {[key:string]:boolean}  = {};
     for ( let i_28 = 0; i_28 < __self.length; i_28++) {
       var it_19 = __self[i_28];
-      const key : string  = cb(it_19);
-      if ( false == (( typeof(mapper[key] ) != "undefined" && mapper.hasOwnProperty(key) )) ) {
+      if ( cb(it_19, i_28) ) {
         res_13.push(it_19);
-        mapper[key] = true;
       }
     };
     return res_13;
   };
-  static clone_55 (__self : Array<string>) : Array<string>  {
-    let res_14 : Array<string>  = [];
-    for ( let i_30 = 0; i_30 < __self.length; i_30++) {
-      var it_20 = __self[i_30];
-      res_14.push(it_20);
+  static groupBy_53 (__self : Array<RangerAppOperatorDesc>, cb : (item:RangerAppOperatorDesc) => string) : Array<RangerAppOperatorDesc>  {
+    let res_14 : Array<RangerAppOperatorDesc>  = [];
+    let mapper : {[key:string]:boolean}  = {};
+    for ( let i_29 = 0; i_29 < __self.length; i_29++) {
+      var it_20 = __self[i_29];
+      const key : string  = cb(it_20);
+      if ( false == (( typeof(mapper[key] ) != "undefined" && mapper.hasOwnProperty(key) )) ) {
+        res_14.push(it_20);
+        mapper[key] = true;
+      }
     };
     return res_14;
   };
-  static forEach_56 (__self : Array<CodeFile>, cb : (item:CodeFile, index:number) => void) : void  {
+  static clone_56 (__self : Array<string>) : Array<string>  {
+    let res_15 : Array<string>  = [];
     for ( let i_31 = 0; i_31 < __self.length; i_31++) {
       var it_21 = __self[i_31];
-      cb(it_21, i_31);
+      res_15.push(it_21);
     };
+    return res_15;
   };
 }
 class operatorsOfInputFSFolder_3  {
@@ -23353,7 +23586,7 @@ class operatorsOf_3  {
 class operatorsOfInputEnv_8  {
   constructor() {
   }
-  static readc95file_9 (env : InputEnv, path : string, name : string) : string  {
+  static async readc95file_9 (env : InputEnv, path : string, name : string) :  Promise<string>   {
     if ( env.use_real ) {
       return await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
     }
@@ -23406,7 +23639,7 @@ class operatorsOf_8  {
     }
     return res_4;
   };
-  static readc95file_9 (env : InputEnv, path : string, name : string) : string  {
+  static async readc95file_9 (env : InputEnv, path : string, name : string) :  Promise<string>   {
     if ( env.use_real ) {
       return await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
     }
@@ -23424,14 +23657,17 @@ class operatorsOf_8  {
     const fo : InputFSFile  = operatorsOf_8.findc95file_9(env, path, name);
     return (typeof(fo) !== "undefined" && fo != null ) ;
   };
-  static installc95directory_50 (env : InputEnv) : string  {
+  static installc95directory_51 (env : InputEnv) : string  {
     if ( env.use_real ) {
       return __dirname;
     }
     return "/";
   };
-  static envc95var_53 (env : InputEnv, name : string) : string  {
+  static envc95var_54 (env : InputEnv, name : string) : string  {
     if ( env.use_real ) {
+      if ( ( typeof(env.envVars[name] ) != "undefined" && env.envVars.hasOwnProperty(name) ) ) {
+        return (env.envVars[name]);
+      }
       const ev : string  = process.env[name];
       if ( (typeof(ev) !== "undefined" && ev != null )  ) {
         return ev;
@@ -23440,7 +23676,7 @@ class operatorsOf_8  {
     }
     return ((typeof((env.envVars[name])) !== "undefined" && (env.envVars[name]) != null ) ) ? ((env.envVars[name])) : "";
   };
-  static currentc95directory_50 (env : InputEnv) : string  {
+  static currentc95directory_51 (env : InputEnv) : string  {
     if ( env.use_real ) {
       return process.cwd();
     }
@@ -23450,7 +23686,7 @@ class operatorsOf_8  {
 class operatorsOf_13  {
   constructor() {
   }
-  static forEach_14 (__self : {[key:string]:RangerAppClassDesc}, cb : (item:RangerAppClassDesc, index:string) => void) : void  {
+  static async forEach_14 (__self : {[key:string]:RangerAppClassDesc}, cb : (item:RangerAppClassDesc, index:string) => void) :  Promise<void>   {
     const list : Array<string>  = Object.keys(__self);
     for ( let i_7 = 0; i_7 < list.length; i_7++) {
       var kk = list[i_7];
@@ -23458,7 +23694,7 @@ class operatorsOf_13  {
       await cb(value, kk);
     };
   };
-  static forEach_16 (__self : {[key:string]:RangerOperatorList}, cb : (item:RangerOperatorList, index:string) => void) : void  {
+  static async forEach_16 (__self : {[key:string]:RangerOperatorList}, cb : (item:RangerOperatorList, index:string) => void) :  Promise<void>   {
     const list_1 : Array<string>  = Object.keys(__self);
     for ( let i_9 = 0; i_9 < list_1.length; i_9++) {
       var kk_1 = list_1[i_9];
@@ -23466,7 +23702,7 @@ class operatorsOf_13  {
       await cb(value_1, kk_1);
     };
   };
-  static forEach_19 (__self : {[key:string]:OpList}, cb : (item:OpList, index:string) => void) : void  {
+  static async forEach_19 (__self : {[key:string]:OpList}, cb : (item:OpList, index:string) => void) :  Promise<void>   {
     const list_2 : Array<string>  = Object.keys(__self);
     for ( let i_12 = 0; i_12 < list_2.length; i_12++) {
       var kk_2 = list_2[i_12];
@@ -23474,7 +23710,7 @@ class operatorsOf_13  {
       await cb(value_2, kk_2);
     };
   };
-  static forEach_20 (__self : {[key:string]:RangerAppParamDesc}, cb : (item:RangerAppParamDesc, index:string) => void) : void  {
+  static async forEach_20 (__self : {[key:string]:RangerAppParamDesc}, cb : (item:RangerAppParamDesc, index:string) => void) :  Promise<void>   {
     const list_3 : Array<string>  = Object.keys(__self);
     for ( let i_13 = 0; i_13 < list_3.length; i_13++) {
       var kk_3 = list_3[i_13];
@@ -23482,7 +23718,7 @@ class operatorsOf_13  {
       await cb(value_3, kk_3);
     };
   };
-  static forEach_25 (__self : {[key:string]:CodeNode}, cb : (item:CodeNode, index:string) => void) : void  {
+  static async forEach_25 (__self : {[key:string]:CodeNode}, cb : (item:CodeNode, index:string) => void) :  Promise<void>   {
     const list_4 : Array<string>  = Object.keys(__self);
     for ( let i_14 = 0; i_14 < list_4.length; i_14++) {
       var kk_4 = list_4[i_14];
@@ -23490,7 +23726,7 @@ class operatorsOf_13  {
       await cb(value_4, kk_4);
     };
   };
-  static forEach_30 (__self : {[key:string]:RangerAppMethodVariants}, cb : (item:RangerAppMethodVariants, index:string) => void) : void  {
+  static async forEach_30 (__self : {[key:string]:RangerAppMethodVariants}, cb : (item:RangerAppMethodVariants, index:string) => void) :  Promise<void>   {
     const list_5 : Array<string>  = Object.keys(__self);
     for ( let i_16 = 0; i_16 < list_5.length; i_16++) {
       var kk_5 = list_5[i_16];
@@ -23506,10 +23742,10 @@ class operatorsOf_13  {
       cb(value_6, kk_6);
     };
   };
-  static forEach_54 (__self : {[key:string]:boolean}, cb : (item:boolean, index:string) => void) : void  {
+  static forEach_55 (__self : {[key:string]:boolean}, cb : (item:boolean, index:string) => void) : void  {
     const list_7 : Array<string>  = Object.keys(__self);
-    for ( let i_29 = 0; i_29 < list_7.length; i_29++) {
-      var kk_7 = list_7[i_29];
+    for ( let i_30 = 0; i_30 < list_7.length; i_30++) {
+      var kk_7 = list_7[i_30];
       const value_7 : boolean  = (__self[kk_7]);
       cb(value_7, kk_7);
     };
@@ -23601,7 +23837,7 @@ class operatorsOfchar_23  {
 class operatorsOfRangerFlowParser_26  {
   constructor() {
   }
-  static EnterVarDef_27 (__self : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  static async EnterVarDef_27 (__self : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>   {
     if ( ctx.isInMethod() ) {
       if ( (node.children.length) < 2 ) {
         ctx.addError(node, "invalid variable definition");
@@ -23802,7 +24038,7 @@ class operatorsOfRangerFlowParser_26  {
 class operatorsOf_26  {
   constructor() {
   }
-  static EnterVarDef_27 (__self : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : void  {
+  static async EnterVarDef_27 (__self : RangerFlowParser, node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<void>   {
     if ( ctx.isInMethod() ) {
       if ( (node.children.length) < 2 ) {
         ctx.addError(node, "invalid variable definition");
@@ -24077,7 +24313,7 @@ class operatorsOfCodeNode_41  {
 class operatorsOf_41  {
   constructor() {
   }
-  static rc46func_43 (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) : RangerAppFunctionDesc  {
+  static async rc46func_43 (node : CodeNode, ctx : RangerAppWriterContext, wr : CodeWriter) :  Promise<RangerAppFunctionDesc>   {
     const parser : RangerFlowParser  = new RangerFlowParser();
     return await parser.CreateFunctionObject(node, ctx, wr);
   };
@@ -24085,7 +24321,7 @@ class operatorsOf_41  {
 class operatorsOfJSONArrayObject_57  {
   constructor() {
   }
-  static forEach_58 (__self : JSONArrayObject2, cb : (item:Object, index:number) => void) : void  {
+  static forEach_58 (__self : Array<any>, cb : (item:Object, index:number) => void) : void  {
     let cnt : number  = __self.length;
     let i_32 : number  = 0;
     while (cnt > 0) {
@@ -24099,7 +24335,7 @@ class operatorsOfJSONArrayObject_57  {
 class operatorsOf_57  {
   constructor() {
   }
-  static forEach_58 (__self : JSONArrayObject2, cb : (item:Object, index:number) => void) : void  {
+  static async forEach_58 (__self : Array<any>, cb : (item:Object, index:number) => void) :  Promise<void>   {
     let cnt_1 : number  = __self.length;
     let i_33 : number  = 0;
     while (cnt_1 > 0) {

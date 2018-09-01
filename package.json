@@ -12,6 +12,7 @@
   },
   "scripts": {
     "compile": "ranger-compiler -es6 ./compiler/ng_Compiler.clj -nodecli",
+    "compilets": "ranger-compiler -es6 -typescript ./compiler/ng_Compiler.clj -nodecli && tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -26,5 +27,8 @@
   "bugs": {
     "url": "https://github.com/terotests/Ranger/issues"
   },
-  "homepage": "https://github.com/terotests/Ranger#readme"
+  "homepage": "https://github.com/terotests/Ranger#readme",
+  "dependencies": {
+    "@types/node": "^10.9.4"
+  }
 }

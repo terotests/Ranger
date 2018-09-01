@@ -15,7 +15,7 @@ systemclass JSONDataObject {
 }
 
 systemclass JSONArrayObject {
-    es6 JSONArrayObject2
+    es6 "Array<any>"
     java7 JSONArray ( (imp "org.json.JSONArray") )
     go "[]interface{}"
     swift3 '[Any]'

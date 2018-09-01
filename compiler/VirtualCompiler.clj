@@ -76,28 +76,7 @@ class tester {
      ; print "--> creating the virtual env"
      ; VirtualCompiler.create_env()
   }
-
-  static fn test_compilation () {
-    try {
-      print "Virtual compiler compiled OK..."
-      def env (InputEnv.fromDictionary( (get_compiler_data) ) )
-      set env.commandLine.params 'l' 'es6'
-      push env.commandLine.values 'hello_world.clj'
-      def virtualComp (new VirtualCompiler)
-      def res (virtualComp.run(env))
-      print "Results of the compile:"
-      if(!null? res.fileSystem) {
-        res.fileSystem.files.forEach({
-          print "FILE " + item.name
-          print (item.getCode())
-        })
-      }
-    } {
-
-    }
-
-  }
-
+  
   fn getEnvVar:string (name:string) {
       return (env_var (unwrap envObj) name)
   } 

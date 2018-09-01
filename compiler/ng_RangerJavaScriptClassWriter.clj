@@ -299,6 +299,7 @@ class RangerJavaScriptClassWriter {
           if(cc.is_system) {
             def current_sys (ctx)
             def sName (unwrap (get cc.systemNames "es6"))
+            print " typedef for system class " + sName
             wr.out(sName false)
             return         
           }
@@ -309,6 +310,7 @@ class RangerJavaScriptClassWriter {
             return
           }          
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
+          print " typedef for class " + cc.name
           wr.out(cc.name false)
           return
         }
@@ -579,7 +581,13 @@ class RangerJavaScriptClassWriter {
     wr.out(')' false)
     if(target_typescript) {
       wr.out(":" false)
-      this.writeTypeDef( fName ctx wr)      
+      if( fName.hasFlag('async') ) {
+        wr.out(' Promise<' false)
+      }      
+      this.writeTypeDef( fName ctx wr)
+      if( fName.hasFlag('async') ) {
+        wr.out('>' false)
+      }       
     }
     wr.out(' => { ' true)
     wr.indent(1)
@@ -757,7 +765,14 @@ class RangerJavaScriptClassWriter {
         
         if target_typescript {
           wr.out(" : " false)
+
+          if( variant.nameNode.hasFlag('async') ) {
+            wr.out(' Promise<' false)
+          }          
           this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
+          if( variant.nameNode.hasFlag('async') ) {
+            wr.out('>' false)
+          }             
           wr.out(" " false)        
         }
 
@@ -783,12 +798,26 @@ class RangerJavaScriptClassWriter {
         if (variant.nameNode.hasFlag("main")) {
           continue _
         } 
+
+     
         wr.out("static " false)
+        if( variant.nameNode.hasFlag('async') ) {
+          wr.out('async ' false)
+        }   
         wr.out((("" + variant.compiledName) + " (") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(")" false)        
         wr.out(" : " false)
+
+        if( variant.nameNode.hasFlag('async') ) {
+          wr.out(' Promise<' false)
+        }                
         this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
+        if( variant.nameNode.hasFlag('async') ) {
+          wr.out('> ' false)
+        }        
+
+
         wr.out(" " false)        
         wr.out(" {" true)
         wr.indent(1)
