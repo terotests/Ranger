@@ -160,10 +160,11 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     if( has installedFile filename ) {
       return
     }
+    def env (unwrap (ctx.getEnv()))
     set installedFile filename true
-    def fName ( (install_directory ) + "/" + filename) )
-    if( (file_exists ( (install_directory ) + "/") filename ) ) {
-      def fileData (read_file  ( (install_directory ) + "/") filename)
+    def fName ( (install_directory env) + "/" + filename) )
+    if( (file_exists env ( (install_directory env ) + "/") filename ) ) {
+      def fileData (read_file  ( (install_directory env ) + "/") filename)
       if(!null? fileData) {
         def file_wr:CodeWriter ( wr.getFileWriter("." (filename)))
         file_wr.raw( (unwrap fileData) false )
@@ -171,7 +172,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         print "did not get contents of " + (filename)      
       }
     } {
-      print "did not find installed file " + (install_directory) + (filename)
+      print "did not find installed file " + (install_directory env) + (filename)
     } 
   }
   fn findOpCode:void (op:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -348,7 +349,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     if(node.disabled_node) {
       return
     }
-
     def ctx (in_ctx)
 
     if(!null? node.evalCtx) {
@@ -370,9 +370,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           } {
             print "Could not find compiled name for " + node.register_name + " at " + (node.getCode())
           }
-        } {
-            print "zero level reg " + node.register_name        
-        }
+        } 
         return
       }
 
@@ -381,6 +379,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def rootItem node
       if( has node.register_expressions) {
         node.register_expressions.forEach({
+          ; print (item.getCode())
           push liveNodes item
         })
       }
@@ -388,8 +387,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         if( item.register_set == false ) {
           item.register_set = true
           this.WalkNode(item ctx wr)
-        }
+        } 
       })                  
+      clear liveNodes
     ; }
     
     
@@ -494,7 +494,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               }
               if( has item.register_expressions) {
                 item.register_expressions.forEach({
-                  insert liveNodes 0 item
+                  ; insert liveNodes 0 item
                 })
               }
               return true

@@ -6,6 +6,7 @@ class TypeCounts {
   def operator_cnt 0
   def immutable_cnt 0
   def register_cnt 0
+  def opfn_cnt 0
 }
 
 class RangerNodeValue {
@@ -41,6 +42,82 @@ class RangerOperatorList {
 }
 class RangerNodeList {
   def items:[CodeNode]
+}
+
+; - []
+class ContextTransaction {
+  def name ''
+  def desc ''
+  def ended false
+  def failed false
+  def ctx@(weak):RangerAppWriterContext
+  def mutations@(weak):[ContextTransactionMutation]
+  def parent@(weak):ContextTransaction
+  def children@(weak):[ContextTransaction]
+}
+
+class ContextTransactionMutation {
+  def sourceNode@(weak):CodeNode
+  def targetNode@(weak):CodeNode
+  def addedNode@(weak):CodeNode
+}
+
+operator type:void all {
+
+  fn getActiveTransaction@(optional):ContextTransaction (c:RangerAppWriterContext) {
+    def rValue:ContextTransaction
+    if(has c.activeTransaction) {
+      rValue = (last c.activeTransaction)
+    } {
+      if(!null? c.parent) {
+        return (getActiveTransaction (unwrap c.parent))
+      }
+    }
+    return rValue
+  }
+
+  fn transaction_depth:int (name:string c:RangerAppWriterContext) {
+    def t@(weak) (getActiveTransaction c)
+    def d 0
+    while(!null? t) {
+      if( t.name == name ) {
+        d = d + 1
+      }
+      t = t.parent
+    }
+    return d
+  }
+  
+  fn start_transaction@(weak):ContextTransaction (name:string desc:string c:RangerAppWriterContext) {
+    def t (new ContextTransaction)
+    t.name = name
+    t.desc = desc
+    t.ctx = c
+    def currC@(lives) (getActiveTransaction c)
+    push c.activeTransaction t
+    push c.transactions t
+    if(!null? currC) {
+      push currC.children t
+      t.parent = currC
+    }
+    return t
+  }
+  fn end_transaction (t:ContextTransaction) {
+    def c (unwrap t.ctx)
+    def i (indexOf c.activeTransaction t)
+    if( i >= 0) {
+      remove c.activeTransaction i
+    }
+    t.ended = true
+  }
+  fn mutation (c:ContextTransaction s:CodeNode t:CodeNode a:CodeNode ) {
+    def m (new ContextTransactionMutation)
+    m.sourceNode = s
+    m.targetNode = t
+    m.addedNode = a
+    push c.mutations m
+    return m 
+  }
 }
 
 class RangerRegisteredPlugin {
@@ -139,6 +216,34 @@ class RangerAppWriterContext {
   def lastBlockOp@(weak):CodeNode
 
   def opFnsList@(weak):[string:CodeNode]
+  def test_compile:[boolean]
+
+  def activeTransaction:[ContextTransaction]
+  def transactions@(weak):[ContextTransaction]
+
+  def env@(weak):InputEnv
+
+  fn getEnv@(optional weak):InputEnv () {
+    def root (this.getRoot())
+    return root.env
+  }
+
+  fn setTestCompile () {
+    push test_compile true
+  }
+  fn unsetTestCompile () {
+    removeLast test_compile
+  }
+
+  fn isTestCompile:boolean () {
+    if (has test_compile)  {
+      return true
+    }
+    if(!null? parent) {
+      return (parent.isTestCompile())
+    }
+    return false
+  }
 
   fn addOpFn (name:string code@(strong):CodeNode) {
     if(! (has opFnsList name)) {
@@ -168,6 +273,11 @@ class RangerAppWriterContext {
   }
 
   fn getLastBlockOp@(optional weak):CodeNode () {
+    if( this.isTestCompile()) {
+      def cn:CodeNode
+      cn = (r.expression)
+      return cn
+    }
     if(!null? lastBlockOp) {
       return lastBlockOp
     }
@@ -377,6 +487,11 @@ class RangerAppWriterContext {
     root.counters.register_cnt = root.counters.register_cnt + 1
     return ( '__REGx' + root.counters.register_cnt )
   }
+  fn createNewOpFnName:string () {
+    def root (this.findFunctionCtx())
+    root.counters.opfn_cnt = root.counters.opfn_cnt + 1
+    return ( '__tmpOpFn' + root.counters.opfn_cnt )
+  }
   
   fn isTryBlock:boolean () {
     if expr_restart {
@@ -508,6 +623,23 @@ class RangerAppWriterContext {
     }
     return false
   }
+
+  fn variableTypeUsage:[string] () {
+    def res:[string:boolean]
+    def cc@(optional weak) this
+    while(!null? cc) {
+      cc.localVariables.forEach({
+        if(!null? item.nameNode) {
+          set res item.nameNode.type_name true
+          set res item.nameNode.key_type true
+          set res item.nameNode.array_type true
+        }
+      })
+      cc = (cc.parent)
+    }
+    return (keys res)
+  }
+  
 
   fn writeContextVars( wr:CodeWriter ) {
     localVariables.forEach({
@@ -912,6 +1044,9 @@ class RangerAppWriterContext {
       if(arg.hasFlag("noeval")) {
         continue
       }
+      ; if(arg.hasFlag("keyword")) {
+      ;  continue
+      ; }
 
       def p@(lives temp):RangerAppParamDesc (new RangerAppParamDesc ())
       p.name = arg.vref
@@ -1175,6 +1310,10 @@ class RangerAppWriterContext {
     e.node = node
     def root:RangerAppWriterContext (this.getRoot())
     push root.compilerMessages e
+  }
+  fn errCnt:int() {
+    def root:RangerAppWriterContext (this.getRoot())
+    return (size root.compilerErrors)
   }
   fn addError:void (targetnode@(weak lives):CodeNode descr:string) {
     def e:RangerCompilerMessage (new RangerCompilerMessage ())

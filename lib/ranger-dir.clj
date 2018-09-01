@@ -12,11 +12,6 @@ systemclass SystemUnixDate {
 }
 
 operators {
-    indexOf cmdStringIndex:int (str:string key:string) {
-        templates {
-            es6 ( (e 1) ".indexOf(" (e 2 ) ")" )
-        }        
-    }
     watch_has_file cmdFiles:boolean () {
         templates {
             es6  ( " typeof(_fileName) != 'undefined' " )
@@ -28,6 +23,13 @@ operators {
         templates {
             es6 ( "(new Date(" (e 1) "))" )
         }     
+    }
+
+    remove_file _:void (path:string name:string) {
+        templates {
+            ranger ('(remove_file ' (e 1)' ' (e 2) ' )')
+            es6 ('(require("fs")).unlinkSync(' (e 1) ' + "/" + ' (e 2) ')')
+        }
     }
 
     utc_to_string _:string ( sd:int ) {
@@ -75,6 +77,26 @@ operators {
     ; Path.GetFileName  
     list_dir_files cmdFiles:[string] (path:string) {
         templates {
+            ranger ( '(list_dir_files (' (e 1) '))')
+            go ( 'r_io_list_directory(' (e 1) ')'
+
+(create_polyfill `
+
+func r_io_list_directory( path string ) []string {
+    res := make([]string, 0)
+    files, err := ioutil.ReadDir("./")
+    if err != nil {
+        return res
+    }
+    for _, f := range files {
+        res = append(res, f.Name())
+    }
+    return res
+}
+
+`)
+
+            )
             csharp ("DirListReader.getFiles(" (e 1) ")"
 
 (create_polyfill 

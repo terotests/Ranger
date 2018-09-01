@@ -76,10 +76,12 @@ extension CodeNode {
   def chainTarget:CodeNode
 
   def register_set false
+  def did_walk false
   def reg_compiled_name ""
 
   ; tag for debugging the nodes if necessary...
   def tag ""
+  def matched_type ""
 
   fn isParsedAsPrimitive:boolean () {
     return (TTypes.isPrimitive(parsed_type))
@@ -428,6 +430,7 @@ extension CodeNode {
         push newNode.ns n
       }
     }
+    newNode.string_value = string_value
     switch value_type {
       case RangerNodeType.Double {
         newNode.double_value = double_value
@@ -458,15 +461,28 @@ extension CodeNode {
       newCh.parent = newNode
       push newNode.children newCh
     }
+    for attrs ch:CodeNode i {
+      def newCh:CodeNode (ch.rebuildWithType(match changeVref))
+      push newNode.attrs newCh
+    }
     return newNode
   }
   
   
   fn rebuildWithType:CodeNode (match:RangerArgMatch changeVref:boolean) {
+
     def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
     if( has match.nodes vref) {
       def ast (unwrap (get match.nodes vref))
-      return (ast.rebuildWithType(match true))
+      ; can not rebuild using the same node :/
+      if( ast == this) {
+        def tmp@(temp) this
+        return tmp
+      }
+      ; print "--> changin " + vref + " to " + (this.getCode()) + " from " + (ast.getCode())
+      def newNode@(tmp lives) (ast.rebuildWithType(match true))
+      set match.builtNodes vref newNode
+      return newNode
     }
     newNode.has_operator = has_operator
     newNode.op_index = op_index
@@ -475,6 +491,7 @@ extension CodeNode {
     newNode.register_name = register_name
     newNode.reg_compiled_name = reg_compiled_name
     newNode.operator_node = operator_node
+    newNode.matched_type = matched_type
     if changeVref {
       newNode.vref = (match.getTypeName(vref))
     } {
@@ -506,6 +523,7 @@ extension CodeNode {
         push newNode.ns n
       }
     }
+    newNode.string_value = string_value
     switch value_type {
       case RangerNodeType.Double {
         newNode.double_value = double_value
@@ -535,6 +553,10 @@ extension CodeNode {
       def newCh:CodeNode (ch.rebuildWithType(match changeVref))
       newCh.parent = newNode
       push newNode.children newCh
+    }
+    for attrs ch:CodeNode i {
+      def newCh:CodeNode (ch.rebuildWithType(match changeVref))
+      push newNode.attrs newCh
     }
     return newNode
   }
@@ -577,6 +599,9 @@ extension CodeNode {
   }
 
   fn buildTypeSignature:string () {   
+    if(this.hasFlag('keyword')) {
+      return (this.vref + "::keyword")
+    }
     if( TTypes.isPrimitive( value_type ) ) {
       return (TTypes.valueAsString(value_type))
     }
@@ -689,14 +714,12 @@ extension CodeNode {
       }      
     }
 
+    eval_key_type = node.eval_key_type
+    eval_array_type = node.eval_array_type
     if (node.value_type == RangerNodeType.Hash) {
-      eval_key_type = node.eval_key_type
-      eval_array_type = node.eval_array_type
       eval_type = RangerNodeType.Hash
     }
     if (node.value_type == RangerNodeType.Array) {
-      eval_key_type = node.eval_key_type
-      eval_array_type = node.eval_array_type
       eval_type = RangerNodeType.Array
     }
     if( node.value_type == RangerNodeType.ExpressionType ) {

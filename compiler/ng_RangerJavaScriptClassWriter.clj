@@ -72,10 +72,15 @@ class RangerJavaScriptClassWriter {
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
       ctx.setInExpr();
+      def cnt 0
       for node.fnDesc.params arg:RangerAppParamDesc i {
-        if (i > 0) {
-          wr.out(", " false)
+        if( arg.nameNode.hasFlag('keyword')) {
+          continue
         }
+        if (cnt > 0) {
+          wr.out(', ' false)
+        }
+        cnt = cnt + 1
         if( (array_length givenArgs.children) <= i) {
           def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
           if (!null? defVal) {
@@ -599,13 +604,21 @@ class RangerJavaScriptClassWriter {
   }
   
   fn writeArgsDef:void (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
-    for fnDesc.params arg:RangerAppParamDesc i {
-      if (i > 0) {
-        wr.out(", " false)
+    def cnt 0
+    def pms (filter (fnDesc.params) {
+      if( item.nameNode.hasFlag('keyword')) {
+        return false
       }
+      return true
+    })
+    for pms arg:RangerAppParamDesc i {
+      if (cnt > 0) {
+        wr.out(', ' false)
+      }
+      cnt = cnt + 1
       wr.out( arg.compiledName false)
       if target_typescript {
-        wr.out(" : " false)
+        wr.out(' : ' false)
         this.writeTypeDef( (unwrap arg.nameNode) ctx wr)      
       }
     }

@@ -6,6 +6,7 @@ class RangerArgMatch {
   def _debug false
   def matched:[string:string]
   def nodes@(weak):[string:CodeNode]
+  def builtNodes@(weak):[string:CodeNode]
   def matchedLambdas@(weak):[string:CodeNode]
 
   fn matchArguments:boolean (args:CodeNode callArgs:CodeNode ctx:RangerAppWriterContext firstArgIndex:int) {

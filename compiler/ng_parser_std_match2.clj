@@ -122,6 +122,12 @@ extension RangerFlowParser {
     def in_chain false
     def call_arg_cnt (size callArgs.children)
     def op_list (ctx.getOperators(callFnName.vref))
+
+    ; here the op_list is the available operator list
+    ; TODO:
+    ;  - you could sort it so that the most relevant operator is checked first
+    ;  - do not evalute keyword values unless necessary
+
     for op_list ch@(lives):CodeNode main_index {
 
       def fc:CodeNode (ch.getFirst())
@@ -181,11 +187,9 @@ extension RangerFlowParser {
           }
         }
         def codeDef (langOper.getSecond())        
-;          if(codeDef.is_block_node) {
-;            args = (args.rebuildWithType( (new RangerArgMatch) false ))
-;          }
         def match:RangerArgMatch (new RangerArgMatch ())
         def last_walked:int 0
+
         def last_was_block false
         def walk_later:[WalkLater]
         def not_enough_args false
@@ -203,6 +207,7 @@ extension RangerFlowParser {
         }
         ctx.setInExpr()
         for args.children arg@(lives):CodeNode i {
+          
           if( i < arg_eval_start) {
             continue
           }
@@ -236,6 +241,10 @@ extension RangerFlowParser {
             continue _
           }
           if (arg.hasFlag("keyword")) {
+            ; print "keywords " + callArg.vref + " arg " + arg.vref
+            if( callArg.vref != arg.vref) {
+              not_enough_args = true
+            }
             continue _
           }
           if (arg.hasFlag("noeval")) {
@@ -246,7 +255,15 @@ extension RangerFlowParser {
             continue _
           }            
           last_walked = (i + 1)
+
+          ; anonymous fn or Lambda argument
           if( arg.value_type == RangerNodeType.ExpressionType ) {
+
+            def opList (ctx.getOpFns(callArg.vref))
+            if(has opList) {
+              def signature (arg.expression_value.copy())
+              def params (at signature.children 1)
+            }            
             if(codeDef.is_block_node == false) {
               def later (new WalkLater)
               later.arg = arg
@@ -565,6 +582,7 @@ extension RangerFlowParser {
         }
 
         if all_matched {
+
           if is_async {
             def activeFn (ctx.getCurrentMethod())            
             if( (!null? activeFn.nameNode) ) {
@@ -596,12 +614,15 @@ extension RangerFlowParser {
             def ca (unwrap later.callArg)
             def aa (unwrap later.arg)
 
+
             def newNode:CodeNode (new CodeNode ( (unwrap ca.code) ca.sp ca.ep))
 
             ; avoid re-transforming already transformed functions
             
             ; transform only blocks
             if( ca.is_block_node && ((ca.isFirstVref("fn")) == false ) && ((ca.isFirstVref("fun")) == false )) {
+
+              ; print "transforming " + (ca.getCode())
               ; def match:RangerArgMatch (new RangerArgMatch ())
               def fnDef:CodeNode (unwrap aa.expression_value)
               def copyOf:CodeNode (fnDef.rebuildWithType( match false ))
@@ -737,7 +758,7 @@ extension RangerFlowParser {
         if all_matched {
 
           if is_static_fn {
-            
+
             def firstArg (callArgs.getFirst())
             firstArg.vref = static_class_name + "." + static_fn_name
             firstArg.flow_done = false
@@ -770,6 +791,7 @@ extension RangerFlowParser {
 
             callArgs.flow_done = false
             this.WalkNode ( callArgs ctx wr)
+
 
             def currMM@(lives) (ctx.getCurrentMethod())
 

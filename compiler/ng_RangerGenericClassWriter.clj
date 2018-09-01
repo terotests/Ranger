@@ -297,7 +297,15 @@ class RangerGenericClassWriter {
 ;       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       ctx.setInExpr()
-      for args.children arg:CodeNode i {
+
+      def pms (filter (args.children) {
+        if( item.hasFlag('keyword')) {
+          return false
+        }
+        return true
+      })
+      
+      for pms arg:CodeNode i {
         if (i > 0) {
           wr.out(", " false)
         }
@@ -323,7 +331,15 @@ class RangerGenericClassWriter {
       ctx.unsetInExpr()
       wr.out('(' false)
       ctx.setInExpr()
-      for args.children arg:CodeNode i {
+
+      def pms (filter (args.children) {
+        if( item.hasFlag('keyword')) {
+          return false
+        }
+        return true
+      })
+
+      for pms arg:CodeNode i {
         if (i > 0) {
           wr.out(', ' false)
         }
@@ -436,10 +452,15 @@ class RangerGenericClassWriter {
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
       ctx.setInExpr();
+      def cnt 0
       for node.fnDesc.params arg:RangerAppParamDesc i {
-        if (i > 0) {
-          wr.out(", " false)
+        if( arg.nameNode.hasFlag('keyword')) {
+          continue
         }
+        if (cnt > 0) {
+          wr.out(', ' false)
+        }
+        cnt = cnt + 1
         if( (array_length givenArgs.children) <= i) {
           def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
           if (!null? defVal) {

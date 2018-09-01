@@ -169,6 +169,9 @@ class RangerAppParamDesc {
     return false
   }
   fn moveRefTo:void (nodeToMove:CodeNode target:RangerAppParamDesc ctx:RangerAppWriterContext) {
+
+    def b_disable_errors true
+
     if nodeToMove.ref_change_done {
       return
     }
@@ -208,12 +211,16 @@ class RangerAppParamDesc {
       } {
         if (my_s == 0) {
           if (tmp_var == false) {
-            ctx.addError(nodeToMove "Can not move a weak reference to a strong target." )
-            print "can not move weak refs to strong target:"
-            this.debugRefChanges()
+            if(! b_disable_errors) {
+              ctx.addError(nodeToMove "Can not move a weak reference to a strong target." )
+              print "can not move weak refs to strong target:"
+              this.debugRefChanges()
+            }
           }
         } {
-          ctx.addError(nodeToMove ("Can not move immutable reference to a strong target, evald type " + nameNode.eval_type_name))
+          if(! b_disable_errors) {
+            ctx.addError(nodeToMove ('Can not move immutable reference to a strong target, evald type ' + nameNode.eval_type_name))
+          }
         }
       }
     } {
@@ -221,7 +228,9 @@ class RangerAppParamDesc {
       } {
         if ((my_lifetime < other_lifetime) && (return_cnt == 0)) {
           if ((nameNode.hasFlag("returnvalue")) == false) {
-            ctx.addError(nodeToMove ("Can not create a weak reference if target has longer lifetime than original, current lifetime == " + my_lifetime))
+            if(! b_disable_errors) {
+              ctx.addError(nodeToMove ('Can not create a weak reference if target has longer lifetime than original, current lifetime == ' + my_lifetime))
+            } 
           }
         }
       }

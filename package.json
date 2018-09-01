@@ -1,0 +1,30 @@
+{
+  "name": "ranger-compiler",
+  "version": "2.1.67",
+  "description": "Ranger Compiler NPM environment",
+  "main": "index.js",
+  "bin": {
+    "ranger-compiler": "bin/output.js"
+  },
+  "directories": {
+    "example": "examples",
+    "lib": "lib"
+  },
+  "scripts": {
+    "compile": "ranger-compiler -es6 ./compiler/ng_Compiler.clj -nodecli",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/terotests/Ranger.git"
+  },
+  "keywords": [
+    "Compiler"
+  ],
+  "author": "Tero Tolonen",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/terotests/Ranger/issues"
+  },
+  "homepage": "https://github.com/terotests/Ranger#readme"
+}

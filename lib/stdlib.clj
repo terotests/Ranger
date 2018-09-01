@@ -1,11 +1,53 @@
 
 ; union type operators
+
+Import "stdops.clj"
+Import "JSON.clj"
+
 operators {
+
+    cast _:S  (arg:T target@(noeval):S) {
+        templates {
+            ranger ("(cast " (e 1) " " (e 2) ":" (typeof 2) " )")
+            es6 ( (e 1) )
+            java7 ( "((" (typeof 2) ")" (e 1) ")" )
+            swift3 ( (e 1) " as " (typeof 2) "" )
+            cpp ( "mpark::get<" (typeof 2) ">(" (e 1) ")" 
+            
+                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
+            )
+            go ( (e 1) ".(" (typeof 2) ")" )
+            php ( (e 1) )
+        }
+    }
+
+    cast _:Any  (arg:T target@(noeval):Any) {
+        templates {
+            go ( (e 1) )
+        }
+    }
+
+    case             _@(newcontext):void           ( arg@(union):T item2@(define):boolean code:block )  {
+        templates {
+            es6 (
+                (forkctx _ ) (def 2) "if( typeof(" (e 1) ") === 'boolean' ) /* union case for boolean */ {" nl I
+                        "var " (e 2) " = " (e 1) ";" nl
+                        (block 3)                        
+                        nl i "}"
+            )  
+        }
+    }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):int code:block )  {
         templates {
             es6 (
                 (forkctx _ ) (def 2) "if( " "Number.isInteger ? Number.isInteger(" (e 1) ") : (function(v) { return typeof v === 'number' &&  isFinite(v) && Math.floor(v) === v; })(" (e 1) ")" " ) /* union case for int */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
+                        (block 3)                        
+                        nl i "}"
+            )  
+            php (
+                (forkctx _ ) (def 2) "if( is_int(" (e 1) ") ) {" nl I
+                        (e 2) " = " (e 1) ";" nl
                         (block 3)                        
                         nl i "}"
             )  
@@ -19,17 +61,32 @@ operators {
                         (block 3)                        
                         nl i "}"
             )  
+            php (
+                (forkctx _ ) (def 2) "if( is_double(" (e 1) ") ) {" nl I
+                        (e 2) " = " (e 1) ";" nl
+                        (block 3)                        
+                        nl i "}"
+            )  
         }
     }
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):string code:block )  {
         templates {
             es6 (
-                (forkctx _ ) (def 2) "if( typeof(" (e 1) ") === \"string\" ) /* union case for string */ {" nl I
+                (forkctx _ ) (def 2) "if( typeof(" (e 1) ") === 'string' ) /* union case for string */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
                         (block 3)                        
                         nl i "}"
             )  
+            php (
+                (forkctx _ ) (def 2) "if( is_string(" (e 1) ") ) {" nl I
+                        (e 2) " = " (e 1) ";" nl
+                        (block 3)                        
+                        nl i "}"
+            )
+            ranger ( 'case ' (e 1) " " (e 2) ":" (typeof 2) " {" nl
+                        I (block 3) i nl "}" nl
+            )
         }
     }
     case             _@(newcontext):void           ( arg@(union):T item@(define):T code:block )  {
@@ -38,7 +95,7 @@ operators {
                         I (block 3) i nl "}" nl
             )
             php (
-                (forkctx _ ) (def 2) "if( get_class(" (e 1) ") == \"" (typeof 2) "\" ) /* union case */ {" nl I
+                (forkctx _ ) (def 2) "if( is_object(" (e 1) ") && get_class(" (e 1) ") == \"" (typeof 2) "\" ) /* union case */ {" nl I
                         (e 2) " = " (e 1) ";" nl
                         (block 3)                        
                         nl i "}"
@@ -59,17 +116,60 @@ operators {
                             i nl
                         nl i "}"
             ) 
+            csharp (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) {" nl I
+                        (typeof 2) " " (e 2) " = (" (typeof 2) ")" (e 1) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
             swift3 (
-                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  /*swift version*/ {" nl I
+                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
                         "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
                         (block 3)
                         
                         nl i "}"
             ) 
+            java7 (
+                (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) ") {" nl I
+                        (typeof 2) " " (e 2) " = (" (typeof 2) ") " (e 1) ";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            ) 
+            cpp (
+                (forkctx _ ) (def 2) "if( mpark::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
+                        (typeof 2) " " (e 2) " = mpark::get<" (typeof 2) ">(" (e 1) ");" nl
+                        (block 3)
+                        
+                        nl i "}"
+
+                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))
+            ) 
+            scala (
+                (forkctx _ ) (def 2) (e 1) " match {" nl
+                I "case " (e 2) " : " (typeof 2) " => {" nl I
+                            (block 3)
+                        nl i "}" nl
+                  "case _ => {} " nl i 
+                  "}" nl
+            ) 
+            
         }
     }    
     to   _:T ( to@(union noeval):T item:T) {
         templates {
+            cpp.disabled ( "(r_create_union<" (typeof 1) ", " (typeof 2)">(" (e 2) "))" 
+(create_polyfill 
+'
+template<typename T, typename S>
+T r_create_union (S value) {
+    T rv;
+    rv = value;
+    return rv;
+};
+'
+)            
+            )
             * ( (e 2) )
         }
     } 
@@ -92,8 +192,11 @@ operator type:[string:T] all {
     }      
 }
 
+; commented out native ops, because they are not compatible with async operators
 operator type:[T] all {
-    fn forEach:void (cb:(_:void (item:T index:int))) {
+
+    ; pure function or operator could be simply inlined...
+    fn forEach@(pure):void (cb:(_:void (item:T index:int))) @doc('Call `fb` for each item in array') {
         for self it:T i {
             cb(it i)
         }
@@ -104,53 +207,108 @@ operator type:[T] all {
         return (idx >= 0)
     }
 
-    fn map:[T] (cb:(_:T (item:T))) {
+    fn map:[T] (cb:(_:T (item:T index:int))) {
         def len (array_length self)
         def res:[T] 
         for self it:T i {
-            push res (cb(it))
+            push res (cb(it i))
         }
         return res
     }  
 
-    fn map:[S] (cb:(_:S (item:T)) to@(noeval):[S] ) {
+    fn map:[S] (cb:(_:S (item:T index:int)) to@(noeval):[S] ) {
         def len (array_length self)
         def res:[S] 
         for self it:T i {
-            push res (cb(it))
+            push res (cb(it i))
         }
         return res
     }  
 
-    fn filter:[T] (cb:(_:boolean (item:T))) {
+    fn filter:[T] (cb:(_:boolean (item:T index:int))) {
         def res:[T]
         for self it:T i {
-            if( cb(it) )  {
+            if( cb(it i) )  {
                 push res it
             }
         }
         return res
     } 
-    fn reduce@(weak):T (cb:(_:T (left:T right:T)) initialValue:T) {
+    fn reduce@(weak):T (cb:(_:T (left:T right:T index:int)) initialValue:T) {
         def len (array_length self)
         def res:T initialValue
         if( len >= 1 ) {
             for self it:T i {
-                res = ( cb ( res it ))
+                res = ( cb ( res it i))
             }
         }        
         return res
     }     
-    fn reduce@(weak):K (cb:(_:K (left:K right:T)) initialValue:K) {
+    fn reduce@(weak):K (cb:(_:K (left:K right:T index:int)) initialValue:K) {
         def len (array_length self)
         def res initialValue
         if( len >= 1 ) {
             for self it:T i {
-                res = ( cb ( res it ))
+                res = ( cb ( res it i ))
             }
         }        
         return res
     }  
+
+    fn groupBy:[T] ( cb:(_:string (item:T)) ) {
+        def res:[T]
+        def mapper:[string:boolean]
+        for self it:T i {
+            def key (cb(it))
+            if( false == ( has mapper key ) ) {
+                push res it
+                set mapper key true
+            } 
+        }
+        return res
+    }
+
+    fn clone:[T] () {
+        def res:[T]
+        for self it:T i {
+            push res it
+        }
+        return res
+    }
+
+
+    ; some useful functions from scala
+    fn find@(optional):T (cb:(_:boolean (item:T))) {
+        def res@(optional):T
+        for self it@(lives):T i {
+            if( cb(it) )  {
+                def res2@(optional):T 
+                res2 = it
+                return res2
+            }
+        }
+        return res
+    } 
+
+    fn count:int (cb:(_:boolean (item:T))) {
+        def res 0 
+        for self it@(lives):T i {
+            if( cb(it) )  {
+                res = res + 1
+            }
+        }
+        return res
+    } 
+
+    fn contains:boolean (cb:(_:boolean (item:T))) { 
+        for self it@(lives):T i {
+            if( cb(it) )  {
+                return true
+            }
+        }
+        return false
+    } 
+
 
 }
 
@@ -386,6 +544,10 @@ operator type:Vector all {
         def val (self.get(idx))
         return val
     } 
+    fn at:T (idx:int) { 
+        def val (self.get(idx))
+        return val
+    } 
     fn push:S (item:T) {
         return (self.add(item))
     }
@@ -396,6 +558,9 @@ operator type:Vector all {
         return (self.count())
     }    
     fn length:int () {
+        return (self.count())
+    }    
+    fn size:int () {
         return (self.count())
     }    
     fn forEach:void (cb:(_:void (item:T))) {

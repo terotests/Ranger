@@ -408,7 +408,6 @@ class RangerLispParser {
 
       ; parse attribute node...
       if( c == (ccode "{")) {
-        print "--> attribute had a code child...."
 
         def cNode@(lives) curr_node
 

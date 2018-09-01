@@ -1,13 +1,13 @@
 
 
 ; -i file2.pdf -o file3.pdf
-class CmdParams {
+class CmdParams @serialize(true) {
 
     def flags:[string:boolean]
     def params:[string:string]
     def values:[string]
 
-    fn hasParam (name:string) {
+    fn hasParam:boolean (name:string) {
         return (has params name)
     }
 

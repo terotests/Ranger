@@ -166,6 +166,28 @@ operator type:RangerFlowParser all {
       cn.eval_type_name = cn.type_name
  
       if ((size node.children) > 2) {        
+
+        if( has defaultArg.register_name) {
+          def rr ( ctx.getVariableDef(defaultArg.register_name) )
+          if(!null? rr.nameNode) {
+            if(!null? rr.nameNode.expression_value) {
+              cn.expression_value = ( rr.nameNode.expression_value.copy())
+            }
+          }
+        }
+        if(defaultArg.eval_type == RangerNodeType.ExpressionType) {
+          if(!null? defaultArg.expression_value) {
+            cn.expression_value = (defaultArg.expression_value.copy())
+          } {
+            if( defaultArg.hasParamDesc ) {
+              if( (!null? defaultArg.paramDesc.nameNode) && (!null? defaultArg.paramDesc.nameNode.expression_value) ) {
+                cn.eval_type = RangerNodeType.ExpressionType
+                cn.expression_value = (defaultArg.paramDesc.nameNode.expression_value.copy())
+              }
+            }
+          }
+        }
+        
         if(!null? defaultArg) {
           self.convertToUnion( cn.eval_type_name (unwrap defaultArg) ctx wr) 
           if(!null? defaultArg.evalTypeClass) {
