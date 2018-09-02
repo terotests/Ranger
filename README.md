@@ -81,11 +81,14 @@ compiler just using TypeScript.
 Note: the example requires content of Lang, stdlib, stdops and JSON to be loaded for the compiler, in this example they are loaded from the filesystem using `readFileSync`.
 
 ```typescript
+// Notice this part of example is required:
 addFile('Lang.clj', fs.readFileSync('./libs/Lang.clj', 'utf8') )
 addFile('stdlib.clj', fs.readFileSync('./libs/stdlib.clj', 'utf8') )
 addFile('stdops.clj', fs.readFileSync('./libs/stdops.clj', 'utf8') )
 addFile('JSON.clj', fs.readFileSync('./libs/JSON.clj', 'utf8') )
 ```
+
+The full compiler code:
 
 ```typescript
 
