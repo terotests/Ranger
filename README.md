@@ -73,6 +73,75 @@ ranger-compiler hello.clj
 
 The result will be outputtted into directory `bin/hello.js`
 
+## Compiling using TypeScript
+
+The compiler can be used from TypeScript, which makes possible to create new versions of the
+compiler just using TypeScript.
+
+Note: the example requires content of Lang, stdlib, stdops and JSON to be loaded for the compiler, in this example they are loaded from the filesystem using `readFileSync`.
+
+```typescript
+addFile('Lang.clj', fs.readFileSync('./libs/Lang.clj', 'utf8') )
+addFile('stdlib.clj', fs.readFileSync('./libs/stdlib.clj', 'utf8') )
+addFile('stdops.clj', fs.readFileSync('./libs/stdops.clj', 'utf8') )
+addFile('JSON.clj', fs.readFileSync('./libs/JSON.clj', 'utf8') )
+```
+
+```typescript
+
+import * as R from 'ranger-compiler'
+import { CodeNode } from 'ranger-compiler';
+
+const compilerInput = new R.InputEnv()
+compilerInput.use_real = false
+
+// manually create a filesystem
+const folder = new R.InputFSFolder()
+const addFile = (name:string, contents:string) => {
+const newFile = new R.InputFSFile()
+newFile.name = name
+newFile.data = contents
+folder.files.push( newFile )
+}
+addFile('hello.clj',
+` 
+class hello {
+    static fn main() {
+        print "Hello World"
+    }
+}  
+`);
+
+// compiler requires language definition and libraries to work
+const fs = require('fs')
+addFile('Lang.clj', fs.readFileSync('./libs/Lang.clj', 'utf8') )
+addFile('stdlib.clj', fs.readFileSync('./libs/stdlib.clj', 'utf8') )
+addFile('stdops.clj', fs.readFileSync('./libs/stdops.clj', 'utf8') )
+addFile('JSON.clj', fs.readFileSync('./libs/JSON.clj', 'utf8') )
+
+compilerInput.filesystem = folder
+
+// set compiler options -l=es6 -typescript
+const params = new R.CmdParams()
+params.flags['scalafiddle'] = true
+params.params['l'] = 'java7'
+params.params['o'] = 'hello.scala'
+params.values.push('hello.clj')
+compilerInput.commandLine = params
+
+// Run compiler
+const vComp = new R.VirtualCompiler()
+
+// Check results...
+const res = await vComp.run(compilerInput)
+
+// browse through the target compiler file system
+res.fileSystem.files.forEach( file=>{
+    console.log(file.getCode())
+})
+
+```
+
 ## Switching to different target language
 
 Include command line parameter `-l=<language>` and the compiler will produce the output files for the language in the output directory.
