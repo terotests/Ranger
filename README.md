@@ -126,9 +126,9 @@ compilerInput.filesystem = folder
 
 // set compiler options -l=es6 -typescript
 const params = new R.CmdParams()
-params.flags['scalafiddle'] = true
-params.params['l'] = 'java7'
-params.params['o'] = 'hello.scala'
+// target language is Go
+params.params['l'] = 'go'
+params.params['o'] = 'hello.go'
 params.values.push('hello.clj')
 compilerInput.commandLine = params
 
