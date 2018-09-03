@@ -22264,7 +22264,7 @@ class VirtualCompiler  {
     const root_dir = require("path").normalize((((operatorsOf_8.currentc95directory_51(env) + "/") + (require('path').dirname(the_file))) + "/"));
     const the_lang_file = "Lang.clj";
     let the_lang = "es6";
-    let the_target_dir = root_dir + "bin";
+    let the_target_dir = root_dir + "/bin";
     let the_target = "output";
     let package_name = "";
     let comp_attrs = {};
@@ -22383,7 +22383,6 @@ class VirtualCompiler  {
     if ( (typeof(outDir_3) !== "undefined" && outDir_3 != null )  ) {
       the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + (outDir_3);
     }
-    the_target_dir = require("path").normalize(the_target_dir);
     comp_attrs["d"] = the_target_dir;
     const pLang = params.getParam("l");
     if ( (typeof(pLang) !== "undefined" && pLang != null )  ) {

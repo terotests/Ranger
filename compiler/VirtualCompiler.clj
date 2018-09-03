@@ -27,6 +27,11 @@ operators {
           * ( "\"./\"")
       }
   }  
+  pathname _:string (path:string) {
+      templates {
+          es6 ( "require('path').dirname(" (e 1) ")" )
+      }        
+  }  
 }
 
 operator type:void es6 {
@@ -76,7 +81,7 @@ class tester {
      ; print "--> creating the virtual env"
      ; VirtualCompiler.create_env()
   }
-  
+
   fn getEnvVar:string (name:string) {
       return (env_var (unwrap envObj) name)
   } 
@@ -200,11 +205,14 @@ class tester {
       }    
       the_file = (itemAt params.values 0)
     }
-
+    ; used file is here, the path of the used file should be the first path
     def root_file the_file
+
+    def root_dir (normalize ((current_directory env) + "/" + (pathname the_file) + '/'))
+
     def the_lang_file:string "Lang.clj"         ; (shell_arg 1)
     def the_lang:string "es6"              ; (shell_arg 2)
-    def the_target_dir:string ((current_directory env) + "/bin")  ; (shell_arg 3)
+    def the_target_dir:string  (root_dir + "bin")  ; (shell_arg 3)
     def the_target:string "output"
     def package_name ""
     def comp_attrs:[string:string]
@@ -217,7 +225,7 @@ class tester {
     def langLibEnv (env_var env "RANGER_LIB")
 
     let idir = (install_directory)
-    langLibEnv = (normalize (idir + "/../compiler/")) + ";" + (normalize (idir + "/../lib/")) + ";" + langLibEnv
+    langLibEnv = root_dir + ";" + (normalize (idir + "/../compiler/")) + ";" + (normalize (idir + "/../lib/")) + ";" + langLibEnv
 
     env.setEnv( "RANGER_LIB" langLibEnv  )
 
@@ -344,6 +352,7 @@ class tester {
     if(!null? outDir) {
       the_target_dir = ((current_directory env) + "/"  + (unwrap outDir))  ; (shell_arg 3)
     } 
+    the_target_dir = (normalize the_target_dir)
     set comp_attrs "d" the_target_dir
 
     def pLang (params.getParam("l"))
@@ -505,7 +514,6 @@ class tester {
         flowParser.CreateRTTI( node appCtx (unwrap wr))
       }
 
-
       if_javascript {
         def ppList (appCtx.findPluginsFor("pre_flow"))
         ppList.forEach({
@@ -521,7 +529,6 @@ class tester {
       print "selected language is " + appCtx.targetLangName 
 
       flowParser.StartWalk (node appCtx (unwrap wr))
-
       flowParser.SolveAsyncFuncs( root appCtx (unwrap wr))
 
       print "3. Compiling the source code."
