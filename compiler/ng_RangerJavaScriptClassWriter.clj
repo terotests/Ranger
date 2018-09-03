@@ -818,8 +818,6 @@ class RangerJavaScriptClassWriter {
         if (variant.nameNode.hasFlag("main")) {
           continue _
         } 
-
-        wr.out("// typescript static " true)
      
         wr.out("static " false)
         if( variant.nameNode.hasFlag('async') ) {

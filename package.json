@@ -1,6 +1,6 @@
 {
   "name": "ranger-compiler",
-  "version": "2.1.69",
+  "version": "2.1.70",
   "description": "Ranger Compiler NPM environment",
   "main": "dist/bin/api.js",
   "types": "dist/bin/api.d.ts",

@@ -6,7 +6,6 @@ export class Vec2  {
     this.x = 0.0;
     this.y = 0.0;
   }
-  // typescript static 
   static CreateNew (i : number, j : number) : Vec2  {
     const v : Vec2  = new Vec2();
     v.x = i;

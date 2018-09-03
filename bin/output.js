@@ -20029,7 +20029,6 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         if ( variant_1.nameNode.hasFlag("main") ) {
           continue;
         }
-        wr.out("// typescript static ", true);
         wr.out("static ", false);
         if ( variant_1.nameNode.hasFlag("async") ) {
           wr.out("async ", false);
