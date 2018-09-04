@@ -12,6 +12,7 @@
     "lib": "lib"
   },
   "scripts": {
+    "test-any": "ranger-compiler -es6 ./features/any/test_any.clj -es6 -o=test_any.js",
     "example-svgpath": "ranger-compiler -es6 ./examples/SVGPath/SVGPath.clj -es6 -typescript -o=SVGPath.ts",
     "compileg": "ranger-compiler -es6 ./compiler/ng_Compiler.clj -nodecli",
     "compile": "node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli -d=./bin",
