@@ -1,11 +1,11 @@
 ; def opts ([] "name" "version" "description" "author" "license")
 
 flag es6 (
-  version "2.1.67"
+  version "2.1.71"
 )
 
 flag npm (
-  version "2.1.67"
+  version "2.1.71"
   name "ranger-lib"
   description "Cross-language compiler and build tool"
   author "Tero Tolonen"

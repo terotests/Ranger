@@ -35,7 +35,7 @@ class RangerCSharpClassWriter {
           return (unwrap sysName)
         } {
           def node (new CodeNode( (new SourceCode("")) 0 0 ))
-          ctx.addError(node ( "No system class " + type_string +  "defined for C# "))
+          ctx.addError(node ( 'No system class ' + type_string +  'defined for C# '))
         }
       }      
     }
@@ -106,13 +106,13 @@ class RangerCSharpClassWriter {
     }
     for sec.children arg:CodeNode i {
       if( i > 0 ) {
-        wr.out(", " false)
+        wr.out(', ' false)
       }
       this.writeTypeDef( arg ctx wr)
     }
     if( is_void == false ) {
       if( (array_length sec.children) > 0 ) {
-        wr.out(", " false)
+        wr.out(', ' false)
       }
       this.writeTypeDef( rv ctx wr)
     }
@@ -203,7 +203,7 @@ class RangerCSharpClassWriter {
             if(!null? sysName) {
               wr.out( (unwrap sysName) false)
             } {
-              ctx.addError(node ( "No system class " + t_name +  "defined for C# "))
+              ctx.addError(node ( 'No system class ' + t_name +  "defined for C# "))
             }
             return
           }      
@@ -281,7 +281,7 @@ class RangerCSharpClassWriter {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/** unused:  " false)
+        wr.out('/** unused:  ' false)
       }
       if ((p.set_cnt > 0) || p.is_class_variable) {
         wr.out("" false)
@@ -290,28 +290,28 @@ class RangerCSharpClassWriter {
         wr.out("" false)
       }
       this.writeTypeDef(( unwrap p.nameNode ) ctx wr)
-      wr.out(" " false)
+      wr.out(' ' false)
       wr.out(p.compiledName false)
       if ((array_length node.children) > 2) {
-        wr.out(" = " false)
+        wr.out(' = ' false)
         ctx.setInExpr()
         def value:CodeNode (node.getThird())
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
       } {
         if (nn.value_type == RangerNodeType.Array) {
-          wr.out(" = new " false)
+          wr.out(' = new ' false)
           this.writeTypeDef(( unwrap p.nameNode ) ctx wr)
-          wr.out("()" false)
+          wr.out('()' false)
         }
         if (nn.value_type == RangerNodeType.Hash) {
-          wr.out(" = new " false)
+          wr.out(' = new ' false)
           this.writeTypeDef(( unwrap p.nameNode ) ctx wr)
-          wr.out("()" false)
+          wr.out('()' false)
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out('     /** note: unused */' false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("   **/ ;" true)
@@ -372,20 +372,20 @@ class RangerCSharpClassWriter {
       if (i > 0) {
         wr.out("," false)
       }
-      wr.out(" " false)
+      wr.out(' ' false)
       this.writeTypeDef( (unwrap arg.nameNode ) ctx wr)
-      wr.out(((" " + arg.compiledName) + " ") false)
+      wr.out(((' ' + arg.compiledName) + " ") false)
     }
   }
 
   fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
-    wr.out("new List<" false)
+    wr.out('new List<' false)
     wr.out( (this.getObjectTypeString( node.eval_array_type ctx )) false )
-    wr.out("> {" false)
+    wr.out('> {' false)
     node.children.forEach({
       if( index > 0 ) {
-        wr.out(", " false)
+        wr.out(', ' false)
       }
       this.WalkNode( item ctx wr )
     })
@@ -405,9 +405,9 @@ class RangerCSharpClassWriter {
     
     this.import_lib("System" ctx wr)
 
-    wr.out(("class " + cl.name + " ") false )
+    wr.out(('class ' + cl.name + ' ') false )
     if ( ( array_length cl.extends_classes ) > 0 ) { 
-      wr.out(" : " false)
+      wr.out(' : ' false)
       for cl.extends_classes pName:string i {
         wr.out(pName false)
 ;        parentClass = (ctx.findClass(pName))
@@ -420,14 +420,14 @@ class RangerCSharpClassWriter {
     wr.createTag("utilities")
 
     for cl.variables pvar:RangerAppParamDesc i {
-      wr.out("public " false)
+      wr.out('public ' false)
       this.writeVarDef( (unwrap pvar.node) ctx wr)
     }
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
       wr.out((cl.name + "(") false)
       this.writeArgsDef(constr ctx wr)
-      wr.out(" ) {" true)
+      wr.out(' ) {' true)
       wr.indent(1)
       wr.newline()
       def subCtx:RangerAppWriterContext (unwrap constr.fnCtx )
@@ -442,14 +442,14 @@ class RangerCSharpClassWriter {
         continue
       }
       if (variant.nameNode.hasFlag("main")) {
-        wr.out("static void Main( string [] args ) {" true)
+        wr.out('static void Main( string [] args ) {' true)
       } {
-        wr.out("public static " false)
+        wr.out('public static ' false)
         this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
-        wr.out(" " false)
+        wr.out(' ' false)
         wr.out((variant.name + "(") false)
         this.writeArgsDef(variant ctx wr)
-        wr.out(") {" true)
+        wr.out(') {' true)
       }
       wr.indent(1)
       wr.newline()
@@ -463,12 +463,12 @@ class RangerCSharpClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
-        wr.out("public " false)
+        wr.out('public ' false)
         this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
-        wr.out(" " false)
+        wr.out(' ' false)
         wr.out((variant.name + "(") false)
         this.writeArgsDef(variant ctx wr)
-        wr.out(") {" true)
+        wr.out(') {' true)
         wr.indent(1)
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.is_function = true

@@ -12,8 +12,11 @@
     "lib": "lib"
   },
   "scripts": {
-    "test-any": "ranger-compiler -es6 ./features/any/test_any.clj -es6 -o=test_any.js",
+    "test-any-ts": "node bin/testcomp.js ./features/any/test_any.clj -es6 -typescript",
+    "test-any-csharp": "node bin/testcomp.js ./features/any/test_any.clj -l=csharp",
+    "test-any": "npm run testcompiler && node bin/testcomp.js -es6 ./features/any/test_any.clj -es6 -o=test_any.js",
     "example-svgpath": "ranger-compiler -es6 ./examples/SVGPath/SVGPath.clj -es6 -typescript -o=SVGPath.ts",
+    "testcompiler": "ranger-compiler -es6 ./compiler/ng_Compiler.clj -nodecli -d=./bin -o=testcomp.js",
     "compileg": "ranger-compiler -es6 ./compiler/ng_Compiler.clj -nodecli",
     "compile": "node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli -d=./bin",
     "try": "node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli -o=try.js",

@@ -818,7 +818,12 @@ class RangerJavaScriptClassWriter {
         if (variant.nameNode.hasFlag("main")) {
           continue _
         } 
-     
+
+        if (variant.nameNode.hasFlag("test")) {
+          print "Found a test function, but not writing it: " + (variant.nameNode.vref)
+          continue _
+        } 
+
         wr.out("static " false)
         if( variant.nameNode.hasFlag('async') ) {
           wr.out('async ' false)
@@ -859,6 +864,19 @@ class RangerJavaScriptClassWriter {
         if (variant.nameNode.hasFlag("main")) {
           continue _
         } {
+          if (variant.nameNode.hasFlag("test")) {
+            ; write data into testfiles...
+            let testFile = (wr.getFileWriter('test/', 'testfile.js'))
+            testFile.out('// test file for JS' true)
+            testFile.out('describe("testcase", function() {' true)
+            testFile.indent(1)
+
+            
+            testFile.indent(-1)
+            testFile.out('}' true)
+            print "Found a test function, but not writing it: " + (variant.nameNode.vref)
+            continue _
+          }           
           def asyncKeyword ""
           if( variant.nameNode.hasFlag('async') ) {
             asyncKeyword = 'async '
