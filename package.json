@@ -22,7 +22,13 @@
     "try": "node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli -o=try.js",
     "compilets": "node bin/output.js -es6 -typescript ./compiler/ng_Compiler.clj -o=compiler.ts -nodecli && tsc",
     "module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.clj -o=api.ts && tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "gen:simple": "cross-env RANGER_LIB=./compiler/Lang.clj node bin/output.js -es6 ./generated/SimpleChessBoard.clj -d=./generated/output -o=SimpleChessBoard.js -nodecli",
+    "gen:simple:run": "npm run gen:simple && node ./generated/output/SimpleChessBoard.js",
+    "gen:chess": "cross-env RANGER_LIB=./compiler/Lang.clj node bin/output.js -es6 ./generated/ChessBoard.clj -d=./generated/output -o=ChessBoard.js -nodecli",
+    "gen:chess:run": "npm run gen:chess && node ./generated/output/ChessBoard.js",
+    "gen:all": "npm run gen:simple && npm run gen:chess",
+    "gen:test": "npm run gen:simple:run"
   },
   "repository": {
     "type": "git",
@@ -39,5 +45,8 @@
   "homepage": "https://github.com/terotests/Ranger#readme",
   "dependencies": {
     "@types/node": "^10.9.4"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0"
   }
 }
