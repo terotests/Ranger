@@ -1,5 +1,21 @@
 # Ranger Quick Reference
 
+## Target Languages
+
+```bash
+-l=es6        # JavaScript (ES6)
+-l=python     # Python 3
+-l=go         # Go
+-l=rust       # Rust (preliminary)
+-l=java7      # Java 7+
+-l=swift3     # Swift 3+
+-l=csharp     # C# 7+
+-l=cpp        # C++14
+-l=scala      # Scala 2.x
+-l=php        # PHP 5.4+
+-typescript   # Add TypeScript annotations (with -l=es6)
+```
+
 ## File Structure
 
 ```clojure
@@ -159,16 +175,26 @@ Convert: to_int to_double to_string str2int
 ## Target Languages
 
 ```
-es6       JavaScript (-l=es6 or -es6)
+es6       JavaScript ES6 (-l=es6)
 python    Python 3.x (-l=python)
-java7     Java 7+ (-l=java7)
 go        Go 1.8+ (-l=go)
+rust      Rust 2021 (-l=rust) [preliminary]
+java7     Java 7+ (-l=java7)
 swift3    Swift 3+ (-l=swift3)
-cpp       C++14 (-l=cpp)
-php       PHP 5.4+ (-l=php)
 csharp    C# 7.0 (-l=csharp)
+cpp       C++14 (-l=cpp)
 scala     Scala 2.x (-l=scala)
-kotlin    Kotlin (-l=kotlin)
+php       PHP 5.4+ (-l=php)
+```
+
+## Testing
+
+```bash
+npm test              # Run all tests
+npm run test:es6      # JavaScript tests
+npm run test:python   # Python tests
+npm run test:go       # Go tests  
+npm run test:rust     # Rust tests
 ```
 
 ## Compilation Examples
