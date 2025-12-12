@@ -2826,6 +2826,22 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
             }
         }
 
+        exit            cmdExit:void            ( code:int) {
+            templates {
+                 ranger ( nl "exit " (e 1) nl)
+                 cpp ( nl "exit(" (e 1) ");" nl (imp "<cstdlib>"))
+                 kotlin ( nl "System.exit(" (e 1) ")" nl )
+                 scala ( nl "System.exit(" (e 1) ")" nl )
+                 go ( nl "os.Exit(" (e 1) ")" nl (imp "os"))
+                 rust ( nl "std::process::exit(" (e 1) ");" nl )
+                 java7 ( nl "System.exit(" (e 1) ");" nl )
+                 php ( nl "exit(" (e 1) ");" nl )
+                 csharp ( nl "Environment.Exit(" (e 1) ");" nl (imp "System"))
+                 swift3 ( nl "exit(Int32(" (e 1) "))" nl (imp "Foundation"))
+                 * ( nl "process.exit(" (e 1) ");" nl)
+            }
+        }
+
         to_lowercase _:string (s:string) {
             templates {
                 es6 ((e 1) '.toLowerCase()')

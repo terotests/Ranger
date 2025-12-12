@@ -16,7 +16,7 @@ The compiler crashes when a class has a method named `toString` AND another clas
 ; BAD - causes compiler crash
 fn toString:string () { return value }
 
-; GOOD - use alternative name  
+; GOOD - use alternative name
 fn asString:string () { return value }
 fn getSymbol:string () { return value }
 ```
@@ -846,3 +846,93 @@ class TaskManager {
 6. **Import required files** at the top of each source file
 7. **One class per file** is conventional but not required
 8. **Main entry point** uses `sfn m@(main):void ()`
+
+---
+
+## Environment Setup and Compilation
+
+### RANGER_LIB Environment Variable
+
+The `RANGER_LIB` environment variable tells the compiler where to find language definitions and library files. It should be a semicolon-separated list of paths to `.clj` files.
+
+```powershell
+# Windows PowerShell - include both compiler and lib folders
+$env:RANGER_LIB="./compiler/Lang.clj;./lib/stdops.clj"
+
+# Or using cross-env in package.json scripts
+cross-env RANGER_LIB=./compiler/Lang.clj node bin/output.js -es6 ./myfile.clj
+```
+
+The compiler automatically searches for imports in:
+
+1. The directory of the source file being compiled
+2. `<install_dir>/../compiler/`
+3. `<install_dir>/../lib/`
+4. Paths specified in `RANGER_LIB`
+
+### Compiling a Ranger Source File
+
+```bash
+# Basic compilation to ES6 JavaScript
+node bin/output.js -es6 ./myfile.clj -nodecli
+
+# With output directory
+node bin/output.js -es6 ./myfile.clj -nodecli -d=./output
+
+# With specific output filename
+node bin/output.js -es6 ./myfile.clj -nodecli -o=myfile.js
+
+# Full example with RANGER_LIB (PowerShell)
+$env:RANGER_LIB="./compiler/Lang.clj;./lib/stdops.clj"
+node bin/output.js -es6 ./myfile.clj -nodecli -d=./output -o=myfile.js
+```
+
+### Compiler Options
+
+| Option        | Description                      |
+| ------------- | -------------------------------- |
+| `-es6`        | Target ES6 JavaScript            |
+| `-java7`      | Target Java 7                    |
+| `-go`         | Target Go                        |
+| `-swift3`     | Target Swift 3                   |
+| `-cpp`        | Target C++                       |
+| `-php`        | Target PHP                       |
+| `-csharp`     | Target C#                        |
+| `-scala`      | Target Scala                     |
+| `-kotlin`     | Target Kotlin                    |
+| `-nodecli`    | Build for Node.js CLI execution  |
+| `-d=<dir>`    | Output directory                 |
+| `-o=<name>`   | Output filename                  |
+| `-typescript` | Generate TypeScript declarations |
+
+### Recompiling the Ranger Compiler Itself
+
+The compiler is self-hosted (written in Ranger). To recompile it after making changes to compiler source files:
+
+```powershell
+# Set environment and compile
+$env:RANGER_LIB="./compiler/Lang.clj;./lib/stdops.clj"
+node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli -d=./bin
+```
+
+Or use the npm script:
+
+```bash
+npm run compile
+```
+
+The compiler source files are in the `compiler/` directory:
+
+- `ng_Compiler.clj` - Main entry point
+- `VirtualCompiler.clj` - Core compilation logic
+- `Lang.clj` - Language operator definitions
+- `ng_*.clj` - Various compiler components
+
+### Exit Codes
+
+The compiler now exits with proper exit codes:
+
+- `0` - Compilation successful
+- `1` - Compilation failed (syntax error, type error, or internal error)
+
+This allows integration with build systems and CI/CD pipelines.

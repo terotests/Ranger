@@ -473,6 +473,7 @@ class CompilerInterface {
         flowParser.CollectMethods (node appCtx (unwrap wr))
         if ( ( array_length appCtx.compilerErrors ) > 0 ) {
           CompilerInterface.displayCompilerErrors(appCtx)
+          exit 1
           return
         }
 
@@ -530,6 +531,7 @@ class CompilerInterface {
         if( plugins_only == false ) {
           if ( ( array_length appCtx.compilerErrors ) > 0 ) {
             CompilerInterface.displayCompilerErrors(appCtx)
+            exit 1
             return
           }
         }
@@ -812,14 +814,17 @@ class CompilerInterface {
         if(lcc.lastProcessedNode) {
           print "Got compiler error close to"
           print (lcc.lastProcessedNode.getLineAsString())
+          exit 1
           return
         }
         if(flowParser.lastProcessedNode) {
           print "Got compiler error close to"
           print (flowParser.lastProcessedNode.getLineAsString())
+          exit 1
           return
         }
         print "Got unknown compiler error"
+        exit 1
         return
       }
 
