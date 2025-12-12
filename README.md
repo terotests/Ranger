@@ -11,7 +11,7 @@ class extensions, type inference and can integrate with host system API's using 
 The compiler is _self hosting_ which means that it has been written using the compiler itself and thus it can be hosted
 on several platforms. At the moment the official platform is node.js, because external plugins are only available as npm packages.
 
-The target languages supported are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#` and `Scala`. The quality
+The target languages supported are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`, and `Python`. The quality
 of the target translation still varies and at the moment of this writing the compiler can only be compiled fully to JavaSript
 target. However, most targets already can compile reasonably good code.
 
@@ -30,7 +30,7 @@ Ranger compiler, version 2.1.33
 Installed at: C:\dev\static\tools\ranger-compiler
 Usage: <file> <options> <flags>
 Options: -<option>=<value>
-  -l=<value>             Selected language, one of es6, go, scala, java7, swift3, cpp, php, csharp
+  -l=<value>             Selected language, one of es6, go, scala, java7, swift3, cpp, php, csharp, python
   -d=<value>             output directory, default directory is "bin/"
   -o=<value>             output file, default is "output.<language>"
   -classdoc=<value>      write class documentation .md file

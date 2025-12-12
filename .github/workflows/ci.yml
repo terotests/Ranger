@@ -54,10 +54,34 @@ jobs:
       - name: Run Go unit tests
         run: npm run test:go
 
+  test-python:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Python unit tests
+        run: npm run test:python
+
   # This job ensures all tests pass before allowing merge
   test-gate:
     runs-on: ubuntu-latest
-    needs: [test-es6, test-go]
+    needs: [test-es6, test-go, test-python]
     if: always()
     steps:
       - name: Check test results
@@ -68,6 +92,10 @@ jobs:
           fi
           if [ "${{ needs.test-go.result }}" != "success" ]; then
             echo "Go tests failed or were cancelled"
+            exit 1
+          fi
+          if [ "${{ needs.test-python.result }}" != "success" ]; then
+            echo "Python tests failed or were cancelled"
             exit 1
           fi
           echo "All tests passed!"

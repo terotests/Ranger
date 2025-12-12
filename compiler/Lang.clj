@@ -995,6 +995,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
+                    python ( (e 1) " + str(" (e 2) ")" )
                     * ( (e 1) " + " (e 2) ) 
                 } 
         }
@@ -1007,6 +1008,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     rust ( "[" (e 1) " , (" (e 2)".to_string()) ].join(\"\")" )
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
+                    python ( (e 1) " + str(" (e 2) ")" )
                     * ( (e 1) " + " (e 2) ) 
                 } 
         }
@@ -1052,6 +1054,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 go ( '(func() ' (typeof 2) ' { if ' (e 1) ' { return ' (e 2) ' } else { return ' (e 3) '} }())' )  
                 cpp ( '(' (e 1) " ? " (e 2) " : " (e 3) ')' ) 
                 scala ( '( if (' (e 1) ")  " (e 2) " else " (e 3) ')' ) 
+                python ( '(' (e 2) " if " (e 1) " else " (e 3) ')' ) 
                 * ( (e 1) " ? " (e 2) " : " (e 3) ) 
             } 
         }
@@ -1231,6 +1234,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 ranger ( "if (" (e 1) " ) {" I nl (block 2) i nl "}" (ifa 3) " {" I nl (block 3) i "}" nl)
                 rust ( "if  " (e 1) " {" I nl (block 2) i nl "}" (ifa 3) " else {" I nl (block 3) i "}" nl)
                 go ( "if  " (e 1) " {" I nl (block 2) i nl "}" (ifa 3) " else {" I nl (block 3) i "}" nl)
+                python ( "if " (e 1) ":" I nl (block 2) i nl "else:" I nl (block 3) i nl)
                 * ( "if ( " (e 1) " ) {" I nl (block 2) i nl "}" (ifa 3) " else {" I nl (block 3) i "}" nl)
             }
         }        
@@ -1240,6 +1244,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 ranger ( "if (" (e 1) ") {" I nl (block 2) nl i "}" nl )
                 rust ( "if  " (e 1) " {" I nl (block 2) nl i "}" nl )
                 go ( "if  " (e 1) " {" I nl (block 2) nl i "}" nl )
+                python ( "if " (e 1) ":" I nl (block 2) nl i nl )
                 * ( "if ( " (e 1) " ) {" I nl (block 2) nl i "}" nl )
             }
         }
@@ -1270,6 +1275,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
                 cpp ( "if ( " (e 1) " != NULL ) {" nl I (block 2) i nl "}" nl )
                 rust ( "if " (e 1) ".is_some() {" nl I (block 2) i nl "}" nl )
+                python ( "if " (e 1) " is not None:" nl I (block 2) i nl )
                 * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" nl I (block 2) i nl "}" nl )
 
             }
@@ -1287,6 +1293,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 swift3 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 go ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 cpp ( "if ( " (e 1) " != NULL ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                python ( "if " (e 1) " is not None:" I nl (block 2) i nl "else:" I nl (block 3) i nl)
                 * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
             }
         }
@@ -1438,7 +1445,8 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     "}" nl
                     i nl "} " nl
                     (imp "scala.util.control._")
-                )                 
+                )
+                python ( "while " (e 1) ":" nl I (block 2) i nl )
                 * ( "while (" (e 1) ") {" nl I (block 2) i nl "}" )
             }
         }
@@ -1507,6 +1515,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 go ( "!" (goset 1 ) ".has_value " )             
                 kotlin ((e 1) "== null")     
                 es6 (  "typeof(" ( e 1 ) ") === \"undefined\"")
+                python ((e 1) " is None")
                 * ((e 1) "== null")
             }
         }   
@@ -1538,6 +1547,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 rust ((e 1) ".is_some()")     
                 kotlin ((e 1) " != null")     
                 go (  (goset 1 ) ".has_value" )
+                python ('(' (e 1) ' is not None)')
                 * ('(typeof(' ( e 1 ) ') !== "undefined" && ' (e 1) ' != null ) ')
             }
         }        
@@ -1643,6 +1653,7 @@ case class customException(smth:String)  extends Exception
                             I (typeof 2) " " (e 2) " = " (e 1) ".at(" (e 3) ");" nl (block 4) nl i "}" )          
                 cpp.old ( (forkctx _ ) (def 2) (def 3) "for ( std::vector< " (typeof 2) ">::size_type " (e 3) " = 0; " (e 3) " != " (e 1) ".size(); " (e 3) "++) {" nl 
                             I (typeof 2) " " (e 2) " = " (e 1) ".at(" (e 3) ");" nl (block 4) nl i "}" )          
+                python ( (forkctx _ ) (def 2) (def 3) "for " (e 3) ", " (e 2) " in enumerate(" (e 1) "):" nl I (block 4) nl i )
                 * ( (forkctx _ ) (def 2) (def 3) "for ( let " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
             }
         }
@@ -1683,6 +1694,7 @@ inline std::string  r_cpp_trim(std::string &s)
                 scala ( (e 1) ".trim" )
                 csharp ( (e 1) ".Trim()" (imp "System"))
                 go ("strings.TrimSpace(" (e 1) ")" (imp "strings"))
+                python ( (e 1) ".strip()" )
                 * ( (e 1) ".trim()" )
             }            
         }                 
@@ -1745,6 +1757,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
 )   
                 )
 
+                python ( (e 1) ".split(" (e 2) ") if " (e 2) " else list(" (e 1) ")" )
                 * ( (e 1) ".split(" (e 2) ")")
             }
         }
@@ -1758,7 +1771,8 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 swift3 ( (e 1) ".characters.count")  
                 csharp ( (e 1) ".Length")
                 php ( "strlen(" (e 1) ")") 
-                go ( "int64(len(" (e 1) "))")               
+                go ( "int64(len(" (e 1) "))")
+                python ( "len(" (e 1) ")")
                 * ( (e 1) ".length")
             }
         }
@@ -1947,7 +1961,8 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 scala ( (e 1) "(" (e 2) ")")    
                 go ( "int64(" (e 1) "[" (e 2) "])")  
                 swift3 ( "Int( ( NSString(string: " (e 1) " ) ).character( at: " (e 2) " ) )")
-                swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")    
+                swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")
+                python ( "ord(" (e 1) "[" (e 2) "])")
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
         }        
@@ -1963,6 +1978,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 php ("array_keys(" (e 1) ")")
                 es6 ( "Object.keys(" (e 1) ")")
                 csharp ( "new List<String>(" (e 1) ".Keys)")
+                python ( "list(" (e 1) ".keys())" )
                 cpp (
                     "r_get_keys_of_map<" (r_atype 1) ">(" (e 1) ")"
 (create_polyfill
@@ -2037,6 +2053,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
                 go (  (e 1) "[" (e 2) ":" (e 3) "]")               
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
+                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
         }
@@ -2100,6 +2117,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 go ("strconv.FormatInt(" (e 1) ", 10)" (imp "strconv"))
                 swift3 ("String(" (e 1) ")")              
                 csharp ( (e 1) ".ToString()" )
+                python ( "str(" (e 1) ")" )
                 * ( "(" (e 1) ".toString())")
             }
         }          
@@ -2112,7 +2130,8 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 php ( "strval(" (e 1) ")") 
                 scala ( "(" (e 1) ".toString)")
                 go ("strconv.Itoa(" (e 1) ")" (imp "strconv"))
-                swfit3 ("String(" (e 1) ")")              
+                swfit3 ("String(" (e 1) ")")
+                python ( "str(" (e 1) ")" )
                 * ( "(" (e 1) ").toString()")
             }
         }        
@@ -2126,7 +2145,8 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 php ( "strval(" (e 1) ")") 
                 scala ( "(" (e 1) ".toString)")
                 go ("strconv.FormatFloat(" (e 1) ",'f', 6, 64)" (imp "strconv"))
-                swift3 ("String(" (e 1) ")")              
+                swift3 ("String(" (e 1) ")")
+                python ( "str(" (e 1) ")" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -2139,7 +2159,8 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 php ( "strval(" (e 1) ")") 
                 scala ( "(" (e 1) ".toString)")
                 go ("strconv.FormatFloat(" (e 1) ",'f', 6, 64)" (imp "strconv"))
-                swift3 ("String(" (e 1) ")")              
+                swift3 ("String(" (e 1) ")")
+                python ( "str(" (e 1) ")" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -2370,6 +2391,7 @@ std::string join(const T& v, const std::string& delim) {
                 php ( "array_key_exists(" (e 2) " , " (e 1) " )" )
                 java7 ( (e 1) ".containsKey(" (e 2) ")" )
                 kotlin ( (e 1) ".containsKey(" (e 2) ")" )
+                python ( (e 2) " in " (e 1) )
                 go ( 
 
 (macro (nl "func r_has_key_" (r_ktype 1)  "_" (r_atype_fname 1) "( a "  (typeof 1) ", key " (r_ktype 1) " ) bool { " nl I 
@@ -2521,6 +2543,7 @@ i "}" nl ))
                 go ( "int64(strings.Index(" (e 1) ", " (e 2) "))" (imp "strings"))
                 es6 ( (e 1) ".indexOf(" (e 2 ) ")" )
                 java7 ( (e 1) ".indexOf(" (e 2 ) ")" )
+                python ( (e 1) ".find(" (e 2) ")" )
                 cpp (
                     "r_string_index_of(" (e 1) " , " (e 2) ")"
 (create_polyfill
@@ -2550,6 +2573,7 @@ int r_string_index_of( std::string str, std::string key )  {
                 scala ( (e 1) ".startsWith(" (e 2) ")" )
                 cpp ( (e 1) ".rfind(" (e 2) ", 0) == 0" )
                 kotlin ( (e 1) ".startsWith(" (e 2) ")" )
+                python ( (e 1) ".startswith(" (e 2) ")" )
             }
         }
 
@@ -2573,6 +2597,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
 " )
                 )
                 kotlin ( (e 1) ".endsWith(" (e 2) ")" )
+                python ( (e 1) ".endswith(" (e 2) ")" )
             }
         }
 
@@ -2588,6 +2613,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
                 scala ( (e 1) ".contains(" (e 2) ")" )
                 cpp ( (e 1) ".find(" (e 2) ") != std::string::npos" )
                 kotlin ( (e 1) ".contains(" (e 2) ")" )
+                python ( (e 2) " in " (e 1) )
             }
         }
 
@@ -2614,6 +2640,7 @@ std::string r_string_replace(std::string str, const std::string& from, const std
 " )
                 )
                 kotlin ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
+                python ( (e 1) ".replace(" (e 2) ", " (e 3) ", 1)" )
             }
         }
 
@@ -2658,6 +2685,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
     i
 "}" nl ) )                
                  )
+                 python ( (e 1) ".index(" (e 2) ") if " (e 2) " in " (e 1) " else -1" )
                  * ( (e 1) ".indexOf(" (e 2) ")" )                                              
             }
         }
@@ -2672,6 +2700,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  java7 ( (e 1) ".remove(" (e 2) ")" )
                  scala ( (e 1) ".remove(" (e 2) ")" )
                  go ( (e 1) " = append(" (e 1) "[:" (e 2) "], " (e 1) "[" (e 2) "+1:]...)" )
+                 python ( (e 1) ".pop(" (e 2) ")" )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop();" )                                              
             }
         }
@@ -2683,7 +2712,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  es6 ( (e 1) ".splice(" (e 2) ", 0, " (e 3) ");" )  
                  cpp ( (e 1) ".insert(" (e 1) ".begin() + " (e 2) ", " (e 3) ");")          
                  go( (e 1 ) " = append(" (e 1) "[:" (e 2) "], append(" (typeof 1) "{" (e 3) "}, " (e 1) "[" (e 2) ":]...)...)")   
-                 php ( "array_splice(" (e 1) ", " (e 2) ", 0, " (e 3) ");")   
+                 php ( "array_splice(" (e 1) ", " (e 2) ", 0, " (e 3) ");")
+                 python ( (e 1) ".insert(" (e 2) ", " (e 3) ")" )
 
             }
         }      
@@ -2701,6 +2731,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  cpp ( (e 1) ".push_back( "(e 2)"  );")
                  swift3 ( (e 1) ".append(" (e 2)")")
                  php ( "array_push(" (e 1) ", " (e 2 )");")
+                 python ( (e 1) ".append(" (e 2) ")")
                  java7 ( (e 1) ".add(" (e 2) ");" )
                  go ( (custom _) )
                  go ( (e 1) " = append("  (e 1) ","  (e 2) ");" )
@@ -2718,6 +2749,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  cpp ( (e 1) ".pop_back();")
                  swift3 ( (e 1) ".removeLast();")
                  php ( "array_pop(" (e 1) " );")
+                 python ( (e 1) ".pop()")
                  java7 ( (e 1) ".remove(" (e 1) ".size() - 1);" )
                  csharp ( "Array.Resize(ref "(e 1) ", " (e 1 )".Length - 1);" ) 
                  scala ( (e 1) ".remove(" (e 1) ".length - 1)" )
@@ -2733,6 +2765,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  cpp ( (e 1) ".size()" )                                                              
                  swift3 ( (e 1) ".count")
                  php ( "count(" (e 1) ")")
+                 python ( "len(" (e 1) ")")
                  java7 ( (e 1) ".size()" )                                                              
                  scala ( (e 1) ".length" )
                  kotlin ( (e 1) ".size" )                                                              
@@ -2748,6 +2781,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 scala ( (e 1) ".length()")  
                 swift3 ( (e 1) ".characters.count")  
                 csharp ( (e 1) ".Length")
+                python ( "len(" (e 1) ")")
                 rust ( (e 1 ) ".len()" )
                 go( "int64(len([]rune(" (e 1) ")))")
                 php ( "strlen(" (e 1) ")")               
@@ -2840,7 +2874,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  rust ( (e 1 ) ".len()" )
                  go ( "int64(len(" (e 1 ) "))" )
                  kotlin ( (e 1) ".size" )       
-                 csharp ( (e 1) ".Count")                                                       
+                 csharp ( (e 1) ".Count")
+                 python ( "len(" (e 1) ")" )                                                       
                  * ( (e 1) ".length" )                                              
             }
         }
@@ -2898,7 +2933,8 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  go ( nl "fmt.Println( " (e 1) " )" nl (imp "fmt")             ) 
                  rust ( nl "println!( \"{}\", " (e 1) " );" nl )                              
                  java7 ( nl "System.out.println(String.valueOf( " (e 1) " ) );" nl (imp "java.io.*"))                              
-                 php ( nl "echo( " (e 1) " . \"\\n\");" nl )               
+                 php ( nl "echo( " (e 1) " . \"\\n\");" nl )
+                 python ( nl "print(" (e 1) ")" nl )
                  csharp ( nl "Console.WriteLine(" (e 1) ");" nl (imp "System"))
                  swift3 ( nl "print(" (e 1) ")" nl)
                  * ( nl "console.log(" (e 1) ");" nl)                                                                
@@ -2915,6 +2951,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  rust ( nl "std::process::exit(" (e 1) ");" nl )
                  java7 ( nl "System.exit(" (e 1) ");" nl )
                  php ( nl "exit(" (e 1) ");" nl )
+                 python ( nl "sys.exit(" (e 1) ")" nl (imp "sys"))
                  csharp ( nl "Environment.Exit(" (e 1) ");" nl (imp "System"))
                  swift3 ( nl "exit(Int32(" (e 1) "))" nl (imp "Foundation"))
                  * ( nl "process.exit(" (e 1) ");" nl)
@@ -2924,6 +2961,13 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         to_lowercase _:string (s:string) {
             templates {
                 es6 ((e 1) '.toLowerCase()')
+                java7 ((e 1) '.toLowerCase()')
+                go ( "strings.ToLower(" (e 1) ")" (imp "strings"))
+                php ("strtolower(" (e 1) ")")
+                csharp ((e 1) ".ToLower()")
+                swift3 ((e 1) ".lowercased()")
+                scala ((e 1) ".toLowerCase()")
+                python ((e 1) ".lower()")
             }
         }
         to_uppercase _:string (s:string) {
@@ -2935,6 +2979,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                 java7 ( (e 1) ".toUpperCase()")
                 php( "strtoupper(" (e 1) ")")
                 csharp ( (e 1) ".ToUpper()" )
+                python ( (e 1) ".upper()" )
                 cpp (                     
                     "r_cpp_str_to_uppercase(" (e 1) ")"
                         (imp "<algorithm>")
@@ -3140,6 +3185,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 go ( "" (e 1) ".has_value  && " "" (e 2) ".has_value")
                 cpp ( "" (e 1) "!= NULL  && " "" (e 2) " != NULL") 
                 kotlin ( (e 1) " != null  && " (e 2) " != null") 
+                python ( '(' (e 1) " is not None and " (e 2) " is not None)")
 
                 * ( "typeof(" ( e 1 ) ") != \"undefined\" && typeof(" ( e 2 ) ") != \"undefined\"" ) 
             } 
@@ -3157,6 +3203,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 go ( (e 1) " && " "" (e 2) ".has_value") 
                 cpp ( (e 1) " && " "" (e 2) "!= NULL ") 
                 kotlin ( (e 1) " && " (e 2) " != null") 
+                python ( (e 1) " and " (e 2) " is not None") 
                 cpp (e 1) " && " (e 2) 
                 * ( (e 1) " && " "typeof(" ( e 2 ) ") != \"undefined\"") 
             } 
@@ -3174,6 +3221,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 go ( "" (e 1) ".has_value && " (e 2) ) 
                 cpp ( "" (e 1) " != NULL && " (e 2) ) 
                 kotlin ( ""(e 1) " != null && " (e 2) ) 
+                python ( (e 1) " is not None and " (e 2) ) 
                 cpp (e 1) " && " (e 2) 
                 * ( "typeof(" ( e 1 ) ") != \"undefined\"" " && " (e 2) ) 
             } 
@@ -3181,18 +3229,63 @@ std::string r_cpp_str_to_uppercase(std::string original)
 
 
 
-        &&              cmdLogicAnd:boolean ( left:boolean right:boolean ) { templates { * ( (e 1) " && " (e 2) ) } }
-        &&              cmdLogicAnd:boolean ( p1:boolean p2:boolean p3:boolean) { templates { * ( (e 1) " && " (e 2) " && " (e 3) )  } }
-        &&              cmdLogicAnd:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean ) { templates { * ( (e 1) " && " (e 2) " && " (e 3) " && " (e 4) )  } }
-        &&              cmdLogicAnd:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean p5:boolean ) { templates { * ( (e 1) " && " (e 2) " && " (e 3) " && " (e 4) " && " (e 5) ) } }
+        &&              cmdLogicAnd:boolean ( left:boolean right:boolean ) { 
+            templates { 
+                python ( (e 1) " and " (e 2) ) 
+                * ( (e 1) " && " (e 2) ) 
+            } 
+        }
+        &&              cmdLogicAnd:boolean ( p1:boolean p2:boolean p3:boolean) { 
+            templates { 
+                python ( (e 1) " and " (e 2) " and " (e 3) )  
+                * ( (e 1) " && " (e 2) " && " (e 3) )  
+            } 
+        }
+        &&              cmdLogicAnd:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean ) { 
+            templates { 
+                python ( (e 1) " and " (e 2) " and " (e 3) " and " (e 4) )  
+                * ( (e 1) " && " (e 2) " && " (e 3) " && " (e 4) )  
+            } 
+        }
+        &&              cmdLogicAnd:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean p5:boolean ) { 
+            templates { 
+                python ( (e 1) " and " (e 2) " and " (e 3) " and " (e 4) " and " (e 5) ) 
+                * ( (e 1) " && " (e 2) " && " (e 3) " && " (e 4) " && " (e 5) ) 
+            } 
+        }
         &&              cmdLogicAnd:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean p5:boolean p6:boolean ) { templates { * ( (e 1) " && " (e 2) " && " (e 3) " && " (e 4) " && " (e 5) " && " (e 6) ) } }
         &&              cmdLogicAnd:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean p5:boolean p6:boolean p7:boolean ) { templates { * ( (e 1) " && " (e 2) " && " (e 3) " && " (e 4) " && " (e 5) " && " (e 6) " && " (e 7) ) } }
 
-        ||              cmdLogicOr:boolean ( left:boolean right:boolean ) { templates { * ( (e 1) " || " (e 2) ) } }
-        ||              cmdLogicOr:boolean ( p1:boolean p2:boolean p3:boolean  ) { templates { * ( (e 1) " || " (e 2) " || " (e 3) ) } }
-        ||              cmdLogicOr:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean     ) { templates { * ( (e 1) " || " (e 2) " || " (e 3) " || " (e 4) )  } }
-        ||              cmdLogicOr:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean p5:boolean    ) { templates { * ( (e 1) " || " (e 2) " || " (e 3) " || " (e 4) " || " (e 5) ) } }        
-        ||              cmdLogicOr:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean p5:boolean p6:boolean    ) { templates { * ( (e 1) " || " (e 2) " || " (e 3) " || " (e 4) " || " (e 5) " || " (e 6) ) } }
+        ||              cmdLogicOr:boolean ( left:boolean right:boolean ) { 
+            templates { 
+                python ( (e 1) " or " (e 2) ) 
+                * ( (e 1) " || " (e 2) ) 
+            } 
+        }
+        ||              cmdLogicOr:boolean ( p1:boolean p2:boolean p3:boolean  ) { 
+            templates { 
+                python ( (e 1) " or " (e 2) " or " (e 3) ) 
+                * ( (e 1) " || " (e 2) " || " (e 3) ) 
+            } 
+        }
+        ||              cmdLogicOr:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean     ) { 
+            templates { 
+                python ( (e 1) " or " (e 2) " or " (e 3) " or " (e 4) )  
+                * ( (e 1) " || " (e 2) " || " (e 3) " || " (e 4) )  
+            } 
+        }
+        ||              cmdLogicOr:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean p5:boolean    ) { 
+            templates { 
+                python ( (e 1) " or " (e 2) " or " (e 3) " or " (e 4) " or " (e 5) ) 
+                * ( (e 1) " || " (e 2) " || " (e 3) " || " (e 4) " || " (e 5) ) 
+            } 
+        }        
+        ||              cmdLogicOr:boolean ( p1:boolean p2:boolean p3:boolean p4:boolean p5:boolean p6:boolean    ) { 
+            templates { 
+                python ( (e 1) " or " (e 2) " or " (e 3) " or " (e 4) " or " (e 5) " or " (e 6) ) 
+                * ( (e 1) " || " (e 2) " || " (e 3) " || " (e 4) " || " (e 5) " || " (e 6) ) 
+            } 
+        }
 
 
     }

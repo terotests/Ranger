@@ -128,7 +128,7 @@ class tester {
 
     this.envObj = env
 
-    def allowed_languages:[string] ([] "es6" "go" "scala" "java7" "swift3" "cpp" "php" "csharp" )
+    def allowed_languages:[string] ([] "es6" "go" "scala" "java7" "swift3" "cpp" "php" "csharp" "python" )
     def params (unwrap env.commandLine)
 
     def the_file ""
@@ -432,6 +432,9 @@ class tester {
         }
         case "cpp" {
           the_target = the_target + ".cpp"
+        }
+        case "python" {
+          the_target = the_target + ".py"
         }
       }
     }

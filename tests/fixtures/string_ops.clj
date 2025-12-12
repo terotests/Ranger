@@ -2,22 +2,22 @@
 
 class StringOpsTest {
     sfn m@(main):void () {
-        def str "Hello World"
+        def text "Hello World"
         
         ; String length
-        def len (strlen str)
+        def len (strlen text)
         print ("Length: " + len)
         
         ; Substring
-        def sub (substring str 0 5)
+        def sub (substring text 0 5)
         print sub
         
         ; String concatenation
-        def combined (str + "!")
+        def combined (text + "!")
         print combined
         
         ; Index of
-        def idx (indexOf str "World")
+        def idx (indexOf text "World")
         print ("Index: " + idx)
         
         print "Done"
