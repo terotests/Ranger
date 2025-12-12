@@ -2,12 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, topic/*]
   pull_request:
     branches: [main, master]
 
 jobs:
-  test:
+  test-es6:
     runs-on: ubuntu-latest
 
     strategy:
@@ -27,19 +27,47 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run unit tests
-        run: npm test
+      - name: Run ES6 unit tests
+        run: npm run test:es6
+
+  test-go:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Go unit tests
+        run: npm run test:go
 
   # This job ensures all tests pass before allowing merge
   test-gate:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test-es6, test-go]
     if: always()
     steps:
       - name: Check test results
         run: |
-          if [ "${{ needs.test.result }}" != "success" ]; then
-            echo "Tests failed or were cancelled"
+          if [ "${{ needs.test-es6.result }}" != "success" ]; then
+            echo "ES6 tests failed or were cancelled"
+            exit 1
+          fi
+          if [ "${{ needs.test-go.result }}" != "success" ]; then
+            echo "Go tests failed or were cancelled"
             exit 1
           fi
           echo "All tests passed!"

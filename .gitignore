@@ -18,6 +18,7 @@ data_folder/
 
 # Test output directory
 tests/.output/
+tests/.output-go/
 
 # Seems to work ok...
 
