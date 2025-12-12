@@ -193,7 +193,7 @@ php       PHP 5.4+ (-l=php)
 npm test              # Run all tests
 npm run test:es6      # JavaScript tests
 npm run test:python   # Python tests
-npm run test:go       # Go tests  
+npm run test:go       # Go tests
 npm run test:rust     # Rust tests
 ```
 

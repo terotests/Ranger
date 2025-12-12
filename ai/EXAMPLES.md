@@ -787,25 +787,25 @@ This example shows how to compile the same Ranger code to different target langu
 class GamePiece {
     def symbol:string ""
     def isWhite:boolean true
-    
+
     Constructor (s:string white:boolean) {
         symbol = s
         isWhite = white
     }
-    
+
     fn getSymbol:string () {
         return symbol
     }
-    
+
     ; Static factory methods for creating pieces
     sfn King:GamePiece (white:boolean) {
         return (new GamePiece((? white "K" "k") white))
     }
-    
+
     sfn Queen:GamePiece (white:boolean) {
         return (new GamePiece((? white "Q" "q") white))
     }
-    
+
     sfn Empty:GamePiece () {
         return (new GamePiece(" " true))
     }
@@ -861,6 +861,7 @@ Done
 ### Rust Specifics
 
 When targeting Rust, the compiler automatically handles:
+
 - String literals become `.to_string()` for `String` type
 - Structs get `#[derive(Clone)]` for cloning support
 - Methods use `&mut self` for mutability

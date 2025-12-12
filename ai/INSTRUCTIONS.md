@@ -8,19 +8,19 @@ The syntax is based on Lisp with S-expressions but uses curly braces `{ }` for b
 
 ## Target Languages
 
-| Language   | Flag      | Output Extension | Status           |
-|------------|-----------|------------------|------------------|
-| JavaScript | `-l=es6`  | `.js`            | Full support     |
-| TypeScript | `-es6 -typescript` | `.ts`   | Full support     |
-| Python     | `-l=python` | `.py`          | Good support     |
-| Go         | `-l=go`   | `.go`            | Good support     |
-| Java       | `-l=java7`| `.java`          | Good support     |
-| Swift      | `-l=swift3` | `.swift`       | Good support     |
-| C#         | `-l=csharp` | `.cs`          | Good support     |
-| C++        | `-l=cpp`  | `.cpp`           | Partial support  |
-| Scala      | `-l=scala`| `.scala`         | Good support     |
-| PHP        | `-l=php`  | `.php`           | Good support     |
-| Rust       | `-l=rust` | `.rs`            | Preliminary      |
+| Language   | Flag               | Output Extension | Status          |
+| ---------- | ------------------ | ---------------- | --------------- |
+| JavaScript | `-l=es6`           | `.js`            | Full support    |
+| TypeScript | `-es6 -typescript` | `.ts`            | Full support    |
+| Python     | `-l=python`        | `.py`            | Good support    |
+| Go         | `-l=go`            | `.go`            | Good support    |
+| Java       | `-l=java7`         | `.java`          | Good support    |
+| Swift      | `-l=swift3`        | `.swift`         | Good support    |
+| C#         | `-l=csharp`        | `.cs`            | Good support    |
+| C++        | `-l=cpp`           | `.cpp`           | Partial support |
+| Scala      | `-l=scala`         | `.scala`         | Good support    |
+| PHP        | `-l=php`           | `.php`           | Good support    |
+| Rust       | `-l=rust`          | `.rs`            | Preliminary     |
 
 ### Compilation Examples
 
@@ -963,35 +963,39 @@ node bin/output.js -es6 ./myfile.clj -o=myfile.js
 
 ### Compiler Options
 
-| Option        | Description                                                                       |
-| ------------- | --------------------------------------------------------------------------------- |
-| `-l=<lang>`   | Target language (es6, python, go, rust, java7, swift3, cpp, php, csharp, scala)   |
-| `-es6`        | Target ES6 JavaScript (shorthand for -l=es6)                                      |
-| `-d=<dir>`    | Output directory (⚠️ may not work reliably)                                       |
-| `-o=<name>`   | Output filename (⚠️ always include extension)                                     |
-| `-nodecli`    | Build for Node.js CLI execution                                                   |
-| `-typescript` | Generate TypeScript declarations                                                  |
-| `-npm`        | Write package.json to output directory                                            |
-| `-nodemodule` | Export classes as Node.js modules                                                 |
-| `-strict`     | Strict mode for optionals                                                         |
-| `-copysrc`    | Copy source files to output directory                                             |
+| Option        | Description                                                                     |
+| ------------- | ------------------------------------------------------------------------------- |
+| `-l=<lang>`   | Target language (es6, python, go, rust, java7, swift3, cpp, php, csharp, scala) |
+| `-es6`        | Target ES6 JavaScript (shorthand for -l=es6)                                    |
+| `-d=<dir>`    | Output directory (⚠️ may not work reliably)                                     |
+| `-o=<name>`   | Output filename (⚠️ always include extension)                                   |
+| `-nodecli`    | Build for Node.js CLI execution                                                 |
+| `-typescript` | Generate TypeScript declarations                                                |
+| `-npm`        | Write package.json to output directory                                          |
+| `-nodemodule` | Export classes as Node.js modules                                               |
+| `-strict`     | Strict mode for optionals                                                       |
+| `-copysrc`    | Copy source files to output directory                                           |
 
 ### Target Language Notes
 
 #### JavaScript/TypeScript (es6)
+
 - Most mature target with full feature support
 - Use `-typescript` flag for type annotations
 
 #### Python
+
 - Avoid variable names that shadow builtins: `str`, `list`, `int`, `dict`, `len`, `type`
 - Static methods use `@staticmethod` decorator
 - Inheritance with parameterized constructors has issues (see ISSUES.md)
 
 #### Go
+
 - Integer division to double requires explicit conversion with `int2double`
 - Some fixtures have duplicate constructor assignments (cosmetic issue)
 
 #### Rust (Preliminary)
+
 - Structs get `#[derive(Clone)]` automatically
 - String literals become `.to_string()` for `String` type
 - Methods use `&mut self` for mutability
@@ -1001,6 +1005,7 @@ node bin/output.js -es6 ./myfile.clj -o=myfile.js
 - Smart mutability: `let` vs `let mut` based on usage
 
 #### Java, Swift, C#, Scala, PHP, C++
+
 - Good support for most features
 - Some language-specific edge cases may exist
 
@@ -1058,6 +1063,7 @@ npm run test:watch
 ```
 
 Test fixtures are in `tests/fixtures/` and cover:
+
 - Array operations (`array_push.clj`, `local_array.clj`, `class_array.clj`)
 - Classes and constructors (`static_factory.clj`, `many_factories.clj`, `two_classes.clj`)
 - Control flow (`while_loop.clj`, `ternary_factory.clj`)
@@ -1071,6 +1077,7 @@ Test fixtures are in `tests/fixtures/` and cover:
 ### Known Issues Reference
 
 See `ISSUES.md` for a comprehensive list of known issues including:
+
 - Method naming conflicts (`toString` crash)
 - Target-specific limitations (Go integer division, Python builtins)
 - Resolved issues with their fixes
