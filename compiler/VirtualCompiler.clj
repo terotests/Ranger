@@ -505,6 +505,7 @@ class tester {
       flowParser.CollectMethods (node appCtx (unwrap wr))
       if ( ( array_length appCtx.compilerErrors ) > 0 ) {
         VirtualCompiler.displayCompilerErrors(appCtx)
+        exit 1
         return res
       }
 
@@ -742,6 +743,9 @@ class tester {
         }
       
         VirtualCompiler.displayCompilerErrors(appCtx)
+        if ( ( array_length appCtx.compilerErrors ) > 0 ) {
+          exit 1
+        }
 
         if_javascript {
           def ppList (appCtx.findPluginsFor('postprocess'))
@@ -763,14 +767,17 @@ class tester {
       if(lcc.lastProcessedNode) {
         print "Got compiler error close to"
         print (lcc.lastProcessedNode.getLineAsString())
+        exit 1
         return res
       }
       if(flowParser.lastProcessedNode) {
         print "Got compiler error close to"
         print (flowParser.lastProcessedNode.getLineAsString())
+        exit 1
         return res
       }
-      print "Got unknown compiler error"      
+      print "Got unknown compiler error"
+      exit 1
     }
     
     return res

@@ -16,6 +16,9 @@ data_folder/
 # TypeScript compiled .map files
 *.map  
 
+# Test output directory
+tests/.output/
+
 # Seems to work ok...
 
 
