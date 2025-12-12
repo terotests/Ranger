@@ -185,4 +185,3 @@ node bin/output.js -l=go myfile.clj -o=myfile.go
 
 # Always specify full output filename with extension!
 ```
-

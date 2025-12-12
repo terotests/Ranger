@@ -24,21 +24,21 @@ Add Python as a new compilation target for the Ranger compiler. Python is simila
 
 ## Python vs Other Languages Comparison
 
-| Feature | PHP | Python | JavaScript |
-|---------|-----|--------|------------|
-| Variable prefix | `$var` | `var` | `var`/`let` |
-| String concat | `.` | `+` | `+` |
-| Array literal | `array()` | `[]` | `[]` |
-| Hash/Dict literal | `array()` | `{}` | `{}` |
-| Class definition | `class Foo {}` | `class Foo:` | `class Foo {}` |
-| Method `this` | `$this->` | `self.` | `this.` |
-| Constructor | `__construct()` | `__init__(self)` | `constructor()` |
-| Block delimiters | `{ }` | `:` + indent | `{ }` |
-| Statement terminator | `;` | newline | `;` |
-| Print | `echo` | `print()` | `console.log()` |
-| Null | `null` | `None` | `null` |
-| Boolean | `true/false` | `True/False` | `true/false` |
-| Import | `require` | `import` | `import` |
+| Feature              | PHP             | Python           | JavaScript      |
+| -------------------- | --------------- | ---------------- | --------------- |
+| Variable prefix      | `$var`          | `var`            | `var`/`let`     |
+| String concat        | `.`             | `+`              | `+`             |
+| Array literal        | `array()`       | `[]`             | `[]`            |
+| Hash/Dict literal    | `array()`       | `{}`             | `{}`            |
+| Class definition     | `class Foo {}`  | `class Foo:`     | `class Foo {}`  |
+| Method `this`        | `$this->`       | `self.`          | `this.`         |
+| Constructor          | `__construct()` | `__init__(self)` | `constructor()` |
+| Block delimiters     | `{ }`           | `:` + indent     | `{ }`           |
+| Statement terminator | `;`             | newline          | `;`             |
+| Print                | `echo`          | `print()`        | `console.log()` |
+| Null                 | `null`          | `None`           | `null`          |
+| Boolean              | `true/false`    | `True/False`     | `true/false`    |
+| Import               | `require`       | `import`         | `import`        |
 
 ## Files to Create/Modify
 
@@ -64,7 +64,7 @@ class RangerPythonClassWriter {
   def compiler:LiveCompiler
   def thisName:string "self"
   def wrote_header:boolean false
-  
+
   ; Core methods to implement:
   fn adjustType:string (tn:string)
   fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)
@@ -89,7 +89,7 @@ class RangerPythonClassWriter {
 class Dog(Animal):
     def __init__(self, name):
         self.name = name
-    
+
     def speak(self):
         return "Woof!"
 
@@ -266,11 +266,13 @@ get hashGet:<optional>V (obj:[K:V] key:K) {
 ### 5.1 Indentation-Based Blocks
 
 Python uses indentation instead of braces. The `CodeWriter` class needs to:
+
 - Track indentation level
 - Output proper indentation for each line
 - Handle block entry/exit correctly
 
 Key pattern:
+
 ```python
 if condition:
     # indented block
@@ -282,12 +284,14 @@ if condition:
 ### 5.2 No Statement Terminator
 
 Python doesn't use semicolons. Need to ensure:
+
 - No `;` after statements
 - Proper newlines between statements
 
 ### 5.3 Self Reference
 
 Python uses `self` explicitly in method definitions and member access:
+
 ```python
 def method(self, arg):
     self.member = arg
@@ -296,6 +300,7 @@ def method(self, arg):
 ### 5.4 Optional Values
 
 Python has `None` instead of `null`. Optional handling:
+
 ```python
 if value is not None:
     # use value
@@ -310,11 +315,11 @@ if value is not None:
 ```ranger
 class Greeter {
     def name:string ""
-    
+
     Constructor (n:string) {
         name = n
     }
-    
+
     fn greet:string () {
         return "Hello, " + name
     }
@@ -335,7 +340,7 @@ class Greeter:
     def __init__(self, n):
         self.name = ""
         self.name = n
-    
+
     def greet(self):
         return "Hello, " + self.name
 
@@ -354,6 +359,7 @@ if __name__ == "__main__":
 ### 7.1 Test Helper Updates
 
 Add to `tests/helpers/compiler.ts`:
+
 - `compileRangerToPython()`
 - `runCompiledPython()`
 - `compileAndRunPython()`
@@ -366,6 +372,7 @@ Create `tests/compiler-python.test.ts` with same fixtures as Go tests.
 ### 7.3 CI Updates
 
 Add Python job to `.github/workflows/ci.yml`:
+
 ```yaml
 test-python:
   runs-on: ubuntu-latest
@@ -374,7 +381,7 @@ test-python:
     - uses: actions/setup-node@v4
     - uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: "3.11"
     - run: npm ci
     - run: npm run test:python
 ```
@@ -383,15 +390,15 @@ test-python:
 
 ## Estimated Effort
 
-| Phase | Time Estimate |
-|-------|---------------|
-| Phase 1: Class Writer | 4-6 hours |
-| Phase 2: Register Language | 15 min |
-| Phase 3: Lang.clj Templates | 2-3 hours |
-| Phase 4: Implementation | 4-6 hours |
-| Phase 5: Handle Edge Cases | 2-3 hours |
-| Phase 6: Testing | 2 hours |
-| **Total** | **~15-20 hours** |
+| Phase                       | Time Estimate    |
+| --------------------------- | ---------------- |
+| Phase 1: Class Writer       | 4-6 hours        |
+| Phase 2: Register Language  | 15 min           |
+| Phase 3: Lang.clj Templates | 2-3 hours        |
+| Phase 4: Implementation     | 4-6 hours        |
+| Phase 5: Handle Edge Cases  | 2-3 hours        |
+| Phase 6: Testing            | 2 hours          |
+| **Total**                   | **~15-20 hours** |
 
 ---
 

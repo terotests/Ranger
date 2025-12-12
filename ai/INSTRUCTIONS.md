@@ -889,7 +889,7 @@ node bin/output.js -l=es6 ./myfile.clj -o=./output/myfile.js -nodecli
 # For Python target
 node bin/output.js -l=python ./myfile.clj -o=./output/myfile.py
 
-# For Go target  
+# For Go target
 node bin/output.js -l=go ./myfile.clj -o=./output/myfile.go
 ```
 
@@ -909,34 +909,34 @@ node bin/output.js -es6 ./myfile.clj -o=myfile.js
 
 #### File Extension Reference
 
-| Language Flag | Extension | Example Output |
-|---------------|-----------|----------------|
-| `-l=es6` or `-es6` | .js | myfile.js |
-| `-l=es6` + `-typescript` | .ts | myfile.ts |
-| `-l=python` | .py | myfile.py |
-| `-l=go` | .go | myfile.go |
-| `-l=java7` | .java | myfile.java |
-| `-l=swift3` | .swift | myfile.swift |
-| `-l=php` | .php | myfile.php |
-| `-l=csharp` | .cs | myfile.cs |
-| `-l=scala` | .scala | myfile.scala |
-| `-l=cpp` | .cpp | myfile.cpp |
-| `-l=kotlin` | .kt | myfile.kt |
+| Language Flag            | Extension | Example Output |
+| ------------------------ | --------- | -------------- |
+| `-l=es6` or `-es6`       | .js       | myfile.js      |
+| `-l=es6` + `-typescript` | .ts       | myfile.ts      |
+| `-l=python`              | .py       | myfile.py      |
+| `-l=go`                  | .go       | myfile.go      |
+| `-l=java7`               | .java     | myfile.java    |
+| `-l=swift3`              | .swift    | myfile.swift   |
+| `-l=php`                 | .php      | myfile.php     |
+| `-l=csharp`              | .cs       | myfile.cs      |
+| `-l=scala`               | .scala    | myfile.scala   |
+| `-l=cpp`                 | .cpp      | myfile.cpp     |
+| `-l=kotlin`              | .kt       | myfile.kt      |
 
 ### Compiler Options
 
-| Option        | Description                      |
-| ------------- | -------------------------------- |
+| Option        | Description                                                                       |
+| ------------- | --------------------------------------------------------------------------------- |
 | `-l=<lang>`   | Target language (python, go, java7, swift3, cpp, php, csharp, scala, kotlin, es6) |
-| `-es6`        | Target ES6 JavaScript (shorthand for -l=es6) |
-| `-d=<dir>`    | Output directory (⚠️ may not work reliably) |
-| `-o=<name>`   | Output filename (⚠️ always include extension) |
-| `-nodecli`    | Build for Node.js CLI execution  |
-| `-typescript` | Generate TypeScript declarations |
-| `-npm`        | Write package.json to output directory |
-| `-nodemodule` | Export classes as Node.js modules |
-| `-strict`     | Strict mode for optionals |
-| `-copysrc`    | Copy source files to output directory |
+| `-es6`        | Target ES6 JavaScript (shorthand for -l=es6)                                      |
+| `-d=<dir>`    | Output directory (⚠️ may not work reliably)                                       |
+| `-o=<name>`   | Output filename (⚠️ always include extension)                                     |
+| `-nodecli`    | Build for Node.js CLI execution                                                   |
+| `-typescript` | Generate TypeScript declarations                                                  |
+| `-npm`        | Write package.json to output directory                                            |
+| `-nodemodule` | Export classes as Node.js modules                                                 |
+| `-strict`     | Strict mode for optionals                                                         |
+| `-copysrc`    | Copy source files to output directory                                             |
 
 ### Recompiling the Ranger Compiler Itself
 
@@ -972,4 +972,3 @@ The compiler now exits with proper exit codes:
 - `1` - Compilation failed (syntax error, type error, or internal error)
 
 This allows integration with build systems and CI/CD pipelines.
-
