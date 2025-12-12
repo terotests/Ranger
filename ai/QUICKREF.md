@@ -9,6 +9,7 @@
 -l=rust       # Rust (preliminary)
 -l=java7      # Java 7+
 -l=swift3     # Swift 3+
+-l=swift6     # Swift 6 (modern entry point)
 -l=csharp     # C# 7+
 -l=cpp        # C++14
 -l=scala      # Scala 2.x

@@ -45,6 +45,9 @@ class LiveCompiler {
       case "swift3" {
         langWriter = (new RangerSwift3ClassWriter ())
       }
+      case "swift6" {
+        langWriter = (new RangerSwift6ClassWriter ())
+      }
       case "kotlin" {
         langWriter = (new RangerKotlinClassWriter ())
       }

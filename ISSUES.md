@@ -280,6 +280,7 @@ node bin/output.js -l=python tests/fixtures/array_push.clj -o=array_push.py
 | es6              | .js       |
 | es6 + typescript | .ts       |
 | swift3           | .swift    |
+| swift6           | .swift    |
 | php              | .php      |
 | csharp           | .cs       |
 | java7            | .java     |

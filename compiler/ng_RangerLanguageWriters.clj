@@ -2,6 +2,7 @@
 Import "ng_RangerGenericClassWriter.clj"
 Import "ng_RangerJava7ClassWriter.clj"
 Import "ng_RangerSwift3ClassWriter.clj"
+Import "ng_RangerSwift6ClassWriter.clj"
 Import "ng_RangerCppClassWriter.clj"
 Import "ng_RangerRustClassWriter.clj"
 Import "ng_RangerKotlinClassWriter.clj"

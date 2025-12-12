@@ -15,7 +15,8 @@ The syntax is based on Lisp with S-expressions but uses curly braces `{ }` for b
 | Python     | `-l=python`        | `.py`            | Good support    |
 | Go         | `-l=go`            | `.go`            | Good support    |
 | Java       | `-l=java7`         | `.java`          | Good support    |
-| Swift      | `-l=swift3`        | `.swift`         | Good support    |
+| Swift 3    | `-l=swift3`        | `.swift`         | Good support    |
+| Swift 6    | `-l=swift6`        | `.swift`         | Good support    |
 | C#         | `-l=csharp`        | `.cs`            | Good support    |
 | C++        | `-l=cpp`           | `.cpp`           | Partial support |
 | Scala      | `-l=scala`         | `.scala`         | Good support    |
