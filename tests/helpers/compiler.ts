@@ -72,7 +72,9 @@ export function compileRanger(
     };
 
     // Convert targetDir to relative path for the compiler (it prepends cwd internally)
-    const relativeTargetDir = path.relative(ROOT_DIR, targetDir).replace(/\\/g, "/");
+    const relativeTargetDir = path
+      .relative(ROOT_DIR, targetDir)
+      .replace(/\\/g, "/");
 
     // Use relative source path for compiler
     const cmd = `node "${OUTPUT_JS}" -es6 "${sourcePath}" -nodecli -d="${relativeTargetDir}" -o="${outputFile}"`;

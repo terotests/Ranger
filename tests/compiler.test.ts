@@ -131,9 +131,7 @@ describe("Ranger Compiler - Basic Features", () => {
 
   describe("Inheritance", () => {
     it("should compile and run classes with inheritance", () => {
-      const { compile, run } = compileAndRun(
-        `${FIXTURES_DIR}/inheritance.clj`
-      );
+      const { compile, run } = compileAndRun(`${FIXTURES_DIR}/inheritance.clj`);
 
       expect(
         compile.success,
