@@ -331,15 +331,22 @@ This document provides a formal grammar specification for the Ranger language.
 
 ### String Operations
 
-| Operator    | Signature                               | Description            |
-| ----------- | --------------------------------------- | ---------------------- |
-| `strlen`    | `_:int (s:string)`                      | String length          |
-| `substring` | `_:string (s:string start:int end:int)` | Get substring          |
-| `charAt`    | `_:int (s:string idx:int)`              | Get char code at index |
-| `at`        | `_:string (s:string idx:int)`           | Get char at index      |
-| `strsplit`  | `_:[string] (s:string delim:string)`    | Split string           |
-| `trim`      | `_:string (s:string)`                   | Trim whitespace        |
-| `indexOf`   | `_:int (s:string sub:string)`           | Find substring         |
+| Operator       | Signature                                   | Description               |
+| -------------- | ------------------------------------------- | ------------------------- |
+| `strlen`       | `_:int (s:string)`                          | String length             |
+| `substring`    | `_:string (s:string start:int end:int)`     | Get substring             |
+| `charAt`       | `_:int (s:string idx:int)`                  | Get char code at index    |
+| `at`           | `_:string (s:string idx:int)`               | Get char at index         |
+| `strsplit`     | `_:[string] (s:string delim:string)`        | Split string              |
+| `trim`         | `_:string (s:string)`                       | Trim whitespace           |
+| `indexOf`      | `_:int (s:string sub:string)`               | Find substring            |
+| `startsWith`   | `_:boolean (s:string prefix:string)`        | Check if starts with      |
+| `endsWith`     | `_:boolean (s:string suffix:string)`        | Check if ends with        |
+| `contains`     | `_:boolean (s:string sub:string)`           | Check if contains         |
+| `replace`      | `_:string (s:string old:string new:string)` | Replace first occurrence  |
+| `to_uppercase` | `_:string (s:string)`                       | Convert to uppercase      |
+| `to_lowercase` | `_:string (s:string)`                       | Convert to lowercase      |
+| `join`         | `_:string (arr:[string] delim:string)`      | Join array with delimiter |
 
 ### Type Conversion
 
