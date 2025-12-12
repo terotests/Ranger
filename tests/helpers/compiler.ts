@@ -795,7 +795,7 @@ export function compileRangerToRust(
     });
 
     const outputPath = path.join(targetDir, outputFile);
-    
+
     // Check if file was created in target directory
     if (!fs.existsSync(outputPath)) {
       // The compiler may have placed it in the source directory or tests directory
@@ -807,7 +807,7 @@ export function compileRangerToRust(
         path.join(ROOT_DIR, "tests", "fixtures", "bin", outputFile),
         path.join(ROOT_DIR, outputFile),
       ];
-      
+
       for (const altPath of alternateLocations) {
         if (fs.existsSync(altPath)) {
           // Move file to target directory
@@ -817,7 +817,7 @@ export function compileRangerToRust(
         }
       }
     }
-    
+
     if (!fs.existsSync(outputPath)) {
       return {
         success: false,

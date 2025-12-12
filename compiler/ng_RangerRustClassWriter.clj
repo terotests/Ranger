@@ -2,6 +2,7 @@ class RangerRustClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def thisName:string "self"
+  def fileHeaderWritten:boolean false
   fn WriteScalarValue (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
@@ -238,10 +239,14 @@ class RangerRustClassWriter {
         wr.out("/** unused:  " false)
       }
       def map_or_hash:boolean ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash))
-      if (((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) {
+      ; In Rust, calling &mut self methods requires the variable to be mut
+      ; For now, always use mut for objects and arrays to avoid borrow issues
+      def needs_mut:boolean (((p.set_cnt > 0) || p.is_class_variable) || map_or_hash)
+      def is_object:boolean (nn.value_type == RangerNodeType.Object)
+      if (needs_mut || is_object) {
         wr.out((("let mut " + p.compiledName) + " : ") false)
       } {
-        wr.out((("let mut " + p.compiledName) + " : ") false)
+        wr.out((("let " + p.compiledName) + " : ") false)
       }
       def nameN:CodeNode (unwrap p.nameNode)
       this.writeTypeDef(nameN ctx wr)
@@ -357,6 +362,19 @@ class RangerRustClassWriter {
     }
     def cl:RangerAppClassDesc (unwrap ucl)
     def wr:CodeWriter orig_wr
+    
+    ; Write file header with allow directives for common warnings
+    if (fileHeaderWritten == false) {
+      wr.out("#![allow(unused_parens)]" true)
+      wr.out("#![allow(unused_mut)]" true)
+      wr.out("#![allow(unused_variables)]" true)
+      wr.out("#![allow(non_snake_case)]" true)
+      wr.out("#![allow(dead_code)]" true)
+      wr.out("" true)
+      fileHeaderWritten = true
+    }
+    
+    wr.out("#[derive(Clone)]" true)
     wr.out((("struct " + cl.name) + " { ") true)
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
@@ -499,6 +517,27 @@ class RangerRustClassWriter {
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    if (cmd == "return") {
+      def cnt:int (node.children.length())
+      if (cnt > 1) {
+        def retVal:CodeNode (node.getSecond())
+        wr.out("return " false)
+        ctx.setInExpr()
+        this.WalkNode(retVal ctx wr)
+        ctx.unsetInExpr()
+        ; Add .clone() for non-primitive types (String, objects, etc.) 
+        ; Check if the return value needs cloning based on its evaluated type
+        def tn:string retVal.eval_type_name
+        if ((tn == "string") || (retVal.eval_type == RangerNodeType.Object)) {
+          wr.out(".clone()" false)
+        }
+        wr.out(";" true)
+      } {
+        wr.out("return;" true)
+      }
+      return
+    }
 
     if (cmd == "push") {
       def left:CodeNode (node.getSecond())

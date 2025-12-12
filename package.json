@@ -35,6 +35,7 @@
     "gen:chess:rust": "cross-env RANGER_LIB=./compiler/Lang.clj node bin/output.js -l=rust ./generated/ChessBoard.clj -d=./generated/bin -o=chessboard.rs -nodecli",
     "gen:chess:rust:build": "npm run gen:chess:rust && rustc ./generated/bin/chessboard.rs -o ./generated/bin/chessboard.exe",
     "gen:chess:rust:run": "npm run gen:chess:rust:build && ./generated/bin/chessboard.exe",
+    "gen:chess:swift": "cross-env RANGER_LIB=./compiler/Lang.clj node bin/output.js -l=swift3 ./generated/ChessBoard.clj -d=./generated/bin -o=chessboard.swift -nodecli",
     "gen:all": "npm run gen:simple && npm run gen:chess",
     "gen:test": "npm run gen:simple:run"
   },

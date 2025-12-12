@@ -15543,6 +15543,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   constructor() {
     super()
     this.thisName = "self";
+    this.fileHeaderWritten = false;
   }
   WriteScalarValue (node, ctx, wr) {
     switch (node.value_type ) { 
@@ -15769,10 +15770,12 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         wr.out("/** unused:  ", false);
       }
       const map_or_hash = (nn.value_type == 6) || (nn.value_type == 7);
-      if ( ((p.set_cnt > 0) || p.is_class_variable) || map_or_hash ) {
+      const needs_mut = ((p.set_cnt > 0) || p.is_class_variable) || map_or_hash;
+      const is_object = nn.value_type == 10;
+      if ( needs_mut || is_object ) {
         wr.out(("let mut " + p.compiledName) + " : ", false);
       } else {
-        wr.out(("let mut " + p.compiledName) + " : ", false);
+        wr.out(("let " + p.compiledName) + " : ", false);
       }
       const nameN = p.nameNode;
       await this.writeTypeDef(nameN, ctx, wr);
@@ -15891,6 +15894,16 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
     const cl = ucl;
     const wr = orig_wr;
+    if ( this.fileHeaderWritten == false ) {
+      wr.out("#![allow(unused_parens)]", true);
+      wr.out("#![allow(unused_mut)]", true);
+      wr.out("#![allow(unused_variables)]", true);
+      wr.out("#![allow(non_snake_case)]", true);
+      wr.out("#![allow(dead_code)]", true);
+      wr.out("", true);
+      this.fileHeaderWritten = true;
+    }
+    wr.out("#[derive(Clone)]", true);
     wr.out(("struct " + cl.name) + " { ", true);
     wr.indent(1);
     for ( let i = 0; i < cl.variables.length; i++) {
@@ -16037,6 +16050,24 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   async CustomOperator (node, ctx, wr) {
     const fc = node.getFirst();
     const cmd = fc.vref;
+    if ( cmd == "return" ) {
+      const cnt = node.children.length;
+      if ( cnt > 1 ) {
+        const retVal = node.getSecond();
+        wr.out("return ", false);
+        ctx.setInExpr();
+        await this.WalkNode(retVal, ctx, wr);
+        ctx.unsetInExpr();
+        const tn = retVal.eval_type_name;
+        if ( (tn == "string") || (retVal.eval_type == 10) ) {
+          wr.out(".clone()", false);
+        }
+        wr.out(";", true);
+      } else {
+        wr.out("return;", true);
+      }
+      return;
+    }
     if ( cmd == "push" ) {
       const left = node.getSecond();
       const right = node.getThird();
