@@ -885,6 +885,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             templates {
                 java7 ( (custom _) )
                 scala( (custom _) )
+                rust ( (custom _) )
                 ranger ( nl "return " (e 1) nl ) 
                 go ( (custom _) )
                 * ( "return " (ifa 1 ";") (e 1) (eif _) ";" )
@@ -895,6 +896,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             templates {
                 ranger ( nl "return " (e 1) nl ) 
                 scala( (custom _ ) )
+                rust ( (custom _) )
                 go ( (custom _) )
                 * ( "return " (ifa 1 ";") (e 1) (eif _) ";" )
             }
@@ -984,6 +986,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 go ( (e 1) " + " (e 2) ) 
                 go.v2 ( "strings.Join([]string{ " (e 1) "," (e 2) " }, \"\")" (imp "strings"))
                 php ( (e 1) " . " (e 2) )
+                rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
                 * ( (e 1) " + " (e 2) ) 
             } 
         }
@@ -1028,8 +1031,10 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             }
 
         +               cmdPlusOp:string             ( left:int right:string    ) { 
-                    templates { * ( (e 1) " + " (e 2) ) 
+                    templates { 
+                    rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
                     php ( (e 1) " . " (e 2) ) 
+                    * ( (e 1) " + " (e 2) ) 
                     } }
 
 
@@ -1055,6 +1060,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 cpp ( '(' (e 1) " ? " (e 2) " : " (e 3) ')' ) 
                 scala ( '( if (' (e 1) ")  " (e 2) " else " (e 3) ')' ) 
                 python ( '(' (e 2) " if " (e 1) " else " (e 3) ')' ) 
+                rust ( 'if ' (e 1) ' { ' (e 2) ' } else { ' (e 3) ' }' )
                 * ( (e 1) " ? " (e 2) " : " (e 3) ) 
             } 
         }
@@ -1207,23 +1213,27 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         if              cmdIf:void              ( condition:boolean then_block:block else@(keyword) else_block:block )  {
             templates {
+                rust @macro(true) ('if ' (e 1) ' { ' (block 2)' } else { '(block 4) ' }' )
                 * @macro(true) ('if (' (e 1) ' ) { ' (block 2)' } { '(block 4) ' }' )
             }
         }        
         if!              cmdIf:void              ( condition:boolean then_block:block else@(keyword) else_block:block )  {
             templates {
+                rust @macro(true) ('if false == ' (e 1) ' { ' (block 2)' } else { '(block 4) ' }' )
                 * @macro(true) ('if (false == (' (e 1) ' ) ) { ' (block 2)' } { '(block 4) ' }' )
             }
         }        
 
         if!              cmdIf:void              ( condition:boolean then_block:block else_block:block )  {
             templates {
+                rust @macro(true) ('if false == ' (e 1) ' { ' (block 2)' } else { '(block 3) ' }' )
                 * @macro(true) ('if (false == (' (e 1) ' ) ) { ' (block 2)' } { '(block 3) ' }' )
             }
         }        
 
         if!              cmdIf:void              ( condition:boolean then_block:block )  {
             templates {
+                rust @macro(true) ('if false == ' (e 1) ' { ' (block 2) ' } ' )
                 * @macro(true) ('if (false == (' (e 1) ' ) ) { ' (block 2) ' } ' )
             }
         }        
@@ -1447,6 +1457,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     (imp "scala.util.control._")
                 )
                 python ( "while " (e 1) ":" nl I (block 2) i nl )
+                rust ( "while " (e 1) " {" nl I (block 2) i nl "}" )
                 * ( "while (" (e 1) ") {" nl I (block 2) i nl "}" )
             }
         }
@@ -2491,7 +2502,7 @@ i "}" nl ))
             templates {
                 ranger ( "set " (e 1) " " (e 2) " " (e 3) )                
                 java7 ( (e 1) ".set(" (e 2) ", " (e 3) ");" )
-                rust ( (e 1) ".insert(" (e 2) ", " (e 3) ");" )
+                rust ( (e 1) "[" (e 2) " as usize] = " (e 3) ";" )
                 scala ( (e 1) "(" (e 2) ") =  " (e 3)  )
                 kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
@@ -2532,7 +2543,8 @@ i "}" nl ))
                  cpp ( (e 1) ".at(" (e 2) ")" (imp "<vector>"))   
                  java7 ( (e 1) ".get(" (e 2) ")" )                                 
                  ; lift return optional type => safer                             
-                 scala ( (e 1) "(" (e 2) ")" )  
+                 scala ( (e 1) "(" (e 2) ")" )
+                 rust ( (e 1) "[" (e 2) " as usize].clone()" )
                  * ( (e 1) "[" (e 2) "]" )                                              
             }
         }
@@ -2714,7 +2726,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  go( (e 1 ) " = append(" (e 1) "[:" (e 2) "], append(" (typeof 1) "{" (e 3) "}, " (e 1) "[" (e 2) ":]...)...)")   
                  php ( "array_splice(" (e 1) ", " (e 2) ", 0, " (e 3) ");")
                  python ( (e 1) ".insert(" (e 2) ", " (e 3) ")" )
-
+                 rust ( (e 1) ".insert(" (e 2) " as usize, " (e 3) ");")
             }
         }      
         
@@ -2738,6 +2750,16 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  kotlin ( (e 1) ".add(" (e 2) ");" )
                  csharp ( (e 1) ".Add(" (e 2) ");" ) 
                  scala ( (e 1) ".append(" (e 2) ")" )
+                 rust ( (custom _) )
+                 rust ( (e 1) ".push(" (e 2) ");" )
+                 * ( (e 1) ".push(" (e 2) ");" )                                              
+            }
+        }
+
+        ; push for string arrays in Rust - converts &str to String
+        pushString    cmdPushString@(moves@( 2 1 ) ):void  ( array@(mutates):[string] item:string ) { 
+            templates {
+                rust ( (e 1) ".push(" (e 2) ".to_string());" )
                  * ( (e 1) ".push(" (e 2) ");" )                                              
             }
         }

@@ -54,6 +54,9 @@ class LiveCompiler {
       case "python" {
         langWriter = (new RangerPythonClassWriter ())
       }
+      case "rust" {
+        langWriter = (new RangerRustClassWriter ())
+      }
       case "cpp" {
         langWriter = (new RangerCppClassWriter())
       }

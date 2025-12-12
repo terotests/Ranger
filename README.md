@@ -11,9 +11,69 @@ class extensions, type inference and can integrate with host system API's using 
 The compiler is _self hosting_ which means that it has been written using the compiler itself and thus it can be hosted
 on several platforms. At the moment the official platform is node.js, because external plugins are only available as npm packages.
 
-The target languages supported are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`, and `Python`. The quality
+The target languages supported are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`, `Python`, and `Rust`. The quality
 of the target translation still varies and at the moment of this writing the compiler can only be compiled fully to JavaSript
 target. However, most targets already can compile reasonably good code.
+
+## Recent Updates (December 2025)
+
+### Rust Target Support (Preliminary)
+
+The Rust target (`-l=rust`) now has preliminary support with the following features:
+
+- Classes compiled to structs with `impl` blocks
+- Constructors as `pub fn new()` returning owned structs
+- Static factory methods
+- Instance methods with `&mut self`
+- Proper String handling with `.to_string()` for literals
+- Array operations (`push`, `itemAt`, `set`) with `Vec<T>`
+- String concatenation using `format!` macro
+- Ternary expressions as `if/else` expressions
+- Automatic `#[derive(Clone)]` for structs
+- Smart mutability detection (`let` vs `let mut`)
+
+Example compilation:
+
+```bash
+ranger-compiler -l=rust myfile.clj -o=myfile.rs
+rustc myfile.rs -o myfile
+```
+
+### Unit Test Suite
+
+A comprehensive test suite has been added using Vitest:
+
+```bash
+npm test              # Run all tests
+npm run test:es6      # JavaScript/ES6 tests only
+npm run test:python   # Python target tests
+npm run test:go       # Go target tests
+npm run test:rust     # Rust target tests
+```
+
+Test coverage includes:
+
+- **ES6/JavaScript**: Full runtime tests (array operations, classes, inheritance, string operations, math, etc.)
+- **Python**: Compilation and runtime tests with pytest
+- **Go**: Compilation and runtime tests
+- **Rust**: Compilation tests (runtime tests in progress)
+
+### Known Issues
+
+See `ISSUES.md` for a comprehensive list of known issues and their status. Key issues include:
+
+- `toString` method name causes compiler crash (use `getSymbol` or similar instead)
+- Go target has integer division type conversion issues
+- Python target has inheritance constructor argument issues
+
+### AI Documentation
+
+The `ai/` folder contains documentation optimized for AI assistants:
+
+- `INSTRUCTIONS.md` - Complete language guide
+- `EXAMPLES.md` - Code examples for common patterns
+- `GRAMMAR.md` - Formal grammar reference
+- `QUICKREF.md` - Quick reference card
 
 ## Installing the compiler
 
@@ -163,6 +223,8 @@ Currently the compiler supports at least following language versions:
 - Golang version 1.8
 - Scala 2.xx
 - CSharp 7.0
+- Python 3.x
+- Rust (preliminary support, 2021 edition)
 
 However, it is possible to add support for older versions by implementing custom operators, which target to certain compiler flags.
 

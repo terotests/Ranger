@@ -128,7 +128,7 @@ class tester {
 
     this.envObj = env
 
-    def allowed_languages:[string] ([] "es6" "go" "scala" "java7" "swift3" "cpp" "php" "csharp" "python" )
+    def allowed_languages:[string] ([] "es6" "go" "scala" "java7" "swift3" "cpp" "php" "csharp" "python" "rust" )
     def params (unwrap env.commandLine)
 
     def the_file ""
@@ -348,9 +348,9 @@ class tester {
     } 
     set comp_attrs "o" the_target
 
-    def outDir (params.getParam("d"))
-    if(!null? outDir) {
-      the_target_dir = ((current_directory env) + "/"  + (unwrap outDir))  ; (shell_arg 3)
+    def dirParam (params.getParam("d"))
+    if(!null? dirParam) {
+      the_target_dir = ((current_directory env) + "/"  + (unwrap dirParam))  ; (shell_arg 3)
     } 
     the_target_dir = (normalize the_target_dir)
     set comp_attrs "d" the_target_dir
@@ -399,42 +399,67 @@ class tester {
     set appCtx.compilerSettings "l" the_lang
 
     if( the_target == "output") {
-
       def root_parts (strsplit root_file ".")
       if( (array_length root_parts) == 2) {
         the_target = (itemAt root_parts 0)
       }
+    }
 
-      switch the_lang {
-        case "es6" {
-          the_target = the_target + ".js"
-          if( appCtx.hasCompilerFlag( "typescript") ) {
-            the_target = the_target + ".ts"
+    ; Add file extension based on language
+    switch the_lang {
+      case "es6" {
+        if( false == (endsWith the_target ".js")) {
+          if( false == (endsWith the_target ".ts")) {
+            the_target = the_target + ".js"
+            if( appCtx.hasCompilerFlag( "typescript") ) {
+              the_target = the_target + ".ts"
+            }
           }
         }
-        case "swift3" {
+      }
+      case "swift3" {
+        if( false == (endsWith the_target ".swift")) {
           the_target = the_target + ".swift"
         }
-        case "php" {
+      }
+      case "php" {
+        if( false == (endsWith the_target ".php")) {
           the_target = the_target + ".php"
         }
-        case "csharp" {
+      }
+      case "csharp" {
+        if( false == (endsWith the_target ".cs")) {
           the_target = the_target + ".cs"
         }
-        case "java7" {
+      }
+      case "java7" {
+        if( false == (endsWith the_target ".java")) {
           the_target = the_target + ".java"
         }
-        case "go" {
+      }
+      case "go" {
+        if( false == (endsWith the_target ".go")) {
           the_target = the_target + ".go"
         }
-        case "scala" {
+      }
+      case "scala" {
+        if( false == (endsWith the_target ".scala")) {
           the_target = the_target + ".scala"
         }
-        case "cpp" {
+      }
+      case "cpp" {
+        if( false == (endsWith the_target ".cpp")) {
           the_target = the_target + ".cpp"
         }
-        case "python" {
+      }
+      case "python" {
+        if( false == (endsWith the_target ".py")) {
           the_target = the_target + ".py"
+        }
+      }
+      case "rust" {
+        if( false == (endsWith the_target ".rs")) {
+          the_target = the_target + ".rs"
         }
       }
     }

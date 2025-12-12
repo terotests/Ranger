@@ -180,7 +180,7 @@ The `/` operator for integers in `Lang.clj` returns `double` conceptually, but t
 
 ### Affected Targets
 
-- Go (`-l=go`) - ❌ Fails
+- Go (`-l=go`)
 - ES6 JavaScript (`-es6`) - ✅ Works
 - Other targets - Not tested
 
@@ -483,3 +483,167 @@ Use explicit type conversions in Ranger source code:
 ```ranger
 def result:double ((int2double a) / (int2double b))
 ```
+
+---
+
+## Issue #10: Rust target - String literals vs String type mismatch
+
+**Status:** Fixed  
+**Severity:** High  
+**Found:** December 12, 2025
+
+### Description
+
+The Rust code generator outputs string literals (`"hello"`) where owned `String` types are expected. In Rust, `"hello"` is a `&str` (string slice), but `Vec<String>` and `String` fields require owned `String` values.
+
+### Resolution
+
+Fixed comprehensively - see Issue #13 for full details. Key fixes:
+
+- Added `.to_string()` to all string literals in `WriteScalarValue`
+- Added custom `push` operator handling for string arrays
+- String concatenation now uses `format!` macro
+
+---
+
+## Issue #11: Rust target - Many fixtures fail to compile
+
+**Status:** Fixed  
+**Severity:** High  
+**Found:** December 12, 2025
+
+### Description
+
+Most Ranger fixtures failed to compile to Rust due to missing templates and incomplete class writer implementation.
+
+### Resolution
+
+Fixed comprehensively - see Issue #13 for the full list of 15 fixes applied. The ChessBoard demo now compiles and runs successfully, demonstrating:
+
+- Classes with constructors
+- Static factory methods
+- Instance methods with `&mut self`
+- String operations and concatenation
+- Array operations (push, itemAt, set)
+- While loops
+- Ternary expressions
+- Object instantiation and method calls
+
+---
+
+## Issue #12: File extension double-added with default output name
+
+**Status:** Fixed  
+**Severity:** Low  
+**Found:** December 12, 2025
+
+### Description
+
+When using `-o=output.js` explicitly, the file extension was added twice, resulting in `output.js.js`.
+
+### Resolution
+
+Added `endsWith` check in `compiler/VirtualCompiler.clj` before appending file extension:
+
+```ranger
+if ((endsWith the_target ".js") == false)
+    the_target = the_target + ".js"
+```
+
+The fix ensures extensions are only added when not already present.
+
+---
+
+## Issue #13: Rust target - Comprehensive Rust Code Generation Fixes
+
+**Status:** Fixed  
+**Severity:** High  
+**Found:** December 12, 2025  
+**Fixed:** December 12, 2025
+
+### Description
+
+Multiple issues prevented Rust code from compiling. After systematic fixes, the ChessBoard demo now compiles and runs successfully.
+
+### Fixes Applied
+
+#### 1. Ternary Operator (Lang.clj)
+
+**Problem:** Rust doesn't have a `? :` ternary operator like JavaScript.  
+**Fix:** Added Rust template using `if/else` expression syntax.
+
+```ranger
+rust ( 'if ' (e 1) ' { ' (e 2) ' } else { ' (e 3) ' }' )
+```
+
+#### 2. Function Calls as Arguments (ng_RangerRustClassWriter.clj)
+
+**Problem:** Extra semicolons added when function calls were used as arguments.  
+**Fix:** Added `ctx.setInExpr()/unsetInExpr()` around argument walking in `writeFnCall`.
+
+#### 3. Constructor `this` vs `me` (ng_RangerRustClassWriter.clj)
+
+**Problem:** Constructor used hardcoded `"self"` instead of `thisName` variable (`me`).  
+**Fix:** Changed `WriteVRef` to use the `thisName` variable consistently.
+
+#### 4. String Literal Initialization (ng_RangerRustClassWriter.clj)
+
+**Problem:** String literals (`"hello"`) are `&str` in Rust, not `String`.  
+**Fix:** Added `.to_string()` to all string literals in `WriteScalarValue`.
+
+#### 5. Primitive Type References (ng_RangerRustClassWriter.clj)
+
+**Problem:** Generated `&bool`, `&i64` instead of `bool`, `i64` for primitives.  
+**Fix:** Removed `&` prefix for primitive types in `writeArgsDef`.
+
+#### 6. Array Field Initialization (ng_RangerRustClassWriter.clj)
+
+**Problem:** Array fields in structs had no default initialization.  
+**Fix:** Added `Vec::new()` for array fields without defaults in struct initialization.
+
+#### 7. Method Self Reference (ng_RangerRustClassWriter.clj)
+
+**Problem:** Used `&self` which doesn't allow mutation.  
+**Fix:** Changed all methods to use `&mut self`.
+
+#### 8. String Concatenation (Lang.clj)
+
+**Problem:** Rust doesn't support `+` for string concatenation like JavaScript.  
+**Fix:** Added `format!` macro templates for string + string and int + string.
+
+```ranger
+rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
+```
+
+#### 9. Array Indexing (Lang.clj)
+
+**Problem:** Array indices must be `usize`, not `i64`. Also needed `.clone()` for non-Copy types.  
+**Fix:** Added `as usize` conversion and `.clone()` for `itemAt` operator.
+
+```ranger
+rust ( (e 1) "[" (e 2) " as usize].clone()" )
+```
+
+#### 10. Array Set Operator (Lang.clj)
+
+**Problem:** Used `.insert()` instead of index assignment for arrays.  
+**Fix:** Changed to proper array index assignment with `as usize`.
+
+```ranger
+rust ( (e 1) "[" (e 2) " as usize] = " (e 3) ";" )
+```
+
+#### 11. Clone Derive (ng_RangerRustClassWriter.clj)
+
+**Problem:** Structs couldn't be cloned when returned from methods.  
+**Fix:** Added `#[derive(Clone)]` before all struct definitions.
+
+#### 12. Return Statement Cloning (Lang.clj + ng_RangerRustClassWriter.clj)
+
+**Problem:** Returning String/Object fields moves them from `&mut self`.  
+**Fix:** Added `(custom _)` for Rust returns with `.clone()` for String/Object types.
+
+#### 13. While Loop Parentheses (Lang.clj)
+
+**Problem:** Rust warns about unnecessary parentheses in `while (condition)`.  
+**Fix:** Added Rust template without parentheses: `while condition {`.
