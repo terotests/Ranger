@@ -1,5 +1,5 @@
 class RangerRustClassWriter {
-  Extends RangerGenericClassWriter
+  Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def thisName:string "self"
   fn WriteScalarValue (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -9,7 +9,7 @@ class RangerRustClassWriter {
       }
       case RangerNodeType.String {
         def s:string (this.EncodeString(node ctx wr))
-        wr.out((("\"" + s) + "\"") false)
+        wr.out(((("\"" + s) + "\"") + ".to_string()") false)
       }
       case RangerNodeType.Integer {
         wr.out(("" + node.int_value) false)
@@ -37,10 +37,8 @@ class RangerRustClassWriter {
       case "double" {
         return "f64"
       }
-      default {
-        return type_string
-      }
     }
+    return type_string
   }
   fn getTypeString:string (type_string:string) {
     switch type_string {
@@ -56,16 +54,17 @@ class RangerRustClassWriter {
       case "double" {
         return "f64"
       }
-      default {
-        return type_string
-      }
     }
+    return type_string
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.hasFlag("optional")) {
       wr.out("Option<" false)
     }
-    def v_type:int node.value_type
+    def v_type:RangerNodeType node.value_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (node.typeNameAsType(ctx))
+    }
     if (node.eval_type != RangerNodeType.NoType) {
       v_type = node.eval_type
     }
@@ -111,22 +110,34 @@ class RangerRustClassWriter {
     }
   }
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (node.vref == "this") {
+      wr.out(thisName false)
+      return
+    }
+
     if (node.eval_type == RangerNodeType.Enum) {
-      def rootObjName:string (itemAt node.ns 0)
-      def enumName:string (itemAt node.ns 1)
-      def e:RangerAppEnum (ctx.getEnum(rootObjName))
-      if (!null? e) {
-        wr.out(("" + (get e.values enumName)) false)
-        return
+      if( (array_length node.ns) > 1) {
+        def rootObjName:string (itemAt node.ns 0)
+        def enumName:string (itemAt node.ns 1)
+        def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
+        if (!null? e) {
+          wr.out(("" + (unwrap (get e.values enumName))) false)
+          return
+        }
       }
     }
+
     if ((array_length node.nsp) > 0) {
       def had_static:boolean false
       for node.nsp p:RangerAppParamDesc i {
-        if (null? p) {
-          ctx.addError(node ("Invalid reference:" + (itemAt node.ns i)))
-          return
-        }
+        if (i == 0) {
+          def part:string (itemAt node.ns 0)
+          if(part == "this") {
+            wr.out(thisName false)
+            continue
+          } 
+        }        
+
         if (i > 0) {
           if had_static {
             wr.out("::" false)
@@ -134,18 +145,28 @@ class RangerRustClassWriter {
             wr.out("." false)
           }
         }
-        if ((strlen p.compiledName) > 0) {
-          wr.out((this.adjustType()) false)
-        } {
-          if ((strlen p.name) > 0) {
-            wr.out((this.adjustType()) false)
-          } {
-            wr.out((this.adjustType(itemAt node.ns i)) false)
-          }
-        }
         if (i == 0) {
           if (p.nameNode.hasFlag("optional")) {
-            wr.out("!" false)
+          }
+          def part:string (itemAt node.ns 0)
+          if ((part != "this") && (ctx.isMemberVariable(part))) {
+            def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+            def currC:RangerAppClassDesc (unwrap uc)
+            def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+            if (!null? up) {
+              if( false == (ctx.isInStatic()) ) {
+                wr.out((thisName + ".") false)
+              }               
+            }
+          }
+        }
+        if ((strlen p.compiledName) > 0) {
+          wr.out((this.adjustType(p.compiledName)) false)
+        } {
+          if ((strlen p.name) > 0) {
+            wr.out((this.adjustType(p.name)) false)
+          } {
+            wr.out((this.adjustType( (itemAt node.ns i))) false)
           }
         }
         if (p.isClass()) {
@@ -154,19 +175,24 @@ class RangerRustClassWriter {
       }
       return
     }
+
     if node.hasParamDesc {
       def part:string (itemAt node.ns 0)
-      if (part != "this") {
-        def currC:RangerAppClassDesc (ctx.getCurrentClass())
-        def p:RangerAppParamDesc (currC.findVariable(part))
-        if (!null? p) {
-          wr.out((thisName + ".") false)
+      if ((part != "this") && (ctx.isMemberVariable(part))) {
+        def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        def currC:RangerAppClassDesc (unwrap uc)
+        def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+        if (!null? up) {
+          if( false == (ctx.isInStatic()) ) {
+            wr.out((thisName + ".") false)
+          }
         }
       }
       def p:RangerAppParamDesc node.paramDesc
       wr.out(p.compiledName false)
       return
     }
+
     def b_was_static:boolean false
     for node.ns part:string i {
       if (i > 0) {
@@ -180,15 +206,18 @@ class RangerRustClassWriter {
         if (ctx.hasClass(part)) {
           b_was_static = true
         }
-        if (part != "this") {
-          def currC:RangerAppClassDesc (ctx.getCurrentClass())
-          def p:RangerAppParamDesc (currC.findVariable(part))
-          if (!null? p) {
-            wr.out((thisName + ".") false)
+        if ((part != "this") && (ctx.hasCurrentClass())) {
+          def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          def currC:RangerAppClassDesc (unwrap uc)
+          def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+          if (!null? up) {
+            if( false == (ctx.isInStatic()) ) {
+              wr.out((thisName + ".") false)
+            }
           }
         }
       }
-      wr.out((this.adjustType()) false)
+      wr.out((this.adjustType(part)) false)
     }
   }
   fn writeStructField (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -196,7 +225,8 @@ class RangerRustClassWriter {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       wr.out((p.compiledName + " : ") false)
-      this.writeTypeDef(p.nameNode ctx wr)
+      def nameN:CodeNode (unwrap p.nameNode)
+      this.writeTypeDef(nameN ctx wr)
       wr.out(", " true)
     }
   }
@@ -213,7 +243,8 @@ class RangerRustClassWriter {
       } {
         wr.out((("let mut " + p.compiledName) + " : ") false)
       }
-      this.writeTypeDef(p.nameNode ctx wr)
+      def nameN:CodeNode (unwrap p.nameNode)
+      this.writeTypeDef(nameN ctx wr)
       if ((array_length node.children) > 2) {
         wr.out(" = " false)
         ctx.setInExpr()
@@ -245,40 +276,52 @@ class RangerRustClassWriter {
         wr.out(", " false)
       }
       wr.out((arg.name + " : ") false)
-      wr.out("&" false)
-      this.writeTypeDef(arg.nameNode ctx wr)
+      def nameN:CodeNode (unwrap arg.nameNode)
+      this.writeTypeDef(nameN ctx wr)
     }
   }
   fn writeFnCall (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
       def part:string (itemAt fc.ns 0)
-      if (part != "this") {
-        def currC:RangerAppClassDesc (ctx.getCurrentClass())
-        def p:RangerAppParamDesc (currC.findVariable(part))
-        if (!null? p) {
-          wr.out((thisName + ".") false)
+      if ((part != "this") && (ctx.isMemberVariable(part))) {
+        def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        if (!null? uc) {
+          def currC:RangerAppClassDesc (unwrap uc)
+          def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+          if (!null? up) {
+            if( false == (ctx.isInStatic()) ) {
+              wr.out((thisName + ".") false)
+            }
+          }
         }
       }
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
       for node.fnDesc.params arg:RangerAppParamDesc i {
-        def n:CodeNode (itemAt givenArgs.children i)
+        def n@(optional):CodeNode (itemAt givenArgs.children i)
         if (i > 0) {
           wr.out(", " false)
         }
         if (null? n) {
-          def defVal:CodeNode (arg.nameNode.getFlag("default"))
+          def nameN:CodeNode (unwrap arg.nameNode)
+          def defVal@(optional):CodeNode (nameN.getFlag("default"))
           if (!null? defVal) {
-            def fc:CodeNode (defVal.vref_annotation.getFirst())
-            this.WalkNode(fc ctx wr)
+            def defV:CodeNode (unwrap defVal)
+            def fc2:CodeNode (defV.vref_annotation.getFirst())
+            ctx.setInExpr()
+            this.WalkNode(fc2 ctx wr)
+            ctx.unsetInExpr()
           } {
             ctx.addError(node "Default argument was missing")
           }
           continue _
         }
-        this.WalkNode(n ctx wr)
+        def nVal:CodeNode (unwrap n)
+        ctx.setInExpr()
+        this.WalkNode(nVal ctx wr)
+        ctx.unsetInExpr()
       }
       wr.out(")" false)
       if ((ctx.expressionLevel()) == 0) {
@@ -292,10 +335,11 @@ class RangerRustClassWriter {
       def fc:CodeNode (node.getSecond())
       wr.out(node.clDesc.name false)
       wr.out("::new(" false)
-      def constr:RangerAppFunctionDesc cl.constructor_fn
+      def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
       if (!null? constr) {
-        for constr.params arg:RangerAppParamDesc i {
+        def c:RangerAppFunctionDesc (unwrap constr)
+        for c.params arg:RangerAppParamDesc i {
           def n:CodeNode (itemAt givenArgs.children i)
           if (i > 0) {
             wr.out(", " false)
@@ -307,15 +351,17 @@ class RangerRustClassWriter {
     }
   }
   fn writeClass (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
-    def cl:RangerAppClassDesc node.clDesc
-    if (null? cl) {
+    def ucl@(optional):RangerAppClassDesc node.clDesc
+    if (null? ucl) {
       return
     }
+    def cl:RangerAppClassDesc (unwrap ucl)
     def wr:CodeWriter orig_wr
     wr.out((("struct " + cl.name) + " { ") true)
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
-      this.writeStructField(pvar.node ctx wr)
+      def pnode:CodeNode (unwrap pvar.node)
+      this.writeStructField(pnode ctx wr)
     }
     wr.indent(-1)
     wr.out("}" true)
@@ -325,13 +371,17 @@ class RangerRustClassWriter {
     wr.out("" true)
     wr.out("pub fn new(" false)
     if cl.has_constructor {
-      def constr:RangerAppFunctionDesc cl.constructor_fn
-      for constr.params arg:RangerAppParamDesc i {
-        if (i > 0) {
-          wr.out(", " false)
+      def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? constr) {
+        def c:RangerAppFunctionDesc (unwrap constr)
+        for c.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          wr.out((arg.name + " : ") false)
+          def nameN:CodeNode (unwrap arg.nameNode)
+          this.writeTypeDef(nameN ctx wr)
         }
-        wr.out((arg.name + " : ") false)
-        this.writeTypeDef(arg.nameNode ctx wr)
       }
     }
     wr.out(((") ->  " + cl.name) + " {") true)
@@ -340,42 +390,61 @@ class RangerRustClassWriter {
     wr.out((("let mut me = " + cl.name) + " { ") true)
     wr.indent(1)
     for cl.variables pvar:RangerAppParamDesc i {
-      def nn:CodeNode pvar.node
-      if ((array_length nn.children) > 2) {
-        def valueNode:CodeNode (itemAt nn.children 2)
-        wr.out((pvar.name + ":") false)
-        this.WalkNode(valueNode ctx wr)
-        wr.out(", " true)
-      } {
+      def nn@(optional):CodeNode pvar.node
+      if (!null? nn) {
+        def node:CodeNode (unwrap nn)
+        if ((array_length node.children) > 2) {
+          def valueNode:CodeNode (itemAt node.children 2)
+          wr.out((pvar.name + ":") false)
+          this.WalkNode(valueNode ctx wr)
+          wr.out(", " true)
+        } {
+          ; Initialize array fields with Vec::new()
+          if (pvar.isArray()) {
+            wr.out((pvar.name + ": Vec::new(), ") true)
+          }
+        }
       }
     }
     wr.indent(-1)
     wr.out("};" true)
     wr.newline()
     if cl.has_constructor {
-      def constr:RangerAppFunctionDesc cl.constructor_fn
-      def subCtx:RangerAppWriterContext constr.fnCtx
-      subCtx.is_function = true
-      this.WalkNode(constr.fnBody subCtx wr)
+      def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? constr) {
+        def c:RangerAppFunctionDesc (unwrap constr)
+        def subCtx@(optional):RangerAppWriterContext c.fnCtx
+        if (!null? subCtx) {
+          def sCtx:RangerAppWriterContext (unwrap subCtx)
+          sCtx.is_function = true
+          def fnB:CodeNode (unwrap c.fnBody)
+          this.WalkNode(fnB sCtx wr)
+        }
+      }
     }
     wr.out("return me;" true)
     wr.indent(-1)
     wr.out("}" true)
     thisName = "self"
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      if (variant.nameNode.hasFlag("main")) {
+      def vnn:CodeNode (unwrap variant.nameNode)
+      if (vnn.hasFlag("main")) {
         continue _
       }
       wr.out((("pub fn " + variant.name) + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(") -> " false)
-      this.writeTypeDef(variant.nameNode ctx wr)
+      this.writeTypeDef(vnn ctx wr)
       wr.out(" {" true)
       wr.indent(1)
       wr.newline()
-      def subCtx:RangerAppWriterContext variant.fnCtx
-      subCtx.is_function = true
-      this.WalkNode(variant.fnBody subCtx wr)
+      def subCtx@(optional):RangerAppWriterContext variant.fnCtx
+      if (!null? subCtx) {
+        def sCtx:RangerAppWriterContext (unwrap subCtx)
+        sCtx.is_function = true
+        def fnB:CodeNode (unwrap variant.fnBody)
+        this.WalkNode(fnB sCtx wr)
+      }
       wr.newline()
       wr.indent(-1)
       wr.out("}" true)
@@ -384,16 +453,21 @@ class RangerRustClassWriter {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
         wr.out((("fn " + variant.name) + "(") false)
-        wr.out("&self, " false)
+        wr.out("&mut self, " false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") -> " false)
-        this.writeTypeDef(variant.nameNode ctx wr)
+        def vnn:CodeNode (unwrap variant.nameNode)
+        this.writeTypeDef(vnn ctx wr)
         wr.out(" {" true)
         wr.indent(1)
         wr.newline()
-        def subCtx:RangerAppWriterContext variant.fnCtx
-        subCtx.is_function = true
-        this.WalkNode(variant.fnBody subCtx wr)
+        def subCtx@(optional):RangerAppWriterContext variant.fnCtx
+        if (!null? subCtx) {
+          def sCtx:RangerAppWriterContext (unwrap subCtx)
+          sCtx.is_function = true
+          def fnB:CodeNode (unwrap variant.fnBody)
+          this.WalkNode(fnB sCtx wr)
+        }
         wr.newline()
         wr.indent(-1)
         wr.out("}" true)
@@ -402,18 +476,56 @@ class RangerRustClassWriter {
     wr.indent(-1)
     wr.out("}" true)
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      def nn:CodeNode variant.nameNode
+      def nn:CodeNode (unwrap variant.nameNode)
       if (nn.hasFlag("main")) {
         wr.out("fn main() {" true)
         wr.indent(1)
         wr.newline()
-        def subCtx:RangerAppWriterContext variant.fnCtx
-        subCtx.is_function = true
-        this.WalkNode(variant.fnBody subCtx wr)
+        def subCtx@(optional):RangerAppWriterContext variant.fnCtx
+        if (!null? subCtx) {
+          def sCtx:RangerAppWriterContext (unwrap subCtx)
+          sCtx.is_function = true
+          def fnB:CodeNode (unwrap variant.fnBody)
+          this.WalkNode(fnB sCtx wr)
+        }
         wr.newline()
         wr.indent(-1)
         wr.out("}" true)
       }
+    }
+  }
+
+  ; Custom operator handler for Rust - handles push with string conversion
+  fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fc:CodeNode (node.getFirst())
+    def cmd:string fc.vref
+
+    if (cmd == "push") {
+      def left:CodeNode (node.getSecond())
+      def right:CodeNode (node.getThird())
+      
+      ; Get the array type to check if it's a string array
+      def arr_type:string ""
+      if left.hasParamDesc {
+        def pp:RangerAppParamDesc left.paramDesc
+        arr_type = pp.nameNode.array_type
+      }
+      
+      ; Write the push operation
+      ctx.setInExpr()
+      this.WalkNode(left ctx wr)
+      wr.out(".push(" false)
+      this.WalkNode(right ctx wr)
+      
+      ; Add .to_string() if pushing to a string array and the value is a string literal
+      if (arr_type == "string") {
+        if (right.value_type == RangerNodeType.String) {
+          wr.out(".to_string()" false)
+        }
+      }
+      ctx.unsetInExpr()
+      wr.out(");" true)
+      return
     }
   }
 }

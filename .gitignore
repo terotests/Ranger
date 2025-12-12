@@ -20,6 +20,10 @@ data_folder/
 tests/.output/
 tests/.output-go/
 tests/.output-python/
+tests/.output-rust/
+
+# Generated binary output
+generated/bin/
 
 # Seems to work ok...
 

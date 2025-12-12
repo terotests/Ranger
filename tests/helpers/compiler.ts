@@ -17,6 +17,7 @@ const OUTPUT_JS = path.join(ROOT_DIR, "bin", "output.js");
 const TEMP_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output");
 const GO_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-go");
 const PYTHON_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-python");
+const RUST_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-rust");
 
 export interface CompileResult {
   success: boolean;
@@ -710,6 +711,234 @@ export function expectPythonOutput(
 
   if (!run.success) {
     throw new Error(`Python runtime error: ${run.error}`);
+  }
+
+  const expected = Array.isArray(expectedOutput)
+    ? expectedOutput.join("\n")
+    : expectedOutput;
+
+  if (!run.output.includes(expected)) {
+    throw new Error(
+      `Expected output to contain "${expected}", got: "${run.output}"`
+    );
+  }
+
+  return run;
+}
+
+// ==================== RUST SUPPORT ====================
+
+/**
+ * Check if Rust compiler (rustc) is available
+ */
+export function isRustAvailable(): boolean {
+  try {
+    execSync("rustc --version", { encoding: "utf-8", stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Compile a Ranger source file to Rust
+ */
+export function compileRangerToRust(
+  sourceFile: string,
+  outputDir?: string
+): CompileResult {
+  const sourcePath = sourceFile.startsWith("/")
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+
+  const absoluteSource = path.resolve(sourcePath);
+
+  if (!fs.existsSync(absoluteSource)) {
+    return {
+      success: false,
+      output: "",
+      error: `Source file not found: ${absoluteSource}`,
+    };
+  }
+
+  // Create unique output filename based on source file name
+  const sourceBasename = path.basename(absoluteSource, ".clj");
+  const outputFile = `${sourceBasename}.rs`;
+  const targetDir = outputDir || RUST_OUTPUT_DIR;
+
+  // Ensure output directory exists
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  try {
+    // Set environment and run compiler
+    const env = {
+      ...process.env,
+      RANGER_LIB: `./compiler/Lang.clj;./lib/stdops.clj`,
+    };
+
+    // Convert targetDir to relative path for the compiler
+    const relativeTargetDir = path
+      .relative(ROOT_DIR, targetDir)
+      .replace(/\\/g, "/");
+
+    // Use -l=rust flag for Rust output
+    const cmd = `node "${OUTPUT_JS}" -l=rust "${sourcePath}" -d="${relativeTargetDir}" -o="${outputFile}"`;
+
+    const output = execSync(cmd, {
+      cwd: ROOT_DIR,
+      env,
+      encoding: "utf-8",
+      timeout: 30000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const outputPath = path.join(targetDir, outputFile);
+    
+    // Check if file was created in target directory
+    if (!fs.existsSync(outputPath)) {
+      // The compiler may have placed it in the source directory or tests directory
+      // Check alternate locations and move it
+      const alternateLocations = [
+        path.join(path.dirname(absoluteSource), outputFile),
+        path.join(path.dirname(absoluteSource), "bin", outputFile),
+        path.join(ROOT_DIR, "tests", outputFile),
+        path.join(ROOT_DIR, "tests", "fixtures", "bin", outputFile),
+        path.join(ROOT_DIR, outputFile),
+      ];
+      
+      for (const altPath of alternateLocations) {
+        if (fs.existsSync(altPath)) {
+          // Move file to target directory
+          fs.copyFileSync(altPath, outputPath);
+          fs.unlinkSync(altPath);
+          break;
+        }
+      }
+    }
+    
+    if (!fs.existsSync(outputPath)) {
+      return {
+        success: false,
+        output,
+        error: `Output file not created: ${outputPath}`,
+      };
+    }
+
+    return {
+      success: true,
+      output,
+    };
+  } catch (error: unknown) {
+    const execError = error as { stderr?: string; message?: string };
+    return {
+      success: false,
+      output: "",
+      error: execError.stderr || execError.message || "Unknown error",
+    };
+  }
+}
+
+/**
+ * Compile and run a Rust file
+ */
+export function runRustFile(rustFile: string): RunResult {
+  const absolutePath = path.isAbsolute(rustFile)
+    ? rustFile
+    : path.join(ROOT_DIR, rustFile);
+
+  if (!fs.existsSync(absolutePath)) {
+    return {
+      success: false,
+      output: "",
+      error: `Rust file not found: ${absolutePath}`,
+    };
+  }
+
+  try {
+    // Compile the Rust file
+    const exeFile = absolutePath.replace(".rs", ".exe");
+    const compileCmd = `rustc "${absolutePath}" -o "${exeFile}"`;
+
+    execSync(compileCmd, {
+      encoding: "utf-8",
+      timeout: 60000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    // Run the compiled executable
+    const output = execSync(`"${exeFile}"`, {
+      encoding: "utf-8",
+      timeout: 30000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    // Clean up executable
+    try {
+      fs.unlinkSync(exeFile);
+    } catch {
+      // Ignore cleanup errors
+    }
+
+    return {
+      success: true,
+      output: output.trim(),
+    };
+  } catch (error: unknown) {
+    const execError = error as { stderr?: string; message?: string };
+    return {
+      success: false,
+      output: "",
+      error: execError.stderr || execError.message || "Unknown error",
+    };
+  }
+}
+
+/**
+ * Compile a Ranger file to Rust and run the resulting executable
+ */
+export function compileAndRunRust(
+  sourceFile: string,
+  outputDir?: string
+): { compile: CompileResult; run?: RunResult } {
+  const compileResult = compileRangerToRust(sourceFile, outputDir);
+
+  if (!compileResult.success) {
+    return { compile: compileResult };
+  }
+
+  const sourceBasename = path.basename(sourceFile, ".clj");
+  const targetDir = outputDir || RUST_OUTPUT_DIR;
+  const rustFile = path.join(targetDir, `${sourceBasename}.rs`);
+
+  const runResult = runRustFile(rustFile);
+
+  return {
+    compile: compileResult,
+    run: runResult,
+  };
+}
+
+/**
+ * Check that Rust compilation succeeds and program produces expected output
+ */
+export function expectRustOutput(
+  sourceFile: string,
+  expectedOutput: string | string[]
+): RunResult {
+  const { compile, run } = compileAndRunRust(sourceFile);
+
+  if (!compile.success) {
+    throw new Error(`Rust compilation failed: ${compile.error}`);
+  }
+
+  if (!run) {
+    throw new Error("No run result");
+  }
+
+  if (!run.success) {
+    throw new Error(`Rust runtime error: ${run.error}`);
   }
 
   const expected = Array.isArray(expectedOutput)

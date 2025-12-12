@@ -1055,6 +1055,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 cpp ( '(' (e 1) " ? " (e 2) " : " (e 3) ')' ) 
                 scala ( '( if (' (e 1) ")  " (e 2) " else " (e 3) ')' ) 
                 python ( '(' (e 2) " if " (e 1) " else " (e 3) ')' ) 
+                rust ( 'if ' (e 1) ' { ' (e 2) ' } else { ' (e 3) ' }' )
                 * ( (e 1) " ? " (e 2) " : " (e 3) ) 
             } 
         }
@@ -2738,6 +2739,16 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  kotlin ( (e 1) ".add(" (e 2) ");" )
                  csharp ( (e 1) ".Add(" (e 2) ");" ) 
                  scala ( (e 1) ".append(" (e 2) ")" )
+                 rust ( (custom _) )
+                 rust ( (e 1) ".push(" (e 2) ");" )
+                 * ( (e 1) ".push(" (e 2) ");" )                                              
+            }
+        }
+
+        ; push for string arrays in Rust - converts &str to String
+        pushString    cmdPushString@(moves@( 2 1 ) ):void  ( array@(mutates):[string] item:string ) { 
+            templates {
+                rust ( (e 1) ".push(" (e 2) ".to_string());" )
                  * ( (e 1) ".push(" (e 2) ");" )                                              
             }
         }

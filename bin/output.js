@@ -15539,6 +15539,527 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     };
   };
 }
+class RangerRustClassWriter  extends RangerGenericClassWriter {
+  constructor() {
+    super()
+    this.thisName = "self";
+  }
+  WriteScalarValue (node, ctx, wr) {
+    switch (node.value_type ) { 
+      case 2 : 
+        wr.out(("" + node.double_value) + "_f64", false);
+        break;
+      case 4 : 
+        const s = this.EncodeString(node, ctx, wr);
+        wr.out((("\"" + s) + "\"") + ".to_string()", false);
+        break;
+      case 3 : 
+        wr.out("" + node.int_value, false);
+        break;
+      case 5 : 
+        if ( node.boolean_value ) {
+          wr.out("true", false);
+        } else {
+          wr.out("false", false);
+        }
+        break;
+    };
+  };
+  getObjectTypeString (type_string, ctx) {
+    switch (type_string ) { 
+      case "int" : 
+        return "i64";
+      case "string" : 
+        return "String";
+      case "boolean" : 
+        return "bool";
+      case "double" : 
+        return "f64";
+    };
+    return type_string;
+  };
+  getTypeString (type_string) {
+    switch (type_string ) { 
+      case "int" : 
+        return "i64";
+      case "string" : 
+        return "String";
+      case "boolean" : 
+        return "bool";
+      case "double" : 
+        return "f64";
+    };
+    return type_string;
+  };
+  async writeTypeDef (node, ctx, wr) {
+    if ( node.hasFlag("optional") ) {
+      wr.out("Option<", false);
+    }
+    let v_type = node.value_type;
+    if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
+      v_type = node.typeNameAsType(ctx);
+    }
+    if ( node.eval_type != 0 ) {
+      v_type = node.eval_type;
+    }
+    switch (v_type ) { 
+      case 13 : 
+        wr.out("i64", false);
+        break;
+      case 3 : 
+        wr.out("i64", false);
+        break;
+      case 2 : 
+        wr.out("f64", false);
+        break;
+      case 4 : 
+        wr.out("String", false);
+        break;
+      case 5 : 
+        wr.out("bool", false);
+        break;
+      case 14 : 
+        wr.out("u8", false);
+        break;
+      case 15 : 
+        wr.out("Vec<u8>", false);
+        break;
+      case 7 : 
+        wr.out(((("HashMap<" + this.getObjectTypeString(node.key_type, ctx)) + ",") + this.getObjectTypeString(node.array_type, ctx)) + ">", false);
+        wr.addImport("std::collections::HashMap");
+        break;
+      case 6 : 
+        wr.out(("Vec<" + this.getObjectTypeString(node.array_type, ctx)) + ">", false);
+        break;
+      default: 
+        if ( node.type_name == "void" ) {
+          wr.out("()", false);
+          return;
+        }
+        wr.out(this.getTypeString(node.type_name), false);
+        break;
+    };
+    if ( node.hasFlag("optional") ) {
+      wr.out(">", false);
+    }
+  };
+  async WriteVRef (node, ctx, wr) {
+    if ( node.vref == "this" ) {
+      wr.out(this.thisName, false);
+      return;
+    }
+    if ( node.eval_type == 13 ) {
+      if ( (node.ns.length) > 1 ) {
+        const rootObjName = node.ns[0];
+        const enumName = node.ns[1];
+        const e = ctx.getEnum(rootObjName);
+        if ( (typeof(e) !== "undefined" && e != null )  ) {
+          wr.out("" + ((e.values[enumName])), false);
+          return;
+        }
+      }
+    }
+    if ( (node.nsp.length) > 0 ) {
+      let had_static = false;
+      for ( let i = 0; i < node.nsp.length; i++) {
+        var p = node.nsp[i];
+        if ( i == 0 ) {
+          const part = node.ns[0];
+          if ( part == "this" ) {
+            wr.out(this.thisName, false);
+            continue;
+          }
+        }
+        if ( i > 0 ) {
+          if ( had_static ) {
+            wr.out("::", false);
+          } else {
+            wr.out(".", false);
+          }
+        }
+        if ( i == 0 ) {
+          if ( p.nameNode.hasFlag("optional") ) {
+          }
+          const part_1 = node.ns[0];
+          if ( (part_1 != "this") && ctx.isMemberVariable(part_1) ) {
+            const uc = ctx.getCurrentClass();
+            const currC = uc;
+            const up = currC.findVariable(part_1);
+            if ( (typeof(up) !== "undefined" && up != null )  ) {
+              if ( false == ctx.isInStatic() ) {
+                wr.out(this.thisName + ".", false);
+              }
+            }
+          }
+        }
+        if ( (p.compiledName.length) > 0 ) {
+          wr.out(this.adjustType(p.compiledName), false);
+        } else {
+          if ( (p.name.length) > 0 ) {
+            wr.out(this.adjustType(p.name), false);
+          } else {
+            wr.out(this.adjustType((node.ns[i])), false);
+          }
+        }
+        if ( p.isClass() ) {
+          had_static = true;
+        }
+      };
+      return;
+    }
+    if ( node.hasParamDesc ) {
+      const part_2 = node.ns[0];
+      if ( (part_2 != "this") && ctx.isMemberVariable(part_2) ) {
+        const uc_1 = ctx.getCurrentClass();
+        const currC_1 = uc_1;
+        const up_1 = currC_1.findVariable(part_2);
+        if ( (typeof(up_1) !== "undefined" && up_1 != null )  ) {
+          if ( false == ctx.isInStatic() ) {
+            wr.out(this.thisName + ".", false);
+          }
+        }
+      }
+      const p_1 = node.paramDesc;
+      wr.out(p_1.compiledName, false);
+      return;
+    }
+    let b_was_static = false;
+    for ( let i_1 = 0; i_1 < node.ns.length; i_1++) {
+      var part_3 = node.ns[i_1];
+      if ( i_1 > 0 ) {
+        if ( (i_1 == 1) && b_was_static ) {
+          wr.out("::", false);
+        } else {
+          wr.out(".", false);
+        }
+      }
+      if ( i_1 == 0 ) {
+        if ( ctx.hasClass(part_3) ) {
+          b_was_static = true;
+        }
+        if ( (part_3 != "this") && ctx.hasCurrentClass() ) {
+          const uc_2 = ctx.getCurrentClass();
+          const currC_2 = uc_2;
+          const up_2 = currC_2.findVariable(part_3);
+          if ( (typeof(up_2) !== "undefined" && up_2 != null )  ) {
+            if ( false == ctx.isInStatic() ) {
+              wr.out(this.thisName + ".", false);
+            }
+          }
+        }
+      }
+      wr.out(this.adjustType(part_3), false);
+    };
+  };
+  async writeStructField (node, ctx, wr) {
+    if ( node.hasParamDesc ) {
+      const nn = node.children[1];
+      const p = nn.paramDesc;
+      wr.out(p.compiledName + " : ", false);
+      const nameN = p.nameNode;
+      await this.writeTypeDef(nameN, ctx, wr);
+      wr.out(", ", true);
+    }
+  };
+  async writeVarDef (node, ctx, wr) {
+    if ( node.hasParamDesc ) {
+      const nn = node.children[1];
+      const p = nn.paramDesc;
+      if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+        wr.out("/** unused:  ", false);
+      }
+      const map_or_hash = (nn.value_type == 6) || (nn.value_type == 7);
+      if ( ((p.set_cnt > 0) || p.is_class_variable) || map_or_hash ) {
+        wr.out(("let mut " + p.compiledName) + " : ", false);
+      } else {
+        wr.out(("let mut " + p.compiledName) + " : ", false);
+      }
+      const nameN = p.nameNode;
+      await this.writeTypeDef(nameN, ctx, wr);
+      if ( (node.children.length) > 2 ) {
+        wr.out(" = ", false);
+        ctx.setInExpr();
+        const value = node.getThird();
+        await this.WalkNode(value, ctx, wr);
+        ctx.unsetInExpr();
+      } else {
+        if ( nn.value_type == 6 ) {
+          wr.out(" = Vec::new()", false);
+        }
+        if ( nn.value_type == 7 ) {
+          wr.out(" = HashMap::new()", false);
+        }
+      }
+      wr.out(";", false);
+      if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
+        wr.out("     /** note: unused */", false);
+      }
+      if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+        wr.out("   **/ ", true);
+      } else {
+        wr.newline();
+      }
+    }
+  };
+  async writeArgsDef (fnDesc, ctx, wr) {
+    for ( let i = 0; i < fnDesc.params.length; i++) {
+      var arg = fnDesc.params[i];
+      if ( i > 0 ) {
+        wr.out(", ", false);
+      }
+      wr.out(arg.name + " : ", false);
+      const nameN = arg.nameNode;
+      await this.writeTypeDef(nameN, ctx, wr);
+    };
+  };
+  async writeFnCall (node, ctx, wr) {
+    if ( node.hasFnCall ) {
+      const fc = node.getFirst();
+      const part = fc.ns[0];
+      if ( (part != "this") && ctx.isMemberVariable(part) ) {
+        const uc = ctx.getCurrentClass();
+        if ( (typeof(uc) !== "undefined" && uc != null )  ) {
+          const currC = uc;
+          const up = currC.findVariable(part);
+          if ( (typeof(up) !== "undefined" && up != null )  ) {
+            if ( false == ctx.isInStatic() ) {
+              wr.out(this.thisName + ".", false);
+            }
+          }
+        }
+      }
+      await this.WriteVRef(fc, ctx, wr);
+      wr.out("(", false);
+      const givenArgs = node.getSecond();
+      for ( let i = 0; i < node.fnDesc.params.length; i++) {
+        var arg = node.fnDesc.params[i];
+        const n = givenArgs.children[i];
+        if ( i > 0 ) {
+          wr.out(", ", false);
+        }
+        if ( typeof(n) === "undefined" ) {
+          const nameN = arg.nameNode;
+          const defVal = nameN.getFlag("default");
+          if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
+            const defV = defVal;
+            const fc2 = defV.vref_annotation.getFirst();
+            ctx.setInExpr();
+            await this.WalkNode(fc2, ctx, wr);
+            ctx.unsetInExpr();
+          } else {
+            ctx.addError(node, "Default argument was missing");
+          }
+          continue;
+        }
+        const nVal = n;
+        ctx.setInExpr();
+        await this.WalkNode(nVal, ctx, wr);
+        ctx.unsetInExpr();
+      };
+      wr.out(")", false);
+      if ( ctx.expressionLevel() == 0 ) {
+        wr.out(";", true);
+      }
+    }
+  };
+  async writeNewCall (node, ctx, wr) {
+    if ( node.hasNewOper ) {
+      const cl = node.clDesc;
+      /** unused:  const fc = node.getSecond()   **/ 
+      wr.out(node.clDesc.name, false);
+      wr.out("::new(", false);
+      const constr = cl.constructor_fn;
+      const givenArgs = node.getThird();
+      if ( (typeof(constr) !== "undefined" && constr != null )  ) {
+        const c = constr;
+        for ( let i = 0; i < c.params.length; i++) {
+          var arg = c.params[i];
+          const n = givenArgs.children[i];
+          if ( i > 0 ) {
+            wr.out(", ", false);
+          }
+          await this.WalkNode(n, ctx, wr);
+        };
+      }
+      wr.out(")", false);
+    }
+  };
+  async writeClass (node, ctx, orig_wr) {
+    const ucl = node.clDesc;
+    if ( typeof(ucl) === "undefined" ) {
+      return;
+    }
+    const cl = ucl;
+    const wr = orig_wr;
+    wr.out(("struct " + cl.name) + " { ", true);
+    wr.indent(1);
+    for ( let i = 0; i < cl.variables.length; i++) {
+      var pvar = cl.variables[i];
+      const pnode = pvar.node;
+      await this.writeStructField(pnode, ctx, wr);
+    };
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out(("impl " + cl.name) + " { ", true);
+    wr.indent(1);
+    this.thisName = "me";
+    wr.out("", true);
+    wr.out("pub fn new(", false);
+    if ( cl.has_constructor ) {
+      const constr = cl.constructor_fn;
+      if ( (typeof(constr) !== "undefined" && constr != null )  ) {
+        const c = constr;
+        for ( let i_1 = 0; i_1 < c.params.length; i_1++) {
+          var arg = c.params[i_1];
+          if ( i_1 > 0 ) {
+            wr.out(", ", false);
+          }
+          wr.out(arg.name + " : ", false);
+          const nameN = arg.nameNode;
+          await this.writeTypeDef(nameN, ctx, wr);
+        };
+      }
+    }
+    wr.out((") ->  " + cl.name) + " {", true);
+    wr.indent(1);
+    wr.newline();
+    wr.out(("let mut me = " + cl.name) + " { ", true);
+    wr.indent(1);
+    for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
+      var pvar_1 = cl.variables[i_2];
+      const nn = pvar_1.node;
+      if ( (typeof(nn) !== "undefined" && nn != null )  ) {
+        const node_1 = nn;
+        if ( (node_1.children.length) > 2 ) {
+          const valueNode = node_1.children[2];
+          wr.out(pvar_1.name + ":", false);
+          await this.WalkNode(valueNode, ctx, wr);
+          wr.out(", ", true);
+        } else {
+          if ( (pvar_1).isArray() ) {
+            wr.out(pvar_1.name + ": Vec::new(), ", true);
+          }
+        }
+      }
+    };
+    wr.indent(-1);
+    wr.out("};", true);
+    wr.newline();
+    if ( cl.has_constructor ) {
+      const constr_1 = cl.constructor_fn;
+      if ( (typeof(constr_1) !== "undefined" && constr_1 != null )  ) {
+        const c_1 = constr_1;
+        const subCtx = c_1.fnCtx;
+        if ( (typeof(subCtx) !== "undefined" && subCtx != null )  ) {
+          const sCtx = subCtx;
+          sCtx.is_function = true;
+          const fnB = c_1.fnBody;
+          await this.WalkNode(fnB, sCtx, wr);
+        }
+      }
+    }
+    wr.out("return me;", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    this.thisName = "self";
+    for ( let i_3 = 0; i_3 < cl.static_methods.length; i_3++) {
+      var variant = cl.static_methods[i_3];
+      const vnn = variant.nameNode;
+      if ( vnn.hasFlag("main") ) {
+        continue;
+      }
+      wr.out(("pub fn " + variant.name) + "(", false);
+      await this.writeArgsDef(variant, ctx, wr);
+      wr.out(") -> ", false);
+      await this.writeTypeDef(vnn, ctx, wr);
+      wr.out(" {", true);
+      wr.indent(1);
+      wr.newline();
+      const subCtx_1 = variant.fnCtx;
+      if ( (typeof(subCtx_1) !== "undefined" && subCtx_1 != null )  ) {
+        const sCtx_1 = subCtx_1;
+        sCtx_1.is_function = true;
+        const fnB_1 = variant.fnBody;
+        await this.WalkNode(fnB_1, sCtx_1, wr);
+      }
+      wr.newline();
+      wr.indent(-1);
+      wr.out("}", true);
+    };
+    for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
+      var fnVar = cl.defined_variants[i_4];
+      const mVs = cl.method_variants[fnVar];
+      for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
+        var variant_1 = mVs.variants[i_5];
+        wr.out(("fn " + variant_1.name) + "(", false);
+        wr.out("&mut self, ", false);
+        await this.writeArgsDef(variant_1, ctx, wr);
+        wr.out(") -> ", false);
+        const vnn_1 = variant_1.nameNode;
+        await this.writeTypeDef(vnn_1, ctx, wr);
+        wr.out(" {", true);
+        wr.indent(1);
+        wr.newline();
+        const subCtx_2 = variant_1.fnCtx;
+        if ( (typeof(subCtx_2) !== "undefined" && subCtx_2 != null )  ) {
+          const sCtx_2 = subCtx_2;
+          sCtx_2.is_function = true;
+          const fnB_2 = variant_1.fnBody;
+          await this.WalkNode(fnB_2, sCtx_2, wr);
+        }
+        wr.newline();
+        wr.indent(-1);
+        wr.out("}", true);
+      };
+    };
+    wr.indent(-1);
+    wr.out("}", true);
+    for ( let i_6 = 0; i_6 < cl.static_methods.length; i_6++) {
+      var variant_2 = cl.static_methods[i_6];
+      const nn_1 = variant_2.nameNode;
+      if ( nn_1.hasFlag("main") ) {
+        wr.out("fn main() {", true);
+        wr.indent(1);
+        wr.newline();
+        const subCtx_3 = variant_2.fnCtx;
+        if ( (typeof(subCtx_3) !== "undefined" && subCtx_3 != null )  ) {
+          const sCtx_3 = subCtx_3;
+          sCtx_3.is_function = true;
+          const fnB_3 = variant_2.fnBody;
+          await this.WalkNode(fnB_3, sCtx_3, wr);
+        }
+        wr.newline();
+        wr.indent(-1);
+        wr.out("}", true);
+      }
+    };
+  };
+  async CustomOperator (node, ctx, wr) {
+    const fc = node.getFirst();
+    const cmd = fc.vref;
+    if ( cmd == "push" ) {
+      const left = node.getSecond();
+      const right = node.getThird();
+      let arr_type = "";
+      if ( left.hasParamDesc ) {
+        const pp = left.paramDesc;
+        arr_type = pp.nameNode.array_type;
+      }
+      ctx.setInExpr();
+      await this.WalkNode(left, ctx, wr);
+      wr.out(".push(", false);
+      await this.WalkNode(right, ctx, wr);
+      if ( arr_type == "string" ) {
+        if ( right.value_type == 4 ) {
+          wr.out(".to_string()", false);
+        }
+      }
+      ctx.unsetInExpr();
+      wr.out(");", true);
+      return;
+    }
+  };
+}
 class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   constructor() {
     super()
@@ -21199,6 +21720,9 @@ class LiveCompiler  {
       case "python" : 
         this.langWriter = new RangerPythonClassWriter();
         break;
+      case "rust" : 
+        this.langWriter = new RangerRustClassWriter();
+        break;
       case "cpp" : 
         this.langWriter = new RangerCppClassWriter();
         break;
@@ -22750,7 +23274,7 @@ class VirtualCompiler  {
   async run (env) {
     const res = new CompilerResults();
     this.envObj = env;
-    const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "cpp", "php", "csharp", "python"];
+    const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "cpp", "php", "csharp", "python", "rust"];
     const params = env.commandLine;
     let the_file = "";
     let plugins_only = false;
@@ -22914,9 +23438,9 @@ class VirtualCompiler  {
       the_target = outDir_2;
     }
     comp_attrs["o"] = the_target;
-    const outDir_3 = params.getParam("d");
-    if ( (typeof(outDir_3) !== "undefined" && outDir_3 != null )  ) {
-      the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + (outDir_3);
+    const dirParam = params.getParam("d");
+    if ( (typeof(dirParam) !== "undefined" && dirParam != null )  ) {
+      the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + (dirParam);
     }
     the_target_dir = require("path").normalize(the_target_dir);
     comp_attrs["d"] = the_target_dir;
@@ -22958,39 +23482,64 @@ class VirtualCompiler  {
       if ( (root_parts.length) == 2 ) {
         the_target = root_parts[0];
       }
-      switch (the_lang ) { 
-        case "es6" : 
-          the_target = the_target + ".js";
-          if ( appCtx.hasCompilerFlag("typescript") ) {
-            the_target = the_target + ".ts";
-          }
-          break;
-        case "swift3" : 
-          the_target = the_target + ".swift";
-          break;
-        case "php" : 
-          the_target = the_target + ".php";
-          break;
-        case "csharp" : 
-          the_target = the_target + ".cs";
-          break;
-        case "java7" : 
-          the_target = the_target + ".java";
-          break;
-        case "go" : 
-          the_target = the_target + ".go";
-          break;
-        case "scala" : 
-          the_target = the_target + ".scala";
-          break;
-        case "cpp" : 
-          the_target = the_target + ".cpp";
-          break;
-        case "python" : 
-          the_target = the_target + ".py";
-          break;
-      };
     }
+    switch (the_lang ) { 
+      case "es6" : 
+        if ( false == (the_target.endsWith(".js")) ) {
+          if ( false == (the_target.endsWith(".ts")) ) {
+            the_target = the_target + ".js";
+            if ( appCtx.hasCompilerFlag("typescript") ) {
+              the_target = the_target + ".ts";
+            }
+          }
+        }
+        break;
+      case "swift3" : 
+        if ( false == (the_target.endsWith(".swift")) ) {
+          the_target = the_target + ".swift";
+        }
+        break;
+      case "php" : 
+        if ( false == (the_target.endsWith(".php")) ) {
+          the_target = the_target + ".php";
+        }
+        break;
+      case "csharp" : 
+        if ( false == (the_target.endsWith(".cs")) ) {
+          the_target = the_target + ".cs";
+        }
+        break;
+      case "java7" : 
+        if ( false == (the_target.endsWith(".java")) ) {
+          the_target = the_target + ".java";
+        }
+        break;
+      case "go" : 
+        if ( false == (the_target.endsWith(".go")) ) {
+          the_target = the_target + ".go";
+        }
+        break;
+      case "scala" : 
+        if ( false == (the_target.endsWith(".scala")) ) {
+          the_target = the_target + ".scala";
+        }
+        break;
+      case "cpp" : 
+        if ( false == (the_target.endsWith(".cpp")) ) {
+          the_target = the_target + ".cpp";
+        }
+        break;
+      case "python" : 
+        if ( false == (the_target.endsWith(".py")) ) {
+          the_target = the_target + ".py";
+        }
+        break;
+      case "rust" : 
+        if ( false == (the_target.endsWith(".rs")) ) {
+          the_target = the_target + ".rs";
+        }
+        break;
+    };
     appCtx.compilerSettings["o"] = the_target;
     const lcc = new LiveCompiler();
     const node = parser.rootNode;

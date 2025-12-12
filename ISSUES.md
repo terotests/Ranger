@@ -483,3 +483,179 @@ Use explicit type conversions in Ranger source code:
 ```ranger
 def result:double ((int2double a) / (int2double b))
 ```
+
+---
+
+## Issue #10: Rust target - String literals vs String type mismatch
+
+**Status:** Partially Fixed  
+**Severity:** High  
+**Found:** December 12, 2025
+
+### Description
+
+The Rust code generator outputs string literals (`"hello"`) where owned `String` types are expected. In Rust, `"hello"` is a `&str` (string slice), but `Vec<String>` and `String` fields require owned `String` values.
+
+### Resolution (Partial)
+
+Added `CustomOperator` function in `ng_RangerRustClassWriter.clj` that handles the `push` command. When pushing a string literal to a `[string]` array, the operator now automatically appends `.to_string()`.
+
+**Files Changed:**
+- `compiler/Lang.clj` - Added `rust ( (custom _) )` to trigger custom handling for `push`
+- `compiler/ng_RangerRustClassWriter.clj` - Added `CustomOperator` function with string literal detection
+
+### Remaining Issues
+
+The fix only covers the `push` operation. Other areas still need work:
+- String field assignments
+- String function arguments
+- Other operations involving string literals
+
+### Example Ranger Code
+
+```ranger
+class Test {
+    sfn m@(main):void () {
+        def items:[string]
+        push items "hello"
+        push items "world"
+        print "Done"
+    }
+}
+```
+
+### Generated Rust Code (Now Correct for push)
+
+```rust
+fn main() {
+  let mut items : Vec<String> = Vec::new();
+  items.push("hello".to_string());    // ✅ Correct!
+  items.push("world".to_string());    // ✅ Correct!
+  println!( "{}", "Done" );
+}
+```
+
+### Affected Areas (Still Open)
+
+1. ~~**Array push operations**~~ - ✅ FIXED
+2. **String field assignments** - Direct string literal assignments to `String` fields
+3. **String function arguments** - Passing string literals to functions expecting `String`
+
+### Root Cause
+
+The `push` template in `compiler/Lang.clj` uses a generic pattern for all languages:
+
+```ranger
+push    cmdPush:void  ( array:[T] item:T ) {
+    templates {
+        * ( (e 1) ".push(" (e 2) ");" )   ; Used for Rust
+    }
+}
+```
+
+Rust needs special handling to convert `&str` literals to `String`:
+
+```ranger
+rust ( (e 1) ".push(" (e 2) ".to_string());" )
+```
+
+However, this simple fix would break cases where the value is already a `String`. A proper fix requires type-aware code generation.
+
+### Workaround
+
+Currently none - the generated Rust code will not compile when using string arrays or string assignments.
+
+### Affected Tests
+
+- `tests/compiler-rust.test.ts` - Runtime tests are skipped due to this issue
+
+### Recommended Fix
+
+1. Add Rust-specific template for `push` that handles string conversion
+2. Modify the Rust class writer to detect when a string literal is being used in a `String` context
+3. Wrap string literals with `.to_string()` or use `String::from("...")`
+
+### Files to Fix
+
+- `compiler/Lang.clj` - Add Rust-specific `push` template
+- `compiler/ng_RangerRustClassWriter.clj` - Add string literal detection and conversion
+
+---
+
+## Issue #11: Rust target - Many fixtures fail to compile
+
+**Status:** Open  
+**Severity:** High  
+**Found:** December 12, 2025
+
+### Description
+
+Most Ranger fixtures fail to compile to Rust. Only the simplest fixture (`array_push.clj`) successfully generates a `.rs` file. Other fixtures cause the compiler to fail silently without producing output.
+
+### Affected Fixtures
+
+| Fixture             | Compiles? | Notes                                     |
+| ------------------- | --------- | ----------------------------------------- |
+| array_push.clj      | ✅ Yes    | Generates .rs file (but has String issue) |
+| local_array.clj     | ❌ No     | No output file created                    |
+| static_factory.clj  | ❌ No     | No output file created                    |
+| many_factories.clj  | ❌ No     | No output file created                    |
+| ternary_factory.clj | ❌ No     | No output file created                    |
+| while_loop.clj      | ❌ No     | No output file created                    |
+| two_classes.clj     | ❌ No     | No output file created                    |
+| inheritance.clj     | ❌ No     | No output file created                    |
+| forward_ref.clj     | ❌ No     | No output file created                    |
+| hash_map.clj        | ❌ No     | No output file created                    |
+| string_ops.clj      | ❌ No     | No output file created                    |
+| string_methods.clj  | ❌ No     | No output file created                    |
+| math_ops.clj        | ❌ No     | No output file created                    |
+| optional_values.clj | ❌ No     | No output file created                    |
+| class_array.clj     | ❌ No     | No output file created                    |
+
+### Suspected Root Causes
+
+1. **Missing Rust templates in Lang.clj** - Many operators don't have Rust-specific templates
+2. **Incomplete Rust class writer** - The `ng_RangerRustClassWriter.clj` may not handle all AST node types
+3. **Silent failures** - The compiler doesn't report why Rust output generation failed
+
+### How to Diagnose
+
+Run the compiler manually and check for errors:
+
+```bash
+node bin/output.js -l=rust tests/fixtures/local_array.clj -o=test.rs
+```
+
+### Recommended Fix
+
+1. Add comprehensive Rust templates to `Lang.clj` for all operators
+2. Review and complete `ng_RangerRustClassWriter.clj` implementation
+3. Add error reporting when a template is missing for the target language
+
+### Files to Fix
+
+- `compiler/Lang.clj` - Add missing Rust templates
+- `compiler/ng_RangerRustClassWriter.clj` - Complete implementation
+
+---
+
+## Issue #12: File extension double-added with default output name
+
+**Status:** Fixed  
+**Severity:** Low  
+**Found:** December 12, 2025
+
+### Description
+
+When using `-o=output.js` explicitly, the file extension was added twice, resulting in `output.js.js`.
+
+### Resolution
+
+Added `endsWith` check in `compiler/VirtualCompiler.clj` before appending file extension:
+
+```ranger
+if ((endsWith the_target ".js") == false)
+    the_target = the_target + ".js"
+```
+
+The fix ensures extensions are only added when not already present.
