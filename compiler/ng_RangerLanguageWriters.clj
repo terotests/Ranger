@@ -9,6 +9,7 @@ Import "ng_RangerCSharpClassWriter.clj"
 Import "ng_RangerScalaClassWriter.clj"
 Import "ng_RangerGolangClassWriter.clj"
 Import "ng_RangerPHPClassWriter.clj"
+Import "ng_RangerPythonClassWriter.clj"
 Import "ng_RangerJavaScriptClassWriter.clj"
 Import "ng_RangerRangerClassWriter.clj"
 

@@ -19,6 +19,7 @@ data_folder/
 # Test output directory
 tests/.output/
 tests/.output-go/
+tests/.output-python/
 
 # Seems to work ok...
 

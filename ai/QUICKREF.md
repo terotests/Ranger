@@ -159,13 +159,30 @@ Convert: to_int to_double to_string str2int
 ## Target Languages
 
 ```
-es6       JavaScript
-java7     Java 7+
-go        Go 1.8+
-swift3    Swift 3+
-cpp       C++14
-php       PHP 5.4+
-csharp    C# 7.0
-scala     Scala 2.x
-kotlin    Kotlin
+es6       JavaScript (-l=es6 or -es6)
+python    Python 3.x (-l=python)
+java7     Java 7+ (-l=java7)
+go        Go 1.8+ (-l=go)
+swift3    Swift 3+ (-l=swift3)
+cpp       C++14 (-l=cpp)
+php       PHP 5.4+ (-l=php)
+csharp    C# 7.0 (-l=csharp)
+scala     Scala 2.x (-l=scala)
+kotlin    Kotlin (-l=kotlin)
 ```
+
+## Compilation Examples
+
+```bash
+# JavaScript (ES6)
+node bin/output.js -l=es6 myfile.clj -o=myfile.js
+
+# Python
+node bin/output.js -l=python myfile.clj -o=myfile.py
+
+# Go
+node bin/output.js -l=go myfile.clj -o=myfile.go
+
+# Always specify full output filename with extension!
+```
+

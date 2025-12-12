@@ -860,7 +860,7 @@ The `RANGER_LIB` environment variable tells the compiler where to find language 
 $env:RANGER_LIB="./compiler/Lang.clj;./lib/stdops.clj"
 
 # Or using cross-env in package.json scripts
-cross-env RANGER_LIB=./compiler/Lang.clj node bin/output.js -es6 ./myfile.clj
+cross-env RANGER_LIB=./compiler/Lang.clj;./lib/stdops.clj node bin/output.js -es6 ./myfile.clj
 ```
 
 The compiler automatically searches for imports in:
@@ -872,47 +872,80 @@ The compiler automatically searches for imports in:
 
 ### Compiling a Ranger Source File
 
+#### IMPORTANT: Compiler Options Behavior
+
+**⚠️ The `-d` and `-o` options have known issues (see ISSUES.md #6):**
+
+1. **Always specify the full filename with extension** when using `-o`
+2. **The `-d` option may not work reliably** - output may go to the current working directory
+3. **File extensions are only auto-added** when `-o` is not specified (defaults to `output.<ext>`)
+
+#### Recommended Usage Pattern
+
 ```bash
-# Basic compilation to ES6 JavaScript
-node bin/output.js -es6 ./myfile.clj -nodecli
+# RECOMMENDED: Specify full output path with extension
+node bin/output.js -l=es6 ./myfile.clj -o=./output/myfile.js -nodecli
 
-# With output directory
-node bin/output.js -es6 ./myfile.clj -nodecli -d=./output
+# For Python target
+node bin/output.js -l=python ./myfile.clj -o=./output/myfile.py
 
-# With specific output filename
-node bin/output.js -es6 ./myfile.clj -nodecli -o=myfile.js
-
-# Full example with RANGER_LIB (PowerShell)
-$env:RANGER_LIB="./compiler/Lang.clj;./lib/stdops.clj"
-node bin/output.js -es6 ./myfile.clj -nodecli -d=./output -o=myfile.js
+# For Go target  
+node bin/output.js -l=go ./myfile.clj -o=./output/myfile.go
 ```
+
+#### Language Selection
+
+There are TWO ways to specify the target language:
+
+```bash
+# Method 1: Using -l=<language> (preferred for non-ES6 targets)
+node bin/output.js -l=python ./myfile.clj -o=myfile.py
+node bin/output.js -l=go ./myfile.clj -o=myfile.go
+node bin/output.js -l=java7 ./myfile.clj -o=myfile.java
+
+# Method 2: Using language flag (only for ES6)
+node bin/output.js -es6 ./myfile.clj -o=myfile.js
+```
+
+#### File Extension Reference
+
+| Language Flag | Extension | Example Output |
+|---------------|-----------|----------------|
+| `-l=es6` or `-es6` | .js | myfile.js |
+| `-l=es6` + `-typescript` | .ts | myfile.ts |
+| `-l=python` | .py | myfile.py |
+| `-l=go` | .go | myfile.go |
+| `-l=java7` | .java | myfile.java |
+| `-l=swift3` | .swift | myfile.swift |
+| `-l=php` | .php | myfile.php |
+| `-l=csharp` | .cs | myfile.cs |
+| `-l=scala` | .scala | myfile.scala |
+| `-l=cpp` | .cpp | myfile.cpp |
+| `-l=kotlin` | .kt | myfile.kt |
 
 ### Compiler Options
 
 | Option        | Description                      |
 | ------------- | -------------------------------- |
-| `-es6`        | Target ES6 JavaScript            |
-| `-java7`      | Target Java 7                    |
-| `-go`         | Target Go                        |
-| `-swift3`     | Target Swift 3                   |
-| `-cpp`        | Target C++                       |
-| `-php`        | Target PHP                       |
-| `-csharp`     | Target C#                        |
-| `-scala`      | Target Scala                     |
-| `-kotlin`     | Target Kotlin                    |
+| `-l=<lang>`   | Target language (python, go, java7, swift3, cpp, php, csharp, scala, kotlin, es6) |
+| `-es6`        | Target ES6 JavaScript (shorthand for -l=es6) |
+| `-d=<dir>`    | Output directory (⚠️ may not work reliably) |
+| `-o=<name>`   | Output filename (⚠️ always include extension) |
 | `-nodecli`    | Build for Node.js CLI execution  |
-| `-d=<dir>`    | Output directory                 |
-| `-o=<name>`   | Output filename                  |
 | `-typescript` | Generate TypeScript declarations |
+| `-npm`        | Write package.json to output directory |
+| `-nodemodule` | Export classes as Node.js modules |
+| `-strict`     | Strict mode for optionals |
+| `-copysrc`    | Copy source files to output directory |
 
 ### Recompiling the Ranger Compiler Itself
 
 The compiler is self-hosted (written in Ranger). To recompile it after making changes to compiler source files:
 
 ```powershell
-# Set environment and compile
+# Windows PowerShell - Set environment and compile
 $env:RANGER_LIB="./compiler/Lang.clj;./lib/stdops.clj"
-node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli -d=./bin
+node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli -d=./bin -o=output.js
 ```
 
 Or use the npm script:
@@ -921,12 +954,15 @@ Or use the npm script:
 npm run compile
 ```
 
+**⚠️ IMPORTANT**: Always verify that `output.js` was created in `bin/` folder, not in the root folder!
+
 The compiler source files are in the `compiler/` directory:
 
 - `ng_Compiler.clj` - Main entry point
 - `VirtualCompiler.clj` - Core compilation logic
-- `Lang.clj` - Language operator definitions
-- `ng_*.clj` - Various compiler components
+- `Lang.clj` - Language operator definitions and templates
+- `ng_Ranger*ClassWriter.clj` - Language-specific code generators
+- `ng_LiveCompiler.clj` - Template processing and code generation
 
 ### Exit Codes
 
@@ -936,3 +972,4 @@ The compiler now exits with proper exit codes:
 - `1` - Compilation failed (syntax error, type error, or internal error)
 
 This allows integration with build systems and CI/CD pipelines.
+
