@@ -17,6 +17,24 @@ target. However, most targets already can compile reasonably good code.
 
 ## Recent Updates (December 2025)
 
+### Swift 6 Target Support
+
+The Swift 6 target (`-l=swift6`) has been added with the following features:
+
+- Modern Swift 6 compatible code generation
+- `@main` struct entry point pattern
+- Proper integer-to-string conversion using `String()`
+- Array operations using `.append()` instead of `.push()`
+- Uses `print()` for console output
+- Falls back to Swift 3 system class definitions when Swift 6 not defined
+
+Example compilation:
+
+```bash
+ranger-compiler -l=swift6 myfile.clj -o=myfile.swift
+swiftc myfile.swift -o myfile
+```
+
 ### Rust Target Support (Preliminary)
 
 The Rust target (`-l=rust`) now has preliminary support with the following features:

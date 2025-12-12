@@ -728,80 +728,363 @@ if (target === "go") {
 
 ---
 
-## Phase 7: Future Considerations
+# Plan: Swift Target Unit Testing
 
-### 7.1 Additional Language Targets
+## Status: 📋 PLANNED
 
-Once Go testing is established, the same pattern can apply to:
+## Overview
 
-- Java (`-java7`)
-- Swift (`-swift3`)
-- PHP (`-php`)
-- C++ (`-cpp`)
+Add unit testing support for the Swift target (`-l=swift3`). Swift 6 is the latest version and has improved Windows support, though it's still experimental on Windows.
 
-### 7.2 Performance Testing
+## Swift on Windows
 
-Go tests could include performance benchmarks since Go has built-in benchmarking.
+### Current Swift Windows Status
 
-### 7.3 Cross-Platform Testing
+Swift has official Windows support starting from Swift 5.3, with ongoing improvements:
 
-CI matrix could expand to test Go on multiple OSes:
+- **Swift 6.0** (Latest): Improved Windows toolchain
+- **Windows Support**: Experimental but functional
+- **Package Manager**: `swift build` and `swift run` work on Windows
+- **Installation**: Available via official Swift.org installers or scoop/winget
 
-- ubuntu-latest
-- windows-latest
-- macos-latest
+### Installation Options
 
----
-
-## Quick Start (After Go Installation)
+#### Option 1: Official Swift Installer (Recommended)
 
 ```powershell
-# 1. Install Go (if not done)
-winget install GoLang.Go
+# Download from https://swift.org/download/
+# Run the installer (swift-6.0-RELEASE-windows10.exe or similar)
 
-# 2. Restart terminal to get PATH updates
-
-# 3. Verify Go
-go version
-
-# 4. Run Go tests (after implementation)
-npm run test:go
+# Add to PATH (installer usually does this)
+# Verify installation
+swift --version
 ```
 
----
+#### Option 2: Using Scoop
 
-## Files to Create/Modify
+```powershell
+scoop bucket add versions
+scoop install swift
+swift --version
+```
 
-| File                        | Action | Description                  |
-| --------------------------- | ------ | ---------------------------- |
-| `tests/helpers/compiler.ts` | Modify | Add Go compilation functions |
-| `tests/compiler-go.test.ts` | Create | Go-specific test file        |
-| `tests/.output-go/go.mod`   | Create | Go module definition         |
-| `.gitignore`                | Modify | Add `.output-go/`            |
-| `.github/workflows/ci.yml`  | Modify | Add Go test job              |
-| `package.json`              | Modify | Add test:go script           |
-| `README.md`                 | Modify | Document Go testing          |
+#### Option 3: Using WinGet
 
----
+```powershell
+winget search swift
+winget install Swift.Toolchain
+swift --version
+```
+
+### Windows-Specific Requirements
+
+1. **Visual Studio Build Tools** - Required for Swift on Windows
+
+   - Install "Desktop development with C++" workload
+   - Or install Visual Studio 2022 Community Edition
+
+2. **Windows SDK** - Usually installed with Visual Studio
+
+3. **PATH Configuration** - Ensure Swift bin directory is in PATH
+
+## Swift vs Other Languages Comparison
+
+| Feature              | Swift       | Rust            | Go              |
+| -------------------- | ----------- | --------------- | --------------- |
+| Variable declaration | `var`/`let` | `let`/`let mut` | `var`           |
+| String type          | `String`    | `String`        | `string`        |
+| Array type           | `[T]`       | `Vec<T>`        | `[]T`           |
+| Optional type        | `T?`        | `Option<T>`     | `*T` or nil     |
+| Class/Struct         | Both        | Struct only     | Struct only     |
+| Method `self`        | `self`      | `&self`/`&mut`  | receiver        |
+| Print                | `print()`   | `println!()`    | `fmt.Println()` |
+| Null                 | `nil`       | `None`          | `nil`           |
+| Entry point          | `main()`    | `fn main()`     | `func main()`   |
+
+## Implementation Plan
+
+### Phase 1: Prerequisites Check
+
+1. **Check Swift installation on Windows**
+
+   ```powershell
+   swift --version
+   # Expected: Swift version 6.x.x
+   ```
+
+2. **Verify compilation works**
+   ```powershell
+   # Create test.swift
+   echo 'print("Hello Swift")' > test.swift
+   swift test.swift
+   # Or compile and run
+   swiftc test.swift -o test.exe
+   .\test.exe
+   ```
+
+### Phase 2: Test Infrastructure
+
+#### 2.1 Create Swift Test Helper Functions
+
+Add to `tests/helpers/compiler.ts`:
+
+```typescript
+export async function compileToSwift(fixtureName: string): Promise<string> {
+  const inputPath = path.join(FIXTURES_DIR, `${fixtureName}.clj`);
+  const outputPath = path.join(OUTPUT_SWIFT_DIR, `${fixtureName}.swift`);
+
+  await runCompiler(inputPath, "swift3", outputPath);
+  return outputPath;
+}
+
+export async function runSwift(swiftFile: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    exec(`swift "${swiftFile}"`, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(`Swift execution failed: ${stderr}`));
+        return;
+      }
+      resolve(stdout.trim());
+    });
+  });
+}
+
+export async function compileSwiftExecutable(
+  swiftFile: string
+): Promise<string> {
+  const exePath = swiftFile.replace(".swift", ".exe");
+  return new Promise((resolve, reject) => {
+    exec(`swiftc "${swiftFile}" -o "${exePath}"`, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(`Swift compilation failed: ${stderr}`));
+        return;
+      }
+      resolve(exePath);
+    });
+  });
+}
+
+export function isSwiftAvailable(): boolean {
+  try {
+    execSync("swift --version", { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+```
+
+#### 2.2 Create Swift Test File
+
+Create `tests/compiler-swift.test.ts`:
+
+```typescript
+import { describe, it, expect, beforeAll } from "vitest";
+import * as fs from "fs";
+import * as path from "path";
+import {
+  compileToSwift,
+  runSwift,
+  isSwiftAvailable,
+  OUTPUT_SWIFT_DIR,
+  ensureOutputDir,
+} from "./helpers/compiler";
+
+const SWIFT_AVAILABLE = isSwiftAvailable();
+
+describe.skipIf(!SWIFT_AVAILABLE)("Swift Target Compilation", () => {
+  beforeAll(() => {
+    ensureOutputDir(OUTPUT_SWIFT_DIR);
+  });
+
+  describe("Basic Compilation", () => {
+    it("should compile array_push to Swift", async () => {
+      const outputPath = await compileToSwift("array_push");
+      expect(fs.existsSync(outputPath)).toBe(true);
+
+      const content = fs.readFileSync(outputPath, "utf-8");
+      expect(content).toContain("var");
+      expect(content).toContain("append");
+    });
+
+    it("should compile static_factory to Swift", async () => {
+      const outputPath = await compileToSwift("static_factory");
+      expect(fs.existsSync(outputPath)).toBe(true);
+
+      const content = fs.readFileSync(outputPath, "utf-8");
+      expect(content).toContain("class");
+      expect(content).toContain("static func");
+    });
+  });
+
+  describe("Runtime Tests", () => {
+    it("should run array_push", async () => {
+      const swiftFile = await compileToSwift("array_push");
+      const output = await runSwift(swiftFile);
+      expect(output).toContain("Done");
+    });
+
+    it("should run many_factories", async () => {
+      const swiftFile = await compileToSwift("many_factories");
+      const output = await runSwift(swiftFile);
+      expect(output).toContain("K");
+      expect(output).toContain("q");
+    });
+
+    it("should run while_loop", async () => {
+      const swiftFile = await compileToSwift("while_loop");
+      const output = await runSwift(swiftFile);
+      expect(output).toContain("10");
+    });
+  });
+});
+```
+
+### Phase 3: Package.json Scripts
+
+Add to `package.json`:
+
+```json
+{
+  "scripts": {
+    "test:swift": "vitest run tests/compiler-swift.test.ts"
+  }
+}
+```
+
+### Phase 4: CI/CD Integration
+
+Add Swift job to `.github/workflows/ci.yml`:
+
+```yaml
+test-swift:
+  runs-on: ${{ matrix.os }}
+  strategy:
+    matrix:
+      os: [macos-latest] # Swift is most stable on macOS
+      # os: [macos-latest, ubuntu-latest]  # Linux also well supported
+      # Windows Swift CI is experimental
+
+  steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Swift
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: "6.0"
+
+    - name: Verify Swift
+      run: swift --version
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build compiler
+      run: npm run compile
+
+    - name: Run Swift tests
+      run: npm run test:swift
+```
+
+### Phase 5: Swift-Specific Fixes (If Needed)
+
+Potential issues to watch for:
+
+1. **String interpolation** - Swift uses `\(expr)` instead of `+` concatenation
+2. **Optional unwrapping** - Swift requires explicit `!` or `?`
+3. **Array initialization** - Swift uses `[Type]()`
+4. **Static methods** - Swift uses `static func`
+5. **Entry point** - Swift 6 supports `@main` attribute
+
+#### Example Lang.clj Updates (if needed)
+
+```ranger
+; String concatenation for Swift (if current doesn't work)
++ strConcat:string ( text1:string text2:string ) {
+    templates {
+        swift3 ( (e 1) " + " (e 2) )
+    }
+}
+
+; Print for Swift
+print stmt:void (text:string) {
+    templates {
+        swift3 ( "print(" (e 1) ")" nl )
+    }
+}
+```
+
+## Known Swift Target Issues
+
+Check `ISSUES.md` and test for:
+
+1. **Optional handling** - Swift is strict about optionals
+2. **Type inference** - Swift infers types differently
+3. **Memory management** - ARC vs manual management
+4. **Foundation imports** - Some features require `import Foundation`
+
+## Windows-Specific Considerations
+
+### Limitations on Windows
+
+1. **Slower compilation** - Swift on Windows is slower than macOS
+2. **Foundation subset** - Not all Foundation APIs available on Windows
+3. **Debugging** - LLDB support is limited on Windows
+4. **Package ecosystem** - Some Swift packages may not support Windows
+
+### Workarounds
+
+1. **Use `swift` directly** - `swift filename.swift` for interpretation
+2. **Compile with swiftc** - `swiftc filename.swift -o output.exe`
+3. **Skip Foundation-dependent tests** on Windows if needed
 
 ## Estimated Effort
 
-| Phase                      | Time Estimate  |
-| -------------------------- | -------------- |
-| Phase 1: Prerequisites     | 15 min         |
-| Phase 2: Infrastructure    | 1 hour         |
-| Phase 3: Test Organization | 30 min         |
-| Phase 4: CI/CD             | 30 min         |
-| Phase 5: Implementation    | 2 hours        |
-| Phase 6: Go-specific fixes | 1 hour         |
-| **Total**                  | **~5-6 hours** |
+| Phase                         | Time Estimate  |
+| ----------------------------- | -------------- |
+| Phase 1: Prerequisites        | 30 min         |
+| Phase 2: Test Infrastructure  | 1 hour         |
+| Phase 3: Package Scripts      | 15 min         |
+| Phase 4: CI/CD                | 30 min         |
+| Phase 5: Swift-specific fixes | 1-2 hours      |
+| **Total**                     | **~4-5 hours** |
 
 ---
 
 ## Success Criteria
 
-1. ✅ Go is installed and working
-2. ✅ At least 5 fixture tests pass for Go target
-3. ✅ CI pipeline runs both ES6 and Go tests
-4. ✅ Tests skip gracefully if Go is not available
-5. ✅ Documentation is updated
+1. ⬜ Swift is installed and working on development machine
+2. ⬜ At least 5 fixture tests compile successfully to Swift
+3. ⬜ At least 3 fixture tests run successfully
+4. ⬜ CI pipeline runs Swift tests (at least on macOS)
+5. ⬜ Tests skip gracefully if Swift is not available
+6. ⬜ Documentation updated in README.md and ai/ folder
+
+## Quick Start Commands
+
+```powershell
+# 1. Install Swift on Windows (from swift.org)
+# Download installer from https://swift.org/download/
+
+# 2. Verify installation
+swift --version
+
+# 3. Test basic Swift compilation
+echo 'print("Hello Swift")' | Out-File -Encoding utf8 test.swift
+swift test.swift
+
+# 4. Run Swift tests (after implementation)
+npm run test:swift
+```
+
+## References
+
+- [Swift.org Downloads](https://swift.org/download/)
+- [Swift on Windows](https://www.swift.org/getting-started/#on-windows)
+- [Swift GitHub Actions](https://github.com/swift-actions/setup-swift)
+- [Swift Package Manager](https://swift.org/package-manager/)

@@ -774,3 +774,113 @@ class CliDemo {
     }
 }
 ```
+
+---
+
+## Example 19: Multi-Language Compilation
+
+This example shows how to compile the same Ranger code to different target languages.
+
+### Source Code (GamePiece.clj)
+
+```clojure
+class GamePiece {
+    def symbol:string ""
+    def isWhite:boolean true
+
+    Constructor (s:string white:boolean) {
+        symbol = s
+        isWhite = white
+    }
+
+    fn getSymbol:string () {
+        return symbol
+    }
+
+    ; Static factory methods for creating pieces
+    sfn King:GamePiece (white:boolean) {
+        return (new GamePiece((? white "K" "k") white))
+    }
+
+    sfn Queen:GamePiece (white:boolean) {
+        return (new GamePiece((? white "Q" "q") white))
+    }
+
+    sfn Empty:GamePiece () {
+        return (new GamePiece(" " true))
+    }
+}
+
+class Main {
+    sfn m@(main):void () {
+        def king (GamePiece.King(true))
+        def queen (GamePiece.Queen(false))
+        print (king.getSymbol())
+        print (queen.getSymbol())
+        print "Done"
+    }
+}
+```
+
+### Compile to Different Languages
+
+```bash
+# JavaScript
+ranger-compiler GamePiece.clj -l=es6 -o=gamepiece.js
+node gamepiece.js
+
+# Python
+ranger-compiler GamePiece.clj -l=python -o=gamepiece.py
+python gamepiece.py
+
+# Go
+ranger-compiler GamePiece.clj -l=go -o=gamepiece.go
+go run gamepiece.go
+
+# Rust
+ranger-compiler GamePiece.clj -l=rust -o=gamepiece.rs
+rustc gamepiece.rs -o gamepiece && ./gamepiece
+
+# Java
+ranger-compiler GamePiece.clj -l=java7 -o=Main.java
+javac Main.java && java Main
+```
+
+### Expected Output (All Languages)
+
+```
+K
+q
+Done
+```
+
+---
+
+## Target Language Notes
+
+### Rust Specifics
+
+When targeting Rust, the compiler automatically handles:
+
+- String literals become `.to_string()` for `String` type
+- Structs get `#[derive(Clone)]` for cloning support
+- Methods use `&mut self` for mutability
+- Array indexing uses `as usize` conversion
+- Ternary `? :` becomes `if/else` expression
+- String concatenation uses `format!` macro
+
+### Python Specifics
+
+- Avoid using `str`, `list`, `int` as variable names (shadows builtins)
+- Static methods use `@staticmethod` decorator
+- Main function uses `if __name__ == "__main__":` guard
+
+### Go Specifics
+
+- Integer division to double requires explicit conversion
+- Use `int2double` for type conversion before division
+
+### JavaScript/TypeScript
+
+- Most mature target with full feature support
+- Use `-typescript` flag for TypeScript output with type annotations

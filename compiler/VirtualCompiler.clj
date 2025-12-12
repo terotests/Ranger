@@ -128,7 +128,7 @@ class tester {
 
     this.envObj = env
 
-    def allowed_languages:[string] ([] "es6" "go" "scala" "java7" "swift3" "cpp" "php" "csharp" "python" "rust" )
+    def allowed_languages:[string] ([] "es6" "go" "scala" "java7" "swift3" "swift6" "cpp" "php" "csharp" "python" "rust" )
     def params (unwrap env.commandLine)
 
     def the_file ""
@@ -418,6 +418,11 @@ class tester {
         }
       }
       case "swift3" {
+        if( false == (endsWith the_target ".swift")) {
+          the_target = the_target + ".swift"
+        }
+      }
+      case "swift6" {
         if( false == (endsWith the_target ".swift")) {
           the_target = the_target + ".swift"
         }

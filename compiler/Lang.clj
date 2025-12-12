@@ -974,6 +974,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             templates { 
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatInt(" (e 2) ", 10) }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( (e 1) " + String(" (e 2)")" )
+                    swift6 ( (e 1) " + String(" (e 2)")" )
                     rust ( "[" (e 1) " , (" (e 2)".to_string()) ].join(\"\")" )
                     php ( (e 1) " . " (e 2) ) 
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
@@ -996,6 +997,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatFloat(" (e 2) ",'f', 6, 64) }, \"\")" (imp "strings") (imp "strconv"))
                     rust ( "[" (e 1) " , (" (e 2)".to_string()) ].join(\"\")" )
                     swift3 ( (e 1) " + String(" (e 2)")" )
+                    swift6 ( (e 1) " + String(" (e 2)")" )
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
                     python ( (e 1) " + str(" (e 2) ")" )
@@ -1008,6 +1010,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 templates { 
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatInt(" (e 2) ", 10) }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( (e 1) " + String(" (e 2)")" )
+                    swift6 ( (e 1) " + String(" (e 2)")" )
                     rust ( "[" (e 1) " , (" (e 2)".to_string()) ].join(\"\")" )
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
@@ -1024,14 +1027,18 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                 
         +               cmdPlusOp:string             ( left:double right:string ) { 
             templates { 
+                    swift3 ( "String(" (e 1) ") + " (e 2) )
+                    swift6 ( "String(" (e 1) ") + " (e 2) )
                     * ( (e 1) " + " (e 2) ) 
                     php ( (e 1) " . " (e 2) ) 
-                    rust ( "[" (e 1) " , " (e 2) " ].join()" )
+                    rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
                 } 
             }
 
         +               cmdPlusOp:string             ( left:int right:string    ) { 
                     templates { 
+                    swift3 ( "String(" (e 1) ") + " (e 2) )
+                    swift6 ( "String(" (e 1) ") + " (e 2) )
                     rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
                     php ( (e 1) " . " (e 2) ) 
                     * ( (e 1) " + " (e 2) ) 
@@ -2742,6 +2749,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ranger ( nl "push " (e 1) " " (e 2) "" nl)
                  cpp ( (e 1) ".push_back( "(e 2)"  );")
                  swift3 ( (e 1) ".append(" (e 2)")")
+                 swift6 ( (e 1) ".append(" (e 2)")")
                  php ( "array_push(" (e 1) ", " (e 2 )");")
                  python ( (e 1) ".append(" (e 2) ")")
                  java7 ( (e 1) ".add(" (e 2) ");" )
@@ -2959,6 +2967,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  python ( nl "print(" (e 1) ")" nl )
                  csharp ( nl "Console.WriteLine(" (e 1) ");" nl (imp "System"))
                  swift3 ( nl "print(" (e 1) ")" nl)
+                 swift6 ( nl "print(" (e 1) ")" nl)
                  * ( nl "console.log(" (e 1) ");" nl)                                                                
             }
         }
