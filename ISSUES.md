@@ -275,18 +275,18 @@ node bin/output.js -l=python tests/fixtures/array_push.clj -o=array_push.py
 
 ### File Extension Mapping (when auto-added)
 
-| Language | Extension |
-|----------|-----------|
-| es6      | .js       |
-| es6 + typescript | .ts |
-| swift3   | .swift    |
-| php      | .php      |
-| csharp   | .cs       |
-| java7    | .java     |
-| go       | .go       |
-| scala    | .scala    |
-| cpp      | .cpp      |
-| python   | .py       |
+| Language         | Extension |
+| ---------------- | --------- |
+| es6              | .js       |
+| es6 + typescript | .ts       |
+| swift3           | .swift    |
+| php              | .php      |
+| csharp           | .cs       |
+| java7            | .java     |
+| go               | .go       |
+| scala            | .scala    |
+| cpp              | .cpp      |
+| python           | .py       |
 
 ### Workaround
 
@@ -313,7 +313,7 @@ The file extension logic in `compiler/VirtualCompiler.clj` only runs when `the_t
 
 ---
 
-## Issue #7: Python target - super().__init__() doesn't pass constructor arguments
+## Issue #7: Python target - super().**init**() doesn't pass constructor arguments
 
 **Status:** Open  
 **Severity:** High  
@@ -328,7 +328,7 @@ When a class extends another class in Python output, the generated `super().__in
 ```ranger
 class Animal {
     def name:string ""
-    
+
     Constructor (n:string) {
         name = n
     }
@@ -336,11 +336,11 @@ class Animal {
 
 class Dog {
     Extends (Animal)
-    
+
     Constructor (n:string) {
         ; name = n  (this should call parent constructor with n)
     }
-    
+
     fn bark:void () {
         print "Woof!"
     }
@@ -428,6 +428,7 @@ TypeError: 'str' object is not callable
 ### Workaround
 
 Avoid using Python builtin names as variable names in Ranger source code:
+
 - `str` → use `text`, `s`, `myStr`
 - `list` → use `items`, `arr`, `myList`
 - `int` → use `num`, `i`, `myInt`
@@ -438,7 +439,7 @@ Avoid using Python builtin names as variable names in Ranger source code:
 ### Python Builtins to Avoid
 
 ```
-str, int, float, bool, list, dict, set, tuple, type, id, len, 
+str, int, float, bool, list, dict, set, tuple, type, id, len,
 range, print, input, open, file, map, filter, sum, min, max,
 abs, round, sorted, reversed, enumerate, zip, any, all, iter, next
 ```
@@ -446,6 +447,7 @@ abs, round, sorted, reversed, enumerate, zip, any, all, iter, next
 ### Recommended Fix
 
 The Python class writer should:
+
 1. Maintain a list of Python reserved names and builtins
 2. Automatically rename conflicting variables (e.g., `str` → `_str` or `str_`)
 3. Or emit a warning during compilation
@@ -477,8 +479,7 @@ See Issue #4 for the integer division specific case.
 ### Workaround
 
 Use explicit type conversions in Ranger source code:
+
 ```ranger
 def result:double ((int2double a) / (int2double b))
 ```
-
-
