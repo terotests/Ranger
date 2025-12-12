@@ -1,20 +1,19 @@
-
 # Ranger cross language compiler
 
 Status: `experimental`
 
 Ranger is a small self-hosting cross -language, cross -platform compiler to enable writing portable algorithms and applications.
-The language has type safety, classes, inheritance, operator overloading, lambda functions, generic traits, 
-class extensions, type inference and can integrate with host system API's using system classes. 
+The language has type safety, classes, inheritance, operator overloading, lambda functions, generic traits,
+class extensions, type inference and can integrate with host system API's using system classes.
 
 ## Host platforms and target languages
 
-The compiler is *self hosting*  which means that it has been written using the compiler itself and thus it can be hosted
+The compiler is _self hosting_ which means that it has been written using the compiler itself and thus it can be hosted
 on several platforms. At the moment the official platform is node.js, because external plugins are only available as npm packages.
 
 The target languages supported are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#` and `Scala`. The quality
 of the target translation still varies and at the moment of this writing the compiler can only be compiled fully to JavaSript
-target. However, most targets already can compile reasonably good code. 
+target. However, most targets already can compile reasonably good code.
 
 ## Installing the compiler
 
@@ -57,7 +56,8 @@ Pragmas: (inside the source code files)
 ## Getting started with Hello World
 
 Create file `hello.clj`
-```   
+
+```
 class Hello {
     static fn main () {
         print "Hello World"
@@ -65,6 +65,7 @@ class Hello {
 }
 
 ```
+
 Then compile it using `ranger-compiler` using command line
 
 ```
@@ -82,67 +83,67 @@ Note: the example requires content of Lang, stdlib, stdops and JSON to be loaded
 
 ```typescript
 // Notice this part of example is required:
-addFile('Lang.clj', fs.readFileSync('./libs/Lang.clj', 'utf8') )
-addFile('stdlib.clj', fs.readFileSync('./libs/stdlib.clj', 'utf8') )
-addFile('stdops.clj', fs.readFileSync('./libs/stdops.clj', 'utf8') )
-addFile('JSON.clj', fs.readFileSync('./libs/JSON.clj', 'utf8') )
+addFile("Lang.clj", fs.readFileSync("./libs/Lang.clj", "utf8"));
+addFile("stdlib.clj", fs.readFileSync("./libs/stdlib.clj", "utf8"));
+addFile("stdops.clj", fs.readFileSync("./libs/stdops.clj", "utf8"));
+addFile("JSON.clj", fs.readFileSync("./libs/JSON.clj", "utf8"));
 ```
 
 The full compiler code:
 
 ```typescript
+import * as R from "ranger-compiler";
+import { CodeNode } from "ranger-compiler";
 
-import * as R from 'ranger-compiler'
-import { CodeNode } from 'ranger-compiler';
-
-const compilerInput = new R.InputEnv()
-compilerInput.use_real = false
+const compilerInput = new R.InputEnv();
+compilerInput.use_real = false;
 
 // manually create a filesystem
-const folder = new R.InputFSFolder()
-const addFile = (name:string, contents:string) => {
-const newFile = new R.InputFSFile()
-newFile.name = name
-newFile.data = contents
-folder.files.push( newFile )
-}
-addFile('hello.clj',
-` 
+const folder = new R.InputFSFolder();
+const addFile = (name: string, contents: string) => {
+  const newFile = new R.InputFSFile();
+  newFile.name = name;
+  newFile.data = contents;
+  folder.files.push(newFile);
+};
+addFile(
+  "hello.clj",
+  ` 
 class hello {
     static fn main() {
         print "Hello World"
     }
 }  
-`);
+`
+);
 
 // compiler requires language definition and libraries to work
-const fs = require('fs')
-addFile('Lang.clj', fs.readFileSync('./libs/Lang.clj', 'utf8') )
-addFile('stdlib.clj', fs.readFileSync('./libs/stdlib.clj', 'utf8') )
-addFile('stdops.clj', fs.readFileSync('./libs/stdops.clj', 'utf8') )
-addFile('JSON.clj', fs.readFileSync('./libs/JSON.clj', 'utf8') )
+const fs = require("fs");
+addFile("Lang.clj", fs.readFileSync("./libs/Lang.clj", "utf8"));
+addFile("stdlib.clj", fs.readFileSync("./libs/stdlib.clj", "utf8"));
+addFile("stdops.clj", fs.readFileSync("./libs/stdops.clj", "utf8"));
+addFile("JSON.clj", fs.readFileSync("./libs/JSON.clj", "utf8"));
 
-compilerInput.filesystem = folder
+compilerInput.filesystem = folder;
 
 // set compiler options -l=es6 -typescript
-const params = new R.CmdParams()
+const params = new R.CmdParams();
 // target language is Go
-params.params['l'] = 'go'
-params.params['o'] = 'hello.go'
-params.values.push('hello.clj')
-compilerInput.commandLine = params
+params.params["l"] = "go";
+params.params["o"] = "hello.go";
+params.values.push("hello.clj");
+compilerInput.commandLine = params;
 
 // Run compiler
-const vComp = new R.VirtualCompiler()
+const vComp = new R.VirtualCompiler();
 
 // Check results...
-const res = await vComp.run(compilerInput)
+const res = await vComp.run(compilerInput);
 
 // browse through the target compiler file system
-res.fileSystem.files.forEach( file=>{
-    console.log(file.getCode())
-})
-
+res.fileSystem.files.forEach((file) => {
+  console.log(file.getCode());
+});
 ```
 
 ## Switching to different target language
@@ -157,48 +158,47 @@ Currently the compiler supports at least following language versions:
 - JavaScript ES2015
 - PHP versions 5.4 and above
 - C++ version C++14
-- Java version 7 
+- Java version 7
 - Swift version 3
 - Golang version 1.8
-- Scala 2.xx 
-- CSharp 7.0 
+- Scala 2.xx
+- CSharp 7.0
 
 However, it is possible to add support for older versions by implementing custom operators, which target to certain compiler flags.
 
 Additionally, JavaScript has '-typescript' flag, which will add typescript annotations to the source file.
 
-
 # Operators
 
 Operators enable creating short, funtional commands like 'get' or 'push' that operate on certain, typed parameters. Whenever there is
-need for some functionality it is woth considering whether it is best implemented using operator or a function or a class method. A 
+need for some functionality it is woth considering whether it is best implemented using operator or a function or a class method. A
 simple operator definition would be `M_PI` which is defined in the Compilers internal Lang.clj file as
 
 ```
     M_PI mathPi:double () {
         templates {
             es6 ("Math.PI")
-            go ( "math.Pi" (imp "math"))                                
-            swift3 ( "Double.pi" (imp "Foundation"))   
-            java7 ( "Math.PI" (imp "java.lang.Math"))         
-            php ("pi()")        
-            cpp ("M_PI" (imp "<math.h>"))               
+            go ( "math.Pi" (imp "math"))
+            swift3 ( "Double.pi" (imp "Foundation"))
+            java7 ( "Math.PI" (imp "java.lang.Math"))
+            php ("pi()")
+            cpp ("M_PI" (imp "<math.h>"))
         }
     }
 ```
 
-Oops! Looks like C# defintion is missing! It should be `Math.PI` and it requires `System`. We can add that easily to Lang.clj 
+Oops! Looks like C# defintion is missing! It should be `Math.PI` and it requires `System`. We can add that easily to Lang.clj
 
 ```
     M_PI mathPi:double () {
         templates {
             es6 ("Math.PI")
-            go ( "math.Pi" (imp "math"))                                
-            swift3 ( "Double.pi" (imp "Foundation"))   
-            java7 ( "Math.PI" (imp "java.lang.Math"))         
-            php ("pi()")        
-            cpp ("M_PI" (imp "<math.h>"))               
-            csharp ("Math.PI" (imp "System"))               
+            go ( "math.Pi" (imp "math"))
+            swift3 ( "Double.pi" (imp "Foundation"))
+            java7 ( "Math.PI" (imp "java.lang.Math"))
+            php ("pi()")
+            cpp ("M_PI" (imp "<math.h>"))
+            csharp ("Math.PI" (imp "System"))
         }
     }
 ```
@@ -212,6 +212,7 @@ For a quick reference of available basic operators see [Operators doc](operators
 # Plugins
 
 Compiling
+
 ```
 ranger-compiler hello.clj -npm  -nodemodule
 ```
@@ -233,12 +234,11 @@ class Plugin {
   fn features:[string] () {
       return ([]  "postprocess")
   }
-  fn postprocess (root:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {  
+  fn postprocess (root:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     print "*** plugin postprocess was called ***"
   }
 }
 ```
-
 
 # Notes about the syntax
 
@@ -254,14 +254,15 @@ class Hello {
             print "x < 10"
         } {
             print "x >= 10"
-        }   
+        }
     }
 }
 ```
 
 However, when you go deeper in the expression you may have to include the parenthesis, for example when invoking object you have to write
+
 ```
-def obj (new Hello) 
+def obj (new Hello)
 ```
 
 For most common mathematical symbols and boolean operators infix notation can be used and they are automatically converted to lisp expressions.
@@ -270,41 +271,45 @@ Thus you can write expressions such as `(x + y * z)` instead of `(+ x (* y z))`
 ```
 def x 100
 def y 200
-def z ( x + y * 10)    
+def z ( x + y * 10)
 if ( x < 20 || y == 0 ) {
 
 }
 ```
+
 The assigment operator is also automatically prefixed from infix notation so you can say
+
 ```
 x = y
 ```
+
 Instead of common lisp syntax `(= x y)`
 
 ## Main function
 
 Each file can have a static main function, which is executed as the main program.
 
-```   
+```
 class Hello {
     static fn main() {
-    }   
+    }
 }
 
 ```
+
 This is a static function which marks the start of execution for the program.
 
 ## Functions and Static functions
 
-```   
+```
 class Hello {
     fn SomeNonStaticFn () {
-    }      
+    }
     sfn SomeStaticFn () {
         ; static function which instantiates Hello and calls non-static
         def o (new Hello)
         o.SomeNonStaticFn()
-    }   
+    }
 }
 
 ```
@@ -319,8 +324,8 @@ Hello.SomeStaticFn()
 
 Function not inferred or declared as `void` should always return value with `return` statement.
 
-
 ## Comments
+
 ```
 ; here is a comment
 class Hello {
@@ -346,18 +351,21 @@ Basic primitive types are
 - boolean
 - string
 - double
-- char  
+- char
 - charbuffer
 
 Type of function returning nothing is
+
 - void
 
 Type which can be used as variable types, but require signature are
+
 - Arrays
 - Hashes
 - Anonymous functions
 
 Types which require type declaration are
+
 - Enum
 - class
 - systemclass
@@ -375,9 +383,39 @@ def long_string "
 "
 ```
 
+## String Operations
+
+Ranger provides a comprehensive set of string manipulation operators. Here are some commonly used ones:
+
+```
+def text "Hello World"
+
+; Length and substring operations
+def len (strlen text)                    ; returns 11
+def sub (substring text 0 5)             ; returns "Hello"
+
+; Case conversion
+def lower (to_lowercase text)            ; returns "hello world"
+def upper (to_uppercase text)            ; returns "HELLO WORLD"
+
+; Search operations
+def idx (indexOf text "World")           ; returns 6
+def hasWorld (contains text "World")     ; returns true
+def starts (startsWith text "Hello")     ; returns true
+def ends (endsWith text "World")         ; returns true
+
+; String manipulation
+def replaced (replace text "World" "Ranger")  ; returns "Hello Ranger"
+def parts (strsplit text " ")            ; returns ["Hello", "World"]
+def trimmed (trim "  hello  ")           ; returns "hello"
+```
+
+For the complete list of string operators, see [Operators doc](operators.md).
+
 ## Enums
 
 Enums will be compiled to type `int` but are type checked by the Ranger preprosessor
+
 ```
 Enum LineJoin (
     Undefined
@@ -393,6 +431,7 @@ class foo {
 ## Arrays and Hashes
 
 Arrays and hashes are automatically initialized and are ready to be used after their declaration
+
 ```
 def list:[string]
 def usedKeywords:[string:string]
@@ -402,20 +441,27 @@ def classMap:[string:myClass]
 ### Operators for hashes
 
 if we have a hashmap
+
 ```
   def someMap:[string:string]
 ```
+
 Operator `set` can be used to set key/value pair
+
 ```
   set someMap "foo" "bar"
 ```
+
 Operator `has` can be used to check if a key exists in the hash
+
 ```
     if (has someMap "a key") {
-        
+
     }
 ```
+
 Get is used to read the value associated with a key. The result is `@(optional)`
+
 ```
   (get someMap "foo")
 ```
@@ -423,6 +469,7 @@ Get is used to read the value associated with a key. The result is `@(optional)`
 ## Anonymous functions / lambdas
 
 Anonymous function type declaration is automatically inferred
+
 ```
 def name "foo"
 def myFilter (fn:boolean (param:string) {
@@ -451,9 +498,7 @@ this.foo({
 })
 ```
 
-
-
-# Automatically infixed math support 
+# Automatically infixed math support
 
 It is easy to define new mathematical operations in the Lang.clj file or in modules. However, some mathematical operations are automatically infixed
 for easier usage. Thus, instead of using common lips notation `(* 4 10)` you can use easier to read infixed `4 * 10` -syntax
@@ -484,7 +529,6 @@ a >= b
 a != b
 ```
 
-
 # Common set of Operators and the Grammar file
 
 The file `Lang.clj` is used by the compiler for the common set of operators and compilation rules. The
@@ -501,13 +545,15 @@ modifications, rather it describes common set of rules used and thus should be e
 The file has couple of sections, but the `reserved_words` and `commands`. The Reserved words section declares (surprise!)
 the reserved words and their transformation. This is required because for example in Go the word `map` is a keyword and can
 not be used unless it is conveted to some other name, for example to `FnMap`.
+
 ```
     reserved_words {
         map FnMap
         forEach forEachItem
     }
 ```
-What the result should be is of course highly opinionated. In this example, the line `map FnMap` means that if possible the 
+
+What the result should be is of course highly opinionated. In this example, the line `map FnMap` means that if possible the
 compiler will transform anything named `map` to `fnMap` if possible. If transformation is not possible, compiler error is
 generated.
 
@@ -516,16 +562,17 @@ and return values and rules on how they should be compiled into the target langu
 and possible macros or helper function which should be created if the operator is used.
 
 Example of simple operator is `(M_PI)` which will return double value of mathematical symbol "pi".
+
 ```
     commands {
         M_PI mathPi:double () {
             templates {
                 es6 ("Math.PI")
-                go ( "math.Pi" (imp "math"))                                
-                swift3 ( "Double.pi" (imp "Foundation"))   
-                java7 ( "Math.PI" (imp "java.lang.Math"))         
-                php ("pi()")        
-                cpp ("M_PI" (imp "<math.h>"))               
+                go ( "math.Pi" (imp "math"))
+                swift3 ( "Double.pi" (imp "Foundation"))
+                java7 ( "Math.PI" (imp "java.lang.Math"))
+                php ("pi()")
+                cpp ("M_PI" (imp "<math.h>"))
             }
         }
         ...
@@ -534,15 +581,15 @@ Example of simple operator is `(M_PI)` which will return double value of mathema
 Most operators are simple, but some require creating custom macros, helpoer functions and some of them are so complex
 that they may be implemented in the compiler core.
 
-
 # Modules, classes and operators
 
 The basic unit of the program is class. The functions of classes can not be overloaded at the moment, which means that you can not
-have two functions with different parameters or different return values. 
+have two functions with different parameters or different return values.
 
-Each source file can import other files using `Import` command. 
-``` 
-Import "Vec2.clj"  
+Each source file can import other files using `Import` command.
+
+```
+Import "Vec2.clj"
 
 class vectorTest {
     fn testVectors () {
@@ -553,7 +600,7 @@ class vectorTest {
 
 ## Class declaration
 
-``` 
+```
 class fatherClass {
     def msg "Hello "
     fn foo:string ( txt:string ) {
@@ -575,7 +622,7 @@ class mainProgram {
 
 ## Class constructor
 
-``` 
+```
 class myClass {
     def name:string ""
     Constructor (n:string) {
@@ -585,13 +632,16 @@ class myClass {
 ```
 
 Notes:
-1. currently only a single variant of the constructor is possible. 
+
+1. currently only a single variant of the constructor is possible.
 2. as of this writing calling the parent class constructor does not work properly
 
 ## Class invocation
+
 ```
 def obj (new myClass ("name"))
 ```
+
 classes without constructor can be invocated without arguments
 
 ```
@@ -608,7 +658,7 @@ Extension can
 - add new functions to the class
 - add new member variables to the class
 
-``` 
+```
 extension childClass {
     def name:string ""
     fn bar:string ( txt:string ) {
@@ -625,26 +675,28 @@ non-nullable value should cause compiler error. In Ranger any variable which is 
 This corresponds to Swift `?` optional type.
 
 You can also declare variables optional using @optional annotation
+
 ```
     def item@(optional):myClass
 ```
 
 Some operators also return optional values, for example `(get <hash> <key>)` operator is returning always optional value. To use
 the value you must use `(unwrap <value>)` operator
+
 ```
     def strMap:[string:string]
     def str (get strMap "myKey")
     if(!null? str) {
         print (unwrap str)
     }
-``` 
+```
 
-**Warning***  currently optinal variables in Ranger are not "safe" in the sense the language makes sure that you can not make 
+**Warning\*** currently optinal variables in Ranger are not "safe" in the sense the language makes sure that you can not make
 programming errors - it is possible to create programming mistake by using a variable which automatically unwrapped. The plan
-is to try to make them safer in the future, and options are considered how to enable them 
+is to try to make them safer in the future, and options are considered how to enable them
 
 Another warning: Ranger does not protect you from mistakes when automatically unwrapping long reference chains like
-`obj.property.subProperty.foo` where `property` and `subProperty ` are optional variables. 
+`obj.property.subProperty.foo` where `property` and `subProperty ` are optional variables.
 
 ## Control flow
 
@@ -661,7 +713,7 @@ if ( x < 10 ) {
 }
 ```
 
-### switch - case 
+### switch - case
 
 Note: currently case statement does not support multiple matching values, it is planned to add support for that later.
 
@@ -683,15 +735,18 @@ switch name {
 ## Loops
 
 ### for -loop
+
 ```
 def list:[string]
 for list s:string i {
     print s
 }
 ```
+
 You can use `break` and `continue` to control the for -loop.
 
 ### while -loop
+
 ```
 def cnt 10
 while (cnt > 0 ) {
@@ -708,6 +763,7 @@ using macros. Together with `systemclass` they allow the system to integrate to 
 native API's.
 
 Operators allow type matching against
+
 - defined primitive types
 - defined classes
 - Enums
@@ -749,17 +805,17 @@ operators {
     *  base:Mat2 ( a:Mat2 b:Mat2) {
         templates {
             * @macro(true) ( (e 1 ) ".multiply(" (e 2) " )" )
-        }        
+        }
     }
 }
 
 ```
-The `* @macro(true)` means that we target all languages and this is a macro, not actual target language construct.
 
+The `* @macro(true)` means that we target all languages and this is a macro, not actual target language construct.
 
 ## Custom operators and System classes
 
-To integrate with the target languages running environment,  Ranger modules can declare `systemclass` which can be used
+To integrate with the target languages running environment, Ranger modules can declare `systemclass` which can be used
 together with the code.
 
 ```
@@ -771,12 +827,12 @@ operators {
     find  base:DOMElement ( id:string) {
         templates {
             es6 ("document.getElementById( " (e 1) " )")
-        }        
+        }
     }
     setAttribute  _:void ( elem:DOMElement name:string value:string) {
         templates {
             es6 ( (e 1) ".setAttribute(" (e 2) ", " (e 3) ")" )
-        }        
+        }
     }
 }
 
@@ -788,25 +844,25 @@ class tester {
 }
 ```
 
-
 Note: Definition of system classes will be revisited in near future and there will be potentially small changes to it.
 
 ## Unions of system classes
 
-Sometimes the system class can be of union type. This means that the traget language can accept multiple types in place of 
+Sometimes the system class can be of union type. This means that the traget language can accept multiple types in place of
 a single type.
 
 ```
 systemunion DOMElementUnion ( DOMElement string )
 ```
-The you can create operator which accepts either `DOMElement` or `string` and reduces that to a single type. 
 
+The you can create operator which accepts either `DOMElement` or `string` and reduces that to a single type.
 
 ## Traits
 
 Traits are like extensions, which can be plugged into several classes using `does` keyword.
 
-Traits 
+Traits
+
 ```
 trait bar {
     fn hello() {
@@ -814,7 +870,7 @@ trait bar {
     }
 }
 
-; foo implements "bar" trait 
+; foo implements "bar" trait
 class foo {
     does bar
 }
@@ -855,14 +911,14 @@ class Main {
         def n (coll.map({
             return ("item = " + item)
         }))
-        print (join n.items " ")     
+        print (join n.items " ")
     }
     sfn hello@(main):void () {
         def hello (new Main ())
         hello.testCollection()
-    }   
+    }
 }
-``` 
+```
 
 ## Variable definitions
 
@@ -879,15 +935,15 @@ def strObjMap:[string:someClass]    ; map of string -> object of type someClass
 
 # Advanced topics
 
-
 ## Compiling a new version of the compiler
 
 Then run command
+
 ```
 ranger-compiler -compiler -copysrc
 ```
-The result will be written to directory `bin/ng_Compiler.js`.
 
+The result will be written to directory `bin/ng_Compiler.js`.
 
 # Annotations
 
@@ -917,7 +973,7 @@ trait GenericCollection @paras(T V) {
 class StringCollection {
     does GenericCollection @params(string StringCollection)
 }
-``` 
+```
 
 ## def variableName@(optional)
 
@@ -943,4 +999,4 @@ the lifetime calculations.
 ## def variableName@(temp)
 
 @(temp) annotation can be used to note the compiler that it should not worry about freeing the variable, in case the
-target language has option to release the variable. 
+target language has option to release the variable.

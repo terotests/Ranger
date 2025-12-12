@@ -23,6 +23,8 @@
     "compilets": "node bin/output.js -es6 -typescript ./compiler/ng_Compiler.clj -o=compiler.ts -nodecli && tsc",
     "module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.clj -o=api.ts && tsc",
     "test": "vitest run --config tests/vitest.config.ts",
+    "test:es6": "vitest run --config tests/vitest.config.ts compiler.test.ts",
+    "test:go": "vitest run --config tests/vitest.config.ts compiler-go.test.ts",
     "test:watch": "vitest --config tests/vitest.config.ts",
     "gen:simple": "cross-env RANGER_LIB=./compiler/Lang.clj node bin/output.js -es6 ./generated/SimpleChessBoard.clj -d=./generated/output -o=SimpleChessBoard.js -nodecli",
     "gen:simple:run": "npm run gen:simple && node ./generated/output/SimpleChessBoard.js",

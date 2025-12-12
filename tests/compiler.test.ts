@@ -174,6 +174,27 @@ describe("Ranger Compiler - Basic Features", () => {
       expect(run?.output).toContain("Hello");
       expect(run?.output).toContain("Done");
     });
+
+    it("should compile and run startsWith, endsWith, contains, replace", () => {
+      const { compile, run } = compileAndRun(
+        `${FIXTURES_DIR}/string_methods.clj`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      expect(run?.output).toContain("startsWith Hello: true");
+      expect(run?.output).toContain("startsWith World: false");
+      expect(run?.output).toContain("endsWith World: true");
+      expect(run?.output).toContain("endsWith Hello: false");
+      expect(run?.output).toContain("contains 'lo Wo': true");
+      expect(run?.output).toContain("contains xyz: false");
+      expect(run?.output).toContain("Hello Ranger");
+      expect(run?.output).toContain("test endsWith st: true");
+      expect(run?.output).toContain("Done");
+    });
   });
 
   describe("Math Operations", () => {

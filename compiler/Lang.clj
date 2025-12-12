@@ -2538,6 +2538,85 @@ int r_string_index_of( std::string str, std::string key )  {
             }        
         }
 
+        startsWith _:boolean (str:string prefix:string) {
+            templates {
+                ranger ( "(startsWith " (e 1) " " (e 2) ")")
+                es6 ( (e 1) ".startsWith(" (e 2) ")" )
+                java7 ( (e 1) ".startsWith(" (e 2) ")" )
+                go ( "strings.HasPrefix(" (e 1) ", " (e 2) ")" (imp "strings"))
+                php ( "substr(" (e 1) ", 0, strlen(" (e 2) ")) === " (e 2) )
+                swift3 ( (e 1) ".hasPrefix(" (e 2) ")" )
+                csharp ( (e 1) ".StartsWith(" (e 2) ")" )
+                scala ( (e 1) ".startsWith(" (e 2) ")" )
+                cpp ( (e 1) ".rfind(" (e 2) ", 0) == 0" )
+                kotlin ( (e 1) ".startsWith(" (e 2) ")" )
+            }
+        }
+
+        endsWith _:boolean (str:string suffix:string) {
+            templates {
+                ranger ( "(endsWith " (e 1) " " (e 2) ")")
+                es6 ( (e 1) ".endsWith(" (e 2) ")" )
+                java7 ( (e 1) ".endsWith(" (e 2) ")" )
+                go ( "strings.HasSuffix(" (e 1) ", " (e 2) ")" (imp "strings"))
+                php ( "substr(" (e 1) ", -strlen(" (e 2) ")) === " (e 2) )
+                swift3 ( (e 1) ".hasSuffix(" (e 2) ")" )
+                csharp ( (e 1) ".EndsWith(" (e 2) ")" )
+                scala ( (e 1) ".endsWith(" (e 2) ")" )
+                cpp ( "r_string_ends_with(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+bool r_string_ends_with(const std::string& str, const std::string& suffix) {
+    if (suffix.size() > str.size()) return false;
+    return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+" )
+                )
+                kotlin ( (e 1) ".endsWith(" (e 2) ")" )
+            }
+        }
+
+        contains _:boolean (str:string sub:string) {
+            templates {
+                ranger ( "(contains " (e 1) " " (e 2) ")")
+                es6 ( (e 1) ".includes(" (e 2) ")" )
+                java7 ( (e 1) ".contains(" (e 2) ")" )
+                go ( "strings.Contains(" (e 1) ", " (e 2) ")" (imp "strings"))
+                php ( "strpos(" (e 1) ", " (e 2) ") !== false" )
+                swift3 ( (e 1) ".contains(" (e 2) ")" )
+                csharp ( (e 1) ".Contains(" (e 2) ")" )
+                scala ( (e 1) ".contains(" (e 2) ")" )
+                cpp ( (e 1) ".find(" (e 2) ") != std::string::npos" )
+                kotlin ( (e 1) ".contains(" (e 2) ")" )
+            }
+        }
+
+        replace _:string (str:string oldStr:string newStr:string) {
+            templates {
+                ranger ( "(replace " (e 1) " " (e 2) " " (e 3) ")")
+                es6 ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
+                java7 ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
+                go ( "strings.Replace(" (e 1) ", " (e 2) ", " (e 3) ", 1)" (imp "strings"))
+                php ( "str_replace(" (e 2) ", " (e 3) ", " (e 1) ")" )
+                swift3 ( (e 1) ".replacingOccurrences(of: " (e 2) ", with: " (e 3) ")" )
+                csharp ( (e 1) ".Replace(" (e 2) ", " (e 3) ")" )
+                scala ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
+                cpp ( "r_string_replace(" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill
+"
+std::string r_string_replace(std::string str, const std::string& from, const std::string& to) {
+    size_t pos = str.find(from);
+    if (pos != std::string::npos) {
+        str.replace(pos, from.length(), to);
+    }
+    return str;
+}
+" )
+                )
+                kotlin ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
+            }
+        }
+
         ; array function derived from scala
 
         indexOf    cmdIndexOf:int      ( array:[T] element:T ) { 
