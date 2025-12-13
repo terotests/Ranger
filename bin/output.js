@@ -3655,7 +3655,7 @@ class RangerAppWriterContext  {
     if ( this.isDefinedClass(str) ) {
       return this.findClass(str);
     }
-    const tpl_code = ("class " + str) + " {\r\n}";
+    const tpl_code = ("class " + str) + " {\n}";
     const code = new SourceCode(tpl_code);
     code.filename = str + ".ranger";
     const parser_1 = new RangerLispParser(code);
@@ -3688,7 +3688,7 @@ class RangerAppWriterContext  {
       this.addError(initParams, "Could not find the trait " + traitName);
       return res;
     }
-    const tpl_code = ("class " + instanceName) + " {\r\n}";
+    const tpl_code = ("class " + instanceName) + " {\n}";
     const code = new SourceCode(tpl_code);
     code.filename = instanceName + ".ranger";
     const parser_1 = new RangerLispParser(code);
@@ -7105,7 +7105,7 @@ class RangerServiceBuilder  {
     if ( ctx.isDefinedClass(str) ) {
       return ctx.findClass(str);
     }
-    const tpl_code = ("class " + str) + " {\r\n}";
+    const tpl_code = ("class " + str) + " {\n}";
     const code = new SourceCode(tpl_code);
     code.filename = str + ".ranger";
     const parser = new RangerLispParser(code);
@@ -8307,7 +8307,7 @@ class RangerFlowParser  {
     const wr = new CodeWriter();
     await operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
       if ( item.isNormalClass() ) {
-        wr.raw(((("\r\n      operators {\r\n        class_name _:string ( " + item.name) + "@(keyword) ) {\r\n          templates {\r\n            * ( '\"") + item.name) + "\"' )\r\n          }\r\n        }\r\n      }    \r\n          ", true);
+        wr.raw(((("\n      operators {\n        class_name _:string ( " + item.name) + "@(keyword) ) {\n          templates {\n            * ( '\"") + item.name) + "\"' )\n          }\n        }\n      }    \n          ", true);
       }
     }));
     await root.pushAndCollectCode(wr.getCode(), orig_wr);
@@ -13002,7 +13002,7 @@ class AndroidPageWriter  {
     if ( in_stdCode ) {
       newBody.children.push(stdCode);
     }
-    const ast = this.BuildAST("\r\n def ctx (new JinxProcessCtx)\r\n ctx.anyValues = (set ctx.anyValues \"view\" view)\r\n ctx.anyValues = (set ctx.anyValues \"uicontext\" (getUIContext))\r\n ctx.anyValues = (set ctx.anyValues \"process\" mainProcess)\r\n mainProcess.start(ctx)\r\n      ");
+    const ast = this.BuildAST("\n def ctx (new JinxProcessCtx)\n ctx.anyValues = (set ctx.anyValues \"view\" view)\n ctx.anyValues = (set ctx.anyValues \"uicontext\" (getUIContext))\n ctx.anyValues = (set ctx.anyValues \"process\" mainProcess)\n mainProcess.start(ctx)\n      ");
     await operatorsOf.forEach_15(ast.children, ((item, index) => { 
       const n = item;
       mainBody.children.push(n);
@@ -16036,7 +16036,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
   };
   async writeArrayLiteral (node, ctx, wr) {
-    this.compiler.createPolyfill("\r\ntemplate< typename T, size_t N >\r\nstd::vector<T> r_make_vector_from_array( const T (&data)[N] )\r\n{\r\n    return std::vector<T>(data, data+N);\r\n}\r\n", ctx, wr);
+    this.compiler.createPolyfill("\ntemplate< typename T, size_t N >\nstd::vector<T> r_make_vector_from_array( const T (&data)[N] )\n{\n    return std::vector<T>(data, data+N);\n}\n", ctx, wr);
     wr.out("r_make_vector_from_array( (", false);
     wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
     wr.out("[] ) {", false);
@@ -23994,7 +23994,7 @@ class viewbuilder_Web  {
     wr.indent(1);
     wr.out("<head>", true);
     wr.indent(1);
-    wr.out("\r\n  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css\">\r\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js\"></script>    \r\n    ", true);
+    wr.out("\n  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css\">\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js\"></script>    \n    ", true);
     wr.indent(-1);
     wr.out("</head>", true);
     wr.out("<body>", true);
@@ -24665,7 +24665,7 @@ VirtualCompiler.create_env = async function() {
   operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "Storage.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Storage.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
   operatorsOf_3.createc95file_4(env.filesystem, "JSON.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
+  operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\n\nclass tester {\n  static fn main () {\n    print \"Hello World!\"\n  }\n}\n\n    ");
   require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
 };
 VirtualCompiler.displayCompilerErrors = function(appCtx) {
