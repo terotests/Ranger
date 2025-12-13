@@ -310,7 +310,7 @@ class Invaders  {
     console.log(finalMsg);
     process.stdout.write("\x1b[?25h");
   };
-  gameLoop () {
+  async gameLoop () {
     while (this.gameOver == false) {
       this.savePrevState();
       this.update();
@@ -357,7 +357,7 @@ class Invaders  {
   };
 }
 /* static JavaSript main routine at the end of the JS file */
-function __js_main() {
+async function __js_main() {
   const game = new Invaders();
   console.log("=== SPACE INVADERS ===");
   console.log("");
@@ -378,6 +378,6 @@ function __js_main() {
     game.handleKey(key);
   });
   process.stdout.write("\x1b[?25l");
-  game.gameLoop();
+  await game.gameLoop();
 }
 __js_main();
