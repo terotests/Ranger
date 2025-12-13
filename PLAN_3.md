@@ -787,7 +787,94 @@ samples/
 - [ ] Code folding
 - [ ] Breadcrumbs support
 
-### 4.2 Compilation Integration
+### 4.2 Language Server Protocol (LSP) Implementation
+
+Implement a full Language Server to provide IDE features across editors (VSCode, Neovim, etc.).
+
+**Core Navigation Features:**
+
+- [ ] **Go to Definition** - Jump to class, method, or variable definition
+- [ ] **Go to Declaration** - Navigate to where symbol is declared
+- [ ] **Go to Type Definition** - Jump to the type of a variable/parameter
+- [ ] **Go to Implementation** - Find implementations of interfaces/abstract methods
+- [ ] **Find All References** - List all usages of a symbol across the project
+- [ ] **Peek Definition** - Inline preview without leaving current file
+
+**Code Intelligence:**
+
+- [ ] **Hover Information** - Show type, documentation, and signature on hover
+- [ ] **Signature Help** - Parameter hints when typing function calls
+- [ ] **Autocomplete** - Context-aware completions for:
+  - Keywords and operators
+  - Class names and types
+  - Method names (including inherited)
+  - Variable names in scope
+  - Import paths
+- [ ] **Document Symbols** - Outline view of classes, methods, variables
+- [ ] **Workspace Symbols** - Search symbols across all files
+
+**Refactoring Support:**
+
+- [ ] **Rename Symbol** - Rename across all files with preview
+- [ ] **Extract Method** - Extract selection to new method
+- [ ] **Extract Variable** - Extract expression to variable
+- [ ] **Inline Variable** - Replace variable with its value
+- [ ] **Organize Imports** - Sort and remove unused imports
+
+**Diagnostics & Validation:**
+
+- [ ] **Real-time Error Checking** - Syntax and semantic errors as you type
+- [ ] **Warning Highlights** - Unused variables, deprecated features
+- [ ] **Quick Fixes** - Suggested fixes for common errors:
+  - Add missing import
+  - Fix typo in identifier
+  - Add missing method parameter
+  - Convert type automatically
+
+**Code Actions:**
+
+- [ ] **Generate Constructor** - Create constructor from class fields
+- [ ] **Generate Getters/Setters** - Auto-generate accessors
+- [ ] **Implement Interface** - Stub out interface methods
+- [ ] **Override Method** - Generate override with super call
+
+**Implementation Approach:**
+
+```typescript
+// Leverage existing introspection infrastructure
+import {
+  getTypeAtPosition,
+  getClassProperties,
+  getClassMethods,
+  findDefinitionLocation,
+} from "./introspection";
+
+// Language Server handlers
+server.onDefinition((params) => {
+  const position = params.position;
+  const symbolInfo = getTypeAtPosition(document, position);
+  return findDefinitionLocation(symbolInfo);
+});
+
+server.onHover((params) => {
+  const typeInfo = getTypeAtPosition(document, params.position);
+  return {
+    contents: formatHoverContent(typeInfo),
+  };
+});
+```
+
+**Tasks:**
+
+- [ ] Set up `vscode-languageserver` package
+- [ ] Create Language Server entry point
+- [ ] Integrate with compiler's introspection API (see [ai/INTROSPECTION.md](ai/INTROSPECTION.md))
+- [ ] Implement document synchronization
+- [ ] Add incremental parsing for performance
+- [ ] Cache symbol tables per file
+- [ ] Support multi-root workspaces
+
+### 4.3 Compilation Integration
 
 - [ ] Build task integration
 - [ ] Problem matcher for errors
@@ -795,13 +882,13 @@ samples/
 - [ ] Target language selection in settings
 - [ ] Multi-target compilation support
 
-### 4.3 Debugging Support (Future)
+### 4.4 Debugging Support (Future)
 
 - [ ] Debug adapter protocol (DAP) research
 - [ ] Source map consumption
 - [ ] Breakpoint support (JavaScript target initially)
 
-### 4.4 Extension Publishing
+### 4.5 Extension Publishing
 
 - [ ] Create VS Code Marketplace account
 - [ ] Package extension (vsce)
