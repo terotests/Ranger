@@ -10,14 +10,13 @@ class extensions, type inference and can integrate with host system API's using 
 
 🚀 **Ranger 3.0** is a major evolution focusing on developer experience and production readiness.
 
-### Key Features (In Progress)
+### Key Features
 
 - **New File Extension** - Transitioning from `.clj` to `.rgr` for Ranger identity
 - **Simplified CLI** - Use `rgrc` command for shorter invocations
-- **Web-based IDE** - Browser playground with Monaco editor (coming soon)
-- **VSCode Extension** - Full language server with go-to-definition, autocomplete, and more
-- **Compiler Introspection** - API for IDE integration and tooling
+- **VSCode Extension** - Language server with syntax highlighting (in development)
 - **CI/CD Pipeline** - Automated testing and NPM publishing
+- **Unit Test Suite** - Comprehensive test coverage with Vitest
 
 ### Quick Start
 
@@ -324,7 +323,7 @@ Currently the compiler supports at least following language versions:
 - Scala 2.xx
 - CSharp 7.0
 - Python 3.x
-- Rust (preliminary support, 2021 edition)
+- Rust (preliminary support)
 
 However, it is possible to add support for older versions by implementing custom operators, which target to certain compiler flags.
 
