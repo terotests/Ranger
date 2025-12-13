@@ -563,7 +563,7 @@ describe("Compiler Introspection", () => {
 });
 
 describe("Operator Availability", () => {
-  it("should have operators loaded from Lang.clj", async () => {
+  it("should have operators loaded from Lang.rgr", async () => {
     const result = await compileForIntrospection(`
       class OpTest {
         fn test:void () {

@@ -648,3 +648,49 @@ rust ( (e 1) "[" (e 2) " as usize] = " (e 3) ";" )
 
 **Problem:** Rust warns about unnecessary parentheses in `while (condition)`.  
 **Fix:** Added Rust template without parentheses: `while condition {`.
+
+---
+
+## Issue #12: CI Tests Fail with LF Line Endings
+
+**Status:** Resolved (workaround in place)  
+**Severity:** High  
+**Found:** December 13, 2025
+
+### Description
+
+Tests pass locally on Windows but fail in GitHub Actions CI (Linux). The compiled JavaScript output contains broken operator syntax like `while<i5` instead of `while (i < 5)` and `*ab` instead of `a * b`.
+
+### Root Cause
+
+The Ranger compiler/parser appears to be sensitive to line endings. When source files (`.rgr`) have LF-only line endings (as happens on Linux or when git's `core.autocrlf` normalizes files), the operator infixing logic fails silently, producing invalid JavaScript output.
+
+### Error Messages in CI
+
+```
+SyntaxError: Unexpected token '<'
+    while<i5
+         ^
+
+SyntaxError: Unexpected token '*'
+    const prod = *ab;
+                 ^
+```
+
+### Resolution
+
+Ensured all `.rgr` source files and `bin/output.js` are committed with CRLF line endings:
+
+1. Convert files to CRLF locally
+2. Disable `core.autocrlf` temporarily: `git config core.autocrlf false`
+3. Remove files from index and re-add: `git rm --cached *.rgr` then `git add *.rgr`
+4. Commit and push
+
+### Files Affected
+
+- All `.rgr` files in `compiler/`, `lib/`, `tests/fixtures/`
+- `bin/output.js`
+
+### Future Fix Needed
+
+The parser should be investigated to handle both LF and CRLF line endings consistently. The issue is likely in the Ranger source parser (`ng_RangerLispParser.rgr` or related files) where line ending handling affects token parsing.

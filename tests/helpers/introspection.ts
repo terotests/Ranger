@@ -121,10 +121,10 @@ function loadCompilerLibraries(): { [key: string]: string } {
   const libDir = path.join(rootDir, "lib");
 
   return {
-    "Lang.clj": fs.readFileSync(path.join(compilerDir, "Lang.clj"), "utf8"),
-    "stdlib.clj": fs.readFileSync(path.join(libDir, "stdlib.clj"), "utf8"),
-    "stdops.clj": fs.readFileSync(path.join(libDir, "stdops.clj"), "utf8"),
-    "JSON.clj": fs.readFileSync(path.join(libDir, "JSON.clj"), "utf8"),
+    "Lang.rgr": fs.readFileSync(path.join(compilerDir, "Lang.rgr"), "utf8"),
+    "stdlib.rgr": fs.readFileSync(path.join(libDir, "stdlib.rgr"), "utf8"),
+    "stdops.rgr": fs.readFileSync(path.join(libDir, "stdops.rgr"), "utf8"),
+    "JSON.rgr": fs.readFileSync(path.join(libDir, "JSON.rgr"), "utf8"),
   };
 }
 
@@ -146,7 +146,7 @@ function getLibraries(): { [key: string]: string } {
  */
 export async function compileForIntrospection(
   sourceCode: string,
-  filename: string = "test.clj"
+  filename: string = "test.rgr"
 ): Promise<IntrospectionResult> {
   const errors: string[] = [];
 
@@ -239,7 +239,7 @@ export async function compileForIntrospection(
  */
 export function parseOnly(
   sourceCode: string,
-  filename: string = "test.clj"
+  filename: string = "test.rgr"
 ): {
   success: boolean;
   rootNode: any;

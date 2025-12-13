@@ -42,7 +42,7 @@ export function activate(context: ExtensionContext) {
     documentSelector: [{ scheme: "file", language: "ranger" }],
     synchronize: {
       // Notify the server about file changes to '.rngr' files in the workspace
-      fileEvents: workspace.createFileSystemWatcher("**/*.{rngr,ranger}"),
+      fileEvents: workspace.createFileSystemWatcher("**/*.{rgr,ranger}"),
     },
     outputChannelName: "Ranger Language Server",
   };

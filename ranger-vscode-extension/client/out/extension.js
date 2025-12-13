@@ -65,7 +65,7 @@ function activate(context) {
         documentSelector: [{ scheme: "file", language: "ranger" }],
         synchronize: {
             // Notify the server about file changes to '.rngr' files in the workspace
-            fileEvents: vscode_1.workspace.createFileSystemWatcher("**/*.{rngr,ranger}"),
+            fileEvents: vscode_1.workspace.createFileSystemWatcher("**/*.{rgr,ranger}"),
         },
         outputChannelName: "Ranger Language Server",
     };

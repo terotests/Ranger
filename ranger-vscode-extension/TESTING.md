@@ -4,9 +4,9 @@
 
 1. **Press F5** in VS Code (or use Run > Start Debugging)
 2. A new "Extension Development Host" window will open
-3. In the **new window**, open any `.rngr` or `.ranger` file:
+3. In the **new window**, open any `.rgr` or `.ranger` file:
    - `File > Open Folder` and navigate to `ranger-vscode-extension/examples`
-   - Open `test.rngr` or `samples/sample.rngr`
+   - Open `test.rgr` or `samples/sample.rgr`
 
 ## Verifying Syntax Highlighting
 
@@ -26,14 +26,14 @@ In the **Extension Development Host** window:
 If you don't see colors:
 
 1. **Check the language mode** (bottom right corner) - should say "Ranger", not "Plain Text"
-2. Click on the language mode and select "Ranger" or "Configure File Association for '.rngr'"
+2. Click on the language mode and select "Ranger" or "Configure File Association for '.rgr'"
 3. **Reload the window**: Press `Ctrl+Shift+P` > "Developer: Reload Window"
 
 ### File Association Issues
 
-If `.rngr` files are not automatically detected:
+If `.rgr` files are not automatically detected:
 
-1. Open a `.rngr` file
+1. Open a `.rgr` file
 2. Click on the language indicator in the bottom right (might say "Plain Text")
 3. Select "Ranger" from the dropdown
 4. VS Code will remember this association
@@ -89,11 +89,11 @@ The extension provides:
 
 ## Sample Files
 
-- `examples/test.rngr` - Simple test file with basic features
-- `samples/sample.rngr` - More comprehensive example
+- `examples/test.rgr` - Simple test file with basic features
+- `samples/sample.rgr` - More comprehensive example
 
 ## Extension Info
 
 - **Language ID**: `ranger`
-- **File Extensions**: `.rngr`, `.ranger`
+- **File Extensions**: `.rgr`, `.ranger`
 - **Scope Name**: `source.ranger`

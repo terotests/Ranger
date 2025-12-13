@@ -1,0 +1,49 @@
+; Test: Multiple static factory methods in one class
+
+class GamePiece {
+    def symbol:string ""
+    def isWhite:boolean true
+    
+    Constructor (s:string white:boolean) {
+        symbol = s
+        isWhite = white
+    }
+    
+    sfn King:GamePiece (white:boolean) {
+        return (new GamePiece((? white "K" "k") white))
+    }
+    
+    sfn Queen:GamePiece (white:boolean) {
+        return (new GamePiece((? white "Q" "q") white))
+    }
+    
+    sfn Rook:GamePiece (white:boolean) {
+        return (new GamePiece((? white "R" "r") white))
+    }
+    
+    sfn Bishop:GamePiece (white:boolean) {
+        return (new GamePiece((? white "B" "b") white))
+    }
+    
+    sfn Knight:GamePiece (white:boolean) {
+        return (new GamePiece((? white "N" "n") white))
+    }
+    
+    sfn Pawn:GamePiece (white:boolean) {
+        return (new GamePiece((? white "P" "p") white))
+    }
+    
+    sfn Empty:GamePiece () {
+        return (new GamePiece(" " true))
+    }
+}
+
+class ManyFactoriesTest {
+    sfn m@(main):void () {
+        def king (GamePiece.King(true))
+        def queen (GamePiece.Queen(false))
+        print king.symbol
+        print queen.symbol
+        print "Done"
+    }
+}

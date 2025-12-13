@@ -24,7 +24,7 @@ def rotateVector() {
 }
 `;
             // First compilation - should succeed and cache
-            const result1 = await (0, rangerCompiler_1.compileRangerCode)(workingCode, "test.rngr");
+            const result1 = await (0, rangerCompiler_1.compileRangerCode)(workingCode, "test.rgr");
             (0, vitest_1.expect)(result1.errors).toHaveLength(0);
             // User types string instead of double
             const brokenCode = `
@@ -41,7 +41,7 @@ def rotateVector() {
 }
 `;
             // Second compilation - should fail but provide helpful error
-            const result2 = await (0, rangerCompiler_1.compileRangerCode)(brokenCode, "test.rngr");
+            const result2 = await (0, rangerCompiler_1.compileRangerCode)(brokenCode, "test.rgr");
             (0, vitest_1.expect)(result2.errors.length).toBeGreaterThan(0);
             const error = result2.errors[0];
             // Should pinpoint the line with setRotation call
@@ -63,7 +63,7 @@ def test() {
   v.x = 1.0
 }
 `;
-            await (0, rangerCompiler_1.compileRangerCode)(workingCode, "test.rngr");
+            await (0, rangerCompiler_1.compileRangerCode)(workingCode, "test.rgr");
             // User starts typing a method call but doesn't finish
             const incompleteCode = `
 class Vec2 {
@@ -77,7 +77,7 @@ def test() {
   v.
 }
 `;
-            const result = await (0, rangerCompiler_1.compileRangerCode)(incompleteCode, "test.rngr");
+            const result = await (0, rangerCompiler_1.compileRangerCode)(incompleteCode, "test.rgr");
             // Should use cached results
             (0, vitest_1.expect)(result.ast).toBeDefined();
             // Should have error about incomplete expression
@@ -105,7 +105,7 @@ def test() {
             let previousResult = null;
             for (let i = 0; i < typingSteps.length; i++) {
                 const code = typingSteps[i];
-                const result = await (0, rangerCompiler_1.compileRangerCode)(code, "test.rngr");
+                const result = await (0, rangerCompiler_1.compileRangerCode)(code, "test.rgr");
                 console.log(`Step ${i}: errors=${result.errors.length}, hasAST=${!!result.ast}`);
                 // After first successful compilation, should have context
                 if (i === 0) {
@@ -132,7 +132,7 @@ line 3
 def test() {
   def x = 1
 }`;
-            await (0, rangerCompiler_1.compileRangerCode)(workingCode, "test.rngr");
+            await (0, rangerCompiler_1.compileRangerCode)(workingCode, "test.rgr");
             // Add error on line 5
             const brokenCode = `line 1
 line 2
@@ -140,7 +140,7 @@ line 3
 def test() {
   invalid syntax here!!!
 }`;
-            const result = await (0, rangerCompiler_1.compileRangerCode)(brokenCode, "test.rngr");
+            const result = await (0, rangerCompiler_1.compileRangerCode)(brokenCode, "test.rgr");
             (0, vitest_1.expect)(result.errors.length).toBeGreaterThan(0);
             const error = result.errors[0];
             // Should be around line 5 (where the change occurred)

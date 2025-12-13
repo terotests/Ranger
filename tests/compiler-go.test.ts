@@ -22,7 +22,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
   describe("Array Operations", () => {
     it("should compile and run array push", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/array_push.clj`
+        `${FIXTURES_DIR}/array_push.rgr`
       );
 
       expect(
@@ -35,7 +35,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
 
     it("should compile and run local array with iteration", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/local_array.clj`
+        `${FIXTURES_DIR}/local_array.rgr`
       );
 
       expect(
@@ -49,7 +49,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
 
     it("should compile and run class-level array property", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/class_array.clj`
+        `${FIXTURES_DIR}/class_array.rgr`
       );
 
       expect(
@@ -64,7 +64,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
   describe("Static Factory Methods", () => {
     it("should compile and run static factory method", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/static_factory.clj`
+        `${FIXTURES_DIR}/static_factory.rgr`
       );
 
       expect(
@@ -78,7 +78,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
 
     it("should compile and run static factory with ternary operator", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/ternary_factory.clj`
+        `${FIXTURES_DIR}/ternary_factory.rgr`
       );
 
       expect(
@@ -95,7 +95,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
   describe("Constructor Features", () => {
     it("should support forward reference in constructor", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/forward_ref.clj`
+        `${FIXTURES_DIR}/forward_ref.rgr`
       );
 
       expect(
@@ -110,7 +110,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
   describe("Multi-Class Interaction", () => {
     it("should compile and run two classes with static factory", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/two_classes.clj`
+        `${FIXTURES_DIR}/two_classes.rgr`
       );
 
       expect(
@@ -123,7 +123,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
 
     it("should compile and run many factories", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/many_factories.clj`
+        `${FIXTURES_DIR}/many_factories.rgr`
       );
 
       expect(
@@ -138,7 +138,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
   describe("Control Flow", () => {
     it("should compile and run while loop", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/while_loop.clj`
+        `${FIXTURES_DIR}/while_loop.rgr`
       );
 
       expect(
@@ -154,7 +154,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
   describe("Class Features", () => {
     it("should compile and run inheritance", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/inheritance.clj`
+        `${FIXTURES_DIR}/inheritance.rgr`
       );
 
       expect(
@@ -170,7 +170,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
 
   describe("Data Structures", () => {
     it("should compile and run hash map operations", () => {
-      const { compile, run } = compileAndRunGo(`${FIXTURES_DIR}/hash_map.clj`);
+      const { compile, run } = compileAndRunGo(`${FIXTURES_DIR}/hash_map.rgr`);
 
       expect(
         compile.success,
@@ -185,7 +185,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
   describe("String Operations", () => {
     it("should compile and run string operations", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/string_ops.clj`
+        `${FIXTURES_DIR}/string_ops.rgr`
       );
 
       expect(
@@ -200,7 +200,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
 
     it("should compile and run string methods (startsWith, endsWith, contains, replace)", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/string_methods.clj`
+        `${FIXTURES_DIR}/string_methods.rgr`
       );
 
       expect(
@@ -215,7 +215,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
 
   describe("Math Operations", () => {
     it.skip("should compile and run math operations (skip: Go type conversion issue)", () => {
-      const { compile, run } = compileAndRunGo(`${FIXTURES_DIR}/math_ops.clj`);
+      const { compile, run } = compileAndRunGo(`${FIXTURES_DIR}/math_ops.rgr`);
 
       expect(
         compile.success,
@@ -231,7 +231,7 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
   describe("Optional Values", () => {
     it("should compile and run optional value handling", () => {
       const { compile, run } = compileAndRunGo(
-        `${FIXTURES_DIR}/optional_values.clj`
+        `${FIXTURES_DIR}/optional_values.rgr`
       );
 
       expect(

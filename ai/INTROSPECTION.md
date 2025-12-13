@@ -13,6 +13,7 @@ The Ranger compiler provides powerful introspection capabilities that allow quer
 ### Compilation Context (`RangerAppWriterContext`)
 
 After compilation, the context contains:
+
 - `definedClasses` - Map of all defined classes
 - `definedEnums` - Map of all defined enums
 - `operators` - Available operators
@@ -21,6 +22,7 @@ After compilation, the context contains:
 ### Code Nodes (`CodeNode`)
 
 The AST representation with key properties:
+
 - `sp` / `ep` - Start and end positions (byte offsets)
 - `vref` - Value reference (variable name, operator, keyword)
 - `type_name` - Declared type
@@ -30,6 +32,7 @@ The AST representation with key properties:
 ### Class Descriptors (`RangerAppClassDesc`)
 
 Class information with:
+
 - `name` - Class name
 - `variables` - Array of property descriptors
 - `method_variants` - Map of methods (supports overloading)
@@ -71,12 +74,12 @@ Check if a class has specific properties or methods:
 
 ```typescript
 // Check property existence and type
-classHasProperty(result, "Person", "name");           // true/false
+classHasProperty(result, "Person", "name"); // true/false
 classHasProperty(result, "Person", "name", "string"); // with type check
 
 // Check method existence and return type
-classHasMethod(result, "Calculator", "add");          // true/false
-classHasMethod(result, "Calculator", "add", "int");   // with return type
+classHasMethod(result, "Calculator", "add"); // true/false
+classHasMethod(result, "Calculator", "add", "int"); // with return type
 ```
 
 Get all properties and methods:
@@ -111,7 +114,12 @@ When a user asks about a variable, find its type and available operations:
 
 ```typescript
 const result = await compileForIntrospection(sourceCode);
-const typeInfo = getTypeAtPosition(result.rootNode, sourceCode, cursorLine, cursorCol);
+const typeInfo = getTypeAtPosition(
+  result.rootNode,
+  sourceCode,
+  cursorLine,
+  cursorCol
+);
 
 if (typeInfo.evalTypeName) {
   const classInfo = result.getClass(typeInfo.evalTypeName);
@@ -168,6 +176,7 @@ const typeMap = formatTypeMap(result.rootNode, sourceCode);
 ## Type System Reference
 
 ### Primitive Types
+
 - `int` - Integer
 - `double` - Floating point
 - `string` - String
@@ -176,6 +185,7 @@ const typeMap = formatTypeMap(result.rootNode, sourceCode);
 - `void` - No return value
 
 ### Compound Types
+
 - `[T]` - Array of T
 - `[K:V]` - Hash map with key type K and value type V
 - `ClassName` - Instance of a class
@@ -183,6 +193,7 @@ const typeMap = formatTypeMap(result.rootNode, sourceCode);
 ### Type Inference
 
 The compiler performs type inference:
+
 - `type_name` - Declared type (what the programmer wrote)
 - `eval_type_name` - Inferred type (what the compiler determined)
 
@@ -225,6 +236,7 @@ if (!result.success) {
 ```
 
 Common error patterns to handle:
+
 - Undefined variables
 - Type mismatches
 - Missing methods/properties

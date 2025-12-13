@@ -1,7 +1,7 @@
 {
   "name": "ranger-language-support",
   "displayName": "Ranger Language Support",
-  "description": "Language support for the Ranger cross-platform compiler language (.rngr files)",
+  "description": "Language support for the Ranger cross-platform compiler language (.rgr files)",
   "version": "0.1.0",
   "publisher": "terotests",
   "license": "MIT",
@@ -36,7 +36,7 @@
           "ranger"
         ],
         "extensions": [
-          ".rngr",
+          ".rgr",
           ".ranger"
         ],
         "configuration": "./language-configuration.json"

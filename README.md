@@ -1,10 +1,42 @@
 # Ranger cross language compiler
 
-Status: `experimental`
+**Version 3.0.0-alpha.1** | Status: `experimental`
 
-Ranger is a small self-hosting cross -language, cross -platform compiler to enable writing portable algorithms and applications.
+Ranger is a small self-hosting cross-language, cross-platform compiler to enable writing portable algorithms and applications.
 The language has type safety, classes, inheritance, operator overloading, lambda functions, generic traits,
 class extensions, type inference and can integrate with host system API's using system classes.
+
+## What's New in Version 3.0
+
+🚀 **Ranger 3.0** is a major evolution focusing on developer experience and production readiness.
+
+### Key Features
+
+- **New File Extension** - Transitioning from `.clj` to `.rgr` for Ranger identity
+- **Simplified CLI** - Use `rgrc` command for shorter invocations
+- **VSCode Extension** - Language server with syntax highlighting (in development)
+- **CI/CD Pipeline** - Automated testing and NPM publishing
+- **Unit Test Suite** - Comprehensive test coverage with Vitest
+
+### Quick Start
+
+```bash
+# Install globally
+npm install -g ranger-compiler
+
+# Compile to JavaScript
+rgrc -l=es6 myfile.clj -o=output.js
+
+# Compile to TypeScript
+rgrc -l=es6 -typescript myfile.clj -o=output.ts
+
+# Compile to Python
+rgrc -l=python myfile.clj -o=output.py
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for full version history and [PLAN_3.md](PLAN_3.md) for the roadmap.
+
+---
 
 ## Host platforms and target languages
 
@@ -99,17 +131,20 @@ The `ai/` folder contains documentation optimized for AI assistants:
 The compiler now exposes powerful introspection capabilities for IDE integration and AI-assisted development:
 
 **Position-Based Type Querying**
+
 - Query what type is at any line/column position in source code
 - Convert between line/column and byte offsets
 - Find all typed nodes in a source file
 
 **Class Structure Introspection**
+
 - Check if classes have specific properties with optional type verification
 - Check if classes have specific methods with optional return type verification
 - Get all properties and methods with full signatures
 - Track inheritance relationships
 
 **Use Cases**
+
 - IDE autocomplete and hover information
 - AI code generation with type-safe suggestions
 - Incremental compilation planning
@@ -118,7 +153,11 @@ The compiler now exposes powerful introspection capabilities for IDE integration
 Example usage:
 
 ```typescript
-import { compileForIntrospection, classHasProperty, getTypeAtPosition } from './tests/helpers/introspection';
+import {
+  compileForIntrospection,
+  classHasProperty,
+  getTypeAtPosition,
+} from "./tests/helpers/introspection";
 
 // Compile source code
 const result = await compileForIntrospection(sourceCode);
@@ -284,7 +323,7 @@ Currently the compiler supports at least following language versions:
 - Scala 2.xx
 - CSharp 7.0
 - Python 3.x
-- Rust (preliminary support, 2021 edition)
+- Rust (preliminary support)
 
 However, it is possible to add support for older versions by implementing custom operators, which target to certain compiler flags.
 

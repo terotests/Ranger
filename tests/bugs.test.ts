@@ -18,7 +18,7 @@ describe("Ranger Compiler - Known Bugs", () => {
       // when a class has a method named "toString" and another class
       // uses that class as an array element type
 
-      const filePath = path.join(FIXTURES_DIR, "bug_tostring.clj");
+      const filePath = path.join(FIXTURES_DIR, "bug_tostring.rgr");
       const result = compileRanger(filePath);
 
       // Currently this FAILS - documenting the bug

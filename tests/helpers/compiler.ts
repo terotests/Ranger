@@ -10,9 +10,9 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..", "..");
 const COMPILER_DIR = path.join(ROOT_DIR, "compiler");
 const LIB_DIR = path.join(ROOT_DIR, "lib");
-const LANG_FILE = path.join(COMPILER_DIR, "Lang.clj");
-const STDOPS_FILE = path.join(LIB_DIR, "stdops.clj");
-const STDLIB_FILE = path.join(LIB_DIR, "stdlib.clj");
+const LANG_FILE = path.join(COMPILER_DIR, "Lang.rgr");
+const STDOPS_FILE = path.join(LIB_DIR, "stdops.rgr");
+const STDLIB_FILE = path.join(LIB_DIR, "stdlib.rgr");
 const OUTPUT_JS = path.join(ROOT_DIR, "bin", "output.js");
 const TEMP_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output");
 const GO_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-go");
@@ -57,7 +57,10 @@ export function compileRanger(
   }
 
   // Create unique output filename based on source file name
-  const sourceBasename = path.basename(absoluteSource, ".clj");
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
   const outputFile = `${sourceBasename}.js`;
   const targetDir = outputDir || TEMP_OUTPUT_DIR;
 
@@ -71,7 +74,7 @@ export function compileRanger(
     // Use relative paths for RANGER_LIB since compiler expects them
     const env = {
       ...process.env,
-      RANGER_LIB: `./compiler/Lang.clj;./lib/stdops.clj`,
+      RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr`,
     };
 
     // Convert targetDir to relative path for the compiler (it prepends cwd internally)
@@ -171,7 +174,10 @@ export function compileAndRun(sourceFile: string): {
   const absoluteSource = path.isAbsolute(sourceFile)
     ? sourceFile
     : path.join(ROOT_DIR, sourceFile);
-  const sourceBasename = path.basename(absoluteSource, ".clj");
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
   const outputJS = path.join(TEMP_OUTPUT_DIR, `${sourceBasename}.js`);
 
   // Check if file was actually created
@@ -292,7 +298,10 @@ export function compileRangerToGo(
   }
 
   // Create unique output filename based on source file name
-  const sourceBasename = path.basename(absoluteSource, ".clj");
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
   const outputFile = `${sourceBasename}.go`;
   const targetDir = outputDir || GO_OUTPUT_DIR;
 
@@ -305,7 +314,7 @@ export function compileRangerToGo(
     // Set environment and run compiler
     const env = {
       ...process.env,
-      RANGER_LIB: `./compiler/Lang.clj;./lib/stdops.clj`,
+      RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr`,
     };
 
     // Convert targetDir to relative path for the compiler
@@ -431,7 +440,10 @@ export function compileAndRunGo(sourceFile: string): {
   const absoluteSource = path.isAbsolute(sourceFile)
     ? sourceFile
     : path.join(ROOT_DIR, sourceFile);
-  const sourceBasename = path.basename(absoluteSource, ".clj");
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
   const outputGo = path.join(GO_OUTPUT_DIR, `${sourceBasename}.go`);
 
   // Check if file was actually created
@@ -556,7 +568,10 @@ export function compileRangerToPython(
   }
 
   // Create unique output filename based on source file name
-  const sourceBasename = path.basename(absoluteSource, ".clj");
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
   const outputFile = `${sourceBasename}.py`;
   const targetDir = outputDir || PYTHON_OUTPUT_DIR;
 
@@ -569,7 +584,7 @@ export function compileRangerToPython(
     // Set environment and run compiler
     const env = {
       ...process.env,
-      RANGER_LIB: `./compiler/Lang.clj;./lib/stdops.clj`,
+      RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr`,
     };
 
     // Convert targetDir to relative path for the compiler
@@ -669,7 +684,10 @@ export function compileAndRunPython(sourceFile: string): {
   const absoluteSource = path.isAbsolute(sourceFile)
     ? sourceFile
     : path.join(ROOT_DIR, sourceFile);
-  const sourceBasename = path.basename(absoluteSource, ".clj");
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
   const outputPy = path.join(PYTHON_OUTPUT_DIR, `${sourceBasename}.py`);
 
   // Check if file was actually created
@@ -765,7 +783,10 @@ export function compileRangerToRust(
   }
 
   // Create unique output filename based on source file name
-  const sourceBasename = path.basename(absoluteSource, ".clj");
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
   const outputFile = `${sourceBasename}.rs`;
   const targetDir = outputDir || RUST_OUTPUT_DIR;
 
@@ -778,7 +799,7 @@ export function compileRangerToRust(
     // Set environment and run compiler
     const env = {
       ...process.env,
-      RANGER_LIB: `./compiler/Lang.clj;./lib/stdops.clj`,
+      RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr`,
     };
 
     // Convert targetDir to relative path for the compiler
@@ -911,7 +932,10 @@ export function compileAndRunRust(
     return { compile: compileResult };
   }
 
-  const sourceBasename = path.basename(sourceFile, ".clj");
+  const sourceBasename = path.basename(
+    sourceFile.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
   const targetDir = outputDir || RUST_OUTPUT_DIR;
   const rustFile = path.join(targetDir, `${sourceBasename}.rs`);
 
