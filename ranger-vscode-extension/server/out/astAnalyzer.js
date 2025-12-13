@@ -21,10 +21,10 @@ exports.ASTAnalyzer = void 0;
 class ASTAnalyzer {
     constructor(rootNode, context, code) {
         if (!rootNode) {
-            throw new Error('ASTAnalyzer: rootNode is null or undefined');
+            throw new Error("ASTAnalyzer: rootNode is null or undefined");
         }
         if (!context) {
-            throw new Error('ASTAnalyzer: context is null or undefined');
+            throw new Error("ASTAnalyzer: context is null or undefined");
         }
         this.rootNode = rootNode;
         this.context = context;
@@ -51,7 +51,7 @@ class ASTAnalyzer {
                 properties: [],
                 node: classDesc.classNode,
                 isSystemClass: classDesc.is_system || false,
-                parentClass: classDesc.parent_class
+                parentClass: classDesc.parent_class,
             };
             // Extract methods from class description
             if (classDesc.methods) {
@@ -63,11 +63,11 @@ class ASTAnalyzer {
                             const isStatic = methodDesc.refType === 2; // Static method
                             const methodInfo = {
                                 name: methodDesc.name,
-                                kind: isStatic ? 'static-method' : 'method',
-                                type: methodDesc.return_type || methodDesc.returnType || 'void',
+                                kind: isStatic ? "static-method" : "method",
+                                type: methodDesc.return_type || methodDesc.returnType || "void",
                                 node: methodDesc.node,
                                 detail: this.getMethodSignature(methodDesc),
-                                documentation: methodDesc.description || ''
+                                documentation: methodDesc.description || "",
                             };
                             if (isStatic) {
                                 classInfo.staticMethods.push(methodInfo);
@@ -85,11 +85,11 @@ class ASTAnalyzer {
                         const isStatic = methodDesc.refType === 2; // Static method
                         const methodInfo = {
                             name: methodName,
-                            kind: isStatic ? 'static-method' : 'method',
-                            type: methodDesc.return_type || methodDesc.returnType || 'void',
+                            kind: isStatic ? "static-method" : "method",
+                            type: methodDesc.return_type || methodDesc.returnType || "void",
                             node: methodDesc.node,
                             detail: this.getMethodSignature(methodDesc),
-                            documentation: methodDesc.description || ''
+                            documentation: methodDesc.description || "",
                         };
                         if (isStatic) {
                             classInfo.staticMethods.push(methodInfo);
@@ -109,14 +109,15 @@ class ASTAnalyzer {
                     for (const propDesc of classDesc.variables) {
                         if (propDesc && propDesc.name) {
                             // Get type name - try getTypeName() method first
-                            let typeName = 'any';
-                            if (typeof propDesc.getTypeName === 'function') {
+                            let typeName = "any";
+                            if (typeof propDesc.getTypeName === "function") {
                                 try {
                                     typeName = propDesc.getTypeName();
                                 }
                                 catch (e) {
                                     // Fall back to other fields if getTypeName fails
-                                    typeName = propDesc.type_name || propDesc.eval_type_name || 'any';
+                                    typeName =
+                                        propDesc.type_name || propDesc.eval_type_name || "any";
                                 }
                             }
                             else if (propDesc.type_name) {
@@ -127,10 +128,10 @@ class ASTAnalyzer {
                             }
                             classInfo.properties.push({
                                 name: propDesc.name,
-                                kind: 'property',
+                                kind: "property",
                                 type: typeName,
                                 node: propDesc.node,
-                                documentation: propDesc.description || ''
+                                documentation: propDesc.description || "",
                             });
                         }
                     }
@@ -140,14 +141,15 @@ class ASTAnalyzer {
                     for (const propName in classDesc.variables) {
                         const propDesc = classDesc.variables[propName];
                         // Get type name - try getTypeName() method first
-                        let typeName = 'any';
-                        if (typeof propDesc.getTypeName === 'function') {
+                        let typeName = "any";
+                        if (typeof propDesc.getTypeName === "function") {
                             try {
                                 typeName = propDesc.getTypeName();
                             }
                             catch (e) {
                                 // Fall back to other fields if getTypeName fails
-                                typeName = propDesc.type_name || propDesc.eval_type_name || 'any';
+                                typeName =
+                                    propDesc.type_name || propDesc.eval_type_name || "any";
                             }
                         }
                         else if (propDesc.type_name) {
@@ -158,10 +160,10 @@ class ASTAnalyzer {
                         }
                         classInfo.properties.push({
                             name: propName,
-                            kind: 'property',
+                            kind: "property",
                             type: typeName,
                             node: propDesc.node,
-                            documentation: propDesc.description || ''
+                            documentation: propDesc.description || "",
                         });
                     }
                 }
@@ -175,9 +177,9 @@ class ASTAnalyzer {
      */
     getMethodSignature(methodDesc) {
         const params = methodDesc.params || [];
-        const paramStrs = params.map((p) => `${p.name}:${p.type || 'any'}`);
-        const returnType = methodDesc.return_type || methodDesc.returnType || 'void';
-        return `fn ${methodDesc.name}(${paramStrs.join(', ')}):${returnType}`;
+        const paramStrs = params.map((p) => `${p.name}:${p.type || "any"}`);
+        const returnType = methodDesc.return_type || methodDesc.returnType || "void";
+        return `fn ${methodDesc.name}(${paramStrs.join(", ")}):${returnType}`;
     }
     /**
      * Get all defined enums from the compiler context
@@ -191,10 +193,10 @@ class ASTAnalyzer {
             const enumDesc = this.context.definedEnums[enumName];
             enums.set(enumName, {
                 name: enumName,
-                kind: 'enum',
+                kind: "enum",
                 type: enumName,
                 node: enumDesc.node,
-                documentation: `Enum with ${enumDesc.cnt || 0} values`
+                documentation: `Enum with ${enumDesc.cnt || 0} values`,
             });
         }
         return enums;
@@ -212,9 +214,9 @@ class ASTAnalyzer {
             const varDesc = this.context.localVariables[varName];
             variables.push({
                 name: varName,
-                kind: 'variable',
-                type: varDesc.type || varDesc.type_name || 'any',
-                node: varDesc.node
+                kind: "variable",
+                type: varDesc.type || varDesc.type_name || "any",
+                node: varDesc.node,
             });
         }
         return variables;
@@ -270,7 +272,7 @@ class ASTAnalyzer {
         return [
             ...classInfo.methods,
             ...classInfo.staticMethods,
-            ...classInfo.properties
+            ...classInfo.properties,
         ];
     }
     /**
@@ -290,9 +292,9 @@ class ASTAnalyzer {
         for (const [name, classInfo] of classes) {
             symbols.push({
                 name,
-                kind: 'class',
+                kind: "class",
                 type: name,
-                node: classInfo.node
+                node: classInfo.node,
             });
         }
         // Add enums
@@ -313,20 +315,20 @@ class ASTAnalyzer {
         if (this.context.compilerErrors) {
             for (const error of this.context.compilerErrors) {
                 errors.push({
-                    message: error.message || 'Compilation error',
+                    message: error.message || "Compilation error",
                     line: error.line || 0,
                     column: error.column || 0,
-                    node: error.node
+                    node: error.node,
                 });
             }
         }
         if (this.context.parserErrors) {
             for (const error of this.context.parserErrors) {
                 errors.push({
-                    message: error.message || 'Parse error',
+                    message: error.message || "Parse error",
                     line: error.line || 0,
                     column: error.column || 0,
-                    node: error.node
+                    node: error.node,
                 });
             }
         }
@@ -336,21 +338,21 @@ class ASTAnalyzer {
      * Convert offset to line/character position
      */
     offsetToPosition(offset) {
-        const lines = this.code.split('\n');
+        const lines = this.code.split("\n");
         let currentOffset = 0;
         for (let line = 0; line < lines.length; line++) {
             const lineLength = lines[line].length + 1; // +1 for newline
             if (currentOffset + lineLength > offset) {
                 return {
                     line,
-                    character: offset - currentOffset
+                    character: offset - currentOffset,
                 };
             }
             currentOffset += lineLength;
         }
         return {
             line: lines.length - 1,
-            character: lines[lines.length - 1]?.length || 0
+            character: lines[lines.length - 1]?.length || 0,
         };
     }
     /**
@@ -359,33 +361,33 @@ class ASTAnalyzer {
     isMethodAccessContext(offset) {
         // Look backwards in the code to find '.'
         const textBefore = this.code.substring(Math.max(0, offset - 20), offset);
-        console.log('[AST Analyzer] isMethodAccessContext, textBefore:', textBefore);
-        if (textBefore.trim().endsWith('.')) {
+        console.log("[AST Analyzer] isMethodAccessContext, textBefore:", textBefore);
+        if (textBefore.trim().endsWith(".")) {
             // Find the expression before the '.'
-            const dotOffset = this.code.lastIndexOf('.', offset - 1);
+            const dotOffset = this.code.lastIndexOf(".", offset - 1);
             const exprNode = this.getExpressionBeforePosition(dotOffset);
-            console.log('[AST Analyzer] Found expression node:', {
+            console.log("[AST Analyzer] Found expression node:", {
                 hasNode: !!exprNode,
                 vref: exprNode?.vref,
                 eval_type_name: exprNode?.eval_type_name,
-                type_name: exprNode?.type_name
+                type_name: exprNode?.type_name,
             });
             if (exprNode) {
                 // First try to get type from compiler's type inference
                 if (exprNode.eval_type_name) {
-                    console.log('[AST Analyzer] Using eval_type_name:', exprNode.eval_type_name);
+                    console.log("[AST Analyzer] Using eval_type_name:", exprNode.eval_type_name);
                     return {
                         isMethodAccess: true,
-                        targetType: exprNode.eval_type_name
+                        targetType: exprNode.eval_type_name,
                     };
                 }
                 // Fallback: try to infer type from code patterns
                 const inferredType = this.inferTypeFromNode(exprNode);
-                console.log('[AST Analyzer] Inferred type:', inferredType);
+                console.log("[AST Analyzer] Inferred type:", inferredType);
                 if (inferredType) {
                     return {
                         isMethodAccess: true,
-                        targetType: inferredType
+                        targetType: inferredType,
                     };
                 }
             }
@@ -400,13 +402,13 @@ class ASTAnalyzer {
         if (node.vref) {
             const varName = node.vref;
             // Look backwards in the code for variable declaration
-            const defPattern = new RegExp(`def\\s+${varName}\\s*\\(new\\s+(\\w+)\\)`, 'g');
+            const defPattern = new RegExp(`def\\s+${varName}\\s*\\(new\\s+(\\w+)\\)`, "g");
             const match = defPattern.exec(this.code.substring(0, node.sp));
             if (match) {
                 return match[1]; // Return the class name
             }
             // Also check for type annotations: def v:TypeName
-            const typeAnnotPattern = new RegExp(`def\\s+${varName}\\s*:\\s*(\\w+)`, 'g');
+            const typeAnnotPattern = new RegExp(`def\\s+${varName}\\s*:\\s*(\\w+)`, "g");
             const typeMatch = typeAnnotPattern.exec(this.code.substring(0, node.sp));
             if (typeMatch) {
                 return typeMatch[1];
@@ -423,7 +425,7 @@ class ASTAnalyzer {
      */
     isPropertyAccessContext(offset) {
         const textBefore = this.code.substring(Math.max(0, offset - 2), offset);
-        return textBefore.trim().startsWith('@');
+        return textBefore.trim().startsWith("@");
     }
     /**
      * Get the current class context at a given offset
@@ -460,7 +462,7 @@ class ASTAnalyzer {
         }
         // Check if it's a method in any class
         for (const [className, info] of classes) {
-            const method = [...info.methods, ...info.staticMethods].find(m => m.name === symbolName);
+            const method = [...info.methods, ...info.staticMethods].find((m) => m.name === symbolName);
             if (method) {
                 return `${method.detail}\n\n${method.documentation}`;
             }

@@ -15,7 +15,7 @@ const completionProvider_1 = require("./completionProvider");
 const keywords_1 = require("./keywords");
 // Create a connection for the server using Node's IPC as transport
 const connection = (0, node_1.createConnection)(node_1.ProposedFeatures.all);
-connection.console.log('Ranger Language Server starting...');
+connection.console.log("Ranger Language Server starting...");
 // Create a text document manager
 const documents = new node_1.TextDocuments(vscode_languageserver_textdocument_1.TextDocument);
 // Cache for parsed documents with compiler analysis
@@ -81,12 +81,34 @@ function getDocumentSettings(resource) {
     }
     return result;
 }
-// Validate document when it changes
+// Debouncing for validation - prevents re-parsing on every keystroke
+const pendingValidations = new Map();
+const VALIDATION_DELAY_MS = 300;
+// Validate document when it changes (with debouncing)
 documents.onDidClose((e) => {
     documentSettings.delete(e.document.uri);
+    // Clear document cache to prevent memory leak
+    documentCache.delete(e.document.uri);
+    // Clear compilation cache for this file
+    (0, rangerCompiler_1.clearCompilationCache)(e.document.uri);
+    // Clear any pending validation
+    const pending = pendingValidations.get(e.document.uri);
+    if (pending) {
+        clearTimeout(pending);
+        pendingValidations.delete(e.document.uri);
+    }
 });
 documents.onDidChangeContent((change) => {
-    validateTextDocument(change.document);
+    const uri = change.document.uri;
+    // Clear any pending validation for this document
+    if (pendingValidations.has(uri)) {
+        clearTimeout(pendingValidations.get(uri));
+    }
+    // Debounce: wait for user to stop typing before validating
+    pendingValidations.set(uri, setTimeout(() => {
+        pendingValidations.delete(uri);
+        validateTextDocument(change.document);
+    }, VALIDATION_DELAY_MS));
 });
 /**
  * Validate a text document and send diagnostics to the client
@@ -99,8 +121,8 @@ async function validateTextDocument(textDocument) {
     connection.console.log(`Validating document: ${uri}`);
     try {
         // Parse with the real Ranger compiler
-        connection.console.log('Calling parseRangerCode...');
-        const { rootNode, context, errors: compilerErrors } = await (0, rangerCompiler_1.parseRangerCode)(text, uri);
+        connection.console.log("Calling parseRangerCode...");
+        const { rootNode, context, errors: compilerErrors, } = await (0, rangerCompiler_1.parseRangerCode)(text, uri);
         connection.console.log(`Parse result - rootNode: ${!!rootNode}, context: ${!!context}, errors: ${compilerErrors.length}`);
         if (compilerErrors.length > 0) {
             connection.console.log(`Compiler errors: ${JSON.stringify(compilerErrors)}`);
@@ -114,24 +136,24 @@ async function validateTextDocument(textDocument) {
                     start: { line: 0, character: 0 },
                     end: { line: 0, character: 1 },
                 },
-                message: 'Failed to parse Ranger code',
-                source: 'ranger'
+                message: "Failed to parse Ranger code",
+                source: "ranger",
             });
             // Send diagnostics immediately and return - don't try to analyze
             connection.sendDiagnostics({ uri, diagnostics });
             return;
         }
         // Only create analyzer if we have valid rootNode and context
-        connection.console.log('Creating ASTAnalyzer...');
+        connection.console.log("Creating ASTAnalyzer...");
         const analyzer = new astAnalyzer_1.ASTAnalyzer(rootNode, context, text);
-        connection.console.log('ASTAnalyzer created successfully');
+        connection.console.log("ASTAnalyzer created successfully");
         const typeResolver = new typeResolver_1.TypeResolver(analyzer);
         const completionProvider = new completionProvider_1.CompletionProvider(analyzer, typeResolver);
         documentCache.set(uri, {
             analyzer,
             typeResolver,
             completionProvider,
-            version: textDocument.version
+            version: textDocument.version,
         });
         // Get compilation errors from the analyzer
         const compilationErrors = analyzer.getCompilationErrors();
@@ -146,10 +168,10 @@ async function validateTextDocument(textDocument) {
                 severity: node_1.DiagnosticSeverity.Error,
                 range: {
                     start: pos,
-                    end: { line: pos.line, character: pos.character + 1 }
+                    end: { line: pos.line, character: pos.character + 1 },
                 },
                 message: error.message,
-                source: 'ranger'
+                source: "ranger",
             });
         }
         // Also add errors from the parse result
@@ -158,17 +180,18 @@ async function validateTextDocument(textDocument) {
                 break;
             }
             // Skip internal compiler errors (these are usually from incomplete code during editing)
-            if (error.message && error.message.includes('Cannot read properties of undefined')) {
+            if (error.message &&
+                error.message.includes("Cannot read properties of undefined")) {
                 continue;
             }
             diagnostics.push({
                 severity: node_1.DiagnosticSeverity.Error,
                 range: {
                     start: { line: error.line, character: error.column },
-                    end: { line: error.line, character: error.column + 1 }
+                    end: { line: error.line, character: error.column + 1 },
                 },
                 message: error.message,
-                source: 'ranger'
+                source: "ranger",
             });
         }
     }
@@ -179,10 +202,10 @@ async function validateTextDocument(textDocument) {
             severity: node_1.DiagnosticSeverity.Error,
             range: {
                 start: { line: 0, character: 0 },
-                end: { line: 0, character: 1 }
+                end: { line: 0, character: 1 },
             },
-            message: `Parse error: ${error.message || 'Unknown error'}`,
-            source: 'ranger'
+            message: `Parse error: ${error.message || "Unknown error"}`,
+            source: "ranger",
         });
     }
     connection.sendDiagnostics({ uri, diagnostics });
@@ -192,7 +215,7 @@ async function validateTextDocument(textDocument) {
  */
 connection.onCompletion((textDocumentPosition) => {
     try {
-        connection.console.log('onCompletion triggered');
+        connection.console.log("onCompletion triggered");
         const document = documents.get(textDocumentPosition.textDocument.uri);
         if (!document) {
             return [];
@@ -207,9 +230,11 @@ connection.onCompletion((textDocumentPosition) => {
         const offset = document.offsetAt(textDocumentPosition.position);
         // Determine trigger character
         const charBefore = text.charAt(offset - 1);
-        const triggerChar = ['.', '@', ':'].includes(charBefore) ? charBefore : undefined;
+        const triggerChar = [".", "@", ":"].includes(charBefore)
+            ? charBefore
+            : undefined;
         // Use the completion provider
-        connection.console.log('Calling completion provider...');
+        connection.console.log("Calling completion provider...");
         const completions = cached.completionProvider.provideCompletions(offset, triggerChar);
         connection.console.log(`Completion provider returned ${completions.length} items`);
         return completions;
@@ -230,7 +255,7 @@ function getBasicCompletions() {
             label: keyword.name,
             kind: node_1.CompletionItemKind.Keyword,
             detail: keyword.description,
-            insertText: keyword.name
+            insertText: keyword.name,
         });
     }
     // Types
@@ -239,7 +264,7 @@ function getBasicCompletions() {
             label: type.name,
             kind: node_1.CompletionItemKind.TypeParameter,
             detail: type.description,
-            insertText: type.name
+            insertText: type.name,
         });
     }
     return completions;
@@ -255,7 +280,7 @@ connection.onCompletionResolve((item) => {
  */
 connection.onHover((params) => {
     try {
-        connection.console.log('onHover triggered');
+        connection.console.log("onHover triggered");
         const document = documents.get(params.textDocument.uri);
         if (!document) {
             return null;
@@ -271,14 +296,14 @@ connection.onHover((params) => {
         const node = cached.analyzer.findNodeAtOffset(offset);
         connection.console.log(`Found node: ${!!node}, vref: ${node?.vref}, eval_type_name: ${node?.eval_type_name}`);
         // Build debug information
-        let debugInfo = '**AST Debug Info:**\n\n';
+        let debugInfo = "**AST Debug Info:**\n\n";
         debugInfo += `- **Offset**: ${offset}\n`;
         debugInfo += `- **Position**: Line ${params.position.line}, Char ${params.position.character}\n\n`;
         if (node) {
-            debugInfo += `- **vref**: \`${node.vref || 'none'}\`\n`;
-            debugInfo += `- **eval_type_name**: \`${node.eval_type_name || 'not set'}\`\n`;
-            debugInfo += `- **type_name**: \`${node.type_name || 'not set'}\`\n`;
-            debugInfo += `- **value_type**: \`${node.value_type || 'not set'}\`\n`;
+            debugInfo += `- **vref**: \`${node.vref || "none"}\`\n`;
+            debugInfo += `- **eval_type_name**: \`${node.eval_type_name || "not set"}\`\n`;
+            debugInfo += `- **type_name**: \`${node.type_name || "not set"}\`\n`;
+            debugInfo += `- **value_type**: \`${node.value_type || "not set"}\`\n`;
             debugInfo += `- **has_call**: \`${node.has_call || false}\`\n`;
             debugInfo += `- **Node range**: \`${node.sp}-${node.ep}\`\n`;
             debugInfo += `- **Children count**: \`${node.children ? node.children.length : 0}\`\n`;
@@ -288,7 +313,7 @@ connection.onHover((params) => {
                 const varName = node.vref;
                 const beforeText = text.substring(0, offset);
                 // Look for def pattern
-                const defPattern = new RegExp(`def\\s+${varName}\\s*(?::\\s*(\\w+))?\\s*(.{0,30})`, 'g');
+                const defPattern = new RegExp(`def\\s+${varName}\\s*(?::\\s*(\\w+))?\\s*(.{0,30})`, "g");
                 let match;
                 let lastMatch = null;
                 while ((match = defPattern.exec(beforeText)) !== null) {
@@ -296,13 +321,13 @@ connection.onHover((params) => {
                 }
                 if (lastMatch) {
                     debugInfo += `\n**Variable Definition Found:**\n`;
-                    debugInfo += `- Type annotation: \`${lastMatch[1] || 'none'}\`\n`;
+                    debugInfo += `- Type annotation: \`${lastMatch[1] || "none"}\`\n`;
                     debugInfo += `- Initializer: \`${lastMatch[2].trim()}\`\n`;
                 }
             }
         }
         else {
-            debugInfo += '**No AST node found at this position**\n\n';
+            debugInfo += "**No AST node found at this position**\n\n";
             // Show root node info for debugging
             const classes = cached.analyzer.getDefinedClasses();
             debugInfo += `\n**Context Info:**\n`;
@@ -323,36 +348,36 @@ connection.onHover((params) => {
             if (hoverInfo.members && hoverInfo.members.length > 0) {
                 debugInfo += `\n\n**Class Members:**\n\n`;
                 // Group by kind
-                const properties = hoverInfo.members.filter(m => m.kind === 'property');
-                const methods = hoverInfo.members.filter(m => m.kind === 'method');
-                const staticMethods = hoverInfo.members.filter(m => m.kind === 'static-method');
+                const properties = hoverInfo.members.filter((m) => m.kind === "property");
+                const methods = hoverInfo.members.filter((m) => m.kind === "method");
+                const staticMethods = hoverInfo.members.filter((m) => m.kind === "static-method");
                 if (properties.length > 0) {
                     debugInfo += `*Properties:*\n`;
-                    properties.forEach(prop => {
-                        debugInfo += `- \`${prop.name}\`: \`${prop.type || 'any'}\`\n`;
+                    properties.forEach((prop) => {
+                        debugInfo += `- \`${prop.name}\`: \`${prop.type || "any"}\`\n`;
                     });
                     debugInfo += `\n`;
                 }
                 if (methods.length > 0) {
                     debugInfo += `*Methods:*\n`;
-                    methods.forEach(method => {
-                        debugInfo += `- \`${method.name}()\`: \`${method.type || 'void'}\`\n`;
+                    methods.forEach((method) => {
+                        debugInfo += `- \`${method.name}()\`: \`${method.type || "void"}\`\n`;
                     });
                     debugInfo += `\n`;
                 }
                 if (staticMethods.length > 0) {
                     debugInfo += `*Static Methods:*\n`;
-                    staticMethods.forEach(method => {
-                        debugInfo += `- \`${method.name}()\`: \`${method.type || 'void'}\`\n`;
+                    staticMethods.forEach((method) => {
+                        debugInfo += `- \`${method.name}()\`: \`${method.type || "void"}\`\n`;
                     });
                 }
             }
         }
         return {
             contents: {
-                kind: 'markdown',
-                value: debugInfo
-            }
+                kind: "markdown",
+                value: debugInfo,
+            },
         };
     }
     catch (error) {
@@ -365,7 +390,7 @@ connection.onHover((params) => {
  */
 connection.onDocumentSymbol((params) => {
     try {
-        connection.console.log('onDocumentSymbol triggered');
+        connection.console.log("onDocumentSymbol triggered");
         const document = documents.get(params.textDocument.uri);
         if (!document) {
             return [];
@@ -385,16 +410,21 @@ connection.onDocumentSymbol((params) => {
                 symbols.push({
                     name: className,
                     kind: node_1.SymbolKind.Class,
-                    location: node_1.Location.create(params.textDocument.uri, node_1.Range.create(pos, pos))
+                    location: node_1.Location.create(params.textDocument.uri, node_1.Range.create(pos, pos)),
                 });
                 // Add methods
-                for (const method of [...classInfo.methods, ...classInfo.staticMethods]) {
+                for (const method of [
+                    ...classInfo.methods,
+                    ...classInfo.staticMethods,
+                ]) {
                     if (method.node) {
                         const methodPos = cached.analyzer.offsetToPosition(method.node.sp);
                         symbols.push({
                             name: method.name,
-                            kind: method.kind === 'static-method' ? node_1.SymbolKind.Function : node_1.SymbolKind.Method,
-                            location: node_1.Location.create(params.textDocument.uri, node_1.Range.create(methodPos, methodPos))
+                            kind: method.kind === "static-method"
+                                ? node_1.SymbolKind.Function
+                                : node_1.SymbolKind.Method,
+                            location: node_1.Location.create(params.textDocument.uri, node_1.Range.create(methodPos, methodPos)),
                         });
                     }
                 }
@@ -408,7 +438,7 @@ connection.onDocumentSymbol((params) => {
                 symbols.push({
                     name: enumName,
                     kind: node_1.SymbolKind.Enum,
-                    location: node_1.Location.create(params.textDocument.uri, node_1.Range.create(pos, pos))
+                    location: node_1.Location.create(params.textDocument.uri, node_1.Range.create(pos, pos)),
                 });
             }
         }
@@ -433,7 +463,7 @@ function getBasicSymbols(document, uri) {
         symbols.push({
             name: match[2],
             kind: node_1.SymbolKind.Class,
-            location: node_1.Location.create(uri, node_1.Range.create(startPos, startPos))
+            location: node_1.Location.create(uri, node_1.Range.create(startPos, startPos)),
         });
     }
     // Find functions
@@ -442,8 +472,8 @@ function getBasicSymbols(document, uri) {
         const startPos = document.positionAt(match.index);
         symbols.push({
             name: match[2],
-            kind: match[1] === 'sfn' ? node_1.SymbolKind.Function : node_1.SymbolKind.Method,
-            location: node_1.Location.create(uri, node_1.Range.create(startPos, startPos))
+            kind: match[1] === "sfn" ? node_1.SymbolKind.Function : node_1.SymbolKind.Method,
+            location: node_1.Location.create(uri, node_1.Range.create(startPos, startPos)),
         });
     }
     return symbols;

@@ -747,11 +747,14 @@ export function compileRangerToRust(
   sourceFile: string,
   outputDir?: string
 ): CompileResult {
-  const sourcePath = sourceFile.startsWith("/")
+  // Use relative path if not absolute (same pattern as compileRanger)
+  const sourcePath = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : `./${sourceFile.replace(/\\/g, "/")}`;
+
+  const absoluteSource = path.isAbsolute(sourceFile)
     ? sourceFile
     : path.join(ROOT_DIR, sourceFile);
-
-  const absoluteSource = path.resolve(sourcePath);
 
   if (!fs.existsSync(absoluteSource)) {
     return {

@@ -33,6 +33,7 @@ import {
   parseRangerCode,
   positionToOffset,
   offsetToPosition,
+  clearCompilationCache,
 } from "./rangerCompiler";
 import { ASTAnalyzer } from "./astAnalyzer";
 import { TypeResolver } from "./typeResolver";
@@ -149,13 +150,38 @@ function getDocumentSettings(resource: string): Thenable<RangerSettings> {
   return result;
 }
 
-// Validate document when it changes
+// Debouncing for validation - prevents re-parsing on every keystroke
+const pendingValidations = new Map<string, NodeJS.Timeout>();
+const VALIDATION_DELAY_MS = 300;
+
+// Validate document when it changes (with debouncing)
 documents.onDidClose((e) => {
   documentSettings.delete(e.document.uri);
+  // Clear document cache to prevent memory leak
+  documentCache.delete(e.document.uri);
+  // Clear compilation cache for this file
+  clearCompilationCache(e.document.uri);
+  // Clear any pending validation
+  const pending = pendingValidations.get(e.document.uri);
+  if (pending) {
+    clearTimeout(pending);
+    pendingValidations.delete(e.document.uri);
+  }
 });
 
 documents.onDidChangeContent((change) => {
-  validateTextDocument(change.document);
+  const uri = change.document.uri;
+  
+  // Clear any pending validation for this document
+  if (pendingValidations.has(uri)) {
+    clearTimeout(pendingValidations.get(uri)!);
+  }
+  
+  // Debounce: wait for user to stop typing before validating
+  pendingValidations.set(uri, setTimeout(() => {
+    pendingValidations.delete(uri);
+    validateTextDocument(change.document);
+  }, VALIDATION_DELAY_MS));
 });
 
 /**

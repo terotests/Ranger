@@ -58,7 +58,7 @@ class TypeResolver {
         return {
             type,
             documentation: doc || `Type: ${type}`,
-            members: members.length > 0 ? members : undefined
+            members: members.length > 0 ? members : undefined,
         };
     }
     /**
@@ -66,8 +66,15 @@ class TypeResolver {
      */
     isBuiltInType(typeName) {
         const builtInTypes = [
-            'int', 'double', 'string', 'boolean', 'void', 'char',
-            'any', 'null', 'undefined'
+            "int",
+            "double",
+            "string",
+            "boolean",
+            "void",
+            "char",
+            "any",
+            "null",
+            "undefined",
         ];
         return builtInTypes.includes(typeName);
     }

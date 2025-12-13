@@ -18,15 +18,15 @@ class CompletionProvider {
      */
     provideCompletions(offset, triggerCharacter) {
         // Member access (after '.')
-        if (triggerCharacter === '.') {
+        if (triggerCharacter === ".") {
             return this.provideMemberCompletions(offset);
         }
         // Property access (after '@')
-        if (triggerCharacter === '@') {
+        if (triggerCharacter === "@") {
             return this.providePropertyCompletions(offset);
         }
         // Type annotation context (after ':')
-        if (triggerCharacter === ':') {
+        if (triggerCharacter === ":") {
             return this.provideTypeCompletions();
         }
         // Default: provide all available symbols
@@ -38,24 +38,24 @@ class CompletionProvider {
     provideMemberCompletions(offset) {
         const context = this.analyzer.isMethodAccessContext(offset);
         if (!context.isMethodAccess || !context.targetType) {
-            console.log('[Completion Provider] Not a method access context or no target type');
+            console.log("[Completion Provider] Not a method access context or no target type");
             return [];
         }
-        console.log('[Completion Provider] Target type:', context.targetType);
+        console.log("[Completion Provider] Target type:", context.targetType);
         const members = this.typeResolver.getMemberCompletions(context.targetType);
-        console.log('[Completion Provider] Found members:', members.length);
-        const completions = members.map(member => {
+        console.log("[Completion Provider] Found members:", members.length);
+        const completions = members.map((member) => {
             const item = {
                 label: member.name,
                 kind: this.symbolKindToCompletionKind(member.kind),
                 detail: member.type,
                 documentation: member.documentation,
-                insertText: member.name
+                insertText: member.name,
             };
-            console.log('[Completion Provider] Member completion item:', JSON.stringify(item, null, 2));
+            console.log("[Completion Provider] Member completion item:", JSON.stringify(item, null, 2));
             return item;
         });
-        console.log('[Completion Provider] Returning', completions.length, 'completion items');
+        console.log("[Completion Provider] Returning", completions.length, "completion items");
         return completions;
     }
     /**
@@ -63,12 +63,12 @@ class CompletionProvider {
      */
     providePropertyCompletions(offset) {
         const properties = this.typeResolver.getPropertyCompletions(offset);
-        return properties.map(prop => ({
+        return properties.map((prop) => ({
             label: prop.name,
             kind: node_1.CompletionItemKind.Property,
             detail: prop.type,
             documentation: prop.documentation,
-            insertText: prop.name
+            insertText: prop.name,
         }));
     }
     /**
@@ -82,7 +82,7 @@ class CompletionProvider {
                 label: type.name,
                 kind: node_1.CompletionItemKind.TypeParameter,
                 detail: type.description,
-                insertText: type.name
+                insertText: type.name,
             });
         }
         // User-defined classes
@@ -93,7 +93,7 @@ class CompletionProvider {
                     label: className,
                     kind: node_1.CompletionItemKind.Class,
                     detail: `class ${className}`,
-                    insertText: className
+                    insertText: className,
                 });
             }
         }
@@ -104,7 +104,7 @@ class CompletionProvider {
                 label: enumName,
                 kind: node_1.CompletionItemKind.Enum,
                 detail: enumInfo.documentation,
-                insertText: enumName
+                insertText: enumName,
             });
         }
         return completions;
@@ -120,7 +120,7 @@ class CompletionProvider {
                 label: keyword.name,
                 kind: node_1.CompletionItemKind.Keyword,
                 detail: keyword.description,
-                insertText: keyword.name
+                insertText: keyword.name,
             });
         }
         // Built-in functions
@@ -130,7 +130,7 @@ class CompletionProvider {
                 kind: node_1.CompletionItemKind.Function,
                 detail: func.description,
                 documentation: func.signature,
-                insertText: func.name
+                insertText: func.name,
             });
         }
         // Operators
@@ -139,7 +139,7 @@ class CompletionProvider {
                 label: op.name,
                 kind: node_1.CompletionItemKind.Operator,
                 detail: op.description,
-                insertText: op.name
+                insertText: op.name,
             });
         }
         // Symbols in scope
@@ -150,7 +150,7 @@ class CompletionProvider {
                 kind: this.symbolKindToCompletionKind(symbol.kind),
                 detail: symbol.type,
                 documentation: symbol.documentation,
-                insertText: symbol.name
+                insertText: symbol.name,
             });
         }
         return completions;
@@ -160,17 +160,17 @@ class CompletionProvider {
      */
     symbolKindToCompletionKind(kind) {
         switch (kind) {
-            case 'class':
+            case "class":
                 return node_1.CompletionItemKind.Class;
-            case 'method':
-            case 'static-method':
+            case "method":
+            case "static-method":
                 return node_1.CompletionItemKind.Method;
-            case 'property':
+            case "property":
                 return node_1.CompletionItemKind.Property;
-            case 'variable':
-            case 'parameter':
+            case "variable":
+            case "parameter":
                 return node_1.CompletionItemKind.Variable;
-            case 'enum':
+            case "enum":
                 return node_1.CompletionItemKind.Enum;
             default:
                 return node_1.CompletionItemKind.Text;

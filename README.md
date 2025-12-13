@@ -92,6 +92,48 @@ The `ai/` folder contains documentation optimized for AI assistants:
 - `EXAMPLES.md` - Code examples for common patterns
 - `GRAMMAR.md` - Formal grammar reference
 - `QUICKREF.md` - Quick reference card
+- `INTROSPECTION.md` - Compiler introspection API for IDE/AI integration
+
+### Compiler Introspection API (New)
+
+The compiler now exposes powerful introspection capabilities for IDE integration and AI-assisted development:
+
+**Position-Based Type Querying**
+- Query what type is at any line/column position in source code
+- Convert between line/column and byte offsets
+- Find all typed nodes in a source file
+
+**Class Structure Introspection**
+- Check if classes have specific properties with optional type verification
+- Check if classes have specific methods with optional return type verification
+- Get all properties and methods with full signatures
+- Track inheritance relationships
+
+**Use Cases**
+- IDE autocomplete and hover information
+- AI code generation with type-safe suggestions
+- Incremental compilation planning
+- Codebase analysis and documentation
+
+Example usage:
+
+```typescript
+import { compileForIntrospection, classHasProperty, getTypeAtPosition } from './tests/helpers/introspection';
+
+// Compile source code
+const result = await compileForIntrospection(sourceCode);
+
+// Check class structure
+if (classHasProperty(result, "Person", "name", "string")) {
+  // Safe to reference person.name
+}
+
+// Query type at cursor position (1-based line/column)
+const typeInfo = getTypeAtPosition(result.rootNode, sourceCode, 5, 12);
+console.log(typeInfo.evalTypeName); // e.g., "int"
+```
+
+See `ai/INTROSPECTION.md` for complete API documentation.
 
 ## Installing the compiler
 

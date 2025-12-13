@@ -6,6 +6,7 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     root: "./tests",
+    exclude: ["**/node_modules/**", "**/ranger-vscode-extension/**"],
     sequence: {
       concurrent: false, // Run tests sequentially
     },
