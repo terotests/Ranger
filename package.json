@@ -39,7 +39,13 @@
     "gen:chess:rust:run": "npm run gen:chess:rust:build && ./generated/bin/chessboard.exe",
     "gen:chess:swift": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=swift3 ./generated/ChessBoard.rgr -d=./generated/bin -o=chessboard.swift -nodecli",
     "gen:all": "npm run gen:simple && npm run gen:chess",
-    "gen:test": "npm run gen:simple:run"
+    "gen:test": "npm run gen:simple:run",
+    "game:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -es6 ./gallery/invaders/invaders.rgr -d=./gallery/invaders -o=invaders.js -nodecli",
+    "game:compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -l=rust ./gallery/invaders/invaders.rgr -d=./gallery/invaders -o=invaders.rs -nodecli",
+    "game:build:rust": "npm run game:compile:rust && rustc gallery/invaders/invaders.rs -o gallery/invaders/invaders_rust.exe",
+    "game:run": "node ./gallery/invaders/invaders.js",
+    "game:run:rust": "./gallery/invaders/invaders_rust.exe",
+    "game": "npm run game:compile && npm run game:run"
   },
   "repository": {
     "type": "git",

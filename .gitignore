@@ -25,6 +25,10 @@ tests/.output-rust/
 # Generated binary output
 generated/bin/
 
+# Compiled executables and debug files
+*.exe
+*.pdb
+
 # Seems to work ok...
 
 

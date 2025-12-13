@@ -1647,7 +1647,8 @@ case class customException(smth:String)  extends Exception
                 swift3 ( (forkctx _ ) (def 2) (def 3) nl "for ( " (swift_rc 3) " , " (e 2) " ) in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
 
-                rust ( (forkctx _ ) (def 2) (def 3) "for (" (e 3) ", " (e 2) " ) in " (e 1) ".enumerate() {" nl I (block 4) nl i "}" )     
+                ; Use index-based loop for Rust with cloned item to allow self method calls
+                rust ( (forkctx _ ) (def 2) (def 3) "for " (e 3) " in 0.." (e 1) ".len() {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize].clone();" nl (block 4) nl (e 1) "[" (e 3) " as usize] = " (e 2) ";" nl i "}" )     
 
                 ; idea of go for macro implementation, not working yet...         
                 go_idea  @macro(true) (nl 
@@ -2969,6 +2970,264 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  swift3 ( nl "print(" (e 1) ")" nl)
                  swift6 ( nl "print(" (e 1) ")" nl)
                  * ( nl "console.log(" (e 1) ");" nl)                                                                
+            }
+        }
+
+        ; Terminal control operators for console/shell games
+        ; Write text without newline
+        write           cmdWrite:void           ( text:string) { 
+            templates {
+                 cpp ( nl "std::cout << " (e 1) " << std::flush;" nl (imp "<iostream>"))
+                 go ( nl "fmt.Print( " (e 1) " )" nl (imp "fmt"))
+                 rust ( nl "print!(\"{}\", " (e 1) ");" nl)
+                 java7 ( nl "System.out.print(String.valueOf(" (e 1) "));" nl)
+                 php ( nl "echo " (e 1) ";" nl)
+                 python ( nl "print(" (e 1) ", end='')" nl)
+                 csharp ( nl "Console.Write(" (e 1) ");" nl (imp "System"))
+                 swift3 ( nl "print(" (e 1) ", terminator: \"\")" nl)
+                 swift6 ( nl "print(" (e 1) ", terminator: \"\")" nl)
+                 * ( nl "process.stdout.write(" (e 1) ");" nl)
+            }
+        }
+
+        ; Clear the terminal screen
+        clear_screen    cmdClearScreen:void     () {
+            templates {
+                 cpp ( nl "std::cout << \"\\x1b[2J\\x1b[H\" << std::flush;" nl (imp "<iostream>"))
+                 go ( nl "fmt.Print(\"\\x1b[2J\\x1b[H\")" nl (imp "fmt"))
+                 rust ( nl "print!(\"\\x1b[2J\\x1b[H\");" nl)
+                 java7 ( nl "System.out.print(\"\\033[2J\\033[H\");" nl)
+                 php ( nl "echo \"\\x1b[2J\\x1b[H\";" nl)
+                 python ( nl "print(\"\\x1b[2J\\x1b[H\", end='')" nl)
+                 csharp ( nl "Console.Write(\"\\x1b[2J\\x1b[H\");" nl (imp "System"))
+                 swift3 ( nl "print(\"\\u{1b}[2J\\u{1b}[H\", terminator: \"\")" nl)
+                 swift6 ( nl "print(\"\\u{1b}[2J\\u{1b}[H\", terminator: \"\")" nl)
+                 * ( nl "process.stdout.write(\"\\x1b[2J\\x1b[H\");" nl)
+            }
+        }
+
+        ; Move cursor to position (1-based coordinates)
+        move_cursor     cmdMoveCursor:void      ( x:int y:int) {
+            templates {
+                 cpp ( nl "std::cout << \"\\x1b[\" << " (e 2) " << \";\" << " (e 1) " << \"H\" << std::flush;" nl (imp "<iostream>"))
+                 go ( nl "fmt.Printf(\"\\x1b[%d;%dH\", " (e 2) ", " (e 1) ")" nl (imp "fmt"))
+                 rust ( nl "print!(\"\\x1b[{};{}H\", " (e 2) ", " (e 1) ");" nl)
+                 java7 ( nl "System.out.print(\"\\033[\" + " (e 2) " + \";\" + " (e 1) " + \"H\");" nl)
+                 php ( nl "echo \"\\x1b[\" . " (e 2) " . \";\" . " (e 1) " . \"H\";" nl)
+                 python ( nl "print(f\"\\x1b[{" (e 2) "};{" (e 1) "}H\", end='')" nl)
+                 csharp ( nl "Console.Write($\"\\x1b[{" (e 2) "};{" (e 1) "}H\");" nl (imp "System"))
+                 swift3 ( nl "print(\"\\u{1b}[\\(" (e 2) ");\\(" (e 1) ")H\", terminator: \"\")" nl)
+                 swift6 ( nl "print(\"\\u{1b}[\\(" (e 2) ");\\(" (e 1) ")H\", terminator: \"\")" nl)
+                 * ( nl "process.stdout.write(`\\x1b[${" (e 2) "};${" (e 1) "}H`);" nl)
+            }
+        }
+
+        ; Hide terminal cursor
+        hide_cursor     cmdHideCursor:void      () {
+            templates {
+                 cpp ( nl "std::cout << \"\\x1b[?25l\" << std::flush;" nl (imp "<iostream>"))
+                 go ( nl "fmt.Print(\"\\x1b[?25l\")" nl (imp "fmt"))
+                 rust ( nl "print!(\"\\x1b[?25l\");" nl)
+                 java7 ( nl "System.out.print(\"\\033[?25l\");" nl)
+                 php ( nl "echo \"\\x1b[?25l\";" nl)
+                 python ( nl "print(\"\\x1b[?25l\", end='')" nl)
+                 csharp ( nl "Console.Write(\"\\x1b[?25l\");" nl (imp "System"))
+                 swift3 ( nl "print(\"\\u{1b}[?25l\", terminator: \"\")" nl)
+                 swift6 ( nl "print(\"\\u{1b}[?25l\", terminator: \"\")" nl)
+                 * ( nl "process.stdout.write(\"\\x1b[?25l\");" nl)
+            }
+        }
+
+        ; Show terminal cursor
+        show_cursor     cmdShowCursor:void      () {
+            templates {
+                 cpp ( nl "std::cout << \"\\x1b[?25h\" << std::flush;" nl (imp "<iostream>"))
+                 go ( nl "fmt.Print(\"\\x1b[?25h\")" nl (imp "fmt"))
+                 rust ( nl "print!(\"\\x1b[?25h\");" nl)
+                 java7 ( nl "System.out.print(\"\\033[?25h\");" nl)
+                 php ( nl "echo \"\\x1b[?25h\";" nl)
+                 python ( nl "print(\"\\x1b[?25h\", end='')" nl)
+                 csharp ( nl "Console.Write(\"\\x1b[?25h\");" nl (imp "System"))
+                 swift3 ( nl "print(\"\\u{1b}[?25h\", terminator: \"\")" nl)
+                 swift6 ( nl "print(\"\\u{1b}[?25h\", terminator: \"\")" nl)
+                 * ( nl "process.stdout.write(\"\\x1b[?25h\");" nl)
+            }
+        }
+
+        ; Listen for keyboard input - callback receives key:string
+        ; Creates a global key queue/receiver that poll_keypress can use
+        on_keypress     cmdOnKeypress:void      (keyvar:string code:block) {
+            templates {
+                 es6 ( nl 
+                    "global.r_key_queue = [];" nl
+                    "const readline = require('readline');" nl
+                    "readline.emitKeypressEvents(process.stdin);" nl
+                    "if (process.stdin.isTTY) { process.stdin.setRawMode(true); }" nl
+                    "process.stdin.on('keypress', (" (e 1) ", data) => {" nl I
+                    "if (data && data.ctrl && data.name === 'c') { process.stdout.write('\\x1b[?25h'); process.exit(); }" nl
+                    "if (data && data.name) { " (e 1) " = data.name; global.r_key_queue.push(" (e 1) "); }" nl
+                    (block 2) 
+                    i nl "});" nl
+                 )
+                 rust ( nl
+                    "let (r_key_sender, r_key_receiver) = std::sync::mpsc::channel::<String>();" nl
+                    "*R_KEY_RECEIVER.lock().unwrap() = Some(r_key_receiver);" nl
+                    "std::thread::spawn(move || {" nl I
+                    "r_setup_raw_mode();" nl
+                    "loop {" nl I
+                    "if let Some(k) = r_read_key() {" nl I
+                    "if r_key_sender.send(k).is_err() { break; }" nl
+                    i "}" nl
+                    i "}" nl
+                    i "});" nl
+                    (create_polyfill "
+use std::io::Read;
+use std::sync::Mutex;
+
+static R_KEY_RECEIVER: Mutex<Option<std::sync::mpsc::Receiver<String>>> = Mutex::new(None);
+
+#[cfg(windows)]
+fn r_setup_raw_mode() {
+    // Windows: nothing needed, we use _getch() which handles raw input
+}
+
+#[cfg(unix)]
+fn r_setup_raw_mode() {
+    use std::process::Command;
+    let _ = Command::new(\"stty\").args([\"-F\", \"/dev/tty\", \"cbreak\", \"min\", \"1\", \"-echo\"]).status();
+}
+
+#[cfg(windows)]
+fn r_read_key() -> Option<String> {
+    extern \"C\" {
+        fn _getch() -> i32;
+        fn _kbhit() -> i32;
+    }
+    unsafe {
+        if _kbhit() == 0 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            return None;
+        }
+        let ch = _getch();
+        if ch == 3 { // Ctrl+C
+            print!(\"\\x1b[?25h\");
+            std::process::exit(0);
+        }
+        if ch == 224 || ch == 0 { // Extended key
+            let ch2 = _getch();
+            return match ch2 {
+                72 => Some(\"up\".to_string()),
+                80 => Some(\"down\".to_string()),
+                75 => Some(\"left\".to_string()),
+                77 => Some(\"right\".to_string()),
+                _ => None,
+            };
+        }
+        if ch == 32 {
+            return Some(\"space\".to_string());
+        }
+        if ch == 27 {
+            return Some(\"escape\".to_string());
+        }
+        return Some((ch as u8 as char).to_string());
+    }
+}
+
+#[cfg(unix)]
+fn r_read_key() -> Option<String> {
+    let mut buffer = [0u8; 3];
+    let stdin = std::io::stdin();
+    let mut handle = stdin.lock();
+    if handle.read(&mut buffer[0..1]).is_ok() {
+        if buffer[0] == 3 { // Ctrl+C
+            print!(\"\\x1b[?25h\");
+            std::process::exit(0);
+        }
+        if buffer[0] == 27 { // Escape sequence
+            if handle.read(&mut buffer[1..3]).is_ok() {
+                if buffer[1] == 91 {
+                    return match buffer[2] {
+                        65 => Some(\"up\".to_string()),
+                        66 => Some(\"down\".to_string()),
+                        67 => Some(\"right\".to_string()),
+                        68 => Some(\"left\".to_string()),
+                        _ => Some(\"escape\".to_string()),
+                    };
+                }
+            }
+            return Some(\"escape\".to_string());
+        }
+        if buffer[0] == 32 {
+            return Some(\"space\".to_string());
+        }
+        return Some((buffer[0] as char).to_string());
+    }
+    None
+}
+")
+                 )
+                 python ( nl
+                    "import sys, tty, termios, threading" nl
+                    "def _keypress_listener():" nl I
+                    "    fd = sys.stdin.fileno()" nl
+                    "    old_settings = termios.tcgetattr(fd)" nl
+                    "    try:" nl
+                    "        tty.setraw(sys.stdin.fileno())" nl
+                    "        while True:" nl
+                    "            " (e 1) " = sys.stdin.read(1)" nl
+                    "            if " (e 1) " == '\\x03': break" nl
+                    "            " (block 2) nl
+                    "    finally:" nl
+                    "        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)" nl i
+                    "threading.Thread(target=_keypress_listener, daemon=True).start()" nl
+                 )
+                 go ( nl
+                    "go func() {" nl I
+                    "exec.Command(\"stty\", \"-F\", \"/dev/tty\", \"cbreak\", \"min\", \"1\").Run()" nl
+                    "exec.Command(\"stty\", \"-F\", \"/dev/tty\", \"-echo\").Run()" nl
+                    "var b []byte = make([]byte, 1)" nl
+                    "for {" nl I
+                    "os.Stdin.Read(b)" nl
+                    (e 1) " := string(b)" nl
+                    (block 2)
+                    i nl "}" nl i
+                    "}()" nl
+                    (imp "os")
+                    (imp "os/exec")
+                 )
+                 * ( nl "// on_keypress not implemented for this target" nl)
+            }
+        }
+
+        ; Poll for keypress (non-blocking, for use in game loops)
+        ; Returns empty string if no key is available
+        poll_keypress   cmdPollKey:string       () {
+            templates {
+                 es6 ( "(global.r_key_queue && global.r_key_queue.length > 0 ? global.r_key_queue.shift() : \"\")" )
+                 rust ( 
+                    "{" nl I
+                    "if let Some(ref recv) = *R_KEY_RECEIVER.lock().unwrap() {" nl I
+                    "recv.try_recv().unwrap_or_default()" nl
+                    i "} else { String::new() }" nl
+                    i "}"
+                 )
+                 * ( "\"\"" )
+            }
+        }
+
+        ; Sleep for specified milliseconds (blocking)
+        sleep_ms        cmdSleepMs:void         (ms:int) {
+            templates {
+                 es6 ( nl "await new Promise(r => setTimeout(r, " (e 1) "));" nl )
+                 rust ( nl "std::thread::sleep(std::time::Duration::from_millis(" (e 1) " as u64));" nl )
+                 go ( nl "time.Sleep(time.Duration(" (e 1) ") * time.Millisecond)" nl (imp "time"))
+                 cpp ( nl "std::this_thread::sleep_for(std::chrono::milliseconds(" (e 1) "));" nl (imp "<chrono>") (imp "<thread>"))
+                 java7 ( nl "try { Thread.sleep(" (e 1) "); } catch (InterruptedException e) {}" nl )
+                 python ( nl "time.sleep(" (e 1) " / 1000.0)" nl (imp "time"))
+                 csharp ( nl "System.Threading.Thread.Sleep(" (e 1) ");" nl )
+                 php ( nl "usleep(" (e 1) " * 1000);" nl )
+                 swift3 ( nl "usleep(UInt32(" (e 1) " * 1000))" nl )
+                 * ( nl "// sleep_ms not implemented" nl )
             }
         }
 

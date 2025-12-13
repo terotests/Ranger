@@ -110,6 +110,12 @@ class setTimeoutClass {
             )
 
             es6 ("setTimeout( () => {" (block 2 ) "} , " (e 1) ")") ;"
+            rust (
+                "std::thread::spawn(move || {" nl I
+                "std::thread::sleep(std::time::Duration::from_millis(" (e 1) " as u64));" nl
+                (block 2)
+                i nl "});" nl
+            )
             java7 (
 "__startThread(" 
     "new Thread() {" nl I

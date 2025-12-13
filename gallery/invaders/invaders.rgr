@@ -1,0 +1,447 @@
+; Space Invaders - Terminal Game
+; Compile ES6: npm run game:compile
+; Compile Rust: npm run game:compile:rust
+; Run: npm run game:run
+
+; Note: Uses synchronous game loop with poll_keypress and sleep_ms
+; This pattern works for both ES6 and Rust targets
+
+; Represents an alien enemy
+class Alien {
+    def x:int 0
+    def y:int 0
+    def prevX:int 0
+    def prevY:int 0
+    def alive:boolean true
+    def wasAlive:boolean true
+
+    Constructor (startX:int startY:int) {
+        x = startX
+        y = startY
+        prevX = startX
+        prevY = startY
+    }
+
+    fn savePrev:void () {
+        prevX = x
+        prevY = y
+        wasAlive = alive
+    }
+}
+
+; Represents a bullet
+class Bullet {
+    def x:int 0
+    def y:int 0
+    def prevX:int 0
+    def prevY:int 0
+    def active:boolean true
+    def wasActive:boolean true
+
+    Constructor (startX:int startY:int) {
+        x = startX
+        y = startY
+        prevX = startX
+        prevY = startY
+    }
+
+    fn savePrev:void () {
+        prevX = x
+        prevY = y
+        wasActive = active
+    }
+}
+
+; Main game class
+class Invaders {
+    def WIDTH:int 40
+    def HEIGHT:int 18
+    def PLAYER_Y:int 16
+    def playerX:int 20
+    def drawnPlayerX:int -1
+    def aliens:[Alien]
+    def bullets:[Bullet]
+    def score:int 0
+    def prevScore:int 0
+    def gameOver:boolean false
+    def gameWon:boolean false
+    def alienDirection:int 1
+    def frameCount:int 0
+    def alienMoveDelay:int 8
+    def firstRender:boolean true
+
+    Constructor () {
+        this.initAliens()
+    }
+
+    fn initAliens:void () {
+        ; Create 3 rows of 8 aliens
+        def row 0
+        while (row < 3) {
+            def col 0
+            while (col < 8) {
+                def ax (col * 4 + 4)
+                def ay (row + 2)
+                def alien (new Alien(ax ay))
+                push aliens alien
+                col = col + 1
+            }
+            row = row + 1
+        }
+    }
+
+    fn drawAt:void (x:int y:int ch:string) {
+        move_cursor (x + 1) (y + 1)
+        write ch
+    }
+
+    fn eraseAt:void (x:int y:int) {
+        move_cursor (x + 1) (y + 1)
+        write " "
+    }
+
+    fn drawBorders:void () {
+        ; Draw top border
+        move_cursor 1 1
+        def i 0
+        def borderW (WIDTH + 2)
+        while (i < borderW) {
+            write "="
+            i = i + 1
+        }
+
+        ; Draw side borders
+        def y 0
+        while (y < HEIGHT) {
+            move_cursor 1 (y + 2)
+            write "|"
+            def rightX (WIDTH + 2)
+            move_cursor rightX (y + 2)
+            write "|"
+            y = y + 1
+        }
+
+        ; Draw bottom border
+        def bottomY (HEIGHT + 2)
+        move_cursor 1 bottomY
+        def j 0
+        while (j < borderW) {
+            write "="
+            j = j + 1
+        }
+
+        ; Draw controls line
+        def scoreY (HEIGHT + 3)
+        move_cursor 1 scoreY
+        write "Score:       |  Arrows=move  SPACE=shoot  Q=quit"
+    }
+
+    fn render:void () {
+        ; First frame: clear and draw static elements
+        if (firstRender) {
+            clear_screen
+            this.drawBorders()
+            firstRender = false
+        }
+
+        ; Erase old player position if moved
+        if (drawnPlayerX >= 0) {
+            if (drawnPlayerX != playerX) {
+                this.eraseAt(drawnPlayerX PLAYER_Y)
+            }
+        }
+
+        ; Draw player at new position
+        this.drawAt(playerX PLAYER_Y "A")
+        drawnPlayerX = playerX
+
+        ; Update aliens: erase old, draw new
+        for aliens alien:Alien idx {
+            ; Erase if was alive and moved or died
+            if (alien.wasAlive) {
+                def moved false
+                if (alien.prevX != alien.x) {
+                    moved = true
+                }
+                if (alien.prevY != alien.y) {
+                    moved = true
+                }
+                if (moved) {
+                    def oldAx (alien.prevX + 1)
+                    this.eraseAt(oldAx alien.prevY)
+                }
+                if (alien.alive == false) {
+                    def killAx (alien.x + 1)
+                    this.eraseAt(killAx alien.y)
+                }
+            }
+            ; Draw if alive
+            if (alien.alive) {
+                def drawX (alien.x + 1)
+                this.drawAt(drawX alien.y "W")
+            }
+        }
+
+        ; Update bullets: erase old, draw new
+        for bullets bullet:Bullet idx2 {
+            ; Erase old position if was active
+            if (bullet.wasActive) {
+                def oldBx (bullet.prevX + 1)
+                this.eraseAt(oldBx bullet.prevY)
+            }
+            ; Draw at new position if active
+            if (bullet.active) {
+                def bx (bullet.x + 1)
+                this.drawAt(bx bullet.y "|")
+            }
+        }
+
+        ; Update score display only if changed
+        if (score != prevScore) {
+            def scoreY (HEIGHT + 3)
+            move_cursor 8 scoreY
+            def scoreStr (score + "   ")
+            write scoreStr
+        }
+
+        ; Move cursor away
+        def endY (HEIGHT + 4)
+        move_cursor 1 endY
+    }
+
+    fn savePrevState:void () {
+        prevScore = score
+        for aliens alien:Alien idx {
+            alien.savePrev()
+        }
+        for bullets bullet:Bullet idx2 {
+            bullet.savePrev()
+        }
+    }
+
+    fn shoot:void () {
+        def bulletY (PLAYER_Y - 1)
+        def bullet (new Bullet(playerX bulletY))
+        push bullets bullet
+    }
+
+    fn moveLeft:void () {
+        if (playerX > 0) {
+            playerX = playerX - 1
+        }
+    }
+
+    fn moveRight:void () {
+        def maxX (WIDTH - 1)
+        if (playerX < maxX) {
+            playerX = playerX + 1
+        }
+    }
+
+    fn updateBullets:void () {
+        for bullets bullet:Bullet idx {
+            if (bullet.active) {
+                bullet.y = bullet.y - 1
+                if (bullet.y < 1) {
+                    bullet.active = false
+                }
+            }
+        }
+    }
+
+    fn countAlive:int () {
+        def count 0
+        for aliens a:Alien idx {
+            if (a.alive) {
+                count = count + 1
+            }
+        }
+        return count
+    }
+
+    fn updateAliens:void () {
+        def moveFrame (frameCount % alienMoveDelay)
+        if (moveFrame != 0) {
+            return
+        }
+
+        def shouldMoveDown false
+        def minX 999
+        def maxX 0
+
+        ; Find bounds
+        for aliens alien:Alien idx {
+            if (alien.alive) {
+                if (alien.x < minX) {
+                    minX = alien.x
+                }
+                if (alien.x > maxX) {
+                    maxX = alien.x
+                }
+            }
+        }
+
+        ; Check direction change
+        def rightBound (WIDTH - 2)
+        if (alienDirection > 0) {
+            if (maxX >= rightBound) {
+                alienDirection = -1
+                shouldMoveDown = true
+            }
+        } {
+            if (minX <= 1) {
+                alienDirection = 1
+                shouldMoveDown = true
+            }
+        }
+
+        ; Move aliens
+        for aliens alien:Alien idx2 {
+            if (alien.alive) {
+                alien.x = alien.x + alienDirection
+                if (shouldMoveDown) {
+                    alien.y = alien.y + 1
+                    if (alien.y >= PLAYER_Y) {
+                        gameOver = true
+                    }
+                }
+            }
+        }
+
+        ; Speed up
+        def aliveCount (this.countAlive())
+        if (aliveCount < 12) {
+            alienMoveDelay = 5
+        }
+        if (aliveCount < 6) {
+            alienMoveDelay = 3
+        }
+        if (aliveCount < 3) {
+            alienMoveDelay = 1
+        }
+    }
+
+    fn checkCollisions:void () {
+        for bullets bullet:Bullet bidx {
+            if (bullet.active) {
+                for aliens alien:Alien aidx {
+                    if (alien.alive) {
+                        if (bullet.x == alien.x) {
+                            if (bullet.y == alien.y) {
+                                bullet.active = false
+                                alien.alive = false
+                                score = score + 10
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn checkWin:void () {
+        def aliveCount (this.countAlive())
+        if (aliveCount == 0) {
+            gameWon = true
+            gameOver = true
+        }
+    }
+
+    fn update:void () {
+        frameCount = frameCount + 1
+        this.updateBullets()
+        this.updateAliens()
+        this.checkCollisions()
+        this.checkWin()
+    }
+
+    fn endGame:void () {
+        clear_screen
+        move_cursor 1 1
+        if (gameWon) {
+            print "=== YOU WIN! ==="
+        } {
+            print "=== GAME OVER ==="
+        }
+        def finalMsg ("Final Score: " + score)
+        print finalMsg
+        show_cursor
+    }
+
+    fn gameLoop@(async):void () {
+        ; Synchronous game loop - polls for keys and uses sleep_ms
+        while (gameOver == false) {
+            this.savePrevState()
+            this.update()
+            this.render()
+            
+            ; Poll for key input (non-blocking)
+            def key (poll_keypress)
+            if (key != "") {
+                this.handleKey(key)
+            }
+            
+            ; Wait ~50ms for frame timing
+            sleep_ms 50
+        }
+        this.endGame()
+    }
+
+    fn handleKey:void (key:string) {
+        ; Arrow keys (escape sequences)
+        if (key == "left") {
+            this.moveLeft()
+        }
+        if (key == "right") {
+            this.moveRight()
+        }
+        ; Also support A/D keys
+        if (key == "a") {
+            this.moveLeft()
+        }
+        if (key == "A") {
+            this.moveLeft()
+        }
+        if (key == "d") {
+            this.moveRight()
+        }
+        if (key == "D") {
+            this.moveRight()
+        }
+        if (key == " ") {
+            this.shoot()
+        }
+        if (key == "space") {
+            this.shoot()
+        }
+        if (key == "q") {
+            gameOver = true
+        }
+        if (key == "Q") {
+            gameOver = true
+        }
+    }
+
+    sfn m@(main):void () {
+        def game (new Invaders)
+
+        print "=== SPACE INVADERS ==="
+        print ""
+        print "Controls:"
+        print "  LEFT/RIGHT - Move"
+        print "  SPACE      - Shoot"
+        print "  Q          - Quit"
+        print ""
+        print "Starting game..."
+
+        ; Set up keyboard input listener (creates r_key_receiver for polling)
+        def key:string ""
+        on_keypress key {
+            ; This block runs async in ES6, but we poll manually for Rust
+            game.handleKey(key)
+        }
+
+        hide_cursor
+        game.gameLoop()
+    }
+}
