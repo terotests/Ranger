@@ -205,20 +205,20 @@ npm run test:rust     # Rust tests
 const result = await compileForIntrospection(sourceCode);
 
 // Check class structure
-classHasProperty(result, "MyClass", "propName", "string")
-classHasMethod(result, "MyClass", "methodName", "int")
+classHasProperty(result, "MyClass", "propName", "string");
+classHasMethod(result, "MyClass", "methodName", "int");
 
 // Get all properties/methods
-getClassProperties(result, "MyClass")  // [{name, type, isOptional}]
-getClassMethods(result, "MyClass")     // [{name, returnType, params, isStatic}]
+getClassProperties(result, "MyClass"); // [{name, type, isOptional}]
+getClassMethods(result, "MyClass"); // [{name, returnType, params, isStatic}]
 
 // Query type at position (line/col are 1-based)
-getTypeAtPosition(rootNode, sourceCode, line, column)
+getTypeAtPosition(rootNode, sourceCode, line, column);
 // Returns: {typeName, evalTypeName, vref, nodeType, ...}
 
 // Position conversion
-lineColumnToOffset(sourceCode, line, column)
-offsetToLineColumn(sourceCode, offset)
+lineColumnToOffset(sourceCode, line, column);
+offsetToLineColumn(sourceCode, offset);
 ```
 
 See `INTROSPECTION.md` for full API documentation.

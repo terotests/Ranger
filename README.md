@@ -99,17 +99,20 @@ The `ai/` folder contains documentation optimized for AI assistants:
 The compiler now exposes powerful introspection capabilities for IDE integration and AI-assisted development:
 
 **Position-Based Type Querying**
+
 - Query what type is at any line/column position in source code
 - Convert between line/column and byte offsets
 - Find all typed nodes in a source file
 
 **Class Structure Introspection**
+
 - Check if classes have specific properties with optional type verification
 - Check if classes have specific methods with optional return type verification
 - Get all properties and methods with full signatures
 - Track inheritance relationships
 
 **Use Cases**
+
 - IDE autocomplete and hover information
 - AI code generation with type-safe suggestions
 - Incremental compilation planning
@@ -118,7 +121,11 @@ The compiler now exposes powerful introspection capabilities for IDE integration
 Example usage:
 
 ```typescript
-import { compileForIntrospection, classHasProperty, getTypeAtPosition } from './tests/helpers/introspection';
+import {
+  compileForIntrospection,
+  classHasProperty,
+  getTypeAtPosition,
+} from "./tests/helpers/introspection";
 
 // Compile source code
 const result = await compileForIntrospection(sourceCode);
