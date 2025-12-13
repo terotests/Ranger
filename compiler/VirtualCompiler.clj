@@ -42,6 +42,8 @@ class CompilerResults {
   def ctx@(weak):RangerAppWriterContext
   def fileSystem@(weak):CodeFileSystem  
   def target_dir ""
+  def hasErrors false
+  def errorMessage ""
 }
 
 class VirtualCompiler {
@@ -538,7 +540,9 @@ class tester {
       flowParser.CollectMethods (node appCtx (unwrap wr))
       if ( ( array_length appCtx.compilerErrors ) > 0 ) {
         VirtualCompiler.displayCompilerErrors(appCtx)
-        exit 1
+        res.hasErrors = true
+        res.errorMessage = "Errors during method collection phase"
+        res.ctx = appCtx
         return res
       }
 
@@ -777,7 +781,8 @@ class tester {
       
         VirtualCompiler.displayCompilerErrors(appCtx)
         if ( ( array_length appCtx.compilerErrors ) > 0 ) {
-          exit 1
+          res.hasErrors = true
+          res.errorMessage = "Errors during compilation phase"
         }
 
         if_javascript {
@@ -796,21 +801,24 @@ class tester {
         res.ctx = appCtx
 
     } {
-      print (error_msg)
+      def err_msg (error_msg)
+      print err_msg
+      res.hasErrors = true
+      res.ctx = appCtx
       if(lcc.lastProcessedNode) {
         print "Got compiler error close to"
         print (lcc.lastProcessedNode.getLineAsString())
-        exit 1
+        res.errorMessage = err_msg
         return res
       }
       if(flowParser.lastProcessedNode) {
         print "Got compiler error close to"
         print (flowParser.lastProcessedNode.getLineAsString())
-        exit 1
+        res.errorMessage = err_msg
         return res
       }
       print "Got unknown compiler error"
-      exit 1
+      res.errorMessage = err_msg
     }
     
     return res

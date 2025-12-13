@@ -1,0 +1,101 @@
+{
+  "name": "ranger-language-support",
+  "displayName": "Ranger Language Support",
+  "description": "Language support for the Ranger cross-platform compiler language (.rngr files)",
+  "version": "0.1.0",
+  "publisher": "terotests",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/terotests/Ranger"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Snippets"
+  ],
+  "keywords": [
+    "ranger",
+    "cross-platform",
+    "compiler",
+    "transpiler"
+  ],
+  "activationEvents": [
+    "onLanguage:ranger"
+  ],
+  "main": "./client/out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "ranger",
+        "aliases": [
+          "Ranger",
+          "ranger"
+        ],
+        "extensions": [
+          ".rngr",
+          ".ranger"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ranger",
+        "scopeName": "source.ranger",
+        "path": "./syntaxes/ranger.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "ranger",
+        "path": "./snippets/ranger.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Ranger",
+      "properties": {
+        "ranger.maxNumberOfProblems": {
+          "scope": "resource",
+          "type": "number",
+          "default": 100,
+          "description": "Controls the maximum number of problems produced by the server."
+        },
+        "ranger.trace.server": {
+          "scope": "window",
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -b",
+    "watch": "tsc -b -w",
+    "lint": "eslint ./client/src ./server/src --ext .ts,.tsx",
+    "postinstall": "cd client && npm install && cd ../server && npm install",
+    "dev": "code --extensionDevelopmentPath . --new-window",
+    "package:vsix": "npm run compile && npx @vscode/vsce package",
+    "install:vsix": "code --install-extension ranger-language-support-0.1.0.vsix",
+    "test": "npm run compile && node ./client/out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2"
+  }
+}
