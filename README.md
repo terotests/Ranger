@@ -1,10 +1,43 @@
 # Ranger cross language compiler
 
-Status: `experimental`
+**Version 3.0.0-alpha.1** | Status: `experimental`
 
-Ranger is a small self-hosting cross -language, cross -platform compiler to enable writing portable algorithms and applications.
+Ranger is a small self-hosting cross-language, cross-platform compiler to enable writing portable algorithms and applications.
 The language has type safety, classes, inheritance, operator overloading, lambda functions, generic traits,
 class extensions, type inference and can integrate with host system API's using system classes.
+
+## What's New in Version 3.0
+
+🚀 **Ranger 3.0** is a major evolution focusing on developer experience and production readiness.
+
+### Key Features (In Progress)
+
+- **New File Extension** - Transitioning from `.clj` to `.rgr` for Ranger identity
+- **Simplified CLI** - Use `rgrc` command for shorter invocations
+- **Web-based IDE** - Browser playground with Monaco editor (coming soon)
+- **VSCode Extension** - Full language server with go-to-definition, autocomplete, and more
+- **Compiler Introspection** - API for IDE integration and tooling
+- **CI/CD Pipeline** - Automated testing and NPM publishing
+
+### Quick Start
+
+```bash
+# Install globally
+npm install -g ranger-compiler
+
+# Compile to JavaScript
+rgrc -l=es6 myfile.clj -o=output.js
+
+# Compile to TypeScript
+rgrc -l=es6 -typescript myfile.clj -o=output.ts
+
+# Compile to Python
+rgrc -l=python myfile.clj -o=output.py
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for full version history and [PLAN_3.md](PLAN_3.md) for the roadmap.
+
+---
 
 ## Host platforms and target languages
 

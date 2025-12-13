@@ -25,7 +25,7 @@ def rotateVector() {
 `;
 
       // First compilation - should succeed and cache
-      const result1 = await compileRangerCode(workingCode, "test.rngr");
+      const result1 = await compileRangerCode(workingCode, "test.rgr");
       expect(result1.errors).toHaveLength(0);
 
       // User types string instead of double
@@ -44,7 +44,7 @@ def rotateVector() {
 `;
 
       // Second compilation - should fail but provide helpful error
-      const result2 = await compileRangerCode(brokenCode, "test.rngr");
+      const result2 = await compileRangerCode(brokenCode, "test.rgr");
 
       expect(result2.errors.length).toBeGreaterThan(0);
       const error = result2.errors[0];
@@ -71,7 +71,7 @@ def test() {
 }
 `;
 
-      await compileRangerCode(workingCode, "test.rngr");
+      await compileRangerCode(workingCode, "test.rgr");
 
       // User starts typing a method call but doesn't finish
       const incompleteCode = `
@@ -87,7 +87,7 @@ def test() {
 }
 `;
 
-      const result = await compileRangerCode(incompleteCode, "test.rngr");
+      const result = await compileRangerCode(incompleteCode, "test.rgr");
 
       // Should use cached results
       expect(result.ast).toBeDefined();
@@ -121,7 +121,7 @@ def test() {
 
       for (let i = 0; i < typingSteps.length; i++) {
         const code = typingSteps[i];
-        const result = await compileRangerCode(code, "test.rngr");
+        const result = await compileRangerCode(code, "test.rgr");
 
         console.log(
           `Step ${i}: errors=${result.errors.length}, hasAST=${!!result.ast}`
@@ -157,7 +157,7 @@ def test() {
   def x = 1
 }`;
 
-      await compileRangerCode(workingCode, "test.rngr");
+      await compileRangerCode(workingCode, "test.rgr");
 
       // Add error on line 5
       const brokenCode = `line 1
@@ -167,7 +167,7 @@ def test() {
   invalid syntax here!!!
 }`;
 
-      const result = await compileRangerCode(brokenCode, "test.rngr");
+      const result = await compileRangerCode(brokenCode, "test.rgr");
 
       expect(result.errors.length).toBeGreaterThan(0);
       const error = result.errors[0];

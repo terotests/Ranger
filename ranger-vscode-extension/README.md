@@ -50,7 +50,7 @@ View classes, methods, and properties in the outline view.
 
 ## File Extension
 
-Ranger files use the `.rngr` or `.ranger` file extension.
+Ranger files use the `.rgr` or `.ranger` file extension.
 
 ## Installation
 

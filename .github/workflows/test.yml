@@ -1,0 +1,44 @@
+# Run tests on pull requests and pushes to main
+name: Tests
+
+on:
+  push:
+    branches: [main, master, "topic/**"]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Test ES6 compilation
+        run: npm run test:es6
+
+      - name: Test Go compilation
+        run: npm run test:go
+
+      - name: Test Python compilation
+        run: npm run test:python
+
+      - name: Test Rust compilation
+        run: npm run test:rust

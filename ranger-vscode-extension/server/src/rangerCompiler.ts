@@ -265,7 +265,7 @@ export function getRangerCompiler(): RangerCompilerAPI {
  */
 export async function parseRangerCode(
   code: string,
-  filename: string = "input.rngr"
+  filename: string = "input.rgr"
 ): Promise<{
   rootNode: CodeNode | null;
   context: any | null;
@@ -679,7 +679,7 @@ export async function parseRangerCode(
  */
 export async function compileRangerCode(
   code: string,
-  filename: string = "input.rngr"
+  filename: string = "input.rgr"
 ): Promise<{
   success: boolean;
   errors: Array<{ message: string; line: number; column: number }>;

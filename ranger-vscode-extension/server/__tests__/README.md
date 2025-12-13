@@ -79,13 +79,13 @@ it("should handle user typing scenario", async () => {
   const workingCode = `...valid code...`;
 
   // First compilation - establish cache
-  await compileRangerCode(workingCode, "test.rngr");
+  await compileRangerCode(workingCode, "test.rgr");
 
   // User makes a change
   const modifiedCode = `...code with error...`;
 
   // Should provide contextual error
-  const result = await compileRangerCode(modifiedCode, "test.rngr");
+  const result = await compileRangerCode(modifiedCode, "test.rgr");
 
   expect(result.errors[0].line).toBeGreaterThan(0);
   expect(result.errors[0].message).toMatch(/expected hint/);
@@ -101,7 +101,7 @@ it("should detect type mismatch in specific context", async () => {
     method(wrongType)  // This should error
   `;
 
-  const result = await compileRangerCode(code, "test.rngr");
+  const result = await compileRangerCode(code, "test.rgr");
 
   expect(result.errors[0].message).toMatch(/method/i);
   expect(result.errors[0].message).toMatch(/ExpectedType/i);

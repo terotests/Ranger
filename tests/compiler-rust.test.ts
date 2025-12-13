@@ -15,28 +15,28 @@ describe.skipIf(!rustAvailable)("Ranger Compiler - Rust Target", () => {
   });
 
   describe("Array Operations", () => {
-    it("should compile array_push.clj to valid Rust", () => {
-      const result = compileRangerToRust("tests/fixtures/array_push.clj");
+    it("should compile array_push.rgr to valid Rust", () => {
+      const result = compileRangerToRust("tests/fixtures/array_push.rgr");
       expect(result.success).toBe(true);
     });
 
     it("should run array_push and produce correct output", () => {
-      expectRustOutput("tests/fixtures/array_push.clj", "Done");
+      expectRustOutput("tests/fixtures/array_push.rgr", "Done");
     });
 
-    it("should compile local_array.clj to valid Rust", () => {
-      const result = compileRangerToRust("tests/fixtures/local_array.clj");
+    it("should compile local_array.rgr to valid Rust", () => {
+      const result = compileRangerToRust("tests/fixtures/local_array.rgr");
       expect(result.success).toBe(true);
     });
 
     it("should run local_array and produce correct output", () => {
-      expectRustOutput("tests/fixtures/local_array.clj", ["hello", "world"]);
+      expectRustOutput("tests/fixtures/local_array.rgr", ["hello", "world"]);
     });
   });
 
   describe("Math Operations", () => {
-    it("should compile math_ops.clj to valid Rust", () => {
-      const result = compileRangerToRust("tests/fixtures/math_ops.clj");
+    it("should compile math_ops.rgr to valid Rust", () => {
+      const result = compileRangerToRust("tests/fixtures/math_ops.rgr");
       expect(result.success).toBe(true);
     });
 
@@ -44,13 +44,13 @@ describe.skipIf(!rustAvailable)("Ranger Compiler - Rust Target", () => {
   });
 
   describe("Class Features", () => {
-    it("should compile two_classes.clj to valid Rust", () => {
-      const result = compileRangerToRust("tests/fixtures/two_classes.clj");
+    it("should compile two_classes.rgr to valid Rust", () => {
+      const result = compileRangerToRust("tests/fixtures/two_classes.rgr");
       expect(result.success).toBe(true);
     });
 
-    it("should compile while_loop.clj to valid Rust", () => {
-      const result = compileRangerToRust("tests/fixtures/while_loop.clj");
+    it("should compile while_loop.rgr to valid Rust", () => {
+      const result = compileRangerToRust("tests/fixtures/while_loop.rgr");
       expect(result.success).toBe(true);
     });
   });

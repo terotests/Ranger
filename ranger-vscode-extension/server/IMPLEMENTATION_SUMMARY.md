@@ -99,7 +99,7 @@ Behavior:
 [Ranger Compiler] Compilation complete
 [Ranger Compiler] Defined classes: 11
 [Ranger Compiler] Class Vec2: { methodCount: 0, propertyCount: 2 }
-[Ranger Compiler] Cached successful compilation for: test.rngr
+[Ranger Compiler] Cached successful compilation for: test.rgr
 ```
 
 ### Cache Hit (Incomplete Code)
@@ -156,7 +156,7 @@ Behavior:
 ## Next Steps
 
 1. Restart extension (F5) to test the implementation
-2. Open test.rngr file
+2. Open test.rgr file
 3. Type incomplete code like `v.` and verify:
    - Server doesn't crash
    - Autocomplete appears

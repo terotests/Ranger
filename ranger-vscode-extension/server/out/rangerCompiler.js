@@ -181,7 +181,7 @@ function getRangerCompiler() {
  * This function uses VirtualCompiler to properly initialize the compiler
  * with Lang.clj and standard libraries, then runs the two-pass compilation.
  */
-async function parseRangerCode(code, filename = "input.rngr") {
+async function parseRangerCode(code, filename = "input.rgr") {
     try {
         const fs = require("fs");
         const path = require("path");
@@ -543,7 +543,7 @@ async function parseRangerCode(code, filename = "input.rngr") {
 /**
  * Compile Ranger code using the full compiler (for diagnostics)
  */
-async function compileRangerCode(code, filename = "input.rngr") {
+async function compileRangerCode(code, filename = "input.rgr") {
     try {
         const compiler = getRangerCompiler();
         // Create input environment

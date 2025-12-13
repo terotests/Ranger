@@ -1,0 +1,16 @@
+
+Import "ng_RangerGenericClassWriter.rgr"
+Import "ng_RangerJava7ClassWriter.rgr"
+Import "ng_RangerSwift3ClassWriter.rgr"
+Import "ng_RangerSwift6ClassWriter.rgr"
+Import "ng_RangerCppClassWriter.rgr"
+Import "ng_RangerRustClassWriter.rgr"
+Import "ng_RangerKotlinClassWriter.rgr"
+Import "ng_RangerCSharpClassWriter.rgr"
+Import "ng_RangerScalaClassWriter.rgr"
+Import "ng_RangerGolangClassWriter.rgr"
+Import "ng_RangerPHPClassWriter.rgr"
+Import "ng_RangerPythonClassWriter.rgr"
+Import "ng_RangerJavaScriptClassWriter.rgr"
+Import "ng_RangerRangerClassWriter.rgr"
+

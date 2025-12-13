@@ -24083,7 +24083,7 @@ class VirtualCompiler  {
       console.log("---------------------------------------------");
       console.log(" re-compiling the compiler itself ");
       console.log("---------------------------------------------");
-      the_file = "ng_Compiler.clj";
+      the_file = "ng_Compiler.rgr";
     } else {
       if ( (params.values.length) < 1 ) {
         console.log("Ranger compiler, version " + "2.1.71");
@@ -24119,7 +24119,7 @@ class VirtualCompiler  {
     }
     let root_file = the_file;
     const root_dir = require("path").normalize((((operatorsOf_8.currentc95directory_51(env) + "/") + (require('path').dirname(the_file))) + "/"));
-    const the_lang_file = "Lang.clj";
+    const the_lang_file = "Lang.rgr";
     let the_lang = "es6";
     let the_target_dir = root_dir + "bin";
     let the_target = "output";
@@ -24146,7 +24146,7 @@ class VirtualCompiler  {
     if ( operatorsOf_8.filec95exists_9(env, langFilePath, the_lang_file) == false ) {
       console.log(("language file " + the_lang_file) + " not found! Check the library directory or RANGER_LIB enviroment variable");
       console.log("currently pointing at : " + langLibEnv);
-      console.log("download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.clj");
+      console.log("download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.rgr");
       return res;
     } else {
       console.log("Using language file from : " + langFilePath);
@@ -24230,7 +24230,7 @@ class VirtualCompiler  {
         }
       }
     };
-    root.children.splice(0, 0, CodeNode.fromList([CodeNode.vref1("Import"), CodeNode.newStr("stdlib.clj")]));
+    root.children.splice(0, 0, CodeNode.fromList([CodeNode.vref1("Import"), CodeNode.newStr("stdlib.rgr")]));
     const outDir_2 = params.getParam("o");
     if ( (typeof(outDir_2) !== "undefined" && outDir_2 != null )  ) {
       the_target = outDir_2;
@@ -24655,17 +24655,17 @@ VirtualCompiler.create_env = async function() {
   const env = new InputEnv();
   env.filesystem = new InputFSFolder();
   env.commandLine = new CmdParams();
-  operatorsOf_3.createc95file_4(env.filesystem, "Lang.clj", (await (new Promise(resolve => { require('fs').readFile( "." + '/' + "Lang.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "stdlib.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdlib.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "stdops.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdops.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "Timers.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Timers.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "DOMLib.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "Ajax.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Ajax.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "Crypto.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Crypto.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "Storage.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Storage.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "JSON.clj", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.clj" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "hello_world.clj", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
+  operatorsOf_3.createc95file_4(env.filesystem, "Lang.rgr", (await (new Promise(resolve => { require('fs').readFile( "." + '/' + "Lang.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "stdlib.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdlib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "stdops.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdops.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "Timers.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Timers.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "DOMLib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "Ajax.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Ajax.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "Crypto.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Crypto.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "Storage.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Storage.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "JSON.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+  operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
   require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
 };
 VirtualCompiler.displayCompilerErrors = function(appCtx) {
