@@ -104,7 +104,7 @@ class CodeWriter {
     def codeStr:string ""
     def currentLine:string ""
     def tabStr:string "  "
-    def nlStr "\n"
+    def nlStr "\r\n"
     def lineNumber:int 1
     def indentAmount:int 0
 

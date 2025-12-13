@@ -1,4 +1,6 @@
 # Run tests on pull requests and pushes to main
+# Note: This workflow only runs ES6 tests. For full language testing (Go, Python, Rust),
+# see ci.yml which sets up the required language runtimes.
 name: Tests
 
 on:
@@ -28,17 +30,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
-
-      - name: Test ES6 compilation
+      - name: Run ES6 tests
         run: npm run test:es6
-
-      - name: Test Go compilation
-        run: npm run test:go
-
-      - name: Test Python compilation
-        run: npm run test:python
-
-      - name: Test Rust compilation
-        run: npm run test:rust
