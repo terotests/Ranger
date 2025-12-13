@@ -607,6 +607,25 @@ operators {
 }
 ```
 
+### Async Operators
+
+Use the `@(async)` annotation to mark operators that require async handling in targets like ES6/JavaScript:
+
+```clojure
+operators {
+    ; Async operator - will propagate async to calling functions in ES6
+    sleep_ms  cmdSleepMs@(async):void (ms:int) {
+        templates {
+            es6 ( nl "await new Promise(r => setTimeout(r, " (e 1) "));" nl )
+            rust ( nl "std::thread::sleep(std::time::Duration::from_millis(" (e 1) " as u64));" nl )
+            * ( nl "// sleep_ms not implemented" nl )
+        }
+    }
+}
+```
+
+When a function calls an `@(async)` operator, the Ranger compiler automatically marks that function as async in JavaScript output. This ensures proper `async/await` propagation through the call chain.
+
 ---
 
 ## Common Patterns

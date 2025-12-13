@@ -3216,7 +3216,7 @@ fn r_read_key() -> Option<String> {
         }
 
         ; Sleep for specified milliseconds (blocking)
-        sleep_ms        cmdSleepMs:void         (ms:int) {
+        sleep_ms        cmdSleepMs@(async):void         (ms:int) {
             templates {
                  es6 ( nl "await new Promise(r => setTimeout(r, " (e 1) "));" nl )
                  rust ( nl "std::thread::sleep(std::time::Duration::from_millis(" (e 1) " as u64));" nl )
