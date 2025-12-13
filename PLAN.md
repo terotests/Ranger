@@ -728,363 +728,954 @@ if (target === "go") {
 
 ---
 
-# Plan: Swift Target Unit Testing
+# Plan: VS Code Language Server Extension for Ranger
 
-## Status: 📋 PLANNED
+## Status: ⚠️ PARTIAL - Syntax highlighting works, needs real compiler integration
 
 ## Overview
 
-Add unit testing support for the Swift target (`-l=swift3`). Swift 6 is the latest version and has improved Windows support, though it's still experimental on Windows.
+Create a Visual Studio Code extension that provides language support for Ranger (`.rngr` files), including:
 
-## Swift on Windows
+- **Syntax Highlighting** - Colorize Ranger code with proper token classification
+- **Auto-completion** - Suggest keywords, operators, types, and context-aware completions
+- **Diagnostics** - Show errors and warnings in real-time
+- **Hover Information** - Display type information and documentation on hover
+- **Go to Definition** - Navigate to symbol definitions
+- **Document Symbols** - Outline view for classes, methods, and properties
 
-### Current Swift Windows Status
+## File Extension
 
-Swift has official Windows support starting from Swift 5.3, with ongoing improvements:
+The Ranger language will use the `.rngr` file extension to avoid conflicts with Clojure (`.clj`).
 
-- **Swift 6.0** (Latest): Improved Windows toolchain
-- **Windows Support**: Experimental but functional
-- **Package Manager**: `swift build` and `swift run` work on Windows
-- **Installation**: Available via official Swift.org installers or scoop/winget
+## Architecture
 
-### Installation Options
-
-#### Option 1: Official Swift Installer (Recommended)
-
-```powershell
-# Download from https://swift.org/download/
-# Run the installer (swift-6.0-RELEASE-windows10.exe or similar)
-
-# Add to PATH (installer usually does this)
-# Verify installation
-swift --version
+```
+ranger-vscode-extension/
+├── client/                    # VS Code extension client
+│   ├── src/
+│   │   └── extension.ts      # Extension entry point
+│   └── package.json
+├── server/                    # Language Server Protocol (LSP) server
+│   ├── src/
+│   │   ├── server.ts         # LSP server entry point
+│   │   ├── parser.ts         # Ranger language parser
+│   │   ├── analyzer.ts       # Semantic analyzer
+│   │   ├── completion.ts     # Completion provider
+│   │   ├── hover.ts          # Hover provider
+│   │   ├── diagnostics.ts    # Diagnostics provider
+│   │   └── symbols.ts        # Document symbols provider
+│   └── package.json
+├── syntaxes/
+│   └── ranger.tmLanguage.json # TextMate grammar for syntax highlighting
+├── language-configuration.json # Language configuration (brackets, comments)
+├── package.json               # Extension manifest
+├── tsconfig.json
+└── README.md
 ```
 
-#### Option 2: Using Scoop
+## Phase 1: Project Setup
 
-```powershell
-scoop bucket add versions
-scoop install swift
-swift --version
-```
+### 1.1 Initialize Extension Project
 
-#### Option 3: Using WinGet
+- Create folder structure for client/server architecture
+- Set up TypeScript configuration
+- Configure npm workspaces for client and server
 
-```powershell
-winget search swift
-winget install Swift.Toolchain
-swift --version
-```
-
-### Windows-Specific Requirements
-
-1. **Visual Studio Build Tools** - Required for Swift on Windows
-
-   - Install "Desktop development with C++" workload
-   - Or install Visual Studio 2022 Community Edition
-
-2. **Windows SDK** - Usually installed with Visual Studio
-
-3. **PATH Configuration** - Ensure Swift bin directory is in PATH
-
-## Swift vs Other Languages Comparison
-
-| Feature              | Swift       | Rust            | Go              |
-| -------------------- | ----------- | --------------- | --------------- |
-| Variable declaration | `var`/`let` | `let`/`let mut` | `var`           |
-| String type          | `String`    | `String`        | `string`        |
-| Array type           | `[T]`       | `Vec<T>`        | `[]T`           |
-| Optional type        | `T?`        | `Option<T>`     | `*T` or nil     |
-| Class/Struct         | Both        | Struct only     | Struct only     |
-| Method `self`        | `self`      | `&self`/`&mut`  | receiver        |
-| Print                | `print()`   | `println!()`    | `fmt.Println()` |
-| Null                 | `nil`       | `None`          | `nil`           |
-| Entry point          | `main()`    | `fn main()`     | `func main()`   |
-
-## Implementation Plan
-
-### Phase 1: Prerequisites Check
-
-1. **Check Swift installation on Windows**
-
-   ```powershell
-   swift --version
-   # Expected: Swift version 6.x.x
-   ```
-
-2. **Verify compilation works**
-   ```powershell
-   # Create test.swift
-   echo 'print("Hello Swift")' > test.swift
-   swift test.swift
-   # Or compile and run
-   swiftc test.swift -o test.exe
-   .\test.exe
-   ```
-
-### Phase 2: Test Infrastructure
-
-#### 2.1 Create Swift Test Helper Functions
-
-Add to `tests/helpers/compiler.ts`:
-
-```typescript
-export async function compileToSwift(fixtureName: string): Promise<string> {
-  const inputPath = path.join(FIXTURES_DIR, `${fixtureName}.clj`);
-  const outputPath = path.join(OUTPUT_SWIFT_DIR, `${fixtureName}.swift`);
-
-  await runCompiler(inputPath, "swift3", outputPath);
-  return outputPath;
-}
-
-export async function runSwift(swiftFile: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    exec(`swift "${swiftFile}"`, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(`Swift execution failed: ${stderr}`));
-        return;
-      }
-      resolve(stdout.trim());
-    });
-  });
-}
-
-export async function compileSwiftExecutable(
-  swiftFile: string
-): Promise<string> {
-  const exePath = swiftFile.replace(".swift", ".exe");
-  return new Promise((resolve, reject) => {
-    exec(`swiftc "${swiftFile}" -o "${exePath}"`, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(`Swift compilation failed: ${stderr}`));
-        return;
-      }
-      resolve(exePath);
-    });
-  });
-}
-
-export function isSwiftAvailable(): boolean {
-  try {
-    execSync("swift --version", { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-```
-
-#### 2.2 Create Swift Test File
-
-Create `tests/compiler-swift.test.ts`:
-
-```typescript
-import { describe, it, expect, beforeAll } from "vitest";
-import * as fs from "fs";
-import * as path from "path";
-import {
-  compileToSwift,
-  runSwift,
-  isSwiftAvailable,
-  OUTPUT_SWIFT_DIR,
-  ensureOutputDir,
-} from "./helpers/compiler";
-
-const SWIFT_AVAILABLE = isSwiftAvailable();
-
-describe.skipIf(!SWIFT_AVAILABLE)("Swift Target Compilation", () => {
-  beforeAll(() => {
-    ensureOutputDir(OUTPUT_SWIFT_DIR);
-  });
-
-  describe("Basic Compilation", () => {
-    it("should compile array_push to Swift", async () => {
-      const outputPath = await compileToSwift("array_push");
-      expect(fs.existsSync(outputPath)).toBe(true);
-
-      const content = fs.readFileSync(outputPath, "utf-8");
-      expect(content).toContain("var");
-      expect(content).toContain("append");
-    });
-
-    it("should compile static_factory to Swift", async () => {
-      const outputPath = await compileToSwift("static_factory");
-      expect(fs.existsSync(outputPath)).toBe(true);
-
-      const content = fs.readFileSync(outputPath, "utf-8");
-      expect(content).toContain("class");
-      expect(content).toContain("static func");
-    });
-  });
-
-  describe("Runtime Tests", () => {
-    it("should run array_push", async () => {
-      const swiftFile = await compileToSwift("array_push");
-      const output = await runSwift(swiftFile);
-      expect(output).toContain("Done");
-    });
-
-    it("should run many_factories", async () => {
-      const swiftFile = await compileToSwift("many_factories");
-      const output = await runSwift(swiftFile);
-      expect(output).toContain("K");
-      expect(output).toContain("q");
-    });
-
-    it("should run while_loop", async () => {
-      const swiftFile = await compileToSwift("while_loop");
-      const output = await runSwift(swiftFile);
-      expect(output).toContain("10");
-    });
-  });
-});
-```
-
-### Phase 3: Package.json Scripts
-
-Add to `package.json`:
+### 1.2 Extension Manifest (package.json)
 
 ```json
 {
-  "scripts": {
-    "test:swift": "vitest run tests/compiler-swift.test.ts"
+  "name": "ranger-language-support",
+  "displayName": "Ranger Language Support",
+  "description": "Language support for the Ranger cross-platform compiler language",
+  "version": "0.1.0",
+  "publisher": "terotests",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:ranger"],
+  "main": "./client/out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "ranger",
+        "aliases": ["Ranger", "ranger"],
+        "extensions": [".rngr", ".ranger"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ranger",
+        "scopeName": "source.ranger",
+        "path": "./syntaxes/ranger.tmLanguage.json"
+      }
+    ]
   }
 }
 ```
 
-### Phase 4: CI/CD Integration
+---
 
-Add Swift job to `.github/workflows/ci.yml`:
+## Phase 2: Syntax Highlighting (TextMate Grammar)
 
-```yaml
-test-swift:
-  runs-on: ${{ matrix.os }}
-  strategy:
-    matrix:
-      os: [macos-latest] # Swift is most stable on macOS
-      # os: [macos-latest, ubuntu-latest]  # Linux also well supported
-      # Windows Swift CI is experimental
+### 2.1 Token Types to Highlight
 
-  steps:
-    - uses: actions/checkout@v4
+| Token Type         | Examples                                         | Scope                      |
+| ------------------ | ------------------------------------------------ | -------------------------- |
+| Keywords           | `class`, `fn`, `sfn`, `def`, `if`, `while`       | `keyword.control.ranger`   |
+| Types              | `int`, `string`, `boolean`, `void`               | `storage.type.ranger`      |
+| Operators          | `+`, `-`, `==`, `&&`, `push`, `get`              | `keyword.operator.ranger`  |
+| Comments           | `; comment`                                      | `comment.line.ranger`      |
+| Strings            | `"hello"`                                        | `string.quoted.ranger`     |
+| Numbers            | `123`, `3.14`                                    | `constant.numeric.ranger`  |
+| Booleans           | `true`, `false`                                  | `constant.language.ranger` |
+| Class Names        | `MyClass`, `Person`                              | `entity.name.class.ranger` |
+| Function Names     | `myMethod`, `getValue`                           | `entity.name.function`     |
+| Annotations        | `@(main)`, `@(optional)`, `@(mutable)`           | `entity.other.annotation`  |
+| Built-in Functions | `print`, `new`, `return`, `push`, `array_length` | `support.function.ranger`  |
 
-    - name: Setup Swift
-      uses: swift-actions/setup-swift@v2
-      with:
-        swift-version: "6.0"
+### 2.2 TextMate Grammar Structure
 
-    - name: Verify Swift
-      run: swift --version
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: "20"
-
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Build compiler
-      run: npm run compile
-
-    - name: Run Swift tests
-      run: npm run test:swift
-```
-
-### Phase 5: Swift-Specific Fixes (If Needed)
-
-Potential issues to watch for:
-
-1. **String interpolation** - Swift uses `\(expr)` instead of `+` concatenation
-2. **Optional unwrapping** - Swift requires explicit `!` or `?`
-3. **Array initialization** - Swift uses `[Type]()`
-4. **Static methods** - Swift uses `static func`
-5. **Entry point** - Swift 6 supports `@main` attribute
-
-#### Example Lang.clj Updates (if needed)
-
-```ranger
-; String concatenation for Swift (if current doesn't work)
-+ strConcat:string ( text1:string text2:string ) {
-    templates {
-        swift3 ( (e 1) " + " (e 2) )
-    }
-}
-
-; Print for Swift
-print stmt:void (text:string) {
-    templates {
-        swift3 ( "print(" (e 1) ")" nl )
-    }
+```json
+{
+  "scopeName": "source.ranger",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#annotations" },
+    { "include": "#class-definition" },
+    { "include": "#function-definition" }
+  ],
+  "repository": { ... }
 }
 ```
 
-## Known Swift Target Issues
+---
 
-Check `ISSUES.md` and test for:
+## Phase 3: Language Configuration
 
-1. **Optional handling** - Swift is strict about optionals
-2. **Type inference** - Swift infers types differently
-3. **Memory management** - ARC vs manual management
-4. **Foundation imports** - Some features require `import Foundation`
+### 3.1 Brackets and Comments
 
-## Windows-Specific Considerations
+```json
+{
+  "comments": {
+    "lineComment": ";"
+  },
+  "brackets": [
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"]
+  ],
+  "autoClosingPairs": [
+    { "open": "{", "close": "}" },
+    { "open": "[", "close": "]" },
+    { "open": "(", "close": ")" },
+    { "open": "\"", "close": "\"" }
+  ],
+  "surroundingPairs": [
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"],
+    ["\"", "\""]
+  ]
+}
+```
 
-### Limitations on Windows
+---
 
-1. **Slower compilation** - Swift on Windows is slower than macOS
-2. **Foundation subset** - Not all Foundation APIs available on Windows
-3. **Debugging** - LLDB support is limited on Windows
-4. **Package ecosystem** - Some Swift packages may not support Windows
+## Phase 4: Language Server Implementation
 
-### Workarounds
+### 4.1 LSP Features to Implement
 
-1. **Use `swift` directly** - `swift filename.swift` for interpretation
-2. **Compile with swiftc** - `swiftc filename.swift -o output.exe`
-3. **Skip Foundation-dependent tests** on Windows if needed
+| Feature             | Priority | Description                        |
+| ------------------- | -------- | ---------------------------------- |
+| Syntax Highlighting | P0       | TextMate grammar (Phase 2)         |
+| Diagnostics         | P0       | Parse errors and warnings          |
+| Completion          | P1       | Keywords, types, operators         |
+| Hover               | P1       | Type information on hover          |
+| Document Symbols    | P1       | Outline of classes and functions   |
+| Go to Definition    | P2       | Navigate to symbol definitions     |
+| Find References     | P2       | Find all usages of a symbol        |
+| Rename Symbol       | P3       | Rename across all usages           |
+| Signature Help      | P3       | Parameter hints for function calls |
 
-## Estimated Effort
+### 4.2 Parser Implementation
 
-| Phase                         | Time Estimate  |
-| ----------------------------- | -------------- |
-| Phase 1: Prerequisites        | 30 min         |
-| Phase 2: Test Infrastructure  | 1 hour         |
-| Phase 3: Package Scripts      | 15 min         |
-| Phase 4: CI/CD                | 30 min         |
-| Phase 5: Swift-specific fixes | 1-2 hours      |
-| **Total**                     | **~4-5 hours** |
+The parser needs to handle:
+
+1. **S-expressions**: `(operator arg1 arg2)`
+2. **Block syntax**: `{ statements }`
+3. **Type annotations**: `name:Type`, `name@(annotation):Type`
+4. **Class definitions**: `class Name { ... }`
+5. **Function definitions**: `fn name:Type (params) { ... }`
+6. **Control flow**: `if`, `while`, `for`, `switch`
+
+### 4.3 Symbol Table
+
+```typescript
+interface RangerSymbol {
+  name: string;
+  kind: SymbolKind; // class, method, property, variable
+  type: string;
+  location: Location;
+  children?: RangerSymbol[];
+  annotations?: string[];
+}
+```
+
+---
+
+## Phase 5: Auto-completion
+
+### 5.1 Completion Contexts
+
+| Context         | Completions                                     |
+| --------------- | ----------------------------------------------- |
+| Top-level       | `class`, `Enum`, `Import`, `operators`          |
+| Inside class    | `def`, `fn`, `sfn`, `Constructor`, `Extends`    |
+| Inside function | `def`, `if`, `while`, `for`, `return`, `switch` |
+| After `:`       | Type names (`int`, `string`, class names)       |
+| After `@(`      | Annotations (`main`, `optional`, `mutable`)     |
+| After `.`       | Member methods and properties                   |
+| Inside `(`      | Operators and function arguments                |
+
+### 5.2 Built-in Operators to Suggest
+
+```typescript
+const BUILT_IN_OPERATORS = [
+  // Array operations
+  { label: "push", detail: "Add item to array", signature: "push arr item" },
+  {
+    label: "itemAt",
+    detail: "Get item at index",
+    signature: "(itemAt arr idx)",
+  },
+  {
+    label: "array_length",
+    detail: "Get array length",
+    signature: "(array_length arr)",
+  },
+  // Map operations
+  { label: "get", detail: "Get value from map", signature: "(get map key)" },
+  {
+    label: "set",
+    detail: "Set value in map/array",
+    signature: "set map key value",
+  },
+  { label: "has", detail: "Check if key exists", signature: "(has map key)" },
+  { label: "keys", detail: "Get all keys from map", signature: "(keys map)" },
+  // String operations
+  { label: "strlen", detail: "Get string length", signature: "(strlen str)" },
+  {
+    label: "substring",
+    detail: "Get substring",
+    signature: "(substring str start end)",
+  },
+  // ... more operators
+];
+```
+
+---
+
+## Phase 6: Diagnostics
+
+### 6.1 Error Types to Detect
+
+| Error Type         | Example                          |
+| ------------------ | -------------------------------- |
+| Syntax Error       | Unmatched parentheses or braces  |
+| Unknown Type       | `def x:UnknownType`              |
+| Undefined Variable | Using variable before definition |
+| Type Mismatch      | `def x:int "string"`             |
+| Missing Return     | Non-void function without return |
+| Unknown Operator   | `(unknownOp arg1 arg2)`          |
+
+### 6.2 Warning Types
+
+| Warning Type       | Example                       |
+| ------------------ | ----------------------------- |
+| Unused Variable    | Defined but never used        |
+| Unreachable Code   | Code after `return` statement |
+| Deprecated Feature | Using old syntax              |
+
+---
+
+## Implementation Tasks
+
+### Phase 1: Project Setup (2-3 hours)
+
+- [ ] Create folder structure
+- [ ] Initialize npm packages
+- [ ] Set up TypeScript build
+- [ ] Create extension manifest
+
+### Phase 2: Syntax Highlighting (2-3 hours)
+
+- [ ] Create TextMate grammar
+- [ ] Define all token patterns
+- [ ] Test with sample files
+- [ ] Create language configuration
+
+### Phase 3: Basic LSP Server (3-4 hours)
+
+- [ ] Set up LSP connection
+- [ ] Implement basic parser
+- [ ] Add diagnostic reporting
+- [ ] Test error detection
+
+### Phase 4: Completion Provider (2-3 hours)
+
+- [ ] Keyword completions
+- [ ] Type completions
+- [ ] Context-aware completions
+- [ ] Operator completions
+
+### Phase 5: Additional Features (3-4 hours)
+
+- [ ] Hover provider
+- [ ] Document symbols
+- [ ] Go to definition
+- [ ] Find references
+
+---
+
+## Time Estimates
+
+| Phase                        | Estimated Time  |
+| ---------------------------- | --------------- |
+| Phase 1: Project Setup       | 2-3 hours       |
+| Phase 2: Syntax Highlighting | 2-3 hours       |
+| Phase 3: Basic LSP Server    | 3-4 hours       |
+| Phase 4: Completion Provider | 2-3 hours       |
+| Phase 5: Additional Features | 3-4 hours       |
+| **Total**                    | **12-17 hours** |
 
 ---
 
 ## Success Criteria
 
-1. ⬜ Swift is installed and working on development machine
-2. ⬜ At least 5 fixture tests compile successfully to Swift
-3. ⬜ At least 3 fixture tests run successfully
-4. ⬜ CI pipeline runs Swift tests (at least on macOS)
-5. ⬜ Tests skip gracefully if Swift is not available
-6. ⬜ Documentation updated in README.md and ai/ folder
+1. ✅ Extension activates on `.rngr` files
+2. ✅ Syntax highlighting works for all token types
+3. ⬜ Auto-completion suggests keywords and types
+4. ⬜ Parse errors are shown as diagnostics
+5. ⬜ Hover shows type information
+6. ⬜ Document outline shows classes and functions
+7. ⬜ Extension can be packaged and installed
 
-## Quick Start Commands
+---
 
-```powershell
-# 1. Install Swift on Windows (from swift.org)
-# Download installer from https://swift.org/download/
+# Plan: Integrate Real Ranger Compiler into VS Code Language Server
 
-# 2. Verify installation
-swift --version
+## Status: 📋 PLANNED
 
-# 3. Test basic Swift compilation
-echo 'print("Hello Swift")' | Out-File -Encoding utf8 test.swift
-swift test.swift
+## Overview
 
-# 4. Run Swift tests (after implementation)
-npm run test:swift
+The current VS Code extension provides basic syntax highlighting but uses a simplified mock parser. To provide accurate type information, intelligent autocomplete, and proper diagnostics, we need to integrate the real Ranger compiler (`bin/output.js`) into the language server.
+
+## Current Limitations
+
+- ❌ Mock parser doesn't understand Ranger's actual syntax and semantics
+- ❌ No accurate type inference or type checking
+- ❌ Autocomplete doesn't know about class members, methods, or variables in scope
+- ❌ Cannot resolve symbol definitions or provide accurate hover information
+- ❌ Diagnostics are limited to bracket matching
+
+## Proposed Solution
+
+Integrate `bin/output.js` (the JavaScript-compiled Ranger compiler) into the language server to:
+
+1. **Parse Ranger code** using the real parser → get AST (`CodeNode` tree)
+2. **Analyze symbols** → extract classes, methods, properties, variables
+3. **Type inference** → determine types at each position
+4. **Context-aware completion** → suggest relevant members based on type
+5. **Real diagnostics** → show actual compilation errors
+
+## Architecture Changes
+
+```
+ranger-vscode-extension/
+├── server/
+│   ├── src/
+│   │   ├── server.ts           # LSP server (existing)
+│   │   ├── rangerCompiler.ts   # NEW: Wrapper for bin/output.js
+│   │   ├── astAnalyzer.ts      # NEW: Analyze CodeNode AST
+│   │   ├── typeResolver.ts     # NEW: Type inference
+│   │   ├── completionProvider.ts # NEW: Context-aware completion
+│   │   └── symbolTable.ts      # NEW: Track symbols in scope
+│   └── package.json
+├── compiler/
+│   └── output.js               # Copy of ../../bin/output.js
+└── package.json
+```
+
+## Implementation Plan
+
+### Phase 1: Integrate Compiler
+
+**1.1 Copy Compiler**
+
+- Copy `bin/output.js` to `ranger-vscode-extension/compiler/output.js`
+- Add to `.vscodeignore` to avoid bloating the package
+
+**1.2 Create Compiler Wrapper** (`rangerCompiler.ts`)
+
+```typescript
+import * as rangerCompiler from "../compiler/output.js";
+
+export interface RangerCompilerAPI {
+  InputEnv: any;
+  VirtualCompiler: any;
+  CodeNode: any;
+  RangerFlowParser: any;
+  CmdParams: any;
+}
+
+export function getRangerCompiler(): RangerCompilerAPI {
+  return {
+    InputEnv: rangerCompiler.InputEnv,
+    VirtualCompiler: rangerCompiler.VirtualCompiler,
+    CodeNode: rangerCompiler.CodeNode,
+    RangerFlowParser: rangerCompiler.RangerFlowParser,
+    CmdParams: rangerCompiler.CmdParams,
+  };
+}
+
+export async function parseRangerCode(
+  code: string,
+  filename: string
+): Promise<CodeNode> {
+  const compiler = getRangerCompiler();
+  const env = new compiler.InputEnv();
+
+  // Create virtual filesystem with the code
+  const folder = new compiler.InputFSFolder();
+  const file = new compiler.InputFSFile();
+  file.name = filename;
+  file.data = code;
+  folder.files.push(file);
+
+  // Add required library files (Lang.clj, stdlib.clj, etc.)
+  // TODO: Bundle these or load from workspace
+
+  env.filesystem = folder;
+
+  // Parse without full compilation
+  const parser = new compiler.RangerFlowParser();
+  const rootNode = await parser.parse(code);
+
+  return rootNode;
+}
+```
+
+**1.3 Export Classes from output.js**
+
+The compiler needs to export its classes. Check if `bin/output.js` exports them, if not, we need to add:
+
+```javascript
+// At the end of bin/output.js (before __js_main)
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    CodeNode,
+    VirtualCompiler,
+    InputEnv,
+    RangerFlowParser,
+    CmdParams,
+    InputFSFolder,
+    InputFSFile,
+    // ... other classes
+  };
+}
+```
+
+---
+
+### Phase 2: AST Analysis
+
+**2.1 Create AST Analyzer** (`astAnalyzer.ts`)
+
+```typescript
+import { CodeNode } from './rangerCompiler';
+
+export interface SymbolInfo {
+  name: string;
+  kind: 'class' | 'method' | 'property' | 'variable' | 'parameter';
+  type: string;
+  node: CodeNode;
+  range: { start: number; end: number };
+  scope: SymbolScope;
+}
+
+export interface SymbolScope {
+  parent?: SymbolScope;
+  symbols: Map<string, SymbolInfo>;
+  children: SymbolScope[];
+}
+
+export class ASTAnalyzer {
+  private rootScope: SymbolScope;
+
+  constructor(private rootNode: CodeNode) {
+    this.rootScope = this.buildSymbolTable(rootNode);
+  }
+
+  /**
+   * Walk AST and build symbol table
+   */
+  private buildSymbolTable(node: CodeNode, parentScope?: SymbolScope): SymbolScope {
+    const scope: SymbolScope = {
+      parent: parentScope,
+      symbols: new Map(),
+      children: []
+    };
+
+    // Extract symbols based on node type
+    if (this.isClassDefinition(node)) {
+      const className = this.getClassName(node);
+      scope.symbols.set(className, {
+        name: className,
+        kind: 'class',
+        type: className,
+        node: node,
+        range: { start: node.sp, end: node.ep },
+        scope: scope
+      });
+
+      // Process class members
+      for (const child of node.children) {
+        if (this.isMethodDefinition(child)) {
+          const methodName = this.getMethodName(child);
+          scope.symbols.set(methodName, {
+            name: methodName,
+            kind: 'method',
+            type: this.inferMethodReturnType(child),
+            node: child,
+            range: { start: child.sp, end: child.ep },
+            scope: scope
+          });
+        } else if (this.isPropertyDefinition(child)) {
+          const propName = this.getPropertyName(child);
+          scope.symbols.set(propName, {
+            name: propName,
+            kind: 'property',
+            type: this.getPropertyType(child),
+            node: child,
+            range: { start: child.sp, end: child.ep },
+            scope: scope
+          });
+        }
+      }
+    }
+
+    // Recursively process children
+    for (const child of node.children) {
+      const childScope = this.buildSymbolTable(child, scope);
+      scope.children.push(childScope);
+    }
+
+    return scope;
+  }
+
+  /**
+   * Find symbol at given offset
+   */
+  findSymbolAtOffset(offset: number): SymbolInfo | undefined {
+    return this.findSymbolInScope(this.rootScope, offset);
+  }
+
+  private findSymbolInScope(scope: SymbolScope, offset: number): SymbolInfo | undefined {
+    // Check symbols in current scope
+    for (const symbol of scope.symbols.values()) {
+      if (offset >= symbol.range.start && offset <= symbol.range.end) {
+        return symbol;
+      }
+    }
+
+    // Check child scopes
+    for (const child of scope.children) {
+      const result = this.findSymbolInScope(child, offset);
+      if (result) return result;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Get all symbols in scope at given offset
+   */
+  getSymbolsInScope(offset: number): SymbolInfo[] {
+    const scope = this.findScopeAtOffset(this.rootScope, offset);
+    if (!scope) return [];
+
+    const symbols: SymbolInfo[] = [];
+    let currentScope: SymbolScope | undefined = scope;
+
+    // Collect symbols from current scope and parent scopes
+    while (currentScope) {
+      symbols.push(...currentScope.symbols.values());
+      currentScope = currentScope.parent;
+    }
+
+    return symbols;
+  }
+
+  private findScopeAtOffset(scope: SymbolScope, offset: number): SymbolScope | undefined {
+    // Check if offset is in any child scope
+    for (const child of scope.children) {
+      const result = this.findScopeAtOffset(child, offset);
+      if (result) return result;
+    }
+
+    // Check if offset is in current scope
+    for (const symbol of scope.symbols.values()) {
+      if (offset >= symbol.range.start && offset <= symbol.range.end) {
+        return scope;
+      }
+    }
+
+    return scope; // Default to current scope
+  }
+
+  // Helper methods to identify node types
+  private isClassDefinition(node: CodeNode): boolean {
+    return node.vref === 'class' || node.value_type === /* class type value */;
+  }
+
+  private isMethodDefinition(node: CodeNode): boolean {
+    return node.vref === 'fn' || node.vref === 'sfn';
+  }
+
+  private isPropertyDefinition(node: CodeNode): boolean {
+    return node.vref === 'def';
+  }
+
+  // ... more helper methods
+}
+```
+
+---
+
+### Phase 3: Type Resolution
+
+**3.1 Create Type Resolver** (`typeResolver.ts`)
+
+```typescript
+import { CodeNode } from "./rangerCompiler";
+import { ASTAnalyzer, SymbolInfo } from "./astAnalyzer";
+
+export class TypeResolver {
+  constructor(private analyzer: ASTAnalyzer) {}
+
+  /**
+   * Get type of expression at offset
+   */
+  getTypeAtOffset(offset: number): string | undefined {
+    const symbol = this.analyzer.findSymbolAtOffset(offset);
+    if (symbol) {
+      return symbol.type;
+    }
+
+    // If not a symbol, analyze the expression
+    // Use CodeNode.eval_type_name for evaluated type
+    return undefined;
+  }
+
+  /**
+   * Get members of a type (for autocomplete after '.')
+   */
+  getTypeMembers(typeName: string): SymbolInfo[] {
+    // Find class definition for typeName
+    // Return all methods and properties
+    return [];
+  }
+}
+```
+
+---
+
+### Phase 4: Context-Aware Completion
+
+**4.1 Update Completion Provider** (`completionProvider.ts`)
+
+```typescript
+import { ASTAnalyzer } from "./astAnalyzer";
+import { TypeResolver } from "./typeResolver";
+import { CompletionItem, CompletionItemKind } from "vscode-languageserver";
+
+export class CompletionProvider {
+  constructor(
+    private analyzer: ASTAnalyzer,
+    private typeResolver: TypeResolver
+  ) {}
+
+  provideCompletions(
+    offset: number,
+    triggerCharacter?: string
+  ): CompletionItem[] {
+    if (triggerCharacter === ".") {
+      // Member access - get type before '.' and suggest its members
+      const type = this.typeResolver.getTypeAtOffset(offset - 1);
+      if (type) {
+        const members = this.typeResolver.getTypeMembers(type);
+        return members.map((m) => ({
+          label: m.name,
+          kind:
+            m.kind === "method"
+              ? CompletionItemKind.Method
+              : CompletionItemKind.Property,
+          detail: m.type,
+          documentation: `${m.kind} of ${type}`,
+        }));
+      }
+    }
+
+    if (triggerCharacter === "@") {
+      // Property access - suggest class properties
+      return this.getClassProperties();
+    }
+
+    // Default: suggest symbols in scope + keywords
+    const symbolsInScope = this.analyzer.getSymbolsInScope(offset);
+    return [
+      ...this.getKeywordCompletions(),
+      ...symbolsInScope.map((s) => ({
+        label: s.name,
+        kind: this.symbolKindToCompletionKind(s.kind),
+        detail: s.type,
+      })),
+    ];
+  }
+
+  private symbolKindToCompletionKind(kind: string): CompletionItemKind {
+    switch (kind) {
+      case "class":
+        return CompletionItemKind.Class;
+      case "method":
+        return CompletionItemKind.Method;
+      case "property":
+        return CompletionItemKind.Property;
+      case "variable":
+        return CompletionItemKind.Variable;
+      case "parameter":
+        return CompletionItemKind.Variable;
+      default:
+        return CompletionItemKind.Text;
+    }
+  }
+}
+```
+
+---
+
+### Phase 5: Integration with LSP Server
+
+**5.1 Update server.ts**
+
+```typescript
+import { parseRangerCode } from './rangerCompiler';
+import { ASTAnalyzer } from './astAnalyzer';
+import { TypeResolver } from './typeResolver';
+import { CompletionProvider } from './completionProvider';
+
+// Cache for parsed documents
+const documentCache = new Map<string, {
+  ast: CodeNode;
+  analyzer: ASTAnalyzer;
+  typeResolver: TypeResolver;
+  completionProvider: CompletionProvider;
+}>();
+
+async function validateTextDocument(textDocument: TextDocument): Promise<void> {
+  const text = textDocument.getText();
+  const uri = textDocument.uri;
+
+  try {
+    // Parse with real compiler
+    const ast = await parseRangerCode(text, uri);
+
+    // Build analysis tools
+    const analyzer = new ASTAnalyzer(ast);
+    const typeResolver = new TypeResolver(analyzer);
+    const completionProvider = new CompletionProvider(analyzer, typeResolver);
+
+    // Cache for later use
+    documentCache.set(uri, {
+      ast,
+      analyzer,
+      typeResolver,
+      completionProvider
+    });
+
+    // Extract diagnostics from compilation errors
+    const diagnostics = extractDiagnostics(ast);
+    connection.sendDiagnostics({ uri, diagnostics });
+
+  } catch (error) {
+    // Send parse error as diagnostic
+    connection.sendDiagnostics({
+      uri,
+      diagnostics: [{
+        severity: DiagnosticSeverity.Error,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+        message: `Parse error: ${error.message}`,
+        source: 'ranger'
+      }]
+    });
+  }
+}
+
+connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] => {
+  const cached = documentCache.get(params.textDocument.uri);
+  if (!cached) return [];
+
+  const offset = /* convert position to offset */;
+  return cached.completionProvider.provideCompletions(offset);
+});
+
+connection.onHover((params: TextDocumentPositionParams): Hover | null => {
+  const cached = documentCache.get(params.textDocument.uri);
+  if (!cached) return null;
+
+  const offset = /* convert position to offset */;
+  const type = cached.typeResolver.getTypeAtOffset(offset);
+
+  if (type) {
+    return {
+      contents: {
+        kind: 'markdown',
+        value: `**Type**: \`${type}\``
+      }
+    };
+  }
+
+  return null;
+});
+```
+
+---
+
+## Challenges & Solutions
+
+### Challenge 1: Bundling Library Files
+
+**Problem**: The compiler needs `Lang.clj`, `stdlib.clj`, `stdops.clj`, `JSON.clj` to parse code.
+
+**Solution**:
+
+- Bundle these files in the extension
+- Load them when initializing the compiler
+- Or: make parsing work without full compilation (partial AST generation)
+
+### Challenge 2: Performance
+
+**Problem**: Parsing on every keystroke might be slow.
+
+**Solution**:
+
+- Debounce parsing (wait 300ms after last edit)
+- Use incremental parsing if available
+- Cache parsed AST and only reparse changed sections
+
+### Challenge 3: Error Handling
+
+**Problem**: Compiler might throw errors on incomplete code.
+
+**Solution**:
+
+- Wrap compiler calls in try-catch
+- Use error recovery in parser
+- Provide partial completions even with errors
+
+---
+
+## Timeline
+
+| Task                        | Estimate        |
+| --------------------------- | --------------- |
+| Phase 1: Integrate Compiler | 2-3 hours       |
+| Phase 2: AST Analysis       | 3-4 hours       |
+| Phase 3: Type Resolution    | 2-3 hours       |
+| Phase 4: Context Completion | 2-3 hours       |
+| Phase 5: LSP Integration    | 2-3 hours       |
+| Testing & Debugging         | 3-4 hours       |
+| **Total**                   | **14-20 hours** |
+
+---
+
+## Success Criteria
+
+1. ⬜ Real Ranger compiler parses `.rngr` files
+2. ⬜ AST is extracted and analyzed for symbols
+3. ⬜ Type information is accurate
+4. ⬜ Autocomplete suggests class members after `.`
+5. ⬜ Autocomplete suggests properties after `@`
+6. ⬜ Hover shows accurate type information
+7. ⬜ Real compilation errors are shown as diagnostics
+8. ⬜ Performance is acceptable (< 500ms parse time)
+
+---
+
+## Testing
+
+```bash
+# Test with real Ranger files
+cd ranger-vscode-extension
+
+# Open a .rngr file with:
+# - Class definitions
+# - Method calls
+# - Property access with @
+# - Type annotations
+
+# Verify:
+# 1. Completion after '.' shows class methods
+# 2. Completion after '@' shows class properties
+# 3. Hover on variable shows its type
+# 4. Syntax errors are highlighted
 ```
 
 ## References
 
-- [Swift.org Downloads](https://swift.org/download/)
-- [Swift on Windows](https://www.swift.org/getting-started/#on-windows)
-- [Swift GitHub Actions](https://github.com/swift-actions/setup-swift)
-- [Swift Package Manager](https://swift.org/package-manager/)
+- [Ranger Compiler bin/output.js](../../bin/output.js)
+- [Ranger README - Using TypeScript](../../README.md#compiling-using-typescript)
+- [CodeNode Class](../../bin/output.js#L1487) - AST node structure
+- [RangerFlowParser](../../bin/output.js#L7318) - Parser class
+
+---
+
+# Previous Success Criteria for Basic Extension
+
+1. ✅ Extension activates on `.rngr` files
+2. ✅ Syntax highlighting works for all token types
+3. ⬜ Auto-completion suggests keywords and types (needs real compiler)
+4. ⬜ Parse errors are shown as diagnostics (needs real compiler)
+5. ⬜ Hover shows type information (needs real compiler)
+6. ⬜ Document outline shows classes and functions (needs real compiler)
+7. ⬜ Extension can be packaged and installed
+
+## Testing
+
+```bash
+# Install dependencies
+cd ranger-vscode-extension
+npm install
+
+# Build
+npm run compile
+
+# Test in VS Code
+# Press F5 to launch Extension Development Host
+
+# Package extension
+npm run package
+```
+
+## References
+
+- [VS Code Language Server Extension Guide](https://code.visualstudio.com/api/language-extensions/language-server-extension-guide)
+- [TextMate Grammar Documentation](https://macromates.com/manual/en/language_grammars)
+- [LSP Specification](https://microsoft.github.io/language-server-protocol/)
+- [VS Code Extension API](https://code.visualstudio.com/api)

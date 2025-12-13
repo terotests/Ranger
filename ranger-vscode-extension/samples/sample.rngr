@@ -1,0 +1,138 @@
+; ===========================================
+; Sample Ranger Program
+; Demonstrates various language features
+; ===========================================
+
+; Import another file (if needed)
+; Import "other_module.rngr"
+
+; Enum definition
+Enum Color ( Red Green Blue Yellow )
+
+; Simple class with properties and methods
+class Person {
+    def name:string ""
+    def age:int 0
+    def email@(optional):string
+
+    Constructor (n:string a:int) {
+        name = n
+        age = a
+    }
+
+    fn greet:string () {
+        return ("Hello, my name is " + name)
+    }
+
+    fn haveBirthday:void () {
+        age = age + 1
+        print (name + " is now " + age + " years old!")
+    }
+
+    fn setEmail:void (e:string) {
+        email = e
+    }
+
+    sfn createChild:Person (parentName:string) {
+        return (new Person((parentName + " Jr.") 0))
+    }
+}
+
+; Class with array and map operations
+class AddressBook {
+    def contacts:[Person]
+    def byName:[string:Person]
+
+    Constructor () {
+        ; Initialize empty collections
+    }
+
+    fn addContact:void (person:Person) {
+        push contacts person
+        set byName person.name person
+    }
+
+    fn findByName@(optional):Person (name:string) {
+        if (has byName name) {
+            return (unwrap (get byName name))
+        }
+        ; Returns nothing if not found
+    }
+
+    fn listAll:void () {
+        print "=== All Contacts ==="
+        for contacts contact:Person i {
+            print ((i + 1) + ". " + contact.name)
+        }
+    }
+
+    fn getCount:int () {
+        return (array_length contacts)
+    }
+}
+
+; Main entry point
+class Main {
+    sfn m@(main):void () {
+        print "=== Ranger Sample Program ==="
+        print ""
+
+        ; Create some people
+        def alice (new Person("Alice" 30))
+        def bob (new Person("Bob" 25))
+        def charlie (Person.createChild("Bob"))
+
+        ; Use methods
+        print (alice.greet())
+        alice.haveBirthday()
+
+        ; Create address book
+        def book (new AddressBook)
+        book.addContact(alice)
+        book.addContact(bob)
+        book.addContact(charlie)
+
+        ; List contacts
+        book.listAll()
+        print ("Total contacts: " + (book.getCount()))
+
+        ; Find a contact
+        def found (book.findByName("Alice"))
+        if (!null? found) {
+            def person (unwrap found)
+            print ("Found: " + person.name + ", age " + person.age)
+        }
+
+        ; Control flow examples
+        def counter@(mutable):int 0
+        while (counter < 5) {
+            print ("Counter: " + counter)
+            counter = counter + 1
+        }
+
+        ; Array operations
+        def numbers:[int]
+        push numbers 10
+        push numbers 20
+        push numbers 30
+
+        def sum@(mutable):int 0
+        for numbers num:int idx {
+            sum = sum + num
+        }
+        print ("Sum: " + sum)
+
+        ; Ternary operator
+        def status (? (sum > 50) "large" "small")
+        print ("Sum is " + status)
+
+        ; String operations
+        def message "  Hello World  "
+        print ("Trimmed: '" + (trim message) + "'")
+        print ("Length: " + (strlen message))
+        print ("Uppercase: " + (to_uppercase message))
+
+        print ""
+        print "=== Program Complete ==="
+    }
+}

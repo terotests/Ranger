@@ -19,6 +19,7 @@
     "testcompiler": "ranger-compiler -es6 ./compiler/ng_Compiler.clj -nodecli -d=./bin -o=testcomp.js",
     "compileg": "ranger-compiler -es6 ./compiler/ng_Compiler.clj -nodecli",
     "compile": "cross-env RANGER_LIB=./compiler/Lang.clj;./lib/stdops.clj node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli -d=./bin -o=output.js",
+    "compile:langserver": "cross-env RANGER_LIB=./compiler/Lang.clj;./lib/stdops.clj node bin/output.js -es6 -nodemodule ./compiler/VirtualCompiler.clj -d=./ranger-vscode-extension/compiler -o=output.js",
     "try": "node bin/output.js -es6 ./compiler/ng_Compiler.clj -nodecli -o=try.js",
     "compilets": "node bin/output.js -es6 -typescript ./compiler/ng_Compiler.clj -o=compiler.ts -nodecli && tsc",
     "module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.clj -o=api.ts && tsc",
