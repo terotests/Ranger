@@ -29,8 +29,9 @@ Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, t
 1. **Modernize the Developer Experience** - Web-based IDE, VSCode extension, Monaco editor
 2. **Production-Ready Toolchain** - NPM publishing, CI/CD pipelines, comprehensive testing
 3. **File Extension Standardization** - Transition from `.clj` to `.rgr`
-4. **Improved Language Targets** - Focus on Python, JavaScript/TypeScript, Swift, Rust, C++
-5. **Developer Productivity** - Source maps, incremental compilation, module packaging
+4. **Simplified Import System** - Auto-load standard library, clearer path resolution, better error messages
+5. **Improved Language Targets** - Focus on Python, JavaScript/TypeScript, Swift, Rust, C++
+6. **Developer Productivity** - Source maps, incremental compilation, module packaging
 
 ### Non-Goals for 3.0
 
@@ -129,6 +130,83 @@ jobs:
 - [ ] Organize `examples/` folder by complexity
 - [ ] Create `docs/` folder for extended documentation
 - [ ] Add `.nvmrc` for Node.js version specification
+
+### 1.5 Import System Improvements
+
+The current import system causes significant confusion for users and GenAI assistants. The handling of `Lang.clj`/`Lang.rgr` and other standard library imports needs to be simplified and better documented.
+
+**Current Problems:**
+
+1. **Unclear Lang.rgr inclusion** - Users don't know how to include the standard library
+2. **Path resolution confusion** - Different behaviors in CLI vs programmatic usage
+3. **Virtual vs real filesystem** - Imports work differently in browser vs Node.js
+4. **GenAI confusion** - AI assistants frequently fail to set up imports correctly
+5. **No auto-discovery** - Standard library must be manually specified
+
+**Implementation Steps:**
+
+1. **Automatic Standard Library Loading**
+
+   - [ ] Auto-load `Lang.rgr` when compiler initializes (unless `--no-stdlib` flag)
+   - [ ] Bundle `Lang.rgr` content directly in the compiled `output.js`
+   - [ ] Add `RANGER_LIB_PATH` environment variable for custom library location
+
+2. **Simplified CLI Usage**
+
+   ```bash
+   # Current (confusing)
+   node bin/output.js -l es6 -o output.js Lang.clj myfile.clj
+
+   # New (simple - Lang.rgr auto-included)
+   rgrc -l es6 -o output.js myfile.rgr
+
+   # Explicit no-stdlib for advanced users
+   rgrc -l es6 -o output.js --no-stdlib myfile.rgr
+   ```
+
+3. **Import Path Resolution**
+
+   - [ ] Support relative imports: `Import "./utils.rgr"`
+   - [ ] Support absolute imports from project root: `Import "/lib/helpers.rgr"`
+   - [ ] Support library imports: `Import "std:collections"` (future)
+   - [ ] Clear error messages when imports fail with suggested fixes
+
+4. **VirtualCompiler API Improvements**
+
+   ```typescript
+   // Current (confusing)
+   const env = new InputEnv();
+   env.use_real = false;
+   // Must manually add Lang.clj content...
+
+   // New (simple)
+   const compiler = new VirtualCompiler({
+     autoLoadStdlib: true, // default: true
+     stdlibPath: "custom/Lang.rgr", // optional override
+   });
+   ```
+
+5. **Documentation & Error Messages**
+
+   - [ ] Add clear import documentation in `ai/INSTRUCTIONS.md`
+   - [ ] Improve error messages: "Cannot find module 'X'. Did you mean...?"
+   - [ ] Add troubleshooting section for common import issues
+   - [ ] Create import resolution flowchart for documentation
+
+6. **Web IDE Integration**
+   - [ ] Pre-load `Lang.rgr` in browser virtual filesystem
+   - [ ] Show import resolution in IDE (hover to see resolved path)
+   - [ ] Auto-complete for available imports
+
+**Tasks:**
+
+- [ ] Bundle `Lang.rgr` content into `output.js` at build time
+- [ ] Add `--no-stdlib` CLI flag
+- [ ] Implement `RANGER_LIB_PATH` environment variable
+- [ ] Update `VirtualCompiler` constructor for simpler API
+- [ ] Improve import error messages with suggestions
+- [ ] Update all documentation with new import patterns
+- [ ] Add import examples to `ai/EXAMPLES.md`
 
 ---
 
