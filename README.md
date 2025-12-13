@@ -10,14 +10,49 @@ class extensions, type inference and can integrate with host system API's using 
 
 🚀 **Ranger 3.0** is a major evolution focusing on developer experience and production readiness.
 
-### Key Features (In Progress)
+### 3.0.0-alpha.1 Changes (December 2025)
 
-- **New File Extension** - Transitioning from `.clj` to `.rgr` for Ranger identity
-- **Simplified CLI** - Use `rgrc` command for shorter invocations
-- **Web-based IDE** - Browser playground with Monaco editor (coming soon)
-- **VSCode Extension** - Full language server with go-to-definition, autocomplete, and more
-- **Compiler Introspection** - API for IDE integration and tooling
-- **CI/CD Pipeline** - Automated testing and NPM publishing
+#### ✅ File Extension Change: `.clj` → `.rgr`
+
+Ranger now uses its own `.rgr` file extension instead of `.clj`. This establishes Ranger's identity and enables proper editor/tooling support.
+
+- **132 source files** renamed across `compiler/` and `lib/`
+- All import statements updated
+- Both extensions currently supported (`.clj` deprecated)
+
+#### ✅ New CLI Alias: `rgrc`
+
+Use the shorter `rgrc` command instead of `ranger-compiler`:
+
+```bash
+# New (recommended)
+rgrc -l=es6 myfile.rgr -o=output.js
+
+# Still works
+ranger-compiler -l=es6 myfile.rgr -o=output.js
+```
+
+#### ✅ CI/CD Pipeline
+
+- GitHub Actions for automated testing (Node 18/20/22)
+- NPM publish workflow on release
+- Test suite: 87 tests passing across ES6, Python, Go, Rust targets
+
+#### ✅ Compiler Introspection API
+
+New API for IDE integration enabling:
+- Position-based type queries
+- Class property/method inspection
+- Error location tracking
+
+See [ai/INTROSPECTION.md](ai/INTROSPECTION.md) for documentation.
+
+### Coming Soon
+
+- **Web-based IDE** - Browser playground with Monaco editor
+- **VSCode Extension** - Full language server with go-to-definition, autocomplete
+- **Simplified Imports** - Auto-load standard library
+- **Source Maps** - JavaScript debugging support
 
 ### Quick Start
 
@@ -26,13 +61,19 @@ class extensions, type inference and can integrate with host system API's using 
 npm install -g ranger-compiler
 
 # Compile to JavaScript
-rgrc -l=es6 myfile.clj -o=output.js
+rgrc -l=es6 myfile.rgr -o=output.js
 
 # Compile to TypeScript
-rgrc -l=es6 -typescript myfile.clj -o=output.ts
+rgrc -l=es6 -typescript myfile.rgr -o=output.ts
 
 # Compile to Python
-rgrc -l=python myfile.clj -o=output.py
+rgrc -l=python myfile.rgr -o=output.py
+
+# Compile to Rust
+rgrc -l=rust myfile.rgr -o=output.rs
+
+# Compile to Go
+rgrc -l=go myfile.rgr -o=output.go
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history and [PLAN_3.md](PLAN_3.md) for the roadmap.
@@ -64,7 +105,7 @@ The Swift 6 target (`-l=swift6`) has been added with the following features:
 Example compilation:
 
 ```bash
-ranger-compiler -l=swift6 myfile.clj -o=myfile.swift
+rgrc -l=swift6 myfile.rgr -o=myfile.swift
 swiftc myfile.swift -o myfile
 ```
 
