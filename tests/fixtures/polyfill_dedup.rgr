@@ -1,0 +1,23 @@
+; Test that polyfills are not duplicated when operator is used multiple times
+
+class PolyfillTest {
+    def key1:string ""
+    def key2:string ""
+
+    fn setup:void () {
+        ; First on_keypress - should create polyfill
+        on_keypress key1 {
+            print key1
+        }
+
+        ; Second on_keypress - should NOT duplicate polyfill
+        on_keypress key2 {
+            print key2
+        }
+    }
+
+    sfn m@(main):void () {
+        def test (new PolyfillTest)
+        print "Polyfill dedup test"
+    }
+}
