@@ -37,17 +37,18 @@ node gallery/js_parser/js_parser.js -h
 
 ### CLI Options
 
-| Option | Description |
-|--------|-------------|
-| `-i <file>` | Input JavaScript file |
-| `-o <file>` | Output file (default: stdout) |
-| `-d` | Use default files (test_input.js → test_output.js) |
-| `--ast` | Output AST tree instead of formatted code |
-| `-h` | Show help |
+| Option      | Description                                        |
+| ----------- | -------------------------------------------------- |
+| `-i <file>` | Input JavaScript file                              |
+| `-o <file>` | Output file (default: stdout)                      |
+| `-d`        | Use default files (test_input.js → test_output.js) |
+| `--ast`     | Output AST tree instead of formatted code          |
+| `-h`        | Show help                                          |
 
 ## Supported JavaScript Features
 
 ### ES5 Features
+
 - Variable declarations (`var`)
 - Function declarations and expressions
 - Control flow (`if`/`else`, `while`, `for`, `for-in`, `switch`, `try`/`catch`/`finally`)
@@ -62,6 +63,7 @@ node gallery/js_parser/js_parser.js -h
 - `this` keyword
 
 ### ES6+ Features
+
 - `let` and `const` declarations
 - Arrow functions (`=>`) with expression and block bodies
 - Template literals with interpolation (`` `Hello ${name}` ``)
@@ -80,6 +82,7 @@ node gallery/js_parser/js_parser.js -h
 - Async generators (`async function*`)
 
 ### Comments
+
 - Single-line comments (`// ...`)
 - Multi-line block comments (`/* ... */`)
 - JSDoc comments (`/** ... */`)
@@ -106,20 +109,21 @@ JSNode {
 
 ## Files
 
-| File | Description |
-|------|-------------|
-| `js_parser_main.rgr` | CLI entry point with argument parsing |
-| `js_parser_core.rgr` | Core parser with JSNode and SimpleParser |
-| `js_lexer.rgr` | Tokenizer for JavaScript |
-| `js_token.rgr` | Token class definition |
-| `js_printer.rgr` | Pretty-printer (AST → formatted JS) |
-| `js_parser.js` | Compiled JavaScript output |
-| `test_input.js` | Comprehensive test file with ES6+ features |
-| `test_output.js` | Parser output for comparison |
+| File                 | Description                                |
+| -------------------- | ------------------------------------------ |
+| `js_parser_main.rgr` | CLI entry point with argument parsing      |
+| `js_parser_core.rgr` | Core parser with JSNode and SimpleParser   |
+| `js_lexer.rgr`       | Tokenizer for JavaScript                   |
+| `js_token.rgr`       | Token class definition                     |
+| `js_printer.rgr`     | Pretty-printer (AST → formatted JS)        |
+| `js_parser.js`       | Compiled JavaScript output                 |
+| `test_input.js`      | Comprehensive test file with ES6+ features |
+| `test_output.js`     | Parser output for comparison               |
 
 ## Example
 
 Input:
+
 ```javascript
 // Arrow function
 const double = (x) => x * 2;
@@ -146,9 +150,10 @@ console.log(...args);
 ```
 
 Output (pretty-printed):
+
 ```javascript
 // Arrow function
-const double = x => (x * 2);
+const double = (x) => x * 2;
 
 // Class with extends
 class Dog extends Animal {
@@ -156,7 +161,7 @@ class Dog extends Animal {
     super(name);
   }
   speak() {
-    return (this.name + ' barks');
+    return this.name + " barks";
   }
 }
 
@@ -174,6 +179,7 @@ console.log(...args);
 ## Limitations
 
 Features not yet supported:
+
 - `import`/`export` (ES modules)
 - Optional chaining (`?.`)
 - Nullish coalescing (`??`)

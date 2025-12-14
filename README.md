@@ -247,14 +247,14 @@ node gallery/js_parser/js_parser.js -i input.js --ast
 
 **Supported ES6+ Features:**
 
-| Category | Features |
-|----------|----------|
-| Declarations | `let`, `const`, `var`, function declarations/expressions |
-| Classes | `class`, `extends`, `constructor`, `static`, getters, `super` |
-| Functions | Arrow functions (`=>`), async/await, generators (`function*`, `yield`) |
-| Operators | Spread (`...`), rest parameters, destructuring (array/object) |
-| Literals | Template literals with interpolation, computed property names |
-| Control Flow | `for-of`, `for-in`, `while`, `if/else`, `switch`, `try/catch` |
+| Category     | Features                                                               |
+| ------------ | ---------------------------------------------------------------------- |
+| Declarations | `let`, `const`, `var`, function declarations/expressions               |
+| Classes      | `class`, `extends`, `constructor`, `static`, getters, `super`          |
+| Functions    | Arrow functions (`=>`), async/await, generators (`function*`, `yield`) |
+| Operators    | Spread (`...`), rest parameters, destructuring (array/object)          |
+| Literals     | Template literals with interpolation, computed property names          |
+| Control Flow | `for-of`, `for-in`, `while`, `if/else`, `switch`, `try/catch`          |
 
 **Example transformation:**
 
@@ -266,7 +266,7 @@ const greet = async (name) => {
 };
 
 // Output (pretty-printed)
-const greet = async name => {
+const greet = async (name) => {
   const msg = `Hello, ${name}!`;
   return msg;
 };
