@@ -173,6 +173,56 @@ class Lexer {
         return (this.makeToken("String" value startPos startLine startCol))
     }
 
+    ; Template literal reader - returns TemplateLiteral token
+    ; For simplicity, we tokenize the entire template as one token
+    ; A more complete implementation would handle ${} expressions
+    fn readTemplateLiteral:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        this.advance() ; consume opening backtick
+        def value:string ""
+        def hasExpressions:boolean false
+        
+        while (pos < len) {
+            def ch:string (this.peek())
+            
+            if (ch == "`") {
+                this.advance()
+                if (hasExpressions) {
+                    return (this.makeToken("TemplateLiteral" value startPos startLine startCol))
+                } {
+                    return (this.makeToken("TemplateLiteral" value startPos startLine startCol))
+                }
+            }
+            
+            if (ch == "\\") {
+                this.advance()
+                def esc:string (this.advance())
+                if (esc == "n") { value = value + "\n" }
+                if (esc == "t") { value = value + "\t" }
+                if (esc == "r") { value = value + "\r" }
+                if (esc == "\\") { value = value + "\\" }
+                if (esc == "`") { value = value + "`" }
+                if (esc == "$") { value = value + "$" }
+            } {
+                if (ch == "$") {
+                    if ((this.peekAt(1)) == "{") {
+                        ; Found ${, mark that we have expressions
+                        hasExpressions = true
+                        value = value + (this.advance())
+                        value = value + (this.advance())
+                    } {
+                        value = value + (this.advance())
+                    }
+                } {
+                    value = value + (this.advance())
+                }
+            }
+        }
+        return (this.makeToken("TemplateLiteral" value startPos startLine startCol))
+    }
+
     fn readNumber:Token () {
         def startPos:int pos
         def startLine:int line
@@ -212,6 +262,8 @@ class Lexer {
     fn identType:string (value:string) {
         ; Keywords
         if (value == "var") { return "Keyword" }
+        if (value == "let") { return "Keyword" }
+        if (value == "const") { return "Keyword" }
         if (value == "function") { return "Keyword" }
         if (value == "return") { return "Keyword" }
         if (value == "if") { return "Keyword" }
@@ -219,6 +271,7 @@ class Lexer {
         if (value == "while") { return "Keyword" }
         if (value == "for") { return "Keyword" }
         if (value == "in") { return "Keyword" }
+        if (value == "of") { return "Keyword" }
         if (value == "switch") { return "Keyword" }
         if (value == "case") { return "Keyword" }
         if (value == "default") { return "Keyword" }
@@ -232,6 +285,12 @@ class Lexer {
         if (value == "typeof") { return "Keyword" }
         if (value == "instanceof") { return "Keyword" }
         if (value == "this") { return "Keyword" }
+        if (value == "class") { return "Keyword" }
+        if (value == "extends") { return "Keyword" }
+        if (value == "static") { return "Keyword" }
+        if (value == "get") { return "Keyword" }
+        if (value == "set") { return "Keyword" }
+        if (value == "super") { return "Keyword" }
         if (value == "true") { return "Boolean" }
         if (value == "false") { return "Boolean" }
         if (value == "null") { return "Null" }
@@ -270,6 +329,9 @@ class Lexer {
         ; Strings
         if (ch == "\"") { return (this.readString("\"")) }
         if (ch == "'") { return (this.readString("'")) }
+        
+        ; Template literals
+        if (ch == "`") { return (this.readTemplateLiteral()) }
 
         ; Numbers
         if (this.isDigit(ch)) { return (this.readNumber()) }
@@ -302,6 +364,15 @@ class Lexer {
             }
         }
 
+        ; =>
+        if (ch == "=") {
+            if (next == ">") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "=>" startPos startLine startCol))
+            }
+        }
+        
         ; ==, !=, <=, >=, &&, ||, ++, --
         if (ch == "=") {
             if (next == "=") {

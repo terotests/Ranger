@@ -137,8 +137,20 @@ class SimpleParser {
       return (this.parseVarDecl())
     }
     
+    if (tokVal == "let") {
+      return (this.parseLetDecl())
+    }
+    
+    if (tokVal == "const") {
+      return (this.parseConstDecl())
+    }
+    
     if (tokVal == "function") {
       return (this.parseFuncDecl())
+    }
+    
+    if (tokVal == "class") {
+      return (this.parseClass())
     }
     
     if (tokVal == "return") {
@@ -246,6 +258,108 @@ class SimpleParser {
     return decl
   }
   
+  ; === Let Declaration (ES6) ===
+  
+  fn parseLetDecl:JSNode () {
+    def decl (new JSNode())
+    decl.nodeType = "VariableDeclaration"
+    decl.strValue = "let"
+    def startTok (this.peek())
+    decl.start = startTok.start
+    decl.line = startTok.line
+    decl.col = startTok.col
+    
+    this.expectValue("let")
+    
+    def first true
+    while (first || (this.matchValue(","))) {
+      if (first == false) {
+        this.advance()
+      }
+      first = false
+      
+      def declarator (new JSNode())
+      declarator.nodeType = "VariableDeclarator"
+      
+      def idTok (this.expect("Identifier"))
+      def id (new JSNode())
+      id.nodeType = "Identifier"
+      id.strValue = idTok.value
+      id.start = idTok.start
+      id.line = idTok.line
+      id.col = idTok.col
+      declarator.left = id
+      declarator.start = idTok.start
+      declarator.line = idTok.line
+      declarator.col = idTok.col
+      
+      if (this.matchValue("=")) {
+        this.advance()
+        def initExpr (this.parseAssignment())
+        declarator.right = initExpr
+      }
+      
+      push decl.children declarator
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return decl
+  }
+  
+  ; === Const Declaration (ES6) ===
+  
+  fn parseConstDecl:JSNode () {
+    def decl (new JSNode())
+    decl.nodeType = "VariableDeclaration"
+    decl.strValue = "const"
+    def startTok (this.peek())
+    decl.start = startTok.start
+    decl.line = startTok.line
+    decl.col = startTok.col
+    
+    this.expectValue("const")
+    
+    def first true
+    while (first || (this.matchValue(","))) {
+      if (first == false) {
+        this.advance()
+      }
+      first = false
+      
+      def declarator (new JSNode())
+      declarator.nodeType = "VariableDeclarator"
+      
+      def idTok (this.expect("Identifier"))
+      def id (new JSNode())
+      id.nodeType = "Identifier"
+      id.strValue = idTok.value
+      id.start = idTok.start
+      id.line = idTok.line
+      id.col = idTok.col
+      declarator.left = id
+      declarator.start = idTok.start
+      declarator.line = idTok.line
+      declarator.col = idTok.col
+      
+      if (this.matchValue("=")) {
+        this.advance()
+        def initExpr (this.parseAssignment())
+        declarator.right = initExpr
+      }
+      
+      push decl.children declarator
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return decl
+  }
+  
   ; === Function Declaration ===
   
   fn parseFuncDecl:JSNode () {
@@ -284,6 +398,140 @@ class SimpleParser {
     func.body = body
     
     return func
+  }
+  
+  ; === Class Declaration (ES6) ===
+  
+  fn parseClass:JSNode () {
+    def classNode (new JSNode())
+    classNode.nodeType = "ClassDeclaration"
+    def startTok (this.peek())
+    classNode.start = startTok.start
+    classNode.line = startTok.line
+    classNode.col = startTok.col
+    
+    this.expectValue("class")
+    
+    ; Class name
+    def idTok (this.expect("Identifier"))
+    classNode.strValue = idTok.value
+    
+    ; Optional extends
+    if (this.matchValue("extends")) {
+      this.advance()
+      def superTok (this.expect("Identifier"))
+      def superClass (new JSNode())
+      superClass.nodeType = "Identifier"
+      superClass.strValue = superTok.value
+      superClass.start = superTok.start
+      superClass.line = superTok.line
+      superClass.col = superTok.col
+      classNode.left = superClass
+    }
+    
+    ; Class body
+    def body (new JSNode())
+    body.nodeType = "ClassBody"
+    def bodyStart (this.peek())
+    body.start = bodyStart.start
+    body.line = bodyStart.line
+    body.col = bodyStart.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def method (this.parseClassMethod())
+      push body.children method
+    }
+    
+    this.expectValue("}")
+    
+    classNode.body = body
+    return classNode
+  }
+  
+  fn parseClassMethod:JSNode () {
+    def method (new JSNode())
+    method.nodeType = "MethodDefinition"
+    def startTok (this.peek())
+    method.start = startTok.start
+    method.line = startTok.line
+    method.col = startTok.col
+    
+    ; Check for static keyword
+    def isStatic:boolean false
+    if (this.matchValue("static")) {
+      isStatic = true
+      method.strValue2 = "static"
+      this.advance()
+    }
+    
+    ; Check for getter/setter
+    def kind:string "method"
+    if (this.matchValue("get")) {
+      def nextTok (this.peekAt(1))
+      if (nextTok != "(") {
+        kind = "get"
+        this.advance()
+      }
+    }
+    if (this.matchValue("set")) {
+      def nextTok (this.peekAt(1))
+      if (nextTok != "(") {
+        kind = "set"
+        this.advance()
+      }
+    }
+    
+    ; Method name
+    def nameTok (this.expect("Identifier"))
+    method.strValue = nameTok.value
+    
+    if (nameTok.value == "constructor") {
+      kind = "constructor"
+    }
+    
+    ; Parse function
+    def func (new JSNode())
+    func.nodeType = "FunctionExpression"
+    func.start = nameTok.start
+    func.line = nameTok.line
+    func.col = nameTok.col
+    
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length func.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue(")")) || (this.isAtEnd())) {
+        break
+      }
+      def paramTok (this.expect("Identifier"))
+      def param (new JSNode())
+      param.nodeType = "Identifier"
+      param.strValue = paramTok.value
+      param.start = paramTok.start
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push func.children param
+    }
+    this.expectValue(")")
+    
+    def funcBody (this.parseBlock())
+    func.body = funcBody
+    
+    method.body = func
+    return method
+  }
+  
+  ; Helper to peek at next token value
+  fn peekAt:string (offset:int) {
+    def targetPos (this.pos + offset)
+    if (targetPos >= (array_length this.tokens)) {
+      return ""
+    }
+    def tok (itemAt this.tokens targetPos)
+    return tok.value
   }
   
   ; === Block Statement ===
@@ -957,7 +1205,12 @@ class SimpleParser {
     def tokVal (this.peekValue())
     def tok (this.peek())
     
+    ; Check for arrow function: identifier => ...
     if (tokType == "Identifier") {
+      def nextVal (this.peekAt(1))
+      if (nextVal == "=>") {
+        return (this.parseArrowFunction())
+      }
       this.advance()
       def id (new JSNode())
       id.nodeType = "Identifier"
@@ -1021,7 +1274,24 @@ class SimpleParser {
       return lit
     }
     
+    ; Template literal
+    if (tokType == "TemplateLiteral") {
+      this.advance()
+      def tmpl (new JSNode())
+      tmpl.nodeType = "TemplateLiteral"
+      tmpl.strValue = tok.value
+      tmpl.start = tok.start
+      tmpl.end = tok.end
+      tmpl.line = tok.line
+      tmpl.col = tok.col
+      return tmpl
+    }
+    
     if (tokVal == "(") {
+      ; Could be arrow function: (a, b) => ... or grouped expression
+      if (this.isArrowFunction()) {
+        return (this.parseArrowFunction())
+      }
       this.advance()
       def expr (this.parseExpr())
       this.expectValue(")")
@@ -1121,6 +1391,91 @@ class SimpleParser {
     
     return obj
   }
+  
+  ; === Arrow Function Parsing (ES6) ===
+  
+  ; Check if current position starts an arrow function
+  fn isArrowFunction:boolean () {
+    if ((this.matchValue("(")) == false) {
+      return false
+    }
+    ; Scan ahead to find matching ) and check if followed by =>
+    def depth 1
+    def scanPos 1
+    while (depth > 0) {
+      def scanVal (this.peekAt(scanPos))
+      if (scanVal == "") {
+        return false
+      }
+      if (scanVal == "(") {
+        depth = depth + 1
+      }
+      if (scanVal == ")") {
+        depth = depth - 1
+      }
+      scanPos = scanPos + 1
+    }
+    ; Check if token after closing ) is =>
+    def afterParen (this.peekAt(scanPos))
+    return (afterParen == "=>")
+  }
+  
+  fn parseArrowFunction:JSNode () {
+    def arrow (new JSNode())
+    arrow.nodeType = "ArrowFunctionExpression"
+    def startTok (this.peek())
+    arrow.start = startTok.start
+    arrow.line = startTok.line
+    arrow.col = startTok.col
+    
+    ; Parse parameters
+    if (this.matchValue("(")) {
+      ; Multiple parameters: (a, b) => ...
+      this.advance()
+      while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+        if ((array_length arrow.children) > 0) {
+          this.expectValue(",")
+        }
+        if ((this.matchValue(")")) || (this.isAtEnd())) {
+          break
+        }
+        def paramTok (this.expect("Identifier"))
+        def param (new JSNode())
+        param.nodeType = "Identifier"
+        param.strValue = paramTok.value
+        param.start = paramTok.start
+        param.line = paramTok.line
+        param.col = paramTok.col
+        push arrow.children param
+      }
+      this.expectValue(")")
+    } {
+      ; Single parameter: x => ...
+      def paramTok (this.expect("Identifier"))
+      def param (new JSNode())
+      param.nodeType = "Identifier"
+      param.strValue = paramTok.value
+      param.start = paramTok.start
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push arrow.children param
+    }
+    
+    ; Expect =>
+    this.expectValue("=>")
+    
+    ; Parse body - could be expression or block
+    if (this.matchValue("{")) {
+      def body (this.parseBlock())
+      arrow.body = body
+    } {
+      ; Expression body
+      def expr (this.parseAssignment())
+      arrow.body = expr
+    }
+    
+    return arrow
+  }
 }
 
 ; AST Printer utility class
@@ -1137,7 +1492,12 @@ class ASTPrinter {
     def loc "[" + node.line + ":" + node.col + "]"
     
     if (nodeType == "VariableDeclaration") {
-      print indent + "VariableDeclaration " + loc
+      def kind node.strValue
+      if ((strlen kind) > 0) {
+        print indent + "VariableDeclaration (" + kind + ") " + loc
+      } {
+        print indent + "VariableDeclaration " + loc
+      }
       for node.children child:JSNode ci {
         ASTPrinter.printNode(child (depth + 1))
       }
@@ -1169,6 +1529,62 @@ class ASTPrinter {
       if (!null? node.body) {
         ASTPrinter.printNode((unwrap node.body) (depth + 1))
       }
+      return
+    }
+    
+    ; ES6 Class
+    if (nodeType == "ClassDeclaration") {
+      def output indent + "ClassDeclaration: " + node.strValue
+      if (!null? node.left) {
+        def superClass (unwrap node.left)
+        output = output + " extends " + superClass.strValue
+      }
+      print output + " " + loc
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "ClassBody") {
+      print indent + "ClassBody " + loc
+      for node.children method:JSNode mi {
+        ASTPrinter.printNode(method (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "MethodDefinition") {
+      def staticStr ""
+      if (node.strValue2 == "static") {
+        staticStr = "static "
+      }
+      print indent + "MethodDefinition: " + staticStr + node.strValue + " " + loc
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 1))
+      }
+      return
+    }
+    
+    ; ES6 Arrow function
+    if (nodeType == "ArrowFunctionExpression") {
+      def params ""
+      for node.children p:JSNode pi {
+        if (pi > 0) {
+          params = params + ", "
+        }
+        params = params + p.strValue
+      }
+      print indent + "ArrowFunctionExpression: (" + params + ") => " + loc
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 1))
+      }
+      return
+    }
+    
+    ; Template literal
+    if (nodeType == "TemplateLiteral") {
+      print indent + "TemplateLiteral: `" + node.strValue + "` " + loc
       return
     }
     

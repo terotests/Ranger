@@ -218,6 +218,60 @@ class Lexer  {
     };
     return this.makeToken("String", value, startPos, startLine, startCol);
   };
+  readTemplateLiteral () {
+    const startPos = this.pos;
+    const startLine = this.line;
+    const startCol = this.col;
+    this.advance();
+    let value = "";
+    let hasExpressions = false;
+    while (this.pos < this.__len) {
+      const ch = this.peek();
+      if ( ch == "`" ) {
+        this.advance();
+        if ( hasExpressions ) {
+          return this.makeToken("TemplateLiteral", value, startPos, startLine, startCol);
+        } else {
+          return this.makeToken("TemplateLiteral", value, startPos, startLine, startCol);
+        }
+      }
+      if ( ch == "\\" ) {
+        this.advance();
+        const esc = this.advance();
+        if ( esc == "n" ) {
+          value = value + "\n";
+        }
+        if ( esc == "t" ) {
+          value = value + "\t";
+        }
+        if ( esc == "r" ) {
+          value = value + "\r";
+        }
+        if ( esc == "\\" ) {
+          value = value + "\\";
+        }
+        if ( esc == "`" ) {
+          value = value + "`";
+        }
+        if ( esc == "$" ) {
+          value = value + "$";
+        }
+      } else {
+        if ( ch == "$" ) {
+          if ( this.peekAt(1) == "{" ) {
+            hasExpressions = true;
+            value = value + this.advance();
+            value = value + this.advance();
+          } else {
+            value = value + this.advance();
+          }
+        } else {
+          value = value + this.advance();
+        }
+      }
+    };
+    return this.makeToken("TemplateLiteral", value, startPos, startLine, startCol);
+  };
   readNumber () {
     const startPos = this.pos;
     const startLine = this.line;
@@ -256,6 +310,12 @@ class Lexer  {
     if ( value == "var" ) {
       return "Keyword";
     }
+    if ( value == "let" ) {
+      return "Keyword";
+    }
+    if ( value == "const" ) {
+      return "Keyword";
+    }
     if ( value == "function" ) {
       return "Keyword";
     }
@@ -275,6 +335,9 @@ class Lexer  {
       return "Keyword";
     }
     if ( value == "in" ) {
+      return "Keyword";
+    }
+    if ( value == "of" ) {
       return "Keyword";
     }
     if ( value == "switch" ) {
@@ -314,6 +377,24 @@ class Lexer  {
       return "Keyword";
     }
     if ( value == "this" ) {
+      return "Keyword";
+    }
+    if ( value == "class" ) {
+      return "Keyword";
+    }
+    if ( value == "extends" ) {
+      return "Keyword";
+    }
+    if ( value == "static" ) {
+      return "Keyword";
+    }
+    if ( value == "get" ) {
+      return "Keyword";
+    }
+    if ( value == "set" ) {
+      return "Keyword";
+    }
+    if ( value == "super" ) {
       return "Keyword";
     }
     if ( value == "true" ) {
@@ -357,6 +438,9 @@ class Lexer  {
     if ( ch == "'" ) {
       return this.readString("'");
     }
+    if ( ch == "`" ) {
+      return this.readTemplateLiteral();
+    }
     if ( this.isDigit(ch) ) {
       return this.readNumber();
     }
@@ -382,6 +466,13 @@ class Lexer  {
           this.advance();
           return this.makeToken("Punctuator", "!==", startPos, startLine, startCol);
         }
+      }
+    }
+    if ( ch == "=" ) {
+      if ( next_1 == ">" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "=>", startPos, startLine, startCol);
       }
     }
     if ( ch == "=" ) {
@@ -558,8 +649,17 @@ class SimpleParser  {
     if ( tokVal == "var" ) {
       return this.parseVarDecl();
     }
+    if ( tokVal == "let" ) {
+      return this.parseLetDecl();
+    }
+    if ( tokVal == "const" ) {
+      return this.parseConstDecl();
+    }
     if ( tokVal == "function" ) {
       return this.parseFuncDecl();
+    }
+    if ( tokVal == "class" ) {
+      return this.parseClass();
     }
     if ( tokVal == "return" ) {
       return this.parseReturn();
@@ -641,6 +741,86 @@ class SimpleParser  {
     }
     return decl;
   };
+  parseLetDecl () {
+    const decl = new JSNode();
+    decl.nodeType = "VariableDeclaration";
+    decl.strValue = "let";
+    const startTok = this.peek();
+    decl.start = startTok.start;
+    decl.line = startTok.line;
+    decl.col = startTok.col;
+    this.expectValue("let");
+    let first = true;
+    while (first || this.matchValue(",")) {
+      if ( first == false ) {
+        this.advance();
+      }
+      first = false;
+      const declarator = new JSNode();
+      declarator.nodeType = "VariableDeclarator";
+      const idTok = this.expect("Identifier");
+      const id = new JSNode();
+      id.nodeType = "Identifier";
+      id.strValue = idTok.value;
+      id.start = idTok.start;
+      id.line = idTok.line;
+      id.col = idTok.col;
+      declarator.left = id;
+      declarator.start = idTok.start;
+      declarator.line = idTok.line;
+      declarator.col = idTok.col;
+      if ( this.matchValue("=") ) {
+        this.advance();
+        const initExpr = this.parseAssignment();
+        declarator.right = initExpr;
+      }
+      decl.children.push(declarator);
+    };
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return decl;
+  };
+  parseConstDecl () {
+    const decl = new JSNode();
+    decl.nodeType = "VariableDeclaration";
+    decl.strValue = "const";
+    const startTok = this.peek();
+    decl.start = startTok.start;
+    decl.line = startTok.line;
+    decl.col = startTok.col;
+    this.expectValue("const");
+    let first = true;
+    while (first || this.matchValue(",")) {
+      if ( first == false ) {
+        this.advance();
+      }
+      first = false;
+      const declarator = new JSNode();
+      declarator.nodeType = "VariableDeclarator";
+      const idTok = this.expect("Identifier");
+      const id = new JSNode();
+      id.nodeType = "Identifier";
+      id.strValue = idTok.value;
+      id.start = idTok.start;
+      id.line = idTok.line;
+      id.col = idTok.col;
+      declarator.left = id;
+      declarator.start = idTok.start;
+      declarator.line = idTok.line;
+      declarator.col = idTok.col;
+      if ( this.matchValue("=") ) {
+        this.advance();
+        const initExpr = this.parseAssignment();
+        declarator.right = initExpr;
+      }
+      decl.children.push(declarator);
+    };
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return decl;
+  };
   parseFuncDecl () {
     const func = new JSNode();
     func.nodeType = "FunctionDeclaration";
@@ -672,6 +852,111 @@ class SimpleParser  {
     const body = this.parseBlock();
     func.body = body;
     return func;
+  };
+  parseClass () {
+    const classNode = new JSNode();
+    classNode.nodeType = "ClassDeclaration";
+    const startTok = this.peek();
+    classNode.start = startTok.start;
+    classNode.line = startTok.line;
+    classNode.col = startTok.col;
+    this.expectValue("class");
+    const idTok = this.expect("Identifier");
+    classNode.strValue = idTok.value;
+    if ( this.matchValue("extends") ) {
+      this.advance();
+      const superTok = this.expect("Identifier");
+      const superClass = new JSNode();
+      superClass.nodeType = "Identifier";
+      superClass.strValue = superTok.value;
+      superClass.start = superTok.start;
+      superClass.line = superTok.line;
+      superClass.col = superTok.col;
+      classNode.left = superClass;
+    }
+    const body = new JSNode();
+    body.nodeType = "ClassBody";
+    const bodyStart = this.peek();
+    body.start = bodyStart.start;
+    body.line = bodyStart.line;
+    body.col = bodyStart.col;
+    this.expectValue("{");
+    while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
+      const method = this.parseClassMethod();
+      body.children.push(method);
+    };
+    this.expectValue("}");
+    classNode.body = body;
+    return classNode;
+  };
+  parseClassMethod () {
+    const method = new JSNode();
+    method.nodeType = "MethodDefinition";
+    const startTok = this.peek();
+    method.start = startTok.start;
+    method.line = startTok.line;
+    method.col = startTok.col;
+    let isStatic = false;
+    if ( this.matchValue("static") ) {
+      isStatic = true;
+      method.strValue2 = "static";
+      this.advance();
+    }
+    let kind = "method";
+    if ( this.matchValue("get") ) {
+      const nextTok = this.peekAt(1);
+      if ( nextTok != "(" ) {
+        kind = "get";
+        this.advance();
+      }
+    }
+    if ( this.matchValue("set") ) {
+      const nextTok_1 = this.peekAt(1);
+      if ( nextTok_1 != "(" ) {
+        kind = "set";
+        this.advance();
+      }
+    }
+    const nameTok = this.expect("Identifier");
+    method.strValue = nameTok.value;
+    if ( nameTok.value == "constructor" ) {
+      kind = "constructor";
+    }
+    const func = new JSNode();
+    func.nodeType = "FunctionExpression";
+    func.start = nameTok.start;
+    func.line = nameTok.line;
+    func.col = nameTok.col;
+    this.expectValue("(");
+    while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
+      if ( (func.children.length) > 0 ) {
+        this.expectValue(",");
+      }
+      if ( this.matchValue(")") || this.isAtEnd() ) {
+        break;
+      }
+      const paramTok = this.expect("Identifier");
+      const param = new JSNode();
+      param.nodeType = "Identifier";
+      param.strValue = paramTok.value;
+      param.start = paramTok.start;
+      param.line = paramTok.line;
+      param.col = paramTok.col;
+      func.children.push(param);
+    };
+    this.expectValue(")");
+    const funcBody = this.parseBlock();
+    func.body = funcBody;
+    method.body = func;
+    return method;
+  };
+  peekAt (offset) {
+    const targetPos = this.pos + offset;
+    if ( targetPos >= (this.tokens.length) ) {
+      return "";
+    }
+    const tok = this.tokens[targetPos];
+    return tok.value;
   };
   parseBlock () {
     const block = new JSNode();
@@ -1191,6 +1476,10 @@ class SimpleParser  {
     const tokVal = this.peekValue();
     const tok = this.peek();
     if ( tokType == "Identifier" ) {
+      const nextVal = this.peekAt(1);
+      if ( nextVal == "=>" ) {
+        return this.parseArrowFunction();
+      }
       this.advance();
       const id = new JSNode();
       id.nodeType = "Identifier";
@@ -1249,7 +1538,21 @@ class SimpleParser  {
       lit_3.col = tok.col;
       return lit_3;
     }
+    if ( tokType == "TemplateLiteral" ) {
+      this.advance();
+      const tmpl = new JSNode();
+      tmpl.nodeType = "TemplateLiteral";
+      tmpl.strValue = tok.value;
+      tmpl.start = tok.start;
+      tmpl.end = tok.end;
+      tmpl.line = tok.line;
+      tmpl.col = tok.col;
+      return tmpl;
+    }
     if ( tokVal == "(" ) {
+      if ( this.isArrowFunction() ) {
+        return this.parseArrowFunction();
+      }
       this.advance();
       const expr = this.parseExpr();
       this.expectValue(")");
@@ -1330,6 +1633,74 @@ class SimpleParser  {
     this.expectValue("}");
     return obj;
   };
+  isArrowFunction () {
+    if ( this.matchValue("(") == false ) {
+      return false;
+    }
+    let depth = 1;
+    let scanPos = 1;
+    while (depth > 0) {
+      const scanVal = this.peekAt(scanPos);
+      if ( scanVal == "" ) {
+        return false;
+      }
+      if ( scanVal == "(" ) {
+        depth = depth + 1;
+      }
+      if ( scanVal == ")" ) {
+        depth = depth - 1;
+      }
+      scanPos = scanPos + 1;
+    };
+    const afterParen = this.peekAt(scanPos);
+    return afterParen == "=>";
+  };
+  parseArrowFunction () {
+    const arrow = new JSNode();
+    arrow.nodeType = "ArrowFunctionExpression";
+    const startTok = this.peek();
+    arrow.start = startTok.start;
+    arrow.line = startTok.line;
+    arrow.col = startTok.col;
+    if ( this.matchValue("(") ) {
+      this.advance();
+      while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
+        if ( (arrow.children.length) > 0 ) {
+          this.expectValue(",");
+        }
+        if ( this.matchValue(")") || this.isAtEnd() ) {
+          break;
+        }
+        const paramTok = this.expect("Identifier");
+        const param = new JSNode();
+        param.nodeType = "Identifier";
+        param.strValue = paramTok.value;
+        param.start = paramTok.start;
+        param.line = paramTok.line;
+        param.col = paramTok.col;
+        arrow.children.push(param);
+      };
+      this.expectValue(")");
+    } else {
+      const paramTok_1 = this.expect("Identifier");
+      const param_1 = new JSNode();
+      param_1.nodeType = "Identifier";
+      param_1.strValue = paramTok_1.value;
+      param_1.start = paramTok_1.start;
+      param_1.line = paramTok_1.line;
+      param_1.col = paramTok_1.col;
+      arrow.children.push(param_1);
+    }
+    this.expectValue("=>");
+    if ( this.matchValue("{") ) {
+      const body = this.parseBlock();
+      arrow.body = body;
+    } else {
+      const expr = this.parseAssignment();
+      arrow.body = expr;
+    }
+    return arrow;
+  };
 }
 class ASTPrinter  {
   constructor() {
@@ -1345,7 +1716,12 @@ ASTPrinter.printNode = function(node, depth) {
   const nodeType = node.nodeType;
   const loc = ((("[" + node.line) + ":") + node.col) + "]";
   if ( nodeType == "VariableDeclaration" ) {
-    console.log((indent + "VariableDeclaration ") + loc);
+    const kind = node.strValue;
+    if ( (kind.length) > 0 ) {
+      console.log((((indent + "VariableDeclaration (") + kind) + ") ") + loc);
+    } else {
+      console.log((indent + "VariableDeclaration ") + loc);
+    }
     for ( let ci = 0; ci < node.children.length; ci++) {
       var child = node.children[ci];
       ASTPrinter.printNode(child, depth + 1);
@@ -1377,6 +1753,56 @@ ASTPrinter.printNode = function(node, depth) {
     if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
       ASTPrinter.printNode(node.body, depth + 1);
     }
+    return;
+  }
+  if ( nodeType == "ClassDeclaration" ) {
+    let output = (indent + "ClassDeclaration: ") + node.strValue;
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      const superClass = node.left;
+      output = (output + " extends ") + superClass.strValue;
+    }
+    console.log((output + " ") + loc);
+    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
+      ASTPrinter.printNode(node.body, depth + 1);
+    }
+    return;
+  }
+  if ( nodeType == "ClassBody" ) {
+    console.log((indent + "ClassBody ") + loc);
+    for ( let mi = 0; mi < node.children.length; mi++) {
+      var method = node.children[mi];
+      ASTPrinter.printNode(method, depth + 1);
+    };
+    return;
+  }
+  if ( nodeType == "MethodDefinition" ) {
+    let staticStr = "";
+    if ( node.strValue2 == "static" ) {
+      staticStr = "static ";
+    }
+    console.log(((((indent + "MethodDefinition: ") + staticStr) + node.strValue) + " ") + loc);
+    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
+      ASTPrinter.printNode(node.body, depth + 1);
+    }
+    return;
+  }
+  if ( nodeType == "ArrowFunctionExpression" ) {
+    let params_1 = "";
+    for ( let pi_1 = 0; pi_1 < node.children.length; pi_1++) {
+      var p_1 = node.children[pi_1];
+      if ( pi_1 > 0 ) {
+        params_1 = params_1 + ", ";
+      }
+      params_1 = params_1 + p_1.strValue;
+    };
+    console.log((((indent + "ArrowFunctionExpression: (") + params_1) + ") => ") + loc);
+    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
+      ASTPrinter.printNode(node.body, depth + 1);
+    }
+    return;
+  }
+  if ( nodeType == "TemplateLiteral" ) {
+    console.log((((indent + "TemplateLiteral: `") + node.strValue) + "` ") + loc);
     return;
   }
   if ( nodeType == "BlockStatement" ) {
@@ -1511,8 +1937,8 @@ ASTPrinter.printNode = function(node, depth) {
   }
   if ( nodeType == "ObjectExpression" ) {
     console.log((indent + "ObjectExpression ") + loc);
-    for ( let pi_1 = 0; pi_1 < node.children.length; pi_1++) {
-      var prop = node.children[pi_1];
+    for ( let pi_2 = 0; pi_2 < node.children.length; pi_2++) {
+      var prop = node.children[pi_2];
       ASTPrinter.printNode(prop, depth + 1);
     };
     return;
@@ -1697,8 +2123,8 @@ JSParserMain.parseFile = async function(filename) {
   };
 };
 JSParserMain.runTests = function() {
-  const code = "var x = 123;\r\nvar y = 'hello';\r\n\r\n// Function declaration\r\nfunction add(a, b) {\r\n    return a + b;\r\n}\r\n\r\n// While loop\r\nvar i = 0;\r\nwhile (i < 10) {\r\n    i = i + 1;\r\n}\r\n\r\n// Do-while loop\r\ndo {\r\n    i = i - 1;\r\n} while (i > 0);\r\n\r\n// For loop\r\nfor (var j = 0; j < 5; j = j + 1) {\r\n    x = x + j;\r\n}\r\n\r\n// Switch statement\r\nswitch (x) {\r\n    case 1:\r\n        y = 'one';\r\n        break;\r\n    case 2:\r\n        y = 'two';\r\n        break;\r\n    default:\r\n        y = 'other';\r\n}\r\n\r\n// Try-catch-finally\r\ntry {\r\n    throw 'error';\r\n} catch (e) {\r\n    y = e;\r\n} finally {\r\n    x = 0;\r\n}\r\n\r\n// If-else\r\nif (x > 100) {\r\n    y = 'big';\r\n} else {\r\n    y = 'small';\r\n}\r\n\r\nvar arr = [1, 2, 3];\r\nvar obj = { name: 'test', value: 42 };\r\n\r\n// Unary expressions\r\nvar negNum = -42;\r\nvar posNum = +5;\r\nvar notTrue = !true;\r\nvar notFalse = !false;\r\nvar doubleNot = !!x;\r\nvar negExpr = -(a + b);\r\n\r\n// Logical expressions\r\nvar andResult = true && false;\r\nvar orResult = true || false;\r\nvar complexLogic = (a > 0) && (b < 10) || (c == 5);\r\nvar shortCircuit = x && y && z;\r\nvar orChain = a || b || c;\r\n\r\n// Ternary expressions\r\nvar ternResult = x > 0 ? 'positive' : 'non-positive';\r\nvar nestedTern = a > b ? (b > c ? 'a>b>c' : 'a>b, b<=c') : 'a<=b';\r\nvar ternInExpr = 1 + (x ? 2 : 3);\r\n\r\n// Operator precedence tests\r\nvar prec1 = 1 + 2 * 3;\r\nvar prec2 = (1 + 2) * 3;\r\nvar prec3 = 1 + 2 + 3 + 4;\r\nvar prec4 = 2 * 3 + 4 * 5;\r\nvar prec5 = 1 < 2 && 3 > 1;\r\nvar prec6 = !x && y || z;\r\nvar prec7 = a == b && c != d;\r\nvar prec8 = -x + y * -z;\r\n\r\n// Comparison operators\r\nvar cmp1 = a == b;\r\nvar cmp2 = a != b;\r\nvar cmp3 = a < b;\r\nvar cmp4 = a <= b;\r\nvar cmp5 = a > b;\r\nvar cmp6 = a >= b;\r\n";
-  console.log("=== JavaScript ES5 Parser ===");
+  const code = "var x = 123;\r\nvar y = 'hello';\r\n\r\n// Function declaration\r\nfunction add(a, b) {\r\n    return a + b;\r\n}\r\n\r\n// While loop\r\nvar i = 0;\r\nwhile (i < 10) {\r\n    i = i + 1;\r\n}\r\n\r\n// Do-while loop\r\ndo {\r\n    i = i - 1;\r\n} while (i > 0);\r\n\r\n// For loop\r\nfor (var j = 0; j < 5; j = j + 1) {\r\n    x = x + j;\r\n}\r\n\r\n// Switch statement\r\nswitch (x) {\r\n    case 1:\r\n        y = 'one';\r\n        break;\r\n    case 2:\r\n        y = 'two';\r\n        break;\r\n    default:\r\n        y = 'other';\r\n}\r\n\r\n// Try-catch-finally\r\ntry {\r\n    throw 'error';\r\n} catch (e) {\r\n    y = e;\r\n} finally {\r\n    x = 0;\r\n}\r\n\r\n// If-else\r\nif (x > 100) {\r\n    y = 'big';\r\n} else {\r\n    y = 'small';\r\n}\r\n\r\nvar arr = [1, 2, 3];\r\nvar obj = { name: 'test', value: 42 };\r\n\r\n// Unary expressions\r\nvar negNum = -42;\r\nvar posNum = +5;\r\nvar notTrue = !true;\r\nvar notFalse = !false;\r\nvar doubleNot = !!x;\r\nvar negExpr = -(a + b);\r\n\r\n// Logical expressions\r\nvar andResult = true && false;\r\nvar orResult = true || false;\r\nvar complexLogic = (a > 0) && (b < 10) || (c == 5);\r\nvar shortCircuit = x && y && z;\r\nvar orChain = a || b || c;\r\n\r\n// Ternary expressions\r\nvar ternResult = x > 0 ? 'positive' : 'non-positive';\r\nvar nestedTern = a > b ? (b > c ? 'a>b>c' : 'a>b, b<=c') : 'a<=b';\r\nvar ternInExpr = 1 + (x ? 2 : 3);\r\n\r\n// Operator precedence tests\r\nvar prec1 = 1 + 2 * 3;\r\nvar prec2 = (1 + 2) * 3;\r\nvar prec3 = 1 + 2 + 3 + 4;\r\nvar prec4 = 2 * 3 + 4 * 5;\r\nvar prec5 = 1 < 2 && 3 > 1;\r\nvar prec6 = !x && y || z;\r\nvar prec7 = a == b && c != d;\r\nvar prec8 = -x + y * -z;\r\n\r\n// Comparison operators\r\nvar cmp1 = a == b;\r\nvar cmp2 = a != b;\r\nvar cmp3 = a < b;\r\nvar cmp4 = a <= b;\r\nvar cmp5 = a > b;\r\nvar cmp6 = a >= b;\r\n\r\n// === ES6 Features ===\r\n\r\n// let and const\r\nlet count = 0;\r\nconst PI = 3.14159;\r\n\r\n// Arrow functions\r\nconst add = (a, b) => a + b;\r\nconst double = x => x * 2;\r\nconst greet = (name) => {\r\n    return 'Hello, ' + name;\r\n};\r\nconst multiLine = (a, b) => {\r\n    let sum = a + b;\r\n    return sum * 2;\r\n};\r\n\r\n// Template literals\r\nlet name = 'World';\r\nlet greeting = `Hello, ${name}!`;\r\nlet multi = `Line 1\r\nLine 2`;\r\n\r\n// Class syntax\r\nclass Animal {\r\n    constructor(name) {\r\n        this.name = name;\r\n    }\r\n    \r\n    speak() {\r\n        return this.name + ' makes a sound';\r\n    }\r\n    \r\n    static create(name) {\r\n        return new Animal(name);\r\n    }\r\n}\r\n\r\nclass Dog extends Animal {\r\n    constructor(name, breed) {\r\n        super(name);\r\n        this.breed = breed;\r\n    }\r\n    \r\n    speak() {\r\n        return this.name + ' barks';\r\n    }\r\n}\r\n";
+  console.log("=== JavaScript ES6 Parser ===");
   console.log("");
   console.log("Input:");
   console.log(code);
