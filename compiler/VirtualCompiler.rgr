@@ -257,6 +257,10 @@ class tester {
 
     def langFileDirs (this.possiblePaths( (this.getEnvVar("RANGER_LIB")) ))
 
+    ; Add the source file's directory to library paths for relative imports
+    def sourceFileDir (path_dirname (theFilePath + "/" + the_file))
+    push langFileDirs sourceFileDir
+
     def c:string (read_file env theFilePath the_file)    
     def code:SourceCode (new SourceCode ((unwrap c)))
 

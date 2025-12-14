@@ -1,0 +1,419 @@
+; JavaScript ES5 AST Node Definitions
+; Based on ESTree specification
+
+; Base AST Node - all nodes have source location info
+class ASTNode {
+  def type:string ""
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; Program - root node
+class Program {
+  def type:string "Program"
+  def body:[ASTNode]
+  def start:int 0
+  def end:int 0
+}
+
+; === Literals ===
+
+class Literal {
+  def type:string "Literal"
+  def value:string ""      ; string representation
+  def raw:string ""        ; original source text
+  def litType:string ""    ; "string", "number", "boolean", "null"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Identifiers ===
+
+class Identifier {
+  def type:string "Identifier"
+  def name:string ""
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Expressions ===
+
+class BinaryExpression {
+  def type:string "BinaryExpression"
+  def operator:string ""
+  def left@(optional):ASTNode
+  def right@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class UnaryExpression {
+  def type:string "UnaryExpression"
+  def operator:string ""
+  def prefix:boolean true
+  def argument@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class AssignmentExpression {
+  def type:string "AssignmentExpression"
+  def operator:string ""
+  def left@(optional):ASTNode
+  def right@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class CallExpression {
+  def type:string "CallExpression"
+  def callee@(optional):ASTNode
+  def arguments:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class MemberExpression {
+  def type:string "MemberExpression"
+  def object@(optional):ASTNode
+  def property@(optional):ASTNode
+  def computed:boolean false  ; true for a[b], false for a.b
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class ConditionalExpression {
+  def type:string "ConditionalExpression"
+  def test@(optional):ASTNode
+  def consequent@(optional):ASTNode
+  def alternate@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class LogicalExpression {
+  def type:string "LogicalExpression"
+  def operator:string ""  ; "&&" or "||"
+  def left@(optional):ASTNode
+  def right@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class ArrayExpression {
+  def type:string "ArrayExpression"
+  def elements:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class ObjectExpression {
+  def type:string "ObjectExpression"
+  def properties:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class Property {
+  def type:string "Property"
+  def key@(optional):ASTNode
+  def value@(optional):ASTNode
+  def kind:string "init"  ; "init", "get", "set"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class FunctionExpression {
+  def type:string "FunctionExpression"
+  def id@(optional):Identifier
+  def params:[Identifier]
+  def body@(optional):ASTNode  ; BlockStatement
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class ThisExpression {
+  def type:string "ThisExpression"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class NewExpression {
+  def type:string "NewExpression"
+  def callee@(optional):ASTNode
+  def arguments:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class SequenceExpression {
+  def type:string "SequenceExpression"
+  def expressions:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class UpdateExpression {
+  def type:string "UpdateExpression"
+  def operator:string ""  ; "++" or "--"
+  def argument@(optional):ASTNode
+  def prefix:boolean false
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Statements ===
+
+class ExpressionStatement {
+  def type:string "ExpressionStatement"
+  def expression@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class BlockStatement {
+  def type:string "BlockStatement"
+  def body:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class EmptyStatement {
+  def type:string "EmptyStatement"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class ReturnStatement {
+  def type:string "ReturnStatement"
+  def argument@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class IfStatement {
+  def type:string "IfStatement"
+  def test@(optional):ASTNode
+  def consequent@(optional):ASTNode
+  def alternate@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class WhileStatement {
+  def type:string "WhileStatement"
+  def test@(optional):ASTNode
+  def body@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class DoWhileStatement {
+  def type:string "DoWhileStatement"
+  def body@(optional):ASTNode
+  def test@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class ForStatement {
+  def type:string "ForStatement"
+  def forInit@(optional):ASTNode
+  def test@(optional):ASTNode
+  def update@(optional):ASTNode
+  def body@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class ForInStatement {
+  def type:string "ForInStatement"
+  def left@(optional):ASTNode
+  def right@(optional):ASTNode
+  def body@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class BreakStatement {
+  def type:string "BreakStatement"
+  def label@(optional):Identifier
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class ContinueStatement {
+  def type:string "ContinueStatement"
+  def label@(optional):Identifier
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class SwitchStatement {
+  def type:string "SwitchStatement"
+  def discriminant@(optional):ASTNode
+  def cases:[SwitchCase]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class SwitchCase {
+  def type:string "SwitchCase"
+  def test@(optional):ASTNode  ; null for default
+  def consequent:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class ThrowStatement {
+  def type:string "ThrowStatement"
+  def argument@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class TryStatement {
+  def type:string "TryStatement"
+  def block@(optional):BlockStatement
+  def handler@(optional):CatchClause
+  def finalizer@(optional):BlockStatement
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class CatchClause {
+  def type:string "CatchClause"
+  def param@(optional):Identifier
+  def body@(optional):BlockStatement
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class LabeledStatement {
+  def type:string "LabeledStatement"
+  def label@(optional):Identifier
+  def body@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class WithStatement {
+  def type:string "WithStatement"
+  def object@(optional):ASTNode
+  def body@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class DebuggerStatement {
+  def type:string "DebuggerStatement"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Declarations ===
+
+class VariableDeclaration {
+  def type:string "VariableDeclaration"
+  def declarations:[VariableDeclarator]
+  def kind:string "var"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class VariableDeclarator {
+  def type:string "VariableDeclarator"
+  def id@(optional):Identifier
+  def varInit@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+class FunctionDeclaration {
+  def type:string "FunctionDeclaration"
+  def id@(optional):Identifier
+  def params:[Identifier]
+  def body@(optional):BlockStatement
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}

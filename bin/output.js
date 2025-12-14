@@ -24195,6 +24195,8 @@ class VirtualCompiler  {
     }
     console.log("File to be compiled: " + the_file);
     let langFileDirs = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
+    const sourceFileDir = require("path").dirname(((theFilePath + "/") + the_file));
+    langFileDirs.push(sourceFileDir);
     const c = await operatorsOf_8.readc95file_9(env, theFilePath, the_file);
     const code = new SourceCode(c);
     code.filename = the_file;

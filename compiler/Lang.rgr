@@ -406,6 +406,14 @@ func r_io_get_env( name string) *GoNullable {
             }
         }   
 
+        path_dirname cmdArg:string ( arg:string ) {
+            templates {
+                es6 ( 'require("path").dirname(' (e 1) ')')
+                ranger ("( path_dirname " (e 1) " )")
+                * ( "\"./\"")
+            }
+        }   
+
         install_directory         cmdArg:string () {
             templates {
                 es6 ( "__dirname" )

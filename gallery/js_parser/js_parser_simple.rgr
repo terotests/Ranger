@@ -1,0 +1,992 @@
+; JavaScript ES5 Parser - Simplified version
+; Uses a single JSNode class to avoid type issues
+
+Import "js_token.rgr"
+Import "js_lexer.rgr"
+
+; Unified AST node - all node types use this
+class JSNode {
+  def nodeType:string ""
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+  
+  ; Generic value fields
+  def strValue:string ""      ; for identifiers, literals, operators
+  def strValue2:string ""     ; secondary string (e.g., literal type)
+  
+  ; Child nodes
+  def children:[JSNode]
+  def left@(optional):JSNode
+  def right@(optional):JSNode
+  def test@(optional):JSNode
+  def body@(optional):JSNode
+  def alternate@(optional):JSNode
+}
+
+class SimpleParser {
+  def tokens:[Token]
+  def pos:int 0
+  def currentToken@(optional):Token
+  
+  fn initParser:void (toks:[Token]) {
+    this.tokens = toks
+    this.pos = 0
+    if ((array_length toks) > 0) {
+      this.currentToken = (itemAt toks 0)
+    }
+  }
+  
+  fn peek:Token () {
+    return (unwrap this.currentToken)
+  }
+  
+  fn peekType:string () {
+    if (null? this.currentToken) {
+      return "EOF"
+    }
+    def tok (unwrap this.currentToken)
+    return tok.type
+  }
+  
+  fn peekValue:string () {
+    if (null? this.currentToken) {
+      return ""
+    }
+    def tok (unwrap this.currentToken)
+    return tok.value
+  }
+  
+  fn advance:void () {
+    this.pos = this.pos + 1
+    if (this.pos < (array_length this.tokens)) {
+      this.currentToken = (itemAt this.tokens this.pos)
+    } {
+      def eof (new Token())
+      eof.type = "EOF"
+      eof.value = ""
+      this.currentToken = eof
+    }
+  }
+  
+  fn expect:Token (expectedType:string) {
+    def tok (this.peek())
+    if (tok.type != expectedType) {
+      print "Parse error: expected " + expectedType + " but got " + tok.type
+    }
+    this.advance()
+    return tok
+  }
+  
+  fn expectValue:Token (expectedValue:string) {
+    def tok (this.peek())
+    if (tok.value != expectedValue) {
+      print "Parse error: expected '" + expectedValue + "' but got '" + tok.value + "'"
+    }
+    this.advance()
+    return tok
+  }
+  
+  fn isAtEnd:boolean () {
+    def t (this.peekType())
+    return (t == "EOF")
+  }
+  
+  fn matchType:boolean (tokenType:string) {
+    def t (this.peekType())
+    return (t == tokenType)
+  }
+  
+  fn matchValue:boolean (value:string) {
+    def v (this.peekValue())
+    return (v == value)
+  }
+  
+  ; === Parse Program ===
+  
+  fn parseProgram:JSNode () {
+    def prog (new JSNode())
+    prog.nodeType = "Program"
+    
+    while ((this.isAtEnd()) == false) {
+      def stmt (this.parseStatement())
+      push prog.children stmt
+    }
+    
+    return prog
+  }
+  
+  ; === Parse Statement ===
+  
+  fn parseStatement:JSNode () {
+    def tokVal (this.peekValue())
+    
+    if (tokVal == "var") {
+      return (this.parseVarDecl())
+    }
+    
+    if (tokVal == "function") {
+      return (this.parseFuncDecl())
+    }
+    
+    if (tokVal == "return") {
+      return (this.parseReturn())
+    }
+    
+    if (tokVal == "if") {
+      return (this.parseIf())
+    }
+    
+    if (tokVal == "{") {
+      return (this.parseBlock())
+    }
+    
+    if (tokVal == ";") {
+      this.advance()
+      def empty (new JSNode())
+      empty.nodeType = "EmptyStatement"
+      return empty
+    }
+    
+    ; Expression statement
+    return (this.parseExprStmt())
+  }
+  
+  ; === Variable Declaration ===
+  
+  fn parseVarDecl:JSNode () {
+    def decl (new JSNode())
+    decl.nodeType = "VariableDeclaration"
+    def startTok (this.peek())
+    decl.start = startTok.start
+    decl.line = startTok.line
+    decl.col = startTok.col
+    
+    this.expectValue("var")
+    
+    def first true
+    while (first || (this.matchValue(","))) {
+      if (first == false) {
+        this.advance()
+      }
+      first = false
+      
+      def declarator (new JSNode())
+      declarator.nodeType = "VariableDeclarator"
+      
+      def idTok (this.expect("Identifier"))
+      def id (new JSNode())
+      id.nodeType = "Identifier"
+      id.strValue = idTok.value
+      id.start = idTok.start
+      id.line = idTok.line
+      id.col = idTok.col
+      declarator.left = id
+      declarator.start = idTok.start
+      declarator.line = idTok.line
+      declarator.col = idTok.col
+      
+      if (this.matchValue("=")) {
+        this.advance()
+        def initExpr (this.parseAssignment())
+        declarator.right = initExpr
+      }
+      
+      push decl.children declarator
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return decl
+  }
+  
+  ; === Function Declaration ===
+  
+  fn parseFuncDecl:JSNode () {
+    def func (new JSNode())
+    func.nodeType = "FunctionDeclaration"
+    def startTok (this.peek())
+    func.start = startTok.start
+    func.line = startTok.line
+    func.col = startTok.col
+    
+    this.expectValue("function")
+    
+    def idTok (this.expect("Identifier"))
+    func.strValue = idTok.value
+    
+    this.expectValue("(")
+    while ((this.matchValue(")")) == false) {
+      if ((array_length func.children) > 0) {
+        this.expectValue(",")
+      }
+      def paramTok (this.expect("Identifier"))
+      def param (new JSNode())
+      param.nodeType = "Identifier"
+      param.strValue = paramTok.value
+      param.start = paramTok.start
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push func.children param
+    }
+    this.expectValue(")")
+    
+    def body (this.parseBlock())
+    func.body = body
+    
+    return func
+  }
+  
+  ; === Block Statement ===
+  
+  fn parseBlock:JSNode () {
+    def block (new JSNode())
+    block.nodeType = "BlockStatement"
+    def startTok (this.peek())
+    block.start = startTok.start
+    block.line = startTok.line
+    block.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def stmt (this.parseStatement())
+      push block.children stmt
+    }
+    
+    this.expectValue("}")
+    
+    return block
+  }
+  
+  ; === Return Statement ===
+  
+  fn parseReturn:JSNode () {
+    def ret (new JSNode())
+    ret.nodeType = "ReturnStatement"
+    def startTok (this.peek())
+    ret.start = startTok.start
+    ret.line = startTok.line
+    ret.col = startTok.col
+    
+    this.expectValue("return")
+    
+    if (((this.matchValue(";")) == false) && ((this.isAtEnd()) == false)) {
+      def arg (this.parseExpr())
+      ret.left = arg
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return ret
+  }
+  
+  ; === If Statement ===
+  
+  fn parseIf:JSNode () {
+    def ifStmt (new JSNode())
+    ifStmt.nodeType = "IfStatement"
+    def startTok (this.peek())
+    ifStmt.start = startTok.start
+    ifStmt.line = startTok.line
+    ifStmt.col = startTok.col
+    
+    this.expectValue("if")
+    this.expectValue("(")
+    def test (this.parseExpr())
+    ifStmt.test = test
+    this.expectValue(")")
+    
+    def consequent (this.parseStatement())
+    ifStmt.body = consequent
+    
+    if (this.matchValue("else")) {
+      this.advance()
+      def alt (this.parseStatement())
+      ifStmt.alternate = alt
+    }
+    
+    return ifStmt
+  }
+  
+  ; === Expression Statement ===
+  
+  fn parseExprStmt:JSNode () {
+    def stmt (new JSNode())
+    stmt.nodeType = "ExpressionStatement"
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    def expr (this.parseExpr())
+    stmt.left = expr
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return stmt
+  }
+  
+  ; === Expression Parsing ===
+  
+  fn parseExpr:JSNode () {
+    return (this.parseAssignment())
+  }
+  
+  fn parseAssignment:JSNode () {
+    def left (this.parseLogicalOr())
+    
+    def tokVal (this.peekValue())
+    if (tokVal == "=") {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseAssignment())
+      
+      def assign (new JSNode())
+      assign.nodeType = "AssignmentExpression"
+      assign.strValue = opTok.value
+      assign.left = left
+      assign.right = right
+      assign.start = left.start
+      assign.line = left.line
+      assign.col = left.col
+      return assign
+    }
+    
+    return left
+  }
+  
+  fn parseLogicalOr:JSNode () {
+    def left (this.parseLogicalAnd())
+    
+    while (this.matchValue("||")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseLogicalAnd())
+      
+      def binary (new JSNode())
+      binary.nodeType = "LogicalExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+    }
+    
+    return left
+  }
+  
+  fn parseLogicalAnd:JSNode () {
+    def left (this.parseEquality())
+    
+    while (this.matchValue("&&")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseEquality())
+      
+      def binary (new JSNode())
+      binary.nodeType = "LogicalExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+    }
+    
+    return left
+  }
+  
+  fn parseEquality:JSNode () {
+    def left (this.parseComparison())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "==") || (tokVal == "!=") || (tokVal == "===") || (tokVal == "!==")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseComparison())
+      
+      def binary (new JSNode())
+      binary.nodeType = "BinaryExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseComparison:JSNode () {
+    def left (this.parseAdditive())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "<") || (tokVal == ">") || (tokVal == "<=") || (tokVal == ">=")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseAdditive())
+      
+      def binary (new JSNode())
+      binary.nodeType = "BinaryExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseAdditive:JSNode () {
+    def left (this.parseMultiplicative())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "+") || (tokVal == "-")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseMultiplicative())
+      
+      def binary (new JSNode())
+      binary.nodeType = "BinaryExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseMultiplicative:JSNode () {
+    def left (this.parseUnary())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "*") || (tokVal == "/") || (tokVal == "%")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseUnary())
+      
+      def binary (new JSNode())
+      binary.nodeType = "BinaryExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseUnary:JSNode () {
+    def tokVal (this.peekValue())
+    
+    if ((tokVal == "!") || (tokVal == "-") || (tokVal == "+")) {
+      def opTok (this.peek())
+      this.advance()
+      def arg (this.parseUnary())
+      
+      def unary (new JSNode())
+      unary.nodeType = "UnaryExpression"
+      unary.strValue = opTok.value
+      unary.left = arg
+      unary.start = opTok.start
+      unary.line = opTok.line
+      unary.col = opTok.col
+      return unary
+    }
+    
+    return (this.parseCallMember())
+  }
+  
+  fn parseCallMember:JSNode () {
+    def object (this.parsePrimary())
+    
+    def cont true
+    while (cont) {
+      def tokVal (this.peekValue())
+      
+      if (tokVal == ".") {
+        this.advance()
+        def propTok (this.expect("Identifier"))
+        
+        def member (new JSNode())
+        member.nodeType = "MemberExpression"
+        member.left = object
+        member.strValue = propTok.value
+        member.strValue2 = "dot"
+        member.start = object.start
+        member.line = object.line
+        member.col = object.col
+        object = member
+      } {
+        if (tokVal == "[") {
+          this.advance()
+          def propExpr (this.parseExpr())
+          this.expectValue("]")
+          
+          def member (new JSNode())
+          member.nodeType = "MemberExpression"
+          member.left = object
+          member.right = propExpr
+          member.strValue2 = "bracket"
+          member.start = object.start
+          member.line = object.line
+          member.col = object.col
+          object = member
+        } {
+          if (tokVal == "(") {
+            this.advance()
+            
+            def call (new JSNode())
+            call.nodeType = "CallExpression"
+            call.left = object
+            call.start = object.start
+            call.line = object.line
+            call.col = object.col
+            
+            while ((this.matchValue(")")) == false) {
+              if ((array_length call.children) > 0) {
+                this.expectValue(",")
+              }
+              def arg (this.parseAssignment())
+              push call.children arg
+            }
+            this.expectValue(")")
+            
+            object = call
+          } {
+            cont = false
+          }
+        }
+      }
+    }
+    
+    return object
+  }
+  
+  fn parsePrimary:JSNode () {
+    def tokType (this.peekType())
+    def tokVal (this.peekValue())
+    def tok (this.peek())
+    
+    if (tokType == "Identifier") {
+      this.advance()
+      def id (new JSNode())
+      id.nodeType = "Identifier"
+      id.strValue = tok.value
+      id.start = tok.start
+      id.end = tok.end
+      id.line = tok.line
+      id.col = tok.col
+      return id
+    }
+    
+    if (tokType == "Number") {
+      this.advance()
+      def lit (new JSNode())
+      lit.nodeType = "Literal"
+      lit.strValue = tok.value
+      lit.strValue2 = "number"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    if (tokType == "String") {
+      this.advance()
+      def lit (new JSNode())
+      lit.nodeType = "Literal"
+      lit.strValue = tok.value
+      lit.strValue2 = "string"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    if ((tokVal == "true") || (tokVal == "false")) {
+      this.advance()
+      def lit (new JSNode())
+      lit.nodeType = "Literal"
+      lit.strValue = tok.value
+      lit.strValue2 = "boolean"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    if (tokVal == "null") {
+      this.advance()
+      def lit (new JSNode())
+      lit.nodeType = "Literal"
+      lit.strValue = "null"
+      lit.strValue2 = "null"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    if (tokVal == "(") {
+      this.advance()
+      def expr (this.parseExpr())
+      this.expectValue(")")
+      return expr
+    }
+    
+    if (tokVal == "[") {
+      return (this.parseArray())
+    }
+    
+    if (tokVal == "{") {
+      return (this.parseObject())
+    }
+    
+    ; Fallback
+    this.advance()
+    def fallback (new JSNode())
+    fallback.nodeType = "Identifier"
+    fallback.strValue = tok.value
+    fallback.start = tok.start
+    fallback.end = tok.end
+    fallback.line = tok.line
+    fallback.col = tok.col
+    return fallback
+  }
+  
+  fn parseArray:JSNode () {
+    def arr (new JSNode())
+    arr.nodeType = "ArrayExpression"
+    def startTok (this.peek())
+    arr.start = startTok.start
+    arr.line = startTok.line
+    arr.col = startTok.col
+    
+    this.expectValue("[")
+    
+    while ((this.matchValue("]")) == false) {
+      if ((array_length arr.children) > 0) {
+        this.expectValue(",")
+      }
+      if (this.matchValue("]")) {
+        break
+      }
+      def elem (this.parseAssignment())
+      push arr.children elem
+    }
+    
+    this.expectValue("]")
+    
+    return arr
+  }
+  
+  fn parseObject:JSNode () {
+    def obj (new JSNode())
+    obj.nodeType = "ObjectExpression"
+    def startTok (this.peek())
+    obj.start = startTok.start
+    obj.line = startTok.line
+    obj.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while ((this.matchValue("}")) == false) {
+      if ((array_length obj.children) > 0) {
+        this.expectValue(",")
+      }
+      if (this.matchValue("}")) {
+        break
+      }
+      
+      def prop (new JSNode())
+      prop.nodeType = "Property"
+      
+      def keyTok (this.peek())
+      def keyType (this.peekType())
+      
+      if ((keyType == "Identifier") || (keyType == "String") || (keyType == "Number")) {
+        this.advance()
+        prop.strValue = keyTok.value
+        prop.start = keyTok.start
+        prop.line = keyTok.line
+        prop.col = keyTok.col
+        
+        this.expectValue(":")
+        def val (this.parseAssignment())
+        prop.left = val
+      }
+      
+      push obj.children prop
+    }
+    
+    this.expectValue("}")
+    
+    return obj
+  }
+}
+
+class JSParserMain {
+  sfn m@(main):void () {
+    def code:string "var x = 123;
+var y = 'hello';
+function add(a, b) {
+    return a + b;
+}
+var result = add(1, 2);
+if (x > 100) {
+    y = 'big';
+} else {
+    y = 'small';
+}
+var arr = [1, 2, 3];
+var obj = { name: 'test', value: 42 };
+"
+    
+    print "=== JavaScript ES5 Parser ==="
+    print ""
+    print "Input:"
+    print code
+    print ""
+    
+    ; Tokenize
+    def lexer:Lexer (new Lexer(code))
+    def tokens:[Token] (lexer.tokenize())
+    
+    print "--- Tokens: " + (array_length tokens) + " ---"
+    print ""
+    
+    ; Parse
+    print "--- AST ---"
+    def parser:SimpleParser (new SimpleParser())
+    parser.initParser(tokens)
+    def program:JSNode (parser.parseProgram())
+    
+    print "Program with " + (array_length program.children) + " statements:"
+    print ""
+    
+    ; Print AST
+    for program.children stmt:JSNode idx {
+      JSParserMain.printNode(stmt 0)
+    }
+  }
+  
+  sfn printNode:void (node:JSNode depth:int) {
+    def indent ""
+    def i 0
+    while (i < depth) {
+      indent = indent + "  "
+      i = i + 1
+    }
+    
+    def nodeType node.nodeType
+    def loc "[" + node.line + ":" + node.col + "]"
+    
+    if (nodeType == "VariableDeclaration") {
+      print indent + "VariableDeclaration " + loc
+      for node.children child:JSNode ci {
+        JSParserMain.printNode(child (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "VariableDeclarator") {
+      if (!null? node.left) {
+        def id (unwrap node.left)
+        print indent + "VariableDeclarator: " + id.strValue + " " + loc
+        if (!null? node.right) {
+          JSParserMain.printNode((unwrap node.right) (depth + 1))
+        }
+      }
+      return
+    }
+    
+    if (nodeType == "FunctionDeclaration") {
+      def paramNames ""
+      for node.children p:JSNode pi {
+        if (pi > 0) {
+          paramNames = paramNames + ", "
+        }
+        paramNames = paramNames + p.strValue
+      }
+      print indent + "FunctionDeclaration: " + node.strValue + "(" + paramNames + ") " + loc
+      if (!null? node.body) {
+        JSParserMain.printNode((unwrap node.body) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "BlockStatement") {
+      print indent + "BlockStatement " + loc
+      for node.children stmt:JSNode si {
+        JSParserMain.printNode(stmt (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "ReturnStatement") {
+      print indent + "ReturnStatement " + loc
+      if (!null? node.left) {
+        JSParserMain.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "IfStatement") {
+      print indent + "IfStatement " + loc
+      print indent + "  test:"
+      if (!null? node.test) {
+        JSParserMain.printNode((unwrap node.test) (depth + 2))
+      }
+      print indent + "  consequent:"
+      if (!null? node.body) {
+        JSParserMain.printNode((unwrap node.body) (depth + 2))
+      }
+      if (!null? node.alternate) {
+        print indent + "  alternate:"
+        JSParserMain.printNode((unwrap node.alternate) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "ExpressionStatement") {
+      print indent + "ExpressionStatement " + loc
+      if (!null? node.left) {
+        JSParserMain.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "AssignmentExpression") {
+      print indent + "AssignmentExpression: " + node.strValue + " " + loc
+      if (!null? node.left) {
+        print indent + "  left:"
+        JSParserMain.printNode((unwrap node.left) (depth + 2))
+      }
+      if (!null? node.right) {
+        print indent + "  right:"
+        JSParserMain.printNode((unwrap node.right) (depth + 2))
+      }
+      return
+    }
+    
+    if ((nodeType == "BinaryExpression") || (nodeType == "LogicalExpression")) {
+      print indent + nodeType + ": " + node.strValue + " " + loc
+      if (!null? node.left) {
+        print indent + "  left:"
+        JSParserMain.printNode((unwrap node.left) (depth + 2))
+      }
+      if (!null? node.right) {
+        print indent + "  right:"
+        JSParserMain.printNode((unwrap node.right) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "UnaryExpression") {
+      print indent + "UnaryExpression: " + node.strValue + " " + loc
+      if (!null? node.left) {
+        JSParserMain.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "CallExpression") {
+      print indent + "CallExpression " + loc
+      if (!null? node.left) {
+        print indent + "  callee:"
+        JSParserMain.printNode((unwrap node.left) (depth + 2))
+      }
+      if ((array_length node.children) > 0) {
+        print indent + "  arguments:"
+        for node.children arg:JSNode ai {
+          JSParserMain.printNode(arg (depth + 2))
+        }
+      }
+      return
+    }
+    
+    if (nodeType == "MemberExpression") {
+      if (node.strValue2 == "dot") {
+        print indent + "MemberExpression: ." + node.strValue + " " + loc
+      } {
+        print indent + "MemberExpression: [computed] " + loc
+      }
+      if (!null? node.left) {
+        JSParserMain.printNode((unwrap node.left) (depth + 1))
+      }
+      if (!null? node.right) {
+        JSParserMain.printNode((unwrap node.right) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "Identifier") {
+      print indent + "Identifier: " + node.strValue + " " + loc
+      return
+    }
+    
+    if (nodeType == "Literal") {
+      print indent + "Literal: " + node.strValue + " (" + node.strValue2 + ") " + loc
+      return
+    }
+    
+    if (nodeType == "ArrayExpression") {
+      print indent + "ArrayExpression " + loc
+      for node.children elem:JSNode ei {
+        JSParserMain.printNode(elem (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "ObjectExpression") {
+      print indent + "ObjectExpression " + loc
+      for node.children prop:JSNode pi {
+        JSParserMain.printNode(prop (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "Property") {
+      print indent + "Property: " + node.strValue + " " + loc
+      if (!null? node.left) {
+        JSParserMain.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    ; Default
+    print indent + nodeType + " " + loc
+  }
+}

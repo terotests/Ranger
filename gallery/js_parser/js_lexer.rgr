@@ -1,0 +1,379 @@
+; JavaScript ES5 Lexer
+Import "js_token.rgr"
+
+class Lexer {
+    def source:string ""
+    def pos:int 0
+    def line:int 1
+    def col:int 1
+    def len:int 0
+
+    Constructor (src:string) {
+        source = src
+        len = (strlen src)
+    }
+
+    fn peek:string () {
+        if (pos >= len) {
+            return ""
+        }
+        return (at source pos)
+    }
+
+    fn peekAt:string (offset:int) {
+        def idx (pos + offset)
+        if (idx >= len) {
+            return ""
+        }
+        return (at source idx)
+    }
+
+    fn advance:string () {
+        if (pos >= len) {
+            return ""
+        }
+        def ch:string (at source pos)
+        pos = pos + 1
+        if (ch == "\n") {
+            line = line + 1
+            col = 1
+        } {
+            col = col + 1
+        }
+        return ch
+    }
+
+    fn isDigit:boolean (ch:string) {
+        if (ch == "0") { return true }
+        if (ch == "1") { return true }
+        if (ch == "2") { return true }
+        if (ch == "3") { return true }
+        if (ch == "4") { return true }
+        if (ch == "5") { return true }
+        if (ch == "6") { return true }
+        if (ch == "7") { return true }
+        if (ch == "8") { return true }
+        if (ch == "9") { return true }
+        return false
+    }
+
+    fn isAlpha:boolean (ch:string) {
+        if ((strlen ch) == 0) { return false }
+        def code:int (charAt source pos)
+        ; a-z: 97-122, A-Z: 65-90
+        if (code >= 97) {
+            if (code <= 122) {
+                return true
+            }
+        }
+        if (code >= 65) {
+            if (code <= 90) {
+                return true
+            }
+        }
+        if (ch == "_") { return true }
+        if (ch == "$") { return true }
+        return false
+    }
+
+    fn isAlphaNumCh:boolean (ch:string) {
+        if (this.isDigit(ch)) { return true }
+        if (ch == "_") { return true }
+        if (ch == "$") { return true }
+        if ((strlen ch) == 0) { return false }
+        def code:int (charAt source pos)
+        if (code >= 97) {
+            if (code <= 122) {
+                return true
+            }
+        }
+        if (code >= 65) {
+            if (code <= 90) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn isWhitespace:boolean (ch:string) {
+        if (ch == " ") { return true }
+        if (ch == "\t") { return true }
+        if (ch == "\n") { return true }
+        if (ch == "\r") { return true }
+        return false
+    }
+
+    fn skipWhitespace:void () {
+        while (pos < len) {
+            def ch:string (this.peek())
+            if (this.isWhitespace(ch)) {
+                this.advance()
+            } {
+                return
+            }
+        }
+    }
+
+    fn skipLineComment:void () {
+        while (pos < len) {
+            def ch:string (this.advance())
+            if (ch == "\n") {
+                return
+            }
+        }
+    }
+
+    fn skipBlockComment:void () {
+        while (pos < len) {
+            def ch:string (this.advance())
+            if (ch == "*") {
+                if ((this.peek()) == "/") {
+                    this.advance()
+                    return
+                }
+            }
+        }
+    }
+
+    fn makeToken:Token (type:string value:string startPos:int startLine:int startCol:int) {
+        def tok (new Token())
+        tok.type = type
+        tok.value = value
+        tok.start = startPos
+        tok.end = pos
+        tok.line = startLine
+        tok.col = startCol
+        return tok
+    }
+
+    fn readString:Token (quote:string) {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        this.advance() ; consume opening quote
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peek())
+            if (ch == quote) {
+                this.advance()
+                return (this.makeToken("String" value startPos startLine startCol))
+            }
+            if (ch == "\\") {
+                this.advance()
+                def esc:string (this.advance())
+                if (esc == "n") { value = value + "\n" }
+                if (esc == "t") { value = value + "\t" }
+                if (esc == "r") { value = value + "\r" }
+                if (esc == "\\") { value = value + "\\" }
+                if (esc == quote) { value = value + quote }
+            } {
+                value = value + (this.advance())
+            }
+        }
+        return (this.makeToken("String" value startPos startLine startCol))
+    }
+
+    fn readNumber:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peek())
+            if (this.isDigit(ch)) {
+                value = value + (this.advance())
+            } {
+                if (ch == ".") {
+                    value = value + (this.advance())
+                } {
+                    return (this.makeToken("Number" value startPos startLine startCol))
+                }
+            }
+        }
+        return (this.makeToken("Number" value startPos startLine startCol))
+    }
+
+    fn readIdentifier:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peek())
+            if (this.isAlphaNumCh(ch)) {
+                value = value + (this.advance())
+            } {
+                return (this.makeToken((this.identType(value)) value startPos startLine startCol))
+            }
+        }
+        return (this.makeToken((this.identType(value)) value startPos startLine startCol))
+    }
+
+    fn identType:string (value:string) {
+        ; Keywords
+        if (value == "var") { return "Keyword" }
+        if (value == "function") { return "Keyword" }
+        if (value == "return") { return "Keyword" }
+        if (value == "if") { return "Keyword" }
+        if (value == "else") { return "Keyword" }
+        if (value == "while") { return "Keyword" }
+        if (value == "for") { return "Keyword" }
+        if (value == "in") { return "Keyword" }
+        if (value == "switch") { return "Keyword" }
+        if (value == "case") { return "Keyword" }
+        if (value == "default") { return "Keyword" }
+        if (value == "break") { return "Keyword" }
+        if (value == "continue") { return "Keyword" }
+        if (value == "try") { return "Keyword" }
+        if (value == "catch") { return "Keyword" }
+        if (value == "finally") { return "Keyword" }
+        if (value == "throw") { return "Keyword" }
+        if (value == "new") { return "Keyword" }
+        if (value == "typeof") { return "Keyword" }
+        if (value == "instanceof") { return "Keyword" }
+        if (value == "this") { return "Keyword" }
+        if (value == "true") { return "Boolean" }
+        if (value == "false") { return "Boolean" }
+        if (value == "null") { return "Null" }
+        return "Identifier"
+    }
+
+    fn nextToken:Token () {
+        this.skipWhitespace()
+        
+        if (pos >= len) {
+            return (this.makeToken("EOF" "" pos line col))
+        }
+
+        def ch:string (this.peek())
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+
+        ; Comments
+        if (ch == "/") {
+            def next:string (this.peekAt(1))
+            if (next == "/") {
+                this.advance()
+                this.advance()
+                this.skipLineComment()
+                return (this.nextToken())
+            }
+            if (next == "*") {
+                this.advance()
+                this.advance()
+                this.skipBlockComment()
+                return (this.nextToken())
+            }
+        }
+
+        ; Strings
+        if (ch == "\"") { return (this.readString("\"")) }
+        if (ch == "'") { return (this.readString("'")) }
+
+        ; Numbers
+        if (this.isDigit(ch)) { return (this.readNumber()) }
+
+        ; Identifiers and keywords
+        if (this.isAlpha(ch)) { return (this.readIdentifier()) }
+
+        ; Multi-char punctuators
+        def next:string (this.peekAt(1))
+        
+        ; ===, !==
+        if (ch == "=") {
+            if (next == "=") {
+                if ((this.peekAt(2)) == "=") {
+                    this.advance()
+                    this.advance()
+                    this.advance()
+                    return (this.makeToken("Punctuator" "===" startPos startLine startCol))
+                }
+            }
+        }
+        if (ch == "!") {
+            if (next == "=") {
+                if ((this.peekAt(2)) == "=") {
+                    this.advance()
+                    this.advance()
+                    this.advance()
+                    return (this.makeToken("Punctuator" "!==" startPos startLine startCol))
+                }
+            }
+        }
+
+        ; ==, !=, <=, >=, &&, ||, ++, --
+        if (ch == "=") {
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "==" startPos startLine startCol))
+            }
+        }
+        if (ch == "!") {
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "!=" startPos startLine startCol))
+            }
+        }
+        if (ch == "<") {
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "<=" startPos startLine startCol))
+            }
+        }
+        if (ch == ">") {
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" ">=" startPos startLine startCol))
+            }
+        }
+        if (ch == "&") {
+            if (next == "&") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "&&" startPos startLine startCol))
+            }
+        }
+        if (ch == "|") {
+            if (next == "|") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "||" startPos startLine startCol))
+            }
+        }
+        if (ch == "+") {
+            if (next == "+") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "++" startPos startLine startCol))
+            }
+        }
+        if (ch == "-") {
+            if (next == "-") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "--" startPos startLine startCol))
+            }
+        }
+
+        ; Single char punctuators
+        this.advance()
+        return (this.makeToken("Punctuator" ch startPos startLine startCol))
+    }
+
+    fn tokenize:[Token] () {
+        def tokens:[Token]
+        while (true) {
+            def tok:Token (this.nextToken())
+            push tokens tok
+            if (tok.type == "EOF") {
+                return tokens
+            }
+        }
+        return tokens
+    }
+}
