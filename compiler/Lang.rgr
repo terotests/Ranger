@@ -37,13 +37,6 @@ language {
     ; Use "after_imports" for global variables that classes depend on.
     ; Polyfills are deduplicated - identical code won't be added twice.
     ;
-    ; TARGET FALLBACK
-    ; ---------------
-    ; If a target-specific template is not found:
-    ;   1. Exact target match (e.g., "swift6")
-    ;   2. Fallback target (e.g., swift6 -> swift3)
-    ;   3. Wildcard "*" template
-    ;
     ; ============================================================================
 
     ; compilation targets might be defined here like this
@@ -1043,6 +1036,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     rust ( "[" (e 1) " , (" (e 2)".to_string()) ].join(\"\")" )
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     swift6 ( (e 1) " + String(" (e 2)")" )
+                    kotlin ( (e 1) " + " (e 2)".toString()" )
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
                     python ( (e 1) " + str(" (e 2) ")" )
@@ -1056,6 +1050,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatInt(" (e 2) ", 10) }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     swift6 ( (e 1) " + String(" (e 2)")" )
+                    kotlin ( (e 1) " + " (e 2)".toString()" )
                     rust ( "[" (e 1) " , (" (e 2)".to_string()) ].join(\"\")" )
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
@@ -1074,6 +1069,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
             templates { 
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
+                    kotlin ( (e 1) ".toString() + " (e 2) )
                     * ( (e 1) " + " (e 2) ) 
                     php ( (e 1) " . " (e 2) ) 
                     rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
@@ -1085,6 +1081,7 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
                     go ( "strings.Join([]string{ strconv.FormatInt(" (e 1) ", 10)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
+                    kotlin ( (e 1) ".toString() + " (e 2) )
                     rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
                     cpp ( "std::to_string(" (e 1) ") + " (e 2) )
                     php ( (e 1) " . " (e 2) ) 
@@ -3030,6 +3027,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  go ( nl "fmt.Print( " (e 1) " )" nl (imp "fmt"))
                  rust ( nl "print!(\"{}\", " (e 1) ");" nl)
                  java7 ( nl "System.out.print(String.valueOf(" (e 1) "));" nl)
+                 kotlin ( nl "print(" (e 1) ")" nl)
                  php ( nl "echo " (e 1) ";" nl)
                  python ( nl "print(" (e 1) ", end='')" nl)
                  csharp ( nl "Console.Write(" (e 1) ");" nl (imp "System"))
@@ -3046,6 +3044,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  go ( nl "fmt.Print(\"\\x1b[2J\\x1b[H\")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[2J\\x1b[H\");" nl)
                  java7 ( nl "System.out.print(\"\\033[2J\\033[H\");" nl)
+                 kotlin ( nl "print(\"\\u001b[2J\\u001b[H\")" nl)
                  php ( nl "echo \"\\x1b[2J\\x1b[H\";" nl)
                  python ( nl "print(\"\\x1b[2J\\x1b[H\", end='')" nl)
                  csharp ( nl "Console.Write(\"\\x1b[2J\\x1b[H\");" nl (imp "System"))
@@ -3058,11 +3057,12 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Move cursor to position (1-based coordinates)
         move_cursor     cmdMoveCursor:void      ( x:int y:int) {
             templates {
-                 cpp ( nl "std::cout << \"\\x1b[\" << " (e 2) " << \";\" << " (e 1) " << \"H\" << std::flush;" nl (imp "<iostream>"))
+                 cpp ( nl "std::cout << \"\\x1b[\" << (" (e 2) ") << \";\" << (" (e 1) ") << \"H\" << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Printf(\"\\x1b[%d;%dH\", " (e 2) ", " (e 1) ")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[{};{}H\", " (e 2) ", " (e 1) ");" nl)
-                 java7 ( nl "System.out.print(\"\\033[\" + " (e 2) " + \";\" + " (e 1) " + \"H\");" nl)
-                 php ( nl "echo \"\\x1b[\" . " (e 2) " . \";\" . " (e 1) " . \"H\";" nl)
+                 java7 ( nl "System.out.print(\"\\033[\" + (" (e 2) ") + \";\" + (" (e 1) ") + \"H\");" nl)
+                 kotlin ( nl "print(\"\\u001b[\" + (" (e 2) ") + \";\" + (" (e 1) ") + \"H\")" nl)
+                 php ( nl "echo \"\\x1b[\" . (" (e 2) ") . \";\" . (" (e 1) ") . \"H\";" nl)
                  python ( nl "print(f\"\\x1b[{" (e 2) "};{" (e 1) "}H\", end='')" nl)
                  csharp ( nl "Console.Write($\"\\x1b[{" (e 2) "};{" (e 1) "}H\");" nl (imp "System"))
                  swift3 ( nl "print(\"\\u{1b}[\\(" (e 2) ");\\(" (e 1) ")H\", terminator: \"\")" nl)
@@ -3078,6 +3078,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  go ( nl "fmt.Print(\"\\x1b[?25l\")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[?25l\");" nl)
                  java7 ( nl "System.out.print(\"\\033[?25l\");" nl)
+                 kotlin ( nl "print(\"\\u001b[?25l\")" nl)
                  php ( nl "echo \"\\x1b[?25l\";" nl)
                  python ( nl "print(\"\\x1b[?25l\", end='')" nl)
                  csharp ( nl "Console.Write(\"\\x1b[?25l\");" nl (imp "System"))
@@ -3094,6 +3095,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  go ( nl "fmt.Print(\"\\x1b[?25h\")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[?25h\");" nl)
                  java7 ( nl "System.out.print(\"\\033[?25h\");" nl)
+                 kotlin ( nl "print(\"\\u001b[?25h\")" nl)
                  php ( nl "echo \"\\x1b[?25h\";" nl)
                  python ( nl "print(\"\\x1b[?25h\", end='')" nl)
                  csharp ( nl "Console.Write(\"\\x1b[?25h\");" nl (imp "System"))
@@ -3666,6 +3668,102 @@ func r_read_key() -> String? {
 #endif
 ")
                  )
+                 kotlin ( nl
+                    "r_key_channel = java.util.concurrent.LinkedBlockingQueue<String>()" nl
+                    "Thread {" nl I
+                    "r_setup_raw_mode()" nl
+                    "while (true) {" nl I
+                    "val k = r_read_key()" nl
+                    "if (k.isNotEmpty()) {" nl I
+                    "r_key_channel?.offer(k)" nl
+                    i "}" nl
+                    i "}" nl i
+                    "}.start()" nl
+                    (polyfill "after_imports" "
+var r_key_channel: java.util.concurrent.BlockingQueue<String>? = null
+var r_windows_key_process: Process? = null
+var r_windows_key_reader: java.io.BufferedReader? = null
+
+fun r_setup_raw_mode() {
+    val os = System.getProperty(\"os.name\").lowercase()
+    if (os.contains(\"win\")) {
+        // Start a persistent PowerShell process for reading keys
+        val pb = ProcessBuilder(\"powershell\", \"-NoProfile\", \"-Command\", 
+            \"[Console]::TreatControlCAsInput = \\$true; while(\\$true) { \\$k = \\$host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown'); [Console]::WriteLine(\\$k.VirtualKeyCode) }\")
+        pb.redirectErrorStream(true)
+        r_windows_key_process = pb.start()
+        r_windows_key_reader = r_windows_key_process?.inputStream?.bufferedReader()
+    } else {
+        Runtime.getRuntime().exec(arrayOf(\"/bin/sh\", \"-c\", \"stty -F /dev/tty cbreak min 1 -echo\"))
+    }
+    // Add shutdown hook to restore cursor
+    Runtime.getRuntime().addShutdownHook(Thread {
+        print(\"\\u001b[?25h\")
+        r_windows_key_process?.destroyForcibly()
+    })
+}
+
+fun r_read_key(): String {
+    val os = System.getProperty(\"os.name\").lowercase()
+    if (os.contains(\"win\")) {
+        // Read from persistent PowerShell process (blocks until key available)
+        try {
+            val reader = r_windows_key_reader ?: return \"\"
+            val line = reader.readLine() ?: return \"\"
+            val code = line.trim().toIntOrNull() ?: return \"\"
+            if (code == 3 || code == 67) { // Ctrl+C check
+                print(\"\\u001b[?25h\")
+                r_windows_key_process?.destroyForcibly()
+                System.exit(0)
+            }
+            return when (code) {
+                38 -> \"up\"
+                40 -> \"down\"
+                37 -> \"left\"
+                39 -> \"right\"
+                32 -> \"space\"
+                13 -> \"enter\"
+                27 -> \"escape\"
+                8 -> \"backspace\"
+                9 -> \"tab\"
+                else -> if (code in 65..90) code.toChar().lowercase() else \"\"
+            }
+        } catch (e: Exception) { return \"\" }
+    } else {
+        // Unix: read from stdin
+        try {
+            val buf = ByteArray(3)
+            val n = System.`in`.read(buf, 0, 1)
+            if (n <= 0) return \"\"
+            if (buf[0].toInt() == 3) { // Ctrl+C
+                print(\"\\u001b[?25h\")
+                System.exit(0)
+            }
+            if (buf[0].toInt() == 27) { // Escape sequence
+                System.`in`.read(buf, 1, 2)
+                if (buf[1].toInt() == 91) {
+                    return when (buf[2].toInt()) {
+                        65 -> \"up\"
+                        66 -> \"down\"
+                        67 -> \"right\"
+                        68 -> \"left\"
+                        else -> \"escape\"
+                    }
+                }
+                return \"escape\"
+            }
+            return when (buf[0].toInt()) {
+                8, 127 -> \"backspace\"
+                9 -> \"tab\"
+                10, 13 -> \"enter\"
+                32 -> \"space\"
+                else -> buf[0].toInt().toChar().toString()
+            }
+        } catch (e: Exception) { return \"\" }
+    }
+}
+")
+                 )
                  * ( nl "// on_keypress not implemented for this target" nl)
             }
         }
@@ -3697,6 +3795,9 @@ func r_read_key() -> String? {
                  swift6 (
                     "{ () -> String in r_key_queue_lock.lock(); defer { r_key_queue_lock.unlock() }; if r_key_queue.isEmpty { return \"\" }; return r_key_queue.removeFirst() }()"
                  )
+                 kotlin (
+                    "(r_key_channel?.poll() ?: \"\")"
+                 )
                  * ( "\"\"" )
             }
         }
@@ -3709,6 +3810,7 @@ func r_read_key() -> String? {
                  go ( nl "time.Sleep(time.Duration(" (e 1) ") * time.Millisecond)" nl (imp "time"))
                  cpp ( nl "std::this_thread::sleep_for(std::chrono::milliseconds(" (e 1) "));" nl (imp "<chrono>") (imp "<thread>"))
                  java7 ( nl "try { Thread.sleep(" (e 1) "); } catch (InterruptedException e) {}" nl )
+                 kotlin ( nl "Thread.sleep(" (e 1) ".toLong())" nl )
                  python ( nl "time.sleep(" (e 1) " / 1000.0)" nl (imp "time"))
                  csharp ( nl "System.Threading.Thread.Sleep(" (e 1) ");" nl )
                  php ( nl "usleep(" (e 1) " * 1000);" nl )
