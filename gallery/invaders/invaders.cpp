@@ -14,74 +14,76 @@ class Bullet;
 class Invaders;
 
 typedef mpark::variant<std::shared_ptr<Alien>, std::shared_ptr<Bullet>, std::shared_ptr<Invaders>, int, std::string, bool, double>  r_union_Any;
-
-#include <string>
-#include <queue>
-#include <mutex>
-
-std::queue<std::string> r_key_queue;
-std::mutex r_key_mutex;
-
-#ifdef _WIN32
-#include <conio.h>
-void r_setup_raw_mode() {}
-std::string r_read_key() {
-    if (!_kbhit()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        return "";
-    }
-    int ch = _getch();
-    if (ch == 3) { std::cout << "\x1b[?25h"; exit(0); }
-    if (ch == 224 || ch == 0) {
-        int ch2 = _getch();
-        switch (ch2) {
-            case 72: return "up";
-            case 80: return "down";
-            case 75: return "left";
-            case 77: return "right";
-        }
-        return "";
-    }
-    switch (ch) {
-        case 8: return "backspace";
-        case 9: return "tab";
-        case 13: return "enter";
-        case 27: return "escape";
-        case 32: return "space";
-    }
-    return std::string(1, (char)ch);
-}
-#else
-#include <termios.h>
-#include <unistd.h>
-void r_setup_raw_mode() {
-    system("stty cbreak min 1 -echo");
-}
-std::string r_read_key() {
-    char buf[3];
-    if (read(STDIN_FILENO, buf, 1) <= 0) return "";
-    if (buf[0] == 3) { std::cout << "\x1b[?25h"; exit(0); }
-    if (buf[0] == 27) {
-        read(STDIN_FILENO, buf+1, 2);
-        if (buf[1] == 91) {
-            switch (buf[2]) {
-                case 65: return "up";
-                case 66: return "down";
-                case 67: return "right";
-                case 68: return "left";
-            }
-        }
-        return "escape";
-    }
-    switch (buf[0]) {
-        case 8: case 127: return "backspace";
-        case 9: return "tab";
-        case 10: case 13: return "enter";
-        case 32: return "space";
-    }
-    return std::string(1, buf[0]);
-}
-#endif
+
+#include <string>
+#include <queue>
+#include <mutex>
+#include <thread>
+#include <chrono>
+
+std::queue<std::string> r_key_queue;
+std::mutex r_key_mutex;
+
+#ifdef _WIN32
+#include <conio.h>
+void r_setup_raw_mode() {}
+std::string r_read_key() {
+    if (!_kbhit()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return "";
+    }
+    int ch = _getch();
+    if (ch == 3) { std::cout << "\x1b[?25h"; exit(0); }
+    if (ch == 224 || ch == 0) {
+        int ch2 = _getch();
+        switch (ch2) {
+            case 72: return "up";
+            case 80: return "down";
+            case 75: return "left";
+            case 77: return "right";
+        }
+        return "";
+    }
+    switch (ch) {
+        case 8: return "backspace";
+        case 9: return "tab";
+        case 13: return "enter";
+        case 27: return "escape";
+        case 32: return "space";
+    }
+    return std::string(1, (char)ch);
+}
+#else
+#include <termios.h>
+#include <unistd.h>
+void r_setup_raw_mode() {
+    system("stty cbreak min 1 -echo");
+}
+std::string r_read_key() {
+    char buf[3];
+    if (read(STDIN_FILENO, buf, 1) <= 0) return "";
+    if (buf[0] == 3) { std::cout << "\x1b[?25h"; exit(0); }
+    if (buf[0] == 27) {
+        read(STDIN_FILENO, buf+1, 2);
+        if (buf[1] == 91) {
+            switch (buf[2]) {
+                case 65: return "up";
+                case 66: return "down";
+                case 67: return "right";
+                case 68: return "left";
+            }
+        }
+        return "escape";
+    }
+    switch (buf[0]) {
+        case 8: case 127: return "backspace";
+        case 9: return "tab";
+        case 10: case 13: return "enter";
+        case 32: return "space";
+    }
+    return std::string(1, buf[0]);
+}
+#endif
 
 
 // header definitions
@@ -517,17 +519,16 @@ int main(int argc, char* argv[]) {
   std::cout << std::string("") << std::endl;
   std::cout << std::string("Starting game...") << std::endl;
   std::string key = std::string("");
-  std::thread([&]() {
+  std::thread([]() {
     r_setup_raw_mode();
     while (true) {
       std::string k = r_read_key();
       if (!k.empty()) {
-        key = k;
         {
           std::lock_guard<std::mutex> lock(r_key_mutex);
           r_key_queue.push(k);
         }
-        game->handleKey(key);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
       }
     }
   }).detach();

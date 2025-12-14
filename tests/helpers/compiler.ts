@@ -990,7 +990,7 @@ export function getGeneratedRustCode(
   outputDir?: string
 ): { success: boolean; code: string; error?: string } {
   const result = compileRangerToRust(sourceFile, outputDir);
-  
+
   if (!result.success) {
     return {
       success: false,

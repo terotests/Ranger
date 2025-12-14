@@ -653,7 +653,7 @@ fn r_setup_raw_mode() {
 
 #[cfg(unix)]
 fn r_setup_raw_mode() {
-    // Unix implementation  
+    // Unix implementation
 }
 ")
             )

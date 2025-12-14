@@ -1,3 +1,4 @@
+import Foundation
 func ==(l: Alien, r: Alien) -> Bool {
   return l === r
 }
@@ -365,21 +366,19 @@ func __main__swift() {
   print("")
   print("Starting game...")
   let key : String = ""
+  _ = key
   r_key_channel = DispatchQueue(label: "keypress")
   r_key_channel!.async {
     r_setup_raw_mode()
     while true {
       if let k = r_read_key(), !k.isEmpty {
-        key = k
         r_key_queue_lock.lock()
         r_key_queue.append(k)
         r_key_queue_lock.unlock()
-        game.handleKey(key : key)
+        Thread.sleep(forTimeInterval: 0.05)
       }
     }
   }
-  
-  import Foundation
   
   var r_key_channel: DispatchQueue? = nil
   var r_key_queue: [String] = []

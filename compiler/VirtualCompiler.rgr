@@ -603,6 +603,7 @@ class tester {
         
         def importFork:CodeWriter (wr.fork())
         def contentFork (wr.fork())
+        wr.createTag("utilities")
         def theEnd (wr.createTag("file_end"))
 
         wr = contentFork

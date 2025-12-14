@@ -3236,15 +3236,15 @@ fn r_read_key() -> Option<String> {
                     "threading.Thread(target=_keypress_listener, daemon=True).start()" nl
                  )
                  go ( nl
+                    "_ = " (e 1) nl
                     "r_key_channel = make(chan string, 100)" nl
                     "go func() {" nl I
                     "r_setup_raw_mode()" nl
                     "for {" nl I
                     "if k := r_read_key(); k != \"\" {" nl I
-                    (e 1) " = k" nl
                     "r_key_channel <- k" nl
-                    (block 2)
-                    i nl "}" nl
+                    "time.Sleep(50 * time.Millisecond)" nl
+                    i "}" nl
                     i "}" nl i
                     "}()" nl
                     (imp "os")
@@ -3352,17 +3352,16 @@ func r_read_key() string {
 ")
                  )
                  cpp ( nl
-                    "std::thread([&]() {" nl I
+                    "std::thread([]() {" nl I
                     "r_setup_raw_mode();" nl
                     "while (true) {" nl I
                     "std::string k = r_read_key();" nl
                     "if (!k.empty()) {" nl I
-                    (e 1) " = k;" nl
                     "{" nl I
                     "std::lock_guard<std::mutex> lock(r_key_mutex);" nl
                     "r_key_queue.push(k);" nl
                     i "}" nl
-                    (block 2)
+                    "std::this_thread::sleep_for(std::chrono::milliseconds(50));" nl
                     i "}" nl
                     i "}" nl i
                     "}).detach();" nl
@@ -3373,6 +3372,8 @@ func r_read_key() string {
 #include <string>
 #include <queue>
 #include <mutex>
+#include <thread>
+#include <chrono>
 
 std::queue<std::string> r_key_queue;
 std::mutex r_key_mutex;
@@ -3440,22 +3441,21 @@ std::string r_read_key() {
 ")
                  )
                  swift3 ( nl
+                    "_ = " (e 1) nl
                     "r_key_channel = DispatchQueue(label: \"keypress\")" nl
                     "r_key_channel!.async {" nl I
                     "r_setup_raw_mode()" nl
                     "while true {" nl I
                     "if let k = r_read_key(), !k.isEmpty {" nl I
-                    (e 1) " = k" nl
                     "r_key_queue_lock.lock()" nl
                     "r_key_queue.append(k)" nl
                     "r_key_queue_lock.unlock()" nl
-                    (block 2)
+                    "Thread.sleep(forTimeInterval: 0.05)" nl
                     i "}" nl
                     i "}" nl i
                     "}" nl
+                    (imp "Foundation")
                     (create_polyfill "
-import Foundation
-
 var r_key_channel: DispatchQueue? = nil
 var r_key_queue: [String] = []
 var r_key_queue_lock = NSLock()
@@ -3496,22 +3496,21 @@ func r_read_key() -> String? {
 ")
                  )
                  swift6 ( nl
+                    "_ = " (e 1) nl
                     "r_key_channel = DispatchQueue(label: \"keypress\")" nl
                     "r_key_channel!.async {" nl I
                     "r_setup_raw_mode()" nl
                     "while true {" nl I
                     "if let k = r_read_key(), !k.isEmpty {" nl I
-                    (e 1) " = k" nl
                     "r_key_queue_lock.lock()" nl
                     "r_key_queue.append(k)" nl
                     "r_key_queue_lock.unlock()" nl
-                    (block 2)
+                    "Thread.sleep(forTimeInterval: 0.05)" nl
                     i "}" nl
                     i "}" nl i
                     "}" nl
+                    (imp "Foundation")
                     (create_polyfill "
-import Foundation
-
 var r_key_channel: DispatchQueue? = nil
 var r_key_queue: [String] = []
 var r_key_queue_lock = NSLock()
