@@ -1,3 +1,4 @@
+import Foundation
 func ==(l: Token, r: Token) -> Bool {
   return l === r
 }
@@ -20,28 +21,28 @@ class Lexer : Equatable  {
   var __len : Int = 0
   init(src : String ) {
     self.source = src;
-    self.__len = src.length;
+    self.__len = src.count;
   }
   func peek() -> String {
     if ( self.pos >= self.__len ) {
       return "";
     }
-    return self.source[self.pos];
+    return String(self.source[self.source.index(self.source.startIndex, offsetBy:self.pos)]);
   }
   func peekAt(offset : Int) -> String {
     let idx : Int = self.pos + offset
     if ( idx >= self.__len ) {
       return "";
     }
-    return self.source[idx];
+    return String(self.source[self.source.index(self.source.startIndex, offsetBy:idx)]);
   }
   func advance() -> String {
     if ( self.pos >= self.__len ) {
       return "";
     }
-    let ch : String = self.source[self.pos]
+    let ch : String = String(self.source[self.source.index(self.source.startIndex, offsetBy:self.pos)])
     self.pos = self.pos + 1;
-    if ( ch == "\n" ) {
+    if ( (ch == "\n") || (ch == "\r\n") ) {
       self.line = self.line + 1;
       self.col = 1;
     } else {
@@ -83,10 +84,10 @@ class Lexer : Equatable  {
     return false;
   }
   func isAlpha(ch : String) -> Bool {
-    if ( (ch.length) == 0 ) {
+    if ( (ch.count) == 0 ) {
       return false;
     }
-    let code : Int = self.source.charCodeAt(self.pos )
+    let code : Int = Int(self.source[self.source.index(self.source.startIndex, offsetBy: self.pos)].asciiValue ?? 0)
     if ( code >= 97 ) {
       if ( code <= 122 ) {
         return true;
@@ -115,10 +116,10 @@ class Lexer : Equatable  {
     if ( ch == "$" ) {
       return true;
     }
-    if ( (ch.length) == 0 ) {
+    if ( (ch.count) == 0 ) {
       return false;
     }
-    let code : Int = self.source.charCodeAt(self.pos )
+    let code : Int = Int(self.source[self.source.index(self.source.startIndex, offsetBy: self.pos)].asciiValue ?? 0)
     if ( code >= 97 ) {
       if ( code <= 122 ) {
         return true;
@@ -144,6 +145,9 @@ class Lexer : Equatable  {
     if ( ch == "\r" ) {
       return true;
     }
+    if ( ch == "\r\n" ) {
+      return true;
+    }
     return false;
   }
   func skipWhitespace() -> Void {
@@ -166,6 +170,9 @@ class Lexer : Equatable  {
     while (self.pos < self.__len) {
       let ch : String = self.peek()
       if ( ch == "\n" ) {
+        return self.makeToken(tokType : "LineComment", value : value, startPos : startPos, startLine : startLine, startCol : startCol);
+      }
+      if ( ch == "\r\n" ) {
         return self.makeToken(tokType : "LineComment", value : value, startPos : startPos, startLine : startLine, startCol : startCol);
       }
       value = value + self.advance();
@@ -637,7 +644,7 @@ class Lexer : Equatable  {
               _ = self.advance()
               break;
             } else {
-              if ( (ch == "\n") || (ch == "\r") ) {
+              if ( ((ch == "\n") || (ch == "\r")) || (ch == "\r\n") ) {
                 return self.makeToken(tokType : "RegexLiteral", value : pattern, startPos : startPos, startLine : startLine, startCol : startCol);
               } else {
                 pattern = pattern + self.advance();
@@ -705,7 +712,7 @@ class SimpleParser : Equatable  {
   func initParser(toks : [Token]) -> Void {
     self.tokens = toks;
     self.pos = 0;
-    if ( (toks.length) > 0 ) {
+    if ( (toks.count) > 0 ) {
       self.currentToken = toks[0];
     }
     self.skipComments()
@@ -715,7 +722,7 @@ class SimpleParser : Equatable  {
     self.source = src;
     self.lexer = Lexer(src : src);
     self.pos = 0;
-    if ( (toks.length) > 0 ) {
+    if ( (toks.count) > 0 ) {
       self.currentToken = toks[0];
     }
     self.skipComments()
@@ -749,7 +756,7 @@ class SimpleParser : Equatable  {
   }
   func advanceRaw() -> Void {
     self.pos = self.pos + 1;
-    if ( self.pos < (self.tokens.length) ) {
+    if ( self.pos < (self.tokens.count) ) {
       self.currentToken = self.tokens[self.pos];
     } else {
       let eof : Token = Token()
@@ -774,20 +781,20 @@ class SimpleParser : Equatable  {
     }
   }
   func peek() -> Token {
-    return self.currentToken;
+    return self.currentToken!;
   }
   func peekType() -> String {
-    if ( self.currentToken== null ) {
+    if ( self.currentToken == nil ) {
       return "EOF";
     }
-    let tok : Token = self.currentToken
+    let tok : Token = self.currentToken!
     return tok.tokenType;
   }
   func peekValue() -> String {
-    if ( self.currentToken== null ) {
+    if ( self.currentToken == nil ) {
       return "";
     }
-    let tok : Token = self.currentToken
+    let tok : Token = self.currentToken!
     return tok.value;
   }
   func advance() -> Void {
@@ -828,21 +835,21 @@ class SimpleParser : Equatable  {
     return v == value;
   }
   func hasErrors() -> Bool {
-    return (self.errors.length) > 0;
+    return (self.errors.count) > 0;
   }
   func parseRegexLiteral() -> JSNode {
     let tok : Token = self.peek()
     let startPos : Int = tok.start
     let startLine : Int = tok.line
     let startCol : Int = tok.col
-    if ( self.lexer== null ) {
+    if ( self.lexer == nil ) {
       let err : JSNode = JSNode()
       err.nodeType = "Identifier";
       err.strValue = "regex_error";
       self.advance()
       return err;
     }
-    let lex : Lexer = self.lexer
+    let lex : Lexer = self.lexer!
     lex.pos = startPos;
     lex.line = startLine;
     lex.col = startCol;
@@ -852,16 +859,16 @@ class SimpleParser : Equatable  {
     var flags : String = ""
     var lastSlash : Int = -1
     var i : Int = 0
-    while (i < (fullValue.length)) {
-      let ch : String = fullValue[i]
+    while (i < (fullValue.count)) {
+      let ch : String = String(fullValue[fullValue.index(fullValue.startIndex, offsetBy:i)])
       if ( ch == "/" ) {
         lastSlash = i;
       }
       i = i + 1;
     }
     if ( lastSlash >= 0 ) {
-      pattern = fullValue.substring(0, lastSlash );
-      flags = fullValue.substring((lastSlash + 1), (fullValue.length) );
+      pattern = String(fullValue[fullValue.index(fullValue.startIndex, offsetBy:0)..<fullValue.index(fullValue.startIndex, offsetBy:lastSlash)]);
+      flags = String(fullValue[fullValue.index(fullValue.startIndex, offsetBy:(lastSlash + 1))..<fullValue.index(fullValue.startIndex, offsetBy:(fullValue.count))]);
     } else {
       pattern = fullValue;
     }
@@ -900,70 +907,70 @@ class SimpleParser : Equatable  {
     if ( tokVal == "var" ) {
       stmt = self.parseVarDecl();
     }
-    if ( (stmt== null) && (tokVal == "let") ) {
+    if ( (stmt == nil) && (tokVal == "let") ) {
       stmt = self.parseLetDecl();
     }
-    if ( (stmt== null) && (tokVal == "const") ) {
+    if ( (stmt == nil) && (tokVal == "const") ) {
       stmt = self.parseConstDecl();
     }
-    if ( (stmt== null) && (tokVal == "function") ) {
+    if ( (stmt == nil) && (tokVal == "function") ) {
       stmt = self.parseFuncDecl();
     }
-    if ( (stmt== null) && (tokVal == "async") ) {
+    if ( (stmt == nil) && (tokVal == "async") ) {
       stmt = self.parseAsyncFuncDecl();
     }
-    if ( (stmt== null) && (tokVal == "class") ) {
+    if ( (stmt == nil) && (tokVal == "class") ) {
       stmt = self.parseClass();
     }
-    if ( (stmt== null) && (tokVal == "import") ) {
+    if ( (stmt == nil) && (tokVal == "import") ) {
       stmt = self.parseImport();
     }
-    if ( (stmt== null) && (tokVal == "export") ) {
+    if ( (stmt == nil) && (tokVal == "export") ) {
       stmt = self.parseExport();
     }
-    if ( (stmt== null) && (tokVal == "return") ) {
+    if ( (stmt == nil) && (tokVal == "return") ) {
       stmt = self.parseReturn();
     }
-    if ( (stmt== null) && (tokVal == "if") ) {
+    if ( (stmt == nil) && (tokVal == "if") ) {
       stmt = self.parseIf();
     }
-    if ( (stmt== null) && (tokVal == "while") ) {
+    if ( (stmt == nil) && (tokVal == "while") ) {
       stmt = self.parseWhile();
     }
-    if ( (stmt== null) && (tokVal == "do") ) {
+    if ( (stmt == nil) && (tokVal == "do") ) {
       stmt = self.parseDoWhile();
     }
-    if ( (stmt== null) && (tokVal == "for") ) {
+    if ( (stmt == nil) && (tokVal == "for") ) {
       stmt = self.parseFor();
     }
-    if ( (stmt== null) && (tokVal == "switch") ) {
+    if ( (stmt == nil) && (tokVal == "switch") ) {
       stmt = self.parseSwitch();
     }
-    if ( (stmt== null) && (tokVal == "try") ) {
+    if ( (stmt == nil) && (tokVal == "try") ) {
       stmt = self.parseTry();
     }
-    if ( (stmt== null) && (tokVal == "throw") ) {
+    if ( (stmt == nil) && (tokVal == "throw") ) {
       stmt = self.parseThrow();
     }
-    if ( (stmt== null) && (tokVal == "break") ) {
+    if ( (stmt == nil) && (tokVal == "break") ) {
       stmt = self.parseBreak();
     }
-    if ( (stmt== null) && (tokVal == "continue") ) {
+    if ( (stmt == nil) && (tokVal == "continue") ) {
       stmt = self.parseContinue();
     }
-    if ( (stmt== null) && (tokVal == "{") ) {
+    if ( (stmt == nil) && (tokVal == "{") ) {
       stmt = self.parseBlock();
     }
-    if ( (stmt== null) && (tokVal == ";") ) {
+    if ( (stmt == nil) && (tokVal == ";") ) {
       self.advance()
       let empty : JSNode = JSNode()
       empty.nodeType = "EmptyStatement";
       stmt = empty;
     }
-    if ( stmt== null ) {
+    if ( stmt == nil ) {
       stmt = self.parseExprStmt();
     }
-    let result : JSNode = stmt
+    let result : JSNode = stmt!
     for (i, c) in comments.enumerated() {
       result.leadingComments.append(c)
     }
@@ -1111,22 +1118,22 @@ class SimpleParser : Equatable  {
     return decl;
   }
   func parseFuncDecl() -> JSNode {
-    let func : JSNode = JSNode()
-    func.nodeType = "FunctionDeclaration";
+    let _func : JSNode = JSNode()
+    _func.nodeType = "FunctionDeclaration";
     let startTok : Token = self.peek()
-    func.start = startTok.start;
-    func.line = startTok.line;
-    func.col = startTok.col;
+    _func.start = startTok.start;
+    _func.line = startTok.line;
+    _func.col = startTok.col;
     _ = self.expectValue(expectedValue : "function")
     if ( self.matchValue(value : "*") ) {
-      func.strValue2 = "generator";
+      _func.strValue2 = "generator";
       self.advance()
     }
     let idTok : Token = self.expect(expectedType : "Identifier")
-    func.strValue = idTok.value;
+    _func.strValue = idTok.value;
     _ = self.expectValue(expectedValue : "(")
     while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
-      if ( (func.children.length) > 0 ) {
+      if ( (_func.children.count) > 0 ) {
         _ = self.expectValue(expectedValue : ",")
       }
       if ( self.matchValue(value : ")") || self.isAtEnd() ) {
@@ -1142,15 +1149,15 @@ class SimpleParser : Equatable  {
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        func.children.append(rest)
+        _func.children.append(rest)
       } else {
         if ( self.matchValue(value : "[") ) {
           let pattern : JSNode = self.parseArrayPattern()
-          func.children.append(pattern)
+          _func.children.append(pattern)
         } else {
           if ( self.matchValue(value : "{") ) {
             let pattern_1 : JSNode = self.parseObjectPattern()
-            func.children.append(pattern_1)
+            _func.children.append(pattern_1)
           } else {
             let paramTok_1 : Token = self.expect(expectedType : "Identifier")
             let param : JSNode = JSNode()
@@ -1159,35 +1166,35 @@ class SimpleParser : Equatable  {
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            func.children.append(param)
+            _func.children.append(param)
           }
         }
       }
     }
     _ = self.expectValue(expectedValue : ")")
     let body : JSNode = self.parseBlock()
-    func.body = body;
-    return func;
+    _func.body = body;
+    return _func;
   }
   func parseFunctionExpression() -> JSNode {
-    let func : JSNode = JSNode()
-    func.nodeType = "FunctionExpression";
+    let _func : JSNode = JSNode()
+    _func.nodeType = "FunctionExpression";
     let startTok : Token = self.peek()
-    func.start = startTok.start;
-    func.line = startTok.line;
-    func.col = startTok.col;
+    _func.start = startTok.start;
+    _func.line = startTok.line;
+    _func.col = startTok.col;
     _ = self.expectValue(expectedValue : "function")
     if ( self.matchValue(value : "*") ) {
-      func.strValue2 = "generator";
+      _func.strValue2 = "generator";
       self.advance()
     }
     if ( self.matchType(tokenType : "Identifier") ) {
       let idTok : Token = self.expect(expectedType : "Identifier")
-      func.strValue = idTok.value;
+      _func.strValue = idTok.value;
     }
     _ = self.expectValue(expectedValue : "(")
     while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
-      if ( (func.children.length) > 0 ) {
+      if ( (_func.children.count) > 0 ) {
         _ = self.expectValue(expectedValue : ",")
       }
       if ( self.matchValue(value : ")") || self.isAtEnd() ) {
@@ -1203,15 +1210,15 @@ class SimpleParser : Equatable  {
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        func.children.append(rest)
+        _func.children.append(rest)
       } else {
         if ( self.matchValue(value : "[") ) {
           let pattern : JSNode = self.parseArrayPattern()
-          func.children.append(pattern)
+          _func.children.append(pattern)
         } else {
           if ( self.matchValue(value : "{") ) {
             let pattern_1 : JSNode = self.parseObjectPattern()
-            func.children.append(pattern_1)
+            _func.children.append(pattern_1)
           } else {
             let paramTok_1 : Token = self.expect(expectedType : "Identifier")
             let param : JSNode = JSNode()
@@ -1220,35 +1227,35 @@ class SimpleParser : Equatable  {
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            func.children.append(param)
+            _func.children.append(param)
           }
         }
       }
     }
     _ = self.expectValue(expectedValue : ")")
     let body : JSNode = self.parseBlock()
-    func.body = body;
-    return func;
+    _func.body = body;
+    return _func;
   }
   func parseAsyncFuncDecl() -> JSNode {
-    let func : JSNode = JSNode()
-    func.nodeType = "FunctionDeclaration";
+    let _func : JSNode = JSNode()
+    _func.nodeType = "FunctionDeclaration";
     let startTok : Token = self.peek()
-    func.start = startTok.start;
-    func.line = startTok.line;
-    func.col = startTok.col;
-    func.strValue2 = "async";
+    _func.start = startTok.start;
+    _func.line = startTok.line;
+    _func.col = startTok.col;
+    _func.strValue2 = "async";
     _ = self.expectValue(expectedValue : "async")
     _ = self.expectValue(expectedValue : "function")
     if ( self.matchValue(value : "*") ) {
-      func.strValue2 = "async-generator";
+      _func.strValue2 = "async-generator";
       self.advance()
     }
     let idTok : Token = self.expect(expectedType : "Identifier")
-    func.strValue = idTok.value;
+    _func.strValue = idTok.value;
     _ = self.expectValue(expectedValue : "(")
     while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
-      if ( (func.children.length) > 0 ) {
+      if ( (_func.children.count) > 0 ) {
         _ = self.expectValue(expectedValue : ",")
       }
       if ( self.matchValue(value : ")") || self.isAtEnd() ) {
@@ -1261,12 +1268,12 @@ class SimpleParser : Equatable  {
       param.start = paramTok.start;
       param.line = paramTok.line;
       param.col = paramTok.col;
-      func.children.append(param)
+      _func.children.append(param)
     }
     _ = self.expectValue(expectedValue : ")")
     let body : JSNode = self.parseBlock()
-    func.body = body;
-    return func;
+    _func.body = body;
+    return _func;
   }
   func parseClass() -> JSNode {
     let classNode : JSNode = JSNode()
@@ -1337,14 +1344,14 @@ class SimpleParser : Equatable  {
     if ( nameTok.value == "constructor" ) {
       kind = "constructor";
     }
-    let func : JSNode = JSNode()
-    func.nodeType = "FunctionExpression";
-    func.start = nameTok.start;
-    func.line = nameTok.line;
-    func.col = nameTok.col;
+    let _func : JSNode = JSNode()
+    _func.nodeType = "FunctionExpression";
+    _func.start = nameTok.start;
+    _func.line = nameTok.line;
+    _func.col = nameTok.col;
     _ = self.expectValue(expectedValue : "(")
     while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
-      if ( (func.children.length) > 0 ) {
+      if ( (_func.children.count) > 0 ) {
         _ = self.expectValue(expectedValue : ",")
       }
       if ( self.matchValue(value : ")") || self.isAtEnd() ) {
@@ -1357,17 +1364,17 @@ class SimpleParser : Equatable  {
       param.start = paramTok.start;
       param.line = paramTok.line;
       param.col = paramTok.col;
-      func.children.append(param)
+      _func.children.append(param)
     }
     _ = self.expectValue(expectedValue : ")")
     let funcBody : JSNode = self.parseBlock()
-    func.body = funcBody;
-    method.body = func;
+    _func.body = funcBody;
+    method.body = _func;
     return method;
   }
   func peekAt(offset : Int) -> String {
     let targetPos : Int = self.pos + offset
-    if ( targetPos >= (self.tokens.length) ) {
+    if ( targetPos >= (self.tokens.count) ) {
       return "";
     }
     let tok : Token = self.tokens[targetPos]
@@ -1473,7 +1480,7 @@ class SimpleParser : Equatable  {
   func parseImportSpecifiers(importNode : JSNode) -> Void {
     _ = self.expectValue(expectedValue : "{")
     while ((self.matchValue(value : "}") == false) && (self.isAtEnd() == false)) {
-      if ( (importNode.children.length) > 0 ) {
+      if ( (importNode.children.count) > 0 ) {
         if ( self.matchValue(value : ",") ) {
           self.advance()
         }
@@ -1509,8 +1516,8 @@ class SimpleParser : Equatable  {
       exportNode.nodeType = "ExportDefaultDeclaration";
       self.advance()
       if ( self.matchValue(value : "function") ) {
-        let func : JSNode = self.parseFuncDecl()
-        exportNode.left = func;
+        let _func : JSNode = self.parseFuncDecl()
+        exportNode.left = _func;
       } else {
         if ( self.matchValue(value : "async") ) {
           let func_1 : JSNode = self.parseAsyncFuncDecl()
@@ -1609,7 +1616,7 @@ class SimpleParser : Equatable  {
   func parseExportSpecifiers(exportNode : JSNode) -> Void {
     _ = self.expectValue(expectedValue : "{")
     while ((self.matchValue(value : "}") == false) && (self.isAtEnd() == false)) {
-      let numChildren : Int = exportNode.children.length
+      let numChildren : Int = exportNode.children.count
       if ( numChildren > 0 ) {
         if ( self.matchValue(value : ",") ) {
           self.advance()
@@ -1835,7 +1842,7 @@ class SimpleParser : Equatable  {
     }
     if ( isForOf ) {
       forStmt.nodeType = "ForOfStatement";
-      forStmt.left = leftNode;
+      forStmt.left = leftNode!;
       let rightExpr : JSNode = self.parseExpr()
       forStmt.right = rightExpr;
       _ = self.expectValue(expectedValue : ")")
@@ -1845,7 +1852,7 @@ class SimpleParser : Equatable  {
     }
     if ( isForIn ) {
       forStmt.nodeType = "ForInStatement";
-      forStmt.left = leftNode;
+      forStmt.left = leftNode!;
       let rightExpr_1 : JSNode = self.parseExpr()
       forStmt.right = rightExpr_1;
       _ = self.expectValue(expectedValue : ")")
@@ -1854,8 +1861,8 @@ class SimpleParser : Equatable  {
       return forStmt;
     }
     forStmt.nodeType = "ForStatement";
-    if ( (typeof(leftNode) !== "undefined" && leftNode != null )  ) {
-      forStmt.left = leftNode;
+    if ( leftNode != nil  ) {
+      forStmt.left = leftNode!;
     }
     if ( self.matchValue(value : ";") == false ) {
       let test : JSNode = self.parseExpr()
@@ -2310,7 +2317,7 @@ class SimpleParser : Equatable  {
             call.line = object.line;
             call.col = object.col;
             while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
-              if ( (call.children.length) > 0 ) {
+              if ( (call.children.count) > 0 ) {
                 _ = self.expectValue(expectedValue : ",")
               }
               if ( self.matchValue(value : ")") || self.isAtEnd() ) {
@@ -2385,7 +2392,7 @@ class SimpleParser : Equatable  {
                 call_1.line = object.line;
                 call_1.col = object.col;
                 while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
-                  if ( (call_1.children.length) > 0 ) {
+                  if ( (call_1.children.count) > 0 ) {
                     _ = self.expectValue(expectedValue : ",")
                   }
                   if ( self.matchValue(value : ")") || self.isAtEnd() ) {
@@ -2451,7 +2458,7 @@ class SimpleParser : Equatable  {
     if ( self.matchValue(value : "(") ) {
       self.advance()
       while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
-        if ( (newExpr.children.length) > 0 ) {
+        if ( (newExpr.children.count) > 0 ) {
           _ = self.expectValue(expectedValue : ",")
         }
         if ( self.matchValue(value : ")") || self.isAtEnd() ) {
@@ -2589,7 +2596,7 @@ class SimpleParser : Equatable  {
     arr.col = startTok.col;
     _ = self.expectValue(expectedValue : "[")
     while ((self.matchValue(value : "]") == false) && (self.isAtEnd() == false)) {
-      if ( (arr.children.length) > 0 ) {
+      if ( (arr.children.count) > 0 ) {
         _ = self.expectValue(expectedValue : ",")
       }
       if ( self.matchValue(value : "]") || self.isAtEnd() ) {
@@ -2623,7 +2630,7 @@ class SimpleParser : Equatable  {
     obj.col = startTok.col;
     _ = self.expectValue(expectedValue : "{")
     while ((self.matchValue(value : "}") == false) && (self.isAtEnd() == false)) {
-      if ( (obj.children.length) > 0 ) {
+      if ( (obj.children.count) > 0 ) {
         _ = self.expectValue(expectedValue : ",")
       }
       if ( self.matchValue(value : "}") || self.isAtEnd() ) {
@@ -2700,7 +2707,7 @@ class SimpleParser : Equatable  {
     pattern.col = startTok.col;
     _ = self.expectValue(expectedValue : "[")
     while ((self.matchValue(value : "]") == false) && (self.isAtEnd() == false)) {
-      if ( (pattern.children.length) > 0 ) {
+      if ( (pattern.children.count) > 0 ) {
         _ = self.expectValue(expectedValue : ",")
       }
       if ( self.matchValue(value : "]") || self.isAtEnd() ) {
@@ -2750,7 +2757,7 @@ class SimpleParser : Equatable  {
     pattern.col = startTok.col;
     _ = self.expectValue(expectedValue : "{")
     while ((self.matchValue(value : "}") == false) && (self.isAtEnd() == false)) {
-      if ( (pattern.children.length) > 0 ) {
+      if ( (pattern.children.count) > 0 ) {
         _ = self.expectValue(expectedValue : ",")
       }
       if ( self.matchValue(value : "}") || self.isAtEnd() ) {
@@ -2843,7 +2850,7 @@ class SimpleParser : Equatable  {
     if ( self.matchValue(value : "(") ) {
       self.advance()
       while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
-        if ( (arrow.children.length) > 0 ) {
+        if ( (arrow.children.count) > 0 ) {
           _ = self.expectValue(expectedValue : ",")
         }
         if ( self.matchValue(value : ")") || self.isAtEnd() ) {
@@ -2891,7 +2898,7 @@ class SimpleParser : Equatable  {
     if ( self.matchValue(value : "(") ) {
       self.advance()
       while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
-        if ( (arrow.children.length) > 0 ) {
+        if ( (arrow.children.count) > 0 ) {
           _ = self.expectValue(expectedValue : ",")
         }
         if ( self.matchValue(value : ")") || self.isAtEnd() ) {
@@ -2939,13 +2946,13 @@ class ASTPrinter : Equatable  {
       indent = indent + "  ";
       i = i + 1;
     }
-    let numComments : Int = node.leadingComments.length
+    let numComments : Int = node.leadingComments.count
     if ( numComments > 0 ) {
       for (ci, comment) in node.leadingComments.enumerated() {
         let commentType : String = comment.nodeType
         var preview : String = comment.strValue
-        if ( (preview.length) > 40 ) {
-          preview = (preview.substring(0, 40 )) + "...";
+        if ( (preview.count) > 40 ) {
+          preview = (String(preview[preview.index(preview.startIndex, offsetBy:0)..<preview.index(preview.startIndex, offsetBy:40)])) + "...";
         }
         print(((indent + commentType) + ": ") + preview)
       }
@@ -2954,7 +2961,7 @@ class ASTPrinter : Equatable  {
     let loc : String = ((("[" + String(node.line)) + ":") + String(node.col)) + "]"
     if ( nodeType == "VariableDeclaration" ) {
       let kind : String = node.strValue
-      if ( (kind.length) > 0 ) {
+      if ( (kind.count) > 0 ) {
         print((((indent + "VariableDeclaration (") + kind) + ") ") + loc)
       } else {
         print((indent + "VariableDeclaration ") + loc)
@@ -2965,8 +2972,8 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "VariableDeclarator" ) {
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        let id : JSNode = node.left
+      if ( node.left != nil  ) {
+        let id : JSNode = node.left!
         let idType : String = id.nodeType
         if ( idType == "Identifier" ) {
           print((((indent + "VariableDeclarator: ") + id.strValue) + " ") + loc)
@@ -2978,8 +2985,8 @@ class ASTPrinter : Equatable  {
       } else {
         print((indent + "VariableDeclarator ") + loc)
       }
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-        ASTPrinter.printNode(node : node.right, depth : depth + 1)
+      if ( node.right != nil  ) {
+        ASTPrinter.printNode(node : node.right!, depth : depth + 1)
       }
       return;
     }
@@ -3002,25 +3009,25 @@ class ASTPrinter : Equatable  {
       if ( kind_1 == "async-generator" ) {
         prefix = "async function* ";
       }
-      if ( (prefix.length) > 0 ) {
+      if ( (prefix.count) > 0 ) {
         print(((((((indent + "FunctionDeclaration: ") + prefix) + node.strValue) + "(") + params) + ") ") + loc)
       } else {
         print((((((indent + "FunctionDeclaration: ") + node.strValue) + "(") + params) + ") ") + loc)
       }
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 1)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 1)
       }
       return;
     }
     if ( nodeType == "ClassDeclaration" ) {
       var output : String = (indent + "ClassDeclaration: ") + node.strValue
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        let superClass : JSNode = node.left
+      if ( node.left != nil  ) {
+        let superClass : JSNode = node.left!
         output = (output + " extends ") + superClass.strValue;
       }
       print((output + " ") + loc)
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 1)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 1)
       }
       return;
     }
@@ -3037,8 +3044,8 @@ class ASTPrinter : Equatable  {
         staticStr = "static ";
       }
       print(((((indent + "MethodDefinition: ") + staticStr) + node.strValue) + " ") + loc)
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 1)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 1)
       }
       return;
     }
@@ -3055,8 +3062,8 @@ class ASTPrinter : Equatable  {
         asyncStr = "async ";
       }
       print((((((indent + "ArrowFunctionExpression: ") + asyncStr) + "(") + params_1) + ") => ") + loc)
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 1)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 1)
       }
       return;
     }
@@ -3066,15 +3073,15 @@ class ASTPrinter : Equatable  {
         delegateStr = "*";
       }
       print((((indent + "YieldExpression") + delegateStr) + " ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 1)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
       return;
     }
     if ( nodeType == "AwaitExpression" ) {
       print((indent + "AwaitExpression ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 1)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
       return;
     }
@@ -3091,62 +3098,62 @@ class ASTPrinter : Equatable  {
     }
     if ( nodeType == "ReturnStatement" ) {
       print((indent + "ReturnStatement ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 1)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
       return;
     }
     if ( nodeType == "IfStatement" ) {
       print((indent + "IfStatement ") + loc)
       print(indent + "  test:")
-      if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-        ASTPrinter.printNode(node : node.test, depth : depth + 2)
+      if ( node.test != nil  ) {
+        ASTPrinter.printNode(node : node.test!, depth : depth + 2)
       }
       print(indent + "  consequent:")
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 2)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 2)
       }
-      if ( (typeof(node.alternate) !== "undefined" && node.alternate != null )  ) {
+      if ( node.alternate != nil  ) {
         print(indent + "  alternate:")
-        ASTPrinter.printNode(node : node.alternate, depth : depth + 2)
+        ASTPrinter.printNode(node : node.alternate!, depth : depth + 2)
       }
       return;
     }
     if ( nodeType == "ExpressionStatement" ) {
       print((indent + "ExpressionStatement ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 1)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
       return;
     }
     if ( nodeType == "AssignmentExpression" ) {
       print((((indent + "AssignmentExpression: ") + node.strValue) + " ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      if ( node.left != nil  ) {
         print(indent + "  left:")
-        ASTPrinter.printNode(node : node.left, depth : depth + 2)
+        ASTPrinter.printNode(node : node.left!, depth : depth + 2)
       }
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      if ( node.right != nil  ) {
         print(indent + "  right:")
-        ASTPrinter.printNode(node : node.right, depth : depth + 2)
+        ASTPrinter.printNode(node : node.right!, depth : depth + 2)
       }
       return;
     }
     if ( (nodeType == "BinaryExpression") || (nodeType == "LogicalExpression") ) {
       print(((((indent + nodeType) + ": ") + node.strValue) + " ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      if ( node.left != nil  ) {
         print(indent + "  left:")
-        ASTPrinter.printNode(node : node.left, depth : depth + 2)
+        ASTPrinter.printNode(node : node.left!, depth : depth + 2)
       }
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      if ( node.right != nil  ) {
         print(indent + "  right:")
-        ASTPrinter.printNode(node : node.right, depth : depth + 2)
+        ASTPrinter.printNode(node : node.right!, depth : depth + 2)
       }
       return;
     }
     if ( nodeType == "UnaryExpression" ) {
       print((((indent + "UnaryExpression: ") + node.strValue) + " ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 1)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
       return;
     }
@@ -3158,18 +3165,18 @@ class ASTPrinter : Equatable  {
         prefix_1 = "postfix ";
       }
       print(((((indent + "UpdateExpression: ") + prefix_1) + node.strValue) + " ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 1)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
       return;
     }
     if ( nodeType == "NewExpression" ) {
       print((indent + "NewExpression ") + loc)
       print(indent + "  callee:")
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 2)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 2)
       }
-      if ( (node.children.length) > 0 ) {
+      if ( (node.children.count) > 0 ) {
         print(indent + "  arguments:")
         for (ai, arg) in node.children.enumerated() {
           ASTPrinter.printNode(node : arg, depth : depth + 2)
@@ -3180,26 +3187,26 @@ class ASTPrinter : Equatable  {
     if ( nodeType == "ConditionalExpression" ) {
       print((indent + "ConditionalExpression ") + loc)
       print(indent + "  test:")
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 2)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 2)
       }
       print(indent + "  consequent:")
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 2)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 2)
       }
       print(indent + "  alternate:")
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-        ASTPrinter.printNode(node : node.right, depth : depth + 2)
+      if ( node.right != nil  ) {
+        ASTPrinter.printNode(node : node.right!, depth : depth + 2)
       }
       return;
     }
     if ( nodeType == "CallExpression" ) {
       print((indent + "CallExpression ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      if ( node.left != nil  ) {
         print(indent + "  callee:")
-        ASTPrinter.printNode(node : node.left, depth : depth + 2)
+        ASTPrinter.printNode(node : node.left!, depth : depth + 2)
       }
-      if ( (node.children.length) > 0 ) {
+      if ( (node.children.count) > 0 ) {
         print(indent + "  arguments:")
         for (ai_1, arg_1) in node.children.enumerated() {
           ASTPrinter.printNode(node : arg_1, depth : depth + 2)
@@ -3213,11 +3220,11 @@ class ASTPrinter : Equatable  {
       } else {
         print((indent + "MemberExpression: [computed] ") + loc)
       }
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 1)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-        ASTPrinter.printNode(node : node.right, depth : depth + 1)
+      if ( node.right != nil  ) {
+        ASTPrinter.printNode(node : node.right!, depth : depth + 1)
       }
       return;
     }
@@ -3249,8 +3256,8 @@ class ASTPrinter : Equatable  {
         shorthand = " (shorthand)";
       }
       print(((((indent + "Property: ") + node.strValue) + shorthand) + " ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 1)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
       return;
     }
@@ -3270,8 +3277,8 @@ class ASTPrinter : Equatable  {
     }
     if ( nodeType == "SpreadElement" ) {
       print((indent + "SpreadElement ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 1)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
       return;
     }
@@ -3282,84 +3289,84 @@ class ASTPrinter : Equatable  {
     if ( nodeType == "WhileStatement" ) {
       print((indent + "WhileStatement ") + loc)
       print(indent + "  test:")
-      if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-        ASTPrinter.printNode(node : node.test, depth : depth + 2)
+      if ( node.test != nil  ) {
+        ASTPrinter.printNode(node : node.test!, depth : depth + 2)
       }
       print(indent + "  body:")
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 2)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 2)
       }
       return;
     }
     if ( nodeType == "DoWhileStatement" ) {
       print((indent + "DoWhileStatement ") + loc)
       print(indent + "  body:")
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 2)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 2)
       }
       print(indent + "  test:")
-      if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-        ASTPrinter.printNode(node : node.test, depth : depth + 2)
+      if ( node.test != nil  ) {
+        ASTPrinter.printNode(node : node.test!, depth : depth + 2)
       }
       return;
     }
     if ( nodeType == "ForStatement" ) {
       print((indent + "ForStatement ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      if ( node.left != nil  ) {
         print(indent + "  init:")
-        ASTPrinter.printNode(node : node.left, depth : depth + 2)
+        ASTPrinter.printNode(node : node.left!, depth : depth + 2)
       }
-      if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
+      if ( node.test != nil  ) {
         print(indent + "  test:")
-        ASTPrinter.printNode(node : node.test, depth : depth + 2)
+        ASTPrinter.printNode(node : node.test!, depth : depth + 2)
       }
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      if ( node.right != nil  ) {
         print(indent + "  update:")
-        ASTPrinter.printNode(node : node.right, depth : depth + 2)
+        ASTPrinter.printNode(node : node.right!, depth : depth + 2)
       }
       print(indent + "  body:")
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 2)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 2)
       }
       return;
     }
     if ( nodeType == "ForOfStatement" ) {
       print((indent + "ForOfStatement ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      if ( node.left != nil  ) {
         print(indent + "  left:")
-        ASTPrinter.printNode(node : node.left, depth : depth + 2)
+        ASTPrinter.printNode(node : node.left!, depth : depth + 2)
       }
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      if ( node.right != nil  ) {
         print(indent + "  right:")
-        ASTPrinter.printNode(node : node.right, depth : depth + 2)
+        ASTPrinter.printNode(node : node.right!, depth : depth + 2)
       }
       print(indent + "  body:")
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 2)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 2)
       }
       return;
     }
     if ( nodeType == "ForInStatement" ) {
       print((indent + "ForInStatement ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      if ( node.left != nil  ) {
         print(indent + "  left:")
-        ASTPrinter.printNode(node : node.left, depth : depth + 2)
+        ASTPrinter.printNode(node : node.left!, depth : depth + 2)
       }
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      if ( node.right != nil  ) {
         print(indent + "  right:")
-        ASTPrinter.printNode(node : node.right, depth : depth + 2)
+        ASTPrinter.printNode(node : node.right!, depth : depth + 2)
       }
       print(indent + "  body:")
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 2)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 2)
       }
       return;
     }
     if ( nodeType == "SwitchStatement" ) {
       print((indent + "SwitchStatement ") + loc)
       print(indent + "  discriminant:")
-      if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-        ASTPrinter.printNode(node : node.test, depth : depth + 2)
+      if ( node.test != nil  ) {
+        ASTPrinter.printNode(node : node.test!, depth : depth + 2)
       }
       print(indent + "  cases:")
       for (ci_3, caseNode) in node.children.enumerated() {
@@ -3372,12 +3379,12 @@ class ASTPrinter : Equatable  {
         print((indent + "SwitchCase: default ") + loc)
       } else {
         print((indent + "SwitchCase ") + loc)
-        if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
+        if ( node.test != nil  ) {
           print(indent + "  test:")
-          ASTPrinter.printNode(node : node.test, depth : depth + 2)
+          ASTPrinter.printNode(node : node.test!, depth : depth + 2)
         }
       }
-      if ( (node.children.length) > 0 ) {
+      if ( (node.children.count) > 0 ) {
         print(indent + "  consequent:")
         for (si, stmt) in node.children.enumerated() {
           ASTPrinter.printNode(node : stmt, depth : depth + 2)
@@ -3388,35 +3395,35 @@ class ASTPrinter : Equatable  {
     if ( nodeType == "TryStatement" ) {
       print((indent + "TryStatement ") + loc)
       print(indent + "  block:")
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 2)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 2)
       }
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      if ( node.left != nil  ) {
         print(indent + "  handler:")
-        ASTPrinter.printNode(node : node.left, depth : depth + 2)
+        ASTPrinter.printNode(node : node.left!, depth : depth + 2)
       }
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      if ( node.right != nil  ) {
         print(indent + "  finalizer:")
-        ASTPrinter.printNode(node : node.right, depth : depth + 2)
+        ASTPrinter.printNode(node : node.right!, depth : depth + 2)
       }
       return;
     }
     if ( nodeType == "CatchClause" ) {
       print((((indent + "CatchClause: ") + node.strValue) + " ") + loc)
-      if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-        ASTPrinter.printNode(node : node.body, depth : depth + 1)
+      if ( node.body != nil  ) {
+        ASTPrinter.printNode(node : node.body!, depth : depth + 1)
       }
       return;
     }
     if ( nodeType == "ThrowStatement" ) {
       print((indent + "ThrowStatement ") + loc)
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        ASTPrinter.printNode(node : node.left, depth : depth + 1)
+      if ( node.left != nil  ) {
+        ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
       return;
     }
     if ( nodeType == "BreakStatement" ) {
-      if ( (node.strValue.length) > 0 ) {
+      if ( (node.strValue.count) > 0 ) {
         print((((indent + "BreakStatement: ") + node.strValue) + " ") + loc)
       } else {
         print((indent + "BreakStatement ") + loc)
@@ -3424,7 +3431,7 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "ContinueStatement" ) {
-      if ( (node.strValue.length) > 0 ) {
+      if ( (node.strValue.count) > 0 ) {
         print((((indent + "ContinueStatement: ") + node.strValue) + " ") + loc)
       } else {
         print((indent + "ContinueStatement ") + loc)
@@ -3466,7 +3473,7 @@ class JSPrinter : Equatable  {
     self.indentLevel = self.indentLevel - 1;
   }
   func printLeadingComments(node : JSNode) -> Void {
-    let numComments : Int = node.leadingComments.length
+    let numComments : Int = node.leadingComments.count
     if ( numComments == 0 ) {
       return;
     }
@@ -3718,7 +3725,7 @@ class JSPrinter : Equatable  {
   }
   func printVariableDeclaration(node : JSNode) -> Void {
     var kind : String = node.strValue
-    if ( (kind.length) == 0 ) {
+    if ( (kind.count) == 0 ) {
       kind = "var";
     }
     self.emit(text : kind + " ")
@@ -3732,13 +3739,13 @@ class JSPrinter : Equatable  {
     }
   }
   func printVariableDeclarator(node : JSNode) -> Void {
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      let left : JSNode = node.left
+    if ( node.left != nil  ) {
+      let left : JSNode = node.left!
       self.printNode(node : left)
     }
-    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+    if ( node.right != nil  ) {
       self.emit(text : " = ")
-      self.printNode(node : node.right)
+      self.printNode(node : node.right!)
     }
   }
   func printFunctionDeclaration(node : JSNode) -> Void {
@@ -3756,8 +3763,8 @@ class JSPrinter : Equatable  {
     self.emit(text : (" " + node.strValue) + "(")
     self.printParams(params : node.children)
     self.emit(text : ") ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printNode(node : node.body)
+    if ( node.body != nil  ) {
+      self.printNode(node : node.body!)
     }
   }
   func printParams(params : [JSNode]) -> Void {
@@ -3772,13 +3779,13 @@ class JSPrinter : Equatable  {
   }
   func printClassDeclaration(node : JSNode) -> Void {
     self.emit(text : "class " + node.strValue)
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      let superClass : JSNode = node.left
+    if ( node.left != nil  ) {
+      let superClass : JSNode = node.left!
       self.emit(text : " extends " + superClass.strValue)
     }
     self.emit(text : " ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printClassBody(node : node.body)
+    if ( node.body != nil  ) {
+      self.printClassBody(node : node.body!)
     }
   }
   func printClassBody(node : JSNode) -> Void {
@@ -3797,15 +3804,15 @@ class JSPrinter : Equatable  {
       self.emit(text : "static ")
     }
     self.emit(text : node.strValue + "(")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      let func : JSNode = node.body
-      self.printParams(params : func.children)
+    if ( node.body != nil  ) {
+      let _func : JSNode = node.body!
+      self.printParams(params : _func.children)
     }
     self.emit(text : ") ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      let func_1 : JSNode = node.body
-      if ( (typeof(func_1.body) !== "undefined" && func_1.body != null )  ) {
-        self.printNode(node : func_1.body)
+    if ( node.body != nil  ) {
+      let func_1 : JSNode = node.body!
+      if ( func_1.body != nil  ) {
+        self.printNode(node : func_1.body!)
       }
     }
     self.emit(text : "\n")
@@ -3821,102 +3828,102 @@ class JSPrinter : Equatable  {
     self.emit(text : "}")
   }
   func printExpressionStatement(node : JSNode) -> Void {
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
   }
   func printReturnStatement(node : JSNode) -> Void {
     self.emit(text : "return")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+    if ( node.left != nil  ) {
       self.emit(text : " ")
-      self.printNode(node : node.left)
+      self.printNode(node : node.left!)
     }
   }
   func printIfStatement(node : JSNode) -> Void {
     self.emit(text : "if (")
-    if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-      self.printNode(node : node.test)
+    if ( node.test != nil  ) {
+      self.printNode(node : node.test!)
     }
     self.emit(text : ") ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printNode(node : node.body)
+    if ( node.body != nil  ) {
+      self.printNode(node : node.body!)
     }
-    if ( (typeof(node.alternate) !== "undefined" && node.alternate != null )  ) {
+    if ( node.alternate != nil  ) {
       self.emit(text : " else ")
-      self.printNode(node : node.alternate)
+      self.printNode(node : node.alternate!)
     }
   }
   func printWhileStatement(node : JSNode) -> Void {
     self.emit(text : "while (")
-    if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-      self.printNode(node : node.test)
+    if ( node.test != nil  ) {
+      self.printNode(node : node.test!)
     }
     self.emit(text : ") ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printNode(node : node.body)
+    if ( node.body != nil  ) {
+      self.printNode(node : node.body!)
     }
   }
   func printDoWhileStatement(node : JSNode) -> Void {
     self.emit(text : "do ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printNode(node : node.body)
+    if ( node.body != nil  ) {
+      self.printNode(node : node.body!)
     }
     self.emit(text : " while (")
-    if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-      self.printNode(node : node.test)
+    if ( node.test != nil  ) {
+      self.printNode(node : node.test!)
     }
     self.emit(text : ")")
   }
   func printForStatement(node : JSNode) -> Void {
     self.emit(text : "for (")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     self.emit(text : "; ")
-    if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-      self.printNode(node : node.test)
+    if ( node.test != nil  ) {
+      self.printNode(node : node.test!)
     }
     self.emit(text : "; ")
-    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-      self.printNode(node : node.right)
+    if ( node.right != nil  ) {
+      self.printNode(node : node.right!)
     }
     self.emit(text : ") ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printNode(node : node.body)
+    if ( node.body != nil  ) {
+      self.printNode(node : node.body!)
     }
   }
   func printForOfStatement(node : JSNode) -> Void {
     self.emit(text : "for (")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     self.emit(text : " of ")
-    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-      self.printNode(node : node.right)
+    if ( node.right != nil  ) {
+      self.printNode(node : node.right!)
     }
     self.emit(text : ") ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printNode(node : node.body)
+    if ( node.body != nil  ) {
+      self.printNode(node : node.body!)
     }
   }
   func printForInStatement(node : JSNode) -> Void {
     self.emit(text : "for (")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     self.emit(text : " in ")
-    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-      self.printNode(node : node.right)
+    if ( node.right != nil  ) {
+      self.printNode(node : node.right!)
     }
     self.emit(text : ") ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printNode(node : node.body)
+    if ( node.body != nil  ) {
+      self.printNode(node : node.body!)
     }
   }
   func printSwitchStatement(node : JSNode) -> Void {
     self.emit(text : "switch (")
-    if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-      self.printNode(node : node.test)
+    if ( node.test != nil  ) {
+      self.printNode(node : node.test!)
     }
     self.emit(text : ") {\n")
     self.indent()
@@ -3933,8 +3940,8 @@ class JSPrinter : Equatable  {
     } else {
       self.emitIndent()
       self.emit(text : "case ")
-      if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-        self.printNode(node : node.test)
+      if ( node.test != nil  ) {
+        self.printNode(node : node.test!)
       }
       self.emit(text : ":\n")
     }
@@ -3946,25 +3953,25 @@ class JSPrinter : Equatable  {
   }
   func printTryStatement(node : JSNode) -> Void {
     self.emit(text : "try ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printNode(node : node.body)
+    if ( node.body != nil  ) {
+      self.printNode(node : node.body!)
     }
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      let catchClause : JSNode = node.left
+    if ( node.left != nil  ) {
+      let catchClause : JSNode = node.left!
       self.emit(text : (" catch (" + catchClause.strValue) + ") ")
-      if ( (typeof(catchClause.body) !== "undefined" && catchClause.body != null )  ) {
-        self.printNode(node : catchClause.body)
+      if ( catchClause.body != nil  ) {
+        self.printNode(node : catchClause.body!)
       }
     }
-    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+    if ( node.right != nil  ) {
       self.emit(text : " finally ")
-      self.printNode(node : node.right)
+      self.printNode(node : node.right!)
     }
   }
   func printThrowStatement(node : JSNode) -> Void {
     self.emit(text : "throw ")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
   }
   func printLiteral(node : JSNode) -> Void {
@@ -3988,7 +3995,7 @@ class JSPrinter : Equatable  {
     self.emit(text : "]")
   }
   func printObjectExpression(node : JSNode) -> Void {
-    if ( (node.children.length) == 0 ) {
+    if ( (node.children.count) == 0 ) {
       self.emit(text : "{}")
       return;
     }
@@ -4015,28 +4022,28 @@ class JSPrinter : Equatable  {
     }
     if ( node.strValue2 == "computed" ) {
       self.emit(text : "[")
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-        self.printNode(node : node.right)
+      if ( node.right != nil  ) {
+        self.printNode(node : node.right!)
       }
       self.emit(text : "]: ")
-      if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-        self.printNode(node : node.left)
+      if ( node.left != nil  ) {
+        self.printNode(node : node.left!)
       }
       return;
     }
     self.emit(text : node.strValue + ": ")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
   }
   func printBinaryExpression(node : JSNode) -> Void {
     self.emit(text : "(")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     self.emit(text : (" " + node.strValue) + " ")
-    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-      self.printNode(node : node.right)
+    if ( node.right != nil  ) {
+      self.printNode(node : node.right!)
     }
     self.emit(text : ")")
   }
@@ -4046,8 +4053,8 @@ class JSPrinter : Equatable  {
     if ( op == "typeof" ) {
       self.emit(text : " ")
     }
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
   }
   func printUpdateExpression(node : JSNode) -> Void {
@@ -4056,38 +4063,38 @@ class JSPrinter : Equatable  {
     if ( isPrefix ) {
       self.emit(text : op)
     }
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     if ( isPrefix == false ) {
       self.emit(text : op)
     }
   }
   func printAssignmentExpression(node : JSNode) -> Void {
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     self.emit(text : (" " + node.strValue) + " ")
-    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-      self.printNode(node : node.right)
+    if ( node.right != nil  ) {
+      self.printNode(node : node.right!)
     }
   }
   func printConditionalExpression(node : JSNode) -> Void {
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     self.emit(text : " ? ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printNode(node : node.body)
+    if ( node.body != nil  ) {
+      self.printNode(node : node.body!)
     }
     self.emit(text : " : ")
-    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-      self.printNode(node : node.right)
+    if ( node.right != nil  ) {
+      self.printNode(node : node.right!)
     }
   }
   func printCallExpression(node : JSNode) -> Void {
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     self.emit(text : "(")
     var first : Bool = true
@@ -4101,14 +4108,14 @@ class JSPrinter : Equatable  {
     self.emit(text : ")")
   }
   func printMemberExpression(node : JSNode) -> Void {
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     let accessType : String = node.strValue2
     if ( accessType == "bracket" ) {
       self.emit(text : "[")
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-        self.printNode(node : node.right)
+      if ( node.right != nil  ) {
+        self.printNode(node : node.right!)
       }
       self.emit(text : "]")
     } else {
@@ -4116,14 +4123,14 @@ class JSPrinter : Equatable  {
     }
   }
   func printOptionalMemberExpression(node : JSNode) -> Void {
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     let accessType : String = node.strValue2
     if ( accessType == "bracket" ) {
       self.emit(text : "?.[")
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-        self.printNode(node : node.right)
+      if ( node.right != nil  ) {
+        self.printNode(node : node.right!)
       }
       self.emit(text : "]")
     } else {
@@ -4131,8 +4138,8 @@ class JSPrinter : Equatable  {
     }
   }
   func printOptionalCallExpression(node : JSNode) -> Void {
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     self.emit(text : "?.(")
     var first : Bool = true
@@ -4147,10 +4154,10 @@ class JSPrinter : Equatable  {
   }
   func printImportDeclaration(node : JSNode) -> Void {
     self.emit(text : "import ")
-    let numSpecifiers : Int = node.children.length
+    let numSpecifiers : Int = node.children.count
     if ( numSpecifiers == 0 ) {
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-        let source : JSNode = node.right
+      if ( node.right != nil  ) {
+        let source : JSNode = node.right!
         self.emit(text : ("\"" + source.strValue) + "\"")
       }
       return;
@@ -4198,7 +4205,7 @@ class JSPrinter : Equatable  {
           }
           firstNamed = false;
           self.emit(text : spec_3.strValue)
-          if ( (spec_3.strValue2.length) > 0 ) {
+          if ( (spec_3.strValue2.count) > 0 ) {
             self.emit(text : " as " + spec_3.strValue2)
           }
         }
@@ -4206,14 +4213,14 @@ class JSPrinter : Equatable  {
       self.emit(text : " }")
     }
     self.emit(text : " from ")
-    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-      let source_1 : JSNode = node.right
+    if ( node.right != nil  ) {
+      let source_1 : JSNode = node.right!
       self.emit(text : ("\"" + source_1.strValue) + "\"")
     }
   }
   func printExportNamedDeclaration(node : JSNode) -> Void {
     self.emit(text : "export ")
-    let numSpecifiers : Int = node.children.length
+    let numSpecifiers : Int = node.children.count
     if ( numSpecifiers > 0 ) {
       self.emit(text : "{ ")
       var first : Bool = true
@@ -4223,42 +4230,42 @@ class JSPrinter : Equatable  {
         }
         first = false;
         self.emit(text : spec.strValue)
-        if ( (spec.strValue2.length) > 0 ) {
+        if ( (spec.strValue2.count) > 0 ) {
           self.emit(text : " as " + spec.strValue2)
         }
       }
       self.emit(text : " }")
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-        let source : JSNode = node.right
+      if ( node.right != nil  ) {
+        let source : JSNode = node.right!
         self.emit(text : (" from \"" + source.strValue) + "\"")
       }
       return;
     }
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
   }
   func printExportDefaultDeclaration(node : JSNode) -> Void {
     self.emit(text : "export default ")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
   }
   func printExportAllDeclaration(node : JSNode) -> Void {
     self.emit(text : "export *")
-    if ( (node.strValue.length) > 0 ) {
+    if ( (node.strValue.count) > 0 ) {
       self.emit(text : " as " + node.strValue)
     }
     self.emit(text : " from ")
-    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-      let source : JSNode = node.right
+    if ( node.right != nil  ) {
+      let source : JSNode = node.right!
       self.emit(text : ("\"" + source.strValue) + "\"")
     }
   }
   func printNewExpression(node : JSNode) -> Void {
     self.emit(text : "new ")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
     self.emit(text : "(")
     var first : Bool = true
@@ -4275,7 +4282,7 @@ class JSPrinter : Equatable  {
     if ( node.strValue2 == "async" ) {
       self.emit(text : "async ")
     }
-    let paramCount : Int = node.children.length
+    let paramCount : Int = node.children.count
     if ( paramCount == 1 ) {
       let firstParam : JSNode = node.children[0]
       if ( firstParam.nodeType == "Identifier" ) {
@@ -4291,8 +4298,8 @@ class JSPrinter : Equatable  {
       self.emit(text : ")")
     }
     self.emit(text : " => ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      let body : JSNode = node.body
+    if ( node.body != nil  ) {
+      let body : JSNode = node.body!
       if ( body.nodeType == "BlockStatement" ) {
         self.printNode(node : body)
       } else {
@@ -4304,8 +4311,8 @@ class JSPrinter : Equatable  {
     self.emit(text : "function(")
     self.printParams(params : node.children)
     self.emit(text : ") ")
-    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      self.printNode(node : node.body)
+    if ( node.body != nil  ) {
+      self.printNode(node : node.body!)
     }
   }
   func printYieldExpression(node : JSNode) -> Void {
@@ -4313,21 +4320,21 @@ class JSPrinter : Equatable  {
     if ( node.strValue == "delegate" ) {
       self.emit(text : "*")
     }
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+    if ( node.left != nil  ) {
       self.emit(text : " ")
-      self.printNode(node : node.left)
+      self.printNode(node : node.left!)
     }
   }
   func printAwaitExpression(node : JSNode) -> Void {
     self.emit(text : "await ")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
   }
   func printSpreadElement(node : JSNode) -> Void {
     self.emit(text : "...")
-    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      self.printNode(node : node.left)
+    if ( node.left != nil  ) {
+      self.printNode(node : node.left!)
     }
   }
   func printArrayPattern(node : JSNode) -> Void {
@@ -4358,8 +4365,8 @@ class JSPrinter : Equatable  {
           self.emit(text : prop.strValue)
         } else {
           self.emit(text : prop.strValue + ": ")
-          if ( (typeof(prop.left) !== "undefined" && prop.left != null )  ) {
-            self.printNode(node : prop.left)
+          if ( prop.left != nil  ) {
+            self.printNode(node : prop.left!)
           }
         }
       }
@@ -4390,12 +4397,12 @@ class JSParserMain : Equatable  {
     print("  node js_parser.js -i src/app.js -o dist/app.js")
   }
   class func processFile(inputFile : String, outputFile : String) -> Void {
-    let codeOpt : String? = read_file"."inputFile
-    if ( codeOpt== null ) {
+    let codeOpt : String? = r_read_file(dirName: "." + "/" + inputFile) 
+    if ( codeOpt == nil ) {
       print("Error: Could not read file: " + inputFile)
       return;
     }
-    let code : String = codeOpt
+    let code : String = codeOpt!
     let lexer : Lexer = Lexer(src : code)
     let tokens : [Token] = lexer.tokenize()
     let parser : SimpleParser = SimpleParser()
@@ -4409,18 +4416,18 @@ class JSParserMain : Equatable  {
       print("")
     }
     let printer : JSPrinter = JSPrinter()
-    /** unused:  let output : String = (printer).print(node : program)   **/ 
-    write_file"."outputFileoutput
+    let output : String = (printer).print(node : program)
+    r_write_file(dirName: "." + "/" + outputFile, dataToWrite: output) 
     print((("Parsed " + inputFile) + " -> ") + outputFile)
-    print(("  " + String((program.children.length))) + " statements processed")
+    print(("  " + String((program.children.count))) + " statements processed")
   }
   class func parseFile(filename : String) -> Void {
-    let codeOpt : String? = read_file"."filename
-    if ( codeOpt== null ) {
+    let codeOpt : String? = r_read_file(dirName: "." + "/" + filename) 
+    if ( codeOpt == nil ) {
       print("Error: Could not read file: " + filename)
       return;
     }
-    let code : String = codeOpt
+    let code : String = codeOpt!
     let lexer : Lexer = Lexer(src : code)
     let tokens : [Token] = lexer.tokenize()
     let parser : SimpleParser = SimpleParser()
@@ -4433,7 +4440,7 @@ class JSParserMain : Equatable  {
       }
       print("")
     }
-    print(("Program with " + String((program.children.length))) + " statements:")
+    print(("Program with " + String((program.children.count))) + " statements:")
     print("")
     for (idx, stmt) in program.children.enumerated() {
       ASTPrinter.printNode(node : stmt, depth : 0)
@@ -4448,7 +4455,7 @@ class JSParserMain : Equatable  {
     print("")
     let lexer : Lexer = Lexer(src : code)
     let tokens : [Token] = lexer.tokenize()
-    print(("--- Tokens: " + String((tokens.length))) + " ---")
+    print(("--- Tokens: " + String((tokens.count))) + " ---")
     print("")
     let parser : SimpleParser = SimpleParser()
     parser.initParserWithSource(toks : tokens, src : code)
@@ -4460,7 +4467,7 @@ class JSParserMain : Equatable  {
       }
       print("")
     }
-    print(("Program with " + String((program.children.length))) + " statements:")
+    print(("Program with " + String((program.children.count))) + " statements:")
     print("")
     print("--- AST ---")
     for (idx, stmt) in program.children.enumerated() {
@@ -4473,66 +4480,89 @@ class JSParserMain : Equatable  {
     print(output)
   }
 }
-// Swift 6 entry point
-@main
-struct Main {
-  static func main() {
-    let argCnt : Int = shell_arg_cnt
-    if ( argCnt == 0 ) {
+
+func r_read_file ( dirName:String ) -> String? {
+    let res: String?
+    do {
+        res = try String(contentsOfFile:dirName, encoding: .utf8)
+    } catch let error {
+        print("Error reading file: \(dirName)")
+        print("Error: \(error.localizedDescription)")
+        res = nil
+    }
+    return res
+}
+    
+
+func r_write_file ( dirName:String, dataToWrite:String ) {
+    do {
+        let fileManager = FileManager.default
+        let url = URL(fileURLWithPath: fileManager.currentDirectoryPath)
+        let path = url.appendingPathComponent(dirName)
+        try dataToWrite.write(to:path, atomically: false, encoding: .utf8)
+    } catch {
+
+    }
+}
+    
+// Main entry point
+func main() {
+  let argCnt : Int = CommandLine.arguments.count - 1
+  if ( argCnt == 0 ) {
+    JSParserMain.showHelp()
+    return;
+  }
+  var inputFile : String = ""
+  var outputFile : String = ""
+  var runDefault : Bool = false
+  var showAst : Bool = false
+  var i : Int = 0
+  while (i < argCnt) {
+    let arg : String = CommandLine.arguments[i + 1]
+    if ( (arg == "--help") || (arg == "-h") ) {
       JSParserMain.showHelp()
       return;
     }
-    var inputFile : String = ""
-    var outputFile : String = ""
-    var runDefault : Bool = false
-    var showAst : Bool = false
-    var i : Int = 0
-    while (i < argCnt) {
-      let arg : String = shell_argi
-      if ( (arg == "--help") || (arg == "-h") ) {
-        JSParserMain.showHelp()
-        return;
-      }
-      if ( arg == "-d" ) {
-        runDefault = true;
+    if ( arg == "-d" ) {
+      runDefault = true;
+      i = i + 1;
+    } else {
+      if ( arg == "-i" ) {
+        i = i + 1;
+        if ( i < argCnt ) {
+          inputFile = CommandLine.arguments[i + 1];
+        }
         i = i + 1;
       } else {
-        if ( arg == "-i" ) {
+        if ( arg == "-o" ) {
           i = i + 1;
           if ( i < argCnt ) {
-            =inputFileshell_argi
+            outputFile = CommandLine.arguments[i + 1];
           }
           i = i + 1;
         } else {
-          if ( arg == "-o" ) {
-            i = i + 1;
-            if ( i < argCnt ) {
-              =outputFileshell_argi
-            }
+          if ( arg == "--ast" ) {
+            showAst = true;
             i = i + 1;
           } else {
-            if ( arg == "--ast" ) {
-              showAst = true;
-              i = i + 1;
-            } else {
-              i = i + 1;
-            }
+            i = i + 1;
           }
         }
       }
     }
-    if ( runDefault ) {
-      JSParserMain.runDemo()
-      return;
-    }
-    if ( (inputFile.length) > 0 ) {
-      if ( (outputFile.length) > 0 ) {
-        JSParserMain.processFile(inputFile : inputFile, outputFile : outputFile)
-      } else {
-        JSParserMain.parseFile(filename : inputFile)
-      }
-      return;
-    }
-    JSParserMain.showHelp()
   }
+  if ( runDefault ) {
+    JSParserMain.runDemo()
+    return;
+  }
+  if ( (inputFile.count) > 0 ) {
+    if ( (outputFile.count) > 0 ) {
+      JSParserMain.processFile(inputFile : inputFile, outputFile : outputFile)
+    } else {
+      JSParserMain.parseFile(filename : inputFile)
+    }
+    return;
+  }
+  JSParserMain.showHelp()
 }
+main()

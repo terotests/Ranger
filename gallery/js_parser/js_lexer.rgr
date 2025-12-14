@@ -34,7 +34,7 @@ class Lexer {
         }
         def ch:string (at source pos)
         pos = pos + 1
-        if (ch == "\n") {
+        if ((ch == "\n") || (ch == "\r\n")) {
             line = line + 1
             col = 1
         } {
@@ -100,6 +100,7 @@ class Lexer {
         if (ch == "\t") { return true }
         if (ch == "\n") { return true }
         if (ch == "\r") { return true }
+        if (ch == "\r\n") { return true }
         return false
     }
 
@@ -124,6 +125,10 @@ class Lexer {
         while (pos < len) {
             def ch:string (this.peek())
             if (ch == "\n") {
+                return (this.makeToken("LineComment" value startPos startLine startCol))
+            }
+            ; Handle CRLF as single grapheme cluster in Swift
+            if (ch == "\r\n") {
                 return (this.makeToken("LineComment" value startPos startLine startCol))
             }
             value = value + (this.advance())
@@ -553,7 +558,7 @@ class Lexer {
                             this.advance()
                             break
                         } {
-                            if ((ch == "\n") || (ch == "\r")) {
+                            if ((ch == "\n") || (ch == "\r") || (ch == "\r\n")) {
                                 ; Unterminated regex
                                 return (this.makeToken("RegexLiteral" pattern startPos startLine startCol))
                             } {

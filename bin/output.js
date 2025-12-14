@@ -3396,8 +3396,8 @@ class RangerAppWriterContext  {
     };
     const root = this.getRoot();
     root.initReservedWords();
-    if ( ( typeof(this.refTransform[input_word] ) != "undefined" && this.refTransform.hasOwnProperty(input_word) ) ) {
-      return (this.refTransform[input_word]);
+    if ( ( typeof(root.refTransform[input_word] ) != "undefined" && root.refTransform.hasOwnProperty(input_word) ) ) {
+      return (root.refTransform[input_word]);
     }
     return input_word;
   };
@@ -4093,7 +4093,7 @@ class RangerAppWriterContext  {
           desc.compiledName = "__len";
           break;
         default: 
-          desc.compiledName = name;
+          desc.compiledName = this.transformWord(name);
           break;
       };
     } else {
@@ -15412,11 +15412,8 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       if ( variant_4.nameNode.hasFlag("main") && (variant_4.nameNode.code.filename == ctx.getRootFile()) ) {
         const theEnd = wr.getTag("file_end");
         theEnd.newline();
-        theEnd.out("// Swift 6 entry point", true);
-        theEnd.out("@main", true);
-        theEnd.out("struct Main {", true);
-        theEnd.indent(1);
-        theEnd.out("static func main() {", true);
+        theEnd.out("// Main entry point", true);
+        theEnd.out("func main() {", true);
         theEnd.indent(1);
         const subCtx_3 = variant_4.fnCtx;
         subCtx_3.is_function = true;
@@ -15424,8 +15421,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         theEnd.newline();
         theEnd.indent(-1);
         theEnd.out("}", true);
-        theEnd.indent(-1);
-        theEnd.out("}", true);
+        theEnd.out("main()", true);
       }
     };
   };
@@ -16347,8 +16343,21 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     return type_string;
   };
   async writeTypeDef (node, ctx, wr) {
-    if ( node.hasFlag("optional") ) {
-      wr.out("Option<", false);
+    const is_optional = node.hasFlag("optional");
+    let is_self_referential = false;
+    const uc = ctx.getCurrentClass();
+    if ( (typeof(uc) !== "undefined" && uc != null )  ) {
+      const currClass = uc;
+      if ( node.type_name == currClass.name ) {
+        is_self_referential = true;
+      }
+    }
+    if ( is_optional ) {
+      if ( is_self_referential ) {
+        wr.out("Option<Box<", false);
+      } else {
+        wr.out("Option<", false);
+      }
     }
     let v_type = node.value_type;
     if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
@@ -16394,8 +16403,12 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         wr.out(this.getTypeString(node.type_name), false);
         break;
     };
-    if ( node.hasFlag("optional") ) {
-      wr.out(">", false);
+    if ( is_optional ) {
+      if ( is_self_referential ) {
+        wr.out(">>", false);
+      } else {
+        wr.out(">", false);
+      }
     }
   };
   async WriteVRef (node, ctx, wr) {
@@ -16433,8 +16446,6 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           }
         }
         if ( i == 0 ) {
-          if ( p.nameNode.hasFlag("optional") ) {
-          }
           const part_1 = node.ns[0];
           if ( (part_1 != "this") && ctx.isMemberVariable(part_1) ) {
             const uc = ctx.getCurrentClass();
@@ -16705,6 +16716,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         } else {
           if ( (pvar_1).isArray() ) {
             wr.out(pvar_1.name + ": Vec::new(), ", true);
+          } else {
+            if ( pvar_1.is_optional ) {
+              wr.out(pvar_1.name + ": None, ", true);
+            }
           }
         }
       }

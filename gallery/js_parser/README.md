@@ -5,6 +5,7 @@ A comprehensive JavaScript ES6+ parser written in Ranger with a pretty-printer t
 ## Status
 
 ✅ **Functional** - Parses and prints most ES6+ features
+✅ **Multi-target** - Compiles to JavaScript, Swift, and more
 
 ## Features
 
@@ -13,13 +14,14 @@ A comprehensive JavaScript ES6+ parser written in Ranger with a pretty-printer t
 - **Pretty printer** that outputs formatted JavaScript from AST
 - **Comment preservation** - line comments, block comments, and JSDoc
 - **Source positions** tracked (line, column, offset)
-- **Cross-platform** - compiles to JS, Go, Rust, Python, etc.
+- **Cross-platform** - compiles to JS, Swift, Go, Python, etc.
 
 ## Usage
 
+### JavaScript Version
+
 ```bash
 # Compile the parser (from Ranger root)
-$env:RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr"
 node bin/output.js gallery/js_parser/js_parser_main.rgr -o=js_parser.js -d=gallery/js_parser
 
 # Parse and pretty-print a JavaScript file
@@ -28,11 +30,28 @@ node gallery/js_parser/js_parser.js -i input.js -o output.js
 # Show AST instead of pretty-printed code
 node gallery/js_parser/js_parser.js -i input.js --ast
 
-# Use default test files (test_input.js -> test_output.js)
+# Use demo mode with built-in test code
 node gallery/js_parser/js_parser.js -d
 
 # Show help
 node gallery/js_parser/js_parser.js -h
+```
+
+### Swift Version
+
+```bash
+# Compile to Swift (from gallery/js_parser directory)
+node ../../bin/output.js js_parser_main.rgr -l=swift6 -o js_parser.swift
+
+# Fix line endings for macOS (CRLF -> LF)
+sed -i '' $'s/\r$//' bin/js_parser_main.swift
+
+# Compile Swift binary
+swiftc -o js_parser_swift bin/js_parser_main.swift
+
+# Run the Swift binary
+./js_parser_swift -i input.js --ast
+./js_parser_swift -d
 ```
 
 ### CLI Options
@@ -151,6 +170,8 @@ JSNode {
 | `js_token.rgr`       | Token class definition                     |
 | `js_printer.rgr`     | Pretty-printer (AST → formatted JS)        |
 | `js_parser.js`       | Compiled JavaScript output                 |
+| `js_parser.swift`    | Compiled Swift output                      |
+| `js_parser_swift`    | Compiled Swift binary (macOS)              |
 | `test_input.js`      | Comprehensive test file with ES6+ features |
 | `test_output.js`     | Parser output for comparison               |
 

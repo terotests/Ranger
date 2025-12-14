@@ -67,6 +67,8 @@ language {
         map FnMap
         forEach forEachItem
         self _self
+        func _func
+        type _type
     }
 
     
@@ -379,6 +381,7 @@ func r_io_get_env( name string) *GoNullable {
                 csharp ('Environment.GetCommandLineArgs()[' (e 1) ' + 1]' (imp "System"))
                 go ( "os.Args[" (e 1) " + 1]"  (imp "os"))
                 swift3 ("CommandLine.arguments[" (e 1) " + 1]")
+                swift6 ("CommandLine.arguments[" (e 1) " + 1]")
                 es6 ( "process.argv[ 2 + " (e 1) "]")
                 rust ( "std::env::args().nth((" (e 1) " + 1) as usize).unwrap_or_default()")
                 ranger ("( shell_arg " (e 1) " )")
@@ -389,6 +392,7 @@ func r_io_get_env( name string) *GoNullable {
             templates {
                 cpp ( "__g_argc - 1")
                 swift3 ("CommandLine.arguments.count - 1")
+                swift6 ("CommandLine.arguments.count - 1")
                 csharp ('Environment.GetCommandLineArgs().Length - 1' (imp "System"))                
                 php ( "(count($argv) - 1)" )
                 java7 ( "args.length")
@@ -614,6 +618,22 @@ func r_write_file ( dirName:String, dataToWrite:String ) {
     ")                  
                 
                 ) 
+                swift6 ("r_write_file(dirName: " (e 1) " + \"/\" + " (e 2) ", dataToWrite: " (e 3) ") " 
+                    (imp "Foundation")
+(create_polyfill "
+func r_write_file ( dirName:String, dataToWrite:String ) {
+    do {
+        let fileManager = FileManager.default
+        let url = URL(fileURLWithPath: fileManager.currentDirectoryPath)
+        let path = url.appendingPathComponent(dirName)
+        try dataToWrite.write(to:path, atomically: false, encoding: .utf8)
+    } catch {
+
+    }
+}
+    ")                  
+                
+                ) 
                 cpp_old ( nl "/* write file not yet implemented */" nl)
 
                 cpp ( "r_cpp_write_file( " (e 1) " , " (e 2) " , " (e 3) "  );" nl (imp "<iostream>") (imp "<string>") (imp "<fstream>")
@@ -713,6 +733,22 @@ func r_read_file ( dirName:String ) -> String? {
     do {
         res = try String(contentsOfFile:dirName)
     } catch {
+        res = nil
+    }
+    return res
+}
+    ")                                  
+                )
+                swift6 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
+                    (imp "Foundation")
+(create_polyfill "
+func r_read_file ( dirName:String ) -> String? {
+    let res: String?
+    do {
+        res = try String(contentsOfFile:dirName, encoding: .utf8)
+    } catch let error {
+        print(\"Error reading file: \\(dirName)\")
+        print(\"Error: \\(error.localizedDescription)\")
         res = nil
     }
     return res
@@ -855,6 +891,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 php ( (e 1 ) )
                 kotlin ( (e 1) "!!" )
                 swift3 ( (e 1) "!" )
+                swift6 ( (e 1) "!" )
                 go ( (e 1) ".value.(" (typeof 1) ")" )
                 cpp ( (e 1) )
 
@@ -883,6 +920,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 php ( (e 1 ) )
                 kotlin ( (e 1) "!!" )
                 swift3 ( (e 1) "!" )
+                swift6 ( (e 1) "!" )
                 go ( (e 1) ".value.(" (typeof 1) ")" )
                 cpp ( (e 1) )
 
@@ -1596,6 +1634,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 php ( "(!isset(" (e 1) "))")                                
                 cpp ((e 1) " == NULL")                                
                 swift3 ((e 1) " == nil")  
+                swift6 ((e 1) " == nil")  
                 java7 ( (e 1) " == null")  
                 scala ((e 1) ".isDefined == false ")  
                 csharp ((e 1) " == null ")  
@@ -1629,6 +1668,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 php ( "(isset(" (e 1) "))")
                 scala ((e 1) ".isDefined")  
                 swift3 ((e 1) " != nil ")     
+                swift6 ((e 1) " != nil ")     
                 cpp ((e 1) " != NULL ")     
                 java7 ((e 1) " != null ")   
                 csharp ("" (e 1) " != null")
@@ -1771,6 +1811,7 @@ case class customException(smth:String)  extends Exception
             templates {
                 ranger ( "(trim " (e 1 ) ")")                
                 swift3 ( (e 1 ) ".trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)" (imp "Foundation"))                
+                swift6 ( (e 1 ) ".trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)" (imp "Foundation"))                
                 php ( "trim(" (e 1 ) ")")
                 cpp ( "r_cpp_trim( " (e 1) ")" (imp "<cctype>") (imp "<string>") (imp "<algorithm>")
 (create_polyfill "
@@ -1817,6 +1858,7 @@ inline std::string  r_cpp_trim(std::string &s)
                     
                     "__Split(" (e 1) ", " (e 2) ")" (imp 'System.Linq'))
                 swift3 ( (e 2) ".characters.count == 0 ? Array(" (e 1) ".characters).map { String($0) } : " (e 1) ".components( separatedBy : " (e 2) ")" (imp "Foundation"))
+                swift6 ( (e 2) ".count == 0 ? Array(" (e 1) ").map { String($0) } : " (e 1) ".components( separatedBy : " (e 2) ")" (imp "Foundation"))
                 java7( "new ArrayList<String>(Arrays.asList(" (e 1) ".split(" (e 2) ")))" )
                 php ( "strlen(" (e 2) ") == 0 ? str_split(" (e 1) ") : " "explode(" (e 2) ", " (e 1) ")")               
                 go ("strings.Split(" (e 1) ", " (e 2) ")" (imp "strings"))
@@ -1859,6 +1901,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 java7 ( (e 1) ".length()") 
                 scala ( (e 1) ".length()")  
                 swift3 ( (e 1) ".characters.count")  
+                swift6 ( (e 1) ".count")  
                 csharp ( (e 1) ".Length")
                 php ( "strlen(" (e 1) ")") 
                 go ( "int64(len(" (e 1) "))")
@@ -1889,6 +1932,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 scala ( "new String(" (e 1) ".slice(" (e 2) ", " (e 3) ").map(_.toChar) )")
                 java7 ( "new String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) " )")
                 swift3 ( "String(data: Data(bytes:" (e 1) "[" (e 2) " ..< " (e 3) "]), encoding: .utf8)!"  (imp "Foundation"))
+                swift6 ( "String(data: Data(" (e 1) "[" (e 2) " ..< " (e 3) "]), encoding: .utf8)!"  (imp "Foundation"))
                 kotlin ( "String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) " )")           
                 go ( "fmt.Sprintf(\"%s\", " (e 1) "[" (e 2) ":" (e 3) "])"               
                  (imp "fmt")
@@ -2034,6 +2078,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 go ( (e 1) "[" (e 2) ": (" (e 2) " + 1)]")  
 
                 swift3 ( (imp 'Foundation') (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) " + 1)]" )
+                swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")])" )
                 
                 ; swift3 ( 'Int( ( NSString(string: ' (e 1) ' ) ).character( at: ' (e 2) ' ) )')
                 ; swift3 ( (imp 'Foundation')  (e 1) '.substring(from: ' (e 1) '.index(' (e 1) '.startIndex, offsetBy: ' (e 2) ' + 1), to: ' (e 1) '.index(' (e 1) '.startIndex, offsetBy: ' (e 2) ' + 1))')    
@@ -2054,6 +2099,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 go ( "int64(" (e 1) "[" (e 2) "])")  
                 swift3 ( "Int( ( NSString(string: " (e 1) " ) ).character( at: " (e 2) " ) )")
                 swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")
+                swift6 ( "Int(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")].asciiValue ?? 0)")
                 python ( "ord(" (e 1) "[" (e 2) "])")
                 rust ( (e 1) ".chars().nth(" (e 2) " as usize).unwrap_or('\\0') as i64")
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
@@ -2067,6 +2113,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 ranger ("(keys " (e 1) ")")
                 java7 ( "new ArrayList<>(" (e 1) ".keySet())")
                 swift3 ("Array(" (e 1) ".keys)")
+                swift6 ("Array(" (e 1) ".keys)")
                 scala ( (e 1) ".keys.to[collection.mutable.ArrayBuffer]")
                 php ("array_keys(" (e 1) ")")
                 es6 ( "Object.keys(" (e 1) ")")
@@ -2146,6 +2193,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
                 go (  (e 1) "[" (e 2) ":" (e 3) "]")               
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
+                swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
                 python ( (e 1) "[" (e 2) ":" (e 3) "]" )
                 rust ( (e 1) ".chars().skip(" (e 2) " as usize).take((" (e 3) " - " (e 2) ") as usize).collect::<String>()")
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
@@ -2224,7 +2272,8 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 php ( "strval(" (e 1) ")") 
                 scala ( "(" (e 1) ".toString)")
                 go ("strconv.Itoa(" (e 1) ")" (imp "strconv"))
-                swfit3 ("String(" (e 1) ")")
+                swift3 ("String(" (e 1) ")")
+                swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
                 * ( "(" (e 1) ").toString()")
             }
@@ -2240,6 +2289,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 scala ( "(" (e 1) ".toString)")
                 go ("strconv.FormatFloat(" (e 1) ",'f', 6, 64)" (imp "strconv"))
                 swift3 ("String(" (e 1) ")")
+                swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
                 * ( "(" (e 1) ".toString())")
             }
@@ -2254,6 +2304,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 scala ( "(" (e 1) ".toString)")
                 go ("strconv.FormatFloat(" (e 1) ",'f', 6, 64)" (imp "strconv"))
                 swift3 ("String(" (e 1) ")")
+                swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
                 * ( "(" (e 1) ".toString())")
             }
@@ -2340,6 +2391,7 @@ func r_str_2_i64(s string) *GoNullable {
                 scala ( "Try(" (e 1) ".toInt).toOption" (imp "scala.util.Try"))
                 kotlin (  (e 1) ".toInt()")
                 swift3 ("Int(" (e 1) ")")           
+                swift6 ("Int(" (e 1) ")")           
                 csharp( "Int32.Parse(" (e 1) ")" )   
                 * ( "isNaN( parseInt(" (e 1) ") ) ? undefined : parseInt(" (e 1) ")")
             }
@@ -2470,6 +2522,7 @@ std::string join(const T& v, const std::string& delim) {
                 scala ( (e 1) ".mkString(" (e 2) ")" )
                 php ( "implode(" (e 2) ", " (e 1) ")")
                 swift3 ( (e 1) ".joined(separator:" (e 2) ")")
+                swift6 ( (e 1) ".joined(separator:" (e 2) ")")
                 * ( (e 1) ".join(" (e 2) ")" )
             }            
         }                 
@@ -2497,6 +2550,7 @@ std::string join(const T& v, const std::string& delim) {
                 csharp ( (e 1) ".ContainsKey(" (e 2) ")" )
                 scala ( (e 1) ".contains(" (e 2) ")" )
                 swift3 ( (e 1) "[" (e 2) "] != nil" )
+                swift6 ( (e 1) "[" (e 2) "] != nil" )
                 * ( (e 1) "[" (e 2) "] != null" )
             }            
         }  
@@ -2639,6 +2693,8 @@ i "}" nl ))
                 es6 ( (e 1) ".indexOf(" (e 2 ) ")" )
                 java7 ( (e 1) ".indexOf(" (e 2 ) ")" )
                 python ( (e 1) ".find(" (e 2) ")" )
+                swift3 ( (e 1) ".range(of:" (e 2) ")?.lowerBound.encodedOffset ?? -1" )
+                swift6 ( "(" (e 1) ".range(of:" (e 2) ").map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
                 cpp (
                     "r_string_index_of(" (e 1) " , " (e 2) ")"
 (create_polyfill
@@ -2664,6 +2720,7 @@ int r_string_index_of( std::string str, std::string key )  {
                 go ( "strings.HasPrefix(" (e 1) ", " (e 2) ")" (imp "strings"))
                 php ( "substr(" (e 1) ", 0, strlen(" (e 2) ")) === " (e 2) )
                 swift3 ( (e 1) ".hasPrefix(" (e 2) ")" )
+                swift6 ( (e 1) ".hasPrefix(" (e 2) ")" )
                 csharp ( (e 1) ".StartsWith(" (e 2) ")" )
                 scala ( (e 1) ".startsWith(" (e 2) ")" )
                 cpp ( (e 1) ".rfind(" (e 2) ", 0) == 0" )
@@ -2680,6 +2737,7 @@ int r_string_index_of( std::string str, std::string key )  {
                 go ( "strings.HasSuffix(" (e 1) ", " (e 2) ")" (imp "strings"))
                 php ( "substr(" (e 1) ", -strlen(" (e 2) ")) === " (e 2) )
                 swift3 ( (e 1) ".hasSuffix(" (e 2) ")" )
+                swift6 ( (e 1) ".hasSuffix(" (e 2) ")" )
                 csharp ( (e 1) ".EndsWith(" (e 2) ")" )
                 scala ( (e 1) ".endsWith(" (e 2) ")" )
                 cpp ( "r_string_ends_with(" (e 1) ", " (e 2) ")"
@@ -2704,6 +2762,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
                 go ( "strings.Contains(" (e 1) ", " (e 2) ")" (imp "strings"))
                 php ( "strpos(" (e 1) ", " (e 2) ") !== false" )
                 swift3 ( (e 1) ".contains(" (e 2) ")" )
+                swift6 ( (e 1) ".contains(" (e 2) ")" )
                 csharp ( (e 1) ".Contains(" (e 2) ")" )
                 scala ( (e 1) ".contains(" (e 2) ")" )
                 cpp ( (e 1) ".find(" (e 2) ") != std::string::npos" )
@@ -2773,6 +2832,17 @@ int r_arr_index_of( std::vector<T> vec, T elem )  {
 (macro ("
 func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
     "if let idx = arr.index(of: elem) { " nl
+    "    return idx " nl
+    "} else { " nl
+    I "    return -1 " nl i
+    "}  " nl
+    i
+"}" nl ) )                
+                 )
+                 swift6( "r_index_of(arr:" (e 1) ", elem:" (e 2)")"
+(macro ("
+func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
+    "if let idx = arr.firstIndex(of: elem) { " nl
     "    return idx " nl
     "} else { " nl
     I "    return -1 " nl i
@@ -2974,6 +3044,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ranger ( "(array_length " (e 1) ")")
                  cpp ( '(int)(' (e 1) ".size())" )                                                              
                  swift3 ( (e 1) ".count")
+                 swift6 ( (e 1) ".count")
                  php ( "count(" (e 1) ")")
                  java7 ( (e 1) ".size()" )                                                              
                  scala ( (e 1) ".length" )
