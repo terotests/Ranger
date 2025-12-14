@@ -114,25 +114,59 @@ class Lexer {
         }
     }
 
-    fn skipLineComment:void () {
+    fn readLineComment:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        this.advance() ; consume first /
+        this.advance() ; consume second /
+        def value:string ""
         while (pos < len) {
-            def ch:string (this.advance())
+            def ch:string (this.peek())
             if (ch == "\n") {
-                return
+                return (this.makeToken("LineComment" value startPos startLine startCol))
             }
+            value = value + (this.advance())
         }
+        return (this.makeToken("LineComment" value startPos startLine startCol))
     }
 
-    fn skipBlockComment:void () {
-        while (pos < len) {
-            def ch:string (this.advance())
-            if (ch == "*") {
-                if ((this.peek()) == "/") {
-                    this.advance()
-                    return
-                }
+    fn readBlockComment:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        this.advance() ; consume /
+        this.advance() ; consume *
+        def value:string ""
+        def isJSDoc:boolean false
+        
+        ; Check if this is a JSDoc comment (starts with /**)
+        if ((this.peek()) == "*") {
+            def nextCh:string (this.peekAt(1))
+            if (nextCh != "/") {
+                isJSDoc = true
             }
         }
+        
+        while (pos < len) {
+            def ch:string (this.peek())
+            if (ch == "*") {
+                if ((this.peekAt(1)) == "/") {
+                    this.advance() ; consume *
+                    this.advance() ; consume /
+                    if (isJSDoc) {
+                        return (this.makeToken("JSDocComment" value startPos startLine startCol))
+                    }
+                    return (this.makeToken("BlockComment" value startPos startLine startCol))
+                }
+            }
+            value = value + (this.advance())
+        }
+        ; Unterminated comment - return what we have
+        if (isJSDoc) {
+            return (this.makeToken("JSDocComment" value startPos startLine startCol))
+        }
+        return (this.makeToken("BlockComment" value startPos startLine startCol))
     }
 
     fn makeToken:Token (type:string value:string startPos:int startLine:int startCol:int) {
@@ -161,11 +195,28 @@ class Lexer {
             if (ch == "\\") {
                 this.advance()
                 def esc:string (this.advance())
-                if (esc == "n") { value = value + "\n" }
-                if (esc == "t") { value = value + "\t" }
-                if (esc == "r") { value = value + "\r" }
-                if (esc == "\\") { value = value + "\\" }
-                if (esc == quote) { value = value + quote }
+                if (esc == "n") { 
+                    value = value + "\n" 
+                } {
+                    if (esc == "t") { 
+                        value = value + "\t" 
+                    } {
+                        if (esc == "r") { 
+                            value = value + "\r" 
+                        } {
+                            if (esc == "\\") { 
+                                value = value + "\\" 
+                            } {
+                                if (esc == quote) { 
+                                    value = value + quote 
+                                } {
+                                    ; Unknown escape - keep the escaped character
+                                    value = value + esc
+                                }
+                            }
+                        }
+                    }
+                }
             } {
                 value = value + (this.advance())
             }
@@ -312,20 +363,14 @@ class Lexer {
         def startLine:int line
         def startCol:int col
 
-        ; Comments
+        ; Comments - now return tokens instead of skipping
         if (ch == "/") {
             def next:string (this.peekAt(1))
             if (next == "/") {
-                this.advance()
-                this.advance()
-                this.skipLineComment()
-                return (this.nextToken())
+                return (this.readLineComment())
             }
             if (next == "*") {
-                this.advance()
-                this.advance()
-                this.skipBlockComment()
-                return (this.nextToken())
+                return (this.readBlockComment())
             }
         }
 

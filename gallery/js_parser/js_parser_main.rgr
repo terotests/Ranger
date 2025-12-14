@@ -1,10 +1,12 @@
-; JavaScript ES5 Parser - Main entry point
-; Usage: node js_parser.js [options] [file.js]
-;   --help     Show this help message
-;   --test     Run built-in test suite with static test code
-;   <file.js>  Parse the specified JavaScript file
+; JavaScript ES6 Parser - Main entry point
+; Usage: node js_parser.js [options]
+;   -h, --help     Show this help message
+;   -d             Run built-in test suite (default demo)
+;   -i <file>      Input JavaScript file to parse
+;   -o <file>      Output file for pretty-printed JavaScript
 
 Import "js_parser_core.rgr"
+Import "js_printer.rgr"
 
 class JSParserMain {
   sfn m@(main):void () {
@@ -16,38 +18,128 @@ class JSParserMain {
       return
     }
     
-    def arg:string (shell_arg 0)
+    ; Parse command line arguments
+    def inputFile:string ""
+    def outputFile:string ""
+    def runDefault:boolean false
+    def showAst:boolean false
     
-    if ((arg == "--help") || (arg == "-h")) {
-      JSParserMain.showHelp()
+    def i:int 0
+    while (i < argCnt) {
+      def arg:string (shell_arg i)
+      
+      if ((arg == "--help") || (arg == "-h")) {
+        JSParserMain.showHelp()
+        return
+      }
+      
+      if (arg == "-d") {
+        runDefault = true
+        i = i + 1
+      } {
+        if (arg == "-i") {
+          i = i + 1
+          if (i < argCnt) {
+            inputFile = (shell_arg i)
+          }
+          i = i + 1
+        } {
+          if (arg == "-o") {
+            i = i + 1
+            if (i < argCnt) {
+              outputFile = (shell_arg i)
+            }
+            i = i + 1
+          } {
+            if (arg == "--ast") {
+              showAst = true
+              i = i + 1
+            } {
+              ; Unknown argument - skip
+              i = i + 1
+            }
+          }
+        }
+      }
+    }
+    
+    ; Run default demo
+    if (runDefault) {
+      JSParserMain.runDemo()
       return
     }
     
-    if (arg == "--test") {
-      JSParserMain.runTests()
+    ; Process input/output files
+    if ((strlen inputFile) > 0) {
+      if ((strlen outputFile) > 0) {
+        ; Parse input and write pretty-printed output
+        JSParserMain.processFile(inputFile outputFile)
+      } {
+        ; Parse input and print AST to console
+        JSParserMain.parseFile(inputFile)
+      }
       return
     }
     
-    ; Otherwise treat as filename
-    JSParserMain.parseFile(arg)
+    ; No valid arguments
+    JSParserMain.showHelp()
   }
   
   sfn showHelp:void () {
-    print "JavaScript ES5 Parser"
+    print "JavaScript ES6 Parser and Pretty Printer"
     print ""
-    print "Usage: node js_parser.js [options] [file.js]"
+    print "Usage: node js_parser.js [options]"
     print ""
     print "Options:"
-    print "  --help, -h   Show this help message"
-    print "  --test       Run built-in test suite with static test code"
-    print ""
-    print "Arguments:"
-    print "  <file.js>    Parse the specified JavaScript file and output AST"
+    print "  -h, --help     Show this help message"
+    print "  -d             Run built-in demo/test suite"
+    print "  -i <file>      Input JavaScript file to parse"
+    print "  -o <file>      Output file for pretty-printed JavaScript"
+    print "  --ast          Show AST instead of pretty-printed output (with -i)"
     print ""
     print "Examples:"
-    print "  node js_parser.js --test           Run the test suite"
-    print "  node js_parser.js script.js        Parse script.js"
-    print "  node js_parser.js ./src/app.js     Parse app.js from src folder"
+    print "  node js_parser.js -d                        Run the demo"
+    print "  node js_parser.js -i script.js              Parse and show AST"
+    print "  node js_parser.js -i script.js -o out.js    Parse and pretty-print to file"
+    print "  node js_parser.js -i src/app.js -o dist/app.js"
+  }
+  
+  sfn processFile:void (inputFile:string outputFile:string) {
+    def codeOpt@(optional):string (read_file "." inputFile)
+    
+    if (null? codeOpt) {
+      print "Error: Could not read file: " + inputFile
+      return
+    }
+    
+    def code:string (unwrap codeOpt)
+    
+    ; Tokenize
+    def lexer:Lexer (new Lexer(code))
+    def tokens:[Token] (lexer.tokenize())
+    
+    ; Parse
+    def parser:SimpleParser (new SimpleParser())
+    parser.initParser(tokens)
+    def program:JSNode (parser.parseProgram())
+    
+    ; Check for errors
+    if (parser.hasErrors()) {
+      print "=== Parse Errors ==="
+      for parser.errors err:string ei {
+        print err
+      }
+      print ""
+    }
+    
+    ; Pretty print
+    def printer:JSPrinter (new JSPrinter())
+    def output:string (printer.print(program))
+    
+    ; Write to output file
+    write_file "." outputFile output
+    print "Parsed " + inputFile + " -> " + outputFile
+    print "  " + (array_length program.children) + " statements processed"
   }
   
   sfn parseFile:void (filename:string) {
@@ -87,8 +179,8 @@ class JSParserMain {
     }
   }
   
-  sfn runTests:void () {
-    def code:string "var x = 123;
+  sfn runDemo:void () {
+    def code:string "// Variable declarations
 var y = 'hello';
 
 // Function declaration
@@ -348,7 +440,6 @@ const shorthand = { x, y, z };
     print ""
     
     ; Parse
-    print "--- AST ---"
     def parser:SimpleParser (new SimpleParser())
     parser.initParser(tokens)
     def program:JSNode (parser.parseProgram())
@@ -366,8 +457,16 @@ const shorthand = { x, y, z };
     print ""
     
     ; Print AST
+    print "--- AST ---"
     for program.children stmt:JSNode idx {
       ASTPrinter.printNode(stmt 0)
     }
+    
+    ; Pretty print
+    print ""
+    print "--- Pretty Printed Output ---"
+    def printer:JSPrinter (new JSPrinter())
+    def output:string (printer.print(program))
+    print output
   }
 }
