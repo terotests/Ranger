@@ -980,3 +980,56 @@ export function expectRustOutput(
 
   return run;
 }
+
+/**
+ * Get the generated Rust code content for a source file
+ * Returns the Rust source code as a string for inspection
+ */
+export function getGeneratedRustCode(
+  sourceFile: string,
+  outputDir?: string
+): { success: boolean; code: string; error?: string } {
+  const result = compileRangerToRust(sourceFile, outputDir);
+
+  if (!result.success) {
+    return {
+      success: false,
+      code: "",
+      error: result.error,
+    };
+  }
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputFile = `${sourceBasename}.rs`;
+  const targetDir = outputDir || RUST_OUTPUT_DIR;
+  const outputPath = path.join(targetDir, outputFile);
+
+  if (!fs.existsSync(outputPath)) {
+    return {
+      success: false,
+      code: "",
+      error: `Generated file not found: ${outputPath}`,
+    };
+  }
+
+  try {
+    const code = fs.readFileSync(outputPath, "utf-8");
+    return {
+      success: true,
+      code,
+    };
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    return {
+      success: false,
+      code: "",
+      error: err.message || "Failed to read generated file",
+    };
+  }
+}

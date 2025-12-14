@@ -89,6 +89,148 @@ ranger-compiler -l=rust myfile.clj -o=myfile.rs
 rustc myfile.rs -o myfile
 ```
 
+### Space Invaders Demo Game
+
+A complete terminal-based Space Invaders game demonstrating Ranger's cross-language capabilities. The same source code compiles to **4 different targets**:
+
+| Target         | Executable          | Build Command             |
+| -------------- | ------------------- | ------------------------- |
+| ES6/JavaScript | `invaders.js`       | `npm run game:compile`    |
+| Rust           | `invaders_rust.exe` | `npm run game:build:rust` |
+| Go             | `invaders_go.exe`   | `npm run game:build:go`   |
+| C++            | `invaders_cpp.exe`  | Cross-compile via WSL     |
+| Swift          | `invaders_swift`    | macOS/Linux only          |
+
+```bash
+# Build all targets at once
+npm run game:build:all
+
+# Run the game
+npm run game:run        # JavaScript
+npm run game:run:rust   # Rust
+npm run game:run:go     # Go
+```
+
+#### Cross-Compiling the Game
+
+The Space Invaders game demonstrates cross-platform compilation from a single source file.
+
+**JavaScript (ES6)**
+
+```bash
+npm run game:compile        # Generates invaders.js
+node gallery/invaders/invaders.js
+```
+
+**Rust**
+
+```bash
+npm run game:compile:rust   # Generates invaders.rs
+cd gallery/invaders && rustc invaders.rs -o invaders_rust.exe
+# Or use the combined command:
+npm run game:build:rust
+```
+
+**Go**
+
+```bash
+npm run game:compile:go     # Generates invaders.go
+cd gallery/invaders && go build -o invaders_go.exe invaders.go
+# Or use the combined command:
+npm run game:build:go
+```
+
+**C++ (Windows via WSL)**
+
+C++ compilation requires POSIX-threaded MinGW for `std::thread` and `std::mutex` support:
+
+```bash
+npm run game:compile:cpp    # Generates invaders.cpp
+
+# Cross-compile from WSL to Windows:
+wsl -d Ubuntu -- bash -c "
+  cd /mnt/c/path/to/Ranger/gallery/invaders && \
+  sed -i 's/\r$//' invaders.cpp && \
+  x86_64-w64-mingw32-g++-posix -std=c++17 -static -pthread invaders.cpp -o invaders_cpp.exe
+"
+```
+
+> **Note:** The standard MinGW compiler (`x86_64-w64-mingw32-g++`) uses win32 threads which don't support `<mutex>` and `<thread>`. You must use the POSIX variant (`g++-posix`).
+
+**Swift (macOS/Linux only)**
+
+```bash
+npm run game:compile:swift  # Generates invaders.swift
+swiftc invaders.swift -o invaders_swift
+```
+
+#### Platform-Specific Keyboard Input
+
+The game uses `on_keypress` and `poll_keypress` operators with platform-specific implementations:
+
+| Platform | Windows                           | Unix/Linux/macOS           |
+| -------- | --------------------------------- | -------------------------- |
+| Rust     | `windows-sys` crate               | `termios` + `libc`         |
+| Go       | `msvcrt.dll` (`_kbhit`, `_getch`) | `stty` + `os.Stdin`        |
+| C++      | `<conio.h>` (`_kbhit`, `_getch`)  | `<termios.h>` + `read()`   |
+| Swift    | `_kbhit` / `_getch` via C interop | `Darwin` / `Glibc` termios |
+
+The game uses terminal control operators (`clear_screen`, `move_cursor`, `hide_cursor`, etc.) and keyboard input (`on_keypress`, `poll_keypress`) that have platform-specific implementations for Windows and Unix.
+
+#### Target Comparison: Code Size and Executable Size
+
+The Space Invaders game provides an interesting comparison of how the same Ranger source code translates to different targets.
+
+**Source Code Sizes:**
+
+| Target     | Generated File   | Size (bytes) | Lines | Notes                           |
+| ---------- | ---------------- | ------------ | ----- | ------------------------------- |
+| **Ranger** | `invaders.rgr`   | 11,289       | ~400  | Original source                 |
+| Python     | `invaders.py`    | 9,271        | ~330  | Most compact generated code     |
+| JavaScript | `invaders.js`    | 10,301       | ~350  | Clean, readable output          |
+| Swift      | `invaders.swift` | 12,554       | ~470  | Verbose type annotations        |
+| Go         | `invaders.go`    | 13,701       | ~480  | Explicit error handling         |
+| C++        | `invaders.cpp`   | 14,148       | ~500  | Headers and type declarations   |
+| Rust       | `invaders.rs`    | 17,918       | ~600  | Most verbose (ownership, types) |
+
+**Executable Sizes (Windows):**
+
+| Target | Executable           | Size   | Notes                             |
+| ------ | -------------------- | ------ | --------------------------------- |
+| Swift  | `invaders_swift.exe` | 76 KB  | Smallest native binary            |
+| Rust   | `invaders_rust.exe`  | 291 KB | Optimized, statically linked      |
+| Go     | `invaders_go.exe`    | 2.3 MB | Includes Go runtime               |
+| C++    | `invaders_cpp.exe`   | 3.0 MB | Static linking with MinGW/pthread |
+
+**Analysis:**
+
+- **Python** generates the most compact code due to its concise syntax (no type annotations, no braces)
+- **Rust** generates the most verbose code because of explicit ownership (`clone()`, `&mut`), type annotations, and safety features
+- **Swift** produces the smallest native executable because it links dynamically to system libraries
+- **Go** and **C++** have large executables due to static linking of their runtimes
+- **JavaScript** runs on Node.js, so there's no standalone executable (interpreter required)
+
+The ~11KB Ranger source compiles to native executables ranging from 76KB to 3MB, demonstrating the trade-offs between different target languages' runtime requirements and linking strategies.
+
+**Known Issues:**
+
+- Console rendering may have timing artifacts on some terminals
+- Swift target requires macOS or Linux (not available on Windows)
+
+### Polyfill System
+
+Ranger supports automatic polyfill generation for operators that require helper functions in the target language. Polyfills are utility functions, types, or constants that are automatically added to the generated output when an operator needs them.
+
+Key features:
+
+- **Automatic deduplication** - Polyfills are only generated once even if the operator is used multiple times
+- **Per-target definitions** - Each target language can have its own polyfill implementation
+- **Platform-specific code** - Polyfills can contain platform conditionals (e.g., `#[cfg(windows)]` in Rust)
+
+Example: The `on_keypress` operator in Rust generates polyfill functions for raw terminal input handling that work on both Windows and Unix platforms.
+
+See the `ai/INSTRUCTIONS.md` file for details on creating operators with polyfills.
+
 ### Unit Test Suite
 
 A comprehensive test suite has been added using Vitest:

@@ -226,7 +226,7 @@ class Invaders {
     }
 
     fn moveLeft:void () {
-        if (playerX > 0) {
+        if (playerX > 2) {
             playerX = playerX - 1
         }
     }

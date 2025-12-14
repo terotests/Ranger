@@ -180,7 +180,7 @@ class Invaders  {
     this.bullets.push(bullet);
   };
   moveLeft () {
-    if ( this.playerX > 0 ) {
+    if ( this.playerX > 2 ) {
       this.playerX = this.playerX - 1;
     }
   };

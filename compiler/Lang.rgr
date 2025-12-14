@@ -2,6 +2,50 @@ language {
 
     name "Ranger"
 
+    ; ============================================================================
+    ; RANGER LANGUAGE DEFINITION FILE
+    ; ============================================================================
+    ;
+    ; This file defines the core language operators and their target-specific
+    ; implementations (templates) for each supported compilation target.
+    ;
+    ; TEMPLATE SYSTEM OVERVIEW
+    ; ------------------------
+    ; Each operator has a "templates" block with target-specific implementations.
+    ; Templates use special commands to generate code:
+    ;
+    ;   (e N)       - Emit expression at argument position N (1-based)
+    ;   (block N)   - Emit a code block at argument position N
+    ;   (typeof N)  - Emit the type name of argument N
+    ;   nl          - Newline
+    ;   I           - Increase indentation
+    ;   i           - Decrease indentation
+    ;   "string"    - Literal string output
+    ;   (imp "x")   - Add import statement for module/header "x"
+    ;   (polyfill "location" "code") - Add polyfill code at specified location
+    ;   (create_polyfill "code")     - Legacy: add polyfill to "utilities" location
+    ;
+    ; POLYFILL LOCATIONS
+    ; ------------------
+    ; The (polyfill "location" "code") command places helper code at these locations:
+    ;
+    ;   "imports"       - At the very top, with import statements
+    ;   "after_imports" - After imports, before class definitions
+    ;   "utilities"     - After class definitions (DEFAULT for create_polyfill)
+    ;   "file_end"      - At the very end of the file
+    ;
+    ; Use "after_imports" for global variables that classes depend on.
+    ; Polyfills are deduplicated - identical code won't be added twice.
+    ;
+    ; TARGET FALLBACK
+    ; ---------------
+    ; If a target-specific template is not found:
+    ;   1. Exact target match (e.g., "swift6")
+    ;   2. Fallback target (e.g., swift6 -> swift3)
+    ;   3. Wildcard "*" template
+    ;
+    ; ============================================================================
+
     ; compilation targets might be defined here like this
     targets {
         ; short     common name     file extension
@@ -13,6 +57,7 @@ language {
         cpp         Cpp             cpp
         csharp      CSharp          cs
         swift3      Swift3          swift
+        swift6      Swift6          swift
         ts          TypeScript      ts
         flow        Flow            flow
         go          Golang          go
@@ -1037,10 +1082,13 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         +               cmdPlusOp:string             ( left:int right:string    ) { 
                     templates { 
+                    go ( "strings.Join([]string{ strconv.FormatInt(" (e 1) ", 10)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
                     rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
+                    cpp ( "std::to_string(" (e 1) ") + " (e 2) )
                     php ( (e 1) " . " (e 2) ) 
+                    python ( "str(" (e 1) ") + " (e 2) )
                     * ( (e 1) " + " (e 2) ) 
                     } }
 
@@ -1645,6 +1693,7 @@ case class customException(smth:String)  extends Exception
             templates {
                 ranger ( nl "for " (e 1) " " (e 2) ":" (typeof 2) " " (e 3)" {" nl I (block 4) nl i "}" )
                 swift3 ( (forkctx _ ) (def 2) (def 3) nl "for ( " (swift_rc 3) " , " (e 2) " ) in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
+                swift6 ( (forkctx _ ) (def 2) (def 3) nl "for (" (e 3) ", " (e 2) ") in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
 
                 ; Use index-based loop for Rust with cloned item to allow self method calls
@@ -3113,6 +3162,11 @@ fn r_read_key() -> Option<String> {
             print!(\"\\x1b[?25h\");
             std::process::exit(0);
         }
+        // Handle Ctrl+key combinations (1-26 map to Ctrl+A through Ctrl+Z)
+        if ch >= 1 && ch <= 26 && ch != 3 {
+            let letter = (ch as u8 + 96) as char; // Convert to lowercase letter
+            return Some(format!(\"ctrl+{}\", letter));
+        }
         if ch == 224 || ch == 0 { // Extended key
             let ch2 = _getch();
             return match ch2 {
@@ -3120,22 +3174,32 @@ fn r_read_key() -> Option<String> {
                 80 => Some(\"down\".to_string()),
                 75 => Some(\"left\".to_string()),
                 77 => Some(\"right\".to_string()),
+                71 => Some(\"home\".to_string()),
+                79 => Some(\"end\".to_string()),
+                73 => Some(\"pageup\".to_string()),
+                81 => Some(\"pagedown\".to_string()),
+                82 => Some(\"insert\".to_string()),
+                83 => Some(\"delete\".to_string()),
+                59..=68 => Some(format!(\"f{}\", ch2 - 58)), // F1-F10
+                133 => Some(\"f11\".to_string()),
+                134 => Some(\"f12\".to_string()),
                 _ => None,
             };
         }
-        if ch == 32 {
-            return Some(\"space\".to_string());
-        }
-        if ch == 27 {
-            return Some(\"escape\".to_string());
-        }
-        return Some((ch as u8 as char).to_string());
+        return match ch {
+            8 => Some(\"backspace\".to_string()),
+            9 => Some(\"tab\".to_string()),
+            13 => Some(\"enter\".to_string()),
+            27 => Some(\"escape\".to_string()),
+            32 => Some(\"space\".to_string()),
+            _ => Some((ch as u8 as char).to_string()),
+        };
     }
 }
 
 #[cfg(unix)]
 fn r_read_key() -> Option<String> {
-    let mut buffer = [0u8; 3];
+    let mut buffer = [0u8; 6];
     let stdin = std::io::stdin();
     let mut handle = stdin.lock();
     if handle.read(&mut buffer[0..1]).is_ok() {
@@ -3143,57 +3207,464 @@ fn r_read_key() -> Option<String> {
             print!(\"\\x1b[?25h\");
             std::process::exit(0);
         }
+        // Handle Ctrl+key combinations (1-26 map to Ctrl+A through Ctrl+Z)
+        if buffer[0] >= 1 && buffer[0] <= 26 && buffer[0] != 3 {
+            let letter = (buffer[0] + 96) as char;
+            return Some(format!(\"ctrl+{}\", letter));
+        }
         if buffer[0] == 27 { // Escape sequence
-            if handle.read(&mut buffer[1..3]).is_ok() {
-                if buffer[1] == 91 {
+            if handle.read(&mut buffer[1..2]).is_ok() && buffer[1] == 91 {
+                if handle.read(&mut buffer[2..3]).is_ok() {
+                    // Check for extended sequences like F5-F12, etc.
+                    if buffer[2] >= 49 && buffer[2] <= 54 {
+                        if handle.read(&mut buffer[3..5]).is_ok() {
+                            let seq = &buffer[2..5];
+                            return match seq {
+                                [49, 53, 126] => Some(\"f5\".to_string()),
+                                [49, 55, 126] => Some(\"f6\".to_string()),
+                                [49, 56, 126] => Some(\"f7\".to_string()),
+                                [49, 57, 126] => Some(\"f8\".to_string()),
+                                [50, 48, 126] => Some(\"f9\".to_string()),
+                                [50, 49, 126] => Some(\"f10\".to_string()),
+                                [50, 51, 126] => Some(\"f11\".to_string()),
+                                [50, 52, 126] => Some(\"f12\".to_string()),
+                                [50, 126, _] => Some(\"insert\".to_string()),
+                                [51, 126, _] => Some(\"delete\".to_string()),
+                                [53, 126, _] => Some(\"pageup\".to_string()),
+                                [54, 126, _] => Some(\"pagedown\".to_string()),
+                                _ => Some(\"escape\".to_string()),
+                            };
+                        }
+                    }
                     return match buffer[2] {
                         65 => Some(\"up\".to_string()),
                         66 => Some(\"down\".to_string()),
                         67 => Some(\"right\".to_string()),
                         68 => Some(\"left\".to_string()),
+                        70 => Some(\"end\".to_string()),
+                        72 => Some(\"home\".to_string()),
+                        // F1-F4 on some terminals
+                        80 => Some(\"f1\".to_string()),
+                        81 => Some(\"f2\".to_string()),
+                        82 => Some(\"f3\".to_string()),
+                        83 => Some(\"f4\".to_string()),
                         _ => Some(\"escape\".to_string()),
                     };
                 }
             }
             return Some(\"escape\".to_string());
         }
-        if buffer[0] == 32 {
-            return Some(\"space\".to_string());
-        }
-        return Some((buffer[0] as char).to_string());
+        return match buffer[0] {
+            8 | 127 => Some(\"backspace\".to_string()),
+            9 => Some(\"tab\".to_string()),
+            10 | 13 => Some(\"enter\".to_string()),
+            32 => Some(\"space\".to_string()),
+            _ => Some((buffer[0] as char).to_string()),
+        };
     }
     None
 }
 ")
                  )
                  python ( nl
-                    "import sys, tty, termios, threading" nl
+                    "_ = " (e 1) nl
                     "def _keypress_listener():" nl I
-                    "    fd = sys.stdin.fileno()" nl
-                    "    old_settings = termios.tcgetattr(fd)" nl
-                    "    try:" nl
-                    "        tty.setraw(sys.stdin.fileno())" nl
-                    "        while True:" nl
-                    "            " (e 1) " = sys.stdin.read(1)" nl
-                    "            if " (e 1) " == '\\x03': break" nl
-                    "            " (block 2) nl
-                    "    finally:" nl
-                    "        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)" nl i
+                    "global r_key_queue, r_key_lock" nl
+                    "import time" nl
+                    "if sys.platform == 'win32':" nl I
+                    "import msvcrt" nl
+                    "while True:" nl I
+                    "if msvcrt.kbhit():" nl I
+                    "ch = msvcrt.getch()" nl
+                    "if ch == b'\\x03': break" nl
+                    "if ch in (b'\\x00', b'\\xe0'):" nl I
+                    "ch2 = msvcrt.getch()" nl
+                    "k = {b'H': 'up', b'P': 'down', b'K': 'left', b'M': 'right'}.get(ch2, '')" nl i
+                    "else:" nl I
+                    "k = ch.decode('latin-1') if ch != b' ' else 'space'" nl i
+                    "if k:" nl I
+                    "with r_key_lock:" nl I
+                    "r_key_queue.append(k)" nl i i i
+                    "else:" nl I
+                    "time.sleep(0.01)" nl i i i
+                    "else:" nl I
+                    "import tty, termios" nl
+                    "fd = sys.stdin.fileno()" nl
+                    "old = termios.tcgetattr(fd)" nl
+                    "try:" nl I
+                    "tty.setraw(fd)" nl
+                    "while True:" nl I
+                    "ch = sys.stdin.read(1)" nl
+                    "if ch == '\\x03': break" nl
+                    "if ch == '\\x1b':" nl I
+                    "ch2 = sys.stdin.read(2)" nl
+                    "k = {'[A': 'up', '[B': 'down', '[C': 'right', '[D': 'left'}.get(ch2, 'escape')" nl i
+                    "elif ch == ' ':" nl I
+                    "k = 'space'" nl i
+                    "else:" nl I
+                    "k = ch" nl i
+                    "with r_key_lock:" nl I
+                    "r_key_queue.append(k)" nl i i i
+                    "finally:" nl I
+                    "termios.tcsetattr(fd, termios.TCSADRAIN, old)" nl i i i
                     "threading.Thread(target=_keypress_listener, daemon=True).start()" nl
+                    (imp "threading")
+                    (imp "sys")
+                    (polyfill "after_imports" "
+r_key_queue = []
+r_key_lock = threading.Lock()
+")
                  )
                  go ( nl
+                    "_ = " (e 1) nl
+                    "r_key_channel = make(chan string, 100)" nl
                     "go func() {" nl I
-                    "exec.Command(\"stty\", \"-F\", \"/dev/tty\", \"cbreak\", \"min\", \"1\").Run()" nl
-                    "exec.Command(\"stty\", \"-F\", \"/dev/tty\", \"-echo\").Run()" nl
-                    "var b []byte = make([]byte, 1)" nl
+                    "r_setup_raw_mode()" nl
                     "for {" nl I
-                    "os.Stdin.Read(b)" nl
-                    (e 1) " := string(b)" nl
-                    (block 2)
-                    i nl "}" nl i
+                    "if k := r_read_key(); k != \"\" {" nl I
+                    "r_key_channel <- k" nl
+                    "time.Sleep(50 * time.Millisecond)" nl
+                    i "}" nl
+                    i "}" nl i
                     "}()" nl
                     (imp "os")
                     (imp "os/exec")
+                    (imp "fmt")
+                    (imp "runtime")
+                    (imp "syscall")
+                    (imp "time")
+                    (imp "unsafe")
+                    (polyfill "utilities" "
+var r_key_channel chan string
+
+var (
+	msvcrt = syscall.NewLazyDLL(\"msvcrt.dll\")
+	kbhit = msvcrt.NewProc(\"_kbhit\")
+	getch = msvcrt.NewProc(\"_getch\")
+)
+
+var _ = unsafe.Sizeof(0) // suppress unused import
+
+func r_setup_raw_mode() {
+	if runtime.GOOS != \"windows\" {
+		exec.Command(\"stty\", \"-F\", \"/dev/tty\", \"cbreak\", \"min\", \"1\").Run()
+		exec.Command(\"stty\", \"-F\", \"/dev/tty\", \"-echo\").Run()
+	}
+}
+
+func r_read_key() string {
+	if runtime.GOOS == \"windows\" {
+		ret, _, _ := kbhit.Call()
+		if ret == 0 {
+			time.Sleep(10 * time.Millisecond)
+			return \"\"
+		}
+		ch, _, _ := getch.Call()
+		if ch == 3 { // Ctrl+C
+			fmt.Print(\"\\x1b[?25h\")
+			os.Exit(0)
+		}
+		if ch == 224 || ch == 0 { // Extended key
+			ch2, _, _ := getch.Call()
+			switch ch2 {
+			case 72:
+				return \"up\"
+			case 80:
+				return \"down\"
+			case 75:
+				return \"left\"
+			case 77:
+				return \"right\"
+			}
+			return \"\"
+		}
+		switch ch {
+		case 8:
+			return \"backspace\"
+		case 9:
+			return \"tab\"
+		case 13:
+			return \"enter\"
+		case 27:
+			return \"escape\"
+		case 32:
+			return \"space\"
+		}
+		return string(rune(ch))
+	}
+	var b []byte = make([]byte, 3)
+	n, err := os.Stdin.Read(b[:1])
+	if err != nil || n == 0 {
+		return \"\"
+	}
+	if b[0] == 3 { // Ctrl+C
+		fmt.Print(\"\\x1b[?25h\")
+		os.Exit(0)
+	}
+	if b[0] == 27 { // Escape sequence
+		os.Stdin.Read(b[1:3])
+		if b[1] == 91 {
+			switch b[2] {
+			case 65:
+				return \"up\"
+			case 66:
+				return \"down\"
+			case 67:
+				return \"right\"
+			case 68:
+				return \"left\"
+			}
+		}
+		return \"escape\"
+	}
+	switch b[0] {
+	case 8, 127:
+		return \"backspace\"
+	case 9:
+		return \"tab\"
+	case 10, 13:
+		return \"enter\"
+	case 32:
+		return \"space\"
+	}
+	return string(b[0])
+}
+")
+                 )
+                 cpp ( nl
+                    "std::thread([]() {" nl I
+                    "r_setup_raw_mode();" nl
+                    "while (true) {" nl I
+                    "std::string k = r_read_key();" nl
+                    "if (!k.empty()) {" nl I
+                    "{" nl I
+                    "std::lock_guard<std::mutex> lock(r_key_mutex);" nl
+                    "r_key_queue.push(k);" nl
+                    i "}" nl
+                    "std::this_thread::sleep_for(std::chrono::milliseconds(50));" nl
+                    i "}" nl
+                    i "}" nl i
+                    "}).detach();" nl
+                    (imp "<thread>")
+                    (imp "<mutex>")
+                    (imp "<queue>")
+                    (polyfill "utilities" "
+#include <string>
+#include <queue>
+#include <mutex>
+#include <thread>
+#include <chrono>
+
+std::queue<std::string> r_key_queue;
+std::mutex r_key_mutex;
+
+#ifdef _WIN32
+#include <conio.h>
+void r_setup_raw_mode() {}
+std::string r_read_key() {
+    if (!_kbhit()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return \"\";
+    }
+    int ch = _getch();
+    if (ch == 3) { std::cout << \"\\x1b[?25h\"; exit(0); }
+    if (ch == 224 || ch == 0) {
+        int ch2 = _getch();
+        switch (ch2) {
+            case 72: return \"up\";
+            case 80: return \"down\";
+            case 75: return \"left\";
+            case 77: return \"right\";
+        }
+        return \"\";
+    }
+    switch (ch) {
+        case 8: return \"backspace\";
+        case 9: return \"tab\";
+        case 13: return \"enter\";
+        case 27: return \"escape\";
+        case 32: return \"space\";
+    }
+    return std::string(1, (char)ch);
+}
+#else
+#include <termios.h>
+#include <unistd.h>
+void r_setup_raw_mode() {
+    system(\"stty cbreak min 1 -echo\");
+}
+std::string r_read_key() {
+    char buf[3];
+    if (read(STDIN_FILENO, buf, 1) <= 0) return \"\";
+    if (buf[0] == 3) { std::cout << \"\\x1b[?25h\"; exit(0); }
+    if (buf[0] == 27) {
+        read(STDIN_FILENO, buf+1, 2);
+        if (buf[1] == 91) {
+            switch (buf[2]) {
+                case 65: return \"up\";
+                case 66: return \"down\";
+                case 67: return \"right\";
+                case 68: return \"left\";
+            }
+        }
+        return \"escape\";
+    }
+    switch (buf[0]) {
+        case 8: case 127: return \"backspace\";
+        case 9: return \"tab\";
+        case 10: case 13: return \"enter\";
+        case 32: return \"space\";
+    }
+    return std::string(1, buf[0]);
+}
+#endif
+")
+                 )
+                 swift3 ( nl
+                    "_ = " (e 1) nl
+                    "r_key_channel = DispatchQueue(label: \"keypress\")" nl
+                    "r_key_channel!.async {" nl I
+                    "r_setup_raw_mode()" nl
+                    "while true {" nl I
+                    "if let k = r_read_key(), !k.isEmpty {" nl I
+                    "r_key_queue_lock.lock()" nl
+                    "r_key_queue.append(k)" nl
+                    "r_key_queue_lock.unlock()" nl
+                    "Thread.sleep(forTimeInterval: 0.05)" nl
+                    i "}" nl
+                    i "}" nl i
+                    "}" nl
+                    (imp "Foundation")
+                    (polyfill "after_imports" "
+var r_key_channel: DispatchQueue? = nil
+var r_key_queue: [String] = []
+var r_key_queue_lock = NSLock()
+
+func r_setup_raw_mode() {
+    let _ = system(\"stty cbreak min 1 -echo\")
+}
+
+func r_read_key() -> String? {
+    var buf = [UInt8](repeating: 0, count: 3)
+    let n = read(STDIN_FILENO, &buf, 1)
+    if n <= 0 { return nil }
+    if buf[0] == 3 { // Ctrl+C
+        print(\"\\u{1b}[?25h\", terminator: \"\")
+        exit(0)
+    }
+    if buf[0] == 27 { // Escape sequence
+        let _ = read(STDIN_FILENO, &buf[1], 2)
+        if buf[1] == 91 {
+            switch buf[2] {
+            case 65: return \"up\"
+            case 66: return \"down\"
+            case 67: return \"right\"
+            case 68: return \"left\"
+            default: break
+            }
+        }
+        return \"escape\"
+    }
+    switch buf[0] {
+    case 8, 127: return \"backspace\"
+    case 9: return \"tab\"
+    case 10, 13: return \"enter\"
+    case 32: return \"space\"
+    default: return String(UnicodeScalar(buf[0]))
+    }
+}
+")
+                 )
+                 swift6 ( nl
+                    "_ = " (e 1) nl
+                    "r_key_channel = DispatchQueue(label: \"keypress\")" nl
+                    "r_key_channel!.async {" nl I
+                    "r_setup_raw_mode()" nl
+                    "while true {" nl I
+                    "if let k = r_read_key(), !k.isEmpty {" nl I
+                    "r_key_queue_lock.lock()" nl
+                    "r_key_queue.append(k)" nl
+                    "r_key_queue_lock.unlock()" nl
+                    i "}" nl
+                    "Thread.sleep(forTimeInterval: 0.01)" nl
+                    i "}" nl i
+                    "}" nl
+                    (imp "Foundation")
+                    (polyfill "after_imports" "
+var r_key_channel: DispatchQueue? = nil
+var r_key_queue: [String] = []
+var r_key_queue_lock = NSLock()
+
+#if os(Windows)
+@_silgen_name(\"_kbhit\") func _kbhit() -> Int32
+@_silgen_name(\"_getch\") func _getch() -> Int32
+
+func r_setup_raw_mode() {
+    // No setup needed on Windows
+}
+
+func r_read_key() -> String? {
+    if _kbhit() == 0 { return nil }
+    let ch = _getch()
+    if ch == 3 { // Ctrl+C
+        print(\"\\u{1b}[?25h\", terminator: \"\")
+        exit(0)
+    }
+    if ch == 224 || ch == 0 { // Extended key
+        let ch2 = _getch()
+        switch ch2 {
+        case 72: return \"up\"
+        case 80: return \"down\"
+        case 75: return \"left\"
+        case 77: return \"right\"
+        default: return \"\"
+        }
+    }
+    switch ch {
+    case 8: return \"backspace\"
+    case 9: return \"tab\"
+    case 13: return \"enter\"
+    case 27: return \"escape\"
+    case 32: return \"space\"
+    default: return String(UnicodeScalar(UInt8(ch)))
+    }
+}
+#else
+func r_setup_raw_mode() {
+    let _ = system(\"stty cbreak min 1 -echo\")
+}
+
+func r_read_key() -> String? {
+    var buf = [UInt8](repeating: 0, count: 3)
+    let n = read(STDIN_FILENO, &buf, 1)
+    if n <= 0 { return nil }
+    if buf[0] == 3 { // Ctrl+C
+        print(\"\\u{1b}[?25h\", terminator: \"\")
+        exit(0)
+    }
+    if buf[0] == 27 { // Escape sequence
+        let _ = read(STDIN_FILENO, &buf[1], 2)
+        if buf[1] == 91 {
+            switch buf[2] {
+            case 65: return \"up\"
+            case 66: return \"down\"
+            case 67: return \"right\"
+            case 68: return \"left\"
+            default: break
+            }
+        }
+        return \"escape\"
+    }
+    switch buf[0] {
+    case 8, 127: return \"backspace\"
+    case 9: return \"tab\"
+    case 10, 13: return \"enter\"
+    case 32: return \"space\"
+    default: return String(UnicodeScalar(buf[0]))
+    }
+}
+#endif
+")
                  )
                  * ( nl "// on_keypress not implemented for this target" nl)
             }
@@ -3211,6 +3682,21 @@ fn r_read_key() -> Option<String> {
                     i "} else { String::new() }" nl
                     i "}"
                  )
+                 go (
+                    "func() string { select { case k := <-r_key_channel: return k; default: return \"\" } }()"
+                 )
+                 cpp (
+                    "[&]() -> std::string { std::lock_guard<std::mutex> lock(r_key_mutex); if (r_key_queue.empty()) return \"\"; std::string k = r_key_queue.front(); r_key_queue.pop(); return k; }()"
+                 )
+                 python (
+                    "(r_key_queue.pop(0) if r_key_queue else \"\")"
+                 )
+                 swift3 (
+                    "{ () -> String in r_key_queue_lock.lock(); defer { r_key_queue_lock.unlock() }; if r_key_queue.isEmpty { return \"\" }; return r_key_queue.removeFirst() }()"
+                 )
+                 swift6 (
+                    "{ () -> String in r_key_queue_lock.lock(); defer { r_key_queue_lock.unlock() }; if r_key_queue.isEmpty { return \"\" }; return r_key_queue.removeFirst() }()"
+                 )
                  * ( "\"\"" )
             }
         }
@@ -3227,6 +3713,7 @@ fn r_read_key() -> Option<String> {
                  csharp ( nl "System.Threading.Thread.Sleep(" (e 1) ");" nl )
                  php ( nl "usleep(" (e 1) " * 1000);" nl )
                  swift3 ( nl "usleep(UInt32(" (e 1) " * 1000))" nl )
+                 swift6 ( nl "Thread.sleep(forTimeInterval: Double(" (e 1) ") / 1000.0)" nl (imp "Foundation"))
                  * ( nl "// sleep_ms not implemented" nl )
             }
         }

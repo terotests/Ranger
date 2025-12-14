@@ -602,7 +602,9 @@ class tester {
         def staticMethods:RangerAppClassDesc
         
         def importFork:CodeWriter (wr.fork())
+        wr.createTag("after_imports")
         def contentFork (wr.fork())
+        wr.createTag("utilities")
         def theEnd (wr.createTag("file_end"))
 
         wr = contentFork

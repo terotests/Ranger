@@ -669,10 +669,6 @@ class RangerSwift6ClassWriter {
         }
       }
     }
-    if( header_created == false) {
-      wr.createTag("utilities")
-      header_created = true
-    }
 
     wr.out("func ==(l: " + cl.compiledName +  ", r: " + cl.compiledName +  ") -> Bool {" , true)
     wr.indent(1)

@@ -3,6 +3,7 @@ import {
   isRustAvailable,
   compileRangerToRust,
   expectRustOutput,
+  getGeneratedRustCode,
 } from "./helpers/compiler";
 
 const rustAvailable = isRustAvailable();
@@ -51,6 +52,28 @@ describe.skipIf(!rustAvailable)("Ranger Compiler - Rust Target", () => {
 
     it("should compile while_loop.rgr to valid Rust", () => {
       const result = compileRangerToRust("tests/fixtures/while_loop.rgr");
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe("Polyfill Deduplication", () => {
+    it("should not duplicate polyfills when on_keypress is used multiple times", () => {
+      const result = getGeneratedRustCode("tests/fixtures/polyfill_dedup.rgr");
+      expect(result.success).toBe(true);
+
+      // Count occurrences of key polyfill elements
+      // These should appear exactly once even with multiple on_keypress calls
+      const code = result.code;
+
+      // Count R_KEY_RECEIVER static definitions - this is unique to the polyfill
+      // Note: r_setup_raw_mode and r_read_key have TWO definitions each (one for #[cfg(windows)] and one for #[cfg(unix)])
+      const receiverCount = (code.match(/static R_KEY_RECEIVER:/g) || [])
+        .length;
+      expect(receiverCount).toBe(1);
+    });
+
+    it("should compile polyfill_dedup.rgr to valid Rust", () => {
+      const result = compileRangerToRust("tests/fixtures/polyfill_dedup.rgr");
       expect(result.success).toBe(true);
     });
   });
