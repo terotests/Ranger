@@ -1,5 +1,5 @@
-; JavaScript ES5 Parser - Simplified version
-; Uses a single JSNode class to avoid type issues
+; JavaScript ES5 Parser - Core module
+; Contains JSNode, SimpleParser, and AST printing utilities
 
 Import "js_token.rgr"
 Import "js_lexer.rgr"
@@ -29,6 +29,7 @@ class SimpleParser {
   def tokens:[Token]
   def pos:int 0
   def currentToken@(optional):Token
+  def errors:[string]
   
   fn initParser:void (toks:[Token]) {
     this.tokens = toks
@@ -70,10 +71,15 @@ class SimpleParser {
     }
   }
   
+  fn addError:void (msg:string) {
+    push this.errors msg
+  }
+  
   fn expect:Token (expectedType:string) {
     def tok (this.peek())
     if (tok.type != expectedType) {
-      print "Parse error: expected " + expectedType + " but got " + tok.type
+      def err "Parse error at line " + tok.line + ":" + tok.col + ": expected " + expectedType + " but got " + tok.type
+      this.addError(err)
     }
     this.advance()
     return tok
@@ -82,7 +88,8 @@ class SimpleParser {
   fn expectValue:Token (expectedValue:string) {
     def tok (this.peek())
     if (tok.value != expectedValue) {
-      print "Parse error: expected '" + expectedValue + "' but got '" + tok.value + "'"
+      def err "Parse error at line " + tok.line + ":" + tok.col + ": expected '" + expectedValue + "' but got '" + tok.value + "'"
+      this.addError(err)
     }
     this.advance()
     return tok
@@ -101,6 +108,10 @@ class SimpleParser {
   fn matchValue:boolean (value:string) {
     def v (this.peekValue())
     return (v == value)
+  }
+  
+  fn hasErrors:boolean () {
+    return ((array_length this.errors) > 0)
   }
   
   ; === Parse Program ===
@@ -251,9 +262,12 @@ class SimpleParser {
     func.strValue = idTok.value
     
     this.expectValue("(")
-    while ((this.matchValue(")")) == false) {
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length func.children) > 0) {
         this.expectValue(",")
+      }
+      if ((this.matchValue(")")) || (this.isAtEnd())) {
+        break
       }
       def paramTok (this.expect("Identifier"))
       def param (new JSNode())
@@ -915,9 +929,12 @@ class SimpleParser {
             call.line = object.line
             call.col = object.col
             
-            while ((this.matchValue(")")) == false) {
+            while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
               if ((array_length call.children) > 0) {
                 this.expectValue(",")
+              }
+              if ((this.matchValue(")")) || (this.isAtEnd())) {
+                break
               }
               def arg (this.parseAssignment())
               push call.children arg
@@ -1041,11 +1058,11 @@ class SimpleParser {
     
     this.expectValue("[")
     
-    while ((this.matchValue("]")) == false) {
+    while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length arr.children) > 0) {
         this.expectValue(",")
       }
-      if (this.matchValue("]")) {
+      if ((this.matchValue("]")) || (this.isAtEnd())) {
         break
       }
       def elem (this.parseAssignment())
@@ -1067,11 +1084,11 @@ class SimpleParser {
     
     this.expectValue("{")
     
-    while ((this.matchValue("}")) == false) {
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length obj.children) > 0) {
         this.expectValue(",")
       }
-      if (this.matchValue("}")) {
+      if ((this.matchValue("}")) || (this.isAtEnd())) {
         break
       }
       
@@ -1091,9 +1108,13 @@ class SimpleParser {
         this.expectValue(":")
         def val (this.parseAssignment())
         prop.left = val
+        push obj.children prop
+      } {
+        ; Unexpected token in object - skip it to avoid infinite loop
+        def err "Parse error at line " + keyTok.line + ":" + keyTok.col + ": unexpected token '" + keyTok.value + "' in object literal"
+        this.addError(err)
+        this.advance()
       }
-      
-      push obj.children prop
     }
     
     this.expectValue("}")
@@ -1102,130 +1123,8 @@ class SimpleParser {
   }
 }
 
-class JSParserMain {
-  sfn m@(main):void () {
-    def code:string "var x = 123;
-var y = 'hello';
-
-// Function declaration
-function add(a, b) {
-    return a + b;
-}
-
-// While loop
-var i = 0;
-while (i < 10) {
-    i = i + 1;
-}
-
-// Do-while loop
-do {
-    i = i - 1;
-} while (i > 0);
-
-// For loop
-for (var j = 0; j < 5; j = j + 1) {
-    x = x + j;
-}
-
-// Switch statement
-switch (x) {
-    case 1:
-        y = 'one';
-        break;
-    case 2:
-        y = 'two';
-        break;
-    default:
-        y = 'other';
-}
-
-// Try-catch-finally
-try {
-    throw 'error';
-} catch (e) {
-    y = e;
-} finally {
-    x = 0;
-}
-
-// If-else
-if (x > 100) {
-    y = 'big';
-} else {
-    y = 'small';
-}
-
-var arr = [1, 2, 3];
-var obj = { name: 'test', value: 42 };
-
-// Unary expressions
-var negNum = -42;
-var posNum = +5;
-var notTrue = !true;
-var notFalse = !false;
-var doubleNot = !!x;
-var negExpr = -(a + b);
-
-// Logical expressions
-var andResult = true && false;
-var orResult = true || false;
-var complexLogic = (a > 0) && (b < 10) || (c == 5);
-var shortCircuit = x && y && z;
-var orChain = a || b || c;
-
-// Ternary expressions
-var ternResult = x > 0 ? 'positive' : 'non-positive';
-var nestedTern = a > b ? (b > c ? 'a>b>c' : 'a>b, b<=c') : 'a<=b';
-var ternInExpr = 1 + (x ? 2 : 3);
-
-// Operator precedence tests
-var prec1 = 1 + 2 * 3;
-var prec2 = (1 + 2) * 3;
-var prec3 = 1 + 2 + 3 + 4;
-var prec4 = 2 * 3 + 4 * 5;
-var prec5 = 1 < 2 && 3 > 1;
-var prec6 = !x && y || z;
-var prec7 = a == b && c != d;
-var prec8 = -x + y * -z;
-
-// Comparison operators
-var cmp1 = a == b;
-var cmp2 = a != b;
-var cmp3 = a < b;
-var cmp4 = a <= b;
-var cmp5 = a > b;
-var cmp6 = a >= b;
-"
-    
-    print "=== JavaScript ES5 Parser ==="
-    print ""
-    print "Input:"
-    print code
-    print ""
-    
-    ; Tokenize
-    def lexer:Lexer (new Lexer(code))
-    def tokens:[Token] (lexer.tokenize())
-    
-    print "--- Tokens: " + (array_length tokens) + " ---"
-    print ""
-    
-    ; Parse
-    print "--- AST ---"
-    def parser:SimpleParser (new SimpleParser())
-    parser.initParser(tokens)
-    def program:JSNode (parser.parseProgram())
-    
-    print "Program with " + (array_length program.children) + " statements:"
-    print ""
-    
-    ; Print AST
-    for program.children stmt:JSNode idx {
-      JSParserMain.printNode(stmt 0)
-    }
-  }
-  
+; AST Printer utility class
+class ASTPrinter {
   sfn printNode:void (node:JSNode depth:int) {
     def indent ""
     def i 0
@@ -1240,7 +1139,7 @@ var cmp6 = a >= b;
     if (nodeType == "VariableDeclaration") {
       print indent + "VariableDeclaration " + loc
       for node.children child:JSNode ci {
-        JSParserMain.printNode(child (depth + 1))
+        ASTPrinter.printNode(child (depth + 1))
       }
       return
     }
@@ -1249,32 +1148,34 @@ var cmp6 = a >= b;
       if (!null? node.left) {
         def id (unwrap node.left)
         print indent + "VariableDeclarator: " + id.strValue + " " + loc
-        if (!null? node.right) {
-          JSParserMain.printNode((unwrap node.right) (depth + 1))
-        }
+      } {
+        print indent + "VariableDeclarator " + loc
+      }
+      if (!null? node.right) {
+        ASTPrinter.printNode((unwrap node.right) (depth + 1))
       }
       return
     }
     
     if (nodeType == "FunctionDeclaration") {
-      def paramNames ""
+      def params ""
       for node.children p:JSNode pi {
         if (pi > 0) {
-          paramNames = paramNames + ", "
+          params = params + ", "
         }
-        paramNames = paramNames + p.strValue
+        params = params + p.strValue
       }
-      print indent + "FunctionDeclaration: " + node.strValue + "(" + paramNames + ") " + loc
+      print indent + "FunctionDeclaration: " + node.strValue + "(" + params + ") " + loc
       if (!null? node.body) {
-        JSParserMain.printNode((unwrap node.body) (depth + 1))
+        ASTPrinter.printNode((unwrap node.body) (depth + 1))
       }
       return
     }
     
     if (nodeType == "BlockStatement") {
       print indent + "BlockStatement " + loc
-      for node.children stmt:JSNode si {
-        JSParserMain.printNode(stmt (depth + 1))
+      for node.children child:JSNode ci {
+        ASTPrinter.printNode(child (depth + 1))
       }
       return
     }
@@ -1282,7 +1183,7 @@ var cmp6 = a >= b;
     if (nodeType == "ReturnStatement") {
       print indent + "ReturnStatement " + loc
       if (!null? node.left) {
-        JSParserMain.printNode((unwrap node.left) (depth + 1))
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
       return
     }
@@ -1291,15 +1192,15 @@ var cmp6 = a >= b;
       print indent + "IfStatement " + loc
       print indent + "  test:"
       if (!null? node.test) {
-        JSParserMain.printNode((unwrap node.test) (depth + 2))
+        ASTPrinter.printNode((unwrap node.test) (depth + 2))
       }
       print indent + "  consequent:"
       if (!null? node.body) {
-        JSParserMain.printNode((unwrap node.body) (depth + 2))
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
       }
       if (!null? node.alternate) {
         print indent + "  alternate:"
-        JSParserMain.printNode((unwrap node.alternate) (depth + 2))
+        ASTPrinter.printNode((unwrap node.alternate) (depth + 2))
       }
       return
     }
@@ -1307,7 +1208,7 @@ var cmp6 = a >= b;
     if (nodeType == "ExpressionStatement") {
       print indent + "ExpressionStatement " + loc
       if (!null? node.left) {
-        JSParserMain.printNode((unwrap node.left) (depth + 1))
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
       return
     }
@@ -1316,11 +1217,11 @@ var cmp6 = a >= b;
       print indent + "AssignmentExpression: " + node.strValue + " " + loc
       if (!null? node.left) {
         print indent + "  left:"
-        JSParserMain.printNode((unwrap node.left) (depth + 2))
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
       }
       if (!null? node.right) {
         print indent + "  right:"
-        JSParserMain.printNode((unwrap node.right) (depth + 2))
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
       }
       return
     }
@@ -1329,11 +1230,11 @@ var cmp6 = a >= b;
       print indent + nodeType + ": " + node.strValue + " " + loc
       if (!null? node.left) {
         print indent + "  left:"
-        JSParserMain.printNode((unwrap node.left) (depth + 2))
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
       }
       if (!null? node.right) {
         print indent + "  right:"
-        JSParserMain.printNode((unwrap node.right) (depth + 2))
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
       }
       return
     }
@@ -1341,7 +1242,7 @@ var cmp6 = a >= b;
     if (nodeType == "UnaryExpression") {
       print indent + "UnaryExpression: " + node.strValue + " " + loc
       if (!null? node.left) {
-        JSParserMain.printNode((unwrap node.left) (depth + 1))
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
       return
     }
@@ -1350,15 +1251,15 @@ var cmp6 = a >= b;
       print indent + "ConditionalExpression " + loc
       print indent + "  test:"
       if (!null? node.left) {
-        JSParserMain.printNode((unwrap node.left) (depth + 2))
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
       }
       print indent + "  consequent:"
       if (!null? node.body) {
-        JSParserMain.printNode((unwrap node.body) (depth + 2))
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
       }
       print indent + "  alternate:"
       if (!null? node.right) {
-        JSParserMain.printNode((unwrap node.right) (depth + 2))
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
       }
       return
     }
@@ -1367,12 +1268,12 @@ var cmp6 = a >= b;
       print indent + "CallExpression " + loc
       if (!null? node.left) {
         print indent + "  callee:"
-        JSParserMain.printNode((unwrap node.left) (depth + 2))
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
       }
       if ((array_length node.children) > 0) {
         print indent + "  arguments:"
         for node.children arg:JSNode ai {
-          JSParserMain.printNode(arg (depth + 2))
+          ASTPrinter.printNode(arg (depth + 2))
         }
       }
       return
@@ -1385,10 +1286,10 @@ var cmp6 = a >= b;
         print indent + "MemberExpression: [computed] " + loc
       }
       if (!null? node.left) {
-        JSParserMain.printNode((unwrap node.left) (depth + 1))
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
       if (!null? node.right) {
-        JSParserMain.printNode((unwrap node.right) (depth + 1))
+        ASTPrinter.printNode((unwrap node.right) (depth + 1))
       }
       return
     }
@@ -1406,7 +1307,7 @@ var cmp6 = a >= b;
     if (nodeType == "ArrayExpression") {
       print indent + "ArrayExpression " + loc
       for node.children elem:JSNode ei {
-        JSParserMain.printNode(elem (depth + 1))
+        ASTPrinter.printNode(elem (depth + 1))
       }
       return
     }
@@ -1414,7 +1315,7 @@ var cmp6 = a >= b;
     if (nodeType == "ObjectExpression") {
       print indent + "ObjectExpression " + loc
       for node.children prop:JSNode pi {
-        JSParserMain.printNode(prop (depth + 1))
+        ASTPrinter.printNode(prop (depth + 1))
       }
       return
     }
@@ -1422,7 +1323,7 @@ var cmp6 = a >= b;
     if (nodeType == "Property") {
       print indent + "Property: " + node.strValue + " " + loc
       if (!null? node.left) {
-        JSParserMain.printNode((unwrap node.left) (depth + 1))
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
       return
     }
@@ -1431,11 +1332,11 @@ var cmp6 = a >= b;
       print indent + "WhileStatement " + loc
       print indent + "  test:"
       if (!null? node.test) {
-        JSParserMain.printNode((unwrap node.test) (depth + 2))
+        ASTPrinter.printNode((unwrap node.test) (depth + 2))
       }
       print indent + "  body:"
       if (!null? node.body) {
-        JSParserMain.printNode((unwrap node.body) (depth + 2))
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
       }
       return
     }
@@ -1444,11 +1345,11 @@ var cmp6 = a >= b;
       print indent + "DoWhileStatement " + loc
       print indent + "  body:"
       if (!null? node.body) {
-        JSParserMain.printNode((unwrap node.body) (depth + 2))
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
       }
       print indent + "  test:"
       if (!null? node.test) {
-        JSParserMain.printNode((unwrap node.test) (depth + 2))
+        ASTPrinter.printNode((unwrap node.test) (depth + 2))
       }
       return
     }
@@ -1457,19 +1358,19 @@ var cmp6 = a >= b;
       print indent + "ForStatement " + loc
       if (!null? node.left) {
         print indent + "  init:"
-        JSParserMain.printNode((unwrap node.left) (depth + 2))
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
       }
       if (!null? node.test) {
         print indent + "  test:"
-        JSParserMain.printNode((unwrap node.test) (depth + 2))
+        ASTPrinter.printNode((unwrap node.test) (depth + 2))
       }
       if (!null? node.right) {
         print indent + "  update:"
-        JSParserMain.printNode((unwrap node.right) (depth + 2))
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
       }
       print indent + "  body:"
       if (!null? node.body) {
-        JSParserMain.printNode((unwrap node.body) (depth + 2))
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
       }
       return
     }
@@ -1478,11 +1379,11 @@ var cmp6 = a >= b;
       print indent + "SwitchStatement " + loc
       print indent + "  discriminant:"
       if (!null? node.test) {
-        JSParserMain.printNode((unwrap node.test) (depth + 2))
+        ASTPrinter.printNode((unwrap node.test) (depth + 2))
       }
       print indent + "  cases:"
       for node.children caseNode:JSNode ci {
-        JSParserMain.printNode(caseNode (depth + 2))
+        ASTPrinter.printNode(caseNode (depth + 2))
       }
       return
     }
@@ -1492,15 +1393,15 @@ var cmp6 = a >= b;
         print indent + "SwitchCase: default " + loc
       } {
         print indent + "SwitchCase " + loc
-        print indent + "  test:"
         if (!null? node.test) {
-          JSParserMain.printNode((unwrap node.test) (depth + 2))
+          print indent + "  test:"
+          ASTPrinter.printNode((unwrap node.test) (depth + 2))
         }
       }
       if ((array_length node.children) > 0) {
         print indent + "  consequent:"
         for node.children stmt:JSNode si {
-          JSParserMain.printNode(stmt (depth + 2))
+          ASTPrinter.printNode(stmt (depth + 2))
         }
       }
       return
@@ -1510,15 +1411,15 @@ var cmp6 = a >= b;
       print indent + "TryStatement " + loc
       print indent + "  block:"
       if (!null? node.body) {
-        JSParserMain.printNode((unwrap node.body) (depth + 2))
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
       }
       if (!null? node.left) {
         print indent + "  handler:"
-        JSParserMain.printNode((unwrap node.left) (depth + 2))
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
       }
       if (!null? node.right) {
         print indent + "  finalizer:"
-        JSParserMain.printNode((unwrap node.right) (depth + 2))
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
       }
       return
     }
@@ -1526,7 +1427,7 @@ var cmp6 = a >= b;
     if (nodeType == "CatchClause") {
       print indent + "CatchClause: " + node.strValue + " " + loc
       if (!null? node.body) {
-        JSParserMain.printNode((unwrap node.body) (depth + 1))
+        ASTPrinter.printNode((unwrap node.body) (depth + 1))
       }
       return
     }
@@ -1534,7 +1435,7 @@ var cmp6 = a >= b;
     if (nodeType == "ThrowStatement") {
       print indent + "ThrowStatement " + loc
       if (!null? node.left) {
-        JSParserMain.printNode((unwrap node.left) (depth + 1))
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
       return
     }

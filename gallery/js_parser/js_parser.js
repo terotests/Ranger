@@ -471,6 +471,7 @@ class SimpleParser  {
   constructor() {
     this.tokens = [];
     this.pos = 0;
+    this.errors = [];
   }
   initParser (toks) {
     this.tokens = toks;
@@ -507,10 +508,14 @@ class SimpleParser  {
       this.currentToken = eof;
     }
   };
+  addError (msg) {
+    this.errors.push(msg);
+  };
   expect (expectedType) {
     const tok = this.peek();
     if ( tok.type != expectedType ) {
-      console.log((("Parse error: expected " + expectedType) + " but got ") + tok.type);
+      const err = (((((("Parse error at line " + tok.line) + ":") + tok.col) + ": expected ") + expectedType) + " but got ") + tok.type;
+      this.addError(err);
     }
     this.advance();
     return tok;
@@ -518,7 +523,8 @@ class SimpleParser  {
   expectValue (expectedValue) {
     const tok = this.peek();
     if ( tok.value != expectedValue ) {
-      console.log(((("Parse error: expected '" + expectedValue) + "' but got '") + tok.value) + "'");
+      const err = ((((((("Parse error at line " + tok.line) + ":") + tok.col) + ": expected '") + expectedValue) + "' but got '") + tok.value) + "'";
+      this.addError(err);
     }
     this.advance();
     return tok;
@@ -534,6 +540,9 @@ class SimpleParser  {
   matchValue (value) {
     const v = this.peekValue();
     return v == value;
+  };
+  hasErrors () {
+    return (this.errors.length) > 0;
   };
   parseProgram () {
     const prog = new JSNode();
@@ -557,6 +566,30 @@ class SimpleParser  {
     }
     if ( tokVal == "if" ) {
       return this.parseIf();
+    }
+    if ( tokVal == "while" ) {
+      return this.parseWhile();
+    }
+    if ( tokVal == "do" ) {
+      return this.parseDoWhile();
+    }
+    if ( tokVal == "for" ) {
+      return this.parseFor();
+    }
+    if ( tokVal == "switch" ) {
+      return this.parseSwitch();
+    }
+    if ( tokVal == "try" ) {
+      return this.parseTry();
+    }
+    if ( tokVal == "throw" ) {
+      return this.parseThrow();
+    }
+    if ( tokVal == "break" ) {
+      return this.parseBreak();
+    }
+    if ( tokVal == "continue" ) {
+      return this.parseContinue();
     }
     if ( tokVal == "{" ) {
       return this.parseBlock();
@@ -619,9 +652,12 @@ class SimpleParser  {
     const idTok = this.expect("Identifier");
     func.strValue = idTok.value;
     this.expectValue("(");
-    while (this.matchValue(")") == false) {
+    while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
       if ( (func.children.length) > 0 ) {
         this.expectValue(",");
+      }
+      if ( this.matchValue(")") || this.isAtEnd() ) {
+        break;
       }
       const paramTok = this.expect("Identifier");
       const param = new JSNode();
@@ -690,6 +726,218 @@ class SimpleParser  {
     }
     return ifStmt;
   };
+  parseWhile () {
+    const whileStmt = new JSNode();
+    whileStmt.nodeType = "WhileStatement";
+    const startTok = this.peek();
+    whileStmt.start = startTok.start;
+    whileStmt.line = startTok.line;
+    whileStmt.col = startTok.col;
+    this.expectValue("while");
+    this.expectValue("(");
+    const test = this.parseExpr();
+    whileStmt.test = test;
+    this.expectValue(")");
+    const body = this.parseStatement();
+    whileStmt.body = body;
+    return whileStmt;
+  };
+  parseDoWhile () {
+    const doWhileStmt = new JSNode();
+    doWhileStmt.nodeType = "DoWhileStatement";
+    const startTok = this.peek();
+    doWhileStmt.start = startTok.start;
+    doWhileStmt.line = startTok.line;
+    doWhileStmt.col = startTok.col;
+    this.expectValue("do");
+    const body = this.parseStatement();
+    doWhileStmt.body = body;
+    this.expectValue("while");
+    this.expectValue("(");
+    const test = this.parseExpr();
+    doWhileStmt.test = test;
+    this.expectValue(")");
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return doWhileStmt;
+  };
+  parseFor () {
+    const forStmt = new JSNode();
+    forStmt.nodeType = "ForStatement";
+    const startTok = this.peek();
+    forStmt.start = startTok.start;
+    forStmt.line = startTok.line;
+    forStmt.col = startTok.col;
+    this.expectValue("for");
+    this.expectValue("(");
+    if ( this.matchValue(";") == false ) {
+      if ( this.matchValue("var") ) {
+        const varDecl = this.parseVarDecl();
+        forStmt.left = varDecl;
+      } else {
+        const initExpr = this.parseExpr();
+        forStmt.left = initExpr;
+        if ( this.matchValue(";") ) {
+          this.advance();
+        }
+      }
+    } else {
+      this.advance();
+    }
+    if ( this.matchValue(";") == false ) {
+      const test = this.parseExpr();
+      forStmt.test = test;
+    }
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    if ( this.matchValue(")") == false ) {
+      const update = this.parseExpr();
+      forStmt.right = update;
+    }
+    this.expectValue(")");
+    const body = this.parseStatement();
+    forStmt.body = body;
+    return forStmt;
+  };
+  parseSwitch () {
+    const switchStmt = new JSNode();
+    switchStmt.nodeType = "SwitchStatement";
+    const startTok = this.peek();
+    switchStmt.start = startTok.start;
+    switchStmt.line = startTok.line;
+    switchStmt.col = startTok.col;
+    this.expectValue("switch");
+    this.expectValue("(");
+    const discriminant = this.parseExpr();
+    switchStmt.test = discriminant;
+    this.expectValue(")");
+    this.expectValue("{");
+    while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
+      const caseNode = new JSNode();
+      if ( this.matchValue("case") ) {
+        caseNode.nodeType = "SwitchCase";
+        const caseTok = this.peek();
+        caseNode.start = caseTok.start;
+        caseNode.line = caseTok.line;
+        caseNode.col = caseTok.col;
+        this.advance();
+        const testExpr = this.parseExpr();
+        caseNode.test = testExpr;
+        this.expectValue(":");
+        while ((((this.matchValue("case") == false) && (this.matchValue("default") == false)) && (this.matchValue("}") == false)) && (this.isAtEnd() == false)) {
+          const stmt = this.parseStatement();
+          caseNode.children.push(stmt);
+        };
+        switchStmt.children.push(caseNode);
+      } else {
+        if ( this.matchValue("default") ) {
+          caseNode.nodeType = "SwitchCase";
+          caseNode.strValue = "default";
+          const defTok = this.peek();
+          caseNode.start = defTok.start;
+          caseNode.line = defTok.line;
+          caseNode.col = defTok.col;
+          this.advance();
+          this.expectValue(":");
+          while (((this.matchValue("case") == false) && (this.matchValue("}") == false)) && (this.isAtEnd() == false)) {
+            const stmt_1 = this.parseStatement();
+            caseNode.children.push(stmt_1);
+          };
+          switchStmt.children.push(caseNode);
+        } else {
+          this.advance();
+        }
+      }
+    };
+    this.expectValue("}");
+    return switchStmt;
+  };
+  parseTry () {
+    const tryStmt = new JSNode();
+    tryStmt.nodeType = "TryStatement";
+    const startTok = this.peek();
+    tryStmt.start = startTok.start;
+    tryStmt.line = startTok.line;
+    tryStmt.col = startTok.col;
+    this.expectValue("try");
+    const block = this.parseBlock();
+    tryStmt.body = block;
+    if ( this.matchValue("catch") ) {
+      const catchNode = new JSNode();
+      catchNode.nodeType = "CatchClause";
+      const catchTok = this.peek();
+      catchNode.start = catchTok.start;
+      catchNode.line = catchTok.line;
+      catchNode.col = catchTok.col;
+      this.advance();
+      this.expectValue("(");
+      const paramTok = this.expect("Identifier");
+      catchNode.strValue = paramTok.value;
+      this.expectValue(")");
+      const catchBody = this.parseBlock();
+      catchNode.body = catchBody;
+      tryStmt.left = catchNode;
+    }
+    if ( this.matchValue("finally") ) {
+      this.advance();
+      const finallyBlock = this.parseBlock();
+      tryStmt.right = finallyBlock;
+    }
+    return tryStmt;
+  };
+  parseThrow () {
+    const throwStmt = new JSNode();
+    throwStmt.nodeType = "ThrowStatement";
+    const startTok = this.peek();
+    throwStmt.start = startTok.start;
+    throwStmt.line = startTok.line;
+    throwStmt.col = startTok.col;
+    this.expectValue("throw");
+    const arg = this.parseExpr();
+    throwStmt.left = arg;
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return throwStmt;
+  };
+  parseBreak () {
+    const breakStmt = new JSNode();
+    breakStmt.nodeType = "BreakStatement";
+    const startTok = this.peek();
+    breakStmt.start = startTok.start;
+    breakStmt.line = startTok.line;
+    breakStmt.col = startTok.col;
+    this.expectValue("break");
+    if ( this.matchType("Identifier") ) {
+      const labelTok = this.peek();
+      breakStmt.strValue = labelTok.value;
+      this.advance();
+    }
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return breakStmt;
+  };
+  parseContinue () {
+    const contStmt = new JSNode();
+    contStmt.nodeType = "ContinueStatement";
+    const startTok = this.peek();
+    contStmt.start = startTok.start;
+    contStmt.line = startTok.line;
+    contStmt.col = startTok.col;
+    this.expectValue("continue");
+    if ( this.matchType("Identifier") ) {
+      const labelTok = this.peek();
+      contStmt.strValue = labelTok.value;
+      this.advance();
+    }
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return contStmt;
+  };
   parseExprStmt () {
     const stmt = new JSNode();
     stmt.nodeType = "ExpressionStatement";
@@ -708,7 +956,7 @@ class SimpleParser  {
     return this.parseAssignment();
   };
   parseAssignment () {
-    const left = this.parseLogicalOr();
+    const left = this.parseTernary();
     const tokVal = this.peekValue();
     if ( tokVal == "=" ) {
       const opTok = this.peek();
@@ -725,6 +973,25 @@ class SimpleParser  {
       return assign;
     }
     return left;
+  };
+  parseTernary () {
+    const condition = this.parseLogicalOr();
+    if ( this.matchValue("?") ) {
+      this.advance();
+      const consequent = this.parseAssignment();
+      this.expectValue(":");
+      const alternate = this.parseAssignment();
+      const ternary = new JSNode();
+      ternary.nodeType = "ConditionalExpression";
+      ternary.left = condition;
+      ternary.body = consequent;
+      ternary.right = alternate;
+      ternary.start = condition.start;
+      ternary.line = condition.line;
+      ternary.col = condition.col;
+      return ternary;
+    }
+    return condition;
   };
   parseLogicalOr () {
     let left = this.parseLogicalAnd();
@@ -899,9 +1166,12 @@ class SimpleParser  {
             call.start = object.start;
             call.line = object.line;
             call.col = object.col;
-            while (this.matchValue(")") == false) {
+            while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
               if ( (call.children.length) > 0 ) {
                 this.expectValue(",");
+              }
+              if ( this.matchValue(")") || this.isAtEnd() ) {
+                break;
               }
               const arg = this.parseAssignment();
               call.children.push(arg);
@@ -1009,11 +1279,11 @@ class SimpleParser  {
     arr.line = startTok.line;
     arr.col = startTok.col;
     this.expectValue("[");
-    while (this.matchValue("]") == false) {
+    while ((this.matchValue("]") == false) && (this.isAtEnd() == false)) {
       if ( (arr.children.length) > 0 ) {
         this.expectValue(",");
       }
-      if ( this.matchValue("]") ) {
+      if ( this.matchValue("]") || this.isAtEnd() ) {
         break;
       }
       const elem = this.parseAssignment();
@@ -1030,11 +1300,11 @@ class SimpleParser  {
     obj.line = startTok.line;
     obj.col = startTok.col;
     this.expectValue("{");
-    while (this.matchValue("}") == false) {
+    while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
       if ( (obj.children.length) > 0 ) {
         this.expectValue(",");
       }
-      if ( this.matchValue("}") ) {
+      if ( this.matchValue("}") || this.isAtEnd() ) {
         break;
       }
       const prop = new JSNode();
@@ -1050,18 +1320,22 @@ class SimpleParser  {
         this.expectValue(":");
         const val = this.parseAssignment();
         prop.left = val;
+        obj.children.push(prop);
+      } else {
+        const err = ((((("Parse error at line " + keyTok.line) + ":") + keyTok.col) + ": unexpected token '") + keyTok.value) + "' in object literal";
+        this.addError(err);
+        this.advance();
       }
-      obj.children.push(prop);
     };
     this.expectValue("}");
     return obj;
   };
 }
-class JSParserMain  {
+class ASTPrinter  {
   constructor() {
   }
 }
-JSParserMain.printNode = function(node, depth) {
+ASTPrinter.printNode = function(node, depth) {
   let indent = "";
   let i = 0;
   while (i < depth) {
@@ -1074,7 +1348,7 @@ JSParserMain.printNode = function(node, depth) {
     console.log((indent + "VariableDeclaration ") + loc);
     for ( let ci = 0; ci < node.children.length; ci++) {
       var child = node.children[ci];
-      JSParserMain.printNode(child, depth + 1);
+      ASTPrinter.printNode(child, depth + 1);
     };
     return;
   }
@@ -1082,39 +1356,41 @@ JSParserMain.printNode = function(node, depth) {
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
       const id = node.left;
       console.log((((indent + "VariableDeclarator: ") + id.strValue) + " ") + loc);
-      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-        JSParserMain.printNode(node.right, depth + 1);
-      }
+    } else {
+      console.log((indent + "VariableDeclarator ") + loc);
+    }
+    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      ASTPrinter.printNode(node.right, depth + 1);
     }
     return;
   }
   if ( nodeType == "FunctionDeclaration" ) {
-    let paramNames = "";
+    let params = "";
     for ( let pi = 0; pi < node.children.length; pi++) {
       var p = node.children[pi];
       if ( pi > 0 ) {
-        paramNames = paramNames + ", ";
+        params = params + ", ";
       }
-      paramNames = paramNames + p.strValue;
+      params = params + p.strValue;
     };
-    console.log((((((indent + "FunctionDeclaration: ") + node.strValue) + "(") + paramNames) + ") ") + loc);
+    console.log((((((indent + "FunctionDeclaration: ") + node.strValue) + "(") + params) + ") ") + loc);
     if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      JSParserMain.printNode(node.body, depth + 1);
+      ASTPrinter.printNode(node.body, depth + 1);
     }
     return;
   }
   if ( nodeType == "BlockStatement" ) {
     console.log((indent + "BlockStatement ") + loc);
-    for ( let si = 0; si < node.children.length; si++) {
-      var stmt = node.children[si];
-      JSParserMain.printNode(stmt, depth + 1);
+    for ( let ci_1 = 0; ci_1 < node.children.length; ci_1++) {
+      var child_1 = node.children[ci_1];
+      ASTPrinter.printNode(child_1, depth + 1);
     };
     return;
   }
   if ( nodeType == "ReturnStatement" ) {
     console.log((indent + "ReturnStatement ") + loc);
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      JSParserMain.printNode(node.left, depth + 1);
+      ASTPrinter.printNode(node.left, depth + 1);
     }
     return;
   }
@@ -1122,22 +1398,22 @@ JSParserMain.printNode = function(node, depth) {
     console.log((indent + "IfStatement ") + loc);
     console.log(indent + "  test:");
     if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
-      JSParserMain.printNode(node.test, depth + 2);
+      ASTPrinter.printNode(node.test, depth + 2);
     }
     console.log(indent + "  consequent:");
     if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      JSParserMain.printNode(node.body, depth + 2);
+      ASTPrinter.printNode(node.body, depth + 2);
     }
     if ( (typeof(node.alternate) !== "undefined" && node.alternate != null )  ) {
       console.log(indent + "  alternate:");
-      JSParserMain.printNode(node.alternate, depth + 2);
+      ASTPrinter.printNode(node.alternate, depth + 2);
     }
     return;
   }
   if ( nodeType == "ExpressionStatement" ) {
     console.log((indent + "ExpressionStatement ") + loc);
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      JSParserMain.printNode(node.left, depth + 1);
+      ASTPrinter.printNode(node.left, depth + 1);
     }
     return;
   }
@@ -1145,11 +1421,11 @@ JSParserMain.printNode = function(node, depth) {
     console.log((((indent + "AssignmentExpression: ") + node.strValue) + " ") + loc);
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
       console.log(indent + "  left:");
-      JSParserMain.printNode(node.left, depth + 2);
+      ASTPrinter.printNode(node.left, depth + 2);
     }
     if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
       console.log(indent + "  right:");
-      JSParserMain.printNode(node.right, depth + 2);
+      ASTPrinter.printNode(node.right, depth + 2);
     }
     return;
   }
@@ -1157,18 +1433,34 @@ JSParserMain.printNode = function(node, depth) {
     console.log(((((indent + nodeType) + ": ") + node.strValue) + " ") + loc);
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
       console.log(indent + "  left:");
-      JSParserMain.printNode(node.left, depth + 2);
+      ASTPrinter.printNode(node.left, depth + 2);
     }
     if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
       console.log(indent + "  right:");
-      JSParserMain.printNode(node.right, depth + 2);
+      ASTPrinter.printNode(node.right, depth + 2);
     }
     return;
   }
   if ( nodeType == "UnaryExpression" ) {
     console.log((((indent + "UnaryExpression: ") + node.strValue) + " ") + loc);
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      JSParserMain.printNode(node.left, depth + 1);
+      ASTPrinter.printNode(node.left, depth + 1);
+    }
+    return;
+  }
+  if ( nodeType == "ConditionalExpression" ) {
+    console.log((indent + "ConditionalExpression ") + loc);
+    console.log(indent + "  test:");
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      ASTPrinter.printNode(node.left, depth + 2);
+    }
+    console.log(indent + "  consequent:");
+    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
+      ASTPrinter.printNode(node.body, depth + 2);
+    }
+    console.log(indent + "  alternate:");
+    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      ASTPrinter.printNode(node.right, depth + 2);
     }
     return;
   }
@@ -1176,13 +1468,13 @@ JSParserMain.printNode = function(node, depth) {
     console.log((indent + "CallExpression ") + loc);
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
       console.log(indent + "  callee:");
-      JSParserMain.printNode(node.left, depth + 2);
+      ASTPrinter.printNode(node.left, depth + 2);
     }
     if ( (node.children.length) > 0 ) {
       console.log(indent + "  arguments:");
       for ( let ai = 0; ai < node.children.length; ai++) {
         var arg = node.children[ai];
-        JSParserMain.printNode(arg, depth + 2);
+        ASTPrinter.printNode(arg, depth + 2);
       };
     }
     return;
@@ -1194,10 +1486,10 @@ JSParserMain.printNode = function(node, depth) {
       console.log((indent + "MemberExpression: [computed] ") + loc);
     }
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      JSParserMain.printNode(node.left, depth + 1);
+      ASTPrinter.printNode(node.left, depth + 1);
     }
     if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
-      JSParserMain.printNode(node.right, depth + 1);
+      ASTPrinter.printNode(node.right, depth + 1);
     }
     return;
   }
@@ -1213,7 +1505,7 @@ JSParserMain.printNode = function(node, depth) {
     console.log((indent + "ArrayExpression ") + loc);
     for ( let ei = 0; ei < node.children.length; ei++) {
       var elem = node.children[ei];
-      JSParserMain.printNode(elem, depth + 1);
+      ASTPrinter.printNode(elem, depth + 1);
     };
     return;
   }
@@ -1221,22 +1513,191 @@ JSParserMain.printNode = function(node, depth) {
     console.log((indent + "ObjectExpression ") + loc);
     for ( let pi_1 = 0; pi_1 < node.children.length; pi_1++) {
       var prop = node.children[pi_1];
-      JSParserMain.printNode(prop, depth + 1);
+      ASTPrinter.printNode(prop, depth + 1);
     };
     return;
   }
   if ( nodeType == "Property" ) {
     console.log((((indent + "Property: ") + node.strValue) + " ") + loc);
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
-      JSParserMain.printNode(node.left, depth + 1);
+      ASTPrinter.printNode(node.left, depth + 1);
+    }
+    return;
+  }
+  if ( nodeType == "WhileStatement" ) {
+    console.log((indent + "WhileStatement ") + loc);
+    console.log(indent + "  test:");
+    if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
+      ASTPrinter.printNode(node.test, depth + 2);
+    }
+    console.log(indent + "  body:");
+    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
+      ASTPrinter.printNode(node.body, depth + 2);
+    }
+    return;
+  }
+  if ( nodeType == "DoWhileStatement" ) {
+    console.log((indent + "DoWhileStatement ") + loc);
+    console.log(indent + "  body:");
+    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
+      ASTPrinter.printNode(node.body, depth + 2);
+    }
+    console.log(indent + "  test:");
+    if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
+      ASTPrinter.printNode(node.test, depth + 2);
+    }
+    return;
+  }
+  if ( nodeType == "ForStatement" ) {
+    console.log((indent + "ForStatement ") + loc);
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      console.log(indent + "  init:");
+      ASTPrinter.printNode(node.left, depth + 2);
+    }
+    if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
+      console.log(indent + "  test:");
+      ASTPrinter.printNode(node.test, depth + 2);
+    }
+    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      console.log(indent + "  update:");
+      ASTPrinter.printNode(node.right, depth + 2);
+    }
+    console.log(indent + "  body:");
+    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
+      ASTPrinter.printNode(node.body, depth + 2);
+    }
+    return;
+  }
+  if ( nodeType == "SwitchStatement" ) {
+    console.log((indent + "SwitchStatement ") + loc);
+    console.log(indent + "  discriminant:");
+    if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
+      ASTPrinter.printNode(node.test, depth + 2);
+    }
+    console.log(indent + "  cases:");
+    for ( let ci_2 = 0; ci_2 < node.children.length; ci_2++) {
+      var caseNode = node.children[ci_2];
+      ASTPrinter.printNode(caseNode, depth + 2);
+    };
+    return;
+  }
+  if ( nodeType == "SwitchCase" ) {
+    if ( node.strValue == "default" ) {
+      console.log((indent + "SwitchCase: default ") + loc);
+    } else {
+      console.log((indent + "SwitchCase ") + loc);
+      if ( (typeof(node.test) !== "undefined" && node.test != null )  ) {
+        console.log(indent + "  test:");
+        ASTPrinter.printNode(node.test, depth + 2);
+      }
+    }
+    if ( (node.children.length) > 0 ) {
+      console.log(indent + "  consequent:");
+      for ( let si = 0; si < node.children.length; si++) {
+        var stmt = node.children[si];
+        ASTPrinter.printNode(stmt, depth + 2);
+      };
+    }
+    return;
+  }
+  if ( nodeType == "TryStatement" ) {
+    console.log((indent + "TryStatement ") + loc);
+    console.log(indent + "  block:");
+    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
+      ASTPrinter.printNode(node.body, depth + 2);
+    }
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      console.log(indent + "  handler:");
+      ASTPrinter.printNode(node.left, depth + 2);
+    }
+    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      console.log(indent + "  finalizer:");
+      ASTPrinter.printNode(node.right, depth + 2);
+    }
+    return;
+  }
+  if ( nodeType == "CatchClause" ) {
+    console.log((((indent + "CatchClause: ") + node.strValue) + " ") + loc);
+    if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
+      ASTPrinter.printNode(node.body, depth + 1);
+    }
+    return;
+  }
+  if ( nodeType == "ThrowStatement" ) {
+    console.log((indent + "ThrowStatement ") + loc);
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      ASTPrinter.printNode(node.left, depth + 1);
+    }
+    return;
+  }
+  if ( nodeType == "BreakStatement" ) {
+    if ( (node.strValue.length) > 0 ) {
+      console.log((((indent + "BreakStatement: ") + node.strValue) + " ") + loc);
+    } else {
+      console.log((indent + "BreakStatement ") + loc);
+    }
+    return;
+  }
+  if ( nodeType == "ContinueStatement" ) {
+    if ( (node.strValue.length) > 0 ) {
+      console.log((((indent + "ContinueStatement: ") + node.strValue) + " ") + loc);
+    } else {
+      console.log((indent + "ContinueStatement ") + loc);
     }
     return;
   }
   console.log(((indent + nodeType) + " ") + loc);
 };
-/* static JavaSript main routine at the end of the JS file */
-function __js_main() {
-  const code = "var x = 123;\r\nvar y = 'hello';\r\nfunction add(a, b) {\r\n    return a + b;\r\n}\r\nvar result = add(1, 2);\r\nif (x > 100) {\r\n    y = 'big';\r\n} else {\r\n    y = 'small';\r\n}\r\nvar arr = [1, 2, 3];\r\nvar obj = { name: 'test', value: 42 };\r\n";
+class JSParserMain  {
+  constructor() {
+  }
+}
+JSParserMain.showHelp = function() {
+  console.log("JavaScript ES5 Parser");
+  console.log("");
+  console.log("Usage: node js_parser.js [options] [file.js]");
+  console.log("");
+  console.log("Options:");
+  console.log("  --help, -h   Show this help message");
+  console.log("  --test       Run built-in test suite with static test code");
+  console.log("");
+  console.log("Arguments:");
+  console.log("  <file.js>    Parse the specified JavaScript file and output AST");
+  console.log("");
+  console.log("Examples:");
+  console.log("  node js_parser.js --test           Run the test suite");
+  console.log("  node js_parser.js script.js        Parse script.js");
+  console.log("  node js_parser.js ./src/app.js     Parse app.js from src folder");
+};
+JSParserMain.parseFile = async function(filename) {
+  const codeOpt = await (new Promise(resolve => { require('fs').readFile( "." + '/' + filename , 'utf8', (err,data)=>{ resolve(data) }) } ));
+  if ( typeof(codeOpt) === "undefined" ) {
+    console.log("Error: Could not read file: " + filename);
+    return;
+  }
+  const code = codeOpt;
+  const lexer = new Lexer(code);
+  const tokens = lexer.tokenize();
+  const parser = new SimpleParser();
+  parser.initParser(tokens);
+  const program = parser.parseProgram();
+  if ( parser.hasErrors() ) {
+    console.log("=== Parse Errors ===");
+    for ( let ei = 0; ei < parser.errors.length; ei++) {
+      var err = parser.errors[ei];
+      console.log(err);
+    };
+    console.log("");
+  }
+  console.log(("Program with " + (program.children.length)) + " statements:");
+  console.log("");
+  for ( let idx = 0; idx < program.children.length; idx++) {
+    var stmt = program.children[idx];
+    ASTPrinter.printNode(stmt, 0);
+  };
+};
+JSParserMain.runTests = function() {
+  const code = "var x = 123;\r\nvar y = 'hello';\r\n\r\n// Function declaration\r\nfunction add(a, b) {\r\n    return a + b;\r\n}\r\n\r\n// While loop\r\nvar i = 0;\r\nwhile (i < 10) {\r\n    i = i + 1;\r\n}\r\n\r\n// Do-while loop\r\ndo {\r\n    i = i - 1;\r\n} while (i > 0);\r\n\r\n// For loop\r\nfor (var j = 0; j < 5; j = j + 1) {\r\n    x = x + j;\r\n}\r\n\r\n// Switch statement\r\nswitch (x) {\r\n    case 1:\r\n        y = 'one';\r\n        break;\r\n    case 2:\r\n        y = 'two';\r\n        break;\r\n    default:\r\n        y = 'other';\r\n}\r\n\r\n// Try-catch-finally\r\ntry {\r\n    throw 'error';\r\n} catch (e) {\r\n    y = e;\r\n} finally {\r\n    x = 0;\r\n}\r\n\r\n// If-else\r\nif (x > 100) {\r\n    y = 'big';\r\n} else {\r\n    y = 'small';\r\n}\r\n\r\nvar arr = [1, 2, 3];\r\nvar obj = { name: 'test', value: 42 };\r\n\r\n// Unary expressions\r\nvar negNum = -42;\r\nvar posNum = +5;\r\nvar notTrue = !true;\r\nvar notFalse = !false;\r\nvar doubleNot = !!x;\r\nvar negExpr = -(a + b);\r\n\r\n// Logical expressions\r\nvar andResult = true && false;\r\nvar orResult = true || false;\r\nvar complexLogic = (a > 0) && (b < 10) || (c == 5);\r\nvar shortCircuit = x && y && z;\r\nvar orChain = a || b || c;\r\n\r\n// Ternary expressions\r\nvar ternResult = x > 0 ? 'positive' : 'non-positive';\r\nvar nestedTern = a > b ? (b > c ? 'a>b>c' : 'a>b, b<=c') : 'a<=b';\r\nvar ternInExpr = 1 + (x ? 2 : 3);\r\n\r\n// Operator precedence tests\r\nvar prec1 = 1 + 2 * 3;\r\nvar prec2 = (1 + 2) * 3;\r\nvar prec3 = 1 + 2 + 3 + 4;\r\nvar prec4 = 2 * 3 + 4 * 5;\r\nvar prec5 = 1 < 2 && 3 > 1;\r\nvar prec6 = !x && y || z;\r\nvar prec7 = a == b && c != d;\r\nvar prec8 = -x + y * -z;\r\n\r\n// Comparison operators\r\nvar cmp1 = a == b;\r\nvar cmp2 = a != b;\r\nvar cmp3 = a < b;\r\nvar cmp4 = a <= b;\r\nvar cmp5 = a > b;\r\nvar cmp6 = a >= b;\r\n";
   console.log("=== JavaScript ES5 Parser ===");
   console.log("");
   console.log("Input:");
@@ -1250,11 +1711,37 @@ function __js_main() {
   const parser = new SimpleParser();
   parser.initParser(tokens);
   const program = parser.parseProgram();
+  if ( parser.hasErrors() ) {
+    console.log("=== Parse Errors ===");
+    for ( let ei = 0; ei < parser.errors.length; ei++) {
+      var err = parser.errors[ei];
+      console.log(err);
+    };
+    console.log("");
+  }
   console.log(("Program with " + (program.children.length)) + " statements:");
   console.log("");
   for ( let idx = 0; idx < program.children.length; idx++) {
     var stmt = program.children[idx];
-    JSParserMain.printNode(stmt, 0);
+    ASTPrinter.printNode(stmt, 0);
   };
+};
+/* static JavaSript main routine at the end of the JS file */
+async function __js_main() {
+  const argCnt = (process.argv.length - 2);
+  if ( argCnt == 0 ) {
+    JSParserMain.showHelp();
+    return;
+  }
+  const arg = process.argv[ 2 + 0];
+  if ( (arg == "--help") || (arg == "-h") ) {
+    JSParserMain.showHelp();
+    return;
+  }
+  if ( arg == "--test" ) {
+    JSParserMain.runTests();
+    return;
+  }
+  await JSParserMain.parseFile(arg);
 }
 __js_main();

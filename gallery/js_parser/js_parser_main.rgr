@@ -1,0 +1,221 @@
+; JavaScript ES5 Parser - Main entry point
+; Usage: node js_parser.js [options] [file.js]
+;   --help     Show this help message
+;   --test     Run built-in test suite with static test code
+;   <file.js>  Parse the specified JavaScript file
+
+Import "js_parser_core.rgr"
+
+class JSParserMain {
+  sfn m@(main):void () {
+    def argCnt:int (shell_arg_cnt)
+    
+    if (argCnt == 0) {
+      ; No arguments - show help
+      JSParserMain.showHelp()
+      return
+    }
+    
+    def arg:string (shell_arg 0)
+    
+    if ((arg == "--help") || (arg == "-h")) {
+      JSParserMain.showHelp()
+      return
+    }
+    
+    if (arg == "--test") {
+      JSParserMain.runTests()
+      return
+    }
+    
+    ; Otherwise treat as filename
+    JSParserMain.parseFile(arg)
+  }
+  
+  sfn showHelp:void () {
+    print "JavaScript ES5 Parser"
+    print ""
+    print "Usage: node js_parser.js [options] [file.js]"
+    print ""
+    print "Options:"
+    print "  --help, -h   Show this help message"
+    print "  --test       Run built-in test suite with static test code"
+    print ""
+    print "Arguments:"
+    print "  <file.js>    Parse the specified JavaScript file and output AST"
+    print ""
+    print "Examples:"
+    print "  node js_parser.js --test           Run the test suite"
+    print "  node js_parser.js script.js        Parse script.js"
+    print "  node js_parser.js ./src/app.js     Parse app.js from src folder"
+  }
+  
+  sfn parseFile:void (filename:string) {
+    def codeOpt@(optional):string (read_file "." filename)
+    
+    if (null? codeOpt) {
+      print "Error: Could not read file: " + filename
+      return
+    }
+    
+    def code:string (unwrap codeOpt)
+    
+    ; Tokenize
+    def lexer:Lexer (new Lexer(code))
+    def tokens:[Token] (lexer.tokenize())
+    
+    ; Parse
+    def parser:SimpleParser (new SimpleParser())
+    parser.initParser(tokens)
+    def program:JSNode (parser.parseProgram())
+    
+    ; Check for errors
+    if (parser.hasErrors()) {
+      print "=== Parse Errors ==="
+      for parser.errors err:string ei {
+        print err
+      }
+      print ""
+    }
+    
+    ; Print AST
+    print "Program with " + (array_length program.children) + " statements:"
+    print ""
+    
+    for program.children stmt:JSNode idx {
+      ASTPrinter.printNode(stmt 0)
+    }
+  }
+  
+  sfn runTests:void () {
+    def code:string "var x = 123;
+var y = 'hello';
+
+// Function declaration
+function add(a, b) {
+    return a + b;
+}
+
+// While loop
+var i = 0;
+while (i < 10) {
+    i = i + 1;
+}
+
+// Do-while loop
+do {
+    i = i - 1;
+} while (i > 0);
+
+// For loop
+for (var j = 0; j < 5; j = j + 1) {
+    x = x + j;
+}
+
+// Switch statement
+switch (x) {
+    case 1:
+        y = 'one';
+        break;
+    case 2:
+        y = 'two';
+        break;
+    default:
+        y = 'other';
+}
+
+// Try-catch-finally
+try {
+    throw 'error';
+} catch (e) {
+    y = e;
+} finally {
+    x = 0;
+}
+
+// If-else
+if (x > 100) {
+    y = 'big';
+} else {
+    y = 'small';
+}
+
+var arr = [1, 2, 3];
+var obj = { name: 'test', value: 42 };
+
+// Unary expressions
+var negNum = -42;
+var posNum = +5;
+var notTrue = !true;
+var notFalse = !false;
+var doubleNot = !!x;
+var negExpr = -(a + b);
+
+// Logical expressions
+var andResult = true && false;
+var orResult = true || false;
+var complexLogic = (a > 0) && (b < 10) || (c == 5);
+var shortCircuit = x && y && z;
+var orChain = a || b || c;
+
+// Ternary expressions
+var ternResult = x > 0 ? 'positive' : 'non-positive';
+var nestedTern = a > b ? (b > c ? 'a>b>c' : 'a>b, b<=c') : 'a<=b';
+var ternInExpr = 1 + (x ? 2 : 3);
+
+// Operator precedence tests
+var prec1 = 1 + 2 * 3;
+var prec2 = (1 + 2) * 3;
+var prec3 = 1 + 2 + 3 + 4;
+var prec4 = 2 * 3 + 4 * 5;
+var prec5 = 1 < 2 && 3 > 1;
+var prec6 = !x && y || z;
+var prec7 = a == b && c != d;
+var prec8 = -x + y * -z;
+
+// Comparison operators
+var cmp1 = a == b;
+var cmp2 = a != b;
+var cmp3 = a < b;
+var cmp4 = a <= b;
+var cmp5 = a > b;
+var cmp6 = a >= b;
+"
+    
+    print "=== JavaScript ES5 Parser ==="
+    print ""
+    print "Input:"
+    print code
+    print ""
+    
+    ; Tokenize
+    def lexer:Lexer (new Lexer(code))
+    def tokens:[Token] (lexer.tokenize())
+    
+    print "--- Tokens: " + (array_length tokens) + " ---"
+    print ""
+    
+    ; Parse
+    print "--- AST ---"
+    def parser:SimpleParser (new SimpleParser())
+    parser.initParser(tokens)
+    def program:JSNode (parser.parseProgram())
+    
+    ; Check for errors
+    if (parser.hasErrors()) {
+      print "=== Parse Errors ==="
+      for parser.errors err:string ei {
+        print err
+      }
+      print ""
+    }
+    
+    print "Program with " + (array_length program.children) + " statements:"
+    print ""
+    
+    ; Print AST
+    for program.children stmt:JSNode idx {
+      ASTPrinter.printNode(stmt 0)
+    }
+  }
+}

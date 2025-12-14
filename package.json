@@ -61,8 +61,9 @@
     "game:run:cpp": "./gallery/invaders/invaders_cpp.exe",
     "game:run:kotlin": "java -jar ./gallery/invaders/invaders.jar",
     "game": "npm run game:compile && npm run game:run",
-    "jsparser:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/js_parser/js_parser_simple.rgr -d=./gallery/js_parser -o=js_parser.js -nodecli",
+    "jsparser:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/js_parser/js_parser_main.rgr -d=./gallery/js_parser -o=js_parser.js -nodecli",
     "jsparser:run": "node ./gallery/js_parser/js_parser.js",
+    "jsparser:test": "node ./gallery/js_parser/js_parser.js ./gallery/js_parser/test.js",
     "jsparser": "npm run jsparser:compile && npm run jsparser:run"
   },
   "repository": {
