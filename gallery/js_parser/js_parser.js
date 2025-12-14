@@ -397,6 +397,15 @@ class Lexer  {
     if ( value == "super" ) {
       return "Keyword";
     }
+    if ( value == "async" ) {
+      return "Keyword";
+    }
+    if ( value == "await" ) {
+      return "Keyword";
+    }
+    if ( value == "yield" ) {
+      return "Keyword";
+    }
     if ( value == "true" ) {
       return "Boolean";
     }
@@ -658,6 +667,9 @@ class SimpleParser  {
     if ( tokVal == "function" ) {
       return this.parseFuncDecl();
     }
+    if ( tokVal == "async" ) {
+      return this.parseAsyncFuncDecl();
+    }
     if ( tokVal == "class" ) {
       return this.parseClass();
     }
@@ -829,6 +841,48 @@ class SimpleParser  {
     func.line = startTok.line;
     func.col = startTok.col;
     this.expectValue("function");
+    if ( this.matchValue("*") ) {
+      func.strValue2 = "generator";
+      this.advance();
+    }
+    const idTok = this.expect("Identifier");
+    func.strValue = idTok.value;
+    this.expectValue("(");
+    while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
+      if ( (func.children.length) > 0 ) {
+        this.expectValue(",");
+      }
+      if ( this.matchValue(")") || this.isAtEnd() ) {
+        break;
+      }
+      const paramTok = this.expect("Identifier");
+      const param = new JSNode();
+      param.nodeType = "Identifier";
+      param.strValue = paramTok.value;
+      param.start = paramTok.start;
+      param.line = paramTok.line;
+      param.col = paramTok.col;
+      func.children.push(param);
+    };
+    this.expectValue(")");
+    const body = this.parseBlock();
+    func.body = body;
+    return func;
+  };
+  parseAsyncFuncDecl () {
+    const func = new JSNode();
+    func.nodeType = "FunctionDeclaration";
+    const startTok = this.peek();
+    func.start = startTok.start;
+    func.line = startTok.line;
+    func.col = startTok.col;
+    func.strValue2 = "async";
+    this.expectValue("async");
+    this.expectValue("function");
+    if ( this.matchValue("*") ) {
+      func.strValue2 = "async-generator";
+      this.advance();
+    }
     const idTok = this.expect("Identifier");
     func.strValue = idTok.value;
     this.expectValue("(");
@@ -1409,6 +1463,37 @@ class SimpleParser  {
       unary.col = opTok.col;
       return unary;
     }
+    if ( tokVal == "yield" ) {
+      const yieldTok = this.peek();
+      this.advance();
+      const yieldExpr = new JSNode();
+      yieldExpr.nodeType = "YieldExpression";
+      yieldExpr.start = yieldTok.start;
+      yieldExpr.line = yieldTok.line;
+      yieldExpr.col = yieldTok.col;
+      if ( this.matchValue("*") ) {
+        yieldExpr.strValue = "delegate";
+        this.advance();
+      }
+      const nextVal = this.peekValue();
+      if ( (((nextVal != ";") && (nextVal != "}")) && (nextVal != ",")) && (nextVal != ")") ) {
+        const arg_1 = this.parseAssignment();
+        yieldExpr.left = arg_1;
+      }
+      return yieldExpr;
+    }
+    if ( tokVal == "await" ) {
+      const awaitTok = this.peek();
+      this.advance();
+      const arg_2 = this.parseUnary();
+      const awaitExpr = new JSNode();
+      awaitExpr.nodeType = "AwaitExpression";
+      awaitExpr.left = arg_2;
+      awaitExpr.start = awaitTok.start;
+      awaitExpr.line = awaitTok.line;
+      awaitExpr.col = awaitTok.col;
+      return awaitExpr;
+    }
     return this.parseCallMember();
   };
   parseCallMember () {
@@ -1475,9 +1560,16 @@ class SimpleParser  {
     const tokType = this.peekType();
     const tokVal = this.peekValue();
     const tok = this.peek();
-    if ( tokType == "Identifier" ) {
+    if ( tokVal == "async" ) {
       const nextVal = this.peekAt(1);
-      if ( nextVal == "=>" ) {
+      const nextNext = this.peekAt(2);
+      if ( (nextVal == "(") || (nextNext == "=>") ) {
+        return this.parseAsyncArrowFunction();
+      }
+    }
+    if ( tokType == "Identifier" ) {
+      const nextVal_1 = this.peekAt(1);
+      if ( nextVal_1 == "=>" ) {
         return this.parseArrowFunction();
       }
       this.advance();
@@ -1701,6 +1793,54 @@ class SimpleParser  {
     }
     return arrow;
   };
+  parseAsyncArrowFunction () {
+    const arrow = new JSNode();
+    arrow.nodeType = "ArrowFunctionExpression";
+    arrow.strValue2 = "async";
+    const startTok = this.peek();
+    arrow.start = startTok.start;
+    arrow.line = startTok.line;
+    arrow.col = startTok.col;
+    this.expectValue("async");
+    if ( this.matchValue("(") ) {
+      this.advance();
+      while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
+        if ( (arrow.children.length) > 0 ) {
+          this.expectValue(",");
+        }
+        if ( this.matchValue(")") || this.isAtEnd() ) {
+          break;
+        }
+        const paramTok = this.expect("Identifier");
+        const param = new JSNode();
+        param.nodeType = "Identifier";
+        param.strValue = paramTok.value;
+        param.start = paramTok.start;
+        param.line = paramTok.line;
+        param.col = paramTok.col;
+        arrow.children.push(param);
+      };
+      this.expectValue(")");
+    } else {
+      const paramTok_1 = this.expect("Identifier");
+      const param_1 = new JSNode();
+      param_1.nodeType = "Identifier";
+      param_1.strValue = paramTok_1.value;
+      param_1.start = paramTok_1.start;
+      param_1.line = paramTok_1.line;
+      param_1.col = paramTok_1.col;
+      arrow.children.push(param_1);
+    }
+    this.expectValue("=>");
+    if ( this.matchValue("{") ) {
+      const body = this.parseBlock();
+      arrow.body = body;
+    } else {
+      const expr = this.parseAssignment();
+      arrow.body = expr;
+    }
+    return arrow;
+  };
 }
 class ASTPrinter  {
   constructor() {
@@ -1749,7 +1889,22 @@ ASTPrinter.printNode = function(node, depth) {
       }
       params = params + p.strValue;
     };
-    console.log((((((indent + "FunctionDeclaration: ") + node.strValue) + "(") + params) + ") ") + loc);
+    const kind_1 = node.strValue2;
+    let prefix = "";
+    if ( kind_1 == "async" ) {
+      prefix = "async ";
+    }
+    if ( kind_1 == "generator" ) {
+      prefix = "function* ";
+    }
+    if ( kind_1 == "async-generator" ) {
+      prefix = "async function* ";
+    }
+    if ( (prefix.length) > 0 ) {
+      console.log(((((((indent + "FunctionDeclaration: ") + prefix) + node.strValue) + "(") + params) + ") ") + loc);
+    } else {
+      console.log((((((indent + "FunctionDeclaration: ") + node.strValue) + "(") + params) + ") ") + loc);
+    }
     if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
       ASTPrinter.printNode(node.body, depth + 1);
     }
@@ -1795,9 +1950,31 @@ ASTPrinter.printNode = function(node, depth) {
       }
       params_1 = params_1 + p_1.strValue;
     };
-    console.log((((indent + "ArrowFunctionExpression: (") + params_1) + ") => ") + loc);
+    let asyncStr = "";
+    if ( node.strValue2 == "async" ) {
+      asyncStr = "async ";
+    }
+    console.log((((((indent + "ArrowFunctionExpression: ") + asyncStr) + "(") + params_1) + ") => ") + loc);
     if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
       ASTPrinter.printNode(node.body, depth + 1);
+    }
+    return;
+  }
+  if ( nodeType == "YieldExpression" ) {
+    let delegateStr = "";
+    if ( node.strValue == "delegate" ) {
+      delegateStr = "*";
+    }
+    console.log((((indent + "YieldExpression") + delegateStr) + " ") + loc);
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      ASTPrinter.printNode(node.left, depth + 1);
+    }
+    return;
+  }
+  if ( nodeType == "AwaitExpression" ) {
+    console.log((indent + "AwaitExpression ") + loc);
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      ASTPrinter.printNode(node.left, depth + 1);
     }
     return;
   }
@@ -2123,7 +2300,7 @@ JSParserMain.parseFile = async function(filename) {
   };
 };
 JSParserMain.runTests = function() {
-  const code = "var x = 123;\r\nvar y = 'hello';\r\n\r\n// Function declaration\r\nfunction add(a, b) {\r\n    return a + b;\r\n}\r\n\r\n// While loop\r\nvar i = 0;\r\nwhile (i < 10) {\r\n    i = i + 1;\r\n}\r\n\r\n// Do-while loop\r\ndo {\r\n    i = i - 1;\r\n} while (i > 0);\r\n\r\n// For loop\r\nfor (var j = 0; j < 5; j = j + 1) {\r\n    x = x + j;\r\n}\r\n\r\n// Switch statement\r\nswitch (x) {\r\n    case 1:\r\n        y = 'one';\r\n        break;\r\n    case 2:\r\n        y = 'two';\r\n        break;\r\n    default:\r\n        y = 'other';\r\n}\r\n\r\n// Try-catch-finally\r\ntry {\r\n    throw 'error';\r\n} catch (e) {\r\n    y = e;\r\n} finally {\r\n    x = 0;\r\n}\r\n\r\n// If-else\r\nif (x > 100) {\r\n    y = 'big';\r\n} else {\r\n    y = 'small';\r\n}\r\n\r\nvar arr = [1, 2, 3];\r\nvar obj = { name: 'test', value: 42 };\r\n\r\n// Unary expressions\r\nvar negNum = -42;\r\nvar posNum = +5;\r\nvar notTrue = !true;\r\nvar notFalse = !false;\r\nvar doubleNot = !!x;\r\nvar negExpr = -(a + b);\r\n\r\n// Logical expressions\r\nvar andResult = true && false;\r\nvar orResult = true || false;\r\nvar complexLogic = (a > 0) && (b < 10) || (c == 5);\r\nvar shortCircuit = x && y && z;\r\nvar orChain = a || b || c;\r\n\r\n// Ternary expressions\r\nvar ternResult = x > 0 ? 'positive' : 'non-positive';\r\nvar nestedTern = a > b ? (b > c ? 'a>b>c' : 'a>b, b<=c') : 'a<=b';\r\nvar ternInExpr = 1 + (x ? 2 : 3);\r\n\r\n// Operator precedence tests\r\nvar prec1 = 1 + 2 * 3;\r\nvar prec2 = (1 + 2) * 3;\r\nvar prec3 = 1 + 2 + 3 + 4;\r\nvar prec4 = 2 * 3 + 4 * 5;\r\nvar prec5 = 1 < 2 && 3 > 1;\r\nvar prec6 = !x && y || z;\r\nvar prec7 = a == b && c != d;\r\nvar prec8 = -x + y * -z;\r\n\r\n// Comparison operators\r\nvar cmp1 = a == b;\r\nvar cmp2 = a != b;\r\nvar cmp3 = a < b;\r\nvar cmp4 = a <= b;\r\nvar cmp5 = a > b;\r\nvar cmp6 = a >= b;\r\n\r\n// === ES6 Features ===\r\n\r\n// let and const\r\nlet count = 0;\r\nconst PI = 3.14159;\r\n\r\n// Arrow functions\r\nconst add = (a, b) => a + b;\r\nconst double = x => x * 2;\r\nconst greet = (name) => {\r\n    return 'Hello, ' + name;\r\n};\r\nconst multiLine = (a, b) => {\r\n    let sum = a + b;\r\n    return sum * 2;\r\n};\r\n\r\n// Template literals\r\nlet name = 'World';\r\nlet greeting = `Hello, ${name}!`;\r\nlet multi = `Line 1\r\nLine 2`;\r\n\r\n// Class syntax\r\nclass Animal {\r\n    constructor(name) {\r\n        this.name = name;\r\n    }\r\n    \r\n    speak() {\r\n        return this.name + ' makes a sound';\r\n    }\r\n    \r\n    static create(name) {\r\n        return new Animal(name);\r\n    }\r\n}\r\n\r\nclass Dog extends Animal {\r\n    constructor(name, breed) {\r\n        super(name);\r\n        this.breed = breed;\r\n    }\r\n    \r\n    speak() {\r\n        return this.name + ' barks';\r\n    }\r\n}\r\n";
+  const code = "var x = 123;\r\nvar y = 'hello';\r\n\r\n// Function declaration\r\nfunction add(a, b) {\r\n    return a + b;\r\n}\r\n\r\n// While loop\r\nvar i = 0;\r\nwhile (i < 10) {\r\n    i = i + 1;\r\n}\r\n\r\n// Do-while loop\r\ndo {\r\n    i = i - 1;\r\n} while (i > 0);\r\n\r\n// For loop\r\nfor (var j = 0; j < 5; j = j + 1) {\r\n    x = x + j;\r\n}\r\n\r\n// Switch statement\r\nswitch (x) {\r\n    case 1:\r\n        y = 'one';\r\n        break;\r\n    case 2:\r\n        y = 'two';\r\n        break;\r\n    default:\r\n        y = 'other';\r\n}\r\n\r\n// Try-catch-finally\r\ntry {\r\n    throw 'error';\r\n} catch (e) {\r\n    y = e;\r\n} finally {\r\n    x = 0;\r\n}\r\n\r\n// If-else\r\nif (x > 100) {\r\n    y = 'big';\r\n} else {\r\n    y = 'small';\r\n}\r\n\r\nvar arr = [1, 2, 3];\r\nvar obj = { name: 'test', value: 42 };\r\n\r\n// Unary expressions\r\nvar negNum = -42;\r\nvar posNum = +5;\r\nvar notTrue = !true;\r\nvar notFalse = !false;\r\nvar doubleNot = !!x;\r\nvar negExpr = -(a + b);\r\n\r\n// Logical expressions\r\nvar andResult = true && false;\r\nvar orResult = true || false;\r\nvar complexLogic = (a > 0) && (b < 10) || (c == 5);\r\nvar shortCircuit = x && y && z;\r\nvar orChain = a || b || c;\r\n\r\n// Ternary expressions\r\nvar ternResult = x > 0 ? 'positive' : 'non-positive';\r\nvar nestedTern = a > b ? (b > c ? 'a>b>c' : 'a>b, b<=c') : 'a<=b';\r\nvar ternInExpr = 1 + (x ? 2 : 3);\r\n\r\n// Operator precedence tests\r\nvar prec1 = 1 + 2 * 3;\r\nvar prec2 = (1 + 2) * 3;\r\nvar prec3 = 1 + 2 + 3 + 4;\r\nvar prec4 = 2 * 3 + 4 * 5;\r\nvar prec5 = 1 < 2 && 3 > 1;\r\nvar prec6 = !x && y || z;\r\nvar prec7 = a == b && c != d;\r\nvar prec8 = -x + y * -z;\r\n\r\n// Comparison operators\r\nvar cmp1 = a == b;\r\nvar cmp2 = a != b;\r\nvar cmp3 = a < b;\r\nvar cmp4 = a <= b;\r\nvar cmp5 = a > b;\r\nvar cmp6 = a >= b;\r\n\r\n// === ES6 Features ===\r\n\r\n// let and const\r\nlet count = 0;\r\nconst PI = 3.14159;\r\n\r\n// Arrow functions\r\nconst add = (a, b) => a + b;\r\nconst double = x => x * 2;\r\nconst greet = (name) => {\r\n    return 'Hello, ' + name;\r\n};\r\nconst multiLine = (a, b) => {\r\n    let sum = a + b;\r\n    return sum * 2;\r\n};\r\n\r\n// Template literals\r\nlet name = 'World';\r\nlet greeting = `Hello, ${name}!`;\r\nlet multi = `Line 1\r\nLine 2`;\r\n\r\n// Class syntax\r\nclass Animal {\r\n    constructor(name) {\r\n        this.name = name;\r\n    }\r\n    \r\n    speak() {\r\n        return this.name + ' makes a sound';\r\n    }\r\n    \r\n    static create(name) {\r\n        return new Animal(name);\r\n    }\r\n}\r\n\r\nclass Dog extends Animal {\r\n    constructor(name, breed) {\r\n        super(name);\r\n        this.breed = breed;\r\n    }\r\n    \r\n    speak() {\r\n        return this.name + ' barks';\r\n    }\r\n}\r\n\r\n// Generator functions\r\nfunction* numberGenerator() {\r\n    yield 1;\r\n    yield 2;\r\n    yield 3;\r\n}\r\n\r\nfunction* delegateGenerator() {\r\n    yield* numberGenerator();\r\n    yield 4;\r\n}\r\n\r\n// Async/await\r\nasync function fetchData() {\r\n    const response = await fetch('/api/data');\r\n    const data = await response.json();\r\n    return data;\r\n}\r\n\r\nasync function processItems(items) {\r\n    for (const item of items) {\r\n        await processItem(item);\r\n    }\r\n}\r\n\r\n// Async arrow functions\r\nconst asyncArrow = async (x) => {\r\n    const result = await doSomething(x);\r\n    return result * 2;\r\n};\r\n\r\nconst asyncFetch = async (url) => await fetch(url);\r\n\r\n// Async generator (ES2018)\r\nasync function* asyncGenerator() {\r\n    yield await fetch('/api/1');\r\n    yield await fetch('/api/2');\r\n}\r\n";
   console.log("=== JavaScript ES6 Parser ===");
   console.log("");
   console.log("Input:");

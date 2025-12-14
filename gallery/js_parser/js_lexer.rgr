@@ -291,6 +291,9 @@ class Lexer {
         if (value == "get") { return "Keyword" }
         if (value == "set") { return "Keyword" }
         if (value == "super") { return "Keyword" }
+        if (value == "async") { return "Keyword" }
+        if (value == "await") { return "Keyword" }
+        if (value == "yield") { return "Keyword" }
         if (value == "true") { return "Boolean" }
         if (value == "false") { return "Boolean" }
         if (value == "null") { return "Null" }

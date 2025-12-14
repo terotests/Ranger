@@ -229,6 +229,45 @@ class Dog extends Animal {
         return this.name + ' barks';
     }
 }
+
+// Generator functions
+function* numberGenerator() {
+    yield 1;
+    yield 2;
+    yield 3;
+}
+
+function* delegateGenerator() {
+    yield* numberGenerator();
+    yield 4;
+}
+
+// Async/await
+async function fetchData() {
+    const response = await fetch('/api/data');
+    const data = await response.json();
+    return data;
+}
+
+async function processItems(items) {
+    for (const item of items) {
+        await processItem(item);
+    }
+}
+
+// Async arrow functions
+const asyncArrow = async (x) => {
+    const result = await doSomething(x);
+    return result * 2;
+};
+
+const asyncFetch = async (url) => await fetch(url);
+
+// Async generator (ES2018)
+async function* asyncGenerator() {
+    yield await fetch('/api/1');
+    yield await fetch('/api/2');
+}
 "
     
     print "=== JavaScript ES6 Parser ==="

@@ -149,6 +149,10 @@ class SimpleParser {
       return (this.parseFuncDecl())
     }
     
+    if (tokVal == "async") {
+      return (this.parseAsyncFuncDecl())
+    }
+    
     if (tokVal == "class") {
       return (this.parseClass())
     }
@@ -371,6 +375,60 @@ class SimpleParser {
     func.col = startTok.col
     
     this.expectValue("function")
+    
+    ; Check for generator: function*
+    if (this.matchValue("*")) {
+      func.strValue2 = "generator"
+      this.advance()
+    }
+    
+    def idTok (this.expect("Identifier"))
+    func.strValue = idTok.value
+    
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length func.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue(")")) || (this.isAtEnd())) {
+        break
+      }
+      def paramTok (this.expect("Identifier"))
+      def param (new JSNode())
+      param.nodeType = "Identifier"
+      param.strValue = paramTok.value
+      param.start = paramTok.start
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push func.children param
+    }
+    this.expectValue(")")
+    
+    def body (this.parseBlock())
+    func.body = body
+    
+    return func
+  }
+  
+  ; === Async Function Declaration (ES6+) ===
+  
+  fn parseAsyncFuncDecl:JSNode () {
+    def func (new JSNode())
+    func.nodeType = "FunctionDeclaration"
+    def startTok (this.peek())
+    func.start = startTok.start
+    func.line = startTok.line
+    func.col = startTok.col
+    func.strValue2 = "async"
+    
+    this.expectValue("async")
+    this.expectValue("function")
+    
+    ; Check for async generator: async function*
+    if (this.matchValue("*")) {
+      func.strValue2 = "async-generator"
+      this.advance()
+    }
     
     def idTok (this.expect("Identifier"))
     func.strValue = idTok.value
@@ -1128,6 +1186,48 @@ class SimpleParser {
       return unary
     }
     
+    ; yield expression (generator)
+    if (tokVal == "yield") {
+      def yieldTok (this.peek())
+      this.advance()
+      
+      def yieldExpr (new JSNode())
+      yieldExpr.nodeType = "YieldExpression"
+      yieldExpr.start = yieldTok.start
+      yieldExpr.line = yieldTok.line
+      yieldExpr.col = yieldTok.col
+      
+      ; Check for yield*
+      if (this.matchValue("*")) {
+        yieldExpr.strValue = "delegate"
+        this.advance()
+      }
+      
+      ; yield can have optional argument
+      def nextVal (this.peekValue())
+      if ((nextVal != ";") && (nextVal != "}") && (nextVal != ",") && (nextVal != ")")) {
+        def arg (this.parseAssignment())
+        yieldExpr.left = arg
+      }
+      
+      return yieldExpr
+    }
+    
+    ; await expression (async)
+    if (tokVal == "await") {
+      def awaitTok (this.peek())
+      this.advance()
+      def arg (this.parseUnary())
+      
+      def awaitExpr (new JSNode())
+      awaitExpr.nodeType = "AwaitExpression"
+      awaitExpr.left = arg
+      awaitExpr.start = awaitTok.start
+      awaitExpr.line = awaitTok.line
+      awaitExpr.col = awaitTok.col
+      return awaitExpr
+    }
+    
     return (this.parseCallMember())
   }
   
@@ -1204,6 +1304,16 @@ class SimpleParser {
     def tokType (this.peekType())
     def tokVal (this.peekValue())
     def tok (this.peek())
+    
+    ; Check for async arrow function: async () => ... or async x => ...
+    if (tokVal == "async") {
+      def nextVal (this.peekAt(1))
+      def nextNext (this.peekAt(2))
+      ; async (params) => ... or async x => ...
+      if ((nextVal == "(") || (nextNext == "=>")) {
+        return (this.parseAsyncArrowFunction())
+      }
+    }
     
     ; Check for arrow function: identifier => ...
     if (tokType == "Identifier") {
@@ -1476,6 +1586,68 @@ class SimpleParser {
     
     return arrow
   }
+  
+  ; === Async Arrow Function (ES6+) ===
+  
+  fn parseAsyncArrowFunction:JSNode () {
+    def arrow (new JSNode())
+    arrow.nodeType = "ArrowFunctionExpression"
+    arrow.strValue2 = "async"
+    def startTok (this.peek())
+    arrow.start = startTok.start
+    arrow.line = startTok.line
+    arrow.col = startTok.col
+    
+    this.expectValue("async")
+    
+    ; Parse parameters
+    if (this.matchValue("(")) {
+      ; Multiple parameters: async (a, b) => ...
+      this.advance()
+      while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+        if ((array_length arrow.children) > 0) {
+          this.expectValue(",")
+        }
+        if ((this.matchValue(")")) || (this.isAtEnd())) {
+          break
+        }
+        def paramTok (this.expect("Identifier"))
+        def param (new JSNode())
+        param.nodeType = "Identifier"
+        param.strValue = paramTok.value
+        param.start = paramTok.start
+        param.line = paramTok.line
+        param.col = paramTok.col
+        push arrow.children param
+      }
+      this.expectValue(")")
+    } {
+      ; Single parameter: async x => ...
+      def paramTok (this.expect("Identifier"))
+      def param (new JSNode())
+      param.nodeType = "Identifier"
+      param.strValue = paramTok.value
+      param.start = paramTok.start
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push arrow.children param
+    }
+    
+    ; Expect =>
+    this.expectValue("=>")
+    
+    ; Parse body - could be expression or block
+    if (this.matchValue("{")) {
+      def body (this.parseBlock())
+      arrow.body = body
+    } {
+      ; Expression body
+      def expr (this.parseAssignment())
+      arrow.body = expr
+    }
+    
+    return arrow
+  }
 }
 
 ; AST Printer utility class
@@ -1525,7 +1697,22 @@ class ASTPrinter {
         }
         params = params + p.strValue
       }
-      print indent + "FunctionDeclaration: " + node.strValue + "(" + params + ") " + loc
+      def kind node.strValue2
+      def prefix ""
+      if (kind == "async") {
+        prefix = "async "
+      }
+      if (kind == "generator") {
+        prefix = "function* "
+      }
+      if (kind == "async-generator") {
+        prefix = "async function* "
+      }
+      if ((strlen prefix) > 0) {
+        print indent + "FunctionDeclaration: " + prefix + node.strValue + "(" + params + ") " + loc
+      } {
+        print indent + "FunctionDeclaration: " + node.strValue + "(" + params + ") " + loc
+      }
       if (!null? node.body) {
         ASTPrinter.printNode((unwrap node.body) (depth + 1))
       }
@@ -1575,9 +1762,35 @@ class ASTPrinter {
         }
         params = params + p.strValue
       }
-      print indent + "ArrowFunctionExpression: (" + params + ") => " + loc
+      def asyncStr ""
+      if (node.strValue2 == "async") {
+        asyncStr = "async "
+      }
+      print indent + "ArrowFunctionExpression: " + asyncStr + "(" + params + ") => " + loc
       if (!null? node.body) {
         ASTPrinter.printNode((unwrap node.body) (depth + 1))
+      }
+      return
+    }
+    
+    ; Yield expression (generator)
+    if (nodeType == "YieldExpression") {
+      def delegateStr ""
+      if (node.strValue == "delegate") {
+        delegateStr = "*"
+      }
+      print indent + "YieldExpression" + delegateStr + " " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    ; Await expression (async)
+    if (nodeType == "AwaitExpression") {
+      print indent + "AwaitExpression " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
       return
     }
