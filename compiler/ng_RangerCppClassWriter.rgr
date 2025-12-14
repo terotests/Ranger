@@ -700,7 +700,7 @@ class RangerCppClassWriter {
 
   fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
-    this.compiler.createPolyfill("
+    this.compiler.createPolyfillLegacy("
 template< typename T, size_t N >
 std::vector<T> r_make_vector_from_array( const T (&data)[N] )
 {

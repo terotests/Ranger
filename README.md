@@ -173,9 +173,44 @@ The game uses `on_keypress` and `poll_keypress` operators with platform-specific
 | Rust     | `windows-sys` crate               | `termios` + `libc`         |
 | Go       | `msvcrt.dll` (`_kbhit`, `_getch`) | `stty` + `os.Stdin`        |
 | C++      | `<conio.h>` (`_kbhit`, `_getch`)  | `<termios.h>` + `read()`   |
-| Swift    | N/A                               | `Darwin` / `Glibc` termios |
+| Swift    | `_kbhit` / `_getch` via C interop | `Darwin` / `Glibc` termios |
 
 The game uses terminal control operators (`clear_screen`, `move_cursor`, `hide_cursor`, etc.) and keyboard input (`on_keypress`, `poll_keypress`) that have platform-specific implementations for Windows and Unix.
+
+#### Target Comparison: Code Size and Executable Size
+
+The Space Invaders game provides an interesting comparison of how the same Ranger source code translates to different targets.
+
+**Source Code Sizes:**
+
+| Target     | Generated File   | Size (bytes) | Lines | Notes                           |
+| ---------- | ---------------- | ------------ | ----- | ------------------------------- |
+| **Ranger** | `invaders.rgr`   | 11,289       | ~400  | Original source                 |
+| Python     | `invaders.py`    | 9,271        | ~330  | Most compact generated code     |
+| JavaScript | `invaders.js`    | 10,301       | ~350  | Clean, readable output          |
+| Swift      | `invaders.swift` | 12,554       | ~470  | Verbose type annotations        |
+| Go         | `invaders.go`    | 13,701       | ~480  | Explicit error handling         |
+| C++        | `invaders.cpp`   | 14,148       | ~500  | Headers and type declarations   |
+| Rust       | `invaders.rs`    | 17,918       | ~600  | Most verbose (ownership, types) |
+
+**Executable Sizes (Windows):**
+
+| Target | Executable           | Size   | Notes                             |
+| ------ | -------------------- | ------ | --------------------------------- |
+| Swift  | `invaders_swift.exe` | 76 KB  | Smallest native binary            |
+| Rust   | `invaders_rust.exe`  | 291 KB | Optimized, statically linked      |
+| Go     | `invaders_go.exe`    | 2.3 MB | Includes Go runtime               |
+| C++    | `invaders_cpp.exe`   | 3.0 MB | Static linking with MinGW/pthread |
+
+**Analysis:**
+
+- **Python** generates the most compact code due to its concise syntax (no type annotations, no braces)
+- **Rust** generates the most verbose code because of explicit ownership (`clone()`, `&mut`), type annotations, and safety features
+- **Swift** produces the smallest native executable because it links dynamically to system libraries
+- **Go** and **C++** have large executables due to static linking of their runtimes
+- **JavaScript** runs on Node.js, so there's no standalone executable (interpreter required)
+
+The ~11KB Ranger source compiles to native executables ranging from 76KB to 3MB, demonstrating the trade-offs between different target languages' runtime requirements and linking strategies.
 
 **Known Issues:**
 

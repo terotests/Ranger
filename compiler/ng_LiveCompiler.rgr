@@ -158,12 +158,18 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   fn getTypeString:string (str:string ctx:RangerAppWriterContext) {
     return ""
   }
-  fn createPolyfill ( code:string ctx:RangerAppWriterContext wr:CodeWriter ) {
-    def p_write:CodeWriter (wr.getTag("utilities"))
+  fn createPolyfill ( location:string code:string ctx:RangerAppWriterContext wr:CodeWriter ) {
+    ; location can be: "imports", "utilities", "file_end"
+    ; Default to "utilities" if tag not found
+    def p_write:CodeWriter (wr.getTag(location))
     if ((has p_write.compiledTags code) == false) {
       p_write.raw(code true)
       set p_write.compiledTags code true
     }
+  }
+  ; Legacy single-argument version for backwards compatibility
+  fn createPolyfillLegacy ( code:string ctx:RangerAppWriterContext wr:CodeWriter ) {
+    this.createPolyfill("utilities" code ctx wr)
   }
   fn installFile (filename:string ctx:RangerAppWriterContext wr:CodeWriter) {
     if( has installedFile filename ) {
@@ -962,7 +968,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           this.installFile( cmdArg.string_value ctx wr)
         }
         case "create_polyfill" {
-          this.createPolyfill( cmdArg.string_value ctx wr)
+          ; Legacy single argument: (create_polyfill "code") - uses "utilities" as default location
+          this.createPolyfillLegacy(cmdArg.string_value ctx wr)
         }
         case "typeof" {
           def idx:int cmdArg.int_value
@@ -977,6 +984,17 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         }
         case "imp" {
           langWriter.import_lib(cmdArg.string_value ctx wr)
+        }
+        case "polyfill" {
+          ; New polyfill command: (polyfill "location" "code")
+          ; location: "imports", "utilities", "after_imports", or "file_end"
+          def location:string cmdArg.string_value
+          ; Get the code from the third child of cmd (second argument)
+          if ((array_length cmd.children) > 2) {
+            def codeCmd:CodeNode (cmd.getThird())
+            def code:string codeCmd.string_value
+            this.createPolyfill(location code ctx wr)
+          }
         }
         case "atype" {
           def idx:int cmdArg.int_value

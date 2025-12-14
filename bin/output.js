@@ -13924,7 +13924,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
 class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
   constructor() {
     super()
-    this.header_created = false;
+    this.header_created = false;     /** note: unused */
   }
   adjustType (tn) {
     if ( tn == "this" ) {
@@ -14535,10 +14535,6 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
         };
       };
     }
-    if ( this.header_created == false ) {
-      wr.createTag("utilities");
-      this.header_created = true;
-    }
     wr.out(((("func ==(l: " + cl.compiledName) + ", r: ") + cl.compiledName) + ") -> Bool {", true);
     wr.indent(1);
     wr.out("return l === r", true);
@@ -14679,7 +14675,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
 class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
   constructor() {
     super()
-    this.header_created = false;
+    this.header_created = false;     /** note: unused */
   }
   adjustType (tn) {
     if ( tn == "this" ) {
@@ -15295,10 +15291,6 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
           declaredStaticFunction[variant_1.name] = true;
         };
       };
-    }
-    if ( this.header_created == false ) {
-      wr.createTag("utilities");
-      this.header_created = true;
     }
     wr.out(((("func ==(l: " + cl.compiledName) + ", r: ") + cl.compiledName) + ") -> Bool {", true);
     wr.indent(1);
@@ -16036,7 +16028,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
   };
   async writeArrayLiteral (node, ctx, wr) {
-    this.compiler.createPolyfill("\r\ntemplate< typename T, size_t N >\r\nstd::vector<T> r_make_vector_from_array( const T (&data)[N] )\r\n{\r\n    return std::vector<T>(data, data+N);\r\n}\r\n", ctx, wr);
+    this.compiler.createPolyfillLegacy("\r\ntemplate< typename T, size_t N >\r\nstd::vector<T> r_make_vector_from_array( const T (&data)[N] )\r\n{\r\n    return std::vector<T>(data, data+N);\r\n}\r\n", ctx, wr);
     wr.out("r_make_vector_from_array( (", false);
     wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
     wr.out("[] ) {", false);
@@ -22604,12 +22596,15 @@ class LiveCompiler  {
   getTypeString (str, ctx) {
     return "";
   };
-  createPolyfill (code, ctx, wr) {
-    const p_write = wr.getTag("utilities");
+  createPolyfill (location, code, ctx, wr) {
+    const p_write = wr.getTag(location);
     if ( (( typeof(p_write.compiledTags[code] ) != "undefined" && p_write.compiledTags.hasOwnProperty(code) )) == false ) {
       p_write.raw(code, true);
       p_write.compiledTags[code] = true;
     }
+  };
+  createPolyfillLegacy (code, ctx, wr) {
+    this.createPolyfill("utilities", code, ctx, wr);
   };
   async installFile (filename, ctx, wr) {
     if ( ( typeof(this.installedFile[filename] ) != "undefined" && this.installedFile.hasOwnProperty(filename) ) ) {
@@ -23357,7 +23352,7 @@ class LiveCompiler  {
           await this.installFile(cmdArg.string_value, ctx, wr);
           break;
         case "create_polyfill" : 
-          this.createPolyfill(cmdArg.string_value, ctx, wr);
+          this.createPolyfillLegacy(cmdArg.string_value, ctx, wr);
           break;
         case "typeof" : 
           const idx_24 = cmdArg.int_value;
@@ -23372,6 +23367,14 @@ class LiveCompiler  {
           break;
         case "imp" : 
           this.langWriter.import_lib(cmdArg.string_value, ctx, wr);
+          break;
+        case "polyfill" : 
+          const location = cmdArg.string_value;
+          if ( (cmd.children.length) > 2 ) {
+            const codeCmd = cmd.getThird();
+            const code_1 = codeCmd.string_value;
+            this.createPolyfill(location, code_1, ctx, wr);
+          }
           break;
         case "atype" : 
           const idx_25 = cmdArg.int_value;
@@ -24453,7 +24456,9 @@ class VirtualCompiler  {
       };
       let staticMethods;
       const importFork = wr.fork();
+      wr.createTag("after_imports");
       const contentFork = wr.fork();
+      wr.createTag("utilities");
       /** unused:  const theEnd = wr.createTag("file_end")   **/ 
       wr = contentFork;
       let handledClasses = {};

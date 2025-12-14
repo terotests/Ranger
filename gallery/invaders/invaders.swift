@@ -1,4 +1,79 @@
 import Foundation
+
+var r_key_channel: DispatchQueue? = nil
+var r_key_queue: [String] = []
+var r_key_queue_lock = NSLock()
+
+#if os(Windows)
+@_silgen_name("_kbhit") func _kbhit() -> Int32
+@_silgen_name("_getch") func _getch() -> Int32
+
+func r_setup_raw_mode() {
+    // No setup needed on Windows
+}
+
+func r_read_key() -> String? {
+    if _kbhit() == 0 { return nil }
+    let ch = _getch()
+    if ch == 3 { // Ctrl+C
+        print("\u{1b}[?25h", terminator: "")
+        exit(0)
+    }
+    if ch == 224 || ch == 0 { // Extended key
+        let ch2 = _getch()
+        switch ch2 {
+        case 72: return "up"
+        case 80: return "down"
+        case 75: return "left"
+        case 77: return "right"
+        default: return ""
+        }
+    }
+    switch ch {
+    case 8: return "backspace"
+    case 9: return "tab"
+    case 13: return "enter"
+    case 27: return "escape"
+    case 32: return "space"
+    default: return String(UnicodeScalar(UInt8(ch)))
+    }
+}
+#else
+func r_setup_raw_mode() {
+    let _ = system("stty cbreak min 1 -echo")
+}
+
+func r_read_key() -> String? {
+    var buf = [UInt8](repeating: 0, count: 3)
+    let n = read(STDIN_FILENO, &buf, 1)
+    if n <= 0 { return nil }
+    if buf[0] == 3 { // Ctrl+C
+        print("\u{1b}[?25h", terminator: "")
+        exit(0)
+    }
+    if buf[0] == 27 { // Escape sequence
+        let _ = read(STDIN_FILENO, &buf[1], 2)
+        if buf[1] == 91 {
+            switch buf[2] {
+            case 65: return "up"
+            case 66: return "down"
+            case 67: return "right"
+            case 68: return "left"
+            default: break
+            }
+        }
+        return "escape"
+    }
+    switch buf[0] {
+    case 8, 127: return "backspace"
+    case 9: return "tab"
+    case 10, 13: return "enter"
+    case 32: return "space"
+    default: return String(UnicodeScalar(buf[0]))
+    }
+}
+#endif
+
 func ==(l: Alien, r: Alien) -> Bool {
   return l === r
 }
@@ -128,7 +203,7 @@ class Invaders : Equatable  {
     }
     self.drawAt(x : self.playerX, y : self.PLAYER_Y, ch : "A")
     self.drawnPlayerX = self.playerX;
-    for ( _ , alien ) in self.aliens.enumerated() {
+    for (idx, alien) in self.aliens.enumerated() {
       if ( alien.wasAlive ) {
         var moved : Bool = false
         if ( alien.prevX != alien.x ) {
@@ -151,7 +226,7 @@ class Invaders : Equatable  {
         self.drawAt(x : drawX, y : alien.y, ch : "W")
       }
     }
-    for ( _ , bullet ) in self.bullets.enumerated() {
+    for (idx2, bullet) in self.bullets.enumerated() {
       if ( bullet.wasActive ) {
         let oldBx : Int = bullet.prevX + 1
         self.eraseAt(x : oldBx, y : bullet.prevY)
@@ -172,10 +247,10 @@ class Invaders : Equatable  {
   }
   func savePrevState() -> Void {
     self.prevScore = self.score;
-    for ( _ , alien ) in self.aliens.enumerated() {
+    for (idx, alien) in self.aliens.enumerated() {
       alien.savePrev()
     }
-    for ( _ , bullet ) in self.bullets.enumerated() {
+    for (idx2, bullet) in self.bullets.enumerated() {
       bullet.savePrev()
     }
   }
@@ -196,7 +271,7 @@ class Invaders : Equatable  {
     }
   }
   func updateBullets() -> Void {
-    for ( _ , bullet ) in self.bullets.enumerated() {
+    for (idx, bullet) in self.bullets.enumerated() {
       if ( bullet.active ) {
         bullet.y = bullet.y - 1;
         if ( bullet.y < 1 ) {
@@ -207,7 +282,7 @@ class Invaders : Equatable  {
   }
   func countAlive() -> Int {
     var count : Int = 0
-    for ( _ , a ) in self.aliens.enumerated() {
+    for (idx, a) in self.aliens.enumerated() {
       if ( a.alive ) {
         count = count + 1;
       }
@@ -222,7 +297,7 @@ class Invaders : Equatable  {
     var shouldMoveDown : Bool = false
     var minX : Int = 999
     var maxX : Int = 0
-    for ( _ , alien ) in self.aliens.enumerated() {
+    for (idx, alien) in self.aliens.enumerated() {
       if ( alien.alive ) {
         if ( alien.x < minX ) {
           minX = alien.x;
@@ -244,7 +319,7 @@ class Invaders : Equatable  {
         shouldMoveDown = true;
       }
     }
-    for ( _ , alien_1 ) in self.aliens.enumerated() {
+    for (idx2, alien_1) in self.aliens.enumerated() {
       if ( alien_1.alive ) {
         alien_1.x = alien_1.x + self.alienDirection;
         if ( shouldMoveDown ) {
@@ -267,9 +342,9 @@ class Invaders : Equatable  {
     }
   }
   func checkCollisions() -> Void {
-    for ( _ , bullet ) in self.bullets.enumerated() {
+    for (bidx, bullet) in self.bullets.enumerated() {
       if ( bullet.active ) {
-        for ( _ , alien ) in self.aliens.enumerated() {
+        for (aidx, alien) in self.aliens.enumerated() {
           if ( alien.alive ) {
             if ( bullet.x == alien.x ) {
               if ( bullet.y == alien.y ) {
@@ -318,7 +393,7 @@ class Invaders : Equatable  {
       if ( key != "" ) {
         self.handleKey(key : key)
       }
-      usleep(UInt32(50 * 1000))
+      Thread.sleep(forTimeInterval: Double(50) / 1000.0)
     }
     self.endGame()
   }
@@ -355,71 +430,34 @@ class Invaders : Equatable  {
     }
   }
 }
-func __main__swift() {
-  let game : Invaders = Invaders()
-  print("=== SPACE INVADERS ===")
-  print("")
-  print("Controls:")
-  print("  LEFT/RIGHT - Move")
-  print("  SPACE      - Shoot")
-  print("  Q          - Quit")
-  print("")
-  print("Starting game...")
-  let key : String = ""
-  _ = key
-  r_key_channel = DispatchQueue(label: "keypress")
-  r_key_channel!.async {
-    r_setup_raw_mode()
-    while true {
-      if let k = r_read_key(), !k.isEmpty {
-        r_key_queue_lock.lock()
-        r_key_queue.append(k)
-        r_key_queue_lock.unlock()
-        Thread.sleep(forTimeInterval: 0.05)
+// Swift 6 entry point
+@main
+struct Main {
+  static func main() {
+    let game : Invaders = Invaders()
+    print("=== SPACE INVADERS ===")
+    print("")
+    print("Controls:")
+    print("  LEFT/RIGHT - Move")
+    print("  SPACE      - Shoot")
+    print("  Q          - Quit")
+    print("")
+    print("Starting game...")
+    let key : String = ""
+    _ = key
+    r_key_channel = DispatchQueue(label: "keypress")
+    r_key_channel!.async {
+      r_setup_raw_mode()
+      while true {
+        if let k = r_read_key(), !k.isEmpty {
+          r_key_queue_lock.lock()
+          r_key_queue.append(k)
+          r_key_queue_lock.unlock()
+        }
+        Thread.sleep(forTimeInterval: 0.01)
       }
     }
+    print("\u{1b}[?25l", terminator: "")
+    game.gameLoop()
   }
-  
-  var r_key_channel: DispatchQueue? = nil
-  var r_key_queue: [String] = []
-  var r_key_queue_lock = NSLock()
-  
-  func r_setup_raw_mode() {
-      let _ = system("stty cbreak min 1 -echo")
-  }
-  
-  func r_read_key() -> String? {
-      var buf = [UInt8](repeating: 0, count: 3)
-      let n = read(STDIN_FILENO, &buf, 1)
-      if n <= 0 { return nil }
-      if buf[0] == 3 { // Ctrl+C
-          print("\u{1b}[?25h", terminator: "")
-          exit(0)
-      }
-      if buf[0] == 27 { // Escape sequence
-          let _ = read(STDIN_FILENO, &buf[1], 2)
-          if buf[1] == 91 {
-              switch buf[2] {
-              case 65: return "up"
-              case 66: return "down"
-              case 67: return "right"
-              case 68: return "left"
-              default: break
-              }
-          }
-          return "escape"
-      }
-      switch buf[0] {
-      case 8, 127: return "backspace"
-      case 9: return "tab"
-      case 10, 13: return "enter"
-      case 32: return "space"
-      default: return String(UnicodeScalar(buf[0]))
-      }
-  }
-  
-  print("\u{1b}[?25l", terminator: "")
-  game.gameLoop()
 }
-// call the main function
-__main__swift()
