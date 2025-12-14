@@ -626,6 +626,56 @@ operators {
 
 When a function calls an `@(async)` operator, the Ranger compiler automatically marks that function as async in JavaScript output. This ensures proper `async/await` propagation through the call chain.
 
+### Polyfills
+
+Use `create_polyfill` in operator templates to generate helper functions, types, or constants that the operator depends on. The compiler automatically deduplicates polyfills - they are only generated once even if the operator is used multiple times in the source code.
+
+```clojure
+operators {
+    ; Operator that requires helper functions
+    on_keypress  cmdOnKeypress:void (keyvar:string code:block) {
+        templates {
+            rust ( nl
+                ; ... inline code that uses the polyfill functions ...
+                "r_setup_raw_mode();" nl
+                "let key = r_read_key();" nl
+                ; Generate the polyfill (only once, even if on_keypress is called multiple times)
+                (create_polyfill "
+use std::io::Read;
+use std::sync::Mutex;
+
+static R_KEY_RECEIVER: Mutex<Option<std::sync::mpsc::Receiver<String>>> = Mutex::new(None);
+
+#[cfg(windows)]
+fn r_setup_raw_mode() {
+    // Windows implementation
+}
+
+#[cfg(unix)]
+fn r_setup_raw_mode() {
+    // Unix implementation  
+}
+")
+            )
+        }
+    }
+}
+```
+
+**How polyfill deduplication works:**
+
+1. The `create_polyfill` command takes a string containing the helper code
+2. The compiler tracks which polyfills have been generated using the code content as a key
+3. If the same polyfill code is requested again, it is skipped
+4. Polyfills are written to the "utilities" section of the output file
+
+**Best practices:**
+
+- Use polyfills for helper functions that multiple operators might need
+- Keep the polyfill code self-contained (include all necessary imports)
+- For platform-specific code (like `#[cfg(windows)]`), include all variants in a single polyfill
+- The polyfill string must be exactly identical for deduplication to work
+
 ---
 
 ## Common Patterns

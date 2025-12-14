@@ -89,6 +89,46 @@ ranger-compiler -l=rust myfile.clj -o=myfile.rs
 rustc myfile.rs -o myfile
 ```
 
+### Space Invaders Demo Game
+
+A complete terminal-based Space Invaders game demonstrating Ranger's cross-language capabilities. The same source code compiles to **4 different targets**:
+
+| Target | Executable | Build Command |
+|--------|------------|---------------|
+| ES6/JavaScript | `invaders.js` | `npm run game:compile` |
+| Rust | `invaders_rust.exe` | `npm run game:build:rust` |
+| Go | `invaders_go.exe` | `npm run game:build:go` |
+| C++ | `invaders_cpp.exe` | Cross-compile via WSL |
+
+```bash
+# Build all targets at once
+npm run game:build:all
+
+# Run the game
+npm run game:run        # JavaScript
+npm run game:run:rust   # Rust
+npm run game:run:go     # Go
+```
+
+The game uses terminal control operators (`clear_screen`, `move_cursor`, `hide_cursor`, etc.) and keyboard input (`on_keypress`, `poll_keypress`) that have platform-specific implementations for Windows and Unix.
+
+**Known Issues:**
+- Console rendering may have timing artifacts on some terminals
+- Swift target requires macOS or Linux (not available on Windows)
+
+### Polyfill System
+
+Ranger supports automatic polyfill generation for operators that require helper functions in the target language. Polyfills are utility functions, types, or constants that are automatically added to the generated output when an operator needs them.
+
+Key features:
+- **Automatic deduplication** - Polyfills are only generated once even if the operator is used multiple times
+- **Per-target definitions** - Each target language can have its own polyfill implementation
+- **Platform-specific code** - Polyfills can contain platform conditionals (e.g., `#[cfg(windows)]` in Rust)
+
+Example: The `on_keypress` operator in Rust generates polyfill functions for raw terminal input handling that work on both Windows and Unix platforms.
+
+See the `ai/INSTRUCTIONS.md` file for details on creating operators with polyfills.
+
 ### Unit Test Suite
 
 A comprehensive test suite has been added using Vitest:

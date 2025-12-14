@@ -237,7 +237,7 @@ impl Invaders {
     self.bullets.push(bullet);
   }
   fn moveLeft(&mut self, ) -> () {
-    if  self.playerX > 0 {
+    if  self.playerX > 2 {
       self.playerX = self.playerX - 1;
     }
   }

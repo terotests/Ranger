@@ -1037,10 +1037,13 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
 
         +               cmdPlusOp:string             ( left:int right:string    ) { 
                     templates { 
+                    go ( "strings.Join([]string{ strconv.FormatInt(" (e 1) ", 10)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
                     rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
+                    cpp ( "std::to_string(" (e 1) ") + " (e 2) )
                     php ( (e 1) " . " (e 2) ) 
+                    python ( "str(" (e 1) ") + " (e 2) )
                     * ( (e 1) " + " (e 2) ) 
                     } }
 
@@ -3233,18 +3236,320 @@ fn r_read_key() -> Option<String> {
                     "threading.Thread(target=_keypress_listener, daemon=True).start()" nl
                  )
                  go ( nl
+                    "r_key_channel = make(chan string, 100)" nl
                     "go func() {" nl I
-                    "exec.Command(\"stty\", \"-F\", \"/dev/tty\", \"cbreak\", \"min\", \"1\").Run()" nl
-                    "exec.Command(\"stty\", \"-F\", \"/dev/tty\", \"-echo\").Run()" nl
-                    "var b []byte = make([]byte, 1)" nl
+                    "r_setup_raw_mode()" nl
                     "for {" nl I
-                    "os.Stdin.Read(b)" nl
-                    (e 1) " := string(b)" nl
+                    "if k := r_read_key(); k != \"\" {" nl I
+                    (e 1) " = k" nl
+                    "r_key_channel <- k" nl
                     (block 2)
-                    i nl "}" nl i
+                    i nl "}" nl
+                    i "}" nl i
                     "}()" nl
                     (imp "os")
                     (imp "os/exec")
+                    (imp "fmt")
+                    (imp "runtime")
+                    (imp "syscall")
+                    (imp "time")
+                    (imp "unsafe")
+                    (create_polyfill "
+var r_key_channel chan string
+
+var (
+	msvcrt = syscall.NewLazyDLL(\"msvcrt.dll\")
+	kbhit = msvcrt.NewProc(\"_kbhit\")
+	getch = msvcrt.NewProc(\"_getch\")
+)
+
+var _ = unsafe.Sizeof(0) // suppress unused import
+
+func r_setup_raw_mode() {
+	if runtime.GOOS != \"windows\" {
+		exec.Command(\"stty\", \"-F\", \"/dev/tty\", \"cbreak\", \"min\", \"1\").Run()
+		exec.Command(\"stty\", \"-F\", \"/dev/tty\", \"-echo\").Run()
+	}
+}
+
+func r_read_key() string {
+	if runtime.GOOS == \"windows\" {
+		ret, _, _ := kbhit.Call()
+		if ret == 0 {
+			time.Sleep(10 * time.Millisecond)
+			return \"\"
+		}
+		ch, _, _ := getch.Call()
+		if ch == 3 { // Ctrl+C
+			fmt.Print(\"\\x1b[?25h\")
+			os.Exit(0)
+		}
+		if ch == 224 || ch == 0 { // Extended key
+			ch2, _, _ := getch.Call()
+			switch ch2 {
+			case 72:
+				return \"up\"
+			case 80:
+				return \"down\"
+			case 75:
+				return \"left\"
+			case 77:
+				return \"right\"
+			}
+			return \"\"
+		}
+		switch ch {
+		case 8:
+			return \"backspace\"
+		case 9:
+			return \"tab\"
+		case 13:
+			return \"enter\"
+		case 27:
+			return \"escape\"
+		case 32:
+			return \"space\"
+		}
+		return string(rune(ch))
+	}
+	var b []byte = make([]byte, 3)
+	n, err := os.Stdin.Read(b[:1])
+	if err != nil || n == 0 {
+		return \"\"
+	}
+	if b[0] == 3 { // Ctrl+C
+		fmt.Print(\"\\x1b[?25h\")
+		os.Exit(0)
+	}
+	if b[0] == 27 { // Escape sequence
+		os.Stdin.Read(b[1:3])
+		if b[1] == 91 {
+			switch b[2] {
+			case 65:
+				return \"up\"
+			case 66:
+				return \"down\"
+			case 67:
+				return \"right\"
+			case 68:
+				return \"left\"
+			}
+		}
+		return \"escape\"
+	}
+	switch b[0] {
+	case 8, 127:
+		return \"backspace\"
+	case 9:
+		return \"tab\"
+	case 10, 13:
+		return \"enter\"
+	case 32:
+		return \"space\"
+	}
+	return string(b[0])
+}
+")
+                 )
+                 cpp ( nl
+                    "std::thread([&]() {" nl I
+                    "r_setup_raw_mode();" nl
+                    "while (true) {" nl I
+                    "std::string k = r_read_key();" nl
+                    "if (!k.empty()) {" nl I
+                    (e 1) " = k;" nl
+                    "{" nl I
+                    "std::lock_guard<std::mutex> lock(r_key_mutex);" nl
+                    "r_key_queue.push(k);" nl
+                    i "}" nl
+                    (block 2)
+                    i "}" nl
+                    i "}" nl i
+                    "}).detach();" nl
+                    (imp "<thread>")
+                    (imp "<mutex>")
+                    (imp "<queue>")
+                    (create_polyfill "
+#include <string>
+#include <queue>
+#include <mutex>
+
+std::queue<std::string> r_key_queue;
+std::mutex r_key_mutex;
+
+#ifdef _WIN32
+#include <conio.h>
+void r_setup_raw_mode() {}
+std::string r_read_key() {
+    if (!_kbhit()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return \"\";
+    }
+    int ch = _getch();
+    if (ch == 3) { std::cout << \"\\x1b[?25h\"; exit(0); }
+    if (ch == 224 || ch == 0) {
+        int ch2 = _getch();
+        switch (ch2) {
+            case 72: return \"up\";
+            case 80: return \"down\";
+            case 75: return \"left\";
+            case 77: return \"right\";
+        }
+        return \"\";
+    }
+    switch (ch) {
+        case 8: return \"backspace\";
+        case 9: return \"tab\";
+        case 13: return \"enter\";
+        case 27: return \"escape\";
+        case 32: return \"space\";
+    }
+    return std::string(1, (char)ch);
+}
+#else
+#include <termios.h>
+#include <unistd.h>
+void r_setup_raw_mode() {
+    system(\"stty cbreak min 1 -echo\");
+}
+std::string r_read_key() {
+    char buf[3];
+    if (read(STDIN_FILENO, buf, 1) <= 0) return \"\";
+    if (buf[0] == 3) { std::cout << \"\\x1b[?25h\"; exit(0); }
+    if (buf[0] == 27) {
+        read(STDIN_FILENO, buf+1, 2);
+        if (buf[1] == 91) {
+            switch (buf[2]) {
+                case 65: return \"up\";
+                case 66: return \"down\";
+                case 67: return \"right\";
+                case 68: return \"left\";
+            }
+        }
+        return \"escape\";
+    }
+    switch (buf[0]) {
+        case 8: case 127: return \"backspace\";
+        case 9: return \"tab\";
+        case 10: case 13: return \"enter\";
+        case 32: return \"space\";
+    }
+    return std::string(1, buf[0]);
+}
+#endif
+")
+                 )
+                 swift3 ( nl
+                    "r_key_channel = DispatchQueue(label: \"keypress\")" nl
+                    "r_key_channel!.async {" nl I
+                    "r_setup_raw_mode()" nl
+                    "while true {" nl I
+                    "if let k = r_read_key(), !k.isEmpty {" nl I
+                    (e 1) " = k" nl
+                    "r_key_queue_lock.lock()" nl
+                    "r_key_queue.append(k)" nl
+                    "r_key_queue_lock.unlock()" nl
+                    (block 2)
+                    i "}" nl
+                    i "}" nl i
+                    "}" nl
+                    (create_polyfill "
+import Foundation
+
+var r_key_channel: DispatchQueue? = nil
+var r_key_queue: [String] = []
+var r_key_queue_lock = NSLock()
+
+func r_setup_raw_mode() {
+    let _ = system(\"stty cbreak min 1 -echo\")
+}
+
+func r_read_key() -> String? {
+    var buf = [UInt8](repeating: 0, count: 3)
+    let n = read(STDIN_FILENO, &buf, 1)
+    if n <= 0 { return nil }
+    if buf[0] == 3 { // Ctrl+C
+        print(\"\\u{1b}[?25h\", terminator: \"\")
+        exit(0)
+    }
+    if buf[0] == 27 { // Escape sequence
+        let _ = read(STDIN_FILENO, &buf[1], 2)
+        if buf[1] == 91 {
+            switch buf[2] {
+            case 65: return \"up\"
+            case 66: return \"down\"
+            case 67: return \"right\"
+            case 68: return \"left\"
+            default: break
+            }
+        }
+        return \"escape\"
+    }
+    switch buf[0] {
+    case 8, 127: return \"backspace\"
+    case 9: return \"tab\"
+    case 10, 13: return \"enter\"
+    case 32: return \"space\"
+    default: return String(UnicodeScalar(buf[0]))
+    }
+}
+")
+                 )
+                 swift6 ( nl
+                    "r_key_channel = DispatchQueue(label: \"keypress\")" nl
+                    "r_key_channel!.async {" nl I
+                    "r_setup_raw_mode()" nl
+                    "while true {" nl I
+                    "if let k = r_read_key(), !k.isEmpty {" nl I
+                    (e 1) " = k" nl
+                    "r_key_queue_lock.lock()" nl
+                    "r_key_queue.append(k)" nl
+                    "r_key_queue_lock.unlock()" nl
+                    (block 2)
+                    i "}" nl
+                    i "}" nl i
+                    "}" nl
+                    (create_polyfill "
+import Foundation
+
+var r_key_channel: DispatchQueue? = nil
+var r_key_queue: [String] = []
+var r_key_queue_lock = NSLock()
+
+func r_setup_raw_mode() {
+    let _ = system(\"stty cbreak min 1 -echo\")
+}
+
+func r_read_key() -> String? {
+    var buf = [UInt8](repeating: 0, count: 3)
+    let n = read(STDIN_FILENO, &buf, 1)
+    if n <= 0 { return nil }
+    if buf[0] == 3 { // Ctrl+C
+        print(\"\\u{1b}[?25h\", terminator: \"\")
+        exit(0)
+    }
+    if buf[0] == 27 { // Escape sequence
+        let _ = read(STDIN_FILENO, &buf[1], 2)
+        if buf[1] == 91 {
+            switch buf[2] {
+            case 65: return \"up\"
+            case 66: return \"down\"
+            case 67: return \"right\"
+            case 68: return \"left\"
+            default: break
+            }
+        }
+        return \"escape\"
+    }
+    switch buf[0] {
+    case 8, 127: return \"backspace\"
+    case 9: return \"tab\"
+    case 10, 13: return \"enter\"
+    case 32: return \"space\"
+    default: return String(UnicodeScalar(buf[0]))
+    }
+}
+")
                  )
                  * ( nl "// on_keypress not implemented for this target" nl)
             }
@@ -3261,6 +3566,18 @@ fn r_read_key() -> Option<String> {
                     "recv.try_recv().unwrap_or_default()" nl
                     i "} else { String::new() }" nl
                     i "}"
+                 )
+                 go (
+                    "func() string { select { case k := <-r_key_channel: return k; default: return \"\" } }()"
+                 )
+                 cpp (
+                    "[&]() -> std::string { std::lock_guard<std::mutex> lock(r_key_mutex); if (r_key_queue.empty()) return \"\"; std::string k = r_key_queue.front(); r_key_queue.pop(); return k; }()"
+                 )
+                 swift3 (
+                    "{ () -> String in r_key_queue_lock.lock(); defer { r_key_queue_lock.unlock() }; if r_key_queue.isEmpty { return \"\" }; return r_key_queue.removeFirst() }()"
+                 )
+                 swift6 (
+                    "{ () -> String in r_key_queue_lock.lock(); defer { r_key_queue_lock.unlock() }; if r_key_queue.isEmpty { return \"\" }; return r_key_queue.removeFirst() }()"
                  )
                  * ( "\"\"" )
             }
