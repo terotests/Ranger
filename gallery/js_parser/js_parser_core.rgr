@@ -284,18 +284,30 @@ class SimpleParser {
       
       def declarator (new JSNode())
       declarator.nodeType = "VariableDeclarator"
+      def declTok (this.peek())
+      declarator.start = declTok.start
+      declarator.line = declTok.line
+      declarator.col = declTok.col
       
-      def idTok (this.expect("Identifier"))
-      def id (new JSNode())
-      id.nodeType = "Identifier"
-      id.strValue = idTok.value
-      id.start = idTok.start
-      id.line = idTok.line
-      id.col = idTok.col
-      declarator.left = id
-      declarator.start = idTok.start
-      declarator.line = idTok.line
-      declarator.col = idTok.col
+      ; Check for destructuring pattern
+      if (this.matchValue("[")) {
+        def pattern (this.parseArrayPattern())
+        declarator.left = pattern
+      } {
+        if (this.matchValue("{")) {
+          def pattern (this.parseObjectPattern())
+          declarator.left = pattern
+        } {
+          def idTok (this.expect("Identifier"))
+          def id (new JSNode())
+          id.nodeType = "Identifier"
+          id.strValue = idTok.value
+          id.start = idTok.start
+          id.line = idTok.line
+          id.col = idTok.col
+          declarator.left = id
+        }
+      }
       
       if (this.matchValue("=")) {
         this.advance()
@@ -335,18 +347,30 @@ class SimpleParser {
       
       def declarator (new JSNode())
       declarator.nodeType = "VariableDeclarator"
+      def declTok (this.peek())
+      declarator.start = declTok.start
+      declarator.line = declTok.line
+      declarator.col = declTok.col
       
-      def idTok (this.expect("Identifier"))
-      def id (new JSNode())
-      id.nodeType = "Identifier"
-      id.strValue = idTok.value
-      id.start = idTok.start
-      id.line = idTok.line
-      id.col = idTok.col
-      declarator.left = id
-      declarator.start = idTok.start
-      declarator.line = idTok.line
-      declarator.col = idTok.col
+      ; Check for destructuring pattern
+      if (this.matchValue("[")) {
+        def pattern (this.parseArrayPattern())
+        declarator.left = pattern
+      } {
+        if (this.matchValue("{")) {
+          def pattern (this.parseObjectPattern())
+          declarator.left = pattern
+        } {
+          def idTok (this.expect("Identifier"))
+          def id (new JSNode())
+          id.nodeType = "Identifier"
+          id.strValue = idTok.value
+          id.start = idTok.start
+          id.line = idTok.line
+          id.col = idTok.col
+          declarator.left = id
+        }
+      }
       
       if (this.matchValue("=")) {
         this.advance()
@@ -393,14 +417,40 @@ class SimpleParser {
       if ((this.matchValue(")")) || (this.isAtEnd())) {
         break
       }
-      def paramTok (this.expect("Identifier"))
-      def param (new JSNode())
-      param.nodeType = "Identifier"
-      param.strValue = paramTok.value
-      param.start = paramTok.start
-      param.line = paramTok.line
-      param.col = paramTok.col
-      push func.children param
+      
+      ; Check for rest parameter: ...args
+      if (this.matchValue("...")) {
+        def restTok (this.peek())
+        this.advance()
+        def paramTok (this.expect("Identifier"))
+        def rest (new JSNode())
+        rest.nodeType = "RestElement"
+        rest.strValue = paramTok.value
+        rest.start = restTok.start
+        rest.line = restTok.line
+        rest.col = restTok.col
+        push func.children rest
+      } {
+        ; Check for destructuring pattern in parameter
+        if (this.matchValue("[")) {
+          def pattern (this.parseArrayPattern())
+          push func.children pattern
+        } {
+          if (this.matchValue("{")) {
+            def pattern (this.parseObjectPattern())
+            push func.children pattern
+          } {
+            def paramTok (this.expect("Identifier"))
+            def param (new JSNode())
+            param.nodeType = "Identifier"
+            param.strValue = paramTok.value
+            param.start = paramTok.start
+            param.line = paramTok.line
+            param.col = paramTok.col
+            push func.children param
+          }
+        }
+      }
     }
     this.expectValue(")")
     
@@ -719,7 +769,6 @@ class SimpleParser {
   
   fn parseFor:JSNode () {
     def forStmt (new JSNode())
-    forStmt.nodeType = "ForStatement"
     def startTok (this.peek())
     forStmt.start = startTok.start
     forStmt.line = startTok.line
@@ -728,20 +777,145 @@ class SimpleParser {
     this.expectValue("for")
     this.expectValue("(")
     
-    ; Init part
+    ; Check for for-of or for-in: for (const x of/in iterable)
+    ; Look ahead to determine loop type
+    def isForOf false
+    def isForIn false
+    
+    ; Parse left side (could be var/let/const declaration or expression)
+    def leftNode@(optional):JSNode
+    
     if ((this.matchValue(";")) == false) {
-      if (this.matchValue("var")) {
-        def varDecl (this.parseVarDecl())
-        forStmt.left = varDecl
-      } {
-        def initExpr (this.parseExpr())
-        forStmt.left = initExpr
-        if (this.matchValue(";")) {
+      if ((this.matchValue("var")) || (this.matchValue("let")) || (this.matchValue("const"))) {
+        def keyword (this.peekValue())
+        this.advance()
+        
+        ; Check if next is destructuring pattern
+        def declarator (new JSNode())
+        declarator.nodeType = "VariableDeclarator"
+        def declTok (this.peek())
+        declarator.start = declTok.start
+        declarator.line = declTok.line
+        declarator.col = declTok.col
+        
+        if (this.matchValue("[")) {
+          ; Array destructuring pattern
+          def pattern (this.parseArrayPattern())
+          declarator.left = pattern
+        } {
+          if (this.matchValue("{")) {
+            ; Object destructuring pattern
+            def pattern (this.parseObjectPattern())
+            declarator.left = pattern
+          } {
+            ; Simple identifier
+            def idTok (this.expect("Identifier"))
+            def id (new JSNode())
+            id.nodeType = "Identifier"
+            id.strValue = idTok.value
+            id.start = idTok.start
+            id.line = idTok.line
+            id.col = idTok.col
+            declarator.left = id
+          }
+        }
+        
+        ; Check for of/in
+        if (this.matchValue("of")) {
+          isForOf = true
           this.advance()
+          def varDecl (new JSNode())
+          varDecl.nodeType = "VariableDeclaration"
+          varDecl.strValue = keyword
+          varDecl.start = declTok.start
+          varDecl.line = declTok.line
+          varDecl.col = declTok.col
+          push varDecl.children declarator
+          leftNode = varDecl
+        } {
+          if (this.matchValue("in")) {
+            isForIn = true
+            this.advance()
+            def varDecl (new JSNode())
+            varDecl.nodeType = "VariableDeclaration"
+            varDecl.strValue = keyword
+            varDecl.start = declTok.start
+            varDecl.line = declTok.line
+            varDecl.col = declTok.col
+            push varDecl.children declarator
+            leftNode = varDecl
+          } {
+            ; Regular for loop with var declaration
+            ; Need to handle initialization
+            if (this.matchValue("=")) {
+              this.advance()
+              def initVal (this.parseAssignment())
+              declarator.right = initVal
+            }
+            def varDecl (new JSNode())
+            varDecl.nodeType = "VariableDeclaration"
+            varDecl.strValue = keyword
+            varDecl.start = declTok.start
+            varDecl.line = declTok.line
+            varDecl.col = declTok.col
+            push varDecl.children declarator
+            leftNode = varDecl
+            if (this.matchValue(";")) {
+              this.advance()
+            }
+          }
+        }
+      } {
+        ; Expression - could be identifier for for-of/in
+        def initExpr (this.parseExpr())
+        
+        if (this.matchValue("of")) {
+          isForOf = true
+          this.advance()
+          leftNode = initExpr
+        } {
+          if (this.matchValue("in")) {
+            isForIn = true
+            this.advance()
+            leftNode = initExpr
+          } {
+            leftNode = initExpr
+            if (this.matchValue(";")) {
+              this.advance()
+            }
+          }
         }
       }
     } {
       this.advance()
+    }
+    
+    if (isForOf) {
+      forStmt.nodeType = "ForOfStatement"
+      forStmt.left = (unwrap leftNode)
+      def rightExpr (this.parseExpr())
+      forStmt.right = rightExpr
+      this.expectValue(")")
+      def body (this.parseStatement())
+      forStmt.body = body
+      return forStmt
+    }
+    
+    if (isForIn) {
+      forStmt.nodeType = "ForInStatement"
+      forStmt.left = (unwrap leftNode)
+      def rightExpr (this.parseExpr())
+      forStmt.right = rightExpr
+      this.expectValue(")")
+      def body (this.parseStatement())
+      forStmt.body = body
+      return forStmt
+    }
+    
+    ; Regular for statement
+    forStmt.nodeType = "ForStatement"
+    if (!null? leftNode) {
+      forStmt.left = (unwrap leftNode)
     }
     
     ; Test part
@@ -1445,8 +1619,24 @@ class SimpleParser {
       if ((this.matchValue("]")) || (this.isAtEnd())) {
         break
       }
-      def elem (this.parseAssignment())
-      push arr.children elem
+      
+      ; Check for spread: [...other]
+      if (this.matchValue("...")) {
+        def spreadTok (this.peek())
+        this.advance()
+        def arg (this.parseAssignment())
+        
+        def spread (new JSNode())
+        spread.nodeType = "SpreadElement"
+        spread.left = arg
+        spread.start = spreadTok.start
+        spread.line = spreadTok.line
+        spread.col = spreadTok.col
+        push arr.children spread
+      } {
+        def elem (this.parseAssignment())
+        push arr.children elem
+      }
     }
     
     this.expectValue("]")
@@ -1472,34 +1662,206 @@ class SimpleParser {
         break
       }
       
-      def prop (new JSNode())
-      prop.nodeType = "Property"
-      
-      def keyTok (this.peek())
-      def keyType (this.peekType())
-      
-      if ((keyType == "Identifier") || (keyType == "String") || (keyType == "Number")) {
+      ; Check for spread: {...other}
+      if (this.matchValue("...")) {
+        def spreadTok (this.peek())
         this.advance()
-        prop.strValue = keyTok.value
-        prop.start = keyTok.start
-        prop.line = keyTok.line
-        prop.col = keyTok.col
+        def arg (this.parseAssignment())
         
-        this.expectValue(":")
-        def val (this.parseAssignment())
-        prop.left = val
-        push obj.children prop
+        def spread (new JSNode())
+        spread.nodeType = "SpreadElement"
+        spread.left = arg
+        spread.start = spreadTok.start
+        spread.line = spreadTok.line
+        spread.col = spreadTok.col
+        push obj.children spread
       } {
-        ; Unexpected token in object - skip it to avoid infinite loop
-        def err "Parse error at line " + keyTok.line + ":" + keyTok.col + ": unexpected token '" + keyTok.value + "' in object literal"
-        this.addError(err)
-        this.advance()
+        def prop (new JSNode())
+        prop.nodeType = "Property"
+        
+        def keyTok (this.peek())
+        def keyType (this.peekType())
+        
+        if ((keyType == "Identifier") || (keyType == "String") || (keyType == "Number")) {
+          this.advance()
+          prop.strValue = keyTok.value
+          prop.start = keyTok.start
+          prop.line = keyTok.line
+          prop.col = keyTok.col
+          
+          ; Check for shorthand property: { x } instead of { x: x }
+          if (this.matchValue(":")) {
+            this.expectValue(":")
+            def val (this.parseAssignment())
+            prop.left = val
+          } {
+            ; Shorthand - value is same as key
+            def id (new JSNode())
+            id.nodeType = "Identifier"
+            id.strValue = keyTok.value
+            id.start = keyTok.start
+            id.line = keyTok.line
+            id.col = keyTok.col
+            prop.left = id
+            prop.strValue2 = "shorthand"
+          }
+          push obj.children prop
+        } {
+          ; Unexpected token in object - skip it to avoid infinite loop
+          def err "Parse error at line " + keyTok.line + ":" + keyTok.col + ": unexpected token '" + keyTok.value + "' in object literal"
+          this.addError(err)
+          this.advance()
+        }
       }
     }
     
     this.expectValue("}")
     
     return obj
+  }
+  
+  ; === Destructuring Patterns (ES6) ===
+  
+  fn parseArrayPattern:JSNode () {
+    def pattern (new JSNode())
+    pattern.nodeType = "ArrayPattern"
+    def startTok (this.peek())
+    pattern.start = startTok.start
+    pattern.line = startTok.line
+    pattern.col = startTok.col
+    
+    this.expectValue("[")
+    
+    while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length pattern.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue("]")) || (this.isAtEnd())) {
+        break
+      }
+      
+      ; Check for rest element: [...rest]
+      if (this.matchValue("...")) {
+        def restTok (this.peek())
+        this.advance()
+        def idTok (this.expect("Identifier"))
+        
+        def rest (new JSNode())
+        rest.nodeType = "RestElement"
+        rest.strValue = idTok.value
+        rest.start = restTok.start
+        rest.line = restTok.line
+        rest.col = restTok.col
+        push pattern.children rest
+      } {
+        ; Could be nested pattern or identifier
+        if (this.matchValue("[")) {
+          def nested (this.parseArrayPattern())
+          push pattern.children nested
+        } {
+          if (this.matchValue("{")) {
+            def nested (this.parseObjectPattern())
+            push pattern.children nested
+          } {
+            def idTok (this.expect("Identifier"))
+            def id (new JSNode())
+            id.nodeType = "Identifier"
+            id.strValue = idTok.value
+            id.start = idTok.start
+            id.line = idTok.line
+            id.col = idTok.col
+            push pattern.children id
+          }
+        }
+      }
+    }
+    
+    this.expectValue("]")
+    
+    return pattern
+  }
+  
+  fn parseObjectPattern:JSNode () {
+    def pattern (new JSNode())
+    pattern.nodeType = "ObjectPattern"
+    def startTok (this.peek())
+    pattern.start = startTok.start
+    pattern.line = startTok.line
+    pattern.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length pattern.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue("}")) || (this.isAtEnd())) {
+        break
+      }
+      
+      ; Check for rest element: {...rest}
+      if (this.matchValue("...")) {
+        def restTok (this.peek())
+        this.advance()
+        def idTok (this.expect("Identifier"))
+        
+        def rest (new JSNode())
+        rest.nodeType = "RestElement"
+        rest.strValue = idTok.value
+        rest.start = restTok.start
+        rest.line = restTok.line
+        rest.col = restTok.col
+        push pattern.children rest
+      } {
+        def prop (new JSNode())
+        prop.nodeType = "Property"
+        
+        def keyTok (this.expect("Identifier"))
+        prop.strValue = keyTok.value
+        prop.start = keyTok.start
+        prop.line = keyTok.line
+        prop.col = keyTok.col
+        
+        ; Check for renamed: { x: newName }
+        if (this.matchValue(":")) {
+          this.advance()
+          if (this.matchValue("[")) {
+            def nested (this.parseArrayPattern())
+            prop.left = nested
+          } {
+            if (this.matchValue("{")) {
+              def nested (this.parseObjectPattern())
+              prop.left = nested
+            } {
+              def idTok2 (this.expect("Identifier"))
+              def id (new JSNode())
+              id.nodeType = "Identifier"
+              id.strValue = idTok2.value
+              id.start = idTok2.start
+              id.line = idTok2.line
+              id.col = idTok2.col
+              prop.left = id
+            }
+          }
+        } {
+          ; Shorthand: { x } means { x: x }
+          def id (new JSNode())
+          id.nodeType = "Identifier"
+          id.strValue = keyTok.value
+          id.start = keyTok.start
+          id.line = keyTok.line
+          id.col = keyTok.col
+          prop.left = id
+          prop.strValue2 = "shorthand"
+        }
+        
+        push pattern.children prop
+      }
+    }
+    
+    this.expectValue("}")
+    
+    return pattern
   }
   
   ; === Arrow Function Parsing (ES6) ===
@@ -1679,7 +2041,14 @@ class ASTPrinter {
     if (nodeType == "VariableDeclarator") {
       if (!null? node.left) {
         def id (unwrap node.left)
-        print indent + "VariableDeclarator: " + id.strValue + " " + loc
+        def idType id.nodeType
+        if (idType == "Identifier") {
+          print indent + "VariableDeclarator: " + id.strValue + " " + loc
+        } {
+          print indent + "VariableDeclarator " + loc
+          print indent + "  pattern:"
+          ASTPrinter.printNode(id (depth + 2))
+        }
       } {
         print indent + "VariableDeclarator " + loc
       }
@@ -1950,10 +2319,45 @@ class ASTPrinter {
     }
     
     if (nodeType == "Property") {
-      print indent + "Property: " + node.strValue + " " + loc
+      def shorthand ""
+      if (node.strValue2 == "shorthand") {
+        shorthand = " (shorthand)"
+      }
+      print indent + "Property: " + node.strValue + shorthand + " " + loc
       if (!null? node.left) {
         ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
+      return
+    }
+    
+    ; Destructuring patterns
+    if (nodeType == "ArrayPattern") {
+      print indent + "ArrayPattern " + loc
+      for node.children elem:JSNode ei {
+        ASTPrinter.printNode(elem (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "ObjectPattern") {
+      print indent + "ObjectPattern " + loc
+      for node.children prop:JSNode pi {
+        ASTPrinter.printNode(prop (depth + 1))
+      }
+      return
+    }
+    
+    ; Spread and rest elements
+    if (nodeType == "SpreadElement") {
+      print indent + "SpreadElement " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "RestElement") {
+      print indent + "RestElement: ..." + node.strValue + " " + loc
       return
     }
     
@@ -1995,6 +2399,40 @@ class ASTPrinter {
       }
       if (!null? node.right) {
         print indent + "  update:"
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
+      }
+      print indent + "  body:"
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "ForOfStatement") {
+      print indent + "ForOfStatement " + loc
+      if (!null? node.left) {
+        print indent + "  left:"
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      if (!null? node.right) {
+        print indent + "  right:"
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
+      }
+      print indent + "  body:"
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "ForInStatement") {
+      print indent + "ForInStatement " + loc
+      if (!null? node.left) {
+        print indent + "  left:"
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      if (!null? node.right) {
+        print indent + "  right:"
         ASTPrinter.printNode((unwrap node.right) (depth + 2))
       }
       print indent + "  body:"

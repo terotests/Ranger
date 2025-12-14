@@ -433,6 +433,18 @@ class Lexer {
                 return (this.makeToken("Punctuator" "--" startPos startLine startCol))
             }
         }
+        
+        ; Spread operator ...
+        if (ch == ".") {
+            if (next == ".") {
+                if ((this.peekAt(2)) == ".") {
+                    this.advance()
+                    this.advance()
+                    this.advance()
+                    return (this.makeToken("Punctuator" "..." startPos startLine startCol))
+                }
+            }
+        }
 
         ; Single char punctuators
         this.advance()

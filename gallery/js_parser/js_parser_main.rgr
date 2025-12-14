@@ -268,6 +268,70 @@ async function* asyncGenerator() {
     yield await fetch('/api/1');
     yield await fetch('/api/2');
 }
+
+// === for...of and for...in loops ===
+
+// For-of loop
+for (const item of items) {
+    console.log(item);
+}
+
+// For-in loop
+for (const key in obj) {
+    console.log(key);
+}
+
+// For-of with array destructuring
+for (const [index, value] of entries) {
+    console.log(index, value);
+}
+
+// === Spread operator ===
+
+// Array spread
+const arr1 = [1, 2, 3];
+const arr2 = [...arr1, 4, 5];
+const combined = [...arr1, ...arr2];
+
+// Object spread
+const obj1 = { a: 1, b: 2 };
+const obj2 = { ...obj1, c: 3 };
+const merged = { ...obj1, ...obj2 };
+
+// Spread in function call
+console.log(...args);
+
+// === Rest parameters ===
+
+function sum(...numbers) {
+    return numbers.reduce((a, b) => a + b);
+}
+
+function firstAndRest(first, ...rest) {
+    return { first, rest };
+}
+
+// === Destructuring ===
+
+// Array destructuring
+const [x, y, z] = [1, 2, 3];
+const [first, ...others] = arr1;
+let [a, b] = [b, a];
+
+// Object destructuring
+const { name, age } = person;
+const { x: newX, y: newY } = point;
+const { a: { b: nested } } = deep;
+
+// Destructuring with default (parsed as identifier for now)
+const { foo, bar } = obj;
+
+// Nested destructuring
+const { user: { name: userName } } = data;
+const [{ id }, { id: id2 }] = items;
+
+// Shorthand properties
+const shorthand = { x, y, z };
 "
     
     print "=== JavaScript ES6 Parser ==="
