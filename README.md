@@ -51,19 +51,27 @@ target. However, most targets already can compile reasonably good code.
 
 ### Swift 6 Target Support
 
-The Swift 6 target (`-l=swift6`) has been added with the following features:
+The Swift 6 target (`-l=swift6`) has been significantly enhanced with the following features:
 
 - Modern Swift 6 compatible code generation
-- `@main` struct entry point pattern
+- Simple `main()` function entry point (avoids @main conflicts with operator overloads)
 - Proper integer-to-string conversion using `String()`
 - Array operations using `.append()` instead of `.push()`
-- Uses `print()` for console output
-- Falls back to Swift 3 system class definitions when Swift 6 not defined
+- File I/O with `Foundation` framework integration
+- String operations: `substring`, `indexOf`, `startsWith`, `endsWith`, `contains`, `split`, `trim`
+- Optional handling with `unwrap` and `!!` operators
+- Command-line argument access
+- CRLF grapheme cluster handling for cross-platform string compatibility
+
+**Successfully compiled projects:**
+- ✅ JavaScript ES6+ Parser (`gallery/js_parser`) - 4500+ lines, parses and pretty-prints ES6+ code
+- ✅ Space Invaders game (`gallery/invaders`)
 
 Example compilation:
 
 ```bash
-ranger-compiler -l=swift6 myfile.clj -o=myfile.swift
+node bin/output.js myfile.rgr -l=swift6 -o=myfile.swift
+sed -i '' $'s/\r$//' myfile.swift  # Fix line endings on macOS
 swiftc myfile.swift -o myfile
 ```
 
@@ -85,7 +93,7 @@ The Rust target (`-l=rust`) now has preliminary support with the following featu
 Example compilation:
 
 ```bash
-ranger-compiler -l=rust myfile.clj -o=myfile.rs
+node bin/output.js myfile.rgr -l=rust -o=myfile.rs
 rustc myfile.rs -o myfile
 ```
 
@@ -229,13 +237,12 @@ A comprehensive JavaScript ES6+ parser written entirely in Ranger, demonstrating
 - **Full ES6+ support** - Classes, arrow functions, async/await, generators, destructuring, spread operators, template literals
 - **Pretty-printer** - Parses JavaScript and outputs formatted code
 - **Comment preservation** - Line comments, block comments, and JSDoc are attached to AST nodes
-- **Cross-platform** - Parser can be compiled to JavaScript, Go, Python, etc.
+- **Multi-target** - Parser compiles to JavaScript, Swift, Go, Python, etc.
 
-**Quick Start:**
+**Quick Start (JavaScript):**
 
 ```bash
 # Compile the parser
-$env:RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr"
 node bin/output.js gallery/js_parser/js_parser_main.rgr -o=js_parser.js -d=gallery/js_parser
 
 # Parse and pretty-print a JavaScript file
@@ -243,6 +250,22 @@ node gallery/js_parser/js_parser.js -i input.js -o output.js
 
 # Show AST structure
 node gallery/js_parser/js_parser.js -i input.js --ast
+```
+
+**Quick Start (Swift):**
+
+```bash
+# Compile to Swift (from gallery/js_parser directory)
+cd gallery/js_parser
+node ../../bin/output.js js_parser_main.rgr -l=swift6 -o js_parser.swift
+
+# Fix line endings and compile
+sed -i '' $'s/\r$//' bin/js_parser_main.swift
+swiftc -o js_parser_swift bin/js_parser_main.swift
+
+# Run the native Swift binary
+./js_parser_swift -i input.js --ast
+./js_parser_swift -d
 ```
 
 **Supported ES6+ Features:**

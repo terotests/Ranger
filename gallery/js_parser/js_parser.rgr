@@ -32,7 +32,7 @@ var obj = { name: 'test', value: 42 };
         def tokens:[Token] (lexer.tokenize())
         
         for tokens tok:Token i {
-            def output:string (tok.type + ": " + tok.value + " [" + tok.line + ":" + tok.col + "]")
+            def output:string (tok.tokenType + ": " + tok.value + " [" + tok.line + ":" + tok.col + "]")
             print output
         }
         
@@ -60,7 +60,7 @@ var obj = { name: 'test', value: 42 };
             i = i + 1
         }
         
-        def nodeType node.type
+        def nodeType node.nodeType
         def loc "[" + node.line + ":" + node.col + "]"
         
         ; Handle different node types

@@ -47,7 +47,7 @@ class SimpleParser {
       return "EOF"
     }
     def tok (unwrap this.currentToken)
-    return tok.type
+    return tok.tokenType
   }
   
   fn peekValue:string () {
@@ -64,7 +64,7 @@ class SimpleParser {
       this.currentToken = (itemAt this.tokens this.pos)
     } {
       def eof (new Token())
-      eof.type = "EOF"
+      eof.tokenType = "EOF"
       eof.value = ""
       this.currentToken = eof
     }
@@ -72,8 +72,8 @@ class SimpleParser {
   
   fn expect:Token (expectedType:string) {
     def tok (this.peek())
-    if (tok.type != expectedType) {
-      print "Parse error: expected " + expectedType + " but got " + tok.type
+    if (tok.tokenType != expectedType) {
+      print "Parse error: expected " + expectedType + " but got " + tok.tokenType
     }
     this.advance()
     return tok

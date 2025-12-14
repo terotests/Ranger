@@ -108,6 +108,26 @@ class JSPrinter {
       return
     }
     
+    if (nodeType == "ImportDeclaration") {
+      this.printImportDeclaration(node)
+      return
+    }
+    
+    if (nodeType == "ExportNamedDeclaration") {
+      this.printExportNamedDeclaration(node)
+      return
+    }
+    
+    if (nodeType == "ExportDefaultDeclaration") {
+      this.printExportDefaultDeclaration(node)
+      return
+    }
+    
+    if (nodeType == "ExportAllDeclaration") {
+      this.printExportAllDeclaration(node)
+      return
+    }
+    
     if (nodeType == "BlockStatement") {
       this.printBlockStatement(node)
       return
@@ -198,6 +218,12 @@ class JSPrinter {
       return
     }
     
+    if (nodeType == "RegexLiteral") {
+      ; strValue = pattern, strValue2 = flags
+      this.emit("/" + node.strValue + "/" + node.strValue2)
+      return
+    }
+    
     if (nodeType == "ArrayExpression") {
       this.printArrayExpression(node)
       return
@@ -243,8 +269,18 @@ class JSPrinter {
       return
     }
     
+    if (nodeType == "OptionalCallExpression") {
+      this.printOptionalCallExpression(node)
+      return
+    }
+    
     if (nodeType == "MemberExpression") {
       this.printMemberExpression(node)
+      return
+    }
+    
+    if (nodeType == "OptionalMemberExpression") {
+      this.printOptionalMemberExpression(node)
       return
     }
     
@@ -816,6 +852,175 @@ class JSPrinter {
       this.emit("]")
     } {
       this.emit("." + node.strValue)
+    }
+  }
+  
+  fn printOptionalMemberExpression:void (node:JSNode) {
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    
+    def accessType node.strValue2
+    if (accessType == "bracket") {
+      this.emit("?.[")
+      if (!null? node.right) {
+        this.printNode((unwrap node.right))
+      }
+      this.emit("]")
+    } {
+      this.emit("?." + node.strValue)
+    }
+  }
+  
+  fn printOptionalCallExpression:void (node:JSNode) {
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    this.emit("?.(")
+    def first true
+    for node.children arg:JSNode idx {
+      if (first == false) {
+        this.emit(", ")
+      }
+      first = false
+      this.printNode(arg)
+    }
+    this.emit(")")
+  }
+  
+  ; === Import/Export Declarations (ES6 Modules) ===
+  
+  fn printImportDeclaration:void (node:JSNode) {
+    this.emit("import ")
+    
+    def numSpecifiers (array_length node.children)
+    
+    ; Side-effect only import: import "module"
+    if (numSpecifiers == 0) {
+      if (!null? node.right) {
+        def source (unwrap node.right)
+        this.emit("\"" + source.strValue + "\"")
+      }
+      return
+    }
+    
+    ; Process specifiers
+    def hasDefault false
+    def hasNamespace false
+    def hasNamed false
+    
+    ; First pass to determine structure
+    for node.children spec:JSNode idx {
+      if (spec.nodeType == "ImportDefaultSpecifier") {
+        hasDefault = true
+      }
+      if (spec.nodeType == "ImportNamespaceSpecifier") {
+        hasNamespace = true
+      }
+      if (spec.nodeType == "ImportSpecifier") {
+        hasNamed = true
+      }
+    }
+    
+    ; Print default import first
+    def printedSomething false
+    for node.children spec:JSNode idx {
+      if (spec.nodeType == "ImportDefaultSpecifier") {
+        this.emit(spec.strValue)
+        printedSomething = true
+      }
+    }
+    
+    ; Print namespace import
+    for node.children spec:JSNode idx {
+      if (spec.nodeType == "ImportNamespaceSpecifier") {
+        if (printedSomething) {
+          this.emit(", ")
+        }
+        this.emit("* as " + spec.strValue)
+        printedSomething = true
+      }
+    }
+    
+    ; Print named imports
+    if (hasNamed) {
+      if (printedSomething) {
+        this.emit(", ")
+      }
+      this.emit("{ ")
+      def firstNamed true
+      for node.children spec:JSNode idx {
+        if (spec.nodeType == "ImportSpecifier") {
+          if (firstNamed == false) {
+            this.emit(", ")
+          }
+          firstNamed = false
+          this.emit(spec.strValue)
+          if ((strlen spec.strValue2) > 0) {
+            this.emit(" as " + spec.strValue2)
+          }
+        }
+      }
+      this.emit(" }")
+    }
+    
+    this.emit(" from ")
+    if (!null? node.right) {
+      def source (unwrap node.right)
+      this.emit("\"" + source.strValue + "\"")
+    }
+  }
+  
+  fn printExportNamedDeclaration:void (node:JSNode) {
+    this.emit("export ")
+    
+    ; Check if we have specifiers (export { x, y })
+    def numSpecifiers (array_length node.children)
+    if (numSpecifiers > 0) {
+      this.emit("{ ")
+      def first true
+      for node.children spec:JSNode idx {
+        if (first == false) {
+          this.emit(", ")
+        }
+        first = false
+        this.emit(spec.strValue)
+        if ((strlen spec.strValue2) > 0) {
+          this.emit(" as " + spec.strValue2)
+        }
+      }
+      this.emit(" }")
+      
+      ; Check for re-export source
+      if (!null? node.right) {
+        def source (unwrap node.right)
+        this.emit(" from \"" + source.strValue + "\"")
+      }
+      return
+    }
+    
+    ; Export declaration (const, function, class, etc.)
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+  }
+  
+  fn printExportDefaultDeclaration:void (node:JSNode) {
+    this.emit("export default ")
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+  }
+  
+  fn printExportAllDeclaration:void (node:JSNode) {
+    this.emit("export *")
+    if ((strlen node.strValue) > 0) {
+      this.emit(" as " + node.strValue)
+    }
+    this.emit(" from ")
+    if (!null? node.right) {
+      def source (unwrap node.right)
+      this.emit("\"" + source.strValue + "\"")
     }
   }
   

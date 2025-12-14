@@ -26,7 +26,7 @@ class Parser {
       return "EOF"
     }
     def tok (unwrap this.currentToken)
-    return tok.type
+    return tok.tokenType
   }
   
   fn peekValue:string () {
@@ -44,7 +44,7 @@ class Parser {
     } {
       ; Create EOF token
       def eof (new Token())
-      eof.type = "EOF"
+      eof.tokenType = "EOF"
       eof.value = ""
       this.currentToken = eof
     }
@@ -52,8 +52,8 @@ class Parser {
   
   fn expect:Token (expectedType:string) {
     def tok (this.peek())
-    if (tok.type != expectedType) {
-      print "Parse error: expected " + expectedType + " but got " + tok.type + " '" + tok.value + "'"
+    if (tok.tokenType != expectedType) {
+      print "Parse error: expected " + expectedType + " but got " + tok.tokenType + " '" + tok.value + "'"
     }
     this.advance()
     return tok

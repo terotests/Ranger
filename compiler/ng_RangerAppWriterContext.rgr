@@ -834,8 +834,8 @@ class RangerAppWriterContext {
     }
     def root (this.getRoot())
     root.initReservedWords()
-    if(has refTransform input_word) {
-      return (unwrap (get refTransform input_word))
+    if(has root.refTransform input_word) {
+      return (unwrap (get root.refTransform input_word))
     }
     return input_word
   }
@@ -1590,7 +1590,7 @@ class RangerAppWriterContext {
           desc.compiledName = "__len"
         }
         default {
-          desc.compiledName = name
+          desc.compiledName = (this.transformWord(name))
         }
       }
     } {

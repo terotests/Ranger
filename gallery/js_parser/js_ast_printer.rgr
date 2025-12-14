@@ -19,7 +19,7 @@ class ASTPrinter {
     def prefix (this.getIndent())
     
     ; Check node type and print accordingly
-    def nodeType node.type
+    def nodeType node.nodeType
     
     if (nodeType == "Program") {
       print prefix + "Program"

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 class Token  {
   constructor() {
     this.tokenType = "";
@@ -1101,22 +1100,22 @@ class SimpleParser  {
     return decl;
   };
   parseFuncDecl () {
-    const func = new JSNode();
-    func.nodeType = "FunctionDeclaration";
+    const _func = new JSNode();
+    _func.nodeType = "FunctionDeclaration";
     const startTok = this.peek();
-    func.start = startTok.start;
-    func.line = startTok.line;
-    func.col = startTok.col;
+    _func.start = startTok.start;
+    _func.line = startTok.line;
+    _func.col = startTok.col;
     this.expectValue("function");
     if ( this.matchValue("*") ) {
-      func.strValue2 = "generator";
+      _func.strValue2 = "generator";
       this.advance();
     }
     const idTok = this.expect("Identifier");
-    func.strValue = idTok.value;
+    _func.strValue = idTok.value;
     this.expectValue("(");
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
-      if ( (func.children.length) > 0 ) {
+      if ( (_func.children.length) > 0 ) {
         this.expectValue(",");
       }
       if ( this.matchValue(")") || this.isAtEnd() ) {
@@ -1132,15 +1131,15 @@ class SimpleParser  {
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        func.children.push(rest);
+        _func.children.push(rest);
       } else {
         if ( this.matchValue("[") ) {
           const pattern = this.parseArrayPattern();
-          func.children.push(pattern);
+          _func.children.push(pattern);
         } else {
           if ( this.matchValue("{") ) {
             const pattern_1 = this.parseObjectPattern();
-            func.children.push(pattern_1);
+            _func.children.push(pattern_1);
           } else {
             const paramTok_1 = this.expect("Identifier");
             const param = new JSNode();
@@ -1149,35 +1148,35 @@ class SimpleParser  {
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            func.children.push(param);
+            _func.children.push(param);
           }
         }
       }
     };
     this.expectValue(")");
     const body = this.parseBlock();
-    func.body = body;
-    return func;
+    _func.body = body;
+    return _func;
   };
   parseFunctionExpression () {
-    const func = new JSNode();
-    func.nodeType = "FunctionExpression";
+    const _func = new JSNode();
+    _func.nodeType = "FunctionExpression";
     const startTok = this.peek();
-    func.start = startTok.start;
-    func.line = startTok.line;
-    func.col = startTok.col;
+    _func.start = startTok.start;
+    _func.line = startTok.line;
+    _func.col = startTok.col;
     this.expectValue("function");
     if ( this.matchValue("*") ) {
-      func.strValue2 = "generator";
+      _func.strValue2 = "generator";
       this.advance();
     }
     if ( this.matchType("Identifier") ) {
       const idTok = this.expect("Identifier");
-      func.strValue = idTok.value;
+      _func.strValue = idTok.value;
     }
     this.expectValue("(");
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
-      if ( (func.children.length) > 0 ) {
+      if ( (_func.children.length) > 0 ) {
         this.expectValue(",");
       }
       if ( this.matchValue(")") || this.isAtEnd() ) {
@@ -1193,15 +1192,15 @@ class SimpleParser  {
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        func.children.push(rest);
+        _func.children.push(rest);
       } else {
         if ( this.matchValue("[") ) {
           const pattern = this.parseArrayPattern();
-          func.children.push(pattern);
+          _func.children.push(pattern);
         } else {
           if ( this.matchValue("{") ) {
             const pattern_1 = this.parseObjectPattern();
-            func.children.push(pattern_1);
+            _func.children.push(pattern_1);
           } else {
             const paramTok_1 = this.expect("Identifier");
             const param = new JSNode();
@@ -1210,35 +1209,35 @@ class SimpleParser  {
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            func.children.push(param);
+            _func.children.push(param);
           }
         }
       }
     };
     this.expectValue(")");
     const body = this.parseBlock();
-    func.body = body;
-    return func;
+    _func.body = body;
+    return _func;
   };
   parseAsyncFuncDecl () {
-    const func = new JSNode();
-    func.nodeType = "FunctionDeclaration";
+    const _func = new JSNode();
+    _func.nodeType = "FunctionDeclaration";
     const startTok = this.peek();
-    func.start = startTok.start;
-    func.line = startTok.line;
-    func.col = startTok.col;
-    func.strValue2 = "async";
+    _func.start = startTok.start;
+    _func.line = startTok.line;
+    _func.col = startTok.col;
+    _func.strValue2 = "async";
     this.expectValue("async");
     this.expectValue("function");
     if ( this.matchValue("*") ) {
-      func.strValue2 = "async-generator";
+      _func.strValue2 = "async-generator";
       this.advance();
     }
     const idTok = this.expect("Identifier");
-    func.strValue = idTok.value;
+    _func.strValue = idTok.value;
     this.expectValue("(");
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
-      if ( (func.children.length) > 0 ) {
+      if ( (_func.children.length) > 0 ) {
         this.expectValue(",");
       }
       if ( this.matchValue(")") || this.isAtEnd() ) {
@@ -1251,12 +1250,12 @@ class SimpleParser  {
       param.start = paramTok.start;
       param.line = paramTok.line;
       param.col = paramTok.col;
-      func.children.push(param);
+      _func.children.push(param);
     };
     this.expectValue(")");
     const body = this.parseBlock();
-    func.body = body;
-    return func;
+    _func.body = body;
+    return _func;
   };
   parseClass () {
     const classNode = new JSNode();
@@ -1327,14 +1326,14 @@ class SimpleParser  {
     if ( nameTok.value == "constructor" ) {
       kind = "constructor";
     }
-    const func = new JSNode();
-    func.nodeType = "FunctionExpression";
-    func.start = nameTok.start;
-    func.line = nameTok.line;
-    func.col = nameTok.col;
+    const _func = new JSNode();
+    _func.nodeType = "FunctionExpression";
+    _func.start = nameTok.start;
+    _func.line = nameTok.line;
+    _func.col = nameTok.col;
     this.expectValue("(");
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
-      if ( (func.children.length) > 0 ) {
+      if ( (_func.children.length) > 0 ) {
         this.expectValue(",");
       }
       if ( this.matchValue(")") || this.isAtEnd() ) {
@@ -1347,12 +1346,12 @@ class SimpleParser  {
       param.start = paramTok.start;
       param.line = paramTok.line;
       param.col = paramTok.col;
-      func.children.push(param);
+      _func.children.push(param);
     };
     this.expectValue(")");
     const funcBody = this.parseBlock();
-    func.body = funcBody;
-    method.body = func;
+    _func.body = funcBody;
+    method.body = _func;
     return method;
   };
   peekAt (offset) {
@@ -1499,8 +1498,8 @@ class SimpleParser  {
       exportNode.nodeType = "ExportDefaultDeclaration";
       this.advance();
       if ( this.matchValue("function") ) {
-        const func = this.parseFuncDecl();
-        exportNode.left = func;
+        const _func = this.parseFuncDecl();
+        exportNode.left = _func;
       } else {
         if ( this.matchValue("async") ) {
           const func_1 = this.parseAsyncFuncDecl();
@@ -3805,8 +3804,8 @@ class JSPrinter  {
     }
     this.emit(node.strValue + "(");
     if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
-      const func = node.body;
-      this.printParams(func.children);
+      const _func = node.body;
+      this.printParams(_func.children);
     }
     this.emit(") ");
     if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
