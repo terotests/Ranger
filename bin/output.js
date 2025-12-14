@@ -16879,13 +16879,13 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   getObjectTypeString (type_string, ctx) {
     switch (type_string ) { 
       case "int" : 
-        return "Integer";
+        return "Int";
       case "string" : 
         return "String";
       case "chararray" : 
         return "CharArray";
       case "char" : 
-        return "char";
+        return "Char";
       case "boolean" : 
         return "Boolean";
       case "double" : 
@@ -16896,7 +16896,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   getTypeString (type_string) {
     switch (type_string ) { 
       case "int" : 
-        return "Integer";
+        return "Int";
       case "string" : 
         return "String";
       case "chararray" : 
@@ -16956,6 +16956,10 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     }
   };
   async WriteVRef (node, ctx, wr) {
+    if ( node.vref == "this" ) {
+      wr.out("this", false);
+      return;
+    }
     if ( node.eval_type == 13 ) {
       if ( (node.ns.length) > 1 ) {
         const rootObjName = node.ns[0];
@@ -16967,9 +16971,32 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         }
       }
     }
+    /** unused:  const max_len = node.ns.length   **/ 
     if ( (node.nsp.length) > 0 ) {
       for ( let i = 0; i < node.nsp.length; i++) {
         var p = node.nsp[i];
+        if ( i == 0 ) {
+          const part = node.ns[0];
+          if ( part == "this" ) {
+            wr.out("this", false);
+            continue;
+          }
+          const uc = ctx.getCurrentClass();
+          if ( (typeof(uc) !== "undefined" && uc != null )  ) {
+            const currC = uc;
+            if ( part == currC.name ) {
+              if ( false == ctx.isInStatic() ) {
+                wr.out("this", false);
+                continue;
+              }
+            }
+          }
+          if ( ctx.isMemberVariable(part) ) {
+            if ( false == ctx.isInStatic() ) {
+              wr.out("this.", false);
+            }
+          }
+        }
         if ( i > 0 ) {
           wr.out(".", false);
         }
@@ -16996,11 +17023,23 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       return;
     }
     for ( let i_1 = 0; i_1 < node.ns.length; i_1++) {
-      var part = node.ns[i_1];
+      var part_1 = node.ns[i_1];
       if ( i_1 > 0 ) {
         wr.out(".", false);
       }
-      wr.out(this.adjustType(part), false);
+      if ( i_1 == 0 ) {
+        const uc_1 = ctx.getCurrentClass();
+        if ( (typeof(uc_1) !== "undefined" && uc_1 != null )  ) {
+          const currC_1 = uc_1;
+          if ( part_1 == currC_1.name ) {
+            if ( false == ctx.isInStatic() ) {
+              wr.out("this", false);
+              continue;
+            }
+          }
+        }
+      }
+      wr.out(this.adjustType(part_1), false);
     };
   };
   async writeVarDef (node, ctx, wr) {
@@ -24075,7 +24114,7 @@ class VirtualCompiler  {
   async run (env) {
     const res = new CompilerResults();
     this.envObj = env;
-    const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "cpp", "php", "csharp", "python", "rust"];
+    const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "cpp", "php", "csharp", "python", "rust"];
     const params = env.commandLine;
     let the_file = "";
     let plugins_only = false;
@@ -24328,6 +24367,11 @@ class VirtualCompiler  {
       case "scala" : 
         if ( false == (the_target.endsWith(".scala")) ) {
           the_target = the_target + ".scala";
+        }
+        break;
+      case "kotlin" : 
+        if ( false == (the_target.endsWith(".kt")) ) {
+          the_target = the_target + ".kt";
         }
         break;
       case "cpp" : 

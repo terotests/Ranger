@@ -258,6 +258,250 @@ export function expectOutput(
   return run;
 }
 
+// ============================================================================
+// Kotlin compilation and execution helpers
+// ============================================================================
+
+const KOTLIN_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-kotlin");
+
+/**
+ * Check if Kotlin compiler is available on the system
+ */
+export function isKotlinAvailable(): boolean {
+  try {
+    execSync("kotlinc -version", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Compile a Ranger source file to Kotlin
+ */
+export function compileRangerToKotlin(
+  sourceFile: string,
+  outputDir?: string
+): CompileResult {
+  const sourcePath = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : `./${sourceFile.replace(/\\/g, "/")}`;
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+
+  if (!fs.existsSync(absoluteSource)) {
+    return {
+      success: false,
+      output: "",
+      error: `Source file not found: ${absoluteSource}`,
+    };
+  }
+
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputFile = `${sourceBasename}.kt`;
+  const targetDir = outputDir || KOTLIN_OUTPUT_DIR;
+
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  try {
+    const env = {
+      ...process.env,
+      RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr`,
+    };
+
+    const relativeTargetDir = path
+      .relative(ROOT_DIR, targetDir)
+      .replace(/\\/g, "/");
+
+    const cmd = `node "${OUTPUT_JS}" -l=kotlin "${sourcePath}" -d="${relativeTargetDir}" -o="${outputFile}"`;
+
+    const output = execSync(cmd, {
+      cwd: ROOT_DIR,
+      env,
+      encoding: "utf-8",
+      timeout: 30000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const outputStr = output.toString();
+    const hasError =
+      outputStr.includes("TypeError:") ||
+      outputStr.includes("Got unknown compiler error") ||
+      outputStr.includes("Undefined variable") ||
+      outputStr.includes("invalid variable definition");
+
+    return {
+      success: !hasError,
+      output: outputStr,
+      error: hasError ? outputStr : undefined,
+    };
+  } catch (err: any) {
+    const stdout = err.stdout?.toString() || "";
+    const stderr = err.stderr?.toString() || "";
+    const combined = stdout + stderr;
+
+    return {
+      success: false,
+      output: stdout,
+      error: combined || err.message,
+    };
+  }
+}
+
+/**
+ * Build and run a compiled Kotlin file
+ */
+export function runCompiledKotlin(ktFile: string): RunResult {
+  const absoluteKt = path.isAbsolute(ktFile)
+    ? ktFile
+    : path.join(ROOT_DIR, ktFile);
+
+  if (!fs.existsSync(absoluteKt)) {
+    return {
+      success: false,
+      output: "",
+      error: `Kotlin file not found: ${absoluteKt}`,
+    };
+  }
+
+  const ktDir = path.dirname(absoluteKt);
+  const ktBasename = path.basename(absoluteKt, ".kt");
+  const jarFile = path.join(ktDir, `${ktBasename}.jar`);
+
+  try {
+    // Compile the Kotlin file to JAR
+    execSync(`kotlinc "${absoluteKt}" -include-runtime -d "${jarFile}"`, {
+      cwd: ktDir,
+      encoding: "utf-8",
+      timeout: 120000, // Kotlin compilation can be slow
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    // Run the compiled JAR
+    const output = execSync(`java -jar "${jarFile}"`, {
+      cwd: ktDir,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    // Clean up JAR
+    try {
+      fs.unlinkSync(jarFile);
+    } catch {
+      // Ignore cleanup errors
+    }
+
+    return {
+      success: true,
+      output: output.trim(),
+    };
+  } catch (err: any) {
+    // Clean up JAR on error too
+    try {
+      if (fs.existsSync(jarFile)) {
+        fs.unlinkSync(jarFile);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+
+    return {
+      success: false,
+      output: err.stdout || "",
+      error: err.stderr || err.message,
+    };
+  }
+}
+
+/**
+ * Compile and run a Ranger source file as Kotlin
+ */
+export function compileAndRunKotlin(sourceFile: string): {
+  compile: CompileResult;
+  run?: RunResult;
+} {
+  const compileResult = compileRangerToKotlin(sourceFile);
+
+  if (!compileResult.success) {
+    return { compile: compileResult };
+  }
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputKt = path.join(KOTLIN_OUTPUT_DIR, `${sourceBasename}.kt`);
+
+  if (!fs.existsSync(outputKt)) {
+    return {
+      compile: compileResult,
+      run: {
+        success: false,
+        output: "",
+        error: `Compiled Kotlin file not found: ${outputKt}. Compile output: ${compileResult.output}`,
+      },
+    };
+  }
+
+  const runResult = runCompiledKotlin(outputKt);
+
+  return {
+    compile: compileResult,
+    run: runResult,
+  };
+}
+
+/**
+ * Check that Kotlin compilation succeeds and program produces expected output
+ */
+export function expectKotlinOutput(
+  sourceFile: string,
+  expectedOutput: string | string[]
+): RunResult {
+  const { compile, run } = compileAndRunKotlin(sourceFile);
+
+  if (!compile.success) {
+    throw new Error(`Kotlin compilation failed: ${compile.error}`);
+  }
+
+  if (!run) {
+    throw new Error("No run result");
+  }
+
+  if (!run.success) {
+    throw new Error(`Kotlin runtime error: ${run.error}`);
+  }
+
+  const expected = Array.isArray(expectedOutput)
+    ? expectedOutput.join("\n")
+    : expectedOutput;
+
+  if (!run.output.includes(expected)) {
+    throw new Error(
+      `Expected output to contain "${expected}", got: "${run.output}"`
+    );
+  }
+
+  return run;
+}
+
+// ============================================================================
+// Go compilation and execution helpers
+// ============================================================================
+
 /**
  * Check if Go is available on the system
  */

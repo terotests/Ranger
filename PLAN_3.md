@@ -1172,6 +1172,10 @@ describe("MyClass", () => {
 - **Cloud Compilation Service** - API for online compilation
 - **Visual Debugger** - Integrated debugging experience
 - **Package Manager** - Ranger-specific package management
+- **Target Fallback System** - Automatic template fallback chain for related targets:
+  - If target-specific template not found, try fallback target (e.g., swift6 → swift3)
+  - Then try wildcard "\*" template
+  - Would reduce code duplication in Lang.rgr for similar targets
 
 ### 11.2 Community Building
 

@@ -31,7 +31,7 @@ class RangerKotlinClassWriter {
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
       case "int" {
-        return "Integer"
+        return "Int"
       }
       case "string" {
         return "String"
@@ -40,7 +40,7 @@ class RangerKotlinClassWriter {
         return "CharArray"
       }
       case "char" {
-        return "char"
+        return "Char"
       }
       case "boolean" {
         return "Boolean"
@@ -54,7 +54,7 @@ class RangerKotlinClassWriter {
   fn getTypeString:string (type_string:string) {
     switch type_string {
       case "int" {
-        return "Integer"
+        return "Int"
       }
       case "string" {
         return "String"
@@ -120,6 +120,10 @@ class RangerKotlinClassWriter {
     }
   }
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (node.vref == "this") {
+      wr.out("this" false)
+      return
+    }
     if (node.eval_type == RangerNodeType.Enum) {
       if( (array_length node.ns) > 1) {
         def rootObjName:string (itemAt node.ns 0)
@@ -131,8 +135,34 @@ class RangerKotlinClassWriter {
         }
       }
     }
+    def max_len:int (array_length node.ns)
     if ((array_length node.nsp) > 0) {
       for node.nsp p:RangerAppParamDesc i {
+        if (i == 0) {
+          def part:string (itemAt node.ns 0)
+          if(part == "this") {
+            wr.out("this" false)
+            continue
+          }
+          ; Check if this is a reference to current class (instance method call)
+          def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          if (!null? uc) {
+            def currC:RangerAppClassDesc (unwrap uc)
+            if (part == currC.name) {
+              ; Replace ClassName with this for instance method calls
+              if( false == (ctx.isInStatic()) ) {
+                wr.out("this" false)
+                continue
+              }
+            }
+          }
+          ; Check if this is a member variable
+          if (ctx.isMemberVariable(part)) {
+            if( false == (ctx.isInStatic()) ) {
+              wr.out("this." false)
+            }
+          }
+        }
         if (i > 0) {
           wr.out("." false)
         }
@@ -161,6 +191,19 @@ class RangerKotlinClassWriter {
     for node.ns part:string i {
       if (i > 0) {
         wr.out("." false)
+      }
+      if (i == 0) {
+        ; Check if first part is the current class name
+        def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        if (!null? uc) {
+          def currC:RangerAppClassDesc (unwrap uc)
+          if (part == currC.name) {
+            if( false == (ctx.isInStatic()) ) {
+              wr.out("this" false)
+              continue
+            }
+          }
+        }
       }
       wr.out((this.adjustType(part)) false)
     }
