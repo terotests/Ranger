@@ -93,14 +93,14 @@ rustc myfile.rs -o myfile
 
 A complete terminal-based Space Invaders game demonstrating Ranger's cross-language capabilities. The same source code compiles to **4 different targets**:
 
-| Target         | Executable          | Build Command             |
-| -------------- | ------------------- | ------------------------- |
-| ES6/JavaScript | `invaders.js`       | `npm run game:compile`    |
-| Rust           | `invaders_rust.exe` | `npm run game:build:rust` |
-| Go             | `invaders_go.exe`   | `npm run game:build:go`   |
+| Target         | Executable          | Build Command               |
+| -------------- | ------------------- | --------------------------- |
+| ES6/JavaScript | `invaders.js`       | `npm run game:compile`      |
+| Rust           | `invaders_rust.exe` | `npm run game:build:rust`   |
+| Go             | `invaders_go.exe`   | `npm run game:build:go`     |
 | Kotlin         | `invaders.jar`      | `npm run game:build:kotlin` |
-| C++            | `invaders_cpp.exe`  | Cross-compile via WSL     |
-| Swift          | `invaders_swift`    | macOS/Linux only          |
+| C++            | `invaders_cpp.exe`  | Cross-compile via WSL       |
+| Swift          | `invaders_swift`    | macOS/Linux only            |
 
 > **Note:** Kotlin target renders correctly but keyboard input has issues on Windows (uses PowerShell subprocess for key reading which is slow).
 
