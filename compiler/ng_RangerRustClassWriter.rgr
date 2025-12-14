@@ -59,8 +59,25 @@ class RangerRustClassWriter {
     return type_string
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    if (node.hasFlag("optional")) {
-      wr.out("Option<" false)
+    def is_optional:boolean (node.hasFlag("optional"))
+    def is_self_referential:boolean false
+    
+    ; Check if this is a self-referential type (field type == current class)
+    def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    if (!null? uc) {
+      def currClass:RangerAppClassDesc (unwrap uc)
+      if (node.type_name == currClass.name) {
+        is_self_referential = true
+      }
+    }
+    
+    if is_optional {
+      if is_self_referential {
+        ; Self-referential optional fields need Box to break infinite recursion
+        wr.out("Option<Box<" false)
+      } {
+        wr.out("Option<" false)
+      }
     }
     def v_type:RangerNodeType node.value_type
     if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
@@ -106,8 +123,12 @@ class RangerRustClassWriter {
         wr.out((this.getTypeString(node.type_name)) false)
       }
     }
-    if (node.hasFlag("optional")) {
-      wr.out(">" false)
+    if is_optional {
+      if is_self_referential {
+        wr.out(">>" false)
+      } {
+        wr.out(">" false)
+      }
     }
   }
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -147,8 +168,8 @@ class RangerRustClassWriter {
           }
         }
         if (i == 0) {
-          if (p.nameNode.hasFlag("optional")) {
-          }
+          ; if (p.nameNode.hasFlag("optional")) {
+          ; }
           def part:string (itemAt node.ns 0)
           if ((part != "this") && (ctx.isMemberVariable(part))) {
             def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
@@ -361,6 +382,10 @@ class RangerRustClassWriter {
       return
     }
     def cl:RangerAppClassDesc (unwrap ucl)
+    
+    ; NOTE: setCurrentClass affects global context and may cause issues
+    ; ctx.setCurrentClass(cl)
+    
     def wr:CodeWriter orig_wr
     
     ; Write file header with allow directives for common warnings
@@ -420,6 +445,11 @@ class RangerRustClassWriter {
           ; Initialize array fields with Vec::new()
           if (pvar.isArray()) {
             wr.out((pvar.name + ": Vec::new(), ") true)
+          } {
+            ; Initialize optional fields with None
+            if pvar.is_optional {
+              wr.out((pvar.name + ": None, ") true)
+            }
           }
         }
       }

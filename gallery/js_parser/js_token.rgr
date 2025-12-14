@@ -1,7 +1,7 @@
 ; JavaScript ES5 Token definitions
 
 class Token {
-    def type:string ""
+    def tokenType:string ""
     def value:string ""
     def line:int 0
     def col:int 0

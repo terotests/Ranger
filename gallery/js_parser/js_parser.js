@@ -1,6 +1,7 @@
+#!/usr/bin/env node
 class Token  {
   constructor() {
-    this.type = "";
+    this.tokenType = "";
     this.value = "";
     this.line = 0;
     this.col = 0;
@@ -201,9 +202,9 @@ class Lexer  {
     }
     return this.makeToken("BlockComment", value, startPos, startLine, startCol);
   };
-  makeToken (type, value, startPos, startLine, startCol) {
+  makeToken (tokType, value, startPos, startLine, startCol) {
     const tok = new Token();
-    tok.type = type;
+    tok.tokenType = tokType;
     tok.value = value;
     tok.start = startPos;
     tok.end = this.pos;
@@ -441,6 +442,18 @@ class Lexer  {
     if ( value == "yield" ) {
       return "Keyword";
     }
+    if ( value == "import" ) {
+      return "Keyword";
+    }
+    if ( value == "export" ) {
+      return "Keyword";
+    }
+    if ( value == "from" ) {
+      return "Keyword";
+    }
+    if ( value == "as" ) {
+      return "Keyword";
+    }
     if ( value == "true" ) {
       return "Boolean";
     }
@@ -555,6 +568,18 @@ class Lexer  {
         return this.makeToken("Punctuator", "||", startPos, startLine, startCol);
       }
     }
+    if ( ch == "?" ) {
+      if ( next_1 == "?" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "??", startPos, startLine, startCol);
+      }
+      if ( next_1 == "." ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "?.", startPos, startLine, startCol);
+      }
+    }
     if ( ch == "+" ) {
       if ( next_1 == "+" ) {
         this.advance();
@@ -582,12 +607,61 @@ class Lexer  {
     this.advance();
     return this.makeToken("Punctuator", ch, startPos, startLine, startCol);
   };
+  readRegexLiteral () {
+    const startPos = this.pos;
+    const startLine = this.line;
+    const startCol = this.col;
+    this.advance();
+    let pattern = "";
+    let inCharClass = false;
+    while (this.pos < this.__len) {
+      const ch = this.peek();
+      if ( ch == "[" ) {
+        inCharClass = true;
+        pattern = pattern + this.advance();
+      } else {
+        if ( ch == "]" ) {
+          inCharClass = false;
+          pattern = pattern + this.advance();
+        } else {
+          if ( ch == "\\" ) {
+            pattern = pattern + this.advance();
+            if ( this.pos < this.__len ) {
+              pattern = pattern + this.advance();
+            }
+          } else {
+            if ( (ch == "/") && (inCharClass == false) ) {
+              this.advance();
+              break;
+            } else {
+              if ( (ch == "\n") || (ch == "\r") ) {
+                return this.makeToken("RegexLiteral", pattern, startPos, startLine, startCol);
+              } else {
+                pattern = pattern + this.advance();
+              }
+            }
+          }
+        }
+      }
+    };
+    let flags = "";
+    while (this.pos < this.__len) {
+      const ch_1 = this.peek();
+      if ( (((((ch_1 == "g") || (ch_1 == "i")) || (ch_1 == "m")) || (ch_1 == "s")) || (ch_1 == "u")) || (ch_1 == "y") ) {
+        flags = flags + this.advance();
+      } else {
+        break;
+      }
+    };
+    const fullValue = (pattern + "/") + flags;
+    return this.makeToken("RegexLiteral", fullValue, startPos, startLine, startCol);
+  };
   tokenize () {
     let tokens = [];
     while (true) {
       const tok = this.nextToken();
       tokens.push(tok);
-      if ( tok.type == "EOF" ) {
+      if ( tok.tokenType == "EOF" ) {
         return tokens;
       }
     };
@@ -613,9 +687,20 @@ class SimpleParser  {
     this.pos = 0;
     this.errors = [];
     this.pendingComments = [];
+    this.source = "";
   }
   initParser (toks) {
     this.tokens = toks;
+    this.pos = 0;
+    if ( (toks.length) > 0 ) {
+      this.currentToken = toks[0];
+    }
+    this.skipComments();
+  };
+  initParserWithSource (toks, src) {
+    this.tokens = toks;
+    this.source = src;
+    this.lexer = new Lexer(src);
     this.pos = 0;
     if ( (toks.length) > 0 ) {
       this.currentToken = toks[0];
@@ -639,7 +724,7 @@ class SimpleParser  {
     while (this.isCommentToken()) {
       const tok = this.peek();
       const commentNode = new JSNode();
-      commentNode.nodeType = tok.type;
+      commentNode.nodeType = tok.tokenType;
       commentNode.strValue = tok.value;
       commentNode.line = tok.line;
       commentNode.col = tok.col;
@@ -655,7 +740,7 @@ class SimpleParser  {
       this.currentToken = this.tokens[this.pos];
     } else {
       const eof = new Token();
-      eof.type = "EOF";
+      eof.tokenType = "EOF";
       eof.value = "";
       this.currentToken = eof;
     }
@@ -685,7 +770,7 @@ class SimpleParser  {
       return "EOF";
     }
     const tok = this.currentToken;
-    return tok.type;
+    return tok.tokenType;
   };
   peekValue () {
     if ( typeof(this.currentToken) === "undefined" ) {
@@ -703,8 +788,8 @@ class SimpleParser  {
   };
   expect (expectedType) {
     const tok = this.peek();
-    if ( tok.type != expectedType ) {
-      const err = (((((("Parse error at line " + tok.line) + ":") + tok.col) + ": expected ") + expectedType) + " but got ") + tok.type;
+    if ( tok.tokenType != expectedType ) {
+      const err = (((((("Parse error at line " + tok.line) + ":") + tok.col) + ": expected ") + expectedType) + " but got ") + tok.tokenType;
       this.addError(err);
     }
     this.advance();
@@ -733,6 +818,60 @@ class SimpleParser  {
   };
   hasErrors () {
     return (this.errors.length) > 0;
+  };
+  parseRegexLiteral () {
+    const tok = this.peek();
+    const startPos = tok.start;
+    const startLine = tok.line;
+    const startCol = tok.col;
+    if ( typeof(this.lexer) === "undefined" ) {
+      const err = new JSNode();
+      err.nodeType = "Identifier";
+      err.strValue = "regex_error";
+      this.advance();
+      return err;
+    }
+    const lex = this.lexer;
+    lex.pos = startPos;
+    lex.line = startLine;
+    lex.col = startCol;
+    const regexTok = lex.readRegexLiteral();
+    const fullValue = regexTok.value;
+    let pattern = "";
+    let flags = "";
+    let lastSlash = -1;
+    let i = 0;
+    while (i < (fullValue.length)) {
+      const ch = fullValue[i];
+      if ( ch == "/" ) {
+        lastSlash = i;
+      }
+      i = i + 1;
+    };
+    if ( lastSlash >= 0 ) {
+      pattern = fullValue.substring(0, lastSlash );
+      flags = fullValue.substring((lastSlash + 1), (fullValue.length) );
+    } else {
+      pattern = fullValue;
+    }
+    const regex = new JSNode();
+    regex.nodeType = "RegexLiteral";
+    regex.strValue = pattern;
+    regex.strValue2 = flags;
+    regex.start = startPos;
+    regex.end = lex.pos;
+    regex.line = startLine;
+    regex.col = startCol;
+    this.advance();
+    while (this.isAtEnd() == false) {
+      const nextTok = this.peek();
+      if ( nextTok.start < lex.pos ) {
+        this.advance();
+      } else {
+        break;
+      }
+    };
+    return regex;
   };
   parseProgram () {
     const prog = new JSNode();
@@ -764,6 +903,12 @@ class SimpleParser  {
     }
     if ( (typeof(stmt) === "undefined") && (tokVal == "class") ) {
       stmt = this.parseClass();
+    }
+    if ( (typeof(stmt) === "undefined") && (tokVal == "import") ) {
+      stmt = this.parseImport();
+    }
+    if ( (typeof(stmt) === "undefined") && (tokVal == "export") ) {
+      stmt = this.parseExport();
     }
     if ( (typeof(stmt) === "undefined") && (tokVal == "return") ) {
       stmt = this.parseReturn();
@@ -1218,6 +1363,274 @@ class SimpleParser  {
     const tok = this.tokens[targetPos];
     return tok.value;
   };
+  parseImport () {
+    const importNode = new JSNode();
+    importNode.nodeType = "ImportDeclaration";
+    const startTok = this.peek();
+    importNode.start = startTok.start;
+    importNode.line = startTok.line;
+    importNode.col = startTok.col;
+    this.expectValue("import");
+    if ( this.matchType("String") ) {
+      const sourceTok = this.peek();
+      this.advance();
+      const source_1 = new JSNode();
+      source_1.nodeType = "Literal";
+      source_1.strValue = sourceTok.value;
+      source_1.strValue2 = "string";
+      source_1.start = sourceTok.start;
+      source_1.line = sourceTok.line;
+      source_1.col = sourceTok.col;
+      importNode.right = source_1;
+      if ( this.matchValue(";") ) {
+        this.advance();
+      }
+      return importNode;
+    }
+    if ( this.matchValue("*") ) {
+      this.advance();
+      this.expectValue("as");
+      const localTok = this.expect("Identifier");
+      const specifier = new JSNode();
+      specifier.nodeType = "ImportNamespaceSpecifier";
+      specifier.strValue = localTok.value;
+      specifier.start = localTok.start;
+      specifier.line = localTok.line;
+      specifier.col = localTok.col;
+      importNode.children.push(specifier);
+      this.expectValue("from");
+      const sourceTok_1 = this.expect("String");
+      const source_2 = new JSNode();
+      source_2.nodeType = "Literal";
+      source_2.strValue = sourceTok_1.value;
+      source_2.strValue2 = "string";
+      source_2.start = sourceTok_1.start;
+      source_2.line = sourceTok_1.line;
+      source_2.col = sourceTok_1.col;
+      importNode.right = source_2;
+      if ( this.matchValue(";") ) {
+        this.advance();
+      }
+      return importNode;
+    }
+    if ( this.matchType("Identifier") ) {
+      const defaultTok = this.expect("Identifier");
+      const defaultSpec = new JSNode();
+      defaultSpec.nodeType = "ImportDefaultSpecifier";
+      defaultSpec.strValue = defaultTok.value;
+      defaultSpec.start = defaultTok.start;
+      defaultSpec.line = defaultTok.line;
+      defaultSpec.col = defaultTok.col;
+      importNode.children.push(defaultSpec);
+      if ( this.matchValue(",") ) {
+        this.advance();
+        if ( this.matchValue("*") ) {
+          this.advance();
+          this.expectValue("as");
+          const localTok_1 = this.expect("Identifier");
+          const nsSpec = new JSNode();
+          nsSpec.nodeType = "ImportNamespaceSpecifier";
+          nsSpec.strValue = localTok_1.value;
+          nsSpec.start = localTok_1.start;
+          nsSpec.line = localTok_1.line;
+          nsSpec.col = localTok_1.col;
+          importNode.children.push(nsSpec);
+        } else {
+          this.parseImportSpecifiers(importNode);
+        }
+      }
+      this.expectValue("from");
+    } else {
+      if ( this.matchValue("{") ) {
+        this.parseImportSpecifiers(importNode);
+        this.expectValue("from");
+      }
+    }
+    const sourceTok_2 = this.expect("String");
+    const source_3 = new JSNode();
+    source_3.nodeType = "Literal";
+    source_3.strValue = sourceTok_2.value;
+    source_3.strValue2 = "string";
+    source_3.start = sourceTok_2.start;
+    source_3.line = sourceTok_2.line;
+    source_3.col = sourceTok_2.col;
+    importNode.right = source_3;
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return importNode;
+  };
+  parseImportSpecifiers (importNode) {
+    this.expectValue("{");
+    while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
+      if ( (importNode.children.length) > 0 ) {
+        if ( this.matchValue(",") ) {
+          this.advance();
+        }
+      }
+      if ( this.matchValue("}") || this.isAtEnd() ) {
+        break;
+      }
+      const specifier = new JSNode();
+      specifier.nodeType = "ImportSpecifier";
+      const importedTok = this.expect("Identifier");
+      specifier.strValue = importedTok.value;
+      specifier.start = importedTok.start;
+      specifier.line = importedTok.line;
+      specifier.col = importedTok.col;
+      if ( this.matchValue("as") ) {
+        this.advance();
+        const localTok = this.expect("Identifier");
+        specifier.strValue2 = localTok.value;
+      }
+      importNode.children.push(specifier);
+    };
+    this.expectValue("}");
+  };
+  parseExport () {
+    const exportNode = new JSNode();
+    exportNode.nodeType = "ExportNamedDeclaration";
+    const startTok = this.peek();
+    exportNode.start = startTok.start;
+    exportNode.line = startTok.line;
+    exportNode.col = startTok.col;
+    this.expectValue("export");
+    if ( this.matchValue("default") ) {
+      exportNode.nodeType = "ExportDefaultDeclaration";
+      this.advance();
+      if ( this.matchValue("function") ) {
+        const func = this.parseFuncDecl();
+        exportNode.left = func;
+      } else {
+        if ( this.matchValue("async") ) {
+          const func_1 = this.parseAsyncFuncDecl();
+          exportNode.left = func_1;
+        } else {
+          if ( this.matchValue("class") ) {
+            const cls = this.parseClass();
+            exportNode.left = cls;
+          } else {
+            const expr = this.parseAssignment();
+            exportNode.left = expr;
+            if ( this.matchValue(";") ) {
+              this.advance();
+            }
+          }
+        }
+      }
+      return exportNode;
+    }
+    if ( this.matchValue("*") ) {
+      exportNode.nodeType = "ExportAllDeclaration";
+      this.advance();
+      if ( this.matchValue("as") ) {
+        this.advance();
+        const exportedTok = this.expect("Identifier");
+        exportNode.strValue = exportedTok.value;
+      }
+      this.expectValue("from");
+      const sourceTok = this.expect("String");
+      const source_1 = new JSNode();
+      source_1.nodeType = "Literal";
+      source_1.strValue = sourceTok.value;
+      source_1.strValue2 = "string";
+      source_1.start = sourceTok.start;
+      source_1.line = sourceTok.line;
+      source_1.col = sourceTok.col;
+      exportNode.right = source_1;
+      if ( this.matchValue(";") ) {
+        this.advance();
+      }
+      return exportNode;
+    }
+    if ( this.matchValue("{") ) {
+      this.parseExportSpecifiers(exportNode);
+      if ( this.matchValue("from") ) {
+        this.advance();
+        const sourceTok_1 = this.expect("String");
+        const source_2 = new JSNode();
+        source_2.nodeType = "Literal";
+        source_2.strValue = sourceTok_1.value;
+        source_2.strValue2 = "string";
+        source_2.start = sourceTok_1.start;
+        source_2.line = sourceTok_1.line;
+        source_2.col = sourceTok_1.col;
+        exportNode.right = source_2;
+      }
+      if ( this.matchValue(";") ) {
+        this.advance();
+      }
+      return exportNode;
+    }
+    if ( this.matchValue("const") ) {
+      const decl = this.parseConstDecl();
+      exportNode.left = decl;
+      return exportNode;
+    }
+    if ( this.matchValue("let") ) {
+      const decl_1 = this.parseLetDecl();
+      exportNode.left = decl_1;
+      return exportNode;
+    }
+    if ( this.matchValue("var") ) {
+      const decl_2 = this.parseVarDecl();
+      exportNode.left = decl_2;
+      return exportNode;
+    }
+    if ( this.matchValue("function") ) {
+      const func_2 = this.parseFuncDecl();
+      exportNode.left = func_2;
+      return exportNode;
+    }
+    if ( this.matchValue("async") ) {
+      const func_3 = this.parseAsyncFuncDecl();
+      exportNode.left = func_3;
+      return exportNode;
+    }
+    if ( this.matchValue("class") ) {
+      const cls_1 = this.parseClass();
+      exportNode.left = cls_1;
+      return exportNode;
+    }
+    const expr_1 = this.parseExprStmt();
+    exportNode.left = expr_1;
+    return exportNode;
+  };
+  parseExportSpecifiers (exportNode) {
+    this.expectValue("{");
+    while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
+      const numChildren = exportNode.children.length;
+      if ( numChildren > 0 ) {
+        if ( this.matchValue(",") ) {
+          this.advance();
+        }
+      }
+      if ( this.matchValue("}") || this.isAtEnd() ) {
+        break;
+      }
+      const specifier = new JSNode();
+      specifier.nodeType = "ExportSpecifier";
+      const localTok = this.peek();
+      if ( this.matchType("Identifier") || this.matchValue("default") ) {
+        this.advance();
+        specifier.strValue = localTok.value;
+        specifier.start = localTok.start;
+        specifier.line = localTok.line;
+        specifier.col = localTok.col;
+      } else {
+        const err = (((("Parse error at line " + localTok.line) + ":") + localTok.col) + ": expected Identifier but got ") + localTok.tokenType;
+        this.addError(err);
+        this.advance();
+      }
+      if ( this.matchValue("as") ) {
+        this.advance();
+        const exportedTok = this.expect("Identifier");
+        specifier.strValue2 = exportedTok.value;
+      }
+      exportNode.children.push(specifier);
+    };
+    this.expectValue("}");
+  };
   parseBlock () {
     const block = new JSNode();
     block.nodeType = "BlockStatement";
@@ -1643,8 +2056,26 @@ class SimpleParser  {
     return condition;
   };
   parseLogicalOr () {
-    let left = this.parseLogicalAnd();
+    let left = this.parseNullishCoalescing();
     while (this.matchValue("||")) {
+      const opTok = this.peek();
+      this.advance();
+      const right = this.parseNullishCoalescing();
+      const binary = new JSNode();
+      binary.nodeType = "LogicalExpression";
+      binary.strValue = opTok.value;
+      binary.left = left;
+      binary.right = right;
+      binary.start = left.start;
+      binary.line = left.line;
+      binary.col = left.col;
+      left = binary;
+    };
+    return left;
+  };
+  parseNullishCoalescing () {
+    let left = this.parseLogicalAnd();
+    while (this.matchValue("??")) {
       const opTok = this.peek();
       this.advance();
       const right = this.parseLogicalAnd();
@@ -1857,68 +2288,120 @@ class SimpleParser  {
         update.col = object.col;
         object = update;
       } else {
-        if ( tokVal == "." ) {
+        if ( tokVal == "?." ) {
           this.advance();
-          const propTok = this.expect("Identifier");
-          const member = new JSNode();
-          member.nodeType = "MemberExpression";
-          member.left = object;
-          member.strValue = propTok.value;
-          member.strValue2 = "dot";
-          member.start = object.start;
-          member.line = object.line;
-          member.col = object.col;
-          object = member;
-        } else {
-          if ( tokVal == "[" ) {
+          const nextTokVal = this.peekValue();
+          if ( nextTokVal == "(" ) {
             this.advance();
-            const propExpr = this.parseExpr();
-            this.expectValue("]");
-            const member_1 = new JSNode();
-            member_1.nodeType = "MemberExpression";
-            member_1.left = object;
-            member_1.right = propExpr;
-            member_1.strValue2 = "bracket";
-            member_1.start = object.start;
-            member_1.line = object.line;
-            member_1.col = object.col;
-            object = member_1;
+            const call = new JSNode();
+            call.nodeType = "OptionalCallExpression";
+            call.left = object;
+            call.start = object.start;
+            call.line = object.line;
+            call.col = object.col;
+            while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
+              if ( (call.children.length) > 0 ) {
+                this.expectValue(",");
+              }
+              if ( this.matchValue(")") || this.isAtEnd() ) {
+                break;
+              }
+              const arg = this.parseAssignment();
+              call.children.push(arg);
+            };
+            this.expectValue(")");
+            object = call;
           } else {
-            if ( tokVal == "(" ) {
+            if ( nextTokVal == "[" ) {
               this.advance();
-              const call = new JSNode();
-              call.nodeType = "CallExpression";
-              call.left = object;
-              call.start = object.start;
-              call.line = object.line;
-              call.col = object.col;
-              while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
-                if ( (call.children.length) > 0 ) {
-                  this.expectValue(",");
-                }
-                if ( this.matchValue(")") || this.isAtEnd() ) {
-                  break;
-                }
-                if ( this.matchValue("...") ) {
-                  const spreadTok = this.peek();
-                  this.advance();
-                  const spreadArg = this.parseAssignment();
-                  const spread = new JSNode();
-                  spread.nodeType = "SpreadElement";
-                  spread.left = spreadArg;
-                  spread.start = spreadTok.start;
-                  spread.line = spreadTok.line;
-                  spread.col = spreadTok.col;
-                  call.children.push(spread);
-                } else {
-                  const arg = this.parseAssignment();
-                  call.children.push(arg);
-                }
-              };
-              this.expectValue(")");
-              object = call;
+              const propExpr = this.parseExpr();
+              this.expectValue("]");
+              const member = new JSNode();
+              member.nodeType = "OptionalMemberExpression";
+              member.left = object;
+              member.right = propExpr;
+              member.strValue2 = "bracket";
+              member.start = object.start;
+              member.line = object.line;
+              member.col = object.col;
+              object = member;
             } else {
-              cont = false;
+              const propTok = this.expect("Identifier");
+              const member_1 = new JSNode();
+              member_1.nodeType = "OptionalMemberExpression";
+              member_1.left = object;
+              member_1.strValue = propTok.value;
+              member_1.strValue2 = "dot";
+              member_1.start = object.start;
+              member_1.line = object.line;
+              member_1.col = object.col;
+              object = member_1;
+            }
+          }
+        } else {
+          if ( tokVal == "." ) {
+            this.advance();
+            const propTok_1 = this.expect("Identifier");
+            const member_2 = new JSNode();
+            member_2.nodeType = "MemberExpression";
+            member_2.left = object;
+            member_2.strValue = propTok_1.value;
+            member_2.strValue2 = "dot";
+            member_2.start = object.start;
+            member_2.line = object.line;
+            member_2.col = object.col;
+            object = member_2;
+          } else {
+            if ( tokVal == "[" ) {
+              this.advance();
+              const propExpr_1 = this.parseExpr();
+              this.expectValue("]");
+              const member_3 = new JSNode();
+              member_3.nodeType = "MemberExpression";
+              member_3.left = object;
+              member_3.right = propExpr_1;
+              member_3.strValue2 = "bracket";
+              member_3.start = object.start;
+              member_3.line = object.line;
+              member_3.col = object.col;
+              object = member_3;
+            } else {
+              if ( tokVal == "(" ) {
+                this.advance();
+                const call_1 = new JSNode();
+                call_1.nodeType = "CallExpression";
+                call_1.left = object;
+                call_1.start = object.start;
+                call_1.line = object.line;
+                call_1.col = object.col;
+                while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
+                  if ( (call_1.children.length) > 0 ) {
+                    this.expectValue(",");
+                  }
+                  if ( this.matchValue(")") || this.isAtEnd() ) {
+                    break;
+                  }
+                  if ( this.matchValue("...") ) {
+                    const spreadTok = this.peek();
+                    this.advance();
+                    const spreadArg = this.parseAssignment();
+                    const spread = new JSNode();
+                    spread.nodeType = "SpreadElement";
+                    spread.left = spreadArg;
+                    spread.start = spreadTok.start;
+                    spread.line = spreadTok.line;
+                    spread.col = spreadTok.col;
+                    call_1.children.push(spread);
+                  } else {
+                    const arg_1 = this.parseAssignment();
+                    call_1.children.push(arg_1);
+                  }
+                };
+                this.expectValue(")");
+                object = call_1;
+              } else {
+                cont = false;
+              }
             }
           }
         }
@@ -2070,6 +2553,9 @@ class SimpleParser  {
     }
     if ( tokVal == "{" ) {
       return this.parseObject();
+    }
+    if ( tokVal == "/" ) {
+      return this.parseRegexLiteral();
     }
     if ( tokVal == "function" ) {
       return this.parseFunctionExpression();
@@ -3034,6 +3520,22 @@ class JSPrinter  {
       this.printClassDeclaration(node);
       return;
     }
+    if ( nodeType == "ImportDeclaration" ) {
+      this.printImportDeclaration(node);
+      return;
+    }
+    if ( nodeType == "ExportNamedDeclaration" ) {
+      this.printExportNamedDeclaration(node);
+      return;
+    }
+    if ( nodeType == "ExportDefaultDeclaration" ) {
+      this.printExportDefaultDeclaration(node);
+      return;
+    }
+    if ( nodeType == "ExportAllDeclaration" ) {
+      this.printExportAllDeclaration(node);
+      return;
+    }
     if ( nodeType == "BlockStatement" ) {
       this.printBlockStatement(node);
       return;
@@ -3105,6 +3607,10 @@ class JSPrinter  {
       this.emit(("`" + node.strValue) + "`");
       return;
     }
+    if ( nodeType == "RegexLiteral" ) {
+      this.emit((("/" + node.strValue) + "/") + node.strValue2);
+      return;
+    }
     if ( nodeType == "ArrayExpression" ) {
       this.printArrayExpression(node);
       return;
@@ -3141,8 +3647,16 @@ class JSPrinter  {
       this.printCallExpression(node);
       return;
     }
+    if ( nodeType == "OptionalCallExpression" ) {
+      this.printOptionalCallExpression(node);
+      return;
+    }
     if ( nodeType == "MemberExpression" ) {
       this.printMemberExpression(node);
+      return;
+    }
+    if ( nodeType == "OptionalMemberExpression" ) {
+      this.printOptionalMemberExpression(node);
       return;
     }
     if ( nodeType == "NewExpression" ) {
@@ -3614,6 +4128,152 @@ class JSPrinter  {
       this.emit("." + node.strValue);
     }
   };
+  printOptionalMemberExpression (node) {
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      this.printNode(node.left);
+    }
+    const accessType = node.strValue2;
+    if ( accessType == "bracket" ) {
+      this.emit("?.[");
+      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+        this.printNode(node.right);
+      }
+      this.emit("]");
+    } else {
+      this.emit("?." + node.strValue);
+    }
+  };
+  printOptionalCallExpression (node) {
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      this.printNode(node.left);
+    }
+    this.emit("?.(");
+    let first = true;
+    for ( let idx = 0; idx < node.children.length; idx++) {
+      var arg = node.children[idx];
+      if ( first == false ) {
+        this.emit(", ");
+      }
+      first = false;
+      this.printNode(arg);
+    };
+    this.emit(")");
+  };
+  printImportDeclaration (node) {
+    this.emit("import ");
+    const numSpecifiers = node.children.length;
+    if ( numSpecifiers == 0 ) {
+      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+        const source = node.right;
+        this.emit(("\"" + source.strValue) + "\"");
+      }
+      return;
+    }
+    let hasDefault = false;
+    let hasNamespace = false;
+    let hasNamed = false;
+    for ( let idx = 0; idx < node.children.length; idx++) {
+      var spec = node.children[idx];
+      if ( spec.nodeType == "ImportDefaultSpecifier" ) {
+        hasDefault = true;
+      }
+      if ( spec.nodeType == "ImportNamespaceSpecifier" ) {
+        hasNamespace = true;
+      }
+      if ( spec.nodeType == "ImportSpecifier" ) {
+        hasNamed = true;
+      }
+    };
+    let printedSomething = false;
+    for ( let idx_1 = 0; idx_1 < node.children.length; idx_1++) {
+      var spec_1 = node.children[idx_1];
+      if ( spec_1.nodeType == "ImportDefaultSpecifier" ) {
+        this.emit(spec_1.strValue);
+        printedSomething = true;
+      }
+    };
+    for ( let idx_2 = 0; idx_2 < node.children.length; idx_2++) {
+      var spec_2 = node.children[idx_2];
+      if ( spec_2.nodeType == "ImportNamespaceSpecifier" ) {
+        if ( printedSomething ) {
+          this.emit(", ");
+        }
+        this.emit("* as " + spec_2.strValue);
+        printedSomething = true;
+      }
+    };
+    if ( hasNamed ) {
+      if ( printedSomething ) {
+        this.emit(", ");
+      }
+      this.emit("{ ");
+      let firstNamed = true;
+      for ( let idx_3 = 0; idx_3 < node.children.length; idx_3++) {
+        var spec_3 = node.children[idx_3];
+        if ( spec_3.nodeType == "ImportSpecifier" ) {
+          if ( firstNamed == false ) {
+            this.emit(", ");
+          }
+          firstNamed = false;
+          this.emit(spec_3.strValue);
+          if ( (spec_3.strValue2.length) > 0 ) {
+            this.emit(" as " + spec_3.strValue2);
+          }
+        }
+      };
+      this.emit(" }");
+    }
+    this.emit(" from ");
+    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      const source_1 = node.right;
+      this.emit(("\"" + source_1.strValue) + "\"");
+    }
+  };
+  printExportNamedDeclaration (node) {
+    this.emit("export ");
+    const numSpecifiers = node.children.length;
+    if ( numSpecifiers > 0 ) {
+      this.emit("{ ");
+      let first = true;
+      for ( let idx = 0; idx < node.children.length; idx++) {
+        var spec = node.children[idx];
+        if ( first == false ) {
+          this.emit(", ");
+        }
+        first = false;
+        this.emit(spec.strValue);
+        if ( (spec.strValue2.length) > 0 ) {
+          this.emit(" as " + spec.strValue2);
+        }
+      };
+      this.emit(" }");
+      if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+        const source = node.right;
+        this.emit((" from \"" + source.strValue) + "\"");
+      }
+      return;
+    }
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      this.printNode(node.left);
+    }
+  };
+  printExportDefaultDeclaration (node) {
+    this.emit("export default ");
+    if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
+      this.printNode(node.left);
+    }
+  };
+  printExportAllDeclaration (node) {
+    this.emit("export *");
+    if ( (node.strValue.length) > 0 ) {
+      this.emit(" as " + node.strValue);
+    }
+    this.emit(" from ");
+    if ( (typeof(node.right) !== "undefined" && node.right != null )  ) {
+      const source = node.right;
+      this.emit(("\"" + source.strValue) + "\"");
+    }
+  };
   printNewExpression (node) {
     this.emit("new ");
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
@@ -3761,7 +4421,7 @@ JSParserMain.processFile = async function(inputFile, outputFile) {
   const lexer = new Lexer(code);
   const tokens = lexer.tokenize();
   const parser = new SimpleParser();
-  parser.initParser(tokens);
+  parser.initParserWithSource(tokens, code);
   const program = parser.parseProgram();
   if ( parser.hasErrors() ) {
     console.log("=== Parse Errors ===");
@@ -3787,7 +4447,7 @@ JSParserMain.parseFile = async function(filename) {
   const lexer = new Lexer(code);
   const tokens = lexer.tokenize();
   const parser = new SimpleParser();
-  parser.initParser(tokens);
+  parser.initParserWithSource(tokens, code);
   const program = parser.parseProgram();
   if ( parser.hasErrors() ) {
     console.log("=== Parse Errors ===");
@@ -3816,7 +4476,7 @@ JSParserMain.runDemo = function() {
   console.log(("--- Tokens: " + (tokens.length)) + " ---");
   console.log("");
   const parser = new SimpleParser();
-  parser.initParser(tokens);
+  parser.initParserWithSource(tokens, code);
   const program = parser.parseProgram();
   if ( parser.hasErrors() ) {
     console.log("=== Parse Errors ===");

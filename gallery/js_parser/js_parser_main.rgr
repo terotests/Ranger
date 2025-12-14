@@ -120,7 +120,7 @@ class JSParserMain {
     
     ; Parse
     def parser:SimpleParser (new SimpleParser())
-    parser.initParser(tokens)
+    parser.initParserWithSource(tokens code)
     def program:JSNode (parser.parseProgram())
     
     ; Check for errors
@@ -158,7 +158,7 @@ class JSParserMain {
     
     ; Parse
     def parser:SimpleParser (new SimpleParser())
-    parser.initParser(tokens)
+    parser.initParserWithSource(tokens code)
     def program:JSNode (parser.parseProgram())
     
     ; Check for errors
@@ -441,7 +441,7 @@ const shorthand = { x, y, z };
     
     ; Parse
     def parser:SimpleParser (new SimpleParser())
-    parser.initParser(tokens)
+    parser.initParserWithSource(tokens code)
     def program:JSNode (parser.parseProgram())
     
     ; Check for errors

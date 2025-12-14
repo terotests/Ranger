@@ -35,9 +35,23 @@ class SimpleParser {
   def currentToken@(optional):Token
   def errors:[string]
   def pendingComments:[JSNode]
+  def source:string ""
+  def lexer@(optional):Lexer
   
   fn initParser:void (toks:[Token]) {
     this.tokens = toks
+    this.pos = 0
+    if ((array_length toks) > 0) {
+      this.currentToken = (itemAt toks 0)
+    }
+    ; Skip initial comments
+    this.skipComments()
+  }
+  
+  fn initParserWithSource:void (toks:[Token] src:string) {
+    this.tokens = toks
+    this.source = src
+    this.lexer = (new Lexer(src))
     this.pos = 0
     if ((array_length toks) > 0) {
       this.currentToken = (itemAt toks 0)
@@ -58,7 +72,7 @@ class SimpleParser {
     while (this.isCommentToken()) {
       def tok (this.peek())
       def commentNode (new JSNode())
-      commentNode.nodeType = tok.type
+      commentNode.nodeType = tok.tokenType
       commentNode.strValue = tok.value
       commentNode.line = tok.line
       commentNode.col = tok.col
@@ -75,7 +89,7 @@ class SimpleParser {
       this.currentToken = (itemAt this.tokens this.pos)
     } {
       def eof (new Token())
-      eof.type = "EOF"
+      eof.tokenType = "EOF"
       eof.value = ""
       this.currentToken = eof
     }
@@ -108,7 +122,7 @@ class SimpleParser {
       return "EOF"
     }
     def tok (unwrap this.currentToken)
-    return tok.type
+    return tok.tokenType
   }
   
   fn peekValue:string () {
@@ -130,8 +144,8 @@ class SimpleParser {
   
   fn expect:Token (expectedType:string) {
     def tok (this.peek())
-    if (tok.type != expectedType) {
-      def err "Parse error at line " + tok.line + ":" + tok.col + ": expected " + expectedType + " but got " + tok.type
+    if (tok.tokenType != expectedType) {
+      def err "Parse error at line " + tok.line + ":" + tok.col + ": expected " + expectedType + " but got " + tok.tokenType
       this.addError(err)
     }
     this.advance()
@@ -165,6 +179,82 @@ class SimpleParser {
   
   fn hasErrors:boolean () {
     return ((array_length this.errors) > 0)
+  }
+  
+  ; Parse a regex literal - called when we see / in primary expression context
+  fn parseRegexLiteral:JSNode () {
+    def tok (this.peek())
+    def startPos:int tok.start
+    def startLine:int tok.line
+    def startCol:int tok.col
+    
+    ; We need to re-scan from the token position to read the regex
+    if (null? this.lexer) {
+      ; No lexer available, return error node
+      def err (new JSNode())
+      err.nodeType = "Identifier"
+      err.strValue = "regex_error"
+      this.advance()
+      return err
+    }
+    
+    ; Position the lexer at the current token's start position
+    def lex:Lexer (unwrap this.lexer)
+    lex.pos = startPos
+    lex.line = startLine
+    lex.col = startCol
+    
+    ; Read the regex using the lexer
+    def regexTok:Token (lex.readRegexLiteral())
+    
+    ; The regex value is in format: pattern/flags
+    def fullValue:string regexTok.value
+    def pattern:string ""
+    def flags:string ""
+    
+    ; Split by last /
+    def lastSlash:int -1
+    def i:int 0
+    while (i < (strlen fullValue)) {
+      def ch:string (at fullValue i)
+      if (ch == "/") {
+        lastSlash = i
+      }
+      i = i + 1
+    }
+    
+    if (lastSlash >= 0) {
+      pattern = (substring fullValue 0 lastSlash)
+      flags = (substring fullValue (lastSlash + 1) (strlen fullValue))
+    } {
+      pattern = fullValue
+    }
+    
+    ; Create the regex node
+    def regex (new JSNode())
+    regex.nodeType = "RegexLiteral"
+    regex.strValue = pattern
+    regex.strValue2 = flags
+    regex.start = startPos
+    regex.end = lex.pos
+    regex.line = startLine
+    regex.col = startCol
+    
+    ; Skip the / token we're on and any subsequent tokens that are part of the regex
+    ; We need to skip tokens until we're past the regex end position
+    this.advance() ; skip the initial /
+    
+    ; Skip any tokens that are within the regex span
+    while ((this.isAtEnd()) == false) {
+      def nextTok (this.peek())
+      if (nextTok.start < lex.pos) {
+        this.advance()
+      } {
+        break
+      }
+    }
+    
+    return regex
   }
   
   ; === Parse Program ===
@@ -212,6 +302,14 @@ class SimpleParser {
     
     if ((null? stmt) && (tokVal == "class")) {
       stmt = (this.parseClass())
+    }
+    
+    if ((null? stmt) && (tokVal == "import")) {
+      stmt = (this.parseImport())
+    }
+    
+    if ((null? stmt) && (tokVal == "export")) {
+      stmt = (this.parseExport())
     }
     
     if ((null? stmt) && (tokVal == "return")) {
@@ -784,6 +882,351 @@ class SimpleParser {
     return tok.value
   }
   
+  ; === Import Declaration (ES6 Modules) ===
+  
+  fn parseImport:JSNode () {
+    def importNode (new JSNode())
+    importNode.nodeType = "ImportDeclaration"
+    def startTok (this.peek())
+    importNode.start = startTok.start
+    importNode.line = startTok.line
+    importNode.col = startTok.col
+    
+    this.expectValue("import")
+    
+    ; Check for: import "module" (side-effect only import)
+    if (this.matchType("String")) {
+      def sourceTok (this.peek())
+      this.advance()
+      def source (new JSNode())
+      source.nodeType = "Literal"
+      source.strValue = sourceTok.value
+      source.strValue2 = "string"
+      source.start = sourceTok.start
+      source.line = sourceTok.line
+      source.col = sourceTok.col
+      importNode.right = source
+      
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return importNode
+    }
+    
+    ; Check for: import * as name from "module"
+    if (this.matchValue("*")) {
+      this.advance()
+      this.expectValue("as")
+      def localTok (this.expect("Identifier"))
+      
+      def specifier (new JSNode())
+      specifier.nodeType = "ImportNamespaceSpecifier"
+      specifier.strValue = localTok.value
+      specifier.start = localTok.start
+      specifier.line = localTok.line
+      specifier.col = localTok.col
+      push importNode.children specifier
+      
+      this.expectValue("from")
+      def sourceTok (this.expect("String"))
+      def source (new JSNode())
+      source.nodeType = "Literal"
+      source.strValue = sourceTok.value
+      source.strValue2 = "string"
+      source.start = sourceTok.start
+      source.line = sourceTok.line
+      source.col = sourceTok.col
+      importNode.right = source
+      
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return importNode
+    }
+    
+    ; Check for: import { x, y } from "module" or import defaultExport from "module"
+    ; or import defaultExport, { x, y } from "module"
+    
+    ; First check for default import: import defaultExport from "module"
+    if (this.matchType("Identifier")) {
+      def defaultTok (this.expect("Identifier"))
+      
+      def defaultSpec (new JSNode())
+      defaultSpec.nodeType = "ImportDefaultSpecifier"
+      defaultSpec.strValue = defaultTok.value
+      defaultSpec.start = defaultTok.start
+      defaultSpec.line = defaultTok.line
+      defaultSpec.col = defaultTok.col
+      push importNode.children defaultSpec
+      
+      ; Check if there are also named imports: import default, { x, y } from "module"
+      if (this.matchValue(",")) {
+        this.advance()
+        
+        ; Could be * as name or { ... }
+        if (this.matchValue("*")) {
+          this.advance()
+          this.expectValue("as")
+          def localTok (this.expect("Identifier"))
+          
+          def nsSpec (new JSNode())
+          nsSpec.nodeType = "ImportNamespaceSpecifier"
+          nsSpec.strValue = localTok.value
+          nsSpec.start = localTok.start
+          nsSpec.line = localTok.line
+          nsSpec.col = localTok.col
+          push importNode.children nsSpec
+        } {
+          ; Named imports { ... }
+          this.parseImportSpecifiers(importNode)
+        }
+      }
+      
+      this.expectValue("from")
+    } {
+      ; Named imports only: import { x, y } from "module"
+      if (this.matchValue("{")) {
+        this.parseImportSpecifiers(importNode)
+        this.expectValue("from")
+      }
+    }
+    
+    def sourceTok (this.expect("String"))
+    def source (new JSNode())
+    source.nodeType = "Literal"
+    source.strValue = sourceTok.value
+    source.strValue2 = "string"
+    source.start = sourceTok.start
+    source.line = sourceTok.line
+    source.col = sourceTok.col
+    importNode.right = source
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return importNode
+  }
+  
+  fn parseImportSpecifiers:void (importNode:JSNode) {
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length importNode.children) > 0) {
+        if (this.matchValue(",")) {
+          this.advance()
+        }
+      }
+      if ((this.matchValue("}")) || (this.isAtEnd())) {
+        break
+      }
+      
+      def specifier (new JSNode())
+      specifier.nodeType = "ImportSpecifier"
+      
+      def importedTok (this.expect("Identifier"))
+      specifier.strValue = importedTok.value
+      specifier.start = importedTok.start
+      specifier.line = importedTok.line
+      specifier.col = importedTok.col
+      
+      ; Check for: import { x as y } from "module"
+      if (this.matchValue("as")) {
+        this.advance()
+        def localTok (this.expect("Identifier"))
+        specifier.strValue2 = localTok.value
+      }
+      
+      push importNode.children specifier
+    }
+    
+    this.expectValue("}")
+  }
+  
+  ; === Export Declaration (ES6 Modules) ===
+  
+  fn parseExport:JSNode () {
+    def exportNode (new JSNode())
+    exportNode.nodeType = "ExportNamedDeclaration"
+    def startTok (this.peek())
+    exportNode.start = startTok.start
+    exportNode.line = startTok.line
+    exportNode.col = startTok.col
+    
+    this.expectValue("export")
+    
+    ; Check for: export default ...
+    if (this.matchValue("default")) {
+      exportNode.nodeType = "ExportDefaultDeclaration"
+      this.advance()
+      
+      ; Could be function, class, or expression
+      if (this.matchValue("function")) {
+        def func (this.parseFuncDecl())
+        exportNode.left = func
+      } {
+        if (this.matchValue("async")) {
+          def func (this.parseAsyncFuncDecl())
+          exportNode.left = func
+        } {
+          if (this.matchValue("class")) {
+            def cls (this.parseClass())
+            exportNode.left = cls
+          } {
+            ; Expression
+            def expr (this.parseAssignment())
+            exportNode.left = expr
+            if (this.matchValue(";")) {
+              this.advance()
+            }
+          }
+        }
+      }
+      
+      return exportNode
+    }
+    
+    ; Check for: export * from "module" (re-export all)
+    if (this.matchValue("*")) {
+      exportNode.nodeType = "ExportAllDeclaration"
+      this.advance()
+      
+      ; Check for: export * as name from "module"
+      if (this.matchValue("as")) {
+        this.advance()
+        def exportedTok (this.expect("Identifier"))
+        exportNode.strValue = exportedTok.value
+      }
+      
+      this.expectValue("from")
+      def sourceTok (this.expect("String"))
+      def source (new JSNode())
+      source.nodeType = "Literal"
+      source.strValue = sourceTok.value
+      source.strValue2 = "string"
+      source.start = sourceTok.start
+      source.line = sourceTok.line
+      source.col = sourceTok.col
+      exportNode.right = source
+      
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return exportNode
+    }
+    
+    ; Check for: export { x, y } or export { x, y } from "module"
+    if (this.matchValue("{")) {
+      this.parseExportSpecifiers(exportNode)
+      
+      ; Check for re-export: export { x } from "module"
+      if (this.matchValue("from")) {
+        this.advance()
+        def sourceTok (this.expect("String"))
+        def source (new JSNode())
+        source.nodeType = "Literal"
+        source.strValue = sourceTok.value
+        source.strValue2 = "string"
+        source.start = sourceTok.start
+        source.line = sourceTok.line
+        source.col = sourceTok.col
+        exportNode.right = source
+      }
+      
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return exportNode
+    }
+    
+    ; Check for: export const/let/var/function/class
+    if (this.matchValue("const")) {
+      def decl (this.parseConstDecl())
+      exportNode.left = decl
+      return exportNode
+    }
+    
+    if (this.matchValue("let")) {
+      def decl (this.parseLetDecl())
+      exportNode.left = decl
+      return exportNode
+    }
+    
+    if (this.matchValue("var")) {
+      def decl (this.parseVarDecl())
+      exportNode.left = decl
+      return exportNode
+    }
+    
+    if (this.matchValue("function")) {
+      def func (this.parseFuncDecl())
+      exportNode.left = func
+      return exportNode
+    }
+    
+    if (this.matchValue("async")) {
+      def func (this.parseAsyncFuncDecl())
+      exportNode.left = func
+      return exportNode
+    }
+    
+    if (this.matchValue("class")) {
+      def cls (this.parseClass())
+      exportNode.left = cls
+      return exportNode
+    }
+    
+    ; Fallback - parse as expression
+    def expr (this.parseExprStmt())
+    exportNode.left = expr
+    
+    return exportNode
+  }
+  
+  fn parseExportSpecifiers:void (exportNode:JSNode) {
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def numChildren (array_length exportNode.children)
+      if (numChildren > 0) {
+        if (this.matchValue(",")) {
+          this.advance()
+        }
+      }
+      if ((this.matchValue("}")) || (this.isAtEnd())) {
+        break
+      }
+      
+      def specifier (new JSNode())
+      specifier.nodeType = "ExportSpecifier"
+      
+      ; Handle 'default' keyword as identifier in export specifiers
+      def localTok (this.peek())
+      if ((this.matchType("Identifier")) || (this.matchValue("default"))) {
+        this.advance()
+        specifier.strValue = localTok.value
+        specifier.start = localTok.start
+        specifier.line = localTok.line
+        specifier.col = localTok.col
+      } {
+        def err "Parse error at line " + localTok.line + ":" + localTok.col + ": expected Identifier but got " + localTok.tokenType
+        this.addError(err)
+        this.advance()
+      }
+      
+      ; Check for: export { x as y }
+      if (this.matchValue("as")) {
+        this.advance()
+        def exportedTok (this.expect("Identifier"))
+        specifier.strValue2 = exportedTok.value
+      }
+      
+      push exportNode.children specifier
+    }
+    
+    this.expectValue("}")
+  }
+  
   ; === Block Statement ===
   
   fn parseBlock:JSNode () {
@@ -1345,9 +1788,31 @@ class SimpleParser {
   }
   
   fn parseLogicalOr:JSNode () {
-    def left (this.parseLogicalAnd())
+    def left (this.parseNullishCoalescing())
     
     while (this.matchValue("||")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseNullishCoalescing())
+      
+      def binary (new JSNode())
+      binary.nodeType = "LogicalExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+    }
+    
+    return left
+  }
+  
+  fn parseNullishCoalescing:JSNode () {
+    def left (this.parseLogicalAnd())
+    
+    while (this.matchValue("??")) {
       def opTok (this.peek())
       this.advance()
       def right (this.parseLogicalAnd())
@@ -1611,6 +2076,67 @@ class SimpleParser {
         update.col = object.col
         object = update
       } {
+        ; Optional chaining ?.
+        if (tokVal == "?.") {
+          this.advance()
+          def nextTokVal (this.peekValue())
+          
+          ; Optional call: obj?.()
+          if (nextTokVal == "(") {
+            this.advance()
+            
+            def call (new JSNode())
+            call.nodeType = "OptionalCallExpression"
+            call.left = object
+            call.start = object.start
+            call.line = object.line
+            call.col = object.col
+            
+            while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+              if ((array_length call.children) > 0) {
+                this.expectValue(",")
+              }
+              if ((this.matchValue(")")) || (this.isAtEnd())) {
+                break
+              }
+              def arg (this.parseAssignment())
+              push call.children arg
+            }
+            this.expectValue(")")
+            
+            object = call
+          } {
+            ; Optional bracket access: obj?.[key]
+            if (nextTokVal == "[") {
+              this.advance()
+              def propExpr (this.parseExpr())
+              this.expectValue("]")
+              
+              def member (new JSNode())
+              member.nodeType = "OptionalMemberExpression"
+              member.left = object
+              member.right = propExpr
+              member.strValue2 = "bracket"
+              member.start = object.start
+              member.line = object.line
+              member.col = object.col
+              object = member
+            } {
+              ; Optional member access: obj?.prop
+              def propTok (this.expect("Identifier"))
+              
+              def member (new JSNode())
+              member.nodeType = "OptionalMemberExpression"
+              member.left = object
+              member.strValue = propTok.value
+              member.strValue2 = "dot"
+              member.start = object.start
+              member.line = object.line
+              member.col = object.col
+              object = member
+            }
+          }
+        } {
         if (tokVal == ".") {
         this.advance()
         def propTok (this.expect("Identifier"))
@@ -1682,6 +2208,7 @@ class SimpleParser {
             cont = false
           }
         }
+      }
       }
       }
     }
@@ -1861,6 +2388,11 @@ class SimpleParser {
     
     if (tokVal == "{") {
       return (this.parseObject())
+    }
+    
+    ; Regex literal: /pattern/flags
+    if (tokVal == "/") {
+      return (this.parseRegexLiteral())
     }
     
     ; Function expression: function(a, b) { ... } or function name(a, b) { ... }

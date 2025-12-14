@@ -169,9 +169,9 @@ class Lexer {
         return (this.makeToken("BlockComment" value startPos startLine startCol))
     }
 
-    fn makeToken:Token (type:string value:string startPos:int startLine:int startCol:int) {
+    fn makeToken:Token (tokType:string value:string startPos:int startLine:int startCol:int) {
         def tok (new Token())
-        tok.type = type
+        tok.tokenType = tokType
         tok.value = value
         tok.start = startPos
         tok.end = pos
@@ -345,6 +345,11 @@ class Lexer {
         if (value == "async") { return "Keyword" }
         if (value == "await") { return "Keyword" }
         if (value == "yield") { return "Keyword" }
+        ; ES6 Modules
+        if (value == "import") { return "Keyword" }
+        if (value == "export") { return "Keyword" }
+        if (value == "from") { return "Keyword" }
+        if (value == "as") { return "Keyword" }
         if (value == "true") { return "Boolean" }
         if (value == "false") { return "Boolean" }
         if (value == "null") { return "Null" }
@@ -464,6 +469,20 @@ class Lexer {
                 return (this.makeToken("Punctuator" "||" startPos startLine startCol))
             }
         }
+        ; Nullish coalescing ??
+        if (ch == "?") {
+            if (next == "?") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "??" startPos startLine startCol))
+            }
+            ; Optional chaining ?.
+            if (next == ".") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "?." startPos startLine startCol))
+            }
+        }
         if (ch == "+") {
             if (next == "+") {
                 this.advance()
@@ -496,12 +515,78 @@ class Lexer {
         return (this.makeToken("Punctuator" ch startPos startLine startCol))
     }
 
+    ; Read a regex literal starting at the current position
+    ; Called by the parser when it knows we're in an expression context
+    fn readRegexLiteral:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        
+        ; Consume the opening /
+        this.advance()
+        
+        def pattern:string ""
+        def inCharClass:boolean false
+        
+        ; Read the pattern until closing /
+        while (pos < len) {
+            def ch:string (this.peek())
+            
+            ; Handle character classes - / inside [] doesn't end the regex
+            if (ch == "[") {
+                inCharClass = true
+                pattern = pattern + (this.advance())
+            } {
+                if (ch == "]") {
+                    inCharClass = false
+                    pattern = pattern + (this.advance())
+                } {
+                    if (ch == "\\") {
+                        ; Escape sequence - include both backslash and next char
+                        pattern = pattern + (this.advance())
+                        if (pos < len) {
+                            pattern = pattern + (this.advance())
+                        }
+                    } {
+                        if ((ch == "/") && (inCharClass == false)) {
+                            ; End of pattern
+                            this.advance()
+                            break
+                        } {
+                            if ((ch == "\n") || (ch == "\r")) {
+                                ; Unterminated regex
+                                return (this.makeToken("RegexLiteral" pattern startPos startLine startCol))
+                            } {
+                                pattern = pattern + (this.advance())
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        ; Read flags (g, i, m, s, u, y)
+        def flags:string ""
+        while (pos < len) {
+            def ch:string (this.peek())
+            if ((ch == "g") || (ch == "i") || (ch == "m") || (ch == "s") || (ch == "u") || (ch == "y")) {
+                flags = flags + (this.advance())
+            } {
+                break
+            }
+        }
+        
+        ; Store pattern in value, flags in a combined format: pattern + "/" + flags
+        def fullValue:string (pattern + "/" + flags)
+        return (this.makeToken("RegexLiteral" fullValue startPos startLine startCol))
+    }
+
     fn tokenize:[Token] () {
         def tokens:[Token]
         while (true) {
             def tok:Token (this.nextToken())
             push tokens tok
-            if (tok.type == "EOF") {
+            if (tok.tokenType == "EOF") {
                 return tokens
             }
         }

@@ -380,6 +380,7 @@ func r_io_get_env( name string) *GoNullable {
                 go ( "os.Args[" (e 1) " + 1]"  (imp "os"))
                 swift3 ("CommandLine.arguments[" (e 1) " + 1]")
                 es6 ( "process.argv[ 2 + " (e 1) "]")
+                rust ( "std::env::args().nth((" (e 1) " + 1) as usize).unwrap_or_default()")
                 ranger ("( shell_arg " (e 1) " )")
             }
         }
@@ -393,6 +394,7 @@ func r_io_get_env( name string) *GoNullable {
                 java7 ( "args.length")
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
+                rust ( "(std::env::args().len() as i64 - 1)")
                 ranger ("( shell_arg_cnt )")
             }
         }        
@@ -667,6 +669,14 @@ func r_write_text_file(pathName string, fileName string, txtData string)  {
 "
 ) )  
 
+                rust ( "r_write_file(&" (e 1) ", &" (e 2) ", &" (e 3) ")"
+(create_polyfill "
+fn r_write_file(path: &str, filename: &str, data: &str) {
+    let full_path = format!(\"{}/{}\", path, filename);
+    let _ = std::fs::write(full_path, data);
+}
+"))
+
             }
         }
 
@@ -743,6 +753,13 @@ func r_io_read_file( path string , fileName string ) *GoNullable {
      res.has_value = false
    }
    return res 
+}
+"))
+                rust ( "r_read_file(&" (e 1) ", &" (e 2) ")"
+(create_polyfill "
+fn r_read_file(path: &str, filename: &str) -> Option<String> {
+    let full_path = format!(\"{}/{}\", path, filename);
+    std::fs::read_to_string(full_path).ok()
 }
 "))
                 es6 ( "(require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'))" )
@@ -1846,6 +1863,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 php ( "strlen(" (e 1) ")") 
                 go ( "int64(len(" (e 1) "))")
                 python ( "len(" (e 1) ")")
+                rust ( (e 1) ".len() as i64")
                 * ( (e 1) ".length")
             }
         }
@@ -2019,6 +2037,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 
                 ; swift3 ( 'Int( ( NSString(string: ' (e 1) ' ) ).character( at: ' (e 2) ' ) )')
                 ; swift3 ( (imp 'Foundation')  (e 1) '.substring(from: ' (e 1) '.index(' (e 1) '.startIndex, offsetBy: ' (e 2) ' + 1), to: ' (e 1) '.index(' (e 1) '.startIndex, offsetBy: ' (e 2) ' + 1))')    
+                rust ( (e 1) ".chars().nth(" (e 2) " as usize).map(|c| c.to_string()).unwrap_or_default()")
                 * ( (e 1) '[' (e 2) ']')
             }
         }                
@@ -2036,6 +2055,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift3 ( "Int( ( NSString(string: " (e 1) " ) ).character( at: " (e 2) " ) )")
                 swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")
                 python ( "ord(" (e 1) "[" (e 2) "])")
+                rust ( (e 1) ".chars().nth(" (e 2) " as usize).unwrap_or('\\0') as i64")
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
         }        
@@ -2127,6 +2147,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 go (  (e 1) "[" (e 2) ":" (e 3) "]")               
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
                 python ( (e 1) "[" (e 2) ":" (e 3) "]" )
+                rust ( (e 1) ".chars().skip(" (e 2) " as usize).take((" (e 3) " - " (e 2) ") as usize).collect::<String>()")
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
         }

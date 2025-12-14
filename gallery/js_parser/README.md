@@ -81,6 +81,40 @@ node gallery/js_parser/js_parser.js -h
 - Async arrow functions (`async () => {}`)
 - Async generators (`async function*`)
 
+### ES6 Modules
+
+- Import declarations (`import x from "module"`)
+- Default imports (`import React from "react"`)
+- Named imports (`import { x, y } from "module"`)
+- Namespace imports (`import * as utils from "module"`)
+- Import aliases (`import { x as y } from "module"`)
+- Side-effect imports (`import "polyfill"`)
+- Combined imports (`import React, { useState } from "react"`)
+- Export declarations (`export const x = 1`)
+- Default exports (`export default function() {}`)
+- Named exports (`export { x, y }`)
+- Export aliases (`export { x as y }`)
+- Re-exports (`export { x } from "module"`)
+- Export all (`export * from "module"`)
+- Export all as namespace (`export * as utils from "module"`)
+
+### Modern Operators
+
+- Optional chaining (`?.`) for property access (`obj?.prop`)
+- Optional chaining for bracket notation (`obj?.["key"]`)
+- Optional chaining for method calls (`obj?.method?.()`)
+- Nullish coalescing (`??`) operator (`value ?? default`)
+
+### Regular Expressions
+
+- Regex literals (`/pattern/flags`)
+- All standard flags (`g`, `i`, `m`, `s`, `u`, `y`)
+- Character classes (`[abc]`, `[^0-9]`, `[a-z]`)
+- Escape sequences (`\d`, `\w`, `\s`, `\b`, etc.)
+- Quantifiers (`+`, `*`, `?`, `{n}`, `{n,m}`)
+- Anchors and groups (`^`, `$`, `()`, `(?:)`, `|`)
+- Regex in expressions, conditions, and as arguments
+
 ### Comments
 
 - Single-line comments (`// ...`)
@@ -180,12 +214,8 @@ console.log(...args);
 
 Features not yet supported:
 
-- `import`/`export` (ES modules)
-- Optional chaining (`?.`)
-- Nullish coalescing (`??`)
 - Private class fields (`#field`)
 - Decorators
-- Regular expression literals
 - Tagged template literals
 
 ## Development
