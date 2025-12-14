@@ -1,0 +1,1055 @@
+; JavaScript ES5 Parser
+; Converts tokens into AST nodes
+
+Import "js_ast.rgr"
+Import "js_lexer.rgr"
+
+class Parser {
+  def tokens:[Token]
+  def pos:int 0
+  def currentToken@(optional):Token
+  
+  fn init:void (toks:[Token]) {
+    this.tokens = toks
+    this.pos = 0
+    if ((array_length toks) > 0) {
+      this.currentToken = (itemAt toks 0)
+    }
+  }
+  
+  fn peek:Token () {
+    return (unwrap this.currentToken)
+  }
+  
+  fn peekType:string () {
+    if (null? this.currentToken) {
+      return "EOF"
+    }
+    def tok (unwrap this.currentToken)
+    return tok.type
+  }
+  
+  fn peekValue:string () {
+    if (null? this.currentToken) {
+      return ""
+    }
+    def tok (unwrap this.currentToken)
+    return tok.value
+  }
+  
+  fn advance:void () {
+    this.pos = this.pos + 1
+    if (this.pos < (array_length this.tokens)) {
+      this.currentToken = (itemAt this.tokens this.pos)
+    } {
+      ; Create EOF token
+      def eof (new Token())
+      eof.type = "EOF"
+      eof.value = ""
+      this.currentToken = eof
+    }
+  }
+  
+  fn expect:Token (expectedType:string) {
+    def tok (this.peek())
+    if (tok.type != expectedType) {
+      print "Parse error: expected " + expectedType + " but got " + tok.type + " '" + tok.value + "'"
+    }
+    this.advance()
+    return tok
+  }
+  
+  fn expectValue:Token (expectedValue:string) {
+    def tok (this.peek())
+    if (tok.value != expectedValue) {
+      print "Parse error: expected '" + expectedValue + "' but got '" + tok.value + "'"
+    }
+    this.advance()
+    return tok
+  }
+  
+  fn isAtEnd:boolean () {
+    return (this.peekType() == "EOF")
+  }
+  
+  fn match:boolean (tokenType:string) {
+    return (this.peekType() == tokenType)
+  }
+  
+  fn matchValue:boolean (value:string) {
+    return (this.peekValue() == value)
+  }
+  
+  ; === Parse Program ===
+  
+  fn parseProgram:Program () {
+    def prog (new Program())
+    
+    while ((this.isAtEnd()) == false) {
+      def stmt (this.parseStatement())
+      if (!null? stmt) {
+        push prog.body (unwrap stmt)
+      }
+    }
+    
+    return prog
+  }
+  
+  ; === Parse Statement ===
+  
+  fn parseStatement@(optional):ASTNode () {
+    def tokType (this.peekType())
+    def tokVal (this.peekValue())
+    
+    ; Variable declaration
+    if (tokVal == "var") {
+      return (this.parseVariableDeclaration())
+    }
+    
+    ; Function declaration
+    if (tokVal == "function") {
+      return (this.parseFunctionDeclaration())
+    }
+    
+    ; Return statement
+    if (tokVal == "return") {
+      return (this.parseReturnStatement())
+    }
+    
+    ; If statement
+    if (tokVal == "if") {
+      return (this.parseIfStatement())
+    }
+    
+    ; While statement
+    if (tokVal == "while") {
+      return (this.parseWhileStatement())
+    }
+    
+    ; For statement
+    if (tokVal == "for") {
+      return (this.parseForStatement())
+    }
+    
+    ; Block statement
+    if (tokVal == "{") {
+      return (this.parseBlockStatement())
+    }
+    
+    ; Empty statement
+    if (tokVal == ";") {
+      this.advance()
+      def empty (new EmptyStatement())
+      empty
+      return empty
+    }
+    
+    ; Expression statement (fallback)
+    return (this.parseExpressionStatement())
+  }
+  
+  ; === Variable Declaration ===
+  
+  fn parseVariableDeclaration:VariableDeclaration () {
+    def decl (new VariableDeclaration())
+    decl
+    def startTok (this.peek())
+    decl.start = startTok.start
+    decl.line = startTok.line
+    decl.col = startTok.col
+    
+    this.expectValue("var")
+    
+    ; Parse declarators
+    def first true
+    while (first || (this.matchValue(","))) {
+      if (first == false) {
+        this.advance() ; consume comma
+      }
+      first = false
+      
+      def declarator (new VariableDeclarator())
+      declarator
+      
+      def idTok (this.expect("Identifier"))
+      def id (new Identifier())
+      id
+      id.name = idTok.value
+      id.start = idTok.start
+      id.end = idTok.end
+      id.line = idTok.line
+      id.col = idTok.col
+      declarator.id = id
+      declarator.start = idTok.start
+      declarator.line = idTok.line
+      declarator.col = idTok.col
+      
+      ; Check for initializer
+      if (this.matchValue("=")) {
+        this.advance()
+        def initExpr (this.parseAssignmentExpression())
+        declarator.varInit = initExpr
+      }
+      
+      push decl.declarations declarator
+    }
+    
+    ; Expect semicolon
+    if (this.matchValue(";")) {
+      def endTok (this.peek())
+      decl.end = endTok.end
+      this.advance()
+    }
+    
+    return decl
+  }
+  
+  ; === Function Declaration ===
+  
+  fn parseFunctionDeclaration:FunctionDeclaration () {
+    def func (new FunctionDeclaration())
+    func
+    def startTok (this.peek())
+    func.start = startTok.start
+    func.line = startTok.line
+    func.col = startTok.col
+    
+    this.expectValue("function")
+    
+    ; Function name
+    def idTok (this.expect("Identifier"))
+    def id (new Identifier())
+    id
+    id.name = idTok.value
+    id.start = idTok.start
+    id.end = idTok.end
+    id.line = idTok.line
+    id.col = idTok.col
+    func.id = id
+    
+    ; Parameters
+    this.expectValue("(")
+    while ((this.matchValue(")")) == false) {
+      if ((array_length func.params) > 0) {
+        this.expectValue(",")
+      }
+      def paramTok (this.expect("Identifier"))
+      def param (new Identifier())
+      param
+      param.name = paramTok.value
+      param.start = paramTok.start
+      param.end = paramTok.end
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push func.params param
+    }
+    this.expectValue(")")
+    
+    ; Body
+    def body (this.parseBlockStatement())
+    func.body = body
+    func.end = body.end
+    
+    return func
+  }
+  
+  ; === Block Statement ===
+  
+  fn parseBlockStatement:BlockStatement () {
+    def block (new BlockStatement())
+    block
+    def startTok (this.peek())
+    block.start = startTok.start
+    block.line = startTok.line
+    block.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def stmt (this.parseStatement())
+      if (!null? stmt) {
+        push block.body (unwrap stmt)
+      }
+    }
+    
+    def endTok (this.peek())
+    block.end = endTok.end
+    this.expectValue("}")
+    
+    return block
+  }
+  
+  ; === Return Statement ===
+  
+  fn parseReturnStatement:ReturnStatement () {
+    def ret (new ReturnStatement())
+    ret
+    def startTok (this.peek())
+    ret.start = startTok.start
+    ret.line = startTok.line
+    ret.col = startTok.col
+    
+    this.expectValue("return")
+    
+    ; Check for argument
+    if (((this.matchValue(";")) == false) && ((this.isAtEnd()) == false)) {
+      def arg (this.parseExpression())
+      ret.argument = arg
+    }
+    
+    if (this.matchValue(";")) {
+      def endTok (this.peek())
+      ret.end = endTok.end
+      this.advance()
+    }
+    
+    return ret
+  }
+  
+  ; === If Statement ===
+  
+  fn parseIfStatement:IfStatement () {
+    def ifStmt (new IfStatement())
+    ifStmt
+    def startTok (this.peek())
+    ifStmt.start = startTok.start
+    ifStmt.line = startTok.line
+    ifStmt.col = startTok.col
+    
+    this.expectValue("if")
+    this.expectValue("(")
+    def test (this.parseExpression())
+    ifStmt.test = test
+    this.expectValue(")")
+    
+    def consequent (this.parseStatement())
+    ifStmt.consequent = consequent
+    
+    ; Check for else
+    if (this.matchValue("else")) {
+      this.advance()
+      def alternate (this.parseStatement())
+      ifStmt.alternate = alternate
+    }
+    
+    return ifStmt
+  }
+  
+  ; === While Statement ===
+  
+  fn parseWhileStatement:WhileStatement () {
+    def whileStmt (new WhileStatement())
+    whileStmt
+    def startTok (this.peek())
+    whileStmt.start = startTok.start
+    whileStmt.line = startTok.line
+    whileStmt.col = startTok.col
+    
+    this.expectValue("while")
+    this.expectValue("(")
+    def test (this.parseExpression())
+    whileStmt.test = test
+    this.expectValue(")")
+    
+    def body (this.parseStatement())
+    whileStmt.body = body
+    
+    return whileStmt
+  }
+  
+  ; === For Statement (basic) ===
+  
+  fn parseForStatement:ForStatement () {
+    def forStmt (new ForStatement())
+    def startTok (this.peek())
+    forStmt.start = startTok.start
+    forStmt.line = startTok.line
+    forStmt.col = startTok.col
+    
+    this.expectValue("for")
+    this.expectValue("(")
+    
+    ; Init
+    if ((this.matchValue(";")) == false) {
+      if (this.matchValue("var")) {
+        forStmt.forInit = (this.parseVariableDeclaration())
+      } {
+        def initExpr (this.parseExpression())
+        forStmt.forInit = initExpr
+        if (this.matchValue(";")) {
+          this.advance()
+        }
+      }
+    } {
+      this.advance() ; skip semicolon
+    }
+    
+    ; Test
+    if ((this.matchValue(";")) == false) {
+      def test (this.parseExpression())
+      forStmt.test = test
+    }
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    ; Update
+    if ((this.matchValue(")")) == false) {
+      def update (this.parseExpression())
+      forStmt.update = update
+    }
+    
+    this.expectValue(")")
+    
+    def body (this.parseStatement())
+    forStmt.body = body
+    
+    return forStmt
+  }
+  
+  ; === Expression Statement ===
+  
+  fn parseExpressionStatement:ExpressionStatement () {
+    def stmt (new ExpressionStatement())
+    stmt
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    def expr (this.parseExpression())
+    stmt.expression = expr
+    
+    if (this.matchValue(";")) {
+      def endTok (this.peek())
+      stmt.end = endTok.end
+      this.advance()
+    }
+    
+    return stmt
+  }
+  
+  ; === Expression parsing (precedence climbing) ===
+  
+  fn parseExpression:ASTNode () {
+    return (this.parseAssignmentExpression())
+  }
+  
+  fn parseAssignmentExpression:ASTNode () {
+    def left (this.parseConditionalExpression())
+    
+    def tokVal (this.peekValue())
+    if ((tokVal == "=") || (tokVal == "+=") || (tokVal == "-=") || (tokVal == "*=") || (tokVal == "/=")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseAssignmentExpression())
+      
+      def assign (new AssignmentExpression())
+      assign
+      assign.operator = opTok.value
+      assign.left = left
+      assign.right = right
+      assign.start = left.start
+      assign.line = left.line
+      assign.col = left.col
+      return assign
+    }
+    
+    return left
+  }
+  
+  fn parseConditionalExpression:ASTNode () {
+    def test (this.parseLogicalOrExpression())
+    
+    if (this.matchValue("?")) {
+      this.advance()
+      def consequent (this.parseAssignmentExpression())
+      this.expectValue(":")
+      def alternate (this.parseAssignmentExpression())
+      
+      def cond (new ConditionalExpression())
+      cond
+      cond.test = test
+      cond.consequent = consequent
+      cond.alternate = alternate
+      cond.start = test.start
+      cond.line = test.line
+      cond.col = test.col
+      return cond
+    }
+    
+    return test
+  }
+  
+  fn parseLogicalOrExpression:ASTNode () {
+    def left (this.parseLogicalAndExpression())
+    
+    while (this.matchValue("||")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseLogicalAndExpression())
+      
+      def logical (new LogicalExpression())
+      logical
+      logical.operator = opTok.value
+      logical.left = left
+      logical.right = right
+      logical.start = left.start
+      logical.line = left.line
+      logical.col = left.col
+      left = logical
+    }
+    
+    return left
+  }
+  
+  fn parseLogicalAndExpression:ASTNode () {
+    def left (this.parseEqualityExpression())
+    
+    while (this.matchValue("&&")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseEqualityExpression())
+      
+      def logical (new LogicalExpression())
+      logical
+      logical.operator = opTok.value
+      logical.left = left
+      logical.right = right
+      logical.start = left.start
+      logical.line = left.line
+      logical.col = left.col
+      left = logical
+    }
+    
+    return left
+  }
+  
+  fn parseEqualityExpression:ASTNode () {
+    def left (this.parseRelationalExpression())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "==") || (tokVal == "!=") || (tokVal == "===") || (tokVal == "!==")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseRelationalExpression())
+      
+      def binary (new BinaryExpression())
+      binary
+      binary.operator = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseRelationalExpression:ASTNode () {
+    def left (this.parseAdditiveExpression())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "<") || (tokVal == ">") || (tokVal == "<=") || (tokVal == ">=")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseAdditiveExpression())
+      
+      def binary (new BinaryExpression())
+      binary
+      binary.operator = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseAdditiveExpression:ASTNode () {
+    def left (this.parseMultiplicativeExpression())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "+") || (tokVal == "-")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseMultiplicativeExpression())
+      
+      def binary (new BinaryExpression())
+      binary
+      binary.operator = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseMultiplicativeExpression:ASTNode () {
+    def left (this.parseUnaryExpression())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "*") || (tokVal == "/") || (tokVal == "%")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseUnaryExpression())
+      
+      def binary (new BinaryExpression())
+      binary
+      binary.operator = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseUnaryExpression:ASTNode () {
+    def tokVal (this.peekValue())
+    
+    if ((tokVal == "!") || (tokVal == "-") || (tokVal == "+") || (tokVal == "typeof") || (tokVal == "void") || (tokVal == "delete")) {
+      def opTok (this.peek())
+      this.advance()
+      def arg (this.parseUnaryExpression())
+      
+      def unary (new UnaryExpression())
+      unary
+      unary.operator = opTok.value
+      unary.prefix = true
+      unary.argument = arg
+      unary.start = opTok.start
+      unary.line = opTok.line
+      unary.col = opTok.col
+      return unary
+    }
+    
+    ; Prefix ++/--
+    if ((tokVal == "++") || (tokVal == "--")) {
+      def opTok (this.peek())
+      this.advance()
+      def arg (this.parseUnaryExpression())
+      
+      def update (new UpdateExpression())
+      update
+      update.operator = opTok.value
+      update.prefix = true
+      update.argument = arg
+      update.start = opTok.start
+      update.line = opTok.line
+      update.col = opTok.col
+      return update
+    }
+    
+    return (this.parsePostfixExpression())
+  }
+  
+  fn parsePostfixExpression:ASTNode () {
+    def left (this.parseCallMemberExpression())
+    
+    def tokVal (this.peekValue())
+    if ((tokVal == "++") || (tokVal == "--")) {
+      def opTok (this.peek())
+      this.advance()
+      
+      def update (new UpdateExpression())
+      update
+      update.operator = opTok.value
+      update.prefix = false
+      update.argument = left
+      update.start = left.start
+      update.line = left.line
+      update.col = left.col
+      return update
+    }
+    
+    return left
+  }
+  
+  fn parseCallMemberExpression:ASTNode () {
+    def object (this.parsePrimaryExpression())
+    
+    def cont true
+    while (cont) {
+      def tokVal (this.peekValue())
+      
+      if (tokVal == ".") {
+        ; Member access a.b
+        this.advance()
+        def propTok (this.expect("Identifier"))
+        
+        def prop (new Identifier())
+        prop
+        prop.name = propTok.value
+        prop.start = propTok.start
+        prop.end = propTok.end
+        prop.line = propTok.line
+        prop.col = propTok.col
+        
+        def member (new MemberExpression())
+        member
+        member.object = object
+        member.property = prop
+        member.computed = false
+        member.start = object.start
+        member.line = object.line
+        member.col = object.col
+        object = member
+      } {
+        if (tokVal == "[") {
+          ; Computed member access a[b]
+          this.advance()
+          def propExpr (this.parseExpression())
+          this.expectValue("]")
+          
+          def member (new MemberExpression())
+          member
+          member.object = object
+          member.property = propExpr
+          member.computed = true
+          member.start = object.start
+          member.line = object.line
+          member.col = object.col
+          object = member
+        } {
+          if (tokVal == "(") {
+            ; Function call
+            this.advance()
+            def args:[ASTNode]
+            
+            while ((this.matchValue(")")) == false) {
+              if ((array_length args) > 0) {
+                this.expectValue(",")
+              }
+              def arg (this.parseAssignmentExpression())
+              push args arg
+            }
+            this.expectValue(")")
+            
+            def call (new CallExpression())
+            call
+            call.callee = object
+            call.arguments = args
+            call.start = object.start
+            call.line = object.line
+            call.col = object.col
+            object = call
+          } {
+            cont = false
+          }
+        }
+      }
+    }
+    
+    return object
+  }
+  
+  fn parsePrimaryExpression:ASTNode () {
+    def tokType (this.peekType())
+    def tokVal (this.peekValue())
+    def tok (this.peek())
+    
+    ; Identifier
+    if (tokType == "Identifier") {
+      this.advance()
+      def id (new Identifier())
+      id
+      id.name = tok.value
+      id.start = tok.start
+      id.end = tok.end
+      id.line = tok.line
+      id.col = tok.col
+      return id
+    }
+    
+    ; Number literal
+    if (tokType == "Number") {
+      this.advance()
+      def lit (new Literal())
+      lit
+      lit.value = tok.value
+      lit.raw = tok.value
+      lit.litType = "number"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    ; String literal
+    if (tokType == "String") {
+      this.advance()
+      def lit (new Literal())
+      lit
+      lit.value = tok.value
+      lit.raw = tok.value
+      lit.litType = "string"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    ; Boolean literals
+    if ((tokVal == "true") || (tokVal == "false")) {
+      this.advance()
+      def lit (new Literal())
+      lit
+      lit.value = tok.value
+      lit.raw = tok.value
+      lit.litType = "boolean"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    ; Null literal
+    if (tokVal == "null") {
+      this.advance()
+      def lit (new Literal())
+      lit
+      lit.value = "null"
+      lit.raw = "null"
+      lit.litType = "null"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    ; This
+    if (tokVal == "this") {
+      this.advance()
+      def thisExpr (new ThisExpression())
+      thisExpr
+      thisExpr.start = tok.start
+      thisExpr.end = tok.end
+      thisExpr.line = tok.line
+      thisExpr.col = tok.col
+      return thisExpr
+    }
+    
+    ; Parenthesized expression
+    if (tokVal == "(") {
+      this.advance()
+      def expr (this.parseExpression())
+      this.expectValue(")")
+      return expr
+    }
+    
+    ; Array literal
+    if (tokVal == "[") {
+      return (this.parseArrayLiteral())
+    }
+    
+    ; Object literal
+    if (tokVal == "{") {
+      return (this.parseObjectLiteral())
+    }
+    
+    ; New expression
+    if (tokVal == "new") {
+      return (this.parseNewExpression())
+    }
+    
+    ; Function expression
+    if (tokVal == "function") {
+      return (this.parseFunctionExpression())
+    }
+    
+    ; Fallback - return an identifier for unrecognized tokens
+    this.advance()
+    def fallback (new Identifier())
+    fallback
+    fallback.name = tok.value
+    fallback.start = tok.start
+    fallback.end = tok.end
+    fallback.line = tok.line
+    fallback.col = tok.col
+    return fallback
+  }
+  
+  fn parseArrayLiteral:ArrayExpression () {
+    def arr (new ArrayExpression())
+    arr
+    def startTok (this.peek())
+    arr.start = startTok.start
+    arr.line = startTok.line
+    arr.col = startTok.col
+    
+    this.expectValue("[")
+    
+    while ((this.matchValue("]")) == false) {
+      if ((array_length arr.elements) > 0) {
+        this.expectValue(",")
+      }
+      ; Handle sparse arrays (elision)
+      if (this.matchValue(",")) {
+        continue _
+      }
+      if (this.matchValue("]")) {
+        break
+      }
+      def elem (this.parseAssignmentExpression())
+      push arr.elements elem
+    }
+    
+    def endTok (this.peek())
+    arr.end = endTok.end
+    this.expectValue("]")
+    
+    return arr
+  }
+  
+  fn parseObjectLiteral:ObjectExpression () {
+    def obj (new ObjectExpression())
+    obj
+    def startTok (this.peek())
+    obj.start = startTok.start
+    obj.line = startTok.line
+    obj.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while ((this.matchValue("}")) == false) {
+      if ((array_length obj.properties) > 0) {
+        this.expectValue(",")
+      }
+      if (this.matchValue("}")) {
+        break
+      }
+      
+      def prop (new Property())
+      prop
+      
+      ; Key can be identifier, string, or number
+      def keyTok (this.peek())
+      def keyType (this.peekType())
+      
+      if ((keyType == "Identifier") || (keyType == "String") || (keyType == "Number")) {
+        this.advance()
+        if (keyType == "Identifier") {
+          def keyId (new Identifier())
+          keyId
+          keyId.name = keyTok.value
+          keyId.start = keyTok.start
+          keyId.end = keyTok.end
+          keyId.line = keyTok.line
+          keyId.col = keyTok.col
+          prop.key = keyId
+        } {
+          def keyLit (new Literal())
+          keyLit
+          keyLit.value = keyTok.value
+          keyLit.raw = keyTok.value
+          keyLit.start = keyTok.start
+          keyLit.end = keyTok.end
+          keyLit.line = keyTok.line
+          keyLit.col = keyTok.col
+          prop.key = keyLit
+        }
+        
+        this.expectValue(":")
+        def val (this.parseAssignmentExpression())
+        prop.value = val
+        prop.start = keyTok.start
+        prop.line = keyTok.line
+        prop.col = keyTok.col
+      }
+      
+      push obj.properties prop
+    }
+    
+    def endTok (this.peek())
+    obj.end = endTok.end
+    this.expectValue("}")
+    
+    return obj
+  }
+  
+  fn parseNewExpression:NewExpression () {
+    def newExpr (new NewExpression())
+    newExpr
+    def startTok (this.peek())
+    newExpr.start = startTok.start
+    newExpr.line = startTok.line
+    newExpr.col = startTok.col
+    
+    this.expectValue("new")
+    
+    def callee (this.parseCallMemberExpression())
+    newExpr.callee = callee
+    
+    return newExpr
+  }
+  
+  fn parseFunctionExpression:FunctionExpression () {
+    def func (new FunctionExpression())
+    func
+    def startTok (this.peek())
+    func.start = startTok.start
+    func.line = startTok.line
+    func.col = startTok.col
+    
+    this.expectValue("function")
+    
+    ; Optional function name
+    if (this.match("Identifier")) {
+      def idTok (this.expect("Identifier"))
+      def id (new Identifier())
+      id
+      id.name = idTok.value
+      id.start = idTok.start
+      id.end = idTok.end
+      id.line = idTok.line
+      id.col = idTok.col
+      func.id = id
+    }
+    
+    ; Parameters
+    this.expectValue("(")
+    while ((this.matchValue(")")) == false) {
+      if ((array_length func.params) > 0) {
+        this.expectValue(",")
+      }
+      def paramTok (this.expect("Identifier"))
+      def param (new Identifier())
+      param
+      param.name = paramTok.value
+      param.start = paramTok.start
+      param.end = paramTok.end
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push func.params param
+    }
+    this.expectValue(")")
+    
+    ; Body
+    def body (this.parseBlockStatement())
+    func.body = body
+    func.end = body.end
+    
+    return func
+  }
+}

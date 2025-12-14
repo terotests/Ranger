@@ -1,0 +1,2868 @@
+; JavaScript ES5 Parser - Core module
+; Contains JSNode, SimpleParser, and AST printing utilities
+
+Import "js_token.rgr"
+Import "js_lexer.rgr"
+
+; Unified AST node - all node types use this
+class JSNode {
+  def nodeType:string ""
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+  
+  ; Generic value fields
+  def strValue:string ""      ; for identifiers, literals, operators
+  def strValue2:string ""     ; secondary string (e.g., literal type)
+  
+  ; Child nodes
+  def children:[JSNode]
+  def left@(optional):JSNode
+  def right@(optional):JSNode
+  def test@(optional):JSNode
+  def body@(optional):JSNode
+  def alternate@(optional):JSNode
+  
+  ; Comments attached to this node
+  def leadingComments:[JSNode]
+  def trailingComment@(optional):JSNode
+}
+
+class SimpleParser {
+  def tokens:[Token]
+  def pos:int 0
+  def currentToken@(optional):Token
+  def errors:[string]
+  def pendingComments:[JSNode]
+  
+  fn initParser:void (toks:[Token]) {
+    this.tokens = toks
+    this.pos = 0
+    if ((array_length toks) > 0) {
+      this.currentToken = (itemAt toks 0)
+    }
+    ; Skip initial comments
+    this.skipComments()
+  }
+  
+  fn isCommentToken:boolean () {
+    def t (this.peekType())
+    if (t == "LineComment") { return true }
+    if (t == "BlockComment") { return true }
+    if (t == "JSDocComment") { return true }
+    return false
+  }
+  
+  fn skipComments:void () {
+    while (this.isCommentToken()) {
+      def tok (this.peek())
+      def commentNode (new JSNode())
+      commentNode.nodeType = tok.type
+      commentNode.strValue = tok.value
+      commentNode.line = tok.line
+      commentNode.col = tok.col
+      commentNode.start = tok.start
+      commentNode.end = tok.end
+      push this.pendingComments commentNode
+      this.advanceRaw()
+    }
+  }
+  
+  fn advanceRaw:void () {
+    this.pos = this.pos + 1
+    if (this.pos < (array_length this.tokens)) {
+      this.currentToken = (itemAt this.tokens this.pos)
+    } {
+      def eof (new Token())
+      eof.type = "EOF"
+      eof.value = ""
+      this.currentToken = eof
+    }
+  }
+  
+  fn collectComments:[JSNode] () {
+    def comments:[JSNode]
+    for this.pendingComments c:JSNode i {
+      push comments c
+    }
+    ; Clear pending comments
+    def empty:[JSNode]
+    this.pendingComments = empty
+    return comments
+  }
+  
+  fn attachComments:void (node:JSNode) {
+    def comments:[JSNode] (this.collectComments())
+    for comments c:JSNode i {
+      push node.leadingComments c
+    }
+  }
+  
+  fn peek:Token () {
+    return (unwrap this.currentToken)
+  }
+  
+  fn peekType:string () {
+    if (null? this.currentToken) {
+      return "EOF"
+    }
+    def tok (unwrap this.currentToken)
+    return tok.type
+  }
+  
+  fn peekValue:string () {
+    if (null? this.currentToken) {
+      return ""
+    }
+    def tok (unwrap this.currentToken)
+    return tok.value
+  }
+  
+  fn advance:void () {
+    this.advanceRaw()
+    this.skipComments()
+  }
+  
+  fn addError:void (msg:string) {
+    push this.errors msg
+  }
+  
+  fn expect:Token (expectedType:string) {
+    def tok (this.peek())
+    if (tok.type != expectedType) {
+      def err "Parse error at line " + tok.line + ":" + tok.col + ": expected " + expectedType + " but got " + tok.type
+      this.addError(err)
+    }
+    this.advance()
+    return tok
+  }
+  
+  fn expectValue:Token (expectedValue:string) {
+    def tok (this.peek())
+    if (tok.value != expectedValue) {
+      def err "Parse error at line " + tok.line + ":" + tok.col + ": expected '" + expectedValue + "' but got '" + tok.value + "'"
+      this.addError(err)
+    }
+    this.advance()
+    return tok
+  }
+  
+  fn isAtEnd:boolean () {
+    def t (this.peekType())
+    return (t == "EOF")
+  }
+  
+  fn matchType:boolean (tokenType:string) {
+    def t (this.peekType())
+    return (t == tokenType)
+  }
+  
+  fn matchValue:boolean (value:string) {
+    def v (this.peekValue())
+    return (v == value)
+  }
+  
+  fn hasErrors:boolean () {
+    return ((array_length this.errors) > 0)
+  }
+  
+  ; === Parse Program ===
+  
+  fn parseProgram:JSNode () {
+    def prog (new JSNode())
+    prog.nodeType = "Program"
+    
+    while ((this.isAtEnd()) == false) {
+      def stmt (this.parseStatement())
+      push prog.children stmt
+    }
+    
+    return prog
+  }
+  
+  ; === Parse Statement ===
+  
+  fn parseStatement:JSNode () {
+    ; Collect any leading comments before parsing the statement
+    def comments:[JSNode] (this.collectComments())
+    
+    def tokVal (this.peekValue())
+    def stmt@(optional):JSNode
+    
+    if (tokVal == "var") {
+      stmt = (this.parseVarDecl())
+    }
+    
+    if ((null? stmt) && (tokVal == "let")) {
+      stmt = (this.parseLetDecl())
+    }
+    
+    if ((null? stmt) && (tokVal == "const")) {
+      stmt = (this.parseConstDecl())
+    }
+    
+    if ((null? stmt) && (tokVal == "function")) {
+      stmt = (this.parseFuncDecl())
+    }
+    
+    if ((null? stmt) && (tokVal == "async")) {
+      stmt = (this.parseAsyncFuncDecl())
+    }
+    
+    if ((null? stmt) && (tokVal == "class")) {
+      stmt = (this.parseClass())
+    }
+    
+    if ((null? stmt) && (tokVal == "return")) {
+      stmt = (this.parseReturn())
+    }
+    
+    if ((null? stmt) && (tokVal == "if")) {
+      stmt = (this.parseIf())
+    }
+    
+    if ((null? stmt) && (tokVal == "while")) {
+      stmt = (this.parseWhile())
+    }
+    
+    if ((null? stmt) && (tokVal == "do")) {
+      stmt = (this.parseDoWhile())
+    }
+    
+    if ((null? stmt) && (tokVal == "for")) {
+      stmt = (this.parseFor())
+    }
+    
+    if ((null? stmt) && (tokVal == "switch")) {
+      stmt = (this.parseSwitch())
+    }
+    
+    if ((null? stmt) && (tokVal == "try")) {
+      stmt = (this.parseTry())
+    }
+    
+    if ((null? stmt) && (tokVal == "throw")) {
+      stmt = (this.parseThrow())
+    }
+    
+    if ((null? stmt) && (tokVal == "break")) {
+      stmt = (this.parseBreak())
+    }
+    
+    if ((null? stmt) && (tokVal == "continue")) {
+      stmt = (this.parseContinue())
+    }
+    
+    if ((null? stmt) && (tokVal == "{")) {
+      stmt = (this.parseBlock())
+    }
+    
+    if ((null? stmt) && (tokVal == ";")) {
+      this.advance()
+      def empty (new JSNode())
+      empty.nodeType = "EmptyStatement"
+      stmt = empty
+    }
+    
+    ; Expression statement (default case)
+    if (null? stmt) {
+      stmt = (this.parseExprStmt())
+    }
+    
+    ; Attach leading comments to the statement
+    def result:JSNode (unwrap stmt)
+    for comments c:JSNode i {
+      push result.leadingComments c
+    }
+    
+    return result
+  }
+  
+  ; === Variable Declaration ===
+  
+  fn parseVarDecl:JSNode () {
+    def decl (new JSNode())
+    decl.nodeType = "VariableDeclaration"
+    def startTok (this.peek())
+    decl.start = startTok.start
+    decl.line = startTok.line
+    decl.col = startTok.col
+    
+    this.expectValue("var")
+    
+    def first true
+    while (first || (this.matchValue(","))) {
+      if (first == false) {
+        this.advance()
+      }
+      first = false
+      
+      def declarator (new JSNode())
+      declarator.nodeType = "VariableDeclarator"
+      
+      def idTok (this.expect("Identifier"))
+      def id (new JSNode())
+      id.nodeType = "Identifier"
+      id.strValue = idTok.value
+      id.start = idTok.start
+      id.line = idTok.line
+      id.col = idTok.col
+      declarator.left = id
+      declarator.start = idTok.start
+      declarator.line = idTok.line
+      declarator.col = idTok.col
+      
+      if (this.matchValue("=")) {
+        this.advance()
+        def initExpr (this.parseAssignment())
+        declarator.right = initExpr
+      }
+      
+      push decl.children declarator
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return decl
+  }
+  
+  ; === Let Declaration (ES6) ===
+  
+  fn parseLetDecl:JSNode () {
+    def decl (new JSNode())
+    decl.nodeType = "VariableDeclaration"
+    decl.strValue = "let"
+    def startTok (this.peek())
+    decl.start = startTok.start
+    decl.line = startTok.line
+    decl.col = startTok.col
+    
+    this.expectValue("let")
+    
+    def first true
+    while (first || (this.matchValue(","))) {
+      if (first == false) {
+        this.advance()
+      }
+      first = false
+      
+      def declarator (new JSNode())
+      declarator.nodeType = "VariableDeclarator"
+      def declTok (this.peek())
+      declarator.start = declTok.start
+      declarator.line = declTok.line
+      declarator.col = declTok.col
+      
+      ; Check for destructuring pattern
+      if (this.matchValue("[")) {
+        def pattern (this.parseArrayPattern())
+        declarator.left = pattern
+      } {
+        if (this.matchValue("{")) {
+          def pattern (this.parseObjectPattern())
+          declarator.left = pattern
+        } {
+          def idTok (this.expect("Identifier"))
+          def id (new JSNode())
+          id.nodeType = "Identifier"
+          id.strValue = idTok.value
+          id.start = idTok.start
+          id.line = idTok.line
+          id.col = idTok.col
+          declarator.left = id
+        }
+      }
+      
+      if (this.matchValue("=")) {
+        this.advance()
+        def initExpr (this.parseAssignment())
+        declarator.right = initExpr
+      }
+      
+      push decl.children declarator
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return decl
+  }
+  
+  ; === Const Declaration (ES6) ===
+  
+  fn parseConstDecl:JSNode () {
+    def decl (new JSNode())
+    decl.nodeType = "VariableDeclaration"
+    decl.strValue = "const"
+    def startTok (this.peek())
+    decl.start = startTok.start
+    decl.line = startTok.line
+    decl.col = startTok.col
+    
+    this.expectValue("const")
+    
+    def first true
+    while (first || (this.matchValue(","))) {
+      if (first == false) {
+        this.advance()
+      }
+      first = false
+      
+      def declarator (new JSNode())
+      declarator.nodeType = "VariableDeclarator"
+      def declTok (this.peek())
+      declarator.start = declTok.start
+      declarator.line = declTok.line
+      declarator.col = declTok.col
+      
+      ; Check for destructuring pattern
+      if (this.matchValue("[")) {
+        def pattern (this.parseArrayPattern())
+        declarator.left = pattern
+      } {
+        if (this.matchValue("{")) {
+          def pattern (this.parseObjectPattern())
+          declarator.left = pattern
+        } {
+          def idTok (this.expect("Identifier"))
+          def id (new JSNode())
+          id.nodeType = "Identifier"
+          id.strValue = idTok.value
+          id.start = idTok.start
+          id.line = idTok.line
+          id.col = idTok.col
+          declarator.left = id
+        }
+      }
+      
+      if (this.matchValue("=")) {
+        this.advance()
+        def initExpr (this.parseAssignment())
+        declarator.right = initExpr
+      }
+      
+      push decl.children declarator
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return decl
+  }
+  
+  ; === Function Declaration ===
+  
+  fn parseFuncDecl:JSNode () {
+    def func (new JSNode())
+    func.nodeType = "FunctionDeclaration"
+    def startTok (this.peek())
+    func.start = startTok.start
+    func.line = startTok.line
+    func.col = startTok.col
+    
+    this.expectValue("function")
+    
+    ; Check for generator: function*
+    if (this.matchValue("*")) {
+      func.strValue2 = "generator"
+      this.advance()
+    }
+    
+    def idTok (this.expect("Identifier"))
+    func.strValue = idTok.value
+    
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length func.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue(")")) || (this.isAtEnd())) {
+        break
+      }
+      
+      ; Check for rest parameter: ...args
+      if (this.matchValue("...")) {
+        def restTok (this.peek())
+        this.advance()
+        def paramTok (this.expect("Identifier"))
+        def rest (new JSNode())
+        rest.nodeType = "RestElement"
+        rest.strValue = paramTok.value
+        rest.start = restTok.start
+        rest.line = restTok.line
+        rest.col = restTok.col
+        push func.children rest
+      } {
+        ; Check for destructuring pattern in parameter
+        if (this.matchValue("[")) {
+          def pattern (this.parseArrayPattern())
+          push func.children pattern
+        } {
+          if (this.matchValue("{")) {
+            def pattern (this.parseObjectPattern())
+            push func.children pattern
+          } {
+            def paramTok (this.expect("Identifier"))
+            def param (new JSNode())
+            param.nodeType = "Identifier"
+            param.strValue = paramTok.value
+            param.start = paramTok.start
+            param.line = paramTok.line
+            param.col = paramTok.col
+            push func.children param
+          }
+        }
+      }
+    }
+    this.expectValue(")")
+    
+    def body (this.parseBlock())
+    func.body = body
+    
+    return func
+  }
+  
+  ; === Function Expression ===
+  
+  fn parseFunctionExpression:JSNode () {
+    def func (new JSNode())
+    func.nodeType = "FunctionExpression"
+    def startTok (this.peek())
+    func.start = startTok.start
+    func.line = startTok.line
+    func.col = startTok.col
+    
+    this.expectValue("function")
+    
+    ; Check for generator: function*
+    if (this.matchValue("*")) {
+      func.strValue2 = "generator"
+      this.advance()
+    }
+    
+    ; Optional name for named function expressions
+    if (this.matchType("Identifier")) {
+      def idTok (this.expect("Identifier"))
+      func.strValue = idTok.value
+    }
+    
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length func.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue(")")) || (this.isAtEnd())) {
+        break
+      }
+      
+      ; Check for rest parameter: ...args
+      if (this.matchValue("...")) {
+        def restTok (this.peek())
+        this.advance()
+        def paramTok (this.expect("Identifier"))
+        def rest (new JSNode())
+        rest.nodeType = "RestElement"
+        rest.strValue = paramTok.value
+        rest.start = restTok.start
+        rest.line = restTok.line
+        rest.col = restTok.col
+        push func.children rest
+      } {
+        ; Check for destructuring pattern in parameter
+        if (this.matchValue("[")) {
+          def pattern (this.parseArrayPattern())
+          push func.children pattern
+        } {
+          if (this.matchValue("{")) {
+            def pattern (this.parseObjectPattern())
+            push func.children pattern
+          } {
+            def paramTok (this.expect("Identifier"))
+            def param (new JSNode())
+            param.nodeType = "Identifier"
+            param.strValue = paramTok.value
+            param.start = paramTok.start
+            param.line = paramTok.line
+            param.col = paramTok.col
+            push func.children param
+          }
+        }
+      }
+    }
+    this.expectValue(")")
+    
+    def body (this.parseBlock())
+    func.body = body
+    
+    return func
+  }
+  
+  ; === Async Function Declaration (ES6+) ===
+  
+  fn parseAsyncFuncDecl:JSNode () {
+    def func (new JSNode())
+    func.nodeType = "FunctionDeclaration"
+    def startTok (this.peek())
+    func.start = startTok.start
+    func.line = startTok.line
+    func.col = startTok.col
+    func.strValue2 = "async"
+    
+    this.expectValue("async")
+    this.expectValue("function")
+    
+    ; Check for async generator: async function*
+    if (this.matchValue("*")) {
+      func.strValue2 = "async-generator"
+      this.advance()
+    }
+    
+    def idTok (this.expect("Identifier"))
+    func.strValue = idTok.value
+    
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length func.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue(")")) || (this.isAtEnd())) {
+        break
+      }
+      def paramTok (this.expect("Identifier"))
+      def param (new JSNode())
+      param.nodeType = "Identifier"
+      param.strValue = paramTok.value
+      param.start = paramTok.start
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push func.children param
+    }
+    this.expectValue(")")
+    
+    def body (this.parseBlock())
+    func.body = body
+    
+    return func
+  }
+  
+  ; === Class Declaration (ES6) ===
+  
+  fn parseClass:JSNode () {
+    def classNode (new JSNode())
+    classNode.nodeType = "ClassDeclaration"
+    def startTok (this.peek())
+    classNode.start = startTok.start
+    classNode.line = startTok.line
+    classNode.col = startTok.col
+    
+    this.expectValue("class")
+    
+    ; Class name
+    def idTok (this.expect("Identifier"))
+    classNode.strValue = idTok.value
+    
+    ; Optional extends
+    if (this.matchValue("extends")) {
+      this.advance()
+      def superTok (this.expect("Identifier"))
+      def superClass (new JSNode())
+      superClass.nodeType = "Identifier"
+      superClass.strValue = superTok.value
+      superClass.start = superTok.start
+      superClass.line = superTok.line
+      superClass.col = superTok.col
+      classNode.left = superClass
+    }
+    
+    ; Class body
+    def body (new JSNode())
+    body.nodeType = "ClassBody"
+    def bodyStart (this.peek())
+    body.start = bodyStart.start
+    body.line = bodyStart.line
+    body.col = bodyStart.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def method (this.parseClassMethod())
+      push body.children method
+    }
+    
+    this.expectValue("}")
+    
+    classNode.body = body
+    return classNode
+  }
+  
+  fn parseClassMethod:JSNode () {
+    def method (new JSNode())
+    method.nodeType = "MethodDefinition"
+    def startTok (this.peek())
+    method.start = startTok.start
+    method.line = startTok.line
+    method.col = startTok.col
+    
+    ; Check for static keyword
+    def isStatic:boolean false
+    if (this.matchValue("static")) {
+      isStatic = true
+      method.strValue2 = "static"
+      this.advance()
+    }
+    
+    ; Check for getter/setter
+    def kind:string "method"
+    if (this.matchValue("get")) {
+      def nextTok (this.peekAt(1))
+      if (nextTok != "(") {
+        kind = "get"
+        this.advance()
+      }
+    }
+    if (this.matchValue("set")) {
+      def nextTok (this.peekAt(1))
+      if (nextTok != "(") {
+        kind = "set"
+        this.advance()
+      }
+    }
+    
+    ; Method name
+    def nameTok (this.expect("Identifier"))
+    method.strValue = nameTok.value
+    
+    if (nameTok.value == "constructor") {
+      kind = "constructor"
+    }
+    
+    ; Parse function
+    def func (new JSNode())
+    func.nodeType = "FunctionExpression"
+    func.start = nameTok.start
+    func.line = nameTok.line
+    func.col = nameTok.col
+    
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length func.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue(")")) || (this.isAtEnd())) {
+        break
+      }
+      def paramTok (this.expect("Identifier"))
+      def param (new JSNode())
+      param.nodeType = "Identifier"
+      param.strValue = paramTok.value
+      param.start = paramTok.start
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push func.children param
+    }
+    this.expectValue(")")
+    
+    def funcBody (this.parseBlock())
+    func.body = funcBody
+    
+    method.body = func
+    return method
+  }
+  
+  ; Helper to peek at next token value
+  fn peekAt:string (offset:int) {
+    def targetPos (this.pos + offset)
+    if (targetPos >= (array_length this.tokens)) {
+      return ""
+    }
+    def tok (itemAt this.tokens targetPos)
+    return tok.value
+  }
+  
+  ; === Block Statement ===
+  
+  fn parseBlock:JSNode () {
+    def block (new JSNode())
+    block.nodeType = "BlockStatement"
+    def startTok (this.peek())
+    block.start = startTok.start
+    block.line = startTok.line
+    block.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def stmt (this.parseStatement())
+      push block.children stmt
+    }
+    
+    this.expectValue("}")
+    
+    return block
+  }
+  
+  ; === Return Statement ===
+  
+  fn parseReturn:JSNode () {
+    def ret (new JSNode())
+    ret.nodeType = "ReturnStatement"
+    def startTok (this.peek())
+    ret.start = startTok.start
+    ret.line = startTok.line
+    ret.col = startTok.col
+    
+    this.expectValue("return")
+    
+    if (((this.matchValue(";")) == false) && ((this.isAtEnd()) == false)) {
+      def arg (this.parseExpr())
+      ret.left = arg
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return ret
+  }
+  
+  ; === If Statement ===
+  
+  fn parseIf:JSNode () {
+    def ifStmt (new JSNode())
+    ifStmt.nodeType = "IfStatement"
+    def startTok (this.peek())
+    ifStmt.start = startTok.start
+    ifStmt.line = startTok.line
+    ifStmt.col = startTok.col
+    
+    this.expectValue("if")
+    this.expectValue("(")
+    def test (this.parseExpr())
+    ifStmt.test = test
+    this.expectValue(")")
+    
+    def consequent (this.parseStatement())
+    ifStmt.body = consequent
+    
+    if (this.matchValue("else")) {
+      this.advance()
+      def alt (this.parseStatement())
+      ifStmt.alternate = alt
+    }
+    
+    return ifStmt
+  }
+  
+  ; === While Statement ===
+  
+  fn parseWhile:JSNode () {
+    def whileStmt (new JSNode())
+    whileStmt.nodeType = "WhileStatement"
+    def startTok (this.peek())
+    whileStmt.start = startTok.start
+    whileStmt.line = startTok.line
+    whileStmt.col = startTok.col
+    
+    this.expectValue("while")
+    this.expectValue("(")
+    def test (this.parseExpr())
+    whileStmt.test = test
+    this.expectValue(")")
+    
+    def body (this.parseStatement())
+    whileStmt.body = body
+    
+    return whileStmt
+  }
+  
+  ; === Do-While Statement ===
+  
+  fn parseDoWhile:JSNode () {
+    def doWhileStmt (new JSNode())
+    doWhileStmt.nodeType = "DoWhileStatement"
+    def startTok (this.peek())
+    doWhileStmt.start = startTok.start
+    doWhileStmt.line = startTok.line
+    doWhileStmt.col = startTok.col
+    
+    this.expectValue("do")
+    def body (this.parseStatement())
+    doWhileStmt.body = body
+    
+    this.expectValue("while")
+    this.expectValue("(")
+    def test (this.parseExpr())
+    doWhileStmt.test = test
+    this.expectValue(")")
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return doWhileStmt
+  }
+  
+  ; === For Statement ===
+  
+  fn parseFor:JSNode () {
+    def forStmt (new JSNode())
+    def startTok (this.peek())
+    forStmt.start = startTok.start
+    forStmt.line = startTok.line
+    forStmt.col = startTok.col
+    
+    this.expectValue("for")
+    this.expectValue("(")
+    
+    ; Check for for-of or for-in: for (const x of/in iterable)
+    ; Look ahead to determine loop type
+    def isForOf false
+    def isForIn false
+    
+    ; Parse left side (could be var/let/const declaration or expression)
+    def leftNode@(optional):JSNode
+    
+    if ((this.matchValue(";")) == false) {
+      if ((this.matchValue("var")) || (this.matchValue("let")) || (this.matchValue("const"))) {
+        def keyword (this.peekValue())
+        this.advance()
+        
+        ; Check if next is destructuring pattern
+        def declarator (new JSNode())
+        declarator.nodeType = "VariableDeclarator"
+        def declTok (this.peek())
+        declarator.start = declTok.start
+        declarator.line = declTok.line
+        declarator.col = declTok.col
+        
+        if (this.matchValue("[")) {
+          ; Array destructuring pattern
+          def pattern (this.parseArrayPattern())
+          declarator.left = pattern
+        } {
+          if (this.matchValue("{")) {
+            ; Object destructuring pattern
+            def pattern (this.parseObjectPattern())
+            declarator.left = pattern
+          } {
+            ; Simple identifier
+            def idTok (this.expect("Identifier"))
+            def id (new JSNode())
+            id.nodeType = "Identifier"
+            id.strValue = idTok.value
+            id.start = idTok.start
+            id.line = idTok.line
+            id.col = idTok.col
+            declarator.left = id
+          }
+        }
+        
+        ; Check for of/in
+        if (this.matchValue("of")) {
+          isForOf = true
+          this.advance()
+          def varDecl (new JSNode())
+          varDecl.nodeType = "VariableDeclaration"
+          varDecl.strValue = keyword
+          varDecl.start = declTok.start
+          varDecl.line = declTok.line
+          varDecl.col = declTok.col
+          push varDecl.children declarator
+          leftNode = varDecl
+        } {
+          if (this.matchValue("in")) {
+            isForIn = true
+            this.advance()
+            def varDecl (new JSNode())
+            varDecl.nodeType = "VariableDeclaration"
+            varDecl.strValue = keyword
+            varDecl.start = declTok.start
+            varDecl.line = declTok.line
+            varDecl.col = declTok.col
+            push varDecl.children declarator
+            leftNode = varDecl
+          } {
+            ; Regular for loop with var declaration
+            ; Need to handle initialization
+            if (this.matchValue("=")) {
+              this.advance()
+              def initVal (this.parseAssignment())
+              declarator.right = initVal
+            }
+            def varDecl (new JSNode())
+            varDecl.nodeType = "VariableDeclaration"
+            varDecl.strValue = keyword
+            varDecl.start = declTok.start
+            varDecl.line = declTok.line
+            varDecl.col = declTok.col
+            push varDecl.children declarator
+            leftNode = varDecl
+            if (this.matchValue(";")) {
+              this.advance()
+            }
+          }
+        }
+      } {
+        ; Expression - could be identifier for for-of/in
+        def initExpr (this.parseExpr())
+        
+        if (this.matchValue("of")) {
+          isForOf = true
+          this.advance()
+          leftNode = initExpr
+        } {
+          if (this.matchValue("in")) {
+            isForIn = true
+            this.advance()
+            leftNode = initExpr
+          } {
+            leftNode = initExpr
+            if (this.matchValue(";")) {
+              this.advance()
+            }
+          }
+        }
+      }
+    } {
+      this.advance()
+    }
+    
+    if (isForOf) {
+      forStmt.nodeType = "ForOfStatement"
+      forStmt.left = (unwrap leftNode)
+      def rightExpr (this.parseExpr())
+      forStmt.right = rightExpr
+      this.expectValue(")")
+      def body (this.parseStatement())
+      forStmt.body = body
+      return forStmt
+    }
+    
+    if (isForIn) {
+      forStmt.nodeType = "ForInStatement"
+      forStmt.left = (unwrap leftNode)
+      def rightExpr (this.parseExpr())
+      forStmt.right = rightExpr
+      this.expectValue(")")
+      def body (this.parseStatement())
+      forStmt.body = body
+      return forStmt
+    }
+    
+    ; Regular for statement
+    forStmt.nodeType = "ForStatement"
+    if (!null? leftNode) {
+      forStmt.left = (unwrap leftNode)
+    }
+    
+    ; Test part
+    if ((this.matchValue(";")) == false) {
+      def test (this.parseExpr())
+      forStmt.test = test
+    }
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    ; Update part
+    if ((this.matchValue(")")) == false) {
+      def update (this.parseExpr())
+      forStmt.right = update
+    }
+    
+    this.expectValue(")")
+    
+    def body (this.parseStatement())
+    forStmt.body = body
+    
+    return forStmt
+  }
+  
+  ; === Switch Statement ===
+  
+  fn parseSwitch:JSNode () {
+    def switchStmt (new JSNode())
+    switchStmt.nodeType = "SwitchStatement"
+    def startTok (this.peek())
+    switchStmt.start = startTok.start
+    switchStmt.line = startTok.line
+    switchStmt.col = startTok.col
+    
+    this.expectValue("switch")
+    this.expectValue("(")
+    def discriminant (this.parseExpr())
+    switchStmt.test = discriminant
+    this.expectValue(")")
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def caseNode (new JSNode())
+      
+      if (this.matchValue("case")) {
+        caseNode.nodeType = "SwitchCase"
+        def caseTok (this.peek())
+        caseNode.start = caseTok.start
+        caseNode.line = caseTok.line
+        caseNode.col = caseTok.col
+        
+        this.advance()
+        def testExpr (this.parseExpr())
+        caseNode.test = testExpr
+        this.expectValue(":")
+        
+        ; Parse case body statements
+        while (((this.matchValue("case")) == false) && ((this.matchValue("default")) == false) && ((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+          def stmt (this.parseStatement())
+          push caseNode.children stmt
+        }
+        
+        push switchStmt.children caseNode
+      } {
+        if (this.matchValue("default")) {
+          caseNode.nodeType = "SwitchCase"
+          caseNode.strValue = "default"
+          def defTok (this.peek())
+          caseNode.start = defTok.start
+          caseNode.line = defTok.line
+          caseNode.col = defTok.col
+          
+          this.advance()
+          this.expectValue(":")
+          
+          ; Parse default body statements
+          while (((this.matchValue("case")) == false) && ((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+            def stmt (this.parseStatement())
+            push caseNode.children stmt
+          }
+          
+          push switchStmt.children caseNode
+        } {
+          ; Unexpected token, skip
+          this.advance()
+        }
+      }
+    }
+    
+    this.expectValue("}")
+    
+    return switchStmt
+  }
+  
+  ; === Try Statement ===
+  
+  fn parseTry:JSNode () {
+    def tryStmt (new JSNode())
+    tryStmt.nodeType = "TryStatement"
+    def startTok (this.peek())
+    tryStmt.start = startTok.start
+    tryStmt.line = startTok.line
+    tryStmt.col = startTok.col
+    
+    this.expectValue("try")
+    def block (this.parseBlock())
+    tryStmt.body = block
+    
+    ; Catch clause
+    if (this.matchValue("catch")) {
+      def catchNode (new JSNode())
+      catchNode.nodeType = "CatchClause"
+      def catchTok (this.peek())
+      catchNode.start = catchTok.start
+      catchNode.line = catchTok.line
+      catchNode.col = catchTok.col
+      
+      this.advance()
+      this.expectValue("(")
+      def paramTok (this.expect("Identifier"))
+      catchNode.strValue = paramTok.value
+      this.expectValue(")")
+      
+      def catchBody (this.parseBlock())
+      catchNode.body = catchBody
+      
+      tryStmt.left = catchNode
+    }
+    
+    ; Finally clause
+    if (this.matchValue("finally")) {
+      this.advance()
+      def finallyBlock (this.parseBlock())
+      tryStmt.right = finallyBlock
+    }
+    
+    return tryStmt
+  }
+  
+  ; === Throw Statement ===
+  
+  fn parseThrow:JSNode () {
+    def throwStmt (new JSNode())
+    throwStmt.nodeType = "ThrowStatement"
+    def startTok (this.peek())
+    throwStmt.start = startTok.start
+    throwStmt.line = startTok.line
+    throwStmt.col = startTok.col
+    
+    this.expectValue("throw")
+    def arg (this.parseExpr())
+    throwStmt.left = arg
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return throwStmt
+  }
+  
+  ; === Break Statement ===
+  
+  fn parseBreak:JSNode () {
+    def breakStmt (new JSNode())
+    breakStmt.nodeType = "BreakStatement"
+    def startTok (this.peek())
+    breakStmt.start = startTok.start
+    breakStmt.line = startTok.line
+    breakStmt.col = startTok.col
+    
+    this.expectValue("break")
+    
+    ; Optional label
+    if (this.matchType("Identifier")) {
+      def labelTok (this.peek())
+      breakStmt.strValue = labelTok.value
+      this.advance()
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return breakStmt
+  }
+  
+  ; === Continue Statement ===
+  
+  fn parseContinue:JSNode () {
+    def contStmt (new JSNode())
+    contStmt.nodeType = "ContinueStatement"
+    def startTok (this.peek())
+    contStmt.start = startTok.start
+    contStmt.line = startTok.line
+    contStmt.col = startTok.col
+    
+    this.expectValue("continue")
+    
+    ; Optional label
+    if (this.matchType("Identifier")) {
+      def labelTok (this.peek())
+      contStmt.strValue = labelTok.value
+      this.advance()
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return contStmt
+  }
+  
+  ; === Expression Statement ===
+  
+  fn parseExprStmt:JSNode () {
+    def stmt (new JSNode())
+    stmt.nodeType = "ExpressionStatement"
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    def expr (this.parseExpr())
+    stmt.left = expr
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return stmt
+  }
+  
+  ; === Expression Parsing ===
+  
+  fn parseExpr:JSNode () {
+    return (this.parseAssignment())
+  }
+  
+  fn parseAssignment:JSNode () {
+    def left (this.parseTernary())
+    
+    def tokVal (this.peekValue())
+    if (tokVal == "=") {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseAssignment())
+      
+      def assign (new JSNode())
+      assign.nodeType = "AssignmentExpression"
+      assign.strValue = opTok.value
+      assign.left = left
+      assign.right = right
+      assign.start = left.start
+      assign.line = left.line
+      assign.col = left.col
+      return assign
+    }
+    
+    return left
+  }
+  
+  fn parseTernary:JSNode () {
+    def condition (this.parseLogicalOr())
+    
+    if (this.matchValue("?")) {
+      this.advance()
+      def consequent (this.parseAssignment())
+      this.expectValue(":")
+      def alternate (this.parseAssignment())
+      
+      def ternary (new JSNode())
+      ternary.nodeType = "ConditionalExpression"
+      ternary.left = condition
+      ternary.body = consequent
+      ternary.right = alternate
+      ternary.start = condition.start
+      ternary.line = condition.line
+      ternary.col = condition.col
+      return ternary
+    }
+    
+    return condition
+  }
+  
+  fn parseLogicalOr:JSNode () {
+    def left (this.parseLogicalAnd())
+    
+    while (this.matchValue("||")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseLogicalAnd())
+      
+      def binary (new JSNode())
+      binary.nodeType = "LogicalExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+    }
+    
+    return left
+  }
+  
+  fn parseLogicalAnd:JSNode () {
+    def left (this.parseEquality())
+    
+    while (this.matchValue("&&")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseEquality())
+      
+      def binary (new JSNode())
+      binary.nodeType = "LogicalExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+    }
+    
+    return left
+  }
+  
+  fn parseEquality:JSNode () {
+    def left (this.parseComparison())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "==") || (tokVal == "!=") || (tokVal == "===") || (tokVal == "!==")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseComparison())
+      
+      def binary (new JSNode())
+      binary.nodeType = "BinaryExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseComparison:JSNode () {
+    def left (this.parseAdditive())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "<") || (tokVal == ">") || (tokVal == "<=") || (tokVal == ">=")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseAdditive())
+      
+      def binary (new JSNode())
+      binary.nodeType = "BinaryExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseAdditive:JSNode () {
+    def left (this.parseMultiplicative())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "+") || (tokVal == "-")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseMultiplicative())
+      
+      def binary (new JSNode())
+      binary.nodeType = "BinaryExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseMultiplicative:JSNode () {
+    def left (this.parseUnary())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "*") || (tokVal == "/") || (tokVal == "%")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseUnary())
+      
+      def binary (new JSNode())
+      binary.nodeType = "BinaryExpression"
+      binary.strValue = opTok.value
+      binary.left = left
+      binary.right = right
+      binary.start = left.start
+      binary.line = left.line
+      binary.col = left.col
+      left = binary
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseUnary:JSNode () {
+    def tokType (this.peekType())
+    def tokVal (this.peekValue())
+    
+    ; Only treat as unary operator if it's a Punctuator or Keyword (for typeof)
+    if (tokType == "Punctuator") {
+      if ((tokVal == "!") || (tokVal == "-") || (tokVal == "+")) {
+        def opTok (this.peek())
+        this.advance()
+        def arg (this.parseUnary())
+        
+        def unary (new JSNode())
+        unary.nodeType = "UnaryExpression"
+        unary.strValue = opTok.value
+        unary.left = arg
+        unary.start = opTok.start
+        unary.line = opTok.line
+        unary.col = opTok.col
+        return unary
+      }
+    }
+    
+    ; typeof is a keyword
+    if ((tokType == "Keyword") && (tokVal == "typeof")) {
+      def opTok (this.peek())
+      this.advance()
+      def arg (this.parseUnary())
+      
+      def unary (new JSNode())
+      unary.nodeType = "UnaryExpression"
+      unary.strValue = opTok.value
+      unary.left = arg
+      unary.start = opTok.start
+      unary.line = opTok.line
+      unary.col = opTok.col
+      return unary
+    }
+    
+    ; Prefix ++/-- (Update expression)
+    if ((tokType == "Punctuator") && ((tokVal == "++") || (tokVal == "--"))) {
+      def opTok (this.peek())
+      this.advance()
+      def arg (this.parseUnary())
+      
+      def update (new JSNode())
+      update.nodeType = "UpdateExpression"
+      update.strValue = opTok.value
+      update.strValue2 = "prefix"
+      update.left = arg
+      update.start = opTok.start
+      update.line = opTok.line
+      update.col = opTok.col
+      return update
+    }
+    
+    ; yield expression (generator)
+    if (tokVal == "yield") {
+      def yieldTok (this.peek())
+      this.advance()
+      
+      def yieldExpr (new JSNode())
+      yieldExpr.nodeType = "YieldExpression"
+      yieldExpr.start = yieldTok.start
+      yieldExpr.line = yieldTok.line
+      yieldExpr.col = yieldTok.col
+      
+      ; Check for yield*
+      if (this.matchValue("*")) {
+        yieldExpr.strValue = "delegate"
+        this.advance()
+      }
+      
+      ; yield can have optional argument
+      def nextVal (this.peekValue())
+      if ((nextVal != ";") && (nextVal != "}") && (nextVal != ",") && (nextVal != ")")) {
+        def arg (this.parseAssignment())
+        yieldExpr.left = arg
+      }
+      
+      return yieldExpr
+    }
+    
+    ; await expression (async)
+    if (tokVal == "await") {
+      def awaitTok (this.peek())
+      this.advance()
+      def arg (this.parseUnary())
+      
+      def awaitExpr (new JSNode())
+      awaitExpr.nodeType = "AwaitExpression"
+      awaitExpr.left = arg
+      awaitExpr.start = awaitTok.start
+      awaitExpr.line = awaitTok.line
+      awaitExpr.col = awaitTok.col
+      return awaitExpr
+    }
+    
+    return (this.parseCallMember())
+  }
+  
+  fn parseCallMember:JSNode () {
+    ; Handle new expression
+    if (this.matchValue("new")) {
+      return (this.parseNewExpression())
+    }
+    
+    def object (this.parsePrimary())
+    
+    def cont true
+    while (cont) {
+      def tokVal (this.peekValue())
+      
+      ; Postfix ++/--
+      if ((tokVal == "++") || (tokVal == "--")) {
+        def opTok (this.peek())
+        this.advance()
+        
+        def update (new JSNode())
+        update.nodeType = "UpdateExpression"
+        update.strValue = opTok.value
+        update.strValue2 = "postfix"
+        update.left = object
+        update.start = object.start
+        update.line = object.line
+        update.col = object.col
+        object = update
+      } {
+        if (tokVal == ".") {
+        this.advance()
+        def propTok (this.expect("Identifier"))
+        
+        def member (new JSNode())
+        member.nodeType = "MemberExpression"
+        member.left = object
+        member.strValue = propTok.value
+        member.strValue2 = "dot"
+        member.start = object.start
+        member.line = object.line
+        member.col = object.col
+        object = member
+      } {
+        if (tokVal == "[") {
+          this.advance()
+          def propExpr (this.parseExpr())
+          this.expectValue("]")
+          
+          def member (new JSNode())
+          member.nodeType = "MemberExpression"
+          member.left = object
+          member.right = propExpr
+          member.strValue2 = "bracket"
+          member.start = object.start
+          member.line = object.line
+          member.col = object.col
+          object = member
+        } {
+          if (tokVal == "(") {
+            this.advance()
+            
+            def call (new JSNode())
+            call.nodeType = "CallExpression"
+            call.left = object
+            call.start = object.start
+            call.line = object.line
+            call.col = object.col
+            
+            while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+              if ((array_length call.children) > 0) {
+                this.expectValue(",")
+              }
+              if ((this.matchValue(")")) || (this.isAtEnd())) {
+                break
+              }
+              ; Check for spread argument: fn(...args)
+              if (this.matchValue("...")) {
+                def spreadTok (this.peek())
+                this.advance()
+                def spreadArg (this.parseAssignment())
+                
+                def spread (new JSNode())
+                spread.nodeType = "SpreadElement"
+                spread.left = spreadArg
+                spread.start = spreadTok.start
+                spread.line = spreadTok.line
+                spread.col = spreadTok.col
+                push call.children spread
+              } {
+                def arg (this.parseAssignment())
+                push call.children arg
+              }
+            }
+            this.expectValue(")")
+            
+            object = call
+          } {
+            cont = false
+          }
+        }
+      }
+      }
+    }
+    
+    return object
+  }
+  
+  ; === New Expression ===
+  
+  fn parseNewExpression:JSNode () {
+    def newExpr (new JSNode())
+    newExpr.nodeType = "NewExpression"
+    def startTok (this.peek())
+    newExpr.start = startTok.start
+    newExpr.line = startTok.line
+    newExpr.col = startTok.col
+    
+    this.expectValue("new")
+    
+    ; Parse the callee (constructor)
+    def callee (this.parsePrimary())
+    
+    ; Handle member access on callee: new Foo.Bar()
+    def cont true
+    while (cont) {
+      def tokVal (this.peekValue())
+      if (tokVal == ".") {
+        this.advance()
+        def propTok (this.expect("Identifier"))
+        
+        def member (new JSNode())
+        member.nodeType = "MemberExpression"
+        member.left = callee
+        member.strValue = propTok.value
+        member.strValue2 = "dot"
+        member.start = callee.start
+        member.line = callee.line
+        member.col = callee.col
+        callee = member
+      } {
+        cont = false
+      }
+    }
+    
+    newExpr.left = callee
+    
+    ; Parse arguments if present
+    if (this.matchValue("(")) {
+      this.advance()
+      while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+        if ((array_length newExpr.children) > 0) {
+          this.expectValue(",")
+        }
+        if ((this.matchValue(")")) || (this.isAtEnd())) {
+          break
+        }
+        def arg (this.parseAssignment())
+        push newExpr.children arg
+      }
+      this.expectValue(")")
+    }
+    
+    return newExpr
+  }
+  
+  fn parsePrimary:JSNode () {
+    def tokType (this.peekType())
+    def tokVal (this.peekValue())
+    def tok (this.peek())
+    
+    ; Check for async arrow function: async () => ... or async x => ...
+    if (tokVal == "async") {
+      def nextVal (this.peekAt(1))
+      def nextNext (this.peekAt(2))
+      ; async (params) => ... or async x => ...
+      if ((nextVal == "(") || (nextNext == "=>")) {
+        return (this.parseAsyncArrowFunction())
+      }
+    }
+    
+    ; Check for arrow function: identifier => ...
+    if (tokType == "Identifier") {
+      def nextVal (this.peekAt(1))
+      if (nextVal == "=>") {
+        return (this.parseArrowFunction())
+      }
+      this.advance()
+      def id (new JSNode())
+      id.nodeType = "Identifier"
+      id.strValue = tok.value
+      id.start = tok.start
+      id.end = tok.end
+      id.line = tok.line
+      id.col = tok.col
+      return id
+    }
+    
+    if (tokType == "Number") {
+      this.advance()
+      def lit (new JSNode())
+      lit.nodeType = "Literal"
+      lit.strValue = tok.value
+      lit.strValue2 = "number"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    if (tokType == "String") {
+      this.advance()
+      def lit (new JSNode())
+      lit.nodeType = "Literal"
+      lit.strValue = tok.value
+      lit.strValue2 = "string"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    if ((tokVal == "true") || (tokVal == "false")) {
+      this.advance()
+      def lit (new JSNode())
+      lit.nodeType = "Literal"
+      lit.strValue = tok.value
+      lit.strValue2 = "boolean"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    if (tokVal == "null") {
+      this.advance()
+      def lit (new JSNode())
+      lit.nodeType = "Literal"
+      lit.strValue = "null"
+      lit.strValue2 = "null"
+      lit.start = tok.start
+      lit.end = tok.end
+      lit.line = tok.line
+      lit.col = tok.col
+      return lit
+    }
+    
+    ; Template literal
+    if (tokType == "TemplateLiteral") {
+      this.advance()
+      def tmpl (new JSNode())
+      tmpl.nodeType = "TemplateLiteral"
+      tmpl.strValue = tok.value
+      tmpl.start = tok.start
+      tmpl.end = tok.end
+      tmpl.line = tok.line
+      tmpl.col = tok.col
+      return tmpl
+    }
+    
+    if (tokVal == "(") {
+      ; Could be arrow function: (a, b) => ... or grouped expression
+      if (this.isArrowFunction()) {
+        return (this.parseArrowFunction())
+      }
+      this.advance()
+      def expr (this.parseExpr())
+      this.expectValue(")")
+      return expr
+    }
+    
+    if (tokVal == "[") {
+      return (this.parseArray())
+    }
+    
+    if (tokVal == "{") {
+      return (this.parseObject())
+    }
+    
+    ; Function expression: function(a, b) { ... } or function name(a, b) { ... }
+    if (tokVal == "function") {
+      return (this.parseFunctionExpression())
+    }
+    
+    ; Fallback
+    this.advance()
+    def fallback (new JSNode())
+    fallback.nodeType = "Identifier"
+    fallback.strValue = tok.value
+    fallback.start = tok.start
+    fallback.end = tok.end
+    fallback.line = tok.line
+    fallback.col = tok.col
+    return fallback
+  }
+  
+  fn parseArray:JSNode () {
+    def arr (new JSNode())
+    arr.nodeType = "ArrayExpression"
+    def startTok (this.peek())
+    arr.start = startTok.start
+    arr.line = startTok.line
+    arr.col = startTok.col
+    
+    this.expectValue("[")
+    
+    while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length arr.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue("]")) || (this.isAtEnd())) {
+        break
+      }
+      
+      ; Check for spread: [...other]
+      if (this.matchValue("...")) {
+        def spreadTok (this.peek())
+        this.advance()
+        def arg (this.parseAssignment())
+        
+        def spread (new JSNode())
+        spread.nodeType = "SpreadElement"
+        spread.left = arg
+        spread.start = spreadTok.start
+        spread.line = spreadTok.line
+        spread.col = spreadTok.col
+        push arr.children spread
+      } {
+        def elem (this.parseAssignment())
+        push arr.children elem
+      }
+    }
+    
+    this.expectValue("]")
+    
+    return arr
+  }
+  
+  fn parseObject:JSNode () {
+    def obj (new JSNode())
+    obj.nodeType = "ObjectExpression"
+    def startTok (this.peek())
+    obj.start = startTok.start
+    obj.line = startTok.line
+    obj.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length obj.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue("}")) || (this.isAtEnd())) {
+        break
+      }
+      
+      ; Check for spread: {...other}
+      if (this.matchValue("...")) {
+        def spreadTok (this.peek())
+        this.advance()
+        def arg (this.parseAssignment())
+        
+        def spread (new JSNode())
+        spread.nodeType = "SpreadElement"
+        spread.left = arg
+        spread.start = spreadTok.start
+        spread.line = spreadTok.line
+        spread.col = spreadTok.col
+        push obj.children spread
+      } {
+        def prop (new JSNode())
+        prop.nodeType = "Property"
+        
+        def keyTok (this.peek())
+        def keyType (this.peekType())
+        
+        ; Check for computed property name: { [expr]: value }
+        if (this.matchValue("[")) {
+          this.advance()
+          def keyExpr (this.parseAssignment())
+          this.expectValue("]")
+          this.expectValue(":")
+          def val (this.parseAssignment())
+          
+          prop.right = keyExpr
+          prop.left = val
+          prop.strValue2 = "computed"
+          prop.start = keyTok.start
+          prop.line = keyTok.line
+          prop.col = keyTok.col
+          push obj.children prop
+        } {
+          if ((keyType == "Identifier") || (keyType == "String") || (keyType == "Number")) {
+            this.advance()
+            prop.strValue = keyTok.value
+            prop.start = keyTok.start
+            prop.line = keyTok.line
+            prop.col = keyTok.col
+            
+            ; Check for shorthand property: { x } instead of { x: x }
+            if (this.matchValue(":")) {
+              this.expectValue(":")
+              def val (this.parseAssignment())
+              prop.left = val
+            } {
+              ; Shorthand - value is same as key
+              def id (new JSNode())
+              id.nodeType = "Identifier"
+              id.strValue = keyTok.value
+              id.start = keyTok.start
+              id.line = keyTok.line
+              id.col = keyTok.col
+              prop.left = id
+              prop.strValue2 = "shorthand"
+            }
+            push obj.children prop
+          } {
+            ; Unexpected token in object - skip it to avoid infinite loop
+            def err "Parse error at line " + keyTok.line + ":" + keyTok.col + ": unexpected token '" + keyTok.value + "' in object literal"
+            this.addError(err)
+            this.advance()
+          }
+        }
+      }
+    }
+    
+    this.expectValue("}")
+    
+    return obj
+  }
+  
+  ; === Destructuring Patterns (ES6) ===
+  
+  fn parseArrayPattern:JSNode () {
+    def pattern (new JSNode())
+    pattern.nodeType = "ArrayPattern"
+    def startTok (this.peek())
+    pattern.start = startTok.start
+    pattern.line = startTok.line
+    pattern.col = startTok.col
+    
+    this.expectValue("[")
+    
+    while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length pattern.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue("]")) || (this.isAtEnd())) {
+        break
+      }
+      
+      ; Check for rest element: [...rest]
+      if (this.matchValue("...")) {
+        def restTok (this.peek())
+        this.advance()
+        def idTok (this.expect("Identifier"))
+        
+        def rest (new JSNode())
+        rest.nodeType = "RestElement"
+        rest.strValue = idTok.value
+        rest.start = restTok.start
+        rest.line = restTok.line
+        rest.col = restTok.col
+        push pattern.children rest
+      } {
+        ; Could be nested pattern or identifier
+        if (this.matchValue("[")) {
+          def nested (this.parseArrayPattern())
+          push pattern.children nested
+        } {
+          if (this.matchValue("{")) {
+            def nested (this.parseObjectPattern())
+            push pattern.children nested
+          } {
+            def idTok (this.expect("Identifier"))
+            def id (new JSNode())
+            id.nodeType = "Identifier"
+            id.strValue = idTok.value
+            id.start = idTok.start
+            id.line = idTok.line
+            id.col = idTok.col
+            push pattern.children id
+          }
+        }
+      }
+    }
+    
+    this.expectValue("]")
+    
+    return pattern
+  }
+  
+  fn parseObjectPattern:JSNode () {
+    def pattern (new JSNode())
+    pattern.nodeType = "ObjectPattern"
+    def startTok (this.peek())
+    pattern.start = startTok.start
+    pattern.line = startTok.line
+    pattern.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length pattern.children) > 0) {
+        this.expectValue(",")
+      }
+      if ((this.matchValue("}")) || (this.isAtEnd())) {
+        break
+      }
+      
+      ; Check for rest element: {...rest}
+      if (this.matchValue("...")) {
+        def restTok (this.peek())
+        this.advance()
+        def idTok (this.expect("Identifier"))
+        
+        def rest (new JSNode())
+        rest.nodeType = "RestElement"
+        rest.strValue = idTok.value
+        rest.start = restTok.start
+        rest.line = restTok.line
+        rest.col = restTok.col
+        push pattern.children rest
+      } {
+        def prop (new JSNode())
+        prop.nodeType = "Property"
+        
+        def keyTok (this.expect("Identifier"))
+        prop.strValue = keyTok.value
+        prop.start = keyTok.start
+        prop.line = keyTok.line
+        prop.col = keyTok.col
+        
+        ; Check for renamed: { x: newName }
+        if (this.matchValue(":")) {
+          this.advance()
+          if (this.matchValue("[")) {
+            def nested (this.parseArrayPattern())
+            prop.left = nested
+          } {
+            if (this.matchValue("{")) {
+              def nested (this.parseObjectPattern())
+              prop.left = nested
+            } {
+              def idTok2 (this.expect("Identifier"))
+              def id (new JSNode())
+              id.nodeType = "Identifier"
+              id.strValue = idTok2.value
+              id.start = idTok2.start
+              id.line = idTok2.line
+              id.col = idTok2.col
+              prop.left = id
+            }
+          }
+        } {
+          ; Shorthand: { x } means { x: x }
+          def id (new JSNode())
+          id.nodeType = "Identifier"
+          id.strValue = keyTok.value
+          id.start = keyTok.start
+          id.line = keyTok.line
+          id.col = keyTok.col
+          prop.left = id
+          prop.strValue2 = "shorthand"
+        }
+        
+        push pattern.children prop
+      }
+    }
+    
+    this.expectValue("}")
+    
+    return pattern
+  }
+  
+  ; === Arrow Function Parsing (ES6) ===
+  
+  ; Check if current position starts an arrow function
+  fn isArrowFunction:boolean () {
+    if ((this.matchValue("(")) == false) {
+      return false
+    }
+    ; Scan ahead to find matching ) and check if followed by =>
+    def depth 1
+    def scanPos 1
+    while (depth > 0) {
+      def scanVal (this.peekAt(scanPos))
+      if (scanVal == "") {
+        return false
+      }
+      if (scanVal == "(") {
+        depth = depth + 1
+      }
+      if (scanVal == ")") {
+        depth = depth - 1
+      }
+      scanPos = scanPos + 1
+    }
+    ; Check if token after closing ) is =>
+    def afterParen (this.peekAt(scanPos))
+    return (afterParen == "=>")
+  }
+  
+  fn parseArrowFunction:JSNode () {
+    def arrow (new JSNode())
+    arrow.nodeType = "ArrowFunctionExpression"
+    def startTok (this.peek())
+    arrow.start = startTok.start
+    arrow.line = startTok.line
+    arrow.col = startTok.col
+    
+    ; Parse parameters
+    if (this.matchValue("(")) {
+      ; Multiple parameters: (a, b) => ...
+      this.advance()
+      while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+        if ((array_length arrow.children) > 0) {
+          this.expectValue(",")
+        }
+        if ((this.matchValue(")")) || (this.isAtEnd())) {
+          break
+        }
+        def paramTok (this.expect("Identifier"))
+        def param (new JSNode())
+        param.nodeType = "Identifier"
+        param.strValue = paramTok.value
+        param.start = paramTok.start
+        param.line = paramTok.line
+        param.col = paramTok.col
+        push arrow.children param
+      }
+      this.expectValue(")")
+    } {
+      ; Single parameter: x => ...
+      def paramTok (this.expect("Identifier"))
+      def param (new JSNode())
+      param.nodeType = "Identifier"
+      param.strValue = paramTok.value
+      param.start = paramTok.start
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push arrow.children param
+    }
+    
+    ; Expect =>
+    this.expectValue("=>")
+    
+    ; Parse body - could be expression or block
+    if (this.matchValue("{")) {
+      def body (this.parseBlock())
+      arrow.body = body
+    } {
+      ; Expression body
+      def expr (this.parseAssignment())
+      arrow.body = expr
+    }
+    
+    return arrow
+  }
+  
+  ; === Async Arrow Function (ES6+) ===
+  
+  fn parseAsyncArrowFunction:JSNode () {
+    def arrow (new JSNode())
+    arrow.nodeType = "ArrowFunctionExpression"
+    arrow.strValue2 = "async"
+    def startTok (this.peek())
+    arrow.start = startTok.start
+    arrow.line = startTok.line
+    arrow.col = startTok.col
+    
+    this.expectValue("async")
+    
+    ; Parse parameters
+    if (this.matchValue("(")) {
+      ; Multiple parameters: async (a, b) => ...
+      this.advance()
+      while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+        if ((array_length arrow.children) > 0) {
+          this.expectValue(",")
+        }
+        if ((this.matchValue(")")) || (this.isAtEnd())) {
+          break
+        }
+        def paramTok (this.expect("Identifier"))
+        def param (new JSNode())
+        param.nodeType = "Identifier"
+        param.strValue = paramTok.value
+        param.start = paramTok.start
+        param.line = paramTok.line
+        param.col = paramTok.col
+        push arrow.children param
+      }
+      this.expectValue(")")
+    } {
+      ; Single parameter: async x => ...
+      def paramTok (this.expect("Identifier"))
+      def param (new JSNode())
+      param.nodeType = "Identifier"
+      param.strValue = paramTok.value
+      param.start = paramTok.start
+      param.line = paramTok.line
+      param.col = paramTok.col
+      push arrow.children param
+    }
+    
+    ; Expect =>
+    this.expectValue("=>")
+    
+    ; Parse body - could be expression or block
+    if (this.matchValue("{")) {
+      def body (this.parseBlock())
+      arrow.body = body
+    } {
+      ; Expression body
+      def expr (this.parseAssignment())
+      arrow.body = expr
+    }
+    
+    return arrow
+  }
+}
+
+; AST Printer utility class
+class ASTPrinter {
+  sfn printNode:void (node:JSNode depth:int) {
+    def indent ""
+    def i 0
+    while (i < depth) {
+      indent = indent + "  "
+      i = i + 1
+    }
+    
+    ; Print leading comments if any
+    def numComments (array_length node.leadingComments)
+    if (numComments > 0) {
+      for node.leadingComments comment:JSNode ci {
+        def commentType comment.nodeType
+        def preview comment.strValue
+        if ((strlen preview) > 40) {
+          preview = (substring preview 0 40) + "..."
+        }
+        print indent + commentType + ": " + preview
+      }
+    }
+    
+    def nodeType node.nodeType
+    def loc "[" + node.line + ":" + node.col + "]"
+    
+    if (nodeType == "VariableDeclaration") {
+      def kind node.strValue
+      if ((strlen kind) > 0) {
+        print indent + "VariableDeclaration (" + kind + ") " + loc
+      } {
+        print indent + "VariableDeclaration " + loc
+      }
+      for node.children child:JSNode ci {
+        ASTPrinter.printNode(child (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "VariableDeclarator") {
+      if (!null? node.left) {
+        def id (unwrap node.left)
+        def idType id.nodeType
+        if (idType == "Identifier") {
+          print indent + "VariableDeclarator: " + id.strValue + " " + loc
+        } {
+          print indent + "VariableDeclarator " + loc
+          print indent + "  pattern:"
+          ASTPrinter.printNode(id (depth + 2))
+        }
+      } {
+        print indent + "VariableDeclarator " + loc
+      }
+      if (!null? node.right) {
+        ASTPrinter.printNode((unwrap node.right) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "FunctionDeclaration") {
+      def params ""
+      for node.children p:JSNode pi {
+        if (pi > 0) {
+          params = params + ", "
+        }
+        params = params + p.strValue
+      }
+      def kind node.strValue2
+      def prefix ""
+      if (kind == "async") {
+        prefix = "async "
+      }
+      if (kind == "generator") {
+        prefix = "function* "
+      }
+      if (kind == "async-generator") {
+        prefix = "async function* "
+      }
+      if ((strlen prefix) > 0) {
+        print indent + "FunctionDeclaration: " + prefix + node.strValue + "(" + params + ") " + loc
+      } {
+        print indent + "FunctionDeclaration: " + node.strValue + "(" + params + ") " + loc
+      }
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 1))
+      }
+      return
+    }
+    
+    ; ES6 Class
+    if (nodeType == "ClassDeclaration") {
+      def output indent + "ClassDeclaration: " + node.strValue
+      if (!null? node.left) {
+        def superClass (unwrap node.left)
+        output = output + " extends " + superClass.strValue
+      }
+      print output + " " + loc
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "ClassBody") {
+      print indent + "ClassBody " + loc
+      for node.children method:JSNode mi {
+        ASTPrinter.printNode(method (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "MethodDefinition") {
+      def staticStr ""
+      if (node.strValue2 == "static") {
+        staticStr = "static "
+      }
+      print indent + "MethodDefinition: " + staticStr + node.strValue + " " + loc
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 1))
+      }
+      return
+    }
+    
+    ; ES6 Arrow function
+    if (nodeType == "ArrowFunctionExpression") {
+      def params ""
+      for node.children p:JSNode pi {
+        if (pi > 0) {
+          params = params + ", "
+        }
+        params = params + p.strValue
+      }
+      def asyncStr ""
+      if (node.strValue2 == "async") {
+        asyncStr = "async "
+      }
+      print indent + "ArrowFunctionExpression: " + asyncStr + "(" + params + ") => " + loc
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 1))
+      }
+      return
+    }
+    
+    ; Yield expression (generator)
+    if (nodeType == "YieldExpression") {
+      def delegateStr ""
+      if (node.strValue == "delegate") {
+        delegateStr = "*"
+      }
+      print indent + "YieldExpression" + delegateStr + " " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    ; Await expression (async)
+    if (nodeType == "AwaitExpression") {
+      print indent + "AwaitExpression " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    ; Template literal
+    if (nodeType == "TemplateLiteral") {
+      print indent + "TemplateLiteral: `" + node.strValue + "` " + loc
+      return
+    }
+    
+    if (nodeType == "BlockStatement") {
+      print indent + "BlockStatement " + loc
+      for node.children child:JSNode ci {
+        ASTPrinter.printNode(child (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "ReturnStatement") {
+      print indent + "ReturnStatement " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "IfStatement") {
+      print indent + "IfStatement " + loc
+      print indent + "  test:"
+      if (!null? node.test) {
+        ASTPrinter.printNode((unwrap node.test) (depth + 2))
+      }
+      print indent + "  consequent:"
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
+      }
+      if (!null? node.alternate) {
+        print indent + "  alternate:"
+        ASTPrinter.printNode((unwrap node.alternate) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "ExpressionStatement") {
+      print indent + "ExpressionStatement " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "AssignmentExpression") {
+      print indent + "AssignmentExpression: " + node.strValue + " " + loc
+      if (!null? node.left) {
+        print indent + "  left:"
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      if (!null? node.right) {
+        print indent + "  right:"
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
+      }
+      return
+    }
+    
+    if ((nodeType == "BinaryExpression") || (nodeType == "LogicalExpression")) {
+      print indent + nodeType + ": " + node.strValue + " " + loc
+      if (!null? node.left) {
+        print indent + "  left:"
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      if (!null? node.right) {
+        print indent + "  right:"
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "UnaryExpression") {
+      print indent + "UnaryExpression: " + node.strValue + " " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "UpdateExpression") {
+      def prefix ""
+      if (node.strValue2 == "prefix") {
+        prefix = "prefix "
+      } {
+        prefix = "postfix "
+      }
+      print indent + "UpdateExpression: " + prefix + node.strValue + " " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "NewExpression") {
+      print indent + "NewExpression " + loc
+      print indent + "  callee:"
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      if ((array_length node.children) > 0) {
+        print indent + "  arguments:"
+        for node.children arg:JSNode ai {
+          ASTPrinter.printNode(arg (depth + 2))
+        }
+      }
+      return
+    }
+    
+    if (nodeType == "ConditionalExpression") {
+      print indent + "ConditionalExpression " + loc
+      print indent + "  test:"
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      print indent + "  consequent:"
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
+      }
+      print indent + "  alternate:"
+      if (!null? node.right) {
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "CallExpression") {
+      print indent + "CallExpression " + loc
+      if (!null? node.left) {
+        print indent + "  callee:"
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      if ((array_length node.children) > 0) {
+        print indent + "  arguments:"
+        for node.children arg:JSNode ai {
+          ASTPrinter.printNode(arg (depth + 2))
+        }
+      }
+      return
+    }
+    
+    if (nodeType == "MemberExpression") {
+      if (node.strValue2 == "dot") {
+        print indent + "MemberExpression: ." + node.strValue + " " + loc
+      } {
+        print indent + "MemberExpression: [computed] " + loc
+      }
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      if (!null? node.right) {
+        ASTPrinter.printNode((unwrap node.right) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "Identifier") {
+      print indent + "Identifier: " + node.strValue + " " + loc
+      return
+    }
+    
+    if (nodeType == "Literal") {
+      print indent + "Literal: " + node.strValue + " (" + node.strValue2 + ") " + loc
+      return
+    }
+    
+    if (nodeType == "ArrayExpression") {
+      print indent + "ArrayExpression " + loc
+      for node.children elem:JSNode ei {
+        ASTPrinter.printNode(elem (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "ObjectExpression") {
+      print indent + "ObjectExpression " + loc
+      for node.children prop:JSNode pi {
+        ASTPrinter.printNode(prop (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "Property") {
+      def shorthand ""
+      if (node.strValue2 == "shorthand") {
+        shorthand = " (shorthand)"
+      }
+      print indent + "Property: " + node.strValue + shorthand + " " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    ; Destructuring patterns
+    if (nodeType == "ArrayPattern") {
+      print indent + "ArrayPattern " + loc
+      for node.children elem:JSNode ei {
+        ASTPrinter.printNode(elem (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "ObjectPattern") {
+      print indent + "ObjectPattern " + loc
+      for node.children prop:JSNode pi {
+        ASTPrinter.printNode(prop (depth + 1))
+      }
+      return
+    }
+    
+    ; Spread and rest elements
+    if (nodeType == "SpreadElement") {
+      print indent + "SpreadElement " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "RestElement") {
+      print indent + "RestElement: ..." + node.strValue + " " + loc
+      return
+    }
+    
+    if (nodeType == "WhileStatement") {
+      print indent + "WhileStatement " + loc
+      print indent + "  test:"
+      if (!null? node.test) {
+        ASTPrinter.printNode((unwrap node.test) (depth + 2))
+      }
+      print indent + "  body:"
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "DoWhileStatement") {
+      print indent + "DoWhileStatement " + loc
+      print indent + "  body:"
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
+      }
+      print indent + "  test:"
+      if (!null? node.test) {
+        ASTPrinter.printNode((unwrap node.test) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "ForStatement") {
+      print indent + "ForStatement " + loc
+      if (!null? node.left) {
+        print indent + "  init:"
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      if (!null? node.test) {
+        print indent + "  test:"
+        ASTPrinter.printNode((unwrap node.test) (depth + 2))
+      }
+      if (!null? node.right) {
+        print indent + "  update:"
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
+      }
+      print indent + "  body:"
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "ForOfStatement") {
+      print indent + "ForOfStatement " + loc
+      if (!null? node.left) {
+        print indent + "  left:"
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      if (!null? node.right) {
+        print indent + "  right:"
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
+      }
+      print indent + "  body:"
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "ForInStatement") {
+      print indent + "ForInStatement " + loc
+      if (!null? node.left) {
+        print indent + "  left:"
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      if (!null? node.right) {
+        print indent + "  right:"
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
+      }
+      print indent + "  body:"
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "SwitchStatement") {
+      print indent + "SwitchStatement " + loc
+      print indent + "  discriminant:"
+      if (!null? node.test) {
+        ASTPrinter.printNode((unwrap node.test) (depth + 2))
+      }
+      print indent + "  cases:"
+      for node.children caseNode:JSNode ci {
+        ASTPrinter.printNode(caseNode (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "SwitchCase") {
+      if (node.strValue == "default") {
+        print indent + "SwitchCase: default " + loc
+      } {
+        print indent + "SwitchCase " + loc
+        if (!null? node.test) {
+          print indent + "  test:"
+          ASTPrinter.printNode((unwrap node.test) (depth + 2))
+        }
+      }
+      if ((array_length node.children) > 0) {
+        print indent + "  consequent:"
+        for node.children stmt:JSNode si {
+          ASTPrinter.printNode(stmt (depth + 2))
+        }
+      }
+      return
+    }
+    
+    if (nodeType == "TryStatement") {
+      print indent + "TryStatement " + loc
+      print indent + "  block:"
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 2))
+      }
+      if (!null? node.left) {
+        print indent + "  handler:"
+        ASTPrinter.printNode((unwrap node.left) (depth + 2))
+      }
+      if (!null? node.right) {
+        print indent + "  finalizer:"
+        ASTPrinter.printNode((unwrap node.right) (depth + 2))
+      }
+      return
+    }
+    
+    if (nodeType == "CatchClause") {
+      print indent + "CatchClause: " + node.strValue + " " + loc
+      if (!null? node.body) {
+        ASTPrinter.printNode((unwrap node.body) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "ThrowStatement") {
+      print indent + "ThrowStatement " + loc
+      if (!null? node.left) {
+        ASTPrinter.printNode((unwrap node.left) (depth + 1))
+      }
+      return
+    }
+    
+    if (nodeType == "BreakStatement") {
+      if ((strlen node.strValue) > 0) {
+        print indent + "BreakStatement: " + node.strValue + " " + loc
+      } {
+        print indent + "BreakStatement " + loc
+      }
+      return
+    }
+    
+    if (nodeType == "ContinueStatement") {
+      if ((strlen node.strValue) > 0) {
+        print indent + "ContinueStatement: " + node.strValue + " " + loc
+      } {
+        print indent + "ContinueStatement " + loc
+      }
+      return
+    }
+    
+    ; Default
+    print indent + nodeType + " " + loc
+  }
+}

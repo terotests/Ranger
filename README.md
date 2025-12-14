@@ -220,6 +220,60 @@ The ~11KB Ranger source compiles to native executables ranging from 76KB to 3MB,
 - Console rendering may have timing artifacts on some terminals
 - Swift target requires macOS or Linux (not available on Windows)
 
+### JavaScript ES6+ Parser
+
+A comprehensive JavaScript ES6+ parser written entirely in Ranger, demonstrating the language's capability to build complex tools. The parser includes a full lexer, recursive descent parser, and pretty-printer.
+
+**Features:**
+
+- **Full ES6+ support** - Classes, arrow functions, async/await, generators, destructuring, spread operators, template literals
+- **Pretty-printer** - Parses JavaScript and outputs formatted code
+- **Comment preservation** - Line comments, block comments, and JSDoc are attached to AST nodes
+- **Cross-platform** - Parser can be compiled to JavaScript, Go, Python, etc.
+
+**Quick Start:**
+
+```bash
+# Compile the parser
+$env:RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr"
+node bin/output.js gallery/js_parser/js_parser_main.rgr -o=js_parser.js -d=gallery/js_parser
+
+# Parse and pretty-print a JavaScript file
+node gallery/js_parser/js_parser.js -i input.js -o output.js
+
+# Show AST structure
+node gallery/js_parser/js_parser.js -i input.js --ast
+```
+
+**Supported ES6+ Features:**
+
+| Category     | Features                                                               |
+| ------------ | ---------------------------------------------------------------------- |
+| Declarations | `let`, `const`, `var`, function declarations/expressions               |
+| Classes      | `class`, `extends`, `constructor`, `static`, getters, `super`          |
+| Functions    | Arrow functions (`=>`), async/await, generators (`function*`, `yield`) |
+| Operators    | Spread (`...`), rest parameters, destructuring (array/object)          |
+| Literals     | Template literals with interpolation, computed property names          |
+| Control Flow | `for-of`, `for-in`, `while`, `if/else`, `switch`, `try/catch`          |
+
+**Example transformation:**
+
+```javascript
+// Input
+const greet = async (name) => {
+  const msg = `Hello, ${name}!`;
+  return msg;
+};
+
+// Output (pretty-printed)
+const greet = async (name) => {
+  const msg = `Hello, ${name}!`;
+  return msg;
+};
+```
+
+See [gallery/js_parser/README.md](gallery/js_parser/README.md) for complete documentation.
+
 ### Polyfill System
 
 Ranger supports automatic polyfill generation for operators that require helper functions in the target language. Polyfills are utility functions, types, or constants that are automatically added to the generated output when an operator needs them.

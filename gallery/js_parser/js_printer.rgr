@@ -1,0 +1,950 @@
+; JavaScript Pretty Printer
+; Takes AST nodes and outputs formatted JavaScript code
+
+Import "js_parser_core.rgr"
+
+class JSPrinter {
+  def indentLevel:int 0
+  def indentStr:string "  "
+  def output:string ""
+  
+  fn getIndent:string () {
+    def result ""
+    def i 0
+    while (i < this.indentLevel) {
+      result = result + this.indentStr
+      i = i + 1
+    }
+    return result
+  }
+  
+  fn emit:void (text:string) {
+    this.output = this.output + text
+  }
+  
+  fn emitLine:void (text:string) {
+    this.output = this.output + (this.getIndent()) + text + "\n"
+  }
+  
+  fn emitIndent:void () {
+    this.output = this.output + (this.getIndent())
+  }
+  
+  fn indent:void () {
+    this.indentLevel = this.indentLevel + 1
+  }
+  
+  fn dedent:void () {
+    this.indentLevel = this.indentLevel - 1
+  }
+  
+  ; Print leading comments attached to a node
+  fn printLeadingComments:void (node:JSNode) {
+    def numComments (array_length node.leadingComments)
+    if (numComments == 0) {
+      return
+    }
+    
+    for node.leadingComments comment:JSNode i {
+      this.printComment(comment)
+    }
+  }
+  
+  ; Print a single comment node
+  fn printComment:void (comment:JSNode) {
+    def commentType comment.nodeType
+    def value comment.strValue
+    
+    if (commentType == "LineComment") {
+      this.emitLine("//" + value)
+      return
+    }
+    
+    if (commentType == "BlockComment") {
+      this.emitLine("/*" + value + "*/")
+      return
+    }
+    
+    if (commentType == "JSDocComment") {
+      this.printJSDocComment(value)
+      return
+    }
+  }
+  
+  ; Print JSDoc comment with proper formatting
+  fn printJSDocComment:void (value:string) {
+    ; JSDoc content already starts with * from the parser
+    ; So we emit /** followed by the content (which starts with *)
+    this.emitLine("/*" + value + "*/")
+  }
+  
+  fn print:string (node:JSNode) {
+    this.output = ""
+    this.indentLevel = 0
+    this.printNode(node)
+    return this.output
+  }
+  
+  fn printNode:void (node:JSNode) {
+    def nodeType node.nodeType
+    
+    if (nodeType == "Program") {
+      this.printProgram(node)
+      return
+    }
+    
+    if (nodeType == "VariableDeclaration") {
+      this.printVariableDeclaration(node)
+      return
+    }
+    
+    if (nodeType == "FunctionDeclaration") {
+      this.printFunctionDeclaration(node)
+      return
+    }
+    
+    if (nodeType == "ClassDeclaration") {
+      this.printClassDeclaration(node)
+      return
+    }
+    
+    if (nodeType == "BlockStatement") {
+      this.printBlockStatement(node)
+      return
+    }
+    
+    if (nodeType == "ExpressionStatement") {
+      this.printExpressionStatement(node)
+      return
+    }
+    
+    if (nodeType == "ReturnStatement") {
+      this.printReturnStatement(node)
+      return
+    }
+    
+    if (nodeType == "IfStatement") {
+      this.printIfStatement(node)
+      return
+    }
+    
+    if (nodeType == "WhileStatement") {
+      this.printWhileStatement(node)
+      return
+    }
+    
+    if (nodeType == "DoWhileStatement") {
+      this.printDoWhileStatement(node)
+      return
+    }
+    
+    if (nodeType == "ForStatement") {
+      this.printForStatement(node)
+      return
+    }
+    
+    if (nodeType == "ForOfStatement") {
+      this.printForOfStatement(node)
+      return
+    }
+    
+    if (nodeType == "ForInStatement") {
+      this.printForInStatement(node)
+      return
+    }
+    
+    if (nodeType == "SwitchStatement") {
+      this.printSwitchStatement(node)
+      return
+    }
+    
+    if (nodeType == "TryStatement") {
+      this.printTryStatement(node)
+      return
+    }
+    
+    if (nodeType == "ThrowStatement") {
+      this.printThrowStatement(node)
+      return
+    }
+    
+    if (nodeType == "BreakStatement") {
+      this.emit("break")
+      return
+    }
+    
+    if (nodeType == "ContinueStatement") {
+      this.emit("continue")
+      return
+    }
+    
+    if (nodeType == "EmptyStatement") {
+      return
+    }
+    
+    ; Expressions
+    if (nodeType == "Identifier") {
+      this.emit(node.strValue)
+      return
+    }
+    
+    if (nodeType == "Literal") {
+      this.printLiteral(node)
+      return
+    }
+    
+    if (nodeType == "TemplateLiteral") {
+      this.emit("`" + node.strValue + "`")
+      return
+    }
+    
+    if (nodeType == "ArrayExpression") {
+      this.printArrayExpression(node)
+      return
+    }
+    
+    if (nodeType == "ObjectExpression") {
+      this.printObjectExpression(node)
+      return
+    }
+    
+    if (nodeType == "BinaryExpression") {
+      this.printBinaryExpression(node)
+      return
+    }
+    
+    if (nodeType == "LogicalExpression") {
+      this.printBinaryExpression(node)
+      return
+    }
+    
+    if (nodeType == "UnaryExpression") {
+      this.printUnaryExpression(node)
+      return
+    }
+    
+    if (nodeType == "UpdateExpression") {
+      this.printUpdateExpression(node)
+      return
+    }
+    
+    if (nodeType == "AssignmentExpression") {
+      this.printAssignmentExpression(node)
+      return
+    }
+    
+    if (nodeType == "ConditionalExpression") {
+      this.printConditionalExpression(node)
+      return
+    }
+    
+    if (nodeType == "CallExpression") {
+      this.printCallExpression(node)
+      return
+    }
+    
+    if (nodeType == "MemberExpression") {
+      this.printMemberExpression(node)
+      return
+    }
+    
+    if (nodeType == "NewExpression") {
+      this.printNewExpression(node)
+      return
+    }
+    
+    if (nodeType == "ArrowFunctionExpression") {
+      this.printArrowFunction(node)
+      return
+    }
+    
+    if (nodeType == "FunctionExpression") {
+      this.printFunctionExpression(node)
+      return
+    }
+    
+    if (nodeType == "YieldExpression") {
+      this.printYieldExpression(node)
+      return
+    }
+    
+    if (nodeType == "AwaitExpression") {
+      this.printAwaitExpression(node)
+      return
+    }
+    
+    if (nodeType == "SpreadElement") {
+      this.printSpreadElement(node)
+      return
+    }
+    
+    if (nodeType == "RestElement") {
+      this.emit("..." + node.strValue)
+      return
+    }
+    
+    if (nodeType == "ArrayPattern") {
+      this.printArrayPattern(node)
+      return
+    }
+    
+    if (nodeType == "ObjectPattern") {
+      this.printObjectPattern(node)
+      return
+    }
+    
+    ; Fallback - emit node type as comment
+    this.emit("/* unknown: " + nodeType + " */")
+  }
+  
+  ; === Program ===
+  
+  fn printProgram:void (node:JSNode) {
+    for node.children stmt:JSNode idx {
+      this.printStatement(stmt)
+    }
+  }
+  
+  fn printStatement:void (node:JSNode) {
+    ; Print any leading comments
+    this.printLeadingComments(node)
+    
+    def nodeType node.nodeType
+    
+    ; Block statements handle their own formatting
+    if (nodeType == "BlockStatement") {
+      this.printBlockStatement(node)
+      return
+    }
+    
+    ; Statements that don't need semicolons
+    if ((nodeType == "FunctionDeclaration") || (nodeType == "ClassDeclaration") || (nodeType == "IfStatement") || (nodeType == "WhileStatement") || (nodeType == "DoWhileStatement") || (nodeType == "ForStatement") || (nodeType == "ForOfStatement") || (nodeType == "ForInStatement") || (nodeType == "SwitchStatement") || (nodeType == "TryStatement")) {
+      this.emitIndent()
+      this.printNode(node)
+      this.emit("\n")
+      return
+    }
+    
+    ; Statements that need semicolons
+    this.emitIndent()
+    this.printNode(node)
+    this.emit(";\n")
+  }
+  
+  ; === Declarations ===
+  
+  fn printVariableDeclaration:void (node:JSNode) {
+    def kind node.strValue
+    if ((strlen kind) == 0) {
+      kind = "var"
+    }
+    this.emit(kind + " ")
+    
+    def first true
+    for node.children decl:JSNode idx {
+      if (first == false) {
+        this.emit(", ")
+      }
+      first = false
+      this.printVariableDeclarator(decl)
+    }
+  }
+  
+  fn printVariableDeclarator:void (node:JSNode) {
+    if (!null? node.left) {
+      def left (unwrap node.left)
+      this.printNode(left)
+    }
+    if (!null? node.right) {
+      this.emit(" = ")
+      this.printNode((unwrap node.right))
+    }
+  }
+  
+  fn printFunctionDeclaration:void (node:JSNode) {
+    def kind node.strValue2
+    
+    if (kind == "async") {
+      this.emit("async ")
+    }
+    if (kind == "async-generator") {
+      this.emit("async ")
+    }
+    
+    this.emit("function")
+    
+    if ((kind == "generator") || (kind == "async-generator")) {
+      this.emit("*")
+    }
+    
+    this.emit(" " + node.strValue + "(")
+    this.printParams(node.children)
+    this.emit(") ")
+    
+    if (!null? node.body) {
+      this.printNode((unwrap node.body))
+    }
+  }
+  
+  fn printParams:void (params:[JSNode]) {
+    def first true
+    for params p:JSNode idx {
+      if (first == false) {
+        this.emit(", ")
+      }
+      first = false
+      this.printNode(p)
+    }
+  }
+  
+  fn printClassDeclaration:void (node:JSNode) {
+    this.emit("class " + node.strValue)
+    
+    if (!null? node.left) {
+      def superClass (unwrap node.left)
+      this.emit(" extends " + superClass.strValue)
+    }
+    
+    this.emit(" ")
+    
+    if (!null? node.body) {
+      this.printClassBody((unwrap node.body))
+    }
+  }
+  
+  fn printClassBody:void (node:JSNode) {
+    this.emit("{\n")
+    this.indent()
+    
+    for node.children method:JSNode idx {
+      this.printMethodDefinition(method)
+    }
+    
+    this.dedent()
+    this.emitIndent()
+    this.emit("}")
+  }
+  
+  fn printMethodDefinition:void (node:JSNode) {
+    this.emitIndent()
+    
+    if (node.strValue2 == "static") {
+      this.emit("static ")
+    }
+    
+    this.emit(node.strValue + "(")
+    
+    if (!null? node.body) {
+      def func (unwrap node.body)
+      this.printParams(func.children)
+    }
+    
+    this.emit(") ")
+    
+    if (!null? node.body) {
+      def func (unwrap node.body)
+      if (!null? func.body) {
+        this.printNode((unwrap func.body))
+      }
+    }
+    
+    this.emit("\n")
+  }
+  
+  ; === Statements ===
+  
+  fn printBlockStatement:void (node:JSNode) {
+    this.emit("{\n")
+    this.indent()
+    
+    for node.children stmt:JSNode idx {
+      this.printStatement(stmt)
+    }
+    
+    this.dedent()
+    this.emitIndent()
+    this.emit("}")
+  }
+  
+  fn printExpressionStatement:void (node:JSNode) {
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+  }
+  
+  fn printReturnStatement:void (node:JSNode) {
+    this.emit("return")
+    if (!null? node.left) {
+      this.emit(" ")
+      this.printNode((unwrap node.left))
+    }
+  }
+  
+  fn printIfStatement:void (node:JSNode) {
+    this.emit("if (")
+    if (!null? node.test) {
+      this.printNode((unwrap node.test))
+    }
+    this.emit(") ")
+    
+    if (!null? node.body) {
+      this.printNode((unwrap node.body))
+    }
+    
+    if (!null? node.alternate) {
+      this.emit(" else ")
+      this.printNode((unwrap node.alternate))
+    }
+  }
+  
+  fn printWhileStatement:void (node:JSNode) {
+    this.emit("while (")
+    if (!null? node.test) {
+      this.printNode((unwrap node.test))
+    }
+    this.emit(") ")
+    
+    if (!null? node.body) {
+      this.printNode((unwrap node.body))
+    }
+  }
+  
+  fn printDoWhileStatement:void (node:JSNode) {
+    this.emit("do ")
+    
+    if (!null? node.body) {
+      this.printNode((unwrap node.body))
+    }
+    
+    this.emit(" while (")
+    if (!null? node.test) {
+      this.printNode((unwrap node.test))
+    }
+    this.emit(")")
+  }
+  
+  fn printForStatement:void (node:JSNode) {
+    this.emit("for (")
+    
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    this.emit("; ")
+    
+    if (!null? node.test) {
+      this.printNode((unwrap node.test))
+    }
+    this.emit("; ")
+    
+    if (!null? node.right) {
+      this.printNode((unwrap node.right))
+    }
+    this.emit(") ")
+    
+    if (!null? node.body) {
+      this.printNode((unwrap node.body))
+    }
+  }
+  
+  fn printForOfStatement:void (node:JSNode) {
+    this.emit("for (")
+    
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    this.emit(" of ")
+    
+    if (!null? node.right) {
+      this.printNode((unwrap node.right))
+    }
+    this.emit(") ")
+    
+    if (!null? node.body) {
+      this.printNode((unwrap node.body))
+    }
+  }
+  
+  fn printForInStatement:void (node:JSNode) {
+    this.emit("for (")
+    
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    this.emit(" in ")
+    
+    if (!null? node.right) {
+      this.printNode((unwrap node.right))
+    }
+    this.emit(") ")
+    
+    if (!null? node.body) {
+      this.printNode((unwrap node.body))
+    }
+  }
+  
+  fn printSwitchStatement:void (node:JSNode) {
+    this.emit("switch (")
+    if (!null? node.test) {
+      this.printNode((unwrap node.test))
+    }
+    this.emit(") {\n")
+    
+    this.indent()
+    for node.children caseNode:JSNode idx {
+      this.printSwitchCase(caseNode)
+    }
+    this.dedent()
+    
+    this.emitIndent()
+    this.emit("}")
+  }
+  
+  fn printSwitchCase:void (node:JSNode) {
+    if (node.strValue == "default") {
+      this.emitLine("default:")
+    } {
+      this.emitIndent()
+      this.emit("case ")
+      if (!null? node.test) {
+        this.printNode((unwrap node.test))
+      }
+      this.emit(":\n")
+    }
+    
+    this.indent()
+    for node.children stmt:JSNode idx {
+      this.printStatement(stmt)
+    }
+    this.dedent()
+  }
+  
+  fn printTryStatement:void (node:JSNode) {
+    this.emit("try ")
+    
+    if (!null? node.body) {
+      this.printNode((unwrap node.body))
+    }
+    
+    ; Catch clause is stored in node.left
+    if (!null? node.left) {
+      def catchClause (unwrap node.left)
+      this.emit(" catch (" + catchClause.strValue + ") ")
+      if (!null? catchClause.body) {
+        this.printNode((unwrap catchClause.body))
+      }
+    }
+    
+    ; Finally clause is stored in node.right
+    if (!null? node.right) {
+      this.emit(" finally ")
+      this.printNode((unwrap node.right))
+    }
+  }
+  
+  fn printThrowStatement:void (node:JSNode) {
+    this.emit("throw ")
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+  }
+  
+  ; === Expressions ===
+  
+  fn printLiteral:void (node:JSNode) {
+    def litType node.strValue2
+    if (litType == "string") {
+      this.emit("'" + node.strValue + "'")
+    } {
+      this.emit(node.strValue)
+    }
+  }
+  
+  fn printArrayExpression:void (node:JSNode) {
+    this.emit("[")
+    def first true
+    for node.children elem:JSNode idx {
+      if (first == false) {
+        this.emit(", ")
+      }
+      first = false
+      this.printNode(elem)
+    }
+    this.emit("]")
+  }
+  
+  fn printObjectExpression:void (node:JSNode) {
+    if ((array_length node.children) == 0) {
+      this.emit("{}")
+      return
+    }
+    
+    this.emit("{ ")
+    def first true
+    for node.children prop:JSNode idx {
+      if (first == false) {
+        this.emit(", ")
+      }
+      first = false
+      this.printProperty(prop)
+    }
+    this.emit(" }")
+  }
+  
+  fn printProperty:void (node:JSNode) {
+    def nodeType node.nodeType
+    
+    if (nodeType == "SpreadElement") {
+      this.printSpreadElement(node)
+      return
+    }
+    
+    ; Shorthand property
+    if (node.strValue2 == "shorthand") {
+      this.emit(node.strValue)
+      return
+    }
+    
+    ; Computed property name: [expr]: value
+    if (node.strValue2 == "computed") {
+      this.emit("[")
+      if (!null? node.right) {
+        this.printNode((unwrap node.right))
+      }
+      this.emit("]: ")
+      if (!null? node.left) {
+        this.printNode((unwrap node.left))
+      }
+      return
+    }
+    
+    this.emit(node.strValue + ": ")
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+  }
+  
+  fn printBinaryExpression:void (node:JSNode) {
+    this.emit("(")
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    this.emit(" " + node.strValue + " ")
+    if (!null? node.right) {
+      this.printNode((unwrap node.right))
+    }
+    this.emit(")")
+  }
+  
+  fn printUnaryExpression:void (node:JSNode) {
+    def op node.strValue
+    this.emit(op)
+    ; Add space for word operators like typeof
+    if (op == "typeof") {
+      this.emit(" ")
+    }
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+  }
+  
+  fn printUpdateExpression:void (node:JSNode) {
+    def op node.strValue
+    def isPrefix (node.strValue2 == "prefix")
+    
+    if (isPrefix) {
+      this.emit(op)
+    }
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    if (isPrefix == false) {
+      this.emit(op)
+    }
+  }
+  
+  fn printAssignmentExpression:void (node:JSNode) {
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    this.emit(" " + node.strValue + " ")
+    if (!null? node.right) {
+      this.printNode((unwrap node.right))
+    }
+  }
+  
+  fn printConditionalExpression:void (node:JSNode) {
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    this.emit(" ? ")
+    if (!null? node.body) {
+      this.printNode((unwrap node.body))
+    }
+    this.emit(" : ")
+    if (!null? node.right) {
+      this.printNode((unwrap node.right))
+    }
+  }
+  
+  fn printCallExpression:void (node:JSNode) {
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    this.emit("(")
+    def first true
+    for node.children arg:JSNode idx {
+      if (first == false) {
+        this.emit(", ")
+      }
+      first = false
+      this.printNode(arg)
+    }
+    this.emit(")")
+  }
+  
+  fn printMemberExpression:void (node:JSNode) {
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    
+    def accessType node.strValue2
+    if (accessType == "bracket") {
+      this.emit("[")
+      if (!null? node.right) {
+        this.printNode((unwrap node.right))
+      }
+      this.emit("]")
+    } {
+      this.emit("." + node.strValue)
+    }
+  }
+  
+  fn printNewExpression:void (node:JSNode) {
+    this.emit("new ")
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+    this.emit("(")
+    def first true
+    for node.children arg:JSNode idx {
+      if (first == false) {
+        this.emit(", ")
+      }
+      first = false
+      this.printNode(arg)
+    }
+    this.emit(")")
+  }
+  
+  fn printArrowFunction:void (node:JSNode) {
+    if (node.strValue2 == "async") {
+      this.emit("async ")
+    }
+    
+    ; Parameters
+    def paramCount (array_length node.children)
+    if (paramCount == 1) {
+      ; Single param can omit parens (unless it's a pattern)
+      def firstParam (itemAt node.children 0)
+      if (firstParam.nodeType == "Identifier") {
+        this.emit(firstParam.strValue)
+      } {
+        this.emit("(")
+        this.printNode(firstParam)
+        this.emit(")")
+      }
+    } {
+      this.emit("(")
+      this.printParams(node.children)
+      this.emit(")")
+    }
+    
+    this.emit(" => ")
+    
+    if (!null? node.body) {
+      def body (unwrap node.body)
+      if (body.nodeType == "BlockStatement") {
+        this.printNode(body)
+      } {
+        ; Expression body
+        this.printNode(body)
+      }
+    }
+  }
+  
+  fn printFunctionExpression:void (node:JSNode) {
+    this.emit("function(")
+    this.printParams(node.children)
+    this.emit(") ")
+    if (!null? node.body) {
+      this.printNode((unwrap node.body))
+    }
+  }
+  
+  fn printYieldExpression:void (node:JSNode) {
+    this.emit("yield")
+    if (node.strValue == "delegate") {
+      this.emit("*")
+    }
+    if (!null? node.left) {
+      this.emit(" ")
+      this.printNode((unwrap node.left))
+    }
+  }
+  
+  fn printAwaitExpression:void (node:JSNode) {
+    this.emit("await ")
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+  }
+  
+  fn printSpreadElement:void (node:JSNode) {
+    this.emit("...")
+    if (!null? node.left) {
+      this.printNode((unwrap node.left))
+    }
+  }
+  
+  ; === Patterns ===
+  
+  fn printArrayPattern:void (node:JSNode) {
+    this.emit("[")
+    def first true
+    for node.children elem:JSNode idx {
+      if (first == false) {
+        this.emit(", ")
+      }
+      first = false
+      this.printNode(elem)
+    }
+    this.emit("]")
+  }
+  
+  fn printObjectPattern:void (node:JSNode) {
+    this.emit("{ ")
+    def first true
+    for node.children prop:JSNode idx {
+      if (first == false) {
+        this.emit(", ")
+      }
+      first = false
+      
+      def propType prop.nodeType
+      if (propType == "RestElement") {
+        this.emit("..." + prop.strValue)
+      } {
+        ; Property
+        if (prop.strValue2 == "shorthand") {
+          this.emit(prop.strValue)
+        } {
+          this.emit(prop.strValue + ": ")
+          if (!null? prop.left) {
+            this.printNode((unwrap prop.left))
+          }
+        }
+      }
+    }
+    this.emit(" }")
+  }
+}
