@@ -685,7 +685,7 @@ class SourceLocation  {
 }
 class JSNode  {
   constructor() {
-    this._type = "";
+    this.type = "";
     this.start = 0;
     this.end = 0;
     this.line = 0;
@@ -767,7 +767,7 @@ class SimpleParser  {
     while (this.isCommentToken()) {
       const tok = this.peek();
       const commentNode = new JSNode();
-      commentNode._type = tok.tokenType;
+      commentNode.type = tok.tokenType;
       commentNode.raw = tok.value;
       commentNode.line = tok.line;
       commentNode.col = tok.col;
@@ -869,7 +869,7 @@ class SimpleParser  {
     const startCol = tok.col;
     if ( typeof(this.lexer) === "undefined" ) {
       const err = new JSNode();
-      err._type = "Identifier";
+      err.type = "Identifier";
       err.name = "regex_error";
       this.advance();
       return err;
@@ -898,7 +898,7 @@ class SimpleParser  {
       pattern = fullValue;
     }
     const regex = new JSNode();
-    regex._type = "Literal";
+    regex.type = "Literal";
     regex.raw = fullValue;
     regex.regexPattern = pattern;
     regex.regexFlags = flags;
@@ -919,7 +919,7 @@ class SimpleParser  {
   };
   parseProgram () {
     const prog = new JSNode();
-    prog._type = "Program";
+    prog.type = "Program";
     while (this.isAtEnd() == false) {
       const stmt = this.parseStatement();
       prog.children.push(stmt);
@@ -990,7 +990,7 @@ class SimpleParser  {
     if ( (typeof(stmt) === "undefined") && (tokVal == ";") ) {
       this.advance();
       const empty = new JSNode();
-      empty._type = "EmptyStatement";
+      empty.type = "EmptyStatement";
       stmt = empty;
     }
     if ( typeof(stmt) === "undefined" ) {
@@ -1005,7 +1005,7 @@ class SimpleParser  {
   };
   parseVarDecl () {
     const decl = new JSNode();
-    decl._type = "VariableDeclaration";
+    decl.type = "VariableDeclaration";
     const startTok = this.peek();
     decl.start = startTok.start;
     decl.line = startTok.line;
@@ -1018,10 +1018,10 @@ class SimpleParser  {
       }
       first = false;
       const declarator = new JSNode();
-      declarator._type = "VariableDeclarator";
+      declarator.type = "VariableDeclarator";
       const idTok = this.expect("Identifier");
       const id = new JSNode();
-      id._type = "Identifier";
+      id.type = "Identifier";
       id.name = idTok.value;
       id.start = idTok.start;
       id.line = idTok.line;
@@ -1044,7 +1044,7 @@ class SimpleParser  {
   };
   parseLetDecl () {
     const decl = new JSNode();
-    decl._type = "VariableDeclaration";
+    decl.type = "VariableDeclaration";
     decl.kind = "let";
     const startTok = this.peek();
     decl.start = startTok.start;
@@ -1058,7 +1058,7 @@ class SimpleParser  {
       }
       first = false;
       const declarator = new JSNode();
-      declarator._type = "VariableDeclarator";
+      declarator.type = "VariableDeclarator";
       const declTok = this.peek();
       declarator.start = declTok.start;
       declarator.line = declTok.line;
@@ -1073,7 +1073,7 @@ class SimpleParser  {
         } else {
           const idTok = this.expect("Identifier");
           const id = new JSNode();
-          id._type = "Identifier";
+          id.type = "Identifier";
           id.name = idTok.value;
           id.start = idTok.start;
           id.line = idTok.line;
@@ -1095,7 +1095,7 @@ class SimpleParser  {
   };
   parseConstDecl () {
     const decl = new JSNode();
-    decl._type = "VariableDeclaration";
+    decl.type = "VariableDeclaration";
     decl.kind = "const";
     const startTok = this.peek();
     decl.start = startTok.start;
@@ -1109,7 +1109,7 @@ class SimpleParser  {
       }
       first = false;
       const declarator = new JSNode();
-      declarator._type = "VariableDeclarator";
+      declarator.type = "VariableDeclarator";
       const declTok = this.peek();
       declarator.start = declTok.start;
       declarator.line = declTok.line;
@@ -1124,7 +1124,7 @@ class SimpleParser  {
         } else {
           const idTok = this.expect("Identifier");
           const id = new JSNode();
-          id._type = "Identifier";
+          id.type = "Identifier";
           id.name = idTok.value;
           id.start = idTok.start;
           id.line = idTok.line;
@@ -1146,7 +1146,7 @@ class SimpleParser  {
   };
   parseFuncDecl () {
     const _func = new JSNode();
-    _func._type = "FunctionDeclaration";
+    _func.type = "FunctionDeclaration";
     const startTok = this.peek();
     _func.start = startTok.start;
     _func.line = startTok.line;
@@ -1171,29 +1171,75 @@ class SimpleParser  {
         this.advance();
         const paramTok = this.expect("Identifier");
         const rest = new JSNode();
-        rest._type = "RestElement";
+        rest.type = "RestElement";
         rest.name = paramTok.value;
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
+        const argNode = new JSNode();
+        argNode.type = "Identifier";
+        argNode.name = paramTok.value;
+        argNode.start = paramTok.start;
+        argNode.line = paramTok.line;
+        argNode.col = paramTok.col;
+        rest.argument = argNode;
         _func.children.push(rest);
       } else {
         if ( this.matchValue("[") ) {
           const pattern = this.parseArrayPattern();
-          _func.children.push(pattern);
+          if ( this.matchValue("=") ) {
+            this.advance();
+            const defaultVal = this.parseAssignment();
+            const assignPat = new JSNode();
+            assignPat.type = "AssignmentPattern";
+            assignPat.left = pattern;
+            assignPat.right = defaultVal;
+            assignPat.start = pattern.start;
+            assignPat.line = pattern.line;
+            assignPat.col = pattern.col;
+            _func.children.push(assignPat);
+          } else {
+            _func.children.push(pattern);
+          }
         } else {
           if ( this.matchValue("{") ) {
             const pattern_1 = this.parseObjectPattern();
-            _func.children.push(pattern_1);
+            if ( this.matchValue("=") ) {
+              this.advance();
+              const defaultVal_1 = this.parseAssignment();
+              const assignPat_1 = new JSNode();
+              assignPat_1.type = "AssignmentPattern";
+              assignPat_1.left = pattern_1;
+              assignPat_1.right = defaultVal_1;
+              assignPat_1.start = pattern_1.start;
+              assignPat_1.line = pattern_1.line;
+              assignPat_1.col = pattern_1.col;
+              _func.children.push(assignPat_1);
+            } else {
+              _func.children.push(pattern_1);
+            }
           } else {
             const paramTok_1 = this.expect("Identifier");
             const param = new JSNode();
-            param._type = "Identifier";
+            param.type = "Identifier";
             param.name = paramTok_1.value;
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            _func.children.push(param);
+            if ( this.matchValue("=") ) {
+              this.advance();
+              const defaultVal_2 = this.parseAssignment();
+              const assignPat_2 = new JSNode();
+              assignPat_2.type = "AssignmentPattern";
+              assignPat_2.left = param;
+              assignPat_2.right = defaultVal_2;
+              assignPat_2.start = param.start;
+              assignPat_2.line = param.line;
+              assignPat_2.col = param.col;
+              _func.children.push(assignPat_2);
+            } else {
+              _func.children.push(param);
+            }
           }
         }
       }
@@ -1205,7 +1251,7 @@ class SimpleParser  {
   };
   parseFunctionExpression () {
     const _func = new JSNode();
-    _func._type = "FunctionExpression";
+    _func.type = "FunctionExpression";
     const startTok = this.peek();
     _func.start = startTok.start;
     _func.line = startTok.line;
@@ -1232,29 +1278,75 @@ class SimpleParser  {
         this.advance();
         const paramTok = this.expect("Identifier");
         const rest = new JSNode();
-        rest._type = "RestElement";
+        rest.type = "RestElement";
         rest.name = paramTok.value;
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
+        const argNode = new JSNode();
+        argNode.type = "Identifier";
+        argNode.name = paramTok.value;
+        argNode.start = paramTok.start;
+        argNode.line = paramTok.line;
+        argNode.col = paramTok.col;
+        rest.argument = argNode;
         _func.children.push(rest);
       } else {
         if ( this.matchValue("[") ) {
           const pattern = this.parseArrayPattern();
-          _func.children.push(pattern);
+          if ( this.matchValue("=") ) {
+            this.advance();
+            const defaultVal = this.parseAssignment();
+            const assignPat = new JSNode();
+            assignPat.type = "AssignmentPattern";
+            assignPat.left = pattern;
+            assignPat.right = defaultVal;
+            assignPat.start = pattern.start;
+            assignPat.line = pattern.line;
+            assignPat.col = pattern.col;
+            _func.children.push(assignPat);
+          } else {
+            _func.children.push(pattern);
+          }
         } else {
           if ( this.matchValue("{") ) {
             const pattern_1 = this.parseObjectPattern();
-            _func.children.push(pattern_1);
+            if ( this.matchValue("=") ) {
+              this.advance();
+              const defaultVal_1 = this.parseAssignment();
+              const assignPat_1 = new JSNode();
+              assignPat_1.type = "AssignmentPattern";
+              assignPat_1.left = pattern_1;
+              assignPat_1.right = defaultVal_1;
+              assignPat_1.start = pattern_1.start;
+              assignPat_1.line = pattern_1.line;
+              assignPat_1.col = pattern_1.col;
+              _func.children.push(assignPat_1);
+            } else {
+              _func.children.push(pattern_1);
+            }
           } else {
             const paramTok_1 = this.expect("Identifier");
             const param = new JSNode();
-            param._type = "Identifier";
+            param.type = "Identifier";
             param.name = paramTok_1.value;
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            _func.children.push(param);
+            if ( this.matchValue("=") ) {
+              this.advance();
+              const defaultVal_2 = this.parseAssignment();
+              const assignPat_2 = new JSNode();
+              assignPat_2.type = "AssignmentPattern";
+              assignPat_2.left = param;
+              assignPat_2.right = defaultVal_2;
+              assignPat_2.start = param.start;
+              assignPat_2.line = param.line;
+              assignPat_2.col = param.col;
+              _func.children.push(assignPat_2);
+            } else {
+              _func.children.push(param);
+            }
           }
         }
       }
@@ -1266,7 +1358,7 @@ class SimpleParser  {
   };
   parseAsyncFuncDecl () {
     const _func = new JSNode();
-    _func._type = "FunctionDeclaration";
+    _func.type = "FunctionDeclaration";
     const startTok = this.peek();
     _func.start = startTok.start;
     _func.line = startTok.line;
@@ -1291,7 +1383,7 @@ class SimpleParser  {
       }
       const paramTok = this.expect("Identifier");
       const param = new JSNode();
-      param._type = "Identifier";
+      param.type = "Identifier";
       param.name = paramTok.value;
       param.start = paramTok.start;
       param.line = paramTok.line;
@@ -1305,7 +1397,7 @@ class SimpleParser  {
   };
   parseClass () {
     const classNode = new JSNode();
-    classNode._type = "ClassDeclaration";
+    classNode.type = "ClassDeclaration";
     const startTok = this.peek();
     classNode.start = startTok.start;
     classNode.line = startTok.line;
@@ -1316,16 +1408,16 @@ class SimpleParser  {
     if ( this.matchValue("extends") ) {
       this.advance();
       const superTok = this.expect("Identifier");
-      const superClass = new JSNode();
-      superClass._type = "Identifier";
-      superClass.name = superTok.value;
-      superClass.start = superTok.start;
-      superClass.line = superTok.line;
-      superClass.col = superTok.col;
-      classNode.left = superClass;
+      const superClassNode = new JSNode();
+      superClassNode.type = "Identifier";
+      superClassNode.name = superTok.value;
+      superClassNode.start = superTok.start;
+      superClassNode.line = superTok.line;
+      superClassNode.col = superTok.col;
+      classNode.superClass = superClassNode;
     }
     const body = new JSNode();
-    body._type = "ClassBody";
+    body.type = "ClassBody";
     const bodyStart = this.peek();
     body.start = bodyStart.start;
     body.line = bodyStart.line;
@@ -1341,7 +1433,7 @@ class SimpleParser  {
   };
   parseClassMethod () {
     const method = new JSNode();
-    method._type = "MethodDefinition";
+    method.type = "MethodDefinition";
     const startTok = this.peek();
     method.start = startTok.start;
     method.line = startTok.line;
@@ -1352,28 +1444,35 @@ class SimpleParser  {
       method.static = true;
       this.advance();
     }
-    let kind = "method";
+    let methodKind = "method";
     if ( this.matchValue("get") ) {
       const nextTok = this.peekAt(1);
       if ( nextTok != "(" ) {
-        kind = "get";
+        methodKind = "get";
         this.advance();
       }
     }
     if ( this.matchValue("set") ) {
       const nextTok_1 = this.peekAt(1);
       if ( nextTok_1 != "(" ) {
-        kind = "set";
+        methodKind = "set";
         this.advance();
       }
     }
     const nameTok = this.expect("Identifier");
-    method.name = nameTok.value;
+    const keyNode = new JSNode();
+    keyNode.type = "Identifier";
+    keyNode.name = nameTok.value;
+    keyNode.start = nameTok.start;
+    keyNode.line = nameTok.line;
+    keyNode.col = nameTok.col;
+    method.key = keyNode;
     if ( nameTok.value == "constructor" ) {
-      kind = "constructor";
+      methodKind = "constructor";
     }
+    method.kind = methodKind;
     const _func = new JSNode();
-    _func._type = "FunctionExpression";
+    _func.type = "FunctionExpression";
     _func.start = nameTok.start;
     _func.line = nameTok.line;
     _func.col = nameTok.col;
@@ -1387,7 +1486,7 @@ class SimpleParser  {
       }
       const paramTok = this.expect("Identifier");
       const param = new JSNode();
-      param._type = "Identifier";
+      param.type = "Identifier";
       param.name = paramTok.value;
       param.start = paramTok.start;
       param.line = paramTok.line;
@@ -1410,7 +1509,7 @@ class SimpleParser  {
   };
   parseImport () {
     const importNode = new JSNode();
-    importNode._type = "ImportDeclaration";
+    importNode.type = "ImportDeclaration";
     const startTok = this.peek();
     importNode.start = startTok.start;
     importNode.line = startTok.line;
@@ -1420,7 +1519,7 @@ class SimpleParser  {
       const sourceTok = this.peek();
       this.advance();
       const source_1 = new JSNode();
-      source_1._type = "Literal";
+      source_1.type = "Literal";
       source_1.raw = sourceTok.value;
       source_1.start = sourceTok.start;
       source_1.line = sourceTok.line;
@@ -1436,7 +1535,7 @@ class SimpleParser  {
       this.expectValue("as");
       const localTok = this.expect("Identifier");
       const specifier = new JSNode();
-      specifier._type = "ImportNamespaceSpecifier";
+      specifier.type = "ImportNamespaceSpecifier";
       specifier.name = localTok.value;
       specifier.start = localTok.start;
       specifier.line = localTok.line;
@@ -1445,7 +1544,7 @@ class SimpleParser  {
       this.expectValue("from");
       const sourceTok_1 = this.expect("String");
       const source_2 = new JSNode();
-      source_2._type = "Literal";
+      source_2.type = "Literal";
       source_2.raw = sourceTok_1.value;
       source_2.start = sourceTok_1.start;
       source_2.line = sourceTok_1.line;
@@ -1459,9 +1558,9 @@ class SimpleParser  {
     if ( this.matchType("Identifier") ) {
       const defaultTok = this.expect("Identifier");
       const defaultSpec = new JSNode();
-      defaultSpec._type = "ImportDefaultSpecifier";
+      defaultSpec.type = "ImportDefaultSpecifier";
       const localNode = new JSNode();
-      localNode._type = "Identifier";
+      localNode.type = "Identifier";
       localNode.name = defaultTok.value;
       localNode.start = defaultTok.start;
       localNode.line = defaultTok.line;
@@ -1478,9 +1577,9 @@ class SimpleParser  {
           this.expectValue("as");
           const localTok2 = this.expect("Identifier");
           const nsSpec = new JSNode();
-          nsSpec._type = "ImportNamespaceSpecifier";
+          nsSpec.type = "ImportNamespaceSpecifier";
           const nsLocal = new JSNode();
-          nsLocal._type = "Identifier";
+          nsLocal.type = "Identifier";
           nsLocal.name = localTok2.value;
           nsLocal.start = localTok2.start;
           nsLocal.line = localTok2.line;
@@ -1503,7 +1602,7 @@ class SimpleParser  {
     }
     const sourceTok_2 = this.expect("String");
     const source_3 = new JSNode();
-    source_3._type = "Literal";
+    source_3.type = "Literal";
     source_3.raw = sourceTok_2.value;
     source_3.start = sourceTok_2.start;
     source_3.line = sourceTok_2.line;
@@ -1526,10 +1625,10 @@ class SimpleParser  {
         break;
       }
       const specifier = new JSNode();
-      specifier._type = "ImportSpecifier";
+      specifier.type = "ImportSpecifier";
       const importedTok = this.expect("Identifier");
       const importedNode = new JSNode();
-      importedNode._type = "Identifier";
+      importedNode.type = "Identifier";
       importedNode.name = importedTok.value;
       importedNode.start = importedTok.start;
       importedNode.line = importedTok.line;
@@ -1542,7 +1641,7 @@ class SimpleParser  {
         this.advance();
         const localTok = this.expect("Identifier");
         const localNode = new JSNode();
-        localNode._type = "Identifier";
+        localNode.type = "Identifier";
         localNode.name = localTok.value;
         localNode.start = localTok.start;
         localNode.line = localTok.line;
@@ -1557,14 +1656,14 @@ class SimpleParser  {
   };
   parseExport () {
     const exportNode = new JSNode();
-    exportNode._type = "ExportNamedDeclaration";
+    exportNode.type = "ExportNamedDeclaration";
     const startTok = this.peek();
     exportNode.start = startTok.start;
     exportNode.line = startTok.line;
     exportNode.col = startTok.col;
     this.expectValue("export");
     if ( this.matchValue("default") ) {
-      exportNode._type = "ExportDefaultDeclaration";
+      exportNode.type = "ExportDefaultDeclaration";
       this.advance();
       if ( this.matchValue("function") ) {
         const _func = this.parseFuncDecl();
@@ -1589,7 +1688,7 @@ class SimpleParser  {
       return exportNode;
     }
     if ( this.matchValue("*") ) {
-      exportNode._type = "ExportAllDeclaration";
+      exportNode.type = "ExportAllDeclaration";
       this.advance();
       if ( this.matchValue("as") ) {
         this.advance();
@@ -1599,7 +1698,7 @@ class SimpleParser  {
       this.expectValue("from");
       const sourceTok = this.expect("String");
       const source_1 = new JSNode();
-      source_1._type = "Literal";
+      source_1.type = "Literal";
       source_1.raw = sourceTok.value;
       source_1.start = sourceTok.start;
       source_1.line = sourceTok.line;
@@ -1616,7 +1715,7 @@ class SimpleParser  {
         this.advance();
         const sourceTok_1 = this.expect("String");
         const source_2 = new JSNode();
-        source_2._type = "Literal";
+        source_2.type = "Literal";
         source_2.raw = sourceTok_1.value;
         source_2.start = sourceTok_1.start;
         source_2.line = sourceTok_1.line;
@@ -1675,12 +1774,12 @@ class SimpleParser  {
         break;
       }
       const specifier = new JSNode();
-      specifier._type = "ExportSpecifier";
+      specifier.type = "ExportSpecifier";
       const localTok = this.peek();
       if ( this.matchType("Identifier") || this.matchValue("default") ) {
         this.advance();
         const localNode = new JSNode();
-        localNode._type = "Identifier";
+        localNode.type = "Identifier";
         localNode.name = localTok.value;
         localNode.start = localTok.start;
         localNode.line = localTok.line;
@@ -1698,7 +1797,7 @@ class SimpleParser  {
         this.advance();
         const exportedTok = this.expect("Identifier");
         const exportedNode = new JSNode();
-        exportedNode._type = "Identifier";
+        exportedNode.type = "Identifier";
         exportedNode.name = exportedTok.value;
         exportedNode.start = exportedTok.start;
         exportedNode.line = exportedTok.line;
@@ -1713,7 +1812,7 @@ class SimpleParser  {
   };
   parseBlock () {
     const block = new JSNode();
-    block._type = "BlockStatement";
+    block.type = "BlockStatement";
     const startTok = this.peek();
     block.start = startTok.start;
     block.line = startTok.line;
@@ -1728,7 +1827,7 @@ class SimpleParser  {
   };
   parseReturn () {
     const ret = new JSNode();
-    ret._type = "ReturnStatement";
+    ret.type = "ReturnStatement";
     const startTok = this.peek();
     ret.start = startTok.start;
     ret.line = startTok.line;
@@ -1745,7 +1844,7 @@ class SimpleParser  {
   };
   parseIf () {
     const ifStmt = new JSNode();
-    ifStmt._type = "IfStatement";
+    ifStmt.type = "IfStatement";
     const startTok = this.peek();
     ifStmt.start = startTok.start;
     ifStmt.line = startTok.line;
@@ -1766,7 +1865,7 @@ class SimpleParser  {
   };
   parseWhile () {
     const whileStmt = new JSNode();
-    whileStmt._type = "WhileStatement";
+    whileStmt.type = "WhileStatement";
     const startTok = this.peek();
     whileStmt.start = startTok.start;
     whileStmt.line = startTok.line;
@@ -1782,7 +1881,7 @@ class SimpleParser  {
   };
   parseDoWhile () {
     const doWhileStmt = new JSNode();
-    doWhileStmt._type = "DoWhileStatement";
+    doWhileStmt.type = "DoWhileStatement";
     const startTok = this.peek();
     doWhileStmt.start = startTok.start;
     doWhileStmt.line = startTok.line;
@@ -1816,7 +1915,7 @@ class SimpleParser  {
         const keyword = this.peekValue();
         this.advance();
         const declarator = new JSNode();
-        declarator._type = "VariableDeclarator";
+        declarator.type = "VariableDeclarator";
         const declTok = this.peek();
         declarator.start = declTok.start;
         declarator.line = declTok.line;
@@ -1831,7 +1930,7 @@ class SimpleParser  {
           } else {
             const idTok = this.expect("Identifier");
             const id = new JSNode();
-            id._type = "Identifier";
+            id.type = "Identifier";
             id.name = idTok.value;
             id.start = idTok.start;
             id.line = idTok.line;
@@ -1843,7 +1942,7 @@ class SimpleParser  {
           isForOf = true;
           this.advance();
           const varDecl = new JSNode();
-          varDecl._type = "VariableDeclaration";
+          varDecl.type = "VariableDeclaration";
           varDecl.kind = keyword;
           varDecl.start = declTok.start;
           varDecl.line = declTok.line;
@@ -1855,7 +1954,7 @@ class SimpleParser  {
             isForIn = true;
             this.advance();
             const varDecl_1 = new JSNode();
-            varDecl_1._type = "VariableDeclaration";
+            varDecl_1.type = "VariableDeclaration";
             varDecl_1.kind = keyword;
             varDecl_1.start = declTok.start;
             varDecl_1.line = declTok.line;
@@ -1869,7 +1968,7 @@ class SimpleParser  {
               declarator.init = initVal;
             }
             const varDecl_2 = new JSNode();
-            varDecl_2._type = "VariableDeclaration";
+            varDecl_2.type = "VariableDeclaration";
             varDecl_2.kind = keyword;
             varDecl_2.start = declTok.start;
             varDecl_2.line = declTok.line;
@@ -1904,7 +2003,7 @@ class SimpleParser  {
       this.advance();
     }
     if ( isForOf ) {
-      forStmt._type = "ForOfStatement";
+      forStmt.type = "ForOfStatement";
       forStmt.left = leftNode;
       const rightExpr = this.parseExpr();
       forStmt.right = rightExpr;
@@ -1914,7 +2013,7 @@ class SimpleParser  {
       return forStmt;
     }
     if ( isForIn ) {
-      forStmt._type = "ForInStatement";
+      forStmt.type = "ForInStatement";
       forStmt.left = leftNode;
       const rightExpr_1 = this.parseExpr();
       forStmt.right = rightExpr_1;
@@ -1923,7 +2022,7 @@ class SimpleParser  {
       forStmt.body = body_1;
       return forStmt;
     }
-    forStmt._type = "ForStatement";
+    forStmt.type = "ForStatement";
     if ( (typeof(leftNode) !== "undefined" && leftNode != null )  ) {
       forStmt.left = leftNode;
     }
@@ -1945,7 +2044,7 @@ class SimpleParser  {
   };
   parseSwitch () {
     const switchStmt = new JSNode();
-    switchStmt._type = "SwitchStatement";
+    switchStmt.type = "SwitchStatement";
     const startTok = this.peek();
     switchStmt.start = startTok.start;
     switchStmt.line = startTok.line;
@@ -1959,7 +2058,7 @@ class SimpleParser  {
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
       const caseNode = new JSNode();
       if ( this.matchValue("case") ) {
-        caseNode._type = "SwitchCase";
+        caseNode.type = "SwitchCase";
         const caseTok = this.peek();
         caseNode.start = caseTok.start;
         caseNode.line = caseTok.line;
@@ -1975,7 +2074,7 @@ class SimpleParser  {
         switchStmt.children.push(caseNode);
       } else {
         if ( this.matchValue("default") ) {
-          caseNode._type = "SwitchCase";
+          caseNode.type = "SwitchCase";
           caseNode.name = "default";
           const defTok = this.peek();
           caseNode.start = defTok.start;
@@ -1998,7 +2097,7 @@ class SimpleParser  {
   };
   parseTry () {
     const tryStmt = new JSNode();
-    tryStmt._type = "TryStatement";
+    tryStmt.type = "TryStatement";
     const startTok = this.peek();
     tryStmt.start = startTok.start;
     tryStmt.line = startTok.line;
@@ -2008,7 +2107,7 @@ class SimpleParser  {
     tryStmt.body = block;
     if ( this.matchValue("catch") ) {
       const catchNode = new JSNode();
-      catchNode._type = "CatchClause";
+      catchNode.type = "CatchClause";
       const catchTok = this.peek();
       catchNode.start = catchTok.start;
       catchNode.line = catchTok.line;
@@ -2031,7 +2130,7 @@ class SimpleParser  {
   };
   parseThrow () {
     const throwStmt = new JSNode();
-    throwStmt._type = "ThrowStatement";
+    throwStmt.type = "ThrowStatement";
     const startTok = this.peek();
     throwStmt.start = startTok.start;
     throwStmt.line = startTok.line;
@@ -2046,7 +2145,7 @@ class SimpleParser  {
   };
   parseBreak () {
     const breakStmt = new JSNode();
-    breakStmt._type = "BreakStatement";
+    breakStmt.type = "BreakStatement";
     const startTok = this.peek();
     breakStmt.start = startTok.start;
     breakStmt.line = startTok.line;
@@ -2064,7 +2163,7 @@ class SimpleParser  {
   };
   parseContinue () {
     const contStmt = new JSNode();
-    contStmt._type = "ContinueStatement";
+    contStmt.type = "ContinueStatement";
     const startTok = this.peek();
     contStmt.start = startTok.start;
     contStmt.line = startTok.line;
@@ -2082,7 +2181,7 @@ class SimpleParser  {
   };
   parseExprStmt () {
     const stmt = new JSNode();
-    stmt._type = "ExpressionStatement";
+    stmt.type = "ExpressionStatement";
     const startTok = this.peek();
     stmt.start = startTok.start;
     stmt.line = startTok.line;
@@ -2100,12 +2199,12 @@ class SimpleParser  {
   parseAssignment () {
     const left = this.parseTernary();
     const tokVal = this.peekValue();
-    if ( tokVal == "=" ) {
+    if ( (((((((((((((((tokVal == "=") || (tokVal == "+=")) || (tokVal == "-=")) || (tokVal == "*=")) || (tokVal == "/=")) || (tokVal == "%=")) || (tokVal == "**=")) || (tokVal == "<<=")) || (tokVal == ">>=")) || (tokVal == ">>>=")) || (tokVal == "&=")) || (tokVal == "^=")) || (tokVal == "|=")) || (tokVal == "&&=")) || (tokVal == "||=")) || (tokVal == "??=") ) {
       const opTok = this.peek();
       this.advance();
       const right = this.parseAssignment();
       const assign = new JSNode();
-      assign._type = "AssignmentExpression";
+      assign.type = "AssignmentExpression";
       assign.operator = opTok.value;
       assign.left = left;
       assign.right = right;
@@ -2124,7 +2223,7 @@ class SimpleParser  {
       this.expectValue(":");
       const alternate = this.parseAssignment();
       const ternary = new JSNode();
-      ternary._type = "ConditionalExpression";
+      ternary.type = "ConditionalExpression";
       ternary.left = condition;
       ternary.body = consequent;
       ternary.right = alternate;
@@ -2142,7 +2241,7 @@ class SimpleParser  {
       this.advance();
       const right = this.parseNullishCoalescing();
       const binary = new JSNode();
-      binary._type = "LogicalExpression";
+      binary.type = "LogicalExpression";
       binary.operator = opTok.value;
       binary.left = left;
       binary.right = right;
@@ -2160,7 +2259,7 @@ class SimpleParser  {
       this.advance();
       const right = this.parseLogicalAnd();
       const binary = new JSNode();
-      binary._type = "LogicalExpression";
+      binary.type = "LogicalExpression";
       binary.operator = opTok.value;
       binary.left = left;
       binary.right = right;
@@ -2178,7 +2277,7 @@ class SimpleParser  {
       this.advance();
       const right = this.parseEquality();
       const binary = new JSNode();
-      binary._type = "LogicalExpression";
+      binary.type = "LogicalExpression";
       binary.operator = opTok.value;
       binary.left = left;
       binary.right = right;
@@ -2197,7 +2296,7 @@ class SimpleParser  {
       this.advance();
       const right = this.parseComparison();
       const binary = new JSNode();
-      binary._type = "BinaryExpression";
+      binary.type = "BinaryExpression";
       binary.operator = opTok.value;
       binary.left = left;
       binary.right = right;
@@ -2217,7 +2316,7 @@ class SimpleParser  {
       this.advance();
       const right = this.parseAdditive();
       const binary = new JSNode();
-      binary._type = "BinaryExpression";
+      binary.type = "BinaryExpression";
       binary.operator = opTok.value;
       binary.left = left;
       binary.right = right;
@@ -2237,7 +2336,7 @@ class SimpleParser  {
       this.advance();
       const right = this.parseMultiplicative();
       const binary = new JSNode();
-      binary._type = "BinaryExpression";
+      binary.type = "BinaryExpression";
       binary.operator = opTok.value;
       binary.left = left;
       binary.right = right;
@@ -2257,7 +2356,7 @@ class SimpleParser  {
       this.advance();
       const right = this.parseUnary();
       const binary = new JSNode();
-      binary._type = "BinaryExpression";
+      binary.type = "BinaryExpression";
       binary.operator = opTok.value;
       binary.left = left;
       binary.right = right;
@@ -2278,7 +2377,7 @@ class SimpleParser  {
         this.advance();
         const arg = this.parseUnary();
         const unary = new JSNode();
-        unary._type = "UnaryExpression";
+        unary.type = "UnaryExpression";
         unary.operator = opTok.value;
         unary.left = arg;
         unary.start = opTok.start;
@@ -2292,7 +2391,7 @@ class SimpleParser  {
       this.advance();
       const arg_1 = this.parseUnary();
       const unary_1 = new JSNode();
-      unary_1._type = "UnaryExpression";
+      unary_1.type = "UnaryExpression";
       unary_1.operator = opTok_1.value;
       unary_1.left = arg_1;
       unary_1.start = opTok_1.start;
@@ -2305,7 +2404,7 @@ class SimpleParser  {
       this.advance();
       const arg_2 = this.parseUnary();
       const update = new JSNode();
-      update._type = "UpdateExpression";
+      update.type = "UpdateExpression";
       update.operator = opTok_2.value;
       update.prefix = true;
       update.left = arg_2;
@@ -2318,7 +2417,7 @@ class SimpleParser  {
       const yieldTok = this.peek();
       this.advance();
       const yieldExpr = new JSNode();
-      yieldExpr._type = "YieldExpression";
+      yieldExpr.type = "YieldExpression";
       yieldExpr.start = yieldTok.start;
       yieldExpr.line = yieldTok.line;
       yieldExpr.col = yieldTok.col;
@@ -2338,7 +2437,7 @@ class SimpleParser  {
       this.advance();
       const arg_4 = this.parseUnary();
       const awaitExpr = new JSNode();
-      awaitExpr._type = "AwaitExpression";
+      awaitExpr.type = "AwaitExpression";
       awaitExpr.left = arg_4;
       awaitExpr.start = awaitTok.start;
       awaitExpr.line = awaitTok.line;
@@ -2359,7 +2458,7 @@ class SimpleParser  {
         const opTok = this.peek();
         this.advance();
         const update = new JSNode();
-        update._type = "UpdateExpression";
+        update.type = "UpdateExpression";
         update.operator = opTok.value;
         update.prefix = false;
         update.left = object;
@@ -2374,7 +2473,7 @@ class SimpleParser  {
           if ( nextTokVal == "(" ) {
             this.advance();
             const call = new JSNode();
-            call._type = "OptionalCallExpression";
+            call.type = "OptionalCallExpression";
             call.left = object;
             call.start = object.start;
             call.line = object.line;
@@ -2397,7 +2496,7 @@ class SimpleParser  {
               const propExpr = this.parseExpr();
               this.expectValue("]");
               const member = new JSNode();
-              member._type = "OptionalMemberExpression";
+              member.type = "OptionalMemberExpression";
               member.left = object;
               member.right = propExpr;
               member.computed = true;
@@ -2408,7 +2507,7 @@ class SimpleParser  {
             } else {
               const propTok = this.expect("Identifier");
               const member_1 = new JSNode();
-              member_1._type = "OptionalMemberExpression";
+              member_1.type = "OptionalMemberExpression";
               member_1.left = object;
               member_1.name = propTok.value;
               member_1.computed = false;
@@ -2423,7 +2522,7 @@ class SimpleParser  {
             this.advance();
             const propTok_1 = this.expect("Identifier");
             const member_2 = new JSNode();
-            member_2._type = "MemberExpression";
+            member_2.type = "MemberExpression";
             member_2.left = object;
             member_2.name = propTok_1.value;
             member_2.computed = false;
@@ -2437,7 +2536,7 @@ class SimpleParser  {
               const propExpr_1 = this.parseExpr();
               this.expectValue("]");
               const member_3 = new JSNode();
-              member_3._type = "MemberExpression";
+              member_3.type = "MemberExpression";
               member_3.left = object;
               member_3.right = propExpr_1;
               member_3.computed = true;
@@ -2449,7 +2548,7 @@ class SimpleParser  {
               if ( tokVal == "(" ) {
                 this.advance();
                 const call_1 = new JSNode();
-                call_1._type = "CallExpression";
+                call_1.type = "CallExpression";
                 call_1.left = object;
                 call_1.start = object.start;
                 call_1.line = object.line;
@@ -2466,7 +2565,7 @@ class SimpleParser  {
                     this.advance();
                     const spreadArg = this.parseAssignment();
                     const spread = new JSNode();
-                    spread._type = "SpreadElement";
+                    spread.type = "SpreadElement";
                     spread.left = spreadArg;
                     spread.start = spreadTok.start;
                     spread.line = spreadTok.line;
@@ -2491,7 +2590,7 @@ class SimpleParser  {
   };
   parseNewExpression () {
     const newExpr = new JSNode();
-    newExpr._type = "NewExpression";
+    newExpr.type = "NewExpression";
     const startTok = this.peek();
     newExpr.start = startTok.start;
     newExpr.line = startTok.line;
@@ -2505,7 +2604,7 @@ class SimpleParser  {
         this.advance();
         const propTok = this.expect("Identifier");
         const member = new JSNode();
-        member._type = "MemberExpression";
+        member.type = "MemberExpression";
         member.left = callee;
         member.name = propTok.value;
         member.computed = false;
@@ -2552,7 +2651,7 @@ class SimpleParser  {
       }
       this.advance();
       const id = new JSNode();
-      id._type = "Identifier";
+      id.type = "Identifier";
       id.name = tok.value;
       id.start = tok.start;
       id.end = tok.end;
@@ -2563,7 +2662,7 @@ class SimpleParser  {
     if ( tokType == "Number" ) {
       this.advance();
       const lit = new JSNode();
-      lit._type = "Literal";
+      lit.type = "Literal";
       lit.raw = tok.value;
       lit.start = tok.start;
       lit.end = tok.end;
@@ -2574,7 +2673,7 @@ class SimpleParser  {
     if ( tokType == "String" ) {
       this.advance();
       const lit_1 = new JSNode();
-      lit_1._type = "Literal";
+      lit_1.type = "Literal";
       lit_1.raw = tok.value;
       lit_1.start = tok.start;
       lit_1.end = tok.end;
@@ -2585,7 +2684,7 @@ class SimpleParser  {
     if ( (tokVal == "true") || (tokVal == "false") ) {
       this.advance();
       const lit_2 = new JSNode();
-      lit_2._type = "Literal";
+      lit_2.type = "Literal";
       lit_2.raw = tok.value;
       lit_2.start = tok.start;
       lit_2.end = tok.end;
@@ -2596,7 +2695,7 @@ class SimpleParser  {
     if ( tokVal == "null" ) {
       this.advance();
       const lit_3 = new JSNode();
-      lit_3._type = "Literal";
+      lit_3.type = "Literal";
       lit_3.raw = "null";
       lit_3.start = tok.start;
       lit_3.end = tok.end;
@@ -2607,7 +2706,7 @@ class SimpleParser  {
     if ( tokType == "TemplateLiteral" ) {
       this.advance();
       const tmpl = new JSNode();
-      tmpl._type = "TemplateLiteral";
+      tmpl.type = "TemplateLiteral";
       tmpl.raw = tok.value;
       tmpl.start = tok.start;
       tmpl.end = tok.end;
@@ -2638,7 +2737,7 @@ class SimpleParser  {
     }
     this.advance();
     const fallback = new JSNode();
-    fallback._type = "Identifier";
+    fallback.type = "Identifier";
     fallback.name = tok.value;
     fallback.start = tok.start;
     fallback.end = tok.end;
@@ -2648,7 +2747,7 @@ class SimpleParser  {
   };
   parseArray () {
     const arr = new JSNode();
-    arr._type = "ArrayExpression";
+    arr.type = "ArrayExpression";
     const startTok = this.peek();
     arr.start = startTok.start;
     arr.line = startTok.line;
@@ -2666,7 +2765,7 @@ class SimpleParser  {
         this.advance();
         const arg = this.parseAssignment();
         const spread = new JSNode();
-        spread._type = "SpreadElement";
+        spread.type = "SpreadElement";
         spread.left = arg;
         spread.start = spreadTok.start;
         spread.line = spreadTok.line;
@@ -2682,7 +2781,7 @@ class SimpleParser  {
   };
   parseObject () {
     const obj = new JSNode();
-    obj._type = "ObjectExpression";
+    obj.type = "ObjectExpression";
     const startTok = this.peek();
     obj.start = startTok.start;
     obj.line = startTok.line;
@@ -2700,7 +2799,7 @@ class SimpleParser  {
         this.advance();
         const arg = this.parseAssignment();
         const spread = new JSNode();
-        spread._type = "SpreadElement";
+        spread.type = "SpreadElement";
         spread.left = arg;
         spread.start = spreadTok.start;
         spread.line = spreadTok.line;
@@ -2708,7 +2807,7 @@ class SimpleParser  {
         obj.children.push(spread);
       } else {
         const prop = new JSNode();
-        prop._type = "Property";
+        prop.type = "Property";
         const keyTok = this.peek();
         const keyType = this.peekType();
         if ( this.matchValue("[") ) {
@@ -2737,7 +2836,7 @@ class SimpleParser  {
               prop.left = val_1;
             } else {
               const id = new JSNode();
-              id._type = "Identifier";
+              id.type = "Identifier";
               id.name = keyTok.value;
               id.start = keyTok.start;
               id.line = keyTok.line;
@@ -2759,7 +2858,7 @@ class SimpleParser  {
   };
   parseArrayPattern () {
     const pattern = new JSNode();
-    pattern._type = "ArrayPattern";
+    pattern.type = "ArrayPattern";
     const startTok = this.peek();
     pattern.start = startTok.start;
     pattern.line = startTok.line;
@@ -2777,7 +2876,7 @@ class SimpleParser  {
         this.advance();
         const idTok = this.expect("Identifier");
         const rest = new JSNode();
-        rest._type = "RestElement";
+        rest.type = "RestElement";
         rest.name = idTok.value;
         rest.start = restTok.start;
         rest.line = restTok.line;
@@ -2794,7 +2893,7 @@ class SimpleParser  {
           } else {
             const idTok_1 = this.expect("Identifier");
             const id = new JSNode();
-            id._type = "Identifier";
+            id.type = "Identifier";
             id.name = idTok_1.value;
             id.start = idTok_1.start;
             id.line = idTok_1.line;
@@ -2809,7 +2908,7 @@ class SimpleParser  {
   };
   parseObjectPattern () {
     const pattern = new JSNode();
-    pattern._type = "ObjectPattern";
+    pattern.type = "ObjectPattern";
     const startTok = this.peek();
     pattern.start = startTok.start;
     pattern.line = startTok.line;
@@ -2827,7 +2926,7 @@ class SimpleParser  {
         this.advance();
         const idTok = this.expect("Identifier");
         const rest = new JSNode();
-        rest._type = "RestElement";
+        rest.type = "RestElement";
         rest.name = idTok.value;
         rest.start = restTok.start;
         rest.line = restTok.line;
@@ -2835,7 +2934,7 @@ class SimpleParser  {
         pattern.children.push(rest);
       } else {
         const prop = new JSNode();
-        prop._type = "Property";
+        prop.type = "Property";
         const keyTok = this.expect("Identifier");
         prop.name = keyTok.value;
         prop.start = keyTok.start;
@@ -2853,7 +2952,7 @@ class SimpleParser  {
             } else {
               const idTok2 = this.expect("Identifier");
               const id = new JSNode();
-              id._type = "Identifier";
+              id.type = "Identifier";
               id.name = idTok2.value;
               id.start = idTok2.start;
               id.line = idTok2.line;
@@ -2863,7 +2962,7 @@ class SimpleParser  {
           }
         } else {
           const id_1 = new JSNode();
-          id_1._type = "Identifier";
+          id_1.type = "Identifier";
           id_1.name = keyTok.value;
           id_1.start = keyTok.start;
           id_1.line = keyTok.line;
@@ -2901,7 +3000,7 @@ class SimpleParser  {
   };
   parseArrowFunction () {
     const arrow = new JSNode();
-    arrow._type = "ArrowFunctionExpression";
+    arrow.type = "ArrowFunctionExpression";
     const startTok = this.peek();
     arrow.start = startTok.start;
     arrow.line = startTok.line;
@@ -2917,7 +3016,7 @@ class SimpleParser  {
         }
         const paramTok = this.expect("Identifier");
         const param = new JSNode();
-        param._type = "Identifier";
+        param.type = "Identifier";
         param.name = paramTok.value;
         param.start = paramTok.start;
         param.line = paramTok.line;
@@ -2928,7 +3027,7 @@ class SimpleParser  {
     } else {
       const paramTok_1 = this.expect("Identifier");
       const param_1 = new JSNode();
-      param_1._type = "Identifier";
+      param_1.type = "Identifier";
       param_1.name = paramTok_1.value;
       param_1.start = paramTok_1.start;
       param_1.line = paramTok_1.line;
@@ -2947,7 +3046,7 @@ class SimpleParser  {
   };
   parseAsyncArrowFunction () {
     const arrow = new JSNode();
-    arrow._type = "ArrowFunctionExpression";
+    arrow.type = "ArrowFunctionExpression";
     arrow.async = true;
     const startTok = this.peek();
     arrow.start = startTok.start;
@@ -2965,7 +3064,7 @@ class SimpleParser  {
         }
         const paramTok = this.expect("Identifier");
         const param = new JSNode();
-        param._type = "Identifier";
+        param.type = "Identifier";
         param.name = paramTok.value;
         param.start = paramTok.start;
         param.line = paramTok.line;
@@ -2976,7 +3075,7 @@ class SimpleParser  {
     } else {
       const paramTok_1 = this.expect("Identifier");
       const param_1 = new JSNode();
-      param_1._type = "Identifier";
+      param_1.type = "Identifier";
       param_1.name = paramTok_1.value;
       param_1.start = paramTok_1.start;
       param_1.line = paramTok_1.line;
@@ -3009,7 +3108,7 @@ ASTPrinter.printNode = function(node, depth) {
   if ( numComments > 0 ) {
     for ( let ci = 0; ci < node.leadingComments.length; ci++) {
       var comment = node.leadingComments[ci];
-      const commentType = comment._type;
+      const commentType = comment.type;
       let preview = comment.raw;
       if ( (preview.length) > 40 ) {
         preview = (preview.substring(0, 40 )) + "...";
@@ -3017,7 +3116,7 @@ ASTPrinter.printNode = function(node, depth) {
       console.log(((indent + commentType) + ": ") + preview);
     };
   }
-  const nodeType = node._type;
+  const nodeType = node.type;
   const loc = ((("[" + node.line) + ":") + node.col) + "]";
   if ( nodeType == "VariableDeclaration" ) {
     const kind = node.name;
@@ -3035,7 +3134,7 @@ ASTPrinter.printNode = function(node, depth) {
   if ( nodeType == "VariableDeclarator" ) {
     if ( (typeof(node.left) !== "undefined" && node.left != null )  ) {
       const id = node.left;
-      const idType = id._type;
+      const idType = id.type;
       if ( idType == "Identifier" ) {
         console.log((((indent + "VariableDeclarator: ") + id.name) + " ") + loc);
       } else {
@@ -3555,7 +3654,7 @@ class JSPrinter  {
     };
   };
   printComment (comment) {
-    const commentType = comment._type;
+    const commentType = comment.type;
     const value = comment.raw;
     if ( commentType == "LineComment" ) {
       this.emitLine("//" + value);
@@ -3580,7 +3679,7 @@ class JSPrinter  {
     return this.output;
   };
   printNode (node) {
-    const nodeType = node._type;
+    const nodeType = node.type;
     if ( nodeType == "Program" ) {
       this.printProgram(node);
       return;
@@ -3782,7 +3881,7 @@ class JSPrinter  {
   };
   printStatement (node) {
     this.printLeadingComments(node);
-    const nodeType = node._type;
+    const nodeType = node.type;
     if ( nodeType == "BlockStatement" ) {
       this.printBlockStatement(node);
       return;
@@ -4093,7 +4192,7 @@ class JSPrinter  {
     this.emit(" }");
   };
   printProperty (node) {
-    const nodeType = node._type;
+    const nodeType = node.type;
     if ( nodeType == "SpreadElement" ) {
       this.printSpreadElement(node);
       return;
@@ -4251,27 +4350,27 @@ class JSPrinter  {
     let hasNamed = false;
     for ( let idx = 0; idx < node.children.length; idx++) {
       var spec = node.children[idx];
-      if ( spec._type == "ImportDefaultSpecifier" ) {
+      if ( spec.type == "ImportDefaultSpecifier" ) {
         hasDefault = true;
       }
-      if ( spec._type == "ImportNamespaceSpecifier" ) {
+      if ( spec.type == "ImportNamespaceSpecifier" ) {
         hasNamespace = true;
       }
-      if ( spec._type == "ImportSpecifier" ) {
+      if ( spec.type == "ImportSpecifier" ) {
         hasNamed = true;
       }
     };
     let printedSomething = false;
     for ( let idx_1 = 0; idx_1 < node.children.length; idx_1++) {
       var spec_1 = node.children[idx_1];
-      if ( spec_1._type == "ImportDefaultSpecifier" ) {
+      if ( spec_1.type == "ImportDefaultSpecifier" ) {
         this.emit(spec_1.name);
         printedSomething = true;
       }
     };
     for ( let idx_2 = 0; idx_2 < node.children.length; idx_2++) {
       var spec_2 = node.children[idx_2];
-      if ( spec_2._type == "ImportNamespaceSpecifier" ) {
+      if ( spec_2.type == "ImportNamespaceSpecifier" ) {
         if ( printedSomething ) {
           this.emit(", ");
         }
@@ -4287,7 +4386,7 @@ class JSPrinter  {
       let firstNamed = true;
       for ( let idx_3 = 0; idx_3 < node.children.length; idx_3++) {
         var spec_3 = node.children[idx_3];
-        if ( spec_3._type == "ImportSpecifier" ) {
+        if ( spec_3.type == "ImportSpecifier" ) {
           if ( firstNamed == false ) {
             this.emit(", ");
           }
@@ -4375,7 +4474,7 @@ class JSPrinter  {
     const paramCount = node.children.length;
     if ( paramCount == 1 ) {
       const firstParam = node.children[0];
-      if ( firstParam._type == "Identifier" ) {
+      if ( firstParam.type == "Identifier" ) {
         this.emit(firstParam.name);
       } else {
         this.emit("(");
@@ -4390,7 +4489,7 @@ class JSPrinter  {
     this.emit(" => ");
     if ( (typeof(node.body) !== "undefined" && node.body != null )  ) {
       const body = node.body;
-      if ( body._type == "BlockStatement" ) {
+      if ( body.type == "BlockStatement" ) {
         this.printNode(body);
       } else {
         this.printNode(body);
@@ -4449,7 +4548,7 @@ class JSPrinter  {
         this.emit(", ");
       }
       first = false;
-      const propType = prop._type;
+      const propType = prop.type;
       if ( propType == "RestElement" ) {
         this.emit("..." + prop.name);
       } else {

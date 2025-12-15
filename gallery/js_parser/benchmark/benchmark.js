@@ -75,6 +75,78 @@ function compute${i}(a, b, c) {
   } else {
     return result + 50;
   }
+    // Variable declarations
+    var x = 1;
+    var name = "hello";
+    var pi = 3.14159;
+    var isReady = true;
+    var nothing = null;
+
+    // ES6 let and const
+    let count = 0;
+    const MAX_VALUE = 100;
+
+    // Array literal
+    var numbers = [1, 2, 3, 4, 5];
+
+    // Object literal
+    var person = {
+    name: "John",
+    age: 30,
+    active: true,
+    };
+
+    // Shorthand properties
+    const firstName = "Jane";
+    const lastName = "Doe";
+    const user = { firstName, lastName, age: 25 };
+
+    /**
+     * Sample comment.
+     *
+     * @param {*} a
+     * @param {*} b
+     * @returns
+     */
+    function add(a, b) {
+    return a + b;
+    }
+
+    // Function expression
+    var multiply = function (a, b) {
+    return a * b;
+    };
+
+    // Arrow functions
+    const double = (x) => x * 2;
+    const square = (x) => x * x;
+    const greet = (name) => {
+    return "Hello, " + name;
+    };
+
+    // If statement
+    if (x > 0) {
+    x = x - 1;
+    } else {
+    x = 0;
+    }
+
+    // While loop
+    while (x < 10) {
+    x = x + 1;
+    }
+
+    // For loop
+    for (var i = 0; i < 5; i++) {
+    numbers[i] = i * 2;
+    }
+
+    // For-in loop
+    for (var key in person) {
+    console.log(key);
+    }
+
+
 }
 `;
   }
@@ -138,13 +210,17 @@ const parsers = [
   {
     name: "meriyah",
     description: "Ultra-fast ES2022+ parser",
-    parse: (code) => meriyah.parseScript(code, { next: true }),
+    parse: (code) => meriyah.parseScript(code, { next: true, loc: true }),
   },
   {
     name: "acorn",
     description: "Lightweight ES2020+ parser",
     parse: (code) =>
-      acorn.parse(code, { ecmaVersion: 2022, sourceType: "module" }),
+      acorn.parse(code, {
+        ecmaVersion: 2022,
+        sourceType: "module",
+        locations: true,
+      }),
   },
   {
     name: "esprima",
@@ -155,7 +231,11 @@ const parsers = [
     name: "espree",
     description: "ESLint's parser (based on acorn)",
     parse: (code) =>
-      espree.parse(code, { ecmaVersion: 2022, sourceType: "module" }),
+      espree.parse(code, {
+        ecmaVersion: 2022,
+        sourceType: "module",
+        loc: true,
+      }),
   },
   {
     name: "@babel/parser",

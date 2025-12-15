@@ -4,6 +4,7 @@
   "description": "Benchmark comparing Ranger js_parser vs popular JavaScript parsers",
   "type": "module",
   "scripts": {
+    "compliance": "node generate-compliance.cjs",
     "benchmark": "node benchmark.js",
     "benchmark:large": "node benchmark.js --large",
     "features": "node features.js"
