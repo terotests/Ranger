@@ -20,6 +20,7 @@
     "testcompiler": "rgrc -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=testcomp.js",
     "compileg": "rgrc -es6 ./compiler/ng_Compiler.rgr -nodecli",
     "compile": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=output.js",
+    "compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -l=rust ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=compiler",
     "compile:langserver": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./compiler/VirtualCompiler.rgr -d=./ranger-vscode-extension/compiler -o=output.js",
     "try": "node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -o=try.js",
     "compilets": "node bin/output.js -es6 -typescript ./compiler/ng_Compiler.rgr -o=compiler.ts -nodecli && tsc",

@@ -12,6 +12,7 @@ systemclass JSONDataObject {
     java7 JSONObject ( (imp "org.json.JSONObject") )
     go "map[string]interface{}"
     swift3 '[String:Any]'
+    rust "serde_json::Map<String, serde_json::Value>"
 }
 
 systemclass JSONArrayObject {
@@ -19,6 +20,7 @@ systemclass JSONArrayObject {
     java7 JSONArray ( (imp "org.json.JSONArray") )
     go "[]interface{}"
     swift3 '[Any]'
+    rust "Vec<serde_json::Value>"
 }
 
 systemclass JSONKeyValue {
@@ -30,6 +32,7 @@ systemclass JSONValueUnion {
     java7 Object
     go "interface{}"
     swift3 Any
+    rust "serde_json::Value"
 }
 
 systemunion JSONValueUnion ( JSONDataObject JSONArrayObject string int double boolean )
@@ -99,6 +102,7 @@ func r_get_opt_json_string( data map[string]interface{}, key string ) *GoNullabl
 ")            
 
             )
+            rust ( (e 1) ".get(" (e 2) ").and_then(|v| v.as_str()).map(|s| s.to_string())" )
 
 
         }                
@@ -131,6 +135,7 @@ func r_get_opt_json_int( data map[string]interface{}, key string ) *GoNullable  
 ")            
 
             )
+            rust ( (e 1) ".get(" (e 2) ").and_then(|v| v.as_i64())" )
             
         }                
     } 
@@ -162,6 +167,7 @@ func r_get_opt_json_double( data map[string]interface{}, key string ) *GoNullabl
 ")            
 
             )
+            rust ( (e 1) ".get(" (e 2) ").and_then(|v| v.as_f64())" )
             
         }                
     } 
@@ -193,6 +199,7 @@ func r_get_opt_json_bool( data map[string]interface{}, key string ) *GoNullable 
 ")            
 
             )
+            rust ( (e 1) ".get(" (e 2) ").and_then(|v| v.as_bool())" )
         }                
     } 
 
@@ -239,6 +246,7 @@ func r_get_opt_json_obj( data map[string]interface{}, key string ) *GoNullable  
 ")            
 
             )
+            rust ( (e 1) ".get(" (e 2) ").and_then(|v| v.as_object()).cloned()" )
         }                
     } 
 
@@ -271,6 +279,7 @@ func r_get_opt_array( data map[string]interface{}, key string ) *GoNullable  {
 ')            
 
             )
+            rust ( (e 1) ".get(" (e 2) ").and_then(|v| v.as_array()).cloned()" )
         }                
     } 
 
@@ -309,6 +318,7 @@ static ArrayList<String> __getJSONKeys(JSONObject obj)
                         "strkeys[i] = keys[i].String()" nl i "}" nl
                     "return strkeys" nl i "})()"
                 (imp "reflect"))
+            rust ( (e 1) ".keys().cloned().collect::<Vec<String>>()" )
             php  ("array_keys(" (e 1) ")")
         }
     }
@@ -329,12 +339,14 @@ func r_is_obj_array( data inteface{} ) bool {
 }
 ")            
             )
+            rust ( (e 1) ".is_array()" )
         }
     }
 
     asArray _@(optional):JSONArrayObject (e:JSONValueUnion) {
         templates {
             es6 ( (e 1) " instanceof Array ? " (e 1 ) " : undefined")
+            rust ( (e 1) ".as_array().cloned()" )
         }        
     }
 
@@ -362,6 +374,7 @@ static Object __getJSONValue(JSONArray o, Integer item)
              )
             swift3 ( (e 1) "[" (e 2) "]")
             go ( (e 1) "[" (e 2) "]")
+            rust ( (e 1) "[" (e 2) " as usize].clone()")
             php ( (e 1) "[" (e 2) "]")
         }
     }
@@ -373,6 +386,7 @@ static Object __getJSONValue(JSONArray o, Integer item)
             java7 ( (e 1) ".length()" )
             swift3 ( (e 1) ".count")
             go( "int64(len(" (e 1) "))" )
+            rust ( (e 1) ".len() as i64" )
             php ( "count(" (e 1) ")" )
         }
     }
@@ -384,6 +398,7 @@ static Object __getJSONValue(JSONArray o, Integer item)
             java7 ( (e 1) ".put(" (e 2)" , " (e 3) ");")
             go ( (e 1) "[" (e 2) "] = " (e 3) )
             swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
+            rust ( (e 1) ".insert(" (e 2) ".to_string(), serde_json::json!(" (e 3) "));" )
             php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
         }
     }
@@ -395,6 +410,7 @@ static Object __getJSONValue(JSONArray o, Integer item)
             java7 ( (e 1) ".put(" (e 2)" , " (e 3) ");")
             go ( (e 1) "[" (e 2) "] = " (e 3) )
             swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
+            rust ( (e 1) ".insert(" (e 2) ".to_string(), " (e 3) ");" )
             php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
         }
     }
@@ -419,6 +435,7 @@ func __r_json_to_interface ( s string ) map[string]interface{} {
 ")
 
             )
+            rust ( "serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&" (e 1) ").unwrap()" )
             php ( "r_json_to_array(" (e 1) ")"
 (create_polyfill 
 "
@@ -458,6 +475,7 @@ func __toJSONData ( data interface{} ) string {
 }
 ")            
             )
+            rust ( "serde_json::to_string(&" (e 1) ").unwrap()" )
             php ( "json_encode(" (e 1) ")")
         }        
     }
@@ -478,6 +496,7 @@ func __toJSONData ( data interface{} ) string {
 }
 ")            
             )
+            rust ( "serde_json::to_string(&" (e 1) ").unwrap()" )
             php ( "json_encode(" (e 1) ")")
         }        
     }
@@ -489,6 +508,7 @@ func __toJSONData ( data interface{} ) string {
             java7 ( (e 1) ".put(" (e 2) ");")
             swift3 ( (e 1) ".append(" (e 2) ");")
             go( (e 1) " = append(" (e 1) "," (e 2) ")")
+            rust ( (e 1) ".push(serde_json::json!(" (e 2) "));" )
             php ( "array_push(" (e 1) ", " (e 2) ");")
         }           
     }
@@ -499,6 +519,7 @@ func __toJSONData ( data interface{} ) string {
             ranger ("(json_array )")
             java7 ("new JSONArray()" (imp "org.json.JSONArray") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
             go ( "make([]interface{},0)" )
+            rust ( "Vec::<serde_json::Value>::new()" )
             php ( "array()" )
         }        
     }
@@ -509,6 +530,7 @@ func __toJSONData ( data interface{} ) string {
             ranger ("(json_object )")
             java7 ("new JSONObject()" (imp "org.json.JSONObject") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
             go ( "make(map[string]interface{})" )
+            rust ( "serde_json::Map::<String, serde_json::Value>::new()" )
             php ( "array()")
         }        
     }

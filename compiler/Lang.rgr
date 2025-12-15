@@ -2198,6 +2198,7 @@ std::vector<std::string> r_get_keys_of_map(  std::map<std::string, T> orig_map )
                           "strkeys[i] = keys[i].String()" nl i "}" nl
                         "return strkeys" nl i "})()"
                     (imp "reflect"))
+                rust ( (e 1) ".keys().cloned().collect::<Vec<String>>()" )
             }
         } 
 
@@ -2806,6 +2807,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
 }
 " )
                 )
+                rust ( (e 1) ".ends_with(&" (e 2) ")" )
                 kotlin ( (e 1) ".endsWith(" (e 2) ")" )
                 python ( (e 1) ".endswith(" (e 2) ")" )
             }
