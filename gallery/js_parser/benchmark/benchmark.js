@@ -143,7 +143,8 @@ const parsers = [
   {
     name: "acorn",
     description: "Lightweight ES2020+ parser",
-    parse: (code) => acorn.parse(code, { ecmaVersion: 2022, sourceType: "module" }),
+    parse: (code) =>
+      acorn.parse(code, { ecmaVersion: 2022, sourceType: "module" }),
   },
   {
     name: "esprima",
@@ -153,7 +154,8 @@ const parsers = [
   {
     name: "espree",
     description: "ESLint's parser (based on acorn)",
-    parse: (code) => espree.parse(code, { ecmaVersion: 2022, sourceType: "module" }),
+    parse: (code) =>
+      espree.parse(code, { ecmaVersion: 2022, sourceType: "module" }),
   },
   {
     name: "@babel/parser",
@@ -178,9 +180,15 @@ async function main() {
   const useLarge = process.argv.includes("--large");
   const iterations = 100;
 
-  console.log("╔════════════════════════════════════════════════════════════════════╗");
-  console.log("║       JavaScript Parser Benchmark (in-process comparison)          ║");
-  console.log("╚════════════════════════════════════════════════════════════════════╝\n");
+  console.log(
+    "╔════════════════════════════════════════════════════════════════════╗"
+  );
+  console.log(
+    "║       JavaScript Parser Benchmark (in-process comparison)          ║"
+  );
+  console.log(
+    "╚════════════════════════════════════════════════════════════════════╝\n"
+  );
 
   console.log("Parsers being compared:");
   for (const p of parsers) {
@@ -192,8 +200,14 @@ async function main() {
   const testCases = [{ name: "Small Code (~50 lines)", code: smallCode }];
 
   if (useLarge) {
-    testCases.push({ name: "Large Code (~1000 lines)", code: generateLargeCode(50) });
-    testCases.push({ name: "XL Code (~2000 lines)", code: generateLargeCode(100) });
+    testCases.push({
+      name: "Large Code (~1000 lines)",
+      code: generateLargeCode(50),
+    });
+    testCases.push({
+      name: "XL Code (~2000 lines)",
+      code: generateLargeCode(100),
+    });
   }
 
   for (const { name, code } of testCases) {
@@ -226,7 +240,9 @@ async function main() {
 
     // Display results table
     console.log(`\n  ${"─".repeat(66)}`);
-    console.log("  │ Rank │ Parser              │ Avg (ms)  │ Min (ms)  │ vs Fastest │");
+    console.log(
+      "  │ Rank │ Parser              │ Avg (ms)  │ Min (ms)  │ vs Fastest │"
+    );
     console.log(`  ${"─".repeat(66)}`);
 
     const fastest = results[0].avg;
@@ -237,7 +253,9 @@ async function main() {
       const avg = r.avg.toFixed(3).padStart(9);
       const min = r.min.toFixed(3).padStart(9);
       const ratio = (r.avg / fastest).toFixed(2).padStart(5) + "x";
-      console.log(`  │ ${rank} │ ${name} │ ${avg} │ ${min} │ ${ratio.padStart(10)} │`);
+      console.log(
+        `  │ ${rank} │ ${name} │ ${avg} │ ${min} │ ${ratio.padStart(10)} │`
+      );
     }
     console.log(`  ${"─".repeat(66)}`);
 
@@ -246,9 +264,15 @@ async function main() {
     if (rangerIdx === 0) {
       console.log("\n  🏆 Ranger js_parser is the FASTEST!");
     } else if (rangerIdx === 1) {
-      console.log(`\n  🥈 Ranger js_parser is 2nd fastest (${(results[rangerIdx].avg / fastest).toFixed(2)}x slower than ${results[0].name})`);
+      console.log(
+        `\n  🥈 Ranger js_parser is 2nd fastest (${(
+          results[rangerIdx].avg / fastest
+        ).toFixed(2)}x slower than ${results[0].name})`
+      );
     } else {
-      console.log(`\n  📊 Ranger js_parser ranked #${rangerIdx + 1} of ${results.length}`);
+      console.log(
+        `\n  📊 Ranger js_parser ranked #${rangerIdx + 1} of ${results.length}`
+      );
     }
   }
 

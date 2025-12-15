@@ -302,14 +302,14 @@ wsl -d Ubuntu -- bash -c "
 
 The Ranger js_parser was benchmarked against popular JavaScript parsers. All parsers run in-process with warm-up:
 
-| Rank | Parser | Large (17KB) | XL (35KB) |
-| ---- | ------ | ------------ | --------- |
-| #1 | meriyah | 0.51 ms | 0.84 ms |
-| **#2** | **Ranger js_parser** | **0.88 ms** | **1.39 ms** |
-| #3 | acorn | 1.41 ms | 2.70 ms |
-| #4 | esprima | 1.41 ms | 2.33 ms |
-| #5 | espree (ESLint) | 1.58 ms | 3.47 ms |
-| #6 | @babel/parser | 2.63 ms | 3.06 ms |
+| Rank   | Parser               | Large (17KB) | XL (35KB)   |
+| ------ | -------------------- | ------------ | ----------- |
+| #1     | meriyah              | 0.51 ms      | 0.84 ms     |
+| **#2** | **Ranger js_parser** | **0.88 ms**  | **1.39 ms** |
+| #3     | acorn                | 1.41 ms      | 2.70 ms     |
+| #4     | esprima              | 1.41 ms      | 2.33 ms     |
+| #5     | espree (ESLint)      | 1.58 ms      | 3.47 ms     |
+| #6     | @babel/parser        | 2.63 ms      | 3.06 ms     |
 
 🥈 **Ranger ranks #2**, outperforming espree, acorn, esprima, and @babel/parser by **2-4x**.
 
