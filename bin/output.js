@@ -2851,8 +2851,56 @@ class RangerAppWriterContext  {
     this.test_compile = [];
     this.activeTransaction = [];
     this.transactions = [];
+    this.rust_moved_vars = {};
+    this.rust_usage_count = {};
+    this.rust_temp_counter = 0;
     this.rootFile = "--not-defined--";
   }
+  rustMarkMoved (varName) {
+    this.rust_moved_vars[varName] = true;
+  };
+  rustIsMoved (varName) {
+    if ( ( typeof(this.rust_moved_vars[varName] ) != "undefined" && this.rust_moved_vars.hasOwnProperty(varName) ) ) {
+      return (this.rust_moved_vars[varName]);
+    }
+    if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
+      return this.parent.rustIsMoved(varName);
+    }
+    return false;
+  };
+  rustClearMoved (varName) {
+    this.rust_moved_vars[varName] = false;
+  };
+  rustIncUsage (varName) {
+    if ( ( typeof(this.rust_usage_count[varName] ) != "undefined" && this.rust_usage_count.hasOwnProperty(varName) ) ) {
+      const cnt = (this.rust_usage_count[varName]);
+      this.rust_usage_count[varName] = cnt + 1;
+    } else {
+      this.rust_usage_count[varName] = 1;
+    }
+  };
+  rustGetUsageCount (varName) {
+    if ( ( typeof(this.rust_usage_count[varName] ) != "undefined" && this.rust_usage_count.hasOwnProperty(varName) ) ) {
+      return (this.rust_usage_count[varName]);
+    }
+    if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
+      return this.parent.rustGetUsageCount(varName);
+    }
+    return 0;
+  };
+  rustNeedsClone (varName) {
+    if ( this.rustIsMoved(varName) ) {
+      return true;
+    }
+    if ( this.rustGetUsageCount(varName) > 0 ) {
+      return true;
+    }
+    return false;
+  };
+  rustGetTempVar () {
+    this.rust_temp_counter = this.rust_temp_counter + 1;
+    return "_tmp_" + this.rust_temp_counter;
+  };
   getEnv () {
     const root = this.getRoot();
     return root.env;
@@ -16305,6 +16353,79 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     this.thisName = "self";
     this.fileHeaderWritten = false;
   }
+  adjustType (tn) {
+    switch (tn ) { 
+      case "type" : 
+        return "r#type";
+      case "static" : 
+        return "r#static";
+      case "async" : 
+        return "r#async";
+      case "await" : 
+        return "r#await";
+      case "dyn" : 
+        return "r#dyn";
+      case "impl" : 
+        return "r#impl";
+      case "trait" : 
+        return "r#trait";
+      case "mod" : 
+        return "r#mod";
+      case "pub" : 
+        return "r#pub";
+      case "use" : 
+        return "r#use";
+      case "extern" : 
+        return "r#extern";
+      case "crate" : 
+        return "r#crate";
+      case "super" : 
+        return "r#super";
+      case "where" : 
+        return "r#where";
+      case "unsafe" : 
+        return "r#unsafe";
+      case "move" : 
+        return "r#move";
+      case "ref" : 
+        return "r#ref";
+      case "mut" : 
+        return "r#mut";
+      case "const" : 
+        return "r#const";
+      case "match" : 
+        return "r#match";
+      case "as" : 
+        return "r#as";
+      case "abstract" : 
+        return "r#abstract";
+      case "become" : 
+        return "r#become";
+      case "box" : 
+        return "r#box";
+      case "do" : 
+        return "r#do";
+      case "final" : 
+        return "r#final";
+      case "macro" : 
+        return "r#macro";
+      case "override" : 
+        return "r#override";
+      case "priv" : 
+        return "r#priv";
+      case "typeof" : 
+        return "r#typeof";
+      case "unsized" : 
+        return "r#unsized";
+      case "virtual" : 
+        return "r#virtual";
+      case "yield" : 
+        return "r#yield";
+      case "try" : 
+        return "r#try";
+    };
+    return tn;
+  };
   WriteScalarValue (node, ctx, wr) {
     switch (node.value_type ) { 
       case 2 : 
@@ -16531,7 +16652,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( node.hasParamDesc ) {
       const nn = node.children[1];
       const p = nn.paramDesc;
-      wr.out(p.compiledName + " : ", false);
+      wr.out(this.adjustType(p.compiledName) + " : ", false);
       const nameN = p.nameNode;
       await this.writeTypeDef(nameN, ctx, wr);
       wr.out(", ", true);
@@ -16560,12 +16681,22 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         const value = node.getThird();
         await this.WalkNode(value, ctx, wr);
         ctx.unsetInExpr();
+        if ( nameN.type_name == "string" ) {
+          if ( value.value_type == 11 ) {
+            if ( (value.ns.length) > 1 ) {
+              wr.out(".clone()", false);
+            }
+          }
+        }
       } else {
         if ( nn.value_type == 6 ) {
           wr.out(" = Vec::new()", false);
         }
         if ( nn.value_type == 7 ) {
           wr.out(" = HashMap::new()", false);
+        }
+        if ( nameN.hasFlag("optional") ) {
+          wr.out(" = None", false);
         }
       }
       wr.out(";", false);
@@ -16585,21 +16716,142 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       if ( i > 0 ) {
         wr.out(", ", false);
       }
-      wr.out(arg.name + " : ", false);
       const nameN = arg.nameNode;
+      let v_type = nameN.value_type;
+      if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
+        v_type = nameN.typeNameAsType(ctx);
+      }
+      const is_object = ((v_type == 10) || (v_type == 6)) || (v_type == 7);
+      if ( is_object ) {
+        wr.out(("mut " + arg.name) + " : ", false);
+      } else {
+        wr.out(arg.name + " : ", false);
+      }
       await this.writeTypeDef(nameN, ctx, wr);
     };
+  };
+  isSelfMethodCall (node) {
+    if ( node.hasFnCall ) {
+      const fc = node.getFirst();
+      if ( (fc.ns.length) > 0 ) {
+        const part = fc.ns[0];
+        if ( part == "this" ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  findSelfCallInArgs (node) {
+    if ( node.hasFnCall ) {
+      const givenArgs = node.getSecond();
+      let idx = 0;
+      for ( let i = 0; i < givenArgs.children.length; i++) {
+        var arg = givenArgs.children[i];
+        if ( this.isSelfMethodCall(arg) ) {
+          return i;
+        }
+        idx = i + 1;
+      };
+    }
+    return -1;
   };
   async writeFnCall (node, ctx, wr) {
     if ( node.hasFnCall ) {
       const fc = node.getFirst();
       const part = fc.ns[0];
+      const is_self_call = part == "this";
+      const selfCallArgIdx = this.findSelfCallInArgs(node);
+      const givenArgs = node.getSecond();
+      if ( is_self_call && (selfCallArgIdx >= 0) ) {
+        let tempVars = [];
+        for ( let argIdx = 0; argIdx < givenArgs.children.length; argIdx++) {
+          var argNode = givenArgs.children[argIdx];
+          if ( this.isSelfMethodCall(argNode) ) {
+            const tempName = ctx.rustGetTempVar();
+            tempVars.push(tempName);
+            wr.out(("let " + tempName) + " = ", false);
+            ctx.setInExpr();
+            await this.WalkNode(argNode, ctx, wr);
+            ctx.unsetInExpr();
+            wr.out(";", true);
+          } else {
+            tempVars.push("");
+          }
+        };
+        if ( (part != "this") && ctx.isMemberVariable(part) ) {
+          const uc = ctx.getCurrentClass();
+          if ( (typeof(uc) !== "undefined" && uc != null )  ) {
+            const currC = uc;
+            const up = currC.findVariable(part);
+            if ( (typeof(up) !== "undefined" && up != null )  ) {
+              if ( false == ctx.isInStatic() ) {
+                wr.out(this.thisName + ".", false);
+              }
+            }
+          }
+        }
+        await this.WriteVRef(fc, ctx, wr);
+        wr.out("(", false);
+        for ( let i = 0; i < node.fnDesc.params.length; i++) {
+          var arg = node.fnDesc.params[i];
+          const n = givenArgs.children[i];
+          if ( i > 0 ) {
+            wr.out(", ", false);
+          }
+          if ( typeof(n) === "undefined" ) {
+            const nameN = arg.nameNode;
+            const defVal = nameN.getFlag("default");
+            if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
+              const defV = defVal;
+              const fc2 = defV.vref_annotation.getFirst();
+              ctx.setInExpr();
+              await this.WalkNode(fc2, ctx, wr);
+              ctx.unsetInExpr();
+            } else {
+              ctx.addError(node, "Default argument was missing");
+            }
+            continue;
+          }
+          const tempVar = tempVars[i];
+          if ( (tempVar.length) > 0 ) {
+            wr.out(tempVar, false);
+          } else {
+            const nVal = n;
+            ctx.setInExpr();
+            await this.WalkNode(nVal, ctx, wr);
+            ctx.unsetInExpr();
+            const argNameN = arg.nameNode;
+            let arg_type = argNameN.value_type;
+            if ( ((arg_type == 10) || (arg_type == 11)) || (arg_type == 0) ) {
+              arg_type = argNameN.typeNameAsType(ctx);
+            }
+            let needs_clone = false;
+            if ( argNameN.type_name == "string" ) {
+              needs_clone = true;
+            }
+            if ( arg_type == 10 ) {
+              needs_clone = true;
+            }
+            if ( needs_clone ) {
+              if ( nVal.value_type == 11 ) {
+                wr.out(".clone()", false);
+              }
+            }
+          }
+        };
+        wr.out(")", false);
+        if ( ctx.expressionLevel() == 0 ) {
+          wr.out(";", true);
+        }
+        return;
+      }
       if ( (part != "this") && ctx.isMemberVariable(part) ) {
-        const uc = ctx.getCurrentClass();
-        if ( (typeof(uc) !== "undefined" && uc != null )  ) {
-          const currC = uc;
-          const up = currC.findVariable(part);
-          if ( (typeof(up) !== "undefined" && up != null )  ) {
+        const uc_1 = ctx.getCurrentClass();
+        if ( (typeof(uc_1) !== "undefined" && uc_1 != null )  ) {
+          const currC_1 = uc_1;
+          const up_1 = currC_1.findVariable(part);
+          if ( (typeof(up_1) !== "undefined" && up_1 != null )  ) {
             if ( false == ctx.isInStatic() ) {
               wr.out(this.thisName + ".", false);
             }
@@ -16608,31 +16860,47 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       }
       await this.WriteVRef(fc, ctx, wr);
       wr.out("(", false);
-      const givenArgs = node.getSecond();
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
-        const n = givenArgs.children[i];
-        if ( i > 0 ) {
+      for ( let i_1 = 0; i_1 < node.fnDesc.params.length; i_1++) {
+        var arg_1 = node.fnDesc.params[i_1];
+        const n_1 = givenArgs.children[i_1];
+        if ( i_1 > 0 ) {
           wr.out(", ", false);
         }
-        if ( typeof(n) === "undefined" ) {
-          const nameN = arg.nameNode;
-          const defVal = nameN.getFlag("default");
-          if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
-            const defV = defVal;
-            const fc2 = defV.vref_annotation.getFirst();
+        if ( typeof(n_1) === "undefined" ) {
+          const nameN_1 = arg_1.nameNode;
+          const defVal_1 = nameN_1.getFlag("default");
+          if ( (typeof(defVal_1) !== "undefined" && defVal_1 != null )  ) {
+            const defV_1 = defVal_1;
+            const fc2_1 = defV_1.vref_annotation.getFirst();
             ctx.setInExpr();
-            await this.WalkNode(fc2, ctx, wr);
+            await this.WalkNode(fc2_1, ctx, wr);
             ctx.unsetInExpr();
           } else {
             ctx.addError(node, "Default argument was missing");
           }
           continue;
         }
-        const nVal = n;
+        const nVal_1 = n_1;
         ctx.setInExpr();
-        await this.WalkNode(nVal, ctx, wr);
+        await this.WalkNode(nVal_1, ctx, wr);
         ctx.unsetInExpr();
+        const argNameN_1 = arg_1.nameNode;
+        let arg_type_1 = argNameN_1.value_type;
+        if ( ((arg_type_1 == 10) || (arg_type_1 == 11)) || (arg_type_1 == 0) ) {
+          arg_type_1 = argNameN_1.typeNameAsType(ctx);
+        }
+        let needs_clone_1 = false;
+        if ( argNameN_1.type_name == "string" ) {
+          needs_clone_1 = true;
+        }
+        if ( arg_type_1 == 10 ) {
+          needs_clone_1 = true;
+        }
+        if ( needs_clone_1 ) {
+          if ( nVal_1.value_type == 11 ) {
+            wr.out(".clone()", false);
+          }
+        }
       };
       wr.out(")", false);
       if ( ctx.expressionLevel() == 0 ) {
@@ -16657,6 +16925,23 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             wr.out(", ", false);
           }
           await this.WalkNode(n, ctx, wr);
+          const argNameN = arg.nameNode;
+          let arg_type = argNameN.value_type;
+          if ( ((arg_type == 10) || (arg_type == 11)) || (arg_type == 0) ) {
+            arg_type = argNameN.typeNameAsType(ctx);
+          }
+          let needs_clone = false;
+          if ( argNameN.type_name == "string" ) {
+            needs_clone = true;
+          }
+          if ( arg_type == 10 ) {
+            needs_clone = true;
+          }
+          if ( needs_clone ) {
+            if ( n.value_type == 11 ) {
+              wr.out(".clone()", false);
+            }
+          }
         };
       }
       wr.out(")", false);
@@ -16668,6 +16953,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return;
     }
     const cl = ucl;
+    const prevClass = ctx.getCurrentClass();
+    ctx.setCurrentClass(cl);
     const wr = orig_wr;
     if ( this.fileHeaderWritten == false ) {
       wr.out("#![allow(unused_parens)]", true);
@@ -16720,15 +17007,15 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         const node_1 = nn;
         if ( (node_1.children.length) > 2 ) {
           const valueNode = node_1.children[2];
-          wr.out(pvar_1.name + ":", false);
+          wr.out(this.adjustType(pvar_1.compiledName) + ":", false);
           await this.WalkNode(valueNode, ctx, wr);
           wr.out(", ", true);
         } else {
           if ( (pvar_1).isArray() ) {
-            wr.out(pvar_1.name + ": Vec::new(), ", true);
+            wr.out(this.adjustType(pvar_1.compiledName) + ": Vec::new(), ", true);
           } else {
             if ( pvar_1.is_optional ) {
-              wr.out(pvar_1.name + ": None, ", true);
+              wr.out(this.adjustType(pvar_1.compiledName) + ": None, ", true);
             }
           }
         }
@@ -16825,20 +17112,236 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         wr.out("}", true);
       }
     };
+    if ( (typeof(prevClass) !== "undefined" && prevClass != null )  ) {
+      ctx.setCurrentClass(prevClass);
+    }
   };
   async CustomOperator (node, ctx, wr) {
     const fc = node.getFirst();
     const cmd = fc.vref;
+    if ( cmd == "=" ) {
+      const left = node.getSecond();
+      const right = node.getThird();
+      let is_optional = false;
+      let is_self_ref = false;
+      let field_type_name = "";
+      let left_is_self_field = false;
+      let left_is_array = false;
+      if ( left.hasParamDesc ) {
+        const pp = left.paramDesc;
+        is_optional = pp.is_optional;
+        left_is_self_field = pp.is_class_variable;
+        const nameN = pp.nameNode;
+        if ( (typeof(nameN) !== "undefined" && nameN != null )  ) {
+          const nn = nameN;
+          field_type_name = nn.type_name;
+          if ( nn.value_type == 6 ) {
+            left_is_array = true;
+          }
+          const oc = pp.propertyClass;
+          if ( (typeof(oc) !== "undefined" && oc != null )  ) {
+            const ownerClass = oc;
+            if ( ownerClass.name == field_type_name ) {
+              is_self_ref = true;
+            }
+          }
+        }
+      }
+      if ( left_is_array ) {
+        is_optional = false;
+      }
+      let should_clone_rhs = false;
+      let rhs_is_string = false;
+      let rhs_is_object = false;
+      let rhs_is_optional = false;
+      if ( right.hasParamDesc ) {
+        const rp = right.paramDesc;
+        rhs_is_optional = rp.is_optional;
+        const rNameN = rp.nameNode;
+        if ( (typeof(rNameN) !== "undefined" && rNameN != null )  ) {
+          const rnn = rNameN;
+          if ( rnn.type_name == "string" ) {
+            rhs_is_string = true;
+          }
+          let rv_type = rnn.value_type;
+          if ( (rv_type == 10) || (rv_type == 11) ) {
+            rv_type = rnn.typeNameAsType(ctx);
+          }
+          if ( rv_type == 10 ) {
+            rhs_is_object = true;
+          }
+          if ( rv_type == 6 ) {
+            rhs_is_object = true;
+          }
+        }
+        if ( left_is_self_field ) {
+          if ( rhs_is_string || rhs_is_object ) {
+            should_clone_rhs = true;
+          }
+        }
+        if ( rhs_is_string ) {
+          should_clone_rhs = true;
+        }
+        if ( rhs_is_object ) {
+          should_clone_rhs = true;
+        }
+        if ( rhs_is_optional ) {
+          should_clone_rhs = true;
+        }
+      }
+      if ( right.value_type == 11 ) {
+        if ( right.hasParamDesc ) {
+          const rp_1 = right.paramDesc;
+          rhs_is_optional = rp_1.is_optional;
+          const rNameN_1 = rp_1.nameNode;
+          if ( (typeof(rNameN_1) !== "undefined" && rNameN_1 != null )  ) {
+            const rnn_1 = rNameN_1;
+            if ( rnn_1.type_name == "string" ) {
+              rhs_is_string = true;
+            }
+            let rv_type_1 = rnn_1.value_type;
+            if ( (rv_type_1 == 10) || (rv_type_1 == 11) ) {
+              rv_type_1 = rnn_1.typeNameAsType(ctx);
+            }
+            if ( rv_type_1 == 10 ) {
+              rhs_is_object = true;
+            }
+            if ( rv_type_1 == 6 ) {
+              rhs_is_object = true;
+            }
+          }
+          if ( left_is_self_field ) {
+            if ( rhs_is_string || rhs_is_object ) {
+              should_clone_rhs = true;
+            }
+          }
+          if ( rhs_is_string ) {
+            should_clone_rhs = true;
+          }
+          if ( rhs_is_object ) {
+            should_clone_rhs = true;
+          }
+          if ( rhs_is_optional ) {
+            should_clone_rhs = true;
+          }
+        }
+      }
+      ctx.setInExpr();
+      await this.WalkNode(left, ctx, wr);
+      if ( is_optional ) {
+        if ( rhs_is_optional ) {
+          wr.out(" = ", false);
+          await this.WalkNode(right, ctx, wr);
+          wr.out(".clone();", true);
+        } else {
+          if ( is_self_ref ) {
+            wr.out(" = Some(Box::new(", false);
+            await this.WalkNode(right, ctx, wr);
+            wr.out(".clone()));", true);
+          } else {
+            wr.out(" = Some(", false);
+            await this.WalkNode(right, ctx, wr);
+            if ( should_clone_rhs ) {
+              wr.out(".clone()", false);
+            }
+            wr.out(");", true);
+          }
+        }
+      } else {
+        wr.out(" = ", false);
+        await this.WalkNode(right, ctx, wr);
+        if ( should_clone_rhs ) {
+          wr.out(".clone()", false);
+        }
+        wr.out(";", true);
+      }
+      ctx.unsetInExpr();
+      return;
+    }
     if ( cmd == "return" ) {
       const cnt = node.children.length;
       if ( cnt > 1 ) {
         const retVal = node.getSecond();
+        if ( retVal.hasFnCall ) {
+          const retFc = retVal.getFirst();
+          let isSelfCall = false;
+          if ( (retFc.ns.length) > 0 ) {
+            const firstPart = retFc.ns[0];
+            if ( firstPart == "this" ) {
+              isSelfCall = true;
+            }
+          }
+          if ( isSelfCall ) {
+            const givenArgs = retVal.getSecond();
+            let tempVars = [];
+            let tempIdx = 0;
+            for ( let i = 0; i < givenArgs.children.length; i++) {
+              var arg = givenArgs.children[i];
+              if ( arg.hasFnCall ) {
+                const argFc = arg.getFirst();
+                if ( (argFc.ns.length) > 0 ) {
+                  const argFirstPart = argFc.ns[0];
+                  if ( argFirstPart == "this" ) {
+                    const tmpName = ctx.rustGetTempVar();
+                    wr.out(("let " + tmpName) + " = ", false);
+                    ctx.setInExpr();
+                    await this.WalkNode(arg, ctx, wr);
+                    ctx.unsetInExpr();
+                    wr.out(";", true);
+                    tempVars.push(tmpName);
+                    tempIdx = tempIdx + 1;
+                  } else {
+                    tempVars.push("");
+                  }
+                } else {
+                  tempVars.push("");
+                }
+              } else {
+                tempVars.push("");
+              }
+            };
+            if ( tempIdx > 0 ) {
+              wr.out("return ", false);
+              await this.WriteVRef(retFc, ctx, wr);
+              wr.out("(", false);
+              for ( let i_1 = 0; i_1 < retVal.fnDesc.params.length; i_1++) {
+                var arg_1 = retVal.fnDesc.params[i_1];
+                if ( i_1 > 0 ) {
+                  wr.out(", ", false);
+                }
+                const tmpVar = tempVars[i_1];
+                if ( (tmpVar.length) > 0 ) {
+                  wr.out(tmpVar, false);
+                } else {
+                  const n = givenArgs.children[i_1];
+                  if ( (typeof(n) !== "undefined" && n != null )  ) {
+                    const nVal = n;
+                    ctx.setInExpr();
+                    await this.WalkNode(nVal, ctx, wr);
+                    ctx.unsetInExpr();
+                    const argNameN = arg_1.nameNode;
+                    if ( (argNameN.type_name == "string") && (nVal.value_type == 11) ) {
+                      wr.out(".clone()", false);
+                    }
+                  }
+                }
+              };
+              wr.out(")", false);
+              const tn = retVal.eval_type_name;
+              if ( (tn == "string") || (retVal.eval_type == 10) ) {
+                wr.out(".clone()", false);
+              }
+              wr.out(";", true);
+              return;
+            }
+          }
+        }
         wr.out("return ", false);
         ctx.setInExpr();
         await this.WalkNode(retVal, ctx, wr);
         ctx.unsetInExpr();
-        const tn = retVal.eval_type_name;
-        if ( (tn == "string") || (retVal.eval_type == 10) ) {
+        const tn_1 = retVal.eval_type_name;
+        if ( (tn_1 == "string") || (retVal.eval_type == 10) ) {
           wr.out(".clone()", false);
         }
         wr.out(";", true);
@@ -16848,24 +17351,76 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return;
     }
     if ( cmd == "push" ) {
-      const left = node.getSecond();
-      const right = node.getThird();
+      const left_1 = node.getSecond();
+      const right_1 = node.getThird();
       let arr_type = "";
-      if ( left.hasParamDesc ) {
-        const pp = left.paramDesc;
-        arr_type = pp.nameNode.array_type;
+      if ( left_1.hasParamDesc ) {
+        const pp_1 = left_1.paramDesc;
+        arr_type = pp_1.nameNode.array_type;
       }
       ctx.setInExpr();
-      await this.WalkNode(left, ctx, wr);
+      await this.WalkNode(left_1, ctx, wr);
       wr.out(".push(", false);
-      await this.WalkNode(right, ctx, wr);
+      await this.WalkNode(right_1, ctx, wr);
       if ( arr_type == "string" ) {
-        if ( right.value_type == 4 ) {
+        if ( right_1.value_type == 4 ) {
           wr.out(".to_string()", false);
+        }
+      }
+      if ( right_1.value_type == 11 ) {
+        if ( arr_type != "string" ) {
+          if ( arr_type != "int" ) {
+            if ( arr_type != "double" ) {
+              if ( arr_type != "boolean" ) {
+                wr.out(".clone()", false);
+              }
+            }
+          }
         }
       }
       ctx.unsetInExpr();
       wr.out(");", true);
+      return;
+    }
+    if ( cmd == "unwrap" ) {
+      const arg_2 = node.getSecond();
+      let needs_deref = false;
+      let is_self_field = false;
+      let inner_type = "";
+      if ( arg_2.hasParamDesc ) {
+        const pp_2 = arg_2.paramDesc;
+        is_self_field = pp_2.is_class_variable;
+        const nameN_1 = pp_2.nameNode;
+        if ( (typeof(nameN_1) !== "undefined" && nameN_1 != null )  ) {
+          const nn_1 = nameN_1;
+          inner_type = nn_1.type_name;
+          const oc_1 = pp_2.propertyClass;
+          if ( (typeof(oc_1) !== "undefined" && oc_1 != null )  ) {
+            const ownerClass_1 = oc_1;
+            if ( ownerClass_1.name == inner_type ) {
+              needs_deref = true;
+            }
+          }
+        }
+      }
+      ctx.setInExpr();
+      if ( needs_deref ) {
+        wr.out("(*", false);
+        await this.WalkNode(arg_2, ctx, wr);
+        if ( is_self_field ) {
+          wr.out(".clone().unwrap())", false);
+        } else {
+          wr.out(".unwrap())", false);
+        }
+      } else {
+        await this.WalkNode(arg_2, ctx, wr);
+        if ( is_self_field ) {
+          wr.out(".clone().unwrap()", false);
+        } else {
+          wr.out(".unwrap()", false);
+        }
+      }
+      ctx.unsetInExpr();
       return;
     }
   };

@@ -23,11 +23,15 @@ class JSPrinter {
   }
   
   fn emitLine:void (text:string) {
-    this.output = this.output + (this.getIndent()) + text + "\n"
+    ; Use temp variable to avoid borrow conflicts in Rust
+    def ind:string (this.getIndent())
+    this.output = this.output + ind + text + "\n"
   }
   
   fn emitIndent:void () {
-    this.output = this.output + (this.getIndent())
+    ; Use temp variable to avoid borrow conflicts in Rust
+    def ind:string (this.getIndent())
+    this.output = this.output + ind
   }
   
   fn indent:void () {

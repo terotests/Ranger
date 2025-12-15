@@ -43,9 +43,9 @@ impl Lexer {
       pos:0, 
       line:1, 
       col:1, 
-      len:0, 
+      __len:0, 
     };
-    me.source = src;
+    me.source = src.clone();
     me.__len = src.len() as i64;
     return me;
   }
@@ -68,7 +68,7 @@ impl Lexer {
     }
     let ch : String = self.source.chars().nth(self.pos as usize).map(|c| c.to_string()).unwrap_or_default();
     self.pos = self.pos + 1;
-    if  ch == "\n".to_string() {
+    if  (ch == "\n".to_string()) || (ch == "\r\n".to_string()) {
       self.line = self.line + 1;
       self.col = 1;
     } else {
@@ -133,7 +133,7 @@ impl Lexer {
     return false;
   }
   fn isAlphaNumCh(&mut self, ch : String) -> bool {
-    if  self.isDigit(ch) {
+    if  self.isDigit(ch.clone()) {
       return true;
     }
     if  ch == "_".to_string() {
@@ -171,12 +171,15 @@ impl Lexer {
     if  ch == "\r".to_string() {
       return true;
     }
+    if  ch == "\r\n".to_string() {
+      return true;
+    }
     return false;
   }
   fn skipWhitespace(&mut self, ) -> () {
     while self.pos < self.__len {
       let ch : String = self.peek();
-      if  self.isWhitespace(ch) {
+      if  self.isWhitespace(ch.clone()) {
         self.advance();
       } else {
         return;
@@ -193,11 +196,14 @@ impl Lexer {
     while self.pos < self.__len {
       let ch : String = self.peek();
       if  ch == "\n".to_string() {
-        return self.makeToken("LineComment".to_string(), value, startPos, startLine, startCol).clone();
+        return self.makeToken("LineComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
+      }
+      if  ch == "\r\n".to_string() {
+        return self.makeToken("LineComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
       }
       value = format!("{}{}", value, self.advance());
     }
-    return self.makeToken("LineComment".to_string(), value, startPos, startLine, startCol).clone();
+    return self.makeToken("LineComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
   }
   fn readBlockComment(&mut self, ) -> Token {
     let startPos : i64 = self.pos;
@@ -220,22 +226,22 @@ impl Lexer {
           self.advance();
           self.advance();
           if  isJSDoc {
-            return self.makeToken("JSDocComment".to_string(), value, startPos, startLine, startCol).clone();
+            return self.makeToken("JSDocComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
           }
-          return self.makeToken("BlockComment".to_string(), value, startPos, startLine, startCol).clone();
+          return self.makeToken("BlockComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
         }
       }
       value = format!("{}{}", value, self.advance());
     }
     if  isJSDoc {
-      return self.makeToken("JSDocComment".to_string(), value, startPos, startLine, startCol).clone();
+      return self.makeToken("JSDocComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
     }
-    return self.makeToken("BlockComment".to_string(), value, startPos, startLine, startCol).clone();
+    return self.makeToken("BlockComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
   }
   fn makeToken(&mut self, tokType : String, value : String, startPos : i64, startLine : i64, startCol : i64) -> Token {
     let mut tok : Token = Token::new();
-    tok.tokenType = tokType;
-    tok.value = value;
+    tok.tokenType = tokType.clone();
+    tok.value = value.clone();
     tok.start = startPos;
     tok.end = self.pos;
     tok.line = startLine;
@@ -252,7 +258,7 @@ impl Lexer {
       let ch : String = self.peek();
       if  ch == quote {
         self.advance();
-        return self.makeToken("String".to_string(), value, startPos, startLine, startCol).clone();
+        return self.makeToken("String".to_string(), value.clone(), startPos, startLine, startCol).clone();
       }
       if  ch == "\\".to_string() {
         self.advance();
@@ -282,7 +288,7 @@ impl Lexer {
         value = format!("{}{}", value, self.advance());
       }
     }
-    return self.makeToken("String".to_string(), value, startPos, startLine, startCol).clone();
+    return self.makeToken("String".to_string(), value.clone(), startPos, startLine, startCol).clone();
   }
   fn readTemplateLiteral(&mut self, ) -> Token {
     let startPos : i64 = self.pos;
@@ -296,9 +302,9 @@ impl Lexer {
       if  ch == "`".to_string() {
         self.advance();
         if  hasExpressions {
-          return self.makeToken("TemplateLiteral".to_string(), value, startPos, startLine, startCol).clone();
+          return self.makeToken("TemplateLiteral".to_string(), value.clone(), startPos, startLine, startCol).clone();
         } else {
-          return self.makeToken("TemplateLiteral".to_string(), value, startPos, startLine, startCol).clone();
+          return self.makeToken("TemplateLiteral".to_string(), value.clone(), startPos, startLine, startCol).clone();
         }
       }
       if  ch == "\\".to_string() {
@@ -336,7 +342,7 @@ impl Lexer {
         }
       }
     }
-    return self.makeToken("TemplateLiteral".to_string(), value, startPos, startLine, startCol).clone();
+    return self.makeToken("TemplateLiteral".to_string(), value.clone(), startPos, startLine, startCol).clone();
   }
   fn readNumber(&mut self, ) -> Token {
     let startPos : i64 = self.pos;
@@ -345,17 +351,17 @@ impl Lexer {
     let mut value : String = "".to_string();
     while self.pos < self.__len {
       let ch : String = self.peek();
-      if  self.isDigit(ch) {
+      if  self.isDigit(ch.clone()) {
         value = format!("{}{}", value, self.advance());
       } else {
         if  ch == ".".to_string() {
           value = format!("{}{}", value, self.advance());
         } else {
-          return self.makeToken("Number".to_string(), value, startPos, startLine, startCol).clone();
+          return self.makeToken("Number".to_string(), value.clone(), startPos, startLine, startCol).clone();
         }
       }
     }
-    return self.makeToken("Number".to_string(), value, startPos, startLine, startCol).clone();
+    return self.makeToken("Number".to_string(), value.clone(), startPos, startLine, startCol).clone();
   }
   fn readIdentifier(&mut self, ) -> Token {
     let startPos : i64 = self.pos;
@@ -364,13 +370,15 @@ impl Lexer {
     let mut value : String = "".to_string();
     while self.pos < self.__len {
       let ch : String = self.peek();
-      if  self.isAlphaNumCh(ch) {
+      if  self.isAlphaNumCh(ch.clone()) {
         value = format!("{}{}", value, self.advance());
       } else {
-        return self.makeToken(self.identType(value), value, startPos, startLine, startCol).clone();
+        let _tmp_1 = self.identType(value.clone());
+        return self.makeToken(_tmp_1, value.clone(), startPos, startLine, startCol).clone();
       }
     }
-    return self.makeToken(self.identType(value), value, startPos, startLine, startCol).clone();
+    let _tmp_1 = self.identType(value.clone());
+    return self.makeToken(_tmp_1, value.clone(), startPos, startLine, startCol).clone();
   }
   fn identType(&mut self, value : String) -> String {
     if  value == "var".to_string() {
@@ -522,10 +530,10 @@ impl Lexer {
     if  ch == "`".to_string() {
       return self.readTemplateLiteral().clone();
     }
-    if  self.isDigit(ch) {
+    if  self.isDigit(ch.clone()) {
       return self.readNumber().clone();
     }
-    if  self.isAlpha(ch) {
+    if  self.isAlpha(ch.clone()) {
       return self.readIdentifier().clone();
     }
     let next_1 : String = self.peekAt(1);
@@ -635,7 +643,7 @@ impl Lexer {
       }
     }
     self.advance();
-    return self.makeToken("Punctuator".to_string(), ch, startPos, startLine, startCol).clone();
+    return self.makeToken("Punctuator".to_string(), ch.clone(), startPos, startLine, startCol).clone();
   }
   fn readRegexLiteral(&mut self, ) -> Token {
     let startPos : i64 = self.pos;
@@ -664,8 +672,8 @@ impl Lexer {
               self.advance();
               break;
             } else {
-              if  (ch == "\n".to_string()) || (ch == "\r".to_string()) {
-                return self.makeToken("RegexLiteral".to_string(), pattern, startPos, startLine, startCol).clone();
+              if  ((ch == "\n".to_string()) || (ch == "\r".to_string())) || (ch == "\r\n".to_string()) {
+                return self.makeToken("RegexLiteral".to_string(), pattern.clone(), startPos, startLine, startCol).clone();
               } else {
                 pattern = format!("{}{}", pattern, self.advance());
               }
@@ -684,13 +692,13 @@ impl Lexer {
       }
     }
     let fullValue : String = format!("{}{}", (format!("{}{}", pattern, "/".to_string())), flags);
-    return self.makeToken("RegexLiteral".to_string(), fullValue, startPos, startLine, startCol).clone();
+    return self.makeToken("RegexLiteral".to_string(), fullValue.clone(), startPos, startLine, startCol).clone();
   }
   fn tokenize(&mut self, ) -> Vec<Token> {
     let mut tokens : Vec<Token> = Vec::new();
     while true {
       let mut tok : Token = self.nextToken();
-      tokens.push(tok);
+      tokens.push(tok.clone());
       if  tok.tokenType == "EOF".to_string() {
         return tokens;
       }
@@ -699,36 +707,168 @@ impl Lexer {
   }
 }
 #[derive(Clone)]
+struct Position { 
+  line : i64, 
+  column : i64, 
+}
+impl Position { 
+  
+  pub fn new() ->  Position {
+    let mut me = Position { 
+      line:1, 
+      column:0, 
+    };
+    return me;
+  }
+}
+#[derive(Clone)]
+struct SourceLocation { 
+  start : Option<Position>, 
+  end : Option<Position>, 
+}
+impl SourceLocation { 
+  
+  pub fn new() ->  SourceLocation {
+    let mut me = SourceLocation { 
+      start: None, 
+      end: None, 
+    };
+    return me;
+  }
+}
+#[derive(Clone)]
 struct JSNode { 
-  nodeType : String, 
+  r#type : String, 
+  loc : Option<SourceLocation>, 
   start : i64, 
   end : i64, 
   line : i64, 
   col : i64, 
-  strValue : String, 
-  strValue2 : String, 
+  name : String, 
+  raw : String, 
+  regexPattern : String, 
+  regexFlags : String, 
+  operator : String, 
+  prefix : bool, 
+  left : Option<Box<JSNode>>, 
+  right : Option<Box<JSNode>>, 
+  argument : Option<Box<JSNode>>, 
+  test : Option<Box<JSNode>>, 
+  consequent : Option<Box<JSNode>>, 
+  alternate : Option<Box<JSNode>>, 
+  id : Option<Box<JSNode>>, 
+  params : Vec<JSNode>, 
+  body : Option<Box<JSNode>>, 
+  generator : bool, 
+  r#async : bool, 
+  expression : bool, 
+  declarations : Vec<JSNode>, 
+  kind : String, 
+  init : Option<Box<JSNode>>, 
+  superClass : Option<Box<JSNode>>, 
+  object : Option<Box<JSNode>>, 
+  property : Option<Box<JSNode>>, 
+  computed : bool, 
+  optional : bool, 
+  callee : Option<Box<JSNode>>, 
+  arguments : Vec<JSNode>, 
+  elements : Vec<JSNode>, 
+  properties : Vec<JSNode>, 
+  key : Option<Box<JSNode>>, 
+  method : bool, 
+  shorthand : bool, 
+  update : Option<Box<JSNode>>, 
+  discriminant : Option<Box<JSNode>>, 
+  cases : Vec<JSNode>, 
+  consequentStatements : Vec<JSNode>, 
+  block : Option<Box<JSNode>>, 
+  handler : Option<Box<JSNode>>, 
+  finalizer : Option<Box<JSNode>>, 
+  param : Option<Box<JSNode>>, 
+  source : Option<Box<JSNode>>, 
+  specifiers : Vec<JSNode>, 
+  imported : Option<Box<JSNode>>, 
+  local : Option<Box<JSNode>>, 
+  exported : Option<Box<JSNode>>, 
+  declaration : Option<Box<JSNode>>, 
+  quasis : Vec<JSNode>, 
+  expressions : Vec<JSNode>, 
+  tail : bool, 
+  cooked : String, 
+  sourceType : String, 
+  r#static : bool, 
+  delegate : bool, 
   children : Vec<JSNode>, 
-  left : Option<JSNode>, 
-  right : Option<JSNode>, 
-  test : Option<JSNode>, 
-  body : Option<JSNode>, 
-  alternate : Option<JSNode>, 
   leadingComments : Vec<JSNode>, 
-  trailingComment : Option<JSNode>, 
+  trailingComments : Vec<JSNode>, 
 }
 impl JSNode { 
   
   pub fn new() ->  JSNode {
     let mut me = JSNode { 
-      nodeType:"".to_string(), 
+      r#type:"".to_string(), 
+      loc: None, 
       start:0, 
       end:0, 
       line:0, 
       col:0, 
-      strValue:"".to_string(), 
-      strValue2:"".to_string(), 
+      name:"".to_string(), 
+      raw:"".to_string(), 
+      regexPattern:"".to_string(), 
+      regexFlags:"".to_string(), 
+      operator:"".to_string(), 
+      prefix:false, 
+      left: None, 
+      right: None, 
+      argument: None, 
+      test: None, 
+      consequent: None, 
+      alternate: None, 
+      id: None, 
+      params: Vec::new(), 
+      body: None, 
+      generator:false, 
+      r#async:false, 
+      expression:false, 
+      declarations: Vec::new(), 
+      kind:"".to_string(), 
+      init: None, 
+      superClass: None, 
+      object: None, 
+      property: None, 
+      computed:false, 
+      optional:false, 
+      callee: None, 
+      arguments: Vec::new(), 
+      elements: Vec::new(), 
+      properties: Vec::new(), 
+      key: None, 
+      method:false, 
+      shorthand:false, 
+      update: None, 
+      discriminant: None, 
+      cases: Vec::new(), 
+      consequentStatements: Vec::new(), 
+      block: None, 
+      handler: None, 
+      finalizer: None, 
+      param: None, 
+      source: None, 
+      specifiers: Vec::new(), 
+      imported: None, 
+      local: None, 
+      exported: None, 
+      declaration: None, 
+      quasis: Vec::new(), 
+      expressions: Vec::new(), 
+      tail:false, 
+      cooked:"".to_string(), 
+      sourceType:"".to_string(), 
+      r#static:false, 
+      delegate:false, 
       children: Vec::new(), 
       leadingComments: Vec::new(), 
+      trailingComments: Vec::new(), 
     };
     return me;
   }
@@ -749,27 +889,29 @@ impl SimpleParser {
     let mut me = SimpleParser { 
       tokens: Vec::new(), 
       pos:0, 
+      currentToken: None, 
       errors: Vec::new(), 
       pendingComments: Vec::new(), 
       source:"".to_string(), 
+      lexer: None, 
     };
     return me;
   }
-  fn initParser(&mut self, toks : Vec<Token>) -> () {
-    self.tokens = toks;
+  fn initParser(&mut self, mut toks : Vec<Token>) -> () {
+    self.tokens = toks.clone();
     self.pos = 0;
-    if  (toks.len()) > 0 {
-      self.currentToken = toks[0 as usize].clone();
+    if  ((toks.len() as i64)) > 0 {
+      self.currentToken = Some(toks[0 as usize].clone());
     }
     self.skipComments();
   }
-  fn initParserWithSource(&mut self, toks : Vec<Token>, src : String) -> () {
-    self.tokens = toks;
-    self.source = src;
-    self.lexer = Lexer::new(src);
+  fn initParserWithSource(&mut self, mut toks : Vec<Token>, src : String) -> () {
+    self.tokens = toks.clone();
+    self.source = src.clone();
+    self.lexer = Some(Lexer::new(src.clone()));
     self.pos = 0;
-    if  (toks.len()) > 0 {
-      self.currentToken = toks[0 as usize].clone();
+    if  ((toks.len() as i64)) > 0 {
+      self.currentToken = Some(toks[0 as usize].clone());
     }
     self.skipComments();
   }
@@ -790,61 +932,59 @@ impl SimpleParser {
     while self.isCommentToken() {
       let mut tok : Token = self.peek();
       let mut commentNode : JSNode = JSNode::new();
-      commentNode.nodeType = tok.tokenType;
-      commentNode.strValue = tok.value;
+      commentNode.r#type = tok.tokenType.clone();
+      commentNode.raw = tok.value.clone();
       commentNode.line = tok.line;
       commentNode.col = tok.col;
       commentNode.start = tok.start;
       commentNode.end = tok.end;
-      self.pendingComments.push(commentNode);
+      self.pendingComments.push(commentNode.clone());
       self.advanceRaw();
     }
   }
   fn advanceRaw(&mut self, ) -> () {
     self.pos = self.pos + 1;
-    if  self.pos < (self.tokens.len()) {
-      self.currentToken = self.tokens[self.pos as usize].clone();
+    if  self.pos < ((self.tokens.len() as i64)) {
+      self.currentToken = Some(self.tokens[self.pos as usize].clone());
     } else {
       let mut eof : Token = Token::new();
       eof.tokenType = "EOF".to_string();
       eof.value = "".to_string();
-      self.currentToken = eof;
+      self.currentToken = Some(eof.clone());
     }
   }
   fn collectComments(&mut self, ) -> Vec<JSNode> {
     let mut comments : Vec<JSNode> = Vec::new();
     for i in 0..self.pendingComments.len() {
       let mut c = self.pendingComments[i as usize].clone();
-      comments.push(c);
-      self.pendingComments[i as usize] = c;
+      comments.push(c.clone());
     }
     let mut empty : Vec<JSNode> = Vec::new();
-    self.pendingComments = empty;
+    self.pendingComments = empty.clone();
     return comments;
   }
-  fn attachComments(&mut self, node : JSNode) -> () {
+  fn attachComments(&mut self, mut node : JSNode) -> () {
     let mut comments : Vec<JSNode> = self.collectComments();
     for i in 0..comments.len() {
       let mut c = comments[i as usize].clone();
-      node.leadingComments.push(c);
-      comments[i as usize] = c;
+      node.leadingComments.push(c.clone());
     }
   }
   fn peek(&mut self, ) -> Token {
-    return self.currentToken.unwrap().clone();
+    return self.currentToken.clone().unwrap().clone();
   }
   fn peekType(&mut self, ) -> String {
-    if  self.currentToken.is_null() {
+    if  self.currentToken.is_none() {
       return "EOF".to_string().clone();
     }
-    let mut tok : Token = self.currentToken.unwrap();
+    let mut tok : Token = self.currentToken.clone().unwrap();
     return tok.tokenType.clone();
   }
   fn peekValue(&mut self, ) -> String {
-    if  self.currentToken.is_null() {
+    if  self.currentToken.is_none() {
       return "".to_string().clone();
     }
-    let mut tok : Token = self.currentToken.unwrap();
+    let mut tok : Token = self.currentToken.clone().unwrap();
     return tok.value.clone();
   }
   fn advance(&mut self, ) -> () {
@@ -858,7 +998,7 @@ impl SimpleParser {
     let mut tok : Token = self.peek();
     if  tok.tokenType != expectedType {
       let err : String = format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", ([(format!("{}{}", (["Parse error at line ".to_string() , (tok.line.to_string()) ].join("")), ":".to_string())) , (tok.col.to_string()) ].join("")), ": expected ".to_string())), expectedType)), " but got ".to_string())), tok.tokenType);
-      self.addError(err);
+      self.addError(err.clone());
     }
     self.advance();
     return tok.clone();
@@ -867,7 +1007,7 @@ impl SimpleParser {
     let mut tok : Token = self.peek();
     if  tok.value != expectedValue {
       let err : String = format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", ([(format!("{}{}", (["Parse error at line ".to_string() , (tok.line.to_string()) ].join("")), ":".to_string())) , (tok.col.to_string()) ].join("")), ": expected '".to_string())), expectedValue)), "' but got '".to_string())), tok.value)), "'".to_string());
-      self.addError(err);
+      self.addError(err.clone());
     }
     self.advance();
     return tok.clone();
@@ -885,26 +1025,26 @@ impl SimpleParser {
     return v == value;
   }
   fn hasErrors(&mut self, ) -> bool {
-    return (self.errors.len()) > 0;
+    return ((self.errors.len() as i64)) > 0;
   }
   fn parseRegexLiteral(&mut self, ) -> JSNode {
     let mut tok : Token = self.peek();
     let startPos : i64 = tok.start;
     let startLine : i64 = tok.line;
     let startCol : i64 = tok.col;
-    if  self.lexer.is_null() {
+    if  self.lexer.is_none() {
       let mut err : JSNode = JSNode::new();
-      err.nodeType = "Identifier".to_string();
-      err.strValue = "regex_error".to_string();
+      err.r#type = "Identifier".to_string();
+      err.name = "regex_error".to_string();
       self.advance();
       return err.clone();
     }
-    let mut lex : Lexer = self.lexer.unwrap();
+    let mut lex : Lexer = self.lexer.clone().unwrap();
     lex.pos = startPos;
     lex.line = startLine;
     lex.col = startCol;
     let mut regexTok : Token = lex.readRegexLiteral();
-    let fullValue : String = regexTok.value;
+    let fullValue : String = regexTok.value.clone();
     let mut pattern : String = "".to_string();
     let mut flags : String = "".to_string();
     let mut lastSlash : i64 = -1;
@@ -920,12 +1060,13 @@ impl SimpleParser {
       pattern = fullValue.chars().skip(0 as usize).take((lastSlash - 0) as usize).collect::<String>();
       flags = fullValue.chars().skip((lastSlash + 1) as usize).take(((fullValue.len() as i64) - (lastSlash + 1)) as usize).collect::<String>();
     } else {
-      pattern = fullValue;
+      pattern = fullValue.clone();
     }
     let mut regex : JSNode = JSNode::new();
-    regex.nodeType = "RegexLiteral".to_string();
-    regex.strValue = pattern;
-    regex.strValue2 = flags;
+    regex.r#type = "Literal".to_string();
+    regex.raw = fullValue.clone();
+    regex.regexPattern = pattern.clone();
+    regex.regexFlags = flags.clone();
     regex.start = startPos;
     regex.end = lex.pos;
     regex.line = startLine;
@@ -943,94 +1084,93 @@ impl SimpleParser {
   }
   fn parseProgram(&mut self, ) -> JSNode {
     let mut prog : JSNode = JSNode::new();
-    prog.nodeType = "Program".to_string();
+    prog.r#type = "Program".to_string();
     while self.isAtEnd() == false {
       let mut stmt : JSNode = self.parseStatement();
-      prog.children.push(stmt);
+      prog.children.push(stmt.clone());
     }
     return prog.clone();
   }
   fn parseStatement(&mut self, ) -> JSNode {
     let mut comments : Vec<JSNode> = self.collectComments();
     let tokVal : String = self.peekValue();
-    let mut stmt : Option<JSNode>;
+    let mut stmt : Option<JSNode> = None;
     if  tokVal == "var".to_string() {
-      stmt = self.parseVarDecl();
+      stmt = Some(self.parseVarDecl());
     }
-    if  (stmt.is_null()) && (tokVal == "let".to_string()) {
-      stmt = self.parseLetDecl();
+    if  (stmt.is_none()) && (tokVal == "let".to_string()) {
+      stmt = Some(self.parseLetDecl());
     }
-    if  (stmt.is_null()) && (tokVal == "const".to_string()) {
-      stmt = self.parseConstDecl();
+    if  (stmt.is_none()) && (tokVal == "const".to_string()) {
+      stmt = Some(self.parseConstDecl());
     }
-    if  (stmt.is_null()) && (tokVal == "function".to_string()) {
-      stmt = self.parseFuncDecl();
+    if  (stmt.is_none()) && (tokVal == "function".to_string()) {
+      stmt = Some(self.parseFuncDecl());
     }
-    if  (stmt.is_null()) && (tokVal == "async".to_string()) {
-      stmt = self.parseAsyncFuncDecl();
+    if  (stmt.is_none()) && (tokVal == "async".to_string()) {
+      stmt = Some(self.parseAsyncFuncDecl());
     }
-    if  (stmt.is_null()) && (tokVal == "class".to_string()) {
-      stmt = self.parseClass();
+    if  (stmt.is_none()) && (tokVal == "class".to_string()) {
+      stmt = Some(self.parseClass());
     }
-    if  (stmt.is_null()) && (tokVal == "import".to_string()) {
-      stmt = self.parseImport();
+    if  (stmt.is_none()) && (tokVal == "import".to_string()) {
+      stmt = Some(self.parseImport());
     }
-    if  (stmt.is_null()) && (tokVal == "export".to_string()) {
-      stmt = self.parseExport();
+    if  (stmt.is_none()) && (tokVal == "export".to_string()) {
+      stmt = Some(self.parseExport());
     }
-    if  (stmt.is_null()) && (tokVal == "return".to_string()) {
-      stmt = self.parseReturn();
+    if  (stmt.is_none()) && (tokVal == "return".to_string()) {
+      stmt = Some(self.parseReturn());
     }
-    if  (stmt.is_null()) && (tokVal == "if".to_string()) {
-      stmt = self.parseIf();
+    if  (stmt.is_none()) && (tokVal == "if".to_string()) {
+      stmt = Some(self.parseIf());
     }
-    if  (stmt.is_null()) && (tokVal == "while".to_string()) {
-      stmt = self.parseWhile();
+    if  (stmt.is_none()) && (tokVal == "while".to_string()) {
+      stmt = Some(self.parseWhile());
     }
-    if  (stmt.is_null()) && (tokVal == "do".to_string()) {
-      stmt = self.parseDoWhile();
+    if  (stmt.is_none()) && (tokVal == "do".to_string()) {
+      stmt = Some(self.parseDoWhile());
     }
-    if  (stmt.is_null()) && (tokVal == "for".to_string()) {
-      stmt = self.parseFor();
+    if  (stmt.is_none()) && (tokVal == "for".to_string()) {
+      stmt = Some(self.parseFor());
     }
-    if  (stmt.is_null()) && (tokVal == "switch".to_string()) {
-      stmt = self.parseSwitch();
+    if  (stmt.is_none()) && (tokVal == "switch".to_string()) {
+      stmt = Some(self.parseSwitch());
     }
-    if  (stmt.is_null()) && (tokVal == "try".to_string()) {
-      stmt = self.parseTry();
+    if  (stmt.is_none()) && (tokVal == "try".to_string()) {
+      stmt = Some(self.parseTry());
     }
-    if  (stmt.is_null()) && (tokVal == "throw".to_string()) {
-      stmt = self.parseThrow();
+    if  (stmt.is_none()) && (tokVal == "throw".to_string()) {
+      stmt = Some(self.parseThrow());
     }
-    if  (stmt.is_null()) && (tokVal == "break".to_string()) {
-      stmt = self.parseBreak();
+    if  (stmt.is_none()) && (tokVal == "break".to_string()) {
+      stmt = Some(self.parseBreak());
     }
-    if  (stmt.is_null()) && (tokVal == "continue".to_string()) {
-      stmt = self.parseContinue();
+    if  (stmt.is_none()) && (tokVal == "continue".to_string()) {
+      stmt = Some(self.parseContinue());
     }
-    if  (stmt.is_null()) && (tokVal == "{".to_string()) {
-      stmt = self.parseBlock();
+    if  (stmt.is_none()) && (tokVal == "{".to_string()) {
+      stmt = Some(self.parseBlock());
     }
-    if  (stmt.is_null()) && (tokVal == ";".to_string()) {
+    if  (stmt.is_none()) && (tokVal == ";".to_string()) {
       self.advance();
       let mut empty : JSNode = JSNode::new();
-      empty.nodeType = "EmptyStatement".to_string();
-      stmt = empty;
+      empty.r#type = "EmptyStatement".to_string();
+      stmt = Some(empty.clone());
     }
-    if  stmt.is_null() {
-      stmt = self.parseExprStmt();
+    if  stmt.is_none() {
+      stmt = Some(self.parseExprStmt());
     }
     let mut result : JSNode = stmt.unwrap();
     for i in 0..comments.len() {
       let mut c = comments[i as usize].clone();
-      result.leadingComments.push(c);
-      comments[i as usize] = c;
+      result.leadingComments.push(c.clone());
     }
     return result.clone();
   }
   fn parseVarDecl(&mut self, ) -> JSNode {
     let mut decl : JSNode = JSNode::new();
-    decl.nodeType = "VariableDeclaration".to_string();
+    decl.r#type = "VariableDeclaration".to_string();
     let mut startTok : Token = self.peek();
     decl.start = startTok.start;
     decl.line = startTok.line;
@@ -1043,24 +1183,24 @@ impl SimpleParser {
       }
       first = false;
       let mut declarator : JSNode = JSNode::new();
-      declarator.nodeType = "VariableDeclarator".to_string();
+      declarator.r#type = "VariableDeclarator".to_string();
       let mut idTok : Token = self.expect("Identifier".to_string());
       let mut id : JSNode = JSNode::new();
-      id.nodeType = "Identifier".to_string();
-      id.strValue = idTok.value;
+      id.r#type = "Identifier".to_string();
+      id.name = idTok.value.clone();
       id.start = idTok.start;
       id.line = idTok.line;
       id.col = idTok.col;
-      declarator.left = id;
+      declarator.id = Some(Box::new(id.clone()));
       declarator.start = idTok.start;
       declarator.line = idTok.line;
       declarator.col = idTok.col;
       if  self.matchValue("=".to_string()) {
         self.advance();
         let mut initExpr : JSNode = self.parseAssignment();
-        declarator.right = initExpr;
+        declarator.init = Some(Box::new(initExpr.clone()));
       }
-      decl.children.push(declarator);
+      decl.children.push(declarator.clone());
     }
     if  self.matchValue(";".to_string()) {
       self.advance();
@@ -1069,8 +1209,8 @@ impl SimpleParser {
   }
   fn parseLetDecl(&mut self, ) -> JSNode {
     let mut decl : JSNode = JSNode::new();
-    decl.nodeType = "VariableDeclaration".to_string();
-    decl.strValue = "let".to_string();
+    decl.r#type = "VariableDeclaration".to_string();
+    decl.kind = "let".to_string();
     let mut startTok : Token = self.peek();
     decl.start = startTok.start;
     decl.line = startTok.line;
@@ -1083,35 +1223,35 @@ impl SimpleParser {
       }
       first = false;
       let mut declarator : JSNode = JSNode::new();
-      declarator.nodeType = "VariableDeclarator".to_string();
+      declarator.r#type = "VariableDeclarator".to_string();
       let mut declTok : Token = self.peek();
       declarator.start = declTok.start;
       declarator.line = declTok.line;
       declarator.col = declTok.col;
       if  self.matchValue("[".to_string()) {
         let mut pattern : JSNode = self.parseArrayPattern();
-        declarator.left = pattern;
+        declarator.id = Some(Box::new(pattern.clone()));
       } else {
         if  self.matchValue("{".to_string()) {
           let mut pattern_1 : JSNode = self.parseObjectPattern();
-          declarator.left = pattern_1;
+          declarator.id = Some(Box::new(pattern_1.clone()));
         } else {
           let mut idTok : Token = self.expect("Identifier".to_string());
           let mut id : JSNode = JSNode::new();
-          id.nodeType = "Identifier".to_string();
-          id.strValue = idTok.value;
+          id.r#type = "Identifier".to_string();
+          id.name = idTok.value.clone();
           id.start = idTok.start;
           id.line = idTok.line;
           id.col = idTok.col;
-          declarator.left = id;
+          declarator.id = Some(Box::new(id.clone()));
         }
       }
       if  self.matchValue("=".to_string()) {
         self.advance();
         let mut initExpr : JSNode = self.parseAssignment();
-        declarator.right = initExpr;
+        declarator.init = Some(Box::new(initExpr.clone()));
       }
-      decl.children.push(declarator);
+      decl.children.push(declarator.clone());
     }
     if  self.matchValue(";".to_string()) {
       self.advance();
@@ -1120,8 +1260,8 @@ impl SimpleParser {
   }
   fn parseConstDecl(&mut self, ) -> JSNode {
     let mut decl : JSNode = JSNode::new();
-    decl.nodeType = "VariableDeclaration".to_string();
-    decl.strValue = "const".to_string();
+    decl.r#type = "VariableDeclaration".to_string();
+    decl.kind = "const".to_string();
     let mut startTok : Token = self.peek();
     decl.start = startTok.start;
     decl.line = startTok.line;
@@ -1134,35 +1274,35 @@ impl SimpleParser {
       }
       first = false;
       let mut declarator : JSNode = JSNode::new();
-      declarator.nodeType = "VariableDeclarator".to_string();
+      declarator.r#type = "VariableDeclarator".to_string();
       let mut declTok : Token = self.peek();
       declarator.start = declTok.start;
       declarator.line = declTok.line;
       declarator.col = declTok.col;
       if  self.matchValue("[".to_string()) {
         let mut pattern : JSNode = self.parseArrayPattern();
-        declarator.left = pattern;
+        declarator.id = Some(Box::new(pattern.clone()));
       } else {
         if  self.matchValue("{".to_string()) {
           let mut pattern_1 : JSNode = self.parseObjectPattern();
-          declarator.left = pattern_1;
+          declarator.id = Some(Box::new(pattern_1.clone()));
         } else {
           let mut idTok : Token = self.expect("Identifier".to_string());
           let mut id : JSNode = JSNode::new();
-          id.nodeType = "Identifier".to_string();
-          id.strValue = idTok.value;
+          id.r#type = "Identifier".to_string();
+          id.name = idTok.value.clone();
           id.start = idTok.start;
           id.line = idTok.line;
           id.col = idTok.col;
-          declarator.left = id;
+          declarator.id = Some(Box::new(id.clone()));
         }
       }
       if  self.matchValue("=".to_string()) {
         self.advance();
         let mut initExpr : JSNode = self.parseAssignment();
-        declarator.right = initExpr;
+        declarator.init = Some(Box::new(initExpr.clone()));
       }
-      decl.children.push(declarator);
+      decl.children.push(declarator.clone());
     }
     if  self.matchValue(";".to_string()) {
       self.advance();
@@ -1170,22 +1310,22 @@ impl SimpleParser {
     return decl.clone();
   }
   fn parseFuncDecl(&mut self, ) -> JSNode {
-    let mut func : JSNode = JSNode::new();
-    func.nodeType = "FunctionDeclaration".to_string();
+    let mut _func : JSNode = JSNode::new();
+    _func.r#type = "FunctionDeclaration".to_string();
     let mut startTok : Token = self.peek();
-    func.start = startTok.start;
-    func.line = startTok.line;
-    func.col = startTok.col;
+    _func.start = startTok.start;
+    _func.line = startTok.line;
+    _func.col = startTok.col;
     self.expectValue("function".to_string());
     if  self.matchValue("*".to_string()) {
-      func.strValue2 = "generator".to_string();
+      _func.generator = true;
       self.advance();
     }
     let mut idTok : Token = self.expect("Identifier".to_string());
-    func.strValue = idTok.value;
+    _func.name = idTok.value.clone();
     self.expectValue("(".to_string());
     while (self.matchValue(")".to_string()) == false) && (self.isAtEnd() == false) {
-      if  (func.children.len()) > 0 {
+      if  ((_func.children.len() as i64)) > 0 {
         self.expectValue(",".to_string());
       }
       if  self.matchValue(")".to_string()) || self.isAtEnd() {
@@ -1196,57 +1336,103 @@ impl SimpleParser {
         self.advance();
         let mut paramTok : Token = self.expect("Identifier".to_string());
         let mut rest : JSNode = JSNode::new();
-        rest.nodeType = "RestElement".to_string();
-        rest.strValue = paramTok.value;
+        rest.r#type = "RestElement".to_string();
+        rest.name = paramTok.value.clone();
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        func.children.push(rest);
+        let mut argNode : JSNode = JSNode::new();
+        argNode.r#type = "Identifier".to_string();
+        argNode.name = paramTok.value.clone();
+        argNode.start = paramTok.start;
+        argNode.line = paramTok.line;
+        argNode.col = paramTok.col;
+        rest.argument = Some(Box::new(argNode.clone()));
+        _func.children.push(rest.clone());
       } else {
         if  self.matchValue("[".to_string()) {
           let mut pattern : JSNode = self.parseArrayPattern();
-          func.children.push(pattern);
+          if  self.matchValue("=".to_string()) {
+            self.advance();
+            let mut defaultVal : JSNode = self.parseAssignment();
+            let mut assignPat : JSNode = JSNode::new();
+            assignPat.r#type = "AssignmentPattern".to_string();
+            assignPat.left = Some(Box::new(pattern.clone()));
+            assignPat.right = Some(Box::new(defaultVal.clone()));
+            assignPat.start = pattern.start;
+            assignPat.line = pattern.line;
+            assignPat.col = pattern.col;
+            _func.children.push(assignPat.clone());
+          } else {
+            _func.children.push(pattern.clone());
+          }
         } else {
           if  self.matchValue("{".to_string()) {
             let mut pattern_1 : JSNode = self.parseObjectPattern();
-            func.children.push(pattern_1);
+            if  self.matchValue("=".to_string()) {
+              self.advance();
+              let mut defaultVal_1 : JSNode = self.parseAssignment();
+              let mut assignPat_1 : JSNode = JSNode::new();
+              assignPat_1.r#type = "AssignmentPattern".to_string();
+              assignPat_1.left = Some(Box::new(pattern_1.clone()));
+              assignPat_1.right = Some(Box::new(defaultVal_1.clone()));
+              assignPat_1.start = pattern_1.start;
+              assignPat_1.line = pattern_1.line;
+              assignPat_1.col = pattern_1.col;
+              _func.children.push(assignPat_1.clone());
+            } else {
+              _func.children.push(pattern_1.clone());
+            }
           } else {
             let mut paramTok_1 : Token = self.expect("Identifier".to_string());
             let mut param : JSNode = JSNode::new();
-            param.nodeType = "Identifier".to_string();
-            param.strValue = paramTok_1.value;
+            param.r#type = "Identifier".to_string();
+            param.name = paramTok_1.value.clone();
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            func.children.push(param);
+            if  self.matchValue("=".to_string()) {
+              self.advance();
+              let mut defaultVal_2 : JSNode = self.parseAssignment();
+              let mut assignPat_2 : JSNode = JSNode::new();
+              assignPat_2.r#type = "AssignmentPattern".to_string();
+              assignPat_2.left = Some(Box::new(param.clone()));
+              assignPat_2.right = Some(Box::new(defaultVal_2.clone()));
+              assignPat_2.start = param.start;
+              assignPat_2.line = param.line;
+              assignPat_2.col = param.col;
+              _func.children.push(assignPat_2.clone());
+            } else {
+              _func.children.push(param.clone());
+            }
           }
         }
       }
     }
     self.expectValue(")".to_string());
     let mut body : JSNode = self.parseBlock();
-    func.body = body;
-    return func.clone();
+    _func.body = Some(Box::new(body.clone()));
+    return _func.clone();
   }
   fn parseFunctionExpression(&mut self, ) -> JSNode {
-    let mut func : JSNode = JSNode::new();
-    func.nodeType = "FunctionExpression".to_string();
+    let mut _func : JSNode = JSNode::new();
+    _func.r#type = "FunctionExpression".to_string();
     let mut startTok : Token = self.peek();
-    func.start = startTok.start;
-    func.line = startTok.line;
-    func.col = startTok.col;
+    _func.start = startTok.start;
+    _func.line = startTok.line;
+    _func.col = startTok.col;
     self.expectValue("function".to_string());
     if  self.matchValue("*".to_string()) {
-      func.strValue2 = "generator".to_string();
+      _func.generator = true;
       self.advance();
     }
     if  self.matchType("Identifier".to_string()) {
       let mut idTok : Token = self.expect("Identifier".to_string());
-      func.strValue = idTok.value;
+      _func.name = idTok.value.clone();
     }
     self.expectValue("(".to_string());
     while (self.matchValue(")".to_string()) == false) && (self.isAtEnd() == false) {
-      if  (func.children.len()) > 0 {
+      if  ((_func.children.len() as i64)) > 0 {
         self.expectValue(",".to_string());
       }
       if  self.matchValue(")".to_string()) || self.isAtEnd() {
@@ -1257,57 +1443,104 @@ impl SimpleParser {
         self.advance();
         let mut paramTok : Token = self.expect("Identifier".to_string());
         let mut rest : JSNode = JSNode::new();
-        rest.nodeType = "RestElement".to_string();
-        rest.strValue = paramTok.value;
+        rest.r#type = "RestElement".to_string();
+        rest.name = paramTok.value.clone();
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        func.children.push(rest);
+        let mut argNode : JSNode = JSNode::new();
+        argNode.r#type = "Identifier".to_string();
+        argNode.name = paramTok.value.clone();
+        argNode.start = paramTok.start;
+        argNode.line = paramTok.line;
+        argNode.col = paramTok.col;
+        rest.argument = Some(Box::new(argNode.clone()));
+        _func.children.push(rest.clone());
       } else {
         if  self.matchValue("[".to_string()) {
           let mut pattern : JSNode = self.parseArrayPattern();
-          func.children.push(pattern);
+          if  self.matchValue("=".to_string()) {
+            self.advance();
+            let mut defaultVal : JSNode = self.parseAssignment();
+            let mut assignPat : JSNode = JSNode::new();
+            assignPat.r#type = "AssignmentPattern".to_string();
+            assignPat.left = Some(Box::new(pattern.clone()));
+            assignPat.right = Some(Box::new(defaultVal.clone()));
+            assignPat.start = pattern.start;
+            assignPat.line = pattern.line;
+            assignPat.col = pattern.col;
+            _func.children.push(assignPat.clone());
+          } else {
+            _func.children.push(pattern.clone());
+          }
         } else {
           if  self.matchValue("{".to_string()) {
             let mut pattern_1 : JSNode = self.parseObjectPattern();
-            func.children.push(pattern_1);
+            if  self.matchValue("=".to_string()) {
+              self.advance();
+              let mut defaultVal_1 : JSNode = self.parseAssignment();
+              let mut assignPat_1 : JSNode = JSNode::new();
+              assignPat_1.r#type = "AssignmentPattern".to_string();
+              assignPat_1.left = Some(Box::new(pattern_1.clone()));
+              assignPat_1.right = Some(Box::new(defaultVal_1.clone()));
+              assignPat_1.start = pattern_1.start;
+              assignPat_1.line = pattern_1.line;
+              assignPat_1.col = pattern_1.col;
+              _func.children.push(assignPat_1.clone());
+            } else {
+              _func.children.push(pattern_1.clone());
+            }
           } else {
             let mut paramTok_1 : Token = self.expect("Identifier".to_string());
             let mut param : JSNode = JSNode::new();
-            param.nodeType = "Identifier".to_string();
-            param.strValue = paramTok_1.value;
+            param.r#type = "Identifier".to_string();
+            param.name = paramTok_1.value.clone();
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            func.children.push(param);
+            if  self.matchValue("=".to_string()) {
+              self.advance();
+              let mut defaultVal_2 : JSNode = self.parseAssignment();
+              let mut assignPat_2 : JSNode = JSNode::new();
+              assignPat_2.r#type = "AssignmentPattern".to_string();
+              assignPat_2.left = Some(Box::new(param.clone()));
+              assignPat_2.right = Some(Box::new(defaultVal_2.clone()));
+              assignPat_2.start = param.start;
+              assignPat_2.line = param.line;
+              assignPat_2.col = param.col;
+              _func.children.push(assignPat_2.clone());
+            } else {
+              _func.children.push(param.clone());
+            }
           }
         }
       }
     }
     self.expectValue(")".to_string());
     let mut body : JSNode = self.parseBlock();
-    func.body = body;
-    return func.clone();
+    _func.body = Some(Box::new(body.clone()));
+    return _func.clone();
   }
   fn parseAsyncFuncDecl(&mut self, ) -> JSNode {
-    let mut func : JSNode = JSNode::new();
-    func.nodeType = "FunctionDeclaration".to_string();
+    let mut _func : JSNode = JSNode::new();
+    _func.r#type = "FunctionDeclaration".to_string();
     let mut startTok : Token = self.peek();
-    func.start = startTok.start;
-    func.line = startTok.line;
-    func.col = startTok.col;
-    func.strValue2 = "async".to_string();
+    _func.start = startTok.start;
+    _func.line = startTok.line;
+    _func.col = startTok.col;
+    _func.r#async = true;
     self.expectValue("async".to_string());
     self.expectValue("function".to_string());
     if  self.matchValue("*".to_string()) {
-      func.strValue2 = "async-generator".to_string();
+      _func.r#async = true;
+      _func.generator = true;
       self.advance();
     }
     let mut idTok : Token = self.expect("Identifier".to_string());
-    func.strValue = idTok.value;
+    _func.name = idTok.value.clone();
     self.expectValue("(".to_string());
     while (self.matchValue(")".to_string()) == false) && (self.isAtEnd() == false) {
-      if  (func.children.len()) > 0 {
+      if  ((_func.children.len() as i64)) > 0 {
         self.expectValue(",".to_string());
       }
       if  self.matchValue(")".to_string()) || self.isAtEnd() {
@@ -1315,41 +1548,41 @@ impl SimpleParser {
       }
       let mut paramTok : Token = self.expect("Identifier".to_string());
       let mut param : JSNode = JSNode::new();
-      param.nodeType = "Identifier".to_string();
-      param.strValue = paramTok.value;
+      param.r#type = "Identifier".to_string();
+      param.name = paramTok.value.clone();
       param.start = paramTok.start;
       param.line = paramTok.line;
       param.col = paramTok.col;
-      func.children.push(param);
+      _func.children.push(param.clone());
     }
     self.expectValue(")".to_string());
     let mut body : JSNode = self.parseBlock();
-    func.body = body;
-    return func.clone();
+    _func.body = Some(Box::new(body.clone()));
+    return _func.clone();
   }
   fn parseClass(&mut self, ) -> JSNode {
     let mut classNode : JSNode = JSNode::new();
-    classNode.nodeType = "ClassDeclaration".to_string();
+    classNode.r#type = "ClassDeclaration".to_string();
     let mut startTok : Token = self.peek();
     classNode.start = startTok.start;
     classNode.line = startTok.line;
     classNode.col = startTok.col;
     self.expectValue("class".to_string());
     let mut idTok : Token = self.expect("Identifier".to_string());
-    classNode.strValue = idTok.value;
+    classNode.name = idTok.value.clone();
     if  self.matchValue("extends".to_string()) {
       self.advance();
       let mut superTok : Token = self.expect("Identifier".to_string());
-      let mut superClass : JSNode = JSNode::new();
-      superClass.nodeType = "Identifier".to_string();
-      superClass.strValue = superTok.value;
-      superClass.start = superTok.start;
-      superClass.line = superTok.line;
-      superClass.col = superTok.col;
-      classNode.left = superClass;
+      let mut superClassNode : JSNode = JSNode::new();
+      superClassNode.r#type = "Identifier".to_string();
+      superClassNode.name = superTok.value.clone();
+      superClassNode.start = superTok.start;
+      superClassNode.line = superTok.line;
+      superClassNode.col = superTok.col;
+      classNode.superClass = Some(Box::new(superClassNode.clone()));
     }
     let mut body : JSNode = JSNode::new();
-    body.nodeType = "ClassBody".to_string();
+    body.r#type = "ClassBody".to_string();
     let mut bodyStart : Token = self.peek();
     body.start = bodyStart.start;
     body.line = bodyStart.line;
@@ -1357,15 +1590,15 @@ impl SimpleParser {
     self.expectValue("{".to_string());
     while (self.matchValue("}".to_string()) == false) && (self.isAtEnd() == false) {
       let mut method : JSNode = self.parseClassMethod();
-      body.children.push(method);
+      body.children.push(method.clone());
     }
     self.expectValue("}".to_string());
-    classNode.body = body;
+    classNode.body = Some(Box::new(body.clone()));
     return classNode.clone();
   }
   fn parseClassMethod(&mut self, ) -> JSNode {
     let mut method : JSNode = JSNode::new();
-    method.nodeType = "MethodDefinition".to_string();
+    method.r#type = "MethodDefinition".to_string();
     let mut startTok : Token = self.peek();
     method.start = startTok.start;
     method.line = startTok.line;
@@ -1373,37 +1606,44 @@ impl SimpleParser {
     let mut isStatic : bool = false;
     if  self.matchValue("static".to_string()) {
       isStatic = true;
-      method.strValue2 = "static".to_string();
+      method.r#static = true;
       self.advance();
     }
-    let mut kind : String = "method".to_string();
+    let mut methodKind : String = "method".to_string();
     if  self.matchValue("get".to_string()) {
       let nextTok : String = self.peekAt(1);
       if  nextTok != "(".to_string() {
-        kind = "get".to_string();
+        methodKind = "get".to_string();
         self.advance();
       }
     }
     if  self.matchValue("set".to_string()) {
       let nextTok_1 : String = self.peekAt(1);
       if  nextTok_1 != "(".to_string() {
-        kind = "set".to_string();
+        methodKind = "set".to_string();
         self.advance();
       }
     }
     let mut nameTok : Token = self.expect("Identifier".to_string());
-    method.strValue = nameTok.value;
+    let mut keyNode : JSNode = JSNode::new();
+    keyNode.r#type = "Identifier".to_string();
+    keyNode.name = nameTok.value.clone();
+    keyNode.start = nameTok.start;
+    keyNode.line = nameTok.line;
+    keyNode.col = nameTok.col;
+    method.key = Some(Box::new(keyNode.clone()));
     if  nameTok.value == "constructor".to_string() {
-      kind = "constructor".to_string();
+      methodKind = "constructor".to_string();
     }
-    let mut func : JSNode = JSNode::new();
-    func.nodeType = "FunctionExpression".to_string();
-    func.start = nameTok.start;
-    func.line = nameTok.line;
-    func.col = nameTok.col;
+    method.kind = methodKind.clone();
+    let mut _func : JSNode = JSNode::new();
+    _func.r#type = "FunctionExpression".to_string();
+    _func.start = nameTok.start;
+    _func.line = nameTok.line;
+    _func.col = nameTok.col;
     self.expectValue("(".to_string());
     while (self.matchValue(")".to_string()) == false) && (self.isAtEnd() == false) {
-      if  (func.children.len()) > 0 {
+      if  ((_func.children.len() as i64)) > 0 {
         self.expectValue(",".to_string());
       }
       if  self.matchValue(")".to_string()) || self.isAtEnd() {
@@ -1411,22 +1651,22 @@ impl SimpleParser {
       }
       let mut paramTok : Token = self.expect("Identifier".to_string());
       let mut param : JSNode = JSNode::new();
-      param.nodeType = "Identifier".to_string();
-      param.strValue = paramTok.value;
+      param.r#type = "Identifier".to_string();
+      param.name = paramTok.value.clone();
       param.start = paramTok.start;
       param.line = paramTok.line;
       param.col = paramTok.col;
-      func.children.push(param);
+      _func.children.push(param.clone());
     }
     self.expectValue(")".to_string());
     let mut funcBody : JSNode = self.parseBlock();
-    func.body = funcBody;
-    method.body = func;
+    _func.body = Some(Box::new(funcBody.clone()));
+    method.body = Some(Box::new(_func.clone()));
     return method.clone();
   }
   fn peekAt(&mut self, offset : i64) -> String {
     let targetPos : i64 = self.pos + offset;
-    if  targetPos >= (self.tokens.len()) {
+    if  targetPos >= ((self.tokens.len() as i64)) {
       return "".to_string().clone();
     }
     let mut tok : Token = self.tokens[targetPos as usize].clone();
@@ -1434,7 +1674,7 @@ impl SimpleParser {
   }
   fn parseImport(&mut self, ) -> JSNode {
     let mut importNode : JSNode = JSNode::new();
-    importNode.nodeType = "ImportDeclaration".to_string();
+    importNode.r#type = "ImportDeclaration".to_string();
     let mut startTok : Token = self.peek();
     importNode.start = startTok.start;
     importNode.line = startTok.line;
@@ -1444,13 +1684,12 @@ impl SimpleParser {
       let mut sourceTok : Token = self.peek();
       self.advance();
       let mut source_1 : JSNode = JSNode::new();
-      source_1.nodeType = "Literal".to_string();
-      source_1.strValue = sourceTok.value;
-      source_1.strValue2 = "string".to_string();
+      source_1.r#type = "Literal".to_string();
+      source_1.raw = sourceTok.value.clone();
       source_1.start = sourceTok.start;
       source_1.line = sourceTok.line;
       source_1.col = sourceTok.col;
-      importNode.right = source_1;
+      importNode.right = Some(Box::new(source_1.clone()));
       if  self.matchValue(";".to_string()) {
         self.advance();
       }
@@ -1461,22 +1700,21 @@ impl SimpleParser {
       self.expectValue("as".to_string());
       let mut localTok : Token = self.expect("Identifier".to_string());
       let mut specifier : JSNode = JSNode::new();
-      specifier.nodeType = "ImportNamespaceSpecifier".to_string();
-      specifier.strValue = localTok.value;
+      specifier.r#type = "ImportNamespaceSpecifier".to_string();
+      specifier.name = localTok.value.clone();
       specifier.start = localTok.start;
       specifier.line = localTok.line;
       specifier.col = localTok.col;
-      importNode.children.push(specifier);
+      importNode.children.push(specifier.clone());
       self.expectValue("from".to_string());
       let mut sourceTok_1 : Token = self.expect("String".to_string());
       let mut source_2 : JSNode = JSNode::new();
-      source_2.nodeType = "Literal".to_string();
-      source_2.strValue = sourceTok_1.value;
-      source_2.strValue2 = "string".to_string();
+      source_2.r#type = "Literal".to_string();
+      source_2.raw = sourceTok_1.value.clone();
       source_2.start = sourceTok_1.start;
       source_2.line = sourceTok_1.line;
       source_2.col = sourceTok_1.col;
-      importNode.right = source_2;
+      importNode.right = Some(Box::new(source_2.clone()));
       if  self.matchValue(";".to_string()) {
         self.advance();
       }
@@ -1485,54 +1723,65 @@ impl SimpleParser {
     if  self.matchType("Identifier".to_string()) {
       let mut defaultTok : Token = self.expect("Identifier".to_string());
       let mut defaultSpec : JSNode = JSNode::new();
-      defaultSpec.nodeType = "ImportDefaultSpecifier".to_string();
-      defaultSpec.strValue = defaultTok.value;
+      defaultSpec.r#type = "ImportDefaultSpecifier".to_string();
+      let mut localNode : JSNode = JSNode::new();
+      localNode.r#type = "Identifier".to_string();
+      localNode.name = defaultTok.value.clone();
+      localNode.start = defaultTok.start;
+      localNode.line = defaultTok.line;
+      localNode.col = defaultTok.col;
+      defaultSpec.local = Some(Box::new(localNode.clone()));
       defaultSpec.start = defaultTok.start;
       defaultSpec.line = defaultTok.line;
       defaultSpec.col = defaultTok.col;
-      importNode.children.push(defaultSpec);
+      importNode.children.push(defaultSpec.clone());
       if  self.matchValue(",".to_string()) {
         self.advance();
         if  self.matchValue("*".to_string()) {
           self.advance();
           self.expectValue("as".to_string());
-          let mut localTok_1 : Token = self.expect("Identifier".to_string());
+          let mut localTok2 : Token = self.expect("Identifier".to_string());
           let mut nsSpec : JSNode = JSNode::new();
-          nsSpec.nodeType = "ImportNamespaceSpecifier".to_string();
-          nsSpec.strValue = localTok_1.value;
-          nsSpec.start = localTok_1.start;
-          nsSpec.line = localTok_1.line;
-          nsSpec.col = localTok_1.col;
-          importNode.children.push(nsSpec);
+          nsSpec.r#type = "ImportNamespaceSpecifier".to_string();
+          let mut nsLocal : JSNode = JSNode::new();
+          nsLocal.r#type = "Identifier".to_string();
+          nsLocal.name = localTok2.value.clone();
+          nsLocal.start = localTok2.start;
+          nsLocal.line = localTok2.line;
+          nsLocal.col = localTok2.col;
+          nsSpec.local = Some(Box::new(nsLocal.clone()));
+          nsSpec.start = localTok2.start;
+          nsSpec.line = localTok2.line;
+          nsSpec.col = localTok2.col;
+          importNode.children.push(nsSpec.clone());
         } else {
-          self.parseImportSpecifiers(importNode);
+          self.parseImportSpecifiers(importNode.clone());
         }
       }
       self.expectValue("from".to_string());
     } else {
       if  self.matchValue("{".to_string()) {
-        self.parseImportSpecifiers(importNode);
+        self.parseImportSpecifiers(importNode.clone());
         self.expectValue("from".to_string());
       }
     }
     let mut sourceTok_2 : Token = self.expect("String".to_string());
     let mut source_3 : JSNode = JSNode::new();
-    source_3.nodeType = "Literal".to_string();
-    source_3.strValue = sourceTok_2.value;
-    source_3.strValue2 = "string".to_string();
+    source_3.r#type = "Literal".to_string();
+    source_3.raw = sourceTok_2.value.clone();
     source_3.start = sourceTok_2.start;
     source_3.line = sourceTok_2.line;
     source_3.col = sourceTok_2.col;
-    importNode.right = source_3;
+    importNode.right = Some(Box::new(source_3.clone()));
     if  self.matchValue(";".to_string()) {
       self.advance();
     }
     return importNode.clone();
   }
-  fn parseImportSpecifiers(&mut self, importNode : JSNode) -> () {
+  fn parseImportSpecifiers(&mut self, mut importNode : JSNode) -> () {
     self.expectValue("{".to_string());
     while (self.matchValue("}".to_string()) == false) && (self.isAtEnd() == false) {
-      if  (importNode.children.len()) > 0 {
+      if  ((importNode.children.len() as i64)) > 0 {
         if  self.matchValue(",".to_string()) {
           self.advance();
         }
@@ -1541,46 +1790,60 @@ impl SimpleParser {
         break;
       }
       let mut specifier : JSNode = JSNode::new();
-      specifier.nodeType = "ImportSpecifier".to_string();
+      specifier.r#type = "ImportSpecifier".to_string();
       let mut importedTok : Token = self.expect("Identifier".to_string());
-      specifier.strValue = importedTok.value;
+      let mut importedNode : JSNode = JSNode::new();
+      importedNode.r#type = "Identifier".to_string();
+      importedNode.name = importedTok.value.clone();
+      importedNode.start = importedTok.start;
+      importedNode.line = importedTok.line;
+      importedNode.col = importedTok.col;
+      specifier.imported = Some(Box::new(importedNode.clone()));
       specifier.start = importedTok.start;
       specifier.line = importedTok.line;
       specifier.col = importedTok.col;
       if  self.matchValue("as".to_string()) {
         self.advance();
         let mut localTok : Token = self.expect("Identifier".to_string());
-        specifier.strValue2 = localTok.value;
+        let mut localNode : JSNode = JSNode::new();
+        localNode.r#type = "Identifier".to_string();
+        localNode.name = localTok.value.clone();
+        localNode.start = localTok.start;
+        localNode.line = localTok.line;
+        localNode.col = localTok.col;
+        specifier.local = Some(Box::new(localNode.clone()));
+      } else {
+        specifier.local = Some(Box::new(importedNode.clone()));
       }
-      importNode.children.push(specifier);
+      importNode.children.push(specifier.clone());
     }
     self.expectValue("}".to_string());
   }
   fn parseExport(&mut self, ) -> JSNode {
     let mut exportNode : JSNode = JSNode::new();
-    exportNode.nodeType = "ExportNamedDeclaration".to_string();
+    exportNode.r#type = "ExportNamedDeclaration".to_string();
     let mut startTok : Token = self.peek();
     exportNode.start = startTok.start;
     exportNode.line = startTok.line;
     exportNode.col = startTok.col;
     self.expectValue("export".to_string());
     if  self.matchValue("default".to_string()) {
-      exportNode.nodeType = "ExportDefaultDeclaration".to_string();
+      exportNode.r#type = "ExportDefaultDeclaration".to_string();
       self.advance();
       if  self.matchValue("function".to_string()) {
-        let mut func : JSNode = self.parseFuncDecl();
-        exportNode.left = func;
+        let mut _func : JSNode = self.parseFuncDecl();
+        exportNode.left = Some(Box::new(_func.clone()));
       } else {
         if  self.matchValue("async".to_string()) {
           let mut func_1 : JSNode = self.parseAsyncFuncDecl();
-          exportNode.left = func_1;
+          exportNode.left = Some(Box::new(func_1.clone()));
         } else {
           if  self.matchValue("class".to_string()) {
             let mut cls : JSNode = self.parseClass();
-            exportNode.left = cls;
+            exportNode.left = Some(Box::new(cls.clone()));
           } else {
             let mut expr : JSNode = self.parseAssignment();
-            exportNode.left = expr;
+            exportNode.left = Some(Box::new(expr.clone()));
             if  self.matchValue(";".to_string()) {
               self.advance();
             }
@@ -1590,41 +1853,39 @@ impl SimpleParser {
       return exportNode.clone();
     }
     if  self.matchValue("*".to_string()) {
-      exportNode.nodeType = "ExportAllDeclaration".to_string();
+      exportNode.r#type = "ExportAllDeclaration".to_string();
       self.advance();
       if  self.matchValue("as".to_string()) {
         self.advance();
         let mut exportedTok : Token = self.expect("Identifier".to_string());
-        exportNode.strValue = exportedTok.value;
+        exportNode.name = exportedTok.value.clone();
       }
       self.expectValue("from".to_string());
       let mut sourceTok : Token = self.expect("String".to_string());
       let mut source_1 : JSNode = JSNode::new();
-      source_1.nodeType = "Literal".to_string();
-      source_1.strValue = sourceTok.value;
-      source_1.strValue2 = "string".to_string();
+      source_1.r#type = "Literal".to_string();
+      source_1.raw = sourceTok.value.clone();
       source_1.start = sourceTok.start;
       source_1.line = sourceTok.line;
       source_1.col = sourceTok.col;
-      exportNode.right = source_1;
+      exportNode.right = Some(Box::new(source_1.clone()));
       if  self.matchValue(";".to_string()) {
         self.advance();
       }
       return exportNode.clone();
     }
     if  self.matchValue("{".to_string()) {
-      self.parseExportSpecifiers(exportNode);
+      self.parseExportSpecifiers(exportNode.clone());
       if  self.matchValue("from".to_string()) {
         self.advance();
         let mut sourceTok_1 : Token = self.expect("String".to_string());
         let mut source_2 : JSNode = JSNode::new();
-        source_2.nodeType = "Literal".to_string();
-        source_2.strValue = sourceTok_1.value;
-        source_2.strValue2 = "string".to_string();
+        source_2.r#type = "Literal".to_string();
+        source_2.raw = sourceTok_1.value.clone();
         source_2.start = sourceTok_1.start;
         source_2.line = sourceTok_1.line;
         source_2.col = sourceTok_1.col;
-        exportNode.right = source_2;
+        exportNode.right = Some(Box::new(source_2.clone()));
       }
       if  self.matchValue(";".to_string()) {
         self.advance();
@@ -1633,42 +1894,42 @@ impl SimpleParser {
     }
     if  self.matchValue("const".to_string()) {
       let mut decl : JSNode = self.parseConstDecl();
-      exportNode.left = decl;
+      exportNode.left = Some(Box::new(decl.clone()));
       return exportNode.clone();
     }
     if  self.matchValue("let".to_string()) {
       let mut decl_1 : JSNode = self.parseLetDecl();
-      exportNode.left = decl_1;
+      exportNode.left = Some(Box::new(decl_1.clone()));
       return exportNode.clone();
     }
     if  self.matchValue("var".to_string()) {
       let mut decl_2 : JSNode = self.parseVarDecl();
-      exportNode.left = decl_2;
+      exportNode.left = Some(Box::new(decl_2.clone()));
       return exportNode.clone();
     }
     if  self.matchValue("function".to_string()) {
       let mut func_2 : JSNode = self.parseFuncDecl();
-      exportNode.left = func_2;
+      exportNode.left = Some(Box::new(func_2.clone()));
       return exportNode.clone();
     }
     if  self.matchValue("async".to_string()) {
       let mut func_3 : JSNode = self.parseAsyncFuncDecl();
-      exportNode.left = func_3;
+      exportNode.left = Some(Box::new(func_3.clone()));
       return exportNode.clone();
     }
     if  self.matchValue("class".to_string()) {
       let mut cls_1 : JSNode = self.parseClass();
-      exportNode.left = cls_1;
+      exportNode.left = Some(Box::new(cls_1.clone()));
       return exportNode.clone();
     }
     let mut expr_1 : JSNode = self.parseExprStmt();
-    exportNode.left = expr_1;
+    exportNode.left = Some(Box::new(expr_1.clone()));
     return exportNode.clone();
   }
-  fn parseExportSpecifiers(&mut self, exportNode : JSNode) -> () {
+  fn parseExportSpecifiers(&mut self, mut exportNode : JSNode) -> () {
     self.expectValue("{".to_string());
     while (self.matchValue("}".to_string()) == false) && (self.isAtEnd() == false) {
-      let numChildren : i64 = exportNode.children.len();
+      let numChildren : i64 = (exportNode.children.len() as i64);
       if  numChildren > 0 {
         if  self.matchValue(",".to_string()) {
           self.advance();
@@ -1678,31 +1939,45 @@ impl SimpleParser {
         break;
       }
       let mut specifier : JSNode = JSNode::new();
-      specifier.nodeType = "ExportSpecifier".to_string();
+      specifier.r#type = "ExportSpecifier".to_string();
       let mut localTok : Token = self.peek();
       if  self.matchType("Identifier".to_string()) || self.matchValue("default".to_string()) {
         self.advance();
-        specifier.strValue = localTok.value;
+        let mut localNode : JSNode = JSNode::new();
+        localNode.r#type = "Identifier".to_string();
+        localNode.name = localTok.value.clone();
+        localNode.start = localTok.start;
+        localNode.line = localTok.line;
+        localNode.col = localTok.col;
+        specifier.local = Some(Box::new(localNode.clone()));
         specifier.start = localTok.start;
         specifier.line = localTok.line;
         specifier.col = localTok.col;
       } else {
         let err : String = format!("{}{}", (format!("{}{}", ([(format!("{}{}", (["Parse error at line ".to_string() , (localTok.line.to_string()) ].join("")), ":".to_string())) , (localTok.col.to_string()) ].join("")), ": expected Identifier but got ".to_string())), localTok.tokenType);
-        self.addError(err);
+        self.addError(err.clone());
         self.advance();
       }
       if  self.matchValue("as".to_string()) {
         self.advance();
         let mut exportedTok : Token = self.expect("Identifier".to_string());
-        specifier.strValue2 = exportedTok.value;
+        let mut exportedNode : JSNode = JSNode::new();
+        exportedNode.r#type = "Identifier".to_string();
+        exportedNode.name = exportedTok.value.clone();
+        exportedNode.start = exportedTok.start;
+        exportedNode.line = exportedTok.line;
+        exportedNode.col = exportedTok.col;
+        specifier.exported = Some(Box::new(exportedNode.clone()));
+      } else {
+        specifier.exported = specifier.local.clone();
       }
-      exportNode.children.push(specifier);
+      exportNode.children.push(specifier.clone());
     }
     self.expectValue("}".to_string());
   }
   fn parseBlock(&mut self, ) -> JSNode {
     let mut block : JSNode = JSNode::new();
-    block.nodeType = "BlockStatement".to_string();
+    block.r#type = "BlockStatement".to_string();
     let mut startTok : Token = self.peek();
     block.start = startTok.start;
     block.line = startTok.line;
@@ -1710,14 +1985,14 @@ impl SimpleParser {
     self.expectValue("{".to_string());
     while (self.matchValue("}".to_string()) == false) && (self.isAtEnd() == false) {
       let mut stmt : JSNode = self.parseStatement();
-      block.children.push(stmt);
+      block.children.push(stmt.clone());
     }
     self.expectValue("}".to_string());
     return block.clone();
   }
   fn parseReturn(&mut self, ) -> JSNode {
     let mut ret : JSNode = JSNode::new();
-    ret.nodeType = "ReturnStatement".to_string();
+    ret.r#type = "ReturnStatement".to_string();
     let mut startTok : Token = self.peek();
     ret.start = startTok.start;
     ret.line = startTok.line;
@@ -1725,7 +2000,7 @@ impl SimpleParser {
     self.expectValue("return".to_string());
     if  (self.matchValue(";".to_string()) == false) && (self.isAtEnd() == false) {
       let mut arg : JSNode = self.parseExpr();
-      ret.left = arg;
+      ret.left = Some(Box::new(arg.clone()));
     }
     if  self.matchValue(";".to_string()) {
       self.advance();
@@ -1734,7 +2009,7 @@ impl SimpleParser {
   }
   fn parseIf(&mut self, ) -> JSNode {
     let mut ifStmt : JSNode = JSNode::new();
-    ifStmt.nodeType = "IfStatement".to_string();
+    ifStmt.r#type = "IfStatement".to_string();
     let mut startTok : Token = self.peek();
     ifStmt.start = startTok.start;
     ifStmt.line = startTok.line;
@@ -1742,20 +2017,20 @@ impl SimpleParser {
     self.expectValue("if".to_string());
     self.expectValue("(".to_string());
     let mut test : JSNode = self.parseExpr();
-    ifStmt.test = test;
+    ifStmt.test = Some(Box::new(test.clone()));
     self.expectValue(")".to_string());
     let mut consequent : JSNode = self.parseStatement();
-    ifStmt.body = consequent;
+    ifStmt.body = Some(Box::new(consequent.clone()));
     if  self.matchValue("else".to_string()) {
       self.advance();
       let mut alt : JSNode = self.parseStatement();
-      ifStmt.alternate = alt;
+      ifStmt.alternate = Some(Box::new(alt.clone()));
     }
     return ifStmt.clone();
   }
   fn parseWhile(&mut self, ) -> JSNode {
     let mut whileStmt : JSNode = JSNode::new();
-    whileStmt.nodeType = "WhileStatement".to_string();
+    whileStmt.r#type = "WhileStatement".to_string();
     let mut startTok : Token = self.peek();
     whileStmt.start = startTok.start;
     whileStmt.line = startTok.line;
@@ -1763,26 +2038,26 @@ impl SimpleParser {
     self.expectValue("while".to_string());
     self.expectValue("(".to_string());
     let mut test : JSNode = self.parseExpr();
-    whileStmt.test = test;
+    whileStmt.test = Some(Box::new(test.clone()));
     self.expectValue(")".to_string());
     let mut body : JSNode = self.parseStatement();
-    whileStmt.body = body;
+    whileStmt.body = Some(Box::new(body.clone()));
     return whileStmt.clone();
   }
   fn parseDoWhile(&mut self, ) -> JSNode {
     let mut doWhileStmt : JSNode = JSNode::new();
-    doWhileStmt.nodeType = "DoWhileStatement".to_string();
+    doWhileStmt.r#type = "DoWhileStatement".to_string();
     let mut startTok : Token = self.peek();
     doWhileStmt.start = startTok.start;
     doWhileStmt.line = startTok.line;
     doWhileStmt.col = startTok.col;
     self.expectValue("do".to_string());
     let mut body : JSNode = self.parseStatement();
-    doWhileStmt.body = body;
+    doWhileStmt.body = Some(Box::new(body.clone()));
     self.expectValue("while".to_string());
     self.expectValue("(".to_string());
     let mut test : JSNode = self.parseExpr();
-    doWhileStmt.test = test;
+    doWhileStmt.test = Some(Box::new(test.clone()));
     self.expectValue(")".to_string());
     if  self.matchValue(";".to_string()) {
       self.advance();
@@ -1799,72 +2074,72 @@ impl SimpleParser {
     self.expectValue("(".to_string());
     let mut isForOf : bool = false;
     let mut isForIn : bool = false;
-    let mut leftNode : Option<JSNode>;
+    let mut leftNode : Option<JSNode> = None;
     if  self.matchValue(";".to_string()) == false {
       if  (self.matchValue("var".to_string()) || self.matchValue("let".to_string())) || self.matchValue("const".to_string()) {
         let keyword : String = self.peekValue();
         self.advance();
         let mut declarator : JSNode = JSNode::new();
-        declarator.nodeType = "VariableDeclarator".to_string();
+        declarator.r#type = "VariableDeclarator".to_string();
         let mut declTok : Token = self.peek();
         declarator.start = declTok.start;
         declarator.line = declTok.line;
         declarator.col = declTok.col;
         if  self.matchValue("[".to_string()) {
           let mut pattern : JSNode = self.parseArrayPattern();
-          declarator.left = pattern;
+          declarator.id = Some(Box::new(pattern.clone()));
         } else {
           if  self.matchValue("{".to_string()) {
             let mut pattern_1 : JSNode = self.parseObjectPattern();
-            declarator.left = pattern_1;
+            declarator.id = Some(Box::new(pattern_1.clone()));
           } else {
             let mut idTok : Token = self.expect("Identifier".to_string());
             let mut id : JSNode = JSNode::new();
-            id.nodeType = "Identifier".to_string();
-            id.strValue = idTok.value;
+            id.r#type = "Identifier".to_string();
+            id.name = idTok.value.clone();
             id.start = idTok.start;
             id.line = idTok.line;
             id.col = idTok.col;
-            declarator.left = id;
+            declarator.id = Some(Box::new(id.clone()));
           }
         }
         if  self.matchValue("of".to_string()) {
           isForOf = true;
           self.advance();
           let mut varDecl : JSNode = JSNode::new();
-          varDecl.nodeType = "VariableDeclaration".to_string();
-          varDecl.strValue = keyword;
+          varDecl.r#type = "VariableDeclaration".to_string();
+          varDecl.kind = keyword.clone();
           varDecl.start = declTok.start;
           varDecl.line = declTok.line;
           varDecl.col = declTok.col;
-          varDecl.children.push(declarator);
-          leftNode = varDecl;
+          varDecl.children.push(declarator.clone());
+          leftNode = Some(varDecl.clone());
         } else {
           if  self.matchValue("in".to_string()) {
             isForIn = true;
             self.advance();
             let mut varDecl_1 : JSNode = JSNode::new();
-            varDecl_1.nodeType = "VariableDeclaration".to_string();
-            varDecl_1.strValue = keyword;
+            varDecl_1.r#type = "VariableDeclaration".to_string();
+            varDecl_1.kind = keyword.clone();
             varDecl_1.start = declTok.start;
             varDecl_1.line = declTok.line;
             varDecl_1.col = declTok.col;
-            varDecl_1.children.push(declarator);
-            leftNode = varDecl_1;
+            varDecl_1.children.push(declarator.clone());
+            leftNode = Some(varDecl_1.clone());
           } else {
             if  self.matchValue("=".to_string()) {
               self.advance();
               let mut initVal : JSNode = self.parseAssignment();
-              declarator.right = initVal;
+              declarator.init = Some(Box::new(initVal.clone()));
             }
             let mut varDecl_2 : JSNode = JSNode::new();
-            varDecl_2.nodeType = "VariableDeclaration".to_string();
-            varDecl_2.strValue = keyword;
+            varDecl_2.r#type = "VariableDeclaration".to_string();
+            varDecl_2.kind = keyword.clone();
             varDecl_2.start = declTok.start;
             varDecl_2.line = declTok.line;
             varDecl_2.col = declTok.col;
-            varDecl_2.children.push(declarator);
-            leftNode = varDecl_2;
+            varDecl_2.children.push(declarator.clone());
+            leftNode = Some(varDecl_2.clone());
             if  self.matchValue(";".to_string()) {
               self.advance();
             }
@@ -1875,14 +2150,14 @@ impl SimpleParser {
         if  self.matchValue("of".to_string()) {
           isForOf = true;
           self.advance();
-          leftNode = initExpr;
+          leftNode = Some(initExpr.clone());
         } else {
           if  self.matchValue("in".to_string()) {
             isForIn = true;
             self.advance();
-            leftNode = initExpr;
+            leftNode = Some(initExpr.clone());
           } else {
-            leftNode = initExpr;
+            leftNode = Some(initExpr.clone());
             if  self.matchValue(";".to_string()) {
               self.advance();
             }
@@ -1893,48 +2168,48 @@ impl SimpleParser {
       self.advance();
     }
     if  isForOf {
-      forStmt.nodeType = "ForOfStatement".to_string();
-      forStmt.left = leftNode.unwrap();
+      forStmt.r#type = "ForOfStatement".to_string();
+      forStmt.left = Some(Box::new(leftNode.unwrap().clone()));
       let mut rightExpr : JSNode = self.parseExpr();
-      forStmt.right = rightExpr;
+      forStmt.right = Some(Box::new(rightExpr.clone()));
       self.expectValue(")".to_string());
       let mut body : JSNode = self.parseStatement();
-      forStmt.body = body;
+      forStmt.body = Some(Box::new(body.clone()));
       return forStmt.clone();
     }
     if  isForIn {
-      forStmt.nodeType = "ForInStatement".to_string();
-      forStmt.left = leftNode.unwrap();
+      forStmt.r#type = "ForInStatement".to_string();
+      forStmt.left = Some(Box::new(leftNode.unwrap().clone()));
       let mut rightExpr_1 : JSNode = self.parseExpr();
-      forStmt.right = rightExpr_1;
+      forStmt.right = Some(Box::new(rightExpr_1.clone()));
       self.expectValue(")".to_string());
       let mut body_1 : JSNode = self.parseStatement();
-      forStmt.body = body_1;
+      forStmt.body = Some(Box::new(body_1.clone()));
       return forStmt.clone();
     }
-    forStmt.nodeType = "ForStatement".to_string();
+    forStmt.r#type = "ForStatement".to_string();
     if  leftNode.is_some() {
-      forStmt.left = leftNode.unwrap();
+      forStmt.left = Some(Box::new(leftNode.unwrap().clone()));
     }
     if  self.matchValue(";".to_string()) == false {
       let mut test : JSNode = self.parseExpr();
-      forStmt.test = test;
+      forStmt.test = Some(Box::new(test.clone()));
     }
     if  self.matchValue(";".to_string()) {
       self.advance();
     }
     if  self.matchValue(")".to_string()) == false {
       let mut update : JSNode = self.parseExpr();
-      forStmt.right = update;
+      forStmt.right = Some(Box::new(update.clone()));
     }
     self.expectValue(")".to_string());
     let mut body_2 : JSNode = self.parseStatement();
-    forStmt.body = body_2;
+    forStmt.body = Some(Box::new(body_2.clone()));
     return forStmt.clone();
   }
   fn parseSwitch(&mut self, ) -> JSNode {
     let mut switchStmt : JSNode = JSNode::new();
-    switchStmt.nodeType = "SwitchStatement".to_string();
+    switchStmt.r#type = "SwitchStatement".to_string();
     let mut startTok : Token = self.peek();
     switchStmt.start = startTok.start;
     switchStmt.line = startTok.line;
@@ -1942,30 +2217,30 @@ impl SimpleParser {
     self.expectValue("switch".to_string());
     self.expectValue("(".to_string());
     let mut discriminant : JSNode = self.parseExpr();
-    switchStmt.test = discriminant;
+    switchStmt.test = Some(Box::new(discriminant.clone()));
     self.expectValue(")".to_string());
     self.expectValue("{".to_string());
     while (self.matchValue("}".to_string()) == false) && (self.isAtEnd() == false) {
       let mut caseNode : JSNode = JSNode::new();
       if  self.matchValue("case".to_string()) {
-        caseNode.nodeType = "SwitchCase".to_string();
+        caseNode.r#type = "SwitchCase".to_string();
         let mut caseTok : Token = self.peek();
         caseNode.start = caseTok.start;
         caseNode.line = caseTok.line;
         caseNode.col = caseTok.col;
         self.advance();
         let mut testExpr : JSNode = self.parseExpr();
-        caseNode.test = testExpr;
+        caseNode.test = Some(Box::new(testExpr.clone()));
         self.expectValue(":".to_string());
         while (((self.matchValue("case".to_string()) == false) && (self.matchValue("default".to_string()) == false)) && (self.matchValue("}".to_string()) == false)) && (self.isAtEnd() == false) {
           let mut stmt : JSNode = self.parseStatement();
-          caseNode.children.push(stmt);
+          caseNode.children.push(stmt.clone());
         }
-        switchStmt.children.push(caseNode);
+        switchStmt.children.push(caseNode.clone());
       } else {
         if  self.matchValue("default".to_string()) {
-          caseNode.nodeType = "SwitchCase".to_string();
-          caseNode.strValue = "default".to_string();
+          caseNode.r#type = "SwitchCase".to_string();
+          caseNode.name = "default".to_string();
           let mut defTok : Token = self.peek();
           caseNode.start = defTok.start;
           caseNode.line = defTok.line;
@@ -1974,9 +2249,9 @@ impl SimpleParser {
           self.expectValue(":".to_string());
           while ((self.matchValue("case".to_string()) == false) && (self.matchValue("}".to_string()) == false)) && (self.isAtEnd() == false) {
             let mut stmt_1 : JSNode = self.parseStatement();
-            caseNode.children.push(stmt_1);
+            caseNode.children.push(stmt_1.clone());
           }
-          switchStmt.children.push(caseNode);
+          switchStmt.children.push(caseNode.clone());
         } else {
           self.advance();
         }
@@ -1987,17 +2262,17 @@ impl SimpleParser {
   }
   fn parseTry(&mut self, ) -> JSNode {
     let mut tryStmt : JSNode = JSNode::new();
-    tryStmt.nodeType = "TryStatement".to_string();
+    tryStmt.r#type = "TryStatement".to_string();
     let mut startTok : Token = self.peek();
     tryStmt.start = startTok.start;
     tryStmt.line = startTok.line;
     tryStmt.col = startTok.col;
     self.expectValue("try".to_string());
     let mut block : JSNode = self.parseBlock();
-    tryStmt.body = block;
+    tryStmt.body = Some(Box::new(block.clone()));
     if  self.matchValue("catch".to_string()) {
       let mut catchNode : JSNode = JSNode::new();
-      catchNode.nodeType = "CatchClause".to_string();
+      catchNode.r#type = "CatchClause".to_string();
       let mut catchTok : Token = self.peek();
       catchNode.start = catchTok.start;
       catchNode.line = catchTok.line;
@@ -2005,29 +2280,29 @@ impl SimpleParser {
       self.advance();
       self.expectValue("(".to_string());
       let mut paramTok : Token = self.expect("Identifier".to_string());
-      catchNode.strValue = paramTok.value;
+      catchNode.name = paramTok.value.clone();
       self.expectValue(")".to_string());
       let mut catchBody : JSNode = self.parseBlock();
-      catchNode.body = catchBody;
-      tryStmt.left = catchNode;
+      catchNode.body = Some(Box::new(catchBody.clone()));
+      tryStmt.left = Some(Box::new(catchNode.clone()));
     }
     if  self.matchValue("finally".to_string()) {
       self.advance();
       let mut finallyBlock : JSNode = self.parseBlock();
-      tryStmt.right = finallyBlock;
+      tryStmt.right = Some(Box::new(finallyBlock.clone()));
     }
     return tryStmt.clone();
   }
   fn parseThrow(&mut self, ) -> JSNode {
     let mut throwStmt : JSNode = JSNode::new();
-    throwStmt.nodeType = "ThrowStatement".to_string();
+    throwStmt.r#type = "ThrowStatement".to_string();
     let mut startTok : Token = self.peek();
     throwStmt.start = startTok.start;
     throwStmt.line = startTok.line;
     throwStmt.col = startTok.col;
     self.expectValue("throw".to_string());
     let mut arg : JSNode = self.parseExpr();
-    throwStmt.left = arg;
+    throwStmt.left = Some(Box::new(arg.clone()));
     if  self.matchValue(";".to_string()) {
       self.advance();
     }
@@ -2035,7 +2310,7 @@ impl SimpleParser {
   }
   fn parseBreak(&mut self, ) -> JSNode {
     let mut breakStmt : JSNode = JSNode::new();
-    breakStmt.nodeType = "BreakStatement".to_string();
+    breakStmt.r#type = "BreakStatement".to_string();
     let mut startTok : Token = self.peek();
     breakStmt.start = startTok.start;
     breakStmt.line = startTok.line;
@@ -2043,7 +2318,7 @@ impl SimpleParser {
     self.expectValue("break".to_string());
     if  self.matchType("Identifier".to_string()) {
       let mut labelTok : Token = self.peek();
-      breakStmt.strValue = labelTok.value;
+      breakStmt.name = labelTok.value.clone();
       self.advance();
     }
     if  self.matchValue(";".to_string()) {
@@ -2053,7 +2328,7 @@ impl SimpleParser {
   }
   fn parseContinue(&mut self, ) -> JSNode {
     let mut contStmt : JSNode = JSNode::new();
-    contStmt.nodeType = "ContinueStatement".to_string();
+    contStmt.r#type = "ContinueStatement".to_string();
     let mut startTok : Token = self.peek();
     contStmt.start = startTok.start;
     contStmt.line = startTok.line;
@@ -2061,7 +2336,7 @@ impl SimpleParser {
     self.expectValue("continue".to_string());
     if  self.matchType("Identifier".to_string()) {
       let mut labelTok : Token = self.peek();
-      contStmt.strValue = labelTok.value;
+      contStmt.name = labelTok.value.clone();
       self.advance();
     }
     if  self.matchValue(";".to_string()) {
@@ -2071,13 +2346,13 @@ impl SimpleParser {
   }
   fn parseExprStmt(&mut self, ) -> JSNode {
     let mut stmt : JSNode = JSNode::new();
-    stmt.nodeType = "ExpressionStatement".to_string();
+    stmt.r#type = "ExpressionStatement".to_string();
     let mut startTok : Token = self.peek();
     stmt.start = startTok.start;
     stmt.line = startTok.line;
     stmt.col = startTok.col;
     let mut expr : JSNode = self.parseExpr();
-    stmt.left = expr;
+    stmt.left = Some(Box::new(expr.clone()));
     if  self.matchValue(";".to_string()) {
       self.advance();
     }
@@ -2089,15 +2364,15 @@ impl SimpleParser {
   fn parseAssignment(&mut self, ) -> JSNode {
     let mut left : JSNode = self.parseTernary();
     let tokVal : String = self.peekValue();
-    if  tokVal == "=".to_string() {
+    if  (((((((((((((((tokVal == "=".to_string()) || (tokVal == "+=".to_string())) || (tokVal == "-=".to_string())) || (tokVal == "*=".to_string())) || (tokVal == "/=".to_string())) || (tokVal == "%=".to_string())) || (tokVal == "**=".to_string())) || (tokVal == "<<=".to_string())) || (tokVal == ">>=".to_string())) || (tokVal == ">>>=".to_string())) || (tokVal == "&=".to_string())) || (tokVal == "^=".to_string())) || (tokVal == "|=".to_string())) || (tokVal == "&&=".to_string())) || (tokVal == "||=".to_string())) || (tokVal == "??=".to_string()) {
       let mut opTok : Token = self.peek();
       self.advance();
       let mut right : JSNode = self.parseAssignment();
       let mut assign : JSNode = JSNode::new();
-      assign.nodeType = "AssignmentExpression".to_string();
-      assign.strValue = opTok.value;
-      assign.left = left;
-      assign.right = right;
+      assign.r#type = "AssignmentExpression".to_string();
+      assign.operator = opTok.value.clone();
+      assign.left = Some(Box::new(left.clone()));
+      assign.right = Some(Box::new(right.clone()));
       assign.start = left.start;
       assign.line = left.line;
       assign.col = left.col;
@@ -2113,10 +2388,10 @@ impl SimpleParser {
       self.expectValue(":".to_string());
       let mut alternate : JSNode = self.parseAssignment();
       let mut ternary : JSNode = JSNode::new();
-      ternary.nodeType = "ConditionalExpression".to_string();
-      ternary.left = condition;
-      ternary.body = consequent;
-      ternary.right = alternate;
+      ternary.r#type = "ConditionalExpression".to_string();
+      ternary.left = Some(Box::new(condition.clone()));
+      ternary.body = Some(Box::new(consequent.clone()));
+      ternary.right = Some(Box::new(alternate.clone()));
       ternary.start = condition.start;
       ternary.line = condition.line;
       ternary.col = condition.col;
@@ -2131,14 +2406,14 @@ impl SimpleParser {
       self.advance();
       let mut right : JSNode = self.parseNullishCoalescing();
       let mut binary : JSNode = JSNode::new();
-      binary.nodeType = "LogicalExpression".to_string();
-      binary.strValue = opTok.value;
-      binary.left = left;
-      binary.right = right;
+      binary.r#type = "LogicalExpression".to_string();
+      binary.operator = opTok.value.clone();
+      binary.left = Some(Box::new(left.clone()));
+      binary.right = Some(Box::new(right.clone()));
       binary.start = left.start;
       binary.line = left.line;
       binary.col = left.col;
-      left = binary;
+      left = binary.clone();
     }
     return left.clone();
   }
@@ -2149,14 +2424,14 @@ impl SimpleParser {
       self.advance();
       let mut right : JSNode = self.parseLogicalAnd();
       let mut binary : JSNode = JSNode::new();
-      binary.nodeType = "LogicalExpression".to_string();
-      binary.strValue = opTok.value;
-      binary.left = left;
-      binary.right = right;
+      binary.r#type = "LogicalExpression".to_string();
+      binary.operator = opTok.value.clone();
+      binary.left = Some(Box::new(left.clone()));
+      binary.right = Some(Box::new(right.clone()));
       binary.start = left.start;
       binary.line = left.line;
       binary.col = left.col;
-      left = binary;
+      left = binary.clone();
     }
     return left.clone();
   }
@@ -2167,14 +2442,14 @@ impl SimpleParser {
       self.advance();
       let mut right : JSNode = self.parseEquality();
       let mut binary : JSNode = JSNode::new();
-      binary.nodeType = "LogicalExpression".to_string();
-      binary.strValue = opTok.value;
-      binary.left = left;
-      binary.right = right;
+      binary.r#type = "LogicalExpression".to_string();
+      binary.operator = opTok.value.clone();
+      binary.left = Some(Box::new(left.clone()));
+      binary.right = Some(Box::new(right.clone()));
       binary.start = left.start;
       binary.line = left.line;
       binary.col = left.col;
-      left = binary;
+      left = binary.clone();
     }
     return left.clone();
   }
@@ -2186,14 +2461,14 @@ impl SimpleParser {
       self.advance();
       let mut right : JSNode = self.parseComparison();
       let mut binary : JSNode = JSNode::new();
-      binary.nodeType = "BinaryExpression".to_string();
-      binary.strValue = opTok.value;
-      binary.left = left;
-      binary.right = right;
+      binary.r#type = "BinaryExpression".to_string();
+      binary.operator = opTok.value.clone();
+      binary.left = Some(Box::new(left.clone()));
+      binary.right = Some(Box::new(right.clone()));
       binary.start = left.start;
       binary.line = left.line;
       binary.col = left.col;
-      left = binary;
+      left = binary.clone();
       tokVal = self.peekValue();
     }
     return left.clone();
@@ -2206,14 +2481,14 @@ impl SimpleParser {
       self.advance();
       let mut right : JSNode = self.parseAdditive();
       let mut binary : JSNode = JSNode::new();
-      binary.nodeType = "BinaryExpression".to_string();
-      binary.strValue = opTok.value;
-      binary.left = left;
-      binary.right = right;
+      binary.r#type = "BinaryExpression".to_string();
+      binary.operator = opTok.value.clone();
+      binary.left = Some(Box::new(left.clone()));
+      binary.right = Some(Box::new(right.clone()));
       binary.start = left.start;
       binary.line = left.line;
       binary.col = left.col;
-      left = binary;
+      left = binary.clone();
       tokVal = self.peekValue();
     }
     return left.clone();
@@ -2226,14 +2501,14 @@ impl SimpleParser {
       self.advance();
       let mut right : JSNode = self.parseMultiplicative();
       let mut binary : JSNode = JSNode::new();
-      binary.nodeType = "BinaryExpression".to_string();
-      binary.strValue = opTok.value;
-      binary.left = left;
-      binary.right = right;
+      binary.r#type = "BinaryExpression".to_string();
+      binary.operator = opTok.value.clone();
+      binary.left = Some(Box::new(left.clone()));
+      binary.right = Some(Box::new(right.clone()));
       binary.start = left.start;
       binary.line = left.line;
       binary.col = left.col;
-      left = binary;
+      left = binary.clone();
       tokVal = self.peekValue();
     }
     return left.clone();
@@ -2246,14 +2521,14 @@ impl SimpleParser {
       self.advance();
       let mut right : JSNode = self.parseUnary();
       let mut binary : JSNode = JSNode::new();
-      binary.nodeType = "BinaryExpression".to_string();
-      binary.strValue = opTok.value;
-      binary.left = left;
-      binary.right = right;
+      binary.r#type = "BinaryExpression".to_string();
+      binary.operator = opTok.value.clone();
+      binary.left = Some(Box::new(left.clone()));
+      binary.right = Some(Box::new(right.clone()));
       binary.start = left.start;
       binary.line = left.line;
       binary.col = left.col;
-      left = binary;
+      left = binary.clone();
       tokVal = self.peekValue();
     }
     return left.clone();
@@ -2267,9 +2542,9 @@ impl SimpleParser {
         self.advance();
         let mut arg : JSNode = self.parseUnary();
         let mut unary : JSNode = JSNode::new();
-        unary.nodeType = "UnaryExpression".to_string();
-        unary.strValue = opTok.value;
-        unary.left = arg;
+        unary.r#type = "UnaryExpression".to_string();
+        unary.operator = opTok.value.clone();
+        unary.left = Some(Box::new(arg.clone()));
         unary.start = opTok.start;
         unary.line = opTok.line;
         unary.col = opTok.col;
@@ -2281,9 +2556,9 @@ impl SimpleParser {
       self.advance();
       let mut arg_1 : JSNode = self.parseUnary();
       let mut unary_1 : JSNode = JSNode::new();
-      unary_1.nodeType = "UnaryExpression".to_string();
-      unary_1.strValue = opTok_1.value;
-      unary_1.left = arg_1;
+      unary_1.r#type = "UnaryExpression".to_string();
+      unary_1.operator = opTok_1.value.clone();
+      unary_1.left = Some(Box::new(arg_1.clone()));
       unary_1.start = opTok_1.start;
       unary_1.line = opTok_1.line;
       unary_1.col = opTok_1.col;
@@ -2294,10 +2569,10 @@ impl SimpleParser {
       self.advance();
       let mut arg_2 : JSNode = self.parseUnary();
       let mut update : JSNode = JSNode::new();
-      update.nodeType = "UpdateExpression".to_string();
-      update.strValue = opTok_2.value;
-      update.strValue2 = "prefix".to_string();
-      update.left = arg_2;
+      update.r#type = "UpdateExpression".to_string();
+      update.operator = opTok_2.value.clone();
+      update.prefix = true;
+      update.left = Some(Box::new(arg_2.clone()));
       update.start = opTok_2.start;
       update.line = opTok_2.line;
       update.col = opTok_2.col;
@@ -2307,18 +2582,18 @@ impl SimpleParser {
       let mut yieldTok : Token = self.peek();
       self.advance();
       let mut yieldExpr : JSNode = JSNode::new();
-      yieldExpr.nodeType = "YieldExpression".to_string();
+      yieldExpr.r#type = "YieldExpression".to_string();
       yieldExpr.start = yieldTok.start;
       yieldExpr.line = yieldTok.line;
       yieldExpr.col = yieldTok.col;
       if  self.matchValue("*".to_string()) {
-        yieldExpr.strValue = "delegate".to_string();
+        yieldExpr.delegate = true;
         self.advance();
       }
       let nextVal : String = self.peekValue();
       if  (((nextVal != ";".to_string()) && (nextVal != "}".to_string())) && (nextVal != ",".to_string())) && (nextVal != ")".to_string()) {
         let mut arg_3 : JSNode = self.parseAssignment();
-        yieldExpr.left = arg_3;
+        yieldExpr.left = Some(Box::new(arg_3.clone()));
       }
       return yieldExpr.clone();
     }
@@ -2327,8 +2602,8 @@ impl SimpleParser {
       self.advance();
       let mut arg_4 : JSNode = self.parseUnary();
       let mut awaitExpr : JSNode = JSNode::new();
-      awaitExpr.nodeType = "AwaitExpression".to_string();
-      awaitExpr.left = arg_4;
+      awaitExpr.r#type = "AwaitExpression".to_string();
+      awaitExpr.left = Some(Box::new(arg_4.clone()));
       awaitExpr.start = awaitTok.start;
       awaitExpr.line = awaitTok.line;
       awaitExpr.col = awaitTok.col;
@@ -2348,14 +2623,14 @@ impl SimpleParser {
         let mut opTok : Token = self.peek();
         self.advance();
         let mut update : JSNode = JSNode::new();
-        update.nodeType = "UpdateExpression".to_string();
-        update.strValue = opTok.value;
-        update.strValue2 = "postfix".to_string();
-        update.left = object;
+        update.r#type = "UpdateExpression".to_string();
+        update.operator = opTok.value.clone();
+        update.prefix = false;
+        update.left = Some(Box::new(object.clone()));
         update.start = object.start;
         update.line = object.line;
         update.col = object.col;
-        object = update;
+        object = update.clone();
       } else {
         if  tokVal == "?.".to_string() {
           self.advance();
@@ -2363,48 +2638,48 @@ impl SimpleParser {
           if  nextTokVal == "(".to_string() {
             self.advance();
             let mut call : JSNode = JSNode::new();
-            call.nodeType = "OptionalCallExpression".to_string();
-            call.left = object;
+            call.r#type = "OptionalCallExpression".to_string();
+            call.left = Some(Box::new(object.clone()));
             call.start = object.start;
             call.line = object.line;
             call.col = object.col;
             while (self.matchValue(")".to_string()) == false) && (self.isAtEnd() == false) {
-              if  (call.children.len()) > 0 {
+              if  ((call.children.len() as i64)) > 0 {
                 self.expectValue(",".to_string());
               }
               if  self.matchValue(")".to_string()) || self.isAtEnd() {
                 break;
               }
               let mut arg : JSNode = self.parseAssignment();
-              call.children.push(arg);
+              call.children.push(arg.clone());
             }
             self.expectValue(")".to_string());
-            object = call;
+            object = call.clone();
           } else {
             if  nextTokVal == "[".to_string() {
               self.advance();
               let mut propExpr : JSNode = self.parseExpr();
               self.expectValue("]".to_string());
               let mut member : JSNode = JSNode::new();
-              member.nodeType = "OptionalMemberExpression".to_string();
-              member.left = object;
-              member.right = propExpr;
-              member.strValue2 = "bracket".to_string();
+              member.r#type = "OptionalMemberExpression".to_string();
+              member.left = Some(Box::new(object.clone()));
+              member.right = Some(Box::new(propExpr.clone()));
+              member.computed = true;
               member.start = object.start;
               member.line = object.line;
               member.col = object.col;
-              object = member;
+              object = member.clone();
             } else {
               let mut propTok : Token = self.expect("Identifier".to_string());
               let mut member_1 : JSNode = JSNode::new();
-              member_1.nodeType = "OptionalMemberExpression".to_string();
-              member_1.left = object;
-              member_1.strValue = propTok.value;
-              member_1.strValue2 = "dot".to_string();
+              member_1.r#type = "OptionalMemberExpression".to_string();
+              member_1.left = Some(Box::new(object.clone()));
+              member_1.name = propTok.value.clone();
+              member_1.computed = false;
               member_1.start = object.start;
               member_1.line = object.line;
               member_1.col = object.col;
-              object = member_1;
+              object = member_1.clone();
             }
           }
         } else {
@@ -2412,39 +2687,39 @@ impl SimpleParser {
             self.advance();
             let mut propTok_1 : Token = self.expect("Identifier".to_string());
             let mut member_2 : JSNode = JSNode::new();
-            member_2.nodeType = "MemberExpression".to_string();
-            member_2.left = object;
-            member_2.strValue = propTok_1.value;
-            member_2.strValue2 = "dot".to_string();
+            member_2.r#type = "MemberExpression".to_string();
+            member_2.left = Some(Box::new(object.clone()));
+            member_2.name = propTok_1.value.clone();
+            member_2.computed = false;
             member_2.start = object.start;
             member_2.line = object.line;
             member_2.col = object.col;
-            object = member_2;
+            object = member_2.clone();
           } else {
             if  tokVal == "[".to_string() {
               self.advance();
               let mut propExpr_1 : JSNode = self.parseExpr();
               self.expectValue("]".to_string());
               let mut member_3 : JSNode = JSNode::new();
-              member_3.nodeType = "MemberExpression".to_string();
-              member_3.left = object;
-              member_3.right = propExpr_1;
-              member_3.strValue2 = "bracket".to_string();
+              member_3.r#type = "MemberExpression".to_string();
+              member_3.left = Some(Box::new(object.clone()));
+              member_3.right = Some(Box::new(propExpr_1.clone()));
+              member_3.computed = true;
               member_3.start = object.start;
               member_3.line = object.line;
               member_3.col = object.col;
-              object = member_3;
+              object = member_3.clone();
             } else {
               if  tokVal == "(".to_string() {
                 self.advance();
                 let mut call_1 : JSNode = JSNode::new();
-                call_1.nodeType = "CallExpression".to_string();
-                call_1.left = object;
+                call_1.r#type = "CallExpression".to_string();
+                call_1.left = Some(Box::new(object.clone()));
                 call_1.start = object.start;
                 call_1.line = object.line;
                 call_1.col = object.col;
                 while (self.matchValue(")".to_string()) == false) && (self.isAtEnd() == false) {
-                  if  (call_1.children.len()) > 0 {
+                  if  ((call_1.children.len() as i64)) > 0 {
                     self.expectValue(",".to_string());
                   }
                   if  self.matchValue(")".to_string()) || self.isAtEnd() {
@@ -2455,19 +2730,19 @@ impl SimpleParser {
                     self.advance();
                     let mut spreadArg : JSNode = self.parseAssignment();
                     let mut spread : JSNode = JSNode::new();
-                    spread.nodeType = "SpreadElement".to_string();
-                    spread.left = spreadArg;
+                    spread.r#type = "SpreadElement".to_string();
+                    spread.left = Some(Box::new(spreadArg.clone()));
                     spread.start = spreadTok.start;
                     spread.line = spreadTok.line;
                     spread.col = spreadTok.col;
-                    call_1.children.push(spread);
+                    call_1.children.push(spread.clone());
                   } else {
                     let mut arg_1 : JSNode = self.parseAssignment();
-                    call_1.children.push(arg_1);
+                    call_1.children.push(arg_1.clone());
                   }
                 }
                 self.expectValue(")".to_string());
-                object = call_1;
+                object = call_1.clone();
               } else {
                 cont = false;
               }
@@ -2480,7 +2755,7 @@ impl SimpleParser {
   }
   fn parseNewExpression(&mut self, ) -> JSNode {
     let mut newExpr : JSNode = JSNode::new();
-    newExpr.nodeType = "NewExpression".to_string();
+    newExpr.r#type = "NewExpression".to_string();
     let mut startTok : Token = self.peek();
     newExpr.start = startTok.start;
     newExpr.line = startTok.line;
@@ -2494,30 +2769,30 @@ impl SimpleParser {
         self.advance();
         let mut propTok : Token = self.expect("Identifier".to_string());
         let mut member : JSNode = JSNode::new();
-        member.nodeType = "MemberExpression".to_string();
-        member.left = callee;
-        member.strValue = propTok.value;
-        member.strValue2 = "dot".to_string();
+        member.r#type = "MemberExpression".to_string();
+        member.left = Some(Box::new(callee.clone()));
+        member.name = propTok.value.clone();
+        member.computed = false;
         member.start = callee.start;
         member.line = callee.line;
         member.col = callee.col;
-        callee = member;
+        callee = member.clone();
       } else {
         cont = false;
       }
     }
-    newExpr.left = callee;
+    newExpr.left = Some(Box::new(callee.clone()));
     if  self.matchValue("(".to_string()) {
       self.advance();
       while (self.matchValue(")".to_string()) == false) && (self.isAtEnd() == false) {
-        if  (newExpr.children.len()) > 0 {
+        if  ((newExpr.children.len() as i64)) > 0 {
           self.expectValue(",".to_string());
         }
         if  self.matchValue(")".to_string()) || self.isAtEnd() {
           break;
         }
         let mut arg : JSNode = self.parseAssignment();
-        newExpr.children.push(arg);
+        newExpr.children.push(arg.clone());
       }
       self.expectValue(")".to_string());
     }
@@ -2541,8 +2816,8 @@ impl SimpleParser {
       }
       self.advance();
       let mut id : JSNode = JSNode::new();
-      id.nodeType = "Identifier".to_string();
-      id.strValue = tok.value;
+      id.r#type = "Identifier".to_string();
+      id.name = tok.value.clone();
       id.start = tok.start;
       id.end = tok.end;
       id.line = tok.line;
@@ -2552,9 +2827,8 @@ impl SimpleParser {
     if  tokType == "Number".to_string() {
       self.advance();
       let mut lit : JSNode = JSNode::new();
-      lit.nodeType = "Literal".to_string();
-      lit.strValue = tok.value;
-      lit.strValue2 = "number".to_string();
+      lit.r#type = "Literal".to_string();
+      lit.raw = tok.value.clone();
       lit.start = tok.start;
       lit.end = tok.end;
       lit.line = tok.line;
@@ -2564,9 +2838,8 @@ impl SimpleParser {
     if  tokType == "String".to_string() {
       self.advance();
       let mut lit_1 : JSNode = JSNode::new();
-      lit_1.nodeType = "Literal".to_string();
-      lit_1.strValue = tok.value;
-      lit_1.strValue2 = "string".to_string();
+      lit_1.r#type = "Literal".to_string();
+      lit_1.raw = tok.value.clone();
       lit_1.start = tok.start;
       lit_1.end = tok.end;
       lit_1.line = tok.line;
@@ -2576,9 +2849,8 @@ impl SimpleParser {
     if  (tokVal == "true".to_string()) || (tokVal == "false".to_string()) {
       self.advance();
       let mut lit_2 : JSNode = JSNode::new();
-      lit_2.nodeType = "Literal".to_string();
-      lit_2.strValue = tok.value;
-      lit_2.strValue2 = "boolean".to_string();
+      lit_2.r#type = "Literal".to_string();
+      lit_2.raw = tok.value.clone();
       lit_2.start = tok.start;
       lit_2.end = tok.end;
       lit_2.line = tok.line;
@@ -2588,9 +2860,8 @@ impl SimpleParser {
     if  tokVal == "null".to_string() {
       self.advance();
       let mut lit_3 : JSNode = JSNode::new();
-      lit_3.nodeType = "Literal".to_string();
-      lit_3.strValue = "null".to_string();
-      lit_3.strValue2 = "null".to_string();
+      lit_3.r#type = "Literal".to_string();
+      lit_3.raw = "null".to_string();
       lit_3.start = tok.start;
       lit_3.end = tok.end;
       lit_3.line = tok.line;
@@ -2600,8 +2871,8 @@ impl SimpleParser {
     if  tokType == "TemplateLiteral".to_string() {
       self.advance();
       let mut tmpl : JSNode = JSNode::new();
-      tmpl.nodeType = "TemplateLiteral".to_string();
-      tmpl.strValue = tok.value;
+      tmpl.r#type = "TemplateLiteral".to_string();
+      tmpl.raw = tok.value.clone();
       tmpl.start = tok.start;
       tmpl.end = tok.end;
       tmpl.line = tok.line;
@@ -2631,8 +2902,8 @@ impl SimpleParser {
     }
     self.advance();
     let mut fallback : JSNode = JSNode::new();
-    fallback.nodeType = "Identifier".to_string();
-    fallback.strValue = tok.value;
+    fallback.r#type = "Identifier".to_string();
+    fallback.name = tok.value.clone();
     fallback.start = tok.start;
     fallback.end = tok.end;
     fallback.line = tok.line;
@@ -2641,14 +2912,14 @@ impl SimpleParser {
   }
   fn parseArray(&mut self, ) -> JSNode {
     let mut arr : JSNode = JSNode::new();
-    arr.nodeType = "ArrayExpression".to_string();
+    arr.r#type = "ArrayExpression".to_string();
     let mut startTok : Token = self.peek();
     arr.start = startTok.start;
     arr.line = startTok.line;
     arr.col = startTok.col;
     self.expectValue("[".to_string());
     while (self.matchValue("]".to_string()) == false) && (self.isAtEnd() == false) {
-      if  (arr.children.len()) > 0 {
+      if  ((arr.children.len() as i64)) > 0 {
         self.expectValue(",".to_string());
       }
       if  self.matchValue("]".to_string()) || self.isAtEnd() {
@@ -2659,15 +2930,15 @@ impl SimpleParser {
         self.advance();
         let mut arg : JSNode = self.parseAssignment();
         let mut spread : JSNode = JSNode::new();
-        spread.nodeType = "SpreadElement".to_string();
-        spread.left = arg;
+        spread.r#type = "SpreadElement".to_string();
+        spread.left = Some(Box::new(arg.clone()));
         spread.start = spreadTok.start;
         spread.line = spreadTok.line;
         spread.col = spreadTok.col;
-        arr.children.push(spread);
+        arr.children.push(spread.clone());
       } else {
         let mut elem : JSNode = self.parseAssignment();
-        arr.children.push(elem);
+        arr.children.push(elem.clone());
       }
     }
     self.expectValue("]".to_string());
@@ -2675,14 +2946,14 @@ impl SimpleParser {
   }
   fn parseObject(&mut self, ) -> JSNode {
     let mut obj : JSNode = JSNode::new();
-    obj.nodeType = "ObjectExpression".to_string();
+    obj.r#type = "ObjectExpression".to_string();
     let mut startTok : Token = self.peek();
     obj.start = startTok.start;
     obj.line = startTok.line;
     obj.col = startTok.col;
     self.expectValue("{".to_string());
     while (self.matchValue("}".to_string()) == false) && (self.isAtEnd() == false) {
-      if  (obj.children.len()) > 0 {
+      if  ((obj.children.len() as i64)) > 0 {
         self.expectValue(",".to_string());
       }
       if  self.matchValue("}".to_string()) || self.isAtEnd() {
@@ -2693,15 +2964,15 @@ impl SimpleParser {
         self.advance();
         let mut arg : JSNode = self.parseAssignment();
         let mut spread : JSNode = JSNode::new();
-        spread.nodeType = "SpreadElement".to_string();
-        spread.left = arg;
+        spread.r#type = "SpreadElement".to_string();
+        spread.left = Some(Box::new(arg.clone()));
         spread.start = spreadTok.start;
         spread.line = spreadTok.line;
         spread.col = spreadTok.col;
-        obj.children.push(spread);
+        obj.children.push(spread.clone());
       } else {
         let mut prop : JSNode = JSNode::new();
-        prop.nodeType = "Property".to_string();
+        prop.r#type = "Property".to_string();
         let mut keyTok : Token = self.peek();
         let keyType : String = self.peekType();
         if  self.matchValue("[".to_string()) {
@@ -2710,38 +2981,38 @@ impl SimpleParser {
           self.expectValue("]".to_string());
           self.expectValue(":".to_string());
           let mut val : JSNode = self.parseAssignment();
-          prop.right = keyExpr;
-          prop.left = val;
-          prop.strValue2 = "computed".to_string();
+          prop.right = Some(Box::new(keyExpr.clone()));
+          prop.left = Some(Box::new(val.clone()));
+          prop.computed = true;
           prop.start = keyTok.start;
           prop.line = keyTok.line;
           prop.col = keyTok.col;
-          obj.children.push(prop);
+          obj.children.push(prop.clone());
         } else {
           if  ((keyType == "Identifier".to_string()) || (keyType == "String".to_string())) || (keyType == "Number".to_string()) {
             self.advance();
-            prop.strValue = keyTok.value;
+            prop.name = keyTok.value.clone();
             prop.start = keyTok.start;
             prop.line = keyTok.line;
             prop.col = keyTok.col;
             if  self.matchValue(":".to_string()) {
               self.expectValue(":".to_string());
               let mut val_1 : JSNode = self.parseAssignment();
-              prop.left = val_1;
+              prop.left = Some(Box::new(val_1.clone()));
             } else {
               let mut id : JSNode = JSNode::new();
-              id.nodeType = "Identifier".to_string();
-              id.strValue = keyTok.value;
+              id.r#type = "Identifier".to_string();
+              id.name = keyTok.value.clone();
               id.start = keyTok.start;
               id.line = keyTok.line;
               id.col = keyTok.col;
-              prop.left = id;
-              prop.strValue2 = "shorthand".to_string();
+              prop.left = Some(Box::new(id.clone()));
+              prop.shorthand = true;
             }
-            obj.children.push(prop);
+            obj.children.push(prop.clone());
           } else {
             let err : String = format!("{}{}", (format!("{}{}", (format!("{}{}", ([(format!("{}{}", (["Parse error at line ".to_string() , (keyTok.line.to_string()) ].join("")), ":".to_string())) , (keyTok.col.to_string()) ].join("")), ": unexpected token '".to_string())), keyTok.value)), "' in object literal".to_string());
-            self.addError(err);
+            self.addError(err.clone());
             self.advance();
           }
         }
@@ -2752,14 +3023,14 @@ impl SimpleParser {
   }
   fn parseArrayPattern(&mut self, ) -> JSNode {
     let mut pattern : JSNode = JSNode::new();
-    pattern.nodeType = "ArrayPattern".to_string();
+    pattern.r#type = "ArrayPattern".to_string();
     let mut startTok : Token = self.peek();
     pattern.start = startTok.start;
     pattern.line = startTok.line;
     pattern.col = startTok.col;
     self.expectValue("[".to_string());
     while (self.matchValue("]".to_string()) == false) && (self.isAtEnd() == false) {
-      if  (pattern.children.len()) > 0 {
+      if  ((pattern.children.len() as i64)) > 0 {
         self.expectValue(",".to_string());
       }
       if  self.matchValue("]".to_string()) || self.isAtEnd() {
@@ -2770,29 +3041,29 @@ impl SimpleParser {
         self.advance();
         let mut idTok : Token = self.expect("Identifier".to_string());
         let mut rest : JSNode = JSNode::new();
-        rest.nodeType = "RestElement".to_string();
-        rest.strValue = idTok.value;
+        rest.r#type = "RestElement".to_string();
+        rest.name = idTok.value.clone();
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        pattern.children.push(rest);
+        pattern.children.push(rest.clone());
       } else {
         if  self.matchValue("[".to_string()) {
           let mut nested : JSNode = self.parseArrayPattern();
-          pattern.children.push(nested);
+          pattern.children.push(nested.clone());
         } else {
           if  self.matchValue("{".to_string()) {
             let mut nested_1 : JSNode = self.parseObjectPattern();
-            pattern.children.push(nested_1);
+            pattern.children.push(nested_1.clone());
           } else {
             let mut idTok_1 : Token = self.expect("Identifier".to_string());
             let mut id : JSNode = JSNode::new();
-            id.nodeType = "Identifier".to_string();
-            id.strValue = idTok_1.value;
+            id.r#type = "Identifier".to_string();
+            id.name = idTok_1.value.clone();
             id.start = idTok_1.start;
             id.line = idTok_1.line;
             id.col = idTok_1.col;
-            pattern.children.push(id);
+            pattern.children.push(id.clone());
           }
         }
       }
@@ -2802,14 +3073,14 @@ impl SimpleParser {
   }
   fn parseObjectPattern(&mut self, ) -> JSNode {
     let mut pattern : JSNode = JSNode::new();
-    pattern.nodeType = "ObjectPattern".to_string();
+    pattern.r#type = "ObjectPattern".to_string();
     let mut startTok : Token = self.peek();
     pattern.start = startTok.start;
     pattern.line = startTok.line;
     pattern.col = startTok.col;
     self.expectValue("{".to_string());
     while (self.matchValue("}".to_string()) == false) && (self.isAtEnd() == false) {
-      if  (pattern.children.len()) > 0 {
+      if  ((pattern.children.len() as i64)) > 0 {
         self.expectValue(",".to_string());
       }
       if  self.matchValue("}".to_string()) || self.isAtEnd() {
@@ -2820,17 +3091,17 @@ impl SimpleParser {
         self.advance();
         let mut idTok : Token = self.expect("Identifier".to_string());
         let mut rest : JSNode = JSNode::new();
-        rest.nodeType = "RestElement".to_string();
-        rest.strValue = idTok.value;
+        rest.r#type = "RestElement".to_string();
+        rest.name = idTok.value.clone();
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        pattern.children.push(rest);
+        pattern.children.push(rest.clone());
       } else {
         let mut prop : JSNode = JSNode::new();
-        prop.nodeType = "Property".to_string();
+        prop.r#type = "Property".to_string();
         let mut keyTok : Token = self.expect("Identifier".to_string());
-        prop.strValue = keyTok.value;
+        prop.name = keyTok.value.clone();
         prop.start = keyTok.start;
         prop.line = keyTok.line;
         prop.col = keyTok.col;
@@ -2838,33 +3109,33 @@ impl SimpleParser {
           self.advance();
           if  self.matchValue("[".to_string()) {
             let mut nested : JSNode = self.parseArrayPattern();
-            prop.left = nested;
+            prop.left = Some(Box::new(nested.clone()));
           } else {
             if  self.matchValue("{".to_string()) {
               let mut nested_1 : JSNode = self.parseObjectPattern();
-              prop.left = nested_1;
+              prop.left = Some(Box::new(nested_1.clone()));
             } else {
               let mut idTok2 : Token = self.expect("Identifier".to_string());
               let mut id : JSNode = JSNode::new();
-              id.nodeType = "Identifier".to_string();
-              id.strValue = idTok2.value;
+              id.r#type = "Identifier".to_string();
+              id.name = idTok2.value.clone();
               id.start = idTok2.start;
               id.line = idTok2.line;
               id.col = idTok2.col;
-              prop.left = id;
+              prop.left = Some(Box::new(id.clone()));
             }
           }
         } else {
           let mut id_1 : JSNode = JSNode::new();
-          id_1.nodeType = "Identifier".to_string();
-          id_1.strValue = keyTok.value;
+          id_1.r#type = "Identifier".to_string();
+          id_1.name = keyTok.value.clone();
           id_1.start = keyTok.start;
           id_1.line = keyTok.line;
           id_1.col = keyTok.col;
-          prop.left = id_1;
-          prop.strValue2 = "shorthand".to_string();
+          prop.left = Some(Box::new(id_1.clone()));
+          prop.shorthand = true;
         }
-        pattern.children.push(prop);
+        pattern.children.push(prop.clone());
       }
     }
     self.expectValue("}".to_string());
@@ -2894,7 +3165,7 @@ impl SimpleParser {
   }
   fn parseArrowFunction(&mut self, ) -> JSNode {
     let mut arrow : JSNode = JSNode::new();
-    arrow.nodeType = "ArrowFunctionExpression".to_string();
+    arrow.r#type = "ArrowFunctionExpression".to_string();
     let mut startTok : Token = self.peek();
     arrow.start = startTok.start;
     arrow.line = startTok.line;
@@ -2902,7 +3173,7 @@ impl SimpleParser {
     if  self.matchValue("(".to_string()) {
       self.advance();
       while (self.matchValue(")".to_string()) == false) && (self.isAtEnd() == false) {
-        if  (arrow.children.len()) > 0 {
+        if  ((arrow.children.len() as i64)) > 0 {
           self.expectValue(",".to_string());
         }
         if  self.matchValue(")".to_string()) || self.isAtEnd() {
@@ -2910,38 +3181,38 @@ impl SimpleParser {
         }
         let mut paramTok : Token = self.expect("Identifier".to_string());
         let mut param : JSNode = JSNode::new();
-        param.nodeType = "Identifier".to_string();
-        param.strValue = paramTok.value;
+        param.r#type = "Identifier".to_string();
+        param.name = paramTok.value.clone();
         param.start = paramTok.start;
         param.line = paramTok.line;
         param.col = paramTok.col;
-        arrow.children.push(param);
+        arrow.children.push(param.clone());
       }
       self.expectValue(")".to_string());
     } else {
       let mut paramTok_1 : Token = self.expect("Identifier".to_string());
       let mut param_1 : JSNode = JSNode::new();
-      param_1.nodeType = "Identifier".to_string();
-      param_1.strValue = paramTok_1.value;
+      param_1.r#type = "Identifier".to_string();
+      param_1.name = paramTok_1.value.clone();
       param_1.start = paramTok_1.start;
       param_1.line = paramTok_1.line;
       param_1.col = paramTok_1.col;
-      arrow.children.push(param_1);
+      arrow.children.push(param_1.clone());
     }
     self.expectValue("=>".to_string());
     if  self.matchValue("{".to_string()) {
       let mut body : JSNode = self.parseBlock();
-      arrow.body = body;
+      arrow.body = Some(Box::new(body.clone()));
     } else {
       let mut expr : JSNode = self.parseAssignment();
-      arrow.body = expr;
+      arrow.body = Some(Box::new(expr.clone()));
     }
     return arrow.clone();
   }
   fn parseAsyncArrowFunction(&mut self, ) -> JSNode {
     let mut arrow : JSNode = JSNode::new();
-    arrow.nodeType = "ArrowFunctionExpression".to_string();
-    arrow.strValue2 = "async".to_string();
+    arrow.r#type = "ArrowFunctionExpression".to_string();
+    arrow.r#async = true;
     let mut startTok : Token = self.peek();
     arrow.start = startTok.start;
     arrow.line = startTok.line;
@@ -2950,7 +3221,7 @@ impl SimpleParser {
     if  self.matchValue("(".to_string()) {
       self.advance();
       while (self.matchValue(")".to_string()) == false) && (self.isAtEnd() == false) {
-        if  (arrow.children.len()) > 0 {
+        if  ((arrow.children.len() as i64)) > 0 {
           self.expectValue(",".to_string());
         }
         if  self.matchValue(")".to_string()) || self.isAtEnd() {
@@ -2958,31 +3229,31 @@ impl SimpleParser {
         }
         let mut paramTok : Token = self.expect("Identifier".to_string());
         let mut param : JSNode = JSNode::new();
-        param.nodeType = "Identifier".to_string();
-        param.strValue = paramTok.value;
+        param.r#type = "Identifier".to_string();
+        param.name = paramTok.value.clone();
         param.start = paramTok.start;
         param.line = paramTok.line;
         param.col = paramTok.col;
-        arrow.children.push(param);
+        arrow.children.push(param.clone());
       }
       self.expectValue(")".to_string());
     } else {
       let mut paramTok_1 : Token = self.expect("Identifier".to_string());
       let mut param_1 : JSNode = JSNode::new();
-      param_1.nodeType = "Identifier".to_string();
-      param_1.strValue = paramTok_1.value;
+      param_1.r#type = "Identifier".to_string();
+      param_1.name = paramTok_1.value.clone();
       param_1.start = paramTok_1.start;
       param_1.line = paramTok_1.line;
       param_1.col = paramTok_1.col;
-      arrow.children.push(param_1);
+      arrow.children.push(param_1.clone());
     }
     self.expectValue("=>".to_string());
     if  self.matchValue("{".to_string()) {
       let mut body : JSNode = self.parseBlock();
-      arrow.body = body;
+      arrow.body = Some(Box::new(body.clone()));
     } else {
       let mut expr : JSNode = self.parseAssignment();
-      arrow.body = expr;
+      arrow.body = Some(Box::new(expr.clone()));
     }
     return arrow.clone();
   }
@@ -2997,30 +3268,29 @@ impl ASTPrinter {
     };
     return me;
   }
-  pub fn printNode(node : JSNode, depth : i64) -> () {
+  pub fn printNode(mut node : JSNode, depth : i64) -> () {
     let mut indent : String = "".to_string();
     let mut i : i64 = 0;
     while i < depth {
       indent = format!("{}{}", indent, "  ".to_string());
       i = i + 1;
     }
-    let numComments : i64 = node.leadingComments.len();
+    let numComments : i64 = (node.leadingComments.len() as i64);
     if  numComments > 0 {
       for ci in 0..node.leadingComments.len() {
         let mut comment = node.leadingComments[ci as usize].clone();
-        let commentType : String = comment.nodeType;
-        let mut preview : String = comment.strValue;
+        let commentType : String = comment.r#type.clone();
+        let mut preview : String = comment.raw.clone();
         if  (preview.len() as i64) > 40 {
           preview = format!("{}{}", (preview.chars().skip(0 as usize).take((40 - 0) as usize).collect::<String>()), "...".to_string());
         }
         println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", indent, commentType)), ": ".to_string())), preview) );
-        node.leadingComments[ci as usize] = comment;
       }
     }
-    let nodeType : String = node.nodeType;
+    let nodeType : String = node.r#type.clone();
     let loc : String = format!("{}{}", ([(format!("{}{}", (["[".to_string() , (node.line.to_string()) ].join("")), ":".to_string())) , (node.col.to_string()) ].join("")), "]".to_string());
     if  nodeType == "VariableDeclaration".to_string() {
-      let kind : String = node.strValue;
+      let kind : String = node.name.clone();
       if  (kind.len() as i64) > 0 {
         println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "VariableDeclaration (".to_string())), kind)), ") ".to_string())), loc) );
       } else {
@@ -3028,27 +3298,26 @@ impl ASTPrinter {
       }
       for ci_1 in 0..node.children.len() {
         let mut child = node.children[ci_1 as usize].clone();
-        ASTPrinter::printNode(child, depth + 1);
-        node.children[ci_1 as usize] = child;
+        ASTPrinter::printNode(child.clone(), depth + 1);
       }
       return;
     }
     if  nodeType == "VariableDeclarator".to_string() {
       if  node.left.is_some() {
-        let mut id : JSNode = node.left.unwrap();
-        let idType : String = id.nodeType;
+        let mut id : JSNode = (*node.left.clone().unwrap());
+        let idType : String = id.r#type.clone();
         if  idType == "Identifier".to_string() {
-          println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "VariableDeclarator: ".to_string())), id.strValue)), " ".to_string())), loc) );
+          println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "VariableDeclarator: ".to_string())), id.name)), " ".to_string())), loc) );
         } else {
           println!( "{}", format!("{}{}", (format!("{}{}", indent, "VariableDeclarator ".to_string())), loc) );
           println!( "{}", format!("{}{}", indent, "  pattern:".to_string()) );
-          ASTPrinter::printNode(id, depth + 2);
+          ASTPrinter::printNode(id.clone(), depth + 2);
         }
       } else {
         println!( "{}", format!("{}{}", (format!("{}{}", indent, "VariableDeclarator ".to_string())), loc) );
       }
       if  node.right.is_some() {
-        ASTPrinter::printNode(node.right.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.right.clone().unwrap()), depth + 1);
       }
       return;
     }
@@ -3059,39 +3328,39 @@ impl ASTPrinter {
         if  pi > 0 {
           params = format!("{}{}", params, ", ".to_string());
         }
-        params = format!("{}{}", params, p.strValue);
-        node.children[pi as usize] = p;
+        params = format!("{}{}", params, p.name);
       }
-      let kind_1 : String = node.strValue2;
       let mut prefix : String = "".to_string();
-      if  kind_1 == "async".to_string() {
-        prefix = "async ".to_string();
-      }
-      if  kind_1 == "generator".to_string() {
-        prefix = "function* ".to_string();
-      }
-      if  kind_1 == "async-generator".to_string() {
-        prefix = "async function* ".to_string();
+      if  node.r#async {
+        if  node.generator {
+          prefix = "async function* ".to_string();
+        } else {
+          prefix = "async ".to_string();
+        }
+      } else {
+        if  node.generator {
+          prefix = "function* ".to_string();
+        }
       }
       if  (prefix.len() as i64) > 0 {
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "FunctionDeclaration: ".to_string())), prefix)), node.strValue)), "(".to_string())), params)), ") ".to_string())), loc) );
+        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "FunctionDeclaration: ".to_string())), prefix)), node.name)), "(".to_string())), params)), ") ".to_string())), loc) );
       } else {
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "FunctionDeclaration: ".to_string())), node.strValue)), "(".to_string())), params)), ") ".to_string())), loc) );
+        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "FunctionDeclaration: ".to_string())), node.name)), "(".to_string())), params)), ") ".to_string())), loc) );
       }
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 1);
       }
       return;
     }
     if  nodeType == "ClassDeclaration".to_string() {
-      let mut output : String = format!("{}{}", (format!("{}{}", indent, "ClassDeclaration: ".to_string())), node.strValue);
+      let mut output : String = format!("{}{}", (format!("{}{}", indent, "ClassDeclaration: ".to_string())), node.name);
       if  node.left.is_some() {
-        let mut superClass : JSNode = node.left.unwrap();
-        output = format!("{}{}", (format!("{}{}", output, " extends ".to_string())), superClass.strValue);
+        let mut superClass : JSNode = (*node.left.clone().unwrap());
+        output = format!("{}{}", (format!("{}{}", output, " extends ".to_string())), superClass.name);
       }
       println!( "{}", format!("{}{}", (format!("{}{}", output, " ".to_string())), loc) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 1);
       }
       return;
     }
@@ -3099,19 +3368,18 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ClassBody ".to_string())), loc) );
       for mi in 0..node.children.len() {
         let mut method = node.children[mi as usize].clone();
-        ASTPrinter::printNode(method, depth + 1);
-        node.children[mi as usize] = method;
+        ASTPrinter::printNode(method.clone(), depth + 1);
       }
       return;
     }
     if  nodeType == "MethodDefinition".to_string() {
       let mut staticStr : String = "".to_string();
-      if  node.strValue2 == "static".to_string() {
+      if  node.r#static {
         staticStr = "static ".to_string();
       }
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "MethodDefinition: ".to_string())), staticStr)), node.strValue)), " ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "MethodDefinition: ".to_string())), staticStr)), node.name)), " ".to_string())), loc) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 1);
       }
       return;
     }
@@ -3122,54 +3390,52 @@ impl ASTPrinter {
         if  pi_1 > 0 {
           params_1 = format!("{}{}", params_1, ", ".to_string());
         }
-        params_1 = format!("{}{}", params_1, p_1.strValue);
-        node.children[pi_1 as usize] = p_1;
+        params_1 = format!("{}{}", params_1, p_1.name);
       }
       let mut asyncStr : String = "".to_string();
-      if  node.strValue2 == "async".to_string() {
+      if  node.r#async {
         asyncStr = "async ".to_string();
       }
       println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "ArrowFunctionExpression: ".to_string())), asyncStr)), "(".to_string())), params_1)), ") => ".to_string())), loc) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 1);
       }
       return;
     }
     if  nodeType == "YieldExpression".to_string() {
       let mut delegateStr : String = "".to_string();
-      if  node.strValue == "delegate".to_string() {
+      if  node.name == "delegate".to_string() {
         delegateStr = "*".to_string();
       }
       println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "YieldExpression".to_string())), delegateStr)), " ".to_string())), loc) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 1);
       }
       return;
     }
     if  nodeType == "AwaitExpression".to_string() {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "AwaitExpression ".to_string())), loc) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 1);
       }
       return;
     }
     if  nodeType == "TemplateLiteral".to_string() {
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "TemplateLiteral: `".to_string())), node.strValue)), "` ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "TemplateLiteral: `".to_string())), node.name)), "` ".to_string())), loc) );
       return;
     }
     if  nodeType == "BlockStatement".to_string() {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "BlockStatement ".to_string())), loc) );
       for ci_2 in 0..node.children.len() {
         let mut child_1 = node.children[ci_2 as usize].clone();
-        ASTPrinter::printNode(child_1, depth + 1);
-        node.children[ci_2 as usize] = child_1;
+        ASTPrinter::printNode(child_1.clone(), depth + 1);
       }
       return;
     }
     if  nodeType == "ReturnStatement".to_string() {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ReturnStatement ".to_string())), loc) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 1);
       }
       return;
     }
@@ -3177,66 +3443,66 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "IfStatement ".to_string())), loc) );
       println!( "{}", format!("{}{}", indent, "  test:".to_string()) );
       if  node.test.is_some() {
-        ASTPrinter::printNode(node.test.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.test.clone().unwrap()), depth + 2);
       }
       println!( "{}", format!("{}{}", indent, "  consequent:".to_string()) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 2);
       }
       if  node.alternate.is_some() {
         println!( "{}", format!("{}{}", indent, "  alternate:".to_string()) );
-        ASTPrinter::printNode(node.alternate.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.alternate.clone().unwrap()), depth + 2);
       }
       return;
     }
     if  nodeType == "ExpressionStatement".to_string() {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ExpressionStatement ".to_string())), loc) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 1);
       }
       return;
     }
     if  nodeType == "AssignmentExpression".to_string() {
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "AssignmentExpression: ".to_string())), node.strValue)), " ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "AssignmentExpression: ".to_string())), node.name)), " ".to_string())), loc) );
       if  node.left.is_some() {
         println!( "{}", format!("{}{}", indent, "  left:".to_string()) );
-        ASTPrinter::printNode(node.left.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 2);
       }
       if  node.right.is_some() {
         println!( "{}", format!("{}{}", indent, "  right:".to_string()) );
-        ASTPrinter::printNode(node.right.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.right.clone().unwrap()), depth + 2);
       }
       return;
     }
     if  (nodeType == "BinaryExpression".to_string()) || (nodeType == "LogicalExpression".to_string()) {
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, nodeType)), ": ".to_string())), node.strValue)), " ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, nodeType)), ": ".to_string())), node.name)), " ".to_string())), loc) );
       if  node.left.is_some() {
         println!( "{}", format!("{}{}", indent, "  left:".to_string()) );
-        ASTPrinter::printNode(node.left.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 2);
       }
       if  node.right.is_some() {
         println!( "{}", format!("{}{}", indent, "  right:".to_string()) );
-        ASTPrinter::printNode(node.right.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.right.clone().unwrap()), depth + 2);
       }
       return;
     }
     if  nodeType == "UnaryExpression".to_string() {
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "UnaryExpression: ".to_string())), node.strValue)), " ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "UnaryExpression: ".to_string())), node.name)), " ".to_string())), loc) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 1);
       }
       return;
     }
     if  nodeType == "UpdateExpression".to_string() {
       let mut prefix_1 : String = "".to_string();
-      if  node.strValue2 == "prefix".to_string() {
+      if  node.prefix {
         prefix_1 = "prefix ".to_string();
       } else {
         prefix_1 = "postfix ".to_string();
       }
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "UpdateExpression: ".to_string())), prefix_1)), node.strValue)), " ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "UpdateExpression: ".to_string())), prefix_1)), node.name)), " ".to_string())), loc) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 1);
       }
       return;
     }
@@ -3244,14 +3510,13 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "NewExpression ".to_string())), loc) );
       println!( "{}", format!("{}{}", indent, "  callee:".to_string()) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 2);
       }
-      if  (node.children.len()) > 0 {
+      if  ((node.children.len() as i64)) > 0 {
         println!( "{}", format!("{}{}", indent, "  arguments:".to_string()) );
         for ai in 0..node.children.len() {
           let mut arg = node.children[ai as usize].clone();
-          ASTPrinter::printNode(arg, depth + 2);
-          node.children[ai as usize] = arg;
+          ASTPrinter::printNode(arg.clone(), depth + 2);
         }
       }
       return;
@@ -3260,15 +3525,15 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ConditionalExpression ".to_string())), loc) );
       println!( "{}", format!("{}{}", indent, "  test:".to_string()) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 2);
       }
       println!( "{}", format!("{}{}", indent, "  consequent:".to_string()) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 2);
       }
       println!( "{}", format!("{}{}", indent, "  alternate:".to_string()) );
       if  node.right.is_some() {
-        ASTPrinter::printNode(node.right.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.right.clone().unwrap()), depth + 2);
       }
       return;
     }
@@ -3276,46 +3541,44 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "CallExpression ".to_string())), loc) );
       if  node.left.is_some() {
         println!( "{}", format!("{}{}", indent, "  callee:".to_string()) );
-        ASTPrinter::printNode(node.left.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 2);
       }
-      if  (node.children.len()) > 0 {
+      if  ((node.children.len() as i64)) > 0 {
         println!( "{}", format!("{}{}", indent, "  arguments:".to_string()) );
         for ai_1 in 0..node.children.len() {
           let mut arg_1 = node.children[ai_1 as usize].clone();
-          ASTPrinter::printNode(arg_1, depth + 2);
-          node.children[ai_1 as usize] = arg_1;
+          ASTPrinter::printNode(arg_1.clone(), depth + 2);
         }
       }
       return;
     }
     if  nodeType == "MemberExpression".to_string() {
-      if  node.strValue2 == "dot".to_string() {
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "MemberExpression: .".to_string())), node.strValue)), " ".to_string())), loc) );
+      if  node.computed == false {
+        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "MemberExpression: .".to_string())), node.name)), " ".to_string())), loc) );
       } else {
         println!( "{}", format!("{}{}", (format!("{}{}", indent, "MemberExpression: [computed] ".to_string())), loc) );
       }
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 1);
       }
       if  node.right.is_some() {
-        ASTPrinter::printNode(node.right.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.right.clone().unwrap()), depth + 1);
       }
       return;
     }
     if  nodeType == "Identifier".to_string() {
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "Identifier: ".to_string())), node.strValue)), " ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "Identifier: ".to_string())), node.name)), " ".to_string())), loc) );
       return;
     }
     if  nodeType == "Literal".to_string() {
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "Literal: ".to_string())), node.strValue)), " (".to_string())), node.strValue2)), ") ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "Literal: ".to_string())), node.name)), " (".to_string())), node.raw)), ") ".to_string())), loc) );
       return;
     }
     if  nodeType == "ArrayExpression".to_string() {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ArrayExpression ".to_string())), loc) );
       for ei in 0..node.children.len() {
         let mut elem = node.children[ei as usize].clone();
-        ASTPrinter::printNode(elem, depth + 1);
-        node.children[ei as usize] = elem;
+        ASTPrinter::printNode(elem.clone(), depth + 1);
       }
       return;
     }
@@ -3323,19 +3586,18 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ObjectExpression ".to_string())), loc) );
       for pi_2 in 0..node.children.len() {
         let mut prop = node.children[pi_2 as usize].clone();
-        ASTPrinter::printNode(prop, depth + 1);
-        node.children[pi_2 as usize] = prop;
+        ASTPrinter::printNode(prop.clone(), depth + 1);
       }
       return;
     }
     if  nodeType == "Property".to_string() {
       let mut shorthand : String = "".to_string();
-      if  node.strValue2 == "shorthand".to_string() {
+      if  node.shorthand {
         shorthand = " (shorthand)".to_string();
       }
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "Property: ".to_string())), node.strValue)), shorthand)), " ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "Property: ".to_string())), node.name)), shorthand)), " ".to_string())), loc) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 1);
       }
       return;
     }
@@ -3343,8 +3605,7 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ArrayPattern ".to_string())), loc) );
       for ei_1 in 0..node.children.len() {
         let mut elem_1 = node.children[ei_1 as usize].clone();
-        ASTPrinter::printNode(elem_1, depth + 1);
-        node.children[ei_1 as usize] = elem_1;
+        ASTPrinter::printNode(elem_1.clone(), depth + 1);
       }
       return;
     }
@@ -3352,31 +3613,30 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ObjectPattern ".to_string())), loc) );
       for pi_3 in 0..node.children.len() {
         let mut prop_1 = node.children[pi_3 as usize].clone();
-        ASTPrinter::printNode(prop_1, depth + 1);
-        node.children[pi_3 as usize] = prop_1;
+        ASTPrinter::printNode(prop_1.clone(), depth + 1);
       }
       return;
     }
     if  nodeType == "SpreadElement".to_string() {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "SpreadElement ".to_string())), loc) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 1);
       }
       return;
     }
     if  nodeType == "RestElement".to_string() {
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "RestElement: ...".to_string())), node.strValue)), " ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "RestElement: ...".to_string())), node.name)), " ".to_string())), loc) );
       return;
     }
     if  nodeType == "WhileStatement".to_string() {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "WhileStatement ".to_string())), loc) );
       println!( "{}", format!("{}{}", indent, "  test:".to_string()) );
       if  node.test.is_some() {
-        ASTPrinter::printNode(node.test.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.test.clone().unwrap()), depth + 2);
       }
       println!( "{}", format!("{}{}", indent, "  body:".to_string()) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 2);
       }
       return;
     }
@@ -3384,11 +3644,11 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "DoWhileStatement ".to_string())), loc) );
       println!( "{}", format!("{}{}", indent, "  body:".to_string()) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 2);
       }
       println!( "{}", format!("{}{}", indent, "  test:".to_string()) );
       if  node.test.is_some() {
-        ASTPrinter::printNode(node.test.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.test.clone().unwrap()), depth + 2);
       }
       return;
     }
@@ -3396,19 +3656,19 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ForStatement ".to_string())), loc) );
       if  node.left.is_some() {
         println!( "{}", format!("{}{}", indent, "  init:".to_string()) );
-        ASTPrinter::printNode(node.left.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 2);
       }
       if  node.test.is_some() {
         println!( "{}", format!("{}{}", indent, "  test:".to_string()) );
-        ASTPrinter::printNode(node.test.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.test.clone().unwrap()), depth + 2);
       }
       if  node.right.is_some() {
         println!( "{}", format!("{}{}", indent, "  update:".to_string()) );
-        ASTPrinter::printNode(node.right.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.right.clone().unwrap()), depth + 2);
       }
       println!( "{}", format!("{}{}", indent, "  body:".to_string()) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 2);
       }
       return;
     }
@@ -3416,15 +3676,15 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ForOfStatement ".to_string())), loc) );
       if  node.left.is_some() {
         println!( "{}", format!("{}{}", indent, "  left:".to_string()) );
-        ASTPrinter::printNode(node.left.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 2);
       }
       if  node.right.is_some() {
         println!( "{}", format!("{}{}", indent, "  right:".to_string()) );
-        ASTPrinter::printNode(node.right.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.right.clone().unwrap()), depth + 2);
       }
       println!( "{}", format!("{}{}", indent, "  body:".to_string()) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 2);
       }
       return;
     }
@@ -3432,15 +3692,15 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ForInStatement ".to_string())), loc) );
       if  node.left.is_some() {
         println!( "{}", format!("{}{}", indent, "  left:".to_string()) );
-        ASTPrinter::printNode(node.left.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 2);
       }
       if  node.right.is_some() {
         println!( "{}", format!("{}{}", indent, "  right:".to_string()) );
-        ASTPrinter::printNode(node.right.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.right.clone().unwrap()), depth + 2);
       }
       println!( "{}", format!("{}{}", indent, "  body:".to_string()) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 2);
       }
       return;
     }
@@ -3448,32 +3708,30 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "SwitchStatement ".to_string())), loc) );
       println!( "{}", format!("{}{}", indent, "  discriminant:".to_string()) );
       if  node.test.is_some() {
-        ASTPrinter::printNode(node.test.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.test.clone().unwrap()), depth + 2);
       }
       println!( "{}", format!("{}{}", indent, "  cases:".to_string()) );
       for ci_3 in 0..node.children.len() {
         let mut caseNode = node.children[ci_3 as usize].clone();
-        ASTPrinter::printNode(caseNode, depth + 2);
-        node.children[ci_3 as usize] = caseNode;
+        ASTPrinter::printNode(caseNode.clone(), depth + 2);
       }
       return;
     }
     if  nodeType == "SwitchCase".to_string() {
-      if  node.strValue == "default".to_string() {
+      if  node.name == "default".to_string() {
         println!( "{}", format!("{}{}", (format!("{}{}", indent, "SwitchCase: default ".to_string())), loc) );
       } else {
         println!( "{}", format!("{}{}", (format!("{}{}", indent, "SwitchCase ".to_string())), loc) );
         if  node.test.is_some() {
           println!( "{}", format!("{}{}", indent, "  test:".to_string()) );
-          ASTPrinter::printNode(node.test.unwrap(), depth + 2);
+          ASTPrinter::printNode((*node.test.clone().unwrap()), depth + 2);
         }
       }
-      if  (node.children.len()) > 0 {
+      if  ((node.children.len() as i64)) > 0 {
         println!( "{}", format!("{}{}", indent, "  consequent:".to_string()) );
         for si in 0..node.children.len() {
           let mut stmt = node.children[si as usize].clone();
-          ASTPrinter::printNode(stmt, depth + 2);
-          node.children[si as usize] = stmt;
+          ASTPrinter::printNode(stmt.clone(), depth + 2);
         }
       }
       return;
@@ -3482,43 +3740,43 @@ impl ASTPrinter {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "TryStatement ".to_string())), loc) );
       println!( "{}", format!("{}{}", indent, "  block:".to_string()) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 2);
       }
       if  node.left.is_some() {
         println!( "{}", format!("{}{}", indent, "  handler:".to_string()) );
-        ASTPrinter::printNode(node.left.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 2);
       }
       if  node.right.is_some() {
         println!( "{}", format!("{}{}", indent, "  finalizer:".to_string()) );
-        ASTPrinter::printNode(node.right.unwrap(), depth + 2);
+        ASTPrinter::printNode((*node.right.clone().unwrap()), depth + 2);
       }
       return;
     }
     if  nodeType == "CatchClause".to_string() {
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "CatchClause: ".to_string())), node.strValue)), " ".to_string())), loc) );
+      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "CatchClause: ".to_string())), node.name)), " ".to_string())), loc) );
       if  node.body.is_some() {
-        ASTPrinter::printNode(node.body.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.body.clone().unwrap()), depth + 1);
       }
       return;
     }
     if  nodeType == "ThrowStatement".to_string() {
       println!( "{}", format!("{}{}", (format!("{}{}", indent, "ThrowStatement ".to_string())), loc) );
       if  node.left.is_some() {
-        ASTPrinter::printNode(node.left.unwrap(), depth + 1);
+        ASTPrinter::printNode((*node.left.clone().unwrap()), depth + 1);
       }
       return;
     }
     if  nodeType == "BreakStatement".to_string() {
-      if  (node.strValue.len() as i64) > 0 {
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "BreakStatement: ".to_string())), node.strValue)), " ".to_string())), loc) );
+      if  (node.name.len() as i64) > 0 {
+        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "BreakStatement: ".to_string())), node.name)), " ".to_string())), loc) );
       } else {
         println!( "{}", format!("{}{}", (format!("{}{}", indent, "BreakStatement ".to_string())), loc) );
       }
       return;
     }
     if  nodeType == "ContinueStatement".to_string() {
-      if  (node.strValue.len() as i64) > 0 {
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "ContinueStatement: ".to_string())), node.strValue)), " ".to_string())), loc) );
+      if  (node.name.len() as i64) > 0 {
+        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indent, "ContinueStatement: ".to_string())), node.name)), " ".to_string())), loc) );
       } else {
         println!( "{}", format!("{}{}", (format!("{}{}", indent, "ContinueStatement ".to_string())), loc) );
       }
@@ -3556,10 +3814,12 @@ impl JSPrinter {
     self.output = format!("{}{}", self.output, text);
   }
   fn emitLine(&mut self, text : String) -> () {
-    self.output = format!("{}{}", (format!("{}{}", (format!("{}{}", self.output, self.getIndent())), text)), "\n".to_string());
+    let ind : String = self.getIndent();
+    self.output = format!("{}{}", (format!("{}{}", (format!("{}{}", self.output, ind)), text)), "\n".to_string());
   }
   fn emitIndent(&mut self, ) -> () {
-    self.output = format!("{}{}", self.output, self.getIndent());
+    let ind : String = self.getIndent();
+    self.output = format!("{}{}", self.output, ind);
   }
   fn indent(&mut self, ) -> () {
     self.indentLevel = self.indentLevel + 1;
@@ -3567,20 +3827,19 @@ impl JSPrinter {
   fn dedent(&mut self, ) -> () {
     self.indentLevel = self.indentLevel - 1;
   }
-  fn printLeadingComments(&mut self, node : JSNode) -> () {
-    let numComments : i64 = node.leadingComments.len();
+  fn printLeadingComments(&mut self, mut node : JSNode) -> () {
+    let numComments : i64 = (node.leadingComments.len() as i64);
     if  numComments == 0 {
       return;
     }
     for i in 0..node.leadingComments.len() {
       let mut comment = node.leadingComments[i as usize].clone();
-      self.printComment(comment);
-      node.leadingComments[i as usize] = comment;
+      self.printComment(comment.clone());
     }
   }
-  fn printComment(&mut self, comment : JSNode) -> () {
-    let commentType : String = comment.nodeType;
-    let value : String = comment.strValue;
+  fn printComment(&mut self, mut comment : JSNode) -> () {
+    let commentType : String = comment.r#type.clone();
+    let value : String = comment.raw.clone();
     if  commentType == "LineComment".to_string() {
       self.emitLine(format!("{}{}", "//".to_string(), value));
       return;
@@ -3590,99 +3849,99 @@ impl JSPrinter {
       return;
     }
     if  commentType == "JSDocComment".to_string() {
-      self.printJSDocComment(value);
+      self.printJSDocComment(value.clone());
       return;
     }
   }
   fn printJSDocComment(&mut self, value : String) -> () {
     self.emitLine(format!("{}{}", (format!("{}{}", "/*".to_string(), value)), "*/".to_string()));
   }
-  fn print(&mut self, node : JSNode) -> String {
+  fn print(&mut self, mut node : JSNode) -> String {
     self.output = "".to_string();
     self.indentLevel = 0;
-    self.printNode(node);
+    self.printNode(node.clone());
     return self.output.clone();
   }
-  fn printNode(&mut self, node : JSNode) -> () {
-    let nodeType : String = node.nodeType;
+  fn printNode(&mut self, mut node : JSNode) -> () {
+    let nodeType : String = node.r#type.clone();
     if  nodeType == "Program".to_string() {
-      self.printProgram(node);
+      self.printProgram(node.clone());
       return;
     }
     if  nodeType == "VariableDeclaration".to_string() {
-      self.printVariableDeclaration(node);
+      self.printVariableDeclaration(node.clone());
       return;
     }
     if  nodeType == "FunctionDeclaration".to_string() {
-      self.printFunctionDeclaration(node);
+      self.printFunctionDeclaration(node.clone());
       return;
     }
     if  nodeType == "ClassDeclaration".to_string() {
-      self.printClassDeclaration(node);
+      self.printClassDeclaration(node.clone());
       return;
     }
     if  nodeType == "ImportDeclaration".to_string() {
-      self.printImportDeclaration(node);
+      self.printImportDeclaration(node.clone());
       return;
     }
     if  nodeType == "ExportNamedDeclaration".to_string() {
-      self.printExportNamedDeclaration(node);
+      self.printExportNamedDeclaration(node.clone());
       return;
     }
     if  nodeType == "ExportDefaultDeclaration".to_string() {
-      self.printExportDefaultDeclaration(node);
+      self.printExportDefaultDeclaration(node.clone());
       return;
     }
     if  nodeType == "ExportAllDeclaration".to_string() {
-      self.printExportAllDeclaration(node);
+      self.printExportAllDeclaration(node.clone());
       return;
     }
     if  nodeType == "BlockStatement".to_string() {
-      self.printBlockStatement(node);
+      self.printBlockStatement(node.clone());
       return;
     }
     if  nodeType == "ExpressionStatement".to_string() {
-      self.printExpressionStatement(node);
+      self.printExpressionStatement(node.clone());
       return;
     }
     if  nodeType == "ReturnStatement".to_string() {
-      self.printReturnStatement(node);
+      self.printReturnStatement(node.clone());
       return;
     }
     if  nodeType == "IfStatement".to_string() {
-      self.printIfStatement(node);
+      self.printIfStatement(node.clone());
       return;
     }
     if  nodeType == "WhileStatement".to_string() {
-      self.printWhileStatement(node);
+      self.printWhileStatement(node.clone());
       return;
     }
     if  nodeType == "DoWhileStatement".to_string() {
-      self.printDoWhileStatement(node);
+      self.printDoWhileStatement(node.clone());
       return;
     }
     if  nodeType == "ForStatement".to_string() {
-      self.printForStatement(node);
+      self.printForStatement(node.clone());
       return;
     }
     if  nodeType == "ForOfStatement".to_string() {
-      self.printForOfStatement(node);
+      self.printForOfStatement(node.clone());
       return;
     }
     if  nodeType == "ForInStatement".to_string() {
-      self.printForInStatement(node);
+      self.printForInStatement(node.clone());
       return;
     }
     if  nodeType == "SwitchStatement".to_string() {
-      self.printSwitchStatement(node);
+      self.printSwitchStatement(node.clone());
       return;
     }
     if  nodeType == "TryStatement".to_string() {
-      self.printTryStatement(node);
+      self.printTryStatement(node.clone());
       return;
     }
     if  nodeType == "ThrowStatement".to_string() {
-      self.printThrowStatement(node);
+      self.printThrowStatement(node.clone());
       return;
     }
     if  nodeType == "BreakStatement".to_string() {
@@ -3697,133 +3956,132 @@ impl JSPrinter {
       return;
     }
     if  nodeType == "Identifier".to_string() {
-      self.emit(node.strValue);
+      self.emit(node.name.clone());
       return;
     }
     if  nodeType == "Literal".to_string() {
-      self.printLiteral(node);
+      self.printLiteral(node.clone());
       return;
     }
     if  nodeType == "TemplateLiteral".to_string() {
-      self.emit(format!("{}{}", (format!("{}{}", "`".to_string(), node.strValue)), "`".to_string()));
+      self.emit(format!("{}{}", (format!("{}{}", "`".to_string(), node.name)), "`".to_string()));
       return;
     }
     if  nodeType == "RegexLiteral".to_string() {
-      self.emit(format!("{}{}", (format!("{}{}", (format!("{}{}", "/".to_string(), node.strValue)), "/".to_string())), node.strValue2));
+      self.emit(format!("{}{}", (format!("{}{}", (format!("{}{}", "/".to_string(), node.name)), "/".to_string())), node.kind));
       return;
     }
     if  nodeType == "ArrayExpression".to_string() {
-      self.printArrayExpression(node);
+      self.printArrayExpression(node.clone());
       return;
     }
     if  nodeType == "ObjectExpression".to_string() {
-      self.printObjectExpression(node);
+      self.printObjectExpression(node.clone());
       return;
     }
     if  nodeType == "BinaryExpression".to_string() {
-      self.printBinaryExpression(node);
+      self.printBinaryExpression(node.clone());
       return;
     }
     if  nodeType == "LogicalExpression".to_string() {
-      self.printBinaryExpression(node);
+      self.printBinaryExpression(node.clone());
       return;
     }
     if  nodeType == "UnaryExpression".to_string() {
-      self.printUnaryExpression(node);
+      self.printUnaryExpression(node.clone());
       return;
     }
     if  nodeType == "UpdateExpression".to_string() {
-      self.printUpdateExpression(node);
+      self.printUpdateExpression(node.clone());
       return;
     }
     if  nodeType == "AssignmentExpression".to_string() {
-      self.printAssignmentExpression(node);
+      self.printAssignmentExpression(node.clone());
       return;
     }
     if  nodeType == "ConditionalExpression".to_string() {
-      self.printConditionalExpression(node);
+      self.printConditionalExpression(node.clone());
       return;
     }
     if  nodeType == "CallExpression".to_string() {
-      self.printCallExpression(node);
+      self.printCallExpression(node.clone());
       return;
     }
     if  nodeType == "OptionalCallExpression".to_string() {
-      self.printOptionalCallExpression(node);
+      self.printOptionalCallExpression(node.clone());
       return;
     }
     if  nodeType == "MemberExpression".to_string() {
-      self.printMemberExpression(node);
+      self.printMemberExpression(node.clone());
       return;
     }
     if  nodeType == "OptionalMemberExpression".to_string() {
-      self.printOptionalMemberExpression(node);
+      self.printOptionalMemberExpression(node.clone());
       return;
     }
     if  nodeType == "NewExpression".to_string() {
-      self.printNewExpression(node);
+      self.printNewExpression(node.clone());
       return;
     }
     if  nodeType == "ArrowFunctionExpression".to_string() {
-      self.printArrowFunction(node);
+      self.printArrowFunction(node.clone());
       return;
     }
     if  nodeType == "FunctionExpression".to_string() {
-      self.printFunctionExpression(node);
+      self.printFunctionExpression(node.clone());
       return;
     }
     if  nodeType == "YieldExpression".to_string() {
-      self.printYieldExpression(node);
+      self.printYieldExpression(node.clone());
       return;
     }
     if  nodeType == "AwaitExpression".to_string() {
-      self.printAwaitExpression(node);
+      self.printAwaitExpression(node.clone());
       return;
     }
     if  nodeType == "SpreadElement".to_string() {
-      self.printSpreadElement(node);
+      self.printSpreadElement(node.clone());
       return;
     }
     if  nodeType == "RestElement".to_string() {
-      self.emit(format!("{}{}", "...".to_string(), node.strValue));
+      self.emit(format!("{}{}", "...".to_string(), node.name));
       return;
     }
     if  nodeType == "ArrayPattern".to_string() {
-      self.printArrayPattern(node);
+      self.printArrayPattern(node.clone());
       return;
     }
     if  nodeType == "ObjectPattern".to_string() {
-      self.printObjectPattern(node);
+      self.printObjectPattern(node.clone());
       return;
     }
     self.emit(format!("{}{}", (format!("{}{}", "/* unknown: ".to_string(), nodeType)), " */".to_string()));
   }
-  fn printProgram(&mut self, node : JSNode) -> () {
+  fn printProgram(&mut self, mut node : JSNode) -> () {
     for idx in 0..node.children.len() {
       let mut stmt = node.children[idx as usize].clone();
-      self.printStatement(stmt);
-      node.children[idx as usize] = stmt;
+      self.printStatement(stmt.clone());
     }
   }
-  fn printStatement(&mut self, node : JSNode) -> () {
-    self.printLeadingComments(node);
-    let nodeType : String = node.nodeType;
+  fn printStatement(&mut self, mut node : JSNode) -> () {
+    self.printLeadingComments(node.clone());
+    let nodeType : String = node.r#type.clone();
     if  nodeType == "BlockStatement".to_string() {
-      self.printBlockStatement(node);
+      self.printBlockStatement(node.clone());
       return;
     }
     if  (((((((((nodeType == "FunctionDeclaration".to_string()) || (nodeType == "ClassDeclaration".to_string())) || (nodeType == "IfStatement".to_string())) || (nodeType == "WhileStatement".to_string())) || (nodeType == "DoWhileStatement".to_string())) || (nodeType == "ForStatement".to_string())) || (nodeType == "ForOfStatement".to_string())) || (nodeType == "ForInStatement".to_string())) || (nodeType == "SwitchStatement".to_string())) || (nodeType == "TryStatement".to_string()) {
       self.emitIndent();
-      self.printNode(node);
+      self.printNode(node.clone());
       self.emit("\n".to_string());
       return;
     }
     self.emitIndent();
-    self.printNode(node);
+    self.printNode(node.clone());
     self.emit(";\n".to_string());
   }
-  fn printVariableDeclaration(&mut self, node : JSNode) -> () {
-    let mut kind : String = node.strValue;
+  fn printVariableDeclaration(&mut self, mut node : JSNode) -> () {
+    let mut kind : String = node.name.clone();
     if  (kind.len() as i64) == 0 {
       kind = "var".to_string();
     }
@@ -3835,22 +4093,21 @@ impl JSPrinter {
         self.emit(", ".to_string());
       }
       first = false;
-      self.printVariableDeclarator(decl);
-      node.children[idx as usize] = decl;
+      self.printVariableDeclarator(decl.clone());
     }
   }
-  fn printVariableDeclarator(&mut self, node : JSNode) -> () {
+  fn printVariableDeclarator(&mut self, mut node : JSNode) -> () {
     if  node.left.is_some() {
-      let mut left : JSNode = node.left.unwrap();
-      self.printNode(left);
+      let mut left : JSNode = (*node.left.clone().unwrap());
+      self.printNode(left.clone());
     }
     if  node.right.is_some() {
       self.emit(" = ".to_string());
-      self.printNode(node.right.unwrap());
+      self.printNode((*node.right.clone().unwrap()));
     }
   }
-  fn printFunctionDeclaration(&mut self, node : JSNode) -> () {
-    let kind : String = node.strValue2;
+  fn printFunctionDeclaration(&mut self, mut node : JSNode) -> () {
+    let kind : String = node.kind.clone();
     if  kind == "async".to_string() {
       self.emit("async ".to_string());
     }
@@ -3861,14 +4118,14 @@ impl JSPrinter {
     if  (kind == "generator".to_string()) || (kind == "async-generator".to_string()) {
       self.emit("*".to_string());
     }
-    self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.strValue)), "(".to_string()));
+    self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.name)), "(".to_string()));
     self.printParams(node.children);
     self.emit(") ".to_string());
     if  node.body.is_some() {
-      self.printNode(node.body.unwrap());
+      self.printNode((*node.body.clone().unwrap()));
     }
   }
-  fn printParams(&mut self, params : Vec<JSNode>) -> () {
+  fn printParams(&mut self, mut params : Vec<JSNode>) -> () {
     let mut first : bool = true;
     for idx in 0..params.len() {
       let mut p = params[idx as usize].clone();
@@ -3876,224 +4133,219 @@ impl JSPrinter {
         self.emit(", ".to_string());
       }
       first = false;
-      self.printNode(p);
-      params[idx as usize] = p;
+      self.printNode(p.clone());
     }
   }
-  fn printClassDeclaration(&mut self, node : JSNode) -> () {
-    self.emit(format!("{}{}", "class ".to_string(), node.strValue));
+  fn printClassDeclaration(&mut self, mut node : JSNode) -> () {
+    self.emit(format!("{}{}", "class ".to_string(), node.name));
     if  node.left.is_some() {
-      let mut superClass : JSNode = node.left.unwrap();
-      self.emit(format!("{}{}", " extends ".to_string(), superClass.strValue));
+      let mut superClass : JSNode = (*node.left.clone().unwrap());
+      self.emit(format!("{}{}", " extends ".to_string(), superClass.name));
     }
     self.emit(" ".to_string());
     if  node.body.is_some() {
-      self.printClassBody(node.body.unwrap());
+      self.printClassBody((*node.body.clone().unwrap()));
     }
   }
-  fn printClassBody(&mut self, node : JSNode) -> () {
+  fn printClassBody(&mut self, mut node : JSNode) -> () {
     self.emit("{\n".to_string());
     self.indent();
     for idx in 0..node.children.len() {
       let mut method = node.children[idx as usize].clone();
-      self.printMethodDefinition(method);
-      node.children[idx as usize] = method;
+      self.printMethodDefinition(method.clone());
     }
     self.dedent();
     self.emitIndent();
     self.emit("}".to_string());
   }
-  fn printMethodDefinition(&mut self, node : JSNode) -> () {
+  fn printMethodDefinition(&mut self, mut node : JSNode) -> () {
     self.emitIndent();
-    if  node.strValue2 == "static".to_string() {
+    if  node.kind == "static".to_string() {
       self.emit("static ".to_string());
     }
-    self.emit(format!("{}{}", node.strValue, "(".to_string()));
+    self.emit(format!("{}{}", node.name, "(".to_string()));
     if  node.body.is_some() {
-      let mut func : JSNode = node.body.unwrap();
-      self.printParams(func.children);
+      let mut _func : JSNode = (*node.body.clone().unwrap());
+      self.printParams(_func.children);
     }
     self.emit(") ".to_string());
     if  node.body.is_some() {
-      let mut func_1 : JSNode = node.body.unwrap();
+      let mut func_1 : JSNode = (*node.body.clone().unwrap());
       if  func_1.body.is_some() {
-        self.printNode(func_1.body.unwrap());
+        self.printNode((*func_1.body.clone().unwrap()));
       }
     }
     self.emit("\n".to_string());
   }
-  fn printBlockStatement(&mut self, node : JSNode) -> () {
+  fn printBlockStatement(&mut self, mut node : JSNode) -> () {
     self.emit("{\n".to_string());
     self.indent();
     for idx in 0..node.children.len() {
       let mut stmt = node.children[idx as usize].clone();
-      self.printStatement(stmt);
-      node.children[idx as usize] = stmt;
+      self.printStatement(stmt.clone());
     }
     self.dedent();
     self.emitIndent();
     self.emit("}".to_string());
   }
-  fn printExpressionStatement(&mut self, node : JSNode) -> () {
+  fn printExpressionStatement(&mut self, mut node : JSNode) -> () {
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
   }
-  fn printReturnStatement(&mut self, node : JSNode) -> () {
+  fn printReturnStatement(&mut self, mut node : JSNode) -> () {
     self.emit("return".to_string());
     if  node.left.is_some() {
       self.emit(" ".to_string());
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
   }
-  fn printIfStatement(&mut self, node : JSNode) -> () {
+  fn printIfStatement(&mut self, mut node : JSNode) -> () {
     self.emit("if (".to_string());
     if  node.test.is_some() {
-      self.printNode(node.test.unwrap());
+      self.printNode((*node.test.clone().unwrap()));
     }
     self.emit(") ".to_string());
     if  node.body.is_some() {
-      self.printNode(node.body.unwrap());
+      self.printNode((*node.body.clone().unwrap()));
     }
     if  node.alternate.is_some() {
       self.emit(" else ".to_string());
-      self.printNode(node.alternate.unwrap());
+      self.printNode((*node.alternate.clone().unwrap()));
     }
   }
-  fn printWhileStatement(&mut self, node : JSNode) -> () {
+  fn printWhileStatement(&mut self, mut node : JSNode) -> () {
     self.emit("while (".to_string());
     if  node.test.is_some() {
-      self.printNode(node.test.unwrap());
+      self.printNode((*node.test.clone().unwrap()));
     }
     self.emit(") ".to_string());
     if  node.body.is_some() {
-      self.printNode(node.body.unwrap());
+      self.printNode((*node.body.clone().unwrap()));
     }
   }
-  fn printDoWhileStatement(&mut self, node : JSNode) -> () {
+  fn printDoWhileStatement(&mut self, mut node : JSNode) -> () {
     self.emit("do ".to_string());
     if  node.body.is_some() {
-      self.printNode(node.body.unwrap());
+      self.printNode((*node.body.clone().unwrap()));
     }
     self.emit(" while (".to_string());
     if  node.test.is_some() {
-      self.printNode(node.test.unwrap());
+      self.printNode((*node.test.clone().unwrap()));
     }
     self.emit(")".to_string());
   }
-  fn printForStatement(&mut self, node : JSNode) -> () {
+  fn printForStatement(&mut self, mut node : JSNode) -> () {
     self.emit("for (".to_string());
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
     self.emit("; ".to_string());
     if  node.test.is_some() {
-      self.printNode(node.test.unwrap());
+      self.printNode((*node.test.clone().unwrap()));
     }
     self.emit("; ".to_string());
     if  node.right.is_some() {
-      self.printNode(node.right.unwrap());
+      self.printNode((*node.right.clone().unwrap()));
     }
     self.emit(") ".to_string());
     if  node.body.is_some() {
-      self.printNode(node.body.unwrap());
+      self.printNode((*node.body.clone().unwrap()));
     }
   }
-  fn printForOfStatement(&mut self, node : JSNode) -> () {
+  fn printForOfStatement(&mut self, mut node : JSNode) -> () {
     self.emit("for (".to_string());
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
     self.emit(" of ".to_string());
     if  node.right.is_some() {
-      self.printNode(node.right.unwrap());
+      self.printNode((*node.right.clone().unwrap()));
     }
     self.emit(") ".to_string());
     if  node.body.is_some() {
-      self.printNode(node.body.unwrap());
+      self.printNode((*node.body.clone().unwrap()));
     }
   }
-  fn printForInStatement(&mut self, node : JSNode) -> () {
+  fn printForInStatement(&mut self, mut node : JSNode) -> () {
     self.emit("for (".to_string());
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
     self.emit(" in ".to_string());
     if  node.right.is_some() {
-      self.printNode(node.right.unwrap());
+      self.printNode((*node.right.clone().unwrap()));
     }
     self.emit(") ".to_string());
     if  node.body.is_some() {
-      self.printNode(node.body.unwrap());
+      self.printNode((*node.body.clone().unwrap()));
     }
   }
-  fn printSwitchStatement(&mut self, node : JSNode) -> () {
+  fn printSwitchStatement(&mut self, mut node : JSNode) -> () {
     self.emit("switch (".to_string());
     if  node.test.is_some() {
-      self.printNode(node.test.unwrap());
+      self.printNode((*node.test.clone().unwrap()));
     }
     self.emit(") {\n".to_string());
     self.indent();
     for idx in 0..node.children.len() {
       let mut caseNode = node.children[idx as usize].clone();
-      self.printSwitchCase(caseNode);
-      node.children[idx as usize] = caseNode;
+      self.printSwitchCase(caseNode.clone());
     }
     self.dedent();
     self.emitIndent();
     self.emit("}".to_string());
   }
-  fn printSwitchCase(&mut self, node : JSNode) -> () {
-    if  node.strValue == "default".to_string() {
+  fn printSwitchCase(&mut self, mut node : JSNode) -> () {
+    if  node.name == "default".to_string() {
       self.emitLine("default:".to_string());
     } else {
       self.emitIndent();
       self.emit("case ".to_string());
       if  node.test.is_some() {
-        self.printNode(node.test.unwrap());
+        self.printNode((*node.test.clone().unwrap()));
       }
       self.emit(":\n".to_string());
     }
     self.indent();
     for idx in 0..node.children.len() {
       let mut stmt = node.children[idx as usize].clone();
-      self.printStatement(stmt);
-      node.children[idx as usize] = stmt;
+      self.printStatement(stmt.clone());
     }
     self.dedent();
   }
-  fn printTryStatement(&mut self, node : JSNode) -> () {
+  fn printTryStatement(&mut self, mut node : JSNode) -> () {
     self.emit("try ".to_string());
     if  node.body.is_some() {
-      self.printNode(node.body.unwrap());
+      self.printNode((*node.body.clone().unwrap()));
     }
     if  node.left.is_some() {
-      let mut catchClause : JSNode = node.left.unwrap();
-      self.emit(format!("{}{}", (format!("{}{}", " catch (".to_string(), catchClause.strValue)), ") ".to_string()));
+      let mut catchClause : JSNode = (*node.left.clone().unwrap());
+      self.emit(format!("{}{}", (format!("{}{}", " catch (".to_string(), catchClause.name)), ") ".to_string()));
       if  catchClause.body.is_some() {
-        self.printNode(catchClause.body.unwrap());
+        self.printNode((*catchClause.body.clone().unwrap()));
       }
     }
     if  node.right.is_some() {
       self.emit(" finally ".to_string());
-      self.printNode(node.right.unwrap());
+      self.printNode((*node.right.clone().unwrap()));
     }
   }
-  fn printThrowStatement(&mut self, node : JSNode) -> () {
+  fn printThrowStatement(&mut self, mut node : JSNode) -> () {
     self.emit("throw ".to_string());
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
   }
-  fn printLiteral(&mut self, node : JSNode) -> () {
-    let litType : String = node.strValue2;
+  fn printLiteral(&mut self, mut node : JSNode) -> () {
+    let litType : String = node.kind.clone();
     if  litType == "string".to_string() {
-      self.emit(format!("{}{}", (format!("{}{}", "'".to_string(), node.strValue)), "'".to_string()));
+      self.emit(format!("{}{}", (format!("{}{}", "'".to_string(), node.name)), "'".to_string()));
     } else {
-      self.emit(node.strValue);
+      self.emit(node.name.clone());
     }
   }
-  fn printArrayExpression(&mut self, node : JSNode) -> () {
+  fn printArrayExpression(&mut self, mut node : JSNode) -> () {
     self.emit("[".to_string());
     let mut first : bool = true;
     for idx in 0..node.children.len() {
@@ -4102,13 +4354,12 @@ impl JSPrinter {
         self.emit(", ".to_string());
       }
       first = false;
-      self.printNode(elem);
-      node.children[idx as usize] = elem;
+      self.printNode(elem.clone());
     }
     self.emit("]".to_string());
   }
-  fn printObjectExpression(&mut self, node : JSNode) -> () {
-    if  (node.children.len()) == 0 {
+  fn printObjectExpression(&mut self, mut node : JSNode) -> () {
+    if  ((node.children.len() as i64)) == 0 {
       self.emit("{}".to_string());
       return;
     }
@@ -4120,96 +4371,95 @@ impl JSPrinter {
         self.emit(", ".to_string());
       }
       first = false;
-      self.printProperty(prop);
-      node.children[idx as usize] = prop;
+      self.printProperty(prop.clone());
     }
     self.emit(" }".to_string());
   }
-  fn printProperty(&mut self, node : JSNode) -> () {
-    let nodeType : String = node.nodeType;
+  fn printProperty(&mut self, mut node : JSNode) -> () {
+    let nodeType : String = node.r#type.clone();
     if  nodeType == "SpreadElement".to_string() {
-      self.printSpreadElement(node);
+      self.printSpreadElement(node.clone());
       return;
     }
-    if  node.strValue2 == "shorthand".to_string() {
-      self.emit(node.strValue);
+    if  node.kind == "shorthand".to_string() {
+      self.emit(node.name.clone());
       return;
     }
-    if  node.strValue2 == "computed".to_string() {
+    if  node.kind == "computed".to_string() {
       self.emit("[".to_string());
       if  node.right.is_some() {
-        self.printNode(node.right.unwrap());
+        self.printNode((*node.right.clone().unwrap()));
       }
       self.emit("]: ".to_string());
       if  node.left.is_some() {
-        self.printNode(node.left.unwrap());
+        self.printNode((*node.left.clone().unwrap()));
       }
       return;
     }
-    self.emit(format!("{}{}", node.strValue, ": ".to_string()));
+    self.emit(format!("{}{}", node.name, ": ".to_string()));
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
   }
-  fn printBinaryExpression(&mut self, node : JSNode) -> () {
+  fn printBinaryExpression(&mut self, mut node : JSNode) -> () {
     self.emit("(".to_string());
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
-    self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.strValue)), " ".to_string()));
+    self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.name)), " ".to_string()));
     if  node.right.is_some() {
-      self.printNode(node.right.unwrap());
+      self.printNode((*node.right.clone().unwrap()));
     }
     self.emit(")".to_string());
   }
-  fn printUnaryExpression(&mut self, node : JSNode) -> () {
-    let op : String = node.strValue;
-    self.emit(op);
+  fn printUnaryExpression(&mut self, mut node : JSNode) -> () {
+    let op : String = node.name.clone();
+    self.emit(op.clone());
     if  op == "typeof".to_string() {
       self.emit(" ".to_string());
     }
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
   }
-  fn printUpdateExpression(&mut self, node : JSNode) -> () {
-    let op : String = node.strValue;
-    let isPrefix : bool = node.strValue2 == "prefix".to_string();
+  fn printUpdateExpression(&mut self, mut node : JSNode) -> () {
+    let op : String = node.name.clone();
+    let isPrefix : bool = node.kind == "prefix".to_string();
     if  isPrefix {
-      self.emit(op);
+      self.emit(op.clone());
     }
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
     if  isPrefix == false {
-      self.emit(op);
+      self.emit(op.clone());
     }
   }
-  fn printAssignmentExpression(&mut self, node : JSNode) -> () {
+  fn printAssignmentExpression(&mut self, mut node : JSNode) -> () {
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
-    self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.strValue)), " ".to_string()));
+    self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.name)), " ".to_string()));
     if  node.right.is_some() {
-      self.printNode(node.right.unwrap());
+      self.printNode((*node.right.clone().unwrap()));
     }
   }
-  fn printConditionalExpression(&mut self, node : JSNode) -> () {
+  fn printConditionalExpression(&mut self, mut node : JSNode) -> () {
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
     self.emit(" ? ".to_string());
     if  node.body.is_some() {
-      self.printNode(node.body.unwrap());
+      self.printNode((*node.body.clone().unwrap()));
     }
     self.emit(" : ".to_string());
     if  node.right.is_some() {
-      self.printNode(node.right.unwrap());
+      self.printNode((*node.right.clone().unwrap()));
     }
   }
-  fn printCallExpression(&mut self, node : JSNode) -> () {
+  fn printCallExpression(&mut self, mut node : JSNode) -> () {
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
     self.emit("(".to_string());
     let mut first : bool = true;
@@ -4219,44 +4469,43 @@ impl JSPrinter {
         self.emit(", ".to_string());
       }
       first = false;
-      self.printNode(arg);
-      node.children[idx as usize] = arg;
+      self.printNode(arg.clone());
     }
     self.emit(")".to_string());
   }
-  fn printMemberExpression(&mut self, node : JSNode) -> () {
+  fn printMemberExpression(&mut self, mut node : JSNode) -> () {
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
-    let accessType : String = node.strValue2;
+    let accessType : String = node.kind.clone();
     if  accessType == "bracket".to_string() {
       self.emit("[".to_string());
       if  node.right.is_some() {
-        self.printNode(node.right.unwrap());
+        self.printNode((*node.right.clone().unwrap()));
       }
       self.emit("]".to_string());
     } else {
-      self.emit(format!("{}{}", ".".to_string(), node.strValue));
+      self.emit(format!("{}{}", ".".to_string(), node.name));
     }
   }
-  fn printOptionalMemberExpression(&mut self, node : JSNode) -> () {
+  fn printOptionalMemberExpression(&mut self, mut node : JSNode) -> () {
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
-    let accessType : String = node.strValue2;
+    let accessType : String = node.kind.clone();
     if  accessType == "bracket".to_string() {
       self.emit("?.[".to_string());
       if  node.right.is_some() {
-        self.printNode(node.right.unwrap());
+        self.printNode((*node.right.clone().unwrap()));
       }
       self.emit("]".to_string());
     } else {
-      self.emit(format!("{}{}", "?.".to_string(), node.strValue));
+      self.emit(format!("{}{}", "?.".to_string(), node.name));
     }
   }
-  fn printOptionalCallExpression(&mut self, node : JSNode) -> () {
+  fn printOptionalCallExpression(&mut self, mut node : JSNode) -> () {
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
     self.emit("?.(".to_string());
     let mut first : bool = true;
@@ -4266,18 +4515,17 @@ impl JSPrinter {
         self.emit(", ".to_string());
       }
       first = false;
-      self.printNode(arg);
-      node.children[idx as usize] = arg;
+      self.printNode(arg.clone());
     }
     self.emit(")".to_string());
   }
-  fn printImportDeclaration(&mut self, node : JSNode) -> () {
+  fn printImportDeclaration(&mut self, mut node : JSNode) -> () {
     self.emit("import ".to_string());
-    let numSpecifiers : i64 = node.children.len();
+    let numSpecifiers : i64 = (node.children.len() as i64);
     if  numSpecifiers == 0 {
       if  node.right.is_some() {
-        let mut source : JSNode = node.right.unwrap();
-        self.emit(format!("{}{}", (format!("{}{}", "\"".to_string(), source.strValue)), "\"".to_string()));
+        let mut source : JSNode = (*node.right.clone().unwrap());
+        self.emit(format!("{}{}", (format!("{}{}", "\"".to_string(), source.raw)), "\"".to_string()));
       }
       return;
     }
@@ -4286,36 +4534,33 @@ impl JSPrinter {
     let mut hasNamed : bool = false;
     for idx in 0..node.children.len() {
       let mut spec = node.children[idx as usize].clone();
-      if  spec.nodeType == "ImportDefaultSpecifier".to_string() {
+      if  spec.r#type == "ImportDefaultSpecifier".to_string() {
         hasDefault = true;
       }
-      if  spec.nodeType == "ImportNamespaceSpecifier".to_string() {
+      if  spec.r#type == "ImportNamespaceSpecifier".to_string() {
         hasNamespace = true;
       }
-      if  spec.nodeType == "ImportSpecifier".to_string() {
+      if  spec.r#type == "ImportSpecifier".to_string() {
         hasNamed = true;
       }
-      node.children[idx as usize] = spec;
     }
     let mut printedSomething : bool = false;
     for idx_1 in 0..node.children.len() {
       let mut spec_1 = node.children[idx_1 as usize].clone();
-      if  spec_1.nodeType == "ImportDefaultSpecifier".to_string() {
-        self.emit(spec_1.strValue);
+      if  spec_1.r#type == "ImportDefaultSpecifier".to_string() {
+        self.emit(spec_1.name.clone());
         printedSomething = true;
       }
-      node.children[idx_1 as usize] = spec_1;
     }
     for idx_2 in 0..node.children.len() {
       let mut spec_2 = node.children[idx_2 as usize].clone();
-      if  spec_2.nodeType == "ImportNamespaceSpecifier".to_string() {
+      if  spec_2.r#type == "ImportNamespaceSpecifier".to_string() {
         if  printedSomething {
           self.emit(", ".to_string());
         }
-        self.emit(format!("{}{}", "* as ".to_string(), spec_2.strValue));
+        self.emit(format!("{}{}", "* as ".to_string(), spec_2.name));
         printedSomething = true;
       }
-      node.children[idx_2 as usize] = spec_2;
     }
     if  hasNamed {
       if  printedSomething {
@@ -4325,29 +4570,28 @@ impl JSPrinter {
       let mut firstNamed : bool = true;
       for idx_3 in 0..node.children.len() {
         let mut spec_3 = node.children[idx_3 as usize].clone();
-        if  spec_3.nodeType == "ImportSpecifier".to_string() {
+        if  spec_3.r#type == "ImportSpecifier".to_string() {
           if  firstNamed == false {
             self.emit(", ".to_string());
           }
           firstNamed = false;
-          self.emit(spec_3.strValue);
-          if  (spec_3.strValue2.len() as i64) > 0 {
-            self.emit(format!("{}{}", " as ".to_string(), spec_3.strValue2));
+          self.emit(spec_3.name.clone());
+          if  (spec_3.kind.len() as i64) > 0 {
+            self.emit(format!("{}{}", " as ".to_string(), spec_3.kind));
           }
         }
-        node.children[idx_3 as usize] = spec_3;
       }
       self.emit(" }".to_string());
     }
     self.emit(" from ".to_string());
     if  node.right.is_some() {
-      let mut source_1 : JSNode = node.right.unwrap();
-      self.emit(format!("{}{}", (format!("{}{}", "\"".to_string(), source_1.strValue)), "\"".to_string()));
+      let mut source_1 : JSNode = (*node.right.clone().unwrap());
+      self.emit(format!("{}{}", (format!("{}{}", "\"".to_string(), source_1.raw)), "\"".to_string()));
     }
   }
-  fn printExportNamedDeclaration(&mut self, node : JSNode) -> () {
+  fn printExportNamedDeclaration(&mut self, mut node : JSNode) -> () {
     self.emit("export ".to_string());
-    let numSpecifiers : i64 = node.children.len();
+    let numSpecifiers : i64 = (node.children.len() as i64);
     if  numSpecifiers > 0 {
       self.emit("{ ".to_string());
       let mut first : bool = true;
@@ -4357,44 +4601,43 @@ impl JSPrinter {
           self.emit(", ".to_string());
         }
         first = false;
-        self.emit(spec.strValue);
-        if  (spec.strValue2.len() as i64) > 0 {
-          self.emit(format!("{}{}", " as ".to_string(), spec.strValue2));
+        self.emit(spec.name.clone());
+        if  (spec.kind.len() as i64) > 0 {
+          self.emit(format!("{}{}", " as ".to_string(), spec.kind));
         }
-        node.children[idx as usize] = spec;
       }
       self.emit(" }".to_string());
       if  node.right.is_some() {
-        let mut source : JSNode = node.right.unwrap();
-        self.emit(format!("{}{}", (format!("{}{}", " from \"".to_string(), source.strValue)), "\"".to_string()));
+        let mut source : JSNode = (*node.right.clone().unwrap());
+        self.emit(format!("{}{}", (format!("{}{}", " from \"".to_string(), source.raw)), "\"".to_string()));
       }
       return;
     }
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
   }
-  fn printExportDefaultDeclaration(&mut self, node : JSNode) -> () {
+  fn printExportDefaultDeclaration(&mut self, mut node : JSNode) -> () {
     self.emit("export default ".to_string());
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
   }
-  fn printExportAllDeclaration(&mut self, node : JSNode) -> () {
+  fn printExportAllDeclaration(&mut self, mut node : JSNode) -> () {
     self.emit("export *".to_string());
-    if  (node.strValue.len() as i64) > 0 {
-      self.emit(format!("{}{}", " as ".to_string(), node.strValue));
+    if  (node.name.len() as i64) > 0 {
+      self.emit(format!("{}{}", " as ".to_string(), node.name));
     }
     self.emit(" from ".to_string());
     if  node.right.is_some() {
-      let mut source : JSNode = node.right.unwrap();
-      self.emit(format!("{}{}", (format!("{}{}", "\"".to_string(), source.strValue)), "\"".to_string()));
+      let mut source : JSNode = (*node.right.clone().unwrap());
+      self.emit(format!("{}{}", (format!("{}{}", "\"".to_string(), source.raw)), "\"".to_string()));
     }
   }
-  fn printNewExpression(&mut self, node : JSNode) -> () {
+  fn printNewExpression(&mut self, mut node : JSNode) -> () {
     self.emit("new ".to_string());
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
     self.emit("(".to_string());
     let mut first : bool = true;
@@ -4404,23 +4647,22 @@ impl JSPrinter {
         self.emit(", ".to_string());
       }
       first = false;
-      self.printNode(arg);
-      node.children[idx as usize] = arg;
+      self.printNode(arg.clone());
     }
     self.emit(")".to_string());
   }
-  fn printArrowFunction(&mut self, node : JSNode) -> () {
-    if  node.strValue2 == "async".to_string() {
+  fn printArrowFunction(&mut self, mut node : JSNode) -> () {
+    if  node.kind == "async".to_string() {
       self.emit("async ".to_string());
     }
-    let paramCount : i64 = node.children.len();
+    let paramCount : i64 = (node.children.len() as i64);
     if  paramCount == 1 {
       let mut firstParam : JSNode = node.children[0 as usize].clone();
-      if  firstParam.nodeType == "Identifier".to_string() {
-        self.emit(firstParam.strValue);
+      if  firstParam.r#type == "Identifier".to_string() {
+        self.emit(firstParam.name.clone());
       } else {
         self.emit("(".to_string());
-        self.printNode(firstParam);
+        self.printNode(firstParam.clone());
         self.emit(")".to_string());
       }
     } else {
@@ -4430,45 +4672,45 @@ impl JSPrinter {
     }
     self.emit(" => ".to_string());
     if  node.body.is_some() {
-      let mut body : JSNode = node.body.unwrap();
-      if  body.nodeType == "BlockStatement".to_string() {
-        self.printNode(body);
+      let mut body : JSNode = (*node.body.clone().unwrap());
+      if  body.r#type == "BlockStatement".to_string() {
+        self.printNode(body.clone());
       } else {
-        self.printNode(body);
+        self.printNode(body.clone());
       }
     }
   }
-  fn printFunctionExpression(&mut self, node : JSNode) -> () {
+  fn printFunctionExpression(&mut self, mut node : JSNode) -> () {
     self.emit("function(".to_string());
     self.printParams(node.children);
     self.emit(") ".to_string());
     if  node.body.is_some() {
-      self.printNode(node.body.unwrap());
+      self.printNode((*node.body.clone().unwrap()));
     }
   }
-  fn printYieldExpression(&mut self, node : JSNode) -> () {
+  fn printYieldExpression(&mut self, mut node : JSNode) -> () {
     self.emit("yield".to_string());
-    if  node.strValue == "delegate".to_string() {
+    if  node.name == "delegate".to_string() {
       self.emit("*".to_string());
     }
     if  node.left.is_some() {
       self.emit(" ".to_string());
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
   }
-  fn printAwaitExpression(&mut self, node : JSNode) -> () {
+  fn printAwaitExpression(&mut self, mut node : JSNode) -> () {
     self.emit("await ".to_string());
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
   }
-  fn printSpreadElement(&mut self, node : JSNode) -> () {
+  fn printSpreadElement(&mut self, mut node : JSNode) -> () {
     self.emit("...".to_string());
     if  node.left.is_some() {
-      self.printNode(node.left.unwrap());
+      self.printNode((*node.left.clone().unwrap()));
     }
   }
-  fn printArrayPattern(&mut self, node : JSNode) -> () {
+  fn printArrayPattern(&mut self, mut node : JSNode) -> () {
     self.emit("[".to_string());
     let mut first : bool = true;
     for idx in 0..node.children.len() {
@@ -4477,12 +4719,11 @@ impl JSPrinter {
         self.emit(", ".to_string());
       }
       first = false;
-      self.printNode(elem);
-      node.children[idx as usize] = elem;
+      self.printNode(elem.clone());
     }
     self.emit("]".to_string());
   }
-  fn printObjectPattern(&mut self, node : JSNode) -> () {
+  fn printObjectPattern(&mut self, mut node : JSNode) -> () {
     self.emit("{ ".to_string());
     let mut first : bool = true;
     for idx in 0..node.children.len() {
@@ -4491,20 +4732,19 @@ impl JSPrinter {
         self.emit(", ".to_string());
       }
       first = false;
-      let propType : String = prop.nodeType;
+      let propType : String = prop.r#type.clone();
       if  propType == "RestElement".to_string() {
-        self.emit(format!("{}{}", "...".to_string(), prop.strValue));
+        self.emit(format!("{}{}", "...".to_string(), prop.name));
       } else {
-        if  prop.strValue2 == "shorthand".to_string() {
-          self.emit(prop.strValue);
+        if  prop.kind == "shorthand".to_string() {
+          self.emit(prop.name.clone());
         } else {
-          self.emit(format!("{}{}", prop.strValue, ": ".to_string()));
+          self.emit(format!("{}{}", prop.name, ": ".to_string()));
           if  prop.left.is_some() {
-            self.printNode(prop.left.unwrap());
+            self.printNode((*prop.left.clone().unwrap()));
           }
         }
       }
-      node.children[idx as usize] = prop;
     }
     self.emit(" }".to_string());
   }
@@ -4539,58 +4779,56 @@ impl JSParserMain {
   }
   pub fn processFile(inputFile : String, outputFile : String) -> () {
     let codeOpt : Option<String> = r_read_file(&".".to_string(), &inputFile);
-    if  codeOpt.is_null() {
+    if  codeOpt.is_none() {
       println!( "{}", format!("{}{}", "Error: Could not read file: ".to_string(), inputFile) );
       return;
     }
     let code : String = codeOpt.unwrap();
-    let mut lexer : Lexer = Lexer::new(code);
+    let mut lexer : Lexer = Lexer::new(code.clone());
     let mut tokens : Vec<Token> = lexer.tokenize();
     let mut parser : SimpleParser = SimpleParser::new();
-    parser.initParserWithSource(tokens, code);
+    parser.initParserWithSource(tokens, code.clone());
     let mut program : JSNode = parser.parseProgram();
     if  parser.hasErrors() {
       println!( "{}", "=== Parse Errors ===".to_string() );
       for ei in 0..parser.errors.len() {
         let mut err = parser.errors[ei as usize].clone();
         println!( "{}", err );
-        parser.errors[ei as usize] = err;
       }
       println!( "{}", "".to_string() );
     }
     let mut printer : JSPrinter = JSPrinter::new();
+    let stmtCount : i64 = (program.children.len() as i64);
     let output : String = (printer).print(program);
-    r_write_file(&".".to_string(), &outputFile, &output)
+    r_write_file(&".".to_string(), &outputFile, &output);
     println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "Parsed ".to_string(), inputFile)), " -> ".to_string())), outputFile) );
-    println!( "{}", format!("{}{}", (["  ".to_string() , ((program.children.len()).to_string()) ].join("")), " statements processed".to_string()) );
+    println!( "{}", format!("{}{}", (["  ".to_string() , (stmtCount.to_string()) ].join("")), " statements processed".to_string()) );
   }
   pub fn parseFile(filename : String) -> () {
     let codeOpt : Option<String> = r_read_file(&".".to_string(), &filename);
-    if  codeOpt.is_null() {
+    if  codeOpt.is_none() {
       println!( "{}", format!("{}{}", "Error: Could not read file: ".to_string(), filename) );
       return;
     }
     let code : String = codeOpt.unwrap();
-    let mut lexer : Lexer = Lexer::new(code);
+    let mut lexer : Lexer = Lexer::new(code.clone());
     let mut tokens : Vec<Token> = lexer.tokenize();
     let mut parser : SimpleParser = SimpleParser::new();
-    parser.initParserWithSource(tokens, code);
+    parser.initParserWithSource(tokens, code.clone());
     let mut program : JSNode = parser.parseProgram();
     if  parser.hasErrors() {
       println!( "{}", "=== Parse Errors ===".to_string() );
       for ei in 0..parser.errors.len() {
         let mut err = parser.errors[ei as usize].clone();
         println!( "{}", err );
-        parser.errors[ei as usize] = err;
       }
       println!( "{}", "".to_string() );
     }
-    println!( "{}", format!("{}{}", (["Program with ".to_string() , ((program.children.len()).to_string()) ].join("")), " statements:".to_string()) );
+    println!( "{}", format!("{}{}", (["Program with ".to_string() , (((program.children.len() as i64)).to_string()) ].join("")), " statements:".to_string()) );
     println!( "{}", "".to_string() );
     for idx in 0..program.children.len() {
       let mut stmt = program.children[idx as usize].clone();
-      ASTPrinter::printNode(stmt, 0);
-      program.children[idx as usize] = stmt;
+      ASTPrinter::printNode(stmt.clone(), 0);
     }
   }
   pub fn runDemo() -> () {
@@ -4600,29 +4838,27 @@ impl JSParserMain {
     println!( "{}", "Input:".to_string() );
     println!( "{}", code );
     println!( "{}", "".to_string() );
-    let mut lexer : Lexer = Lexer::new(code);
+    let mut lexer : Lexer = Lexer::new(code.clone());
     let mut tokens : Vec<Token> = lexer.tokenize();
-    println!( "{}", format!("{}{}", (["--- Tokens: ".to_string() , ((tokens.len()).to_string()) ].join("")), " ---".to_string()) );
+    println!( "{}", format!("{}{}", (["--- Tokens: ".to_string() , (((tokens.len() as i64)).to_string()) ].join("")), " ---".to_string()) );
     println!( "{}", "".to_string() );
     let mut parser : SimpleParser = SimpleParser::new();
-    parser.initParserWithSource(tokens, code);
+    parser.initParserWithSource(tokens, code.clone());
     let mut program : JSNode = parser.parseProgram();
     if  parser.hasErrors() {
       println!( "{}", "=== Parse Errors ===".to_string() );
       for ei in 0..parser.errors.len() {
         let mut err = parser.errors[ei as usize].clone();
         println!( "{}", err );
-        parser.errors[ei as usize] = err;
       }
       println!( "{}", "".to_string() );
     }
-    println!( "{}", format!("{}{}", (["Program with ".to_string() , ((program.children.len()).to_string()) ].join("")), " statements:".to_string()) );
+    println!( "{}", format!("{}{}", (["Program with ".to_string() , (((program.children.len() as i64)).to_string()) ].join("")), " statements:".to_string()) );
     println!( "{}", "".to_string() );
     println!( "{}", "--- AST ---".to_string() );
     for idx in 0..program.children.len() {
       let mut stmt = program.children[idx as usize].clone();
-      ASTPrinter::printNode(stmt, 0);
-      program.children[idx as usize] = stmt;
+      ASTPrinter::printNode(stmt.clone(), 0);
     }
     println!( "{}", "".to_string() );
     println!( "{}", "--- Pretty Printed Output ---".to_string() );
@@ -4682,23 +4918,23 @@ fn main() {
   }
   if  (inputFile.len() as i64) > 0 {
     if  (outputFile.len() as i64) > 0 {
-      JSParserMain::processFile(inputFile, outputFile);
+      JSParserMain::processFile(inputFile.clone(), outputFile.clone());
     } else {
-      JSParserMain::parseFile(inputFile);
+      JSParserMain::parseFile(inputFile.clone());
     }
     return;
   }
   JSParserMain::showHelp();
 }
-
-fn r_read_file(path: &str, filename: &str) -> Option<String> {
-    let full_path = format!("{}/{}", path, filename);
-    std::fs::read_to_string(full_path).ok()
-}
 
-
-fn r_write_file(path: &str, filename: &str, data: &str) {
-    let full_path = format!("{}/{}", path, filename);
-    let _ = std::fs::write(full_path, data);
-}
+fn r_read_file(path: &str, filename: &str) -> Option<String> {
+    let full_path = format!("{}/{}", path, filename);
+    std::fs::read_to_string(full_path).ok()
+}
+
+
+fn r_write_file(path: &str, filename: &str, data: &str) {
+    let full_path = format!("{}/{}", path, filename);
+    let _ = std::fs::write(full_path, data);
+}
 
