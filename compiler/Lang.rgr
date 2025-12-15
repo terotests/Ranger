@@ -64,11 +64,15 @@ language {
     
     ; transformations for the reserved words for function names or other keywords
     reserved_words {
-        map FnMap
-        forEach forEachItem
-        self _self
-        func _func
-        type _type
+        * {
+            map FnMap
+            forEach forEachItem
+            self _self
+            func _func
+        }
+        rust {
+            type _type
+        }
     }
 
     

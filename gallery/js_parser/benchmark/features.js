@@ -23,7 +23,7 @@ const features = [
     code: 'const fn = (a, b) => a + b;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ArrowFunctionExpression'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '=>' || hasArrowInTree(n))
+      ranger: (ast) => findNode(ast, n => n.type === 'ArrowFunctionExpression')
     }
   },
   {
@@ -32,7 +32,7 @@ const features = [
     code: 'let x = 1; const y = 2;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'VariableDeclaration' && (n.kind === 'let' || n.kind === 'const')),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'let' || n.vref === 'const')
+      ranger: (ast) => findNode(ast, n => n.type === 'VariableDeclaration' && (n.kind === 'let' || n.kind === 'const'))
     }
   },
   {
@@ -41,7 +41,7 @@ const features = [
     code: 'const s = `hello ${name}`;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'TemplateLiteral'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref && n.vref.includes('`'))
+      ranger: (ast) => findNode(ast, n => n.type === 'TemplateLiteral')
     }
   },
   {
@@ -50,7 +50,7 @@ const features = [
     code: 'const {a, b} = obj; const [x, y] = arr;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ObjectPattern' || n.type === 'ArrayPattern'),
-      ranger: (ast) => true // Check if parsed without error
+      ranger: (ast) => findNode(ast, n => n.type === 'ObjectPattern' || n.type === 'ArrayPattern')
     }
   },
   {
@@ -59,7 +59,7 @@ const features = [
     code: 'function fn(a = 1, b = 2) { return a + b; }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'AssignmentPattern'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '=')
+      ranger: (ast) => findNode(ast, n => n.type === 'AssignmentPattern')
     }
   },
   {
@@ -68,7 +68,7 @@ const features = [
     code: 'function fn(...args) { return args; }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'RestElement'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '...')
+      ranger: (ast) => findNode(ast, n => n.type === 'RestElement')
     }
   },
   {
@@ -77,7 +77,7 @@ const features = [
     code: 'const arr = [...a, ...b];',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'SpreadElement'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '...')
+      ranger: (ast) => findNode(ast, n => n.type === 'SpreadElement')
     }
   },
 
@@ -88,7 +88,7 @@ const features = [
     code: 'class Foo { constructor() {} }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ClassDeclaration'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'class')
+      ranger: (ast) => findNode(ast, n => n.type === 'ClassDeclaration')
     }
   },
   {
@@ -97,7 +97,7 @@ const features = [
     code: 'class Bar extends Foo { }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ClassDeclaration' && n.superClass),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'extends')
+      ranger: (ast) => findNode(ast, n => n.type === 'ClassDeclaration' && n.superClass)
     }
   },
   {
@@ -106,7 +106,7 @@ const features = [
     code: 'class Foo { static bar() {} }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'MethodDefinition' && n.static),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'static')
+      ranger: (ast) => findNode(ast, n => n.type === 'MethodDefinition' && n.static)
     }
   },
   {
@@ -115,7 +115,7 @@ const features = [
     code: 'class Foo { get x() { return 1; } set x(v) {} }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'MethodDefinition' && (n.kind === 'get' || n.kind === 'set')),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'get' || n.vref === 'set')
+      ranger: (ast) => findNode(ast, n => n.type === 'MethodDefinition' && (n.kind === 'get' || n.kind === 'set'))
     }
   },
   {
@@ -124,7 +124,7 @@ const features = [
     code: 'class Foo { #x = 1; getX() { return this.#x; } }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'PrivateIdentifier' || n.type === 'PropertyDefinition' && n.key?.type === 'PrivateIdentifier'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref && n.vref.startsWith('#'))
+      ranger: (ast) => findNode(ast, n => n.type === 'PrivateIdentifier' || n.type === 'PropertyDefinition')
     }
   },
   {
@@ -133,7 +133,7 @@ const features = [
     code: 'class Foo { static { console.log("init"); } }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'StaticBlock'),
-      ranger: (ast) => false // Ranger doesn't support this
+      ranger: (ast) => findNode(ast, n => n.type === 'StaticBlock')
     }
   },
 
@@ -144,7 +144,7 @@ const features = [
     code: 'async function fn() { return 1; }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'FunctionDeclaration' && n.async),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'async')
+      ranger: (ast) => findNode(ast, n => n.type === 'FunctionDeclaration' && n.async)
     }
   },
   {
@@ -153,7 +153,7 @@ const features = [
     code: 'async function fn() { await promise; }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'AwaitExpression'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'await')
+      ranger: (ast) => findNode(ast, n => n.type === 'AwaitExpression')
     }
   },
   {
@@ -162,7 +162,7 @@ const features = [
     code: 'function* gen() { yield 1; }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'FunctionDeclaration' && n.generator),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'function*' || n.vref === '*')
+      ranger: (ast) => findNode(ast, n => n.type === 'FunctionDeclaration' && n.generator)
     }
   },
   {
@@ -171,7 +171,7 @@ const features = [
     code: 'function* gen() { yield 1; yield* other(); }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'YieldExpression'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'yield' || n.vref === 'yield*')
+      ranger: (ast) => findNode(ast, n => n.type === 'YieldExpression')
     }
   },
   {
@@ -180,7 +180,7 @@ const features = [
     code: 'async function fn() { for await (const x of iter) {} }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ForOfStatement' && n.await),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'for') && findRangerNode(ast, n => n.vref === 'await')
+      ranger: (ast) => findNode(ast, n => n.type === 'ForOfStatement' && n.await)
     }
   },
 
@@ -191,7 +191,7 @@ const features = [
     code: 'const x = obj?.prop?.method?.();',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ChainExpression' || n.optional === true),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '?.' || (n.vref && n.vref.includes('?.')))
+      ranger: (ast) => findNode(ast, n => n.type === 'ChainExpression' || n.optional === true)
     }
   },
   {
@@ -200,7 +200,7 @@ const features = [
     code: 'const x = a ?? b;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'LogicalExpression' && n.operator === '??'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '??')
+      ranger: (ast) => findNode(ast, n => n.type === 'LogicalExpression' && n.operator === '??')
     }
   },
   {
@@ -209,7 +209,7 @@ const features = [
     code: 'x &&= y;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'AssignmentExpression' && n.operator === '&&='),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '&&=')
+      ranger: (ast) => findNode(ast, n => n.type === 'AssignmentExpression' && n.operator === '&&=')
     }
   },
   {
@@ -218,7 +218,7 @@ const features = [
     code: 'x ||= y;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'AssignmentExpression' && n.operator === '||='),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '||=')
+      ranger: (ast) => findNode(ast, n => n.type === 'AssignmentExpression' && n.operator === '||=')
     }
   },
   {
@@ -227,7 +227,7 @@ const features = [
     code: 'x ??= y;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'AssignmentExpression' && n.operator === '??='),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '??=')
+      ranger: (ast) => findNode(ast, n => n.type === 'AssignmentExpression' && n.operator === '??=')
     }
   },
   {
@@ -236,7 +236,7 @@ const features = [
     code: 'const x = 2 ** 10;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'BinaryExpression' && n.operator === '**'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '**')
+      ranger: (ast) => findNode(ast, n => n.type === 'BinaryExpression' && n.operator === '**')
     }
   },
   {
@@ -245,7 +245,7 @@ const features = [
     code: 'const x = 1_000_000;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'Literal' && n.raw && n.raw.includes('_')),
-      ranger: (ast) => findRangerNode(ast, n => n.vref && n.vref.includes('_') && /\d/.test(n.vref))
+      ranger: (ast) => findNode(ast, n => n.type === 'Literal' && n.raw && n.raw.includes('_'))
     }
   },
   {
@@ -254,7 +254,7 @@ const features = [
     code: 'const x = 123n;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'Literal' && typeof n.bigint === 'string'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref && n.vref.endsWith('n') && /^\d+n$/.test(n.vref))
+      ranger: (ast) => findNode(ast, n => n.type === 'Literal' && typeof n.bigint === 'string')
     }
   },
 
@@ -265,7 +265,7 @@ const features = [
     code: 'import { foo } from "bar";',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ImportDeclaration'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'import')
+      ranger: (ast) => findNode(ast, n => n.type === 'ImportDeclaration')
     }
   },
   {
@@ -274,7 +274,7 @@ const features = [
     code: 'export const x = 1;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ExportNamedDeclaration'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'export')
+      ranger: (ast) => findNode(ast, n => n.type === 'ExportNamedDeclaration')
     }
   },
   {
@@ -283,7 +283,7 @@ const features = [
     code: 'export default function() {}',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ExportDefaultDeclaration'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'default')
+      ranger: (ast) => findNode(ast, n => n.type === 'ExportDefaultDeclaration')
     }
   },
   {
@@ -292,7 +292,7 @@ const features = [
     code: 'const mod = import("./mod.js");',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ImportExpression'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'import')
+      ranger: (ast) => findNode(ast, n => n.type === 'ImportExpression')
     }
   },
   {
@@ -301,7 +301,7 @@ const features = [
     code: 'const url = import.meta.url;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'MetaProperty' && n.meta?.name === 'import'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'import') && findRangerNode(ast, n => n.vref === 'meta')
+      ranger: (ast) => findNode(ast, n => n.type === 'MetaProperty' && n.meta?.name === 'import')
     }
   },
 
@@ -312,7 +312,7 @@ const features = [
     code: '@decorator class Foo {}',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'Decorator' || (n.decorators && n.decorators.length > 0)),
-      ranger: (ast) => false // Ranger doesn't support decorators
+      ranger: (ast) => findNode(ast, n => n.type === 'Decorator' || (n.decorators && n.decorators.length > 0))
     },
     parserOptions: {
       babel: { plugins: ['decorators'] }
@@ -365,7 +365,7 @@ const features = [
     code: 'const re = /(?<year>\\d{4})-(?<month>\\d{2})/;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'Literal' && n.regex),
-      ranger: (ast) => findRangerNode(ast, n => n.vref && n.vref.startsWith('/') && n.vref.includes('?<'))
+      ranger: (ast) => findNode(ast, n => n.type === 'Literal' && n.regex)
     }
   },
   {
@@ -374,7 +374,7 @@ const features = [
     code: 'const re = /\\p{Script=Greek}/u;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'Literal' && n.regex && n.regex.flags.includes('u')),
-      ranger: (ast) => findRangerNode(ast, n => n.vref && n.vref.includes('/u'))
+      ranger: (ast) => findNode(ast, n => n.type === 'Literal' && n.regex && n.regex.flags && n.regex.flags.includes('u'))
     }
   },
   {
@@ -383,7 +383,7 @@ const features = [
     code: 'const re = /foo/d;',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'Literal' && n.regex && n.regex.flags.includes('d')),
-      ranger: (ast) => findRangerNode(ast, n => n.vref && n.vref.endsWith('/d'))
+      ranger: (ast) => findNode(ast, n => n.type === 'Literal' && n.regex && n.regex.flags && n.regex.flags.includes('d'))
     }
   },
 
@@ -394,7 +394,7 @@ const features = [
     code: 'const obj = { x, y, method() {} };',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'Property' && n.shorthand),
-      ranger: (ast) => true // Basic object parsing
+      ranger: (ast) => findNode(ast, n => n.type === 'Property' && n.shorthand)
     }
   },
   {
@@ -403,7 +403,7 @@ const features = [
     code: 'const obj = { [key]: value };',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'Property' && n.computed),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === '[')
+      ranger: (ast) => findNode(ast, n => n.type === 'Property' && n.computed)
     }
   },
   {
@@ -412,7 +412,7 @@ const features = [
     code: 'for (const x of arr) {}',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'ForOfStatement'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'of')
+      ranger: (ast) => findNode(ast, n => n.type === 'ForOfStatement')
     }
   },
   {
@@ -421,7 +421,7 @@ const features = [
     code: 'const sym = Symbol("desc");',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'CallExpression' && n.callee?.name === 'Symbol'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'Symbol')
+      ranger: (ast) => findNode(ast, n => n.type === 'CallExpression' && n.callee?.name === 'Symbol')
     }
   },
   {
@@ -430,7 +430,7 @@ const features = [
     code: 'function Foo() { if (new.target) {} }',
     validate: {
       estree: (ast) => findNode(ast, n => n.type === 'MetaProperty' && n.meta?.name === 'new'),
-      ranger: (ast) => findRangerNode(ast, n => n.vref === 'new') && findRangerNode(ast, n => n.vref === 'target')
+      ranger: (ast) => findNode(ast, n => n.type === 'MetaProperty' && n.meta?.name === 'new')
     }
   }
 ];

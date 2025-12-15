@@ -1,32 +1,156 @@
 ; JavaScript ES5 Parser - Core module
 ; Contains JSNode, SimpleParser, and AST printing utilities
+; Outputs ESTree-compatible AST format
 
 Import "js_token.rgr"
 Import "js_lexer.rgr"
 
-; Unified AST node - all node types use this
+; ESTree-compatible source location
+class Position {
+  def line:int 1
+  def column:int 0
+}
+
+class SourceLocation {
+  def start@(optional):Position
+  def end@(optional):Position
+}
+
+; ESTree-compatible AST node
 class JSNode {
-  def nodeType:string ""
+  def type:string ""
+  def loc@(optional):SourceLocation
   def start:int 0
   def end:int 0
-  def line:int 0
-  def col:int 0
+  def line:int 0    ; kept for backward compat, also in loc
+  def col:int 0     ; kept for backward compat, also in loc
   
-  ; Generic value fields
-  def strValue:string ""      ; for identifiers, literals, operators
-  def strValue2:string ""     ; secondary string (e.g., literal type)
+  ; === ESTree standard properties ===
+  ; Identifier
+  def name:string ""
   
-  ; Child nodes
-  def children:[JSNode]
+  ; Literal - value stored in raw as string, actual type inferred from context
+  def raw:string ""              ; raw source text
+  def regexPattern:string ""     ; for RegExpLiteral: pattern
+  def regexFlags:string ""       ; for RegExpLiteral: flags
+  
+  ; BinaryExpression, LogicalExpression, AssignmentExpression, UnaryExpression, UpdateExpression
+  def operator:string ""
+  def prefix:boolean false       ; for UnaryExpression, UpdateExpression
+  
+  ; Various nodes
   def left@(optional):JSNode
   def right@(optional):JSNode
-  def test@(optional):JSNode
-  def body@(optional):JSNode
-  def alternate@(optional):JSNode
+  def argument@(optional):JSNode  ; for UnaryExpression, UpdateExpression, ReturnStatement, ThrowStatement
+  def test@(optional):JSNode      ; for IfStatement, ConditionalExpression, SwitchCase
+  def consequent@(optional):JSNode ; for IfStatement, ConditionalExpression (also used in SwitchCase as array)
+  def alternate@(optional):JSNode  ; for IfStatement, ConditionalExpression
+  
+  ; FunctionDeclaration/Expression, ArrowFunctionExpression
+  def id@(optional):JSNode        ; also used for VariableDeclarator, ClassDeclaration
+  def params:[JSNode]
+  def body@(optional):JSNode      ; BlockStatement or Expression (for arrow)
+  def generator:boolean false
+  def async:boolean false
+  def expression:boolean false    ; true if arrow function body is expression
+  
+  ; VariableDeclaration
+  def declarations:[JSNode]
+  def kind:string ""              ; "var" | "let" | "const"
+  
+  ; VariableDeclarator
+  def init@(optional):JSNode
+  
+  ; ClassDeclaration/Expression
+  def superClass@(optional):JSNode
+  
+  ; MemberExpression
+  def object@(optional):JSNode
+  def property@(optional):JSNode
+  def computed:boolean false
+  def optional:boolean false      ; for optional chaining
+  
+  ; CallExpression, NewExpression
+  def callee@(optional):JSNode
+  def arguments:[JSNode]
+  
+  ; ArrayExpression
+  def elements:[JSNode]
+  
+  ; ObjectExpression
+  def properties:[JSNode]
+  
+  ; Property
+  def key@(optional):JSNode
+  ; def value - already defined
+  def method:boolean false
+  def shorthand:boolean false
+  ; def kind - already defined ("init" | "get" | "set")
+  
+  ; ForStatement
+  ; def init - already defined
+  def update@(optional):JSNode
+  
+  ; ForInStatement, ForOfStatement
+  ; def left - already defined
+  ; def right - already defined
+  ; def body - already defined
+  
+  ; SwitchStatement
+  def discriminant@(optional):JSNode
+  def cases:[JSNode]
+  
+  ; SwitchCase - consequent as array
+  def consequentStatements:[JSNode]  ; ESTree uses consequent: [Statement]
+  
+  ; TryStatement
+  def block@(optional):JSNode
+  def handler@(optional):JSNode
+  def finalizer@(optional):JSNode
+  
+  ; CatchClause
+  def param@(optional):JSNode
+  
+  ; ImportDeclaration
+  def source@(optional):JSNode
+  def specifiers:[JSNode]
+  
+  ; ImportSpecifier, ExportSpecifier
+  def imported@(optional):JSNode
+  def local@(optional):JSNode
+  def exported@(optional):JSNode
+  
+  ; ExportNamedDeclaration, ExportDefaultDeclaration
+  def declaration@(optional):JSNode
+  
+  ; SpreadElement, RestElement
+  ; def argument - already defined
+  
+  ; TemplateLiteral
+  def quasis:[JSNode]
+  def expressions:[JSNode]
+  
+  ; TemplateElement
+  def tail:boolean false
+  def cooked:string ""
+  
+  ; Program, BlockStatement
+  def sourceType:string ""        ; "script" | "module"
+  
+  ; MethodDefinition
+  def static:boolean false
+  
+  ; YieldExpression
+  def delegate:boolean false      ; yield*
+  
+  ; AwaitExpression - uses argument
+  
+  ; Generic body/children for backward compat
+  def children:[JSNode]           ; kept for backward compatibility
   
   ; Comments attached to this node
   def leadingComments:[JSNode]
-  def trailingComment@(optional):JSNode
+  def trailingComments:[JSNode]
 }
 
 class SimpleParser {
@@ -72,8 +196,8 @@ class SimpleParser {
     while (this.isCommentToken()) {
       def tok (this.peek())
       def commentNode (new JSNode())
-      commentNode.nodeType = tok.tokenType
-      commentNode.strValue = tok.value
+      commentNode.type = tok.tokenType
+      commentNode.raw = tok.value
       commentNode.line = tok.line
       commentNode.col = tok.col
       commentNode.start = tok.start
@@ -192,8 +316,8 @@ class SimpleParser {
     if (null? this.lexer) {
       ; No lexer available, return error node
       def err (new JSNode())
-      err.nodeType = "Identifier"
-      err.strValue = "regex_error"
+      err.type = "Identifier"
+      err.name = "regex_error"
       this.advance()
       return err
     }
@@ -230,11 +354,13 @@ class SimpleParser {
       pattern = fullValue
     }
     
-    ; Create the regex node
+    ; Create the regex node (ESTree format uses Literal with regex property)
     def regex (new JSNode())
-    regex.nodeType = "RegexLiteral"
-    regex.strValue = pattern
-    regex.strValue2 = flags
+    regex.type = "Literal"
+    regex.raw = fullValue
+    ; Store pattern and flags for regex
+    regex.regexPattern = pattern
+    regex.regexFlags = flags
     regex.start = startPos
     regex.end = lex.pos
     regex.line = startLine
@@ -261,7 +387,7 @@ class SimpleParser {
   
   fn parseProgram:JSNode () {
     def prog (new JSNode())
-    prog.nodeType = "Program"
+    prog.type = "Program"
     
     while ((this.isAtEnd()) == false) {
       def stmt (this.parseStatement())
@@ -359,7 +485,7 @@ class SimpleParser {
     if ((null? stmt) && (tokVal == ";")) {
       this.advance()
       def empty (new JSNode())
-      empty.nodeType = "EmptyStatement"
+      empty.type = "EmptyStatement"
       stmt = empty
     }
     
@@ -381,7 +507,7 @@ class SimpleParser {
   
   fn parseVarDecl:JSNode () {
     def decl (new JSNode())
-    decl.nodeType = "VariableDeclaration"
+    decl.type = "VariableDeclaration"
     def startTok (this.peek())
     decl.start = startTok.start
     decl.line = startTok.line
@@ -397,16 +523,16 @@ class SimpleParser {
       first = false
       
       def declarator (new JSNode())
-      declarator.nodeType = "VariableDeclarator"
+      declarator.type = "VariableDeclarator"
       
       def idTok (this.expect("Identifier"))
       def id (new JSNode())
-      id.nodeType = "Identifier"
-      id.strValue = idTok.value
+      id.type = "Identifier"
+      id.name = idTok.value
       id.start = idTok.start
       id.line = idTok.line
       id.col = idTok.col
-      declarator.left = id
+      declarator.id = id
       declarator.start = idTok.start
       declarator.line = idTok.line
       declarator.col = idTok.col
@@ -414,7 +540,7 @@ class SimpleParser {
       if (this.matchValue("=")) {
         this.advance()
         def initExpr (this.parseAssignment())
-        declarator.right = initExpr
+        declarator.init = initExpr
       }
       
       push decl.children declarator
@@ -431,8 +557,8 @@ class SimpleParser {
   
   fn parseLetDecl:JSNode () {
     def decl (new JSNode())
-    decl.nodeType = "VariableDeclaration"
-    decl.strValue = "let"
+    decl.type = "VariableDeclaration"
+    decl.kind = "let"
     def startTok (this.peek())
     decl.start = startTok.start
     decl.line = startTok.line
@@ -448,7 +574,7 @@ class SimpleParser {
       first = false
       
       def declarator (new JSNode())
-      declarator.nodeType = "VariableDeclarator"
+      declarator.type = "VariableDeclarator"
       def declTok (this.peek())
       declarator.start = declTok.start
       declarator.line = declTok.line
@@ -457,27 +583,27 @@ class SimpleParser {
       ; Check for destructuring pattern
       if (this.matchValue("[")) {
         def pattern (this.parseArrayPattern())
-        declarator.left = pattern
+        declarator.id = pattern
       } {
         if (this.matchValue("{")) {
           def pattern (this.parseObjectPattern())
-          declarator.left = pattern
+          declarator.id = pattern
         } {
           def idTok (this.expect("Identifier"))
           def id (new JSNode())
-          id.nodeType = "Identifier"
-          id.strValue = idTok.value
+          id.type = "Identifier"
+          id.name = idTok.value
           id.start = idTok.start
           id.line = idTok.line
           id.col = idTok.col
-          declarator.left = id
+          declarator.id = id
         }
       }
       
       if (this.matchValue("=")) {
         this.advance()
         def initExpr (this.parseAssignment())
-        declarator.right = initExpr
+        declarator.init = initExpr
       }
       
       push decl.children declarator
@@ -494,8 +620,8 @@ class SimpleParser {
   
   fn parseConstDecl:JSNode () {
     def decl (new JSNode())
-    decl.nodeType = "VariableDeclaration"
-    decl.strValue = "const"
+    decl.type = "VariableDeclaration"
+    decl.kind = "const"
     def startTok (this.peek())
     decl.start = startTok.start
     decl.line = startTok.line
@@ -511,7 +637,7 @@ class SimpleParser {
       first = false
       
       def declarator (new JSNode())
-      declarator.nodeType = "VariableDeclarator"
+      declarator.type = "VariableDeclarator"
       def declTok (this.peek())
       declarator.start = declTok.start
       declarator.line = declTok.line
@@ -520,27 +646,27 @@ class SimpleParser {
       ; Check for destructuring pattern
       if (this.matchValue("[")) {
         def pattern (this.parseArrayPattern())
-        declarator.left = pattern
+        declarator.id = pattern
       } {
         if (this.matchValue("{")) {
           def pattern (this.parseObjectPattern())
-          declarator.left = pattern
+          declarator.id = pattern
         } {
           def idTok (this.expect("Identifier"))
           def id (new JSNode())
-          id.nodeType = "Identifier"
-          id.strValue = idTok.value
+          id.type = "Identifier"
+          id.name = idTok.value
           id.start = idTok.start
           id.line = idTok.line
           id.col = idTok.col
-          declarator.left = id
+          declarator.id = id
         }
       }
       
       if (this.matchValue("=")) {
         this.advance()
         def initExpr (this.parseAssignment())
-        declarator.right = initExpr
+        declarator.init = initExpr
       }
       
       push decl.children declarator
@@ -557,7 +683,7 @@ class SimpleParser {
   
   fn parseFuncDecl:JSNode () {
     def func (new JSNode())
-    func.nodeType = "FunctionDeclaration"
+    func.type = "FunctionDeclaration"
     def startTok (this.peek())
     func.start = startTok.start
     func.line = startTok.line
@@ -567,12 +693,12 @@ class SimpleParser {
     
     ; Check for generator: function*
     if (this.matchValue("*")) {
-      func.strValue2 = "generator"
+      func.generator = true
       this.advance()
     }
     
     def idTok (this.expect("Identifier"))
-    func.strValue = idTok.value
+    func.name = idTok.value
     
     this.expectValue("(")
     while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
@@ -589,8 +715,8 @@ class SimpleParser {
         this.advance()
         def paramTok (this.expect("Identifier"))
         def rest (new JSNode())
-        rest.nodeType = "RestElement"
-        rest.strValue = paramTok.value
+        rest.type = "RestElement"
+        rest.name = paramTok.value
         rest.start = restTok.start
         rest.line = restTok.line
         rest.col = restTok.col
@@ -607,8 +733,8 @@ class SimpleParser {
           } {
             def paramTok (this.expect("Identifier"))
             def param (new JSNode())
-            param.nodeType = "Identifier"
-            param.strValue = paramTok.value
+            param.type = "Identifier"
+            param.name = paramTok.value
             param.start = paramTok.start
             param.line = paramTok.line
             param.col = paramTok.col
@@ -629,7 +755,7 @@ class SimpleParser {
   
   fn parseFunctionExpression:JSNode () {
     def func (new JSNode())
-    func.nodeType = "FunctionExpression"
+    func.type = "FunctionExpression"
     def startTok (this.peek())
     func.start = startTok.start
     func.line = startTok.line
@@ -639,14 +765,14 @@ class SimpleParser {
     
     ; Check for generator: function*
     if (this.matchValue("*")) {
-      func.strValue2 = "generator"
+      func.generator = true
       this.advance()
     }
     
     ; Optional name for named function expressions
     if (this.matchType("Identifier")) {
       def idTok (this.expect("Identifier"))
-      func.strValue = idTok.value
+      func.name = idTok.value
     }
     
     this.expectValue("(")
@@ -664,8 +790,8 @@ class SimpleParser {
         this.advance()
         def paramTok (this.expect("Identifier"))
         def rest (new JSNode())
-        rest.nodeType = "RestElement"
-        rest.strValue = paramTok.value
+        rest.type = "RestElement"
+        rest.name = paramTok.value
         rest.start = restTok.start
         rest.line = restTok.line
         rest.col = restTok.col
@@ -682,8 +808,8 @@ class SimpleParser {
           } {
             def paramTok (this.expect("Identifier"))
             def param (new JSNode())
-            param.nodeType = "Identifier"
-            param.strValue = paramTok.value
+            param.type = "Identifier"
+            param.name = paramTok.value
             param.start = paramTok.start
             param.line = paramTok.line
             param.col = paramTok.col
@@ -704,24 +830,25 @@ class SimpleParser {
   
   fn parseAsyncFuncDecl:JSNode () {
     def func (new JSNode())
-    func.nodeType = "FunctionDeclaration"
+    func.type = "FunctionDeclaration"
     def startTok (this.peek())
     func.start = startTok.start
     func.line = startTok.line
     func.col = startTok.col
-    func.strValue2 = "async"
+    func.async = true
     
     this.expectValue("async")
     this.expectValue("function")
     
     ; Check for async generator: async function*
     if (this.matchValue("*")) {
-      func.strValue2 = "async-generator"
+      func.async = true
+      func.generator = true
       this.advance()
     }
     
     def idTok (this.expect("Identifier"))
-    func.strValue = idTok.value
+    func.name = idTok.value
     
     this.expectValue("(")
     while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
@@ -733,8 +860,8 @@ class SimpleParser {
       }
       def paramTok (this.expect("Identifier"))
       def param (new JSNode())
-      param.nodeType = "Identifier"
-      param.strValue = paramTok.value
+      param.type = "Identifier"
+      param.name = paramTok.value
       param.start = paramTok.start
       param.line = paramTok.line
       param.col = paramTok.col
@@ -752,7 +879,7 @@ class SimpleParser {
   
   fn parseClass:JSNode () {
     def classNode (new JSNode())
-    classNode.nodeType = "ClassDeclaration"
+    classNode.type = "ClassDeclaration"
     def startTok (this.peek())
     classNode.start = startTok.start
     classNode.line = startTok.line
@@ -762,15 +889,15 @@ class SimpleParser {
     
     ; Class name
     def idTok (this.expect("Identifier"))
-    classNode.strValue = idTok.value
+    classNode.name = idTok.value
     
     ; Optional extends
     if (this.matchValue("extends")) {
       this.advance()
       def superTok (this.expect("Identifier"))
       def superClass (new JSNode())
-      superClass.nodeType = "Identifier"
-      superClass.strValue = superTok.value
+      superClass.type = "Identifier"
+      superClass.name = superTok.value
       superClass.start = superTok.start
       superClass.line = superTok.line
       superClass.col = superTok.col
@@ -779,7 +906,7 @@ class SimpleParser {
     
     ; Class body
     def body (new JSNode())
-    body.nodeType = "ClassBody"
+    body.type = "ClassBody"
     def bodyStart (this.peek())
     body.start = bodyStart.start
     body.line = bodyStart.line
@@ -800,7 +927,7 @@ class SimpleParser {
   
   fn parseClassMethod:JSNode () {
     def method (new JSNode())
-    method.nodeType = "MethodDefinition"
+    method.type = "MethodDefinition"
     def startTok (this.peek())
     method.start = startTok.start
     method.line = startTok.line
@@ -810,7 +937,7 @@ class SimpleParser {
     def isStatic:boolean false
     if (this.matchValue("static")) {
       isStatic = true
-      method.strValue2 = "static"
+      method.static = true
       this.advance()
     }
     
@@ -833,7 +960,7 @@ class SimpleParser {
     
     ; Method name
     def nameTok (this.expect("Identifier"))
-    method.strValue = nameTok.value
+    method.name = nameTok.value
     
     if (nameTok.value == "constructor") {
       kind = "constructor"
@@ -841,7 +968,7 @@ class SimpleParser {
     
     ; Parse function
     def func (new JSNode())
-    func.nodeType = "FunctionExpression"
+    func.type = "FunctionExpression"
     func.start = nameTok.start
     func.line = nameTok.line
     func.col = nameTok.col
@@ -856,8 +983,8 @@ class SimpleParser {
       }
       def paramTok (this.expect("Identifier"))
       def param (new JSNode())
-      param.nodeType = "Identifier"
-      param.strValue = paramTok.value
+      param.type = "Identifier"
+      param.name = paramTok.value
       param.start = paramTok.start
       param.line = paramTok.line
       param.col = paramTok.col
@@ -886,7 +1013,7 @@ class SimpleParser {
   
   fn parseImport:JSNode () {
     def importNode (new JSNode())
-    importNode.nodeType = "ImportDeclaration"
+    importNode.type = "ImportDeclaration"
     def startTok (this.peek())
     importNode.start = startTok.start
     importNode.line = startTok.line
@@ -899,9 +1026,9 @@ class SimpleParser {
       def sourceTok (this.peek())
       this.advance()
       def source (new JSNode())
-      source.nodeType = "Literal"
-      source.strValue = sourceTok.value
-      source.strValue2 = "string"
+      source.type = "Literal"
+      source.raw = sourceTok.value
+      
       source.start = sourceTok.start
       source.line = sourceTok.line
       source.col = sourceTok.col
@@ -920,8 +1047,8 @@ class SimpleParser {
       def localTok (this.expect("Identifier"))
       
       def specifier (new JSNode())
-      specifier.nodeType = "ImportNamespaceSpecifier"
-      specifier.strValue = localTok.value
+      specifier.type = "ImportNamespaceSpecifier"
+      specifier.name = localTok.value
       specifier.start = localTok.start
       specifier.line = localTok.line
       specifier.col = localTok.col
@@ -930,9 +1057,9 @@ class SimpleParser {
       this.expectValue("from")
       def sourceTok (this.expect("String"))
       def source (new JSNode())
-      source.nodeType = "Literal"
-      source.strValue = sourceTok.value
-      source.strValue2 = "string"
+      source.type = "Literal"
+      source.raw = sourceTok.value
+      
       source.start = sourceTok.start
       source.line = sourceTok.line
       source.col = sourceTok.col
@@ -952,8 +1079,17 @@ class SimpleParser {
       def defaultTok (this.expect("Identifier"))
       
       def defaultSpec (new JSNode())
-      defaultSpec.nodeType = "ImportDefaultSpecifier"
-      defaultSpec.strValue = defaultTok.value
+      defaultSpec.type = "ImportDefaultSpecifier"
+      
+      ; ESTree: ImportDefaultSpecifier has local: Identifier
+      def localNode (new JSNode())
+      localNode.type = "Identifier"
+      localNode.name = defaultTok.value
+      localNode.start = defaultTok.start
+      localNode.line = defaultTok.line
+      localNode.col = defaultTok.col
+      defaultSpec.local = localNode
+      
       defaultSpec.start = defaultTok.start
       defaultSpec.line = defaultTok.line
       defaultSpec.col = defaultTok.col
@@ -967,14 +1103,23 @@ class SimpleParser {
         if (this.matchValue("*")) {
           this.advance()
           this.expectValue("as")
-          def localTok (this.expect("Identifier"))
+          def localTok2 (this.expect("Identifier"))
           
           def nsSpec (new JSNode())
-          nsSpec.nodeType = "ImportNamespaceSpecifier"
-          nsSpec.strValue = localTok.value
-          nsSpec.start = localTok.start
-          nsSpec.line = localTok.line
-          nsSpec.col = localTok.col
+          nsSpec.type = "ImportNamespaceSpecifier"
+          
+          ; ESTree: ImportNamespaceSpecifier has local: Identifier
+          def nsLocal (new JSNode())
+          nsLocal.type = "Identifier"
+          nsLocal.name = localTok2.value
+          nsLocal.start = localTok2.start
+          nsLocal.line = localTok2.line
+          nsLocal.col = localTok2.col
+          nsSpec.local = nsLocal
+          
+          nsSpec.start = localTok2.start
+          nsSpec.line = localTok2.line
+          nsSpec.col = localTok2.col
           push importNode.children nsSpec
         } {
           ; Named imports { ... }
@@ -993,9 +1138,9 @@ class SimpleParser {
     
     def sourceTok (this.expect("String"))
     def source (new JSNode())
-    source.nodeType = "Literal"
-    source.strValue = sourceTok.value
-    source.strValue2 = "string"
+    source.type = "Literal"
+    source.raw = sourceTok.value
+    
     source.start = sourceTok.start
     source.line = sourceTok.line
     source.col = sourceTok.col
@@ -1022,10 +1167,19 @@ class SimpleParser {
       }
       
       def specifier (new JSNode())
-      specifier.nodeType = "ImportSpecifier"
+      specifier.type = "ImportSpecifier"
       
       def importedTok (this.expect("Identifier"))
-      specifier.strValue = importedTok.value
+      
+      ; Create imported identifier node
+      def importedNode (new JSNode())
+      importedNode.type = "Identifier"
+      importedNode.name = importedTok.value
+      importedNode.start = importedTok.start
+      importedNode.line = importedTok.line
+      importedNode.col = importedTok.col
+      specifier.imported = importedNode
+      
       specifier.start = importedTok.start
       specifier.line = importedTok.line
       specifier.col = importedTok.col
@@ -1034,7 +1188,16 @@ class SimpleParser {
       if (this.matchValue("as")) {
         this.advance()
         def localTok (this.expect("Identifier"))
-        specifier.strValue2 = localTok.value
+        def localNode (new JSNode())
+        localNode.type = "Identifier"
+        localNode.name = localTok.value
+        localNode.start = localTok.start
+        localNode.line = localTok.line
+        localNode.col = localTok.col
+        specifier.local = localNode
+      } {
+        ; local is same as imported when no alias
+        specifier.local = importedNode
       }
       
       push importNode.children specifier
@@ -1047,7 +1210,7 @@ class SimpleParser {
   
   fn parseExport:JSNode () {
     def exportNode (new JSNode())
-    exportNode.nodeType = "ExportNamedDeclaration"
+    exportNode.type = "ExportNamedDeclaration"
     def startTok (this.peek())
     exportNode.start = startTok.start
     exportNode.line = startTok.line
@@ -1057,7 +1220,7 @@ class SimpleParser {
     
     ; Check for: export default ...
     if (this.matchValue("default")) {
-      exportNode.nodeType = "ExportDefaultDeclaration"
+      exportNode.type = "ExportDefaultDeclaration"
       this.advance()
       
       ; Could be function, class, or expression
@@ -1088,22 +1251,22 @@ class SimpleParser {
     
     ; Check for: export * from "module" (re-export all)
     if (this.matchValue("*")) {
-      exportNode.nodeType = "ExportAllDeclaration"
+      exportNode.type = "ExportAllDeclaration"
       this.advance()
       
       ; Check for: export * as name from "module"
       if (this.matchValue("as")) {
         this.advance()
         def exportedTok (this.expect("Identifier"))
-        exportNode.strValue = exportedTok.value
+        exportNode.name = exportedTok.value
       }
       
       this.expectValue("from")
       def sourceTok (this.expect("String"))
       def source (new JSNode())
-      source.nodeType = "Literal"
-      source.strValue = sourceTok.value
-      source.strValue2 = "string"
+      source.type = "Literal"
+      source.raw = sourceTok.value
+      
       source.start = sourceTok.start
       source.line = sourceTok.line
       source.col = sourceTok.col
@@ -1124,9 +1287,9 @@ class SimpleParser {
         this.advance()
         def sourceTok (this.expect("String"))
         def source (new JSNode())
-        source.nodeType = "Literal"
-        source.strValue = sourceTok.value
-        source.strValue2 = "string"
+        source.type = "Literal"
+        source.raw = sourceTok.value
+        
         source.start = sourceTok.start
         source.line = sourceTok.line
         source.col = sourceTok.col
@@ -1198,13 +1361,22 @@ class SimpleParser {
       }
       
       def specifier (new JSNode())
-      specifier.nodeType = "ExportSpecifier"
+      specifier.type = "ExportSpecifier"
       
       ; Handle 'default' keyword as identifier in export specifiers
       def localTok (this.peek())
       if ((this.matchType("Identifier")) || (this.matchValue("default"))) {
         this.advance()
-        specifier.strValue = localTok.value
+        
+        ; Create local identifier node
+        def localNode (new JSNode())
+        localNode.type = "Identifier"
+        localNode.name = localTok.value
+        localNode.start = localTok.start
+        localNode.line = localTok.line
+        localNode.col = localTok.col
+        specifier.local = localNode
+        
         specifier.start = localTok.start
         specifier.line = localTok.line
         specifier.col = localTok.col
@@ -1218,7 +1390,16 @@ class SimpleParser {
       if (this.matchValue("as")) {
         this.advance()
         def exportedTok (this.expect("Identifier"))
-        specifier.strValue2 = exportedTok.value
+        def exportedNode (new JSNode())
+        exportedNode.type = "Identifier"
+        exportedNode.name = exportedTok.value
+        exportedNode.start = exportedTok.start
+        exportedNode.line = exportedTok.line
+        exportedNode.col = exportedTok.col
+        specifier.exported = exportedNode
+      } {
+        ; exported is same as local when no alias
+        specifier.exported = specifier.local
       }
       
       push exportNode.children specifier
@@ -1231,7 +1412,7 @@ class SimpleParser {
   
   fn parseBlock:JSNode () {
     def block (new JSNode())
-    block.nodeType = "BlockStatement"
+    block.type = "BlockStatement"
     def startTok (this.peek())
     block.start = startTok.start
     block.line = startTok.line
@@ -1253,7 +1434,7 @@ class SimpleParser {
   
   fn parseReturn:JSNode () {
     def ret (new JSNode())
-    ret.nodeType = "ReturnStatement"
+    ret.type = "ReturnStatement"
     def startTok (this.peek())
     ret.start = startTok.start
     ret.line = startTok.line
@@ -1277,7 +1458,7 @@ class SimpleParser {
   
   fn parseIf:JSNode () {
     def ifStmt (new JSNode())
-    ifStmt.nodeType = "IfStatement"
+    ifStmt.type = "IfStatement"
     def startTok (this.peek())
     ifStmt.start = startTok.start
     ifStmt.line = startTok.line
@@ -1305,7 +1486,7 @@ class SimpleParser {
   
   fn parseWhile:JSNode () {
     def whileStmt (new JSNode())
-    whileStmt.nodeType = "WhileStatement"
+    whileStmt.type = "WhileStatement"
     def startTok (this.peek())
     whileStmt.start = startTok.start
     whileStmt.line = startTok.line
@@ -1327,7 +1508,7 @@ class SimpleParser {
   
   fn parseDoWhile:JSNode () {
     def doWhileStmt (new JSNode())
-    doWhileStmt.nodeType = "DoWhileStatement"
+    doWhileStmt.type = "DoWhileStatement"
     def startTok (this.peek())
     doWhileStmt.start = startTok.start
     doWhileStmt.line = startTok.line
@@ -1377,7 +1558,7 @@ class SimpleParser {
         
         ; Check if next is destructuring pattern
         def declarator (new JSNode())
-        declarator.nodeType = "VariableDeclarator"
+        declarator.type = "VariableDeclarator"
         def declTok (this.peek())
         declarator.start = declTok.start
         declarator.line = declTok.line
@@ -1386,22 +1567,22 @@ class SimpleParser {
         if (this.matchValue("[")) {
           ; Array destructuring pattern
           def pattern (this.parseArrayPattern())
-          declarator.left = pattern
+          declarator.id = pattern
         } {
           if (this.matchValue("{")) {
             ; Object destructuring pattern
             def pattern (this.parseObjectPattern())
-            declarator.left = pattern
+            declarator.id = pattern
           } {
             ; Simple identifier
             def idTok (this.expect("Identifier"))
             def id (new JSNode())
-            id.nodeType = "Identifier"
-            id.strValue = idTok.value
+            id.type = "Identifier"
+            id.name = idTok.value
             id.start = idTok.start
             id.line = idTok.line
             id.col = idTok.col
-            declarator.left = id
+            declarator.id = id
           }
         }
         
@@ -1410,8 +1591,8 @@ class SimpleParser {
           isForOf = true
           this.advance()
           def varDecl (new JSNode())
-          varDecl.nodeType = "VariableDeclaration"
-          varDecl.strValue = keyword
+          varDecl.type = "VariableDeclaration"
+          varDecl.kind = keyword
           varDecl.start = declTok.start
           varDecl.line = declTok.line
           varDecl.col = declTok.col
@@ -1422,8 +1603,8 @@ class SimpleParser {
             isForIn = true
             this.advance()
             def varDecl (new JSNode())
-            varDecl.nodeType = "VariableDeclaration"
-            varDecl.strValue = keyword
+            varDecl.type = "VariableDeclaration"
+            varDecl.kind = keyword
             varDecl.start = declTok.start
             varDecl.line = declTok.line
             varDecl.col = declTok.col
@@ -1435,11 +1616,11 @@ class SimpleParser {
             if (this.matchValue("=")) {
               this.advance()
               def initVal (this.parseAssignment())
-              declarator.right = initVal
+              declarator.init = initVal
             }
             def varDecl (new JSNode())
-            varDecl.nodeType = "VariableDeclaration"
-            varDecl.strValue = keyword
+            varDecl.type = "VariableDeclaration"
+            varDecl.kind = keyword
             varDecl.start = declTok.start
             varDecl.line = declTok.line
             varDecl.col = declTok.col
@@ -1476,7 +1657,7 @@ class SimpleParser {
     }
     
     if (isForOf) {
-      forStmt.nodeType = "ForOfStatement"
+      forStmt.type = "ForOfStatement"
       forStmt.left = (unwrap leftNode)
       def rightExpr (this.parseExpr())
       forStmt.right = rightExpr
@@ -1487,7 +1668,7 @@ class SimpleParser {
     }
     
     if (isForIn) {
-      forStmt.nodeType = "ForInStatement"
+      forStmt.type = "ForInStatement"
       forStmt.left = (unwrap leftNode)
       def rightExpr (this.parseExpr())
       forStmt.right = rightExpr
@@ -1498,7 +1679,7 @@ class SimpleParser {
     }
     
     ; Regular for statement
-    forStmt.nodeType = "ForStatement"
+    forStmt.type = "ForStatement"
     if (!null? leftNode) {
       forStmt.left = (unwrap leftNode)
     }
@@ -1530,7 +1711,7 @@ class SimpleParser {
   
   fn parseSwitch:JSNode () {
     def switchStmt (new JSNode())
-    switchStmt.nodeType = "SwitchStatement"
+    switchStmt.type = "SwitchStatement"
     def startTok (this.peek())
     switchStmt.start = startTok.start
     switchStmt.line = startTok.line
@@ -1548,7 +1729,7 @@ class SimpleParser {
       def caseNode (new JSNode())
       
       if (this.matchValue("case")) {
-        caseNode.nodeType = "SwitchCase"
+        caseNode.type = "SwitchCase"
         def caseTok (this.peek())
         caseNode.start = caseTok.start
         caseNode.line = caseTok.line
@@ -1568,8 +1749,8 @@ class SimpleParser {
         push switchStmt.children caseNode
       } {
         if (this.matchValue("default")) {
-          caseNode.nodeType = "SwitchCase"
-          caseNode.strValue = "default"
+          caseNode.type = "SwitchCase"
+          caseNode.name = "default"
           def defTok (this.peek())
           caseNode.start = defTok.start
           caseNode.line = defTok.line
@@ -1601,7 +1782,7 @@ class SimpleParser {
   
   fn parseTry:JSNode () {
     def tryStmt (new JSNode())
-    tryStmt.nodeType = "TryStatement"
+    tryStmt.type = "TryStatement"
     def startTok (this.peek())
     tryStmt.start = startTok.start
     tryStmt.line = startTok.line
@@ -1614,7 +1795,7 @@ class SimpleParser {
     ; Catch clause
     if (this.matchValue("catch")) {
       def catchNode (new JSNode())
-      catchNode.nodeType = "CatchClause"
+      catchNode.type = "CatchClause"
       def catchTok (this.peek())
       catchNode.start = catchTok.start
       catchNode.line = catchTok.line
@@ -1623,7 +1804,7 @@ class SimpleParser {
       this.advance()
       this.expectValue("(")
       def paramTok (this.expect("Identifier"))
-      catchNode.strValue = paramTok.value
+      catchNode.name = paramTok.value
       this.expectValue(")")
       
       def catchBody (this.parseBlock())
@@ -1646,7 +1827,7 @@ class SimpleParser {
   
   fn parseThrow:JSNode () {
     def throwStmt (new JSNode())
-    throwStmt.nodeType = "ThrowStatement"
+    throwStmt.type = "ThrowStatement"
     def startTok (this.peek())
     throwStmt.start = startTok.start
     throwStmt.line = startTok.line
@@ -1667,7 +1848,7 @@ class SimpleParser {
   
   fn parseBreak:JSNode () {
     def breakStmt (new JSNode())
-    breakStmt.nodeType = "BreakStatement"
+    breakStmt.type = "BreakStatement"
     def startTok (this.peek())
     breakStmt.start = startTok.start
     breakStmt.line = startTok.line
@@ -1678,7 +1859,7 @@ class SimpleParser {
     ; Optional label
     if (this.matchType("Identifier")) {
       def labelTok (this.peek())
-      breakStmt.strValue = labelTok.value
+      breakStmt.name = labelTok.value
       this.advance()
     }
     
@@ -1693,7 +1874,7 @@ class SimpleParser {
   
   fn parseContinue:JSNode () {
     def contStmt (new JSNode())
-    contStmt.nodeType = "ContinueStatement"
+    contStmt.type = "ContinueStatement"
     def startTok (this.peek())
     contStmt.start = startTok.start
     contStmt.line = startTok.line
@@ -1704,7 +1885,7 @@ class SimpleParser {
     ; Optional label
     if (this.matchType("Identifier")) {
       def labelTok (this.peek())
-      contStmt.strValue = labelTok.value
+      contStmt.name = labelTok.value
       this.advance()
     }
     
@@ -1719,7 +1900,7 @@ class SimpleParser {
   
   fn parseExprStmt:JSNode () {
     def stmt (new JSNode())
-    stmt.nodeType = "ExpressionStatement"
+    stmt.type = "ExpressionStatement"
     def startTok (this.peek())
     stmt.start = startTok.start
     stmt.line = startTok.line
@@ -1751,8 +1932,8 @@ class SimpleParser {
       def right (this.parseAssignment())
       
       def assign (new JSNode())
-      assign.nodeType = "AssignmentExpression"
-      assign.strValue = opTok.value
+      assign.type = "AssignmentExpression"
+      assign.operator = opTok.value
       assign.left = left
       assign.right = right
       assign.start = left.start
@@ -1774,7 +1955,7 @@ class SimpleParser {
       def alternate (this.parseAssignment())
       
       def ternary (new JSNode())
-      ternary.nodeType = "ConditionalExpression"
+      ternary.type = "ConditionalExpression"
       ternary.left = condition
       ternary.body = consequent
       ternary.right = alternate
@@ -1796,8 +1977,8 @@ class SimpleParser {
       def right (this.parseNullishCoalescing())
       
       def binary (new JSNode())
-      binary.nodeType = "LogicalExpression"
-      binary.strValue = opTok.value
+      binary.type = "LogicalExpression"
+      binary.operator = opTok.value
       binary.left = left
       binary.right = right
       binary.start = left.start
@@ -1818,8 +1999,8 @@ class SimpleParser {
       def right (this.parseLogicalAnd())
       
       def binary (new JSNode())
-      binary.nodeType = "LogicalExpression"
-      binary.strValue = opTok.value
+      binary.type = "LogicalExpression"
+      binary.operator = opTok.value
       binary.left = left
       binary.right = right
       binary.start = left.start
@@ -1840,8 +2021,8 @@ class SimpleParser {
       def right (this.parseEquality())
       
       def binary (new JSNode())
-      binary.nodeType = "LogicalExpression"
-      binary.strValue = opTok.value
+      binary.type = "LogicalExpression"
+      binary.operator = opTok.value
       binary.left = left
       binary.right = right
       binary.start = left.start
@@ -1863,8 +2044,8 @@ class SimpleParser {
       def right (this.parseComparison())
       
       def binary (new JSNode())
-      binary.nodeType = "BinaryExpression"
-      binary.strValue = opTok.value
+      binary.type = "BinaryExpression"
+      binary.operator = opTok.value
       binary.left = left
       binary.right = right
       binary.start = left.start
@@ -1887,8 +2068,8 @@ class SimpleParser {
       def right (this.parseAdditive())
       
       def binary (new JSNode())
-      binary.nodeType = "BinaryExpression"
-      binary.strValue = opTok.value
+      binary.type = "BinaryExpression"
+      binary.operator = opTok.value
       binary.left = left
       binary.right = right
       binary.start = left.start
@@ -1911,8 +2092,8 @@ class SimpleParser {
       def right (this.parseMultiplicative())
       
       def binary (new JSNode())
-      binary.nodeType = "BinaryExpression"
-      binary.strValue = opTok.value
+      binary.type = "BinaryExpression"
+      binary.operator = opTok.value
       binary.left = left
       binary.right = right
       binary.start = left.start
@@ -1935,8 +2116,8 @@ class SimpleParser {
       def right (this.parseUnary())
       
       def binary (new JSNode())
-      binary.nodeType = "BinaryExpression"
-      binary.strValue = opTok.value
+      binary.type = "BinaryExpression"
+      binary.operator = opTok.value
       binary.left = left
       binary.right = right
       binary.start = left.start
@@ -1961,8 +2142,8 @@ class SimpleParser {
         def arg (this.parseUnary())
         
         def unary (new JSNode())
-        unary.nodeType = "UnaryExpression"
-        unary.strValue = opTok.value
+        unary.type = "UnaryExpression"
+        unary.operator = opTok.value
         unary.left = arg
         unary.start = opTok.start
         unary.line = opTok.line
@@ -1978,8 +2159,8 @@ class SimpleParser {
       def arg (this.parseUnary())
       
       def unary (new JSNode())
-      unary.nodeType = "UnaryExpression"
-      unary.strValue = opTok.value
+      unary.type = "UnaryExpression"
+      unary.operator = opTok.value
       unary.left = arg
       unary.start = opTok.start
       unary.line = opTok.line
@@ -1994,9 +2175,9 @@ class SimpleParser {
       def arg (this.parseUnary())
       
       def update (new JSNode())
-      update.nodeType = "UpdateExpression"
-      update.strValue = opTok.value
-      update.strValue2 = "prefix"
+      update.type = "UpdateExpression"
+      update.operator = opTok.value
+      update.prefix = true
       update.left = arg
       update.start = opTok.start
       update.line = opTok.line
@@ -2010,14 +2191,14 @@ class SimpleParser {
       this.advance()
       
       def yieldExpr (new JSNode())
-      yieldExpr.nodeType = "YieldExpression"
+      yieldExpr.type = "YieldExpression"
       yieldExpr.start = yieldTok.start
       yieldExpr.line = yieldTok.line
       yieldExpr.col = yieldTok.col
       
       ; Check for yield*
       if (this.matchValue("*")) {
-        yieldExpr.strValue = "delegate"
+        yieldExpr.delegate = true
         this.advance()
       }
       
@@ -2038,7 +2219,7 @@ class SimpleParser {
       def arg (this.parseUnary())
       
       def awaitExpr (new JSNode())
-      awaitExpr.nodeType = "AwaitExpression"
+      awaitExpr.type = "AwaitExpression"
       awaitExpr.left = arg
       awaitExpr.start = awaitTok.start
       awaitExpr.line = awaitTok.line
@@ -2067,9 +2248,9 @@ class SimpleParser {
         this.advance()
         
         def update (new JSNode())
-        update.nodeType = "UpdateExpression"
-        update.strValue = opTok.value
-        update.strValue2 = "postfix"
+        update.type = "UpdateExpression"
+        update.operator = opTok.value
+        update.prefix = false
         update.left = object
         update.start = object.start
         update.line = object.line
@@ -2086,7 +2267,7 @@ class SimpleParser {
             this.advance()
             
             def call (new JSNode())
-            call.nodeType = "OptionalCallExpression"
+            call.type = "OptionalCallExpression"
             call.left = object
             call.start = object.start
             call.line = object.line
@@ -2113,10 +2294,10 @@ class SimpleParser {
               this.expectValue("]")
               
               def member (new JSNode())
-              member.nodeType = "OptionalMemberExpression"
+              member.type = "OptionalMemberExpression"
               member.left = object
               member.right = propExpr
-              member.strValue2 = "bracket"
+              member.computed = true
               member.start = object.start
               member.line = object.line
               member.col = object.col
@@ -2126,10 +2307,10 @@ class SimpleParser {
               def propTok (this.expect("Identifier"))
               
               def member (new JSNode())
-              member.nodeType = "OptionalMemberExpression"
+              member.type = "OptionalMemberExpression"
               member.left = object
-              member.strValue = propTok.value
-              member.strValue2 = "dot"
+              member.name = propTok.value
+              member.computed = false
               member.start = object.start
               member.line = object.line
               member.col = object.col
@@ -2142,10 +2323,10 @@ class SimpleParser {
         def propTok (this.expect("Identifier"))
         
         def member (new JSNode())
-        member.nodeType = "MemberExpression"
+        member.type = "MemberExpression"
         member.left = object
-        member.strValue = propTok.value
-        member.strValue2 = "dot"
+        member.name = propTok.value
+        member.computed = false
         member.start = object.start
         member.line = object.line
         member.col = object.col
@@ -2157,10 +2338,10 @@ class SimpleParser {
           this.expectValue("]")
           
           def member (new JSNode())
-          member.nodeType = "MemberExpression"
+          member.type = "MemberExpression"
           member.left = object
           member.right = propExpr
-          member.strValue2 = "bracket"
+          member.computed = true
           member.start = object.start
           member.line = object.line
           member.col = object.col
@@ -2170,7 +2351,7 @@ class SimpleParser {
             this.advance()
             
             def call (new JSNode())
-            call.nodeType = "CallExpression"
+            call.type = "CallExpression"
             call.left = object
             call.start = object.start
             call.line = object.line
@@ -2190,7 +2371,7 @@ class SimpleParser {
                 def spreadArg (this.parseAssignment())
                 
                 def spread (new JSNode())
-                spread.nodeType = "SpreadElement"
+                spread.type = "SpreadElement"
                 spread.left = spreadArg
                 spread.start = spreadTok.start
                 spread.line = spreadTok.line
@@ -2220,7 +2401,7 @@ class SimpleParser {
   
   fn parseNewExpression:JSNode () {
     def newExpr (new JSNode())
-    newExpr.nodeType = "NewExpression"
+    newExpr.type = "NewExpression"
     def startTok (this.peek())
     newExpr.start = startTok.start
     newExpr.line = startTok.line
@@ -2240,10 +2421,10 @@ class SimpleParser {
         def propTok (this.expect("Identifier"))
         
         def member (new JSNode())
-        member.nodeType = "MemberExpression"
+        member.type = "MemberExpression"
         member.left = callee
-        member.strValue = propTok.value
-        member.strValue2 = "dot"
+        member.name = propTok.value
+        member.computed = false
         member.start = callee.start
         member.line = callee.line
         member.col = callee.col
@@ -2297,8 +2478,8 @@ class SimpleParser {
       }
       this.advance()
       def id (new JSNode())
-      id.nodeType = "Identifier"
-      id.strValue = tok.value
+      id.type = "Identifier"
+      id.name = tok.value
       id.start = tok.start
       id.end = tok.end
       id.line = tok.line
@@ -2309,9 +2490,9 @@ class SimpleParser {
     if (tokType == "Number") {
       this.advance()
       def lit (new JSNode())
-      lit.nodeType = "Literal"
-      lit.strValue = tok.value
-      lit.strValue2 = "number"
+      lit.type = "Literal"
+      lit.raw = tok.value
+
       lit.start = tok.start
       lit.end = tok.end
       lit.line = tok.line
@@ -2322,9 +2503,9 @@ class SimpleParser {
     if (tokType == "String") {
       this.advance()
       def lit (new JSNode())
-      lit.nodeType = "Literal"
-      lit.strValue = tok.value
-      lit.strValue2 = "string"
+      lit.type = "Literal"
+      lit.raw = tok.value
+
       lit.start = tok.start
       lit.end = tok.end
       lit.line = tok.line
@@ -2335,9 +2516,9 @@ class SimpleParser {
     if ((tokVal == "true") || (tokVal == "false")) {
       this.advance()
       def lit (new JSNode())
-      lit.nodeType = "Literal"
-      lit.strValue = tok.value
-      lit.strValue2 = "boolean"
+      lit.type = "Literal"
+      lit.raw = tok.value
+
       lit.start = tok.start
       lit.end = tok.end
       lit.line = tok.line
@@ -2348,9 +2529,9 @@ class SimpleParser {
     if (tokVal == "null") {
       this.advance()
       def lit (new JSNode())
-      lit.nodeType = "Literal"
-      lit.strValue = "null"
-      lit.strValue2 = "null"
+      lit.type = "Literal"
+      lit.raw = "null"
+
       lit.start = tok.start
       lit.end = tok.end
       lit.line = tok.line
@@ -2362,8 +2543,8 @@ class SimpleParser {
     if (tokType == "TemplateLiteral") {
       this.advance()
       def tmpl (new JSNode())
-      tmpl.nodeType = "TemplateLiteral"
-      tmpl.strValue = tok.value
+      tmpl.type = "TemplateLiteral"
+      tmpl.raw = tok.value
       tmpl.start = tok.start
       tmpl.end = tok.end
       tmpl.line = tok.line
@@ -2403,8 +2584,8 @@ class SimpleParser {
     ; Fallback
     this.advance()
     def fallback (new JSNode())
-    fallback.nodeType = "Identifier"
-    fallback.strValue = tok.value
+    fallback.type = "Identifier"
+    fallback.name = tok.value
     fallback.start = tok.start
     fallback.end = tok.end
     fallback.line = tok.line
@@ -2414,7 +2595,7 @@ class SimpleParser {
   
   fn parseArray:JSNode () {
     def arr (new JSNode())
-    arr.nodeType = "ArrayExpression"
+    arr.type = "ArrayExpression"
     def startTok (this.peek())
     arr.start = startTok.start
     arr.line = startTok.line
@@ -2437,7 +2618,7 @@ class SimpleParser {
         def arg (this.parseAssignment())
         
         def spread (new JSNode())
-        spread.nodeType = "SpreadElement"
+        spread.type = "SpreadElement"
         spread.left = arg
         spread.start = spreadTok.start
         spread.line = spreadTok.line
@@ -2456,7 +2637,7 @@ class SimpleParser {
   
   fn parseObject:JSNode () {
     def obj (new JSNode())
-    obj.nodeType = "ObjectExpression"
+    obj.type = "ObjectExpression"
     def startTok (this.peek())
     obj.start = startTok.start
     obj.line = startTok.line
@@ -2479,7 +2660,7 @@ class SimpleParser {
         def arg (this.parseAssignment())
         
         def spread (new JSNode())
-        spread.nodeType = "SpreadElement"
+        spread.type = "SpreadElement"
         spread.left = arg
         spread.start = spreadTok.start
         spread.line = spreadTok.line
@@ -2487,7 +2668,7 @@ class SimpleParser {
         push obj.children spread
       } {
         def prop (new JSNode())
-        prop.nodeType = "Property"
+        prop.type = "Property"
         
         def keyTok (this.peek())
         def keyType (this.peekType())
@@ -2502,7 +2683,7 @@ class SimpleParser {
           
           prop.right = keyExpr
           prop.left = val
-          prop.strValue2 = "computed"
+          prop.computed = true
           prop.start = keyTok.start
           prop.line = keyTok.line
           prop.col = keyTok.col
@@ -2510,7 +2691,7 @@ class SimpleParser {
         } {
           if ((keyType == "Identifier") || (keyType == "String") || (keyType == "Number")) {
             this.advance()
-            prop.strValue = keyTok.value
+            prop.name = keyTok.value
             prop.start = keyTok.start
             prop.line = keyTok.line
             prop.col = keyTok.col
@@ -2523,13 +2704,13 @@ class SimpleParser {
             } {
               ; Shorthand - value is same as key
               def id (new JSNode())
-              id.nodeType = "Identifier"
-              id.strValue = keyTok.value
+              id.type = "Identifier"
+              id.name = keyTok.value
               id.start = keyTok.start
               id.line = keyTok.line
               id.col = keyTok.col
               prop.left = id
-              prop.strValue2 = "shorthand"
+              prop.shorthand = true
             }
             push obj.children prop
           } {
@@ -2551,7 +2732,7 @@ class SimpleParser {
   
   fn parseArrayPattern:JSNode () {
     def pattern (new JSNode())
-    pattern.nodeType = "ArrayPattern"
+    pattern.type = "ArrayPattern"
     def startTok (this.peek())
     pattern.start = startTok.start
     pattern.line = startTok.line
@@ -2574,8 +2755,8 @@ class SimpleParser {
         def idTok (this.expect("Identifier"))
         
         def rest (new JSNode())
-        rest.nodeType = "RestElement"
-        rest.strValue = idTok.value
+        rest.type = "RestElement"
+        rest.name = idTok.value
         rest.start = restTok.start
         rest.line = restTok.line
         rest.col = restTok.col
@@ -2592,8 +2773,8 @@ class SimpleParser {
           } {
             def idTok (this.expect("Identifier"))
             def id (new JSNode())
-            id.nodeType = "Identifier"
-            id.strValue = idTok.value
+            id.type = "Identifier"
+            id.name = idTok.value
             id.start = idTok.start
             id.line = idTok.line
             id.col = idTok.col
@@ -2610,7 +2791,7 @@ class SimpleParser {
   
   fn parseObjectPattern:JSNode () {
     def pattern (new JSNode())
-    pattern.nodeType = "ObjectPattern"
+    pattern.type = "ObjectPattern"
     def startTok (this.peek())
     pattern.start = startTok.start
     pattern.line = startTok.line
@@ -2633,18 +2814,18 @@ class SimpleParser {
         def idTok (this.expect("Identifier"))
         
         def rest (new JSNode())
-        rest.nodeType = "RestElement"
-        rest.strValue = idTok.value
+        rest.type = "RestElement"
+        rest.name = idTok.value
         rest.start = restTok.start
         rest.line = restTok.line
         rest.col = restTok.col
         push pattern.children rest
       } {
         def prop (new JSNode())
-        prop.nodeType = "Property"
+        prop.type = "Property"
         
         def keyTok (this.expect("Identifier"))
-        prop.strValue = keyTok.value
+        prop.name = keyTok.value
         prop.start = keyTok.start
         prop.line = keyTok.line
         prop.col = keyTok.col
@@ -2662,8 +2843,8 @@ class SimpleParser {
             } {
               def idTok2 (this.expect("Identifier"))
               def id (new JSNode())
-              id.nodeType = "Identifier"
-              id.strValue = idTok2.value
+              id.type = "Identifier"
+              id.name = idTok2.value
               id.start = idTok2.start
               id.line = idTok2.line
               id.col = idTok2.col
@@ -2673,13 +2854,13 @@ class SimpleParser {
         } {
           ; Shorthand: { x } means { x: x }
           def id (new JSNode())
-          id.nodeType = "Identifier"
-          id.strValue = keyTok.value
+          id.type = "Identifier"
+          id.name = keyTok.value
           id.start = keyTok.start
           id.line = keyTok.line
           id.col = keyTok.col
           prop.left = id
-          prop.strValue2 = "shorthand"
+          prop.shorthand = true
         }
         
         push pattern.children prop
@@ -2721,7 +2902,7 @@ class SimpleParser {
   
   fn parseArrowFunction:JSNode () {
     def arrow (new JSNode())
-    arrow.nodeType = "ArrowFunctionExpression"
+    arrow.type = "ArrowFunctionExpression"
     def startTok (this.peek())
     arrow.start = startTok.start
     arrow.line = startTok.line
@@ -2740,8 +2921,8 @@ class SimpleParser {
         }
         def paramTok (this.expect("Identifier"))
         def param (new JSNode())
-        param.nodeType = "Identifier"
-        param.strValue = paramTok.value
+        param.type = "Identifier"
+        param.name = paramTok.value
         param.start = paramTok.start
         param.line = paramTok.line
         param.col = paramTok.col
@@ -2752,8 +2933,8 @@ class SimpleParser {
       ; Single parameter: x => ...
       def paramTok (this.expect("Identifier"))
       def param (new JSNode())
-      param.nodeType = "Identifier"
-      param.strValue = paramTok.value
+      param.type = "Identifier"
+      param.name = paramTok.value
       param.start = paramTok.start
       param.line = paramTok.line
       param.col = paramTok.col
@@ -2780,8 +2961,8 @@ class SimpleParser {
   
   fn parseAsyncArrowFunction:JSNode () {
     def arrow (new JSNode())
-    arrow.nodeType = "ArrowFunctionExpression"
-    arrow.strValue2 = "async"
+    arrow.type = "ArrowFunctionExpression"
+    arrow.async = true
     def startTok (this.peek())
     arrow.start = startTok.start
     arrow.line = startTok.line
@@ -2802,8 +2983,8 @@ class SimpleParser {
         }
         def paramTok (this.expect("Identifier"))
         def param (new JSNode())
-        param.nodeType = "Identifier"
-        param.strValue = paramTok.value
+        param.type = "Identifier"
+        param.name = paramTok.value
         param.start = paramTok.start
         param.line = paramTok.line
         param.col = paramTok.col
@@ -2814,8 +2995,8 @@ class SimpleParser {
       ; Single parameter: async x => ...
       def paramTok (this.expect("Identifier"))
       def param (new JSNode())
-      param.nodeType = "Identifier"
-      param.strValue = paramTok.value
+      param.type = "Identifier"
+      param.name = paramTok.value
       param.start = paramTok.start
       param.line = paramTok.line
       param.col = paramTok.col
@@ -2853,8 +3034,8 @@ class ASTPrinter {
     def numComments (array_length node.leadingComments)
     if (numComments > 0) {
       for node.leadingComments comment:JSNode ci {
-        def commentType comment.nodeType
-        def preview comment.strValue
+        def commentType comment.type
+        def preview comment.raw
         if ((strlen preview) > 40) {
           preview = (substring preview 0 40) + "..."
         }
@@ -2862,11 +3043,11 @@ class ASTPrinter {
       }
     }
     
-    def nodeType node.nodeType
+    def nodeType node.type
     def loc "[" + node.line + ":" + node.col + "]"
     
     if (nodeType == "VariableDeclaration") {
-      def kind node.strValue
+      def kind node.name
       if ((strlen kind) > 0) {
         print indent + "VariableDeclaration (" + kind + ") " + loc
       } {
@@ -2881,9 +3062,9 @@ class ASTPrinter {
     if (nodeType == "VariableDeclarator") {
       if (!null? node.left) {
         def id (unwrap node.left)
-        def idType id.nodeType
+        def idType id.type
         if (idType == "Identifier") {
-          print indent + "VariableDeclarator: " + id.strValue + " " + loc
+          print indent + "VariableDeclarator: " + id.name + " " + loc
         } {
           print indent + "VariableDeclarator " + loc
           print indent + "  pattern:"
@@ -2904,23 +3085,24 @@ class ASTPrinter {
         if (pi > 0) {
           params = params + ", "
         }
-        params = params + p.strValue
+        params = params + p.name
       }
-      def kind node.strValue2
       def prefix ""
-      if (kind == "async") {
-        prefix = "async "
-      }
-      if (kind == "generator") {
-        prefix = "function* "
-      }
-      if (kind == "async-generator") {
-        prefix = "async function* "
+      if (node.async) {
+        if (node.generator) {
+          prefix = "async function* "
+        } {
+          prefix = "async "
+        }
+      } {
+        if (node.generator) {
+          prefix = "function* "
+        }
       }
       if ((strlen prefix) > 0) {
-        print indent + "FunctionDeclaration: " + prefix + node.strValue + "(" + params + ") " + loc
+        print indent + "FunctionDeclaration: " + prefix + node.name + "(" + params + ") " + loc
       } {
-        print indent + "FunctionDeclaration: " + node.strValue + "(" + params + ") " + loc
+        print indent + "FunctionDeclaration: " + node.name + "(" + params + ") " + loc
       }
       if (!null? node.body) {
         ASTPrinter.printNode((unwrap node.body) (depth + 1))
@@ -2930,10 +3112,10 @@ class ASTPrinter {
     
     ; ES6 Class
     if (nodeType == "ClassDeclaration") {
-      def output indent + "ClassDeclaration: " + node.strValue
+      def output indent + "ClassDeclaration: " + node.name
       if (!null? node.left) {
         def superClass (unwrap node.left)
-        output = output + " extends " + superClass.strValue
+        output = output + " extends " + superClass.name
       }
       print output + " " + loc
       if (!null? node.body) {
@@ -2952,10 +3134,10 @@ class ASTPrinter {
     
     if (nodeType == "MethodDefinition") {
       def staticStr ""
-      if (node.strValue2 == "static") {
+      if (node.static) {
         staticStr = "static "
       }
-      print indent + "MethodDefinition: " + staticStr + node.strValue + " " + loc
+      print indent + "MethodDefinition: " + staticStr + node.name + " " + loc
       if (!null? node.body) {
         ASTPrinter.printNode((unwrap node.body) (depth + 1))
       }
@@ -2969,10 +3151,10 @@ class ASTPrinter {
         if (pi > 0) {
           params = params + ", "
         }
-        params = params + p.strValue
+        params = params + p.name
       }
       def asyncStr ""
-      if (node.strValue2 == "async") {
+      if (node.async) {
         asyncStr = "async "
       }
       print indent + "ArrowFunctionExpression: " + asyncStr + "(" + params + ") => " + loc
@@ -2985,7 +3167,7 @@ class ASTPrinter {
     ; Yield expression (generator)
     if (nodeType == "YieldExpression") {
       def delegateStr ""
-      if (node.strValue == "delegate") {
+      if (node.name == "delegate") {
         delegateStr = "*"
       }
       print indent + "YieldExpression" + delegateStr + " " + loc
@@ -3006,7 +3188,7 @@ class ASTPrinter {
     
     ; Template literal
     if (nodeType == "TemplateLiteral") {
-      print indent + "TemplateLiteral: `" + node.strValue + "` " + loc
+      print indent + "TemplateLiteral: `" + node.name + "` " + loc
       return
     }
     
@@ -3052,7 +3234,7 @@ class ASTPrinter {
     }
     
     if (nodeType == "AssignmentExpression") {
-      print indent + "AssignmentExpression: " + node.strValue + " " + loc
+      print indent + "AssignmentExpression: " + node.name + " " + loc
       if (!null? node.left) {
         print indent + "  left:"
         ASTPrinter.printNode((unwrap node.left) (depth + 2))
@@ -3065,7 +3247,7 @@ class ASTPrinter {
     }
     
     if ((nodeType == "BinaryExpression") || (nodeType == "LogicalExpression")) {
-      print indent + nodeType + ": " + node.strValue + " " + loc
+      print indent + nodeType + ": " + node.name + " " + loc
       if (!null? node.left) {
         print indent + "  left:"
         ASTPrinter.printNode((unwrap node.left) (depth + 2))
@@ -3078,7 +3260,7 @@ class ASTPrinter {
     }
     
     if (nodeType == "UnaryExpression") {
-      print indent + "UnaryExpression: " + node.strValue + " " + loc
+      print indent + "UnaryExpression: " + node.name + " " + loc
       if (!null? node.left) {
         ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
@@ -3087,12 +3269,12 @@ class ASTPrinter {
     
     if (nodeType == "UpdateExpression") {
       def prefix ""
-      if (node.strValue2 == "prefix") {
+      if (node.prefix) {
         prefix = "prefix "
       } {
         prefix = "postfix "
       }
-      print indent + "UpdateExpression: " + prefix + node.strValue + " " + loc
+      print indent + "UpdateExpression: " + prefix + node.name + " " + loc
       if (!null? node.left) {
         ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
@@ -3147,8 +3329,8 @@ class ASTPrinter {
     }
     
     if (nodeType == "MemberExpression") {
-      if (node.strValue2 == "dot") {
-        print indent + "MemberExpression: ." + node.strValue + " " + loc
+      if ((node.computed == false)) {
+        print indent + "MemberExpression: ." + node.name + " " + loc
       } {
         print indent + "MemberExpression: [computed] " + loc
       }
@@ -3162,12 +3344,12 @@ class ASTPrinter {
     }
     
     if (nodeType == "Identifier") {
-      print indent + "Identifier: " + node.strValue + " " + loc
+      print indent + "Identifier: " + node.name + " " + loc
       return
     }
     
     if (nodeType == "Literal") {
-      print indent + "Literal: " + node.strValue + " (" + node.strValue2 + ") " + loc
+      print indent + "Literal: " + node.name + " (" + node.raw + ") " + loc
       return
     }
     
@@ -3189,10 +3371,10 @@ class ASTPrinter {
     
     if (nodeType == "Property") {
       def shorthand ""
-      if (node.strValue2 == "shorthand") {
+      if (node.shorthand) {
         shorthand = " (shorthand)"
       }
-      print indent + "Property: " + node.strValue + shorthand + " " + loc
+      print indent + "Property: " + node.name + shorthand + " " + loc
       if (!null? node.left) {
         ASTPrinter.printNode((unwrap node.left) (depth + 1))
       }
@@ -3226,7 +3408,7 @@ class ASTPrinter {
     }
     
     if (nodeType == "RestElement") {
-      print indent + "RestElement: ..." + node.strValue + " " + loc
+      print indent + "RestElement: ..." + node.name + " " + loc
       return
     }
     
@@ -3325,7 +3507,7 @@ class ASTPrinter {
     }
     
     if (nodeType == "SwitchCase") {
-      if (node.strValue == "default") {
+      if (node.name == "default") {
         print indent + "SwitchCase: default " + loc
       } {
         print indent + "SwitchCase " + loc
@@ -3361,7 +3543,7 @@ class ASTPrinter {
     }
     
     if (nodeType == "CatchClause") {
-      print indent + "CatchClause: " + node.strValue + " " + loc
+      print indent + "CatchClause: " + node.name + " " + loc
       if (!null? node.body) {
         ASTPrinter.printNode((unwrap node.body) (depth + 1))
       }
@@ -3377,8 +3559,8 @@ class ASTPrinter {
     }
     
     if (nodeType == "BreakStatement") {
-      if ((strlen node.strValue) > 0) {
-        print indent + "BreakStatement: " + node.strValue + " " + loc
+      if ((strlen node.name) > 0) {
+        print indent + "BreakStatement: " + node.name + " " + loc
       } {
         print indent + "BreakStatement " + loc
       }
@@ -3386,8 +3568,8 @@ class ASTPrinter {
     }
     
     if (nodeType == "ContinueStatement") {
-      if ((strlen node.strValue) > 0) {
-        print indent + "ContinueStatement: " + node.strValue + " " + loc
+      if ((strlen node.name) > 0) {
+        print indent + "ContinueStatement: " + node.name + " " + loc
       } {
         print indent + "ContinueStatement " + loc
       }

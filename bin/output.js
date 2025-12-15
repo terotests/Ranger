@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 class CmdParams  {
   constructor() {
     this.flags = {};
@@ -3415,6 +3416,7 @@ class RangerAppWriterContext  {
     };
     /** unused:  let cmds   **/ 
     const langNodes = lang.children[1];
+    const targetLang = operatorsOfRangerAppWriterContext_21.getTargetLang_22(this);
     for ( let i_1 = 0; i_1 < langNodes.children.length; i_1++) {
       var lch = langNodes.children[i_1];
       const fc_1 = lch.getFirst();
@@ -3422,10 +3424,18 @@ class RangerAppWriterContext  {
         /** unused:  const n = lch.getSecond()   **/ 
         this.reservedWords = lch.getSecond();
         for ( let i_2 = 0; i_2 < this.reservedWords.children.length; i_2++) {
-          var ch = this.reservedWords.children[i_2];
-          const word = ch.getFirst();
-          const transform = ch.getSecond();
-          this.refTransform[word.vref] = transform.vref;
+          var langBlock = this.reservedWords.children[i_2];
+          const langKey = langBlock.getFirst();
+          const langKeyName = langKey.vref;
+          if ( (langKeyName == "*") || (langKeyName == targetLang) ) {
+            const wordsNode = langBlock.getSecond();
+            for ( let i_3 = 0; i_3 < wordsNode.children.length; i_3++) {
+              var ch = wordsNode.children[i_3];
+              const word = ch.getFirst();
+              const transform = ch.getSecond();
+              this.refTransform[word.vref] = transform.vref;
+            };
+          }
         };
       }
     };
@@ -3469,7 +3479,7 @@ class RangerAppWriterContext  {
     if ( this.isDefinedClass(typeName) ) {
       const cl = this.findClass(typeName);
       if ( cl.is_system ) {
-        return (cl.systemNames[operatorsOfRangerAppWriterContext_21.getTargetLang_22(this)]);
+        return (cl.systemNames[operatorsOf_21.getTargetLang_22(this)]);
       }
     }
     return typeName;
