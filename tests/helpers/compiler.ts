@@ -41,14 +41,26 @@ export function compileRanger(
   outputDir?: string
 ): CompileResult {
   // Handle old signature: compileRanger(source, outputDir)
-  if (language && !['es6', 'cpp', 'go', 'python', 'rust', 'kotlin', 'swift6', 'java7'].includes(language)) {
+  if (
+    language &&
+    ![
+      "es6",
+      "cpp",
+      "go",
+      "python",
+      "rust",
+      "kotlin",
+      "swift6",
+      "java7",
+    ].includes(language)
+  ) {
     // Assume it's outputDir from old signature
     outputDir = language;
-    language = 'es6';
+    language = "es6";
   }
-  
-  const targetLang = language || 'es6';
-  
+
+  const targetLang = language || "es6";
+
   // Use relative path if not absolute
   const sourcePath = path.isAbsolute(sourceFile)
     ? sourceFile
@@ -71,19 +83,19 @@ export function compileRanger(
     absoluteSource.replace(/\.clj$/, ".rgr"),
     ".rgr"
   );
-  
+
   // Determine file extension based on language
   const extMap: Record<string, string> = {
-    'es6': '.js',
-    'cpp': '.cpp',
-    'go': '.go',
-    'python': '.py',
-    'rust': '.rs',
-    'kotlin': '.kt',
-    'swift6': '.swift',
-    'java7': '.java',
+    es6: ".js",
+    cpp: ".cpp",
+    go: ".go",
+    python: ".py",
+    rust: ".rs",
+    kotlin: ".kt",
+    swift6: ".swift",
+    java7: ".java",
   };
-  const ext = extMap[targetLang] || '.js';
+  const ext = extMap[targetLang] || ".js";
   const outputFile = `${sourceBasename}${ext}`;
   const targetDir = outputDir || TEMP_OUTPUT_DIR;
 
@@ -107,7 +119,7 @@ export function compileRanger(
 
     // Use relative source path for compiler
     // Use -l= flag for non-es6 targets, -es6 for JavaScript
-    const langFlag = targetLang === 'es6' ? '-es6' : `-l=${targetLang}`;
+    const langFlag = targetLang === "es6" ? "-es6" : `-l=${targetLang}`;
     const cmd = `node "${OUTPUT_JS}" ${langFlag} "${sourcePath}" -nodecli -d="${relativeTargetDir}" -o="${outputFile}"`;
 
     const output = execSync(cmd, {
