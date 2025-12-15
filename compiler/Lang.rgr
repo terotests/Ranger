@@ -70,7 +70,7 @@ language {
             self _self
             func _func
         }
-        rust {
+        go {
             type _type
         }
     }
