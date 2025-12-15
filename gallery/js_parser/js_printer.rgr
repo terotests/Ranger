@@ -23,11 +23,15 @@ class JSPrinter {
   }
   
   fn emitLine:void (text:string) {
-    this.output = this.output + (this.getIndent()) + text + "\n"
+    ; Use temp variable to avoid borrow conflicts in Rust
+    def ind:string (this.getIndent())
+    this.output = this.output + ind + text + "\n"
   }
   
   fn emitIndent:void () {
-    this.output = this.output + (this.getIndent())
+    ; Use temp variable to avoid borrow conflicts in Rust
+    def ind:string (this.getIndent())
+    this.output = this.output + ind
   }
   
   fn indent:void () {
@@ -214,7 +218,7 @@ class JSPrinter {
     }
     
     if (nodeType == "TemplateLiteral") {
-      this.emit("`" + node.name + "`")
+      this.emit("`" + node.raw + "`")
       return
     }
     
@@ -370,7 +374,7 @@ class JSPrinter {
   ; === Declarations ===
   
   fn printVariableDeclaration:void (node:JSNode) {
-    def kind node.name
+    def kind node.kind
     if ((strlen kind) == 0) {
       kind = "var"
     }
@@ -387,29 +391,27 @@ class JSPrinter {
   }
   
   fn printVariableDeclarator:void (node:JSNode) {
-    if (!null? node.left) {
-      def left (unwrap node.left)
-      this.printNode(left)
+    ; VariableDeclarator uses 'id' for the identifier/pattern and 'init' for the initializer
+    if (!null? node.id) {
+      def id (unwrap node.id)
+      this.printNode(id)
     }
-    if (!null? node.right) {
+    if (!null? node.init) {
       this.emit(" = ")
-      this.printNode((unwrap node.right))
+      this.printNode((unwrap node.init))
     }
   }
   
   fn printFunctionDeclaration:void (node:JSNode) {
-    def kind node.kind
-    
-    if (kind == "async") {
-      this.emit("async ")
-    }
-    if (kind == "async-generator") {
+    ; Check async boolean flag
+    if (node.async) {
       this.emit("async ")
     }
     
     this.emit("function")
     
-    if ((kind == "generator") || (kind == "async-generator")) {
+    ; Check generator boolean flag
+    if (node.generator) {
       this.emit("*")
     }
     
@@ -436,9 +438,10 @@ class JSPrinter {
   fn printClassDeclaration:void (node:JSNode) {
     this.emit("class " + node.name)
     
-    if (!null? node.left) {
-      def superClass (unwrap node.left)
-      this.emit(" extends " + superClass.name)
+    ; ClassDeclaration uses 'superClass' for extends clause
+    if (!null? node.superClass) {
+      def sc (unwrap node.superClass)
+      this.emit(" extends " + sc.name)
     }
     
     this.emit(" ")
@@ -464,11 +467,17 @@ class JSPrinter {
   fn printMethodDefinition:void (node:JSNode) {
     this.emitIndent()
     
-    if (node.kind == "static") {
+    if (node.static) {
       this.emit("static ")
     }
     
-    this.emit(node.name + "(")
+    ; Method name is stored in node.key (Identifier node)
+    if (!null? node.key) {
+      def keyNode (unwrap node.key)
+      this.emit(keyNode.name + "(")
+    } {
+      this.emit("(")
+    }
     
     if (!null? node.body) {
       def func (unwrap node.body)
@@ -687,11 +696,15 @@ class JSPrinter {
   ; === Expressions ===
   
   fn printLiteral:void (node:JSNode) {
-    def litType node.kind
-    if (litType == "string") {
-      this.emit("'" + node.name + "'")
+    ; Literal stores value in 'raw' field
+    def value node.raw
+    ; Check if it's a string literal
+    if (node.kind == "string") {
+      ; Add quotes around string values
+      this.emit("'" + value + "'")
     } {
-      this.emit(node.name)
+      ; Numbers, booleans, null - emit as-is
+      this.emit(value)
     }
   }
   
@@ -735,13 +748,13 @@ class JSPrinter {
     }
     
     ; Shorthand property
-    if (node.kind == "shorthand") {
+    if (node.shorthand) {
       this.emit(node.name)
       return
     }
     
     ; Computed property name: [expr]: value
-    if (node.kind == "computed") {
+    if (node.computed) {
       this.emit("[")
       if (!null? node.right) {
         this.printNode((unwrap node.right))
@@ -764,7 +777,8 @@ class JSPrinter {
     if (!null? node.left) {
       this.printNode((unwrap node.left))
     }
-    this.emit(" " + node.name + " ")
+    ; BinaryExpression uses 'operator' field
+    this.emit(" " + node.operator + " ")
     if (!null? node.right) {
       this.printNode((unwrap node.right))
     }
@@ -772,7 +786,8 @@ class JSPrinter {
   }
   
   fn printUnaryExpression:void (node:JSNode) {
-    def op node.name
+    ; UnaryExpression uses 'operator' field
+    def op node.operator
     this.emit(op)
     ; Add space for word operators like typeof
     if (op == "typeof") {
@@ -784,8 +799,9 @@ class JSPrinter {
   }
   
   fn printUpdateExpression:void (node:JSNode) {
-    def op node.name
-    def isPrefix (node.kind == "prefix")
+    ; UpdateExpression uses 'operator' and 'prefix' fields
+    def op node.operator
+    def isPrefix node.prefix
     
     if (isPrefix) {
       this.emit(op)
@@ -802,7 +818,8 @@ class JSPrinter {
     if (!null? node.left) {
       this.printNode((unwrap node.left))
     }
-    this.emit(" " + node.name + " ")
+    ; AssignmentExpression uses 'operator' field
+    this.emit(" " + node.operator + " ")
     if (!null? node.right) {
       this.printNode((unwrap node.right))
     }
@@ -843,8 +860,8 @@ class JSPrinter {
       this.printNode((unwrap node.left))
     }
     
-    def accessType node.kind
-    if (accessType == "bracket") {
+    ; MemberExpression uses 'computed' boolean field, not kind
+    if (node.computed) {
       this.emit("[")
       if (!null? node.right) {
         this.printNode((unwrap node.right))
@@ -860,8 +877,8 @@ class JSPrinter {
       this.printNode((unwrap node.left))
     }
     
-    def accessType node.kind
-    if (accessType == "bracket") {
+    ; OptionalMemberExpression uses 'computed' boolean field
+    if (node.computed) {
       this.emit("?.[")
       if (!null? node.right) {
         this.printNode((unwrap node.right))
@@ -1042,7 +1059,7 @@ class JSPrinter {
   }
   
   fn printArrowFunction:void (node:JSNode) {
-    if (node.kind == "async") {
+    if (node.async) {
       this.emit("async ")
     }
     
@@ -1140,7 +1157,7 @@ class JSPrinter {
         this.emit("..." + prop.name)
       } {
         ; Property
-        if (prop.kind == "shorthand") {
+        if (prop.shorthand) {
           this.emit(prop.name)
         } {
           this.emit(prop.name + ": ")

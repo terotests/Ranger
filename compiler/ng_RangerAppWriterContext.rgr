@@ -223,6 +223,72 @@ class RangerAppWriterContext {
 
   def env@(weak):InputEnv
 
+  ; Rust-specific tracking for ownership/borrowing
+  def rust_moved_vars:[string:boolean]
+  def rust_usage_count:[string:int]
+  def rust_temp_counter:int 0
+
+  ; Mark a variable as moved (value has been transferred)
+  fn rustMarkMoved (varName:string) {
+    set rust_moved_vars varName true
+  }
+
+  ; Check if a variable has been moved
+  fn rustIsMoved:boolean (varName:string) {
+    if (has rust_moved_vars varName) {
+      return (unwrap (get rust_moved_vars varName))
+    }
+    if (!null? parent) {
+      return (parent.rustIsMoved(varName))
+    }
+    return false
+  }
+
+  ; Clear moved status for a variable (after scope exit or clone)
+  fn rustClearMoved (varName:string) {
+    set rust_moved_vars varName false
+  }
+
+  ; Increment usage count for a variable  
+  fn rustIncUsage (varName:string) {
+    if (has rust_usage_count varName) {
+      def cnt (unwrap (get rust_usage_count varName))
+      set rust_usage_count varName (cnt + 1)
+    } {
+      set rust_usage_count varName 1
+    }
+  }
+
+  ; Get usage count for a variable
+  fn rustGetUsageCount:int (varName:string) {
+    if (has rust_usage_count varName) {
+      return (unwrap (get rust_usage_count varName))
+    }
+    if (!null? parent) {
+      return (parent.rustGetUsageCount(varName))
+    }
+    return 0
+  }
+
+  ; Check if variable needs clone based on usage
+  fn rustNeedsClone:boolean (varName:string) {
+    ; If already moved, definitely needs clone
+    if (this.rustIsMoved(varName)) {
+      return true
+    }
+    ; If usage count > 0, needs clone for subsequent uses
+    if ((this.rustGetUsageCount(varName)) > 0) {
+      return true
+    }
+    return false
+  }
+
+  ; Generate a unique temp variable name
+  fn rustGetTempVar:string () {
+    rust_temp_counter = rust_temp_counter + 1
+    return ("_tmp_" + rust_temp_counter)
+  }
+
   fn getEnv@(optional weak):InputEnv () {
     def root (this.getRoot())
     return root.env

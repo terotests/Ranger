@@ -70,8 +70,26 @@ language {
             self _self
             func _func
         }
-        rust {
+        cpp {
+            operator _operator
+            static _static
+        }
+        go {
             type _type
+        }
+        rust {
+            type r#type
+            static r#static
+        }
+        swift3 {
+            operator _operator
+            static _static
+            init _init
+        }
+        swift6 {
+            operator _operator
+            static _static
+            init _init
         }
     }
 
@@ -693,7 +711,7 @@ func r_write_text_file(pathName string, fileName string, txtData string)  {
 "
 ) )  
 
-                rust ( "r_write_file(&" (e 1) ", &" (e 2) ", &" (e 3) ")"
+                rust ( "r_write_file(&" (e 1) ", &" (e 2) ", &" (e 3) ");" nl
 (create_polyfill "
 fn r_write_file(path: &str, filename: &str, data: &str) {
     let full_path = format!(\"{}/{}\", path, filename);
@@ -810,7 +828,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates { 
                 ranger ( nl (e 1) " = " (e 2) nl )  
                 scala ( nl (e 1) " = " (e 2)   nl )   
-                go ( (custom _ ) )              
+                go ( (custom _ ) )   
+                rust ( (custom _) )           
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }   
@@ -819,7 +838,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates { 
                 ranger ( nl (e 1) " = " (e 2) nl )  
                 scala ( nl (e 1) " = " (e 2) nl )   
-                go ( (custom _ ) )              
+                go ( (custom _ ) )      
+                rust ( (custom _) )        
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }   
@@ -834,7 +854,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 swift ( nl (e 1) " = Optional(" (e 2) ");" nl )   
                 java7 ( nl (e 1) " = " (e 2) ";" nl )   
                 go ( nl (goset 1) ".value = " (e 2) ";" nl nl (goset 1) ".has_value = true; /* detected as non-optional */" nl )  
-                cpp ( nl ( e 1) "  = " (e 2) ";" nl )                 
+                cpp ( nl ( e 1) "  = " (e 2) ";" nl )
+                rust ( (custom _) )
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }           
@@ -847,7 +868,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                     "if " (goset 1) ".value != nil {" nl I (goset 1) ".has_value = true" nl i "}" nl
                     )  
                 cpp ( nl ( e 1) "  = " (e 2) ";" nl )   
-                java7 ( nl (e 1) " = " (e 2) ";" nl )        
+                java7 ( nl (e 1) " = " (e 2) ";" nl )
+                rust ( (custom _) )
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }  
@@ -920,7 +942,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 scala ( (e 1) ".get" )
                 csharp ( (e 1) )
                 java7 ( (e 1) )
-                rust ( (e 1) ".unwrap()" )
+                rust ( (custom _) )
                 php ( (e 1 ) )
                 kotlin ( (e 1) "!!" )
                 swift3 ( (e 1) "!" )
@@ -1021,7 +1043,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         =               cmdAssign:void            ( left@(optional):T right:T )  { 
             templates {
                 ranger ( nl (e 1) " = " (e 2) nl ) 
-                scala ( nl (e 1) " = Some(" (e 2) " ) " nl )                 
+                scala ( nl (e 1) " = Some(" (e 2) " ) " nl )
+                rust ( (custom _) )
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }      
@@ -1030,7 +1053,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 ranger ( nl (e 1) " = " (e 2) nl ) 
                 swift3 (  nl (e 1) " = Optional(" (e 2) ")" )
-                
+                rust ( (custom _) )
                 scala ( nl (e 1) " = " (e 2) ".get /* scala optional assigment of values * / " nl )                 
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
@@ -1039,7 +1062,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         =               cmdAssign:void            ( left@(optional):T right@(optional):T )  { 
             templates {
                 ranger ( nl (e 1) " = " (e 2) nl ) 
-                scala ( nl (e 1) " = " (e 2) " /* scala optional assigment of values * / " nl )                 
+                scala ( nl (e 1) " = " (e 2) " /* scala optional assigment of values * / " nl )
+                rust ( (custom _) )
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }      
@@ -1195,6 +1219,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 ranger ( nl (e 1) " = " (e 2) nl )  
                 go ( (custom _ ) )
+                rust ( (custom _) )
                 scala ( (e 1) " = " (e 2) )   ; <-- scala does not require ; here                
                 * ( (e 1) " = " (e 2) ";" )
             }
@@ -1642,7 +1667,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 java7 ( (e 1) " == null")  
                 scala ((e 1) ".isDefined == false ")  
                 csharp ((e 1) " == null ")  
-                rust ((e 1) ".is_null()")  
+                rust ((e 1) ".is_none()")  
                 go ( "!" (goset 1 ) ".has_value " )             
                 kotlin ((e 1) "== null")     
                 es6 (  "typeof(" ( e 1 ) ") === \"undefined\"")
@@ -1762,8 +1787,8 @@ case class customException(smth:String)  extends Exception
                 swift6 ( (forkctx _ ) (def 2) (def 3) nl "for (" (e 3) ", " (e 2) ") in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
 
-                ; Use index-based loop for Rust with cloned item to allow self method calls
-                rust ( (forkctx _ ) (def 2) (def 3) "for " (e 3) " in 0.." (e 1) ".len() {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize].clone();" nl (block 4) nl (e 1) "[" (e 3) " as usize] = " (e 2) ";" nl i "}" )     
+                ; Use index-based loop for Rust with cloned item - no reassignment needed as item is cloned
+                rust ( (forkctx _ ) (def 2) (def 3) "for " (e 3) " in 0.." (e 1) ".len() {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize].clone();" nl (block 4) nl i "}" )     
 
                 ; idea of go for macro implementation, not working yet...         
                 go_idea  @macro(true) (nl 
@@ -3080,7 +3105,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  php ( "count(" (e 1) ")")
                  java7 ( (e 1) ".size()" )                                                              
                  scala ( (e 1) ".length" )
-                 rust ( (e 1 ) ".len()" )
+                 rust ( "(" (e 1 ) ".len() as i64)" )
                  go ( "int64(len(" (e 1 ) "))" )
                  kotlin ( (e 1) ".size" )       
                  csharp ( (e 1) ".Count")

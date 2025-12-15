@@ -8,13 +8,15 @@
 // define classes here to avoid compiler errors
 class Token;
 class Lexer;
+class Position;
+class SourceLocation;
 class JSNode;
 class SimpleParser;
 class ASTPrinter;
 class JSPrinter;
 class JSParserMain;
 
-typedef mpark::variant<std::shared_ptr<Token>, std::shared_ptr<Lexer>, std::shared_ptr<JSNode>, std::shared_ptr<SimpleParser>, std::shared_ptr<ASTPrinter>, std::shared_ptr<JSPrinter>, std::shared_ptr<JSParserMain>, int, std::string, bool, double>  r_union_Any;
+typedef mpark::variant<std::shared_ptr<Token>, std::shared_ptr<Lexer>, std::shared_ptr<Position>, std::shared_ptr<SourceLocation>, std::shared_ptr<JSNode>, std::shared_ptr<SimpleParser>, std::shared_ptr<ASTPrinter>, std::shared_ptr<JSPrinter>, std::shared_ptr<JSParserMain>, int, std::string, bool, double>  r_union_Any;
 
 std::string r_utf8_char_at(const std::string& str, int pos_i)
 {
@@ -126,23 +128,85 @@ class Lexer : public std::enable_shared_from_this<Lexer>  {
     std::shared_ptr<Token> readRegexLiteral();
     std::vector<std::shared_ptr<Token>> tokenize();
 };
+class Position : public std::enable_shared_from_this<Position>  { 
+  public :
+    int line     /** note: unused */;
+    int column     /** note: unused */;
+    /* class constructor */ 
+    Position( );
+};
+class SourceLocation : public std::enable_shared_from_this<SourceLocation>  { 
+  public :
+    std::shared_ptr<Position> start     /** note: unused */;
+    std::shared_ptr<Position> end     /** note: unused */;
+    /* class constructor */ 
+    SourceLocation( );
+};
 class JSNode : public std::enable_shared_from_this<JSNode>  { 
   public :
-    std::string nodeType;
+    std::string type;
+    std::shared_ptr<SourceLocation> loc     /** note: unused */;
     int start;
     int end;
     int line;
     int col;
-    std::string strValue;
-    std::string strValue2;
-    std::vector<std::shared_ptr<JSNode>> children;
+    std::string name;
+    std::string raw;
+    std::string regexPattern;
+    std::string regexFlags;
+    std::string _operator;
+    bool prefix;
     std::shared_ptr<JSNode> left;
     std::shared_ptr<JSNode> right;
+    std::shared_ptr<JSNode> argument;
     std::shared_ptr<JSNode> test;
-    std::shared_ptr<JSNode> body;
+    std::shared_ptr<JSNode> consequent     /** note: unused */;
     std::shared_ptr<JSNode> alternate;
+    std::shared_ptr<JSNode> id;
+    std::vector<std::shared_ptr<JSNode>> params     /** note: unused */;
+    std::shared_ptr<JSNode> body;
+    bool generator;
+    bool async;
+    bool expression     /** note: unused */;
+    std::vector<std::shared_ptr<JSNode>> declarations     /** note: unused */;
+    std::string kind;
+    std::shared_ptr<JSNode> init;
+    std::shared_ptr<JSNode> superClass;
+    std::shared_ptr<JSNode> object     /** note: unused */;
+    std::shared_ptr<JSNode> property     /** note: unused */;
+    bool computed;
+    bool optional     /** note: unused */;
+    std::shared_ptr<JSNode> callee     /** note: unused */;
+    std::vector<std::shared_ptr<JSNode>> arguments     /** note: unused */;
+    std::vector<std::shared_ptr<JSNode>> elements     /** note: unused */;
+    std::vector<std::shared_ptr<JSNode>> properties     /** note: unused */;
+    std::shared_ptr<JSNode> key;
+    bool method     /** note: unused */;
+    bool shorthand;
+    std::shared_ptr<JSNode> update     /** note: unused */;
+    std::shared_ptr<JSNode> discriminant     /** note: unused */;
+    std::vector<std::shared_ptr<JSNode>> cases     /** note: unused */;
+    std::vector<std::shared_ptr<JSNode>> consequentStatements     /** note: unused */;
+    std::shared_ptr<JSNode> block     /** note: unused */;
+    std::shared_ptr<JSNode> handler     /** note: unused */;
+    std::shared_ptr<JSNode> finalizer     /** note: unused */;
+    std::shared_ptr<JSNode> param     /** note: unused */;
+    std::shared_ptr<JSNode> source     /** note: unused */;
+    std::vector<std::shared_ptr<JSNode>> specifiers     /** note: unused */;
+    std::shared_ptr<JSNode> imported;
+    std::shared_ptr<JSNode> local;
+    std::shared_ptr<JSNode> exported;
+    std::shared_ptr<JSNode> declaration     /** note: unused */;
+    std::vector<std::shared_ptr<JSNode>> quasis     /** note: unused */;
+    std::vector<std::shared_ptr<JSNode>> expressions     /** note: unused */;
+    bool tail     /** note: unused */;
+    std::string cooked     /** note: unused */;
+    std::string sourceType     /** note: unused */;
+    bool _static;
+    bool delegate;
+    std::vector<std::shared_ptr<JSNode>> children;
     std::vector<std::shared_ptr<JSNode>> leadingComments;
-    std::shared_ptr<JSNode> trailingComment     /** note: unused */;
+    std::vector<std::shared_ptr<JSNode>> trailingComments     /** note: unused */;
     /* class constructor */ 
     JSNode( );
 };
@@ -985,14 +1049,37 @@ std::vector<std::shared_ptr<Token>>  Lexer::tokenize() {
   }
   return tokens;
 }
+Position::Position( ) {
+  this->line = 1;
+  this->column = 0;
+}
+SourceLocation::SourceLocation( ) {
+}
 JSNode::JSNode( ) {
-  this->nodeType = std::string("");
+  this->type = std::string("");
   this->start = 0;
   this->end = 0;
   this->line = 0;
   this->col = 0;
-  this->strValue = std::string("");
-  this->strValue2 = std::string("");
+  this->name = std::string("");
+  this->raw = std::string("");
+  this->regexPattern = std::string("");
+  this->regexFlags = std::string("");
+  this->_operator = std::string("");
+  this->prefix = false;
+  this->generator = false;
+  this->async = false;
+  this->expression = false;
+  this->kind = std::string("");
+  this->computed = false;
+  this->optional = false;
+  this->method = false;
+  this->shorthand = false;
+  this->tail = false;
+  this->cooked = std::string("");
+  this->sourceType = std::string("");
+  this->_static = false;
+  this->delegate = false;
 }
 SimpleParser::SimpleParser( ) {
   this->pos = 0;
@@ -1033,8 +1120,8 @@ void  SimpleParser::skipComments() {
   while (this->isCommentToken()) {
     std::shared_ptr<Token> tok = this->peek();
     std::shared_ptr<JSNode> commentNode =  std::make_shared<JSNode>();
-    commentNode->nodeType = tok->tokenType;
-    commentNode->strValue = tok->value;
+    commentNode->type = tok->tokenType;
+    commentNode->raw = tok->value;
     commentNode->line = tok->line;
     commentNode->col = tok->col;
     commentNode->start = tok->start;
@@ -1135,8 +1222,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseRegexLiteral() {
   int startCol = tok->col;
   if ( this->lexer == NULL ) {
     std::shared_ptr<JSNode> err =  std::make_shared<JSNode>();
-    err->nodeType = std::string("Identifier");
-    err->strValue = std::string("regex_error");
+    err->type = std::string("Identifier");
+    err->name = std::string("regex_error");
     this->advance();
     return err;
   }
@@ -1164,9 +1251,10 @@ std::shared_ptr<JSNode>  SimpleParser::parseRegexLiteral() {
     pattern = fullValue;
   }
   std::shared_ptr<JSNode> regex =  std::make_shared<JSNode>();
-  regex->nodeType = std::string("RegexLiteral");
-  regex->strValue = pattern;
-  regex->strValue2 = flags;
+  regex->type = std::string("Literal");
+  regex->raw = fullValue;
+  regex->regexPattern = pattern;
+  regex->regexFlags = flags;
   regex->start = startPos;
   regex->end = lex->pos;
   regex->line = startLine;
@@ -1184,7 +1272,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseRegexLiteral() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseProgram() {
   std::shared_ptr<JSNode> prog =  std::make_shared<JSNode>();
-  prog->nodeType = std::string("Program");
+  prog->type = std::string("Program");
   while (this->isAtEnd() == false) {
     std::shared_ptr<JSNode> stmt = this->parseStatement();
     prog->children.push_back( stmt  );
@@ -1255,7 +1343,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseStatement() {
   if ( (stmt == NULL) && (tokVal == std::string(";")) ) {
     this->advance();
     std::shared_ptr<JSNode> empty =  std::make_shared<JSNode>();
-    empty->nodeType = std::string("EmptyStatement");
+    empty->type = std::string("EmptyStatement");
     stmt  = empty;
   }
   if ( stmt == NULL ) {
@@ -1270,7 +1358,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseStatement() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseVarDecl() {
   std::shared_ptr<JSNode> decl =  std::make_shared<JSNode>();
-  decl->nodeType = std::string("VariableDeclaration");
+  decl->type = std::string("VariableDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   decl->start = startTok->start;
   decl->line = startTok->line;
@@ -1283,22 +1371,22 @@ std::shared_ptr<JSNode>  SimpleParser::parseVarDecl() {
     }
     first = false;
     std::shared_ptr<JSNode> declarator =  std::make_shared<JSNode>();
-    declarator->nodeType = std::string("VariableDeclarator");
+    declarator->type = std::string("VariableDeclarator");
     std::shared_ptr<Token> idTok = this->expect(std::string("Identifier"));
     std::shared_ptr<JSNode> id =  std::make_shared<JSNode>();
-    id->nodeType = std::string("Identifier");
-    id->strValue = idTok->value;
+    id->type = std::string("Identifier");
+    id->name = idTok->value;
     id->start = idTok->start;
     id->line = idTok->line;
     id->col = idTok->col;
-    declarator->left  = id;
+    declarator->id  = id;
     declarator->start = idTok->start;
     declarator->line = idTok->line;
     declarator->col = idTok->col;
     if ( this->matchValue(std::string("=")) ) {
       this->advance();
       std::shared_ptr<JSNode> initExpr = this->parseAssignment();
-      declarator->right  = initExpr;
+      declarator->init  = initExpr;
     }
     decl->children.push_back( declarator  );
   }
@@ -1309,8 +1397,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseVarDecl() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseLetDecl() {
   std::shared_ptr<JSNode> decl =  std::make_shared<JSNode>();
-  decl->nodeType = std::string("VariableDeclaration");
-  decl->strValue = std::string("let");
+  decl->type = std::string("VariableDeclaration");
+  decl->kind = std::string("let");
   std::shared_ptr<Token> startTok = this->peek();
   decl->start = startTok->start;
   decl->line = startTok->line;
@@ -1323,33 +1411,33 @@ std::shared_ptr<JSNode>  SimpleParser::parseLetDecl() {
     }
     first = false;
     std::shared_ptr<JSNode> declarator =  std::make_shared<JSNode>();
-    declarator->nodeType = std::string("VariableDeclarator");
+    declarator->type = std::string("VariableDeclarator");
     std::shared_ptr<Token> declTok = this->peek();
     declarator->start = declTok->start;
     declarator->line = declTok->line;
     declarator->col = declTok->col;
     if ( this->matchValue(std::string("[")) ) {
       std::shared_ptr<JSNode> pattern = this->parseArrayPattern();
-      declarator->left  = pattern;
+      declarator->id  = pattern;
     } else {
       if ( this->matchValue(std::string("{")) ) {
         std::shared_ptr<JSNode> pattern_1 = this->parseObjectPattern();
-        declarator->left  = pattern_1;
+        declarator->id  = pattern_1;
       } else {
         std::shared_ptr<Token> idTok = this->expect(std::string("Identifier"));
         std::shared_ptr<JSNode> id =  std::make_shared<JSNode>();
-        id->nodeType = std::string("Identifier");
-        id->strValue = idTok->value;
+        id->type = std::string("Identifier");
+        id->name = idTok->value;
         id->start = idTok->start;
         id->line = idTok->line;
         id->col = idTok->col;
-        declarator->left  = id;
+        declarator->id  = id;
       }
     }
     if ( this->matchValue(std::string("=")) ) {
       this->advance();
       std::shared_ptr<JSNode> initExpr = this->parseAssignment();
-      declarator->right  = initExpr;
+      declarator->init  = initExpr;
     }
     decl->children.push_back( declarator  );
   }
@@ -1360,8 +1448,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseLetDecl() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseConstDecl() {
   std::shared_ptr<JSNode> decl =  std::make_shared<JSNode>();
-  decl->nodeType = std::string("VariableDeclaration");
-  decl->strValue = std::string("const");
+  decl->type = std::string("VariableDeclaration");
+  decl->kind = std::string("const");
   std::shared_ptr<Token> startTok = this->peek();
   decl->start = startTok->start;
   decl->line = startTok->line;
@@ -1374,33 +1462,33 @@ std::shared_ptr<JSNode>  SimpleParser::parseConstDecl() {
     }
     first = false;
     std::shared_ptr<JSNode> declarator =  std::make_shared<JSNode>();
-    declarator->nodeType = std::string("VariableDeclarator");
+    declarator->type = std::string("VariableDeclarator");
     std::shared_ptr<Token> declTok = this->peek();
     declarator->start = declTok->start;
     declarator->line = declTok->line;
     declarator->col = declTok->col;
     if ( this->matchValue(std::string("[")) ) {
       std::shared_ptr<JSNode> pattern = this->parseArrayPattern();
-      declarator->left  = pattern;
+      declarator->id  = pattern;
     } else {
       if ( this->matchValue(std::string("{")) ) {
         std::shared_ptr<JSNode> pattern_1 = this->parseObjectPattern();
-        declarator->left  = pattern_1;
+        declarator->id  = pattern_1;
       } else {
         std::shared_ptr<Token> idTok = this->expect(std::string("Identifier"));
         std::shared_ptr<JSNode> id =  std::make_shared<JSNode>();
-        id->nodeType = std::string("Identifier");
-        id->strValue = idTok->value;
+        id->type = std::string("Identifier");
+        id->name = idTok->value;
         id->start = idTok->start;
         id->line = idTok->line;
         id->col = idTok->col;
-        declarator->left  = id;
+        declarator->id  = id;
       }
     }
     if ( this->matchValue(std::string("=")) ) {
       this->advance();
       std::shared_ptr<JSNode> initExpr = this->parseAssignment();
-      declarator->right  = initExpr;
+      declarator->init  = initExpr;
     }
     decl->children.push_back( declarator  );
   }
@@ -1411,18 +1499,18 @@ std::shared_ptr<JSNode>  SimpleParser::parseConstDecl() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseFuncDecl() {
   std::shared_ptr<JSNode> _func =  std::make_shared<JSNode>();
-  _func->nodeType = std::string("FunctionDeclaration");
+  _func->type = std::string("FunctionDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   _func->start = startTok->start;
   _func->line = startTok->line;
   _func->col = startTok->col;
   this->expectValue(std::string("function"));
   if ( this->matchValue(std::string("*")) ) {
-    _func->strValue2 = std::string("generator");
+    _func->generator = true;
     this->advance();
   }
   std::shared_ptr<Token> idTok = this->expect(std::string("Identifier"));
-  _func->strValue = idTok->value;
+  _func->name = idTok->value;
   this->expectValue(std::string("("));
   while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
     if ( ((int)(_func->children.size())) > 0 ) {
@@ -1436,29 +1524,75 @@ std::shared_ptr<JSNode>  SimpleParser::parseFuncDecl() {
       this->advance();
       std::shared_ptr<Token> paramTok = this->expect(std::string("Identifier"));
       std::shared_ptr<JSNode> rest =  std::make_shared<JSNode>();
-      rest->nodeType = std::string("RestElement");
-      rest->strValue = paramTok->value;
+      rest->type = std::string("RestElement");
+      rest->name = paramTok->value;
       rest->start = restTok->start;
       rest->line = restTok->line;
       rest->col = restTok->col;
+      std::shared_ptr<JSNode> argNode =  std::make_shared<JSNode>();
+      argNode->type = std::string("Identifier");
+      argNode->name = paramTok->value;
+      argNode->start = paramTok->start;
+      argNode->line = paramTok->line;
+      argNode->col = paramTok->col;
+      rest->argument  = argNode;
       _func->children.push_back( rest  );
     } else {
       if ( this->matchValue(std::string("[")) ) {
         std::shared_ptr<JSNode> pattern = this->parseArrayPattern();
-        _func->children.push_back( pattern  );
+        if ( this->matchValue(std::string("=")) ) {
+          this->advance();
+          std::shared_ptr<JSNode> defaultVal = this->parseAssignment();
+          std::shared_ptr<JSNode> assignPat =  std::make_shared<JSNode>();
+          assignPat->type = std::string("AssignmentPattern");
+          assignPat->left  = pattern;
+          assignPat->right  = defaultVal;
+          assignPat->start = pattern->start;
+          assignPat->line = pattern->line;
+          assignPat->col = pattern->col;
+          _func->children.push_back( assignPat  );
+        } else {
+          _func->children.push_back( pattern  );
+        }
       } else {
         if ( this->matchValue(std::string("{")) ) {
           std::shared_ptr<JSNode> pattern_1 = this->parseObjectPattern();
-          _func->children.push_back( pattern_1  );
+          if ( this->matchValue(std::string("=")) ) {
+            this->advance();
+            std::shared_ptr<JSNode> defaultVal_1 = this->parseAssignment();
+            std::shared_ptr<JSNode> assignPat_1 =  std::make_shared<JSNode>();
+            assignPat_1->type = std::string("AssignmentPattern");
+            assignPat_1->left  = pattern_1;
+            assignPat_1->right  = defaultVal_1;
+            assignPat_1->start = pattern_1->start;
+            assignPat_1->line = pattern_1->line;
+            assignPat_1->col = pattern_1->col;
+            _func->children.push_back( assignPat_1  );
+          } else {
+            _func->children.push_back( pattern_1  );
+          }
         } else {
           std::shared_ptr<Token> paramTok_1 = this->expect(std::string("Identifier"));
           std::shared_ptr<JSNode> param =  std::make_shared<JSNode>();
-          param->nodeType = std::string("Identifier");
-          param->strValue = paramTok_1->value;
+          param->type = std::string("Identifier");
+          param->name = paramTok_1->value;
           param->start = paramTok_1->start;
           param->line = paramTok_1->line;
           param->col = paramTok_1->col;
-          _func->children.push_back( param  );
+          if ( this->matchValue(std::string("=")) ) {
+            this->advance();
+            std::shared_ptr<JSNode> defaultVal_2 = this->parseAssignment();
+            std::shared_ptr<JSNode> assignPat_2 =  std::make_shared<JSNode>();
+            assignPat_2->type = std::string("AssignmentPattern");
+            assignPat_2->left  = param;
+            assignPat_2->right  = defaultVal_2;
+            assignPat_2->start = param->start;
+            assignPat_2->line = param->line;
+            assignPat_2->col = param->col;
+            _func->children.push_back( assignPat_2  );
+          } else {
+            _func->children.push_back( param  );
+          }
         }
       }
     }
@@ -1470,19 +1604,19 @@ std::shared_ptr<JSNode>  SimpleParser::parseFuncDecl() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseFunctionExpression() {
   std::shared_ptr<JSNode> _func =  std::make_shared<JSNode>();
-  _func->nodeType = std::string("FunctionExpression");
+  _func->type = std::string("FunctionExpression");
   std::shared_ptr<Token> startTok = this->peek();
   _func->start = startTok->start;
   _func->line = startTok->line;
   _func->col = startTok->col;
   this->expectValue(std::string("function"));
   if ( this->matchValue(std::string("*")) ) {
-    _func->strValue2 = std::string("generator");
+    _func->generator = true;
     this->advance();
   }
   if ( this->matchType(std::string("Identifier")) ) {
     std::shared_ptr<Token> idTok = this->expect(std::string("Identifier"));
-    _func->strValue = idTok->value;
+    _func->name = idTok->value;
   }
   this->expectValue(std::string("("));
   while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
@@ -1497,29 +1631,75 @@ std::shared_ptr<JSNode>  SimpleParser::parseFunctionExpression() {
       this->advance();
       std::shared_ptr<Token> paramTok = this->expect(std::string("Identifier"));
       std::shared_ptr<JSNode> rest =  std::make_shared<JSNode>();
-      rest->nodeType = std::string("RestElement");
-      rest->strValue = paramTok->value;
+      rest->type = std::string("RestElement");
+      rest->name = paramTok->value;
       rest->start = restTok->start;
       rest->line = restTok->line;
       rest->col = restTok->col;
+      std::shared_ptr<JSNode> argNode =  std::make_shared<JSNode>();
+      argNode->type = std::string("Identifier");
+      argNode->name = paramTok->value;
+      argNode->start = paramTok->start;
+      argNode->line = paramTok->line;
+      argNode->col = paramTok->col;
+      rest->argument  = argNode;
       _func->children.push_back( rest  );
     } else {
       if ( this->matchValue(std::string("[")) ) {
         std::shared_ptr<JSNode> pattern = this->parseArrayPattern();
-        _func->children.push_back( pattern  );
+        if ( this->matchValue(std::string("=")) ) {
+          this->advance();
+          std::shared_ptr<JSNode> defaultVal = this->parseAssignment();
+          std::shared_ptr<JSNode> assignPat =  std::make_shared<JSNode>();
+          assignPat->type = std::string("AssignmentPattern");
+          assignPat->left  = pattern;
+          assignPat->right  = defaultVal;
+          assignPat->start = pattern->start;
+          assignPat->line = pattern->line;
+          assignPat->col = pattern->col;
+          _func->children.push_back( assignPat  );
+        } else {
+          _func->children.push_back( pattern  );
+        }
       } else {
         if ( this->matchValue(std::string("{")) ) {
           std::shared_ptr<JSNode> pattern_1 = this->parseObjectPattern();
-          _func->children.push_back( pattern_1  );
+          if ( this->matchValue(std::string("=")) ) {
+            this->advance();
+            std::shared_ptr<JSNode> defaultVal_1 = this->parseAssignment();
+            std::shared_ptr<JSNode> assignPat_1 =  std::make_shared<JSNode>();
+            assignPat_1->type = std::string("AssignmentPattern");
+            assignPat_1->left  = pattern_1;
+            assignPat_1->right  = defaultVal_1;
+            assignPat_1->start = pattern_1->start;
+            assignPat_1->line = pattern_1->line;
+            assignPat_1->col = pattern_1->col;
+            _func->children.push_back( assignPat_1  );
+          } else {
+            _func->children.push_back( pattern_1  );
+          }
         } else {
           std::shared_ptr<Token> paramTok_1 = this->expect(std::string("Identifier"));
           std::shared_ptr<JSNode> param =  std::make_shared<JSNode>();
-          param->nodeType = std::string("Identifier");
-          param->strValue = paramTok_1->value;
+          param->type = std::string("Identifier");
+          param->name = paramTok_1->value;
           param->start = paramTok_1->start;
           param->line = paramTok_1->line;
           param->col = paramTok_1->col;
-          _func->children.push_back( param  );
+          if ( this->matchValue(std::string("=")) ) {
+            this->advance();
+            std::shared_ptr<JSNode> defaultVal_2 = this->parseAssignment();
+            std::shared_ptr<JSNode> assignPat_2 =  std::make_shared<JSNode>();
+            assignPat_2->type = std::string("AssignmentPattern");
+            assignPat_2->left  = param;
+            assignPat_2->right  = defaultVal_2;
+            assignPat_2->start = param->start;
+            assignPat_2->line = param->line;
+            assignPat_2->col = param->col;
+            _func->children.push_back( assignPat_2  );
+          } else {
+            _func->children.push_back( param  );
+          }
         }
       }
     }
@@ -1531,20 +1711,21 @@ std::shared_ptr<JSNode>  SimpleParser::parseFunctionExpression() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseAsyncFuncDecl() {
   std::shared_ptr<JSNode> _func =  std::make_shared<JSNode>();
-  _func->nodeType = std::string("FunctionDeclaration");
+  _func->type = std::string("FunctionDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   _func->start = startTok->start;
   _func->line = startTok->line;
   _func->col = startTok->col;
-  _func->strValue2 = std::string("async");
+  _func->async = true;
   this->expectValue(std::string("async"));
   this->expectValue(std::string("function"));
   if ( this->matchValue(std::string("*")) ) {
-    _func->strValue2 = std::string("async-generator");
+    _func->async = true;
+    _func->generator = true;
     this->advance();
   }
   std::shared_ptr<Token> idTok = this->expect(std::string("Identifier"));
-  _func->strValue = idTok->value;
+  _func->name = idTok->value;
   this->expectValue(std::string("("));
   while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
     if ( ((int)(_func->children.size())) > 0 ) {
@@ -1555,8 +1736,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseAsyncFuncDecl() {
     }
     std::shared_ptr<Token> paramTok = this->expect(std::string("Identifier"));
     std::shared_ptr<JSNode> param =  std::make_shared<JSNode>();
-    param->nodeType = std::string("Identifier");
-    param->strValue = paramTok->value;
+    param->type = std::string("Identifier");
+    param->name = paramTok->value;
     param->start = paramTok->start;
     param->line = paramTok->line;
     param->col = paramTok->col;
@@ -1569,27 +1750,27 @@ std::shared_ptr<JSNode>  SimpleParser::parseAsyncFuncDecl() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseClass() {
   std::shared_ptr<JSNode> classNode =  std::make_shared<JSNode>();
-  classNode->nodeType = std::string("ClassDeclaration");
+  classNode->type = std::string("ClassDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   classNode->start = startTok->start;
   classNode->line = startTok->line;
   classNode->col = startTok->col;
   this->expectValue(std::string("class"));
   std::shared_ptr<Token> idTok = this->expect(std::string("Identifier"));
-  classNode->strValue = idTok->value;
+  classNode->name = idTok->value;
   if ( this->matchValue(std::string("extends")) ) {
     this->advance();
     std::shared_ptr<Token> superTok = this->expect(std::string("Identifier"));
-    std::shared_ptr<JSNode> superClass =  std::make_shared<JSNode>();
-    superClass->nodeType = std::string("Identifier");
-    superClass->strValue = superTok->value;
-    superClass->start = superTok->start;
-    superClass->line = superTok->line;
-    superClass->col = superTok->col;
-    classNode->left  = superClass;
+    std::shared_ptr<JSNode> superClassNode =  std::make_shared<JSNode>();
+    superClassNode->type = std::string("Identifier");
+    superClassNode->name = superTok->value;
+    superClassNode->start = superTok->start;
+    superClassNode->line = superTok->line;
+    superClassNode->col = superTok->col;
+    classNode->superClass  = superClassNode;
   }
   std::shared_ptr<JSNode> body =  std::make_shared<JSNode>();
-  body->nodeType = std::string("ClassBody");
+  body->type = std::string("ClassBody");
   std::shared_ptr<Token> bodyStart = this->peek();
   body->start = bodyStart->start;
   body->line = bodyStart->line;
@@ -1605,7 +1786,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseClass() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseClassMethod() {
   std::shared_ptr<JSNode> method =  std::make_shared<JSNode>();
-  method->nodeType = std::string("MethodDefinition");
+  method->type = std::string("MethodDefinition");
   std::shared_ptr<Token> startTok = this->peek();
   method->start = startTok->start;
   method->line = startTok->line;
@@ -1613,31 +1794,38 @@ std::shared_ptr<JSNode>  SimpleParser::parseClassMethod() {
   bool isStatic = false;
   if ( this->matchValue(std::string("static")) ) {
     isStatic = true;
-    method->strValue2 = std::string("static");
+    method->_static = true;
     this->advance();
   }
-  std::string kind = std::string("method");
+  std::string methodKind = std::string("method");
   if ( this->matchValue(std::string("get")) ) {
     std::string nextTok = this->peekAt(1);
     if ( nextTok != std::string("(") ) {
-      kind = std::string("get");
+      methodKind = std::string("get");
       this->advance();
     }
   }
   if ( this->matchValue(std::string("set")) ) {
     std::string nextTok_1 = this->peekAt(1);
     if ( nextTok_1 != std::string("(") ) {
-      kind = std::string("set");
+      methodKind = std::string("set");
       this->advance();
     }
   }
   std::shared_ptr<Token> nameTok = this->expect(std::string("Identifier"));
-  method->strValue = nameTok->value;
+  std::shared_ptr<JSNode> keyNode =  std::make_shared<JSNode>();
+  keyNode->type = std::string("Identifier");
+  keyNode->name = nameTok->value;
+  keyNode->start = nameTok->start;
+  keyNode->line = nameTok->line;
+  keyNode->col = nameTok->col;
+  method->key  = keyNode;
   if ( nameTok->value == std::string("constructor") ) {
-    kind = std::string("constructor");
+    methodKind = std::string("constructor");
   }
+  method->kind = methodKind;
   std::shared_ptr<JSNode> _func =  std::make_shared<JSNode>();
-  _func->nodeType = std::string("FunctionExpression");
+  _func->type = std::string("FunctionExpression");
   _func->start = nameTok->start;
   _func->line = nameTok->line;
   _func->col = nameTok->col;
@@ -1651,8 +1839,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseClassMethod() {
     }
     std::shared_ptr<Token> paramTok = this->expect(std::string("Identifier"));
     std::shared_ptr<JSNode> param =  std::make_shared<JSNode>();
-    param->nodeType = std::string("Identifier");
-    param->strValue = paramTok->value;
+    param->type = std::string("Identifier");
+    param->name = paramTok->value;
     param->start = paramTok->start;
     param->line = paramTok->line;
     param->col = paramTok->col;
@@ -1674,7 +1862,7 @@ std::string  SimpleParser::peekAt( int offset ) {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseImport() {
   std::shared_ptr<JSNode> importNode =  std::make_shared<JSNode>();
-  importNode->nodeType = std::string("ImportDeclaration");
+  importNode->type = std::string("ImportDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   importNode->start = startTok->start;
   importNode->line = startTok->line;
@@ -1684,9 +1872,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseImport() {
     std::shared_ptr<Token> sourceTok = this->peek();
     this->advance();
     std::shared_ptr<JSNode> source_1 =  std::make_shared<JSNode>();
-    source_1->nodeType = std::string("Literal");
-    source_1->strValue = sourceTok->value;
-    source_1->strValue2 = std::string("string");
+    source_1->type = std::string("Literal");
+    source_1->raw = sourceTok->value;
     source_1->start = sourceTok->start;
     source_1->line = sourceTok->line;
     source_1->col = sourceTok->col;
@@ -1701,8 +1888,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseImport() {
     this->expectValue(std::string("as"));
     std::shared_ptr<Token> localTok = this->expect(std::string("Identifier"));
     std::shared_ptr<JSNode> specifier =  std::make_shared<JSNode>();
-    specifier->nodeType = std::string("ImportNamespaceSpecifier");
-    specifier->strValue = localTok->value;
+    specifier->type = std::string("ImportNamespaceSpecifier");
+    specifier->name = localTok->value;
     specifier->start = localTok->start;
     specifier->line = localTok->line;
     specifier->col = localTok->col;
@@ -1710,9 +1897,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseImport() {
     this->expectValue(std::string("from"));
     std::shared_ptr<Token> sourceTok_1 = this->expect(std::string("String"));
     std::shared_ptr<JSNode> source_2 =  std::make_shared<JSNode>();
-    source_2->nodeType = std::string("Literal");
-    source_2->strValue = sourceTok_1->value;
-    source_2->strValue2 = std::string("string");
+    source_2->type = std::string("Literal");
+    source_2->raw = sourceTok_1->value;
     source_2->start = sourceTok_1->start;
     source_2->line = sourceTok_1->line;
     source_2->col = sourceTok_1->col;
@@ -1725,8 +1911,14 @@ std::shared_ptr<JSNode>  SimpleParser::parseImport() {
   if ( this->matchType(std::string("Identifier")) ) {
     std::shared_ptr<Token> defaultTok = this->expect(std::string("Identifier"));
     std::shared_ptr<JSNode> defaultSpec =  std::make_shared<JSNode>();
-    defaultSpec->nodeType = std::string("ImportDefaultSpecifier");
-    defaultSpec->strValue = defaultTok->value;
+    defaultSpec->type = std::string("ImportDefaultSpecifier");
+    std::shared_ptr<JSNode> localNode =  std::make_shared<JSNode>();
+    localNode->type = std::string("Identifier");
+    localNode->name = defaultTok->value;
+    localNode->start = defaultTok->start;
+    localNode->line = defaultTok->line;
+    localNode->col = defaultTok->col;
+    defaultSpec->local  = localNode;
     defaultSpec->start = defaultTok->start;
     defaultSpec->line = defaultTok->line;
     defaultSpec->col = defaultTok->col;
@@ -1736,13 +1928,19 @@ std::shared_ptr<JSNode>  SimpleParser::parseImport() {
       if ( this->matchValue(std::string("*")) ) {
         this->advance();
         this->expectValue(std::string("as"));
-        std::shared_ptr<Token> localTok_1 = this->expect(std::string("Identifier"));
+        std::shared_ptr<Token> localTok2 = this->expect(std::string("Identifier"));
         std::shared_ptr<JSNode> nsSpec =  std::make_shared<JSNode>();
-        nsSpec->nodeType = std::string("ImportNamespaceSpecifier");
-        nsSpec->strValue = localTok_1->value;
-        nsSpec->start = localTok_1->start;
-        nsSpec->line = localTok_1->line;
-        nsSpec->col = localTok_1->col;
+        nsSpec->type = std::string("ImportNamespaceSpecifier");
+        std::shared_ptr<JSNode> nsLocal =  std::make_shared<JSNode>();
+        nsLocal->type = std::string("Identifier");
+        nsLocal->name = localTok2->value;
+        nsLocal->start = localTok2->start;
+        nsLocal->line = localTok2->line;
+        nsLocal->col = localTok2->col;
+        nsSpec->local  = nsLocal;
+        nsSpec->start = localTok2->start;
+        nsSpec->line = localTok2->line;
+        nsSpec->col = localTok2->col;
         importNode->children.push_back( nsSpec  );
       } else {
         this->parseImportSpecifiers(importNode);
@@ -1757,9 +1955,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseImport() {
   }
   std::shared_ptr<Token> sourceTok_2 = this->expect(std::string("String"));
   std::shared_ptr<JSNode> source_3 =  std::make_shared<JSNode>();
-  source_3->nodeType = std::string("Literal");
-  source_3->strValue = sourceTok_2->value;
-  source_3->strValue2 = std::string("string");
+  source_3->type = std::string("Literal");
+  source_3->raw = sourceTok_2->value;
   source_3->start = sourceTok_2->start;
   source_3->line = sourceTok_2->line;
   source_3->col = sourceTok_2->col;
@@ -1781,16 +1978,30 @@ void  SimpleParser::parseImportSpecifiers( std::shared_ptr<JSNode> importNode ) 
       break;
     }
     std::shared_ptr<JSNode> specifier =  std::make_shared<JSNode>();
-    specifier->nodeType = std::string("ImportSpecifier");
+    specifier->type = std::string("ImportSpecifier");
     std::shared_ptr<Token> importedTok = this->expect(std::string("Identifier"));
-    specifier->strValue = importedTok->value;
+    std::shared_ptr<JSNode> importedNode =  std::make_shared<JSNode>();
+    importedNode->type = std::string("Identifier");
+    importedNode->name = importedTok->value;
+    importedNode->start = importedTok->start;
+    importedNode->line = importedTok->line;
+    importedNode->col = importedTok->col;
+    specifier->imported  = importedNode;
     specifier->start = importedTok->start;
     specifier->line = importedTok->line;
     specifier->col = importedTok->col;
     if ( this->matchValue(std::string("as")) ) {
       this->advance();
       std::shared_ptr<Token> localTok = this->expect(std::string("Identifier"));
-      specifier->strValue2 = localTok->value;
+      std::shared_ptr<JSNode> localNode =  std::make_shared<JSNode>();
+      localNode->type = std::string("Identifier");
+      localNode->name = localTok->value;
+      localNode->start = localTok->start;
+      localNode->line = localTok->line;
+      localNode->col = localTok->col;
+      specifier->local  = localNode;
+    } else {
+      specifier->local  = importedNode;
     }
     importNode->children.push_back( specifier  );
   }
@@ -1798,14 +2009,14 @@ void  SimpleParser::parseImportSpecifiers( std::shared_ptr<JSNode> importNode ) 
 }
 std::shared_ptr<JSNode>  SimpleParser::parseExport() {
   std::shared_ptr<JSNode> exportNode =  std::make_shared<JSNode>();
-  exportNode->nodeType = std::string("ExportNamedDeclaration");
+  exportNode->type = std::string("ExportNamedDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   exportNode->start = startTok->start;
   exportNode->line = startTok->line;
   exportNode->col = startTok->col;
   this->expectValue(std::string("export"));
   if ( this->matchValue(std::string("default")) ) {
-    exportNode->nodeType = std::string("ExportDefaultDeclaration");
+    exportNode->type = std::string("ExportDefaultDeclaration");
     this->advance();
     if ( this->matchValue(std::string("function")) ) {
       std::shared_ptr<JSNode> _func = this->parseFuncDecl();
@@ -1830,19 +2041,18 @@ std::shared_ptr<JSNode>  SimpleParser::parseExport() {
     return exportNode;
   }
   if ( this->matchValue(std::string("*")) ) {
-    exportNode->nodeType = std::string("ExportAllDeclaration");
+    exportNode->type = std::string("ExportAllDeclaration");
     this->advance();
     if ( this->matchValue(std::string("as")) ) {
       this->advance();
       std::shared_ptr<Token> exportedTok = this->expect(std::string("Identifier"));
-      exportNode->strValue = exportedTok->value;
+      exportNode->name = exportedTok->value;
     }
     this->expectValue(std::string("from"));
     std::shared_ptr<Token> sourceTok = this->expect(std::string("String"));
     std::shared_ptr<JSNode> source_1 =  std::make_shared<JSNode>();
-    source_1->nodeType = std::string("Literal");
-    source_1->strValue = sourceTok->value;
-    source_1->strValue2 = std::string("string");
+    source_1->type = std::string("Literal");
+    source_1->raw = sourceTok->value;
     source_1->start = sourceTok->start;
     source_1->line = sourceTok->line;
     source_1->col = sourceTok->col;
@@ -1858,9 +2068,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseExport() {
       this->advance();
       std::shared_ptr<Token> sourceTok_1 = this->expect(std::string("String"));
       std::shared_ptr<JSNode> source_2 =  std::make_shared<JSNode>();
-      source_2->nodeType = std::string("Literal");
-      source_2->strValue = sourceTok_1->value;
-      source_2->strValue2 = std::string("string");
+      source_2->type = std::string("Literal");
+      source_2->raw = sourceTok_1->value;
       source_2->start = sourceTok_1->start;
       source_2->line = sourceTok_1->line;
       source_2->col = sourceTok_1->col;
@@ -1918,11 +2127,17 @@ void  SimpleParser::parseExportSpecifiers( std::shared_ptr<JSNode> exportNode ) 
       break;
     }
     std::shared_ptr<JSNode> specifier =  std::make_shared<JSNode>();
-    specifier->nodeType = std::string("ExportSpecifier");
+    specifier->type = std::string("ExportSpecifier");
     std::shared_ptr<Token> localTok = this->peek();
     if ( this->matchType(std::string("Identifier")) || this->matchValue(std::string("default")) ) {
       this->advance();
-      specifier->strValue = localTok->value;
+      std::shared_ptr<JSNode> localNode =  std::make_shared<JSNode>();
+      localNode->type = std::string("Identifier");
+      localNode->name = localTok->value;
+      localNode->start = localTok->start;
+      localNode->line = localTok->line;
+      localNode->col = localTok->col;
+      specifier->local  = localNode;
       specifier->start = localTok->start;
       specifier->line = localTok->line;
       specifier->col = localTok->col;
@@ -1934,7 +2149,15 @@ void  SimpleParser::parseExportSpecifiers( std::shared_ptr<JSNode> exportNode ) 
     if ( this->matchValue(std::string("as")) ) {
       this->advance();
       std::shared_ptr<Token> exportedTok = this->expect(std::string("Identifier"));
-      specifier->strValue2 = exportedTok->value;
+      std::shared_ptr<JSNode> exportedNode =  std::make_shared<JSNode>();
+      exportedNode->type = std::string("Identifier");
+      exportedNode->name = exportedTok->value;
+      exportedNode->start = exportedTok->start;
+      exportedNode->line = exportedTok->line;
+      exportedNode->col = exportedTok->col;
+      specifier->exported  = exportedNode;
+    } else {
+      specifier->exported  = specifier->local;
     }
     exportNode->children.push_back( specifier  );
   }
@@ -1942,7 +2165,7 @@ void  SimpleParser::parseExportSpecifiers( std::shared_ptr<JSNode> exportNode ) 
 }
 std::shared_ptr<JSNode>  SimpleParser::parseBlock() {
   std::shared_ptr<JSNode> block =  std::make_shared<JSNode>();
-  block->nodeType = std::string("BlockStatement");
+  block->type = std::string("BlockStatement");
   std::shared_ptr<Token> startTok = this->peek();
   block->start = startTok->start;
   block->line = startTok->line;
@@ -1957,7 +2180,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseBlock() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseReturn() {
   std::shared_ptr<JSNode> ret =  std::make_shared<JSNode>();
-  ret->nodeType = std::string("ReturnStatement");
+  ret->type = std::string("ReturnStatement");
   std::shared_ptr<Token> startTok = this->peek();
   ret->start = startTok->start;
   ret->line = startTok->line;
@@ -1974,7 +2197,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseReturn() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseIf() {
   std::shared_ptr<JSNode> ifStmt =  std::make_shared<JSNode>();
-  ifStmt->nodeType = std::string("IfStatement");
+  ifStmt->type = std::string("IfStatement");
   std::shared_ptr<Token> startTok = this->peek();
   ifStmt->start = startTok->start;
   ifStmt->line = startTok->line;
@@ -1995,7 +2218,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseIf() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseWhile() {
   std::shared_ptr<JSNode> whileStmt =  std::make_shared<JSNode>();
-  whileStmt->nodeType = std::string("WhileStatement");
+  whileStmt->type = std::string("WhileStatement");
   std::shared_ptr<Token> startTok = this->peek();
   whileStmt->start = startTok->start;
   whileStmt->line = startTok->line;
@@ -2011,7 +2234,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseWhile() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseDoWhile() {
   std::shared_ptr<JSNode> doWhileStmt =  std::make_shared<JSNode>();
-  doWhileStmt->nodeType = std::string("DoWhileStatement");
+  doWhileStmt->type = std::string("DoWhileStatement");
   std::shared_ptr<Token> startTok = this->peek();
   doWhileStmt->start = startTok->start;
   doWhileStmt->line = startTok->line;
@@ -2045,35 +2268,35 @@ std::shared_ptr<JSNode>  SimpleParser::parseFor() {
       std::string keyword = this->peekValue();
       this->advance();
       std::shared_ptr<JSNode> declarator =  std::make_shared<JSNode>();
-      declarator->nodeType = std::string("VariableDeclarator");
+      declarator->type = std::string("VariableDeclarator");
       std::shared_ptr<Token> declTok = this->peek();
       declarator->start = declTok->start;
       declarator->line = declTok->line;
       declarator->col = declTok->col;
       if ( this->matchValue(std::string("[")) ) {
         std::shared_ptr<JSNode> pattern = this->parseArrayPattern();
-        declarator->left  = pattern;
+        declarator->id  = pattern;
       } else {
         if ( this->matchValue(std::string("{")) ) {
           std::shared_ptr<JSNode> pattern_1 = this->parseObjectPattern();
-          declarator->left  = pattern_1;
+          declarator->id  = pattern_1;
         } else {
           std::shared_ptr<Token> idTok = this->expect(std::string("Identifier"));
           std::shared_ptr<JSNode> id =  std::make_shared<JSNode>();
-          id->nodeType = std::string("Identifier");
-          id->strValue = idTok->value;
+          id->type = std::string("Identifier");
+          id->name = idTok->value;
           id->start = idTok->start;
           id->line = idTok->line;
           id->col = idTok->col;
-          declarator->left  = id;
+          declarator->id  = id;
         }
       }
       if ( this->matchValue(std::string("of")) ) {
         isForOf = true;
         this->advance();
         std::shared_ptr<JSNode> varDecl =  std::make_shared<JSNode>();
-        varDecl->nodeType = std::string("VariableDeclaration");
-        varDecl->strValue = keyword;
+        varDecl->type = std::string("VariableDeclaration");
+        varDecl->kind = keyword;
         varDecl->start = declTok->start;
         varDecl->line = declTok->line;
         varDecl->col = declTok->col;
@@ -2084,8 +2307,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseFor() {
           isForIn = true;
           this->advance();
           std::shared_ptr<JSNode> varDecl_1 =  std::make_shared<JSNode>();
-          varDecl_1->nodeType = std::string("VariableDeclaration");
-          varDecl_1->strValue = keyword;
+          varDecl_1->type = std::string("VariableDeclaration");
+          varDecl_1->kind = keyword;
           varDecl_1->start = declTok->start;
           varDecl_1->line = declTok->line;
           varDecl_1->col = declTok->col;
@@ -2095,11 +2318,11 @@ std::shared_ptr<JSNode>  SimpleParser::parseFor() {
           if ( this->matchValue(std::string("=")) ) {
             this->advance();
             std::shared_ptr<JSNode> initVal = this->parseAssignment();
-            declarator->right  = initVal;
+            declarator->init  = initVal;
           }
           std::shared_ptr<JSNode> varDecl_2 =  std::make_shared<JSNode>();
-          varDecl_2->nodeType = std::string("VariableDeclaration");
-          varDecl_2->strValue = keyword;
+          varDecl_2->type = std::string("VariableDeclaration");
+          varDecl_2->kind = keyword;
           varDecl_2->start = declTok->start;
           varDecl_2->line = declTok->line;
           varDecl_2->col = declTok->col;
@@ -2133,7 +2356,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseFor() {
     this->advance();
   }
   if ( isForOf ) {
-    forStmt->nodeType = std::string("ForOfStatement");
+    forStmt->type = std::string("ForOfStatement");
     forStmt->left  = leftNode;
     std::shared_ptr<JSNode> rightExpr = this->parseExpr();
     forStmt->right  = rightExpr;
@@ -2143,7 +2366,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseFor() {
     return forStmt;
   }
   if ( isForIn ) {
-    forStmt->nodeType = std::string("ForInStatement");
+    forStmt->type = std::string("ForInStatement");
     forStmt->left  = leftNode;
     std::shared_ptr<JSNode> rightExpr_1 = this->parseExpr();
     forStmt->right  = rightExpr_1;
@@ -2152,7 +2375,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseFor() {
     forStmt->body  = body_1;
     return forStmt;
   }
-  forStmt->nodeType = std::string("ForStatement");
+  forStmt->type = std::string("ForStatement");
   if ( leftNode != NULL  ) {
     forStmt->left  = leftNode;
   }
@@ -2174,7 +2397,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseFor() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseSwitch() {
   std::shared_ptr<JSNode> switchStmt =  std::make_shared<JSNode>();
-  switchStmt->nodeType = std::string("SwitchStatement");
+  switchStmt->type = std::string("SwitchStatement");
   std::shared_ptr<Token> startTok = this->peek();
   switchStmt->start = startTok->start;
   switchStmt->line = startTok->line;
@@ -2188,7 +2411,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseSwitch() {
   while ((this->matchValue(std::string("}")) == false) && (this->isAtEnd() == false)) {
     std::shared_ptr<JSNode> caseNode =  std::make_shared<JSNode>();
     if ( this->matchValue(std::string("case")) ) {
-      caseNode->nodeType = std::string("SwitchCase");
+      caseNode->type = std::string("SwitchCase");
       std::shared_ptr<Token> caseTok = this->peek();
       caseNode->start = caseTok->start;
       caseNode->line = caseTok->line;
@@ -2204,8 +2427,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseSwitch() {
       switchStmt->children.push_back( caseNode  );
     } else {
       if ( this->matchValue(std::string("default")) ) {
-        caseNode->nodeType = std::string("SwitchCase");
-        caseNode->strValue = std::string("default");
+        caseNode->type = std::string("SwitchCase");
+        caseNode->name = std::string("default");
         std::shared_ptr<Token> defTok = this->peek();
         caseNode->start = defTok->start;
         caseNode->line = defTok->line;
@@ -2227,7 +2450,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseSwitch() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseTry() {
   std::shared_ptr<JSNode> tryStmt =  std::make_shared<JSNode>();
-  tryStmt->nodeType = std::string("TryStatement");
+  tryStmt->type = std::string("TryStatement");
   std::shared_ptr<Token> startTok = this->peek();
   tryStmt->start = startTok->start;
   tryStmt->line = startTok->line;
@@ -2237,7 +2460,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseTry() {
   tryStmt->body  = block;
   if ( this->matchValue(std::string("catch")) ) {
     std::shared_ptr<JSNode> catchNode =  std::make_shared<JSNode>();
-    catchNode->nodeType = std::string("CatchClause");
+    catchNode->type = std::string("CatchClause");
     std::shared_ptr<Token> catchTok = this->peek();
     catchNode->start = catchTok->start;
     catchNode->line = catchTok->line;
@@ -2245,7 +2468,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseTry() {
     this->advance();
     this->expectValue(std::string("("));
     std::shared_ptr<Token> paramTok = this->expect(std::string("Identifier"));
-    catchNode->strValue = paramTok->value;
+    catchNode->name = paramTok->value;
     this->expectValue(std::string(")"));
     std::shared_ptr<JSNode> catchBody = this->parseBlock();
     catchNode->body  = catchBody;
@@ -2260,7 +2483,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseTry() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseThrow() {
   std::shared_ptr<JSNode> throwStmt =  std::make_shared<JSNode>();
-  throwStmt->nodeType = std::string("ThrowStatement");
+  throwStmt->type = std::string("ThrowStatement");
   std::shared_ptr<Token> startTok = this->peek();
   throwStmt->start = startTok->start;
   throwStmt->line = startTok->line;
@@ -2275,7 +2498,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseThrow() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseBreak() {
   std::shared_ptr<JSNode> breakStmt =  std::make_shared<JSNode>();
-  breakStmt->nodeType = std::string("BreakStatement");
+  breakStmt->type = std::string("BreakStatement");
   std::shared_ptr<Token> startTok = this->peek();
   breakStmt->start = startTok->start;
   breakStmt->line = startTok->line;
@@ -2283,7 +2506,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseBreak() {
   this->expectValue(std::string("break"));
   if ( this->matchType(std::string("Identifier")) ) {
     std::shared_ptr<Token> labelTok = this->peek();
-    breakStmt->strValue = labelTok->value;
+    breakStmt->name = labelTok->value;
     this->advance();
   }
   if ( this->matchValue(std::string(";")) ) {
@@ -2293,7 +2516,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseBreak() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseContinue() {
   std::shared_ptr<JSNode> contStmt =  std::make_shared<JSNode>();
-  contStmt->nodeType = std::string("ContinueStatement");
+  contStmt->type = std::string("ContinueStatement");
   std::shared_ptr<Token> startTok = this->peek();
   contStmt->start = startTok->start;
   contStmt->line = startTok->line;
@@ -2301,7 +2524,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseContinue() {
   this->expectValue(std::string("continue"));
   if ( this->matchType(std::string("Identifier")) ) {
     std::shared_ptr<Token> labelTok = this->peek();
-    contStmt->strValue = labelTok->value;
+    contStmt->name = labelTok->value;
     this->advance();
   }
   if ( this->matchValue(std::string(";")) ) {
@@ -2311,7 +2534,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseContinue() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseExprStmt() {
   std::shared_ptr<JSNode> stmt =  std::make_shared<JSNode>();
-  stmt->nodeType = std::string("ExpressionStatement");
+  stmt->type = std::string("ExpressionStatement");
   std::shared_ptr<Token> startTok = this->peek();
   stmt->start = startTok->start;
   stmt->line = startTok->line;
@@ -2329,13 +2552,13 @@ std::shared_ptr<JSNode>  SimpleParser::parseExpr() {
 std::shared_ptr<JSNode>  SimpleParser::parseAssignment() {
   std::shared_ptr<JSNode> left = this->parseTernary();
   std::string tokVal = this->peekValue();
-  if ( tokVal == std::string("=") ) {
+  if ( (((((((((((((((tokVal == std::string("=")) || (tokVal == std::string("+="))) || (tokVal == std::string("-="))) || (tokVal == std::string("*="))) || (tokVal == std::string("/="))) || (tokVal == std::string("%="))) || (tokVal == std::string("**="))) || (tokVal == std::string("<<="))) || (tokVal == std::string(">>="))) || (tokVal == std::string(">>>="))) || (tokVal == std::string("&="))) || (tokVal == std::string("^="))) || (tokVal == std::string("|="))) || (tokVal == std::string("&&="))) || (tokVal == std::string("||="))) || (tokVal == std::string("??=")) ) {
     std::shared_ptr<Token> opTok = this->peek();
     this->advance();
     std::shared_ptr<JSNode> right = this->parseAssignment();
     std::shared_ptr<JSNode> assign =  std::make_shared<JSNode>();
-    assign->nodeType = std::string("AssignmentExpression");
-    assign->strValue = opTok->value;
+    assign->type = std::string("AssignmentExpression");
+    assign->_operator = opTok->value;
     assign->left  = left;
     assign->right  = right;
     assign->start = left->start;
@@ -2353,7 +2576,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseTernary() {
     this->expectValue(std::string(":"));
     std::shared_ptr<JSNode> alternate = this->parseAssignment();
     std::shared_ptr<JSNode> ternary =  std::make_shared<JSNode>();
-    ternary->nodeType = std::string("ConditionalExpression");
+    ternary->type = std::string("ConditionalExpression");
     ternary->left  = condition;
     ternary->body  = consequent;
     ternary->right  = alternate;
@@ -2371,8 +2594,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseLogicalOr() {
     this->advance();
     std::shared_ptr<JSNode> right = this->parseNullishCoalescing();
     std::shared_ptr<JSNode> binary =  std::make_shared<JSNode>();
-    binary->nodeType = std::string("LogicalExpression");
-    binary->strValue = opTok->value;
+    binary->type = std::string("LogicalExpression");
+    binary->_operator = opTok->value;
     binary->left  = left;
     binary->right  = right;
     binary->start = left->start;
@@ -2389,8 +2612,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseNullishCoalescing() {
     this->advance();
     std::shared_ptr<JSNode> right = this->parseLogicalAnd();
     std::shared_ptr<JSNode> binary =  std::make_shared<JSNode>();
-    binary->nodeType = std::string("LogicalExpression");
-    binary->strValue = opTok->value;
+    binary->type = std::string("LogicalExpression");
+    binary->_operator = opTok->value;
     binary->left  = left;
     binary->right  = right;
     binary->start = left->start;
@@ -2407,8 +2630,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseLogicalAnd() {
     this->advance();
     std::shared_ptr<JSNode> right = this->parseEquality();
     std::shared_ptr<JSNode> binary =  std::make_shared<JSNode>();
-    binary->nodeType = std::string("LogicalExpression");
-    binary->strValue = opTok->value;
+    binary->type = std::string("LogicalExpression");
+    binary->_operator = opTok->value;
     binary->left  = left;
     binary->right  = right;
     binary->start = left->start;
@@ -2426,8 +2649,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseEquality() {
     this->advance();
     std::shared_ptr<JSNode> right = this->parseComparison();
     std::shared_ptr<JSNode> binary =  std::make_shared<JSNode>();
-    binary->nodeType = std::string("BinaryExpression");
-    binary->strValue = opTok->value;
+    binary->type = std::string("BinaryExpression");
+    binary->_operator = opTok->value;
     binary->left  = left;
     binary->right  = right;
     binary->start = left->start;
@@ -2446,8 +2669,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseComparison() {
     this->advance();
     std::shared_ptr<JSNode> right = this->parseAdditive();
     std::shared_ptr<JSNode> binary =  std::make_shared<JSNode>();
-    binary->nodeType = std::string("BinaryExpression");
-    binary->strValue = opTok->value;
+    binary->type = std::string("BinaryExpression");
+    binary->_operator = opTok->value;
     binary->left  = left;
     binary->right  = right;
     binary->start = left->start;
@@ -2466,8 +2689,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseAdditive() {
     this->advance();
     std::shared_ptr<JSNode> right = this->parseMultiplicative();
     std::shared_ptr<JSNode> binary =  std::make_shared<JSNode>();
-    binary->nodeType = std::string("BinaryExpression");
-    binary->strValue = opTok->value;
+    binary->type = std::string("BinaryExpression");
+    binary->_operator = opTok->value;
     binary->left  = left;
     binary->right  = right;
     binary->start = left->start;
@@ -2486,8 +2709,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseMultiplicative() {
     this->advance();
     std::shared_ptr<JSNode> right = this->parseUnary();
     std::shared_ptr<JSNode> binary =  std::make_shared<JSNode>();
-    binary->nodeType = std::string("BinaryExpression");
-    binary->strValue = opTok->value;
+    binary->type = std::string("BinaryExpression");
+    binary->_operator = opTok->value;
     binary->left  = left;
     binary->right  = right;
     binary->start = left->start;
@@ -2507,8 +2730,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseUnary() {
       this->advance();
       std::shared_ptr<JSNode> arg = this->parseUnary();
       std::shared_ptr<JSNode> unary =  std::make_shared<JSNode>();
-      unary->nodeType = std::string("UnaryExpression");
-      unary->strValue = opTok->value;
+      unary->type = std::string("UnaryExpression");
+      unary->_operator = opTok->value;
       unary->left  = arg;
       unary->start = opTok->start;
       unary->line = opTok->line;
@@ -2521,8 +2744,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseUnary() {
     this->advance();
     std::shared_ptr<JSNode> arg_1 = this->parseUnary();
     std::shared_ptr<JSNode> unary_1 =  std::make_shared<JSNode>();
-    unary_1->nodeType = std::string("UnaryExpression");
-    unary_1->strValue = opTok_1->value;
+    unary_1->type = std::string("UnaryExpression");
+    unary_1->_operator = opTok_1->value;
     unary_1->left  = arg_1;
     unary_1->start = opTok_1->start;
     unary_1->line = opTok_1->line;
@@ -2534,9 +2757,9 @@ std::shared_ptr<JSNode>  SimpleParser::parseUnary() {
     this->advance();
     std::shared_ptr<JSNode> arg_2 = this->parseUnary();
     std::shared_ptr<JSNode> update =  std::make_shared<JSNode>();
-    update->nodeType = std::string("UpdateExpression");
-    update->strValue = opTok_2->value;
-    update->strValue2 = std::string("prefix");
+    update->type = std::string("UpdateExpression");
+    update->_operator = opTok_2->value;
+    update->prefix = true;
     update->left  = arg_2;
     update->start = opTok_2->start;
     update->line = opTok_2->line;
@@ -2547,12 +2770,12 @@ std::shared_ptr<JSNode>  SimpleParser::parseUnary() {
     std::shared_ptr<Token> yieldTok = this->peek();
     this->advance();
     std::shared_ptr<JSNode> yieldExpr =  std::make_shared<JSNode>();
-    yieldExpr->nodeType = std::string("YieldExpression");
+    yieldExpr->type = std::string("YieldExpression");
     yieldExpr->start = yieldTok->start;
     yieldExpr->line = yieldTok->line;
     yieldExpr->col = yieldTok->col;
     if ( this->matchValue(std::string("*")) ) {
-      yieldExpr->strValue = std::string("delegate");
+      yieldExpr->delegate = true;
       this->advance();
     }
     std::string nextVal = this->peekValue();
@@ -2567,7 +2790,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseUnary() {
     this->advance();
     std::shared_ptr<JSNode> arg_4 = this->parseUnary();
     std::shared_ptr<JSNode> awaitExpr =  std::make_shared<JSNode>();
-    awaitExpr->nodeType = std::string("AwaitExpression");
+    awaitExpr->type = std::string("AwaitExpression");
     awaitExpr->left  = arg_4;
     awaitExpr->start = awaitTok->start;
     awaitExpr->line = awaitTok->line;
@@ -2588,9 +2811,9 @@ std::shared_ptr<JSNode>  SimpleParser::parseCallMember() {
       std::shared_ptr<Token> opTok = this->peek();
       this->advance();
       std::shared_ptr<JSNode> update =  std::make_shared<JSNode>();
-      update->nodeType = std::string("UpdateExpression");
-      update->strValue = opTok->value;
-      update->strValue2 = std::string("postfix");
+      update->type = std::string("UpdateExpression");
+      update->_operator = opTok->value;
+      update->prefix = false;
       update->left  = object;
       update->start = object->start;
       update->line = object->line;
@@ -2603,7 +2826,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseCallMember() {
         if ( nextTokVal == std::string("(") ) {
           this->advance();
           std::shared_ptr<JSNode> call =  std::make_shared<JSNode>();
-          call->nodeType = std::string("OptionalCallExpression");
+          call->type = std::string("OptionalCallExpression");
           call->left  = object;
           call->start = object->start;
           call->line = object->line;
@@ -2626,10 +2849,10 @@ std::shared_ptr<JSNode>  SimpleParser::parseCallMember() {
             std::shared_ptr<JSNode> propExpr = this->parseExpr();
             this->expectValue(std::string("]"));
             std::shared_ptr<JSNode> member =  std::make_shared<JSNode>();
-            member->nodeType = std::string("OptionalMemberExpression");
+            member->type = std::string("OptionalMemberExpression");
             member->left  = object;
             member->right  = propExpr;
-            member->strValue2 = std::string("bracket");
+            member->computed = true;
             member->start = object->start;
             member->line = object->line;
             member->col = object->col;
@@ -2637,10 +2860,10 @@ std::shared_ptr<JSNode>  SimpleParser::parseCallMember() {
           } else {
             std::shared_ptr<Token> propTok = this->expect(std::string("Identifier"));
             std::shared_ptr<JSNode> member_1 =  std::make_shared<JSNode>();
-            member_1->nodeType = std::string("OptionalMemberExpression");
+            member_1->type = std::string("OptionalMemberExpression");
             member_1->left  = object;
-            member_1->strValue = propTok->value;
-            member_1->strValue2 = std::string("dot");
+            member_1->name = propTok->value;
+            member_1->computed = false;
             member_1->start = object->start;
             member_1->line = object->line;
             member_1->col = object->col;
@@ -2652,10 +2875,10 @@ std::shared_ptr<JSNode>  SimpleParser::parseCallMember() {
           this->advance();
           std::shared_ptr<Token> propTok_1 = this->expect(std::string("Identifier"));
           std::shared_ptr<JSNode> member_2 =  std::make_shared<JSNode>();
-          member_2->nodeType = std::string("MemberExpression");
+          member_2->type = std::string("MemberExpression");
           member_2->left  = object;
-          member_2->strValue = propTok_1->value;
-          member_2->strValue2 = std::string("dot");
+          member_2->name = propTok_1->value;
+          member_2->computed = false;
           member_2->start = object->start;
           member_2->line = object->line;
           member_2->col = object->col;
@@ -2666,10 +2889,10 @@ std::shared_ptr<JSNode>  SimpleParser::parseCallMember() {
             std::shared_ptr<JSNode> propExpr_1 = this->parseExpr();
             this->expectValue(std::string("]"));
             std::shared_ptr<JSNode> member_3 =  std::make_shared<JSNode>();
-            member_3->nodeType = std::string("MemberExpression");
+            member_3->type = std::string("MemberExpression");
             member_3->left  = object;
             member_3->right  = propExpr_1;
-            member_3->strValue2 = std::string("bracket");
+            member_3->computed = true;
             member_3->start = object->start;
             member_3->line = object->line;
             member_3->col = object->col;
@@ -2678,7 +2901,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseCallMember() {
             if ( tokVal == std::string("(") ) {
               this->advance();
               std::shared_ptr<JSNode> call_1 =  std::make_shared<JSNode>();
-              call_1->nodeType = std::string("CallExpression");
+              call_1->type = std::string("CallExpression");
               call_1->left  = object;
               call_1->start = object->start;
               call_1->line = object->line;
@@ -2695,7 +2918,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseCallMember() {
                   this->advance();
                   std::shared_ptr<JSNode> spreadArg = this->parseAssignment();
                   std::shared_ptr<JSNode> spread =  std::make_shared<JSNode>();
-                  spread->nodeType = std::string("SpreadElement");
+                  spread->type = std::string("SpreadElement");
                   spread->left  = spreadArg;
                   spread->start = spreadTok->start;
                   spread->line = spreadTok->line;
@@ -2720,7 +2943,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseCallMember() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseNewExpression() {
   std::shared_ptr<JSNode> newExpr =  std::make_shared<JSNode>();
-  newExpr->nodeType = std::string("NewExpression");
+  newExpr->type = std::string("NewExpression");
   std::shared_ptr<Token> startTok = this->peek();
   newExpr->start = startTok->start;
   newExpr->line = startTok->line;
@@ -2734,10 +2957,10 @@ std::shared_ptr<JSNode>  SimpleParser::parseNewExpression() {
       this->advance();
       std::shared_ptr<Token> propTok = this->expect(std::string("Identifier"));
       std::shared_ptr<JSNode> member =  std::make_shared<JSNode>();
-      member->nodeType = std::string("MemberExpression");
+      member->type = std::string("MemberExpression");
       member->left  = callee;
-      member->strValue = propTok->value;
-      member->strValue2 = std::string("dot");
+      member->name = propTok->value;
+      member->computed = false;
       member->start = callee->start;
       member->line = callee->line;
       member->col = callee->col;
@@ -2781,8 +3004,8 @@ std::shared_ptr<JSNode>  SimpleParser::parsePrimary() {
     }
     this->advance();
     std::shared_ptr<JSNode> id =  std::make_shared<JSNode>();
-    id->nodeType = std::string("Identifier");
-    id->strValue = tok->value;
+    id->type = std::string("Identifier");
+    id->name = tok->value;
     id->start = tok->start;
     id->end = tok->end;
     id->line = tok->line;
@@ -2792,9 +3015,8 @@ std::shared_ptr<JSNode>  SimpleParser::parsePrimary() {
   if ( tokType == std::string("Number") ) {
     this->advance();
     std::shared_ptr<JSNode> lit =  std::make_shared<JSNode>();
-    lit->nodeType = std::string("Literal");
-    lit->strValue = tok->value;
-    lit->strValue2 = std::string("number");
+    lit->type = std::string("Literal");
+    lit->raw = tok->value;
     lit->start = tok->start;
     lit->end = tok->end;
     lit->line = tok->line;
@@ -2804,9 +3026,9 @@ std::shared_ptr<JSNode>  SimpleParser::parsePrimary() {
   if ( tokType == std::string("String") ) {
     this->advance();
     std::shared_ptr<JSNode> lit_1 =  std::make_shared<JSNode>();
-    lit_1->nodeType = std::string("Literal");
-    lit_1->strValue = tok->value;
-    lit_1->strValue2 = std::string("string");
+    lit_1->type = std::string("Literal");
+    lit_1->raw = tok->value;
+    lit_1->kind = std::string("string");
     lit_1->start = tok->start;
     lit_1->end = tok->end;
     lit_1->line = tok->line;
@@ -2816,9 +3038,8 @@ std::shared_ptr<JSNode>  SimpleParser::parsePrimary() {
   if ( (tokVal == std::string("true")) || (tokVal == std::string("false")) ) {
     this->advance();
     std::shared_ptr<JSNode> lit_2 =  std::make_shared<JSNode>();
-    lit_2->nodeType = std::string("Literal");
-    lit_2->strValue = tok->value;
-    lit_2->strValue2 = std::string("boolean");
+    lit_2->type = std::string("Literal");
+    lit_2->raw = tok->value;
     lit_2->start = tok->start;
     lit_2->end = tok->end;
     lit_2->line = tok->line;
@@ -2828,9 +3049,8 @@ std::shared_ptr<JSNode>  SimpleParser::parsePrimary() {
   if ( tokVal == std::string("null") ) {
     this->advance();
     std::shared_ptr<JSNode> lit_3 =  std::make_shared<JSNode>();
-    lit_3->nodeType = std::string("Literal");
-    lit_3->strValue = std::string("null");
-    lit_3->strValue2 = std::string("null");
+    lit_3->type = std::string("Literal");
+    lit_3->raw = std::string("null");
     lit_3->start = tok->start;
     lit_3->end = tok->end;
     lit_3->line = tok->line;
@@ -2840,8 +3060,8 @@ std::shared_ptr<JSNode>  SimpleParser::parsePrimary() {
   if ( tokType == std::string("TemplateLiteral") ) {
     this->advance();
     std::shared_ptr<JSNode> tmpl =  std::make_shared<JSNode>();
-    tmpl->nodeType = std::string("TemplateLiteral");
-    tmpl->strValue = tok->value;
+    tmpl->type = std::string("TemplateLiteral");
+    tmpl->raw = tok->value;
     tmpl->start = tok->start;
     tmpl->end = tok->end;
     tmpl->line = tok->line;
@@ -2871,8 +3091,8 @@ std::shared_ptr<JSNode>  SimpleParser::parsePrimary() {
   }
   this->advance();
   std::shared_ptr<JSNode> fallback =  std::make_shared<JSNode>();
-  fallback->nodeType = std::string("Identifier");
-  fallback->strValue = tok->value;
+  fallback->type = std::string("Identifier");
+  fallback->name = tok->value;
   fallback->start = tok->start;
   fallback->end = tok->end;
   fallback->line = tok->line;
@@ -2881,7 +3101,7 @@ std::shared_ptr<JSNode>  SimpleParser::parsePrimary() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseArray() {
   std::shared_ptr<JSNode> arr =  std::make_shared<JSNode>();
-  arr->nodeType = std::string("ArrayExpression");
+  arr->type = std::string("ArrayExpression");
   std::shared_ptr<Token> startTok = this->peek();
   arr->start = startTok->start;
   arr->line = startTok->line;
@@ -2899,7 +3119,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseArray() {
       this->advance();
       std::shared_ptr<JSNode> arg = this->parseAssignment();
       std::shared_ptr<JSNode> spread =  std::make_shared<JSNode>();
-      spread->nodeType = std::string("SpreadElement");
+      spread->type = std::string("SpreadElement");
       spread->left  = arg;
       spread->start = spreadTok->start;
       spread->line = spreadTok->line;
@@ -2915,7 +3135,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseArray() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseObject() {
   std::shared_ptr<JSNode> obj =  std::make_shared<JSNode>();
-  obj->nodeType = std::string("ObjectExpression");
+  obj->type = std::string("ObjectExpression");
   std::shared_ptr<Token> startTok = this->peek();
   obj->start = startTok->start;
   obj->line = startTok->line;
@@ -2933,7 +3153,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseObject() {
       this->advance();
       std::shared_ptr<JSNode> arg = this->parseAssignment();
       std::shared_ptr<JSNode> spread =  std::make_shared<JSNode>();
-      spread->nodeType = std::string("SpreadElement");
+      spread->type = std::string("SpreadElement");
       spread->left  = arg;
       spread->start = spreadTok->start;
       spread->line = spreadTok->line;
@@ -2941,7 +3161,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseObject() {
       obj->children.push_back( spread  );
     } else {
       std::shared_ptr<JSNode> prop =  std::make_shared<JSNode>();
-      prop->nodeType = std::string("Property");
+      prop->type = std::string("Property");
       std::shared_ptr<Token> keyTok = this->peek();
       std::string keyType = this->peekType();
       if ( this->matchValue(std::string("[")) ) {
@@ -2952,7 +3172,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseObject() {
         std::shared_ptr<JSNode> val = this->parseAssignment();
         prop->right  = keyExpr;
         prop->left  = val;
-        prop->strValue2 = std::string("computed");
+        prop->computed = true;
         prop->start = keyTok->start;
         prop->line = keyTok->line;
         prop->col = keyTok->col;
@@ -2960,7 +3180,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseObject() {
       } else {
         if ( ((keyType == std::string("Identifier")) || (keyType == std::string("String"))) || (keyType == std::string("Number")) ) {
           this->advance();
-          prop->strValue = keyTok->value;
+          prop->name = keyTok->value;
           prop->start = keyTok->start;
           prop->line = keyTok->line;
           prop->col = keyTok->col;
@@ -2970,13 +3190,13 @@ std::shared_ptr<JSNode>  SimpleParser::parseObject() {
             prop->left  = val_1;
           } else {
             std::shared_ptr<JSNode> id =  std::make_shared<JSNode>();
-            id->nodeType = std::string("Identifier");
-            id->strValue = keyTok->value;
+            id->type = std::string("Identifier");
+            id->name = keyTok->value;
             id->start = keyTok->start;
             id->line = keyTok->line;
             id->col = keyTok->col;
             prop->left  = id;
-            prop->strValue2 = std::string("shorthand");
+            prop->shorthand = true;
           }
           obj->children.push_back( prop  );
         } else {
@@ -2992,7 +3212,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseObject() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseArrayPattern() {
   std::shared_ptr<JSNode> pattern =  std::make_shared<JSNode>();
-  pattern->nodeType = std::string("ArrayPattern");
+  pattern->type = std::string("ArrayPattern");
   std::shared_ptr<Token> startTok = this->peek();
   pattern->start = startTok->start;
   pattern->line = startTok->line;
@@ -3010,8 +3230,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseArrayPattern() {
       this->advance();
       std::shared_ptr<Token> idTok = this->expect(std::string("Identifier"));
       std::shared_ptr<JSNode> rest =  std::make_shared<JSNode>();
-      rest->nodeType = std::string("RestElement");
-      rest->strValue = idTok->value;
+      rest->type = std::string("RestElement");
+      rest->name = idTok->value;
       rest->start = restTok->start;
       rest->line = restTok->line;
       rest->col = restTok->col;
@@ -3027,8 +3247,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseArrayPattern() {
         } else {
           std::shared_ptr<Token> idTok_1 = this->expect(std::string("Identifier"));
           std::shared_ptr<JSNode> id =  std::make_shared<JSNode>();
-          id->nodeType = std::string("Identifier");
-          id->strValue = idTok_1->value;
+          id->type = std::string("Identifier");
+          id->name = idTok_1->value;
           id->start = idTok_1->start;
           id->line = idTok_1->line;
           id->col = idTok_1->col;
@@ -3042,7 +3262,7 @@ std::shared_ptr<JSNode>  SimpleParser::parseArrayPattern() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseObjectPattern() {
   std::shared_ptr<JSNode> pattern =  std::make_shared<JSNode>();
-  pattern->nodeType = std::string("ObjectPattern");
+  pattern->type = std::string("ObjectPattern");
   std::shared_ptr<Token> startTok = this->peek();
   pattern->start = startTok->start;
   pattern->line = startTok->line;
@@ -3060,17 +3280,17 @@ std::shared_ptr<JSNode>  SimpleParser::parseObjectPattern() {
       this->advance();
       std::shared_ptr<Token> idTok = this->expect(std::string("Identifier"));
       std::shared_ptr<JSNode> rest =  std::make_shared<JSNode>();
-      rest->nodeType = std::string("RestElement");
-      rest->strValue = idTok->value;
+      rest->type = std::string("RestElement");
+      rest->name = idTok->value;
       rest->start = restTok->start;
       rest->line = restTok->line;
       rest->col = restTok->col;
       pattern->children.push_back( rest  );
     } else {
       std::shared_ptr<JSNode> prop =  std::make_shared<JSNode>();
-      prop->nodeType = std::string("Property");
+      prop->type = std::string("Property");
       std::shared_ptr<Token> keyTok = this->expect(std::string("Identifier"));
-      prop->strValue = keyTok->value;
+      prop->name = keyTok->value;
       prop->start = keyTok->start;
       prop->line = keyTok->line;
       prop->col = keyTok->col;
@@ -3086,8 +3306,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseObjectPattern() {
           } else {
             std::shared_ptr<Token> idTok2 = this->expect(std::string("Identifier"));
             std::shared_ptr<JSNode> id =  std::make_shared<JSNode>();
-            id->nodeType = std::string("Identifier");
-            id->strValue = idTok2->value;
+            id->type = std::string("Identifier");
+            id->name = idTok2->value;
             id->start = idTok2->start;
             id->line = idTok2->line;
             id->col = idTok2->col;
@@ -3096,13 +3316,13 @@ std::shared_ptr<JSNode>  SimpleParser::parseObjectPattern() {
         }
       } else {
         std::shared_ptr<JSNode> id_1 =  std::make_shared<JSNode>();
-        id_1->nodeType = std::string("Identifier");
-        id_1->strValue = keyTok->value;
+        id_1->type = std::string("Identifier");
+        id_1->name = keyTok->value;
         id_1->start = keyTok->start;
         id_1->line = keyTok->line;
         id_1->col = keyTok->col;
         prop->left  = id_1;
-        prop->strValue2 = std::string("shorthand");
+        prop->shorthand = true;
       }
       pattern->children.push_back( prop  );
     }
@@ -3134,7 +3354,7 @@ bool  SimpleParser::isArrowFunction() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseArrowFunction() {
   std::shared_ptr<JSNode> arrow =  std::make_shared<JSNode>();
-  arrow->nodeType = std::string("ArrowFunctionExpression");
+  arrow->type = std::string("ArrowFunctionExpression");
   std::shared_ptr<Token> startTok = this->peek();
   arrow->start = startTok->start;
   arrow->line = startTok->line;
@@ -3150,8 +3370,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseArrowFunction() {
       }
       std::shared_ptr<Token> paramTok = this->expect(std::string("Identifier"));
       std::shared_ptr<JSNode> param =  std::make_shared<JSNode>();
-      param->nodeType = std::string("Identifier");
-      param->strValue = paramTok->value;
+      param->type = std::string("Identifier");
+      param->name = paramTok->value;
       param->start = paramTok->start;
       param->line = paramTok->line;
       param->col = paramTok->col;
@@ -3161,8 +3381,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseArrowFunction() {
   } else {
     std::shared_ptr<Token> paramTok_1 = this->expect(std::string("Identifier"));
     std::shared_ptr<JSNode> param_1 =  std::make_shared<JSNode>();
-    param_1->nodeType = std::string("Identifier");
-    param_1->strValue = paramTok_1->value;
+    param_1->type = std::string("Identifier");
+    param_1->name = paramTok_1->value;
     param_1->start = paramTok_1->start;
     param_1->line = paramTok_1->line;
     param_1->col = paramTok_1->col;
@@ -3180,8 +3400,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseArrowFunction() {
 }
 std::shared_ptr<JSNode>  SimpleParser::parseAsyncArrowFunction() {
   std::shared_ptr<JSNode> arrow =  std::make_shared<JSNode>();
-  arrow->nodeType = std::string("ArrowFunctionExpression");
-  arrow->strValue2 = std::string("async");
+  arrow->type = std::string("ArrowFunctionExpression");
+  arrow->async = true;
   std::shared_ptr<Token> startTok = this->peek();
   arrow->start = startTok->start;
   arrow->line = startTok->line;
@@ -3198,8 +3418,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseAsyncArrowFunction() {
       }
       std::shared_ptr<Token> paramTok = this->expect(std::string("Identifier"));
       std::shared_ptr<JSNode> param =  std::make_shared<JSNode>();
-      param->nodeType = std::string("Identifier");
-      param->strValue = paramTok->value;
+      param->type = std::string("Identifier");
+      param->name = paramTok->value;
       param->start = paramTok->start;
       param->line = paramTok->line;
       param->col = paramTok->col;
@@ -3209,8 +3429,8 @@ std::shared_ptr<JSNode>  SimpleParser::parseAsyncArrowFunction() {
   } else {
     std::shared_ptr<Token> paramTok_1 = this->expect(std::string("Identifier"));
     std::shared_ptr<JSNode> param_1 =  std::make_shared<JSNode>();
-    param_1->nodeType = std::string("Identifier");
-    param_1->strValue = paramTok_1->value;
+    param_1->type = std::string("Identifier");
+    param_1->name = paramTok_1->value;
     param_1->start = paramTok_1->start;
     param_1->line = paramTok_1->line;
     param_1->col = paramTok_1->col;
@@ -3239,18 +3459,18 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
   if ( numComments > 0 ) {
     for ( int ci = 0; ci != (int)(node->leadingComments.size()); ci++) {
       std::shared_ptr<JSNode> comment = node->leadingComments.at(ci);
-      std::string commentType = comment->nodeType;
-      std::string preview = comment->strValue;
+      std::string commentType = comment->type;
+      std::string preview = comment->raw;
       if ( ((int)(preview.length())) > 40 ) {
         preview = (r_utf8_substr(preview, 0, 40 - 0)) + std::string("...");
       }
       std::cout << ((indent + commentType) + std::string(": ")) + preview << std::endl;
     }
   }
-  std::string nodeType = node->nodeType;
+  std::string nodeType = node->type;
   std::string loc = (((std::string("[") + std::to_string(node->line)) + std::string(":")) + std::to_string(node->col)) + std::string("]");
   if ( nodeType == std::string("VariableDeclaration") ) {
-    std::string kind = node->strValue;
+    std::string kind = node->name;
     if ( ((int)(kind.length())) > 0 ) {
       std::cout << (((indent + std::string("VariableDeclaration (")) + kind) + std::string(") ")) + loc << std::endl;
     } else {
@@ -3265,9 +3485,9 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
   if ( nodeType == std::string("VariableDeclarator") ) {
     if ( node->left != NULL  ) {
       std::shared_ptr<JSNode> id = node->left;
-      std::string idType = id->nodeType;
+      std::string idType = id->type;
       if ( idType == std::string("Identifier") ) {
-        std::cout << (((indent + std::string("VariableDeclarator: ")) + id->strValue) + std::string(" ")) + loc << std::endl;
+        std::cout << (((indent + std::string("VariableDeclarator: ")) + id->name) + std::string(" ")) + loc << std::endl;
       } else {
         std::cout << (indent + std::string("VariableDeclarator ")) + loc << std::endl;
         std::cout << indent + std::string("  pattern:") << std::endl;
@@ -3288,23 +3508,24 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
       if ( pi > 0 ) {
         params = params + std::string(", ");
       }
-      params = params + p->strValue;
+      params = params + p->name;
     }
-    std::string kind_1 = node->strValue2;
     std::string prefix = std::string("");
-    if ( kind_1 == std::string("async") ) {
-      prefix = std::string("async ");
-    }
-    if ( kind_1 == std::string("generator") ) {
-      prefix = std::string("function* ");
-    }
-    if ( kind_1 == std::string("async-generator") ) {
-      prefix = std::string("async function* ");
+    if ( node->async ) {
+      if ( node->generator ) {
+        prefix = std::string("async function* ");
+      } else {
+        prefix = std::string("async ");
+      }
+    } else {
+      if ( node->generator ) {
+        prefix = std::string("function* ");
+      }
     }
     if ( ((int)(prefix.length())) > 0 ) {
-      std::cout << ((((((indent + std::string("FunctionDeclaration: ")) + prefix) + node->strValue) + std::string("(")) + params) + std::string(") ")) + loc << std::endl;
+      std::cout << ((((((indent + std::string("FunctionDeclaration: ")) + prefix) + node->name) + std::string("(")) + params) + std::string(") ")) + loc << std::endl;
     } else {
-      std::cout << (((((indent + std::string("FunctionDeclaration: ")) + node->strValue) + std::string("(")) + params) + std::string(") ")) + loc << std::endl;
+      std::cout << (((((indent + std::string("FunctionDeclaration: ")) + node->name) + std::string("(")) + params) + std::string(") ")) + loc << std::endl;
     }
     if ( node->body != NULL  ) {
       ASTPrinter::printNode(node->body, depth + 1);
@@ -3312,10 +3533,10 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( nodeType == std::string("ClassDeclaration") ) {
-    std::string output = (indent + std::string("ClassDeclaration: ")) + node->strValue;
+    std::string output = (indent + std::string("ClassDeclaration: ")) + node->name;
     if ( node->left != NULL  ) {
       std::shared_ptr<JSNode> superClass = node->left;
-      output = (output + std::string(" extends ")) + superClass->strValue;
+      output = (output + std::string(" extends ")) + superClass->name;
     }
     std::cout << (output + std::string(" ")) + loc << std::endl;
     if ( node->body != NULL  ) {
@@ -3333,10 +3554,10 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
   }
   if ( nodeType == std::string("MethodDefinition") ) {
     std::string staticStr = std::string("");
-    if ( node->strValue2 == std::string("static") ) {
+    if ( node->_static ) {
       staticStr = std::string("static ");
     }
-    std::cout << ((((indent + std::string("MethodDefinition: ")) + staticStr) + node->strValue) + std::string(" ")) + loc << std::endl;
+    std::cout << ((((indent + std::string("MethodDefinition: ")) + staticStr) + node->name) + std::string(" ")) + loc << std::endl;
     if ( node->body != NULL  ) {
       ASTPrinter::printNode(node->body, depth + 1);
     }
@@ -3349,10 +3570,10 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
       if ( pi_1 > 0 ) {
         params_1 = params_1 + std::string(", ");
       }
-      params_1 = params_1 + p_1->strValue;
+      params_1 = params_1 + p_1->name;
     }
     std::string asyncStr = std::string("");
-    if ( node->strValue2 == std::string("async") ) {
+    if ( node->async ) {
       asyncStr = std::string("async ");
     }
     std::cout << (((((indent + std::string("ArrowFunctionExpression: ")) + asyncStr) + std::string("(")) + params_1) + std::string(") => ")) + loc << std::endl;
@@ -3363,7 +3584,7 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
   }
   if ( nodeType == std::string("YieldExpression") ) {
     std::string delegateStr = std::string("");
-    if ( node->strValue == std::string("delegate") ) {
+    if ( node->name == std::string("delegate") ) {
       delegateStr = std::string("*");
     }
     std::cout << (((indent + std::string("YieldExpression")) + delegateStr) + std::string(" ")) + loc << std::endl;
@@ -3380,7 +3601,7 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( nodeType == std::string("TemplateLiteral") ) {
-    std::cout << (((indent + std::string("TemplateLiteral: `")) + node->strValue) + std::string("` ")) + loc << std::endl;
+    std::cout << (((indent + std::string("TemplateLiteral: `")) + node->name) + std::string("` ")) + loc << std::endl;
     return;
   }
   if ( nodeType == std::string("BlockStatement") ) {
@@ -3422,7 +3643,7 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( nodeType == std::string("AssignmentExpression") ) {
-    std::cout << (((indent + std::string("AssignmentExpression: ")) + node->strValue) + std::string(" ")) + loc << std::endl;
+    std::cout << (((indent + std::string("AssignmentExpression: ")) + node->name) + std::string(" ")) + loc << std::endl;
     if ( node->left != NULL  ) {
       std::cout << indent + std::string("  left:") << std::endl;
       ASTPrinter::printNode(node->left, depth + 2);
@@ -3434,7 +3655,7 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( (nodeType == std::string("BinaryExpression")) || (nodeType == std::string("LogicalExpression")) ) {
-    std::cout << ((((indent + nodeType) + std::string(": ")) + node->strValue) + std::string(" ")) + loc << std::endl;
+    std::cout << ((((indent + nodeType) + std::string(": ")) + node->name) + std::string(" ")) + loc << std::endl;
     if ( node->left != NULL  ) {
       std::cout << indent + std::string("  left:") << std::endl;
       ASTPrinter::printNode(node->left, depth + 2);
@@ -3446,7 +3667,7 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( nodeType == std::string("UnaryExpression") ) {
-    std::cout << (((indent + std::string("UnaryExpression: ")) + node->strValue) + std::string(" ")) + loc << std::endl;
+    std::cout << (((indent + std::string("UnaryExpression: ")) + node->name) + std::string(" ")) + loc << std::endl;
     if ( node->left != NULL  ) {
       ASTPrinter::printNode(node->left, depth + 1);
     }
@@ -3454,12 +3675,12 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
   }
   if ( nodeType == std::string("UpdateExpression") ) {
     std::string prefix_1 = std::string("");
-    if ( node->strValue2 == std::string("prefix") ) {
+    if ( node->prefix ) {
       prefix_1 = std::string("prefix ");
     } else {
       prefix_1 = std::string("postfix ");
     }
-    std::cout << ((((indent + std::string("UpdateExpression: ")) + prefix_1) + node->strValue) + std::string(" ")) + loc << std::endl;
+    std::cout << ((((indent + std::string("UpdateExpression: ")) + prefix_1) + node->name) + std::string(" ")) + loc << std::endl;
     if ( node->left != NULL  ) {
       ASTPrinter::printNode(node->left, depth + 1);
     }
@@ -3512,8 +3733,8 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( nodeType == std::string("MemberExpression") ) {
-    if ( node->strValue2 == std::string("dot") ) {
-      std::cout << (((indent + std::string("MemberExpression: .")) + node->strValue) + std::string(" ")) + loc << std::endl;
+    if ( node->computed == false ) {
+      std::cout << (((indent + std::string("MemberExpression: .")) + node->name) + std::string(" ")) + loc << std::endl;
     } else {
       std::cout << (indent + std::string("MemberExpression: [computed] ")) + loc << std::endl;
     }
@@ -3526,11 +3747,11 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( nodeType == std::string("Identifier") ) {
-    std::cout << (((indent + std::string("Identifier: ")) + node->strValue) + std::string(" ")) + loc << std::endl;
+    std::cout << (((indent + std::string("Identifier: ")) + node->name) + std::string(" ")) + loc << std::endl;
     return;
   }
   if ( nodeType == std::string("Literal") ) {
-    std::cout << (((((indent + std::string("Literal: ")) + node->strValue) + std::string(" (")) + node->strValue2) + std::string(") ")) + loc << std::endl;
+    std::cout << (((((indent + std::string("Literal: ")) + node->name) + std::string(" (")) + node->raw) + std::string(") ")) + loc << std::endl;
     return;
   }
   if ( nodeType == std::string("ArrayExpression") ) {
@@ -3551,10 +3772,10 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
   }
   if ( nodeType == std::string("Property") ) {
     std::string shorthand = std::string("");
-    if ( node->strValue2 == std::string("shorthand") ) {
+    if ( node->shorthand ) {
       shorthand = std::string(" (shorthand)");
     }
-    std::cout << ((((indent + std::string("Property: ")) + node->strValue) + shorthand) + std::string(" ")) + loc << std::endl;
+    std::cout << ((((indent + std::string("Property: ")) + node->name) + shorthand) + std::string(" ")) + loc << std::endl;
     if ( node->left != NULL  ) {
       ASTPrinter::printNode(node->left, depth + 1);
     }
@@ -3584,7 +3805,7 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( nodeType == std::string("RestElement") ) {
-    std::cout << (((indent + std::string("RestElement: ...")) + node->strValue) + std::string(" ")) + loc << std::endl;
+    std::cout << (((indent + std::string("RestElement: ...")) + node->name) + std::string(" ")) + loc << std::endl;
     return;
   }
   if ( nodeType == std::string("WhileStatement") ) {
@@ -3677,7 +3898,7 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( nodeType == std::string("SwitchCase") ) {
-    if ( node->strValue == std::string("default") ) {
+    if ( node->name == std::string("default") ) {
       std::cout << (indent + std::string("SwitchCase: default ")) + loc << std::endl;
     } else {
       std::cout << (indent + std::string("SwitchCase ")) + loc << std::endl;
@@ -3712,7 +3933,7 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( nodeType == std::string("CatchClause") ) {
-    std::cout << (((indent + std::string("CatchClause: ")) + node->strValue) + std::string(" ")) + loc << std::endl;
+    std::cout << (((indent + std::string("CatchClause: ")) + node->name) + std::string(" ")) + loc << std::endl;
     if ( node->body != NULL  ) {
       ASTPrinter::printNode(node->body, depth + 1);
     }
@@ -3726,16 +3947,16 @@ void  ASTPrinter::printNode( std::shared_ptr<JSNode> node , int depth ) {
     return;
   }
   if ( nodeType == std::string("BreakStatement") ) {
-    if ( ((int)(node->strValue.length())) > 0 ) {
-      std::cout << (((indent + std::string("BreakStatement: ")) + node->strValue) + std::string(" ")) + loc << std::endl;
+    if ( ((int)(node->name.length())) > 0 ) {
+      std::cout << (((indent + std::string("BreakStatement: ")) + node->name) + std::string(" ")) + loc << std::endl;
     } else {
       std::cout << (indent + std::string("BreakStatement ")) + loc << std::endl;
     }
     return;
   }
   if ( nodeType == std::string("ContinueStatement") ) {
-    if ( ((int)(node->strValue.length())) > 0 ) {
-      std::cout << (((indent + std::string("ContinueStatement: ")) + node->strValue) + std::string(" ")) + loc << std::endl;
+    if ( ((int)(node->name.length())) > 0 ) {
+      std::cout << (((indent + std::string("ContinueStatement: ")) + node->name) + std::string(" ")) + loc << std::endl;
     } else {
       std::cout << (indent + std::string("ContinueStatement ")) + loc << std::endl;
     }
@@ -3761,10 +3982,12 @@ void  JSPrinter::emit( std::string text ) {
   this->output = this->output + text;
 }
 void  JSPrinter::emitLine( std::string text ) {
-  this->output = ((this->output + this->getIndent()) + text) + std::string("\n");
+  std::string ind = this->getIndent();
+  this->output = ((this->output + ind) + text) + std::string("\n");
 }
 void  JSPrinter::emitIndent() {
-  this->output = this->output + this->getIndent();
+  std::string ind = this->getIndent();
+  this->output = this->output + ind;
 }
 void  JSPrinter::indent() {
   this->indentLevel = this->indentLevel + 1;
@@ -3783,8 +4006,8 @@ void  JSPrinter::printLeadingComments( std::shared_ptr<JSNode> node ) {
   }
 }
 void  JSPrinter::printComment( std::shared_ptr<JSNode> comment ) {
-  std::string commentType = comment->nodeType;
-  std::string value = comment->strValue;
+  std::string commentType = comment->type;
+  std::string value = comment->raw;
   if ( commentType == std::string("LineComment") ) {
     this->emitLine(std::string("//") + value);
     return;
@@ -3808,7 +4031,7 @@ std::string  JSPrinter::print( std::shared_ptr<JSNode> node ) {
   return this->output;
 }
 void  JSPrinter::printNode( std::shared_ptr<JSNode> node ) {
-  std::string nodeType = node->nodeType;
+  std::string nodeType = node->type;
   if ( nodeType == std::string("Program") ) {
     this->printProgram(node);
     return;
@@ -3901,7 +4124,7 @@ void  JSPrinter::printNode( std::shared_ptr<JSNode> node ) {
     return;
   }
   if ( nodeType == std::string("Identifier") ) {
-    this->emit(node->strValue);
+    this->emit(node->name);
     return;
   }
   if ( nodeType == std::string("Literal") ) {
@@ -3909,11 +4132,11 @@ void  JSPrinter::printNode( std::shared_ptr<JSNode> node ) {
     return;
   }
   if ( nodeType == std::string("TemplateLiteral") ) {
-    this->emit((std::string("`") + node->strValue) + std::string("`"));
+    this->emit((std::string("`") + node->raw) + std::string("`"));
     return;
   }
   if ( nodeType == std::string("RegexLiteral") ) {
-    this->emit(((std::string("/") + node->strValue) + std::string("/")) + node->strValue2);
+    this->emit(((std::string("/") + node->name) + std::string("/")) + node->kind);
     return;
   }
   if ( nodeType == std::string("ArrayExpression") ) {
@@ -3989,7 +4212,7 @@ void  JSPrinter::printNode( std::shared_ptr<JSNode> node ) {
     return;
   }
   if ( nodeType == std::string("RestElement") ) {
-    this->emit(std::string("...") + node->strValue);
+    this->emit(std::string("...") + node->name);
     return;
   }
   if ( nodeType == std::string("ArrayPattern") ) {
@@ -4010,7 +4233,7 @@ void  JSPrinter::printProgram( std::shared_ptr<JSNode> node ) {
 }
 void  JSPrinter::printStatement( std::shared_ptr<JSNode> node ) {
   this->printLeadingComments(node);
-  std::string nodeType = node->nodeType;
+  std::string nodeType = node->type;
   if ( nodeType == std::string("BlockStatement") ) {
     this->printBlockStatement(node);
     return;
@@ -4026,7 +4249,7 @@ void  JSPrinter::printStatement( std::shared_ptr<JSNode> node ) {
   this->emit(std::string(";\n"));
 }
 void  JSPrinter::printVariableDeclaration( std::shared_ptr<JSNode> node ) {
-  std::string kind = node->strValue;
+  std::string kind = node->kind;
   if ( ((int)(kind.length())) == 0 ) {
     kind = std::string("var");
   }
@@ -4042,28 +4265,24 @@ void  JSPrinter::printVariableDeclaration( std::shared_ptr<JSNode> node ) {
   }
 }
 void  JSPrinter::printVariableDeclarator( std::shared_ptr<JSNode> node ) {
-  if ( node->left != NULL  ) {
-    std::shared_ptr<JSNode> left = node->left;
-    this->printNode(left);
+  if ( node->id != NULL  ) {
+    std::shared_ptr<JSNode> id = node->id;
+    this->printNode(id);
   }
-  if ( node->right != NULL  ) {
+  if ( node->init != NULL  ) {
     this->emit(std::string(" = "));
-    this->printNode(node->right);
+    this->printNode(node->init);
   }
 }
 void  JSPrinter::printFunctionDeclaration( std::shared_ptr<JSNode> node ) {
-  std::string kind = node->strValue2;
-  if ( kind == std::string("async") ) {
-    this->emit(std::string("async "));
-  }
-  if ( kind == std::string("async-generator") ) {
+  if ( node->async ) {
     this->emit(std::string("async "));
   }
   this->emit(std::string("function"));
-  if ( (kind == std::string("generator")) || (kind == std::string("async-generator")) ) {
+  if ( node->generator ) {
     this->emit(std::string("*"));
   }
-  this->emit((std::string(" ") + node->strValue) + std::string("("));
+  this->emit((std::string(" ") + node->name) + std::string("("));
   this->printParams(node->children);
   this->emit(std::string(") "));
   if ( node->body != NULL  ) {
@@ -4082,10 +4301,10 @@ void  JSPrinter::printParams( std::vector<std::shared_ptr<JSNode>> params ) {
   }
 }
 void  JSPrinter::printClassDeclaration( std::shared_ptr<JSNode> node ) {
-  this->emit(std::string("class ") + node->strValue);
-  if ( node->left != NULL  ) {
-    std::shared_ptr<JSNode> superClass = node->left;
-    this->emit(std::string(" extends ") + superClass->strValue);
+  this->emit(std::string("class ") + node->name);
+  if ( node->superClass != NULL  ) {
+    std::shared_ptr<JSNode> sc = node->superClass;
+    this->emit(std::string(" extends ") + sc->name);
   }
   this->emit(std::string(" "));
   if ( node->body != NULL  ) {
@@ -4105,10 +4324,15 @@ void  JSPrinter::printClassBody( std::shared_ptr<JSNode> node ) {
 }
 void  JSPrinter::printMethodDefinition( std::shared_ptr<JSNode> node ) {
   this->emitIndent();
-  if ( node->strValue2 == std::string("static") ) {
+  if ( node->_static ) {
     this->emit(std::string("static "));
   }
-  this->emit(node->strValue + std::string("("));
+  if ( node->key != NULL  ) {
+    std::shared_ptr<JSNode> keyNode = node->key;
+    this->emit(keyNode->name + std::string("("));
+  } else {
+    this->emit(std::string("("));
+  }
   if ( node->body != NULL  ) {
     std::shared_ptr<JSNode> _func = node->body;
     this->printParams(_func->children);
@@ -4242,7 +4466,7 @@ void  JSPrinter::printSwitchStatement( std::shared_ptr<JSNode> node ) {
   this->emit(std::string("}"));
 }
 void  JSPrinter::printSwitchCase( std::shared_ptr<JSNode> node ) {
-  if ( node->strValue == std::string("default") ) {
+  if ( node->name == std::string("default") ) {
     this->emitLine(std::string("default:"));
   } else {
     this->emitIndent();
@@ -4266,7 +4490,7 @@ void  JSPrinter::printTryStatement( std::shared_ptr<JSNode> node ) {
   }
   if ( node->left != NULL  ) {
     std::shared_ptr<JSNode> catchClause = node->left;
-    this->emit((std::string(" catch (") + catchClause->strValue) + std::string(") "));
+    this->emit((std::string(" catch (") + catchClause->name) + std::string(") "));
     if ( catchClause->body != NULL  ) {
       this->printNode(catchClause->body);
     }
@@ -4283,11 +4507,11 @@ void  JSPrinter::printThrowStatement( std::shared_ptr<JSNode> node ) {
   }
 }
 void  JSPrinter::printLiteral( std::shared_ptr<JSNode> node ) {
-  std::string litType = node->strValue2;
-  if ( litType == std::string("string") ) {
-    this->emit((std::string("'") + node->strValue) + std::string("'"));
+  std::string value = node->raw;
+  if ( node->kind == std::string("string") ) {
+    this->emit((std::string("'") + value) + std::string("'"));
   } else {
-    this->emit(node->strValue);
+    this->emit(value);
   }
 }
 void  JSPrinter::printArrayExpression( std::shared_ptr<JSNode> node ) {
@@ -4321,16 +4545,16 @@ void  JSPrinter::printObjectExpression( std::shared_ptr<JSNode> node ) {
   this->emit(std::string(" }"));
 }
 void  JSPrinter::printProperty( std::shared_ptr<JSNode> node ) {
-  std::string nodeType = node->nodeType;
+  std::string nodeType = node->type;
   if ( nodeType == std::string("SpreadElement") ) {
     this->printSpreadElement(node);
     return;
   }
-  if ( node->strValue2 == std::string("shorthand") ) {
-    this->emit(node->strValue);
+  if ( node->shorthand ) {
+    this->emit(node->name);
     return;
   }
-  if ( node->strValue2 == std::string("computed") ) {
+  if ( node->computed ) {
     this->emit(std::string("["));
     if ( node->right != NULL  ) {
       this->printNode(node->right);
@@ -4341,7 +4565,7 @@ void  JSPrinter::printProperty( std::shared_ptr<JSNode> node ) {
     }
     return;
   }
-  this->emit(node->strValue + std::string(": "));
+  this->emit(node->name + std::string(": "));
   if ( node->left != NULL  ) {
     this->printNode(node->left);
   }
@@ -4351,14 +4575,14 @@ void  JSPrinter::printBinaryExpression( std::shared_ptr<JSNode> node ) {
   if ( node->left != NULL  ) {
     this->printNode(node->left);
   }
-  this->emit((std::string(" ") + node->strValue) + std::string(" "));
+  this->emit((std::string(" ") + node->_operator) + std::string(" "));
   if ( node->right != NULL  ) {
     this->printNode(node->right);
   }
   this->emit(std::string(")"));
 }
 void  JSPrinter::printUnaryExpression( std::shared_ptr<JSNode> node ) {
-  std::string op = node->strValue;
+  std::string op = node->_operator;
   this->emit(op);
   if ( op == std::string("typeof") ) {
     this->emit(std::string(" "));
@@ -4368,8 +4592,8 @@ void  JSPrinter::printUnaryExpression( std::shared_ptr<JSNode> node ) {
   }
 }
 void  JSPrinter::printUpdateExpression( std::shared_ptr<JSNode> node ) {
-  std::string op = node->strValue;
-  bool isPrefix = node->strValue2 == std::string("prefix");
+  std::string op = node->_operator;
+  bool isPrefix = node->prefix;
   if ( isPrefix ) {
     this->emit(op);
   }
@@ -4384,7 +4608,7 @@ void  JSPrinter::printAssignmentExpression( std::shared_ptr<JSNode> node ) {
   if ( node->left != NULL  ) {
     this->printNode(node->left);
   }
-  this->emit((std::string(" ") + node->strValue) + std::string(" "));
+  this->emit((std::string(" ") + node->_operator) + std::string(" "));
   if ( node->right != NULL  ) {
     this->printNode(node->right);
   }
@@ -4422,30 +4646,28 @@ void  JSPrinter::printMemberExpression( std::shared_ptr<JSNode> node ) {
   if ( node->left != NULL  ) {
     this->printNode(node->left);
   }
-  std::string accessType = node->strValue2;
-  if ( accessType == std::string("bracket") ) {
+  if ( node->computed ) {
     this->emit(std::string("["));
     if ( node->right != NULL  ) {
       this->printNode(node->right);
     }
     this->emit(std::string("]"));
   } else {
-    this->emit(std::string(".") + node->strValue);
+    this->emit(std::string(".") + node->name);
   }
 }
 void  JSPrinter::printOptionalMemberExpression( std::shared_ptr<JSNode> node ) {
   if ( node->left != NULL  ) {
     this->printNode(node->left);
   }
-  std::string accessType = node->strValue2;
-  if ( accessType == std::string("bracket") ) {
+  if ( node->computed ) {
     this->emit(std::string("?.["));
     if ( node->right != NULL  ) {
       this->printNode(node->right);
     }
     this->emit(std::string("]"));
   } else {
-    this->emit(std::string("?.") + node->strValue);
+    this->emit(std::string("?.") + node->name);
   }
 }
 void  JSPrinter::printOptionalCallExpression( std::shared_ptr<JSNode> node ) {
@@ -4470,7 +4692,7 @@ void  JSPrinter::printImportDeclaration( std::shared_ptr<JSNode> node ) {
   if ( numSpecifiers == 0 ) {
     if ( node->right != NULL  ) {
       std::shared_ptr<JSNode> source = node->right;
-      this->emit((std::string("\"") + source->strValue) + std::string("\""));
+      this->emit((std::string("\"") + source->raw) + std::string("\""));
     }
     return;
   }
@@ -4479,31 +4701,31 @@ void  JSPrinter::printImportDeclaration( std::shared_ptr<JSNode> node ) {
   bool hasNamed = false;
   for ( int idx = 0; idx != (int)(node->children.size()); idx++) {
     std::shared_ptr<JSNode> spec = node->children.at(idx);
-    if ( spec->nodeType == std::string("ImportDefaultSpecifier") ) {
+    if ( spec->type == std::string("ImportDefaultSpecifier") ) {
       hasDefault = true;
     }
-    if ( spec->nodeType == std::string("ImportNamespaceSpecifier") ) {
+    if ( spec->type == std::string("ImportNamespaceSpecifier") ) {
       hasNamespace = true;
     }
-    if ( spec->nodeType == std::string("ImportSpecifier") ) {
+    if ( spec->type == std::string("ImportSpecifier") ) {
       hasNamed = true;
     }
   }
   bool printedSomething = false;
   for ( int idx_1 = 0; idx_1 != (int)(node->children.size()); idx_1++) {
     std::shared_ptr<JSNode> spec_1 = node->children.at(idx_1);
-    if ( spec_1->nodeType == std::string("ImportDefaultSpecifier") ) {
-      this->emit(spec_1->strValue);
+    if ( spec_1->type == std::string("ImportDefaultSpecifier") ) {
+      this->emit(spec_1->name);
       printedSomething = true;
     }
   }
   for ( int idx_2 = 0; idx_2 != (int)(node->children.size()); idx_2++) {
     std::shared_ptr<JSNode> spec_2 = node->children.at(idx_2);
-    if ( spec_2->nodeType == std::string("ImportNamespaceSpecifier") ) {
+    if ( spec_2->type == std::string("ImportNamespaceSpecifier") ) {
       if ( printedSomething ) {
         this->emit(std::string(", "));
       }
-      this->emit(std::string("* as ") + spec_2->strValue);
+      this->emit(std::string("* as ") + spec_2->name);
       printedSomething = true;
     }
   }
@@ -4515,14 +4737,14 @@ void  JSPrinter::printImportDeclaration( std::shared_ptr<JSNode> node ) {
     bool firstNamed = true;
     for ( int idx_3 = 0; idx_3 != (int)(node->children.size()); idx_3++) {
       std::shared_ptr<JSNode> spec_3 = node->children.at(idx_3);
-      if ( spec_3->nodeType == std::string("ImportSpecifier") ) {
+      if ( spec_3->type == std::string("ImportSpecifier") ) {
         if ( firstNamed == false ) {
           this->emit(std::string(", "));
         }
         firstNamed = false;
-        this->emit(spec_3->strValue);
-        if ( ((int)(spec_3->strValue2.length())) > 0 ) {
-          this->emit(std::string(" as ") + spec_3->strValue2);
+        this->emit(spec_3->name);
+        if ( ((int)(spec_3->kind.length())) > 0 ) {
+          this->emit(std::string(" as ") + spec_3->kind);
         }
       }
     }
@@ -4531,7 +4753,7 @@ void  JSPrinter::printImportDeclaration( std::shared_ptr<JSNode> node ) {
   this->emit(std::string(" from "));
   if ( node->right != NULL  ) {
     std::shared_ptr<JSNode> source_1 = node->right;
-    this->emit((std::string("\"") + source_1->strValue) + std::string("\""));
+    this->emit((std::string("\"") + source_1->raw) + std::string("\""));
   }
 }
 void  JSPrinter::printExportNamedDeclaration( std::shared_ptr<JSNode> node ) {
@@ -4546,15 +4768,15 @@ void  JSPrinter::printExportNamedDeclaration( std::shared_ptr<JSNode> node ) {
         this->emit(std::string(", "));
       }
       first = false;
-      this->emit(spec->strValue);
-      if ( ((int)(spec->strValue2.length())) > 0 ) {
-        this->emit(std::string(" as ") + spec->strValue2);
+      this->emit(spec->name);
+      if ( ((int)(spec->kind.length())) > 0 ) {
+        this->emit(std::string(" as ") + spec->kind);
       }
     }
     this->emit(std::string(" }"));
     if ( node->right != NULL  ) {
       std::shared_ptr<JSNode> source = node->right;
-      this->emit((std::string(" from \"") + source->strValue) + std::string("\""));
+      this->emit((std::string(" from \"") + source->raw) + std::string("\""));
     }
     return;
   }
@@ -4570,13 +4792,13 @@ void  JSPrinter::printExportDefaultDeclaration( std::shared_ptr<JSNode> node ) {
 }
 void  JSPrinter::printExportAllDeclaration( std::shared_ptr<JSNode> node ) {
   this->emit(std::string("export *"));
-  if ( ((int)(node->strValue.length())) > 0 ) {
-    this->emit(std::string(" as ") + node->strValue);
+  if ( ((int)(node->name.length())) > 0 ) {
+    this->emit(std::string(" as ") + node->name);
   }
   this->emit(std::string(" from "));
   if ( node->right != NULL  ) {
     std::shared_ptr<JSNode> source = node->right;
-    this->emit((std::string("\"") + source->strValue) + std::string("\""));
+    this->emit((std::string("\"") + source->raw) + std::string("\""));
   }
 }
 void  JSPrinter::printNewExpression( std::shared_ptr<JSNode> node ) {
@@ -4597,14 +4819,14 @@ void  JSPrinter::printNewExpression( std::shared_ptr<JSNode> node ) {
   this->emit(std::string(")"));
 }
 void  JSPrinter::printArrowFunction( std::shared_ptr<JSNode> node ) {
-  if ( node->strValue2 == std::string("async") ) {
+  if ( node->async ) {
     this->emit(std::string("async "));
   }
   int paramCount = (int)(node->children.size());
   if ( paramCount == 1 ) {
     std::shared_ptr<JSNode> firstParam = node->children.at(0);
-    if ( firstParam->nodeType == std::string("Identifier") ) {
-      this->emit(firstParam->strValue);
+    if ( firstParam->type == std::string("Identifier") ) {
+      this->emit(firstParam->name);
     } else {
       this->emit(std::string("("));
       this->printNode(firstParam);
@@ -4618,7 +4840,7 @@ void  JSPrinter::printArrowFunction( std::shared_ptr<JSNode> node ) {
   this->emit(std::string(" => "));
   if ( node->body != NULL  ) {
     std::shared_ptr<JSNode> body = node->body;
-    if ( body->nodeType == std::string("BlockStatement") ) {
+    if ( body->type == std::string("BlockStatement") ) {
       this->printNode(body);
     } else {
       this->printNode(body);
@@ -4635,7 +4857,7 @@ void  JSPrinter::printFunctionExpression( std::shared_ptr<JSNode> node ) {
 }
 void  JSPrinter::printYieldExpression( std::shared_ptr<JSNode> node ) {
   this->emit(std::string("yield"));
-  if ( node->strValue == std::string("delegate") ) {
+  if ( node->name == std::string("delegate") ) {
     this->emit(std::string("*"));
   }
   if ( node->left != NULL  ) {
@@ -4677,14 +4899,14 @@ void  JSPrinter::printObjectPattern( std::shared_ptr<JSNode> node ) {
       this->emit(std::string(", "));
     }
     first = false;
-    std::string propType = prop->nodeType;
+    std::string propType = prop->type;
     if ( propType == std::string("RestElement") ) {
-      this->emit(std::string("...") + prop->strValue);
+      this->emit(std::string("...") + prop->name);
     } else {
-      if ( prop->strValue2 == std::string("shorthand") ) {
-        this->emit(prop->strValue);
+      if ( prop->shorthand ) {
+        this->emit(prop->name);
       } else {
-        this->emit(prop->strValue + std::string(": "));
+        this->emit(prop->name + std::string(": "));
         if ( prop->left != NULL  ) {
           this->printNode(prop->left);
         }
@@ -4734,10 +4956,11 @@ void  JSParserMain::processFile( std::string inputFile , std::string outputFile 
     std::cout << std::string("") << std::endl;
   }
   std::shared_ptr<JSPrinter> printer =  std::make_shared<JSPrinter>();
+  int stmtCount = (int)(program->children.size());
   std::string output = (printer)->print(program);
   r_cpp_write_file( std::string(".") , outputFile , output  );
   std::cout << ((std::string("Parsed ") + inputFile) + std::string(" -> ")) + outputFile << std::endl;
-  std::cout << (std::string("  ") + std::to_string(((int)(program->children.size())))) + std::string(" statements processed") << std::endl;
+  std::cout << (std::string("  ") + std::to_string(stmtCount)) + std::string(" statements processed") << std::endl;
 }
 void  JSParserMain::parseFile( std::string filename ) {
   std::string codeOpt = r_cpp_readFile( std::string(".") , filename);

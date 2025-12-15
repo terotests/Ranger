@@ -134,12 +134,14 @@ class JSParserMain {
     
     ; Pretty print
     def printer:JSPrinter (new JSPrinter())
+    ; Get count before print call since print may move ownership in Rust
+    def stmtCount:int (array_length program.children)
     def output:string (printer.print(program))
     
     ; Write to output file
     write_file "." outputFile output
     print "Parsed " + inputFile + " -> " + outputFile
-    print "  " + (array_length program.children) + " statements processed"
+    print "  " + stmtCount + " statements processed"
   }
   
   sfn parseFile:void (filename:string) {

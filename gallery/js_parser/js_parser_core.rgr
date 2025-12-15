@@ -2617,6 +2617,7 @@ class SimpleParser {
       def lit (new JSNode())
       lit.type = "Literal"
       lit.raw = tok.value
+      lit.kind = "string"
 
       lit.start = tok.start
       lit.end = tok.end

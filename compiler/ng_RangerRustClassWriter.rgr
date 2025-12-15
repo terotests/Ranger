@@ -3,6 +3,48 @@ class RangerRustClassWriter {
   def compiler:LiveCompiler
   def thisName:string "self"
   def fileHeaderWritten:boolean false
+  
+  ; Escape Rust reserved words by prefixing with r#
+  fn adjustType:string (tn:string) {
+    switch tn {
+      case "type" { return "r#type" }
+      case "static" { return "r#static" }
+      case "async" { return "r#async" }
+      case "await" { return "r#await" }
+      case "dyn" { return "r#dyn" }
+      case "impl" { return "r#impl" }
+      case "trait" { return "r#trait" }
+      case "mod" { return "r#mod" }
+      case "pub" { return "r#pub" }
+      case "use" { return "r#use" }
+      case "extern" { return "r#extern" }
+      case "crate" { return "r#crate" }
+      case "super" { return "r#super" }
+      case "where" { return "r#where" }
+      case "unsafe" { return "r#unsafe" }
+      case "move" { return "r#move" }
+      case "ref" { return "r#ref" }
+      case "mut" { return "r#mut" }
+      case "const" { return "r#const" }
+      case "match" { return "r#match" }
+      case "as" { return "r#as" }
+      case "abstract" { return "r#abstract" }
+      case "become" { return "r#become" }
+      case "box" { return "r#box" }
+      case "do" { return "r#do" }
+      case "final" { return "r#final" }
+      case "macro" { return "r#macro" }
+      case "override" { return "r#override" }
+      case "priv" { return "r#priv" }
+      case "typeof" { return "r#typeof" }
+      case "unsized" { return "r#unsized" }
+      case "virtual" { return "r#virtual" }
+      case "yield" { return "r#yield" }
+      case "try" { return "r#try" }
+    }
+    return tn
+  }
+  
   fn WriteScalarValue (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
@@ -246,7 +288,7 @@ class RangerRustClassWriter {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
-      wr.out((p.compiledName + " : ") false)
+      wr.out(((this.adjustType(p.compiledName)) + " : ") false)
       def nameN:CodeNode (unwrap p.nameNode)
       this.writeTypeDef(nameN ctx wr)
       wr.out(", " true)
@@ -277,12 +319,25 @@ class RangerRustClassWriter {
         def value:CodeNode (node.getThird())
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
+        ; In Rust, reading a String field moves it, so clone when initializing String vars from field access
+        if (nameN.type_name == "string") {
+          if (value.value_type == RangerNodeType.VRef) {
+            ; Only add clone if accessing a field (has dot path)
+            if ((array_length value.ns) > 1) {
+              wr.out(".clone()" false)
+            }
+          }
+        }
       } {
         if (nn.value_type == RangerNodeType.Array) {
           wr.out(" = Vec::new()" false)
         }
         if (nn.value_type == RangerNodeType.Hash) {
           wr.out(" = HashMap::new()" false)
+        }
+        ; Initialize optional variables to None in Rust
+        if (nameN.hasFlag("optional")) {
+          wr.out(" = None" false)
         }
       }
       wr.out(";" false)
@@ -301,15 +356,153 @@ class RangerRustClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
-      wr.out((arg.name + " : ") false)
       def nameN:CodeNode (unwrap arg.nameNode)
+      ; In Rust, object parameters that might have fields modified need 'mut'
+      ; For now, make all non-primitive parameters mut
+      def v_type:RangerNodeType nameN.value_type
+      if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+        v_type = (nameN.typeNameAsType(ctx))
+      }
+      def is_object:boolean ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.Array) || (v_type == RangerNodeType.Hash))
+      if is_object {
+        wr.out(("mut " + arg.name + " : ") false)
+      } {
+        wr.out((arg.name + " : ") false)
+      }
       this.writeTypeDef(nameN ctx wr)
     }
   }
+
+  ; Check if a node is a self method call (this.method(...))
+  fn isSelfMethodCall:boolean (node:CodeNode) {
+    if node.hasFnCall {
+      def fc:CodeNode (node.getFirst())
+      if (has fc.ns) {
+        def part:string (itemAt fc.ns 0)
+        if (part == "this") {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; Check if any argument contains a self method call - returns the argument index, -1 if none
+  fn findSelfCallInArgs:int (node:CodeNode) {
+    if node.hasFnCall {
+      def givenArgs:CodeNode (node.getSecond())
+      def idx:int 0
+      for givenArgs.children arg:CodeNode i {
+        if (this.isSelfMethodCall(arg)) {
+          return i
+        }
+        idx = i + 1
+      }
+    }
+    return (-1)
+  }
+
   fn writeFnCall (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
       def part:string (itemAt fc.ns 0)
+
+      ; In Rust, we can't have self.method1(self.method2()) due to double mutable borrow
+      ; Detect this pattern and extract inner self calls to temp variables
+      def is_self_call:boolean (part == "this")
+      def selfCallArgIdx:int (this.findSelfCallInArgs(node))
+      def givenArgs:CodeNode (node.getSecond())
+      
+      ; If this is a self method call and has a self call in arguments, extract to temp var
+      if (is_self_call && (selfCallArgIdx >= 0)) {
+        ; Extract all self call arguments to temp variables first
+        def tempVars:[string]
+        for givenArgs.children argNode:CodeNode argIdx {
+          if (this.isSelfMethodCall(argNode)) {
+            def tempName:string (ctx.rustGetTempVar())
+            push tempVars tempName
+            ; Write temp variable assignment
+            wr.out(("let " + tempName + " = ") false)
+            ctx.setInExpr()
+            this.WalkNode(argNode ctx wr)
+            ctx.unsetInExpr()
+            wr.out(";" true)
+          } {
+            push tempVars ""
+          }
+        }
+        
+        ; Now write the actual function call with temp vars substituted
+        if ((part != "this") && (ctx.isMemberVariable(part))) {
+          def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          if (!null? uc) {
+            def currC:RangerAppClassDesc (unwrap uc)
+            def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+            if (!null? up) {
+              if( false == (ctx.isInStatic()) ) {
+                wr.out((thisName + ".") false)
+              }
+            }
+          }
+        }
+        this.WriteVRef(fc ctx wr)
+        wr.out("(" false)
+        for node.fnDesc.params arg:RangerAppParamDesc i {
+          def n@(optional):CodeNode (itemAt givenArgs.children i)
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          if (null? n) {
+            def nameN:CodeNode (unwrap arg.nameNode)
+            def defVal@(optional):CodeNode (nameN.getFlag("default"))
+            if (!null? defVal) {
+              def defV:CodeNode (unwrap defVal)
+              def fc2:CodeNode (defV.vref_annotation.getFirst())
+              ctx.setInExpr()
+              this.WalkNode(fc2 ctx wr)
+              ctx.unsetInExpr()
+            } {
+              ctx.addError(node "Default argument was missing")
+            }
+            continue _
+          }
+          ; Check if we have a temp var for this arg
+          def tempVar:string (itemAt tempVars i)
+          if ((strlen tempVar) > 0) {
+            wr.out(tempVar false)
+          } {
+            def nVal:CodeNode (unwrap n)
+            ctx.setInExpr()
+            this.WalkNode(nVal ctx wr)
+            ctx.unsetInExpr()
+            ; In Rust, values are moved when passed, so clone when passing a variable
+            def argNameN:CodeNode (unwrap arg.nameNode)
+            def arg_type:RangerNodeType argNameN.value_type
+            if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+              arg_type = (argNameN.typeNameAsType(ctx))
+            }
+            def needs_clone:boolean false
+            if (argNameN.type_name == "string") {
+              needs_clone = true
+            }
+            if (arg_type == RangerNodeType.Object) {
+              needs_clone = true
+            }
+            if needs_clone {
+              if (nVal.value_type == RangerNodeType.VRef) {
+                wr.out(".clone()" false)
+              }
+            }
+          }
+        }
+        wr.out(")" false)
+        if ((ctx.expressionLevel()) == 0) {
+          wr.out(";" true)
+        }
+        return
+      }
+
+      ; Standard path - no double borrow issue
       if ((part != "this") && (ctx.isMemberVariable(part))) {
         def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
         if (!null? uc) {
@@ -324,7 +517,6 @@ class RangerRustClassWriter {
       }
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
-      def givenArgs:CodeNode (node.getSecond())
       for node.fnDesc.params arg:RangerAppParamDesc i {
         def n@(optional):CodeNode (itemAt givenArgs.children i)
         if (i > 0) {
@@ -348,6 +540,25 @@ class RangerRustClassWriter {
         ctx.setInExpr()
         this.WalkNode(nVal ctx wr)
         ctx.unsetInExpr()
+        ; In Rust, values are moved when passed, so clone when passing a variable
+        ; This applies to strings and objects (non-primitives)
+        def argNameN:CodeNode (unwrap arg.nameNode)
+        def arg_type:RangerNodeType argNameN.value_type
+        if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+          arg_type = (argNameN.typeNameAsType(ctx))
+        }
+        def needs_clone:boolean false
+        if (argNameN.type_name == "string") {
+          needs_clone = true
+        }
+        if (arg_type == RangerNodeType.Object) {
+          needs_clone = true
+        }
+        if needs_clone {
+          if (nVal.value_type == RangerNodeType.VRef) {
+            wr.out(".clone()" false)
+          }
+        }
       }
       wr.out(")" false)
       if ((ctx.expressionLevel()) == 0) {
@@ -371,6 +582,24 @@ class RangerRustClassWriter {
             wr.out(", " false)
           }
           this.WalkNode(n ctx wr)
+          ; In Rust, values are moved when passed, so clone when passing a variable
+          def argNameN:CodeNode (unwrap arg.nameNode)
+          def arg_type:RangerNodeType argNameN.value_type
+          if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+            arg_type = (argNameN.typeNameAsType(ctx))
+          }
+          def needs_clone:boolean false
+          if (argNameN.type_name == "string") {
+            needs_clone = true
+          }
+          if (arg_type == RangerNodeType.Object) {
+            needs_clone = true
+          }
+          if needs_clone {
+            if (n.value_type == RangerNodeType.VRef) {
+              wr.out(".clone()" false)
+            }
+          }
         }
       }
       wr.out(")" false)
@@ -383,8 +612,9 @@ class RangerRustClassWriter {
     }
     def cl:RangerAppClassDesc (unwrap ucl)
     
-    ; NOTE: setCurrentClass affects global context and may cause issues
-    ; ctx.setCurrentClass(cl)
+    ; Save previous class and set current class for self-referential type detection
+    def prevClass@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    ctx.setCurrentClass(cl)
     
     def wr:CodeWriter orig_wr
     
@@ -438,17 +668,17 @@ class RangerRustClassWriter {
         def node:CodeNode (unwrap nn)
         if ((array_length node.children) > 2) {
           def valueNode:CodeNode (itemAt node.children 2)
-          wr.out((pvar.name + ":") false)
+          wr.out(((this.adjustType(pvar.compiledName)) + ":") false)
           this.WalkNode(valueNode ctx wr)
           wr.out(", " true)
         } {
           ; Initialize array fields with Vec::new()
           if (pvar.isArray()) {
-            wr.out((pvar.name + ": Vec::new(), ") true)
+            wr.out(((this.adjustType(pvar.compiledName)) + ": Vec::new(), ") true)
           } {
             ; Initialize optional fields with None
             if pvar.is_optional {
-              wr.out((pvar.name + ": None, ") true)
+              wr.out(((this.adjustType(pvar.compiledName)) + ": None, ") true)
             }
           }
         }
@@ -541,17 +771,290 @@ class RangerRustClassWriter {
         wr.out("}" true)
       }
     }
+    ; Restore previous class context
+    if (!null? prevClass) {
+      ctx.setCurrentClass((unwrap prevClass))
+    }
   }
 
-  ; Custom operator handler for Rust - handles push with string conversion
+  ; Custom operator handler for Rust - handles push with string conversion and optional assignments
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    ; Handle assignment operations in Rust
+    if (cmd == "=") {
+      def left:CodeNode (node.getSecond())
+      def right:CodeNode (node.getThird())
+      
+      ; Check if left side is an optional field with self-referential type
+      def is_optional:boolean false
+      def is_self_ref:boolean false
+      def field_type_name:string ""
+      def left_is_self_field:boolean false
+      def left_is_array:boolean false
+      
+      if left.hasParamDesc {
+        def pp:RangerAppParamDesc left.paramDesc
+        is_optional = pp.is_optional
+        left_is_self_field = pp.is_class_variable
+        def nameN@(optional):CodeNode pp.nameNode
+        if (!null? nameN) {
+          def nn:CodeNode (unwrap nameN)
+          field_type_name = nn.type_name
+          ; Check if field is an array type 
+          if (nn.value_type == RangerNodeType.Array) {
+            left_is_array = true
+          }
+          ; Check if field type equals the class that owns this property (self-referential)
+          def oc@(optional):RangerAppClassDesc pp.propertyClass
+          if (!null? oc) {
+            def ownerClass:RangerAppClassDesc (unwrap oc)
+            if (ownerClass.name == field_type_name) {
+              is_self_ref = true
+            }
+          }
+        }
+        ; Debug output for problematic assignments - disabled
+        ; if is_optional {
+        ;   def dbg_is_arr:string "false"
+        ;   if left_is_array {
+        ;     dbg_is_arr = "true"
+        ;   }
+        ;   print ("DEBUG: Assignment has is_optional=true, field=" + field_type_name + " left_is_array=" + dbg_is_arr)
+        ; }
+      }
+      
+      ; Arrays are not optional even if pp.is_optional says so - this can happen due to 
+      ; how some array fields are inferred
+      if left_is_array {
+        is_optional = false
+      }
+      
+      ; Check if right side is a variable that should be cloned
+      ; Clone when: assigning a non-primitive VRef to a field (the var may be used later)
+      def should_clone_rhs:boolean false
+      def rhs_is_string:boolean false
+      def rhs_is_object:boolean false
+      def rhs_is_optional:boolean false
+      
+      ; Debug: Check what kind of node the right side is
+      ; print ("DEBUG right: value_type=" + (node_type_as_string right.value_type) + " hasParamDesc=" + (if right.hasParamDesc "true" "false"))
+      
+      ; For field access like specifier.local, check the evalType which should tell us if it's optional
+      if right.hasParamDesc {
+        def rp:RangerAppParamDesc right.paramDesc
+        rhs_is_optional = rp.is_optional
+        ; Also check for objects
+        def rNameN@(optional):CodeNode rp.nameNode
+        if (!null? rNameN) {
+          def rnn:CodeNode (unwrap rNameN)
+          if (rnn.type_name == "string") {
+            rhs_is_string = true
+          }
+          def rv_type:RangerNodeType rnn.value_type
+          if ((rv_type == RangerNodeType.Object) || (rv_type == RangerNodeType.VRef)) {
+            rv_type = (rnn.typeNameAsType(ctx))
+          }
+          if (rv_type == RangerNodeType.Object) {
+            rhs_is_object = true
+          }
+          if (rv_type == RangerNodeType.Array) {
+            rhs_is_object = true
+          }
+        }
+        ; Clone if RHS is used more than once (based on ref_cnt)
+        ; or if it's being assigned to a field (it might be used again)
+        if left_is_self_field {
+          if (rhs_is_string || rhs_is_object) {
+            should_clone_rhs = true
+          }
+        }
+        ; Also clone strings/objects when assigning between local variables
+        ; because the source variable might be used later
+        if rhs_is_string {
+          should_clone_rhs = true
+        }
+        if rhs_is_object {
+          should_clone_rhs = true  
+        }
+        ; Clone optional fields when assigning to prevent partial move
+        if rhs_is_optional {
+          should_clone_rhs = true
+        }
+      }
+      
+      if (right.value_type == RangerNodeType.VRef) {
+        if right.hasParamDesc {
+          def rp:RangerAppParamDesc right.paramDesc
+          rhs_is_optional = rp.is_optional
+          def rNameN@(optional):CodeNode rp.nameNode
+          if (!null? rNameN) {
+            def rnn:CodeNode (unwrap rNameN)
+            if (rnn.type_name == "string") {
+              rhs_is_string = true
+            }
+            def rv_type:RangerNodeType rnn.value_type
+            if ((rv_type == RangerNodeType.Object) || (rv_type == RangerNodeType.VRef)) {
+              rv_type = (rnn.typeNameAsType(ctx))
+            }
+            if (rv_type == RangerNodeType.Object) {
+              rhs_is_object = true
+            }
+            if (rv_type == RangerNodeType.Array) {
+              rhs_is_object = true
+            }
+          }
+          ; Clone if RHS is used more than once (based on ref_cnt)
+          ; or if it's being assigned to a field (it might be used again)
+          if left_is_self_field {
+            if (rhs_is_string || rhs_is_object) {
+              should_clone_rhs = true
+            }
+          }
+          ; Also clone strings/objects when assigning between local variables
+          ; because the source variable might be used later
+          if rhs_is_string {
+            should_clone_rhs = true
+          }
+          if rhs_is_object {
+            should_clone_rhs = true  
+          }
+          ; Clone optional fields when assigning to prevent partial move
+          if rhs_is_optional {
+            should_clone_rhs = true
+          }
+        }
+      }
+      
+      ctx.setInExpr()
+      this.WalkNode(left ctx wr)
+      
+      if is_optional {
+        if rhs_is_optional {
+          ; Both sides are optional - just clone the RHS, don't wrap with Some()
+          wr.out(" = " false)
+          this.WalkNode(right ctx wr)
+          wr.out(".clone();" true)
+        } {
+          if is_self_ref {
+            ; Assignment to self-referential optional field: needs Some(Box::new(value.clone()))
+            wr.out(" = Some(Box::new(" false)
+            this.WalkNode(right ctx wr)
+            wr.out(".clone()));" true)
+          } {
+            ; Optional assignment: wrap with Some()
+            wr.out(" = Some(" false)
+            this.WalkNode(right ctx wr)
+            if should_clone_rhs {
+              wr.out(".clone()" false)
+            }
+            wr.out(");" true)
+          }
+        }
+      } {
+        ; Non-optional assignment
+        wr.out(" = " false)
+        this.WalkNode(right ctx wr)
+        if should_clone_rhs {
+          wr.out(".clone()" false)
+        }
+        wr.out(";" true)
+      }
+      ctx.unsetInExpr()
+      return
+    }
 
     if (cmd == "return") {
       def cnt:int (node.children.length())
       if (cnt > 1) {
         def retVal:CodeNode (node.getSecond())
+        
+        ; Check if the return value is a function call with nested self method calls
+        ; Pattern: return this.method1(this.method2(...), ...) 
+        ; In Rust this causes double-borrow - we need to extract inner self calls first
+        if retVal.hasFnCall {
+          def retFc:CodeNode (retVal.getFirst())
+          def isSelfCall:boolean false
+          if (has retFc.ns) {
+            def firstPart:string (itemAt retFc.ns 0)
+            if (firstPart == "this") {
+              isSelfCall = true
+            }
+          }
+          
+          if isSelfCall {
+            ; Check arguments for nested self method calls
+            def givenArgs:CodeNode (retVal.getSecond())
+            def tempVars:[string]
+            def tempIdx:int 0
+            
+            for givenArgs.children arg:CodeNode i {
+              if arg.hasFnCall {
+                def argFc:CodeNode (arg.getFirst())
+                if (has argFc.ns) {
+                  def argFirstPart:string (itemAt argFc.ns 0)
+                  if (argFirstPart == "this") {
+                    ; Found nested self call - extract to temp var
+                    def tmpName:string (ctx.rustGetTempVar())
+                    wr.out(("let " + tmpName + " = ") false)
+                    ctx.setInExpr()
+                    this.WalkNode(arg ctx wr)
+                    ctx.unsetInExpr()
+                    wr.out(";" true)
+                    push tempVars tmpName
+                    tempIdx = tempIdx + 1
+                  } {
+                    push tempVars ""
+                  }
+                } {
+                  push tempVars ""
+                }
+              } {
+                push tempVars ""
+              }
+            }
+            
+            ; Now emit the return with temp vars substituted
+            if (tempIdx > 0) {
+              wr.out("return " false)
+              this.WriteVRef(retFc ctx wr)
+              wr.out("(" false)
+              for retVal.fnDesc.params arg:RangerAppParamDesc i {
+                if (i > 0) {
+                  wr.out(", " false)
+                }
+                def tmpVar:string (itemAt tempVars i)
+                if ((strlen tmpVar) > 0) {
+                  wr.out(tmpVar false)
+                } {
+                  def n@(optional):CodeNode (itemAt givenArgs.children i)
+                  if (!null? n) {
+                    def nVal:CodeNode (unwrap n)
+                    ctx.setInExpr()
+                    this.WalkNode(nVal ctx wr)
+                    ctx.unsetInExpr()
+                    ; Clone if needed for strings/objects
+                    def argNameN:CodeNode (unwrap arg.nameNode)
+                    if ((argNameN.type_name == "string") && (nVal.value_type == RangerNodeType.VRef)) {
+                      wr.out(".clone()" false)
+                    }
+                  }
+                }
+              }
+              wr.out(")" false)
+              ; Add clone for return value if needed
+              def tn:string retVal.eval_type_name
+              if ((tn == "string") || (retVal.eval_type == RangerNodeType.Object)) {
+                wr.out(".clone()" false)
+              }
+              wr.out(";" true)
+              return
+            }
+          }
+        }
+        
+        ; Default case - no nested self calls or not a self call
         wr.out("return " false)
         ctx.setInExpr()
         this.WalkNode(retVal ctx wr)
@@ -592,8 +1095,71 @@ class RangerRustClassWriter {
           wr.out(".to_string()" false)
         }
       }
+      ; Add .clone() when pushing objects to arrays (the pushed value may be used later)
+      if (right.value_type == RangerNodeType.VRef) {
+        if (arr_type != "string") {
+          if (arr_type != "int") {
+            if (arr_type != "double") {
+              if (arr_type != "boolean") {
+                wr.out(".clone()" false)
+              }
+            }
+          }
+        }
+      }
       ctx.unsetInExpr()
       wr.out(");" true)
+      return
+    }
+
+    ; Handle unwrap for optional types - need to dereference Box for self-referential types
+    if (cmd == "unwrap") {
+      def arg:CodeNode (node.getSecond())
+      
+      ; Check if the inner type is a self-referential Box
+      def needs_deref:boolean false
+      def is_self_field:boolean false
+      def inner_type:string ""
+      
+      if arg.hasParamDesc {
+        def pp:RangerAppParamDesc arg.paramDesc
+        ; Check if this is a class variable (self field)
+        is_self_field = pp.is_class_variable
+        def nameN@(optional):CodeNode pp.nameNode
+        if (!null? nameN) {
+          def nn:CodeNode (unwrap nameN)
+          inner_type = nn.type_name
+          ; Check if field type equals the class that owns this property (self-referential)
+          def oc@(optional):RangerAppClassDesc pp.propertyClass
+          if (!null? oc) {
+            def ownerClass:RangerAppClassDesc (unwrap oc)
+            if (ownerClass.name == inner_type) {
+              needs_deref = true
+            }
+          }
+        }
+      }
+      
+      ctx.setInExpr()
+      if needs_deref {
+        wr.out("(*" false)
+        this.WalkNode(arg ctx wr)
+        ; Clone self fields before unwrap to avoid moving out of self
+        if is_self_field {
+          wr.out(".clone().unwrap())" false)
+        } {
+          wr.out(".unwrap())" false)
+        }
+      } {
+        this.WalkNode(arg ctx wr)
+        ; Clone self fields before unwrap to avoid moving out of self
+        if is_self_field {
+          wr.out(".clone().unwrap()" false)
+        } {
+          wr.out(".unwrap()" false)
+        }
+      }
+      ctx.unsetInExpr()
       return
     }
   }
