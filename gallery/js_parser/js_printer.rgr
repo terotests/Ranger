@@ -218,7 +218,7 @@ class JSPrinter {
     }
     
     if (nodeType == "TemplateLiteral") {
-      this.emit("`" + node.name + "`")
+      this.emit("`" + node.raw + "`")
       return
     }
     
@@ -374,7 +374,7 @@ class JSPrinter {
   ; === Declarations ===
   
   fn printVariableDeclaration:void (node:JSNode) {
-    def kind node.name
+    def kind node.kind
     if ((strlen kind) == 0) {
       kind = "var"
     }
@@ -403,18 +403,15 @@ class JSPrinter {
   }
   
   fn printFunctionDeclaration:void (node:JSNode) {
-    def kind node.kind
-    
-    if (kind == "async") {
-      this.emit("async ")
-    }
-    if (kind == "async-generator") {
+    ; Check async boolean flag
+    if (node.async) {
       this.emit("async ")
     }
     
     this.emit("function")
     
-    if ((kind == "generator") || (kind == "async-generator")) {
+    ; Check generator boolean flag
+    if (node.generator) {
       this.emit("*")
     }
     
@@ -470,11 +467,17 @@ class JSPrinter {
   fn printMethodDefinition:void (node:JSNode) {
     this.emitIndent()
     
-    if (node.kind == "static") {
+    if (node.static) {
       this.emit("static ")
     }
     
-    this.emit(node.name + "(")
+    ; Method name is stored in node.key (Identifier node)
+    if (!null? node.key) {
+      def keyNode (unwrap node.key)
+      this.emit(keyNode.name + "(")
+    } {
+      this.emit("(")
+    }
     
     if (!null? node.body) {
       def func (unwrap node.body)
@@ -745,13 +748,13 @@ class JSPrinter {
     }
     
     ; Shorthand property
-    if (node.kind == "shorthand") {
+    if (node.shorthand) {
       this.emit(node.name)
       return
     }
     
     ; Computed property name: [expr]: value
-    if (node.kind == "computed") {
+    if (node.computed) {
       this.emit("[")
       if (!null? node.right) {
         this.printNode((unwrap node.right))
@@ -1056,7 +1059,7 @@ class JSPrinter {
   }
   
   fn printArrowFunction:void (node:JSNode) {
-    if (node.kind == "async") {
+    if (node.async) {
       this.emit("async ")
     }
     
@@ -1154,7 +1157,7 @@ class JSPrinter {
         this.emit("..." + prop.name)
       } {
         ; Property
-        if (prop.kind == "shorthand") {
+        if (prop.shorthand) {
           this.emit(prop.name)
         } {
           this.emit(prop.name + ": ")

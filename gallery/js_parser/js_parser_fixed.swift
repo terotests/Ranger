@@ -678,87 +678,25 @@ class Lexer : Equatable  {
     return tokens;
   }
 }
-func ==(l: Position, r: Position) -> Bool {
-  return l === r
-}
-class Position : Equatable  { 
-  var line : Int = 1     /** note: unused */
-  var column : Int = 0     /** note: unused */
-}
-func ==(l: SourceLocation, r: SourceLocation) -> Bool {
-  return l === r
-}
-class SourceLocation : Equatable  { 
-  var start : Position?     /** note: unused */
-  var end : Position?     /** note: unused */
-}
 func ==(l: JSNode, r: JSNode) -> Bool {
   return l === r
 }
 class JSNode : Equatable  { 
-  var type : String = ""
-  var loc : SourceLocation?     /** note: unused */
+  var nodeType : String = ""
   var start : Int = 0
   var end : Int = 0
   var line : Int = 0
   var col : Int = 0
-  var name : String = ""
-  var raw : String = ""
-  var regexPattern : String = ""
-  var regexFlags : String = ""
-  var _operator : String = ""
-  var prefix : Bool = false
+  var strValue : String = ""
+  var strValue2 : String = ""
+  var children : [JSNode] = [JSNode]()
   var left : JSNode?
   var right : JSNode?
-  var argument : JSNode?
   var test : JSNode?
-  var consequent : JSNode?     /** note: unused */
-  var alternate : JSNode?
-  var id : JSNode?
-  var params : [JSNode] = [JSNode]()     /** note: unused */
   var body : JSNode?
-  var generator : Bool = false
-  var async : Bool = false
-  var expression : Bool = false     /** note: unused */
-  var declarations : [JSNode] = [JSNode]()     /** note: unused */
-  var kind : String = ""
-  var _init : JSNode?
-  var superClass : JSNode?
-  var object : JSNode?     /** note: unused */
-  var property : JSNode?     /** note: unused */
-  var computed : Bool = false
-  var optional : Bool = false     /** note: unused */
-  var callee : JSNode?     /** note: unused */
-  var arguments : [JSNode] = [JSNode]()     /** note: unused */
-  var elements : [JSNode] = [JSNode]()     /** note: unused */
-  var properties : [JSNode] = [JSNode]()     /** note: unused */
-  var key : JSNode?
-  var method : Bool = false     /** note: unused */
-  var shorthand : Bool = false
-  var update : JSNode?     /** note: unused */
-  var discriminant : JSNode?     /** note: unused */
-  var cases : [JSNode] = [JSNode]()     /** note: unused */
-  var consequentStatements : [JSNode] = [JSNode]()     /** note: unused */
-  var block : JSNode?     /** note: unused */
-  var handler : JSNode?     /** note: unused */
-  var finalizer : JSNode?     /** note: unused */
-  var param : JSNode?     /** note: unused */
-  var source : JSNode?     /** note: unused */
-  var specifiers : [JSNode] = [JSNode]()     /** note: unused */
-  var imported : JSNode?
-  var local : JSNode?
-  var exported : JSNode?
-  var declaration : JSNode?     /** note: unused */
-  var quasis : [JSNode] = [JSNode]()     /** note: unused */
-  var expressions : [JSNode] = [JSNode]()     /** note: unused */
-  var tail : Bool = false     /** note: unused */
-  var cooked : String = ""     /** note: unused */
-  var sourceType : String = ""     /** note: unused */
-  var _static : Bool = false
-  var delegate : Bool = false
-  var children : [JSNode] = [JSNode]()
+  var alternate : JSNode?
   var leadingComments : [JSNode] = [JSNode]()
-  var trailingComments : [JSNode] = [JSNode]()     /** note: unused */
+  var trailingComment : JSNode?     /** note: unused */
 }
 func ==(l: SimpleParser, r: SimpleParser) -> Bool {
   return l === r
@@ -806,8 +744,8 @@ class SimpleParser : Equatable  {
     while (self.isCommentToken()) {
       let tok : Token = self.peek()
       let commentNode : JSNode = JSNode()
-      commentNode.type = tok.tokenType;
-      commentNode.raw = tok.value;
+      commentNode.nodeType = tok.tokenType;
+      commentNode.strValue = tok.value;
       commentNode.line = tok.line;
       commentNode.col = tok.col;
       commentNode.start = tok.start;
@@ -906,8 +844,8 @@ class SimpleParser : Equatable  {
     let startCol : Int = tok.col
     if ( self.lexer == nil ) {
       let err : JSNode = JSNode()
-      err.type = "Identifier";
-      err.name = "regex_error";
+      err.nodeType = "Identifier";
+      err.strValue = "regex_error";
       self.advance()
       return err;
     }
@@ -935,10 +873,9 @@ class SimpleParser : Equatable  {
       pattern = fullValue;
     }
     let regex : JSNode = JSNode()
-    regex.type = "Literal";
-    regex.raw = fullValue;
-    regex.regexPattern = pattern;
-    regex.regexFlags = flags;
+    regex.nodeType = "RegexLiteral";
+    regex.strValue = pattern;
+    regex.strValue2 = flags;
     regex.start = startPos;
     regex.end = lex.pos;
     regex.line = startLine;
@@ -956,7 +893,7 @@ class SimpleParser : Equatable  {
   }
   func parseProgram() -> JSNode {
     let prog : JSNode = JSNode()
-    prog.type = "Program";
+    prog.nodeType = "Program";
     while (self.isAtEnd() == false) {
       let stmt : JSNode = self.parseStatement()
       prog.children.append(stmt)
@@ -1027,7 +964,7 @@ class SimpleParser : Equatable  {
     if ( (stmt == nil) && (tokVal == ";") ) {
       self.advance()
       let empty : JSNode = JSNode()
-      empty.type = "EmptyStatement";
+      empty.nodeType = "EmptyStatement";
       stmt = empty;
     }
     if ( stmt == nil ) {
@@ -1041,7 +978,7 @@ class SimpleParser : Equatable  {
   }
   func parseVarDecl() -> JSNode {
     let decl : JSNode = JSNode()
-    decl.type = "VariableDeclaration";
+    decl.nodeType = "VariableDeclaration";
     let startTok : Token = self.peek()
     decl.start = startTok.start;
     decl.line = startTok.line;
@@ -1054,22 +991,22 @@ class SimpleParser : Equatable  {
       }
       first = false;
       let declarator : JSNode = JSNode()
-      declarator.type = "VariableDeclarator";
+      declarator.nodeType = "VariableDeclarator";
       let idTok : Token = self.expect(expectedType : "Identifier")
       let id : JSNode = JSNode()
-      id.type = "Identifier";
-      id.name = idTok.value;
+      id.nodeType = "Identifier";
+      id.strValue = idTok.value;
       id.start = idTok.start;
       id.line = idTok.line;
       id.col = idTok.col;
-      declarator.id = id;
+      declarator.left = id;
       declarator.start = idTok.start;
       declarator.line = idTok.line;
       declarator.col = idTok.col;
       if ( self.matchValue(value : "=") ) {
         self.advance()
         let initExpr : JSNode = self.parseAssignment()
-        declarator._init = initExpr;
+        declarator.right = initExpr;
       }
       decl.children.append(declarator)
     }
@@ -1080,8 +1017,8 @@ class SimpleParser : Equatable  {
   }
   func parseLetDecl() -> JSNode {
     let decl : JSNode = JSNode()
-    decl.type = "VariableDeclaration";
-    decl.kind = "let";
+    decl.nodeType = "VariableDeclaration";
+    decl.strValue = "let";
     let startTok : Token = self.peek()
     decl.start = startTok.start;
     decl.line = startTok.line;
@@ -1094,33 +1031,33 @@ class SimpleParser : Equatable  {
       }
       first = false;
       let declarator : JSNode = JSNode()
-      declarator.type = "VariableDeclarator";
+      declarator.nodeType = "VariableDeclarator";
       let declTok : Token = self.peek()
       declarator.start = declTok.start;
       declarator.line = declTok.line;
       declarator.col = declTok.col;
       if ( self.matchValue(value : "[") ) {
         let pattern : JSNode = self.parseArrayPattern()
-        declarator.id = pattern;
+        declarator.left = pattern;
       } else {
         if ( self.matchValue(value : "{") ) {
           let pattern_1 : JSNode = self.parseObjectPattern()
-          declarator.id = pattern_1;
+          declarator.left = pattern_1;
         } else {
           let idTok : Token = self.expect(expectedType : "Identifier")
           let id : JSNode = JSNode()
-          id.type = "Identifier";
-          id.name = idTok.value;
+          id.nodeType = "Identifier";
+          id.strValue = idTok.value;
           id.start = idTok.start;
           id.line = idTok.line;
           id.col = idTok.col;
-          declarator.id = id;
+          declarator.left = id;
         }
       }
       if ( self.matchValue(value : "=") ) {
         self.advance()
         let initExpr : JSNode = self.parseAssignment()
-        declarator._init = initExpr;
+        declarator.right = initExpr;
       }
       decl.children.append(declarator)
     }
@@ -1131,8 +1068,8 @@ class SimpleParser : Equatable  {
   }
   func parseConstDecl() -> JSNode {
     let decl : JSNode = JSNode()
-    decl.type = "VariableDeclaration";
-    decl.kind = "const";
+    decl.nodeType = "VariableDeclaration";
+    decl.strValue = "const";
     let startTok : Token = self.peek()
     decl.start = startTok.start;
     decl.line = startTok.line;
@@ -1145,33 +1082,33 @@ class SimpleParser : Equatable  {
       }
       first = false;
       let declarator : JSNode = JSNode()
-      declarator.type = "VariableDeclarator";
+      declarator.nodeType = "VariableDeclarator";
       let declTok : Token = self.peek()
       declarator.start = declTok.start;
       declarator.line = declTok.line;
       declarator.col = declTok.col;
       if ( self.matchValue(value : "[") ) {
         let pattern : JSNode = self.parseArrayPattern()
-        declarator.id = pattern;
+        declarator.left = pattern;
       } else {
         if ( self.matchValue(value : "{") ) {
           let pattern_1 : JSNode = self.parseObjectPattern()
-          declarator.id = pattern_1;
+          declarator.left = pattern_1;
         } else {
           let idTok : Token = self.expect(expectedType : "Identifier")
           let id : JSNode = JSNode()
-          id.type = "Identifier";
-          id.name = idTok.value;
+          id.nodeType = "Identifier";
+          id.strValue = idTok.value;
           id.start = idTok.start;
           id.line = idTok.line;
           id.col = idTok.col;
-          declarator.id = id;
+          declarator.left = id;
         }
       }
       if ( self.matchValue(value : "=") ) {
         self.advance()
         let initExpr : JSNode = self.parseAssignment()
-        declarator._init = initExpr;
+        declarator.right = initExpr;
       }
       decl.children.append(declarator)
     }
@@ -1182,18 +1119,18 @@ class SimpleParser : Equatable  {
   }
   func parseFuncDecl() -> JSNode {
     let _func : JSNode = JSNode()
-    _func.type = "FunctionDeclaration";
+    _func.nodeType = "FunctionDeclaration";
     let startTok : Token = self.peek()
     _func.start = startTok.start;
     _func.line = startTok.line;
     _func.col = startTok.col;
     _ = self.expectValue(expectedValue : "function")
     if ( self.matchValue(value : "*") ) {
-      _func.generator = true;
+      _func.strValue2 = "generator";
       self.advance()
     }
     let idTok : Token = self.expect(expectedType : "Identifier")
-    _func.name = idTok.value;
+    _func.strValue = idTok.value;
     _ = self.expectValue(expectedValue : "(")
     while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
       if ( (_func.children.count) > 0 ) {
@@ -1207,75 +1144,29 @@ class SimpleParser : Equatable  {
         self.advance()
         let paramTok : Token = self.expect(expectedType : "Identifier")
         let rest : JSNode = JSNode()
-        rest.type = "RestElement";
-        rest.name = paramTok.value;
+        rest.nodeType = "RestElement";
+        rest.strValue = paramTok.value;
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        let argNode : JSNode = JSNode()
-        argNode.type = "Identifier";
-        argNode.name = paramTok.value;
-        argNode.start = paramTok.start;
-        argNode.line = paramTok.line;
-        argNode.col = paramTok.col;
-        rest.argument = argNode;
         _func.children.append(rest)
       } else {
         if ( self.matchValue(value : "[") ) {
           let pattern : JSNode = self.parseArrayPattern()
-          if ( self.matchValue(value : "=") ) {
-            self.advance()
-            let defaultVal : JSNode = self.parseAssignment()
-            let assignPat : JSNode = JSNode()
-            assignPat.type = "AssignmentPattern";
-            assignPat.left = pattern;
-            assignPat.right = defaultVal;
-            assignPat.start = pattern.start;
-            assignPat.line = pattern.line;
-            assignPat.col = pattern.col;
-            _func.children.append(assignPat)
-          } else {
-            _func.children.append(pattern)
-          }
+          _func.children.append(pattern)
         } else {
           if ( self.matchValue(value : "{") ) {
             let pattern_1 : JSNode = self.parseObjectPattern()
-            if ( self.matchValue(value : "=") ) {
-              self.advance()
-              let defaultVal_1 : JSNode = self.parseAssignment()
-              let assignPat_1 : JSNode = JSNode()
-              assignPat_1.type = "AssignmentPattern";
-              assignPat_1.left = pattern_1;
-              assignPat_1.right = defaultVal_1;
-              assignPat_1.start = pattern_1.start;
-              assignPat_1.line = pattern_1.line;
-              assignPat_1.col = pattern_1.col;
-              _func.children.append(assignPat_1)
-            } else {
-              _func.children.append(pattern_1)
-            }
+            _func.children.append(pattern_1)
           } else {
             let paramTok_1 : Token = self.expect(expectedType : "Identifier")
             let param : JSNode = JSNode()
-            param.type = "Identifier";
-            param.name = paramTok_1.value;
+            param.nodeType = "Identifier";
+            param.strValue = paramTok_1.value;
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            if ( self.matchValue(value : "=") ) {
-              self.advance()
-              let defaultVal_2 : JSNode = self.parseAssignment()
-              let assignPat_2 : JSNode = JSNode()
-              assignPat_2.type = "AssignmentPattern";
-              assignPat_2.left = param;
-              assignPat_2.right = defaultVal_2;
-              assignPat_2.start = param.start;
-              assignPat_2.line = param.line;
-              assignPat_2.col = param.col;
-              _func.children.append(assignPat_2)
-            } else {
-              _func.children.append(param)
-            }
+            _func.children.append(param)
           }
         }
       }
@@ -1287,19 +1178,19 @@ class SimpleParser : Equatable  {
   }
   func parseFunctionExpression() -> JSNode {
     let _func : JSNode = JSNode()
-    _func.type = "FunctionExpression";
+    _func.nodeType = "FunctionExpression";
     let startTok : Token = self.peek()
     _func.start = startTok.start;
     _func.line = startTok.line;
     _func.col = startTok.col;
     _ = self.expectValue(expectedValue : "function")
     if ( self.matchValue(value : "*") ) {
-      _func.generator = true;
+      _func.strValue2 = "generator";
       self.advance()
     }
     if ( self.matchType(tokenType : "Identifier") ) {
       let idTok : Token = self.expect(expectedType : "Identifier")
-      _func.name = idTok.value;
+      _func.strValue = idTok.value;
     }
     _ = self.expectValue(expectedValue : "(")
     while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
@@ -1314,75 +1205,29 @@ class SimpleParser : Equatable  {
         self.advance()
         let paramTok : Token = self.expect(expectedType : "Identifier")
         let rest : JSNode = JSNode()
-        rest.type = "RestElement";
-        rest.name = paramTok.value;
+        rest.nodeType = "RestElement";
+        rest.strValue = paramTok.value;
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        let argNode : JSNode = JSNode()
-        argNode.type = "Identifier";
-        argNode.name = paramTok.value;
-        argNode.start = paramTok.start;
-        argNode.line = paramTok.line;
-        argNode.col = paramTok.col;
-        rest.argument = argNode;
         _func.children.append(rest)
       } else {
         if ( self.matchValue(value : "[") ) {
           let pattern : JSNode = self.parseArrayPattern()
-          if ( self.matchValue(value : "=") ) {
-            self.advance()
-            let defaultVal : JSNode = self.parseAssignment()
-            let assignPat : JSNode = JSNode()
-            assignPat.type = "AssignmentPattern";
-            assignPat.left = pattern;
-            assignPat.right = defaultVal;
-            assignPat.start = pattern.start;
-            assignPat.line = pattern.line;
-            assignPat.col = pattern.col;
-            _func.children.append(assignPat)
-          } else {
-            _func.children.append(pattern)
-          }
+          _func.children.append(pattern)
         } else {
           if ( self.matchValue(value : "{") ) {
             let pattern_1 : JSNode = self.parseObjectPattern()
-            if ( self.matchValue(value : "=") ) {
-              self.advance()
-              let defaultVal_1 : JSNode = self.parseAssignment()
-              let assignPat_1 : JSNode = JSNode()
-              assignPat_1.type = "AssignmentPattern";
-              assignPat_1.left = pattern_1;
-              assignPat_1.right = defaultVal_1;
-              assignPat_1.start = pattern_1.start;
-              assignPat_1.line = pattern_1.line;
-              assignPat_1.col = pattern_1.col;
-              _func.children.append(assignPat_1)
-            } else {
-              _func.children.append(pattern_1)
-            }
+            _func.children.append(pattern_1)
           } else {
             let paramTok_1 : Token = self.expect(expectedType : "Identifier")
             let param : JSNode = JSNode()
-            param.type = "Identifier";
-            param.name = paramTok_1.value;
+            param.nodeType = "Identifier";
+            param.strValue = paramTok_1.value;
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            if ( self.matchValue(value : "=") ) {
-              self.advance()
-              let defaultVal_2 : JSNode = self.parseAssignment()
-              let assignPat_2 : JSNode = JSNode()
-              assignPat_2.type = "AssignmentPattern";
-              assignPat_2.left = param;
-              assignPat_2.right = defaultVal_2;
-              assignPat_2.start = param.start;
-              assignPat_2.line = param.line;
-              assignPat_2.col = param.col;
-              _func.children.append(assignPat_2)
-            } else {
-              _func.children.append(param)
-            }
+            _func.children.append(param)
           }
         }
       }
@@ -1394,21 +1239,20 @@ class SimpleParser : Equatable  {
   }
   func parseAsyncFuncDecl() -> JSNode {
     let _func : JSNode = JSNode()
-    _func.type = "FunctionDeclaration";
+    _func.nodeType = "FunctionDeclaration";
     let startTok : Token = self.peek()
     _func.start = startTok.start;
     _func.line = startTok.line;
     _func.col = startTok.col;
-    _func.async = true;
+    _func.strValue2 = "async";
     _ = self.expectValue(expectedValue : "async")
     _ = self.expectValue(expectedValue : "function")
     if ( self.matchValue(value : "*") ) {
-      _func.async = true;
-      _func.generator = true;
+      _func.strValue2 = "async-generator";
       self.advance()
     }
     let idTok : Token = self.expect(expectedType : "Identifier")
-    _func.name = idTok.value;
+    _func.strValue = idTok.value;
     _ = self.expectValue(expectedValue : "(")
     while ((self.matchValue(value : ")") == false) && (self.isAtEnd() == false)) {
       if ( (_func.children.count) > 0 ) {
@@ -1419,8 +1263,8 @@ class SimpleParser : Equatable  {
       }
       let paramTok : Token = self.expect(expectedType : "Identifier")
       let param : JSNode = JSNode()
-      param.type = "Identifier";
-      param.name = paramTok.value;
+      param.nodeType = "Identifier";
+      param.strValue = paramTok.value;
       param.start = paramTok.start;
       param.line = paramTok.line;
       param.col = paramTok.col;
@@ -1433,27 +1277,27 @@ class SimpleParser : Equatable  {
   }
   func parseClass() -> JSNode {
     let classNode : JSNode = JSNode()
-    classNode.type = "ClassDeclaration";
+    classNode.nodeType = "ClassDeclaration";
     let startTok : Token = self.peek()
     classNode.start = startTok.start;
     classNode.line = startTok.line;
     classNode.col = startTok.col;
     _ = self.expectValue(expectedValue : "class")
     let idTok : Token = self.expect(expectedType : "Identifier")
-    classNode.name = idTok.value;
+    classNode.strValue = idTok.value;
     if ( self.matchValue(value : "extends") ) {
       self.advance()
       let superTok : Token = self.expect(expectedType : "Identifier")
-      let superClassNode : JSNode = JSNode()
-      superClassNode.type = "Identifier";
-      superClassNode.name = superTok.value;
-      superClassNode.start = superTok.start;
-      superClassNode.line = superTok.line;
-      superClassNode.col = superTok.col;
-      classNode.superClass = superClassNode;
+      let superClass : JSNode = JSNode()
+      superClass.nodeType = "Identifier";
+      superClass.strValue = superTok.value;
+      superClass.start = superTok.start;
+      superClass.line = superTok.line;
+      superClass.col = superTok.col;
+      classNode.left = superClass;
     }
     let body : JSNode = JSNode()
-    body.type = "ClassBody";
+    body.nodeType = "ClassBody";
     let bodyStart : Token = self.peek()
     body.start = bodyStart.start;
     body.line = bodyStart.line;
@@ -1469,7 +1313,7 @@ class SimpleParser : Equatable  {
   }
   func parseClassMethod() -> JSNode {
     let method : JSNode = JSNode()
-    method.type = "MethodDefinition";
+    method.nodeType = "MethodDefinition";
     let startTok : Token = self.peek()
     method.start = startTok.start;
     method.line = startTok.line;
@@ -1477,38 +1321,31 @@ class SimpleParser : Equatable  {
     var isStatic : Bool = false
     if ( self.matchValue(value : "static") ) {
       isStatic = true;
-      method._static = true;
+      method.strValue2 = "static";
       self.advance()
     }
-    var methodKind : String = "method"
+    var kind : String = "method"
     if ( self.matchValue(value : "get") ) {
       let nextTok : String = self.peekAt(offset : 1)
       if ( nextTok != "(" ) {
-        methodKind = "get";
+        kind = "get";
         self.advance()
       }
     }
     if ( self.matchValue(value : "set") ) {
       let nextTok_1 : String = self.peekAt(offset : 1)
       if ( nextTok_1 != "(" ) {
-        methodKind = "set";
+        kind = "set";
         self.advance()
       }
     }
     let nameTok : Token = self.expect(expectedType : "Identifier")
-    let keyNode : JSNode = JSNode()
-    keyNode.type = "Identifier";
-    keyNode.name = nameTok.value;
-    keyNode.start = nameTok.start;
-    keyNode.line = nameTok.line;
-    keyNode.col = nameTok.col;
-    method.key = keyNode;
+    method.strValue = nameTok.value;
     if ( nameTok.value == "constructor" ) {
-      methodKind = "constructor";
+      kind = "constructor";
     }
-    method.kind = methodKind;
     let _func : JSNode = JSNode()
-    _func.type = "FunctionExpression";
+    _func.nodeType = "FunctionExpression";
     _func.start = nameTok.start;
     _func.line = nameTok.line;
     _func.col = nameTok.col;
@@ -1522,8 +1359,8 @@ class SimpleParser : Equatable  {
       }
       let paramTok : Token = self.expect(expectedType : "Identifier")
       let param : JSNode = JSNode()
-      param.type = "Identifier";
-      param.name = paramTok.value;
+      param.nodeType = "Identifier";
+      param.strValue = paramTok.value;
       param.start = paramTok.start;
       param.line = paramTok.line;
       param.col = paramTok.col;
@@ -1545,7 +1382,7 @@ class SimpleParser : Equatable  {
   }
   func parseImport() -> JSNode {
     let importNode : JSNode = JSNode()
-    importNode.type = "ImportDeclaration";
+    importNode.nodeType = "ImportDeclaration";
     let startTok : Token = self.peek()
     importNode.start = startTok.start;
     importNode.line = startTok.line;
@@ -1555,8 +1392,9 @@ class SimpleParser : Equatable  {
       let sourceTok : Token = self.peek()
       self.advance()
       let source_1 : JSNode = JSNode()
-      source_1.type = "Literal";
-      source_1.raw = sourceTok.value;
+      source_1.nodeType = "Literal";
+      source_1.strValue = sourceTok.value;
+      source_1.strValue2 = "string";
       source_1.start = sourceTok.start;
       source_1.line = sourceTok.line;
       source_1.col = sourceTok.col;
@@ -1571,8 +1409,8 @@ class SimpleParser : Equatable  {
       _ = self.expectValue(expectedValue : "as")
       let localTok : Token = self.expect(expectedType : "Identifier")
       let specifier : JSNode = JSNode()
-      specifier.type = "ImportNamespaceSpecifier";
-      specifier.name = localTok.value;
+      specifier.nodeType = "ImportNamespaceSpecifier";
+      specifier.strValue = localTok.value;
       specifier.start = localTok.start;
       specifier.line = localTok.line;
       specifier.col = localTok.col;
@@ -1580,8 +1418,9 @@ class SimpleParser : Equatable  {
       _ = self.expectValue(expectedValue : "from")
       let sourceTok_1 : Token = self.expect(expectedType : "String")
       let source_2 : JSNode = JSNode()
-      source_2.type = "Literal";
-      source_2.raw = sourceTok_1.value;
+      source_2.nodeType = "Literal";
+      source_2.strValue = sourceTok_1.value;
+      source_2.strValue2 = "string";
       source_2.start = sourceTok_1.start;
       source_2.line = sourceTok_1.line;
       source_2.col = sourceTok_1.col;
@@ -1594,14 +1433,8 @@ class SimpleParser : Equatable  {
     if ( self.matchType(tokenType : "Identifier") ) {
       let defaultTok : Token = self.expect(expectedType : "Identifier")
       let defaultSpec : JSNode = JSNode()
-      defaultSpec.type = "ImportDefaultSpecifier";
-      let localNode : JSNode = JSNode()
-      localNode.type = "Identifier";
-      localNode.name = defaultTok.value;
-      localNode.start = defaultTok.start;
-      localNode.line = defaultTok.line;
-      localNode.col = defaultTok.col;
-      defaultSpec.local = localNode;
+      defaultSpec.nodeType = "ImportDefaultSpecifier";
+      defaultSpec.strValue = defaultTok.value;
       defaultSpec.start = defaultTok.start;
       defaultSpec.line = defaultTok.line;
       defaultSpec.col = defaultTok.col;
@@ -1611,19 +1444,13 @@ class SimpleParser : Equatable  {
         if ( self.matchValue(value : "*") ) {
           self.advance()
           _ = self.expectValue(expectedValue : "as")
-          let localTok2 : Token = self.expect(expectedType : "Identifier")
+          let localTok_1 : Token = self.expect(expectedType : "Identifier")
           let nsSpec : JSNode = JSNode()
-          nsSpec.type = "ImportNamespaceSpecifier";
-          let nsLocal : JSNode = JSNode()
-          nsLocal.type = "Identifier";
-          nsLocal.name = localTok2.value;
-          nsLocal.start = localTok2.start;
-          nsLocal.line = localTok2.line;
-          nsLocal.col = localTok2.col;
-          nsSpec.local = nsLocal;
-          nsSpec.start = localTok2.start;
-          nsSpec.line = localTok2.line;
-          nsSpec.col = localTok2.col;
+          nsSpec.nodeType = "ImportNamespaceSpecifier";
+          nsSpec.strValue = localTok_1.value;
+          nsSpec.start = localTok_1.start;
+          nsSpec.line = localTok_1.line;
+          nsSpec.col = localTok_1.col;
           importNode.children.append(nsSpec)
         } else {
           self.parseImportSpecifiers(importNode : importNode)
@@ -1638,8 +1465,9 @@ class SimpleParser : Equatable  {
     }
     let sourceTok_2 : Token = self.expect(expectedType : "String")
     let source_3 : JSNode = JSNode()
-    source_3.type = "Literal";
-    source_3.raw = sourceTok_2.value;
+    source_3.nodeType = "Literal";
+    source_3.strValue = sourceTok_2.value;
+    source_3.strValue2 = "string";
     source_3.start = sourceTok_2.start;
     source_3.line = sourceTok_2.line;
     source_3.col = sourceTok_2.col;
@@ -1661,30 +1489,16 @@ class SimpleParser : Equatable  {
         break;
       }
       let specifier : JSNode = JSNode()
-      specifier.type = "ImportSpecifier";
+      specifier.nodeType = "ImportSpecifier";
       let importedTok : Token = self.expect(expectedType : "Identifier")
-      let importedNode : JSNode = JSNode()
-      importedNode.type = "Identifier";
-      importedNode.name = importedTok.value;
-      importedNode.start = importedTok.start;
-      importedNode.line = importedTok.line;
-      importedNode.col = importedTok.col;
-      specifier.imported = importedNode;
+      specifier.strValue = importedTok.value;
       specifier.start = importedTok.start;
       specifier.line = importedTok.line;
       specifier.col = importedTok.col;
       if ( self.matchValue(value : "as") ) {
         self.advance()
         let localTok : Token = self.expect(expectedType : "Identifier")
-        let localNode : JSNode = JSNode()
-        localNode.type = "Identifier";
-        localNode.name = localTok.value;
-        localNode.start = localTok.start;
-        localNode.line = localTok.line;
-        localNode.col = localTok.col;
-        specifier.local = localNode;
-      } else {
-        specifier.local = importedNode;
+        specifier.strValue2 = localTok.value;
       }
       importNode.children.append(specifier)
     }
@@ -1692,14 +1506,14 @@ class SimpleParser : Equatable  {
   }
   func parseExport() -> JSNode {
     let exportNode : JSNode = JSNode()
-    exportNode.type = "ExportNamedDeclaration";
+    exportNode.nodeType = "ExportNamedDeclaration";
     let startTok : Token = self.peek()
     exportNode.start = startTok.start;
     exportNode.line = startTok.line;
     exportNode.col = startTok.col;
     _ = self.expectValue(expectedValue : "export")
     if ( self.matchValue(value : "default") ) {
-      exportNode.type = "ExportDefaultDeclaration";
+      exportNode.nodeType = "ExportDefaultDeclaration";
       self.advance()
       if ( self.matchValue(value : "function") ) {
         let _func : JSNode = self.parseFuncDecl()
@@ -1724,18 +1538,19 @@ class SimpleParser : Equatable  {
       return exportNode;
     }
     if ( self.matchValue(value : "*") ) {
-      exportNode.type = "ExportAllDeclaration";
+      exportNode.nodeType = "ExportAllDeclaration";
       self.advance()
       if ( self.matchValue(value : "as") ) {
         self.advance()
         let exportedTok : Token = self.expect(expectedType : "Identifier")
-        exportNode.name = exportedTok.value;
+        exportNode.strValue = exportedTok.value;
       }
       _ = self.expectValue(expectedValue : "from")
       let sourceTok : Token = self.expect(expectedType : "String")
       let source_1 : JSNode = JSNode()
-      source_1.type = "Literal";
-      source_1.raw = sourceTok.value;
+      source_1.nodeType = "Literal";
+      source_1.strValue = sourceTok.value;
+      source_1.strValue2 = "string";
       source_1.start = sourceTok.start;
       source_1.line = sourceTok.line;
       source_1.col = sourceTok.col;
@@ -1751,8 +1566,9 @@ class SimpleParser : Equatable  {
         self.advance()
         let sourceTok_1 : Token = self.expect(expectedType : "String")
         let source_2 : JSNode = JSNode()
-        source_2.type = "Literal";
-        source_2.raw = sourceTok_1.value;
+        source_2.nodeType = "Literal";
+        source_2.strValue = sourceTok_1.value;
+        source_2.strValue2 = "string";
         source_2.start = sourceTok_1.start;
         source_2.line = sourceTok_1.line;
         source_2.col = sourceTok_1.col;
@@ -1810,17 +1626,11 @@ class SimpleParser : Equatable  {
         break;
       }
       let specifier : JSNode = JSNode()
-      specifier.type = "ExportSpecifier";
+      specifier.nodeType = "ExportSpecifier";
       let localTok : Token = self.peek()
       if ( self.matchType(tokenType : "Identifier") || self.matchValue(value : "default") ) {
         self.advance()
-        let localNode : JSNode = JSNode()
-        localNode.type = "Identifier";
-        localNode.name = localTok.value;
-        localNode.start = localTok.start;
-        localNode.line = localTok.line;
-        localNode.col = localTok.col;
-        specifier.local = localNode;
+        specifier.strValue = localTok.value;
         specifier.start = localTok.start;
         specifier.line = localTok.line;
         specifier.col = localTok.col;
@@ -1832,15 +1642,7 @@ class SimpleParser : Equatable  {
       if ( self.matchValue(value : "as") ) {
         self.advance()
         let exportedTok : Token = self.expect(expectedType : "Identifier")
-        let exportedNode : JSNode = JSNode()
-        exportedNode.type = "Identifier";
-        exportedNode.name = exportedTok.value;
-        exportedNode.start = exportedTok.start;
-        exportedNode.line = exportedTok.line;
-        exportedNode.col = exportedTok.col;
-        specifier.exported = exportedNode;
-      } else {
-        specifier.exported = specifier.local;
+        specifier.strValue2 = exportedTok.value;
       }
       exportNode.children.append(specifier)
     }
@@ -1848,7 +1650,7 @@ class SimpleParser : Equatable  {
   }
   func parseBlock() -> JSNode {
     let block : JSNode = JSNode()
-    block.type = "BlockStatement";
+    block.nodeType = "BlockStatement";
     let startTok : Token = self.peek()
     block.start = startTok.start;
     block.line = startTok.line;
@@ -1863,7 +1665,7 @@ class SimpleParser : Equatable  {
   }
   func parseReturn() -> JSNode {
     let ret : JSNode = JSNode()
-    ret.type = "ReturnStatement";
+    ret.nodeType = "ReturnStatement";
     let startTok : Token = self.peek()
     ret.start = startTok.start;
     ret.line = startTok.line;
@@ -1880,7 +1682,7 @@ class SimpleParser : Equatable  {
   }
   func parseIf() -> JSNode {
     let ifStmt : JSNode = JSNode()
-    ifStmt.type = "IfStatement";
+    ifStmt.nodeType = "IfStatement";
     let startTok : Token = self.peek()
     ifStmt.start = startTok.start;
     ifStmt.line = startTok.line;
@@ -1901,7 +1703,7 @@ class SimpleParser : Equatable  {
   }
   func parseWhile() -> JSNode {
     let whileStmt : JSNode = JSNode()
-    whileStmt.type = "WhileStatement";
+    whileStmt.nodeType = "WhileStatement";
     let startTok : Token = self.peek()
     whileStmt.start = startTok.start;
     whileStmt.line = startTok.line;
@@ -1917,7 +1719,7 @@ class SimpleParser : Equatable  {
   }
   func parseDoWhile() -> JSNode {
     let doWhileStmt : JSNode = JSNode()
-    doWhileStmt.type = "DoWhileStatement";
+    doWhileStmt.nodeType = "DoWhileStatement";
     let startTok : Token = self.peek()
     doWhileStmt.start = startTok.start;
     doWhileStmt.line = startTok.line;
@@ -1951,35 +1753,35 @@ class SimpleParser : Equatable  {
         let keyword : String = self.peekValue()
         self.advance()
         let declarator : JSNode = JSNode()
-        declarator.type = "VariableDeclarator";
+        declarator.nodeType = "VariableDeclarator";
         let declTok : Token = self.peek()
         declarator.start = declTok.start;
         declarator.line = declTok.line;
         declarator.col = declTok.col;
         if ( self.matchValue(value : "[") ) {
           let pattern : JSNode = self.parseArrayPattern()
-          declarator.id = pattern;
+          declarator.left = pattern;
         } else {
           if ( self.matchValue(value : "{") ) {
             let pattern_1 : JSNode = self.parseObjectPattern()
-            declarator.id = pattern_1;
+            declarator.left = pattern_1;
           } else {
             let idTok : Token = self.expect(expectedType : "Identifier")
             let id : JSNode = JSNode()
-            id.type = "Identifier";
-            id.name = idTok.value;
+            id.nodeType = "Identifier";
+            id.strValue = idTok.value;
             id.start = idTok.start;
             id.line = idTok.line;
             id.col = idTok.col;
-            declarator.id = id;
+            declarator.left = id;
           }
         }
         if ( self.matchValue(value : "of") ) {
           isForOf = true;
           self.advance()
           let varDecl : JSNode = JSNode()
-          varDecl.type = "VariableDeclaration";
-          varDecl.kind = keyword;
+          varDecl.nodeType = "VariableDeclaration";
+          varDecl.strValue = keyword;
           varDecl.start = declTok.start;
           varDecl.line = declTok.line;
           varDecl.col = declTok.col;
@@ -1990,8 +1792,8 @@ class SimpleParser : Equatable  {
             isForIn = true;
             self.advance()
             let varDecl_1 : JSNode = JSNode()
-            varDecl_1.type = "VariableDeclaration";
-            varDecl_1.kind = keyword;
+            varDecl_1.nodeType = "VariableDeclaration";
+            varDecl_1.strValue = keyword;
             varDecl_1.start = declTok.start;
             varDecl_1.line = declTok.line;
             varDecl_1.col = declTok.col;
@@ -2001,11 +1803,11 @@ class SimpleParser : Equatable  {
             if ( self.matchValue(value : "=") ) {
               self.advance()
               let initVal : JSNode = self.parseAssignment()
-              declarator._init = initVal;
+              declarator.right = initVal;
             }
             let varDecl_2 : JSNode = JSNode()
-            varDecl_2.type = "VariableDeclaration";
-            varDecl_2.kind = keyword;
+            varDecl_2.nodeType = "VariableDeclaration";
+            varDecl_2.strValue = keyword;
             varDecl_2.start = declTok.start;
             varDecl_2.line = declTok.line;
             varDecl_2.col = declTok.col;
@@ -2039,7 +1841,7 @@ class SimpleParser : Equatable  {
       self.advance()
     }
     if ( isForOf ) {
-      forStmt.type = "ForOfStatement";
+      forStmt.nodeType = "ForOfStatement";
       forStmt.left = leftNode!;
       let rightExpr : JSNode = self.parseExpr()
       forStmt.right = rightExpr;
@@ -2049,7 +1851,7 @@ class SimpleParser : Equatable  {
       return forStmt;
     }
     if ( isForIn ) {
-      forStmt.type = "ForInStatement";
+      forStmt.nodeType = "ForInStatement";
       forStmt.left = leftNode!;
       let rightExpr_1 : JSNode = self.parseExpr()
       forStmt.right = rightExpr_1;
@@ -2058,7 +1860,7 @@ class SimpleParser : Equatable  {
       forStmt.body = body_1;
       return forStmt;
     }
-    forStmt.type = "ForStatement";
+    forStmt.nodeType = "ForStatement";
     if ( leftNode != nil  ) {
       forStmt.left = leftNode!;
     }
@@ -2080,7 +1882,7 @@ class SimpleParser : Equatable  {
   }
   func parseSwitch() -> JSNode {
     let switchStmt : JSNode = JSNode()
-    switchStmt.type = "SwitchStatement";
+    switchStmt.nodeType = "SwitchStatement";
     let startTok : Token = self.peek()
     switchStmt.start = startTok.start;
     switchStmt.line = startTok.line;
@@ -2094,7 +1896,7 @@ class SimpleParser : Equatable  {
     while ((self.matchValue(value : "}") == false) && (self.isAtEnd() == false)) {
       let caseNode : JSNode = JSNode()
       if ( self.matchValue(value : "case") ) {
-        caseNode.type = "SwitchCase";
+        caseNode.nodeType = "SwitchCase";
         let caseTok : Token = self.peek()
         caseNode.start = caseTok.start;
         caseNode.line = caseTok.line;
@@ -2110,8 +1912,8 @@ class SimpleParser : Equatable  {
         switchStmt.children.append(caseNode)
       } else {
         if ( self.matchValue(value : "default") ) {
-          caseNode.type = "SwitchCase";
-          caseNode.name = "default";
+          caseNode.nodeType = "SwitchCase";
+          caseNode.strValue = "default";
           let defTok : Token = self.peek()
           caseNode.start = defTok.start;
           caseNode.line = defTok.line;
@@ -2133,7 +1935,7 @@ class SimpleParser : Equatable  {
   }
   func parseTry() -> JSNode {
     let tryStmt : JSNode = JSNode()
-    tryStmt.type = "TryStatement";
+    tryStmt.nodeType = "TryStatement";
     let startTok : Token = self.peek()
     tryStmt.start = startTok.start;
     tryStmt.line = startTok.line;
@@ -2143,7 +1945,7 @@ class SimpleParser : Equatable  {
     tryStmt.body = block;
     if ( self.matchValue(value : "catch") ) {
       let catchNode : JSNode = JSNode()
-      catchNode.type = "CatchClause";
+      catchNode.nodeType = "CatchClause";
       let catchTok : Token = self.peek()
       catchNode.start = catchTok.start;
       catchNode.line = catchTok.line;
@@ -2151,7 +1953,7 @@ class SimpleParser : Equatable  {
       self.advance()
       _ = self.expectValue(expectedValue : "(")
       let paramTok : Token = self.expect(expectedType : "Identifier")
-      catchNode.name = paramTok.value;
+      catchNode.strValue = paramTok.value;
       _ = self.expectValue(expectedValue : ")")
       let catchBody : JSNode = self.parseBlock()
       catchNode.body = catchBody;
@@ -2166,7 +1968,7 @@ class SimpleParser : Equatable  {
   }
   func parseThrow() -> JSNode {
     let throwStmt : JSNode = JSNode()
-    throwStmt.type = "ThrowStatement";
+    throwStmt.nodeType = "ThrowStatement";
     let startTok : Token = self.peek()
     throwStmt.start = startTok.start;
     throwStmt.line = startTok.line;
@@ -2181,7 +1983,7 @@ class SimpleParser : Equatable  {
   }
   func parseBreak() -> JSNode {
     let breakStmt : JSNode = JSNode()
-    breakStmt.type = "BreakStatement";
+    breakStmt.nodeType = "BreakStatement";
     let startTok : Token = self.peek()
     breakStmt.start = startTok.start;
     breakStmt.line = startTok.line;
@@ -2189,7 +1991,7 @@ class SimpleParser : Equatable  {
     _ = self.expectValue(expectedValue : "break")
     if ( self.matchType(tokenType : "Identifier") ) {
       let labelTok : Token = self.peek()
-      breakStmt.name = labelTok.value;
+      breakStmt.strValue = labelTok.value;
       self.advance()
     }
     if ( self.matchValue(value : ";") ) {
@@ -2199,7 +2001,7 @@ class SimpleParser : Equatable  {
   }
   func parseContinue() -> JSNode {
     let contStmt : JSNode = JSNode()
-    contStmt.type = "ContinueStatement";
+    contStmt.nodeType = "ContinueStatement";
     let startTok : Token = self.peek()
     contStmt.start = startTok.start;
     contStmt.line = startTok.line;
@@ -2207,7 +2009,7 @@ class SimpleParser : Equatable  {
     _ = self.expectValue(expectedValue : "continue")
     if ( self.matchType(tokenType : "Identifier") ) {
       let labelTok : Token = self.peek()
-      contStmt.name = labelTok.value;
+      contStmt.strValue = labelTok.value;
       self.advance()
     }
     if ( self.matchValue(value : ";") ) {
@@ -2217,7 +2019,7 @@ class SimpleParser : Equatable  {
   }
   func parseExprStmt() -> JSNode {
     let stmt : JSNode = JSNode()
-    stmt.type = "ExpressionStatement";
+    stmt.nodeType = "ExpressionStatement";
     let startTok : Token = self.peek()
     stmt.start = startTok.start;
     stmt.line = startTok.line;
@@ -2235,13 +2037,13 @@ class SimpleParser : Equatable  {
   func parseAssignment() -> JSNode {
     let left : JSNode = self.parseTernary()
     let tokVal : String = self.peekValue()
-    if ( (((((((((((((((tokVal == "=") || (tokVal == "+=")) || (tokVal == "-=")) || (tokVal == "*=")) || (tokVal == "/=")) || (tokVal == "%=")) || (tokVal == "**=")) || (tokVal == "<<=")) || (tokVal == ">>=")) || (tokVal == ">>>=")) || (tokVal == "&=")) || (tokVal == "^=")) || (tokVal == "|=")) || (tokVal == "&&=")) || (tokVal == "||=")) || (tokVal == "??=") ) {
+    if ( tokVal == "=" ) {
       let opTok : Token = self.peek()
       self.advance()
       let right : JSNode = self.parseAssignment()
       let assign : JSNode = JSNode()
-      assign.type = "AssignmentExpression";
-      assign._operator = opTok.value;
+      assign.nodeType = "AssignmentExpression";
+      assign.strValue = opTok.value;
       assign.left = left;
       assign.right = right;
       assign.start = left.start;
@@ -2259,7 +2061,7 @@ class SimpleParser : Equatable  {
       _ = self.expectValue(expectedValue : ":")
       let alternate : JSNode = self.parseAssignment()
       let ternary : JSNode = JSNode()
-      ternary.type = "ConditionalExpression";
+      ternary.nodeType = "ConditionalExpression";
       ternary.left = condition;
       ternary.body = consequent;
       ternary.right = alternate;
@@ -2277,8 +2079,8 @@ class SimpleParser : Equatable  {
       self.advance()
       let right : JSNode = self.parseNullishCoalescing()
       let binary : JSNode = JSNode()
-      binary.type = "LogicalExpression";
-      binary._operator = opTok.value;
+      binary.nodeType = "LogicalExpression";
+      binary.strValue = opTok.value;
       binary.left = left;
       binary.right = right;
       binary.start = left.start;
@@ -2295,8 +2097,8 @@ class SimpleParser : Equatable  {
       self.advance()
       let right : JSNode = self.parseLogicalAnd()
       let binary : JSNode = JSNode()
-      binary.type = "LogicalExpression";
-      binary._operator = opTok.value;
+      binary.nodeType = "LogicalExpression";
+      binary.strValue = opTok.value;
       binary.left = left;
       binary.right = right;
       binary.start = left.start;
@@ -2313,8 +2115,8 @@ class SimpleParser : Equatable  {
       self.advance()
       let right : JSNode = self.parseEquality()
       let binary : JSNode = JSNode()
-      binary.type = "LogicalExpression";
-      binary._operator = opTok.value;
+      binary.nodeType = "LogicalExpression";
+      binary.strValue = opTok.value;
       binary.left = left;
       binary.right = right;
       binary.start = left.start;
@@ -2332,8 +2134,8 @@ class SimpleParser : Equatable  {
       self.advance()
       let right : JSNode = self.parseComparison()
       let binary : JSNode = JSNode()
-      binary.type = "BinaryExpression";
-      binary._operator = opTok.value;
+      binary.nodeType = "BinaryExpression";
+      binary.strValue = opTok.value;
       binary.left = left;
       binary.right = right;
       binary.start = left.start;
@@ -2352,8 +2154,8 @@ class SimpleParser : Equatable  {
       self.advance()
       let right : JSNode = self.parseAdditive()
       let binary : JSNode = JSNode()
-      binary.type = "BinaryExpression";
-      binary._operator = opTok.value;
+      binary.nodeType = "BinaryExpression";
+      binary.strValue = opTok.value;
       binary.left = left;
       binary.right = right;
       binary.start = left.start;
@@ -2372,8 +2174,8 @@ class SimpleParser : Equatable  {
       self.advance()
       let right : JSNode = self.parseMultiplicative()
       let binary : JSNode = JSNode()
-      binary.type = "BinaryExpression";
-      binary._operator = opTok.value;
+      binary.nodeType = "BinaryExpression";
+      binary.strValue = opTok.value;
       binary.left = left;
       binary.right = right;
       binary.start = left.start;
@@ -2392,8 +2194,8 @@ class SimpleParser : Equatable  {
       self.advance()
       let right : JSNode = self.parseUnary()
       let binary : JSNode = JSNode()
-      binary.type = "BinaryExpression";
-      binary._operator = opTok.value;
+      binary.nodeType = "BinaryExpression";
+      binary.strValue = opTok.value;
       binary.left = left;
       binary.right = right;
       binary.start = left.start;
@@ -2413,8 +2215,8 @@ class SimpleParser : Equatable  {
         self.advance()
         let arg : JSNode = self.parseUnary()
         let unary : JSNode = JSNode()
-        unary.type = "UnaryExpression";
-        unary._operator = opTok.value;
+        unary.nodeType = "UnaryExpression";
+        unary.strValue = opTok.value;
         unary.left = arg;
         unary.start = opTok.start;
         unary.line = opTok.line;
@@ -2427,8 +2229,8 @@ class SimpleParser : Equatable  {
       self.advance()
       let arg_1 : JSNode = self.parseUnary()
       let unary_1 : JSNode = JSNode()
-      unary_1.type = "UnaryExpression";
-      unary_1._operator = opTok_1.value;
+      unary_1.nodeType = "UnaryExpression";
+      unary_1.strValue = opTok_1.value;
       unary_1.left = arg_1;
       unary_1.start = opTok_1.start;
       unary_1.line = opTok_1.line;
@@ -2440,9 +2242,9 @@ class SimpleParser : Equatable  {
       self.advance()
       let arg_2 : JSNode = self.parseUnary()
       let update : JSNode = JSNode()
-      update.type = "UpdateExpression";
-      update._operator = opTok_2.value;
-      update.prefix = true;
+      update.nodeType = "UpdateExpression";
+      update.strValue = opTok_2.value;
+      update.strValue2 = "prefix";
       update.left = arg_2;
       update.start = opTok_2.start;
       update.line = opTok_2.line;
@@ -2453,12 +2255,12 @@ class SimpleParser : Equatable  {
       let yieldTok : Token = self.peek()
       self.advance()
       let yieldExpr : JSNode = JSNode()
-      yieldExpr.type = "YieldExpression";
+      yieldExpr.nodeType = "YieldExpression";
       yieldExpr.start = yieldTok.start;
       yieldExpr.line = yieldTok.line;
       yieldExpr.col = yieldTok.col;
       if ( self.matchValue(value : "*") ) {
-        yieldExpr.delegate = true;
+        yieldExpr.strValue = "delegate";
         self.advance()
       }
       let nextVal : String = self.peekValue()
@@ -2473,7 +2275,7 @@ class SimpleParser : Equatable  {
       self.advance()
       let arg_4 : JSNode = self.parseUnary()
       let awaitExpr : JSNode = JSNode()
-      awaitExpr.type = "AwaitExpression";
+      awaitExpr.nodeType = "AwaitExpression";
       awaitExpr.left = arg_4;
       awaitExpr.start = awaitTok.start;
       awaitExpr.line = awaitTok.line;
@@ -2494,9 +2296,9 @@ class SimpleParser : Equatable  {
         let opTok : Token = self.peek()
         self.advance()
         let update : JSNode = JSNode()
-        update.type = "UpdateExpression";
-        update._operator = opTok.value;
-        update.prefix = false;
+        update.nodeType = "UpdateExpression";
+        update.strValue = opTok.value;
+        update.strValue2 = "postfix";
         update.left = object;
         update.start = object.start;
         update.line = object.line;
@@ -2509,7 +2311,7 @@ class SimpleParser : Equatable  {
           if ( nextTokVal == "(" ) {
             self.advance()
             let call : JSNode = JSNode()
-            call.type = "OptionalCallExpression";
+            call.nodeType = "OptionalCallExpression";
             call.left = object;
             call.start = object.start;
             call.line = object.line;
@@ -2532,10 +2334,10 @@ class SimpleParser : Equatable  {
               let propExpr : JSNode = self.parseExpr()
               _ = self.expectValue(expectedValue : "]")
               let member : JSNode = JSNode()
-              member.type = "OptionalMemberExpression";
+              member.nodeType = "OptionalMemberExpression";
               member.left = object;
               member.right = propExpr;
-              member.computed = true;
+              member.strValue2 = "bracket";
               member.start = object.start;
               member.line = object.line;
               member.col = object.col;
@@ -2543,10 +2345,10 @@ class SimpleParser : Equatable  {
             } else {
               let propTok : Token = self.expect(expectedType : "Identifier")
               let member_1 : JSNode = JSNode()
-              member_1.type = "OptionalMemberExpression";
+              member_1.nodeType = "OptionalMemberExpression";
               member_1.left = object;
-              member_1.name = propTok.value;
-              member_1.computed = false;
+              member_1.strValue = propTok.value;
+              member_1.strValue2 = "dot";
               member_1.start = object.start;
               member_1.line = object.line;
               member_1.col = object.col;
@@ -2558,10 +2360,10 @@ class SimpleParser : Equatable  {
             self.advance()
             let propTok_1 : Token = self.expect(expectedType : "Identifier")
             let member_2 : JSNode = JSNode()
-            member_2.type = "MemberExpression";
+            member_2.nodeType = "MemberExpression";
             member_2.left = object;
-            member_2.name = propTok_1.value;
-            member_2.computed = false;
+            member_2.strValue = propTok_1.value;
+            member_2.strValue2 = "dot";
             member_2.start = object.start;
             member_2.line = object.line;
             member_2.col = object.col;
@@ -2572,10 +2374,10 @@ class SimpleParser : Equatable  {
               let propExpr_1 : JSNode = self.parseExpr()
               _ = self.expectValue(expectedValue : "]")
               let member_3 : JSNode = JSNode()
-              member_3.type = "MemberExpression";
+              member_3.nodeType = "MemberExpression";
               member_3.left = object;
               member_3.right = propExpr_1;
-              member_3.computed = true;
+              member_3.strValue2 = "bracket";
               member_3.start = object.start;
               member_3.line = object.line;
               member_3.col = object.col;
@@ -2584,7 +2386,7 @@ class SimpleParser : Equatable  {
               if ( tokVal == "(" ) {
                 self.advance()
                 let call_1 : JSNode = JSNode()
-                call_1.type = "CallExpression";
+                call_1.nodeType = "CallExpression";
                 call_1.left = object;
                 call_1.start = object.start;
                 call_1.line = object.line;
@@ -2601,7 +2403,7 @@ class SimpleParser : Equatable  {
                     self.advance()
                     let spreadArg : JSNode = self.parseAssignment()
                     let spread : JSNode = JSNode()
-                    spread.type = "SpreadElement";
+                    spread.nodeType = "SpreadElement";
                     spread.left = spreadArg;
                     spread.start = spreadTok.start;
                     spread.line = spreadTok.line;
@@ -2626,7 +2428,7 @@ class SimpleParser : Equatable  {
   }
   func parseNewExpression() -> JSNode {
     let newExpr : JSNode = JSNode()
-    newExpr.type = "NewExpression";
+    newExpr.nodeType = "NewExpression";
     let startTok : Token = self.peek()
     newExpr.start = startTok.start;
     newExpr.line = startTok.line;
@@ -2640,10 +2442,10 @@ class SimpleParser : Equatable  {
         self.advance()
         let propTok : Token = self.expect(expectedType : "Identifier")
         let member : JSNode = JSNode()
-        member.type = "MemberExpression";
+        member.nodeType = "MemberExpression";
         member.left = callee;
-        member.name = propTok.value;
-        member.computed = false;
+        member.strValue = propTok.value;
+        member.strValue2 = "dot";
         member.start = callee.start;
         member.line = callee.line;
         member.col = callee.col;
@@ -2687,8 +2489,8 @@ class SimpleParser : Equatable  {
       }
       self.advance()
       let id : JSNode = JSNode()
-      id.type = "Identifier";
-      id.name = tok.value;
+      id.nodeType = "Identifier";
+      id.strValue = tok.value;
       id.start = tok.start;
       id.end = tok.end;
       id.line = tok.line;
@@ -2698,8 +2500,9 @@ class SimpleParser : Equatable  {
     if ( tokType == "Number" ) {
       self.advance()
       let lit : JSNode = JSNode()
-      lit.type = "Literal";
-      lit.raw = tok.value;
+      lit.nodeType = "Literal";
+      lit.strValue = tok.value;
+      lit.strValue2 = "number";
       lit.start = tok.start;
       lit.end = tok.end;
       lit.line = tok.line;
@@ -2709,9 +2512,9 @@ class SimpleParser : Equatable  {
     if ( tokType == "String" ) {
       self.advance()
       let lit_1 : JSNode = JSNode()
-      lit_1.type = "Literal";
-      lit_1.raw = tok.value;
-      lit_1.kind = "string";
+      lit_1.nodeType = "Literal";
+      lit_1.strValue = tok.value;
+      lit_1.strValue2 = "string";
       lit_1.start = tok.start;
       lit_1.end = tok.end;
       lit_1.line = tok.line;
@@ -2721,8 +2524,9 @@ class SimpleParser : Equatable  {
     if ( (tokVal == "true") || (tokVal == "false") ) {
       self.advance()
       let lit_2 : JSNode = JSNode()
-      lit_2.type = "Literal";
-      lit_2.raw = tok.value;
+      lit_2.nodeType = "Literal";
+      lit_2.strValue = tok.value;
+      lit_2.strValue2 = "boolean";
       lit_2.start = tok.start;
       lit_2.end = tok.end;
       lit_2.line = tok.line;
@@ -2732,8 +2536,9 @@ class SimpleParser : Equatable  {
     if ( tokVal == "null" ) {
       self.advance()
       let lit_3 : JSNode = JSNode()
-      lit_3.type = "Literal";
-      lit_3.raw = "null";
+      lit_3.nodeType = "Literal";
+      lit_3.strValue = "null";
+      lit_3.strValue2 = "null";
       lit_3.start = tok.start;
       lit_3.end = tok.end;
       lit_3.line = tok.line;
@@ -2743,8 +2548,8 @@ class SimpleParser : Equatable  {
     if ( tokType == "TemplateLiteral" ) {
       self.advance()
       let tmpl : JSNode = JSNode()
-      tmpl.type = "TemplateLiteral";
-      tmpl.raw = tok.value;
+      tmpl.nodeType = "TemplateLiteral";
+      tmpl.strValue = tok.value;
       tmpl.start = tok.start;
       tmpl.end = tok.end;
       tmpl.line = tok.line;
@@ -2774,8 +2579,8 @@ class SimpleParser : Equatable  {
     }
     self.advance()
     let fallback : JSNode = JSNode()
-    fallback.type = "Identifier";
-    fallback.name = tok.value;
+    fallback.nodeType = "Identifier";
+    fallback.strValue = tok.value;
     fallback.start = tok.start;
     fallback.end = tok.end;
     fallback.line = tok.line;
@@ -2784,7 +2589,7 @@ class SimpleParser : Equatable  {
   }
   func parseArray() -> JSNode {
     let arr : JSNode = JSNode()
-    arr.type = "ArrayExpression";
+    arr.nodeType = "ArrayExpression";
     let startTok : Token = self.peek()
     arr.start = startTok.start;
     arr.line = startTok.line;
@@ -2802,7 +2607,7 @@ class SimpleParser : Equatable  {
         self.advance()
         let arg : JSNode = self.parseAssignment()
         let spread : JSNode = JSNode()
-        spread.type = "SpreadElement";
+        spread.nodeType = "SpreadElement";
         spread.left = arg;
         spread.start = spreadTok.start;
         spread.line = spreadTok.line;
@@ -2818,7 +2623,7 @@ class SimpleParser : Equatable  {
   }
   func parseObject() -> JSNode {
     let obj : JSNode = JSNode()
-    obj.type = "ObjectExpression";
+    obj.nodeType = "ObjectExpression";
     let startTok : Token = self.peek()
     obj.start = startTok.start;
     obj.line = startTok.line;
@@ -2836,7 +2641,7 @@ class SimpleParser : Equatable  {
         self.advance()
         let arg : JSNode = self.parseAssignment()
         let spread : JSNode = JSNode()
-        spread.type = "SpreadElement";
+        spread.nodeType = "SpreadElement";
         spread.left = arg;
         spread.start = spreadTok.start;
         spread.line = spreadTok.line;
@@ -2844,7 +2649,7 @@ class SimpleParser : Equatable  {
         obj.children.append(spread)
       } else {
         let prop : JSNode = JSNode()
-        prop.type = "Property";
+        prop.nodeType = "Property";
         let keyTok : Token = self.peek()
         let keyType : String = self.peekType()
         if ( self.matchValue(value : "[") ) {
@@ -2855,7 +2660,7 @@ class SimpleParser : Equatable  {
           let val : JSNode = self.parseAssignment()
           prop.right = keyExpr;
           prop.left = val;
-          prop.computed = true;
+          prop.strValue2 = "computed";
           prop.start = keyTok.start;
           prop.line = keyTok.line;
           prop.col = keyTok.col;
@@ -2863,7 +2668,7 @@ class SimpleParser : Equatable  {
         } else {
           if ( ((keyType == "Identifier") || (keyType == "String")) || (keyType == "Number") ) {
             self.advance()
-            prop.name = keyTok.value;
+            prop.strValue = keyTok.value;
             prop.start = keyTok.start;
             prop.line = keyTok.line;
             prop.col = keyTok.col;
@@ -2873,13 +2678,13 @@ class SimpleParser : Equatable  {
               prop.left = val_1;
             } else {
               let id : JSNode = JSNode()
-              id.type = "Identifier";
-              id.name = keyTok.value;
+              id.nodeType = "Identifier";
+              id.strValue = keyTok.value;
               id.start = keyTok.start;
               id.line = keyTok.line;
               id.col = keyTok.col;
               prop.left = id;
-              prop.shorthand = true;
+              prop.strValue2 = "shorthand";
             }
             obj.children.append(prop)
           } else {
@@ -2895,7 +2700,7 @@ class SimpleParser : Equatable  {
   }
   func parseArrayPattern() -> JSNode {
     let pattern : JSNode = JSNode()
-    pattern.type = "ArrayPattern";
+    pattern.nodeType = "ArrayPattern";
     let startTok : Token = self.peek()
     pattern.start = startTok.start;
     pattern.line = startTok.line;
@@ -2913,8 +2718,8 @@ class SimpleParser : Equatable  {
         self.advance()
         let idTok : Token = self.expect(expectedType : "Identifier")
         let rest : JSNode = JSNode()
-        rest.type = "RestElement";
-        rest.name = idTok.value;
+        rest.nodeType = "RestElement";
+        rest.strValue = idTok.value;
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
@@ -2930,8 +2735,8 @@ class SimpleParser : Equatable  {
           } else {
             let idTok_1 : Token = self.expect(expectedType : "Identifier")
             let id : JSNode = JSNode()
-            id.type = "Identifier";
-            id.name = idTok_1.value;
+            id.nodeType = "Identifier";
+            id.strValue = idTok_1.value;
             id.start = idTok_1.start;
             id.line = idTok_1.line;
             id.col = idTok_1.col;
@@ -2945,7 +2750,7 @@ class SimpleParser : Equatable  {
   }
   func parseObjectPattern() -> JSNode {
     let pattern : JSNode = JSNode()
-    pattern.type = "ObjectPattern";
+    pattern.nodeType = "ObjectPattern";
     let startTok : Token = self.peek()
     pattern.start = startTok.start;
     pattern.line = startTok.line;
@@ -2963,17 +2768,17 @@ class SimpleParser : Equatable  {
         self.advance()
         let idTok : Token = self.expect(expectedType : "Identifier")
         let rest : JSNode = JSNode()
-        rest.type = "RestElement";
-        rest.name = idTok.value;
+        rest.nodeType = "RestElement";
+        rest.strValue = idTok.value;
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
         pattern.children.append(rest)
       } else {
         let prop : JSNode = JSNode()
-        prop.type = "Property";
+        prop.nodeType = "Property";
         let keyTok : Token = self.expect(expectedType : "Identifier")
-        prop.name = keyTok.value;
+        prop.strValue = keyTok.value;
         prop.start = keyTok.start;
         prop.line = keyTok.line;
         prop.col = keyTok.col;
@@ -2989,8 +2794,8 @@ class SimpleParser : Equatable  {
             } else {
               let idTok2 : Token = self.expect(expectedType : "Identifier")
               let id : JSNode = JSNode()
-              id.type = "Identifier";
-              id.name = idTok2.value;
+              id.nodeType = "Identifier";
+              id.strValue = idTok2.value;
               id.start = idTok2.start;
               id.line = idTok2.line;
               id.col = idTok2.col;
@@ -2999,13 +2804,13 @@ class SimpleParser : Equatable  {
           }
         } else {
           let id_1 : JSNode = JSNode()
-          id_1.type = "Identifier";
-          id_1.name = keyTok.value;
+          id_1.nodeType = "Identifier";
+          id_1.strValue = keyTok.value;
           id_1.start = keyTok.start;
           id_1.line = keyTok.line;
           id_1.col = keyTok.col;
           prop.left = id_1;
-          prop.shorthand = true;
+          prop.strValue2 = "shorthand";
         }
         pattern.children.append(prop)
       }
@@ -3037,7 +2842,7 @@ class SimpleParser : Equatable  {
   }
   func parseArrowFunction() -> JSNode {
     let arrow : JSNode = JSNode()
-    arrow.type = "ArrowFunctionExpression";
+    arrow.nodeType = "ArrowFunctionExpression";
     let startTok : Token = self.peek()
     arrow.start = startTok.start;
     arrow.line = startTok.line;
@@ -3053,8 +2858,8 @@ class SimpleParser : Equatable  {
         }
         let paramTok : Token = self.expect(expectedType : "Identifier")
         let param : JSNode = JSNode()
-        param.type = "Identifier";
-        param.name = paramTok.value;
+        param.nodeType = "Identifier";
+        param.strValue = paramTok.value;
         param.start = paramTok.start;
         param.line = paramTok.line;
         param.col = paramTok.col;
@@ -3064,8 +2869,8 @@ class SimpleParser : Equatable  {
     } else {
       let paramTok_1 : Token = self.expect(expectedType : "Identifier")
       let param_1 : JSNode = JSNode()
-      param_1.type = "Identifier";
-      param_1.name = paramTok_1.value;
+      param_1.nodeType = "Identifier";
+      param_1.strValue = paramTok_1.value;
       param_1.start = paramTok_1.start;
       param_1.line = paramTok_1.line;
       param_1.col = paramTok_1.col;
@@ -3083,8 +2888,8 @@ class SimpleParser : Equatable  {
   }
   func parseAsyncArrowFunction() -> JSNode {
     let arrow : JSNode = JSNode()
-    arrow.type = "ArrowFunctionExpression";
-    arrow.async = true;
+    arrow.nodeType = "ArrowFunctionExpression";
+    arrow.strValue2 = "async";
     let startTok : Token = self.peek()
     arrow.start = startTok.start;
     arrow.line = startTok.line;
@@ -3101,8 +2906,8 @@ class SimpleParser : Equatable  {
         }
         let paramTok : Token = self.expect(expectedType : "Identifier")
         let param : JSNode = JSNode()
-        param.type = "Identifier";
-        param.name = paramTok.value;
+        param.nodeType = "Identifier";
+        param.strValue = paramTok.value;
         param.start = paramTok.start;
         param.line = paramTok.line;
         param.col = paramTok.col;
@@ -3112,8 +2917,8 @@ class SimpleParser : Equatable  {
     } else {
       let paramTok_1 : Token = self.expect(expectedType : "Identifier")
       let param_1 : JSNode = JSNode()
-      param_1.type = "Identifier";
-      param_1.name = paramTok_1.value;
+      param_1.nodeType = "Identifier";
+      param_1.strValue = paramTok_1.value;
       param_1.start = paramTok_1.start;
       param_1.line = paramTok_1.line;
       param_1.col = paramTok_1.col;
@@ -3144,18 +2949,18 @@ class ASTPrinter : Equatable  {
     let numComments : Int = node.leadingComments.count
     if ( numComments > 0 ) {
       for (ci, comment) in node.leadingComments.enumerated() {
-        let commentType : String = comment.type
-        var preview : String = comment.raw
+        let commentType : String = comment.nodeType
+        var preview : String = comment.strValue
         if ( (preview.count) > 40 ) {
           preview = (String(preview[preview.index(preview.startIndex, offsetBy:0)..<preview.index(preview.startIndex, offsetBy:40)])) + "...";
         }
         print(((indent + commentType) + ": ") + preview)
       }
     }
-    let nodeType : String = node.type
+    let nodeType : String = node.nodeType
     let loc : String = ((("[" + String(node.line)) + ":") + String(node.col)) + "]"
     if ( nodeType == "VariableDeclaration" ) {
-      let kind : String = node.name
+      let kind : String = node.strValue
       if ( (kind.count) > 0 ) {
         print((((indent + "VariableDeclaration (") + kind) + ") ") + loc)
       } else {
@@ -3169,9 +2974,9 @@ class ASTPrinter : Equatable  {
     if ( nodeType == "VariableDeclarator" ) {
       if ( node.left != nil  ) {
         let id : JSNode = node.left!
-        let idType : String = id.type
+        let idType : String = id.nodeType
         if ( idType == "Identifier" ) {
-          print((((indent + "VariableDeclarator: ") + id.name) + " ") + loc)
+          print((((indent + "VariableDeclarator: ") + id.strValue) + " ") + loc)
         } else {
           print((indent + "VariableDeclarator ") + loc)
           print(indent + "  pattern:")
@@ -3191,24 +2996,23 @@ class ASTPrinter : Equatable  {
         if ( pi > 0 ) {
           params = params + ", ";
         }
-        params = params + p.name;
+        params = params + p.strValue;
       }
+      let kind_1 : String = node.strValue2
       var prefix : String = ""
-      if ( node.async ) {
-        if ( node.generator ) {
-          prefix = "async function* ";
-        } else {
-          prefix = "async ";
-        }
-      } else {
-        if ( node.generator ) {
-          prefix = "function* ";
-        }
+      if ( kind_1 == "async" ) {
+        prefix = "async ";
+      }
+      if ( kind_1 == "generator" ) {
+        prefix = "function* ";
+      }
+      if ( kind_1 == "async-generator" ) {
+        prefix = "async function* ";
       }
       if ( (prefix.count) > 0 ) {
-        print(((((((indent + "FunctionDeclaration: ") + prefix) + node.name) + "(") + params) + ") ") + loc)
+        print(((((((indent + "FunctionDeclaration: ") + prefix) + node.strValue) + "(") + params) + ") ") + loc)
       } else {
-        print((((((indent + "FunctionDeclaration: ") + node.name) + "(") + params) + ") ") + loc)
+        print((((((indent + "FunctionDeclaration: ") + node.strValue) + "(") + params) + ") ") + loc)
       }
       if ( node.body != nil  ) {
         ASTPrinter.printNode(node : node.body!, depth : depth + 1)
@@ -3216,10 +3020,10 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "ClassDeclaration" ) {
-      var output : String = (indent + "ClassDeclaration: ") + node.name
+      var output : String = (indent + "ClassDeclaration: ") + node.strValue
       if ( node.left != nil  ) {
         let superClass : JSNode = node.left!
-        output = (output + " extends ") + superClass.name;
+        output = (output + " extends ") + superClass.strValue;
       }
       print((output + " ") + loc)
       if ( node.body != nil  ) {
@@ -3236,10 +3040,10 @@ class ASTPrinter : Equatable  {
     }
     if ( nodeType == "MethodDefinition" ) {
       var staticStr : String = ""
-      if ( node._static ) {
+      if ( node.strValue2 == "static" ) {
         staticStr = "static ";
       }
-      print(((((indent + "MethodDefinition: ") + staticStr) + node.name) + " ") + loc)
+      print(((((indent + "MethodDefinition: ") + staticStr) + node.strValue) + " ") + loc)
       if ( node.body != nil  ) {
         ASTPrinter.printNode(node : node.body!, depth : depth + 1)
       }
@@ -3251,10 +3055,10 @@ class ASTPrinter : Equatable  {
         if ( pi_1 > 0 ) {
           params_1 = params_1 + ", ";
         }
-        params_1 = params_1 + p_1.name;
+        params_1 = params_1 + p_1.strValue;
       }
       var asyncStr : String = ""
-      if ( node.async ) {
+      if ( node.strValue2 == "async" ) {
         asyncStr = "async ";
       }
       print((((((indent + "ArrowFunctionExpression: ") + asyncStr) + "(") + params_1) + ") => ") + loc)
@@ -3265,7 +3069,7 @@ class ASTPrinter : Equatable  {
     }
     if ( nodeType == "YieldExpression" ) {
       var delegateStr : String = ""
-      if ( node.name == "delegate" ) {
+      if ( node.strValue == "delegate" ) {
         delegateStr = "*";
       }
       print((((indent + "YieldExpression") + delegateStr) + " ") + loc)
@@ -3282,7 +3086,7 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "TemplateLiteral" ) {
-      print((((indent + "TemplateLiteral: `") + node.name) + "` ") + loc)
+      print((((indent + "TemplateLiteral: `") + node.strValue) + "` ") + loc)
       return;
     }
     if ( nodeType == "BlockStatement" ) {
@@ -3323,7 +3127,7 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "AssignmentExpression" ) {
-      print((((indent + "AssignmentExpression: ") + node.name) + " ") + loc)
+      print((((indent + "AssignmentExpression: ") + node.strValue) + " ") + loc)
       if ( node.left != nil  ) {
         print(indent + "  left:")
         ASTPrinter.printNode(node : node.left!, depth : depth + 2)
@@ -3335,7 +3139,7 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( (nodeType == "BinaryExpression") || (nodeType == "LogicalExpression") ) {
-      print(((((indent + nodeType) + ": ") + node.name) + " ") + loc)
+      print(((((indent + nodeType) + ": ") + node.strValue) + " ") + loc)
       if ( node.left != nil  ) {
         print(indent + "  left:")
         ASTPrinter.printNode(node : node.left!, depth : depth + 2)
@@ -3347,7 +3151,7 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "UnaryExpression" ) {
-      print((((indent + "UnaryExpression: ") + node.name) + " ") + loc)
+      print((((indent + "UnaryExpression: ") + node.strValue) + " ") + loc)
       if ( node.left != nil  ) {
         ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
@@ -3355,12 +3159,12 @@ class ASTPrinter : Equatable  {
     }
     if ( nodeType == "UpdateExpression" ) {
       var prefix_1 : String = ""
-      if ( node.prefix ) {
+      if ( node.strValue2 == "prefix" ) {
         prefix_1 = "prefix ";
       } else {
         prefix_1 = "postfix ";
       }
-      print(((((indent + "UpdateExpression: ") + prefix_1) + node.name) + " ") + loc)
+      print(((((indent + "UpdateExpression: ") + prefix_1) + node.strValue) + " ") + loc)
       if ( node.left != nil  ) {
         ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
@@ -3411,8 +3215,8 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "MemberExpression" ) {
-      if ( node.computed == false ) {
-        print((((indent + "MemberExpression: .") + node.name) + " ") + loc)
+      if ( node.strValue2 == "dot" ) {
+        print((((indent + "MemberExpression: .") + node.strValue) + " ") + loc)
       } else {
         print((indent + "MemberExpression: [computed] ") + loc)
       }
@@ -3425,11 +3229,11 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "Identifier" ) {
-      print((((indent + "Identifier: ") + node.name) + " ") + loc)
+      print((((indent + "Identifier: ") + node.strValue) + " ") + loc)
       return;
     }
     if ( nodeType == "Literal" ) {
-      print((((((indent + "Literal: ") + node.name) + " (") + node.raw) + ") ") + loc)
+      print((((((indent + "Literal: ") + node.strValue) + " (") + node.strValue2) + ") ") + loc)
       return;
     }
     if ( nodeType == "ArrayExpression" ) {
@@ -3448,10 +3252,10 @@ class ASTPrinter : Equatable  {
     }
     if ( nodeType == "Property" ) {
       var shorthand : String = ""
-      if ( node.shorthand ) {
+      if ( node.strValue2 == "shorthand" ) {
         shorthand = " (shorthand)";
       }
-      print(((((indent + "Property: ") + node.name) + shorthand) + " ") + loc)
+      print(((((indent + "Property: ") + node.strValue) + shorthand) + " ") + loc)
       if ( node.left != nil  ) {
         ASTPrinter.printNode(node : node.left!, depth : depth + 1)
       }
@@ -3479,7 +3283,7 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "RestElement" ) {
-      print((((indent + "RestElement: ...") + node.name) + " ") + loc)
+      print((((indent + "RestElement: ...") + node.strValue) + " ") + loc)
       return;
     }
     if ( nodeType == "WhileStatement" ) {
@@ -3571,7 +3375,7 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "SwitchCase" ) {
-      if ( node.name == "default" ) {
+      if ( node.strValue == "default" ) {
         print((indent + "SwitchCase: default ") + loc)
       } else {
         print((indent + "SwitchCase ") + loc)
@@ -3605,7 +3409,7 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "CatchClause" ) {
-      print((((indent + "CatchClause: ") + node.name) + " ") + loc)
+      print((((indent + "CatchClause: ") + node.strValue) + " ") + loc)
       if ( node.body != nil  ) {
         ASTPrinter.printNode(node : node.body!, depth : depth + 1)
       }
@@ -3619,16 +3423,16 @@ class ASTPrinter : Equatable  {
       return;
     }
     if ( nodeType == "BreakStatement" ) {
-      if ( (node.name.count) > 0 ) {
-        print((((indent + "BreakStatement: ") + node.name) + " ") + loc)
+      if ( (node.strValue.count) > 0 ) {
+        print((((indent + "BreakStatement: ") + node.strValue) + " ") + loc)
       } else {
         print((indent + "BreakStatement ") + loc)
       }
       return;
     }
     if ( nodeType == "ContinueStatement" ) {
-      if ( (node.name.count) > 0 ) {
-        print((((indent + "ContinueStatement: ") + node.name) + " ") + loc)
+      if ( (node.strValue.count) > 0 ) {
+        print((((indent + "ContinueStatement: ") + node.strValue) + " ") + loc)
       } else {
         print((indent + "ContinueStatement ") + loc)
       }
@@ -3657,12 +3461,10 @@ class JSPrinter : Equatable  {
     self.output = self.output + text;
   }
   func emitLine(text : String) -> Void {
-    let ind : String = self.getIndent()
-    self.output = ((self.output + ind) + text) + "\n";
+    self.output = ((self.output + self.getIndent()) + text) + "\n";
   }
   func emitIndent() -> Void {
-    let ind : String = self.getIndent()
-    self.output = self.output + ind;
+    self.output = self.output + self.getIndent();
   }
   func indent() -> Void {
     self.indentLevel = self.indentLevel + 1;
@@ -3680,8 +3482,8 @@ class JSPrinter : Equatable  {
     }
   }
   func printComment(comment : JSNode) -> Void {
-    let commentType : String = comment.type
-    let value : String = comment.raw
+    let commentType : String = comment.nodeType
+    let value : String = comment.strValue
     if ( commentType == "LineComment" ) {
       self.emitLine(text : "//" + value)
       return;
@@ -3705,7 +3507,7 @@ class JSPrinter : Equatable  {
     return self.output;
   }
   func printNode(node : JSNode) -> Void {
-    let nodeType : String = node.type
+    let nodeType : String = node.nodeType
     if ( nodeType == "Program" ) {
       self.printProgram(node : node)
       return;
@@ -3798,7 +3600,7 @@ class JSPrinter : Equatable  {
       return;
     }
     if ( nodeType == "Identifier" ) {
-      self.emit(text : node.name)
+      self.emit(text : node.strValue)
       return;
     }
     if ( nodeType == "Literal" ) {
@@ -3806,11 +3608,11 @@ class JSPrinter : Equatable  {
       return;
     }
     if ( nodeType == "TemplateLiteral" ) {
-      self.emit(text : ("`" + node.raw) + "`")
+      self.emit(text : ("`" + node.strValue) + "`")
       return;
     }
     if ( nodeType == "RegexLiteral" ) {
-      self.emit(text : (("/" + node.name) + "/") + node.kind)
+      self.emit(text : (("/" + node.strValue) + "/") + node.strValue2)
       return;
     }
     if ( nodeType == "ArrayExpression" ) {
@@ -3886,7 +3688,7 @@ class JSPrinter : Equatable  {
       return;
     }
     if ( nodeType == "RestElement" ) {
-      self.emit(text : "..." + node.name)
+      self.emit(text : "..." + node.strValue)
       return;
     }
     if ( nodeType == "ArrayPattern" ) {
@@ -3906,7 +3708,7 @@ class JSPrinter : Equatable  {
   }
   func printStatement(node : JSNode) -> Void {
     self.printLeadingComments(node : node)
-    let nodeType : String = node.type
+    let nodeType : String = node.nodeType
     if ( nodeType == "BlockStatement" ) {
       self.printBlockStatement(node : node)
       return;
@@ -3922,7 +3724,7 @@ class JSPrinter : Equatable  {
     self.emit(text : ";\n")
   }
   func printVariableDeclaration(node : JSNode) -> Void {
-    var kind : String = node.kind
+    var kind : String = node.strValue
     if ( (kind.count) == 0 ) {
       kind = "var";
     }
@@ -3937,24 +3739,28 @@ class JSPrinter : Equatable  {
     }
   }
   func printVariableDeclarator(node : JSNode) -> Void {
-    if ( node.id != nil  ) {
-      let id : JSNode = node.id!
-      self.printNode(node : id)
+    if ( node.left != nil  ) {
+      let left : JSNode = node.left!
+      self.printNode(node : left)
     }
-    if ( node._init != nil  ) {
+    if ( node.right != nil  ) {
       self.emit(text : " = ")
-      self.printNode(node : node._init!)
+      self.printNode(node : node.right!)
     }
   }
   func printFunctionDeclaration(node : JSNode) -> Void {
-    if ( node.async ) {
+    let kind : String = node.strValue2
+    if ( kind == "async" ) {
+      self.emit(text : "async ")
+    }
+    if ( kind == "async-generator" ) {
       self.emit(text : "async ")
     }
     self.emit(text : "function")
-    if ( node.generator ) {
+    if ( (kind == "generator") || (kind == "async-generator") ) {
       self.emit(text : "*")
     }
-    self.emit(text : (" " + node.name) + "(")
+    self.emit(text : (" " + node.strValue) + "(")
     self.printParams(params : node.children)
     self.emit(text : ") ")
     if ( node.body != nil  ) {
@@ -3972,10 +3778,10 @@ class JSPrinter : Equatable  {
     }
   }
   func printClassDeclaration(node : JSNode) -> Void {
-    self.emit(text : "class " + node.name)
-    if ( node.superClass != nil  ) {
-      let sc : JSNode = node.superClass!
-      self.emit(text : " extends " + sc.name)
+    self.emit(text : "class " + node.strValue)
+    if ( node.left != nil  ) {
+      let superClass : JSNode = node.left!
+      self.emit(text : " extends " + superClass.strValue)
     }
     self.emit(text : " ")
     if ( node.body != nil  ) {
@@ -3994,15 +3800,10 @@ class JSPrinter : Equatable  {
   }
   func printMethodDefinition(node : JSNode) -> Void {
     self.emitIndent()
-    if ( node._static ) {
+    if ( node.strValue2 == "static" ) {
       self.emit(text : "static ")
     }
-    if ( node.key != nil  ) {
-      let keyNode : JSNode = node.key!
-      self.emit(text : keyNode.name + "(")
-    } else {
-      self.emit(text : "(")
-    }
+    self.emit(text : node.strValue + "(")
     if ( node.body != nil  ) {
       let _func : JSNode = node.body!
       self.printParams(params : _func.children)
@@ -4134,7 +3935,7 @@ class JSPrinter : Equatable  {
     self.emit(text : "}")
   }
   func printSwitchCase(node : JSNode) -> Void {
-    if ( node.name == "default" ) {
+    if ( node.strValue == "default" ) {
       self.emitLine(text : "default:")
     } else {
       self.emitIndent()
@@ -4157,7 +3958,7 @@ class JSPrinter : Equatable  {
     }
     if ( node.left != nil  ) {
       let catchClause : JSNode = node.left!
-      self.emit(text : (" catch (" + catchClause.name) + ") ")
+      self.emit(text : (" catch (" + catchClause.strValue) + ") ")
       if ( catchClause.body != nil  ) {
         self.printNode(node : catchClause.body!)
       }
@@ -4174,11 +3975,11 @@ class JSPrinter : Equatable  {
     }
   }
   func printLiteral(node : JSNode) -> Void {
-    let value : String = node.raw
-    if ( node.kind == "string" ) {
-      self.emit(text : ("'" + value) + "'")
+    let litType : String = node.strValue2
+    if ( litType == "string" ) {
+      self.emit(text : ("'" + node.strValue) + "'")
     } else {
-      self.emit(text : value)
+      self.emit(text : node.strValue)
     }
   }
   func printArrayExpression(node : JSNode) -> Void {
@@ -4210,16 +4011,16 @@ class JSPrinter : Equatable  {
     self.emit(text : " }")
   }
   func printProperty(node : JSNode) -> Void {
-    let nodeType : String = node.type
+    let nodeType : String = node.nodeType
     if ( nodeType == "SpreadElement" ) {
       self.printSpreadElement(node : node)
       return;
     }
-    if ( node.shorthand ) {
-      self.emit(text : node.name)
+    if ( node.strValue2 == "shorthand" ) {
+      self.emit(text : node.strValue)
       return;
     }
-    if ( node.computed ) {
+    if ( node.strValue2 == "computed" ) {
       self.emit(text : "[")
       if ( node.right != nil  ) {
         self.printNode(node : node.right!)
@@ -4230,7 +4031,7 @@ class JSPrinter : Equatable  {
       }
       return;
     }
-    self.emit(text : node.name + ": ")
+    self.emit(text : node.strValue + ": ")
     if ( node.left != nil  ) {
       self.printNode(node : node.left!)
     }
@@ -4240,14 +4041,14 @@ class JSPrinter : Equatable  {
     if ( node.left != nil  ) {
       self.printNode(node : node.left!)
     }
-    self.emit(text : (" " + node._operator) + " ")
+    self.emit(text : (" " + node.strValue) + " ")
     if ( node.right != nil  ) {
       self.printNode(node : node.right!)
     }
     self.emit(text : ")")
   }
   func printUnaryExpression(node : JSNode) -> Void {
-    let op : String = node._operator
+    let op : String = node.strValue
     self.emit(text : op)
     if ( op == "typeof" ) {
       self.emit(text : " ")
@@ -4257,8 +4058,8 @@ class JSPrinter : Equatable  {
     }
   }
   func printUpdateExpression(node : JSNode) -> Void {
-    let op : String = node._operator
-    let isPrefix : Bool = node.prefix
+    let op : String = node.strValue
+    let isPrefix : Bool = node.strValue2 == "prefix"
     if ( isPrefix ) {
       self.emit(text : op)
     }
@@ -4273,7 +4074,7 @@ class JSPrinter : Equatable  {
     if ( node.left != nil  ) {
       self.printNode(node : node.left!)
     }
-    self.emit(text : (" " + node._operator) + " ")
+    self.emit(text : (" " + node.strValue) + " ")
     if ( node.right != nil  ) {
       self.printNode(node : node.right!)
     }
@@ -4310,28 +4111,30 @@ class JSPrinter : Equatable  {
     if ( node.left != nil  ) {
       self.printNode(node : node.left!)
     }
-    if ( node.computed ) {
+    let accessType : String = node.strValue2
+    if ( accessType == "bracket" ) {
       self.emit(text : "[")
       if ( node.right != nil  ) {
         self.printNode(node : node.right!)
       }
       self.emit(text : "]")
     } else {
-      self.emit(text : "." + node.name)
+      self.emit(text : "." + node.strValue)
     }
   }
   func printOptionalMemberExpression(node : JSNode) -> Void {
     if ( node.left != nil  ) {
       self.printNode(node : node.left!)
     }
-    if ( node.computed ) {
+    let accessType : String = node.strValue2
+    if ( accessType == "bracket" ) {
       self.emit(text : "?.[")
       if ( node.right != nil  ) {
         self.printNode(node : node.right!)
       }
       self.emit(text : "]")
     } else {
-      self.emit(text : "?." + node.name)
+      self.emit(text : "?." + node.strValue)
     }
   }
   func printOptionalCallExpression(node : JSNode) -> Void {
@@ -4355,7 +4158,7 @@ class JSPrinter : Equatable  {
     if ( numSpecifiers == 0 ) {
       if ( node.right != nil  ) {
         let source : JSNode = node.right!
-        self.emit(text : ("\"" + source.raw) + "\"")
+        self.emit(text : ("\"" + source.strValue) + "\"")
       }
       return;
     }
@@ -4363,29 +4166,29 @@ class JSPrinter : Equatable  {
     var hasNamespace : Bool = false
     var hasNamed : Bool = false
     for (idx, spec) in node.children.enumerated() {
-      if ( spec.type == "ImportDefaultSpecifier" ) {
+      if ( spec.nodeType == "ImportDefaultSpecifier" ) {
         hasDefault = true;
       }
-      if ( spec.type == "ImportNamespaceSpecifier" ) {
+      if ( spec.nodeType == "ImportNamespaceSpecifier" ) {
         hasNamespace = true;
       }
-      if ( spec.type == "ImportSpecifier" ) {
+      if ( spec.nodeType == "ImportSpecifier" ) {
         hasNamed = true;
       }
     }
     var printedSomething : Bool = false
     for (idx_1, spec_1) in node.children.enumerated() {
-      if ( spec_1.type == "ImportDefaultSpecifier" ) {
-        self.emit(text : spec_1.name)
+      if ( spec_1.nodeType == "ImportDefaultSpecifier" ) {
+        self.emit(text : spec_1.strValue)
         printedSomething = true;
       }
     }
     for (idx_2, spec_2) in node.children.enumerated() {
-      if ( spec_2.type == "ImportNamespaceSpecifier" ) {
+      if ( spec_2.nodeType == "ImportNamespaceSpecifier" ) {
         if ( printedSomething ) {
           self.emit(text : ", ")
         }
-        self.emit(text : "* as " + spec_2.name)
+        self.emit(text : "* as " + spec_2.strValue)
         printedSomething = true;
       }
     }
@@ -4396,14 +4199,14 @@ class JSPrinter : Equatable  {
       self.emit(text : "{ ")
       var firstNamed : Bool = true
       for (idx_3, spec_3) in node.children.enumerated() {
-        if ( spec_3.type == "ImportSpecifier" ) {
+        if ( spec_3.nodeType == "ImportSpecifier" ) {
           if ( firstNamed == false ) {
             self.emit(text : ", ")
           }
           firstNamed = false;
-          self.emit(text : spec_3.name)
-          if ( (spec_3.kind.count) > 0 ) {
-            self.emit(text : " as " + spec_3.kind)
+          self.emit(text : spec_3.strValue)
+          if ( (spec_3.strValue2.count) > 0 ) {
+            self.emit(text : " as " + spec_3.strValue2)
           }
         }
       }
@@ -4412,7 +4215,7 @@ class JSPrinter : Equatable  {
     self.emit(text : " from ")
     if ( node.right != nil  ) {
       let source_1 : JSNode = node.right!
-      self.emit(text : ("\"" + source_1.raw) + "\"")
+      self.emit(text : ("\"" + source_1.strValue) + "\"")
     }
   }
   func printExportNamedDeclaration(node : JSNode) -> Void {
@@ -4426,15 +4229,15 @@ class JSPrinter : Equatable  {
           self.emit(text : ", ")
         }
         first = false;
-        self.emit(text : spec.name)
-        if ( (spec.kind.count) > 0 ) {
-          self.emit(text : " as " + spec.kind)
+        self.emit(text : spec.strValue)
+        if ( (spec.strValue2.count) > 0 ) {
+          self.emit(text : " as " + spec.strValue2)
         }
       }
       self.emit(text : " }")
       if ( node.right != nil  ) {
         let source : JSNode = node.right!
-        self.emit(text : (" from \"" + source.raw) + "\"")
+        self.emit(text : (" from \"" + source.strValue) + "\"")
       }
       return;
     }
@@ -4450,13 +4253,13 @@ class JSPrinter : Equatable  {
   }
   func printExportAllDeclaration(node : JSNode) -> Void {
     self.emit(text : "export *")
-    if ( (node.name.count) > 0 ) {
-      self.emit(text : " as " + node.name)
+    if ( (node.strValue.count) > 0 ) {
+      self.emit(text : " as " + node.strValue)
     }
     self.emit(text : " from ")
     if ( node.right != nil  ) {
       let source : JSNode = node.right!
-      self.emit(text : ("\"" + source.raw) + "\"")
+      self.emit(text : ("\"" + source.strValue) + "\"")
     }
   }
   func printNewExpression(node : JSNode) -> Void {
@@ -4476,14 +4279,14 @@ class JSPrinter : Equatable  {
     self.emit(text : ")")
   }
   func printArrowFunction(node : JSNode) -> Void {
-    if ( node.async ) {
+    if ( node.strValue2 == "async" ) {
       self.emit(text : "async ")
     }
     let paramCount : Int = node.children.count
     if ( paramCount == 1 ) {
       let firstParam : JSNode = node.children[0]
-      if ( firstParam.type == "Identifier" ) {
-        self.emit(text : firstParam.name)
+      if ( firstParam.nodeType == "Identifier" ) {
+        self.emit(text : firstParam.strValue)
       } else {
         self.emit(text : "(")
         self.printNode(node : firstParam)
@@ -4497,7 +4300,7 @@ class JSPrinter : Equatable  {
     self.emit(text : " => ")
     if ( node.body != nil  ) {
       let body : JSNode = node.body!
-      if ( body.type == "BlockStatement" ) {
+      if ( body.nodeType == "BlockStatement" ) {
         self.printNode(node : body)
       } else {
         self.printNode(node : body)
@@ -4514,7 +4317,7 @@ class JSPrinter : Equatable  {
   }
   func printYieldExpression(node : JSNode) -> Void {
     self.emit(text : "yield")
-    if ( node.name == "delegate" ) {
+    if ( node.strValue == "delegate" ) {
       self.emit(text : "*")
     }
     if ( node.left != nil  ) {
@@ -4554,14 +4357,14 @@ class JSPrinter : Equatable  {
         self.emit(text : ", ")
       }
       first = false;
-      let propType : String = prop.type
+      let propType : String = prop.nodeType
       if ( propType == "RestElement" ) {
-        self.emit(text : "..." + prop.name)
+        self.emit(text : "..." + prop.strValue)
       } else {
-        if ( prop.shorthand ) {
-          self.emit(text : prop.name)
+        if ( prop.strValue2 == "shorthand" ) {
+          self.emit(text : prop.strValue)
         } else {
-          self.emit(text : prop.name + ": ")
+          self.emit(text : prop.strValue + ": ")
           if ( prop.left != nil  ) {
             self.printNode(node : prop.left!)
           }
@@ -4613,11 +4416,10 @@ class JSParserMain : Equatable  {
       print("")
     }
     let printer : JSPrinter = JSPrinter()
-    let stmtCount : Int = program.children.count
     let output : String = (printer).print(node : program)
     r_write_file(dirName: "." + "/" + outputFile, dataToWrite: output) 
     print((("Parsed " + inputFile) + " -> ") + outputFile)
-    print(("  " + String(stmtCount)) + " statements processed")
+    print(("  " + String((program.children.count))) + " statements processed")
   }
   class func parseFile(filename : String) -> Void {
     let codeOpt : String? = r_read_file(dirName: "." + "/" + filename) 
@@ -4690,7 +4492,7 @@ func r_read_file ( dirName:String ) -> String? {
     }
     return res
 }
-
+    
 
 func r_write_file ( dirName:String, dataToWrite:String ) {
     do {
@@ -4702,9 +4504,9 @@ func r_write_file ( dirName:String, dataToWrite:String ) {
 
     }
 }
-
+    
 // Main entry point
-func _main() {
+func main() {
   let argCnt : Int = CommandLine.arguments.count - 1
   if ( argCnt == 0 ) {
     JSParserMain.showHelp()
@@ -4763,4 +4565,4 @@ func _main() {
   }
   JSParserMain.showHelp()
 }
-@main struct Main { static func main() { _main() } }
+@main struct App { static func main() { MainModule.main() } }

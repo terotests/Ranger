@@ -4,8 +4,22 @@ A comprehensive JavaScript ES6+ parser written in Ranger with a pretty-printer t
 
 ## Status
 
-✅ **Functional** - Parses and prints most ES6+ features
-✅ **Multi-target** - Compiles to JavaScript, Swift, and more
+✅ **Functional** - Parses and prints most ES6+ features  
+✅ **Multi-target** - Compiles to C++, Rust, Swift, JavaScript, and more  
+✅ **Cross-platform** - All targets produce identical output  
+✅ **ESTree Compliant** - 63% of ESTree features validated (see [benchmark/COMPLIANCE.md](benchmark/COMPLIANCE.md))
+
+## Performance Benchmarks
+
+Benchmarks parsing 75 ES6+ statements 1000 times:
+
+| Target | Time | Notes |
+|--------|------|-------|
+| **C++** | ~36ms | Compiled with MinGW `-O3` |
+| **Rust** | ~37ms | Compiled with `rustc -O` |
+| **Swift** | ~264ms | Compiled with `swiftc -O` |
+
+C++ and Rust are nearly identical in performance. Swift is ~7x slower.
 
 ## Features
 
@@ -43,15 +57,26 @@ node gallery/js_parser/js_parser.js -h
 # Compile to Swift (from gallery/js_parser directory)
 node ../../bin/output.js js_parser_main.rgr -l=swift6 -o js_parser.swift
 
-# Fix line endings for macOS (CRLF -> LF)
-sed -i '' $'s/\r$//' bin/js_parser_main.swift
-
-# Compile Swift binary
-swiftc -o js_parser_swift bin/js_parser_main.swift
+# Compile Swift binary (Windows)
+swiftc -O -parse-as-library js_parser.swift -o js_parser_swift.exe
 
 # Run the Swift binary
-./js_parser_swift -i input.js --ast
-./js_parser_swift -d
+./js_parser_swift.exe -i input.js --ast
+./js_parser_swift.exe -d
+```
+
+### Rust Version
+
+```bash
+# Compile to Rust (from Ranger root)
+npm run jsparser:compile:rust
+
+# Build optimized binary
+rustc -O gallery/js_parser/js_parser.rs -o gallery/js_parser/js_parser_rust.exe
+
+# Run the Rust binary
+./js_parser_rust.exe -i input.js -o output.js
+./js_parser_rust.exe -d
 ```
 
 ### C++ Version (Windows via WSL)
@@ -192,13 +217,15 @@ JSNode {
 | `js_token.rgr`       | Token class definition                     |
 | `js_printer.rgr`     | Pretty-printer (AST → formatted JS)        |
 | `js_parser.js`       | Compiled JavaScript output                 |
-| `js_parser.swift`    | Compiled Swift output                      |
-| `js_parser_swift`    | Compiled Swift binary (macOS)              |
 | `js_parser.cpp`      | Compiled C++ output                        |
 | `js_parser_cpp.exe`  | Compiled C++ binary (Windows)              |
-| `variant.hpp`        | C++ variant header (required for compile)  |
+| `js_parser.rs`       | Compiled Rust output                       |
+| `js_parser_rust.exe` | Compiled Rust binary (Windows)             |
+| `js_parser.swift`    | Compiled Swift output                      |
+| `js_parser_swift.exe`| Compiled Swift binary (Windows)            |
 | `test_input.js`      | Comprehensive test file with ES6+ features |
 | `test_output.js`     | Parser output for comparison               |
+| `benchmark/`         | Benchmark scripts and compliance report    |
 
 ## Example
 
@@ -258,11 +285,18 @@ console.log(...args);
 
 ## Limitations
 
-Features not yet supported:
+Features not yet fully supported:
 
 - Private class fields (`#field`)
+- Static class blocks
 - Decorators
 - Tagged template literals
+- Dynamic imports (`import()`)
+- `import.meta`
+- Numeric separators (`1_000_000`)
+- BigInt literals (`123n`)
+
+See [benchmark/COMPLIANCE.md](benchmark/COMPLIANCE.md) for detailed ESTree compliance status.
 
 ## Development
 

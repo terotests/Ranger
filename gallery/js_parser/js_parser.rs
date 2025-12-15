@@ -3965,7 +3965,7 @@ impl JSPrinter {
       return;
     }
     if  nodeType == "TemplateLiteral".to_string() {
-      self.emit(format!("{}{}", (format!("{}{}", "`".to_string(), node.name)), "`".to_string()));
+      self.emit(format!("{}{}", (format!("{}{}", "`".to_string(), node.raw)), "`".to_string()));
       return;
     }
     if  nodeType == "RegexLiteral".to_string() {
@@ -4082,7 +4082,7 @@ impl JSPrinter {
     self.emit(";\n".to_string());
   }
   fn printVariableDeclaration(&mut self, mut node : JSNode) -> () {
-    let mut kind : String = node.name.clone();
+    let mut kind : String = node.kind.clone();
     if  (kind.len() as i64) == 0 {
       kind = "var".to_string();
     }
@@ -4108,15 +4108,11 @@ impl JSPrinter {
     }
   }
   fn printFunctionDeclaration(&mut self, mut node : JSNode) -> () {
-    let kind : String = node.kind.clone();
-    if  kind == "async".to_string() {
-      self.emit("async ".to_string());
-    }
-    if  kind == "async-generator".to_string() {
+    if  node.r#async {
       self.emit("async ".to_string());
     }
     self.emit("function".to_string());
-    if  (kind == "generator".to_string()) || (kind == "async-generator".to_string()) {
+    if  node.generator {
       self.emit("*".to_string());
     }
     self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.name)), "(".to_string()));
@@ -4161,10 +4157,15 @@ impl JSPrinter {
   }
   fn printMethodDefinition(&mut self, mut node : JSNode) -> () {
     self.emitIndent();
-    if  node.kind == "static".to_string() {
+    if  node.r#static {
       self.emit("static ".to_string());
     }
-    self.emit(format!("{}{}", node.name, "(".to_string()));
+    if  node.key.is_some() {
+      let mut keyNode : JSNode = (*node.key.clone().unwrap());
+      self.emit(format!("{}{}", keyNode.name, "(".to_string()));
+    } else {
+      self.emit("(".to_string());
+    }
     if  node.body.is_some() {
       let mut _func : JSNode = (*node.body.clone().unwrap());
       self.printParams(_func.children);
@@ -4382,11 +4383,11 @@ impl JSPrinter {
       self.printSpreadElement(node.clone());
       return;
     }
-    if  node.kind == "shorthand".to_string() {
+    if  node.shorthand {
       self.emit(node.name.clone());
       return;
     }
-    if  node.kind == "computed".to_string() {
+    if  node.computed {
       self.emit("[".to_string());
       if  node.right.is_some() {
         self.printNode((*node.right.clone().unwrap()));
@@ -4651,7 +4652,7 @@ impl JSPrinter {
     self.emit(")".to_string());
   }
   fn printArrowFunction(&mut self, mut node : JSNode) -> () {
-    if  node.kind == "async".to_string() {
+    if  node.r#async {
       self.emit("async ".to_string());
     }
     let paramCount : i64 = (node.children.len() as i64);
@@ -4735,7 +4736,7 @@ impl JSPrinter {
       if  propType == "RestElement".to_string() {
         self.emit(format!("{}{}", "...".to_string(), prop.name));
       } else {
-        if  prop.kind == "shorthand".to_string() {
+        if  prop.shorthand {
           self.emit(prop.name.clone());
         } else {
           self.emit(format!("{}{}", prop.name, ": ".to_string()));

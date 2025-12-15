@@ -70,12 +70,26 @@ language {
             self _self
             func _func
         }
+        cpp {
+            operator _operator
+            static _static
+        }
         go {
             type _type
         }
         rust {
             type r#type
             static r#static
+        }
+        swift3 {
+            operator _operator
+            static _static
+            init _init
+        }
+        swift6 {
+            operator _operator
+            static _static
+            init _init
         }
     }
 

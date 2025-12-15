@@ -147,7 +147,7 @@ function* rangeGenerator(start, end) {
 }
 // Delegating generator
 function* delegateGenerator() {
-  yield* numberGenerator();
+  yield numberGenerator();
   yield 4;
 }
 // Async/await functions
