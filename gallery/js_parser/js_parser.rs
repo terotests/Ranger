@@ -2840,6 +2840,7 @@ impl SimpleParser {
       let mut lit_1 : JSNode = JSNode::new();
       lit_1.r#type = "Literal".to_string();
       lit_1.raw = tok.value.clone();
+      lit_1.kind = "string".to_string();
       lit_1.start = tok.start;
       lit_1.end = tok.end;
       lit_1.line = tok.line;
@@ -4097,13 +4098,13 @@ impl JSPrinter {
     }
   }
   fn printVariableDeclarator(&mut self, mut node : JSNode) -> () {
-    if  node.left.is_some() {
-      let mut left : JSNode = (*node.left.clone().unwrap());
-      self.printNode(left.clone());
+    if  node.id.is_some() {
+      let mut id : JSNode = (*node.id.clone().unwrap());
+      self.printNode(id.clone());
     }
-    if  node.right.is_some() {
+    if  node.init.is_some() {
       self.emit(" = ".to_string());
-      self.printNode((*node.right.clone().unwrap()));
+      self.printNode((*node.init.clone().unwrap()));
     }
   }
   fn printFunctionDeclaration(&mut self, mut node : JSNode) -> () {
@@ -4138,9 +4139,9 @@ impl JSPrinter {
   }
   fn printClassDeclaration(&mut self, mut node : JSNode) -> () {
     self.emit(format!("{}{}", "class ".to_string(), node.name));
-    if  node.left.is_some() {
-      let mut superClass : JSNode = (*node.left.clone().unwrap());
-      self.emit(format!("{}{}", " extends ".to_string(), superClass.name));
+    if  node.superClass.is_some() {
+      let mut sc : JSNode = (*node.superClass.clone().unwrap());
+      self.emit(format!("{}{}", " extends ".to_string(), sc.name));
     }
     self.emit(" ".to_string());
     if  node.body.is_some() {
@@ -4338,11 +4339,11 @@ impl JSPrinter {
     }
   }
   fn printLiteral(&mut self, mut node : JSNode) -> () {
-    let litType : String = node.kind.clone();
-    if  litType == "string".to_string() {
-      self.emit(format!("{}{}", (format!("{}{}", "'".to_string(), node.name)), "'".to_string()));
+    let value : String = node.raw.clone();
+    if  node.kind == "string".to_string() {
+      self.emit(format!("{}{}", (format!("{}{}", "'".to_string(), value)), "'".to_string()));
     } else {
-      self.emit(node.name.clone());
+      self.emit(value.clone());
     }
   }
   fn printArrayExpression(&mut self, mut node : JSNode) -> () {
@@ -4406,14 +4407,14 @@ impl JSPrinter {
     if  node.left.is_some() {
       self.printNode((*node.left.clone().unwrap()));
     }
-    self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.name)), " ".to_string()));
+    self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.operator)), " ".to_string()));
     if  node.right.is_some() {
       self.printNode((*node.right.clone().unwrap()));
     }
     self.emit(")".to_string());
   }
   fn printUnaryExpression(&mut self, mut node : JSNode) -> () {
-    let op : String = node.name.clone();
+    let op : String = node.operator.clone();
     self.emit(op.clone());
     if  op == "typeof".to_string() {
       self.emit(" ".to_string());
@@ -4423,8 +4424,8 @@ impl JSPrinter {
     }
   }
   fn printUpdateExpression(&mut self, mut node : JSNode) -> () {
-    let op : String = node.name.clone();
-    let isPrefix : bool = node.kind == "prefix".to_string();
+    let op : String = node.operator.clone();
+    let isPrefix : bool = node.prefix;
     if  isPrefix {
       self.emit(op.clone());
     }
@@ -4439,7 +4440,7 @@ impl JSPrinter {
     if  node.left.is_some() {
       self.printNode((*node.left.clone().unwrap()));
     }
-    self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.name)), " ".to_string()));
+    self.emit(format!("{}{}", (format!("{}{}", " ".to_string(), node.operator)), " ".to_string()));
     if  node.right.is_some() {
       self.printNode((*node.right.clone().unwrap()));
     }
@@ -4477,8 +4478,7 @@ impl JSPrinter {
     if  node.left.is_some() {
       self.printNode((*node.left.clone().unwrap()));
     }
-    let accessType : String = node.kind.clone();
-    if  accessType == "bracket".to_string() {
+    if  node.computed {
       self.emit("[".to_string());
       if  node.right.is_some() {
         self.printNode((*node.right.clone().unwrap()));
@@ -4492,8 +4492,7 @@ impl JSPrinter {
     if  node.left.is_some() {
       self.printNode((*node.left.clone().unwrap()));
     }
-    let accessType : String = node.kind.clone();
-    if  accessType == "bracket".to_string() {
+    if  node.computed {
       self.emit("?.[".to_string());
       if  node.right.is_some() {
         self.printNode((*node.right.clone().unwrap()));
