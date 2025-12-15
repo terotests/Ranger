@@ -316,11 +316,13 @@ class CodeWriter {
             this.writeSlice(str newLine)
         } {
             for lines row:string idx {
+                ; Remove trailing whitespace (including \r) to handle both \n and \r\n line endings
+                def cleanRow:string (trim_right row)
                 this.addIndent()
                 if ( idx < (rowCnt - 1) ) {
-                    this.writeSlice( row true)
+                    this.writeSlice( cleanRow true)
                 } {
-                    this.writeSlice( row newLine )
+                    this.writeSlice( cleanRow newLine )
                 }
             }
         }   

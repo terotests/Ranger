@@ -1830,6 +1830,31 @@ inline std::string  r_cpp_trim(std::string &s)
             }            
         }                 
 
+        ; trim_right - removes whitespace from the right side of string
+        trim_right       cmdTrimRight:string       ( value:string ) { 
+            templates {
+                ranger ( "(trim_right " (e 1 ) ")")                
+                swift3 ( (e 1 ) ".trimmingCharacters(in: .whitespaces)" (imp "Foundation"))                
+                swift6 ( (e 1 ) ".trimmingCharacters(in: .whitespaces)" (imp "Foundation"))                
+                php ( "rtrim(" (e 1 ) ")")
+                cpp ( "r_trim_right( " (e 1) ")" (imp "<string>") (imp "<algorithm>")
+(create_polyfill "
+inline std::string r_trim_right(const std::string& s) {
+    auto end = std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base();
+    return std::string(s.begin(), end);
+}
+") )  
+                scala ( (e 1) ".replaceAll(\"\\\\s+$\", \"\")" )
+                csharp ( (e 1) ".TrimEnd()" (imp "System"))
+                go ("strings.TrimRight(" (e 1) ", \" \\t\\n\\r\")" (imp "strings"))
+                kotlin ( (e 1) ".trimEnd()" )
+                java7 ( (e 1) ".replaceAll(\"\\\\s+$\", \"\")" )
+                python ( (e 1) ".rstrip()" )
+                rust ( (e 1) ".trim_end().to_string()" )
+                * ( (e 1) ".trimEnd()" )
+            }            
+        }
+
 ;         wr.out (").to[collection.mutable.ArrayBuffer]" false
 ; kotlin could use also something like: .split(Regex("(?<=[!?])|(?=[!?])"))
 ; swift : .components(separatedBy:

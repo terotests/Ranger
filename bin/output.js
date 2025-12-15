@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 class CmdParams  {
   constructor() {
     this.flags = {};
@@ -4555,11 +4554,12 @@ class CodeWriter  {
     } else {
       for ( let idx = 0; idx < lines.length; idx++) {
         var row = lines[idx];
+        const cleanRow = row.trimEnd();
         this.addIndent();
         if ( idx < (rowCnt - 1) ) {
-          this.writeSlice(row, true);
+          this.writeSlice(cleanRow, true);
         } else {
-          this.writeSlice(row, newLine);
+          this.writeSlice(cleanRow, newLine);
         }
       };
     }
