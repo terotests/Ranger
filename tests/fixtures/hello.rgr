@@ -1,0 +1,7 @@
+; Test: Hello World basic output
+
+class HelloWorld {
+    sfn m@(main):void () {
+        print "Hello World"
+    }
+}

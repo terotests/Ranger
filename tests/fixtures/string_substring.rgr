@@ -1,0 +1,25 @@
+; Test: String 'substring' operator for substring extraction
+
+class StringSubstringTest {
+    sfn m@(main):void () {
+        def text "Hello World"
+        
+        ; Extract substrings
+        def hello (substring text 0 5)
+        def world (substring text 6 11)
+        def llo (substring text 2 5)
+        
+        print ("First word: " + hello)
+        print ("Second word: " + world)
+        print ("Middle: " + llo)
+        
+        ; Edge cases
+        def empty (substring text 0 0)
+        def single (substring text 0 1)
+        
+        print ("Empty: '" + empty + "'")
+        print ("Single: " + single)
+        
+        print "Done"
+    }
+}

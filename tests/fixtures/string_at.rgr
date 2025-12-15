@@ -1,0 +1,27 @@
+; Test: String 'at' operator for single character access
+
+class StringAtTest {
+    sfn m@(main):void () {
+        def text "Hello"
+        
+        ; Single character access using 'at'
+        def ch0 (at text 0)
+        def ch1 (at text 1)
+        def ch4 (at text 4)
+        
+        print ("First char: " + ch0)
+        print ("Second char: " + ch1)
+        print ("Last char: " + ch4)
+        
+        ; Loop through characters
+        def i 0
+        def len (strlen text)
+        while (i < len) {
+            def c (at text i)
+            print c
+            i = i + 1
+        }
+        
+        print "Done"
+    }
+}

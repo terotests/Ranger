@@ -54,6 +54,28 @@ swiftc -o js_parser_swift bin/js_parser_main.swift
 ./js_parser_swift -d
 ```
 
+### C++ Version (Windows via WSL)
+
+The C++ target produces a fast native binary. Compilation requires MinGW with POSIX threads for `std::thread` support.
+
+```bash
+# Compile to C++ (from Ranger root)
+node bin/output.js gallery/js_parser/js_parser_main.rgr -l=cpp -d=gallery/js_parser -o=js_parser.cpp
+
+# Cross-compile from WSL to Windows
+wsl -d Ubuntu -- bash -c "
+  cd /mnt/c/path/to/Ranger/gallery/js_parser && \
+  sed -i 's/\r$//' js_parser.cpp && \
+  x86_64-w64-mingw32-g++-posix -std=c++17 -static -o js_parser_cpp.exe js_parser.cpp
+"
+
+# Run the native Windows binary
+./js_parser_cpp.exe -i input.js --ast
+./js_parser_cpp.exe -d
+```
+
+> **Note:** The standard MinGW compiler uses win32 threads. Use the POSIX variant (`g++-posix`) for `<mutex>` and `<thread>` support. The `variant.hpp` header must be in the same directory as the source file.
+
 ### CLI Options
 
 | Option      | Description                                        |
@@ -172,6 +194,9 @@ JSNode {
 | `js_parser.js`       | Compiled JavaScript output                 |
 | `js_parser.swift`    | Compiled Swift output                      |
 | `js_parser_swift`    | Compiled Swift binary (macOS)              |
+| `js_parser.cpp`      | Compiled C++ output                        |
+| `js_parser_cpp.exe`  | Compiled C++ binary (Windows)              |
+| `variant.hpp`        | C++ variant header (required for compile)  |
 | `test_input.js`      | Comprehensive test file with ES6+ features |
 | `test_output.js`     | Parser output for comparison               |
 

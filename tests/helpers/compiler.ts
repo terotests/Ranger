@@ -32,13 +32,23 @@ export interface RunResult {
 }
 
 /**
- * Compile a Ranger source file to ES6 JavaScript
+ * Compile a Ranger source file to ES6 JavaScript (or other targets)
  * Each source file gets its own unique output file to avoid conflicts
  */
 export function compileRanger(
   sourceFile: string,
+  language?: string,
   outputDir?: string
 ): CompileResult {
+  // Handle old signature: compileRanger(source, outputDir)
+  if (language && !['es6', 'cpp', 'go', 'python', 'rust', 'kotlin', 'swift6', 'java7'].includes(language)) {
+    // Assume it's outputDir from old signature
+    outputDir = language;
+    language = 'es6';
+  }
+  
+  const targetLang = language || 'es6';
+  
   // Use relative path if not absolute
   const sourcePath = path.isAbsolute(sourceFile)
     ? sourceFile
@@ -56,12 +66,25 @@ export function compileRanger(
     };
   }
 
-  // Create unique output filename based on source file name
+  // Create unique output filename based on source file name and target
   const sourceBasename = path.basename(
     absoluteSource.replace(/\.clj$/, ".rgr"),
     ".rgr"
   );
-  const outputFile = `${sourceBasename}.js`;
+  
+  // Determine file extension based on language
+  const extMap: Record<string, string> = {
+    'es6': '.js',
+    'cpp': '.cpp',
+    'go': '.go',
+    'python': '.py',
+    'rust': '.rs',
+    'kotlin': '.kt',
+    'swift6': '.swift',
+    'java7': '.java',
+  };
+  const ext = extMap[targetLang] || '.js';
+  const outputFile = `${sourceBasename}${ext}`;
   const targetDir = outputDir || TEMP_OUTPUT_DIR;
 
   // Ensure output directory exists
@@ -83,7 +106,9 @@ export function compileRanger(
       .replace(/\\/g, "/");
 
     // Use relative source path for compiler
-    const cmd = `node "${OUTPUT_JS}" -es6 "${sourcePath}" -nodecli -d="${relativeTargetDir}" -o="${outputFile}"`;
+    // Use -l= flag for non-es6 targets, -es6 for JavaScript
+    const langFlag = targetLang === 'es6' ? '-es6' : `-l=${targetLang}`;
+    const cmd = `node "${OUTPUT_JS}" ${langFlag} "${sourcePath}" -nodecli -d="${relativeTargetDir}" -o="${outputFile}"`;
 
     const output = execSync(cmd, {
       cwd: ROOT_DIR,
@@ -1252,6 +1277,65 @@ export function getGeneratedRustCode(
   );
   const outputFile = `${sourceBasename}.rs`;
   const targetDir = outputDir || RUST_OUTPUT_DIR;
+  const outputPath = path.join(targetDir, outputFile);
+
+  if (!fs.existsSync(outputPath)) {
+    return {
+      success: false,
+      code: "",
+      error: `Generated file not found: ${outputPath}`,
+    };
+  }
+
+  try {
+    const code = fs.readFileSync(outputPath, "utf-8");
+    return {
+      success: true,
+      code,
+    };
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    return {
+      success: false,
+      code: "",
+      error: err.message || "Failed to read generated file",
+    };
+  }
+}
+
+// ============================================================================
+// C++ compilation helpers
+// ============================================================================
+
+const CPP_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-cpp");
+
+/**
+ * Get the generated C++ code content for a source file
+ * Returns the C++ source code as a string for inspection
+ */
+export function getGeneratedCppCode(
+  sourceFile: string,
+  outputDir?: string
+): { success: boolean; code: string; error?: string } {
+  const targetDir = outputDir || CPP_OUTPUT_DIR;
+  const result = compileRanger(sourceFile, "cpp", targetDir);
+
+  if (!result.success) {
+    return {
+      success: false,
+      code: "",
+      error: result.error,
+    };
+  }
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputFile = `${sourceBasename}.cpp`;
   const outputPath = path.join(targetDir, outputFile);
 
   if (!fs.existsSync(outputPath)) {
