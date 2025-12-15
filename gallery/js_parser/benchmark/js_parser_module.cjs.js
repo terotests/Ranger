@@ -4675,64 +4675,12 @@ JSParserMain.runDemo = function() {
   const output = (printer).print(program);
   console.log(output);
 };
-/* static JavaSript main routine at the end of the JS file */
-async function __js_main() {
-  const argCnt = (process.argv.length - 2);
-  if ( argCnt == 0 ) {
-    JSParserMain.showHelp();
-    return;
-  }
-  let inputFile = "";
-  let outputFile = "";
-  let runDefault = false;
-  let showAst = false;
-  let i = 0;
-  while (i < argCnt) {
-    const arg = process.argv[ 2 + i];
-    if ( (arg == "--help") || (arg == "-h") ) {
-      JSParserMain.showHelp();
-      return;
-    }
-    if ( arg == "-d" ) {
-      runDefault = true;
-      i = i + 1;
-    } else {
-      if ( arg == "-i" ) {
-        i = i + 1;
-        if ( i < argCnt ) {
-          inputFile = process.argv[ 2 + i];
-        }
-        i = i + 1;
-      } else {
-        if ( arg == "-o" ) {
-          i = i + 1;
-          if ( i < argCnt ) {
-            outputFile = process.argv[ 2 + i];
-          }
-          i = i + 1;
-        } else {
-          if ( arg == "--ast" ) {
-            showAst = true;
-            i = i + 1;
-          } else {
-            i = i + 1;
-          }
-        }
-      }
-    }
-  };
-  if ( runDefault ) {
-    JSParserMain.runDemo();
-    return;
-  }
-  if ( (inputFile.length) > 0 ) {
-    if ( (outputFile.length) > 0 ) {
-      await JSParserMain.processFile(inputFile, outputFile);
-    } else {
-      await JSParserMain.parseFile(inputFile);
-    }
-    return;
-  }
-  JSParserMain.showHelp();
-}
-__js_main();
+module.exports.Token = Token;
+module.exports.Lexer = Lexer;
+module.exports.Position = Position;
+module.exports.SourceLocation = SourceLocation;
+module.exports.JSNode = JSNode;
+module.exports.SimpleParser = SimpleParser;
+module.exports.ASTPrinter = ASTPrinter;
+module.exports.JSPrinter = JSPrinter;
+module.exports.JSParserMain = JSParserMain;

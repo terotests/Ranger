@@ -1,6 +1,6 @@
 # Ranger js_parser ESTree Compliance Report
 
-Generated: 2025-12-15T11:34:11.447Z
+Generated: 2025-12-15T11:52:53.331Z
 
 This document details the ESTree compliance of Ranger's JavaScript parser.
 It compares Ranger's AST output against Acorn (reference ESTree implementation).
@@ -20,13 +20,13 @@ This section compares which ESTree node types each parser produces.
 | Template Literal | Identifier, Program, TemplateElement, TemplateLiteral, VariableDeclaration... | Identifier, Program, TemplateLiteral, VariableDeclaration, VariableDeclarator | ❌ |
 | Object Destructuring | Identifier, ObjectPattern, Program, Property, VariableDeclaration... | Identifier, ObjectPattern, Program, Property, VariableDeclaration... | ✅ |
 | Array Destructuring | ArrayPattern, Identifier, Program, VariableDeclaration, VariableDeclarator | ArrayPattern, Identifier, Program, VariableDeclaration, VariableDeclarator | ✅ |
-| Default Parameters | AssignmentPattern, BlockStatement, FunctionDeclaration, Identifier, Literal... | BlockStatement, FunctionDeclaration, Identifier, Program, ReturnStatement | ❌ |
+| Default Parameters | AssignmentPattern, BlockStatement, FunctionDeclaration, Identifier, Literal... | AssignmentPattern, BlockStatement, FunctionDeclaration, Identifier, Literal... | ✅ |
 | Rest Parameters | BlockStatement, FunctionDeclaration, Identifier, Program, RestElement... | BlockStatement, FunctionDeclaration, Identifier, Program, RestElement... | ✅ |
 | Spread Operator | ArrayExpression, Identifier, Program, SpreadElement, VariableDeclaration... | ArrayExpression, Identifier, Program, SpreadElement, VariableDeclaration... | ✅ |
-| Class Declaration | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, MethodDefinition... | ❌ |
+| Class Declaration | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | ✅ |
 | Class Extends | ClassBody, ClassDeclaration, Identifier, Program | ClassBody, ClassDeclaration, Identifier, Program | ✅ |
-| Static Method | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, MethodDefinition... | ❌ |
-| Getter | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Literal... | ❌ |
+| Static Method | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | ✅ |
+| Getter | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | ✅ |
 | Setter | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | ✅ |
 | Private Fields | ClassBody, ClassDeclaration, Identifier, Literal, PrivateIdentifier... | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | ❌ |
 | Static Block | CallExpression, ClassBody, ClassDeclaration, ExpressionStatement, Identifier... | BlockStatement, ClassBody, ClassDeclaration, FunctionExpression, Identifier... | ❌ |
@@ -59,14 +59,14 @@ This section compares which ESTree node types each parser produces.
 
 | Status | Count | Percentage |
 |--------|-------|------------|
-| ✅ Pass | 20 | 52.6% |
-| ❌ Fail (validation) | 18 | 47.4% |
+| ✅ Pass | 24 | 63.2% |
+| ❌ Fail (validation) | 14 | 36.8% |
 | 💥 Parse Error | 0 | 0.0% |
 | **Total** | **38** | **100%** |
 
 ## Detailed Results
 
-### ✅ Passing Features (20)
+### ✅ Passing Features (24)
 
 #### Arrow Function
 
@@ -93,6 +93,11 @@ This section compares which ESTree node types each parser produces.
 **Code:** `const [x, y] = arr;`
 
 
+#### Default Parameters
+
+**Code:** `function fn(a = 1) { return a; }`
+
+
 #### Rest Parameters
 
 **Code:** `function fn(...args) { return args; }`
@@ -108,9 +113,24 @@ This section compares which ESTree node types each parser produces.
 **Code:** `class Foo { constructor() {} }`
 
 
+#### Class Extends
+
+**Code:** `class Bar extends Foo { }`
+
+
 #### Static Method
 
 **Code:** `class Foo { static bar() {} }`
+
+
+#### Getter
+
+**Code:** `class Foo { get x() { return 1; } }`
+
+
+#### Setter
+
+**Code:** `class Foo { set x(v) {} }`
 
 
 #### Async Function
@@ -169,926 +189,9 @@ This section compares which ESTree node types each parser produces.
 
 
 
-### ❌ Failed Validations (18)
+### ❌ Failed Validations (14)
 
 These features parsed successfully but the AST structure doesn't match ESTree expectations.
-
-#### Default Parameters
-
-**Code:** `function fn(a = 1) { return a; }`
-
-**Expected ESTree node:** Looking for specific node type/properties
-
-**Acorn AST types:** Program, FunctionDeclaration, Identifier, AssignmentPattern, Literal, BlockStatement, ReturnStatement
-
-**Ranger AST types:** Program, FunctionDeclaration, Identifier, BlockStatement, ReturnStatement
-
-<details>
-<summary>Full Acorn AST (reference)</summary>
-
-```json
-{
-  "type": "Program",
-  "body": [
-    {
-      "type": "FunctionDeclaration",
-      "id": {
-        "type": "Identifier",
-        "name": "fn"
-      },
-      "expression": false,
-      "generator": false,
-      "async": false,
-      "params": [
-        {
-          "type": "AssignmentPattern",
-          "left": {
-            "type": "Identifier",
-            "name": "a"
-          },
-          "right": {
-            "type": "Literal",
-            "value": 1,
-            "raw": "1"
-          }
-        }
-      ],
-      "body": {
-        "type": "BlockStatement",
-        "body": [
-          {
-            "type": "ReturnStatement",
-            "argument": {
-              "type": "Identifier",
-              "name": "a"
-            }
-          }
-        ]
-      }
-    }
-  ],
-  "sourceType": "script"
-}
-```
-</details>
-
-<details>
-<summary>Full Ranger AST</summary>
-
-```json
-{
-  "type": "Program",
-  "line": 0,
-  "col": 0,
-  "name": "",
-  "raw": "",
-  "regexPattern": "",
-  "regexFlags": "",
-  "operator": "",
-  "prefix": false,
-  "generator": false,
-  "async": false,
-  "expression": false,
-  "kind": "",
-  "computed": false,
-  "optional": false,
-  "method": false,
-  "shorthand": false,
-  "tail": false,
-  "cooked": "",
-  "sourceType": "",
-  "static": false,
-  "delegate": false,
-  "children": [
-    {
-      "type": "FunctionDeclaration",
-      "line": 1,
-      "col": 1,
-      "name": "fn",
-      "raw": "",
-      "regexPattern": "",
-      "regexFlags": "",
-      "operator": "",
-      "prefix": false,
-      "generator": false,
-      "async": false,
-      "expression": false,
-      "kind": "",
-      "computed": false,
-      "optional": false,
-      "method": false,
-      "shorthand": false,
-      "tail": false,
-      "cooked": "",
-      "sourceType": "",
-      "static": false,
-      "delegate": false,
-      "children": [
-        {
-          "type": "Identifier",
-          "line": 1,
-          "col": 13,
-          "name": "a",
-          "raw": "",
-          "regexPattern": "",
-          "regexFlags": "",
-          "operator": "",
-          "prefix": false,
-          "generator": false,
-          "async": false,
-          "expression": false,
-          "kind": "",
-          "computed": false,
-          "optional": false,
-          "method": false,
-          "shorthand": false,
-          "tail": false,
-          "cooked": "",
-          "sourceType": "",
-          "static": false,
-          "delegate": false
-        },
-        {
-          "type": "Identifier",
-          "line": 1,
-          "col": 17,
-          "name": "1",
-          "raw": "",
-          "regexPattern": "",
-          "regexFlags": "",
-          "operator": "",
-          "prefix": false,
-          "generator": false,
-          "async": false,
-          "expression": false,
-          "kind": "",
-          "computed": false,
-          "optional": false,
-          "method": false,
-          "shorthand": false,
-          "tail": false,
-          "cooked": "",
-          "sourceType": "",
-          "static": false,
-          "delegate": false
-        }
-      ],
-      "body": {
-        "type": "BlockStatement",
-        "line": 1,
-        "col": 20,
-        "name": "",
-        "raw": "",
-        "regexPattern": "",
-        "regexFlags": "",
-        "operator": "",
-        "prefix": false,
-        "generator": false,
-        "async": false,
-        "expression": false,
-        "kind": "",
-        "computed": false,
-        "optional": false,
-        "method": false,
-        "shorthand": false,
-        "tail": false,
-        "cooked": "",
-        "sourceType": "",
-        "static": false,
-        "delegate": false,
-        "children": [
-          {
-            "type": "ReturnStatement",
-            "line": 1,
-            "col": 22,
-            "name": "",
-            "raw": "",
-            "regexPattern": "",
-            "regexFlags": "",
-            "operator": "",
-            "prefix": false,
-            "generator": false,
-            "async": false,
-            "expression": false,
-            "kind": "",
-            "computed": false,
-            "optional": false,
-            "method": false,
-            "shorthand": false,
-            "tail": false,
-            "cooked": "",
-            "sourceType": "",
-            "static": false,
-            "delegate": false,
-            "left": {
-              "type": "Identifier",
-              "line": 1,
-              "col": 29,
-              "name": "a",
-              "raw": "",
-              "regexPattern": "",
-              "regexFlags": "",
-              "operator": "",
-              "prefix": false,
-              "generator": false,
-              "async": false,
-              "expression": false,
-              "kind": "",
-              "computed": false,
-              "optional": false,
-              "method": false,
-              "shorthand": false,
-              "tail": false,
-              "cooked": "",
-              "sourceType": "",
-              "static": false,
-              "delegate": false
-            }
-          }
-        ]
-      }
-    }
-  ]
-}
-```
-</details>
-
-**Key Differences:**
-- Missing node type: `AssignmentPattern`
-- Missing node type: `Literal`
-
----
-
-#### Class Extends
-
-**Code:** `class Bar extends Foo { }`
-
-**Expected ESTree node:** Looking for specific node type/properties
-
-**Acorn AST types:** Program, ClassDeclaration, Identifier, ClassBody
-
-**Ranger AST types:** Program, ClassDeclaration, Identifier, ClassBody
-
-<details>
-<summary>Full Acorn AST (reference)</summary>
-
-```json
-{
-  "type": "Program",
-  "body": [
-    {
-      "type": "ClassDeclaration",
-      "id": {
-        "type": "Identifier",
-        "name": "Bar"
-      },
-      "superClass": {
-        "type": "Identifier",
-        "name": "Foo"
-      },
-      "body": {
-        "type": "ClassBody"
-      }
-    }
-  ],
-  "sourceType": "script"
-}
-```
-</details>
-
-<details>
-<summary>Full Ranger AST</summary>
-
-```json
-{
-  "type": "Program",
-  "line": 0,
-  "col": 0,
-  "name": "",
-  "raw": "",
-  "regexPattern": "",
-  "regexFlags": "",
-  "operator": "",
-  "prefix": false,
-  "generator": false,
-  "async": false,
-  "expression": false,
-  "kind": "",
-  "computed": false,
-  "optional": false,
-  "method": false,
-  "shorthand": false,
-  "tail": false,
-  "cooked": "",
-  "sourceType": "",
-  "static": false,
-  "delegate": false,
-  "children": [
-    {
-      "type": "ClassDeclaration",
-      "line": 1,
-      "col": 1,
-      "name": "Bar",
-      "raw": "",
-      "regexPattern": "",
-      "regexFlags": "",
-      "operator": "",
-      "prefix": false,
-      "generator": false,
-      "async": false,
-      "expression": false,
-      "kind": "",
-      "computed": false,
-      "optional": false,
-      "method": false,
-      "shorthand": false,
-      "tail": false,
-      "cooked": "",
-      "sourceType": "",
-      "static": false,
-      "delegate": false,
-      "left": {
-        "type": "Identifier",
-        "line": 1,
-        "col": 19,
-        "name": "Foo",
-        "raw": "",
-        "regexPattern": "",
-        "regexFlags": "",
-        "operator": "",
-        "prefix": false,
-        "generator": false,
-        "async": false,
-        "expression": false,
-        "kind": "",
-        "computed": false,
-        "optional": false,
-        "method": false,
-        "shorthand": false,
-        "tail": false,
-        "cooked": "",
-        "sourceType": "",
-        "static": false,
-        "delegate": false
-      },
-      "body": {
-        "type": "ClassBody",
-        "line": 1,
-        "col": 23,
-        "name": "",
-        "raw": "",
-        "regexPattern": "",
-        "regexFlags": "",
-        "operator": "",
-        "prefix": false,
-        "generator": false,
-        "async": false,
-        "expression": false,
-        "kind": "",
-        "computed": false,
-        "optional": false,
-        "method": false,
-        "shorthand": false,
-        "tail": false,
-        "cooked": "",
-        "sourceType": "",
-        "static": false,
-        "delegate": false
-      }
-    }
-  ]
-}
-```
-</details>
-
-**Key Differences:**
-- Node types match but property values differ
-
----
-
-#### Getter
-
-**Code:** `class Foo { get x() { return 1; } }`
-
-**Expected ESTree node:** Looking for specific node type/properties
-
-**Acorn AST types:** Program, ClassDeclaration, Identifier, ClassBody, MethodDefinition, FunctionExpression, BlockStatement, ReturnStatement, Literal
-
-**Ranger AST types:** Program, ClassDeclaration, ClassBody, MethodDefinition, FunctionExpression, BlockStatement, ReturnStatement, Literal
-
-<details>
-<summary>Full Acorn AST (reference)</summary>
-
-```json
-{
-  "type": "Program",
-  "body": [
-    {
-      "type": "ClassDeclaration",
-      "id": {
-        "type": "Identifier",
-        "name": "Foo"
-      },
-      "superClass": null,
-      "body": {
-        "type": "ClassBody",
-        "body": [
-          {
-            "type": "MethodDefinition",
-            "static": false,
-            "computed": false,
-            "key": {
-              "type": "Identifier",
-              "name": "x"
-            },
-            "kind": "get",
-            "value": {
-              "type": "FunctionExpression",
-              "id": null,
-              "expression": false,
-              "generator": false,
-              "async": false,
-              "body": {
-                "type": "BlockStatement",
-                "body": [
-                  {
-                    "type": "ReturnStatement",
-                    "argument": {
-                      "type": "Literal",
-                      "value": 1,
-                      "raw": "1"
-                    }
-                  }
-                ]
-              }
-            }
-          }
-        ]
-      }
-    }
-  ],
-  "sourceType": "script"
-}
-```
-</details>
-
-<details>
-<summary>Full Ranger AST</summary>
-
-```json
-{
-  "type": "Program",
-  "line": 0,
-  "col": 0,
-  "name": "",
-  "raw": "",
-  "regexPattern": "",
-  "regexFlags": "",
-  "operator": "",
-  "prefix": false,
-  "generator": false,
-  "async": false,
-  "expression": false,
-  "kind": "",
-  "computed": false,
-  "optional": false,
-  "method": false,
-  "shorthand": false,
-  "tail": false,
-  "cooked": "",
-  "sourceType": "",
-  "static": false,
-  "delegate": false,
-  "children": [
-    {
-      "type": "ClassDeclaration",
-      "line": 1,
-      "col": 1,
-      "name": "Foo",
-      "raw": "",
-      "regexPattern": "",
-      "regexFlags": "",
-      "operator": "",
-      "prefix": false,
-      "generator": false,
-      "async": false,
-      "expression": false,
-      "kind": "",
-      "computed": false,
-      "optional": false,
-      "method": false,
-      "shorthand": false,
-      "tail": false,
-      "cooked": "",
-      "sourceType": "",
-      "static": false,
-      "delegate": false,
-      "body": {
-        "type": "ClassBody",
-        "line": 1,
-        "col": 11,
-        "name": "",
-        "raw": "",
-        "regexPattern": "",
-        "regexFlags": "",
-        "operator": "",
-        "prefix": false,
-        "generator": false,
-        "async": false,
-        "expression": false,
-        "kind": "",
-        "computed": false,
-        "optional": false,
-        "method": false,
-        "shorthand": false,
-        "tail": false,
-        "cooked": "",
-        "sourceType": "",
-        "static": false,
-        "delegate": false,
-        "children": [
-          {
-            "type": "MethodDefinition",
-            "line": 1,
-            "col": 13,
-            "name": "x",
-            "raw": "",
-            "regexPattern": "",
-            "regexFlags": "",
-            "operator": "",
-            "prefix": false,
-            "generator": false,
-            "async": false,
-            "expression": false,
-            "kind": "",
-            "computed": false,
-            "optional": false,
-            "method": false,
-            "shorthand": false,
-            "tail": false,
-            "cooked": "",
-            "sourceType": "",
-            "static": false,
-            "delegate": false,
-            "body": {
-              "type": "FunctionExpression",
-              "line": 1,
-              "col": 17,
-              "name": "",
-              "raw": "",
-              "regexPattern": "",
-              "regexFlags": "",
-              "operator": "",
-              "prefix": false,
-              "generator": false,
-              "async": false,
-              "expression": false,
-              "kind": "",
-              "computed": false,
-              "optional": false,
-              "method": false,
-              "shorthand": false,
-              "tail": false,
-              "cooked": "",
-              "sourceType": "",
-              "static": false,
-              "delegate": false,
-              "body": {
-                "type": "BlockStatement",
-                "line": 1,
-                "col": 21,
-                "name": "",
-                "raw": "",
-                "regexPattern": "",
-                "regexFlags": "",
-                "operator": "",
-                "prefix": false,
-                "generator": false,
-                "async": false,
-                "expression": false,
-                "kind": "",
-                "computed": false,
-                "optional": false,
-                "method": false,
-                "shorthand": false,
-                "tail": false,
-                "cooked": "",
-                "sourceType": "",
-                "static": false,
-                "delegate": false,
-                "children": [
-                  {
-                    "type": "ReturnStatement",
-                    "line": 1,
-                    "col": 23,
-                    "name": "",
-                    "raw": "",
-                    "regexPattern": "",
-                    "regexFlags": "",
-                    "operator": "",
-                    "prefix": false,
-                    "generator": false,
-                    "async": false,
-                    "expression": false,
-                    "kind": "",
-                    "computed": false,
-                    "optional": false,
-                    "method": false,
-                    "shorthand": false,
-                    "tail": false,
-                    "cooked": "",
-                    "sourceType": "",
-                    "static": false,
-                    "delegate": false,
-                    "left": {
-                      "type": "Literal",
-                      "line": 1,
-                      "col": 30,
-                      "name": "",
-                      "raw": "1",
-                      "regexPattern": "",
-                      "regexFlags": "",
-                      "operator": "",
-                      "prefix": false,
-                      "generator": false,
-                      "async": false,
-                      "expression": false,
-                      "kind": "",
-                      "computed": false,
-                      "optional": false,
-                      "method": false,
-                      "shorthand": false,
-                      "tail": false,
-                      "cooked": "",
-                      "sourceType": "",
-                      "static": false,
-                      "delegate": false
-                    }
-                  }
-                ]
-              }
-            }
-          }
-        ]
-      }
-    }
-  ]
-}
-```
-</details>
-
-**Key Differences:**
-- Missing node type: `Identifier`
-
----
-
-#### Setter
-
-**Code:** `class Foo { set x(v) {} }`
-
-**Expected ESTree node:** Looking for specific node type/properties
-
-**Acorn AST types:** Program, ClassDeclaration, Identifier, ClassBody, MethodDefinition, FunctionExpression, BlockStatement
-
-**Ranger AST types:** Program, ClassDeclaration, ClassBody, MethodDefinition, FunctionExpression, Identifier, BlockStatement
-
-<details>
-<summary>Full Acorn AST (reference)</summary>
-
-```json
-{
-  "type": "Program",
-  "body": [
-    {
-      "type": "ClassDeclaration",
-      "id": {
-        "type": "Identifier",
-        "name": "Foo"
-      },
-      "superClass": null,
-      "body": {
-        "type": "ClassBody",
-        "body": [
-          {
-            "type": "MethodDefinition",
-            "static": false,
-            "computed": false,
-            "key": {
-              "type": "Identifier",
-              "name": "x"
-            },
-            "kind": "set",
-            "value": {
-              "type": "FunctionExpression",
-              "id": null,
-              "expression": false,
-              "generator": false,
-              "async": false,
-              "params": [
-                {
-                  "type": "Identifier",
-                  "name": "v"
-                }
-              ],
-              "body": {
-                "type": "BlockStatement"
-              }
-            }
-          }
-        ]
-      }
-    }
-  ],
-  "sourceType": "script"
-}
-```
-</details>
-
-<details>
-<summary>Full Ranger AST</summary>
-
-```json
-{
-  "type": "Program",
-  "line": 0,
-  "col": 0,
-  "name": "",
-  "raw": "",
-  "regexPattern": "",
-  "regexFlags": "",
-  "operator": "",
-  "prefix": false,
-  "generator": false,
-  "async": false,
-  "expression": false,
-  "kind": "",
-  "computed": false,
-  "optional": false,
-  "method": false,
-  "shorthand": false,
-  "tail": false,
-  "cooked": "",
-  "sourceType": "",
-  "static": false,
-  "delegate": false,
-  "children": [
-    {
-      "type": "ClassDeclaration",
-      "line": 1,
-      "col": 1,
-      "name": "Foo",
-      "raw": "",
-      "regexPattern": "",
-      "regexFlags": "",
-      "operator": "",
-      "prefix": false,
-      "generator": false,
-      "async": false,
-      "expression": false,
-      "kind": "",
-      "computed": false,
-      "optional": false,
-      "method": false,
-      "shorthand": false,
-      "tail": false,
-      "cooked": "",
-      "sourceType": "",
-      "static": false,
-      "delegate": false,
-      "body": {
-        "type": "ClassBody",
-        "line": 1,
-        "col": 11,
-        "name": "",
-        "raw": "",
-        "regexPattern": "",
-        "regexFlags": "",
-        "operator": "",
-        "prefix": false,
-        "generator": false,
-        "async": false,
-        "expression": false,
-        "kind": "",
-        "computed": false,
-        "optional": false,
-        "method": false,
-        "shorthand": false,
-        "tail": false,
-        "cooked": "",
-        "sourceType": "",
-        "static": false,
-        "delegate": false,
-        "children": [
-          {
-            "type": "MethodDefinition",
-            "line": 1,
-            "col": 13,
-            "name": "x",
-            "raw": "",
-            "regexPattern": "",
-            "regexFlags": "",
-            "operator": "",
-            "prefix": false,
-            "generator": false,
-            "async": false,
-            "expression": false,
-            "kind": "",
-            "computed": false,
-            "optional": false,
-            "method": false,
-            "shorthand": false,
-            "tail": false,
-            "cooked": "",
-            "sourceType": "",
-            "static": false,
-            "delegate": false,
-            "body": {
-              "type": "FunctionExpression",
-              "line": 1,
-              "col": 17,
-              "name": "",
-              "raw": "",
-              "regexPattern": "",
-              "regexFlags": "",
-              "operator": "",
-              "prefix": false,
-              "generator": false,
-              "async": false,
-              "expression": false,
-              "kind": "",
-              "computed": false,
-              "optional": false,
-              "method": false,
-              "shorthand": false,
-              "tail": false,
-              "cooked": "",
-              "sourceType": "",
-              "static": false,
-              "delegate": false,
-              "children": [
-                {
-                  "type": "Identifier",
-                  "line": 1,
-                  "col": 19,
-                  "name": "v",
-                  "raw": "",
-                  "regexPattern": "",
-                  "regexFlags": "",
-                  "operator": "",
-                  "prefix": false,
-                  "generator": false,
-                  "async": false,
-                  "expression": false,
-                  "kind": "",
-                  "computed": false,
-                  "optional": false,
-                  "method": false,
-                  "shorthand": false,
-                  "tail": false,
-                  "cooked": "",
-                  "sourceType": "",
-                  "static": false,
-                  "delegate": false
-                }
-              ],
-              "body": {
-                "type": "BlockStatement",
-                "line": 1,
-                "col": 22,
-                "name": "",
-                "raw": "",
-                "regexPattern": "",
-                "regexFlags": "",
-                "operator": "",
-                "prefix": false,
-                "generator": false,
-                "async": false,
-                "expression": false,
-                "kind": "",
-                "computed": false,
-                "optional": false,
-                "method": false,
-                "shorthand": false,
-                "tail": false,
-                "cooked": "",
-                "sourceType": "",
-                "static": false,
-                "delegate": false
-              }
-            }
-          }
-        ]
-      }
-    }
-  ]
-}
-```
-</details>
-
-**Key Differences:**
-- Node types match but property values differ
-
----
 
 #### Private Fields
 
@@ -1098,7 +201,7 @@ These features parsed successfully but the AST structure doesn't match ESTree ex
 
 **Acorn AST types:** Program, ClassDeclaration, Identifier, ClassBody, PropertyDefinition, PrivateIdentifier, Literal
 
-**Ranger AST types:** Program, ClassDeclaration, ClassBody, MethodDefinition, FunctionExpression, Identifier, BlockStatement
+**Ranger AST types:** Program, ClassDeclaration, ClassBody, MethodDefinition, Identifier, FunctionExpression, BlockStatement
 
 <details>
 <summary>Full Acorn AST (reference)</summary>
@@ -1219,7 +322,7 @@ These features parsed successfully but the AST structure doesn't match ESTree ex
             "type": "MethodDefinition",
             "line": 1,
             "col": 13,
-            "name": "#",
+            "name": "",
             "raw": "",
             "regexPattern": "",
             "regexFlags": "",
@@ -1228,7 +331,7 @@ These features parsed successfully but the AST structure doesn't match ESTree ex
             "generator": false,
             "async": false,
             "expression": false,
-            "kind": "",
+            "kind": "method",
             "computed": false,
             "optional": false,
             "method": false,
@@ -1238,6 +341,30 @@ These features parsed successfully but the AST structure doesn't match ESTree ex
             "sourceType": "",
             "static": false,
             "delegate": false,
+            "key": {
+              "type": "Identifier",
+              "line": 1,
+              "col": 13,
+              "name": "#",
+              "raw": "",
+              "regexPattern": "",
+              "regexFlags": "",
+              "operator": "",
+              "prefix": false,
+              "generator": false,
+              "async": false,
+              "expression": false,
+              "kind": "",
+              "computed": false,
+              "optional": false,
+              "method": false,
+              "shorthand": false,
+              "tail": false,
+              "cooked": "",
+              "sourceType": "",
+              "static": false,
+              "delegate": false
+            },
             "body": {
               "type": "FunctionExpression",
               "line": 1,
@@ -1363,7 +490,7 @@ These features parsed successfully but the AST structure doesn't match ESTree ex
 
 **Acorn AST types:** Program, ClassDeclaration, Identifier, ClassBody, StaticBlock, ExpressionStatement, CallExpression, MemberExpression, Literal
 
-**Ranger AST types:** Program, ClassDeclaration, ClassBody, MethodDefinition, FunctionExpression, Identifier, BlockStatement
+**Ranger AST types:** Program, ClassDeclaration, ClassBody, MethodDefinition, Identifier, FunctionExpression, BlockStatement
 
 <details>
 <summary>Full Acorn AST (reference)</summary>
@@ -1502,7 +629,7 @@ These features parsed successfully but the AST structure doesn't match ESTree ex
             "type": "MethodDefinition",
             "line": 1,
             "col": 13,
-            "name": "{",
+            "name": "",
             "raw": "",
             "regexPattern": "",
             "regexFlags": "",
@@ -1511,7 +638,7 @@ These features parsed successfully but the AST structure doesn't match ESTree ex
             "generator": false,
             "async": false,
             "expression": false,
-            "kind": "",
+            "kind": "method",
             "computed": false,
             "optional": false,
             "method": false,
@@ -1521,6 +648,30 @@ These features parsed successfully but the AST structure doesn't match ESTree ex
             "sourceType": "",
             "static": true,
             "delegate": false,
+            "key": {
+              "type": "Identifier",
+              "line": 1,
+              "col": 20,
+              "name": "{",
+              "raw": "",
+              "regexPattern": "",
+              "regexFlags": "",
+              "operator": "",
+              "prefix": false,
+              "generator": false,
+              "async": false,
+              "expression": false,
+              "kind": "",
+              "computed": false,
+              "optional": false,
+              "method": false,
+              "shorthand": false,
+              "tail": false,
+              "cooked": "",
+              "sourceType": "",
+              "static": false,
+              "delegate": false
+            },
             "body": {
               "type": "FunctionExpression",
               "line": 1,
@@ -4454,11 +3605,9 @@ Based on the analysis, here are areas where Ranger's ESTree compliance could be 
 
 The following ESTree node types were found in Acorn output but not in Ranger:
 
-- `AssignmentPattern`
-- `Literal`
-- `Identifier`
 - `PropertyDefinition`
 - `PrivateIdentifier`
+- `Literal`
 - `StaticBlock`
 - `ExpressionStatement`
 - `CallExpression`
