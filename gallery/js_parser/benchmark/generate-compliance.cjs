@@ -386,7 +386,37 @@ const passCount = results.pass.length;
 const failCount = results.fail.length;
 const errorCount = results.parseError.length;
 
-report += `| Status | Count | Percentage |
+report += `
+
+This section compares which ESTree node types each parser produces.
+
+### All Node Types Found
+
+| Feature | Acorn Types | Ranger Types | Match |
+|---------|-------------|--------------|-------|
+`;
+
+for (const f of features) {
+  const acornTypes = f.acornResult.ast
+    ? [...collectAllTypes(f.acornResult.ast)].sort()
+    : [];
+  const rangerTypes = f.rangerResult.ast
+    ? [...collectAllTypes(f.rangerResult.ast)].sort()
+    : [];
+  const match =
+    JSON.stringify(acornTypes) === JSON.stringify(rangerTypes) ? "✅" : "❌";
+  report += `| ${f.name} | ${acornTypes.slice(0, 5).join(", ")}${
+    acornTypes.length > 5 ? "..." : ""
+  } | ${rangerTypes.slice(0, 5).join(", ")}${
+    rangerTypes.length > 5 ? "..." : ""
+  } | ${match} |\n`;
+}
+
+report += `
+
+## Node Type Comparison
+
+| Status | Count | Percentage |
 |--------|-------|------------|
 | ✅ Pass | ${passCount} | ${((passCount / total) * 100).toFixed(1)}% |
 | ❌ Fail (validation) | ${failCount} | ${((failCount / total) * 100).toFixed(
@@ -406,23 +436,6 @@ for (const f of results.pass) {
 
 **Code:** \`${f.code}\`
 
-<details>
-<summary>Full Acorn AST (reference)</summary>
-
-\`\`\`json
-${JSON.stringify(cleanAst(f.acornResult.ast), null, 2)}
-\`\`\`
-</details>
-
-<details>
-<summary>Full Ranger AST</summary>
-
-\`\`\`json
-${JSON.stringify(cleanAst(f.rangerResult.ast), null, 2)}
-\`\`\`
-</details>
-
----
 
 `;
 }
@@ -512,32 +525,6 @@ for (const f of results.parseError) {
 ---
 
 `;
-}
-
-report += `## Node Type Comparison
-
-This section compares which ESTree node types each parser produces.
-
-### All Node Types Found
-
-| Feature | Acorn Types | Ranger Types | Match |
-|---------|-------------|--------------|-------|
-`;
-
-for (const f of features) {
-  const acornTypes = f.acornResult.ast
-    ? [...collectAllTypes(f.acornResult.ast)].sort()
-    : [];
-  const rangerTypes = f.rangerResult.ast
-    ? [...collectAllTypes(f.rangerResult.ast)].sort()
-    : [];
-  const match =
-    JSON.stringify(acornTypes) === JSON.stringify(rangerTypes) ? "✅" : "❌";
-  report += `| ${f.name} | ${acornTypes.slice(0, 5).join(", ")}${
-    acornTypes.length > 5 ? "..." : ""
-  } | ${rangerTypes.slice(0, 5).join(", ")}${
-    rangerTypes.length > 5 ? "..." : ""
-  } | ${match} |\n`;
 }
 
 report += `
