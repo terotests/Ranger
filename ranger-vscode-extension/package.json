@@ -2,9 +2,10 @@
   "name": "ranger-language-support",
   "displayName": "Ranger Language Support",
   "description": "Language support for the Ranger cross-platform compiler language (.rgr files)",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "publisher": "terotests",
   "license": "MIT",
+  "icon": "icons/ranger-icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/terotests/Ranger"
@@ -39,7 +40,11 @@
           ".rgr",
           ".ranger"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/ranger-file-icon.svg",
+          "dark": "./icons/ranger-file-icon.svg"
+        }
       }
     ],
     "grammars": [
@@ -53,6 +58,13 @@
       {
         "language": "ranger",
         "path": "./snippets/ranger.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "ranger-icons",
+        "label": "Ranger File Icons",
+        "path": "./icons/ranger-file-icon-theme.json"
       }
     ],
     "configuration": {
@@ -87,7 +99,7 @@
     "postinstall": "cd client && npm install && cd ../server && npm install",
     "dev": "code --extensionDevelopmentPath . --new-window",
     "package:vsix": "npm run compile && npx @vscode/vsce package",
-    "install:vsix": "code --install-extension ranger-language-support-0.1.0.vsix",
+    "install:vsix": "code --install-extension ranger-language-support-0.2.0.vsix",
     "test": "npm run compile && node ./client/out/test/runTest.js"
   },
   "devDependencies": {
