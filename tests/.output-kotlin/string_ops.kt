@@ -8,7 +8,7 @@ class StringOpsTest {
 fun main(args : Array<String>) {
   val text : String  = "Hello World";
   val __len : Int  = text.length;
-  println( "Length: " + __len )
+  println( "Length: " + __len.toString() )
   val sub : String  = text.substring(0, 5 );
   println( sub )
   val combined : String  = text + "!";
