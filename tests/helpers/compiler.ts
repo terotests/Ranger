@@ -1373,3 +1373,129 @@ export function getGeneratedCppCode(
     };
   }
 }
+
+// ============================================================================
+// Swift6 code generation helpers
+// ============================================================================
+
+const SWIFT_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-swift");
+
+/**
+ * Get the generated Swift6 code content for a source file
+ * Returns the Swift source code as a string for inspection (no compilation needed)
+ */
+export function getGeneratedSwiftCode(
+  sourceFile: string,
+  outputDir?: string
+): { success: boolean; code: string; error?: string } {
+  const targetDir = outputDir || SWIFT_OUTPUT_DIR;
+  
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+  
+  const result = compileRanger(sourceFile, "swift6", targetDir);
+
+  if (!result.success) {
+    return {
+      success: false,
+      code: "",
+      error: result.error,
+    };
+  }
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputFile = `${sourceBasename}.swift`;
+  const outputPath = path.join(targetDir, outputFile);
+
+  if (!fs.existsSync(outputPath)) {
+    return {
+      success: false,
+      code: "",
+      error: `Generated file not found: ${outputPath}`,
+    };
+  }
+
+  try {
+    const code = fs.readFileSync(outputPath, "utf-8");
+    return {
+      success: true,
+      code,
+    };
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    return {
+      success: false,
+      code: "",
+      error: err.message || "Failed to read generated file",
+    };
+  }
+}
+
+// ============================================================================
+// Kotlin code generation helpers (code inspection only)
+// ============================================================================
+
+/**
+ * Get the generated Kotlin code content for a source file
+ * Returns the Kotlin source code as a string for inspection (no compilation needed)
+ */
+export function getGeneratedKotlinCode(
+  sourceFile: string,
+  outputDir?: string
+): { success: boolean; code: string; error?: string } {
+  const targetDir = outputDir || KOTLIN_OUTPUT_DIR;
+  
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+  
+  const result = compileRangerToKotlin(sourceFile, targetDir);
+
+  if (!result.success) {
+    return {
+      success: false,
+      code: "",
+      error: result.error,
+    };
+  }
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputFile = `${sourceBasename}.kt`;
+  const outputPath = path.join(targetDir, outputFile);
+
+  if (!fs.existsSync(outputPath)) {
+    return {
+      success: false,
+      code: "",
+      error: `Generated file not found: ${outputPath}`,
+    };
+  }
+
+  try {
+    const code = fs.readFileSync(outputPath, "utf-8");
+    return {
+      success: true,
+      code,
+    };
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    return {
+      success: false,
+      code: "",
+      error: err.message || "Failed to read generated file",
+    };
+  }
+}

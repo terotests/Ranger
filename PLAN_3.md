@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, transitioning from an experimental tool to a production-ready development environment. This plan outlines the transition from version 2.x to 3.0, including modernization of the toolchain, a web-based IDE, improved language target support, and ecosystem enhancements.
+Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, transitioning from an experimental tool to a production-ready development environment. This plan outlines the transition from version 2.x to 3.0, including modernization of the toolchain, improved language target support, and ecosystem enhancements.
 
 ---
 
@@ -10,7 +10,7 @@ Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, t
 
 1. [Version 3.0 Goals](#version-30-goals)
 2. [Phase 1: Foundation (Immediate)](#phase-1-foundation-immediate)
-3. [Phase 2: Web IDE Development](#phase-2-web-ide-development)
+3. [Phase 2: Unit Testing Infrastructure](#phase-2-unit-testing-infrastructure)
 4. [Phase 3: Language Target Improvements](#phase-3-language-target-improvements)
 5. [Phase 4: VSCode Extension Finalization](#phase-4-vscode-extension-finalization)
 6. [Phase 5: Incremental Compilation](#phase-5-incremental-compilation)
@@ -22,13 +22,29 @@ Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, t
 
 ---
 
+## Completed Work ✅
+
+### VSCode Extension Updates (December 2024)
+- [x] Updated extension version to 0.3.0
+- [x] Added proper file icon support for `.rgr` files (language icon property)
+- [x] Created shield-style SVG icon matching the Ranger logo (gold shield with R)
+- [x] Registered icon theme for file explorer
+- [x] Updated package.json with icon configuration
+
+### File Extension Migration
+- [x] Renamed all compiler files from `.clj` to `.rgr`
+- [x] Updated parser to support `.rgr` extension
+- [x] VSCode extension recognizes `.rgr` files
+
+---
+
 ## Version 3.0 Goals
 
 ### Primary Objectives
 
-1. **Modernize the Developer Experience** - Web-based IDE, VSCode extension, Monaco editor
+1. **Modernize the Developer Experience** - VSCode extension, Monaco editor integration
 2. **Production-Ready Toolchain** - NPM publishing, CI/CD pipelines, comprehensive testing
-3. **File Extension Standardization** - Transition from `.clj` to `.rgr`
+3. **File Extension Standardization** - Transition from `.clj` to `.rgr` ✅
 4. **Simplified Import System** - Auto-load standard library, clearer path resolution, better error messages
 5. **Improved Language Targets** - Focus on Python, JavaScript/TypeScript, Swift, Rust, C++
 6. **Developer Productivity** - Source maps, incremental compilation, module packaging
@@ -38,6 +54,7 @@ Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, t
 - Mobile app development tooling (deferred)
 - Visual programming interfaces (deferred)
 - Cloud compilation service (deferred)
+- Web-based playground IDE (deferred to 4.0)
 
 ---
 
@@ -49,80 +66,19 @@ Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, t
 
 - [ ] Update `package.json` version from `2.1.70` to `3.0.0-alpha.1`
 - [ ] Update all documentation to reflect version 3.0
-- [ ] Create `CHANGELOG.md` with version history
+- [x] Create `CHANGELOG.md` with version history
 - [ ] Update `README.md` with 3.0 features and migration guide
 
-### 1.2 File Extension Change (`.clj` → `.rgr`)
+### 1.2 File Extension Change (`.clj` → `.rgr`) ✅ COMPLETED
 
-This is a high-priority change to establish Ranger's identity and enable proper tooling.
+- [x] Update parser to accept `.rgr` extension
+- [x] Rename all files in `compiler/` from `.clj` to `.rgr`
+- [x] Update VSCode extension for `.rgr` support
+- [x] Add file icons for `.rgr` files
 
-**Implementation Steps:**
+### 1.3 NPM Publish Pipeline (Deferred)
 
-1. **Parser Updates**
-
-   - [ ] Update `RangerLispParser` to accept both `.clj` and `.rgr` extensions
-   - [ ] Add deprecation warning when `.clj` files are compiled
-   - [ ] Update all `Import` statement handling to resolve `.rgr` files
-
-2. **Compiler Updates**
-
-   - [ ] Update file extension detection in `ng_Compiler.clj`
-   - [ ] Update `InputFileSystem.clj` to recognize `.rgr`
-   - [ ] Modify output file extension logic if input-based
-
-3. **Library Migration**
-
-   - [ ] Rename all files in `compiler/` from `.clj` to `.rgr`
-   - [ ] Rename all files in `lib/` from `.clj` to `.rgr`
-   - [ ] Update all internal `Import` statements
-
-4. **Documentation Updates**
-
-   - [ ] Update `ai/INSTRUCTIONS.md` with new extension
-   - [ ] Update `ai/QUICKREF.md`
-   - [ ] Update `ai/EXAMPLES.md`
-   - [ ] Update all code examples in `README.md`
-
-5. **Backward Compatibility**
-   - [ ] Support both extensions during transition period (3.0.x)
-   - [ ] Add compiler flag `--legacy-extension` to suppress warnings
-   - [ ] Plan deprecation of `.clj` support for 4.0
-
-### 1.3 NPM Publish Pipeline
-
-**GitHub Actions Workflow:**
-
-```yaml
-# .github/workflows/publish.yml
-name: Publish to NPM
-
-on:
-  release:
-    types: [created]
-
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
-      - run: npm ci
-      - run: npm test
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-```
-
-**Tasks:**
-
-- [ ] Create `.github/workflows/publish.yml`
-- [ ] Create `.github/workflows/test.yml` for PR testing
-- [ ] Set up NPM token as GitHub secret
-- [ ] Configure package for scoped publishing if needed (`@ranger/compiler`)
-- [ ] Add pre-publish hook to run tests
+**Status:** Postponed for now - will implement after testing infrastructure is solid.
 
 ### 1.4 Project Structure Cleanup
 
@@ -133,509 +89,221 @@ jobs:
 
 ### 1.5 Import System Improvements
 
-The current import system causes significant confusion for users and GenAI assistants. The handling of `Lang.clj`/`Lang.rgr` and other standard library imports needs to be simplified and better documented.
-
-**Current Problems:**
-
-1. **Unclear Lang.rgr inclusion** - Users don't know how to include the standard library
-2. **Path resolution confusion** - Different behaviors in CLI vs programmatic usage
-3. **Virtual vs real filesystem** - Imports work differently in browser vs Node.js
-4. **GenAI confusion** - AI assistants frequently fail to set up imports correctly
-5. **No auto-discovery** - Standard library must be manually specified
-
-**Implementation Steps:**
-
-1. **Automatic Standard Library Loading**
-
-   - [ ] Auto-load `Lang.rgr` when compiler initializes (unless `--no-stdlib` flag)
-   - [ ] Bundle `Lang.rgr` content directly in the compiled `output.js`
-   - [ ] Add `RANGER_LIB_PATH` environment variable for custom library location
-
-2. **Simplified CLI Usage**
-
-   ```bash
-   # Current (confusing)
-   node bin/output.js -l es6 -o output.js Lang.clj myfile.clj
-
-   # New (simple - Lang.rgr auto-included)
-   rgrc -l es6 -o output.js myfile.rgr
-
-   # Explicit no-stdlib for advanced users
-   rgrc -l es6 -o output.js --no-stdlib myfile.rgr
-   ```
-
-3. **Import Path Resolution**
-
-   - [ ] Support relative imports: `Import "./utils.rgr"`
-   - [ ] Support absolute imports from project root: `Import "/lib/helpers.rgr"`
-   - [ ] Support library imports: `Import "std:collections"` (future)
-   - [ ] Clear error messages when imports fail with suggested fixes
-
-4. **VirtualCompiler API Improvements**
-
-   ```typescript
-   // Current (confusing)
-   const env = new InputEnv();
-   env.use_real = false;
-   // Must manually add Lang.clj content...
-
-   // New (simple)
-   const compiler = new VirtualCompiler({
-     autoLoadStdlib: true, // default: true
-     stdlibPath: "custom/Lang.rgr", // optional override
-   });
-   ```
-
-5. **Documentation & Error Messages**
-
-   - [ ] Add clear import documentation in `ai/INSTRUCTIONS.md`
-   - [ ] Improve error messages: "Cannot find module 'X'. Did you mean...?"
-   - [ ] Add troubleshooting section for common import issues
-   - [ ] Create import resolution flowchart for documentation
-
-6. **Web IDE Integration**
-   - [ ] Pre-load `Lang.rgr` in browser virtual filesystem
-   - [ ] Show import resolution in IDE (hover to see resolved path)
-   - [ ] Auto-complete for available imports
-
-**Tasks:**
-
-- [ ] Bundle `Lang.rgr` content into `output.js` at build time
-- [ ] Add `--no-stdlib` CLI flag
-- [ ] Implement `RANGER_LIB_PATH` environment variable
-- [ ] Update `VirtualCompiler` constructor for simpler API
+- [ ] Auto-load `Lang.rgr` when compiler initializes (unless `--no-stdlib` flag)
+- [ ] Bundle `Lang.rgr` content directly in the compiled `output.js`
+- [ ] Add `RANGER_LIB_PATH` environment variable for custom library location
 - [ ] Improve import error messages with suggestions
-- [ ] Update all documentation with new import patterns
-- [ ] Add import examples to `ai/EXAMPLES.md`
 
 ---
 
-## Phase 2: Web IDE Development
+## Phase 2: Unit Testing Infrastructure
 
-**Timeline: Week 3-8**
+**Timeline: Week 3-6** (CURRENT PRIORITY)
 
-### 2.1 Project Setup
+### 2.1 Testing Philosophy
 
-**Technology Stack:**
+The goal is to verify code generation correctness **without requiring target language compilation**. This enables:
+- Fast CI/CD pipelines without installing Swift, Rust, Kotlin, C++ toolchains
+- Immediate feedback on code generation changes
+- Easier contributor onboarding
+- Regression detection for subtle code generation issues
 
-- **Framework**: Vite + React + TypeScript
-- **Editor**: Monaco Editor (same as VSCode)
-- **UI Components**: Tailwind CSS + Headless UI or Radix UI
-- **State Management**: Zustand or Jotai
-- **Storage**: IndexedDB via Dexie.js
-- **Build**: Vite with WASM support for potential future optimizations
+### 2.2 Code-Only Tests (No Runtime Execution)
 
-**Project Structure:**
+These tests verify the **generated code structure** without compiling/running in the target language.
+
+**Test Categories:**
+
+1. **Syntax Correctness** - Generated code has valid syntax patterns
+2. **Type Annotations** - Correct type declarations for each language
+3. **Memory Management** - Ownership patterns (Rust), reference counting (Swift)
+4. **Operator Translation** - Correct operator mapping per language
+5. **String Operations** - String methods translate correctly
+6. **Array Operations** - Array/collection methods work properly
+7. **Control Flow** - if/else, loops, switch statements
+8. **Class Features** - Inheritance, constructors, static methods
+9. **Optional Handling** - Nullable types, unwrapping patterns
+
+### 2.3 Test Fixture Design
+
+Reference the `gallery/js_parser` project as the gold standard for complex code patterns:
 
 ```
-ranger-playground/
-├── src/
-│   ├── components/
-│   │   ├── Editor/
-│   │   │   ├── MonacoEditor.tsx
-│   │   │   ├── EditorTabs.tsx
-│   │   │   └── EditorToolbar.tsx
-│   │   ├── FileExplorer/
-│   │   │   ├── FileTree.tsx
-│   │   │   ├── FileTreeItem.tsx
-│   │   │   └── FileContextMenu.tsx
-│   │   ├── Output/
-│   │   │   ├── OutputPanel.tsx
-│   │   │   ├── CompilerOutput.tsx
-│   │   │   └── ErrorList.tsx
-│   │   └── Layout/
-│   │       ├── MainLayout.tsx
-│   │       ├── Sidebar.tsx
-│   │       └── StatusBar.tsx
-│   ├── compiler/
-│   │   ├── BrowserCompiler.ts
-│   │   ├── VirtualFileSystem.ts
-│   │   └── CompilerWorker.ts
-│   ├── storage/
-│   │   ├── db.ts
-│   │   ├── ProjectStore.ts
-│   │   └── FileStore.ts
-│   ├── hooks/
-│   │   ├── useCompiler.ts
-│   │   ├── useFileSystem.ts
-│   │   └── useProject.ts
-│   └── App.tsx
-├── public/
-│   └── samples/
-│       ├── hello-world.rgr
-│       ├── algorithms/
-│       └── data-structures/
-└── package.json
+tests/fixtures/
+├── core/                    # Basic language features
+│   ├── array_push.rgr       ✅ exists
+│   ├── local_array.rgr      ✅ exists
+│   ├── string_ops.rgr       ✅ exists
+│   ├── string_methods.rgr   ✅ exists
+│   ├── math_ops.rgr         ✅ exists
+│   └── while_loop.rgr       ✅ exists
+├── classes/                 # OOP features
+│   ├── two_classes.rgr      ✅ exists
+│   ├── inheritance.rgr      ✅ exists
+│   ├── static_factory.rgr   ✅ exists
+│   └── forward_ref.rgr      ✅ exists
+├── memory/                  # Memory management patterns (NEW)
+│   ├── ownership.rgr        # Rust borrowing patterns
+│   ├── optional_chain.rgr   # Optional chaining (Swift, Kotlin)
+│   └── reference_cycle.rgr  # Reference handling
+├── lexer/                   # From js_parser (NEW)
+│   ├── string_peek.rgr      # charAt, at, substr patterns
+│   ├── char_classify.rgr    # isDigit, isAlpha patterns
+│   └── token_scan.rgr       # Loop + string accumulation
+└── parser/                  # Complex control flow (NEW)
+    ├── recursive_descent.rgr
+    ├── ast_construction.rgr
+    └── error_recovery.rgr
 ```
 
-**Setup Tasks:**
+### 2.4 Target-Specific Code Generation Tests
 
-- [ ] Initialize Vite + React + TypeScript project
-- [ ] Configure Tailwind CSS
-- [ ] Set up ESLint + Prettier
-- [ ] Add Monaco Editor package
-- [ ] Configure Vite for web worker support
+For each target (Swift6, Rust, Kotlin, C++), verify code patterns without execution:
 
-### 2.2 Virtual File System
+#### Swift6 Code Generation Tests
+```typescript
+describe("Swift6 Code Generation", () => {
+  it("should generate proper optional unwrapping", () => {
+    const code = getGeneratedSwiftCode("tests/fixtures/optional_values.rgr");
+    expect(code).toContain("guard let");
+    expect(code).toContain("if let");
+    expect(code).not.toContain("!");  // No force unwrap in safe patterns
+  });
 
-**IndexedDB Schema (using Dexie.js):**
+  it("should use proper string interpolation", () => {
+    const code = getGeneratedSwiftCode("tests/fixtures/string_ops.rgr");
+    expect(code).toContain("\\(");  // Swift string interpolation
+  });
+
+  it("should generate correct array methods", () => {
+    const code = getGeneratedSwiftCode("tests/fixtures/array_push.rgr");
+    expect(code).toContain(".append(");
+    expect(code).not.toContain(".push(");  // JS pattern shouldn't appear
+  });
+});
+```
+
+#### Rust Code Generation Tests
+```typescript
+describe("Rust Code Generation", () => {
+  it("should use proper ownership patterns", () => {
+    const code = getGeneratedRustCode("tests/fixtures/string_methods.rgr");
+    expect(code).toContain("&str");  // String references
+    expect(code).toContain(".to_string()");  // String conversions
+  });
+
+  it("should handle Option types correctly", () => {
+    const code = getGeneratedRustCode("tests/fixtures/optional_values.rgr");
+    expect(code).toContain("Option<");
+    expect(code).toContain(".unwrap_or(");
+  });
+
+  it("should generate correct vector operations", () => {
+    const code = getGeneratedRustCode("tests/fixtures/array_push.rgr");
+    expect(code).toContain("Vec::new()");
+    expect(code).toContain(".push(");
+  });
+});
+```
+
+#### Kotlin Code Generation Tests
+```typescript
+describe("Kotlin Code Generation", () => {
+  it("should use nullable types correctly", () => {
+    const code = getGeneratedKotlinCode("tests/fixtures/optional_values.rgr");
+    expect(code).toContain("?");  // Nullable type marker
+    expect(code).toContain("?."); // Safe call operator
+  });
+
+  it("should generate proper list operations", () => {
+    const code = getGeneratedKotlinCode("tests/fixtures/array_push.rgr");
+    expect(code).toContain("mutableListOf");
+    expect(code).toContain(".add(");
+  });
+
+  it("should use when instead of switch", () => {
+    const code = getGeneratedKotlinCode("tests/fixtures/switch_case.rgr");
+    expect(code).toContain("when");
+    expect(code).not.toContain("switch");
+  });
+});
+```
+
+#### C++ Code Generation Tests
+```typescript
+describe("C++ Code Generation", () => {
+  it("should use smart pointers", () => {
+    const code = getGeneratedCppCode("tests/fixtures/two_classes.rgr");
+    expect(code).toMatch(/std::shared_ptr|std::unique_ptr/);
+  });
+
+  it("should generate proper vector operations", () => {
+    const code = getGeneratedCppCode("tests/fixtures/array_push.rgr");
+    expect(code).toContain("std::vector");
+    expect(code).toContain(".push_back(");
+  });
+
+  it("should use proper string methods", () => {
+    const code = getGeneratedCppCode("tests/fixtures/string_methods.rgr");
+    expect(code).toContain("std::string");
+    expect(code).toContain(".substr(");
+  });
+});
+```
+
+### 2.5 Implementation Tasks
+
+#### Test Helper Functions (Priority 1)
+- [x] `compileRangerToRust()` - exists
+- [x] `getGeneratedRustCode()` - exists
+- [ ] `getGeneratedSwiftCode()` - add to helpers/compiler.ts
+- [ ] `getGeneratedKotlinCode()` - add to helpers/compiler.ts
+- [ ] `getGeneratedCppCode()` - add to helpers/compiler.ts
+
+#### New Test Files (Priority 2)
+- [ ] `tests/codegen-swift.test.ts` - Swift6 code pattern tests
+- [ ] `tests/codegen-rust.test.ts` - Rust code pattern tests
+- [ ] `tests/codegen-kotlin.test.ts` - Kotlin code pattern tests
+- [ ] `tests/codegen-cpp.test.ts` - C++ code pattern tests
+
+#### New Test Fixtures (Priority 3)
+Based on `gallery/js_parser` patterns:
+- [ ] `tests/fixtures/string_peek.rgr` - charAt, at, substr from Lexer
+- [ ] `tests/fixtures/char_classify.rgr` - isDigit, isAlpha patterns
+- [ ] `tests/fixtures/token_scan.rgr` - Loop + string accumulation
+- [ ] `tests/fixtures/recursive_parse.rgr` - Recursive descent patterns
+- [ ] `tests/fixtures/switch_case.rgr` - Switch/when statement tests
+
+### 2.6 Cross-Language Comparison Tests
+
+Verify semantic equivalence across targets:
 
 ```typescript
-// storage/db.ts
-import Dexie, { Table } from "dexie";
-
-interface Project {
-  id?: number;
-  name: string;
-  createdAt: Date;
-  updatedAt: Date;
-  settings: ProjectSettings;
-}
-
-interface File {
-  id?: number;
-  projectId: number;
-  path: string; // e.g., "/src/main.rgr"
-  name: string;
-  content: string;
-  isFolder: boolean;
-  parentPath: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface CompilationCache {
-  id?: number;
-  projectId: number;
-  filePath: string;
-  targetLanguage: string;
-  compiledCode: string;
-  sourceMap?: string;
-  compiledAt: Date;
-}
-
-class RangerDB extends Dexie {
-  projects!: Table<Project>;
-  files!: Table<File>;
-  compilationCache!: Table<CompilationCache>;
-
-  constructor() {
-    super("RangerPlayground");
-    this.version(1).stores({
-      projects: "++id, name, createdAt",
-      files: "++id, projectId, path, parentPath, [projectId+path]",
-      compilationCache: "++id, projectId, [projectId+filePath+targetLanguage]",
-    });
-  }
-}
+describe("Cross-Language Semantic Equivalence", () => {
+  const targets = ["es6", "python", "rust", "swift6", "kotlin", "cpp"];
+  
+  it("should generate functionally equivalent array operations", () => {
+    for (const target of targets) {
+      const code = compileToTarget("tests/fixtures/array_push.rgr", target);
+      expect(code.success).toBe(true);
+      // Verify each has the appropriate push/append/add method
+    }
+  });
+});
 ```
 
-**Virtual File System Interface:**
+### 2.7 Pattern Library Tests
 
-```typescript
-// compiler/VirtualFileSystem.ts
-interface VirtualFileSystem {
-  // File operations
-  readFile(path: string): Promise<string>;
-  writeFile(path: string, content: string): Promise<void>;
-  deleteFile(path: string): Promise<void>;
-  renameFile(oldPath: string, newPath: string): Promise<void>;
+Extract testable patterns from `gallery/js_parser`:
 
-  // Directory operations
-  createDirectory(path: string): Promise<void>;
-  deleteDirectory(path: string): Promise<void>;
-  listDirectory(path: string): Promise<FileEntry[]>;
-
-  // Project operations
-  exportProject(): Promise<Blob>; // ZIP download
-  importProject(file: File): Promise<void>;
-
-  // Compiler integration
-  getFileForCompiler(path: string): string;
-  getAllFiles(): Map<string, string>;
-}
-```
-
-**Tasks:**
-
-- [ ] Implement Dexie.js database schema
-- [ ] Create `VirtualFileSystem` class
-- [ ] Implement file CRUD operations
-- [ ] Implement directory operations
-- [ ] Add ZIP export/import functionality
-- [ ] Create file system hooks for React
-
-### 2.3 Monaco Editor Integration
-
-**Ranger Language Definition:**
-
-```typescript
-// editor/rangerLanguage.ts
-import * as monaco from "monaco-editor";
-
-export const rangerLanguageConfig: monaco.languages.LanguageConfiguration = {
-  comments: {
-    lineComment: ";",
-  },
-  brackets: [
-    ["{", "}"],
-    ["[", "]"],
-    ["(", ")"],
-  ],
-  autoClosingPairs: [
-    { open: "{", close: "}" },
-    { open: "[", close: "]" },
-    { open: "(", close: ")" },
-    { open: '"', close: '"' },
-  ],
-  surroundingPairs: [
-    { open: "{", close: "}" },
-    { open: "[", close: "]" },
-    { open: "(", close: ")" },
-    { open: '"', close: '"' },
-  ],
-};
-
-export const rangerTokensProvider: monaco.languages.IMonarchLanguage = {
-  keywords: [
-    "class",
-    "def",
-    "fn",
-    "sfn",
-    "if",
-    "else",
-    "while",
-    "for",
-    "return",
-    "new",
-    "this",
-    "true",
-    "false",
-    "null",
-    "Import",
-    "Extends",
-    "Enum",
-    "Constructor",
-    "switch",
-    "case",
-    "default",
-    "break",
-    "continue",
-    "try",
-    "catch",
-    "throw",
-    "operators",
-  ],
-  typeKeywords: [
-    "int",
-    "double",
-    "string",
-    "boolean",
-    "void",
-    "char",
-    "charbuffer",
-  ],
-  operators: [
-    "=",
-    ">",
-    "<",
-    "!",
-    "~",
-    "?",
-    ":",
-    "==",
-    "<=",
-    ">=",
-    "!=",
-    "&&",
-    "||",
-    "++",
-    "--",
-    "+",
-    "-",
-    "*",
-    "/",
-    "&",
-    "|",
-    "^",
-    "%",
-  ],
-  tokenizer: {
-    root: [
-      [
-        /[a-zA-Z_]\w*/,
-        {
-          cases: {
-            "@keywords": "keyword",
-            "@typeKeywords": "type",
-            "@default": "identifier",
-          },
-        },
-      ],
-      [/"([^"\\]|\\.)*"/, "string"],
-      [/;.*$/, "comment"],
-      [/\d+\.\d*/, "number.float"],
-      [/\d+/, "number"],
-      [/[{}()\[\]]/, "@brackets"],
-      [/@\w+/, "annotation"],
-    ],
-  },
-};
-```
-
-**Tasks:**
-
-- [ ] Register Ranger language with Monaco
-- [ ] Implement syntax highlighting
-- [ ] Add code folding support
-- [ ] Implement bracket matching
-- [ ] Add basic autocomplete for keywords
-- [ ] Integrate with compiler for error highlighting
-
-### 2.4 Browser Compiler Integration
-
-**Web Worker Setup:**
-
-```typescript
-// compiler/CompilerWorker.ts
-import {
-  VirtualCompiler,
-  InputEnv,
-  InputFSFolder,
-  InputFSFile,
-  CmdParams,
-} from "./output.js";
-
-self.onmessage = async (event) => {
-  const { type, payload } = event.data;
-
-  switch (type) {
-    case "compile":
-      try {
-        const result = await compileCode(payload);
-        self.postMessage({ type: "success", payload: result });
-      } catch (error) {
-        self.postMessage({ type: "error", payload: error.message });
-      }
-      break;
-  }
-};
-
-async function compileCode(options: CompileOptions): Promise<CompileResult> {
-  const { files, entryFile, targetLanguage, libraries } = options;
-
-  const env = new InputEnv();
-  env.use_real = false;
-
-  const folder = new InputFSFolder();
-
-  // Add all project files
-  for (const [path, content] of Object.entries(files)) {
-    const file = new InputFSFile();
-    file.name = path;
-    file.data = content;
-    folder.files.push(file);
-  }
-
-  // Add compiler libraries
-  for (const [name, content] of Object.entries(libraries)) {
-    const file = new InputFSFile();
-    file.name = name;
-    file.data = content;
-    folder.files.push(file);
-  }
-
-  env.filesystem = folder;
-
-  const params = new CmdParams();
-  params.params["l"] = targetLanguage;
-  params.params["o"] = "output." + getExtension(targetLanguage);
-  params.values.push(entryFile);
-  env.commandLine = params;
-
-  const compiler = new VirtualCompiler();
-  const result = await compiler.run(env);
-
-  return {
-    success: !result.hasErrors,
-    output: result.generatedCode,
-    errors: result.errors || [],
-    sourceMap: result.sourceMap,
-  };
-}
-```
-
-**Tasks:**
-
-- [ ] Bundle compiler for browser usage
-- [ ] Create Web Worker for compilation
-- [ ] Implement compilation API
-- [ ] Add target language selection
-- [ ] Implement real-time error checking
-- [ ] Add compilation progress indicator
-
-### 2.5 UI Components
-
-**File Explorer Features:**
-
-- [ ] Tree view with expand/collapse
-- [ ] File/folder icons
-- [ ] Context menu (new file, new folder, rename, delete)
-- [ ] Drag and drop reordering
-- [ ] Search/filter files
-
-**Editor Features:**
-
-- [ ] Multi-tab editing
-- [ ] Split view support
-- [ ] Find and replace
-- [ ] Go to line/symbol
-- [ ] Minimap
-
-**Output Panel Features:**
-
-- [ ] Compiled code viewer (read-only Monaco)
-- [ ] Error list with clickable locations
-- [ ] Target language tabs
-- [ ] Copy to clipboard
-- [ ] Download button
-
-**Tasks:**
-
-- [ ] Implement FileTree component
-- [ ] Implement EditorTabs component
-- [ ] Implement OutputPanel component
-- [ ] Add keyboard shortcuts
-- [ ] Implement responsive layout
-
-### 2.6 Sample Projects
-
-**Included Samples:**
-
-```
-samples/
-├── hello-world/
-│   └── main.rgr
-├── algorithms/
-│   ├── sorting/
-│   │   ├── quicksort.rgr
-│   │   └── mergesort.rgr
-│   └── search/
-│       └── binary-search.rgr
-├── data-structures/
-│   ├── linked-list.rgr
-│   ├── stack.rgr
-│   └── queue.rgr
-├── patterns/
-│   ├── factory.rgr
-│   └── observer.rgr
-└── cross-platform/
-    └── file-processor.rgr
-```
-
-- [ ] Create sample projects
-- [ ] Add "Load Sample" dropdown
-- [ ] Include comments explaining Ranger concepts
+| Pattern | Source File | Tests |
+|---------|-------------|-------|
+| String iteration | js_lexer.rgr | peek(), advance(), charAt |
+| Character classification | js_lexer.rgr | isDigit(), isAlpha() |
+| Token accumulation | js_lexer.rgr | Building strings in loops |
+| Recursive parsing | js_parser.rgr | Nested function calls |
+| AST construction | js_ast.rgr | Class instantiation patterns |
+| Error handling | js_parser.rgr | Try/catch, error propagation |
 
 ---
 
@@ -1050,62 +718,98 @@ class SourceMapWriter {
 
 ## Testing Strategy
 
-### 9.1 Compiler Tests (Current)
+### 9.1 Test Architecture
+
+```
+tests/
+├── compiler.test.ts           # ES6/JS runtime tests ✅
+├── compiler-rust.test.ts      # Rust runtime tests ✅
+├── compiler-kotlin.test.ts    # Kotlin runtime tests ✅
+├── compiler-python.test.ts    # Python runtime tests ✅
+├── compiler-go.test.ts        # Go runtime tests ✅
+├── compiler-cpp.test.ts       # C++ runtime tests
+├── codegen-swift.test.ts      # Swift6 code pattern tests (NEW)
+├── codegen-rust.test.ts       # Rust code pattern tests (NEW)
+├── codegen-kotlin.test.ts     # Kotlin code pattern tests (NEW)
+├── codegen-cpp.test.ts        # C++ code pattern tests (NEW)
+├── introspection.test.ts      # Compiler introspection ✅
+├── bugs.test.ts               # Regression tests ✅
+├── fixtures/                  # Test source files
+│   ├── core/                  # Basic language features
+│   ├── classes/               # OOP features
+│   ├── memory/                # Memory management (NEW)
+│   ├── lexer/                 # String/char operations (NEW)
+│   └── parser/                # Complex patterns (NEW)
+└── helpers/
+    └── compiler.ts            # Test utilities ✅
+```
+
+### 9.2 Test Types
+
+#### Type 1: Code Generation Tests (Fast, No Runtime)
+Verify generated code patterns without compiling the target:
 
 ```bash
-npm test              # All tests
-npm run test:es6      # JavaScript target
-npm run test:python   # Python target
-npm run test:go       # Go target
-npm run test:rust     # Rust target
+npm run test:codegen          # All code generation tests
+npm run test:codegen:swift    # Swift6 patterns only
+npm run test:codegen:rust     # Rust patterns only
 ```
 
-### 9.2 Ranger Application Testing
+#### Type 2: Runtime Tests (Requires Target Toolchain)
+Compile AND execute in target language:
 
-**Recommended Approach: JavaScript Ecosystem**
-
-Since Ranger compiles to JavaScript, use the JavaScript testing ecosystem:
-
-```typescript
-// tests/ranger-app.test.ts
-import { describe, it, expect } from "vitest";
-
-// Import compiled Ranger code
-import { MyClass } from "../compiled/myapp.js";
-
-describe("MyClass", () => {
-  it("should calculate correctly", () => {
-    const instance = new MyClass();
-    expect(instance.calculate(5, 3)).toBe(8);
-  });
-});
+```bash
+npm test                      # All tests (skips unavailable targets)
+npm run test:es6              # JavaScript target
+npm run test:python           # Python target
+npm run test:rust             # Rust target (requires rustc)
+npm run test:kotlin           # Kotlin target (requires kotlinc)
+npm run test:swift            # Swift6 target (requires swiftc)
+npm run test:cpp              # C++ target (requires g++)
 ```
 
-**Testing Workflow:**
+### 9.3 CI/CD Test Matrix
 
-1. Write Ranger source (`.rgr`)
-2. Compile to JavaScript
-3. Run Vitest tests against compiled code
-4. Use source maps for debugging
+```yaml
+# Fast tests (every PR)
+fast-tests:
+  - test:codegen     # Code pattern verification
+  - test:es6         # JavaScript (always available)
+  - test:python      # Python (usually available)
 
-**Future: Cross-Language Testing**
+# Full tests (nightly/release)
+full-tests:
+  - all fast tests
+  - test:rust        # Requires Rust toolchain
+  - test:kotlin      # Requires Kotlin/JVM
+  - test:swift       # Requires Swift (macOS/Linux)
+  - test:cpp         # Requires C++ compiler
+  - test:go          # Requires Go
+```
 
-- [ ] Test harness that compiles and runs in multiple targets
-- [ ] Golden output comparison
-- [ ] Performance benchmarks across languages
+### 9.4 Adding New Tests
 
-### 9.3 Web IDE Tests
+**For code generation tests:**
+1. Add fixture to `tests/fixtures/`
+2. Add test in `tests/codegen-{target}.test.ts`
+3. Verify expected code patterns with `expect(code).toContain()`
 
-- [ ] Unit tests for components (Vitest + Testing Library)
-- [ ] Integration tests for file system
-- [ ] E2E tests (Playwright)
-- [ ] Compiler integration tests
+**For runtime tests:**
+1. Add fixture to `tests/fixtures/`
+2. Add test in `tests/compiler-{target}.test.ts`
+3. Verify output with `expectOutput()`
 
-### 9.4 VSCode Extension Tests
+### 9.5 Test Coverage Goals
 
-- [ ] Extension host tests
-- [ ] Language feature tests
-- [ ] Integration tests with sample projects
+| Area | Current | Target |
+|------|---------|--------|
+| Array operations | ✅ Good | Maintain |
+| String methods | ✅ Good | Expand |
+| Class features | ✅ Good | Maintain |
+| Optional types | ⚠️ Partial | Improve |
+| Memory patterns | ❌ Missing | Add |
+| Lexer patterns | ❌ Missing | Add |
+| Parser patterns | ❌ Missing | Add |
 
 ---
 
@@ -1165,10 +869,17 @@ describe("MyClass", () => {
 
 ## Future Considerations
 
-### 11.1 Deferred Features
+### 11.1 Deferred to Ranger 4.0
 
+**Web-Based Playground IDE** (moved from 3.0)
+- Monaco Editor integration in browser
+- Virtual filesystem with IndexedDB
+- Project management and export
+- Sample project gallery
+- Real-time compilation in Web Worker
+
+**Other Deferred Features:**
 - **WASM Compilation Target** - Compile Ranger to WebAssembly
-- **Language Server Protocol (LSP)** - Standalone LSP server
 - **Cloud Compilation Service** - API for online compilation
 - **Visual Debugger** - Integrated debugging experience
 - **Package Manager** - Ranger-specific package management
@@ -1199,16 +910,16 @@ Ranger 3.x establishes the foundation for a mature cross-language development en
 
 ## Implementation Timeline Summary
 
-| Phase | Timeline   | Key Deliverables                          |
-| ----- | ---------- | ----------------------------------------- |
-| 1     | Week 1-2   | Version 3.0, .rgr extension, NPM pipeline |
-| 2     | Week 3-8   | Web IDE with Monaco, VFS, IndexedDB       |
-| 3     | Week 9-14  | Language target improvements              |
-| 4     | Week 15-18 | VSCode extension finalization             |
-| 5     | Week 19-24 | Incremental compilation                   |
-| 6     | Week 25-30 | Source maps, module packaging             |
+| Phase | Timeline   | Key Deliverables                              | Status |
+| ----- | ---------- | --------------------------------------------- | ------ |
+| 1     | Week 1-2   | Version 3.0, .rgr extension, cleanup          | ✅ Mostly done |
+| 2     | Week 3-6   | Unit testing infrastructure for all targets   | 🔄 Current |
+| 3     | Week 7-12  | Language target improvements (Swift6, Rust, Kotlin, C++) | Planned |
+| 4     | Week 13-16 | VSCode extension finalization                 | Planned |
+| 5     | Week 17-22 | Incremental compilation                       | Planned |
+| 6     | Week 23-28 | Source maps, module packaging                 | Planned |
 
-**Total Estimated Timeline: ~30 weeks (7-8 months)**
+**Total Estimated Timeline: ~28 weeks (6-7 months)**
 
 ---
 
