@@ -720,16 +720,52 @@ class SimpleParser {
         rest.start = restTok.start
         rest.line = restTok.line
         rest.col = restTok.col
+        ; RestElement argument is Identifier
+        def argNode (new JSNode())
+        argNode.type = "Identifier"
+        argNode.name = paramTok.value
+        argNode.start = paramTok.start
+        argNode.line = paramTok.line
+        argNode.col = paramTok.col
+        rest.argument = argNode
         push func.children rest
       } {
         ; Check for destructuring pattern in parameter
         if (this.matchValue("[")) {
           def pattern (this.parseArrayPattern())
-          push func.children pattern
+          ; Check for default value after pattern
+          if (this.matchValue("=")) {
+            this.advance()
+            def defaultVal (this.parseAssignment())
+            def assignPat (new JSNode())
+            assignPat.type = "AssignmentPattern"
+            assignPat.left = pattern
+            assignPat.right = defaultVal
+            assignPat.start = pattern.start
+            assignPat.line = pattern.line
+            assignPat.col = pattern.col
+            push func.children assignPat
+          } {
+            push func.children pattern
+          }
         } {
           if (this.matchValue("{")) {
             def pattern (this.parseObjectPattern())
-            push func.children pattern
+            ; Check for default value after pattern
+            if (this.matchValue("=")) {
+              this.advance()
+              def defaultVal (this.parseAssignment())
+              def assignPat (new JSNode())
+              assignPat.type = "AssignmentPattern"
+              assignPat.left = pattern
+              assignPat.right = defaultVal
+              assignPat.start = pattern.start
+              assignPat.line = pattern.line
+              assignPat.col = pattern.col
+              push func.children assignPat
+            } {
+              push func.children pattern
+            }
           } {
             def paramTok (this.expect("Identifier"))
             def param (new JSNode())
@@ -738,7 +774,22 @@ class SimpleParser {
             param.start = paramTok.start
             param.line = paramTok.line
             param.col = paramTok.col
-            push func.children param
+            
+            ; Check for default value: param = value
+            if (this.matchValue("=")) {
+              this.advance()
+              def defaultVal (this.parseAssignment())
+              def assignPat (new JSNode())
+              assignPat.type = "AssignmentPattern"
+              assignPat.left = param
+              assignPat.right = defaultVal
+              assignPat.start = param.start
+              assignPat.line = param.line
+              assignPat.col = param.col
+              push func.children assignPat
+            } {
+              push func.children param
+            }
           }
         }
       }
@@ -795,16 +846,52 @@ class SimpleParser {
         rest.start = restTok.start
         rest.line = restTok.line
         rest.col = restTok.col
+        ; RestElement argument is Identifier
+        def argNode (new JSNode())
+        argNode.type = "Identifier"
+        argNode.name = paramTok.value
+        argNode.start = paramTok.start
+        argNode.line = paramTok.line
+        argNode.col = paramTok.col
+        rest.argument = argNode
         push func.children rest
       } {
         ; Check for destructuring pattern in parameter
         if (this.matchValue("[")) {
           def pattern (this.parseArrayPattern())
-          push func.children pattern
+          ; Check for default value after pattern
+          if (this.matchValue("=")) {
+            this.advance()
+            def defaultVal (this.parseAssignment())
+            def assignPat (new JSNode())
+            assignPat.type = "AssignmentPattern"
+            assignPat.left = pattern
+            assignPat.right = defaultVal
+            assignPat.start = pattern.start
+            assignPat.line = pattern.line
+            assignPat.col = pattern.col
+            push func.children assignPat
+          } {
+            push func.children pattern
+          }
         } {
           if (this.matchValue("{")) {
             def pattern (this.parseObjectPattern())
-            push func.children pattern
+            ; Check for default value after pattern
+            if (this.matchValue("=")) {
+              this.advance()
+              def defaultVal (this.parseAssignment())
+              def assignPat (new JSNode())
+              assignPat.type = "AssignmentPattern"
+              assignPat.left = pattern
+              assignPat.right = defaultVal
+              assignPat.start = pattern.start
+              assignPat.line = pattern.line
+              assignPat.col = pattern.col
+              push func.children assignPat
+            } {
+              push func.children pattern
+            }
           } {
             def paramTok (this.expect("Identifier"))
             def param (new JSNode())
@@ -813,7 +900,22 @@ class SimpleParser {
             param.start = paramTok.start
             param.line = paramTok.line
             param.col = paramTok.col
-            push func.children param
+            
+            ; Check for default value: param = value
+            if (this.matchValue("=")) {
+              this.advance()
+              def defaultVal (this.parseAssignment())
+              def assignPat (new JSNode())
+              assignPat.type = "AssignmentPattern"
+              assignPat.left = param
+              assignPat.right = defaultVal
+              assignPat.start = param.start
+              assignPat.line = param.line
+              assignPat.col = param.col
+              push func.children assignPat
+            } {
+              push func.children param
+            }
           }
         }
       }
@@ -895,13 +997,13 @@ class SimpleParser {
     if (this.matchValue("extends")) {
       this.advance()
       def superTok (this.expect("Identifier"))
-      def superClass (new JSNode())
-      superClass.type = "Identifier"
-      superClass.name = superTok.value
-      superClass.start = superTok.start
-      superClass.line = superTok.line
-      superClass.col = superTok.col
-      classNode.left = superClass
+      def superClassNode (new JSNode())
+      superClassNode.type = "Identifier"
+      superClassNode.name = superTok.value
+      superClassNode.start = superTok.start
+      superClassNode.line = superTok.line
+      superClassNode.col = superTok.col
+      classNode.superClass = superClassNode
     }
     
     ; Class body
@@ -942,29 +1044,38 @@ class SimpleParser {
     }
     
     ; Check for getter/setter
-    def kind:string "method"
+    def methodKind:string "method"
     if (this.matchValue("get")) {
       def nextTok (this.peekAt(1))
       if (nextTok != "(") {
-        kind = "get"
+        methodKind = "get"
         this.advance()
       }
     }
     if (this.matchValue("set")) {
       def nextTok (this.peekAt(1))
       if (nextTok != "(") {
-        kind = "set"
+        methodKind = "set"
         this.advance()
       }
     }
     
-    ; Method name
+    ; Method name - create key as Identifier node
     def nameTok (this.expect("Identifier"))
-    method.name = nameTok.value
+    def keyNode (new JSNode())
+    keyNode.type = "Identifier"
+    keyNode.name = nameTok.value
+    keyNode.start = nameTok.start
+    keyNode.line = nameTok.line
+    keyNode.col = nameTok.col
+    method.key = keyNode
     
     if (nameTok.value == "constructor") {
-      kind = "constructor"
+      methodKind = "constructor"
     }
+    
+    ; Set the kind property on MethodDefinition
+    method.kind = methodKind
     
     ; Parse function
     def func (new JSNode())
@@ -1926,7 +2037,8 @@ class SimpleParser {
     def left (this.parseTernary())
     
     def tokVal (this.peekValue())
-    if (tokVal == "=") {
+    ; Check for assignment operators including compound and logical assignment
+    if ((tokVal == "=") || (tokVal == "+=") || (tokVal == "-=") || (tokVal == "*=") || (tokVal == "/=") || (tokVal == "%=") || (tokVal == "**=") || (tokVal == "<<=") || (tokVal == ">>=") || (tokVal == ">>>=") || (tokVal == "&=") || (tokVal == "^=") || (tokVal == "|=") || (tokVal == "&&=") || (tokVal == "||=") || (tokVal == "??=")) {
       def opTok (this.peek())
       this.advance()
       def right (this.parseAssignment())
