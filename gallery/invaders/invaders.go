@@ -11,206 +11,106 @@ import (
   "unsafe"
 )
 
-
-type GoNullable struct { 
-
+type GoNullable struct {
   value interface{}
-
   has_value bool
-
 }
-
-
 
 
 var r_key_channel chan string
 
-
-
 var (
-
 	msvcrt = syscall.NewLazyDLL("msvcrt.dll")
-
 	kbhit = msvcrt.NewProc("_kbhit")
-
 	getch = msvcrt.NewProc("_getch")
-
 )
-
-
 
 var _ = unsafe.Sizeof(0) // suppress unused import
 
-
-
 func r_setup_raw_mode() {
-
 	if runtime.GOOS != "windows" {
-
 		exec.Command("stty", "-F", "/dev/tty", "cbreak", "min", "1").Run()
-
 		exec.Command("stty", "-F", "/dev/tty", "-echo").Run()
-
 	}
-
 }
-
-
 
 func r_read_key() string {
-
 	if runtime.GOOS == "windows" {
-
 		ret, _, _ := kbhit.Call()
-
 		if ret == 0 {
-
 			time.Sleep(10 * time.Millisecond)
-
 			return ""
-
 		}
-
 		ch, _, _ := getch.Call()
-
 		if ch == 3 { // Ctrl+C
-
 			fmt.Print("\x1b[?25h")
-
 			os.Exit(0)
-
 		}
-
 		if ch == 224 || ch == 0 { // Extended key
-
 			ch2, _, _ := getch.Call()
-
 			switch ch2 {
-
 			case 72:
-
 				return "up"
-
 			case 80:
-
 				return "down"
-
 			case 75:
-
 				return "left"
-
 			case 77:
-
 				return "right"
-
 			}
-
 			return ""
-
 		}
-
 		switch ch {
-
 		case 8:
-
 			return "backspace"
-
 		case 9:
-
 			return "tab"
-
 		case 13:
-
 			return "enter"
-
 		case 27:
-
 			return "escape"
-
 		case 32:
-
 			return "space"
-
 		}
-
 		return string(rune(ch))
-
 	}
-
 	var b []byte = make([]byte, 3)
-
 	n, err := os.Stdin.Read(b[:1])
-
 	if err != nil || n == 0 {
-
 		return ""
-
 	}
-
 	if b[0] == 3 { // Ctrl+C
-
 		fmt.Print("\x1b[?25h")
-
 		os.Exit(0)
-
 	}
-
 	if b[0] == 27 { // Escape sequence
-
 		os.Stdin.Read(b[1:3])
-
 		if b[1] == 91 {
-
 			switch b[2] {
-
 			case 65:
-
 				return "up"
-
 			case 66:
-
 				return "down"
-
 			case 67:
-
 				return "right"
-
 			case 68:
-
 				return "left"
-
 			}
-
 		}
-
 		return "escape"
-
 	}
-
 	switch b[0] {
-
 	case 8, 127:
-
 		return "backspace"
-
 	case 9:
-
 		return "tab"
-
 	case 10, 13:
-
 		return "enter"
-
 	case 32:
-
 		return "space"
-
 	}
-
 	return string(b[0])
-
 }
-
 
 type Alien struct { 
   x int64 `json:"x"` 
