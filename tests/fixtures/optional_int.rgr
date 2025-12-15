@@ -1,0 +1,25 @@
+; Test: Optional int handling
+
+class OptionalIntTest {
+    sfn m@(main):void () {
+        def text "123"
+        
+        ; Parse string to optional int
+        def num (to_int text)
+        
+        ; Check if value exists
+        if (!null? num) {
+            print ("Parsed: " + (unwrap num))
+        }
+        
+        ; Invalid parse
+        def badText "abc"
+        def badNum (to_int badText)
+        
+        if (null? badNum) {
+            print "Parse failed as expected"
+        }
+        
+        print "Done"
+    }
+}

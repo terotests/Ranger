@@ -1830,6 +1830,31 @@ inline std::string  r_cpp_trim(std::string &s)
             }            
         }                 
 
+        ; trim_right - removes whitespace from the right side of string
+        trim_right       cmdTrimRight:string       ( value:string ) { 
+            templates {
+                ranger ( "(trim_right " (e 1 ) ")")                
+                swift3 ( (e 1 ) ".trimmingCharacters(in: .whitespaces)" (imp "Foundation"))                
+                swift6 ( (e 1 ) ".trimmingCharacters(in: .whitespaces)" (imp "Foundation"))                
+                php ( "rtrim(" (e 1 ) ")")
+                cpp ( "r_trim_right( " (e 1) ")" (imp "<string>") (imp "<algorithm>")
+(create_polyfill "
+inline std::string r_trim_right(const std::string& s) {
+    auto end = std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base();
+    return std::string(s.begin(), end);
+}
+") )  
+                scala ( (e 1) ".replaceAll(\"\\\\s+$\", \"\")" )
+                csharp ( (e 1) ".TrimEnd()" (imp "System"))
+                go ("strings.TrimRight(" (e 1) ", \" \\t\\n\\r\")" (imp "strings"))
+                kotlin ( (e 1) ".trimEnd()" )
+                java7 ( (e 1) ".replaceAll(\"\\\\s+$\", \"\")" )
+                python ( (e 1) ".rstrip()" )
+                rust ( (e 1) ".trim_end().to_string()" )
+                * ( (e 1) ".trimEnd()" )
+            }            
+        }
+
 ;         wr.out (").to[collection.mutable.ArrayBuffer]" false
 ; kotlin could use also something like: .split(Regex("(?<=[!?])|(?=[!?])"))
 ; swift : .components(separatedBy:
@@ -2044,31 +2069,34 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
         at      _:string       ( text:string position:int ) { 
             templates {
                 ranger ( '(at ' (e 1) ' ' ( e 2 ) ')')
-                cpp ( 'r_utf8_substr(' (e 1) ', ' (e 2) ', 1)'
+                cpp ( 'r_utf8_char_at(' (e 1) ', ' (e 2) ')'
 (create_polyfill '
-std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
+std::string r_utf8_char_at(const std::string& str, int pos_i)
 {
-    unsigned int start ((unsigned int)start_i);
-    unsigned int leng ((unsigned int)leng_i);
-    if (leng==0) { return ""; }
-    unsigned int c, i, ix, q, min= (unsigned int) std::string::npos, max=(unsigned int)std::string::npos;
+    unsigned int pos ((unsigned int)pos_i);
+    unsigned int c, i, ix, q;
     for (q=0, i=0, ix=str.length(); i < ix; i++, q++)
     {
-        if (q==start){ min=i; }
-        if (q<=start+leng || leng==std::string::npos){ max=i; }
+        if (q==pos){
+            c = (unsigned char) str[i];
+            int char_len = 1;
+            if(c<=127) char_len = 1;
+            else if ((c & 0xE0) == 0xC0) char_len = 2;
+            else if ((c & 0xF0) == 0xE0) char_len = 3;
+            else if ((c & 0xF8) == 0xF0) char_len = 4;
+            else return "";
+            return str.substr(i, char_len);
+        }
         c = (unsigned char) str[i];
         if(c<=127) i+=0;
         else if ((c & 0xE0) == 0xC0) i+=1;
         else if ((c & 0xF0) == 0xE0) i+=2;
         else if ((c & 0xF8) == 0xF0) i+=3;
-        else return ""; //invalid utf8
+        else return "";
     }
-    if (q<=start+leng || leng==std::string::npos){ max=i; }
-    if (min==std::string::npos || max==std::string::npos) { return ""; }
-    return str.substr(min,max);
+    return "";
 }
-')                
-                
+')
                 )    
                 csharp ( (e 1) ".Substring(" (e 2) ", 1)")
                 php ( "substr(" (e 1) ", " (e 2) ", 1)")               
@@ -2184,7 +2212,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
     }
     if (q<=start+leng || leng==std::string::npos){ max=i; }
     if (min==std::string::npos || max==std::string::npos) { return ""; }
-    return str.substr(min,max);
+    return str.substr(min, max - min);
 }
 ')                
                 

@@ -268,6 +268,24 @@ swiftc -o js_parser_swift bin/js_parser_main.swift
 ./js_parser_swift -d
 ```
 
+**Quick Start (C++ on Windows via WSL):**
+
+```bash
+# Compile to C++ (from Ranger root)
+node bin/output.js gallery/js_parser/js_parser_main.rgr -l=cpp -d=gallery/js_parser -o=js_parser.cpp
+
+# Cross-compile from WSL to Windows
+wsl -d Ubuntu -- bash -c "
+  cd /mnt/c/path/to/Ranger/gallery/js_parser && \
+  sed -i 's/\r$//' js_parser.cpp && \
+  x86_64-w64-mingw32-g++-posix -std=c++17 -static -o js_parser_cpp.exe js_parser.cpp
+"
+
+# Run the native Windows binary
+./js_parser_cpp.exe -i input.js --ast
+./js_parser_cpp.exe -d
+```
+
 **Supported ES6+ Features:**
 
 | Category     | Features                                                               |

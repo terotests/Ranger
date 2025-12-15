@@ -17,10 +17,7 @@ data_folder/
 *.map  
 
 # Test output directory
-tests/.output/
-tests/.output-go/
-tests/.output-python/
-tests/.output-rust/
+tests/.output*/
 
 # Generated binary output
 generated/bin/

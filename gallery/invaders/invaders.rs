@@ -447,139 +447,139 @@ fn main() {
   print!("\x1b[?25l");
   game.gameLoop();
 }
-
-use std::io::Read;
-use std::sync::Mutex;
-
-static R_KEY_RECEIVER: Mutex<Option<std::sync::mpsc::Receiver<String>>> = Mutex::new(None);
-
-#[cfg(windows)]
-fn r_setup_raw_mode() {
-    // Windows: nothing needed, we use _getch() which handles raw input
-}
-
-#[cfg(unix)]
-fn r_setup_raw_mode() {
-    use std::process::Command;
-    let _ = Command::new("stty").args(["-F", "/dev/tty", "cbreak", "min", "1", "-echo"]).status();
-}
-
-#[cfg(windows)]
-fn r_read_key() -> Option<String> {
-    extern "C" {
-        fn _getch() -> i32;
-        fn _kbhit() -> i32;
-    }
-    unsafe {
-        if _kbhit() == 0 {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            return None;
-        }
-        let ch = _getch();
-        if ch == 3 { // Ctrl+C
-            print!("\x1b[?25h");
-            std::process::exit(0);
-        }
-        // Handle Ctrl+key combinations (1-26 map to Ctrl+A through Ctrl+Z)
-        if ch >= 1 && ch <= 26 && ch != 3 {
-            let letter = (ch as u8 + 96) as char; // Convert to lowercase letter
-            return Some(format!("ctrl+{}", letter));
-        }
-        if ch == 224 || ch == 0 { // Extended key
-            let ch2 = _getch();
-            return match ch2 {
-                72 => Some("up".to_string()),
-                80 => Some("down".to_string()),
-                75 => Some("left".to_string()),
-                77 => Some("right".to_string()),
-                71 => Some("home".to_string()),
-                79 => Some("end".to_string()),
-                73 => Some("pageup".to_string()),
-                81 => Some("pagedown".to_string()),
-                82 => Some("insert".to_string()),
-                83 => Some("delete".to_string()),
-                59..=68 => Some(format!("f{}", ch2 - 58)), // F1-F10
-                133 => Some("f11".to_string()),
-                134 => Some("f12".to_string()),
-                _ => None,
-            };
-        }
-        return match ch {
-            8 => Some("backspace".to_string()),
-            9 => Some("tab".to_string()),
-            13 => Some("enter".to_string()),
-            27 => Some("escape".to_string()),
-            32 => Some("space".to_string()),
-            _ => Some((ch as u8 as char).to_string()),
-        };
-    }
-}
-
-#[cfg(unix)]
-fn r_read_key() -> Option<String> {
-    let mut buffer = [0u8; 6];
-    let stdin = std::io::stdin();
-    let mut handle = stdin.lock();
-    if handle.read(&mut buffer[0..1]).is_ok() {
-        if buffer[0] == 3 { // Ctrl+C
-            print!("\x1b[?25h");
-            std::process::exit(0);
-        }
-        // Handle Ctrl+key combinations (1-26 map to Ctrl+A through Ctrl+Z)
-        if buffer[0] >= 1 && buffer[0] <= 26 && buffer[0] != 3 {
-            let letter = (buffer[0] + 96) as char;
-            return Some(format!("ctrl+{}", letter));
-        }
-        if buffer[0] == 27 { // Escape sequence
-            if handle.read(&mut buffer[1..2]).is_ok() && buffer[1] == 91 {
-                if handle.read(&mut buffer[2..3]).is_ok() {
-                    // Check for extended sequences like F5-F12, etc.
-                    if buffer[2] >= 49 && buffer[2] <= 54 {
-                        if handle.read(&mut buffer[3..5]).is_ok() {
-                            let seq = &buffer[2..5];
-                            return match seq {
-                                [49, 53, 126] => Some("f5".to_string()),
-                                [49, 55, 126] => Some("f6".to_string()),
-                                [49, 56, 126] => Some("f7".to_string()),
-                                [49, 57, 126] => Some("f8".to_string()),
-                                [50, 48, 126] => Some("f9".to_string()),
-                                [50, 49, 126] => Some("f10".to_string()),
-                                [50, 51, 126] => Some("f11".to_string()),
-                                [50, 52, 126] => Some("f12".to_string()),
-                                [50, 126, _] => Some("insert".to_string()),
-                                [51, 126, _] => Some("delete".to_string()),
-                                [53, 126, _] => Some("pageup".to_string()),
-                                [54, 126, _] => Some("pagedown".to_string()),
-                                _ => Some("escape".to_string()),
-                            };
-                        }
-                    }
-                    return match buffer[2] {
-                        65 => Some("up".to_string()),
-                        66 => Some("down".to_string()),
-                        67 => Some("right".to_string()),
-                        68 => Some("left".to_string()),
-                        70 => Some("end".to_string()),
-                        72 => Some("home".to_string()),
-                        // F1-F4 on some terminals
-                        80 => Some("f1".to_string()),
-                        81 => Some("f2".to_string()),
-                        82 => Some("f3".to_string()),
-                        83 => Some("f4".to_string()),
-                        _ => Some("escape".to_string()),
-                    };
-                }
-            }
-            return Some("escape".to_string());
-        }
-        return match buffer[0] {
-            8 | 127 => Some("backspace".to_string()),
-            9 => Some("tab".to_string()),
-            10 | 13 => Some("enter".to_string()),
-            32 => Some("space".to_string()),
-            _ => Some((buffer[0] as char).to_string()),
-        };
-    }
-    None
-}
+
+use std::io::Read;
+use std::sync::Mutex;
+
+static R_KEY_RECEIVER: Mutex<Option<std::sync::mpsc::Receiver<String>>> = Mutex::new(None);
+
+#[cfg(windows)]
+fn r_setup_raw_mode() {
+    // Windows: nothing needed, we use _getch() which handles raw input
+}
+
+#[cfg(unix)]
+fn r_setup_raw_mode() {
+    use std::process::Command;
+    let _ = Command::new("stty").args(["-F", "/dev/tty", "cbreak", "min", "1", "-echo"]).status();
+}
+
+#[cfg(windows)]
+fn r_read_key() -> Option<String> {
+    extern "C" {
+        fn _getch() -> i32;
+        fn _kbhit() -> i32;
+    }
+    unsafe {
+        if _kbhit() == 0 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            return None;
+        }
+        let ch = _getch();
+        if ch == 3 { // Ctrl+C
+            print!("\x1b[?25h");
+            std::process::exit(0);
+        }
+        // Handle Ctrl+key combinations (1-26 map to Ctrl+A through Ctrl+Z)
+        if ch >= 1 && ch <= 26 && ch != 3 {
+            let letter = (ch as u8 + 96) as char; // Convert to lowercase letter
+            return Some(format!("ctrl+{}", letter));
+        }
+        if ch == 224 || ch == 0 { // Extended key
+            let ch2 = _getch();
+            return match ch2 {
+                72 => Some("up".to_string()),
+                80 => Some("down".to_string()),
+                75 => Some("left".to_string()),
+                77 => Some("right".to_string()),
+                71 => Some("home".to_string()),
+                79 => Some("end".to_string()),
+                73 => Some("pageup".to_string()),
+                81 => Some("pagedown".to_string()),
+                82 => Some("insert".to_string()),
+                83 => Some("delete".to_string()),
+                59..=68 => Some(format!("f{}", ch2 - 58)), // F1-F10
+                133 => Some("f11".to_string()),
+                134 => Some("f12".to_string()),
+                _ => None,
+            };
+        }
+        return match ch {
+            8 => Some("backspace".to_string()),
+            9 => Some("tab".to_string()),
+            13 => Some("enter".to_string()),
+            27 => Some("escape".to_string()),
+            32 => Some("space".to_string()),
+            _ => Some((ch as u8 as char).to_string()),
+        };
+    }
+}
+
+#[cfg(unix)]
+fn r_read_key() -> Option<String> {
+    let mut buffer = [0u8; 6];
+    let stdin = std::io::stdin();
+    let mut handle = stdin.lock();
+    if handle.read(&mut buffer[0..1]).is_ok() {
+        if buffer[0] == 3 { // Ctrl+C
+            print!("\x1b[?25h");
+            std::process::exit(0);
+        }
+        // Handle Ctrl+key combinations (1-26 map to Ctrl+A through Ctrl+Z)
+        if buffer[0] >= 1 && buffer[0] <= 26 && buffer[0] != 3 {
+            let letter = (buffer[0] + 96) as char;
+            return Some(format!("ctrl+{}", letter));
+        }
+        if buffer[0] == 27 { // Escape sequence
+            if handle.read(&mut buffer[1..2]).is_ok() && buffer[1] == 91 {
+                if handle.read(&mut buffer[2..3]).is_ok() {
+                    // Check for extended sequences like F5-F12, etc.
+                    if buffer[2] >= 49 && buffer[2] <= 54 {
+                        if handle.read(&mut buffer[3..5]).is_ok() {
+                            let seq = &buffer[2..5];
+                            return match seq {
+                                [49, 53, 126] => Some("f5".to_string()),
+                                [49, 55, 126] => Some("f6".to_string()),
+                                [49, 56, 126] => Some("f7".to_string()),
+                                [49, 57, 126] => Some("f8".to_string()),
+                                [50, 48, 126] => Some("f9".to_string()),
+                                [50, 49, 126] => Some("f10".to_string()),
+                                [50, 51, 126] => Some("f11".to_string()),
+                                [50, 52, 126] => Some("f12".to_string()),
+                                [50, 126, _] => Some("insert".to_string()),
+                                [51, 126, _] => Some("delete".to_string()),
+                                [53, 126, _] => Some("pageup".to_string()),
+                                [54, 126, _] => Some("pagedown".to_string()),
+                                _ => Some("escape".to_string()),
+                            };
+                        }
+                    }
+                    return match buffer[2] {
+                        65 => Some("up".to_string()),
+                        66 => Some("down".to_string()),
+                        67 => Some("right".to_string()),
+                        68 => Some("left".to_string()),
+                        70 => Some("end".to_string()),
+                        72 => Some("home".to_string()),
+                        // F1-F4 on some terminals
+                        80 => Some("f1".to_string()),
+                        81 => Some("f2".to_string()),
+                        82 => Some("f3".to_string()),
+                        83 => Some("f4".to_string()),
+                        _ => Some("escape".to_string()),
+                    };
+                }
+            }
+            return Some("escape".to_string());
+        }
+        return match buffer[0] {
+            8 | 127 => Some("backspace".to_string()),
+            9 => Some("tab".to_string()),
+            10 | 13 => Some("enter".to_string()),
+            32 => Some("space".to_string()),
+            _ => Some((buffer[0] as char).to_string()),
+        };
+    }
+    None
+}
 
