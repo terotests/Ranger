@@ -21,6 +21,7 @@ tests/.output/
 tests/.output-go/
 tests/.output-python/
 tests/.output-rust/
+tests/.output-kotlin/
 
 # Generated binary output
 generated/bin/

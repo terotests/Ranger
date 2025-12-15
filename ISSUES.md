@@ -694,3 +694,55 @@ Ensured all `.rgr` source files and `bin/output.js` are committed with CRLF line
 ### Future Fix Needed
 
 The parser should be investigated to handle both LF and CRLF line endings consistently. The issue is likely in the Ranger source parser (`ng_RangerLispParser.rgr` or related files) where line ending handling affects token parsing.
+---
+
+## Issue #13: Duplicate Polyfill Generation in C++ Target
+
+**Status:** Open  
+**Severity:** Medium  
+**Found:** December 15, 2025
+
+### Description
+
+When multiple operators in `Lang.rgr` use `create_polyfill` with the same function name, the compiler generates duplicate function definitions in the C++ output, causing compilation errors.
+
+### Example
+
+The `at` operator and `substring` operator both generated `r_utf8_substr` polyfills:
+
+```cpp
+// Generated twice - causes "redefinition" error
+std::string r_utf8_substr(const std::string& str, int start_i, int leng_i) { ... }
+std::string r_utf8_substr(const std::string& str, int start_i, int leng_i) { ... }
+```
+
+### Current Workaround
+
+Renamed the polyfill in `at` operator to `r_utf8_char_at` to avoid collision.
+
+### Proposed Solution
+
+Add a polyfill identifier/tag system to `create_polyfill`:
+
+```ranger
+; Option 1: Named polyfill with explicit ID
+cpp ( 'r_utf8_substr(' (e 1) ', ' (e 2) ', 1)'
+  (create_polyfill "r_utf8_substr" '...')  ; ID as first argument
+)
+
+; Option 2: Auto-detect duplicates via source hash
+; Compiler computes hash of polyfill source and skips if already emitted
+```
+
+### Implementation Ideas
+
+1. **Tag-based deduplication**: Add an optional ID parameter to `create_polyfill`. Track emitted IDs and skip duplicates.
+
+2. **Hash-based deduplication**: Compute a hash (MD5/SHA256) of the polyfill source code. Maintain a set of emitted hashes and skip if already present.
+
+3. **Shared polyfill registry**: Define common polyfills once in a central location and reference them by name from operators.
+
+### Files Affected
+
+- `compiler/Lang.rgr` - polyfill definitions
+- `compiler/ng_RangerGenericClassWriter.rgr` or similar - polyfill emission logic

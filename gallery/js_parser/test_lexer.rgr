@@ -1,0 +1,19 @@
+; Simple lexer test
+Import "js_token.rgr"
+Import "js_lexer.rgr"
+
+class TestLexer {
+  sfn m@(main):void () {
+    def code:string "var x = 1;"
+    print "Testing lexer with: " + code
+    
+    def lexer:Lexer (new Lexer(code))
+    def tokens:[Token] (lexer.tokenize())
+    
+    print "Token count: " + (to_string (array_length tokens))
+    
+    for tokens tok:Token i {
+      print (to_string i) + ": " + tok.tokenType + " = '" + tok.value + "'"
+    }
+  }
+}
