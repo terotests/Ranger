@@ -1,6 +1,6 @@
 # Ranger js_parser ESTree Compliance Report
 
-Generated: 2025-12-15T11:14:29.385Z
+Generated: 2025-12-15T11:34:11.447Z
 
 This document details the ESTree compliance of Ranger's JavaScript parser.
 It compares Ranger's AST output against Acorn (reference ESTree implementation).
