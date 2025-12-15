@@ -693,8 +693,7 @@ Ensured all `.rgr` source files and `bin/output.js` are committed with CRLF line
 
 ### Future Fix Needed
 
-The parser should be investigated to handle both LF and CRLF line endings consistently. The issue is likely in the Ranger source parser (`ng_RangerLispParser.rgr` or related files) where line ending handling affects token parsing.
----
+## The parser should be investigated to handle both LF and CRLF line endings consistently. The issue is likely in the Ranger source parser (`ng_RangerLispParser.rgr` or related files) where line ending handling affects token parsing.
 
 ## Issue #13: Duplicate Polyfill Generation in C++ Target
 

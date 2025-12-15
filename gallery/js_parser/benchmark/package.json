@@ -1,0 +1,18 @@
+{
+  "name": "js-parser-benchmark",
+  "version": "1.0.0",
+  "description": "Benchmark comparing Ranger js_parser vs popular JavaScript parsers",
+  "type": "module",
+  "scripts": {
+    "benchmark": "node benchmark.js",
+    "benchmark:large": "node benchmark.js --large",
+    "features": "node features.js"
+  },
+  "dependencies": {
+    "espree": "^10.3.0",
+    "acorn": "^8.14.0",
+    "@babel/parser": "^7.26.3",
+    "meriyah": "^6.0.2",
+    "esprima": "^4.0.1"
+  }
+}

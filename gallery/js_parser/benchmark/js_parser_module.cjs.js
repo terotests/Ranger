@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 class Token  {
   constructor() {
     this.tokenType = "";
@@ -2200,7 +2199,7 @@ class SimpleParser  {
   parseAssignment () {
     const left = this.parseTernary();
     const tokVal = this.peekValue();
-    if ( tokVal == "=" ) {
+    if ( (((((((((((((((tokVal == "=") || (tokVal == "+=")) || (tokVal == "-=")) || (tokVal == "*=")) || (tokVal == "/=")) || (tokVal == "%=")) || (tokVal == "**=")) || (tokVal == "<<=")) || (tokVal == ">>=")) || (tokVal == ">>>=")) || (tokVal == "&=")) || (tokVal == "^=")) || (tokVal == "|=")) || (tokVal == "&&=")) || (tokVal == "||=")) || (tokVal == "??=") ) {
       const opTok = this.peek();
       this.advance();
       const right = this.parseAssignment();

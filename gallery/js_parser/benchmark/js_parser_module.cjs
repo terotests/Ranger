@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 class Token  {
   constructor() {
     this.tokenType = "";
@@ -1177,48 +1176,15 @@ class SimpleParser  {
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        const argNode = new JSNode();
-        argNode.type = "Identifier";
-        argNode.name = paramTok.value;
-        argNode.start = paramTok.start;
-        argNode.line = paramTok.line;
-        argNode.col = paramTok.col;
-        rest.argument = argNode;
         _func.children.push(rest);
       } else {
         if ( this.matchValue("[") ) {
           const pattern = this.parseArrayPattern();
-          if ( this.matchValue("=") ) {
-            this.advance();
-            const defaultVal = this.parseAssignment();
-            const assignPat = new JSNode();
-            assignPat.type = "AssignmentPattern";
-            assignPat.left = pattern;
-            assignPat.right = defaultVal;
-            assignPat.start = pattern.start;
-            assignPat.line = pattern.line;
-            assignPat.col = pattern.col;
-            _func.children.push(assignPat);
-          } else {
-            _func.children.push(pattern);
-          }
+          _func.children.push(pattern);
         } else {
           if ( this.matchValue("{") ) {
             const pattern_1 = this.parseObjectPattern();
-            if ( this.matchValue("=") ) {
-              this.advance();
-              const defaultVal_1 = this.parseAssignment();
-              const assignPat_1 = new JSNode();
-              assignPat_1.type = "AssignmentPattern";
-              assignPat_1.left = pattern_1;
-              assignPat_1.right = defaultVal_1;
-              assignPat_1.start = pattern_1.start;
-              assignPat_1.line = pattern_1.line;
-              assignPat_1.col = pattern_1.col;
-              _func.children.push(assignPat_1);
-            } else {
-              _func.children.push(pattern_1);
-            }
+            _func.children.push(pattern_1);
           } else {
             const paramTok_1 = this.expect("Identifier");
             const param = new JSNode();
@@ -1227,20 +1193,7 @@ class SimpleParser  {
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            if ( this.matchValue("=") ) {
-              this.advance();
-              const defaultVal_2 = this.parseAssignment();
-              const assignPat_2 = new JSNode();
-              assignPat_2.type = "AssignmentPattern";
-              assignPat_2.left = param;
-              assignPat_2.right = defaultVal_2;
-              assignPat_2.start = param.start;
-              assignPat_2.line = param.line;
-              assignPat_2.col = param.col;
-              _func.children.push(assignPat_2);
-            } else {
-              _func.children.push(param);
-            }
+            _func.children.push(param);
           }
         }
       }
@@ -1284,48 +1237,15 @@ class SimpleParser  {
         rest.start = restTok.start;
         rest.line = restTok.line;
         rest.col = restTok.col;
-        const argNode = new JSNode();
-        argNode.type = "Identifier";
-        argNode.name = paramTok.value;
-        argNode.start = paramTok.start;
-        argNode.line = paramTok.line;
-        argNode.col = paramTok.col;
-        rest.argument = argNode;
         _func.children.push(rest);
       } else {
         if ( this.matchValue("[") ) {
           const pattern = this.parseArrayPattern();
-          if ( this.matchValue("=") ) {
-            this.advance();
-            const defaultVal = this.parseAssignment();
-            const assignPat = new JSNode();
-            assignPat.type = "AssignmentPattern";
-            assignPat.left = pattern;
-            assignPat.right = defaultVal;
-            assignPat.start = pattern.start;
-            assignPat.line = pattern.line;
-            assignPat.col = pattern.col;
-            _func.children.push(assignPat);
-          } else {
-            _func.children.push(pattern);
-          }
+          _func.children.push(pattern);
         } else {
           if ( this.matchValue("{") ) {
             const pattern_1 = this.parseObjectPattern();
-            if ( this.matchValue("=") ) {
-              this.advance();
-              const defaultVal_1 = this.parseAssignment();
-              const assignPat_1 = new JSNode();
-              assignPat_1.type = "AssignmentPattern";
-              assignPat_1.left = pattern_1;
-              assignPat_1.right = defaultVal_1;
-              assignPat_1.start = pattern_1.start;
-              assignPat_1.line = pattern_1.line;
-              assignPat_1.col = pattern_1.col;
-              _func.children.push(assignPat_1);
-            } else {
-              _func.children.push(pattern_1);
-            }
+            _func.children.push(pattern_1);
           } else {
             const paramTok_1 = this.expect("Identifier");
             const param = new JSNode();
@@ -1334,20 +1254,7 @@ class SimpleParser  {
             param.start = paramTok_1.start;
             param.line = paramTok_1.line;
             param.col = paramTok_1.col;
-            if ( this.matchValue("=") ) {
-              this.advance();
-              const defaultVal_2 = this.parseAssignment();
-              const assignPat_2 = new JSNode();
-              assignPat_2.type = "AssignmentPattern";
-              assignPat_2.left = param;
-              assignPat_2.right = defaultVal_2;
-              assignPat_2.start = param.start;
-              assignPat_2.line = param.line;
-              assignPat_2.col = param.col;
-              _func.children.push(assignPat_2);
-            } else {
-              _func.children.push(param);
-            }
+            _func.children.push(param);
           }
         }
       }
@@ -1409,13 +1316,13 @@ class SimpleParser  {
     if ( this.matchValue("extends") ) {
       this.advance();
       const superTok = this.expect("Identifier");
-      const superClassNode = new JSNode();
-      superClassNode.type = "Identifier";
-      superClassNode.name = superTok.value;
-      superClassNode.start = superTok.start;
-      superClassNode.line = superTok.line;
-      superClassNode.col = superTok.col;
-      classNode.superClass = superClassNode;
+      const superClass = new JSNode();
+      superClass.type = "Identifier";
+      superClass.name = superTok.value;
+      superClass.start = superTok.start;
+      superClass.line = superTok.line;
+      superClass.col = superTok.col;
+      classNode.left = superClass;
     }
     const body = new JSNode();
     body.type = "ClassBody";
@@ -1445,33 +1352,26 @@ class SimpleParser  {
       method.static = true;
       this.advance();
     }
-    let methodKind = "method";
+    let kind = "method";
     if ( this.matchValue("get") ) {
       const nextTok = this.peekAt(1);
       if ( nextTok != "(" ) {
-        methodKind = "get";
+        kind = "get";
         this.advance();
       }
     }
     if ( this.matchValue("set") ) {
       const nextTok_1 = this.peekAt(1);
       if ( nextTok_1 != "(" ) {
-        methodKind = "set";
+        kind = "set";
         this.advance();
       }
     }
     const nameTok = this.expect("Identifier");
-    const keyNode = new JSNode();
-    keyNode.type = "Identifier";
-    keyNode.name = nameTok.value;
-    keyNode.start = nameTok.start;
-    keyNode.line = nameTok.line;
-    keyNode.col = nameTok.col;
-    method.key = keyNode;
+    method.name = nameTok.value;
     if ( nameTok.value == "constructor" ) {
-      methodKind = "constructor";
+      kind = "constructor";
     }
-    method.kind = methodKind;
     const _func = new JSNode();
     _func.type = "FunctionExpression";
     _func.start = nameTok.start;
@@ -4676,64 +4576,12 @@ JSParserMain.runDemo = function() {
   const output = (printer).print(program);
   console.log(output);
 };
-/* static JavaSript main routine at the end of the JS file */
-async function __js_main() {
-  const argCnt = (process.argv.length - 2);
-  if ( argCnt == 0 ) {
-    JSParserMain.showHelp();
-    return;
-  }
-  let inputFile = "";
-  let outputFile = "";
-  let runDefault = false;
-  let showAst = false;
-  let i = 0;
-  while (i < argCnt) {
-    const arg = process.argv[ 2 + i];
-    if ( (arg == "--help") || (arg == "-h") ) {
-      JSParserMain.showHelp();
-      return;
-    }
-    if ( arg == "-d" ) {
-      runDefault = true;
-      i = i + 1;
-    } else {
-      if ( arg == "-i" ) {
-        i = i + 1;
-        if ( i < argCnt ) {
-          inputFile = process.argv[ 2 + i];
-        }
-        i = i + 1;
-      } else {
-        if ( arg == "-o" ) {
-          i = i + 1;
-          if ( i < argCnt ) {
-            outputFile = process.argv[ 2 + i];
-          }
-          i = i + 1;
-        } else {
-          if ( arg == "--ast" ) {
-            showAst = true;
-            i = i + 1;
-          } else {
-            i = i + 1;
-          }
-        }
-      }
-    }
-  };
-  if ( runDefault ) {
-    JSParserMain.runDemo();
-    return;
-  }
-  if ( (inputFile.length) > 0 ) {
-    if ( (outputFile.length) > 0 ) {
-      await JSParserMain.processFile(inputFile, outputFile);
-    } else {
-      await JSParserMain.parseFile(inputFile);
-    }
-    return;
-  }
-  JSParserMain.showHelp();
-}
-__js_main();
+module.exports.Token = Token;
+module.exports.Lexer = Lexer;
+module.exports.Position = Position;
+module.exports.SourceLocation = SourceLocation;
+module.exports.JSNode = JSNode;
+module.exports.SimpleParser = SimpleParser;
+module.exports.ASTPrinter = ASTPrinter;
+module.exports.JSPrinter = JSPrinter;
+module.exports.JSParserMain = JSParserMain;

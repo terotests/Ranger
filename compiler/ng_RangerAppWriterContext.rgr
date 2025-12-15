@@ -841,6 +841,11 @@ class RangerAppWriterContext {
   }
   fn initReservedWords:boolean () {
     ; reserved_word_transformations
+    ; Supports language-specific reserved words:
+    ;   reserved_words {
+    ;       * { map FnMap }           ; applies to all languages
+    ;       rust { type _type }       ; applies only to rust
+    ;   }
     if(!null? reservedWords) {
       return true
     }
@@ -854,15 +859,26 @@ class RangerAppWriterContext {
     }
     def cmds:CodeNode
     def langNodes:CodeNode (itemAt lang.children 1)
+    def targetLang (this.getTargetLang())
     for langNodes.children lch:CodeNode i {
       def fc:CodeNode (lch.getFirst())
       if (fc.vref == "reserved_words") {
         def n:CodeNode (lch.getSecond())
         reservedWords = (lch.getSecond())
-        for reservedWords.children ch:CodeNode i {
-          def word (ch.getFirst())
-          def transform (ch.getSecond())
-          set refTransform word.vref transform.vref
+        ; Iterate through language blocks (* or specific language)
+        for reservedWords.children langBlock:CodeNode i {
+          def langKey (langBlock.getFirst())
+          def langKeyName langKey.vref
+          ; Check if this block applies to current target language
+          ; * applies to all, otherwise must match target language
+          if ((langKeyName == "*") || (langKeyName == targetLang)) {
+            def wordsNode (langBlock.getSecond())
+            for wordsNode.children ch:CodeNode i {
+              def word (ch.getFirst())
+              def transform (ch.getSecond())
+              set refTransform word.vref transform.vref
+            }
+          }
         }
       }
     }
