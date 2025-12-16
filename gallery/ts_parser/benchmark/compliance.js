@@ -1009,6 +1009,172 @@ const features = [
           n.nodeType === "AccessorProperty"
       ),
   },
+
+  // === Async/Await Parsing ===
+  {
+    name: "Async Function Declaration",
+    category: "Async/Await",
+    code: "async function fetchData() { return 1; }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "FunctionDeclaration" &&
+          (n.async === true || n.kind === "async")
+      ),
+  },
+  {
+    name: "Async Function with Return Type",
+    category: "Async/Await",
+    code: "async function fetchData(): Promise<string> { return ''; }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "FunctionDeclaration" &&
+          (n.async === true || n.kind === "async")
+      ),
+  },
+  {
+    name: "Async Arrow Function",
+    category: "Async/Await",
+    code: "const fn = async () => { return 1; };",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "ArrowFunctionExpression" &&
+          (n.async === true || n.kind === "async")
+      ),
+  },
+  {
+    name: "Async Arrow Function with Param",
+    category: "Async/Await",
+    code: "const fn = async (x) => x * 2;",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "ArrowFunctionExpression" &&
+          (n.async === true || n.kind === "async")
+      ),
+  },
+  {
+    name: "Async Arrow Single Param No Parens",
+    category: "Async/Await",
+    code: "const fn = async x => x * 2;",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "ArrowFunctionExpression" &&
+          (n.async === true || n.kind === "async")
+      ),
+  },
+  {
+    name: "Await Expression",
+    category: "Async/Await",
+    code: "async function fn() { const x = await promise; }",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "AwaitExpression"),
+  },
+  {
+    name: "Await Expression with Call",
+    category: "Async/Await",
+    code: "async function fn() { const x = await fetchData(); }",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "AwaitExpression"),
+  },
+  {
+    name: "Await Expression Chained",
+    category: "Async/Await",
+    code: "async function fn() { const x = await (await fetch()).json(); }",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "AwaitExpression"),
+  },
+  {
+    name: "For-Await-Of Loop",
+    category: "Async/Await",
+    code: "async function fn() { for await (const x of iter) {} }",
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "ForOfStatement" && n.await === true),
+  },
+  {
+    name: "Async Method in Class",
+    category: "Async/Await",
+    code: "class Foo { async fetchData() { return 1; } }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "MethodDefinition" &&
+          (n.async === true || n.kind === "async")
+      ),
+  },
+  {
+    name: "Async Method in Object Literal",
+    category: "Async/Await",
+    code: "const obj = { async fetch() { return 1; } };",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "Property" && n.async === true && n.method === true
+      ),
+  },
+  {
+    name: "Export Async Function",
+    category: "Async/Await",
+    code: "export async function fetchData() { return 1; }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "FunctionDeclaration" &&
+          (n.async === true || n.kind === "async")
+      ),
+  },
+  {
+    name: "Export Default Async Function",
+    category: "Async/Await",
+    code: "export default async function() { return 1; }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "ExportDefaultDeclaration" ||
+          (n.nodeType === "FunctionDeclaration" &&
+            (n.async === true || n.kind === "async"))
+      ),
+  },
+  {
+    name: "Async IIFE",
+    category: "Async/Await",
+    code: "(async () => { await promise; })();",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "ArrowFunctionExpression" &&
+          (n.async === true || n.kind === "async")
+      ),
+  },
+  {
+    name: "Await with Ternary",
+    category: "Async/Await",
+    code: "async function fn() { const x = condition ? await a : await b; }",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "AwaitExpression"),
+  },
+  {
+    name: "Async Generator Function",
+    category: "Async/Await",
+    code: "async function* gen() { yield await promise; }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "FunctionDeclaration" &&
+          n.generator === true &&
+          (n.async === true || n.kind === "async")
+      ),
+  },
 ];
 
 // Parse with Ranger

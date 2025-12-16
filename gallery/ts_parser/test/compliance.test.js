@@ -14,28 +14,31 @@ const {
   TSParserSimple,
 } = require("../benchmark/ts_parser_module.cjs");
 
-// Helper: Find node in Ranger AST
-function findNode(ast, predicate) {
+// Helper: Find node in Ranger AST (with cycle detection)
+function findNode(ast, predicate, visited = new Set()) {
   if (!ast || typeof ast !== "object") return false;
+  if (visited.has(ast)) return false;  // Prevent infinite loops
+  visited.add(ast);
+  
   if (predicate(ast)) return true;
 
   if (ast.children && Array.isArray(ast.children)) {
     for (const child of ast.children) {
-      if (findNode(child, predicate)) return true;
+      if (findNode(child, predicate, visited)) return true;
     }
   }
   if (ast.params && Array.isArray(ast.params)) {
     for (const param of ast.params) {
-      if (findNode(param, predicate)) return true;
+      if (findNode(param, predicate, visited)) return true;
     }
   }
   if (ast.decorators && Array.isArray(ast.decorators)) {
     for (const dec of ast.decorators) {
-      if (findNode(dec, predicate)) return true;
+      if (findNode(dec, predicate, visited)) return true;
     }
   }
   for (const key of ["left", "right", "body", "init", "typeAnnotation"]) {
-    if (ast[key] && findNode(ast[key], predicate)) return true;
+    if (ast[key] && findNode(ast[key], predicate, visited)) return true;
   }
   return false;
 }
@@ -1012,6 +1015,182 @@ describe("Tricky Cases", () => {
         (n) =>
           n.nodeType === "PropertyDefinition" ||
           n.nodeType === "AccessorProperty"
+      )
+    ).toBe(true);
+  });
+});
+
+// ============================================================================
+// Async/Await Parsing
+// ============================================================================
+
+describe("Async/Await Parsing", () => {
+  it("Async Function Declaration", () => {
+    const ast = parse("async function fetchData() { return 1; }");
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "FunctionDeclaration" &&
+          (n.async === true || n.kind === "async")
+      )
+    ).toBe(true);
+  });
+
+  it("Async Function Declaration with Return Type", () => {
+    const ast = parse(
+      "async function fetchData(): Promise<string> { return ''; }"
+    );
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "FunctionDeclaration" &&
+          (n.async === true || n.kind === "async")
+      )
+    ).toBe(true);
+  });
+
+  it("Async Arrow Function", () => {
+    const ast = parse("const fn = async () => { return 1; };");
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "ArrowFunctionExpression" &&
+          (n.async === true || n.kind === "async")
+      )
+    ).toBe(true);
+  });
+
+  it("Async Arrow Function with Param", () => {
+    const ast = parse("const fn = async (x) => x * 2;");
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "ArrowFunctionExpression" &&
+          (n.async === true || n.kind === "async")
+      )
+    ).toBe(true);
+  });
+
+  it("Async Arrow Function Single Param No Parens", () => {
+    const ast = parse("const fn = async x => x * 2;");
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "ArrowFunctionExpression" &&
+          (n.async === true || n.kind === "async")
+      )
+    ).toBe(true);
+  });
+
+  it("Await Expression", () => {
+    const ast = parse("async function fn() { const x = await promise; }");
+    expect(findNode(ast, (n) => n.nodeType === "AwaitExpression")).toBe(true);
+  });
+
+  it("Await Expression with Call", () => {
+    const ast = parse("async function fn() { const x = await fetchData(); }");
+    const awaitNode = findNode(ast, (n) => n.nodeType === "AwaitExpression");
+    expect(awaitNode).toBe(true);
+  });
+
+  it("Await Expression Chained", () => {
+    const ast = parse(
+      "async function fn() { const x = await (await fetch()).json(); }"
+    );
+    // Should find at least one AwaitExpression
+    expect(findNode(ast, (n) => n.nodeType === "AwaitExpression")).toBe(true);
+  });
+
+  it("For-Await-Of Loop", () => {
+    const ast = parse("async function fn() { for await (const x of iter) {} }");
+    expect(
+      findNode(ast, (n) => n.nodeType === "ForOfStatement" && n.await === true)
+    ).toBe(true);
+  });
+
+  it("Async Method in Class", () => {
+    const ast = parse("class Foo { async fetchData() { return 1; } }");
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "MethodDefinition" &&
+          (n.async === true || n.kind === "async")
+      )
+    ).toBe(true);
+  });
+
+  it("Async Method in Object Literal", () => {
+    const ast = parse("const obj = { async fetch() { return 1; } };");
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          (n.nodeType === "Property" || n.nodeType === "MethodDefinition") &&
+          (n.async === true || n.kind === "async" || n.method === true)
+      )
+    ).toBe(true);
+  });
+
+  it("Export Async Function", () => {
+    const ast = parse("export async function fetchData() { return 1; }");
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "FunctionDeclaration" &&
+          (n.async === true || n.kind === "async")
+      )
+    ).toBe(true);
+  });
+
+  it("Export Default Async Function", () => {
+    const ast = parse("export default async function() { return 1; }");
+    // Either finds async function or the export wrapping it
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "ExportDefaultDeclaration" ||
+          (n.nodeType === "FunctionDeclaration" &&
+            (n.async === true || n.kind === "async"))
+      )
+    ).toBe(true);
+  });
+
+  it("Async IIFE", () => {
+    const ast = parse("(async () => { await promise; })();");
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "ArrowFunctionExpression" &&
+          (n.async === true || n.kind === "async")
+      )
+    ).toBe(true);
+  });
+
+  it("Await with Ternary", () => {
+    const ast = parse(
+      "async function fn() { const x = condition ? await a : await b; }"
+    );
+    expect(findNode(ast, (n) => n.nodeType === "AwaitExpression")).toBe(true);
+  });
+
+  it("Async Generator Function", () => {
+    const ast = parse("async function* gen() { yield await promise; }");
+    expect(
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "FunctionDeclaration" &&
+          n.generator === true &&
+          (n.async === true || n.kind === "async")
       )
     ).toBe(true);
   });

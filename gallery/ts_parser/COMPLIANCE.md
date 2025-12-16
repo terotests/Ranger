@@ -15,7 +15,7 @@ node compliance.js
 ```
 
 This will:
-1. Run all 121 TypeScript feature tests against the Ranger parser
+1. Run all 137 TypeScript feature tests against the Ranger parser
 2. Display results in the terminal
 3. Generate this COMPLIANCE.md report
 
@@ -33,9 +33,9 @@ The report is automatically regenerated each time you run the compliance test.
 
 | Metric | Count |
 |--------|-------|
-| ✅ Features Supported | 121 / 121 |
-| 🔧 Needs Implementation | 0 / 121 |
-| ❌ Parse Errors | 0 / 121 |
+| ✅ Features Supported | 137 / 137 |
+| 🔧 Needs Implementation | 0 / 137 |
+| ❌ Parse Errors | 0 / 137 |
 
 ## Category Breakdown
 
@@ -54,6 +54,7 @@ The report is automatically regenerated each time you run the compliance test.
 | JavaScript | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 24/24 (100%) |
 | JSX | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 8/8 (100%) |
 | Tricky Cases | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 14/14 (100%) |
+| Async/Await | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 16/16 (100%) |
 
 ## Detailed Results
 
@@ -242,6 +243,27 @@ The report is automatically regenerated each time you run the compliance test.
 | Rest in Tuple Type | ✅ |
 | Override Modifier | ✅ |
 | Accessor Keyword | ✅ |
+
+### Async/Await
+
+| Feature | Status |
+|---------|--------|
+| Async Function Declaration | ✅ |
+| Async Function with Return Type | ✅ |
+| Async Arrow Function | ✅ |
+| Async Arrow Function with Param | ✅ |
+| Async Arrow Single Param No Parens | ✅ |
+| Await Expression | ✅ |
+| Await Expression with Call | ✅ |
+| Await Expression Chained | ✅ |
+| For-Await-Of Loop | ✅ |
+| Async Method in Class | ✅ |
+| Async Method in Object Literal | ✅ |
+| Export Async Function | ✅ |
+| Export Default Async Function | ✅ |
+| Async IIFE | ✅ |
+| Await with Ternary | ✅ |
+| Async Generator Function | ✅ |
 
 ---
 
