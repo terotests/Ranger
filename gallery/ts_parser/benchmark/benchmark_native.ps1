@@ -1,5 +1,5 @@
-# Benchmark: Rust vs C++ TypeScript Parser
-# Compares parsing performance of native builds
+# Benchmark: TypeScript Parser Cross-Language Comparison
+# Compares parsing performance of Rust, C++, Go, and Node.js builds
 
 param(
     [int]$Iterations = 100
@@ -10,18 +10,34 @@ $LargeFile = "gallery\ts_parser\benchmark\samples\large.ts"
 
 $RustExe = ".\gallery\ts_parser\bin\ts_parser_rust.exe"
 $CppExe = ".\gallery\ts_parser\bin\ts_parser_cpp.exe"
+$GoExe = ".\gallery\ts_parser\bin\ts_parser_go.exe"
+$NodeJs = ".\gallery\ts_parser\bin\ts_parser_main.js"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Rust vs C++ TypeScript Parser Benchmark" -ForegroundColor Cyan
+Write-Host "  TypeScript Parser Cross-Language Benchmark" -ForegroundColor Cyan
+Write-Host "  Rust vs C++ vs Go vs Node.js" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Iterations per test: $Iterations"
 Write-Host ""
 
+# Check which executables exist
+$hasRust = Test-Path $RustExe
+$hasCpp = Test-Path $CppExe
+$hasGo = Test-Path $GoExe
+$hasNode = Test-Path $NodeJs
+
+if (-not $hasRust) { Write-Host "Warning: Rust executable not found at $RustExe" -ForegroundColor Red }
+if (-not $hasCpp) { Write-Host "Warning: C++ executable not found at $CppExe" -ForegroundColor Red }
+if (-not $hasGo) { Write-Host "Warning: Go executable not found at $GoExe" -ForegroundColor Red }
+if (-not $hasNode) { Write-Host "Warning: Node.js script not found at $NodeJs" -ForegroundColor Red }
+
 # Warm up
 Write-Host "Warming up..." -ForegroundColor Yellow
-& $RustExe -i $SmallFile --show-interfaces | Out-Null
-& $CppExe -i $SmallFile --show-interfaces | Out-Null
+if ($hasRust) { & $RustExe -i $SmallFile --show-interfaces 2>$null | Out-Null }
+if ($hasCpp) { & $CppExe -i $SmallFile --show-interfaces 2>$null | Out-Null }
+if ($hasGo) { & $GoExe -i $SmallFile --show-interfaces 2>$null | Out-Null }
+if ($hasNode) { & node $NodeJs -i $SmallFile --show-interfaces 2>$null | Out-Null }
 Write-Host ""
 
 # Function to benchmark
@@ -35,7 +51,7 @@ function Measure-Parser {
     $times = @()
     for ($i = 0; $i -lt $Iterations; $i++) {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        & $Command | Out-Null
+        & $Command 2>$null | Out-Null
         $sw.Stop()
         $times += $sw.Elapsed.TotalMilliseconds
     }
@@ -52,28 +68,57 @@ function Measure-Parser {
     }
 }
 
+function Show-Results {
+    param(
+        [array]$Results,
+        [string]$FileType
+    )
+    
+    Write-Host ""
+    Write-Host "Results ($FileType):" -ForegroundColor Cyan
+    
+    # Sort by average time
+    $sorted = $Results | Sort-Object { $_.Avg }
+    $fastest = $sorted[0].Avg
+    
+    foreach ($r in $sorted) {
+        $ratio = $r.Avg / $fastest
+        $ratioStr = if ($ratio -eq 1) { "(fastest)" } else { ("{0:F2}x slower" -f $ratio) }
+        Write-Host ("  {0,-6} avg={1,7:F3}ms  min={2,7:F3}ms  max={3,7:F3}ms  {4}" -f ($r.Name + ":"), $r.Avg, $r.Min, $r.Max, $ratioStr)
+    }
+    
+    Write-Host ""
+    Write-Host ("  Winner: {0}" -f $sorted[0].Name) -ForegroundColor Green
+}
+
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  Small File: $SmallFile" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
-Write-Host "Testing Rust..." -ForegroundColor Yellow
-$rustSmall = Measure-Parser -Name "Rust" -Command { & $RustExe -i $SmallFile --show-interfaces } -Iterations $Iterations
+$smallResults = @()
 
-Write-Host "Testing C++..." -ForegroundColor Yellow
-$cppSmall = Measure-Parser -Name "C++" -Command { & $CppExe -i $SmallFile --show-interfaces } -Iterations $Iterations
-
-Write-Host ""
-Write-Host "Results (Small File):" -ForegroundColor Cyan
-Write-Host ("  Rust:  avg={0:F3}ms  min={1:F3}ms  max={2:F3}ms" -f $rustSmall.Avg, $rustSmall.Min, $rustSmall.Max)
-Write-Host ("  C++:   avg={0:F3}ms  min={1:F3}ms  max={2:F3}ms" -f $cppSmall.Avg, $cppSmall.Min, $cppSmall.Max)
-
-$ratioSmall = $cppSmall.Avg / $rustSmall.Avg
-if ($ratioSmall -gt 1) {
-    Write-Host ("  Winner: Rust is {0:F2}x faster" -f $ratioSmall) -ForegroundColor Green
-} else {
-    Write-Host ("  Winner: C++ is {0:F2}x faster" -f (1/$ratioSmall)) -ForegroundColor Green
+if ($hasRust) {
+    Write-Host "Testing Rust..." -ForegroundColor Yellow
+    $smallResults += Measure-Parser -Name "Rust" -Command { & $RustExe -i $SmallFile --show-interfaces } -Iterations $Iterations
 }
+
+if ($hasCpp) {
+    Write-Host "Testing C++..." -ForegroundColor Yellow
+    $smallResults += Measure-Parser -Name "C++" -Command { & $CppExe -i $SmallFile --show-interfaces } -Iterations $Iterations
+}
+
+if ($hasGo) {
+    Write-Host "Testing Go..." -ForegroundColor Yellow
+    $smallResults += Measure-Parser -Name "Go" -Command { & $GoExe -i $SmallFile --show-interfaces } -Iterations $Iterations
+}
+
+if ($hasNode) {
+    Write-Host "Testing Node.js..." -ForegroundColor Yellow
+    $smallResults += Measure-Parser -Name "Node" -Command { & node $NodeJs -i $SmallFile --show-interfaces } -Iterations $Iterations
+}
+
+Show-Results -Results $smallResults -FileType "Small File"
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
@@ -81,29 +126,37 @@ Write-Host "  Large File: $LargeFile" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
-Write-Host "Testing Rust..." -ForegroundColor Yellow
-$rustLarge = Measure-Parser -Name "Rust" -Command { & $RustExe -i $LargeFile --show-interfaces } -Iterations $Iterations
+$largeResults = @()
 
-Write-Host "Testing C++..." -ForegroundColor Yellow
-$cppLarge = Measure-Parser -Name "C++" -Command { & $CppExe -i $LargeFile --show-interfaces } -Iterations $Iterations
-
-Write-Host ""
-Write-Host "Results (Large File):" -ForegroundColor Cyan
-Write-Host ("  Rust:  avg={0:F3}ms  min={1:F3}ms  max={2:F3}ms" -f $rustLarge.Avg, $rustLarge.Min, $rustLarge.Max)
-Write-Host ("  C++:   avg={0:F3}ms  min={1:F3}ms  max={2:F3}ms" -f $cppLarge.Avg, $cppLarge.Min, $cppLarge.Max)
-
-$ratioLarge = $cppLarge.Avg / $rustLarge.Avg
-if ($ratioLarge -gt 1) {
-    Write-Host ("  Winner: Rust is {0:F2}x faster" -f $ratioLarge) -ForegroundColor Green
-} else {
-    Write-Host ("  Winner: C++ is {0:F2}x faster" -f (1/$ratioLarge)) -ForegroundColor Green
+if ($hasRust) {
+    Write-Host "Testing Rust..." -ForegroundColor Yellow
+    $largeResults += Measure-Parser -Name "Rust" -Command { & $RustExe -i $LargeFile --show-interfaces } -Iterations $Iterations
 }
+
+if ($hasCpp) {
+    Write-Host "Testing C++..." -ForegroundColor Yellow
+    $largeResults += Measure-Parser -Name "C++" -Command { & $CppExe -i $LargeFile --show-interfaces } -Iterations $Iterations
+}
+
+if ($hasGo) {
+    Write-Host "Testing Go..." -ForegroundColor Yellow
+    $largeResults += Measure-Parser -Name "Go" -Command { & $GoExe -i $LargeFile --show-interfaces } -Iterations $Iterations
+}
+
+if ($hasNode) {
+    Write-Host "Testing Node.js..." -ForegroundColor Yellow
+    $largeResults += Measure-Parser -Name "Node" -Command { & node $NodeJs -i $LargeFile --show-interfaces } -Iterations $Iterations
+}
+
+Show-Results -Results $largeResults -FileType "Large File"
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Summary" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Both executables are native Windows binaries." -ForegroundColor Green
-Write-Host "Rust: compiled with rustc -O" -ForegroundColor Yellow
-Write-Host "C++:  cross-compiled with x86_64-w64-mingw32-g++-posix -O3" -ForegroundColor Yellow
+Write-Host "Compilers/Runtimes:" -ForegroundColor Green
+Write-Host "Rust:    compiled with rustc -O" -ForegroundColor Yellow
+Write-Host "C++:     cross-compiled with x86_64-w64-mingw32-g++-posix -O3" -ForegroundColor Yellow
+Write-Host "Go:      compiled with go build" -ForegroundColor Yellow
+Write-Host "Node.js: interpreted via Node.js runtime" -ForegroundColor Yellow

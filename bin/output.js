@@ -15471,7 +15471,10 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         const theEnd = wr.getTag("file_end");
         theEnd.newline();
         theEnd.out("// Main entry point", true);
-        theEnd.out("func main() {", true);
+        theEnd.out("@main", true);
+        theEnd.out("struct Main {", true);
+        theEnd.indent(1);
+        theEnd.out("static func main() {", true);
         theEnd.indent(1);
         const subCtx_3 = variant_4.fnCtx;
         subCtx_3.is_function = true;
@@ -15479,7 +15482,8 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         theEnd.newline();
         theEnd.indent(-1);
         theEnd.out("}", true);
-        theEnd.out("main()", true);
+        theEnd.indent(-1);
+        theEnd.out("}", true);
       }
     };
   };

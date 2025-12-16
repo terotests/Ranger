@@ -798,9 +798,12 @@ class RangerSwift6ClassWriter {
         def theEnd (wr.getTag("file_end"))
 
         theEnd.newline()
-        ; Swift 6 compatible main entry point - using traditional main function
+        ; Swift 6 compatible main entry point - using @main attribute
         theEnd.out("// Main entry point" true)
-        theEnd.out("func main() {" true)
+        theEnd.out("@main" true)
+        theEnd.out("struct Main {" true)
+        theEnd.indent(1)
+        theEnd.out("static func main() {" true)
         theEnd.indent(1)
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.is_function = true
@@ -808,7 +811,8 @@ class RangerSwift6ClassWriter {
         theEnd.newline()
         theEnd.indent(-1)
         theEnd.out("}" true)
-        theEnd.out("main()" true)
+        theEnd.indent(-1)
+        theEnd.out("}" true)
       }
     }
   }

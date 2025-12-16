@@ -583,7 +583,7 @@ class TSParserSimple {
         push extendsList nextType
       }
       ; Store in children for extends
-      for extendsList ext:TSNode ext:TSNode {
+      for extendsList ext:TSNode i {
         def wrapper (new TSNode())
         wrapper.nodeType = "TSExpressionWithTypeArguments"
         wrapper.left = ext
