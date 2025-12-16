@@ -1,0 +1,11 @@
+{
+  "iconDefinitions": {
+    "_ranger_file": {
+      "iconPath": "./ranger-file-icon.svg"
+    }
+  },
+  "fileExtensions": {
+    "rgr": "_ranger_file",
+    "ranger": "_ranger_file"
+  }
+}

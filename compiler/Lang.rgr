@@ -73,6 +73,18 @@ language {
         cpp {
             operator _operator
             static _static
+            union _union
+            bool _bool
+            ref _ref
+            class _class
+            new _new
+            delete _delete
+            template _template
+            namespace _namespace
+            virtual _virtual
+            public _public
+            private _private
+            protected _protected
         }
         go {
             type _type
@@ -80,6 +92,9 @@ language {
         rust {
             type r#type
             static r#static
+            ref r#ref
+            union r#union
+            bool r#bool
         }
         swift3 {
             operator _operator

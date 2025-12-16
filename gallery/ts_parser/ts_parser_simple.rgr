@@ -1,0 +1,842 @@
+; TypeScript Parser - Using unified node approach
+; All AST nodes use a single TSNode class to avoid type issues
+
+Import "ts_token.rgr"
+Import "ts_lexer.rgr"
+
+; Unified AST node - all node types use this
+class TSNode {
+  def nodeType:string ""
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+  
+  ; Generic value fields
+  def name:string ""          ; identifier names, type names
+  def value:string ""         ; literal values, operators
+  def kind:string ""          ; declaration kind (let/const), method kind
+  
+  ; Flags
+  def optional:boolean false
+  def readonly:boolean false
+  
+  ; Child nodes
+  def children:[TSNode]       ; statements, members, types in union
+  def params:[TSNode]         ; function params, type params
+  def left@(optional):TSNode
+  def right@(optional):TSNode
+  def body@(optional):TSNode
+  def init@(optional):TSNode
+  def typeAnnotation@(optional):TSNode
+}
+
+class TSParserSimple {
+  def tokens:[Token]
+  def pos:int 0
+  def currentToken@(optional):Token
+  def quiet:boolean false   ; suppress error messages
+  
+  fn initParser:void (toks:[Token]) {
+    this.tokens = toks
+    this.pos = 0
+    this.quiet = false
+    if ((array_length toks) > 0) {
+      this.currentToken = (itemAt toks 0)
+    }
+  }
+  
+  fn setQuiet:void (q:boolean) {
+    this.quiet = q
+  }
+  
+  fn peek:Token () {
+    return (unwrap this.currentToken)
+  }
+  
+  fn peekType:string () {
+    if (null? this.currentToken) {
+      return "EOF"
+    }
+    def tok (unwrap this.currentToken)
+    return tok.tokenType
+  }
+  
+  fn peekValue:string () {
+    if (null? this.currentToken) {
+      return ""
+    }
+    def tok (unwrap this.currentToken)
+    return tok.value
+  }
+  
+  fn advance:void () {
+    this.pos = this.pos + 1
+    if (this.pos < (array_length this.tokens)) {
+      this.currentToken = (itemAt this.tokens this.pos)
+    } {
+      def eof (new Token())
+      eof.tokenType = "EOF"
+      eof.value = ""
+      this.currentToken = eof
+    }
+  }
+  
+  fn expect:Token (expectedType:string) {
+    def tok (this.peek())
+    if (tok.tokenType != expectedType) {
+      if (this.quiet == false) {
+        print "Parse error: expected " + expectedType + " but got " + tok.tokenType
+      }
+    }
+    this.advance()
+    return tok
+  }
+  
+  fn expectValue:Token (expectedValue:string) {
+    def tok (this.peek())
+    if (tok.value != expectedValue) {
+      if (this.quiet == false) {
+        print "Parse error: expected '" + expectedValue + "' but got '" + tok.value + "'"
+      }
+    }
+    this.advance()
+    return tok
+  }
+  
+  fn isAtEnd:boolean () {
+    def t (this.peekType())
+    return (t == "EOF")
+  }
+  
+  fn matchType:boolean (tokenType:string) {
+    def t (this.peekType())
+    return (t == tokenType)
+  }
+  
+  fn matchValue:boolean (value:string) {
+    def v (this.peekValue())
+    return (v == value)
+  }
+  
+  ; === Parse Program ===
+  
+  fn parseProgram:TSNode () {
+    def prog (new TSNode())
+    prog.nodeType = "Program"
+    
+    while ((this.isAtEnd()) == false) {
+      def stmt (this.parseStatement())
+      push prog.children stmt
+    }
+    
+    return prog
+  }
+  
+  ; === Parse Statement ===
+  
+  fn parseStatement:TSNode () {
+    def tokVal (this.peekValue())
+    
+    if (tokVal == "interface") {
+      return (this.parseInterface())
+    }
+    
+    if (tokVal == "type") {
+      return (this.parseTypeAlias())
+    }
+    
+    if ((tokVal == "let") || (tokVal == "const")) {
+      return (this.parseVarDecl())
+    }
+    
+    if (tokVal == "function") {
+      return (this.parseFuncDecl())
+    }
+    
+    if (tokVal == "return") {
+      return (this.parseReturn())
+    }
+    
+    if (tokVal == "{") {
+      return (this.parseBlock())
+    }
+    
+    if (tokVal == ";") {
+      this.advance()
+      def empty (new TSNode())
+      empty.nodeType = "EmptyStatement"
+      return empty
+    }
+    
+    return (this.parseExprStmt())
+  }
+  
+  ; === Return Statement ===
+  
+  fn parseReturn:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "ReturnStatement"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("return")
+    
+    ; Check for return value
+    def v (this.peekValue())
+    if ((v != ";") && ((this.isAtEnd()) == false)) {
+      def arg (this.parseExpr())
+      node.left = arg
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return node
+  }
+  
+  ; === Interface Declaration ===
+  
+  fn parseInterface:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "TSInterfaceDeclaration"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("interface")
+    
+    def nameTok (this.expect("Identifier"))
+    node.name = nameTok.value
+    
+    ; Parse body
+    def body (this.parseInterfaceBody())
+    node.body = body
+    
+    return node
+  }
+  
+  fn parseInterfaceBody:TSNode () {
+    def body (new TSNode())
+    body.nodeType = "TSInterfaceBody"
+    def startTok (this.peek())
+    body.start = startTok.start
+    body.line = startTok.line
+    body.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def prop (this.parsePropertySig())
+      push body.children prop
+      
+      if ((this.matchValue(";")) || (this.matchValue(","))) {
+        this.advance()
+      }
+    }
+    
+    this.expectValue("}")
+    return body
+  }
+  
+  fn parsePropertySig:TSNode () {
+    def prop (new TSNode())
+    prop.nodeType = "TSPropertySignature"
+    def startTok (this.peek())
+    prop.start = startTok.start
+    prop.line = startTok.line
+    prop.col = startTok.col
+    
+    ; Optional readonly
+    if (this.matchValue("readonly")) {
+      prop.readonly = true
+      this.advance()
+    }
+    
+    ; Property name
+    def nameTok (this.expect("Identifier"))
+    prop.name = nameTok.value
+    
+    ; Optional marker
+    if (this.matchValue("?")) {
+      prop.optional = true
+      this.advance()
+    }
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnot (this.parseTypeAnnotation())
+      prop.typeAnnotation = typeAnnot
+    }
+    
+    return prop
+  }
+  
+  ; === Type Alias Declaration ===
+  
+  fn parseTypeAlias:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "TSTypeAliasDeclaration"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("type")
+    
+    def nameTok (this.expect("Identifier"))
+    node.name = nameTok.value
+    
+    this.expectValue("=")
+    
+    def typeExpr (this.parseType())
+    node.typeAnnotation = typeExpr
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return node
+  }
+  
+  ; === Variable Declaration ===
+  
+  fn parseVarDecl:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "VariableDeclaration"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    node.kind = startTok.value
+    
+    this.advance() ; consume let/const
+    
+    ; Parse declarator
+    def declarator (new TSNode())
+    declarator.nodeType = "VariableDeclarator"
+    
+    def nameTok (this.expect("Identifier"))
+    declarator.name = nameTok.value
+    declarator.start = nameTok.start
+    declarator.line = nameTok.line
+    declarator.col = nameTok.col
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnot (this.parseTypeAnnotation())
+      declarator.typeAnnotation = typeAnnot
+    }
+    
+    ; Initializer
+    if (this.matchValue("=")) {
+      this.advance()
+      def initExpr (this.parseExpr())
+      declarator.init = initExpr
+    }
+    
+    push node.children declarator
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return node
+  }
+  
+  ; === Function Declaration ===
+  
+  fn parseFuncDecl:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "FunctionDeclaration"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("function")
+    
+    def nameTok (this.expect("Identifier"))
+    node.name = nameTok.value
+    
+    ; Parameters
+    this.expectValue("(")
+    while ((this.matchValue(")")) == false) {
+      if ((array_length node.params) > 0) {
+        this.expectValue(",")
+      }
+      def param (this.parseParam())
+      push node.params param
+    }
+    this.expectValue(")")
+    
+    ; Return type
+    if (this.matchValue(":")) {
+      def returnType (this.parseTypeAnnotation())
+      node.typeAnnotation = returnType
+    }
+    
+    ; Body
+    def body (this.parseBlock())
+    node.body = body
+    
+    return node
+  }
+  
+  fn parseParam:TSNode () {
+    def param (new TSNode())
+    param.nodeType = "Parameter"
+    
+    def nameTok (this.expect("Identifier"))
+    param.name = nameTok.value
+    param.start = nameTok.start
+    param.line = nameTok.line
+    param.col = nameTok.col
+    
+    ; Optional marker
+    if (this.matchValue("?")) {
+      param.optional = true
+      this.advance()
+    }
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnot (this.parseTypeAnnotation())
+      param.typeAnnotation = typeAnnot
+    }
+    
+    return param
+  }
+  
+  ; === Block Statement ===
+  
+  fn parseBlock:TSNode () {
+    def block (new TSNode())
+    block.nodeType = "BlockStatement"
+    def startTok (this.peek())
+    block.start = startTok.start
+    block.line = startTok.line
+    block.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def stmt (this.parseStatement())
+      push block.children stmt
+    }
+    
+    this.expectValue("}")
+    return block
+  }
+  
+  ; === Expression Statement ===
+  
+  fn parseExprStmt:TSNode () {
+    def stmt (new TSNode())
+    stmt.nodeType = "ExpressionStatement"
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    def expr (this.parseExpr())
+    stmt.left = expr
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return stmt
+  }
+  
+  ; === Type Annotation ===
+  
+  fn parseTypeAnnotation:TSNode () {
+    def annot (new TSNode())
+    annot.nodeType = "TSTypeAnnotation"
+    def startTok (this.peek())
+    annot.start = startTok.start
+    annot.line = startTok.line
+    annot.col = startTok.col
+    
+    this.expectValue(":")
+    
+    def typeExpr (this.parseType())
+    annot.typeAnnotation = typeExpr
+    
+    return annot
+  }
+  
+  ; === Type Expression Parsing ===
+  
+  fn parseType:TSNode () {
+    return (this.parseUnionType())
+  }
+  
+  fn parseUnionType:TSNode () {
+    def left (this.parseArrayType())
+    
+    if (this.matchValue("|")) {
+      def union (new TSNode())
+      union.nodeType = "TSUnionType"
+      union.start = left.start
+      union.line = left.line
+      union.col = left.col
+      push union.children left
+      
+      while (this.matchValue("|")) {
+        this.advance()
+        def right (this.parseArrayType())
+        push union.children right
+      }
+      
+      return union
+    }
+    
+    return left
+  }
+  
+  fn parseArrayType:TSNode () {
+    def elemType (this.parsePrimaryType())
+    
+    ; Check for array brackets []
+    while ((this.matchValue("[")) && (this.checkNext("]"))) {
+      this.advance() ; [
+      this.advance() ; ]
+      
+      def arrayType (new TSNode())
+      arrayType.nodeType = "TSArrayType"
+      arrayType.start = elemType.start
+      arrayType.line = elemType.line
+      arrayType.col = elemType.col
+      arrayType.left = elemType
+      elemType = arrayType
+    }
+    
+    return elemType
+  }
+  
+  fn checkNext:boolean (value:string) {
+    def nextPos (this.pos + 1)
+    if (nextPos < (array_length this.tokens)) {
+      def nextTok:Token (itemAt this.tokens nextPos)
+      def v nextTok.value
+      return (v == value)
+    }
+    return false
+  }
+  
+  fn parsePrimaryType:TSNode () {
+    def tokVal (this.peekValue())
+    def tok (this.peek())
+    
+    ; Primitive types
+    if (tokVal == "string") {
+      this.advance()
+      def node (new TSNode())
+      node.nodeType = "TSStringKeyword"
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "number") {
+      this.advance()
+      def node (new TSNode())
+      node.nodeType = "TSNumberKeyword"
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "boolean") {
+      this.advance()
+      def node (new TSNode())
+      node.nodeType = "TSBooleanKeyword"
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "any") {
+      this.advance()
+      def node (new TSNode())
+      node.nodeType = "TSAnyKeyword"
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "unknown") {
+      this.advance()
+      def node (new TSNode())
+      node.nodeType = "TSUnknownKeyword"
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "void") {
+      this.advance()
+      def node (new TSNode())
+      node.nodeType = "TSVoidKeyword"
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "null") {
+      this.advance()
+      def node (new TSNode())
+      node.nodeType = "TSNullKeyword"
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    ; Type reference (Identifier)
+    def tokType (this.peekType())
+    if (tokType == "Identifier") {
+      return (this.parseTypeRef())
+    }
+    
+    ; Parenthesized type
+    if (tokVal == "(") {
+      this.advance()
+      def innerType (this.parseType())
+      this.expectValue(")")
+      return innerType
+    }
+    
+    ; Fallback
+    if (this.quiet == false) {
+      print "Unknown type: " + tokVal
+    }
+    this.advance()
+    def errNode (new TSNode())
+    errNode.nodeType = "TSAnyKeyword"
+    return errNode
+  }
+  
+  fn parseTypeRef:TSNode () {
+    def ref (new TSNode())
+    ref.nodeType = "TSTypeReference"
+    def tok (this.peek())
+    ref.start = tok.start
+    ref.line = tok.line
+    ref.col = tok.col
+    
+    def nameTok (this.expect("Identifier"))
+    ref.name = nameTok.value
+    
+    ; Generic type arguments
+    if (this.matchValue("<")) {
+      this.advance()
+      
+      while ((this.matchValue(">")) == false) {
+        if ((array_length ref.params) > 0) {
+          this.expectValue(",")
+        }
+        def typeArg (this.parseType())
+        push ref.params typeArg
+      }
+      
+      this.expectValue(">")
+    }
+    
+    return ref
+  }
+  
+  ; === Expression Parsing (simplified) ===
+  
+  fn parseExpr:TSNode () {
+    return (this.parseAssign())
+  }
+  
+  fn parseAssign:TSNode () {
+    def left (this.parseBinary())
+    
+    if (this.matchValue("=")) {
+      this.advance()
+      def right (this.parseAssign())
+      
+      def assign (new TSNode())
+      assign.nodeType = "AssignmentExpression"
+      assign.value = "="
+      assign.left = left
+      assign.right = right
+      assign.start = left.start
+      assign.line = left.line
+      assign.col = left.col
+      return assign
+    }
+    
+    return left
+  }
+  
+  fn parseBinary:TSNode () {
+    def left (this.parseUnary())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "+") || (tokVal == "-") || (tokVal == "*") || (tokVal == "/") || (tokVal == "===") || (tokVal == "!==") || (tokVal == "<") || (tokVal == ">")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseUnary())
+      
+      def binExpr (new TSNode())
+      binExpr.nodeType = "BinaryExpression"
+      binExpr.value = opTok.value
+      binExpr.left = left
+      binExpr.right = right
+      binExpr.start = left.start
+      binExpr.line = left.line
+      binExpr.col = left.col
+      left = binExpr
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseUnary:TSNode () {
+    def tokVal (this.peekValue())
+    
+    if ((tokVal == "!") || (tokVal == "-")) {
+      def opTok (this.peek())
+      this.advance()
+      def arg (this.parseUnary())
+      
+      def unary (new TSNode())
+      unary.nodeType = "UnaryExpression"
+      unary.value = opTok.value
+      unary.left = arg
+      unary.start = opTok.start
+      unary.line = opTok.line
+      unary.col = opTok.col
+      return unary
+    }
+    
+    return (this.parseCall())
+  }
+  
+  fn parseCall:TSNode () {
+    def callee (this.parsePrimary())
+    
+    while (this.matchValue("(")) {
+      this.advance()
+      def call (new TSNode())
+      call.nodeType = "CallExpression"
+      call.left = callee
+      call.start = callee.start
+      call.line = callee.line
+      call.col = callee.col
+      
+      while ((this.matchValue(")")) == false) {
+        if ((array_length call.children) > 0) {
+          this.expectValue(",")
+        }
+        def arg (this.parseExpr())
+        push call.children arg
+      }
+      this.expectValue(")")
+      
+      callee = call
+    }
+    
+    return callee
+  }
+  
+  fn parsePrimary:TSNode () {
+    def tokType (this.peekType())
+    def tokVal (this.peekValue())
+    def tok (this.peek())
+    
+    ; Identifier
+    if (tokType == "Identifier") {
+      this.advance()
+      def id (new TSNode())
+      id.nodeType = "Identifier"
+      id.name = tok.value
+      id.start = tok.start
+      id.end = tok.end
+      id.line = tok.line
+      id.col = tok.col
+      return id
+    }
+    
+    ; Number literal
+    if (tokType == "Number") {
+      this.advance()
+      def num (new TSNode())
+      num.nodeType = "NumericLiteral"
+      num.value = tok.value
+      num.start = tok.start
+      num.end = tok.end
+      num.line = tok.line
+      num.col = tok.col
+      return num
+    }
+    
+    ; String literal
+    if (tokType == "String") {
+      this.advance()
+      def str (new TSNode())
+      str.nodeType = "StringLiteral"
+      str.value = tok.value
+      str.start = tok.start
+      str.end = tok.end
+      str.line = tok.line
+      str.col = tok.col
+      return str
+    }
+    
+    ; Boolean literal
+    if ((tokVal == "true") || (tokVal == "false")) {
+      this.advance()
+      def bool (new TSNode())
+      bool.nodeType = "BooleanLiteral"
+      bool.value = tokVal
+      bool.start = tok.start
+      bool.end = tok.end
+      bool.line = tok.line
+      bool.col = tok.col
+      return bool
+    }
+    
+    ; Parenthesized expression
+    if (tokVal == "(") {
+      this.advance()
+      def expr (this.parseExpr())
+      this.expectValue(")")
+      return expr
+    }
+    
+    ; Fallback
+    if (this.quiet == false) {
+      print "Unexpected token: " + tokVal
+    }
+    this.advance()
+    def errId (new TSNode())
+    errId.nodeType = "Identifier"
+    errId.name = "error"
+    return errId
+  }
+}

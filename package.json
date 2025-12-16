@@ -75,7 +75,22 @@
     "jsparser:run": "node ./gallery/js_parser/js_parser.js",
     "jsparser:run:rust": "./gallery/js_parser/js_parser_rust",
     "jsparser:test": "node ./gallery/js_parser/js_parser.js ./gallery/js_parser/test.js",
-    "jsparser": "npm run jsparser:compile && npm run jsparser:run"
+    "jsparser": "npm run jsparser:compile && npm run jsparser:run",
+    "tsparser:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/ts_parser/ts_parser_main.rgr -d=./gallery/ts_parser/bin -o=ts_parser_main.js -nodecli",
+    "tsparser:compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=rust ./gallery/ts_parser/ts_parser_main.rgr -d=./gallery/ts_parser/bin -o=ts_parser_main.rs -nodecli",
+    "tsparser:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./gallery/ts_parser/ts_parser_main.rgr -d=./gallery/ts_parser/bin -o=ts_parser_main.go -nodecli",
+    "tsparser:compile:swift": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=swift6 ./gallery/ts_parser/ts_parser_main.rgr -d=./gallery/ts_parser/bin -o=ts_parser_main.swift -nodecli",
+    "tsparser:compile:cpp": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=cpp ./gallery/ts_parser/ts_parser_main.rgr -d=./gallery/ts_parser/bin -o=ts_parser_main.cpp -nodecli",
+    "tsparser:compile:all": "npm run tsparser:compile && npm run tsparser:compile:rust && npm run tsparser:compile:go && npm run tsparser:compile:swift && npm run tsparser:compile:cpp",
+    "tsparser:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodemodule ./gallery/ts_parser/ts_parser_main.rgr -d=./gallery/ts_parser/benchmark -o=ts_parser_module.cjs",
+    "tsparser:build:rust": "npm run tsparser:compile:rust && rustc -O gallery/ts_parser/bin/ts_parser_main.rs -o gallery/ts_parser/bin/ts_parser_rust.exe",
+    "tsparser:build:go": "npm run tsparser:compile:go && cd gallery/ts_parser/bin && go build -o ts_parser_go.exe ts_parser_main.go",
+    "tsparser:build:swift": "npm run tsparser:compile:swift && swiftc -O -parse-as-library gallery/ts_parser/bin/ts_parser_main.swift -o gallery/ts_parser/bin/ts_parser_swift.exe",
+    "tsparser:build:cpp": "npm run tsparser:compile:cpp && wsl g++ -std=c++17 -O2 -o gallery/ts_parser/bin/ts_parser_cpp.exe gallery/ts_parser/bin/ts_parser_main.cpp",
+    "tsparser:benchmark": "npm run tsparser:module && cd gallery/ts_parser/benchmark && npm run benchmark",
+    "tsparser:run": "node ./gallery/ts_parser/bin/ts_parser_main.js -d",
+    "tsparser:run:rust": "./gallery/ts_parser/bin/ts_parser_rust.exe -d",
+    "tsparser": "npm run tsparser:compile && npm run tsparser:run"
   },
   "repository": {
     "type": "git",
