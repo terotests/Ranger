@@ -739,7 +739,10 @@ const features = [
     validate: (ast) =>
       findNode(
         ast,
-        (n) => n.nodeType === "Literal" || n.nodeType === "NumberLiteral" || n.nodeType === "NumericLiteral"
+        (n) =>
+          n.nodeType === "Literal" ||
+          n.nodeType === "NumberLiteral" ||
+          n.nodeType === "NumericLiteral"
       ),
   },
   {
@@ -868,7 +871,10 @@ const features = [
     category: "JSX",
     code: "const fn = <T>() => {}",
     validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "JSXElement" || n.nodeType === "JSXOpeningElement"),
+      findNode(
+        ast,
+        (n) => n.nodeType === "JSXElement" || n.nodeType === "JSXOpeningElement"
+      ),
     tsxMode: true,
   },
   {
@@ -905,64 +911,68 @@ const features = [
     category: "Tricky Cases",
     code: "const result = a < b && b > c;",
     validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "BinaryExpression" && n.value === "<") &&
-      findNode(ast, (n) => n.nodeType === "BinaryExpression" && n.value === ">"),
+      findNode(
+        ast,
+        (n) => n.nodeType === "BinaryExpression" && n.value === "<"
+      ) &&
+      findNode(
+        ast,
+        (n) => n.nodeType === "BinaryExpression" && n.value === ">"
+      ),
   },
   {
     name: "Type Predicate",
     category: "Tricky Cases",
     code: "function isString(x: unknown): x is string { return typeof x === 'string'; }",
-    validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "TSTypePredicate"),
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSTypePredicate"),
   },
   {
     name: "Assertion Function",
     category: "Tricky Cases",
     code: "function assert(value: unknown): asserts value { if (!value) throw new Error(); }",
     validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "TSTypePredicate" || n.nodeType === "TSAssertsThisTypePredicate"),
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "TSTypePredicate" ||
+          n.nodeType === "TSAssertsThisTypePredicate"
+      ),
   },
   {
     name: "Index Signature",
     category: "Tricky Cases",
     code: "interface Dict { [key: string]: number; }",
-    validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "TSIndexSignature"),
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSIndexSignature"),
   },
   {
     name: "Labeled Statement",
     category: "Tricky Cases",
     code: "outer: for (let i = 0; i < 10; i++) { break outer; }",
-    validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "LabeledStatement"),
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "LabeledStatement"),
   },
   {
     name: "As Const Assertion",
     category: "Tricky Cases",
     code: "const colors = ['red', 'green'] as const;",
-    validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "TSAsExpression"),
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSAsExpression"),
   },
   {
     name: "Nested Conditional Type",
     category: "Tricky Cases",
     code: "type Check<T> = T extends string ? 'str' : T extends number ? 'num' : 'other';",
-    validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "TSConditionalType"),
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSConditionalType"),
   },
   {
     name: "Constructor Type",
     category: "Tricky Cases",
     code: "type Ctor = new (x: string) => MyClass;",
-    validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "TSConstructorType"),
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSConstructorType"),
   },
   {
     name: "Import Type Inline",
     category: "Tricky Cases",
     code: "type Config = import('./config').Settings;",
-    validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "TSImportType"),
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSImportType"),
   },
   {
     name: "Named Tuple Elements",
@@ -975,22 +985,29 @@ const features = [
     name: "Rest in Tuple Type",
     category: "Tricky Cases",
     code: "type Tail<T extends any[]> = T extends [any, ...infer Rest] ? Rest : never;",
-    validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "TSRestType"),
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSRestType"),
   },
   {
     name: "Override Modifier",
     category: "Tricky Cases",
     code: "class Child extends Parent { override method() { return 1; } }",
     validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "MethodDefinition" && n.name === "method"),
+      findNode(
+        ast,
+        (n) => n.nodeType === "MethodDefinition" && n.name === "method"
+      ),
   },
   {
     name: "Accessor Keyword",
     category: "Tricky Cases",
     code: "class Foo { accessor x: number = 0; }",
     validate: (ast) =>
-      findNode(ast, (n) => n.nodeType === "PropertyDefinition" || n.nodeType === "AccessorProperty"),
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "PropertyDefinition" ||
+          n.nodeType === "AccessorProperty"
+      ),
   },
 ];
 

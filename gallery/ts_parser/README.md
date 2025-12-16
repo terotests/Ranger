@@ -6,21 +6,21 @@ A fast TypeScript parser written in Ranger, cross-compilable to JavaScript, Rust
 
 The parser achieves **121/121 (100%)** compliance on the TypeScript feature test suite, covering:
 
-| Category | Score |
-|----------|-------|
-| Type Declarations | 6/6 (100%) |
-| Basic Types | 9/9 (100%) |
-| Generics | 5/5 (100%) |
-| Classes | 8/8 (100%) |
-| Functions | 7/7 (100%) |
-| Statements | 11/11 (100%) |
-| Expressions | 11/11 (100%) |
-| Modules | 7/7 (100%) |
-| Advanced Types | 7/7 (100%) |
-| Decorators | 4/4 (100%) |
+| Category          | Score        |
+| ----------------- | ------------ |
+| Type Declarations | 6/6 (100%)   |
+| Basic Types       | 9/9 (100%)   |
+| Generics          | 5/5 (100%)   |
+| Classes           | 8/8 (100%)   |
+| Functions         | 7/7 (100%)   |
+| Statements        | 11/11 (100%) |
+| Expressions       | 11/11 (100%) |
+| Modules           | 7/7 (100%)   |
+| Advanced Types    | 7/7 (100%)   |
+| Decorators        | 4/4 (100%)   |
 | JavaScript (ES6+) | 24/24 (100%) |
-| JSX | 8/8 (100%) |
-| Tricky Cases | 14/14 (100%) |
+| JSX               | 8/8 (100%)   |
+| Tricky Cases      | 14/14 (100%) |
 
 Run `node gallery/ts_parser/benchmark/compliance.js` to verify.
 
@@ -213,6 +213,7 @@ const fn = <T extends unknown>() => {};
 ```
 
 The heuristics used:
+
 1. Lowercase identifier + `<Type>(` pattern → Generic function call
 2. Uppercase identifier + `<` → JSX element
 3. `<T extends ...>` → Generic type parameter (not JSX)
