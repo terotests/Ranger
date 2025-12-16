@@ -1,0 +1,34 @@
+; Test for Issue #7: Python super().__init__() should pass constructor arguments
+
+class Animal {
+    def name:string ""
+
+    Constructor (n:string) {
+        name = n
+    }
+
+    fn speak:void () {
+        print ("Animal " + name + " speaks")
+    }
+}
+
+class Dog {
+    Extends (Animal)
+
+    Constructor (n:string) {
+        ; Parent constructor should be called with n
+    }
+
+    fn bark:void () {
+        print (name + " says Woof!")
+    }
+}
+
+class Main {
+    sfn m@(main):void () {
+        def dog (new Dog("Buddy"))
+        dog.speak()
+        dog.bark()
+        print "Done"
+    }
+}

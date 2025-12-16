@@ -455,7 +455,20 @@ class RangerPythonClassWriter {
     wr.indent(1)
 
     if(parentClass) {
-      wr.out("super().__init__()" true)
+      ; Pass parent constructor arguments to super().__init__()
+      if (parentClass.has_constructor) {
+        def parentConstr:RangerAppFunctionDesc (unwrap parentClass.constructor_fn)
+        wr.out("super().__init__(" false)
+        for parentConstr.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          wr.out(arg.compiledName false)
+        }
+        wr.out(")" true)
+      } {
+        wr.out("super().__init__()" true)
+      }
     }
 
     def hasContent:boolean false

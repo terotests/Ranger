@@ -21633,11 +21633,24 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     wr.out("):", true);
     wr.indent(1);
     if ( typeof(parentClass) != "undefined" ) {
-      wr.out("super().__init__()", true);
+      if ( parentClass.has_constructor ) {
+        const parentConstr = parentClass.constructor_fn;
+        wr.out("super().__init__(", false);
+        for ( let i_1 = 0; i_1 < parentConstr.params.length; i_1++) {
+          var arg = parentConstr.params[i_1];
+          if ( i_1 > 0 ) {
+            wr.out(", ", false);
+          }
+          wr.out(arg.compiledName, false);
+        };
+        wr.out(")", true);
+      } else {
+        wr.out("super().__init__()", true);
+      }
     }
     let hasContent = false;
-    for ( let i_1 = 0; i_1 < cl.variables.length; i_1++) {
-      var pvar = cl.variables[i_1];
+    for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
+      var pvar = cl.variables[i_2];
       await this.writeVarInitDef(pvar.node, ctx, wr);
       hasContent = true;
     };
@@ -21654,8 +21667,8 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     }
     wr.newline();
     wr.indent(-1);
-    for ( let i_2 = 0; i_2 < cl.static_methods.length; i_2++) {
-      var variant = cl.static_methods[i_2];
+    for ( let i_3 = 0; i_3 < cl.static_methods.length; i_3++) {
+      var variant = cl.static_methods[i_3];
       if ( variant.nameNode.hasFlag("main") ) {
         continue;
       } else {
@@ -21673,11 +21686,11 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
       wr.newline();
       wr.indent(-1);
     };
-    for ( let i_3 = 0; i_3 < cl.defined_variants.length; i_3++) {
-      var fnVar = cl.defined_variants[i_3];
+    for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
+      var fnVar = cl.defined_variants[i_4];
       const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
-      for ( let i_4 = 0; i_4 < mVs.variants.length; i_4++) {
-        var variant_1 = mVs.variants[i_4];
+      for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
+        var variant_1 = mVs.variants[i_5];
         if ( ( typeof(declaredFunction[variant_1.name] ) != "undefined" && declaredFunction.hasOwnProperty(variant_1.name) ) ) {
           continue;
         }
@@ -21699,8 +21712,8 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     };
     wr.indent(-1);
     wr.newline();
-    for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
-      var variant_2 = cl.static_methods[i_5];
+    for ( let i_6 = 0; i_6 < cl.static_methods.length; i_6++) {
+      var variant_2 = cl.static_methods[i_6];
       ctx.disableCurrentClass();
       ctx.in_static_method = true;
       if ( variant_2.nameNode.hasFlag("main") && (variant_2.nameNode.code.filename == ctx.getRootFile()) ) {

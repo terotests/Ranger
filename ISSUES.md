@@ -60,6 +60,7 @@ class Main {
 The `get` operator for dictionaries in ES6/JavaScript used direct bracket access `obj[key]` which returns values from the prototype chain. When `key` is `"toString"`, `obj["toString"]` returns `Object.prototype.toString` (a function) instead of `undefined`.
 
 In `ng_RangerAppClassDesc.rgr`, the `addMethod` function uses:
+
 ```ranger
 def defVs:RangerAppMethodVariants (get method_variants desc.name)
 if (null? defVs) { ... }
@@ -134,9 +135,10 @@ The `exit` operator was already defined in `compiler/Lang.clj` and generates `pr
 
 ## Issue #4: Go target - Integer division returns wrong type
 
-**Status:** Open  
+**Status:** Fixed  
 **Severity:** Medium  
-**Found:** December 12, 2025
+**Found:** December 12, 2025  
+**Fixed:** December 16, 2025
 
 ### Description
 
@@ -174,27 +176,26 @@ var result float64 = a / b  // int64 / int64 = int64, not float64
 var result float64 = float64(a) / float64(b)
 ```
 
-### Workaround
-
-Convert integers to double before division:
-
-```ranger
-def result:double ((int2double a) / (int2double b))
-```
-
 ### Root Cause
 
-The `/` operator for integers in `Lang.clj` returns `double` conceptually, but the Go template doesn't include type conversion. The ES6 JavaScript target works correctly because JS automatically handles the conversion.
+The `/` operator for integers in `Lang.rgr` returns `double` conceptually, but the Go template didn't include type conversion. The ES6 JavaScript target works correctly because JS automatically handles the conversion.
 
-### Affected Targets
+### Resolution
 
-- Go (`-l=go`)
-- ES6 JavaScript (`-es6`) - ✅ Works
-- Other targets - Not tested
+Added a Go-specific template for the integer division operator in `compiler/Lang.rgr`:
 
-### Files to Fix
+```ranger
+/               cmdDivOp:double         ( left:int right:int ) { templates {
+    go ( "float64(" (e 1) ") / float64(" (e 2) ")" )
+    * ( (e 1) " / " (e 2) )
+} }
+```
 
-- `compiler/Lang.clj` - The `/` operator template for Go needs to cast operands to `float64`
+This ensures that when dividing two integers in Go, both operands are explicitly cast to `float64`, producing the correct floating-point result.
+
+### Files Changed
+
+- `compiler/Lang.rgr` - Added Go-specific template for integer division operator
 
 ---
 
@@ -324,9 +325,10 @@ The file extension logic in `compiler/VirtualCompiler.clj` only runs when `the_t
 
 ## Issue #7: Python target - super().**init**() doesn't pass constructor arguments
 
-**Status:** Open  
+**Status:** Fixed  
 **Severity:** High  
-**Found:** December 12, 2025
+**Found:** December 12, 2025  
+**Fixed:** December 16, 2025
 
 ### Description
 
@@ -356,7 +358,7 @@ class Dog {
 }
 ```
 
-### Generated Python Code (Incorrect)
+### Generated Python Code (Before Fix)
 
 ```python
 class Dog(Animal):
@@ -365,43 +367,52 @@ class Dog(Animal):
     self.name = n
 ```
 
-### Expected Python Code
+### Generated Python Code (After Fix)
 
 ```python
 class Dog(Animal):
   def __init__(self, n):
-    super().__init__(n)  # Should pass 'n' to parent
+    super().__init__(n)  # Now passes 'n' to parent
 ```
-
-### Error Message
-
-```
-TypeError: Animal.__init__() missing 1 required positional argument: 'n'
-```
-
-### Workaround
-
-None currently - inheritance with parameterized constructors doesn't work in Python target.
-
-### Affected Tests
-
-- `tests/compiler-python.test.ts` - "should compile and run inheritance" - **SKIPPED**
 
 ### Root Cause
 
-The Python class writer (`compiler/ng_RangerPythonClassWriter.clj`) generates `super().__init__()` without analyzing what arguments the parent constructor requires.
+The Python class writer (`compiler/ng_RangerPythonClassWriter.rgr`) generated `super().__init__()` without analyzing what arguments the parent constructor requires.
 
-### Files to Fix
+### Resolution
 
-- `compiler/ng_RangerPythonClassWriter.clj` - Constructor generation for inherited classes
+Modified `ng_RangerPythonClassWriter.rgr` to check if the parent class has a constructor, and if so, pass the parent constructor's parameters to `super().__init__()`:
+
+```ranger
+if(parentClass) {
+  if (parentClass.has_constructor) {
+    def parentConstr:RangerAppFunctionDesc (unwrap parentClass.constructor_fn)
+    wr.out("super().__init__(" false)
+    for parentConstr.params arg:RangerAppParamDesc i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      wr.out(arg.compiledName false)
+    }
+    wr.out(")" true)
+  } {
+    wr.out("super().__init__()" true)
+  }
+}
+```
+
+### Files Changed
+
+- `compiler/ng_RangerPythonClassWriter.rgr` - Fixed `super().__init__()` to pass parent constructor arguments
 
 ---
 
 ## Issue #8: Python target - Variable names can shadow Python builtins
 
-**Status:** Open  
+**Status:** Fixed  
 **Severity:** Medium  
-**Found:** December 12, 2025
+**Found:** December 12, 2025  
+**Fixed:** December 16, 2025
 
 ### Description
 
@@ -419,7 +430,7 @@ class StringTest {
 }
 ```
 
-### Generated Python Code
+### Generated Python Code (Before Fix)
 
 ```python
 def main():
@@ -428,42 +439,73 @@ def main():
   print("Length: " + str(__len)) # ERROR: str is now "Hello World", not str()
 ```
 
-### Error Message
+### Generated Python Code (After Fix)
 
-```
-TypeError: 'str' object is not callable
-```
-
-### Workaround
-
-Avoid using Python builtin names as variable names in Ranger source code:
-
-- `str` → use `text`, `s`, `myStr`
-- `list` → use `items`, `arr`, `myList`
-- `int` → use `num`, `i`, `myInt`
-- `dict` → use `map`, `data`, `myDict`
-- `len` → use `length`, `size`, `cnt`
-- `type` → use `kind`, `category`
-
-### Python Builtins to Avoid
-
-```
-str, int, float, bool, list, dict, set, tuple, type, id, len,
-range, print, input, open, file, map, filter, sum, min, max,
-abs, round, sorted, reversed, enumerate, zip, any, all, iter, next
+```python
+def main():
+  _str = "Hello World"          # Renamed to avoid shadowing
+  __len = len(_str)
+  print("Length: " + str(__len)) # Works: str() is the builtin
 ```
 
-### Recommended Fix
+### Root Cause
 
-The Python class writer should:
+The compiler didn't have Python-specific reserved word transformations to rename conflicting variable names.
 
-1. Maintain a list of Python reserved names and builtins
-2. Automatically rename conflicting variables (e.g., `str` → `_str` or `str_`)
-3. Or emit a warning during compilation
+### Resolution
 
-### Files to Fix
+Added Python-specific reserved words to `compiler/Lang.rgr` in the `reserved_words` section:
 
-- `compiler/ng_RangerPythonClassWriter.clj` - Add variable name sanitization
+```ranger
+python {
+    str _str
+    int _int
+    float _float
+    bool _bool
+    list _list
+    dict _dict
+    set _set
+    tuple _tuple
+    type _type
+    id _id
+    len _len
+    range _range
+    print _print
+    input _input
+    open _open
+    file _file
+    filter _filter
+    sum _sum
+    min _min
+    max _max
+    abs _abs
+    round _round
+    sorted _sorted
+    reversed _reversed
+    enumerate _enumerate
+    zip _zip
+    any _any
+    all _all
+    iter _iter
+    next _next
+    object _object
+    bytes _bytes
+    complex _complex
+    property _property
+    classmethod _classmethod
+    staticmethod _staticmethod
+    super _super
+    format _format
+    hash _hash
+    ; ... and more
+}
+```
+
+This uses Ranger's existing `reserved_words` system which automatically transforms variable names during compilation.
+
+### Files Changed
+
+- `compiler/Lang.rgr` - Added Python reserved words mapping
 
 ---
 
