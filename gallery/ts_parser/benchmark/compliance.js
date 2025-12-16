@@ -739,7 +739,7 @@ const features = [
     validate: (ast) =>
       findNode(
         ast,
-        (n) => n.nodeType === "Literal" || n.nodeType === "NumberLiteral"
+        (n) => n.nodeType === "Literal" || n.nodeType === "NumberLiteral" || n.nodeType === "NumericLiteral"
       ),
   },
   {

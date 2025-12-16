@@ -15,11 +15,20 @@ class TSNode {
   ; Generic value fields
   def name:string ""          ; identifier names, type names
   def value:string ""         ; literal values, operators
-  def kind:string ""          ; declaration kind (let/const), method kind
+  def kind:string ""          ; declaration kind (let/const), method kind (get/set/init)
   
   ; Flags
   def optional:boolean false
   def readonly:boolean false
+  
+  ; ESTree Property flags (ES2015)
+  def shorthand:boolean false ; { x } shorthand property
+  def computed:boolean false  ; { [expr]: value } computed property
+  def method:boolean false    ; { foo() {} } method shorthand
+  def generator:boolean false ; function* generators
+  def async:boolean false     ; async functions
+  def delegate:boolean false  ; yield* delegation
+  def await:boolean false     ; for-await-of loops
   
   ; Child nodes
   def children:[TSNode]       ; statements, members, types in union
@@ -875,6 +884,16 @@ class TSParserSimple {
       if (tokVal == "static") {
         isStatic = true
         this.advance()
+        
+        ; Check for static block: static { ... }
+        if (this.matchValue("{")) {
+          member.nodeType = "StaticBlock"
+          member.body = (this.parseBlock())
+          member.start = startTok.start
+          member.line = startTok.line
+          member.col = startTok.col
+          return member
+        }
       }
       if (tokVal == "abstract") {
         isAbstract = true
@@ -1272,6 +1291,14 @@ class TSParserSimple {
     node.col = startTok.col
     
     this.expectValue("for")
+    
+    ; Check for for-await-of: for await (const x of iter) {}
+    def isAwait false
+    if (this.matchValue("await")) {
+      this.advance()
+      isAwait = true
+    }
+    
     this.expectValue("(")
     
     ; Check for for...of or for...in
@@ -1287,6 +1314,7 @@ class TSParserSimple {
       if (nextVal == "of") {
         ; for...of loop
         node.nodeType = "ForOfStatement"
+        node.await = isAwait
         this.advance() ; consume 'of'
         
         def left (new TSNode())
@@ -1509,11 +1537,32 @@ class TSParserSimple {
     def declarator (new TSNode())
     declarator.nodeType = "VariableDeclarator"
     
-    def nameTok (this.expect("Identifier"))
-    declarator.name = nameTok.value
-    declarator.start = nameTok.start
-    declarator.line = nameTok.line
-    declarator.col = nameTok.col
+    def nextVal (this.peekValue())
+    
+    ; Destructuring object pattern { a, b } = obj
+    if (nextVal == "{") {
+      def pattern (this.parseObjectPattern())
+      declarator.left = pattern
+      declarator.start = pattern.start
+      declarator.line = pattern.line
+      declarator.col = pattern.col
+    } {
+      ; Destructuring array pattern [x, y] = arr
+      if (nextVal == "[") {
+        def pattern (this.parseArrayPattern())
+        declarator.left = pattern
+        declarator.start = pattern.start
+        declarator.line = pattern.line
+        declarator.col = pattern.col
+      } {
+        ; Simple identifier
+        def nameTok (this.expect("Identifier"))
+        declarator.name = nameTok.value
+        declarator.start = nameTok.start
+        declarator.line = nameTok.line
+        declarator.col = nameTok.col
+      }
+    }
     
     ; Type annotation
     if (this.matchValue(":")) {
@@ -1537,6 +1586,130 @@ class TSParserSimple {
     return node
   }
   
+  ; === Object Pattern { a, b, c: d } ===
+  
+  fn parseObjectPattern:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "ObjectPattern"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length node.children) > 0) {
+        this.expectValue(",")
+        ; Allow trailing comma
+        if (this.matchValue("}")) {
+          break
+        }
+      }
+      
+      ; Rest pattern ...rest
+      if (this.matchValue("...")) {
+        this.advance()
+        def restProp (new TSNode())
+        restProp.nodeType = "RestElement"
+        def restName (this.expect("Identifier"))
+        restProp.name = restName.value
+        push node.children restProp
+      } {
+        ; Property pattern: name or name: alias
+        def prop (new TSNode())
+        prop.nodeType = "Property"
+        def keyTok (this.expect("Identifier"))
+        prop.name = keyTok.value
+        
+        ; Check for : alias
+        if (this.matchValue(":")) {
+          this.advance()
+          def valueTok (this.expect("Identifier"))
+          def valueId (new TSNode())
+          valueId.nodeType = "Identifier"
+          valueId.name = valueTok.value
+          prop.right = valueId
+        } {
+          prop.shorthand = true
+        }
+        
+        ; Check for default value = expr
+        if (this.matchValue("=")) {
+          this.advance()
+          prop.init = (this.parseExpr())
+        }
+        
+        push node.children prop
+      }
+    }
+    
+    this.expectValue("}")
+    return node
+  }
+  
+  ; === Array Pattern [a, b, c] ===
+  
+  fn parseArrayPattern:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "ArrayPattern"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("[")
+    
+    while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length node.children) > 0) {
+        this.expectValue(",")
+        ; Allow trailing comma
+        if (this.matchValue("]")) {
+          break
+        }
+      }
+      
+      ; Check for holes (elision): [a, , b]
+      if (this.matchValue(",")) {
+        def hole (new TSNode())
+        hole.nodeType = "Elision"
+        push node.children hole
+      } {
+        ; Rest pattern ...rest
+        if (this.matchValue("...")) {
+          this.advance()
+          def restElem (new TSNode())
+          restElem.nodeType = "RestElement"
+          def restName (this.expect("Identifier"))
+          restElem.name = restName.value
+          push node.children restElem
+        } {
+          ; Element pattern
+          def elem (new TSNode())
+          def elemTok (this.expect("Identifier"))
+          elem.nodeType = "Identifier"
+          elem.name = elemTok.value
+          
+          ; Check for default value = expr
+          if (this.matchValue("=")) {
+            this.advance()
+            def defaultExpr (this.parseExpr())
+            def assignPat (new TSNode())
+            assignPat.nodeType = "AssignmentPattern"
+            assignPat.left = elem
+            assignPat.right = defaultExpr
+            push node.children assignPat
+          } {
+            push node.children elem
+          }
+        }
+      }
+    }
+    
+    this.expectValue("]")
+    return node
+  }
+  
   ; === Function Declaration ===
   
   fn parseFuncDecl:TSNode () {
@@ -1548,6 +1721,12 @@ class TSParserSimple {
     node.col = startTok.col
     
     this.expectValue("function")
+    
+    ; Generator function: function* name() {}
+    if (this.matchValue("*")) {
+      this.advance()
+      node.generator = true
+    }
     
     def nameTok (this.expect("Identifier"))
     node.name = nameTok.value
@@ -2538,13 +2717,32 @@ class TSParserSimple {
   fn parseAssign:TSNode () {
     def left (this.parseNullishCoalescing())
     
-    if (this.matchValue("=")) {
+    def tokVal (this.peekValue())
+    
+    ; Regular assignment
+    if (tokVal == "=") {
       this.advance()
       def right (this.parseAssign())
       
       def assign (new TSNode())
       assign.nodeType = "AssignmentExpression"
       assign.value = "="
+      assign.left = left
+      assign.right = right
+      assign.start = left.start
+      assign.line = left.line
+      assign.col = left.col
+      return assign
+    }
+    
+    ; Logical assignment operators: &&=, ||=, ??=
+    if ((tokVal == "&&=") || (tokVal == "||=") || (tokVal == "??=")) {
+      this.advance()
+      def right (this.parseAssign())
+      
+      def assign (new TSNode())
+      assign.nodeType = "AssignmentExpression"
+      assign.value = tokVal
       assign.left = left
       assign.right = right
       assign.start = left.start
@@ -2583,7 +2781,7 @@ class TSParserSimple {
     def left (this.parseUnary())
     
     def tokVal (this.peekValue())
-    while ((tokVal == "+") || (tokVal == "-") || (tokVal == "*") || (tokVal == "/") || (tokVal == "===") || (tokVal == "!==") || (tokVal == "<") || (tokVal == ">")) {
+    while ((tokVal == "+") || (tokVal == "-") || (tokVal == "*") || (tokVal == "/") || (tokVal == "**") || (tokVal == "===") || (tokVal == "!==") || (tokVal == "<") || (tokVal == ">")) {
       def opTok (this.peek())
       this.advance()
       def right (this.parseUnary())
@@ -2621,6 +2819,32 @@ class TSParserSimple {
       return unary
     }
     
+    ; yield expression: yield value, yield* generator()
+    if (tokVal == "yield") {
+      def yieldTok (this.peek())
+      this.advance()
+      
+      def yieldExpr (new TSNode())
+      yieldExpr.nodeType = "YieldExpression"
+      yieldExpr.start = yieldTok.start
+      yieldExpr.line = yieldTok.line
+      yieldExpr.col = yieldTok.col
+      
+      ; Check for yield* (delegation)
+      if (this.matchValue("*")) {
+        this.advance()
+        yieldExpr.delegate = true
+      }
+      
+      ; Parse argument if not at statement end
+      def nextVal (this.peekValue())
+      if ((nextVal != ";") && (nextVal != "}") && (nextVal != ",") && (nextVal != ")")) {
+        yieldExpr.left = (this.parseAssign())
+      }
+      
+      return yieldExpr
+    }
+    
     ; await expression
     if (tokVal == "await") {
       def awaitTok (this.peek())
@@ -2637,7 +2861,22 @@ class TSParserSimple {
     }
     
     ; Type assertion with angle brackets <Type>value
+    ; In TSX mode, skip this if it looks like JSX (next is > for fragment, or Identifier for element)
     if (tokVal == "<") {
+      ; Check for JSX in TSX mode first
+      if (this.tsxMode == true) {
+        def peekNext (this.peekNextValue())
+        def peekNextT (this.peekNextType())
+        ; JSX Fragment <>
+        if (peekNext == ">") {
+          return (this.parsePostfix())
+        }
+        ; JSX Element <div ...> or <Component ...>
+        if (peekNextT == "Identifier") {
+          return (this.parsePostfix())
+        }
+      }
+      
       def startTok (this.peek())
       this.advance()
       
@@ -2687,8 +2926,18 @@ class TSParserSimple {
           if ((array_length call.children) > 0) {
             this.expectValue(",")
           }
-          def arg (this.parseExpr())
-          push call.children arg
+          ; Check for spread argument ...arg
+          if (this.matchValue("...")) {
+            this.advance()
+            def spreadArg (this.parseExpr())
+            def spread (new TSNode())
+            spread.nodeType = "SpreadElement"
+            spread.left = spreadArg
+            push call.children spread
+          } {
+            def arg (this.parseExpr())
+            push call.children arg
+          }
         }
         this.expectValue(")")
         expr = call
@@ -2823,9 +3072,24 @@ class TSParserSimple {
         expr = satisfiesExpr
       }
       
+      ; Tagged template literal: tag`template`
+      def tokType (this.peekType())
+      if (tokType == "Template") {
+        def quasi (this.parseTemplateLiteral())
+        def tagged (new TSNode())
+        tagged.nodeType = "TaggedTemplateExpression"
+        tagged.left = expr
+        tagged.right = quasi
+        tagged.start = expr.start
+        tagged.line = expr.line
+        tagged.col = expr.col
+        expr = tagged
+      }
+      
       ; Check if we should continue
       def newTokVal (this.peekValue())
-      if ((newTokVal != "(") && (newTokVal != ".") && (newTokVal != "?.") && (newTokVal != "[") && (newTokVal != "!") && (newTokVal != "as") && (newTokVal != "satisfies")) {
+      def newTokType (this.peekType())
+      if ((newTokVal != "(") && (newTokVal != ".") && (newTokVal != "?.") && (newTokVal != "[") && (newTokVal != "!") && (newTokVal != "as") && (newTokVal != "satisfies") && (newTokType != "Template")) {
         keepParsing = false
       }
     }
@@ -2862,6 +3126,19 @@ class TSParserSimple {
       num.line = tok.line
       num.col = tok.col
       return num
+    }
+    
+    ; BigInt literal
+    if (tokType == "BigInt") {
+      this.advance()
+      def bigint (new TSNode())
+      bigint.nodeType = "BigIntLiteral"
+      bigint.value = tok.value
+      bigint.start = tok.start
+      bigint.end = tok.end
+      bigint.line = tok.line
+      bigint.col = tok.col
+      return bigint
     }
     
     ; String literal
@@ -2961,6 +3238,43 @@ class TSParserSimple {
     ; new expression
     if (tokVal == "new") {
       return (this.parseNewExpression())
+    }
+    
+    ; Dynamic import: import("./mod.js") or import.meta
+    if (tokVal == "import") {
+      def importTok (this.peek())
+      this.advance()
+      
+      ; Check for import.meta
+      if (this.matchValue(".")) {
+        this.advance()
+        if (this.matchValue("meta")) {
+          this.advance()
+          def metaProp (new TSNode())
+          metaProp.nodeType = "MetaProperty"
+          metaProp.name = "import"
+          metaProp.value = "meta"
+          metaProp.start = importTok.start
+          metaProp.line = importTok.line
+          metaProp.col = importTok.col
+          return metaProp
+        }
+      }
+      
+      ; Dynamic import()
+      if (this.matchValue("(")) {
+        this.advance()
+        def source (this.parseExpr())
+        this.expectValue(")")
+        
+        def importExpr (new TSNode())
+        importExpr.nodeType = "ImportExpression"
+        importExpr.left = source
+        importExpr.start = importTok.start
+        importExpr.line = importTok.line
+        importExpr.col = importTok.col
+        return importExpr
+      }
     }
     
     ; this keyword
@@ -3107,9 +3421,7 @@ class TSParserSimple {
           this.expectValue("]")
           prop.right = keyExpr
           isComputed = true
-          if ((isGetter == false) && (isSetter == false)) {
-            prop.kind = "computed"
-          }
+          prop.computed = true
         }
         if (this.matchType("Identifier")) {
           prop.name = keyTok.value
@@ -3127,6 +3439,7 @@ class TSParserSimple {
         ; Check for method shorthand or getter/setter: { foo() {} } or { get x() {} }
         if (this.matchValue("(")) {
           isMethod = true
+          prop.method = true
           ; Parse method as function expression
           def fnNode (new TSNode())
           fnNode.nodeType = "FunctionExpression"
@@ -3149,8 +3462,9 @@ class TSParserSimple {
             fnNode.body = (this.parseBlock())
           }
           prop.left = fnNode
+          ; ESTree: kind is "get", "set", or "init" for methods
           if ((isGetter == false) && (isSetter == false)) {
-            prop.kind = "method"
+            prop.kind = "init"
           }
         }
         
@@ -3160,6 +3474,7 @@ class TSParserSimple {
             this.advance()
             def valueExpr (this.parseExpr())
             prop.left = valueExpr
+            prop.kind = "init"
           } {
             ; Shorthand: { foo } means { foo: foo }
             ; But not for computed properties
@@ -3168,7 +3483,8 @@ class TSParserSimple {
               shorthandVal.nodeType = "Identifier"
               shorthandVal.name = prop.name
               prop.left = shorthandVal
-              prop.kind = "shorthand"
+              prop.shorthand = true
+              prop.kind = "init"
             }
           }
         }
@@ -3316,6 +3632,18 @@ class TSParserSimple {
     node.col = tok.col
     
     this.expectValue("new")
+    
+    ; Check for new.target meta property
+    if (this.matchValue(".")) {
+      this.advance()
+      if (this.matchValue("target")) {
+        this.advance()
+        node.nodeType = "MetaProperty"
+        node.name = "new"
+        node.value = "target"
+        return node
+      }
+    }
     
     ; Parse callee
     def callee (this.parsePrimary())
