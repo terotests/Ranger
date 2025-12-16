@@ -5377,21 +5377,23 @@ class RangerLispParser  {
             continue;
           }
         }
-        if ( (((fc == (116)) && ((s.charCodeAt((this.i + 1) )) == (114))) && ((s.charCodeAt((this.i + 2) )) == (117))) && ((s.charCodeAt((this.i + 3) )) == (101)) ) {
-          const new_true_node = new CodeNode(this.code, sp, sp + 4);
-          new_true_node.value_type = 5;
-          new_true_node.parsed_type = 5;
-          new_true_node.boolean_value = true;
-          this.insert_node(new_true_node);
+        const nextCharT = s.charCodeAt((this.i + 4) );
+        if ( ((((fc == (116)) && ((s.charCodeAt((this.i + 1) )) == (114))) && ((s.charCodeAt((this.i + 2) )) == (117))) && ((s.charCodeAt((this.i + 3) )) == (101))) && ((((((nextCharT <= 32) || (nextCharT == 40)) || (nextCharT == 41)) || (nextCharT == 58)) || (nextCharT == (125))) || ((this.i + 4) >= this.__len)) ) {
+          const newBoolNode = new CodeNode(this.code, sp, sp + 4);
+          newBoolNode.value_type = 5;
+          newBoolNode.parsed_type = 5;
+          newBoolNode.boolean_value = true;
+          this.insert_node(newBoolNode);
           this.i = this.i + 4;
           continue;
         }
-        if ( ((((fc == (102)) && ((s.charCodeAt((this.i + 1) )) == (97))) && ((s.charCodeAt((this.i + 2) )) == (108))) && ((s.charCodeAt((this.i + 3) )) == (115))) && ((s.charCodeAt((this.i + 4) )) == (101)) ) {
-          const new_f_node = new CodeNode(this.code, sp, sp + 5);
-          new_f_node.value_type = 5;
-          new_f_node.parsed_type = 5;
-          new_f_node.boolean_value = false;
-          this.insert_node(new_f_node);
+        const nextCharF = s.charCodeAt((this.i + 5) );
+        if ( (((((fc == (102)) && ((s.charCodeAt((this.i + 1) )) == (97))) && ((s.charCodeAt((this.i + 2) )) == (108))) && ((s.charCodeAt((this.i + 3) )) == (115))) && ((s.charCodeAt((this.i + 4) )) == (101))) && ((((((nextCharF <= 32) || (nextCharF == 40)) || (nextCharF == 41)) || (nextCharF == 58)) || (nextCharF == (125))) || ((this.i + 5) >= this.__len)) ) {
+          const newBoolNodeF = new CodeNode(this.code, sp, sp + 5);
+          newBoolNodeF.value_type = 5;
+          newBoolNodeF.parsed_type = 5;
+          newBoolNodeF.boolean_value = false;
+          this.insert_node(newBoolNodeF);
           this.i = this.i + 5;
           continue;
         }
@@ -25859,7 +25861,7 @@ operatorsOfRangerFlowParser_26.EnterVarDef_27 = async function(__self, node, ctx
     }
     const tName = node.getSecond();
     await __self.CheckTypeAnnotationOf(tName, ctx, wr);
-    if ( tName.expression ) {
+    if ( tName.expression && ((tName.vref.length) == 0) ) {
       node.children.splice(1, 1);
       await operatorsOf.forEach_15(tName.children, ((item, index) => { 
         if ( index == 1 ) {
@@ -26060,7 +26062,7 @@ operatorsOf_26.EnterVarDef_27 = async function(__self, node, ctx, wr) {
     }
     const tName_1 = node.getSecond();
     await __self.CheckTypeAnnotationOf(tName_1, ctx, wr);
-    if ( tName_1.expression ) {
+    if ( tName_1.expression && ((tName_1.vref.length) == 0) ) {
       node.children.splice(1, 1);
       await operatorsOf.forEach_15(tName_1.children, ((item, index) => { 
         if ( index == 1 ) {

@@ -2383,6 +2383,22 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
             }
         }
 
+        to_string  _:string       ( value:boolean ) { 
+            templates {
+                ranger ( "(to_string " (e 1) ")")
+                cpp ( "(" (e 1) " ? \"true\" : \"false\")" )
+                java7 ( "String.valueOf(" (e 1) " )") 
+                php ( "(" (e 1) " ? \"true\" : \"false\")") 
+                scala ( "(" (e 1) ".toString)")
+                go ( "strconv.FormatBool(" (e 1) ")" (imp "strconv"))
+                rust ( "(" (e 1) ".to_string())" )
+                swift3 ("String(" (e 1) ")")
+                swift6 ("String(" (e 1) ")")
+                python ( "str(" (e 1) ")" )
+                * ( "(" (e 1) ".toString())")
+            }
+        }
+
         ; note: this has now different value, it is optional int...
         ; the optionality of the return value should be preserved 
         ; can not do just

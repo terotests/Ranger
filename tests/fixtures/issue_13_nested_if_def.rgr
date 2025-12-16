@@ -1,0 +1,47 @@
+; Test for Issue #13: Variable definition fails inside nested if blocks
+; This matches EXACTLY the pattern from the issue description
+
+class TSNode {
+  def body@(optional):TSNode
+}
+
+class Parser {
+  fn parseType:TSNode () {
+    def node (new TSNode())
+    return node
+  }
+
+  fn matchValue:boolean (v:string) {
+    return true
+  }
+
+  fn parse:TSNode () {
+    def outer (new TSNode())
+
+    if (this.matchValue("extends")) {
+      if (this.matchValue("?")) {
+        def conditional (new TSNode())
+
+        ; This fails with "invalid variable definition" in Issue #13
+        def trueType:TSNode (this.parseType())
+        conditional.body = trueType
+
+        return conditional
+      }
+    }
+
+    return outer
+  }
+}
+
+class Main {
+  sfn m@(main):void () {
+    def parser (new Parser())
+    def result (parser.parse())
+    if (!null? result.body) {
+      print "TEST PASSED: Issue #13 - nested if def works"
+    } {
+      print "TEST FAILED: body should not be null"
+    }
+  }
+}

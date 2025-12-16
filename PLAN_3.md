@@ -38,6 +38,38 @@ Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, t
 - [x] Updated parser to support `.rgr` extension
 - [x] VSCode extension recognizes `.rgr` files
 
+### JavaScript Module Output (December 2025)
+
+- [x] CommonJS module format (`-nodemodule` flag) - `module.exports.X = X`
+- [x] ES6/ESM module format (`-esm` flag) - `export class X`
+- [x] Auto-detect file extensions (`.js`, `.ts`, `.mjs`, `.cjs`) to prevent double extensions
+
+### Rust Target Improvements (December 2025)
+
+- [x] Comprehensive fixes for Rust code generation (Issue #13 - 15 fixes)
+- [x] Classes compiled to structs with `impl` blocks
+- [x] Proper String handling with `.to_string()` for literals
+- [x] Array operations (`push`, `itemAt`, `set`) with `Vec<T>`
+- [x] String concatenation using `format!` macro
+- [x] Ternary expressions as `if/else` expressions
+- [x] Automatic `#[derive(Clone)]` for structs
+- [x] Instance methods with `&mut self`
+
+### Swift 6 Target Improvements (December 2025)
+
+- [x] Modern Swift 6 compatible code generation
+- [x] Proper integer-to-string conversion using `String()`
+- [x] Array operations using `.append()` instead of `.push()`
+- [x] String operations: `substring`, `indexOf`, `startsWith`, `endsWith`, `contains`, `split`, `trim`
+- [x] CRLF grapheme cluster handling for cross-platform compatibility
+
+### TypeScript Parser (December 2025)
+
+- [x] Complete TypeScript/JavaScript/JSX parser (`gallery/ts_parser`)
+- [x] 137/137 compliance tests passing (100%)
+- [x] Compiles to JavaScript, Rust, Go, C++
+- [x] Native benchmark showing cross-language performance comparison
+
 ---
 
 ## Version 3.0 Goals
@@ -66,10 +98,10 @@ Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, t
 
 ### 1.1 Version Bump & Package Updates
 
-- [ ] Update `package.json` version from `2.1.70` to `3.0.0-alpha.1`
-- [ ] Update all documentation to reflect version 3.0
+- [x] Update `package.json` version from `2.1.70` to `3.0.0-alpha.1`
+- [x] Update all documentation to reflect version 3.0
 - [x] Create `CHANGELOG.md` with version history
-- [ ] Update `README.md` with 3.0 features and migration guide
+- [x] Update `README.md` with 3.0 features and migration guide
 
 ### 1.2 File Extension Change (`.clj` → `.rgr`) ✅ COMPLETED
 
@@ -264,9 +296,11 @@ describe("C++ Code Generation", () => {
 
 - [x] `compileRangerToRust()` - exists
 - [x] `getGeneratedRustCode()` - exists
-- [ ] `getGeneratedSwiftCode()` - add to helpers/compiler.ts
-- [ ] `getGeneratedKotlinCode()` - add to helpers/compiler.ts
-- [ ] `getGeneratedCppCode()` - add to helpers/compiler.ts
+- [x] `compileRangerToSwift()` - exists
+- [x] `compileRangerToKotlin()` - exists
+- [x] `compileRangerToGo()` - exists
+- [x] `compileRangerToPython()` - exists
+- [x] `compileRangerToCpp()` - exists
 
 #### New Test Files (Priority 2)
 
@@ -328,8 +362,8 @@ Extract testable patterns from `gallery/js_parser`:
 
 - [x] Full support - production ready
 - [ ] Add source map generation (see Phase 6)
-- [ ] Improve module export patterns
-- [ ] Add ESM output option
+- [x] Improve module export patterns (CommonJS and ESM)
+- [x] Add ESM output option (`-esm` flag for ES6 modules)
 
 **TypeScript (Maintained)**
 
@@ -350,7 +384,7 @@ Extract testable patterns from `gallery/js_parser`:
 **Rust (Major Enhancement)**
 
 - [x] Preliminary support
-- [ ] Improve ownership/borrowing patterns
+- [x] Improve ownership/borrowing patterns (Issue #13 - 15 fixes applied)
 - [ ] Add lifetime annotations where needed
 - [ ] Better error handling with Result types
 - [ ] Cargo.toml generation
@@ -362,6 +396,12 @@ Extract testable patterns from `gallery/js_parser`:
 **Swift 6 (Enhanced)**
 
 - [x] Basic support
+- [x] Modern Swift 6 compatible code generation
+- [x] Proper integer-to-string conversion using `String()`
+- [x] Array operations using `.append()` instead of `.push()`
+- [x] File I/O with `Foundation` framework integration
+- [x] String operations: `substring`, `indexOf`, `startsWith`, `endsWith`, `contains`, `split`, `trim`
+- [x] CRLF grapheme cluster handling for cross-platform compatibility
 - [ ] Improve protocol conformance
 - [ ] Better optional handling
 - [ ] Swift Package Manager integration
@@ -645,10 +685,10 @@ class SourceMapWriter {
 
 **JavaScript/TypeScript:**
 
-- [ ] ES modules (import/export)
-- [ ] CommonJS modules (require/module.exports)
+- [x] ES modules (import/export) - `-esm` flag
+- [x] CommonJS modules (require/module.exports) - `-nodemodule` flag
 - [ ] UMD bundles
-- [ ] package.json generation
+- [x] package.json generation - `-npm` flag
 
 **Python:**
 
@@ -685,7 +725,7 @@ class SourceMapWriter {
 | JavaScript | P0       | ✅ Production  | Source Maps | Web, Node.js            |
 | TypeScript | P0       | ✅ Production  | Strict Mode | Web, Node.js with types |
 | Python     | P1       | ✅ Good        | Type Hints  | ML, scripting, backends |
-| Rust       | P1       | ⚠️ Preliminary | Production  | Systems, performance    |
+| Rust       | P1       | ✅ Good        | Production  | Systems, performance    |
 | Swift      | P1       | ✅ Good        | SwiftPM     | iOS, macOS              |
 | C++        | P2       | ⚠️ Partial     | C++17       | Performance, systems    |
 | Go         | P2       | ✅ Good        | Maintenance | Cloud, microservices    |
@@ -929,12 +969,12 @@ Ranger 3.x establishes the foundation for a mature cross-language development en
 
 | Phase | Timeline   | Key Deliverables                                         | Status         |
 | ----- | ---------- | -------------------------------------------------------- | -------------- |
-| 1     | Week 1-2   | Version 3.0, .rgr extension, cleanup                     | ✅ Mostly done |
-| 2     | Week 3-6   | Unit testing infrastructure for all targets              | 🔄 Current     |
-| 3     | Week 7-12  | Language target improvements (Swift6, Rust, Kotlin, C++) | Planned        |
+| 1     | Week 1-2   | Version 3.0, .rgr extension, cleanup                     | ✅ Complete    |
+| 2     | Week 3-6   | Unit testing infrastructure for all targets              | ✅ Complete    |
+| 3     | Week 7-12  | Language target improvements (Swift6, Rust, Kotlin, C++) | 🔄 In Progress |
 | 4     | Week 13-16 | VSCode extension finalization                            | Planned        |
 | 5     | Week 17-22 | Incremental compilation                                  | Planned        |
-| 6     | Week 23-28 | Source maps, module packaging                            | Planned        |
+| 6     | Week 23-28 | Source maps, module packaging                            | 🔄 Partial (ESM/CJS done) |
 
 **Total Estimated Timeline: ~28 weeks (6-7 months)**
 
