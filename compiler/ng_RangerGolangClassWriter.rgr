@@ -62,6 +62,9 @@ class RangerGolangClassWriter {
       case "charbuffer" {
         return "[]byte"
       }
+      case "buffer" {
+        return "[]byte"
+      }
     }
     return (ctx.transformTypeName(type_string))
   }
@@ -86,6 +89,9 @@ class RangerGolangClassWriter {
         return "byte"
       }
       case "charbuffer" {
+        return "[]byte"
+      }
+      case "buffer" {
         return "[]byte"
       }
     }
@@ -226,6 +232,9 @@ class RangerGolangClassWriter {
         wr.out("byte" false)
       }
       case RangerNodeType.CharBuffer {
+        wr.out("[]byte" false)
+      }
+      case RangerNodeType.Buffer {
         wr.out("[]byte" false)
       }
       case RangerNodeType.Hash {

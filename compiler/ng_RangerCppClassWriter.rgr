@@ -40,6 +40,9 @@ class RangerCppClassWriter {
       }   
       case "charbuffer" {
         return "const char*"
+      }
+      case "buffer" {
+        return "std::vector<uint8_t>"
       }       
       case "int" {
         return "int"
@@ -76,6 +79,9 @@ class RangerCppClassWriter {
       }   
       case "charbuffer" {
         return "const char*"
+      }
+      case "buffer" {
+        return "std::vector<uint8_t>"
       }       
       case "int" {
         return "int"
@@ -157,6 +163,11 @@ class RangerCppClassWriter {
       }  
       case RangerNodeType.CharBuffer {
         wr.out("const char*" false)
+      }
+      case RangerNodeType.Buffer {
+        wr.addImport("<vector>")
+        wr.addImport("<cstdint>")
+        wr.out("std::vector<uint8_t>" false)
       }            
       case RangerNodeType.Double {
         if(node.hasFlag("optional")) {

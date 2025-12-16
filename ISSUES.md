@@ -848,3 +848,98 @@ This ensures `true` is only recognized as a boolean literal when followed by whi
 
 - `compiler/ng_parser_v2.rgr` - Added word boundary checks for `true`/`false` keyword parsing
 - `compiler/ng_RangerLispParser.rgr` - Same fix for consistency
+
+---
+
+## Issue #15: Adding new primitive types requires changes in multiple files
+
+**Status:** Open  
+**Severity:** Medium (Technical Debt)  
+**Found:** December 16, 2025
+
+### Description
+
+Adding a new primitive-like type (such as `buffer` for binary data) to the Ranger type system requires manual updates in many files across the compiler. This is fragile, error-prone, and creates a barrier for extending the type system.
+
+### Example: Adding `buffer` type
+
+When adding a `buffer` type for binary data operations, the following files needed modifications:
+
+1. **`compiler/ng_RangerAppEnums.rgr`** - Add `Buffer` to `RangerNodeType` enum
+2. **`compiler/TTypes.rgr`** - Add cases in three places:
+   - `nameToValue()` - return `RangerNodeType.Buffer` for "buffer"
+   - `isPrimitive()` - return `true` for `RangerNodeType.Buffer`
+   - `valueAsString()` - return "buffer" for `RangerNodeType.Buffer`
+3. **`compiler/ng_RangerAppWriterContext.rgr`** - Update two places:
+   - `isPrimitiveType()` - add `|| (typeName == "buffer")`
+   - `isDefinedType()` - add `|| (typeName == "buffer")`
+4. **`compiler/ng_CodeNodeCompilerExtensions.rgr`** - Add case in `defineNodeTypeTo()`:
+   ```ranger
+   case "buffer" {
+     node.value_type = RangerNodeType.Buffer
+     node.eval_type = RangerNodeType.Buffer
+     node.eval_type_name = "buffer"
+   }
+   ```
+5. **`compiler/ng_RangerArgMatch.rgr`** - Add case in `getType()`:
+   ```ranger
+   case "buffer" {
+     return RangerNodeType.Buffer
+   }
+   ```
+6. **Each class writer** - Add type mapping (e.g., `ng_RangerJavaScriptClassWriter.rgr`, `ng_RangerGolangClassWriter.rgr`, etc.):
+   - `getObjectTypeString()` or `getTypeString()`
+   - `writeTypeDef()` switch cases
+7. **`compiler/Lang.rgr`** - Add `systemclass buffer { ... }` with target mappings
+
+### Problems
+
+1. **Easy to miss locations** - The type must be added in 6+ files with 10+ specific locations
+2. **No compiler errors** - If you miss a location, you get runtime type mismatches like "Types were 16 vs 10"
+3. **Inconsistent patterns** - Different files use different approaches (`switch`, `if` chains, etc.)
+4. **Hard to discover** - No documentation of all required changes
+
+### Proposed Solution
+
+Consider refactoring to use a centralized type registry approach:
+
+```ranger
+; Ideal: Define a type once in Lang.rgr
+primitivetype buffer {
+    enum Buffer              ; RangerNodeType enum value
+    es6 ArrayBuffer
+    go "[]byte"
+    rust "Vec<u8>"
+    cpp "std::vector<uint8_t>"
+    java7 "byte[]"
+    python bytearray
+}
+```
+
+This would:
+
+1. Automatically add the enum value
+2. Automatically register in all type-checking functions
+3. Automatically add to class writers
+4. Single source of truth
+
+### Workaround
+
+Until refactored, document the full list of files that need changes when adding a new primitive type. Create a checklist in `ai/ADDING_NEW_LANGUAGE.md` or similar.
+
+### Files That Need Updates for New Types
+
+| File                                | Functions/Sections                                  |
+| ----------------------------------- | --------------------------------------------------- |
+| `ng_RangerAppEnums.rgr`             | `RangerNodeType` enum                               |
+| `TTypes.rgr`                        | `nameToValue()`, `isPrimitive()`, `valueAsString()` |
+| `ng_RangerAppWriterContext.rgr`     | `isPrimitiveType()`, `isDefinedType()`              |
+| `ng_CodeNodeCompilerExtensions.rgr` | `defineNodeTypeTo()` switch                         |
+| `ng_RangerArgMatch.rgr`             | `getType()` switch                                  |
+| `ng_Ranger*ClassWriter.rgr`         | `getTypeString()`, `writeTypeDef()`                 |
+| `Lang.rgr`                          | `systemclass` declaration, operators                |
+
+### Related
+
+- `buffer` type was added in December 2025 for PDF generation support
+- Type mismatch errors appear as "Types were X vs Y" where X and Y are enum integers

@@ -285,6 +285,9 @@ class RangerJavaScriptClassWriter {
       }  
       case RangerNodeType.CharBuffer {
         wr.out("string" false)
+      }
+      case RangerNodeType.Buffer {
+        wr.out("ArrayBuffer" false)
       }            
       case RangerNodeType.Double {
         wr.out("number" false)

@@ -20,6 +20,9 @@ class TTypes {
             case "charbuffer" {
                 return RangerNodeType.CharBuffer
             }
+            case "buffer" {
+                return RangerNodeType.Buffer
+            }
         }
         return RangerNodeType.NoType
     }
@@ -48,6 +51,9 @@ class TTypes {
             case RangerNodeType.CharBuffer {
                 return true
             }
+            case RangerNodeType.Buffer {
+                return true
+            }
             case RangerNodeType.Enum {
                 return true
             }
@@ -74,6 +80,9 @@ class TTypes {
             }
             case RangerNodeType.CharBuffer {
                 return "charbuffer"
+            }
+            case RangerNodeType.Buffer {
+                return "buffer"
             }
             case RangerNodeType.NoType {
                 return "<no type>"

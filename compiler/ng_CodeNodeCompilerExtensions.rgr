@@ -756,6 +756,11 @@ extension CodeNode {
         node.eval_type = RangerNodeType.CharBuffer
         node.eval_type_name = "charbuffer"
       }
+      case "buffer" {
+        node.value_type = RangerNodeType.Buffer
+        node.eval_type = RangerNodeType.Buffer
+        node.eval_type_name = "buffer"
+      }
       case "string" {
         node.value_type = RangerNodeType.String
         node.eval_type = RangerNodeType.String

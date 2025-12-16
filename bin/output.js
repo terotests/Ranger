@@ -1966,7 +1966,7 @@ class CodeNode  {
         wr.out(this.vref, false);
         wr.out((":[" + this.array_type) + "]", false);
         break;
-      case 17 : 
+      case 18 : 
         wr.out("(fn--> ", false);
         for ( let i = 0; i < this.children.length; i++) {
           var ch = this.children[i];
@@ -2022,11 +2022,11 @@ class CodeNode  {
     const cn = node.children[1];
     const nodeValue = node.children[2];
     if ( (typeof(cn.expression_value) !== "undefined" && cn.expression_value != null )  ) {
-      cn.value_type = 17;
-      cn.parsed_type = 17;
+      cn.value_type = 18;
+      cn.parsed_type = 18;
       cn.has_vref_annotation = true;
     }
-    if ( nodeValue.eval_type == 17 ) {
+    if ( nodeValue.eval_type == 18 ) {
       if ( (typeof(nodeValue.expression_value) !== "undefined" && nodeValue.expression_value != null )  ) {
         cn.expression_value = nodeValue.expression_value.copy();
       } else {
@@ -2036,7 +2036,7 @@ class CodeNode  {
           cn.expression_value = copyOf;
         }
       }
-      cn.value_type = 17;
+      cn.value_type = 18;
     }
   };
   inferDefTypeFromValue (node) {
@@ -2046,7 +2046,7 @@ class CodeNode  {
     cn.type_name = nodeValue.eval_type_name;
     cn.array_type = nodeValue.eval_array_type;
     cn.key_type = nodeValue.eval_key_type;
-    if ( nodeValue.eval_type == 17 ) {
+    if ( nodeValue.eval_type == 18 ) {
       if ( (typeof(nodeValue.expression_value) !== "undefined" && nodeValue.expression_value != null )  ) {
         cn.expression_value = nodeValue.expression_value.copy();
       } else {
@@ -2225,7 +2225,7 @@ class CodeNode  {
       case 5 : 
         newNode.boolean_value = this.boolean_value;
         break;
-      case 17 : 
+      case 18 : 
         if ( (typeof(this.expression_value) !== "undefined" && this.expression_value != null )  ) {
           newNode.expression_value = this.expression_value.cloneWithType(match, changeVref);
         }
@@ -2317,7 +2317,7 @@ class CodeNode  {
       case 5 : 
         newNode.boolean_value = this.boolean_value;
         break;
-      case 17 : 
+      case 18 : 
         if ( (typeof(this.expression_value) !== "undefined" && this.expression_value != null )  ) {
           newNode.expression_value = this.expression_value.rebuildWithType(match, changeVref);
         }
@@ -2400,7 +2400,7 @@ class CodeNode  {
       s = s + "]";
       return s;
     }
-    if ( this.value_type == 17 ) {
+    if ( this.value_type == 18 ) {
       const fnNode = this.expression_value.getFirst();
       const argNode = this.expression_value.getSecond();
       s = (s + "(_:") + fnNode.buildTypeSignature();
@@ -2439,15 +2439,15 @@ class CodeNode  {
     return "";
   };
   typeNameAsType (ctx) {
-    if ( (this.value_type == 17) || (this.eval_type == 17) ) {
-      return 17;
+    if ( (this.value_type == 18) || (this.eval_type == 18) ) {
+      return 18;
     }
     const conv = TTypes.nameToValue(this.type_name);
     if ( conv != 0 ) {
       return conv;
     }
     if ( true == this.expression ) {
-      return 17;
+      return 18;
     }
     if ( this.value_type == 11 ) {
       if ( ctx.isEnumDefined(this.type_name) ) {
@@ -2493,13 +2493,13 @@ class CodeNode  {
     if ( node.value_type == 6 ) {
       this.eval_type = 6;
     }
-    if ( node.value_type == 17 ) {
-      this.eval_type = 17;
+    if ( node.value_type == 18 ) {
+      this.eval_type = 18;
       this.eval_function = node.eval_function;
     }
   };
   defineNodeTypeTo (node, ctx) {
-    if ( (node.value_type == 17) || (node.eval_type == 17) ) {
+    if ( (node.value_type == 18) || (node.eval_type == 18) ) {
       return;
     }
     switch (this.type_name ) { 
@@ -2523,6 +2523,11 @@ class CodeNode  {
         node.eval_type = 15;
         node.eval_type_name = "charbuffer";
         break;
+      case "buffer" : 
+        node.value_type = 16;
+        node.eval_type = 16;
+        node.eval_type_name = "buffer";
+        break;
       case "string" : 
         node.value_type = 4;
         node.eval_type = 4;
@@ -2535,8 +2540,8 @@ class CodeNode  {
         break;
       default: 
         if ( true == this.expression ) {
-          node.value_type = 17;
-          node.eval_type = 17;
+          node.value_type = 18;
+          node.eval_type = 18;
           node.expression = true;
         }
         if ( this.value_type == 6 ) {
@@ -2587,7 +2592,7 @@ class CodeNode  {
       this.eval_type_name = node.eval_type_name;
       this.eval_array_type = node.eval_array_type;
       this.eval_key_type = node.eval_key_type;
-      if ( node.value_type == 17 ) {
+      if ( node.value_type == 18 ) {
         if ( typeof(this.expression_value) === "undefined" ) {
           const copyOf = node.rebuildWithType(new RangerArgMatch(), false);
           copyOf.children.pop();
@@ -3533,7 +3538,7 @@ class RangerAppWriterContext  {
     return typeName;
   };
   isPrimitiveType (typeName) {
-    if ( (((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "boolean") ) {
+    if ( ((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "boolean") ) {
       return true;
     }
     return false;
@@ -3542,7 +3547,7 @@ class RangerAppWriterContext  {
     if ( typeName == "Any" ) {
       return true;
     }
-    if ( (((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "boolean") ) {
+    if ( ((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "boolean") ) {
       return true;
     }
     if ( this.isEnumDefined(typeName) ) {
@@ -3584,7 +3589,7 @@ class RangerAppWriterContext  {
     if ( this.isDefinedType(node.type_name) ) {
       return true;
     } else {
-      if ( node.value_type == 17 ) {
+      if ( node.value_type == 18 ) {
       } else {
         this.addError(node, (("Unknown type: " + node.type_name) + " type ID : ") + node.value_type);
       }
@@ -4979,7 +4984,7 @@ class RangerLispParser  {
       if ( c == (123) ) {
         const cNode = this.curr_node;
         const new_attr = new CodeNode(this.code, sp, ep);
-        new_attr.value_type = 21;
+        new_attr.value_type = 22;
         new_attr.parsed_type = new_attr.value_type;
         new_attr.vref = s.substring(an_sp, (an_ep + 1) );
         new_attr.string_value = s.substring(sp, ep );
@@ -5008,7 +5013,7 @@ class RangerLispParser  {
         ep = this.i;
         if ( (this.i < this.__len) && (ep > sp) ) {
           const new_attr_1 = new CodeNode(this.code, sp, ep);
-          new_attr_1.value_type = 21;
+          new_attr_1.value_type = 22;
           new_attr_1.parsed_type = new_attr_1.value_type;
           new_attr_1.vref = s.substring(an_sp, (an_ep + 1) );
           new_attr_1.string_value = s.substring(sp, ep );
@@ -5110,7 +5115,7 @@ class RangerLispParser  {
         if ( typeof(this.curr_node) === "undefined" ) {
           const new_rnode = new CodeNode(this.code, sp, ep);
           new_rnode.vref = new_tag;
-          new_rnode.value_type = 19;
+          new_rnode.value_type = 20;
           new_rnode.parsed_type = new_rnode.value_type;
           this.rootNode = new_rnode;
           this.parents.push(new_rnode);
@@ -5118,7 +5123,7 @@ class RangerLispParser  {
         } else {
           const new_node_2 = new CodeNode(this.code, sp, ep);
           new_node_2.vref = new_tag;
-          new_node_2.value_type = 19;
+          new_node_2.value_type = 20;
           new_node_2.parsed_type = new_node_2.value_type;
           this.curr_node.children.push(new_node_2);
           new_node_2.parent = this.curr_node;
@@ -5150,7 +5155,7 @@ class RangerLispParser  {
         if ( ep > sp ) {
           const new_node_3 = new CodeNode(this.code, sp, ep);
           new_node_3.string_value = s.substring(sp, ep );
-          new_node_3.value_type = 20;
+          new_node_3.value_type = 21;
           new_node_3.parsed_type = new_node_3.value_type;
           this.curr_node.children.push(new_node_3);
           new_node_3.parent = this.curr_node;
@@ -5174,10 +5179,10 @@ class RangerLispParser  {
     let disable_ops_set = disable_ops;
     while (this.i < this.__len) {
       if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
-        if ( this.curr_node.value_type == 21 ) {
+        if ( this.curr_node.value_type == 22 ) {
           return;
         }
-        if ( this.curr_node.value_type == 19 ) {
+        if ( this.curr_node.value_type == 20 ) {
           return;
         }
       }
@@ -5516,8 +5521,8 @@ class RangerLispParser  {
             new_expr_node_1.vref = s.substring(sp, ep );
             new_expr_node_1.ns = ns_list;
             new_expr_node_1.expression_value = vann_arr2;
-            new_expr_node_1.parsed_type = 17;
-            new_expr_node_1.value_type = 17;
+            new_expr_node_1.parsed_type = 18;
+            new_expr_node_1.value_type = 18;
             if ( vref_had_type_ann ) {
               new_expr_node_1.vref_annotation = vref_ann_node;
               new_expr_node_1.has_vref_annotation = true;
@@ -5805,7 +5810,7 @@ class RangerArgMatch  {
         }
       }
       if ( arg.isPrimitiveType() ) {
-        if ( (callArg.value_type == 17) || (callArg.eval_type == 17) ) {
+        if ( (callArg.value_type == 18) || (callArg.eval_type == 18) ) {
           all_matched = false;
           break;
         }
@@ -6234,11 +6239,11 @@ class RangerArgMatch  {
     }
     switch (t_name ) { 
       case "expression" : 
-        return 16;
+        return 17;
       case "block" : 
-        return 16;
+        return 17;
       case "arguments" : 
-        return 16;
+        return 17;
       case "string" : 
         return 4;
       case "int" : 
@@ -6247,6 +6252,8 @@ class RangerArgMatch  {
         return 14;
       case "charbuffer" : 
         return 15;
+      case "buffer" : 
+        return 16;
       case "boolean" : 
         return 5;
       case "double" : 
@@ -6266,7 +6273,7 @@ class RangerArgMatch  {
     if ( (arg.value_type != 7) && (arg.value_type != 6) ) {
       if ( ( typeof(this.matchedLambdas[arg.type_name] ) != "undefined" && this.matchedLambdas.hasOwnProperty(arg.type_name) ) ) {
         const lam = ( this.matchedLambdas.hasOwnProperty(arg.type_name) ? this.matchedLambdas[arg.type_name] : undefined );
-        node.eval_type = 17;
+        node.eval_type = 18;
         node.expression_value = lam.copy();
         return true;
       }
@@ -7253,6 +7260,8 @@ TTypes.nameToValue = function(name) {
       return 14;
     case "charbuffer" : 
       return 15;
+    case "buffer" : 
+      return 16;
   };
   return 0;
 };
@@ -7269,6 +7278,8 @@ TTypes.isPrimitive = function(valueType) {
     case 14 : 
       return true;
     case 15 : 
+      return true;
+    case 16 : 
       return true;
     case 13 : 
       return true;
@@ -7289,6 +7300,8 @@ TTypes.valueAsString = function(valueType) {
       return "char";
     case 15 : 
       return "charbuffer";
+    case 16 : 
+      return "buffer";
     case 0 : 
       return "<no type>";
     case 1 : 
@@ -7309,43 +7322,43 @@ TTypes.valueAsString = function(valueType) {
       return "Enum";
     case 12 : 
       return "Comment";
-    case 16 : 
-      return "Expression";
     case 17 : 
-      return "ExpressionType";
+      return "Expression";
     case 18 : 
-      return "Lambda";
+      return "ExpressionType";
     case 19 : 
-      return "XMLNode";
+      return "Lambda";
     case 20 : 
-      return "XMLText";
+      return "XMLNode";
     case 21 : 
-      return "XMLAttr";
+      return "XMLText";
     case 22 : 
       return "XMLAttr";
     case 23 : 
-      return "Dictionary";
+      return "XMLAttr";
     case 24 : 
-      return "Any";
+      return "Dictionary";
     case 25 : 
-      return "Class";
+      return "Any";
     case 26 : 
-      return "GenericClass";
+      return "Class";
     case 27 : 
-      return "ClassRef";
+      return "GenericClass";
     case 28 : 
-      return "Method";
+      return "ClassRef";
     case 29 : 
-      return "ClassVar";
+      return "Method";
     case 30 : 
       return "ClassVar";
     case 31 : 
-      return "Literal";
+      return "ClassVar";
     case 32 : 
-      return "Quasiliteral";
+      return "Literal";
     case 33 : 
-      return "Null";
+      return "Quasiliteral";
     case 34 : 
+      return "Null";
+    case 35 : 
       return "ArrayLiteral";
     default: 
       return "InvalidValueTypeEnum";
@@ -7514,9 +7527,9 @@ class RangerFlowParser  {
       }
       return true;
     }
-    if ( node.value_type == 19 ) {
+    if ( node.value_type == 20 ) {
       const fc = node;
-      if ( fc.value_type == 19 ) {
+      if ( fc.value_type == 20 ) {
         const opBody = CodeNode.blockNode();
         const opTpl = CodeNode.fromList([CodeNode.vref1("defn"), CodeNode.vref1("tmp_create"), CodeNode.expressionNode()]);
         let currCnt = 1;
@@ -7537,7 +7550,7 @@ class RangerFlowParser  {
               }
             }));
             await operatorsOf.forEach_15(xmlNode.children, (async (item, index) => { 
-              if ( item.value_type != 19 ) {
+              if ( item.value_type != 20 ) {
                 if ( item.expression ) {
                   const itemCopy = item.copy();
                   const theNode = item;
@@ -7558,7 +7571,7 @@ class RangerFlowParser  {
                 } else {
                 }
               }
-              if ( item.value_type == 19 ) {
+              if ( item.value_type == 20 ) {
                 if ( ctx.hasClass(item.vref) ) {
                   /** unused:  const paramClassDef_1 = ctx.findClass(item.vref)   **/ 
                   const chNode_1 = item;
@@ -7586,7 +7599,7 @@ class RangerFlowParser  {
               }
             }));
             await operatorsOf.forEach_15(xmlNode.children, (async (item, index) => { 
-              if ( item.value_type != 19 ) {
+              if ( item.value_type != 20 ) {
                 if ( item.expression ) {
                   const itemCopy_1 = item.copy();
                   const theNode_1 = item;
@@ -7608,7 +7621,7 @@ class RangerFlowParser  {
                   }
                 }
               }
-              if ( item.value_type == 19 ) {
+              if ( item.value_type == 20 ) {
                 if ( ctx.hasClass(item.vref) ) {
                   const paramClassDef_3 = ctx.findClass(item.vref);
                   const chNode_3 = item;
@@ -7889,7 +7902,7 @@ class RangerFlowParser  {
         }
         node.copyEvalResFrom(item);
         if ( (i == 0) && ((node.children.length) == 2) ) {
-          if ( (item.eval_type == 28) && ((typeof(item.paramDesc) !== "undefined" && item.paramDesc != null ) ) ) {
+          if ( (item.eval_type == 29) && ((typeof(item.paramDesc) !== "undefined" && item.paramDesc != null ) ) ) {
             const mDesc = item.paramDesc;
             node.eval_type = mDesc.nameNode.value_type;
             node.eval_type_name = mDesc.nameNode.type_name;
@@ -7899,7 +7912,7 @@ class RangerFlowParser  {
             return true;
           }
         }
-        if ( (((typeof(item.expression_value) !== "undefined" && item.expression_value != null ) ) || (item.value_type == 17)) || (item.eval_type == 17) ) {
+        if ( (((typeof(item.expression_value) !== "undefined" && item.expression_value != null ) ) || (item.value_type == 18)) || (item.eval_type == 18) ) {
           if ( (i == 0) && ((node.children.length) == 2) ) {
             node.has_lambda_call = true;
             const second = node.children[1];
@@ -7913,7 +7926,7 @@ class RangerFlowParser  {
               node.eval_type_name = nn.type_name;
               node.eval_array_type = nn.array_type;
               node.eval_key_type = nn.key_type;
-              if ( node.eval_type == 17 ) {
+              if ( node.eval_type == 18 ) {
                 node.expression_value = nn.expression_value.copy();
               }
               if ( nn.hasFlag("optional") ) {
@@ -8020,7 +8033,7 @@ class RangerFlowParser  {
         }
         const mDef = currC.findMethod(prop.vref);
         if ( (typeof(mDef) !== "undefined" && mDef != null )  ) {
-          node.eval_type = 28;
+          node.eval_type = 29;
           node.hasParamDesc = true;
           node.ownParamDesc = mDef;
           node.paramDesc = mDef;
@@ -8122,7 +8135,7 @@ class RangerFlowParser  {
       let class_or_this = rootObjName == this.getThisName();
       if ( ctx.isDefinedClass(rootObjName) ) {
         class_or_this = true;
-        node.eval_type = 25;
+        node.eval_type = 26;
         node.eval_type_name = rootObjName;
         const m_2 = ctx.getCurrentMethod();
         m_2.addClassUsage(ctx.findClass(rootObjName), ctx);
@@ -8687,7 +8700,7 @@ class RangerFlowParser  {
             ctx.addError(obj_2, ("The method " + m.name) + " potentially throws an exception, try { } block is required");
           }
         }
-        if ( nn.value_type == 17 ) {
+        if ( nn.value_type == 18 ) {
           node.expression_value = nn.expression_value.copy();
         }
         if ( nn.hasFlag("optional") ) {
@@ -8748,7 +8761,7 @@ class RangerFlowParser  {
       if ( item2.key_type != item.key_type ) {
         all_matched = false;
       }
-      if ( all_matched && (item.value_type == 17) ) {
+      if ( all_matched && (item.value_type == 18) ) {
         if ( false == await this.matchLambdaArgs((item.expression_value), (item2.expression_value), ctx, wr) ) {
           all_matched = false;
         }
@@ -8772,7 +8785,7 @@ class RangerFlowParser  {
       if ( item2_1.key_type != item.key_type ) {
         all_matched = false;
       }
-      if ( all_matched && (item.value_type == 17) ) {
+      if ( all_matched && (item.value_type == 18) ) {
         if ( false == await this.matchLambdaArgs((item.expression_value), (item2_1.expression_value), ctx, wr) ) {
           all_matched = false;
         }
@@ -8987,7 +9000,7 @@ class RangerFlowParser  {
         node.eval_type_name = nn.type_name;
         node.eval_array_type = nn.array_type;
         node.eval_key_type = nn.key_type;
-        if ( node.eval_type == 17 ) {
+        if ( node.eval_type == 18 ) {
           node.expression_value = nn.expression_value.copy();
         }
         if ( nn.hasFlag("optional") ) {
@@ -9073,7 +9086,7 @@ class RangerFlowParser  {
       if ( d.nameNode.hasFlag("optional") ) {
         ctx.addError(node, "Can not call optional lambda function, unwrap the function first!");
       }
-      if ( d.nameNode.value_type == 17 ) {
+      if ( d.nameNode.value_type == 18 ) {
         const cnNode1 = node.children[0];
         await this.WalkNode(cnNode1, ctx, wr);
         /** unused:  const lambdaDefArgs = d.nameNode.expression_value.children[1]   **/ 
@@ -9091,7 +9104,7 @@ class RangerFlowParser  {
         node.eval_type_name = lambdaDef.type_name;
         node.eval_array_type = lambdaDef.array_type;
         node.eval_key_type = lambdaDef.key_type;
-        if ( node.eval_type == 17 ) {
+        if ( node.eval_type == 18 ) {
           if ( (typeof(lambdaDef.expression_value) !== "undefined" && lambdaDef.expression_value != null )  ) {
             node.expression_value = lambdaDef.expression_value.copy();
           }
@@ -9731,7 +9744,7 @@ class RangerFlowParser  {
             nameNode.type_name = origNode.eval_type_name;
             nameNode.array_type = origNode.eval_array_type;
             nameNode.key_type = origNode.eval_key_type;
-            if ( argVal.eval_type == 17 ) {
+            if ( argVal.eval_type == 18 ) {
               if ( (typeof(argVal.expression_value) !== "undefined" && argVal.expression_value != null )  ) {
                 nameNode.expression_value = argVal.expression_value.copy();
               } else {
@@ -9947,7 +9960,7 @@ class RangerFlowParser  {
     };
     node.has_lambda = true;
     node.lambda_ctx = subCtx;
-    node.eval_type = 17;
+    node.eval_type = 18;
     node.eval_function = node;
     node.expression_value = node.copy();
     node.lambdaFnDesc = m;
@@ -11264,7 +11277,7 @@ class RangerFlowParser  {
     }
   };
   async areEqualTypes (n1, n2, ctx, wr) {
-    if ( n1.eval_type == 17 ) {
+    if ( n1.eval_type == 18 ) {
       let n1Expr = n1.expression_value;
       let n2Expr = n2.expression_value;
       if ( typeof(n1Expr) === "undefined" ) {
@@ -11310,7 +11323,7 @@ class RangerFlowParser  {
           return await this.areEqualTypes(n1, n2, ctx, wr);
         }
       }
-      if ( n2.eval_type == 28 ) {
+      if ( n2.eval_type == 29 ) {
         const pDesc = (n2.paramDesc);
         await this.transformMethodToLambda(n2, pDesc, ctx, wr);
         return true;
@@ -11656,7 +11669,7 @@ class RangerFlowParser  {
             continue;
           }
           last_walked = i + 1;
-          if ( arg.value_type == 17 ) {
+          if ( arg.value_type == 18 ) {
             const opList = await ctx.getOpFns(callArg.vref);
             if ( (opList.length) > 0 ) {
               const signature = arg.expression_value.copy();
@@ -12090,7 +12103,7 @@ class RangerFlowParser  {
             /** unused:  const currMM = ctx.getCurrentMethod()   **/ 
             for ( let i_7 = 0; i_7 < newArgs.children.length; i_7++) {
               var ca_2 = newArgs.children[i_7];
-              if ( ca_2.eval_type == 17 ) {
+              if ( ca_2.eval_type == 18 ) {
                 if ( (typeof(ca_2.lambdaFnDesc) !== "undefined" && ca_2.lambdaFnDesc != null )  ) {
                   if ( (typeof(staticMethod) !== "undefined" && staticMethod != null )  ) {
                     staticMethod.addCallTo(ca_2.lambdaFnDesc);
@@ -12158,19 +12171,19 @@ class RangerFlowParser  {
           }
           if ( nameNode.hasFlag("returns") ) {
             const activeFn_2 = ctx.getCurrentMethod();
-            if ( (activeFn_2.nameNode.type_name != "void") || (activeFn_2.nameNode.value_type == 17) ) {
+            if ( (activeFn_2.nameNode.type_name != "void") || (activeFn_2.nameNode.value_type == 18) ) {
               if ( (callArgs.children.length) < 2 ) {
                 ctx.addError(callArgs, " missing return value !!!");
               } else {
                 const returnedValue = callArgs.children[1];
                 let validated_returnvalue = false;
-                if ( activeFn_2.nameNode.value_type == 17 ) {
+                if ( activeFn_2.nameNode.value_type == 18 ) {
                   validated_returnvalue = true;
                   const fnExpr = activeFn_2.nameNode.expression_value;
                   if ( typeof(fnExpr) === "undefined" ) {
                     ctx.addError(activeFn_2.nameNode, "returned anonymous function should have a method signature");
                   } else {
-                    if ( (returnedValue.value_type != 17) && (returnedValue.eval_type != 17) ) {
+                    if ( (returnedValue.value_type != 18) && (returnedValue.eval_type != 18) ) {
                       ctx.addError(returnedValue, "Function should return anonymous function!");
                     } else {
                       if ( returnedValue.hasParamDesc && ((typeof(returnedValue.paramDesc.nameNode) !== "undefined" && returnedValue.paramDesc.nameNode != null ) ) ) {
@@ -12190,7 +12203,7 @@ class RangerFlowParser  {
                       ctx.addError(returnedValue, "invalid return value type!!! " + returnedValue.getCode());
                       ctx.addError(returnedValue, "^ code: " + returnedValue.getCode());
                       ctx.addError(activeFn_2.nameNode, "^ regarding to");
-                      if ( returnedValue.eval_type == 28 ) {
+                      if ( returnedValue.eval_type == 29 ) {
                         ctx.addError(activeFn_2.nameNode, "^ which was a method");
                       }
                       ctx.addError(activeFn_2.nameNode, "^ value type = " + returnedValue.eval_type);
@@ -12326,7 +12339,7 @@ TFactory.new_def_signature = function(node, ctx, wr) {
     const newTC = ctx.addTypeClass(sig);
     newTC.value_type = node.value_type;
     newTC.is_primitive = TTypes.isPrimitive(node.value_type);
-    if ( node.value_type == 17 ) {
+    if ( node.value_type == 18 ) {
       newTC.is_lambda = true;
     }
     if ( node.value_type == 6 ) {
@@ -12391,7 +12404,7 @@ TFactory.baseSignature = function(node) {
     s = s + "]";
     return s;
   }
-  if ( node.value_type == 17 ) {
+  if ( node.value_type == 18 ) {
     const fnNode = node.expression_value.getFirst();
     const argNode = node.expression_value.getSecond();
     s = (s + "(_:") + TFactory.baseSignature(fnNode);
@@ -13187,6 +13200,8 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
         return "String";
       case "charbuffer" : 
         return "byte[]";
+      case "buffer" : 
+        return "byte[]";
       case "char" : 
         return "byte";
       case "boolean" : 
@@ -13218,7 +13233,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     }
     if ( node.hasFlag("optional") ) {
       switch (v_type ) { 
-        case 17 : 
+        case 18 : 
           const sig = this.buildLambdaSignature((node.expression_value));
           const iface_name = this.getSignatureInterface(sig);
           wr.out(iface_name, false);
@@ -13287,6 +13302,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
         case 15 : 
           wr.out("byte[]", false);
           break;
+        case 16 : 
+          wr.out("byte[]", false);
+          break;
         case 7 : 
           wr.out(((("HashMap<" + await this.getObjectTypeString2(k_name, ctx, wr)) + ",") + await this.getObjectTypeString2(a_name, ctx, wr)) + ">", false);
           wr.addImport("java.util.*");
@@ -13311,7 +13329,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       };
     } else {
       switch (v_type ) { 
-        case 17 : 
+        case 18 : 
           const sig_1 = this.buildLambdaSignature((node.expression_value));
           const iface_name_1 = this.getSignatureInterface(sig_1);
           wr.out(iface_name_1, false);
@@ -13369,6 +13387,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
           wr.out("byte", false);
           break;
         case 15 : 
+          wr.out("byte[]", false);
+          break;
+        case 16 : 
           wr.out("byte[]", false);
           break;
         case 4 : 
@@ -14062,7 +14083,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 17 : 
+      case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         /** unused:  const fc = sec.getFirst()   **/ 
@@ -14309,7 +14330,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(arg.compiledName + " : ", false);
       const nn = arg.nameNode;
-      if ( nn.value_type == 17 ) {
+      if ( nn.value_type == 18 ) {
         wr.out("  @escaping  ", false);
       }
       await this.writeTypeDef(arg.nameNode, ctx, wr);
@@ -14332,7 +14353,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out(local.compiledName + " : ", false);
       const nn = arg.nameNode;
       if ( nn.hasFlag("strong") ) {
-        if ( nn.value_type == 17 ) {
+        if ( nn.value_type == 18 ) {
           wr.out("  @escaping  ", false);
         }
       }
@@ -14816,7 +14837,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 17 : 
+      case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         /** unused:  const fc = sec.getFirst()   **/ 
@@ -15066,7 +15087,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(arg.compiledName + " : ", false);
       const nn = arg.nameNode;
-      if ( nn.value_type == 17 ) {
+      if ( nn.value_type == 18 ) {
         wr.out("  @escaping  ", false);
       }
       await this.writeTypeDef(arg.nameNode, ctx, wr);
@@ -15089,7 +15110,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       wr.out(local.compiledName + " : ", false);
       const nn = arg.nameNode;
       if ( nn.hasFlag("strong") ) {
-        if ( nn.value_type == 17 ) {
+        if ( nn.value_type == 18 ) {
           wr.out("  @escaping  ", false);
         }
       }
@@ -15528,6 +15549,8 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         return "char";
       case "charbuffer" : 
         return "const char*";
+      case "buffer" : 
+        return "std::vector<uint8_t>";
       case "int" : 
         return "int";
       case "string" : 
@@ -15555,6 +15578,8 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         return "char";
       case "charbuffer" : 
         return "const char*";
+      case "buffer" : 
+        return "std::vector<uint8_t>";
       case "int" : 
         return "int";
       case "string" : 
@@ -15595,7 +15620,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 17 : 
+      case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         /** unused:  const fc = sec.getFirst()   **/ 
@@ -15627,6 +15652,11 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         break;
       case 15 : 
         wr.out("const char*", false);
+        break;
+      case 16 : 
+        wr.addImport("<vector>");
+        wr.addImport("<cstdint>");
+        wr.out("std::vector<uint8_t>", false);
         break;
       case 2 : 
         if ( node.hasFlag("optional") ) {
@@ -16359,6 +16389,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     this.thisName = "self";
     this.fileHeaderWritten = false;
   }
+  lineEnding () {
+    return ";";
+  };
   adjustType (tn) {
     switch (tn ) { 
       case "type" : 
@@ -16463,6 +16496,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         return "bool";
       case "double" : 
         return "f64";
+      case "buffer" : 
+        return "Vec<u8>";
     };
     return type_string;
   };
@@ -16476,6 +16511,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         return "bool";
       case "double" : 
         return "f64";
+      case "buffer" : 
+        return "Vec<u8>";
     };
     return type_string;
   };
@@ -16523,6 +16560,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         wr.out("u8", false);
         break;
       case 15 : 
+        wr.out("Vec<u8>", false);
+        break;
+      case 16 : 
         wr.out("Vec<u8>", false);
         break;
       case 7 : 
@@ -16672,7 +16712,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         wr.out("/** unused:  ", false);
       }
       const map_or_hash = (nn.value_type == 6) || (nn.value_type == 7);
-      const needs_mut = ((p.set_cnt > 0) || p.is_class_variable) || map_or_hash;
+      const is_buffer = nn.value_type == 16;
+      const needs_mut = (((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer;
       const is_object = nn.value_type == 10;
       if ( needs_mut || is_object ) {
         wr.out(("let mut " + p.compiledName) + " : ", false);
@@ -17957,7 +17998,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 17 : 
+      case 18 : 
         await this.writeLambdaType(node.expression_value, ctx, wr);
         break;
       case 13 : 
@@ -18331,7 +18372,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 17 : 
+      case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         /** unused:  const fc = sec.getFirst()   **/ 
@@ -18412,7 +18453,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       v_type = node.eval_type;
     }
     switch (v_type ) { 
-      case 17 : 
+      case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         /** unused:  const fc = sec.getFirst()   **/ 
@@ -19064,6 +19105,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         return "byte";
       case "charbuffer" : 
         return "[]byte";
+      case "buffer" : 
+        return "[]byte";
     };
     return ctx.transformTypeName(type_string);
   };
@@ -19083,6 +19126,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       case "char" : 
         return "byte";
       case "charbuffer" : 
+        return "[]byte";
+      case "buffer" : 
         return "[]byte";
     };
     if ( ctx.isDefinedClass(type_string) ) {
@@ -19173,7 +19218,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 17 : 
+      case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         /** unused:  const fc = sec.getFirst()   **/ 
@@ -19207,6 +19252,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         wr.out("byte", false);
         break;
       case 15 : 
+        wr.out("[]byte", false);
+        break;
+      case 16 : 
         wr.out("[]byte", false);
         break;
       case 7 : 
@@ -21965,7 +22013,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 17 : 
+      case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         /** unused:  const fc = sec.getFirst()   **/ 
@@ -22003,6 +22051,9 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         break;
       case 15 : 
         wr.out("string", false);
+        break;
+      case 16 : 
+        wr.out("ArrayBuffer", false);
         break;
       case 2 : 
         wr.out("number", false);
@@ -23495,7 +23546,7 @@ class LiveCompiler  {
       await this.WriteVRef(node, ctx, wr);
       return;
     }
-    if ( node.value_type == 18 ) {
+    if ( node.value_type == 19 ) {
       await this.WriteVRef(node, ctx, wr);
       return;
     }
@@ -23575,7 +23626,7 @@ class LiveCompiler  {
         await this.WalkNode(item, ctx, wr);
       };
     } else {
-      if ( node.value_type == 17 ) {
+      if ( node.value_type == 18 ) {
         await this.WriteVRef(node, ctx, wr);
       }
     }
@@ -24168,7 +24219,7 @@ class RangerDocGenerator  {
       case 7 : 
         wr.out(((("[" + item.key_type) + ":") + item.array_type) + "]", false);
         break;
-      case 17 : 
+      case 18 : 
         wr.out("(fn:", false);
         try {
           const rv = item.expression_value.children[0];
@@ -24431,7 +24482,7 @@ class viewbuilder_Android  {
     let weight = "";
     await operatorsOf.forEach_15(node.children, ((item, index) => { 
       switch (item.value_type ) { 
-        case 20 : 
+        case 21 : 
           this._attr(wr, "text", item.string_value);
           break;
       };
@@ -24528,7 +24579,7 @@ class viewbuilder_Android  {
         }));
         await operatorsOf.forEach_15(node.children, ((item, index) => { 
           switch (item.value_type ) { 
-            case 20 : 
+            case 21 : 
               this._attr(wr, "text", item.string_value);
               break;
           };
@@ -24596,7 +24647,7 @@ class viewbuilder_Web  {
   async tagText (node, ctx, wr) {
     await operatorsOf.forEach_15(node.children, ((item, index) => { 
       switch (item.value_type ) { 
-        case 20 : 
+        case 21 : 
           wr.out(item.string_value, false);
           break;
       };
@@ -25965,8 +26016,8 @@ operatorsOfRangerFlowParser_26.EnterVarDef_27 = async function(__self, node, ctx
     if ( (node.children.length) > 2 ) {
       if ( ((cn.type_name.length) == 0) && ((cn.array_type.length) == 0) ) {
         cn.inferDefTypeFromValue(node);
-        if ( cn.value_type == 17 ) {
-          cn.eval_type = 17;
+        if ( cn.value_type == 18 ) {
+          cn.eval_type = 18;
         }
       }
     }
@@ -26021,13 +26072,13 @@ operatorsOfRangerFlowParser_26.EnterVarDef_27 = async function(__self, node, ctx
           }
         }
       }
-      if ( defaultArg.eval_type == 17 ) {
+      if ( defaultArg.eval_type == 18 ) {
         if ( (typeof(defaultArg.expression_value) !== "undefined" && defaultArg.expression_value != null )  ) {
           cn.expression_value = defaultArg.expression_value.copy();
         } else {
           if ( defaultArg.hasParamDesc ) {
             if ( ((typeof(defaultArg.paramDesc.nameNode) !== "undefined" && defaultArg.paramDesc.nameNode != null ) ) && ((typeof(defaultArg.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg.paramDesc.nameNode.expression_value != null ) ) ) {
-              cn.eval_type = 17;
+              cn.eval_type = 18;
               cn.expression_value = defaultArg.paramDesc.nameNode.expression_value.copy();
             }
           }
@@ -26166,8 +26217,8 @@ operatorsOf_26.EnterVarDef_27 = async function(__self, node, ctx, wr) {
     if ( (node.children.length) > 2 ) {
       if ( ((cn_2.type_name.length) == 0) && ((cn_2.array_type.length) == 0) ) {
         cn_2.inferDefTypeFromValue(node);
-        if ( cn_2.value_type == 17 ) {
-          cn_2.eval_type = 17;
+        if ( cn_2.value_type == 18 ) {
+          cn_2.eval_type = 18;
         }
       }
     }
@@ -26222,13 +26273,13 @@ operatorsOf_26.EnterVarDef_27 = async function(__self, node, ctx, wr) {
           }
         }
       }
-      if ( defaultArg_1.eval_type == 17 ) {
+      if ( defaultArg_1.eval_type == 18 ) {
         if ( (typeof(defaultArg_1.expression_value) !== "undefined" && defaultArg_1.expression_value != null )  ) {
           cn_2.expression_value = defaultArg_1.expression_value.copy();
         } else {
           if ( defaultArg_1.hasParamDesc ) {
             if ( ((typeof(defaultArg_1.paramDesc.nameNode) !== "undefined" && defaultArg_1.paramDesc.nameNode != null ) ) && ((typeof(defaultArg_1.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg_1.paramDesc.nameNode.expression_value != null ) ) ) {
-              cn_2.eval_type = 17;
+              cn_2.eval_type = 18;
               cn_2.expression_value = defaultArg_1.paramDesc.nameNode.expression_value.copy();
             }
           }

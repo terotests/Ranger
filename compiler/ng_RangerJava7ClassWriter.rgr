@@ -80,6 +80,9 @@ class RangerJava7ClassWriter {
       case "charbuffer" {
         return "byte[]"
       }
+      case "buffer" {
+        return "byte[]"
+      }
       case "char" {
         return "byte"
       }
@@ -198,6 +201,9 @@ class RangerJava7ClassWriter {
         case RangerNodeType.CharBuffer {
           wr.out("byte[]" false)
         }
+        case RangerNodeType.Buffer {
+          wr.out("byte[]" false)
+        }
         case RangerNodeType.Hash {
           wr.out( (((("HashMap<" + (this.getObjectTypeString2(k_name ctx wr))) + ",") + (this.getObjectTypeString2(a_name ctx wr))) + ">") , false)
           wr.addImport("java.util.*")
@@ -287,6 +293,9 @@ class RangerJava7ClassWriter {
           wr.out("byte" false)
         }
         case RangerNodeType.CharBuffer {
+          wr.out("byte[]" false)
+        }
+        case RangerNodeType.Buffer {
           wr.out("byte[]" false)
         }
         case RangerNodeType.String {

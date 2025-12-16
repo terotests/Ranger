@@ -2114,6 +2114,193 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
             }
         }
 
+        ; ============================================================================
+        ; BINARY BUFFER OPERATIONS
+        ; ============================================================================
+        ; These operators provide cross-platform binary buffer manipulation.
+        ; The 'buffer' type maps to: ArrayBuffer (JS), []byte (Go), Vec<u8> (Rust),
+        ; std::vector<uint8_t> (C++), byte[] (Java), bytearray (Python)
+        ; ============================================================================
+
+        ; Allocate a new buffer of specified size (zero-filled)
+        buffer_alloc    cmdBufferAlloc:buffer    ( size:int ) {
+            templates {
+                ranger ( "(buffer_alloc " (e 1) ")" )
+                es6 ( "(function(){ var b = new ArrayBuffer(" (e 1) "); b._view = new DataView(b); return b; })()" )
+                go ( "make([]byte, " (e 1) ")" )
+                rust ( "vec![0u8; " (e 1) " as usize]" )
+                cpp ( "std::vector<uint8_t>(" (e 1) ", 0)" (imp "<vector>") (imp "<cstdint>") )
+                java7 ( "new byte[(int)" (e 1) "]" )
+                python ( "bytearray(" (e 1) ")" )
+                swift6 ( "[UInt8](repeating: 0, count: Int(" (e 1) "))" )
+                csharp ( "new byte[" (e 1) "]" )
+            }
+        }
+
+        ; Get the length of a buffer in bytes
+        buffer_length   cmdBufferLength:int      ( buf:buffer ) {
+            templates {
+                ranger ( "(buffer_length " (e 1) ")" )
+                es6 ( (e 1) ".byteLength" )
+                go ( "int64(len(" (e 1) "))" )
+                rust ( (e 1) ".len() as i64" )
+                cpp ( "static_cast<int64_t>(" (e 1) ".size())" )
+                java7 ( (e 1) ".length" )
+                python ( "len(" (e 1) ")" )
+                swift6 ( "Int64(" (e 1) ".count)" )
+                csharp ( (e 1) ".Length" )
+            }
+        }
+
+        ; Read a single byte at offset (returns 0-255)
+        buffer_get      cmdBufferGet:int         ( buf:buffer offset:int ) {
+            templates {
+                ranger ( "(buffer_get " (e 1) " " (e 2) ")" )
+                es6 ( (e 1) "._view.getUint8(" (e 2) ")" )
+                go ( "int64(" (e 1) "[" (e 2) "])" )
+                rust ( (e 1) "[" (e 2) " as usize] as i64" )
+                cpp ( "static_cast<int64_t>(" (e 1) "[" (e 2) "])" )
+                java7 ( "((" (e 1) "[(int)" (e 2) "] & 0xFF))" )
+                python ( (e 1) "[" (e 2) "]" )
+                swift6 ( "Int64(" (e 1) "[Int(" (e 2) ")])" )
+                csharp ( "((int)" (e 1) "[" (e 2) "])" )
+            }
+        }
+
+        ; Write a single byte at offset (value should be 0-255)
+        buffer_set      cmdBufferSet:void        ( buf:buffer offset:int value:int ) {
+            templates {
+                ranger ( "(buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
+                es6 ( (e 1) "._view.setUint8(" (e 2) ", " (e 3) ")" )
+                go ( (e 1) "[" (e 2) "] = byte(" (e 3) ")" )
+                rust ( (e 1) "[" (e 2) " as usize] = " (e 3) " as u8" )
+                cpp ( (e 1) "[" (e 2) "] = static_cast<uint8_t>(" (e 3) ")" )
+                java7 ( (e 1) "[(int)" (e 2) "] = (byte)" (e 3) )
+                python ( (e 1) "[" (e 2) "] = " (e 3) )
+                swift6 ( (e 1) "[Int(" (e 2) ")] = UInt8(" (e 3) ")" )
+                csharp ( (e 1) "[" (e 2) "] = (byte)" (e 3) )
+            }
+        }
+
+        ; Convert string to buffer (UTF-8 encoded)
+        buffer_from_string  cmdBufferFromString:buffer  ( str:string ) {
+            templates {
+                ranger ( "(buffer_from_string " (e 1) ")" )
+                es6 ( "(function(s){ var b = new ArrayBuffer(s.length); var v = new Uint8Array(b); for(var i=0;i<s.length;i++)v[i]=s.charCodeAt(i); b._view = new DataView(b); return b; })(" (e 1) ")" )
+                go ( "[]byte(" (e 1) ")" )
+                rust ( (e 1) ".as_bytes().to_vec()" )
+                cpp ( "std::vector<uint8_t>(" (e 1) ".begin(), " (e 1) ".end())" )
+                java7 ( (e 1) ".getBytes(java.nio.charset.StandardCharsets.UTF_8)" )
+                python ( "bytearray(" (e 1) ", 'utf-8')" )
+                swift6 ( "Array(" (e 1) ".utf8)" )
+                csharp ( "System.Text.Encoding.UTF8.GetBytes(" (e 1) ")" )
+            }
+        }
+
+        ; Convert buffer to string (UTF-8 decoded)
+        buffer_to_string    cmdBufferToString:string    ( buf:buffer ) {
+            templates {
+                ranger ( "(buffer_to_string " (e 1) ")" )
+                es6 ( "(function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(" (e 1) ")" )
+                go ( "string(" (e 1) ")" )
+                rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
+                cpp ( "std::string(" (e 1) ".begin(), " (e 1) ".end())" )
+                java7 ( "new String(" (e 1) ", java.nio.charset.StandardCharsets.UTF_8)" )
+                python ( (e 1) ".decode('utf-8')" )
+                swift6 ( "String(bytes: " (e 1) ", encoding: .utf8) ?? \"\"" )
+                csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
+            }
+        }
+
+        ; Write buffer to a binary file
+        buffer_write_file   cmdBufferWriteFile:void     ( path:string filename:string buf:buffer ) {
+            templates {
+                ranger ( "(buffer_write_file " (e 1) " " (e 2) " " (e 3) ")" )
+                es6 ( "require('fs').writeFileSync(" (e 1) " + '/' + " (e 2) ", Buffer.from(" (e 3) "))" )
+                go ( "os.WriteFile(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ", 0644)" (imp "os") )
+                rust ( "std::fs::write(format!(\"{}/{}\", " (e 1) ", " (e 2) "), &" (e 3) ").unwrap()" )
+                cpp ( "r_buffer_write_file(" (e 1) ", " (e 2) ", " (e 3) ")" (imp "<fstream>") (imp "<vector>")
+(create_polyfill "
+void r_buffer_write_file(const std::string& path, const std::string& filename, const std::vector<uint8_t>& data) {
+    std::ofstream file(path + \"/\" + filename, std::ios::binary);
+    file.write(reinterpret_cast<const char*>(data.data()), data.size());
+}
+")
+                )
+                java7 ( "java.nio.file.Files.write(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "), " (e 3) ")" )
+                python ( "open(" (e 1) " + '/' + " (e 2) ", 'wb').write(" (e 3) ")" )
+                swift6 ( "try? Data(" (e 3) ").write(to: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))" (imp "Foundation") )
+                csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ")" )
+            }
+        }
+
+        ; Read a binary file into a buffer
+        buffer_read_file    cmdBufferReadFile:buffer    ( path:string filename:string ) {
+            templates {
+                ranger ( "(buffer_read_file " (e 1) " " (e 2) ")" )
+                es6 ( "(function(){ var b = require('fs').readFileSync(" (e 1) " + '/' + " (e 2) "); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })()" )
+                go ( "func() []byte { d, _ := os.ReadFile(" (e 1) " + \"/\" + " (e 2) "); return d }()" (imp "os") )
+                rust ( "std::fs::read(format!(\"{}/{}\", " (e 1) ", " (e 2) ")).unwrap_or_default()" )
+                cpp ( "r_buffer_read_file(" (e 1) ", " (e 2) ")" (imp "<fstream>") (imp "<vector>") (imp "<iterator>")
+(create_polyfill "
+std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::string& filename) {
+    std::ifstream file(path + \"/\" + filename, std::ios::binary);
+    return std::vector<uint8_t>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+}
+")
+                )
+                java7 ( "java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "))" )
+                python ( "bytearray(open(" (e 1) " + '/' + " (e 2) ", 'rb').read())" )
+                swift6 ( "(try? Data(contentsOf: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))).map { Array($0) } ?? []" (imp "Foundation") )
+                csharp ( "System.IO.File.ReadAllBytes(" (e 1) " + \"/\" + " (e 2) ")" )
+            }
+        }
+
+        ; Copy bytes from source buffer to destination buffer
+        buffer_copy     cmdBufferCopy:void       ( dest:buffer destOffset:int src:buffer srcOffset:int length:int ) {
+            templates {
+                ranger ( "(buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
+                es6 ( "(function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(" (e 1) "," (e 2) "," (e 3) "," (e 4) "," (e 5) ")" )
+                go ( "copy(" (e 1) "[" (e 2) ":], " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "])" )
+                rust ( (e 1) "[" (e 2) " as usize..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (e 4) " as usize..(" (e 4) "+" (e 5) ") as usize])" )
+                cpp ( "std::copy(" (e 3) ".begin()+" (e 4) ", " (e 3) ".begin()+" (e 4) "+" (e 5) ", " (e 1) ".begin()+" (e 2) ")" (imp "<algorithm>") )
+                java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
+                swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+            }
+        }
+
+        ; Fill buffer with a byte value
+        buffer_fill     cmdBufferFill:void       ( buf:buffer value:int start:int end:int ) {
+            templates {
+                ranger ( "(buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
+                es6 ( "(function(b,v,s,e){ var arr = new Uint8Array(b); for(var i=s;i<e;i++) arr[i]=v; })(" (e 1) "," (e 2) "," (e 3) "," (e 4) ")" )
+                go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = byte(" (e 2) ") }" )
+                rust ( (e 1) "[" (e 3) " as usize.." (e 4) " as usize].fill(" (e 2) " as u8)" )
+                cpp ( "std::fill(" (e 1) ".begin()+" (e 3) ", " (e 1) ".begin()+" (e 4) ", static_cast<uint8_t>(" (e 2) "))" (imp "<algorithm>") )
+                java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", (byte)" (e 2) ")" )
+                python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
+                swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(UInt8(" (e 2) "), count: Int(" (e 4) "-" (e 3) ")))" )
+                csharp ( "Array.Fill(" (e 1) ", (byte)" (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
+            }
+        }
+
+        ; Create a slice/copy of a buffer range
+        buffer_slice    cmdBufferSlice:buffer    ( buf:buffer start:int end:int ) {
+            templates {
+                ranger ( "(buffer_slice " (e 1) " " (e 2) " " (e 3) ")" )
+                es6 ( "(function(b,s,e){ var slice = b.slice(s,e); slice._view = new DataView(slice); return slice; })(" (e 1) "," (e 2) "," (e 3) ")" )
+                go ( "append([]byte{}, " (e 1) "[" (e 2) ":" (e 3) "]...)" )
+                rust ( (e 1) "[" (e 2) " as usize.." (e 3) " as usize].to_vec()" )
+                cpp ( "std::vector<uint8_t>(" (e 1) ".begin()+" (e 2) ", " (e 1) ".begin()+" (e 3) ")" )
+                java7 ( "java.util.Arrays.copyOfRange(" (e 1) ", (int)" (e 2) ", (int)" (e 3) ")" )
+                python ( "bytearray(" (e 1) "[" (e 2) ":" (e 3) "])" )
+                swift6 ( "Array(" (e 1) "[Int(" (e 2) ")..<Int(" (e 3) ")])" )
+                csharp ( (e 1) "[((int)" (e 2) ")..((int)" (e 3) ")]" )
+            }
+        }
+
         to_int      cmdToInt:int       ( value:double ) { 
             templates {
                 ranger ( "(to_int " (e 1) ")") 
@@ -2403,6 +2590,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift3 ("String(" (e 1) ")")              
                 csharp ( (e 1) ".ToString()" )
                 python ( "str(" (e 1) ")" )
+                rust ( (e 1) ".to_string()" )
                 * ( "(" (e 1) ".toString())")
             }
         }          
@@ -2418,6 +2606,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
+                rust ( (e 1) ".to_string()" )
                 * ( "(" (e 1) ").toString()")
             }
         }        
@@ -4431,4 +4620,24 @@ std::string r_cpp_str_to_uppercase(std::string original)
 
 
 
+}
+
+; ============================================================================
+; SYSTEM CLASS: buffer
+; ============================================================================
+; Binary buffer type for low-level byte operations.
+; This provides a unified buffer type across all target languages.
+; ============================================================================
+
+systemclass buffer {
+    es6 ArrayBuffer
+    go "[]byte"
+    rust "Vec<u8>"
+    cpp "std::vector<uint8_t>"
+    java7 "byte[]"
+    python bytearray
+    swift6 "[UInt8]"
+    csharp "byte[]"
+    kotlin ByteArray
+    scala "Array[Byte]"
 }
