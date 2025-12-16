@@ -13,6 +13,7 @@ A fast TypeScript parser written in Ranger, cross-compilable to JavaScript, Rust
 ## Supported TypeScript Syntax
 
 ### Declarations
+
 - Interface declarations with properties
 - Type aliases (including union types)
 - Function declarations with type annotations
@@ -21,6 +22,7 @@ A fast TypeScript parser written in Ranger, cross-compilable to JavaScript, Rust
 - Enum declarations
 
 ### Types
+
 - Basic types (string, number, boolean, etc.)
 - Array types (`T[]` and `Array<T>`)
 - Tuple types `[string, number]`
@@ -31,6 +33,7 @@ A fast TypeScript parser written in Ranger, cross-compilable to JavaScript, Rust
 - Type literals `{ x: number }`
 
 ### Statements
+
 - If/else statements
 - While/for/for-of loops
 - Switch statements
@@ -39,6 +42,7 @@ A fast TypeScript parser written in Ranger, cross-compilable to JavaScript, Rust
 - Import/export statements
 
 ### Expressions
+
 - Binary expressions
 - Call expressions
 - Member expressions
@@ -50,10 +54,12 @@ A fast TypeScript parser written in Ranger, cross-compilable to JavaScript, Rust
 - New expressions
 
 ### Modifiers
+
 - Optional properties and parameters (`?`)
 - Readonly modifiers
 
 ### JSX/TSX (Optional Mode)
+
 - JSX elements `<div>...</div>`
 - Self-closing elements `<input />`
 - JSX attributes `<div className="test">`
@@ -98,7 +104,10 @@ node gallery/ts_parser/bin/ts_parser_main.js -d
 ### Programmatic API (Node.js Module)
 
 ```javascript
-const { TSLexer, TSParserSimple } = require('./gallery/ts_parser/benchmark/ts_parser_module.cjs');
+const {
+  TSLexer,
+  TSParserSimple,
+} = require("./gallery/ts_parser/benchmark/ts_parser_module.cjs");
 
 // Parse TypeScript code
 const code = `
@@ -124,7 +133,10 @@ console.log(ast.children[0].nodeType); // "InterfaceDeclaration"
 To parse JSX/TSX code, enable TSX mode on the parser:
 
 ```javascript
-const { TSLexer, TSParserSimple } = require('./gallery/ts_parser/benchmark/ts_parser_module.cjs');
+const {
+  TSLexer,
+  TSParserSimple,
+} = require("./gallery/ts_parser/benchmark/ts_parser_module.cjs");
 
 const jsxCode = '<div className="container"><span>Hello</span></div>';
 
@@ -133,7 +145,7 @@ const tokens = lexer.tokenize();
 
 const parser = new TSParserSimple();
 parser.initParser(tokens);
-parser.setTsxMode(true);  // Enable JSX parsing
+parser.setTsxMode(true); // Enable JSX parsing
 
 const ast = parser.parseExpr();
 console.log(ast.nodeType); // "JSXElement"
@@ -220,37 +232,37 @@ powershell -ExecutionPolicy Bypass -File gallery\ts_parser\benchmark\benchmark_n
 
 ### TSLexer
 
-| Method | Description |
-|--------|-------------|
-| `new TSLexer(source)` | Create lexer with source code |
-| `tokenize()` | Returns array of Token objects |
+| Method                | Description                    |
+| --------------------- | ------------------------------ |
+| `new TSLexer(source)` | Create lexer with source code  |
+| `tokenize()`          | Returns array of Token objects |
 
 ### TSParserSimple
 
-| Method | Description |
-|--------|-------------|
-| `initParser(tokens)` | Initialize with token array |
-| `setQuiet(bool)` | Suppress parse error messages |
-| `setTsxMode(bool)` | Enable JSX/TSX parsing |
-| `parseProgram()` | Parse full program, returns TSNode |
-| `parseStatement()` | Parse single statement |
-| `parseExpr()` | Parse single expression |
+| Method               | Description                        |
+| -------------------- | ---------------------------------- |
+| `initParser(tokens)` | Initialize with token array        |
+| `setQuiet(bool)`     | Suppress parse error messages      |
+| `setTsxMode(bool)`   | Enable JSX/TSX parsing             |
+| `parseProgram()`     | Parse full program, returns TSNode |
+| `parseStatement()`   | Parse single statement             |
+| `parseExpr()`        | Parse single expression            |
 
 ### TSNode Properties
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `nodeType` | string | Node type (e.g., "InterfaceDeclaration") |
-| `name` | string | Identifier name |
-| `value` | string | Literal value or operator |
-| `kind` | string | Declaration kind (let/const) |
-| `children` | TSNode[] | Child nodes |
-| `params` | TSNode[] | Parameters |
-| `left` | TSNode? | Left child |
-| `right` | TSNode? | Right child |
-| `body` | TSNode? | Body block |
-| `init` | TSNode? | Initializer |
-| `typeAnnotation` | TSNode? | Type annotation |
+| Property         | Type     | Description                              |
+| ---------------- | -------- | ---------------------------------------- |
+| `nodeType`       | string   | Node type (e.g., "InterfaceDeclaration") |
+| `name`           | string   | Identifier name                          |
+| `value`          | string   | Literal value or operator                |
+| `kind`           | string   | Declaration kind (let/const)             |
+| `children`       | TSNode[] | Child nodes                              |
+| `params`         | TSNode[] | Parameters                               |
+| `left`           | TSNode?  | Left child                               |
+| `right`          | TSNode?  | Right child                              |
+| `body`           | TSNode?  | Body block                               |
+| `init`           | TSNode?  | Initializer                              |
+| `typeAnnotation` | TSNode?  | Type annotation                          |
 
 ## See Also
 

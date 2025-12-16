@@ -21,7 +21,7 @@ const __dirname = dirname(__filename);
 function findNode(ast, predicate) {
   if (!ast || typeof ast !== "object") return false;
   if (predicate(ast)) return true;
-  
+
   // Check children array
   if (ast.children && Array.isArray(ast.children)) {
     for (const child of ast.children) {
@@ -54,31 +54,58 @@ const features = [
     name: "Interface Declaration",
     category: "Type Declarations",
     code: "interface User { name: string; age: number; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "InterfaceDeclaration" || n.nodeType === "TSInterfaceDeclaration"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "InterfaceDeclaration" ||
+          n.nodeType === "TSInterfaceDeclaration"
+      ),
   },
   {
     name: "Type Alias",
     category: "Type Declarations",
     code: "type ID = string | number;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "TypeAliasDeclaration" || n.nodeType === "TSTypeAliasDeclaration"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "TypeAliasDeclaration" ||
+          n.nodeType === "TSTypeAliasDeclaration"
+      ),
   },
   {
     name: "Enum Declaration",
     category: "Type Declarations",
     code: "enum Color { Red, Green, Blue }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "EnumDeclaration" || n.nodeType === "TSEnumDeclaration"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "EnumDeclaration" || n.nodeType === "TSEnumDeclaration"
+      ),
   },
   {
     name: "Const Enum",
     category: "Type Declarations",
     code: "const enum Direction { Up, Down }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "EnumDeclaration" || n.nodeType === "TSEnumDeclaration"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "EnumDeclaration" || n.nodeType === "TSEnumDeclaration"
+      ),
   },
   {
     name: "Namespace Declaration",
     category: "Type Declarations",
     code: "namespace Utils { export function helper() {} }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("Namespace") || n.nodeType?.includes("Module")),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType?.includes("Namespace") || n.nodeType?.includes("Module")
+      ),
   },
   {
     name: "Declare Module",
@@ -92,7 +119,14 @@ const features = [
     name: "Primitive Types",
     category: "Basic Types",
     code: "let a: string; let b: number; let c: boolean;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeReference") || n.nodeType?.includes("Keyword") || n.name === "string"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType?.includes("TypeReference") ||
+          n.nodeType?.includes("Keyword") ||
+          n.name === "string"
+      ),
   },
   {
     name: "Array Type (T[])",
@@ -104,7 +138,11 @@ const features = [
     name: "Array Type (Array<T>)",
     category: "Basic Types",
     code: "let arr: Array<string>;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeReference") && n.name === "Array"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType?.includes("TypeReference") && n.name === "Array"
+      ),
   },
   {
     name: "Tuple Type",
@@ -122,25 +160,33 @@ const features = [
     name: "Intersection Type",
     category: "Basic Types",
     code: "let x: A & B;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("IntersectionType")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("IntersectionType")),
   },
   {
     name: "Literal Types",
     category: "Basic Types",
     code: 'type Dir = "left" | "right";',
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("LiteralType") || n.nodeType === "StringLiteral"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType?.includes("LiteralType") || n.nodeType === "StringLiteral"
+      ),
   },
   {
     name: "Type Literal (Object Type)",
     category: "Basic Types",
     code: "let obj: { x: number; y: number };",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeLiteral")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("TypeLiteral")),
   },
   {
     name: "Function Type",
     category: "Basic Types",
     code: "type Fn = (x: number) => string;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("FunctionType")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("FunctionType")),
   },
 
   // === Generics ===
@@ -148,31 +194,36 @@ const features = [
     name: "Generic Interface",
     category: "Generics",
     code: "interface Container<T> { value: T; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeParameter")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("TypeParameter")),
   },
   {
     name: "Generic Function",
     category: "Generics",
     code: "function identity<T>(arg: T): T { return arg; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeParameter")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("TypeParameter")),
   },
   {
     name: "Generic Class",
     category: "Generics",
     code: "class Box<T> { value: T; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeParameter")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("TypeParameter")),
   },
   {
     name: "Generic Constraint",
     category: "Generics",
     code: "function fn<T extends object>(arg: T): T { return arg; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeParameter")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("TypeParameter")),
   },
   {
     name: "Default Type Parameter",
     category: "Generics",
     code: "interface Container<T = string> { value: T; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeParameter")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("TypeParameter")),
   },
 
   // === Classes ===
@@ -198,19 +249,27 @@ const features = [
     name: "Public/Private/Protected",
     category: "Classes",
     code: "class C { public a: number; private b: string; protected c: boolean; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "PropertyDefinition"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "PropertyDefinition"),
   },
   {
     name: "Readonly Property",
     category: "Classes",
     code: "class C { readonly x: number = 1; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "PropertyDefinition"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "PropertyDefinition"),
   },
   {
     name: "Static Members",
     category: "Classes",
     code: "class C { static count: number = 0; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "PropertyDefinition" || n.nodeType === "MethodDefinition"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "PropertyDefinition" ||
+          n.nodeType === "MethodDefinition"
+      ),
   },
   {
     name: "Abstract Class",
@@ -230,13 +289,15 @@ const features = [
     name: "Function Declaration",
     category: "Functions",
     code: "function greet(name: string): string { return name; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "FunctionDeclaration"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "FunctionDeclaration"),
   },
   {
     name: "Arrow Function",
     category: "Functions",
     code: "const fn = (x: number): number => x * 2;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "ArrowFunctionExpression"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "ArrowFunctionExpression"),
   },
   {
     name: "Optional Parameters",
@@ -248,25 +309,29 @@ const features = [
     name: "Default Parameters",
     category: "Functions",
     code: 'function greet(name: string = "World") {}',
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "FunctionDeclaration"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "FunctionDeclaration"),
   },
   {
     name: "Rest Parameters",
     category: "Functions",
     code: "function sum(...nums: number[]): number { return 0; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "RestElement" || n.kind === "rest"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "RestElement" || n.kind === "rest"),
   },
   {
     name: "Function Overloads",
     category: "Functions",
     code: "function fn(x: string): string;\nfunction fn(x: number): number;\nfunction fn(x: any): any { return x; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "FunctionDeclaration"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "FunctionDeclaration"),
   },
   {
     name: "Async Function",
     category: "Functions",
     code: "async function fetchData(): Promise<string> { return ''; }",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "FunctionDeclaration"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "FunctionDeclaration"),
   },
 
   // === Statements ===
@@ -274,7 +339,8 @@ const features = [
     name: "Variable Declaration",
     category: "Statements",
     code: "const x: number = 1; let y: string = 'a';",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "VariableDeclaration"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "VariableDeclaration"),
   },
   {
     name: "If Statement",
@@ -342,25 +408,29 @@ const features = [
     name: "Type Assertion (as)",
     category: "Expressions",
     code: "const x = value as string;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("AsExpression")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("AsExpression")),
   },
   {
     name: "Type Assertion (<T>)",
     category: "Expressions",
     code: "const x = <string>value;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeAssertion")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("TypeAssertion")),
   },
   {
     name: "Non-Null Assertion",
     category: "Expressions",
     code: "const x = value!;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("NonNullExpression")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("NonNullExpression")),
   },
   {
     name: "Satisfies Expression",
     category: "Expressions",
     code: "const x = { a: 1 } satisfies Record<string, number>;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("SatisfiesExpression")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("SatisfiesExpression")),
   },
   {
     name: "Template Literal",
@@ -402,7 +472,14 @@ const features = [
     name: "Nullish Coalescing",
     category: "Expressions",
     code: "const x = a ?? b;",
-    validate: (ast) => findNode(ast, (n) => (n.nodeType === "BinaryExpression" || n.nodeType === "LogicalExpression") && n.value === "??"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          (n.nodeType === "BinaryExpression" ||
+            n.nodeType === "LogicalExpression") &&
+          n.value === "??"
+      ),
   },
 
   // === Modules ===
@@ -434,19 +511,32 @@ const features = [
     name: "Export Named",
     category: "Modules",
     code: "export { foo, bar };",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("ExportDeclaration") || n.nodeType?.includes("ExportNamed")),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType?.includes("ExportDeclaration") ||
+          n.nodeType?.includes("ExportNamed")
+      ),
   },
   {
     name: "Export Default",
     category: "Modules",
     code: "export default function() {}",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("ExportDefault")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("ExportDefault")),
   },
   {
     name: "Re-Export",
     category: "Modules",
     code: 'export { foo } from "module";',
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("ExportDeclaration") || n.nodeType?.includes("ExportNamed")),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType?.includes("ExportDeclaration") ||
+          n.nodeType?.includes("ExportNamed")
+      ),
   },
 
   // === Advanced Types ===
@@ -454,7 +544,8 @@ const features = [
     name: "Conditional Type",
     category: "Advanced Types",
     code: "type IsString<T> = T extends string ? true : false;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("ConditionalType")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("ConditionalType")),
   },
   {
     name: "Mapped Type",
@@ -466,19 +557,28 @@ const features = [
     name: "Indexed Access Type",
     category: "Advanced Types",
     code: 'type T = Person["name"];',
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("IndexedAccessType")),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("IndexedAccessType")),
   },
   {
     name: "Keyof Type",
     category: "Advanced Types",
     code: "type Keys = keyof Person;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeOperator") || n.value === "keyof"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType?.includes("TypeOperator") || n.value === "keyof"
+      ),
   },
   {
     name: "Typeof Type",
     category: "Advanced Types",
     code: "type T = typeof obj;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeQuery") || n.value === "typeof"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType?.includes("TypeQuery") || n.value === "typeof"
+      ),
   },
   {
     name: "Infer Type",
@@ -489,8 +589,9 @@ const features = [
   {
     name: "Template Literal Type",
     category: "Advanced Types",
-    code: 'type Greeting = `Hello ${string}`;',
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TemplateLiteralType")),
+    code: "type Greeting = `Hello ${string}`;",
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType?.includes("TemplateLiteralType")),
   },
 
   // === Decorators ===
@@ -531,14 +632,19 @@ const features = [
     name: "JSX Self-Closing",
     category: "JSX",
     code: '<input type="text" />',
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "JSXElement" && n.left?.kind === "self-closing"),
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "JSXElement" && n.left?.kind === "self-closing"
+      ),
     tsxMode: true,
   },
   {
     name: "JSX Expression",
     category: "JSX",
     code: "<div>{value}</div>",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "JSXExpressionContainer"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "JSXExpressionContainer"),
     tsxMode: true,
   },
   {
@@ -552,7 +658,8 @@ const features = [
     name: "JSX Spread Attribute",
     category: "JSX",
     code: "<div {...props} />",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "JSXSpreadAttribute"),
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "JSXSpreadAttribute"),
     tsxMode: true,
   },
 ];
@@ -593,9 +700,15 @@ function testFeature(feature) {
 
 // Run all tests
 function runCompliance() {
-  console.log("╔══════════════════════════════════════════════════════════════════════════╗");
-  console.log("║       TypeScript Parser Compliance Test - Ranger vs TS Specification     ║");
-  console.log("╚══════════════════════════════════════════════════════════════════════════╝\n");
+  console.log(
+    "╔══════════════════════════════════════════════════════════════════════════╗"
+  );
+  console.log(
+    "║       TypeScript Parser Compliance Test - Ranger vs TS Specification     ║"
+  );
+  console.log(
+    "╚══════════════════════════════════════════════════════════════════════════╝\n"
+  );
 
   const results = { passed: 0, failed: 0, parseError: 0 };
 
@@ -643,38 +756,74 @@ function runCompliance() {
   const total = features.length;
   const score = ((results.passed / total) * 100).toFixed(1);
 
-  console.log("\n╔══════════════════════════════════════════════════════════════════════════╗");
-  console.log("║                              SUMMARY                                     ║");
-  console.log("╠══════════════════════════════════════════════════════════════════════════╣");
-  
-  console.log(`║ Features Supported:   ${results.passed.toString().padStart(3)} / ${total}`.padEnd(77) + "║");
-  console.log(`║ Needs Implementation: ${results.failed.toString().padStart(3)} / ${total}`.padEnd(77) + "║");
-  console.log(`║ Parse Errors:         ${results.parseError.toString().padStart(3)} / ${total}`.padEnd(77) + "║");
-  
-  console.log("╠══════════════════════════════════════════════════════════════════════════╣");
-  console.log("║                        CATEGORY BREAKDOWN                                ║");
-  console.log("╠══════════════════════════════════════════════════════════════════════════╣");
+  console.log(
+    "\n╔══════════════════════════════════════════════════════════════════════════╗"
+  );
+  console.log(
+    "║                              SUMMARY                                     ║"
+  );
+  console.log(
+    "╠══════════════════════════════════════════════════════════════════════════╣"
+  );
+
+  console.log(
+    `║ Features Supported:   ${results.passed
+      .toString()
+      .padStart(3)} / ${total}`.padEnd(77) + "║"
+  );
+  console.log(
+    `║ Needs Implementation: ${results.failed
+      .toString()
+      .padStart(3)} / ${total}`.padEnd(77) + "║"
+  );
+  console.log(
+    `║ Parse Errors:         ${results.parseError
+      .toString()
+      .padStart(3)} / ${total}`.padEnd(77) + "║"
+  );
+
+  console.log(
+    "╠══════════════════════════════════════════════════════════════════════════╣"
+  );
+  console.log(
+    "║                        CATEGORY BREAKDOWN                                ║"
+  );
+  console.log(
+    "╠══════════════════════════════════════════════════════════════════════════╣"
+  );
 
   for (const [category, data] of Object.entries(categoryResults)) {
     const pct = ((data.passed / data.total) * 100).toFixed(0);
-    const bar = "█".repeat(Math.floor(data.passed / data.total * 20)) + "░".repeat(20 - Math.floor(data.passed / data.total * 20));
-    const line = `║ ${category.padEnd(25)} ${bar} ${data.passed}/${data.total} (${pct}%)`;
+    const bar =
+      "█".repeat(Math.floor((data.passed / data.total) * 20)) +
+      "░".repeat(20 - Math.floor((data.passed / data.total) * 20));
+    const line = `║ ${category.padEnd(25)} ${bar} ${data.passed}/${
+      data.total
+    } (${pct}%)`;
     console.log(line.padEnd(77) + "║");
   }
 
-  console.log("╚══════════════════════════════════════════════════════════════════════════╝");
+  console.log(
+    "╚══════════════════════════════════════════════════════════════════════════╝"
+  );
 
   // Legend
   console.log("\nLegend:");
   console.log("  ✓ = Parsed and produced expected AST node type");
-  console.log("  ○ = Parsed but did NOT produce expected AST node (needs implementation)");
+  console.log(
+    "  ○ = Parsed but did NOT produce expected AST node (needs implementation)"
+  );
   console.log("  ✗ = Parse error");
 
   // Missing features (using stored results)
-  const missing = allResults.filter(({ result }) => result.success && !result.valid);
+  const missing = allResults.filter(
+    ({ result }) => result.success && !result.valid
+  );
 
   if (missing.length > 0) {
-    console.log("\n┌─ Features Needing Implementation ─────────────────────────────────────────┐");
+    console.log(
+      "\n┌─ Features Needing Implementation ─────────────────────────────────────────┐"
+    );
     for (const { feature } of missing) {
       console.log(`│ • ${feature.name} (${feature.category})`.padEnd(76) + "│");
     }
@@ -685,7 +834,9 @@ function runCompliance() {
   const errors = allResults.filter(({ result }) => !result.success);
 
   if (errors.length > 0) {
-    console.log("\n┌─ Features with Parse Errors ──────────────────────────────────────────────┐");
+    console.log(
+      "\n┌─ Features with Parse Errors ──────────────────────────────────────────────┐"
+    );
     for (const { feature } of errors) {
       console.log(`│ • ${feature.name} (${feature.category})`.padEnd(76) + "│");
     }
@@ -695,8 +846,14 @@ function runCompliance() {
   console.log(`\n📊 Overall Compliance: ${score}%`);
 
   // Generate COMPLIANCE.md
-  generateComplianceMarkdown(results, categoryResults, allResults, total, score);
-  
+  generateComplianceMarkdown(
+    results,
+    categoryResults,
+    allResults,
+    total,
+    score
+  );
+
   return {
     total,
     passed: results.passed,
@@ -707,9 +864,15 @@ function runCompliance() {
 }
 
 // Generate COMPLIANCE.md file
-function generateComplianceMarkdown(results, categoryResults, allResults, total, score) {
+function generateComplianceMarkdown(
+  results,
+  categoryResults,
+  allResults,
+  total,
+  score
+) {
   const date = new Date().toISOString().split("T")[0];
-  
+
   let md = `# TypeScript Parser Compliance Report
 
 > Generated: ${date}  
@@ -757,7 +920,7 @@ The report is automatically regenerated each time you run the compliance test.
 
   for (const [category, data] of Object.entries(categoryResults)) {
     const pct = ((data.passed / data.total) * 100).toFixed(0);
-    const filled = Math.floor(data.passed / data.total * 10);
+    const filled = Math.floor((data.passed / data.total) * 10);
     const bar = "🟩".repeat(filled) + "⬜".repeat(10 - filled);
     md += `| ${category} | ${bar} | ${data.passed}/${data.total} (${pct}%) |\n`;
   }
@@ -777,7 +940,7 @@ The report is automatically regenerated each time you run the compliance test.
     md += `### ${category}\n\n`;
     md += `| Feature | Status |\n`;
     md += `|---------|--------|\n`;
-    
+
     for (const { feature, result } of items) {
       const icon = !result.success ? "❌" : result.valid ? "✅" : "🔧";
       md += `| ${feature.name} | ${icon} |\n`;
@@ -786,7 +949,9 @@ The report is automatically regenerated each time you run the compliance test.
   }
 
   // Missing features
-  const missing = allResults.filter(({ result }) => result.success && !result.valid);
+  const missing = allResults.filter(
+    ({ result }) => result.success && !result.valid
+  );
   if (missing.length > 0) {
     md += `## Features Needing Implementation\n\n`;
     md += `The following features parse successfully but don't produce the expected AST node types yet:\n\n`;

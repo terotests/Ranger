@@ -95,6 +95,7 @@ language {
             ref r#ref
             union r#union
             bool r#bool
+            impl r#impl
         }
         swift3 {
             operator _operator
