@@ -15,7 +15,7 @@ node compliance.js
 ```
 
 This will:
-1. Run all 104 TypeScript feature tests against the Ranger parser
+1. Run all 121 TypeScript feature tests against the Ranger parser
 2. Display results in the terminal
 3. Generate this COMPLIANCE.md report
 
@@ -33,9 +33,9 @@ The report is automatically regenerated each time you run the compliance test.
 
 | Metric | Count |
 |--------|-------|
-| ✅ Features Supported | 104 / 104 |
-| 🔧 Needs Implementation | 0 / 104 |
-| ❌ Parse Errors | 0 / 104 |
+| ✅ Features Supported | 121 / 121 |
+| 🔧 Needs Implementation | 0 / 121 |
+| ❌ Parse Errors | 0 / 121 |
 
 ## Category Breakdown
 
@@ -52,7 +52,8 @@ The report is automatically regenerated each time you run the compliance test.
 | Advanced Types | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 7/7 (100%) |
 | Decorators | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 4/4 (100%) |
 | JavaScript | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 24/24 (100%) |
-| JSX | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 5/5 (100%) |
+| JSX | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 8/8 (100%) |
+| Tricky Cases | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 14/14 (100%) |
 
 ## Detailed Results
 
@@ -219,6 +220,28 @@ The report is automatically regenerated each time you run the compliance test.
 | JSX Expression | ✅ |
 | JSX Fragment | ✅ |
 | JSX Spread Attribute | ✅ |
+| Ambiguous <T> as JSX in TSX mode | ✅ |
+| Generic <T extends {}> not JSX | ✅ |
+| Generic <T extends unknown> not JSX | ✅ |
+
+### Tricky Cases
+
+| Feature | Status |
+|---------|--------|
+| Generic Function Call in TSX (not JSX) | ✅ |
+| Comparison Chain (not generic/JSX) | ✅ |
+| Type Predicate | ✅ |
+| Assertion Function | ✅ |
+| Index Signature | ✅ |
+| Labeled Statement | ✅ |
+| As Const Assertion | ✅ |
+| Nested Conditional Type | ✅ |
+| Constructor Type | ✅ |
+| Import Type Inline | ✅ |
+| Named Tuple Elements | ✅ |
+| Rest in Tuple Type | ✅ |
+| Override Modifier | ✅ |
+| Accessor Keyword | ✅ |
 
 ---
 

@@ -265,7 +265,37 @@ class TSParserSimple {
       return empty
     }
     
+    ; Check for labeled statement: identifier :
+    def tokType (this.peekType())
+    if (tokType == "Identifier") {
+      def nextVal (this.peekNextValue())
+      if (nextVal == ":") {
+        return (this.parseLabeledStatement())
+      }
+    }
+    
     return (this.parseExprStmt())
+  }
+  
+  ; === Labeled Statement ===
+  
+  fn parseLabeledStatement:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "LabeledStatement"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    def labelTok (this.expect("Identifier"))
+    node.name = labelTok.value
+    
+    this.expectValue(":")
+    
+    def body (this.parseStatement())
+    node.body = body
+    
+    return node
   }
   
   ; === Helper: peek next token value ===
@@ -672,18 +702,41 @@ class TSParserSimple {
   }
   
   fn parsePropertySig:TSNode () {
-    def prop (new TSNode())
-    prop.nodeType = "TSPropertySignature"
     def startTok (this.peek())
-    prop.start = startTok.start
-    prop.line = startTok.line
-    prop.col = startTok.col
+    def startPos startTok.start
+    def startLine startTok.line
+    def startCol startTok.col
     
     ; Optional readonly
+    def isReadonly false
     if (this.matchValue("readonly")) {
-      prop.readonly = true
+      isReadonly = true
       this.advance()
     }
+    
+    ; Check for index signature [key: type]: type
+    if (this.matchValue("[")) {
+      this.advance() ; consume [
+      def paramTok (this.expect("Identifier"))
+      return (this.parseIndexSignatureRest(isReadonly paramTok startPos startLine startCol))
+    }
+    
+    ; Check for call signature (params): returnType
+    if (this.matchValue("(")) {
+      return (this.parseCallSignature(startPos startLine startCol))
+    }
+    
+    ; Check for construct signature new (params): returnType
+    if (this.matchValue("new")) {
+      return (this.parseConstructSignature(startPos startLine startCol))
+    }
+    
+    def prop (new TSNode())
+    prop.nodeType = "TSPropertySignature"
+    prop.start = startPos
+    prop.line = startLine
+    prop.col = startCol
+    prop.readonly = isReadonly
     
     ; Property name
     def nameTok (this.expect("Identifier"))
@@ -702,6 +755,78 @@ class TSParserSimple {
     }
     
     return prop
+  }
+  
+  ; === Call Signature (for interface) ===
+  
+  fn parseCallSignature:TSNode (startPos:int startLine:int startCol:int) {
+    def sig (new TSNode())
+    sig.nodeType = "TSCallSignatureDeclaration"
+    sig.start = startPos
+    sig.line = startLine
+    sig.col = startCol
+    
+    ; Parse type parameters <T>
+    if (this.matchValue("<")) {
+      def typeParams (this.parseTypeParams())
+      sig.params = typeParams
+    }
+    
+    ; Parse parameters
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length sig.children) > 0) {
+        this.expectValue(",")
+      }
+      def param (this.parseParam())
+      push sig.children param
+    }
+    this.expectValue(")")
+    
+    ; Return type
+    if (this.matchValue(":")) {
+      def typeAnnot (this.parseTypeAnnotation())
+      sig.typeAnnotation = typeAnnot
+    }
+    
+    return sig
+  }
+  
+  ; === Construct Signature (for interface) ===
+  
+  fn parseConstructSignature:TSNode (startPos:int startLine:int startCol:int) {
+    def sig (new TSNode())
+    sig.nodeType = "TSConstructSignatureDeclaration"
+    sig.start = startPos
+    sig.line = startLine
+    sig.col = startCol
+    
+    this.expectValue("new")
+    
+    ; Parse type parameters <T>
+    if (this.matchValue("<")) {
+      def typeParams (this.parseTypeParams())
+      sig.params = typeParams
+    }
+    
+    ; Parse parameters
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length sig.children) > 0) {
+        this.expectValue(",")
+      }
+      def param (this.parseParam())
+      push sig.children param
+    }
+    this.expectValue(")")
+    
+    ; Return type
+    if (this.matchValue(":")) {
+      def typeAnnot (this.parseTypeAnnotation())
+      sig.typeAnnotation = typeAnnot
+    }
+    
+    return sig
   }
   
   ; === Type Alias Declaration ===
@@ -1855,6 +1980,63 @@ class TSParserSimple {
     
     this.expectValue(":")
     
+    ; Check for type predicate: x is Type or asserts x
+    def nextVal (this.peekValue())
+    
+    ; Assertion function: asserts param or asserts param is Type
+    if (nextVal == "asserts") {
+      def assertsTok (this.peek())
+      this.advance()
+      
+      def predicate (new TSNode())
+      predicate.nodeType = "TSTypePredicate"
+      predicate.start = assertsTok.start
+      predicate.line = assertsTok.line
+      predicate.col = assertsTok.col
+      predicate.value = "asserts"
+      
+      def paramTok (this.expect("Identifier"))
+      predicate.name = paramTok.value
+      
+      ; Optional type assertion: asserts param is Type
+      if (this.matchValue("is")) {
+        this.advance()
+        def assertType (this.parseType())
+        predicate.typeAnnotation = assertType
+      }
+      
+      annot.typeAnnotation = predicate
+      return annot
+    }
+    
+    ; Check for type predicate: param is Type
+    if (this.matchType("Identifier")) {
+      def savedPos this.pos
+      def savedTok:Token (unwrap this.currentToken)
+      def paramTok (this.peek())
+      this.advance()
+      
+      if (this.matchValue("is")) {
+        this.advance()
+        def predicate (new TSNode())
+        predicate.nodeType = "TSTypePredicate"
+        predicate.start = paramTok.start
+        predicate.line = paramTok.line
+        predicate.col = paramTok.col
+        predicate.name = paramTok.value
+        
+        def typeExpr (this.parseType())
+        predicate.typeAnnotation = typeExpr
+        
+        annot.typeAnnotation = predicate
+        return annot
+      }
+      
+      ; Not a type predicate, backtrack
+      this.pos = savedPos
+      this.currentToken = savedTok
+    }
+    
     def typeExpr (this.parseType())
     annot.typeAnnotation = typeExpr
     
@@ -2218,6 +2400,16 @@ class TSParserSimple {
       return node
     }
     
+    ; Constructor type: new (params) => Type
+    if (tokVal == "new") {
+      return (this.parseConstructorType())
+    }
+    
+    ; Import type: import("path").Type
+    if (tokVal == "import") {
+      return (this.parseImportType())
+    }
+    
     ; Parenthesized type or function type
     if (tokVal == "(") {
       return (this.parseParenOrFunctionType())
@@ -2289,32 +2481,97 @@ class TSParserSimple {
         this.expectValue(",")
       }
       
-      ; Check for rest element ...type
+      ; Check for rest element ...type or ...name: type
       if (this.matchValue("...")) {
+        def restTok (this.peek())
         this.advance()
+        
+        ; Check for named rest element ...name: type
+        def restName ""
+        if (this.matchType("Identifier")) {
+          def savedPos this.pos
+          def savedTok:Token (unwrap this.currentToken)
+          def nameTok (this.peek())
+          this.advance()
+          if (this.matchValue(":")) {
+            restName = nameTok.value
+            this.advance()
+          } {
+            ; Not named, backtrack
+            this.pos = savedPos
+            this.currentToken = savedTok
+          }
+        }
+        
         def innerType (this.parseType())
         def restType (new TSNode())
         restType.nodeType = "TSRestType"
-        restType.start = innerType.start
-        restType.line = innerType.line
-        restType.col = innerType.col
+        restType.start = restTok.start
+        restType.line = restTok.line
+        restType.col = restTok.col
         restType.typeAnnotation = innerType
+        if (restName != "") {
+          restType.name = restName
+        }
         push tuple.children restType
       } {
+        ; Check for named tuple element: name: type or name?: type
+        def isNamed false
+        def elemName ""
+        def elemOptional false
+        def elemStart (this.peek())
+        
+        if (this.matchType("Identifier")) {
+          def savedPos this.pos
+          def savedTok:Token (unwrap this.currentToken)
+          def nameTok (this.peek())
+          this.advance()
+          
+          ; Check for optional marker
+          if (this.matchValue("?")) {
+            this.advance()
+            elemOptional = true
+          }
+          
+          if (this.matchValue(":")) {
+            ; This is a named tuple element
+            isNamed = true
+            elemName = nameTok.value
+            this.advance()
+          } {
+            ; Not named, backtrack
+            this.pos = savedPos
+            this.currentToken = savedTok
+            elemOptional = false
+          }
+        }
+        
         def elemType (this.parseType())
         
-        ; Check for optional element type?
-        if (this.matchValue("?")) {
-          this.advance()
-          def optType (new TSNode())
-          optType.nodeType = "TSOptionalType"
-          optType.start = elemType.start
-          optType.line = elemType.line
-          optType.col = elemType.col
-          optType.typeAnnotation = elemType
-          push tuple.children optType
+        if (isNamed) {
+          def namedElem (new TSNode())
+          namedElem.nodeType = "TSNamedTupleMember"
+          namedElem.start = elemStart.start
+          namedElem.line = elemStart.line
+          namedElem.col = elemStart.col
+          namedElem.name = elemName
+          namedElem.optional = elemOptional
+          namedElem.typeAnnotation = elemType
+          push tuple.children namedElem
         } {
-          push tuple.children elemType
+          ; Check for optional element type?
+          if (this.matchValue("?")) {
+            this.advance()
+            def optType (new TSNode())
+            optType.nodeType = "TSOptionalType"
+            optType.start = elemType.start
+            optType.line = elemType.line
+            optType.col = elemType.col
+            optType.typeAnnotation = elemType
+            push tuple.children optType
+          } {
+            push tuple.children elemType
+          }
         }
       }
     }
@@ -2478,6 +2735,86 @@ class TSParserSimple {
     }
     
     return funcType
+  }
+  
+  ; === Constructor Type: new (params) => Type ===
+  
+  fn parseConstructorType:TSNode () {
+    def ctorType (new TSNode())
+    ctorType.nodeType = "TSConstructorType"
+    def startTok (this.peek())
+    ctorType.start = startTok.start
+    ctorType.line = startTok.line
+    ctorType.col = startTok.col
+    
+    this.expectValue("new")
+    
+    ; Type parameters <T>
+    if (this.matchValue("<")) {
+      def typeParams (this.parseTypeParams())
+      ctorType.children = typeParams
+    }
+    
+    ; Parameters
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length ctorType.params) > 0) {
+        this.expectValue(",")
+      }
+      def param (this.parseParam())
+      push ctorType.params param
+    }
+    this.expectValue(")")
+    
+    ; Return type
+    if (this.matchValue("=>")) {
+      this.advance()
+      def returnType (this.parseType())
+      ctorType.typeAnnotation = returnType
+    }
+    
+    return ctorType
+  }
+  
+  ; === Import Type: import("path").Member ===
+  
+  fn parseImportType:TSNode () {
+    def importType (new TSNode())
+    importType.nodeType = "TSImportType"
+    def startTok (this.peek())
+    importType.start = startTok.start
+    importType.line = startTok.line
+    importType.col = startTok.col
+    
+    this.expectValue("import")
+    this.expectValue("(")
+    
+    def sourceTok (this.expect("String"))
+    importType.value = sourceTok.value
+    
+    this.expectValue(")")
+    
+    ; Optional member access .Member
+    if (this.matchValue(".")) {
+      this.advance()
+      def memberTok (this.expect("Identifier"))
+      importType.name = memberTok.value
+      
+      ; Generic type args <T>
+      if (this.matchValue("<")) {
+        this.advance()
+        while (((this.matchValue(">")) == false) && ((this.isAtEnd()) == false)) {
+          if ((array_length importType.params) > 0) {
+            this.expectValue(",")
+          }
+          def typeArg (this.parseType())
+          push importType.params typeArg
+        }
+        this.expectValue(">")
+      }
+    }
+    
+    return importType
   }
   
   ; === Object Type Literal { prop: type } ===
@@ -2782,6 +3119,32 @@ class TSParserSimple {
     
     def tokVal (this.peekValue())
     while ((tokVal == "+") || (tokVal == "-") || (tokVal == "*") || (tokVal == "/") || (tokVal == "**") || (tokVal == "===") || (tokVal == "!==") || (tokVal == "<") || (tokVal == ">")) {
+      
+      ; In TSX mode, check if < might be a generic call instead of comparison
+      ; If left is a lowercase identifier and < looks like generic call pattern, stop here
+      if (tokVal == "<") {
+        if (this.tsxMode == true) {
+          if (left.nodeType == "Identifier") {
+            if (this.startsWithLowerCase(left.name)) {
+              if (this.looksLikeGenericCall()) {
+                ; This is foo<T>(...), not a comparison - don't consume <
+                return left
+              }
+            }
+          }
+          if (left.nodeType == "MemberExpression") {
+            if (this.looksLikeGenericCall()) {
+              return left
+            }
+          }
+          if (left.nodeType == "CallExpression") {
+            if (this.looksLikeGenericCall()) {
+              return left
+            }
+          }
+        }
+      }
+      
       def opTok (this.peek())
       this.advance()
       def right (this.parseUnary())
@@ -2862,6 +3225,7 @@ class TSParserSimple {
     
     ; Type assertion with angle brackets <Type>value
     ; In TSX mode, skip this if it looks like JSX (next is > for fragment, or Identifier for element)
+    ; But NOT if it's <T extends ...> which is a generic type parameter
     if (tokVal == "<") {
       ; Check for JSX in TSX mode first
       if (this.tsxMode == true) {
@@ -2872,8 +3236,13 @@ class TSParserSimple {
           return (this.parsePostfix())
         }
         ; JSX Element <div ...> or <Component ...>
+        ; But NOT if followed by "extends" which indicates generic: <T extends ...>
         if (peekNextT == "Identifier") {
-          return (this.parsePostfix())
+          def peekTwoAhead (this.peekAheadValue(2))
+          if (peekTwoAhead != "extends") {
+            return (this.parsePostfix())
+          }
+          ; If we have <T extends, fall through to type parsing (generic arrow function)
         }
       }
       
@@ -2911,6 +3280,89 @@ class TSParserSimple {
     def keepParsing true
     while (keepParsing) {
       def tokVal (this.peekValue())
+      
+      ; Generic function call with type arguments: foo<T>(x)
+      ; In TSX mode, use heuristics to disambiguate from JSX
+      if (tokVal == "<") {
+        def shouldParseAsGenericCall false
+        
+        ; In non-TSX mode, < after identifier/call is likely generic
+        if (this.tsxMode == false) {
+          ; Check if followed by valid type args pattern - identifier then > or ,
+          def next1 (this.peekAheadValue(1))
+          def next2 (this.peekAheadValue(2))
+          if ((next2 == ">") || (next2 == ",") || (next2 == "extends")) {
+            shouldParseAsGenericCall = true
+          }
+        } {
+          ; TSX mode - use lookahead heuristic
+          ; Only try generic call if:
+          ; 1. The expr is an identifier starting with lowercase (functions are usually lowercase)
+          ; 2. Lookahead shows pattern like <Type>( 
+          if (expr.nodeType == "Identifier") {
+            if (this.startsWithLowerCase(expr.name)) {
+              if (this.looksLikeGenericCall()) {
+                shouldParseAsGenericCall = true
+              }
+            }
+          }
+          ; Also handle member expressions like obj.method<T>()
+          if (expr.nodeType == "MemberExpression") {
+            if (this.looksLikeGenericCall()) {
+              shouldParseAsGenericCall = true
+            }
+          }
+        }
+        
+        if (shouldParseAsGenericCall) {
+          ; Parse type arguments <T, U, ...> directly into call node
+          this.advance() ; consume <
+          
+          def call (new TSNode())
+          call.nodeType = "CallExpression"
+          call.left = expr
+          call.start = expr.start
+          call.line = expr.line
+          call.col = expr.col
+          
+          ; Parse type arguments into params (use parseType, not parseTypeAnnotation which expects :)
+          while (((this.matchValue(">")) == false) && ((this.isAtEnd()) == false)) {
+            if ((array_length call.params) > 0) {
+              this.expectValue(",")
+            }
+            def typeArg (this.parseType())
+            push call.params typeArg
+          }
+          this.expectValue(">")
+          
+          ; Now expect ( for the call
+          if (this.matchValue("(")) {
+            this.advance()
+            
+            while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+              if ((array_length call.children) > 0) {
+                this.expectValue(",")
+              }
+              if (this.matchValue("...")) {
+                this.advance()
+                def spreadArg (this.parseExpr())
+                def spread (new TSNode())
+                spread.nodeType = "SpreadElement"
+                spread.left = spreadArg
+                push call.children spread
+              } {
+                def arg (this.parseExpr())
+                push call.children arg
+              }
+            }
+            this.expectValue(")")
+            expr = call
+          }
+        }
+      }
+      
+      ; Re-check tokVal in case we consumed tokens above
+      tokVal = (this.peekValue())
       
       ; Function call ()
       if (tokVal == "(") {
@@ -3216,8 +3668,13 @@ class TSParserSimple {
       if (nextVal == ">") {
         return (this.parseJSXFragment())
       }
+      ; JSX element, but NOT if followed by "extends" (generic type parameter)
       if ((nextType == "Identifier") || (nextType == "Keyword")) {
-        return (this.parseJSXElement())
+        def peekTwoAhead (this.peekAheadValue(2))
+        if (peekTwoAhead != "extends") {
+          return (this.parseJSXElement())
+        }
+        ; If <T extends, this is a generic arrow function, not JSX
       }
     }
     
@@ -3691,6 +4148,68 @@ class TSParserSimple {
       return nextTok.tokenType
     }
     return "EOF"
+  }
+  
+  ; === Helper: peek N tokens ahead value ===
+  
+  fn peekAheadValue:string (offset:int) {
+    def aheadPos (this.pos + offset)
+    if (aheadPos < (array_length this.tokens)) {
+      def tok:Token (itemAt this.tokens aheadPos)
+      return tok.value
+    }
+    return ""
+  }
+  
+  ; === Helper: check if string starts with lowercase letter ===
+  fn startsWithLowerCase:boolean (s:string) {
+    if ((strlen s) == 0) {
+      return false
+    }
+    ; charAt returns the char code in Ranger
+    def code:int (charAt s 0)
+    ; a-z are ASCII 97-122
+    if ((code >= 97) && (code <= 122)) {
+      return true
+    }
+    return false
+  }
+  
+  ; === Helper: lookahead to check if < starts a generic call like foo<T>(x) ===
+  ; Returns true if this looks like a generic function call, not JSX
+  ; Simple heuristic: scan for matching > then check for (
+  fn looksLikeGenericCall:boolean () {
+    def depth 1
+    def offset 1
+    def maxLookahead 20
+    
+    while ((depth > 0) && (offset < maxLookahead)) {
+      def ahead (this.peekAheadValue(offset))
+      if (ahead == "") {
+        return false
+      }
+      if (ahead == "<") {
+        depth = (depth + 1)
+      }
+      if (ahead == ">") {
+        depth = (depth - 1)
+      }
+      ; If we see things that can't appear in type arguments, bail
+      if ((ahead == "{") || (ahead == "}") || (ahead == ";") || (ahead == "=>")) {
+        return false
+      }
+      offset = (offset + 1)
+    }
+    
+    ; If depth is 0, we found matching >
+    ; Check if next token after > is (
+    if (depth == 0) {
+      def afterClose (this.peekAheadValue(offset))
+      if (afterClose == "(") {
+        return true
+      }
+    }
+    return false
   }
   
   ; === JSX Parsing (TSX Mode) ===
