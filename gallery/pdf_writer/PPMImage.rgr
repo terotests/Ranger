@@ -1,0 +1,231 @@
+; PPMImage.rgr - PPM (Portable Pixmap) image reader/writer
+; PPM is a simple uncompressed image format - easy to read/write
+;
+; Format: P6 (binary RGB) or P3 (ASCII RGB)
+; Header: P6\n<width> <height>\n<maxval>\n<binary RGB data>
+
+Import "Buffer.rgr"
+Import "ImageBuffer.rgr"
+
+class PPMImage {
+    
+    Constructor () {
+    }
+    
+    fn parseNumber:int (data:buffer startPos:int endPos:[int]) {
+        ; Parse ASCII number, skip whitespace, return value and update endPos
+        def len:int (buffer_length data)
+        def pos:int startPos
+        
+        ; Skip whitespace
+        def skipping:boolean true
+        while (skipping && (pos < len)) {
+            def ch:int (buffer_get data pos)
+            if ((ch == 32) || (ch == 10) || (ch == 13) || (ch == 9)) {
+                pos = pos + 1
+            } {
+                skipping = false
+            }
+        }
+        
+        ; Parse digits
+        def value:int 0
+        def parsing:boolean true
+        while (parsing && (pos < len)) {
+            def ch:int (buffer_get data pos)
+            if ((ch >= 48) && (ch <= 57)) {
+                value = (value * 10) + (ch - 48)
+                pos = pos + 1
+            } {
+                parsing = false
+            }
+        }
+        
+        set endPos 0 pos
+        return value
+    }
+    
+    fn skipToNextLine:int (data:buffer pos:int) {
+        def len:int (buffer_length data)
+        while (pos < len) {
+            def ch:int (buffer_get data pos)
+            pos = pos + 1
+            if (ch == 10) {
+                return pos
+            }
+        }
+        return pos
+    }
+    
+    fn load:ImageBuffer (dirPath:string fileName:string) {
+        def data:buffer (buffer_read_file dirPath fileName)
+        def len:int (buffer_length data)
+        
+        if (len < 10) {
+            print ("Error: File too small: " + fileName)
+            def errImg (new ImageBuffer())
+            errImg.init(1 1)
+            return errImg
+        }
+        
+        ; Check magic number (P6 for binary PPM)
+        def m1:int (buffer_get data 0)
+        def m2:int (buffer_get data 1)
+        
+        if ((m1 != 80) || ((m2 != 54) && (m2 != 51))) {
+            ; Not P6 or P3
+            print ("Error: Not a PPM file (P3 or P6): " + fileName)
+            def errImg (new ImageBuffer())
+            errImg.init(1 1)
+            return errImg
+        }
+        
+        def isBinary:boolean (m2 == 54)
+        def pos:int 2
+        
+        ; Skip comments and whitespace, parse width, height, maxval
+        def endPos:[int]
+        push endPos 0
+        
+        ; Skip any comments
+        def skippingComments:boolean true
+        while (skippingComments && (pos < len)) {
+            def ch:int (buffer_get data pos)
+            if ((ch == 32) || (ch == 10) || (ch == 13) || (ch == 9)) {
+                pos = pos + 1
+            } {
+                if (ch == 35) {
+                    ; Comment line starting with #
+                    pos = (this.skipToNextLine(data pos))
+                } {
+                    skippingComments = false
+                }
+            }
+        }
+        
+        def width:int (this.parseNumber(data pos endPos))
+        pos = (at endPos 0)
+        
+        def height:int (this.parseNumber(data pos endPos))
+        pos = (at endPos 0)
+        
+        def maxVal:int (this.parseNumber(data pos endPos))
+        pos = (at endPos 0)
+        
+        ; Skip single whitespace after maxval
+        if (pos < len) {
+            pos = pos + 1
+        }
+        
+        print ("Loading PPM: " + (to_string width) + "x" + (to_string height) + ", maxval=" + (to_string maxVal))
+        
+        def img (new ImageBuffer())
+        img.init(width height)
+        
+        if isBinary {
+            ; P6: Binary RGB data
+            def y 0
+            while (y < height) {
+                def x 0
+                while (x < width) {
+                    if ((pos + 2) < len) {
+                        def r:int (buffer_get data pos)
+                        def g:int (buffer_get data (pos + 1))
+                        def b:int (buffer_get data (pos + 2))
+                        img.setPixelRGB(x y r g b)
+                        pos = pos + 3
+                    }
+                    x = x + 1
+                }
+                y = y + 1
+            }
+        } {
+            ; P3: ASCII RGB data
+            def y 0
+            while (y < height) {
+                def x 0
+                while (x < width) {
+                    def r:int (this.parseNumber(data pos endPos))
+                    pos = (at endPos 0)
+                    def g:int (this.parseNumber(data pos endPos))
+                    pos = (at endPos 0)
+                    def b:int (this.parseNumber(data pos endPos))
+                    pos = (at endPos 0)
+                    img.setPixelRGB(x y r g b)
+                    x = x + 1
+                }
+                y = y + 1
+            }
+        }
+        
+        return img
+    }
+    
+    fn save:void (img:ImageBuffer dirPath:string fileName:string) {
+        ; Save as P6 (binary PPM)
+        def buf (new GrowableBuffer())
+        
+        ; Header
+        buf.writeString("P6\n")
+        buf.writeString((to_string img.width) + " " + (to_string img.height) + "\n")
+        buf.writeString("255\n")
+        
+        ; Debug: print first few pixels
+        print "DEBUG: First 5 pixels from ImageBuffer:"
+        def debugI 0
+        while (debugI < 5) {
+            def dc:Color (img.getPixel(debugI 0))
+            print ("  Pixel " + (to_string debugI) + ": R=" + (to_string dc.r) + " G=" + (to_string dc.g) + " B=" + (to_string dc.b))
+            debugI = debugI + 1
+        }
+        
+        ; Pixel data (RGB only, no alpha)
+        def y 0
+        while (y < img.height) {
+            def x 0
+            while (x < img.width) {
+                def c:Color (img.getPixel(x y))
+                buf.writeByte(c.r)
+                buf.writeByte(c.g)
+                buf.writeByte(c.b)
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        def data:buffer (buf.toBuffer())
+        buffer_write_file dirPath fileName data
+        print ("Saved PPM: " + dirPath + "/" + fileName)
+    }
+    
+    fn saveP3:void (img:ImageBuffer dirPath:string fileName:string) {
+        ; Save as P3 (ASCII PPM) - larger but human-readable
+        def buf (new GrowableBuffer())
+        
+        ; Header
+        buf.writeString("P3\n")
+        buf.writeString("# Created by Ranger ImageEditor\n")
+        buf.writeString((to_string img.width) + " " + (to_string img.height) + "\n")
+        buf.writeString("255\n")
+        
+        ; Pixel data as ASCII
+        def y 0
+        while (y < img.height) {
+            def x 0
+            while (x < img.width) {
+                def c:Color (img.getPixel(x y))
+                buf.writeString((to_string c.r) + " " + (to_string c.g) + " " + (to_string c.b))
+                if (x < (img.width - 1)) {
+                    buf.writeString("  ")
+                }
+                x = x + 1
+            }
+            buf.writeString("\n")
+            y = y + 1
+        }
+        
+        def data:buffer (buf.toBuffer())
+        buffer_write_file dirPath fileName data
+        print ("Saved PPM (ASCII): " + dirPath + "/" + fileName)
+    }
+}

@@ -123,6 +123,19 @@
 | max        | `int`    | (`left`:int `right`:int )           |             |
 | to_double  | `double` | (`input`:int )                      |             |
 
+## Bitwise operators
+
+`bit_and` , `bit_or` , `bit_xor` , `bit_not` , `bit_shl` , `bit_shr`
+
+| operator | returns | arguments                   | description                    |
+| -------- | ------- | --------------------------- | ------------------------------ |
+| bit_and  | `int`   | (`left`:int `right`:int )   | Bitwise AND                    |
+| bit_or   | `int`   | (`left`:int `right`:int )   | Bitwise OR                     |
+| bit_xor  | `int`   | (`left`:int `right`:int )   | Bitwise XOR                    |
+| bit_not  | `int`   | (`value`:int )              | Bitwise NOT (ones complement)  |
+| bit_shl  | `int`   | (`value`:int `count`:int )  | Bit shift left                 |
+| bit_shr  | `int`   | (`value`:int `count`:int )  | Bit shift right (arithmetic)   |
+
 ## Miscellaneous operators
 
 `shell_arg` , `to_string` , `to_string` , `strfromcode` , `double2str` , `r.value` , `r.value`

@@ -1,0 +1,702 @@
+; JPEGDecoder.rgr - Full JPEG decoder (baseline DCT)
+; Decodes JPEG to raw RGB pixels
+
+Import "Buffer.rgr"
+Import "BitReader.rgr"
+Import "HuffmanDecoder.rgr"
+Import "DCT.rgr"
+Import "ImageBuffer.rgr"
+Import "PPMImage.rgr"
+
+class JPEGComponent {
+    def id:int 0
+    def hSamp:int 1          ; Horizontal sampling factor
+    def vSamp:int 1          ; Vertical sampling factor
+    def quantTableId:int 0
+    def dcTableId:int 0
+    def acTableId:int 0
+    def prevDC:int 0         ; Previous DC value for differential coding
+    
+    Constructor () {
+    }
+}
+
+class QuantizationTable {
+    def values:[int]
+    def id:int 0
+    
+    Constructor () {
+        def i 0
+        while (i < 64) {
+            push values 1
+            i = i + 1
+        }
+    }
+}
+
+class JPEGDecoder {
+    def data:buffer (buffer_alloc 0)
+    def dataLen:int 0
+    
+    ; Image properties
+    def width:int 0
+    def height:int 0
+    def numComponents:int 0
+    def precision:int 8
+    
+    ; Components
+    def components:[JPEGComponent]
+    
+    ; Quantization tables (up to 4)
+    def quantTables:[QuantizationTable]
+    
+    ; Huffman decoder
+    def huffman:HuffmanDecoder
+    
+    ; DCT transformer
+    def idct:IDCT
+    
+    ; Scan data position
+    def scanDataStart:int 0
+    def scanDataLen:int 0
+    
+    ; MCU dimensions
+    def mcuWidth:int 8
+    def mcuHeight:int 8
+    def mcusPerRow:int 0
+    def mcusPerCol:int 0
+    def maxHSamp:int 1
+    def maxVSamp:int 1
+    
+    Constructor () {
+        huffman = (new HuffmanDecoder())
+        idct = (new IDCT())
+        
+        def i 0
+        while (i < 4) {
+            push quantTables (new QuantizationTable())
+            i = i + 1
+        }
+    }
+    
+    fn readUint16BE:int (pos:int) {
+        def high:int (buffer_get data pos)
+        def low:int (buffer_get data (pos + 1))
+        return ((high * 256) + low)
+    }
+    
+    fn parseSOF:void (pos:int length:int) {
+        ; Start of Frame - image dimensions and components
+        precision = (buffer_get data pos)
+        height = (this.readUint16BE(pos + 1))
+        width = (this.readUint16BE(pos + 3))
+        numComponents = (buffer_get data (pos + 5))
+        
+        print ("  Image: " + (to_string width) + "x" + (to_string height) + ", " + (to_string numComponents) + " components")
+        
+        clear components
+        maxHSamp = 1
+        maxVSamp = 1
+        
+        def i 0
+        def offset:int (pos + 6)
+        while (i < numComponents) {
+            def comp (new JPEGComponent())
+            comp.id = (buffer_get data offset)
+            def sampling:int (buffer_get data (offset + 1))
+            comp.hSamp = (bit_shr sampling 4)
+            comp.vSamp = (bit_and sampling 15)
+            comp.quantTableId = (buffer_get data (offset + 2))
+            
+            if (comp.hSamp > maxHSamp) { maxHSamp = comp.hSamp }
+            if (comp.vSamp > maxVSamp) { maxVSamp = comp.vSamp }
+            
+            push components comp
+            print ("    Component " + (to_string comp.id) + ": " + (to_string comp.hSamp) + "x" + (to_string comp.vSamp) + " sampling, quant table " + (to_string comp.quantTableId))
+            
+            offset = offset + 3
+            i = i + 1
+        }
+        
+        ; Calculate MCU dimensions
+        mcuWidth = maxHSamp * 8
+        mcuHeight = maxVSamp * 8
+        
+        ; Calculate MCUs needed (ceiling division)
+        ; mcusPerRow = ceil(width / mcuWidth)
+        mcusPerRow = (to_int ((width + mcuWidth - 1) / mcuWidth))
+        mcusPerCol = (to_int ((height + mcuHeight - 1) / mcuHeight))
+        
+        print ("  MCU size: " + (to_string mcuWidth) + "x" + (to_string mcuHeight) + ", grid: " + (to_string mcusPerRow) + "x" + (to_string mcusPerCol))
+    }
+    
+    fn parseDQT:void (pos:int length:int) {
+        ; Define Quantization Table
+        def endPos:int (pos + length)
+        
+        while (pos < endPos) {
+            def info:int (buffer_get data pos)
+            pos = pos + 1
+            
+            def precision:int (bit_shr info 4)  ; 0 = 8-bit, 1 = 16-bit
+            def tableId:int (bit_and info 15)
+            
+            def table:QuantizationTable (at quantTables tableId)
+            table.id = tableId
+            clear table.values
+            
+            def i 0
+            while (i < 64) {
+                if (precision == 0) {
+                    push table.values (buffer_get data pos)
+                    pos = pos + 1
+                } {
+                    push table.values (this.readUint16BE(pos))
+                    pos = pos + 2
+                }
+                i = i + 1
+            }
+            
+            print ("  Quantization table " + (to_string tableId) + " (" + (to_string (precision + 1)) + "-byte values)")
+        }
+    }
+    
+    fn parseSOS:void (pos:int length:int) {
+        ; Start of Scan
+        def numScanComponents:int (buffer_get data pos)
+        pos = pos + 1
+        
+        def i 0
+        while (i < numScanComponents) {
+            def compId:int (buffer_get data pos)
+            def tableSelect:int (buffer_get data (pos + 1))
+            pos = pos + 2
+            
+            ; Find matching component and set table IDs
+            def j 0
+            while (j < numComponents) {
+                def comp:JPEGComponent (at components j)
+                if (comp.id == compId) {
+                    comp.dcTableId = (bit_shr tableSelect 4)
+                    comp.acTableId = (bit_and tableSelect 15)
+                    print ("    Component " + (to_string compId) + ": DC table " + (to_string comp.dcTableId) + ", AC table " + (to_string comp.acTableId))
+                }
+                j = j + 1
+            }
+            
+            i = i + 1
+        }
+        
+        ; Skip spectral selection and successive approximation (baseline ignores these)
+        pos = pos + 3
+        
+        ; Scan data starts here
+        scanDataStart = pos
+        
+        ; Find end of scan data (next marker or EOI)
+        def searchPos:int pos
+        while (searchPos < (dataLen - 1)) {
+            def b:int (buffer_get data searchPos)
+            if (b == 255) {
+                def nextB:int (buffer_get data (searchPos + 1))
+                if ((nextB != 0) && (nextB != 255)) {
+                    ; Found a marker
+                    scanDataLen = searchPos - scanDataStart
+                    return
+                }
+            }
+            searchPos = searchPos + 1
+        }
+        scanDataLen = dataLen - scanDataStart
+    }
+    
+    fn parseMarkers:boolean () {
+        ; Parse all JPEG markers
+        def pos 0
+        
+        ; Check SOI
+        if (dataLen < 2) {
+            print "Error: File too small"
+            return false
+        }
+        
+        def m1:int (buffer_get data 0)
+        def m2:int (buffer_get data 1)
+        if ((m1 != 255) || (m2 != 216)) {
+            print "Error: Not a JPEG file (missing SOI)"
+            return false
+        }
+        
+        pos = 2
+        print "Parsing JPEG markers..."
+        
+        while (pos < (dataLen - 1)) {
+            def marker1:int (buffer_get data pos)
+            if (marker1 != 255) {
+                pos = pos + 1
+                continue
+            }
+            
+            def marker2:int (buffer_get data (pos + 1))
+            
+            ; Skip padding FF bytes
+            if (marker2 == 255) {
+                pos = pos + 1
+                continue
+            }
+            
+            if (marker2 == 0) {
+                ; FF00 = escaped FF in data
+                pos = pos + 2
+                continue
+            }
+            
+            ; Check for markers without length
+            if (marker2 == 216) {
+                ; SOI
+                pos = pos + 2
+                continue
+            }
+            if (marker2 == 217) {
+                ; EOI
+                print "  End of Image"
+                return true
+            }
+            if ((marker2 >= 208) && (marker2 <= 215)) {
+                ; RST markers
+                pos = pos + 2
+                continue
+            }
+            
+            ; Read marker length
+            if ((pos + 4) > dataLen) {
+                return true
+            }
+            def markerLen:int (this.readUint16BE(pos + 2))
+            def dataStart:int (pos + 4)
+            def markerDataLen:int (markerLen - 2)
+            
+            ; Process marker
+            if (marker2 == 192) {
+                print "  SOF0 (Baseline DCT)"
+                this.parseSOF(dataStart markerDataLen)
+            }
+            if (marker2 == 193) {
+                print "  SOF1 (Extended Sequential DCT)"
+                this.parseSOF(dataStart markerDataLen)
+            }
+            if (marker2 == 194) {
+                print "  SOF2 (Progressive DCT) - NOT SUPPORTED"
+                return false
+            }
+            if (marker2 == 196) {
+                print "  DHT (Huffman Tables)"
+                huffman.parseDHT(data dataStart markerDataLen)
+            }
+            if (marker2 == 219) {
+                print "  DQT (Quantization Tables)"
+                this.parseDQT(dataStart markerDataLen)
+            }
+            if (marker2 == 218) {
+                print "  SOS (Start of Scan)"
+                this.parseSOS(dataStart markerDataLen)
+                ; After SOS, entropy-coded data follows
+                ; Skip to end of scan data
+                pos = scanDataStart + scanDataLen
+                continue
+            }
+            if (marker2 == 224) {
+                print "  APP0 (JFIF)"
+            }
+            if (marker2 == 225) {
+                print "  APP1 (EXIF)"
+            }
+            if (marker2 == 254) {
+                print "  COM (Comment)"
+            }
+            
+            pos = pos + 2 + markerLen
+        }
+        
+        return true
+    }
+    
+    fn decodeBlock:void (reader:BitReader comp:JPEGComponent quantTable:QuantizationTable coeffs:[int]) {
+        ; Decode one 8x8 block
+        ; coeffs will contain 64 dequantized DCT coefficients in zigzag order
+        
+        clear coeffs
+        def i 0
+        while (i < 64) {
+            push coeffs 0
+            i = i + 1
+        }
+        
+        ; Decode DC coefficient
+        def dcTable:HuffmanTable (huffman.getDCTable(comp.dcTableId))
+        def dcCategory:int (dcTable.decode(reader))
+        def dcDiff:int (reader.receiveExtend(dcCategory))
+        def dcValue:int (comp.prevDC + dcDiff)
+        comp.prevDC = dcValue
+        
+        ; Dequantize DC
+        def dcQuant:int (at quantTable.values 0)
+        set coeffs 0 (dcValue * dcQuant)
+        
+        ; Decode AC coefficients
+        def acTable:HuffmanTable (huffman.getACTable(comp.acTableId))
+        def k:int 1
+        
+        while (k < 64) {
+            def acSymbol:int (acTable.decode(reader))
+            
+            if (acSymbol == 0) {
+                ; EOB - all remaining coefficients are zero
+                k = 64
+            } {
+                def runLength:int (bit_shr acSymbol 4)
+                def acCategory:int (bit_and acSymbol 15)
+                
+                if (acSymbol == 240) {
+                    ; ZRL - skip 16 zeros
+                    k = k + 16
+                } {
+                    ; Skip run of zeros
+                    k = k + runLength
+                    
+                    if (k < 64) {
+                        ; Decode AC value
+                        def acValue:int (reader.receiveExtend(acCategory))
+                        
+                        ; Dequantize
+                        def acQuant:int (at quantTable.values k)
+                        set coeffs k (acValue * acQuant)
+                        
+                        k = k + 1
+                    }
+                }
+            }
+        }
+    }
+    
+    fn decode:ImageBuffer (dirPath:string fileName:string) {
+        ; Main decode function
+        data = (buffer_read_file dirPath fileName)
+        dataLen = (buffer_length data)
+        
+        print ("Decoding JPEG: " + fileName + " (" + (to_string dataLen) + " bytes)")
+        
+        ; Parse markers
+        def ok:boolean (this.parseMarkers())
+        if (ok == false) {
+            print "Error parsing JPEG markers"
+            def errImg (new ImageBuffer())
+            errImg.init(1 1)
+            return errImg
+        }
+        
+        if ((width == 0) || (height == 0)) {
+            print "Error: Invalid image dimensions"
+            def errImg (new ImageBuffer())
+            errImg.init(1 1)
+            return errImg
+        }
+        
+        print ("Decoding " + (to_string scanDataLen) + " bytes of scan data...")
+        
+        ; Create output image
+        def img (new ImageBuffer())
+        img.init(width height)
+        
+        ; Create bit reader for scan data
+        def reader (new BitReader())
+        reader.init(data scanDataStart scanDataLen)
+        
+        ; Reset DC predictors
+        def c 0
+        while (c < numComponents) {
+            def comp:JPEGComponent (at components c)
+            comp.prevDC = 0
+            c = c + 1
+        }
+        
+        ; Temporary arrays for decoded blocks
+        def coeffs:[int]
+        def blockPixels:[int]
+        
+        ; Component block buffers - use flat arrays, 64 values per block
+        ; For 2x2 subsampling max, we need 4 Y blocks = 256 values
+        def yBlocksData:[int]   ; Up to 4 Y blocks * 64 = 256 values
+        def yBlockCount:int 0
+        def cbBlock:[int]
+        def crBlock:[int]
+        
+        ; Decode MCU by MCU
+        def mcuY 0
+        while (mcuY < mcusPerCol) {
+            def mcuX 0
+            while (mcuX < mcusPerRow) {
+                ; Decode all blocks in this MCU
+                clear yBlocksData
+                yBlockCount = 0
+                
+                ; For each component
+                def compIdx 0
+                while (compIdx < numComponents) {
+                    def comp:JPEGComponent (at components compIdx)
+                    def quantTable:QuantizationTable (at quantTables comp.quantTableId)
+                    
+                    ; Decode blocks for this component
+                    def blockV 0
+                    while (blockV < comp.vSamp) {
+                        def blockH 0
+                        while (blockH < comp.hSamp) {
+                            ; Decode block
+                            this.decodeBlock(reader comp quantTable coeffs)
+                            
+                            ; IDCT to get pixels
+                            clear blockPixels
+                            def bi 0
+                            while (bi < 64) {
+                                push blockPixels 0
+                                bi = bi + 1
+                            }
+                            
+                            ; Dezigzag and transform
+                            def tempBlock:[int]
+                            idct.dezigzag(coeffs tempBlock)
+                            
+                            ; Debug before IDCT
+                            if ((mcuX == 0) && (mcuY == 0) && (compIdx == 1)) {
+                                print ("DEBUG coeffs[0] (DC)=" + (to_string (at coeffs 0)))
+                                print ("DEBUG tempBlock[0]=" + (to_string (at tempBlock 0)))
+                            }
+                            
+                            idct.transform(tempBlock blockPixels)
+                            
+                            ; Debug after IDCT  
+                            if ((mcuX == 0) && (mcuY == 0) && (compIdx == 1)) {
+                                print ("DEBUG blockPixels[0] after IDCT=" + (to_string (at blockPixels 0)))
+                            }
+                            
+                            ; Store block
+                            if (compIdx == 0) {
+                                ; Y component - append to flat array
+                                bi = 0
+                                while (bi < 64) {
+                                    push yBlocksData (at blockPixels bi)
+                                    bi = bi + 1
+                                }
+                                yBlockCount = yBlockCount + 1
+                            }
+                            if (compIdx == 1) {
+                                ; Cb component
+                                clear cbBlock
+                                bi = 0
+                                while (bi < 64) {
+                                    push cbBlock (at blockPixels bi)
+                                    bi = bi + 1
+                                }
+                                ; Debug Cb
+                                if ((mcuX == 0) && (mcuY == 0)) {
+                                    print ("DEBUG Cb blockPixels[0]=" + (to_string (at blockPixels 0)))
+                                    print ("DEBUG cbBlock[0]=" + (to_string (at cbBlock 0)))
+                                    print ("DEBUG cbBlock length=" + (to_string (array_length cbBlock)))
+                                }
+                            }
+                            if (compIdx == 2) {
+                                ; Cr component
+                                clear crBlock
+                                bi = 0
+                                while (bi < 64) {
+                                    push crBlock (at blockPixels bi)
+                                    bi = bi + 1
+                                }
+                            }
+                            
+                            blockH = blockH + 1
+                        }
+                        blockV = blockV + 1
+                    }
+                    
+                    compIdx = compIdx + 1
+                }
+                
+                ; Convert MCU to RGB and write to image
+                this.writeMCU(img mcuX mcuY yBlocksData yBlockCount cbBlock crBlock)
+                
+                mcuX = mcuX + 1
+            }
+            mcuY = mcuY + 1
+            
+            ; Progress indicator
+            if ((mcuY % 10) == 0) {
+                print ("  Row " + (to_string mcuY) + "/" + (to_string mcusPerCol))
+            }
+        }
+        
+        print "Decode complete!"
+        return img
+    }
+    
+    fn writeMCU:void (img:ImageBuffer mcuX:int mcuY:int yBlocksData:[int] yBlockCount:int cbBlock:[int] crBlock:[int]) {
+        ; Write decoded MCU to image, handling YCbCr to RGB conversion
+        ; yBlocksData is a flat array: block0[64], block1[64], ...
+        
+        def baseX:int (mcuX * mcuWidth)
+        def baseY:int (mcuY * mcuHeight)
+        
+        ; Get Y component from first component for dimensions
+        def comp0:JPEGComponent (at components 0)
+        
+        ; Simple case: 1x1 sampling (no subsampling)
+        if ((maxHSamp == 1) && (maxVSamp == 1)) {
+            def py 0
+            while (py < 8) {
+                def px 0
+                while (px < 8) {
+                    def imgX:int (baseX + px)
+                    def imgY:int (baseY + py)
+                    
+                    if ((imgX < width) && (imgY < height)) {
+                        def idx:int ((py * 8) + px)
+                        def y:int (at yBlocksData idx)
+                        
+                        def cb:int 128
+                        def cr:int 128
+                        if (numComponents >= 3) {
+                            cb = (at cbBlock idx)
+                            cr = (at crBlock idx)
+                        }
+                        
+                        ; Debug first pixel
+                        if ((imgX == 0) && (imgY == 0)) {
+                            print ("DEBUG writeMCU: Y=" + (to_string y) + " Cb=" + (to_string cb) + " Cr=" + (to_string cr))
+                        }
+                        
+                        ; YCbCr to RGB
+                        def r:int (y + (bit_shr (359 * (cr - 128)) 8))
+                        def g:int (y - (bit_shr (88 * (cb - 128)) 8) - (bit_shr (183 * (cr - 128)) 8))
+                        def b:int (y + (bit_shr (454 * (cb - 128)) 8))
+                        
+                        ; Debug first pixel RGB
+                        if ((imgX == 0) && (imgY == 0)) {
+                            print ("DEBUG RGB: R=" + (to_string r) + " G=" + (to_string g) + " B=" + (to_string b))
+                        }
+                        
+                        if (r < 0) { r = 0 }
+                        if (r > 255) { r = 255 }
+                        if (g < 0) { g = 0 }
+                        if (g > 255) { g = 255 }
+                        if (b < 0) { b = 0 }
+                        if (b > 255) { b = 255 }
+                        
+                        img.setPixelRGB(imgX imgY r g b)
+                    }
+                    px = px + 1
+                }
+                py = py + 1
+            }
+            return
+        }
+        
+        ; 2x2 subsampling (4:2:0) - most common
+        if ((maxHSamp == 2) && (maxVSamp == 2)) {
+            ; 4 Y blocks, 1 Cb, 1 Cr
+            ; Y blocks are stored sequentially: block0 at offset 0, block1 at 64, etc.
+            def blockIdx 0
+            def blockY 0
+            while (blockY < 2) {
+                def blockX 0
+                while (blockX < 2) {
+                    def yBlockOffset:int (blockIdx * 64)
+                    
+                    def py 0
+                    while (py < 8) {
+                        def px 0
+                        while (px < 8) {
+                            def imgX:int (baseX + (blockX * 8) + px)
+                            def imgY:int (baseY + (blockY * 8) + py)
+                            
+                            if ((imgX < width) && (imgY < height)) {
+                                def yIdx:int (yBlockOffset + (py * 8) + px)
+                                def y:int (at yBlocksData yIdx)
+                                
+                                ; Cb/Cr are subsampled - calculate index
+                                def chromaX:int ((blockX * 4) + (bit_shr px 1))
+                                def chromaY:int ((blockY * 4) + (bit_shr py 1))
+                                def chromaIdx:int ((chromaY * 8) + chromaX)
+                                
+                                def cb:int 128
+                                def cr:int 128
+                                if (numComponents >= 3) {
+                                    cb = (at cbBlock chromaIdx)
+                                    cr = (at crBlock chromaIdx)
+                                }
+                                
+                                ; YCbCr to RGB
+                                def r:int (y + (bit_shr (359 * (cr - 128)) 8))
+                                def g:int (y - (bit_shr (88 * (cb - 128)) 8) - (bit_shr (183 * (cr - 128)) 8))
+                                def b:int (y + (bit_shr (454 * (cb - 128)) 8))
+                                
+                                if (r < 0) { r = 0 }
+                                if (r > 255) { r = 255 }
+                                if (g < 0) { g = 0 }
+                                if (g > 255) { g = 255 }
+                                if (b < 0) { b = 0 }
+                                if (b > 255) { b = 255 }
+                                
+                                img.setPixelRGB(imgX imgY r g b)
+                            }
+                            px = px + 1
+                        }
+                        py = py + 1
+                    }
+                    
+                    blockIdx = blockIdx + 1
+                    blockX = blockX + 1
+                }
+                blockY = blockY + 1
+            }
+            return
+        }
+        
+        ; Fallback: treat as grayscale
+        if (yBlockCount > 0) {
+            def py 0
+            while (py < 8) {
+                def px 0
+                while (px < 8) {
+                    def imgX:int (baseX + px)
+                    def imgY:int (baseY + py)
+                    if ((imgX < width) && (imgY < height)) {
+                        def y:int (at yBlocksData ((py * 8) + px))
+                        img.setPixelRGB(imgX imgY y y y)
+                    }
+                    px = px + 1
+                }
+                py = py + 1
+            }
+        }
+    }
+}
+
+class JPEGDecoderMain {
+    sfn m@(main):void () {
+        print "=== Ranger JPEG Decoder ==="
+        print ""
+        
+        def decoder (new JPEGDecoder())
+        def img:ImageBuffer (decoder.decode("./gallery/pdf_writer" "Canon_40D.jpg"))
+        
+        print ""
+        print ("Output image: " + (to_string img.width) + "x" + (to_string img.height))
+        
+        ; Save as PPM
+        def ppm (new PPMImage())
+        ppm.save(img "./gallery/pdf_writer" "decoded_test.ppm")
+        
+        print ""
+        print "Done! Open decoded_output.ppm to verify the result."
+    }
+}

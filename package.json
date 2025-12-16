@@ -98,7 +98,10 @@
     "pdf": "npm run pdf:compile && npm run pdf:run",
     "jpegmeta:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/JPEGMetadata.rgr -d=./gallery/pdf_writer -o=jpeg_metadata.js -nodecli",
     "jpegmeta:run": "node ./gallery/pdf_writer/jpeg_metadata.js",
-    "jpegmeta": "npm run jpegmeta:compile && npm run jpegmeta:run"
+    "jpegmeta": "npm run jpegmeta:compile && npm run jpegmeta:run",
+    "jpegdec:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/JPEGDecoder.rgr -d=./gallery/pdf_writer -o=jpeg_decoder.js -nodecli",
+    "jpegdec:run": "node ./gallery/pdf_writer/jpeg_decoder.js",
+    "jpegdec": "npm run jpegdec:compile && npm run jpegdec:run"
   },
   "repository": {
     "type": "git",
