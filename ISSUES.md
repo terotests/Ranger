@@ -943,6 +943,7 @@ Until refactored, document the full list of files that need changes when adding 
 
 - `buffer` type was added in December 2025 for PDF generation support
 - Type mismatch errors appear as "Types were X vs Y" where X and Y are enum integers
+
 ---
 
 ## Issue #16: Function return value not recognized when both if/else branches return

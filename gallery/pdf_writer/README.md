@@ -10,6 +10,7 @@ npm run pdf
 This compiles and runs PDFWriter.rgr, generating sample PDFs in this directory.
 
 To run JPEG metadata parser standalone:
+
 ```bash
 npm run jpegmeta
 ```
@@ -23,12 +24,12 @@ npm run jpegmeta
 
 ## Files
 
-| File | Description |
-|------|-------------|
-| `Buffer.rgr` | GrowableBuffer with linked list of 4KB chunks |
-| `JPEGReader.rgr` | JPEG parser for dimensions |
-| `JPEGMetadata.rgr` | EXIF/JFIF/GPS metadata parser |
-| `PDFWriter.rgr` | PDF generator |
+| File               | Description                                   |
+| ------------------ | --------------------------------------------- |
+| `Buffer.rgr`       | GrowableBuffer with linked list of 4KB chunks |
+| `JPEGReader.rgr`   | JPEG parser for dimensions                    |
+| `JPEGMetadata.rgr` | EXIF/JFIF/GPS metadata parser                 |
+| `PDFWriter.rgr`    | PDF generator                                 |
 
 ## Example
 
@@ -51,6 +52,7 @@ class Main {
 ### GPS Coordinates
 
 GPS data in EXIF is stored as three RATIONALs (degrees, minutes, seconds). Output format:
+
 ```
 43° 27' 52.43" N
 11° 52' 55.43" E
