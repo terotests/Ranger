@@ -2,9 +2,10 @@
 
 ## Issue #1: Compiler crash with `toString` method name
 
-**Status:** Open  
+**Status:** Fixed  
 **Severity:** High  
-**Found:** December 11, 2025
+**Found:** December 11, 2025  
+**Fixed:** December 16, 2025
 
 ### Description
 
@@ -54,24 +55,32 @@ class Main {
 }
 ```
 
-### Workaround
+### Root Cause
 
-Rename the `toString` method to something else, like `getSymbol`, `asString`, `toStr`, etc.
+The `get` operator for dictionaries in ES6/JavaScript used direct bracket access `obj[key]` which returns values from the prototype chain. When `key` is `"toString"`, `obj["toString"]` returns `Object.prototype.toString` (a function) instead of `undefined`.
+
+In `ng_RangerAppClassDesc.rgr`, the `addMethod` function uses:
 
 ```ranger
-fn getSymbol:string () {
-    return value
-}
+def defVs:RangerAppMethodVariants (get method_variants desc.name)
+if (null? defVs) { ... }
 ```
 
-### Root Cause (Suspected)
+When `desc.name` is `"toString"`, the `get` returned the inherited function, not `undefined`, so the code tried to access `.variants` on a function object, causing the crash.
 
-The name `toString` is likely a reserved/special method name in JavaScript (the target language), and the compiler's method collection phase may be trying to handle it specially but encounters an uninitialized array.
+### Resolution
 
-### Files Affected
+Fixed the `get` operator template for ES6 in `compiler/Lang.rgr` to use `hasOwnProperty` check:
 
-- Compiler source likely in `compiler/ng_LiveCompiler.clj` or related files
-- The bug occurs before code analysis phase
+```ranger
+es6 ( "( " (e 1) ".hasOwnProperty(" (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
+```
+
+This ensures that only properties directly on the object are returned, not inherited prototype properties like `toString`, `valueOf`, `hasOwnProperty`, etc.
+
+### Files Changed
+
+- `compiler/Lang.rgr` - Added ES6-specific template for dictionary `get` operator
 
 ---
 
@@ -126,9 +135,10 @@ The `exit` operator was already defined in `compiler/Lang.clj` and generates `pr
 
 ## Issue #4: Go target - Integer division returns wrong type
 
-**Status:** Open  
+**Status:** Fixed  
 **Severity:** Medium  
-**Found:** December 12, 2025
+**Found:** December 12, 2025  
+**Fixed:** December 16, 2025
 
 ### Description
 
@@ -166,27 +176,26 @@ var result float64 = a / b  // int64 / int64 = int64, not float64
 var result float64 = float64(a) / float64(b)
 ```
 
-### Workaround
-
-Convert integers to double before division:
-
-```ranger
-def result:double ((int2double a) / (int2double b))
-```
-
 ### Root Cause
 
-The `/` operator for integers in `Lang.clj` returns `double` conceptually, but the Go template doesn't include type conversion. The ES6 JavaScript target works correctly because JS automatically handles the conversion.
+The `/` operator for integers in `Lang.rgr` returns `double` conceptually, but the Go template didn't include type conversion. The ES6 JavaScript target works correctly because JS automatically handles the conversion.
 
-### Affected Targets
+### Resolution
 
-- Go (`-l=go`)
-- ES6 JavaScript (`-es6`) - ✅ Works
-- Other targets - Not tested
+Added a Go-specific template for the integer division operator in `compiler/Lang.rgr`:
 
-### Files to Fix
+```ranger
+/               cmdDivOp:double         ( left:int right:int ) { templates {
+    go ( "float64(" (e 1) ") / float64(" (e 2) ")" )
+    * ( (e 1) " / " (e 2) )
+} }
+```
 
-- `compiler/Lang.clj` - The `/` operator template for Go needs to cast operands to `float64`
+This ensures that when dividing two integers in Go, both operands are explicitly cast to `float64`, producing the correct floating-point result.
+
+### Files Changed
+
+- `compiler/Lang.rgr` - Added Go-specific template for integer division operator
 
 ---
 
@@ -316,9 +325,10 @@ The file extension logic in `compiler/VirtualCompiler.clj` only runs when `the_t
 
 ## Issue #7: Python target - super().**init**() doesn't pass constructor arguments
 
-**Status:** Open  
+**Status:** Fixed  
 **Severity:** High  
-**Found:** December 12, 2025
+**Found:** December 12, 2025  
+**Fixed:** December 16, 2025
 
 ### Description
 
@@ -348,7 +358,7 @@ class Dog {
 }
 ```
 
-### Generated Python Code (Incorrect)
+### Generated Python Code (Before Fix)
 
 ```python
 class Dog(Animal):
@@ -357,43 +367,52 @@ class Dog(Animal):
     self.name = n
 ```
 
-### Expected Python Code
+### Generated Python Code (After Fix)
 
 ```python
 class Dog(Animal):
   def __init__(self, n):
-    super().__init__(n)  # Should pass 'n' to parent
+    super().__init__(n)  # Now passes 'n' to parent
 ```
-
-### Error Message
-
-```
-TypeError: Animal.__init__() missing 1 required positional argument: 'n'
-```
-
-### Workaround
-
-None currently - inheritance with parameterized constructors doesn't work in Python target.
-
-### Affected Tests
-
-- `tests/compiler-python.test.ts` - "should compile and run inheritance" - **SKIPPED**
 
 ### Root Cause
 
-The Python class writer (`compiler/ng_RangerPythonClassWriter.clj`) generates `super().__init__()` without analyzing what arguments the parent constructor requires.
+The Python class writer (`compiler/ng_RangerPythonClassWriter.rgr`) generated `super().__init__()` without analyzing what arguments the parent constructor requires.
 
-### Files to Fix
+### Resolution
 
-- `compiler/ng_RangerPythonClassWriter.clj` - Constructor generation for inherited classes
+Modified `ng_RangerPythonClassWriter.rgr` to check if the parent class has a constructor, and if so, pass the parent constructor's parameters to `super().__init__()`:
+
+```ranger
+if(parentClass) {
+  if (parentClass.has_constructor) {
+    def parentConstr:RangerAppFunctionDesc (unwrap parentClass.constructor_fn)
+    wr.out("super().__init__(" false)
+    for parentConstr.params arg:RangerAppParamDesc i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      wr.out(arg.compiledName false)
+    }
+    wr.out(")" true)
+  } {
+    wr.out("super().__init__()" true)
+  }
+}
+```
+
+### Files Changed
+
+- `compiler/ng_RangerPythonClassWriter.rgr` - Fixed `super().__init__()` to pass parent constructor arguments
 
 ---
 
 ## Issue #8: Python target - Variable names can shadow Python builtins
 
-**Status:** Open  
+**Status:** Fixed  
 **Severity:** Medium  
-**Found:** December 12, 2025
+**Found:** December 12, 2025  
+**Fixed:** December 16, 2025
 
 ### Description
 
@@ -411,7 +430,7 @@ class StringTest {
 }
 ```
 
-### Generated Python Code
+### Generated Python Code (Before Fix)
 
 ```python
 def main():
@@ -420,42 +439,73 @@ def main():
   print("Length: " + str(__len)) # ERROR: str is now "Hello World", not str()
 ```
 
-### Error Message
+### Generated Python Code (After Fix)
 
-```
-TypeError: 'str' object is not callable
-```
-
-### Workaround
-
-Avoid using Python builtin names as variable names in Ranger source code:
-
-- `str` → use `text`, `s`, `myStr`
-- `list` → use `items`, `arr`, `myList`
-- `int` → use `num`, `i`, `myInt`
-- `dict` → use `map`, `data`, `myDict`
-- `len` → use `length`, `size`, `cnt`
-- `type` → use `kind`, `category`
-
-### Python Builtins to Avoid
-
-```
-str, int, float, bool, list, dict, set, tuple, type, id, len,
-range, print, input, open, file, map, filter, sum, min, max,
-abs, round, sorted, reversed, enumerate, zip, any, all, iter, next
+```python
+def main():
+  _str = "Hello World"          # Renamed to avoid shadowing
+  __len = len(_str)
+  print("Length: " + str(__len)) # Works: str() is the builtin
 ```
 
-### Recommended Fix
+### Root Cause
 
-The Python class writer should:
+The compiler didn't have Python-specific reserved word transformations to rename conflicting variable names.
 
-1. Maintain a list of Python reserved names and builtins
-2. Automatically rename conflicting variables (e.g., `str` → `_str` or `str_`)
-3. Or emit a warning during compilation
+### Resolution
 
-### Files to Fix
+Added Python-specific reserved words to `compiler/Lang.rgr` in the `reserved_words` section:
 
-- `compiler/ng_RangerPythonClassWriter.clj` - Add variable name sanitization
+```ranger
+python {
+    str _str
+    int _int
+    float _float
+    bool _bool
+    list _list
+    dict _dict
+    set _set
+    tuple _tuple
+    type _type
+    id _id
+    len _len
+    range _range
+    print _print
+    input _input
+    open _open
+    file _file
+    filter _filter
+    sum _sum
+    min _min
+    max _max
+    abs _abs
+    round _round
+    sorted _sorted
+    reversed _reversed
+    enumerate _enumerate
+    zip _zip
+    any _any
+    all _all
+    iter _iter
+    next _next
+    object _object
+    bytes _bytes
+    complex _complex
+    property _property
+    classmethod _classmethod
+    staticmethod _staticmethod
+    super _super
+    format _format
+    hash _hash
+    ; ... and more
+}
+```
+
+This uses Ranger's existing `reserved_words` system which automatically transforms variable names during compilation.
+
+### Files Changed
+
+- `compiler/Lang.rgr` - Added Python reserved words mapping
 
 ---
 
@@ -748,11 +798,12 @@ cpp ( 'r_utf8_substr(' (e 1) ', ' (e 2) ', 1)'
 
 ---
 
-## Issue #13: Variable definition fails inside nested if blocks
+## Issue #14: Variable definition fails inside nested if blocks
 
-**Status:** Open (Workaround Available)  
+**Status:** Fixed  
 **Severity:** Medium  
-**Found:** December 16, 2025
+**Found:** December 16, 2025  
+**Fixed:** December 16, 2025
 
 ### Description
 
@@ -775,69 +826,25 @@ Type mismatch boolean <> TSNode. Can not assign variable.
         ^-------
 ```
 
-### Minimal Reproduction
+### Root Cause
+
+The parser in `ng_parser_v2.rgr` was incorrectly tokenizing identifiers that started with `true` or `false`. For example, `trueType` was being split into `true` (boolean literal) + `Type` (identifier), causing parsing errors.
+
+The `true`/`false` keyword matching checked for the character sequence but did not verify that it was followed by a word boundary character.
+
+### Resolution
+
+Fixed `ng_parser_v2.rgr` to add word boundary checks when matching `true` and `false` keywords:
 
 ```ranger
-class TSNode {
-  def body@(optional):TSNode
-}
-
-class Parser {
-  fn parseType:TSNode () {
-    def node (new TSNode())
-    return node
-  }
-
-  fn matchValue:boolean (v:string) {
-    return true
-  }
-
-  fn parse:TSNode () {
-    def outer (new TSNode())
-
-    if (this.matchValue("extends")) {
-      if (this.matchValue("?")) {
-        def conditional (new TSNode())
-
-        ; This fails with "invalid variable definition"
-        def trueType:TSNode (this.parseType())
-        conditional.body = trueType  ; Type mismatch boolean <> TSNode
-
-        return conditional
-      }
-    }
-
-    return outer
-  }
-}
+; Check for 'true' keyword - but only if followed by a word boundary
+def nextCharT:char (charAt s (i + 4))
+if ((fc == ((ccode "t"))) && ... && ((nextCharT <= 32) || (nextCharT == 40) || (nextCharT == 41) || (nextCharT == 58) || (nextCharT == ((ccode "}"))) || ((i + 4) >= len))) {
 ```
 
-### Workaround
+This ensures `true` is only recognized as a boolean literal when followed by whitespace, parentheses, colon, brace, or end of input - not when it's part of a longer identifier like `trueType`.
 
-Instead of defining an intermediate variable and then assigning, use direct assignment:
+### Files Changed
 
-```ranger
-; Instead of:
-def trueType:TSNode (this.parseType())
-conditional.body = trueType
-
-; Use direct assignment:
-conditional.body = (this.parseUnionType())
-```
-
-Note: The workaround may require calling a different function (like `parseUnionType` instead of `parseType`) if the original function would cause recursion depth issues.
-
-### Root Cause (Suspected)
-
-The compiler's type inference appears to get confused when:
-
-1. Inside nested `if` blocks (especially when the condition involves method calls returning boolean)
-2. A variable is defined with a function call that returns a class type
-3. The variable is then assigned to an optional property
-
-The compiler seems to incorrectly infer the context type as `boolean` from the enclosing `if` condition.
-
-### Files Affected
-
-- Compiler type inference logic (likely in `compiler/ng_LiveCompiler.rgr` or `compiler/ng_FlowWork.rgr`)
-- Encountered in `gallery/ts_parser/ts_parser_simple.rgr`
+- `compiler/ng_parser_v2.rgr` - Added word boundary checks for `true`/`false` keyword parsing
+- `compiler/ng_RangerLispParser.rgr` - Same fix for consistency

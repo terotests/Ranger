@@ -1,0 +1,28 @@
+; Test for Issue #1: Compiler crash with `toString` method name
+
+class Item {
+    def value:string ""
+
+    Constructor (v:string) {
+        value = v
+    }
+
+    fn toString:string () {
+        return value
+    }
+}
+
+class Container {
+    def items:[Item]
+
+    Constructor () {
+        push items (new Item("test"))
+    }
+}
+
+class Main {
+    sfn m@(main):void () {
+        def c (new Container())
+        print "Done"
+    }
+}

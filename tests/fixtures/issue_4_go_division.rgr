@@ -1,0 +1,17 @@
+; Test for Issue #4: Go target - Integer division returns wrong type
+; This should produce correct Go code with float64 conversion
+
+class MathTest {
+    sfn m@(main):void () {
+        def a 10
+        def b 3
+        def result:double (a / b)
+        print (to_string result)
+        
+        ; Also test assignment
+        def x 7
+        def y 2
+        def ratio:double (x / y)
+        print (to_string ratio)
+    }
+}

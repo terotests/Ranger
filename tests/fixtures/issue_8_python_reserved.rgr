@@ -1,0 +1,24 @@
+; Test for Issue #8: Python reserved word collision
+
+class StringTest {
+    sfn m@(main):void () {
+        ; These variable names would shadow Python builtins
+        ; They should be renamed to _str, _len, etc.
+        def str "Hello World"
+        def len 42
+        def list "not a list"
+        def dict "not a dict"
+        def type "mytype"
+        def int 100
+        def float 3.14
+        
+        print str
+        print (to_string len)
+        print list
+        print dict
+        print type
+        print (to_string int)
+        print (to_string float)
+        print "Done"
+    }
+}

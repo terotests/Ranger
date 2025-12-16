@@ -12,10 +12,13 @@ operator type:RangerFlowParser all {
       ; print " DEF expr level " + (ctx.expressionLevel()) + " -> " + (node.getCode())
 
       def tName (node.getSecond())
+      
       self.CheckTypeAnnotationOf(tName ctx wr)
 
       ; var x = 100   --> var (= x 100)
-      if( tName.expression ) {
+      ; Only transform if tName is an expression AND doesn't already have a variable name
+      ; This prevents incorrectly transforming "def trueType:TSNode (...)" when tName.expression is true
+      if( tName.expression && ((strlen tName.vref) == 0) ) {
         remove node.children 1
         tName.children.forEach({
           if(index == 1) {

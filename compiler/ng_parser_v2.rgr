@@ -844,21 +844,25 @@ class RangerLispParser {
             continue 
           }
         }
-        if ((fc == ((ccode "t"))) && (((charAt s (i + 1))) == ((ccode "r"))) && (((charAt s (i + 2))) == ((ccode "u"))) && (((charAt s (i + 3))) == ((ccode "e")))) {
-          def new_true_node:CodeNode (new CodeNode(( unwrap code) sp sp + 4))
-          new_true_node.value_type = RangerNodeType.Boolean
-          new_true_node.parsed_type = RangerNodeType.Boolean
-          new_true_node.boolean_value = true
-          this.insert_node(new_true_node)
+        ; Check for 'true' keyword - but only if followed by a word boundary (not part of longer identifier)
+        def nextCharT:char (charAt s (i + 4))
+        if ((fc == ((ccode "t"))) && (((charAt s (i + 1))) == ((ccode "r"))) && (((charAt s (i + 2))) == ((ccode "u"))) && (((charAt s (i + 3))) == ((ccode "e"))) && ((nextCharT <= 32) || (nextCharT == 40) || (nextCharT == 41) || (nextCharT == 58) || (nextCharT == ((ccode "}"))) || ((i + 4) >= len))) {
+          def newBoolNode:CodeNode (new CodeNode(( unwrap code) sp sp + 4))
+          newBoolNode.value_type = RangerNodeType.Boolean
+          newBoolNode.parsed_type = RangerNodeType.Boolean
+          newBoolNode.boolean_value = true
+          this.insert_node(newBoolNode)
           i = i + 4
           continue 
         }
-        if ((fc == ((ccode "f"))) && (((charAt s (i + 1))) == ((ccode "a"))) && (((charAt s (i + 2))) == ((ccode "l"))) && (((charAt s (i + 3))) == ((ccode "s"))) && (((charAt s (i + 4))) == ((ccode "e")))) {
-          def new_f_node:CodeNode (new CodeNode(( unwrap code) sp sp + 5))
-          new_f_node.value_type = RangerNodeType.Boolean
-          new_f_node.parsed_type = RangerNodeType.Boolean
-          new_f_node.boolean_value = false
-          this.insert_node(new_f_node)
+        ; Check for 'false' keyword - but only if followed by a word boundary (not part of longer identifier)
+        def nextCharF:char (charAt s (i + 5))
+        if ((fc == ((ccode "f"))) && (((charAt s (i + 1))) == ((ccode "a"))) && (((charAt s (i + 2))) == ((ccode "l"))) && (((charAt s (i + 3))) == ((ccode "s"))) && (((charAt s (i + 4))) == ((ccode "e"))) && ((nextCharF <= 32) || (nextCharF == 40) || (nextCharF == 41) || (nextCharF == 58) || (nextCharF == ((ccode "}"))) || ((i + 5) >= len))) {
+          def newBoolNodeF:CodeNode (new CodeNode(( unwrap code) sp sp + 5))
+          newBoolNodeF.value_type = RangerNodeType.Boolean
+          newBoolNodeF.parsed_type = RangerNodeType.Boolean
+          newBoolNodeF.boolean_value = false
+          this.insert_node(newBoolNodeF)
           i = i + 5
           continue 
         }

@@ -482,11 +482,11 @@ Pragmas: (inside the source code files)
 
 The compiler supports three JavaScript module output formats:
 
-| Flag | Format | Output | Use Case |
-|------|--------|--------|----------|
-| (none) | Plain JS | No exports, runs `main()` | Standalone scripts |
-| `-nodemodule` | CommonJS | `module.exports.X = X;` | Node.js require() |
-| `-esm` | ES6/ESM | `export class X` | Modern ES modules, import/export |
+| Flag          | Format   | Output                    | Use Case                         |
+| ------------- | -------- | ------------------------- | -------------------------------- |
+| (none)        | Plain JS | No exports, runs `main()` | Standalone scripts               |
+| `-nodemodule` | CommonJS | `module.exports.X = X;`   | Node.js require()                |
+| `-esm`        | ES6/ESM  | `export class X`          | Modern ES modules, import/export |
 
 **Examples:**
 

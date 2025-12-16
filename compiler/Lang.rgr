@@ -107,6 +107,73 @@ language {
             static _static
             init _init
         }
+        python {
+            str _str
+            int _int
+            float _float
+            bool _bool
+            list _list
+            dict _dict
+            set _set
+            tuple _tuple
+            type _type
+            id _id
+            len _len
+            range _range
+            print _print
+            input _input
+            open _open
+            file _file
+            filter _filter
+            sum _sum
+            min _min
+            max _max
+            abs _abs
+            round _round
+            sorted _sorted
+            reversed _reversed
+            enumerate _enumerate
+            zip _zip
+            any _any
+            all _all
+            iter _iter
+            next _next
+            object _object
+            bytes _bytes
+            complex _complex
+            property _property
+            classmethod _classmethod
+            staticmethod _staticmethod
+            super _super
+            format _format
+            hash _hash
+            help _help
+            hex _hex
+            oct _oct
+            bin _bin
+            chr _chr
+            ord _ord
+            repr _repr
+            ascii _ascii
+            eval _eval
+            exec _exec
+            compile _compile
+            globals _globals
+            locals _locals
+            vars _vars
+            dir _dir
+            getattr _getattr
+            setattr _setattr
+            hasattr _hasattr
+            delattr _delattr
+            isinstance _isinstance
+            issubclass _issubclass
+            callable _callable
+            slice _slice
+            frozenset _frozenset
+            memoryview _memoryview
+            bytearray _bytearray
+        }
     }
 
     
@@ -1201,7 +1268,10 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         *               cmdMulOp:int            ( left:int right:int ) { templates { * ( (e 1) " * " (e 2) ) } }
 
         /               cmdDivOp:double         ( left:double right:double ) { templates { * ( (e 1) " / " (e 2) ) } }
-        /               cmdDivOp:double         ( left:int right:int ) { templates { * ( (e 1) " / " (e 2) ) } }
+        /               cmdDivOp:double         ( left:int right:int ) { templates { 
+            go ( "float64(" (e 1) ") / float64(" (e 2) ")" )
+            * ( (e 1) " / " (e 2) ) 
+        } }
 
         ; optional string operator...
         ||              _:string         ( left:string right:string ) @doc('selects the first string if length > 0, else the second...') { 
@@ -2383,6 +2453,22 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
             }
         }
 
+        to_string  _:string       ( value:boolean ) { 
+            templates {
+                ranger ( "(to_string " (e 1) ")")
+                cpp ( "(" (e 1) " ? \"true\" : \"false\")" )
+                java7 ( "String.valueOf(" (e 1) " )") 
+                php ( "(" (e 1) " ? \"true\" : \"false\")") 
+                scala ( "(" (e 1) ".toString)")
+                go ( "strconv.FormatBool(" (e 1) ")" (imp "strconv"))
+                rust ( "(" (e 1) ".to_string())" )
+                swift3 ("String(" (e 1) ")")
+                swift6 ("String(" (e 1) ")")
+                python ( "str(" (e 1) ")" )
+                * ( "(" (e 1) ".toString())")
+            }
+        }
+
         ; note: this has now different value, it is optional int...
         ; the optionality of the return value should be preserved 
         ; can not do just
@@ -2703,7 +2789,8 @@ r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> 
     "return res" nl
 i "}" nl ))                   
                     "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
-                )                
+                )
+                es6 ( "( " (e 1) ".hasOwnProperty(" (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
                 * ( (e 1) "[" (e 2) "]" )
             }            
         }                 
