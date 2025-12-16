@@ -6,20 +6,60 @@ A fast TypeScript parser written in Ranger, cross-compilable to JavaScript, Rust
 
 - **Lexer**: Full tokenization with TypeScript keywords and type annotations
 - **Parser**: Recursive descent parser producing AST
+- **JSX/TSX Support**: Optional JSX parsing mode for React components
 - **CLI**: Command-line interface for parsing files and listing declarations
 - **Cross-compilation**: Single codebase compiles to multiple languages
 
 ## Supported TypeScript Syntax
 
+### Declarations
 - Interface declarations with properties
 - Type aliases (including union types)
 - Function declarations with type annotations
 - Variable declarations (let, const, var)
+- Class declarations with members
+- Enum declarations
+
+### Types
+- Basic types (string, number, boolean, etc.)
+- Array types (`T[]` and `Array<T>`)
+- Tuple types `[string, number]`
+- Union types `A | B`
+- Intersection types `A & B`
+- Function types `(x: T) => R`
+- Generic type references
+- Type literals `{ x: number }`
+
+### Statements
+- If/else statements
+- While/for/for-of loops
+- Switch statements
+- Try/catch/finally
+- Return statements
+- Import/export statements
+
+### Expressions
+- Binary expressions
+- Call expressions
+- Member expressions
+- Type assertions (`as`)
+- Template literals
+- Array literals
+- Object literals
+- Arrow functions
+- New expressions
+
+### Modifiers
 - Optional properties and parameters (`?`)
 - Readonly modifiers
-- Basic type annotations (string, number, boolean, etc.)
-- Array types (`T[]` and `Array<T>`)
-- Generic type references
+
+### JSX/TSX (Optional Mode)
+- JSX elements `<div>...</div>`
+- Self-closing elements `<input />`
+- JSX attributes `<div className="test">`
+- JSX expressions `<div>{value}</div>`
+- JSX spread attributes `<div {...props}>`
+- JSX fragments `<>...</>`
 
 ## Installation
 
@@ -32,6 +72,8 @@ npm run tsparser:compile:all
 ```
 
 ## Usage
+
+### CLI
 
 ```bash
 # Show help
@@ -52,6 +94,53 @@ node gallery/ts_parser/bin/ts_parser_main.js -i script.ts --show-functions
 # Run demo
 node gallery/ts_parser/bin/ts_parser_main.js -d
 ```
+
+### Programmatic API (Node.js Module)
+
+```javascript
+const { TSLexer, TSParserSimple } = require('./gallery/ts_parser/benchmark/ts_parser_module.cjs');
+
+// Parse TypeScript code
+const code = `
+interface User {
+  name: string;
+  age: number;
+}
+`;
+
+const lexer = new TSLexer(code);
+const tokens = lexer.tokenize();
+
+const parser = new TSParserSimple();
+parser.initParser(tokens);
+const ast = parser.parseProgram();
+
+console.log(ast.nodeType); // "Program"
+console.log(ast.children[0].nodeType); // "InterfaceDeclaration"
+```
+
+### JSX/TSX Parsing
+
+To parse JSX/TSX code, enable TSX mode on the parser:
+
+```javascript
+const { TSLexer, TSParserSimple } = require('./gallery/ts_parser/benchmark/ts_parser_module.cjs');
+
+const jsxCode = '<div className="container"><span>Hello</span></div>';
+
+const lexer = new TSLexer(jsxCode);
+const tokens = lexer.tokenize();
+
+const parser = new TSParserSimple();
+parser.initParser(tokens);
+parser.setTsxMode(true);  // Enable JSX parsing
+
+const ast = parser.parseExpr();
+console.log(ast.nodeType); // "JSXElement"
+console.log(ast.left.name); // "div" (opening tag)
+```
+
+**Note**: When TSX mode is disabled (default), `<` is treated as a comparison operator.
 
 ## Native Builds
 
@@ -123,7 +212,45 @@ powershell -ExecutionPolicy Bypass -File gallery\ts_parser\benchmark\benchmark_n
 
 2. **Quiet Mode**: Parser supports a `quiet` mode to suppress parse errors when using `--show-*` options for clean output.
 
-3. **Cross-compilation**: All code is written in idiomatic Ranger that compiles cleanly to ES6, Rust, C++, Go, and Swift.
+3. **Optional TSX Mode**: JSX parsing is opt-in via `setTsxMode(true)` to avoid ambiguity with comparison operators in regular TypeScript.
+
+4. **Cross-compilation**: All code is written in idiomatic Ranger that compiles cleanly to ES6, Rust, C++, Go, and Swift.
+
+## API Reference
+
+### TSLexer
+
+| Method | Description |
+|--------|-------------|
+| `new TSLexer(source)` | Create lexer with source code |
+| `tokenize()` | Returns array of Token objects |
+
+### TSParserSimple
+
+| Method | Description |
+|--------|-------------|
+| `initParser(tokens)` | Initialize with token array |
+| `setQuiet(bool)` | Suppress parse error messages |
+| `setTsxMode(bool)` | Enable JSX/TSX parsing |
+| `parseProgram()` | Parse full program, returns TSNode |
+| `parseStatement()` | Parse single statement |
+| `parseExpr()` | Parse single expression |
+
+### TSNode Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `nodeType` | string | Node type (e.g., "InterfaceDeclaration") |
+| `name` | string | Identifier name |
+| `value` | string | Literal value or operator |
+| `kind` | string | Declaration kind (let/const) |
+| `children` | TSNode[] | Child nodes |
+| `params` | TSNode[] | Parameters |
+| `left` | TSNode? | Left child |
+| `right` | TSNode? | Right child |
+| `body` | TSNode? | Body block |
+| `init` | TSNode? | Initializer |
+| `typeAnnotation` | TSNode? | Type annotation |
 
 ## See Also
 

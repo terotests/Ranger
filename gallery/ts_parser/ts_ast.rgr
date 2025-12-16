@@ -709,6 +709,164 @@ class EmptyStatement {
   def col:int 0
 }
 
+; ReturnStatement - return expr;
+class ReturnStatement {
+  def type:string "ReturnStatement"
+  def nodeType:string "ReturnStatement"
+  def argument@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; IfStatement - if (test) consequent else alternate
+class IfStatement {
+  def type:string "IfStatement"
+  def nodeType:string "IfStatement"
+  def test@(optional):ASTNode
+  def consequent@(optional):ASTNode
+  def alternate@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; WhileStatement - while (test) body
+class WhileStatement {
+  def type:string "WhileStatement"
+  def nodeType:string "WhileStatement"
+  def test@(optional):ASTNode
+  def body@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; ForStatement - for (init; test; update) body
+class ForStatement {
+  def type:string "ForStatement"
+  def nodeType:string "ForStatement"
+  def init@(optional):ASTNode
+  def test@(optional):ASTNode
+  def update@(optional):ASTNode
+  def body@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; ForOfStatement - for (const x of array) body
+class ForOfStatement {
+  def type:string "ForOfStatement"
+  def nodeType:string "ForOfStatement"
+  def left@(optional):ASTNode
+  def right@(optional):ASTNode
+  def body@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; ForInStatement - for (const key in obj) body
+class ForInStatement {
+  def type:string "ForInStatement"
+  def nodeType:string "ForInStatement"
+  def left@(optional):ASTNode
+  def right@(optional):ASTNode
+  def body@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; BreakStatement - break;
+class BreakStatement {
+  def type:string "BreakStatement"
+  def nodeType:string "BreakStatement"
+  def label@(optional):Identifier
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; ContinueStatement - continue;
+class ContinueStatement {
+  def type:string "ContinueStatement"
+  def nodeType:string "ContinueStatement"
+  def label@(optional):Identifier
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; ThrowStatement - throw error;
+class ThrowStatement {
+  def type:string "ThrowStatement"
+  def nodeType:string "ThrowStatement"
+  def argument@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TryStatement - try { } catch (e) { } finally { }
+class TryStatement {
+  def type:string "TryStatement"
+  def nodeType:string "TryStatement"
+  def block@(optional):BlockStatement
+  def handler@(optional):CatchClause
+  def finalizer@(optional):BlockStatement
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; CatchClause - catch (e) { }
+class CatchClause {
+  def type:string "CatchClause"
+  def nodeType:string "CatchClause"
+  def param@(optional):Identifier
+  def body@(optional):BlockStatement
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; SwitchStatement - switch (expr) { cases }
+class SwitchStatement {
+  def type:string "SwitchStatement"
+  def nodeType:string "SwitchStatement"
+  def discriminant@(optional):ASTNode
+  def cases:[SwitchCase]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; SwitchCase - case value: statements or default: statements
+class SwitchCase {
+  def type:string "SwitchCase"
+  def nodeType:string "SwitchCase"
+  def test@(optional):ASTNode  ; null for default
+  def consequent:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
 ; === JavaScript Expression Nodes ===
 
 ; AssignmentExpression - x = y

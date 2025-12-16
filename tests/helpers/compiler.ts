@@ -238,6 +238,98 @@ export function compileAndRun(sourceFile: string): {
 }
 
 /**
+ * Compile a Ranger source file as a CommonJS module
+ * This uses the -nodemodule flag to export classes
+ */
+export function compileRangerModule(
+  sourceFile: string,
+  outputDir: string,
+  outputFile: string
+): CompileResult {
+  // Use relative path if not absolute
+  const sourcePath = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : `./${sourceFile.replace(/\\/g, "/")}`;
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+
+  if (!fs.existsSync(absoluteSource)) {
+    return {
+      success: false,
+      output: "",
+      error: `Source file not found: ${absoluteSource}`,
+    };
+  }
+
+  // Ensure output directory exists
+  const absoluteOutputDir = path.isAbsolute(outputDir)
+    ? outputDir
+    : path.join(ROOT_DIR, outputDir);
+  if (!fs.existsSync(absoluteOutputDir)) {
+    fs.mkdirSync(absoluteOutputDir, { recursive: true });
+  }
+
+  try {
+    // Set environment - use Lang.rgr only (no stdops) for ts_parser
+    const env = {
+      ...process.env,
+      RANGER_LIB: `./compiler/Lang.rgr`,
+    };
+
+    // Convert targetDir to relative path for the compiler
+    const relativeTargetDir = path
+      .relative(ROOT_DIR, absoluteOutputDir)
+      .replace(/\\/g, "/");
+
+    // Compile as module with -nodemodule flag
+    const cmd = `node "${OUTPUT_JS}" -es6 -nodemodule "${sourcePath}" -d="${relativeTargetDir}" -o="${outputFile}"`;
+
+    const output = execSync(cmd, {
+      cwd: ROOT_DIR,
+      env,
+      encoding: "utf-8",
+      timeout: 60000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    // Check if compilation succeeded
+    const outputStr = output.toString();
+    const hasError =
+      outputStr.includes("TypeError:") ||
+      outputStr.includes("Got unknown compiler error") ||
+      outputStr.includes("Undefined variable") ||
+      outputStr.includes("invalid variable definition");
+
+    if (!hasError) {
+      // Ranger compiler adds .js extension, so copy to the correct .cjs filename
+      const compiledFile = path.join(absoluteOutputDir, `${outputFile}.js`);
+      const targetFile = path.join(absoluteOutputDir, outputFile);
+      if (fs.existsSync(compiledFile) && outputFile.endsWith(".cjs")) {
+        fs.copyFileSync(compiledFile, targetFile);
+      }
+    }
+
+    return {
+      success: !hasError,
+      output: outputStr,
+      error: hasError ? outputStr : undefined,
+    };
+  } catch (err: any) {
+    const stdout = err.stdout?.toString() || "";
+    const stderr = err.stderr?.toString() || "";
+    const combined = stdout + stderr;
+
+    return {
+      success: false,
+      output: stdout,
+      error: combined || err.message,
+    };
+  }
+}
+
+/**
  * Check if compilation fails with expected error
  */
 export function expectCompileError(

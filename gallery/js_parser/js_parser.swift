@@ -4704,7 +4704,7 @@ func r_write_file ( dirName:String, dataToWrite:String ) {
 }
 
 // Main entry point
-func _main() {
+func main() {
   let argCnt : Int = CommandLine.arguments.count - 1
   if ( argCnt == 0 ) {
     JSParserMain.showHelp()
@@ -4763,4 +4763,4 @@ func _main() {
   }
   JSParserMain.showHelp()
 }
-@main struct Main { static func main() { _main() } }
+main()
