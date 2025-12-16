@@ -6,14 +6,7 @@
   "scripts": {
     "benchmark": "node benchmark.js",
     "benchmark:large": "node benchmark.js --large",
-    "benchmark:iterations": "node benchmark.js --iterations=500"
-  },
-  "dependencies": {
-    "typescript": "^5.7.2",
-    "ts-morph": "^24.0.0",
-    "@babel/parser": "^7.26.3",
-    "@typescript-eslint/typescript-estree": "^8.18.0",
-    "acorn": "^8.14.0",
-    "acorn-typescript": "^1.4.13"
+    "benchmark:iterations": "node benchmark.js --iterations=500",
+    "compliance": "node compliance.js"
   }
 }

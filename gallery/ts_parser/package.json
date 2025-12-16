@@ -1,0 +1,33 @@
+{
+  "name": "@ranger/ts-parser",
+  "version": "1.0.0",
+  "description": "Fast TypeScript parser written in Ranger - cross-compilable to JS, Rust, C++, Go, and Swift",
+  "type": "module",
+  "main": "benchmark/ts_parser_module.cjs",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "benchmark": "node benchmark/benchmark.js",
+    "benchmark:large": "node benchmark/benchmark.js --large"
+  },
+  "keywords": [
+    "typescript",
+    "parser",
+    "ast",
+    "jsx",
+    "tsx",
+    "ranger"
+  ],
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "typescript": "^5.7.2",
+    "ts-morph": "^24.0.0",
+    "@babel/parser": "^7.26.3",
+    "@typescript-eslint/typescript-estree": "^8.18.0",
+    "acorn": "^8.14.0",
+    "acorn-typescript": "^1.4.13"
+  }
+}
