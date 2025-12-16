@@ -12,3 +12,11 @@ jpeg_metadata.js
 !Example.jpg
 !Canon_40D.jpg
 !GPS_test.jpg
+
+# Keep encoder output examples
+!Canon_40D_scaled.jpg
+!Example_scaled.jpg
+
+# Temporary test outputs (not tracked)
+progressive_*.ppm
+progressive_*.png
