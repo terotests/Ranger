@@ -1,0 +1,33 @@
+; jpeg_encoder_test.rgr - Test for JPEG encoder
+; Reads a JPEG, scales it, and writes a new JPEG
+
+Import "JPEGDecoder.rgr"
+Import "JPEGEncoder.rgr"
+
+class JPEGEncoderTest {
+    sfn m@(main):void () {
+        print "=== Ranger JPEG Encoder Test ==="
+        print ""
+        
+        ; Load Canon_40D.jpg using JPEGDecoder
+        print "Loading Canon_40D.jpg..."
+        def decoder (new JPEGDecoder())
+        def img:ImageBuffer (decoder.decode("./gallery/pdf_writer" "Canon_40D.jpg"))
+        
+        print ("Original image: " + (to_string img.width) + "x" + (to_string img.height))
+        
+        ; Scale image 5x
+        print "Scaling 5x..."
+        def scaled:ImageBuffer (img.scale(5))
+        print ("Scaled image: " + (to_string scaled.width) + "x" + (to_string scaled.height))
+        
+        ; Encode scaled image as new JPEG
+        print ""
+        def encoder:JPEGEncoder (new JPEGEncoder())
+        encoder.setQuality(85)
+        encoder.encode(scaled "./gallery/pdf_writer" "Canon_40D_scaled.jpg")
+        
+        print ""
+        print "Done! Check Canon_40D_scaled.jpg"
+    }
+}

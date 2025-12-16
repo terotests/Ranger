@@ -397,4 +397,232 @@ class ImageBuffer {
         
         return result
     }
+    
+    fn rotate90CW:ImageBuffer () {
+        ; Rotate 90 degrees clockwise
+        ; New dimensions: width becomes height, height becomes width
+        def result (new ImageBuffer())
+        result.init(height width)
+        
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                ; Source pixel at (x, y) goes to (height-1-y, x) in destination
+                ; After 90 CW: newX = height - 1 - y, newY = x
+                def newX:int (height - 1 - y)
+                def newY:int x
+                
+                def srcOff:int (((y * width) + x) * 4)
+                def destOff:int (((newY * height) + newX) * 4)
+                
+                buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        return result
+    }
+    
+    fn rotate180:ImageBuffer () {
+        ; Rotate 180 degrees
+        def result (new ImageBuffer())
+        result.init(width height)
+        
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                def newX:int (width - 1 - x)
+                def newY:int (height - 1 - y)
+                
+                def srcOff:int (((y * width) + x) * 4)
+                def destOff:int (((newY * width) + newX) * 4)
+                
+                buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        return result
+    }
+    
+    fn rotate270CW:ImageBuffer () {
+        ; Rotate 270 degrees clockwise (= 90 counter-clockwise)
+        def result (new ImageBuffer())
+        result.init(height width)
+        
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                ; After 270 CW (90 CCW): newX = y, newY = width - 1 - x
+                def newX:int y
+                def newY:int (width - 1 - x)
+                
+                def srcOff:int (((y * width) + x) * 4)
+                def destOff:int (((newY * height) + newX) * 4)
+                
+                buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        return result
+    }
+    
+    fn transpose:ImageBuffer () {
+        ; Transpose: swap x and y (mirror along diagonal)
+        def result (new ImageBuffer())
+        result.init(height width)
+        
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                def srcOff:int (((y * width) + x) * 4)
+                def destOff:int (((x * height) + y) * 4)
+                
+                buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        return result
+    }
+    
+    fn transverse:ImageBuffer () {
+        ; Transverse: rotate 90 CW then flip horizontal (or flip vertical then rotate 90 CW)
+        def result (new ImageBuffer())
+        result.init(height width)
+        
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                ; Transverse: newX = height - 1 - y, newY = width - 1 - x... wait
+                ; Actually: transpose + rotate 180 = newX = y, newY = width - 1 - x
+                ; No: transverse is anti-diagonal reflection
+                ; pixel(x,y) -> pixel(height-1-y, width-1-x) in transposed space
+                def newX:int (height - 1 - y)
+                def newY:int (width - 1 - x)
+                
+                def srcOff:int (((y * width) + x) * 4)
+                def destOff:int (((newY * height) + newX) * 4)
+                
+                buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        return result
+    }
+    
+    fn applyExifOrientation:ImageBuffer (orientation:int) {
+        ; Apply EXIF orientation correction
+        ; Orientation values:
+        ; 1 = Normal (no transform needed)
+        ; 2 = Flip horizontal
+        ; 3 = Rotate 180
+        ; 4 = Flip vertical
+        ; 5 = Transpose (flip horizontal + rotate 270)
+        ; 6 = Rotate 90 CW
+        ; 7 = Transverse (flip horizontal + rotate 90)
+        ; 8 = Rotate 270 CW (= rotate 90 CCW)
+        
+        if (orientation == 1) {
+            ; Normal - return copy
+            return (this.scale(1))
+        }
+        
+        if (orientation == 2) {
+            ; Flip horizontal
+            def result (new ImageBuffer())
+            result.init(width height)
+            def y 0
+            while (y < height) {
+                def x 0
+                while (x < width) {
+                    def srcOff:int (((y * width) + x) * 4)
+                    def destOff:int (((y * width) + (width - 1 - x)) * 4)
+                    buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                    buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                    buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                    buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                    x = x + 1
+                }
+                y = y + 1
+            }
+            return result
+        }
+        
+        if (orientation == 3) {
+            return (this.rotate180())
+        }
+        
+        if (orientation == 4) {
+            ; Flip vertical
+            def result (new ImageBuffer())
+            result.init(width height)
+            def y 0
+            while (y < height) {
+                def x 0
+                while (x < width) {
+                    def srcOff:int (((y * width) + x) * 4)
+                    def destOff:int ((((height - 1 - y) * width) + x) * 4)
+                    buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                    buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                    buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                    buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                    x = x + 1
+                }
+                y = y + 1
+            }
+            return result
+        }
+        
+        if (orientation == 5) {
+            return (this.transpose())
+        }
+        
+        if (orientation == 6) {
+            return (this.rotate90CW())
+        }
+        
+        if (orientation == 7) {
+            return (this.transverse())
+        }
+        
+        if (orientation == 8) {
+            return (this.rotate270CW())
+        }
+        
+        ; Unknown orientation - return copy
+        return (this.scale(1))
+    }
 }
