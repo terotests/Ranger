@@ -1,0 +1,87 @@
+; TypeScript Lexer - Main entry point for testing
+; Follows ESTree token format with TypeScript extensions
+Import "ts_lexer.rgr"
+
+class TSLexerMain {
+    sfn m@(main):void () {
+        ; Test TypeScript code with various type annotations
+        def code:string "
+// Variable declarations with types
+let name: string = 'TypeScript';
+const count: number = 42;
+var enabled: boolean = true;
+let value: any = null;
+let data: unknown;
+
+// Interface declaration
+interface Person {
+    readonly id: number;
+    name: string;
+    age?: number;
+    greet(msg: string): void;
+}
+
+// Type alias with union
+type ID = string | number;
+type Result<T> = T | null;
+
+// Array types
+let numbers: number[] = [1, 2, 3];
+let items: Array<string>;
+
+// Function with types
+function greet(name: string, age?: number): string {
+    return 'Hello, ' + name;
+}
+
+// Arrow function type
+const add: (a: number, b: number) => number = (a, b) => a + b;
+
+// Class with access modifiers
+class User implements Person {
+    public readonly id: number;
+    private name: string;
+    protected age: number;
+    
+    constructor(id: number, name: string) {
+        this.id = id;
+        this.name = name;
+    }
+    
+    greet(msg: string): void {
+        console.log(msg);
+    }
+}
+
+// Generic function
+function identity<T>(arg: T): T {
+    return arg;
+}
+
+// Type assertions
+let someValue: unknown = 'hello';
+let strLength: number = (someValue as string).length;
+
+// Intersection type
+type Named = { name: string };
+type Aged = { age: number };
+type NamedPerson = Named & Aged;
+"
+        
+        print "=== TypeScript Lexer (ESTree Format) ==="
+        print ""
+        
+        ; Tokenize
+        def lexer:TSLexer (new TSLexer(code))
+        def tokens:[Token] (lexer.tokenize())
+        
+        print "--- Tokens ---"
+        for tokens tok:Token i {
+            def output:string (tok.tokenType + ": '" + tok.value + "' [" + tok.line + ":" + tok.col + "]")
+            print output
+        }
+        
+        print ""
+        print "Total tokens: " + (array_length tokens)
+    }
+}

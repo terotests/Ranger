@@ -1,0 +1,634 @@
+; TypeScript Parser - Main entry point
+; Usage: node ts_parser_main.js [options]
+;   -h, --help          Show this help message
+;   -d                  Run built-in test suite (default demo)
+;   -i <file>           Input TypeScript file to parse
+;   --tokens            Show tokens in addition to AST
+;   --show-interfaces   List all interfaces in the file
+;   --show-types        List all type aliases in the file
+;   --show-functions    List all functions in the file
+
+Import "ts_parser_simple.rgr"
+
+class TSParserMain {
+    sfn m@(main):void () {
+        def argCnt:int (shell_arg_cnt)
+        
+        if (argCnt == 0) {
+            ; No arguments - show help
+            TSParserMain.showHelp()
+            return
+        }
+        
+        ; Parse command line arguments
+        def inputFile:string ""
+        def runDefault:boolean false
+        def showTokens:boolean false
+        def showInterfaces:boolean false
+        def showTypes:boolean false
+        def showFunctions:boolean false
+        
+        def i:int 0
+        while (i < argCnt) {
+            def arg:string (shell_arg i)
+            
+            if ((arg == "--help") || (arg == "-h")) {
+                TSParserMain.showHelp()
+                return
+            }
+            
+            if (arg == "-d") {
+                runDefault = true
+                i = i + 1
+            } {
+                if (arg == "-i") {
+                    i = i + 1
+                    if (i < argCnt) {
+                        inputFile = (shell_arg i)
+                    }
+                    i = i + 1
+                } {
+                    if (arg == "--tokens") {
+                        showTokens = true
+                        i = i + 1
+                    } {
+                        if (arg == "--show-interfaces") {
+                            showInterfaces = true
+                            i = i + 1
+                        } {
+                            if (arg == "--show-types") {
+                                showTypes = true
+                                i = i + 1
+                            } {
+                                if (arg == "--show-functions") {
+                                    showFunctions = true
+                                    i = i + 1
+                                } {
+                                    ; Unknown argument - skip
+                                    i = i + 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        ; Run default demo
+        if (runDefault) {
+            TSParserMain.runDemo()
+            return
+        }
+        
+        ; Process input file
+        if ((strlen inputFile) > 0) {
+            ; Check if we're using special list modes
+            if (showInterfaces || showTypes || showFunctions) {
+                TSParserMain.listDeclarations(inputFile showInterfaces showTypes showFunctions)
+                return
+            }
+            TSParserMain.parseFile(inputFile showTokens)
+            return
+        }
+        
+        ; No valid arguments
+        TSParserMain.showHelp()
+    }
+    
+    sfn showHelp:void () {
+        print "TypeScript Parser"
+        print ""
+        print "Usage: node ts_parser_main.js [options]"
+        print ""
+        print "Options:"
+        print "  -h, --help          Show this help message"
+        print "  -d                  Run built-in demo/test suite"
+        print "  -i <file>           Input TypeScript file to parse"
+        print "  --tokens            Show tokens in addition to AST"
+        print "  --show-interfaces   List all interfaces in the file"
+        print "  --show-types        List all type aliases in the file"
+        print "  --show-functions    List all functions in the file"
+        print ""
+        print "Examples:"
+        print "  node ts_parser_main.js -d                              Run the demo"
+        print "  node ts_parser_main.js -i script.ts                    Parse and show AST"
+        print "  node ts_parser_main.js -i script.ts --tokens           Also show tokens"
+        print "  node ts_parser_main.js -i script.ts --show-interfaces  List interfaces"
+    }
+    
+    sfn listDeclarations:void (filename:string showInterfaces:boolean showTypes:boolean showFunctions:boolean) {
+        def codeOpt@(optional):string (read_file "." filename)
+        
+        if (null? codeOpt) {
+            print "Error: Could not read file: " + filename
+            return
+        }
+        
+        def code:string (unwrap codeOpt)
+        
+        ; Tokenize and parse (quiet mode for clean output)
+        def lexer:TSLexer (new TSLexer(code))
+        def tokens:[Token] (lexer.tokenize())
+        def parser:TSParserSimple (new TSParserSimple())
+        parser.initParser(tokens)
+        parser.setQuiet(true)
+        def program:TSNode (parser.parseProgram())
+        
+        ; Collect and display declarations
+        if (showInterfaces) {
+            print "=== Interfaces in " + filename + " ==="
+            print ""
+            TSParserMain.listInterfaces(program)
+            print ""
+        }
+        
+        if (showTypes) {
+            print "=== Type Aliases in " + filename + " ==="
+            print ""
+            TSParserMain.listTypeAliases(program)
+            print ""
+        }
+        
+        if (showFunctions) {
+            print "=== Functions in " + filename + " ==="
+            print ""
+            TSParserMain.listFunctions(program)
+            print ""
+        }
+    }
+    
+    sfn listInterfaces:void (program:TSNode) {
+        def count:int 0
+        for program.children stmt:TSNode idx {
+            if (stmt.nodeType == "TSInterfaceDeclaration") {
+                count = count + 1
+                def line:string ("" + stmt.line)
+                def props:int 0
+                if (!null? stmt.body) {
+                    def body:TSNode (unwrap stmt.body)
+                    props = (array_length body.children)
+                }
+                print "  " + stmt.name + " (" + props + " properties) [line " + line + "]"
+                
+                ; List properties
+                if (!null? stmt.body) {
+                    def bodyNode:TSNode (unwrap stmt.body)
+                    for bodyNode.children member:TSNode mi {
+                        if (member.nodeType == "TSPropertySignature") {
+                            def propInfo:string "    - " + member.name
+                            if (member.optional) {
+                                propInfo = propInfo + "?"
+                            }
+                            if (member.readonly) {
+                                propInfo = "    - readonly " + member.name
+                                if (member.optional) {
+                                    propInfo = propInfo + "?"
+                                }
+                            }
+                            ; Get type if available
+                            if (!null? member.typeAnnotation) {
+                                def typeNode:TSNode (unwrap member.typeAnnotation)
+                                if (!null? typeNode.typeAnnotation) {
+                                    def innerType:TSNode (unwrap typeNode.typeAnnotation)
+                                    propInfo = propInfo + ": " + (TSParserMain.getTypeName(innerType))
+                                }
+                            }
+                            print propInfo
+                        }
+                    }
+                }
+            }
+        }
+        print ""
+        print "Total: " + count + " interface(s)"
+    }
+    
+    sfn listTypeAliases:void (program:TSNode) {
+        def count:int 0
+        for program.children stmt:TSNode idx {
+            if (stmt.nodeType == "TSTypeAliasDeclaration") {
+                count = count + 1
+                def line:string ("" + stmt.line)
+                def typeInfo:string "  " + stmt.name
+                if (!null? stmt.typeAnnotation) {
+                    def typeNode:TSNode (unwrap stmt.typeAnnotation)
+                    typeInfo = typeInfo + " = " + (TSParserMain.getTypeName(typeNode))
+                }
+                typeInfo = typeInfo + " [line " + line + "]"
+                print typeInfo
+            }
+        }
+        print ""
+        print "Total: " + count + " type alias(es)"
+    }
+    
+    sfn listFunctions:void (program:TSNode) {
+        def count:int 0
+        for program.children stmt:TSNode idx {
+            if (stmt.nodeType == "FunctionDeclaration") {
+                count = count + 1
+                def line:string ("" + stmt.line)
+                def funcInfo:string "  " + stmt.name + "("
+                
+                ; List parameters
+                def paramCount:int (array_length stmt.params)
+                def pi:int 0
+                for stmt.params param:TSNode paramIdx {
+                    if (pi > 0) {
+                        funcInfo = funcInfo + ", "
+                    }
+                    funcInfo = funcInfo + param.name
+                    if (param.optional) {
+                        funcInfo = funcInfo + "?"
+                    }
+                    if (!null? param.typeAnnotation) {
+                        def paramType:TSNode (unwrap param.typeAnnotation)
+                        if (!null? paramType.typeAnnotation) {
+                            def innerType:TSNode (unwrap paramType.typeAnnotation)
+                            funcInfo = funcInfo + ": " + (TSParserMain.getTypeName(innerType))
+                        }
+                    }
+                    pi = pi + 1
+                }
+                funcInfo = funcInfo + ")"
+                
+                ; Return type (stored in typeAnnotation for function)
+                if (!null? stmt.typeAnnotation) {
+                    def retType:TSNode (unwrap stmt.typeAnnotation)
+                    if (!null? retType.typeAnnotation) {
+                        def innerRet:TSNode (unwrap retType.typeAnnotation)
+                        funcInfo = funcInfo + ": " + (TSParserMain.getTypeName(innerRet))
+                    }
+                }
+                
+                funcInfo = funcInfo + " [line " + line + "]"
+                print funcInfo
+            }
+        }
+        print ""
+        print "Total: " + count + " function(s)"
+    }
+    
+    sfn getTypeName:string (typeNode:TSNode) {
+        def nodeType:string typeNode.nodeType
+        
+        if (nodeType == "TSStringKeyword") {
+            return "string"
+        }
+        if (nodeType == "TSNumberKeyword") {
+            return "number"
+        }
+        if (nodeType == "TSBooleanKeyword") {
+            return "boolean"
+        }
+        if (nodeType == "TSAnyKeyword") {
+            return "any"
+        }
+        if (nodeType == "TSVoidKeyword") {
+            return "void"
+        }
+        if (nodeType == "TSNullKeyword") {
+            return "null"
+        }
+        if (nodeType == "TSUndefinedKeyword") {
+            return "undefined"
+        }
+        if (nodeType == "TSTypeReference") {
+            def result:string typeNode.name
+            ; Check for generic params
+            if ((array_length typeNode.params) > 0) {
+                result = result + "<"
+                def gi:int 0
+                for typeNode.params gp:TSNode gpIdx {
+                    if (gi > 0) {
+                        result = result + ", "
+                    }
+                    result = result + (TSParserMain.getTypeName(gp))
+                    gi = gi + 1
+                }
+                result = result + ">"
+            }
+            return result
+        }
+        if (nodeType == "TSUnionType") {
+            def result:string ""
+            def ui:int 0
+            for typeNode.children ut:TSNode utIdx {
+                if (ui > 0) {
+                    result = result + " | "
+                }
+                result = result + (TSParserMain.getTypeName(ut))
+                ui = ui + 1
+            }
+            return result
+        }
+        
+        return nodeType
+    }
+    
+    sfn parseFile:void (filename:string showTokens:boolean) {
+        def codeOpt@(optional):string (read_file "." filename)
+        
+        if (null? codeOpt) {
+            print "Error: Could not read file: " + filename
+            return
+        }
+        
+        def code:string (unwrap codeOpt)
+        
+        print "=== Parsing: " + filename + " ==="
+        print ""
+        
+        ; Tokenize
+        def lexer:TSLexer (new TSLexer(code))
+        def tokens:[Token] (lexer.tokenize())
+        
+        if (showTokens) {
+            print "--- Tokens ---"
+            for tokens tok:Token ti {
+                def output:string (tok.tokenType + ": '" + tok.value + "'")
+                print output
+            }
+            print ""
+        }
+        
+        ; Parse
+        def parser:TSParserSimple (new TSParserSimple())
+        parser.initParser(tokens)
+        def program:TSNode (parser.parseProgram())
+        
+        ; Print AST
+        print "--- AST ---"
+        print "Program with " + (array_length program.children) + " statements:"
+        print ""
+        
+        for program.children stmt:TSNode idx {
+            TSParserMain.printNode(stmt 0)
+        }
+    }
+    
+    sfn runDemo:void () {
+        def code:string "
+interface Person {
+  readonly id: number;
+  name: string;
+  age?: number;
+}
+
+type ID = string | number;
+
+type Result = Person | null;
+
+let count: number = 42;
+
+const message: string = 'hello';
+
+function greet(name: string, age?: number): string {
+  return name;
+}
+
+let data: Array<string>;
+"
+        
+        print "=== TypeScript Parser Demo ==="
+        print ""
+        print "Input:"
+        print code
+        print ""
+        
+        ; Tokenize
+        print "--- Tokens ---"
+        def lexer:TSLexer (new TSLexer(code))
+        def tokens:[Token] (lexer.tokenize())
+        
+        for tokens tok:Token i {
+            def output:string (tok.tokenType + ": '" + tok.value + "'")
+            print output
+        }
+        
+        ; Parse
+        print ""
+        print "--- AST ---"
+        def parser:TSParserSimple (new TSParserSimple())
+        parser.initParser(tokens)
+        def program:TSNode (parser.parseProgram())
+        
+        print "Program with " + (array_length program.children) + " statements:"
+        print ""
+        
+        ; Print AST
+        for program.children stmt:TSNode idx {
+            TSParserMain.printNode(stmt 0)
+        }
+    }
+    
+    sfn printNode:void (node:TSNode depth:int) {
+        def indent ""
+        def i 0
+        while (i < depth) {
+            indent = indent + "  "
+            i = i + 1
+        }
+        
+        def nodeType node.nodeType
+        def loc "[" + node.line + ":" + node.col + "]"
+        
+        ; TSInterfaceDeclaration
+        if (nodeType == "TSInterfaceDeclaration") {
+            print indent + "TSInterfaceDeclaration: " + node.name + " " + loc
+            if (!null? node.body) {
+                TSParserMain.printNode((unwrap node.body) (depth + 1))
+            }
+            return
+        }
+        
+        ; TSInterfaceBody
+        if (nodeType == "TSInterfaceBody") {
+            print indent + "TSInterfaceBody " + loc
+            for node.children member:TSNode mi {
+                TSParserMain.printNode(member (depth + 1))
+            }
+            return
+        }
+        
+        ; TSPropertySignature
+        if (nodeType == "TSPropertySignature") {
+            def modifiers ""
+            if (node.readonly) {
+                modifiers = "readonly "
+            }
+            if (node.optional) {
+                modifiers = modifiers + "optional "
+            }
+            print indent + "TSPropertySignature: " + modifiers + node.name + " " + loc
+            if (!null? node.typeAnnotation) {
+                TSParserMain.printNode((unwrap node.typeAnnotation) (depth + 1))
+            }
+            return
+        }
+        
+        ; TSTypeAliasDeclaration
+        if (nodeType == "TSTypeAliasDeclaration") {
+            print indent + "TSTypeAliasDeclaration: " + node.name + " " + loc
+            if (!null? node.typeAnnotation) {
+                TSParserMain.printNode((unwrap node.typeAnnotation) (depth + 1))
+            }
+            return
+        }
+        
+        ; TSTypeAnnotation
+        if (nodeType == "TSTypeAnnotation") {
+            print indent + "TSTypeAnnotation " + loc
+            if (!null? node.typeAnnotation) {
+                TSParserMain.printNode((unwrap node.typeAnnotation) (depth + 1))
+            }
+            return
+        }
+        
+        ; TSUnionType
+        if (nodeType == "TSUnionType") {
+            print indent + "TSUnionType " + loc
+            for node.children typeNode:TSNode ti {
+                TSParserMain.printNode(typeNode (depth + 1))
+            }
+            return
+        }
+        
+        ; TSTypeReference
+        if (nodeType == "TSTypeReference") {
+            print indent + "TSTypeReference: " + node.name + " " + loc
+            for node.params param:TSNode pi {
+                TSParserMain.printNode(param (depth + 1))
+            }
+            return
+        }
+        
+        ; TSArrayType
+        if (nodeType == "TSArrayType") {
+            print indent + "TSArrayType " + loc
+            if (!null? node.left) {
+                TSParserMain.printNode((unwrap node.left) (depth + 1))
+            }
+            return
+        }
+        
+        ; Primitive types
+        if (nodeType == "TSStringKeyword") {
+            print indent + "TSStringKeyword " + loc
+            return
+        }
+        if (nodeType == "TSNumberKeyword") {
+            print indent + "TSNumberKeyword " + loc
+            return
+        }
+        if (nodeType == "TSBooleanKeyword") {
+            print indent + "TSBooleanKeyword " + loc
+            return
+        }
+        if (nodeType == "TSAnyKeyword") {
+            print indent + "TSAnyKeyword " + loc
+            return
+        }
+        if (nodeType == "TSNullKeyword") {
+            print indent + "TSNullKeyword " + loc
+            return
+        }
+        if (nodeType == "TSVoidKeyword") {
+            print indent + "TSVoidKeyword " + loc
+            return
+        }
+        
+        ; VariableDeclaration
+        if (nodeType == "VariableDeclaration") {
+            print indent + "VariableDeclaration (" + node.kind + ") " + loc
+            for node.children declarator:TSNode di {
+                TSParserMain.printNode(declarator (depth + 1))
+            }
+            return
+        }
+        
+        ; VariableDeclarator
+        if (nodeType == "VariableDeclarator") {
+            print indent + "VariableDeclarator: " + node.name + " " + loc
+            if (!null? node.typeAnnotation) {
+                TSParserMain.printNode((unwrap node.typeAnnotation) (depth + 1))
+            }
+            if (!null? node.init) {
+                print indent + "  init:"
+                TSParserMain.printNode((unwrap node.init) (depth + 2))
+            }
+            return
+        }
+        
+        ; FunctionDeclaration
+        if (nodeType == "FunctionDeclaration") {
+            def paramNames ""
+            for node.params p:TSNode pi {
+                if (pi > 0) {
+                    paramNames = paramNames + ", "
+                }
+                paramNames = paramNames + p.name
+                if (p.optional) {
+                    paramNames = paramNames + "?"
+                }
+            }
+            print indent + "FunctionDeclaration: " + node.name + "(" + paramNames + ") " + loc
+            if (!null? node.typeAnnotation) {
+                print indent + "  returnType:"
+                TSParserMain.printNode((unwrap node.typeAnnotation) (depth + 2))
+            }
+            if (!null? node.body) {
+                TSParserMain.printNode((unwrap node.body) (depth + 1))
+            }
+            return
+        }
+        
+        ; BlockStatement
+        if (nodeType == "BlockStatement") {
+            print indent + "BlockStatement " + loc
+            for node.children stmt:TSNode si {
+                TSParserMain.printNode(stmt (depth + 1))
+            }
+            return
+        }
+        
+        ; ExpressionStatement
+        if (nodeType == "ExpressionStatement") {
+            print indent + "ExpressionStatement " + loc
+            if (!null? node.left) {
+                TSParserMain.printNode((unwrap node.left) (depth + 1))
+            }
+            return
+        }
+        
+        ; ReturnStatement
+        if (nodeType == "ReturnStatement") {
+            print indent + "ReturnStatement " + loc
+            if (!null? node.left) {
+                TSParserMain.printNode((unwrap node.left) (depth + 1))
+            }
+            return
+        }
+        
+        ; Identifier
+        if (nodeType == "Identifier") {
+            print indent + "Identifier: " + node.name + " " + loc
+            return
+        }
+        
+        ; NumericLiteral
+        if (nodeType == "NumericLiteral") {
+            print indent + "NumericLiteral: " + node.value + " " + loc
+            return
+        }
+        
+        ; StringLiteral
+        if (nodeType == "StringLiteral") {
+            print indent + "StringLiteral: " + node.value + " " + loc
+            return
+        }
+        
+        ; Default fallback
+        print indent + nodeType + " " + loc
+    }
+}

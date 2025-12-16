@@ -25,6 +25,7 @@ Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, t
 ## Completed Work ✅
 
 ### VSCode Extension Updates (December 2024)
+
 - [x] Updated extension version to 0.3.0
 - [x] Added proper file icon support for `.rgr` files (language icon property)
 - [x] Created shield-style SVG icon matching the Ranger logo (gold shield with R)
@@ -32,6 +33,7 @@ Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, t
 - [x] Updated package.json with icon configuration
 
 ### File Extension Migration
+
 - [x] Renamed all compiler files from `.clj` to `.rgr`
 - [x] Updated parser to support `.rgr` extension
 - [x] VSCode extension recognizes `.rgr` files
@@ -103,6 +105,7 @@ Ranger 3.0 represents a major evolution of the Ranger cross-language compiler, t
 ### 2.1 Testing Philosophy
 
 The goal is to verify code generation correctness **without requiring target language compilation**. This enables:
+
 - Fast CI/CD pipelines without installing Swift, Rust, Kotlin, C++ toolchains
 - Immediate feedback on code generation changes
 - Easier contributor onboarding
@@ -161,35 +164,37 @@ tests/fixtures/
 For each target (Swift6, Rust, Kotlin, C++), verify code patterns without execution:
 
 #### Swift6 Code Generation Tests
+
 ```typescript
 describe("Swift6 Code Generation", () => {
   it("should generate proper optional unwrapping", () => {
     const code = getGeneratedSwiftCode("tests/fixtures/optional_values.rgr");
     expect(code).toContain("guard let");
     expect(code).toContain("if let");
-    expect(code).not.toContain("!");  // No force unwrap in safe patterns
+    expect(code).not.toContain("!"); // No force unwrap in safe patterns
   });
 
   it("should use proper string interpolation", () => {
     const code = getGeneratedSwiftCode("tests/fixtures/string_ops.rgr");
-    expect(code).toContain("\\(");  // Swift string interpolation
+    expect(code).toContain("\\("); // Swift string interpolation
   });
 
   it("should generate correct array methods", () => {
     const code = getGeneratedSwiftCode("tests/fixtures/array_push.rgr");
     expect(code).toContain(".append(");
-    expect(code).not.toContain(".push(");  // JS pattern shouldn't appear
+    expect(code).not.toContain(".push("); // JS pattern shouldn't appear
   });
 });
 ```
 
 #### Rust Code Generation Tests
+
 ```typescript
 describe("Rust Code Generation", () => {
   it("should use proper ownership patterns", () => {
     const code = getGeneratedRustCode("tests/fixtures/string_methods.rgr");
-    expect(code).toContain("&str");  // String references
-    expect(code).toContain(".to_string()");  // String conversions
+    expect(code).toContain("&str"); // String references
+    expect(code).toContain(".to_string()"); // String conversions
   });
 
   it("should handle Option types correctly", () => {
@@ -207,11 +212,12 @@ describe("Rust Code Generation", () => {
 ```
 
 #### Kotlin Code Generation Tests
+
 ```typescript
 describe("Kotlin Code Generation", () => {
   it("should use nullable types correctly", () => {
     const code = getGeneratedKotlinCode("tests/fixtures/optional_values.rgr");
-    expect(code).toContain("?");  // Nullable type marker
+    expect(code).toContain("?"); // Nullable type marker
     expect(code).toContain("?."); // Safe call operator
   });
 
@@ -230,6 +236,7 @@ describe("Kotlin Code Generation", () => {
 ```
 
 #### C++ Code Generation Tests
+
 ```typescript
 describe("C++ Code Generation", () => {
   it("should use smart pointers", () => {
@@ -254,6 +261,7 @@ describe("C++ Code Generation", () => {
 ### 2.5 Implementation Tasks
 
 #### Test Helper Functions (Priority 1)
+
 - [x] `compileRangerToRust()` - exists
 - [x] `getGeneratedRustCode()` - exists
 - [ ] `getGeneratedSwiftCode()` - add to helpers/compiler.ts
@@ -261,13 +269,16 @@ describe("C++ Code Generation", () => {
 - [ ] `getGeneratedCppCode()` - add to helpers/compiler.ts
 
 #### New Test Files (Priority 2)
+
 - [ ] `tests/codegen-swift.test.ts` - Swift6 code pattern tests
 - [ ] `tests/codegen-rust.test.ts` - Rust code pattern tests
 - [ ] `tests/codegen-kotlin.test.ts` - Kotlin code pattern tests
 - [ ] `tests/codegen-cpp.test.ts` - C++ code pattern tests
 
 #### New Test Fixtures (Priority 3)
+
 Based on `gallery/js_parser` patterns:
+
 - [ ] `tests/fixtures/string_peek.rgr` - charAt, at, substr from Lexer
 - [ ] `tests/fixtures/char_classify.rgr` - isDigit, isAlpha patterns
 - [ ] `tests/fixtures/token_scan.rgr` - Loop + string accumulation
@@ -281,7 +292,7 @@ Verify semantic equivalence across targets:
 ```typescript
 describe("Cross-Language Semantic Equivalence", () => {
   const targets = ["es6", "python", "rust", "swift6", "kotlin", "cpp"];
-  
+
   it("should generate functionally equivalent array operations", () => {
     for (const target of targets) {
       const code = compileToTarget("tests/fixtures/array_push.rgr", target);
@@ -296,14 +307,14 @@ describe("Cross-Language Semantic Equivalence", () => {
 
 Extract testable patterns from `gallery/js_parser`:
 
-| Pattern | Source File | Tests |
-|---------|-------------|-------|
-| String iteration | js_lexer.rgr | peek(), advance(), charAt |
-| Character classification | js_lexer.rgr | isDigit(), isAlpha() |
-| Token accumulation | js_lexer.rgr | Building strings in loops |
-| Recursive parsing | js_parser.rgr | Nested function calls |
-| AST construction | js_ast.rgr | Class instantiation patterns |
-| Error handling | js_parser.rgr | Try/catch, error propagation |
+| Pattern                  | Source File   | Tests                        |
+| ------------------------ | ------------- | ---------------------------- |
+| String iteration         | js_lexer.rgr  | peek(), advance(), charAt    |
+| Character classification | js_lexer.rgr  | isDigit(), isAlpha()         |
+| Token accumulation       | js_lexer.rgr  | Building strings in loops    |
+| Recursive parsing        | js_parser.rgr | Nested function calls        |
+| AST construction         | js_ast.rgr    | Class instantiation patterns |
+| Error handling           | js_parser.rgr | Try/catch, error propagation |
 
 ---
 
@@ -747,6 +758,7 @@ tests/
 ### 9.2 Test Types
 
 #### Type 1: Code Generation Tests (Fast, No Runtime)
+
 Verify generated code patterns without compiling the target:
 
 ```bash
@@ -756,6 +768,7 @@ npm run test:codegen:rust     # Rust patterns only
 ```
 
 #### Type 2: Runtime Tests (Requires Target Toolchain)
+
 Compile AND execute in target language:
 
 ```bash
@@ -773,43 +786,45 @@ npm run test:cpp              # C++ target (requires g++)
 ```yaml
 # Fast tests (every PR)
 fast-tests:
-  - test:codegen     # Code pattern verification
-  - test:es6         # JavaScript (always available)
-  - test:python      # Python (usually available)
+  - test:codegen # Code pattern verification
+  - test:es6 # JavaScript (always available)
+  - test:python # Python (usually available)
 
 # Full tests (nightly/release)
 full-tests:
   - all fast tests
-  - test:rust        # Requires Rust toolchain
-  - test:kotlin      # Requires Kotlin/JVM
-  - test:swift       # Requires Swift (macOS/Linux)
-  - test:cpp         # Requires C++ compiler
-  - test:go          # Requires Go
+  - test:rust # Requires Rust toolchain
+  - test:kotlin # Requires Kotlin/JVM
+  - test:swift # Requires Swift (macOS/Linux)
+  - test:cpp # Requires C++ compiler
+  - test:go # Requires Go
 ```
 
 ### 9.4 Adding New Tests
 
 **For code generation tests:**
+
 1. Add fixture to `tests/fixtures/`
 2. Add test in `tests/codegen-{target}.test.ts`
 3. Verify expected code patterns with `expect(code).toContain()`
 
 **For runtime tests:**
+
 1. Add fixture to `tests/fixtures/`
 2. Add test in `tests/compiler-{target}.test.ts`
 3. Verify output with `expectOutput()`
 
 ### 9.5 Test Coverage Goals
 
-| Area | Current | Target |
-|------|---------|--------|
-| Array operations | ✅ Good | Maintain |
-| String methods | ✅ Good | Expand |
-| Class features | ✅ Good | Maintain |
-| Optional types | ⚠️ Partial | Improve |
-| Memory patterns | ❌ Missing | Add |
-| Lexer patterns | ❌ Missing | Add |
-| Parser patterns | ❌ Missing | Add |
+| Area             | Current    | Target   |
+| ---------------- | ---------- | -------- |
+| Array operations | ✅ Good    | Maintain |
+| String methods   | ✅ Good    | Expand   |
+| Class features   | ✅ Good    | Maintain |
+| Optional types   | ⚠️ Partial | Improve  |
+| Memory patterns  | ❌ Missing | Add      |
+| Lexer patterns   | ❌ Missing | Add      |
+| Parser patterns  | ❌ Missing | Add      |
 
 ---
 
@@ -872,6 +887,7 @@ full-tests:
 ### 11.1 Deferred to Ranger 4.0
 
 **Web-Based Playground IDE** (moved from 3.0)
+
 - Monaco Editor integration in browser
 - Virtual filesystem with IndexedDB
 - Project management and export
@@ -879,6 +895,7 @@ full-tests:
 - Real-time compilation in Web Worker
 
 **Other Deferred Features:**
+
 - **WASM Compilation Target** - Compile Ranger to WebAssembly
 - **Cloud Compilation Service** - API for online compilation
 - **Visual Debugger** - Integrated debugging experience
@@ -910,14 +927,14 @@ Ranger 3.x establishes the foundation for a mature cross-language development en
 
 ## Implementation Timeline Summary
 
-| Phase | Timeline   | Key Deliverables                              | Status |
-| ----- | ---------- | --------------------------------------------- | ------ |
-| 1     | Week 1-2   | Version 3.0, .rgr extension, cleanup          | ✅ Mostly done |
-| 2     | Week 3-6   | Unit testing infrastructure for all targets   | 🔄 Current |
-| 3     | Week 7-12  | Language target improvements (Swift6, Rust, Kotlin, C++) | Planned |
-| 4     | Week 13-16 | VSCode extension finalization                 | Planned |
-| 5     | Week 17-22 | Incremental compilation                       | Planned |
-| 6     | Week 23-28 | Source maps, module packaging                 | Planned |
+| Phase | Timeline   | Key Deliverables                                         | Status         |
+| ----- | ---------- | -------------------------------------------------------- | -------------- |
+| 1     | Week 1-2   | Version 3.0, .rgr extension, cleanup                     | ✅ Mostly done |
+| 2     | Week 3-6   | Unit testing infrastructure for all targets              | 🔄 Current     |
+| 3     | Week 7-12  | Language target improvements (Swift6, Rust, Kotlin, C++) | Planned        |
+| 4     | Week 13-16 | VSCode extension finalization                            | Planned        |
+| 5     | Week 17-22 | Incremental compilation                                  | Planned        |
+| 6     | Week 23-28 | Source maps, module packaging                            | Planned        |
 
 **Total Estimated Timeline: ~28 weeks (6-7 months)**
 

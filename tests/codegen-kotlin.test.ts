@@ -34,29 +34,39 @@ describe("Kotlin Code Generation", () => {
     });
 
     it("should use proper string methods", () => {
-      const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/string_methods.rgr`);
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/string_methods.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Kotlin uses .startsWith(), .endsWith(), .contains(), .replace()
-      expect(result.code).toMatch(/\.startsWith|\.endsWith|\.contains|\.replace/);
+      expect(result.code).toMatch(
+        /\.startsWith|\.endsWith|\.contains|\.replace/
+      );
     });
   });
 
   describe("Nullable Types", () => {
     it("should use ? for nullable type markers", () => {
-      const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/optional_values.rgr`);
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/optional_values.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Kotlin uses Type? for nullable types
       expect(result.code).toMatch(/\w+\?/);
     });
 
     it("should use null keyword", () => {
-      const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/optional_values.rgr`);
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/optional_values.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("null");
     });
 
     it("should use force unwrap !! for non-null assertion", () => {
-      const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/optional_values.rgr`);
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/optional_values.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Kotlin uses !! for force unwrap when safe
       expect(result.code).toContain("!!");
@@ -71,7 +81,9 @@ describe("Kotlin Code Generation", () => {
     });
 
     it("should use init block or class with no constructor params", () => {
-      const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/static_factory.rgr`);
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/static_factory.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Kotlin classes can have init blocks or primary constructors
       expect(result.code).toMatch(/init\s*\{|class \w+/);
@@ -84,7 +96,9 @@ describe("Kotlin Code Generation", () => {
     });
 
     it("should use companion object for static members", () => {
-      const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/static_factory.rgr`);
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/static_factory.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Kotlin uses companion object for static-like behavior
       expect(result.code).toContain("companion object");
@@ -115,7 +129,9 @@ describe("Kotlin Code Generation", () => {
     });
 
     it("should use proper return type syntax", () => {
-      const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/static_factory.rgr`);
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/static_factory.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Kotlin uses : ReturnType after parameter list
       expect(result.code).toMatch(/\)\s*:\s*\w+/);
@@ -124,7 +140,9 @@ describe("Kotlin Code Generation", () => {
 
   describe("Control Flow", () => {
     it("should generate conditional expressions", () => {
-      const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/ternary_factory.rgr`);
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/ternary_factory.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Ternary uses ? : syntax (note: Kotlin also supports if as expression)
       expect(result.code).toMatch(/\?.*:/);

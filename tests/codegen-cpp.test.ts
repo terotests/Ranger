@@ -61,7 +61,9 @@ describe("C++ Code Generation", () => {
       const result = getGeneratedCppCode(`${FIXTURES_DIR}/two_classes.rgr`);
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Modern C++ should use shared_ptr or unique_ptr
-      expect(result.code).toMatch(/std::shared_ptr|std::unique_ptr|std::make_shared|std::make_unique/);
+      expect(result.code).toMatch(
+        /std::shared_ptr|std::unique_ptr|std::make_shared|std::make_unique/
+      );
     });
 
     it("should use new or make_shared for object creation", () => {

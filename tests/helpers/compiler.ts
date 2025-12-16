@@ -1389,11 +1389,11 @@ export function getGeneratedSwiftCode(
   outputDir?: string
 ): { success: boolean; code: string; error?: string } {
   const targetDir = outputDir || SWIFT_OUTPUT_DIR;
-  
+
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
   }
-  
+
   const result = compileRanger(sourceFile, "swift6", targetDir);
 
   if (!result.success) {
@@ -1451,11 +1451,11 @@ export function getGeneratedKotlinCode(
   outputDir?: string
 ): { success: boolean; code: string; error?: string } {
   const targetDir = outputDir || KOTLIN_OUTPUT_DIR;
-  
+
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
   }
-  
+
   const result = compileRangerToKotlin(sourceFile, targetDir);
 
   if (!result.success) {

@@ -118,19 +118,25 @@ describe("Rust Code Generation", () => {
 
   describe("Optional/Option Types", () => {
     it("should use Option<T> for nullable types", () => {
-      const result = getGeneratedRustCode(`${FIXTURES_DIR}/optional_values.rgr`);
+      const result = getGeneratedRustCode(
+        `${FIXTURES_DIR}/optional_values.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("Option<");
     });
 
     it("should use None instead of null", () => {
-      const result = getGeneratedRustCode(`${FIXTURES_DIR}/optional_values.rgr`);
+      const result = getGeneratedRustCode(
+        `${FIXTURES_DIR}/optional_values.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("None");
     });
 
     it("should use Some() for present values", () => {
-      const result = getGeneratedRustCode(`${FIXTURES_DIR}/optional_values.rgr`);
+      const result = getGeneratedRustCode(
+        `${FIXTURES_DIR}/optional_values.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("Some(");
     });
@@ -138,7 +144,9 @@ describe("Rust Code Generation", () => {
 
   describe("Control Flow", () => {
     it("should generate if/else blocks", () => {
-      const result = getGeneratedRustCode(`${FIXTURES_DIR}/ternary_factory.rgr`);
+      const result = getGeneratedRustCode(
+        `${FIXTURES_DIR}/ternary_factory.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("if ");
       expect(result.code).toContain("else");
@@ -157,7 +165,8 @@ describe("Rust Code Generation", () => {
       expect(result.success, `Failed: ${result.error}`).toBe(true);
 
       // Count occurrences of key polyfill elements - should appear only once
-      const receiverCount = (result.code.match(/static R_KEY_RECEIVER:/g) || []).length;
+      const receiverCount = (result.code.match(/static R_KEY_RECEIVER:/g) || [])
+        .length;
       expect(receiverCount).toBe(1);
     });
   });

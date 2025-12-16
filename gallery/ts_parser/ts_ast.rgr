@@ -1,0 +1,796 @@
+; TypeScript AST Node Definitions
+; Based on ESTree specification with TypeScript extensions
+; Following typescript-eslint AST format: https://typescript-eslint.io/packages/ast-spec/
+;
+; TypeScript nodes are prefixed with "TS" following ESTree conventions
+
+; === Base Types ===
+
+; Base AST Node - all nodes have source location info
+class ASTNode {
+  def type:string ""
+  def nodeType:string ""  ; runtime type for casting
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; Program - root node
+class Program {
+  def type:string "Program"
+  def body:[ASTNode]
+  def sourceType:string "script"  ; "script" or "module"
+  def start:int 0
+  def end:int 0
+}
+
+; === TypeScript Type Nodes ===
+; All type nodes extend TSTypeNode conceptually
+
+; TSTypeAnnotation - wraps a type (e.g., `: string`)
+class TSTypeAnnotation {
+  def type:string "TSTypeAnnotation"
+  def nodeType:string "TSTypeAnnotation"
+  def typeAnnotation@(optional):ASTNode  ; the actual type
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Keyword Types (primitives) ===
+
+; TSStringKeyword - `string`
+class TSStringKeyword {
+  def type:string "TSStringKeyword"
+  def nodeType:string "TSStringKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSNumberKeyword - `number`
+class TSNumberKeyword {
+  def type:string "TSNumberKeyword"
+  def nodeType:string "TSNumberKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSBooleanKeyword - `boolean`
+class TSBooleanKeyword {
+  def type:string "TSBooleanKeyword"
+  def nodeType:string "TSBooleanKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSAnyKeyword - `any`
+class TSAnyKeyword {
+  def type:string "TSAnyKeyword"
+  def nodeType:string "TSAnyKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSUnknownKeyword - `unknown`
+class TSUnknownKeyword {
+  def type:string "TSUnknownKeyword"
+  def nodeType:string "TSUnknownKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSNeverKeyword - `never`
+class TSNeverKeyword {
+  def type:string "TSNeverKeyword"
+  def nodeType:string "TSNeverKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSVoidKeyword - `void`
+class TSVoidKeyword {
+  def type:string "TSVoidKeyword"
+  def nodeType:string "TSVoidKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSUndefinedKeyword - `undefined`
+class TSUndefinedKeyword {
+  def type:string "TSUndefinedKeyword"
+  def nodeType:string "TSUndefinedKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSNullKeyword - `null` as type
+class TSNullKeyword {
+  def type:string "TSNullKeyword"
+  def nodeType:string "TSNullKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSObjectKeyword - `object`
+class TSObjectKeyword {
+  def type:string "TSObjectKeyword"
+  def nodeType:string "TSObjectKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSSymbolKeyword - `symbol`
+class TSSymbolKeyword {
+  def type:string "TSSymbolKeyword"
+  def nodeType:string "TSSymbolKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSBigIntKeyword - `bigint`
+class TSBigIntKeyword {
+  def type:string "TSBigIntKeyword"
+  def nodeType:string "TSBigIntKeyword"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Composite Types ===
+
+; TSTypeReference - reference to a type by name (e.g., `Person`, `Array<T>`)
+class TSTypeReference {
+  def type:string "TSTypeReference"
+  def nodeType:string "TSTypeReference"
+  def typeName@(optional):ASTNode     ; Identifier or TSQualifiedName
+  def typeParameters@(optional):ASTNode  ; TSTypeParameterInstantiation
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSQualifiedName - qualified type name (e.g., `Namespace.Type`)
+class TSQualifiedName {
+  def type:string "TSQualifiedName"
+  def nodeType:string "TSQualifiedName"
+  def left@(optional):ASTNode   ; Identifier or TSQualifiedName
+  def right@(optional):ASTNode  ; Identifier
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSUnionType - union of types (e.g., `string | number`)
+class TSUnionType {
+  def type:string "TSUnionType"
+  def nodeType:string "TSUnionType"
+  def types:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSIntersectionType - intersection of types (e.g., `Named & Aged`)
+class TSIntersectionType {
+  def type:string "TSIntersectionType"
+  def nodeType:string "TSIntersectionType"
+  def types:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSArrayType - array type shorthand (e.g., `string[]`)
+class TSArrayType {
+  def type:string "TSArrayType"
+  def nodeType:string "TSArrayType"
+  def elementType@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSTupleType - tuple type (e.g., `[string, number]`)
+class TSTupleType {
+  def type:string "TSTupleType"
+  def nodeType:string "TSTupleType"
+  def elementTypes:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSFunctionType - function type (e.g., `(a: number) => string`)
+class TSFunctionType {
+  def type:string "TSFunctionType"
+  def nodeType:string "TSFunctionType"
+  def params:[ASTNode]
+  def returnType@(optional):ASTNode  ; TSTypeAnnotation
+  def typeParameters@(optional):ASTNode  ; TSTypeParameterDeclaration
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSTypeLiteral - object type literal (e.g., `{ name: string; age: number }`)
+class TSTypeLiteral {
+  def type:string "TSTypeLiteral"
+  def nodeType:string "TSTypeLiteral"
+  def members:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSPropertySignature - property in type literal or interface
+class TSPropertySignature {
+  def type:string "TSPropertySignature"
+  def nodeType:string "TSPropertySignature"
+  def key@(optional):ASTNode
+  def typeAnnotation@(optional):ASTNode  ; TSTypeAnnotation
+  def optional:boolean false
+  def readonly:boolean false
+  def computed:boolean false
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSMethodSignature - method in type literal or interface
+class TSMethodSignature {
+  def type:string "TSMethodSignature"
+  def nodeType:string "TSMethodSignature"
+  def key@(optional):ASTNode
+  def params:[ASTNode]
+  def returnType@(optional):ASTNode
+  def typeParameters@(optional):ASTNode
+  def optional:boolean false
+  def computed:boolean false
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSIndexSignature - index signature (e.g., `[key: string]: number`)
+class TSIndexSignature {
+  def type:string "TSIndexSignature"
+  def nodeType:string "TSIndexSignature"
+  def parameters:[ASTNode]
+  def typeAnnotation@(optional):ASTNode
+  def readonly:boolean false
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSLiteralType - literal as type (e.g., `"hello"` or `42`)
+class TSLiteralType {
+  def type:string "TSLiteralType"
+  def nodeType:string "TSLiteralType"
+  def literal@(optional):ASTNode  ; Literal
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSParenthesizedType - parenthesized type (e.g., `(string | number)`)
+class TSParenthesizedType {
+  def type:string "TSParenthesizedType"
+  def nodeType:string "TSParenthesizedType"
+  def typeAnnotation@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSOptionalType - optional type in tuple (e.g., `[string, number?]`)
+class TSOptionalType {
+  def type:string "TSOptionalType"
+  def nodeType:string "TSOptionalType"
+  def typeAnnotation@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSRestType - rest element in tuple (e.g., `[string, ...number[]]`)
+class TSRestType {
+  def type:string "TSRestType"
+  def nodeType:string "TSRestType"
+  def typeAnnotation@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Type Operators ===
+
+; TSTypeOperator - type operator (e.g., `keyof T`, `readonly T[]`)
+class TSTypeOperator {
+  def type:string "TSTypeOperator"
+  def nodeType:string "TSTypeOperator"
+  def operator:string ""  ; "keyof", "readonly", "unique"
+  def typeAnnotation@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSIndexedAccessType - indexed access (e.g., `T[K]`)
+class TSIndexedAccessType {
+  def type:string "TSIndexedAccessType"
+  def nodeType:string "TSIndexedAccessType"
+  def objectType@(optional):ASTNode
+  def indexType@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSConditionalType - conditional type (e.g., `T extends U ? X : Y`)
+class TSConditionalType {
+  def type:string "TSConditionalType"
+  def nodeType:string "TSConditionalType"
+  def checkType@(optional):ASTNode
+  def extendsType@(optional):ASTNode
+  def trueType@(optional):ASTNode
+  def falseType@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSInferType - infer keyword in conditional type
+class TSInferType {
+  def type:string "TSInferType"
+  def nodeType:string "TSInferType"
+  def typeParameter@(optional):ASTNode  ; TSTypeParameter
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Generics ===
+
+; TSTypeParameter - type parameter definition (e.g., `T extends Base = Default`)
+class TSTypeParameter {
+  def type:string "TSTypeParameter"
+  def nodeType:string "TSTypeParameter"
+  def name@(optional):ASTNode  ; Identifier
+  def constraint@(optional):ASTNode  ; extends clause
+  def default@(optional):ASTNode     ; default type
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSTypeParameterDeclaration - list of type parameters (e.g., `<T, U>`)
+class TSTypeParameterDeclaration {
+  def type:string "TSTypeParameterDeclaration"
+  def nodeType:string "TSTypeParameterDeclaration"
+  def params:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSTypeParameterInstantiation - type arguments (e.g., `<string, number>`)
+class TSTypeParameterInstantiation {
+  def type:string "TSTypeParameterInstantiation"
+  def nodeType:string "TSTypeParameterInstantiation"
+  def params:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Declarations ===
+
+; TSTypeAliasDeclaration - type alias (e.g., `type ID = string | number`)
+class TSTypeAliasDeclaration {
+  def type:string "TSTypeAliasDeclaration"
+  def nodeType:string "TSTypeAliasDeclaration"
+  def id@(optional):ASTNode  ; Identifier
+  def typeParameters@(optional):ASTNode  ; TSTypeParameterDeclaration
+  def typeAnnotation@(optional):ASTNode  ; the type
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSInterfaceDeclaration - interface (e.g., `interface Person { ... }`)
+class TSInterfaceDeclaration {
+  def type:string "TSInterfaceDeclaration"
+  def nodeType:string "TSInterfaceDeclaration"
+  def id@(optional):ASTNode  ; Identifier
+  def typeParameters@(optional):ASTNode  ; TSTypeParameterDeclaration
+  def extends:[ASTNode]  ; TSInterfaceHeritage[]
+  def body@(optional):ASTNode  ; TSInterfaceBody
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSInterfaceBody - interface body containing members
+class TSInterfaceBody {
+  def type:string "TSInterfaceBody"
+  def nodeType:string "TSInterfaceBody"
+  def body:[ASTNode]  ; TSPropertySignature | TSMethodSignature | etc.
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSInterfaceHeritage - extends clause in interface
+class TSInterfaceHeritage {
+  def type:string "TSInterfaceHeritage"
+  def nodeType:string "TSInterfaceHeritage"
+  def expression@(optional):ASTNode  ; Identifier
+  def typeParameters@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Class Extensions ===
+
+; TSParameterProperty - constructor parameter property (e.g., `constructor(public name: string)`)
+class TSParameterProperty {
+  def type:string "TSParameterProperty"
+  def nodeType:string "TSParameterProperty"
+  def parameter@(optional):ASTNode  ; Identifier or AssignmentPattern
+  def accessibility:string ""  ; "public", "private", "protected"
+  def readonly:boolean false
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSClassImplements - implements clause (e.g., `class Foo implements Bar`)
+class TSClassImplements {
+  def type:string "TSClassImplements"
+  def nodeType:string "TSClassImplements"
+  def expression@(optional):ASTNode
+  def typeParameters@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSAbstractMethodDefinition - abstract method in class
+class TSAbstractMethodDefinition {
+  def type:string "TSAbstractMethodDefinition"
+  def nodeType:string "TSAbstractMethodDefinition"
+  def key@(optional):ASTNode
+  def kind:string "method"  ; "method", "get", "set"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSAbstractPropertyDefinition - abstract property in class
+class TSAbstractPropertyDefinition {
+  def type:string "TSAbstractPropertyDefinition"
+  def nodeType:string "TSAbstractPropertyDefinition"
+  def key@(optional):ASTNode
+  def typeAnnotation@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Type Assertions ===
+
+; TSAsExpression - `as` assertion (e.g., `value as string`)
+class TSAsExpression {
+  def type:string "TSAsExpression"
+  def nodeType:string "TSAsExpression"
+  def expression@(optional):ASTNode
+  def typeAnnotation@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSTypeAssertion - angle-bracket assertion (e.g., `<string>value`)
+class TSTypeAssertion {
+  def type:string "TSTypeAssertion"
+  def nodeType:string "TSTypeAssertion"
+  def typeAnnotation@(optional):ASTNode
+  def expression@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSNonNullExpression - non-null assertion (e.g., `value!`)
+class TSNonNullExpression {
+  def type:string "TSNonNullExpression"
+  def nodeType:string "TSNonNullExpression"
+  def expression@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSSatisfiesExpression - satisfies operator (e.g., `value satisfies Type`)
+class TSSatisfiesExpression {
+  def type:string "TSSatisfiesExpression"
+  def nodeType:string "TSSatisfiesExpression"
+  def expression@(optional):ASTNode
+  def typeAnnotation@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === Type Guards ===
+
+; TSTypePredicate - type predicate (e.g., `x is string`)
+class TSTypePredicate {
+  def type:string "TSTypePredicate"
+  def nodeType:string "TSTypePredicate"
+  def parameterName@(optional):ASTNode  ; Identifier or TSThisType
+  def typeAnnotation@(optional):ASTNode
+  def asserts:boolean false
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; TSThisType - `this` as type
+class TSThisType {
+  def type:string "TSThisType"
+  def nodeType:string "TSThisType"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === ES6 Identifiers with Types ===
+
+; Identifier with optional type annotation (extended from JS)
+class Identifier {
+  def type:string "Identifier"
+  def nodeType:string "Identifier"
+  def name:string ""
+  def typeAnnotation@(optional):ASTNode  ; TSTypeAnnotation
+  def optional:boolean false  ; for optional parameters
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; Literal - string, number, boolean, null literals
+class Literal {
+  def type:string "Literal"
+  def nodeType:string "Literal"
+  def value:string ""
+  def raw:string ""
+  def litType:string ""  ; "string", "number", "boolean", "null"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === JavaScript Statement Nodes ===
+
+; VariableDeclaration - let/const/var declaration
+class VariableDeclaration {
+  def type:string "VariableDeclaration"
+  def nodeType:string "VariableDeclaration"
+  def declarations:[VariableDeclarator]
+  def kind:string "let"  ; "var", "let", "const"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; VariableDeclarator - single declarator in a declaration
+class VariableDeclarator {
+  def type:string "VariableDeclarator"
+  def nodeType:string "VariableDeclarator"
+  def id@(optional):Identifier
+  def varInit@(optional):ASTNode
+  def typeAnnotation@(optional):ASTNode  ; TSTypeAnnotation
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; FunctionDeclaration - function declaration
+class FunctionDeclaration {
+  def type:string "FunctionDeclaration"
+  def nodeType:string "FunctionDeclaration"
+  def id@(optional):Identifier
+  def params:[Identifier]
+  def body@(optional):BlockStatement
+  def returnType@(optional):ASTNode  ; TSTypeAnnotation
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; BlockStatement - { ... }
+class BlockStatement {
+  def type:string "BlockStatement"
+  def nodeType:string "BlockStatement"
+  def body:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; ExpressionStatement - expression as statement
+class ExpressionStatement {
+  def type:string "ExpressionStatement"
+  def nodeType:string "ExpressionStatement"
+  def expression@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; EmptyStatement - ;
+class EmptyStatement {
+  def type:string "EmptyStatement"
+  def nodeType:string "EmptyStatement"
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; === JavaScript Expression Nodes ===
+
+; AssignmentExpression - x = y
+class AssignmentExpression {
+  def type:string "AssignmentExpression"
+  def nodeType:string "AssignmentExpression"
+  def operator:string "="
+  def left@(optional):ASTNode
+  def right@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; BinaryExpression - x + y, x === y
+class BinaryExpression {
+  def type:string "BinaryExpression"
+  def nodeType:string "BinaryExpression"
+  def operator:string ""
+  def left@(optional):ASTNode
+  def right@(optional):ASTNode
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; UnaryExpression - !x, -x
+class UnaryExpression {
+  def type:string "UnaryExpression"
+  def nodeType:string "UnaryExpression"
+  def operator:string ""
+  def argument@(optional):ASTNode
+  def prefix:boolean true
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; CallExpression - foo(a, b)
+class CallExpression {
+  def type:string "CallExpression"
+  def nodeType:string "CallExpression"
+  def callee@(optional):ASTNode
+  def arguments:[ASTNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; NumericLiteral - 42, 3.14
+class NumericLiteral {
+  def type:string "NumericLiteral"
+  def nodeType:string "NumericLiteral"
+  def value:string ""
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; StringLiteral - "hello", 'world'
+class StringLiteral {
+  def type:string "StringLiteral"
+  def nodeType:string "StringLiteral"
+  def value:string ""
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
+; BooleanLiteral - true, false
+class BooleanLiteral {
+  def type:string "BooleanLiteral"
+  def nodeType:string "BooleanLiteral"
+  def value:boolean false
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}

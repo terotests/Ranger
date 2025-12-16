@@ -32,11 +32,13 @@ describe("Swift6 Code Generation", () => {
       const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/string_ops.rgr`);
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Swift uses String() for type conversion in concatenation
-      expect(result.code).toMatch(/String\(|\+ "/)
+      expect(result.code).toMatch(/String\(|\+ "/);
     });
 
     it("should generate proper string methods", () => {
-      const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/string_methods.rgr`);
+      const result = getGeneratedSwiftCode(
+        `${FIXTURES_DIR}/string_methods.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Check for Swift-specific string operations
       // Swift doesn't have .length, uses .count instead
@@ -52,14 +54,18 @@ describe("Swift6 Code Generation", () => {
     });
 
     it("should generate init() for constructors when needed", () => {
-      const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/ternary_factory.rgr`);
+      const result = getGeneratedSwiftCode(
+        `${FIXTURES_DIR}/ternary_factory.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Classes with constructor params generate init()
       expect(result.code).toContain("init(");
     });
 
     it("should generate class func for static methods", () => {
-      const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/static_factory.rgr`);
+      const result = getGeneratedSwiftCode(
+        `${FIXTURES_DIR}/static_factory.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Swift uses "class func" for type methods (equivalent to static)
       expect(result.code).toContain("class func");
@@ -68,7 +74,9 @@ describe("Swift6 Code Generation", () => {
 
   describe("Control Flow", () => {
     it("should generate conditional expressions", () => {
-      const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/ternary_factory.rgr`);
+      const result = getGeneratedSwiftCode(
+        `${FIXTURES_DIR}/ternary_factory.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Ternary expressions use ? : syntax
       expect(result.code).toContain("?");
@@ -84,7 +92,9 @@ describe("Swift6 Code Generation", () => {
 
   describe("Optional Types", () => {
     it("should handle optional values", () => {
-      const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/optional_values.rgr`);
+      const result = getGeneratedSwiftCode(
+        `${FIXTURES_DIR}/optional_values.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // Swift uses ? for optionals and nil instead of null
       expect(result.code).toContain("nil");
@@ -114,7 +124,9 @@ describe("Swift6 Code Generation", () => {
     });
 
     it("should use -> for return types", () => {
-      const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/static_factory.rgr`);
+      const result = getGeneratedSwiftCode(
+        `${FIXTURES_DIR}/static_factory.rgr`
+      );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("->");
     });

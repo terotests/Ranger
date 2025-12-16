@@ -1,0 +1,28 @@
+; TypeScript Token definitions
+; Based on ESTree token format, extended for TypeScript
+;
+; Token types follow ESTree conventions:
+;   - Identifier: variable names, type names
+;   - Keyword: JavaScript keywords (var, let, const, function, etc.)
+;   - Punctuator: operators and punctuation ({, }, :, =, etc.)
+;   - String: string literals
+;   - Number: numeric literals (renamed from Numeric for ESTree compat)
+;   - Boolean: true, false
+;   - Null: null
+;   - Template: template literal strings
+;   - RegularExpression: regex literals
+;   - LineComment: // comments
+;   - BlockComment: /* */ comments
+;
+; TypeScript extensions:
+;   - TSKeyword: TypeScript-specific keywords (type, interface, etc.)
+;   - TSType: TypeScript primitive types used as type annotations
+
+class Token {
+    def tokenType:string ""
+    def value:string ""
+    def line:int 0
+    def col:int 0
+    def start:int 0
+    def end:int 0
+}

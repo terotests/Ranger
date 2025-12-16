@@ -1,0 +1,870 @@
+; TypeScript Parser Implementation
+; Minimal subset: type annotations, interfaces, type aliases
+
+Import "ts_token.rgr"
+Import "ts_ast.rgr"
+Import "ts_lexer.rgr"
+
+class TSParser {
+  def tokens:[Token]
+  def pos:int 0
+  def currentToken@(optional):Token
+  
+  fn init:void (toks:[Token]) {
+    this.tokens = toks
+    this.pos = 0
+    if ((array_length toks) > 0) {
+      this.currentToken = (itemAt toks 0)
+    }
+  }
+  
+  fn peek:Token () {
+    return (unwrap this.currentToken)
+  }
+  
+  fn peekType:string () {
+    if (null? this.currentToken) {
+      return "EOF"
+    }
+    def tok (unwrap this.currentToken)
+    return tok.tokenType
+  }
+  
+  fn peekValue:string () {
+    if (null? this.currentToken) {
+      return ""
+    }
+    def tok (unwrap this.currentToken)
+    return tok.value
+  }
+  
+  fn advance:void () {
+    this.pos = this.pos + 1
+    if (this.pos < (array_length this.tokens)) {
+      this.currentToken = (itemAt this.tokens this.pos)
+    } {
+      def eof (new Token())
+      eof.tokenType = "EOF"
+      eof.value = ""
+      this.currentToken = eof
+    }
+  }
+  
+  fn expect:Token (expectedType:string) {
+    def tok (this.peek())
+    if (tok.tokenType != expectedType) {
+      print "Parse error: expected " + expectedType + " but got " + tok.tokenType + " '" + tok.value + "'"
+    }
+    this.advance()
+    return tok
+  }
+  
+  fn expectValue:Token (expectedValue:string) {
+    def tok (this.peek())
+    if (tok.value != expectedValue) {
+      print "Parse error: expected '" + expectedValue + "' but got '" + tok.value + "'"
+    }
+    this.advance()
+    return tok
+  }
+  
+  fn isAtEnd:boolean () {
+    return (this.peekType() == "EOF")
+  }
+  
+  fn match:boolean (tokenType:string) {
+    return (this.peekType() == tokenType)
+  }
+  
+  fn matchValue:boolean (value:string) {
+    return (this.peekValue() == value)
+  }
+  
+  ; === Parse Program ===
+  
+  fn parseProgram:Program () {
+    def prog (new Program())
+    
+    while ((this.isAtEnd()) == false) {
+      def stmt (this.parseStatement())
+      if (!null? stmt) {
+        push prog.body (unwrap stmt)
+      }
+    }
+    
+    return prog
+  }
+  
+  ; === Parse Statement ===
+  
+  fn parseStatement@(optional):ASTNode () {
+    def tokVal (this.peekValue())
+    
+    ; Interface declaration
+    if (tokVal == "interface") {
+      return (this.parseInterfaceDeclaration())
+    }
+    
+    ; Type alias
+    if (tokVal == "type") {
+      return (this.parseTypeAliasDeclaration())
+    }
+    
+    ; Variable declaration (let/const)
+    if ((tokVal == "let") || (tokVal == "const")) {
+      return (this.parseVariableDeclaration())
+    }
+    
+    ; Function declaration
+    if (tokVal == "function") {
+      return (this.parseFunctionDeclaration())
+    }
+    
+    ; Block statement
+    if (tokVal == "{") {
+      return (this.parseBlockStatement())
+    }
+    
+    ; Empty statement
+    if (tokVal == ";") {
+      this.advance()
+      def empty (new EmptyStatement())
+      return empty
+    }
+    
+    ; Expression statement
+    return (this.parseExpressionStatement())
+  }
+  
+  ; === Interface Declaration ===
+  
+  fn parseInterfaceDeclaration:TSInterfaceDeclaration () {
+    def iface (new TSInterfaceDeclaration())
+    def startTok (this.peek())
+    iface.start = startTok.start
+    iface.line = startTok.line
+    iface.col = startTok.col
+    
+    this.expectValue("interface")
+    
+    ; Interface name
+    def idTok (this.expect("Identifier"))
+    def id (new Identifier())
+    id.name = idTok.value
+    id.start = idTok.start
+    id.end = idTok.end
+    id.line = idTok.line
+    id.col = idTok.col
+    iface.id = id
+    
+    ; Interface body
+    def body (this.parseInterfaceBody())
+    iface.body = body
+    iface.end = body.end
+    
+    return iface
+  }
+  
+  fn parseInterfaceBody:TSInterfaceBody () {
+    def body (new TSInterfaceBody())
+    def startTok (this.peek())
+    body.start = startTok.start
+    body.line = startTok.line
+    body.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def prop (this.parsePropertySignature())
+      push body.body prop
+      
+      ; Optional semicolon or comma
+      if ((this.matchValue(";")) || (this.matchValue(","))) {
+        this.advance()
+      }
+    }
+    
+    def endTok (this.peek())
+    body.end = endTok.end
+    this.expectValue("}")
+    
+    return body
+  }
+  
+  fn parsePropertySignature:TSPropertySignature () {
+    def prop (new TSPropertySignature())
+    def startTok (this.peek())
+    prop.start = startTok.start
+    prop.line = startTok.line
+    prop.col = startTok.col
+    
+    ; Optional readonly
+    if (this.matchValue("readonly")) {
+      prop.readonly = true
+      this.advance()
+    }
+    
+    ; Property name
+    def keyTok (this.expect("Identifier"))
+    def key (new Identifier())
+    key.name = keyTok.value
+    key.start = keyTok.start
+    key.end = keyTok.end
+    key.line = keyTok.line
+    key.col = keyTok.col
+    prop.key = key
+    
+    ; Optional marker
+    if (this.matchValue("?")) {
+      prop.optional = true
+      this.advance()
+    }
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnotation (this.parseTypeAnnotation())
+      prop.typeAnnotation = typeAnnotation
+    }
+    
+    return prop
+  }
+  
+  ; === Type Alias Declaration ===
+  
+  fn parseTypeAliasDeclaration:TSTypeAliasDeclaration () {
+    def alias (new TSTypeAliasDeclaration())
+    def startTok (this.peek())
+    alias.start = startTok.start
+    alias.line = startTok.line
+    alias.col = startTok.col
+    
+    this.expectValue("type")
+    
+    ; Type name
+    def idTok (this.expect("Identifier"))
+    def id (new Identifier())
+    id.name = idTok.value
+    id.start = idTok.start
+    id.end = idTok.end
+    id.line = idTok.line
+    id.col = idTok.col
+    alias.id = id
+    
+    this.expectValue("=")
+    
+    ; Type expression
+    def typeExpr (this.parseType())
+    alias.typeAnnotation = typeExpr
+    
+    ; Optional semicolon
+    if (this.matchValue(";")) {
+      def endTok (this.peek())
+      alias.end = endTok.end
+      this.advance()
+    }
+    
+    return alias
+  }
+  
+  ; === Variable Declaration ===
+  
+  fn parseVariableDeclaration:VariableDeclaration () {
+    def decl (new VariableDeclaration())
+    def startTok (this.peek())
+    decl.start = startTok.start
+    decl.line = startTok.line
+    decl.col = startTok.col
+    decl.kind = startTok.value
+    
+    this.advance() ; consume let/const
+    
+    ; Parse declarator
+    def declarator (new VariableDeclarator())
+    
+    def idTok (this.expect("Identifier"))
+    def id (new Identifier())
+    id.name = idTok.value
+    id.start = idTok.start
+    id.end = idTok.end
+    id.line = idTok.line
+    id.col = idTok.col
+    declarator.id = id
+    declarator.start = idTok.start
+    declarator.line = idTok.line
+    declarator.col = idTok.col
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnotation (this.parseTypeAnnotation())
+      declarator.typeAnnotation = typeAnnotation
+    }
+    
+    ; Initializer
+    if (this.matchValue("=")) {
+      this.advance()
+      def initExpr (this.parseExpression())
+      declarator.varInit = initExpr
+    }
+    
+    push decl.declarations declarator
+    
+    ; Optional semicolon
+    if (this.matchValue(";")) {
+      def endTok (this.peek())
+      decl.end = endTok.end
+      this.advance()
+    }
+    
+    return decl
+  }
+  
+  ; === Function Declaration ===
+  
+  fn parseFunctionDeclaration:FunctionDeclaration () {
+    def func (new FunctionDeclaration())
+    def startTok (this.peek())
+    func.start = startTok.start
+    func.line = startTok.line
+    func.col = startTok.col
+    
+    this.expectValue("function")
+    
+    ; Function name
+    def idTok (this.expect("Identifier"))
+    def id (new Identifier())
+    id.name = idTok.value
+    id.start = idTok.start
+    id.end = idTok.end
+    id.line = idTok.line
+    id.col = idTok.col
+    func.id = id
+    
+    ; Parameters
+    this.expectValue("(")
+    while ((this.matchValue(")")) == false) {
+      if ((array_length func.params) > 0) {
+        this.expectValue(",")
+      }
+      def param (this.parseParameter())
+      push func.params param
+    }
+    this.expectValue(")")
+    
+    ; Return type annotation
+    if (this.matchValue(":")) {
+      def returnType (this.parseTypeAnnotation())
+      func.returnType = returnType
+    }
+    
+    ; Body
+    def body (this.parseBlockStatement())
+    func.body = body
+    func.end = body.end
+    
+    return func
+  }
+  
+  fn parseParameter:Identifier () {
+    def param (new Identifier())
+    def paramTok (this.expect("Identifier"))
+    param.name = paramTok.value
+    param.start = paramTok.start
+    param.end = paramTok.end
+    param.line = paramTok.line
+    param.col = paramTok.col
+    
+    ; Optional marker
+    if (this.matchValue("?")) {
+      param.optional = true
+      this.advance()
+    }
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnotation (this.parseTypeAnnotation())
+      param.typeAnnotation = typeAnnotation
+    }
+    
+    return param
+  }
+  
+  ; === Block Statement ===
+  
+  fn parseBlockStatement:BlockStatement () {
+    def block (new BlockStatement())
+    def startTok (this.peek())
+    block.start = startTok.start
+    block.line = startTok.line
+    block.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def stmt (this.parseStatement())
+      if (!null? stmt) {
+        push block.body (unwrap stmt)
+      }
+    }
+    
+    def endTok (this.peek())
+    block.end = endTok.end
+    this.expectValue("}")
+    
+    return block
+  }
+  
+  ; === Expression Statement ===
+  
+  fn parseExpressionStatement:ExpressionStatement () {
+    def stmt (new ExpressionStatement())
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    def expr (this.parseExpression())
+    stmt.expression = expr
+    
+    if (this.matchValue(";")) {
+      def endTok (this.peek())
+      stmt.end = endTok.end
+      this.advance()
+    }
+    
+    return stmt
+  }
+  
+  ; === Type Annotation ===
+  
+  fn parseTypeAnnotation:TSTypeAnnotation () {
+    def annot (new TSTypeAnnotation())
+    def startTok (this.peek())
+    annot.start = startTok.start
+    annot.line = startTok.line
+    annot.col = startTok.col
+    
+    this.expectValue(":")
+    
+    def typeExpr (this.parseType())
+    annot.typeAnnotation = typeExpr
+    
+    return annot
+  }
+  
+  ; === Type Expression Parsing ===
+  
+  fn parseType:ASTNode () {
+    return (this.parseUnionType())
+  }
+  
+  fn parseUnionType:ASTNode () {
+    def left (this.parseIntersectionType())
+    
+    if (this.matchValue("|")) {
+      def union (new TSUnionType())
+      union.start = left.start
+      union.line = left.line
+      union.col = left.col
+      push union.types left
+      
+      while (this.matchValue("|")) {
+        this.advance()
+        def right (this.parseIntersectionType())
+        push union.types right
+      }
+      
+      return union
+    }
+    
+    return left
+  }
+  
+  fn parseIntersectionType:ASTNode () {
+    def left (this.parseArrayType())
+    
+    if (this.matchValue("&")) {
+      def intersection (new TSIntersectionType())
+      intersection.start = left.start
+      intersection.line = left.line
+      intersection.col = left.col
+      push intersection.types left
+      
+      while (this.matchValue("&")) {
+        this.advance()
+        def right (this.parseArrayType())
+        push intersection.types right
+      }
+      
+      return intersection
+    }
+    
+    return left
+  }
+  
+  fn parseArrayType:ASTNode () {
+    def elementType (this.parsePrimaryType())
+    
+    ; Check for array brackets []
+    while ((this.matchValue("[")) && (this.lookAhead("]"))) {
+      this.advance() ; [
+      this.advance() ; ]
+      
+      def arrayType (new TSArrayType())
+      arrayType.start = elementType.start
+      arrayType.line = elementType.line
+      arrayType.col = elementType.col
+      arrayType.elementType = elementType
+      elementType = arrayType
+    }
+    
+    return elementType
+  }
+  
+  fn lookAhead:boolean (value:string) {
+    def nextPos (this.pos + 1)
+    if (nextPos < (array_length this.tokens)) {
+      def nextTok:Token (itemAt this.tokens nextPos)
+      return (nextTok.value == value)
+    }
+    return false
+  }
+  
+  fn parsePrimaryType:ASTNode () {
+    def tokType (this.peekType())
+    def tokVal (this.peekValue())
+    def tok (this.peek())
+    
+    ; Primitive types
+    if (tokVal == "string") {
+      this.advance()
+      def node (new TSStringKeyword())
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "number") {
+      this.advance()
+      def node (new TSNumberKeyword())
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "boolean") {
+      this.advance()
+      def node (new TSBooleanKeyword())
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "any") {
+      this.advance()
+      def node (new TSAnyKeyword())
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "unknown") {
+      this.advance()
+      def node (new TSUnknownKeyword())
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "void") {
+      this.advance()
+      def node (new TSVoidKeyword())
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "null") {
+      this.advance()
+      def node (new TSNullKeyword())
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "undefined") {
+      this.advance()
+      def node (new TSUndefinedKeyword())
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    ; Type reference (named type like Person, Array<T>)
+    if (tokType == "Identifier") {
+      return (this.parseTypeReference())
+    }
+    
+    ; Parenthesized type
+    if (tokVal == "(") {
+      this.advance()
+      def innerType (this.parseType())
+      this.expectValue(")")
+      return innerType
+    }
+    
+    ; Object type literal
+    if (tokVal == "{") {
+      return (this.parseTypeLiteral())
+    }
+    
+    ; Fallback - create error node
+    print "Unknown type: " + tokVal
+    this.advance()
+    def errNode (new TSAnyKeyword())
+    return errNode
+  }
+  
+  fn parseTypeReference:TSTypeReference () {
+    def ref (new TSTypeReference())
+    def tok (this.peek())
+    ref.start = tok.start
+    ref.line = tok.line
+    ref.col = tok.col
+    
+    ; Type name
+    def idTok (this.expect("Identifier"))
+    def typeName (new Identifier())
+    typeName.name = idTok.value
+    typeName.start = idTok.start
+    typeName.end = idTok.end
+    typeName.line = idTok.line
+    typeName.col = idTok.col
+    ref.typeName = typeName
+    
+    ; Generic type arguments
+    if (this.matchValue("<")) {
+      def typeParams (new TSTypeParameterInstantiation())
+      typeParams.start = (this.peek()).start
+      this.advance() ; <
+      
+      while ((this.matchValue(">")) == false) {
+        if ((array_length typeParams.params) > 0) {
+          this.expectValue(",")
+        }
+        def typeArg (this.parseType())
+        push typeParams.params typeArg
+      }
+      
+      this.expectValue(">")
+      ref.typeParameters = typeParams
+    }
+    
+    return ref
+  }
+  
+  fn parseTypeLiteral:TSTypeLiteral () {
+    def literal (new TSTypeLiteral())
+    def startTok (this.peek())
+    literal.start = startTok.start
+    literal.line = startTok.line
+    literal.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def prop (this.parsePropertySignature())
+      push literal.members prop
+      
+      if ((this.matchValue(";")) || (this.matchValue(","))) {
+        this.advance()
+      }
+    }
+    
+    def endTok (this.peek())
+    literal.end = endTok.end
+    this.expectValue("}")
+    
+    return literal
+  }
+  
+  ; === Expression Parsing (simplified) ===
+  
+  fn parseExpression:ASTNode () {
+    return (this.parseAssignmentExpression())
+  }
+  
+  fn parseAssignmentExpression:ASTNode () {
+    def left (this.parseBinaryExpression())
+    
+    if (this.matchValue("=")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseAssignmentExpression())
+      
+      def assign (new AssignmentExpression())
+      assign.operator = "="
+      assign.left = left
+      assign.right = right
+      assign.start = left.start
+      assign.line = left.line
+      assign.col = left.col
+      return assign
+    }
+    
+    return left
+  }
+  
+  fn parseBinaryExpression:ASTNode () {
+    def left (this.parseUnaryExpression())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "+") || (tokVal == "-") || (tokVal == "*") || (tokVal == "/") || (tokVal == "===") || (tokVal == "!==") || (tokVal == "<") || (tokVal == ">")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseUnaryExpression())
+      
+      def binExpr (new BinaryExpression())
+      binExpr.operator = opTok.value
+      binExpr.left = left
+      binExpr.right = right
+      binExpr.start = left.start
+      binExpr.line = left.line
+      binExpr.col = left.col
+      left = binExpr
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  fn parseUnaryExpression:ASTNode () {
+    def tokVal (this.peekValue())
+    
+    if ((tokVal == "!") || (tokVal == "-")) {
+      def opTok (this.peek())
+      this.advance()
+      def argument (this.parseUnaryExpression())
+      
+      def unary (new UnaryExpression())
+      unary.operator = opTok.value
+      unary.argument = argument
+      unary.start = opTok.start
+      unary.line = opTok.line
+      unary.col = opTok.col
+      return unary
+    }
+    
+    return (this.parseCallExpression())
+  }
+  
+  fn parseCallExpression:ASTNode () {
+    def callee (this.parsePrimaryExpression())
+    
+    while (this.matchValue("(")) {
+      this.advance()
+      def call (new CallExpression())
+      call.callee = callee
+      call.start = callee.start
+      call.line = callee.line
+      call.col = callee.col
+      
+      while ((this.matchValue(")")) == false) {
+        if ((array_length call.arguments) > 0) {
+          this.expectValue(",")
+        }
+        def arg (this.parseExpression())
+        push call.arguments arg
+      }
+      this.expectValue(")")
+      
+      callee = call
+    }
+    
+    return callee
+  }
+  
+  fn parsePrimaryExpression:ASTNode () {
+    def tokType (this.peekType())
+    def tokVal (this.peekValue())
+    def tok (this.peek())
+    
+    ; Identifier
+    if (tokType == "Identifier") {
+      this.advance()
+      def id (new Identifier())
+      id.name = tok.value
+      id.start = tok.start
+      id.end = tok.end
+      id.line = tok.line
+      id.col = tok.col
+      return id
+    }
+    
+    ; Number literal
+    if (tokType == "Number") {
+      this.advance()
+      def num (new NumericLiteral())
+      num.value = tok.value
+      num.start = tok.start
+      num.end = tok.end
+      num.line = tok.line
+      num.col = tok.col
+      return num
+    }
+    
+    ; String literal
+    if (tokType == "String") {
+      this.advance()
+      def str (new StringLiteral())
+      str.value = tok.value
+      str.start = tok.start
+      str.end = tok.end
+      str.line = tok.line
+      str.col = tok.col
+      return str
+    }
+    
+    ; Boolean literal
+    if ((tokVal == "true") || (tokVal == "false")) {
+      this.advance()
+      def bool (new BooleanLiteral())
+      bool.value = (tokVal == "true")
+      bool.start = tok.start
+      bool.end = tok.end
+      bool.line = tok.line
+      bool.col = tok.col
+      return bool
+    }
+    
+    ; Parenthesized expression
+    if (tokVal == "(") {
+      this.advance()
+      def expr (this.parseExpression())
+      this.expectValue(")")
+      return expr
+    }
+    
+    ; Fallback
+    print "Unexpected token: " + tokVal
+    this.advance()
+    def errId (new Identifier())
+    errId.name = "error"
+    return errId
+  }
+}

@@ -974,10 +974,52 @@ not be used unless it is conveted to some other name, for example to `FnMap`.
 
 ```
     reserved_words {
-        map FnMap
-        forEach forEachItem
+        * {
+            map FnMap
+            forEach forEachItem
+            self _self
+            func _func
+        }
+        cpp {
+            operator _operator
+            static _static
+            union _union
+            bool _bool
+            ref _ref
+            class _class
+            new _new
+            delete _delete
+            template _template
+            namespace _namespace
+            virtual _virtual
+            public _public
+            private _private
+            protected _protected
+        }
+        go {
+            type _type
+        }
+        rust {
+            type r#type
+            static r#static
+            ref r#ref
+            union r#union
+            bool r#bool
+        }
+        swift3 {
+            operator _operator
+            static _static
+            init _init
+        }
+        swift6 {
+            operator _operator
+            static _static
+            init _init
+        }
     }
 ```
+
+The `*` section defines global mappings that apply to all target languages. Language-specific sections (like `cpp`, `rust`, `go`, `swift3`, `swift6`) define additional reserved word mappings for that particular target. For Rust, the `r#` prefix is used to escape keywords (raw identifiers).
 
 What the result should be is of course highly opinionated. In this example, the line `map FnMap` means that if possible the
 compiler will transform anything named `map` to `fnMap` if possible. If transformation is not possible, compiler error is
