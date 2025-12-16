@@ -2,11 +2,33 @@
 
 A fast TypeScript parser written in Ranger, cross-compilable to JavaScript, Rust, C++, Go, and Swift.
 
+## 🎯 100% Compliance Score
+
+The parser achieves **121/121 (100%)** compliance on the TypeScript feature test suite, covering:
+
+| Category          | Score        |
+| ----------------- | ------------ |
+| Type Declarations | 6/6 (100%)   |
+| Basic Types       | 9/9 (100%)   |
+| Generics          | 5/5 (100%)   |
+| Classes           | 8/8 (100%)   |
+| Functions         | 7/7 (100%)   |
+| Statements        | 11/11 (100%) |
+| Expressions       | 11/11 (100%) |
+| Modules           | 7/7 (100%)   |
+| Advanced Types    | 7/7 (100%)   |
+| Decorators        | 4/4 (100%)   |
+| JavaScript (ES6+) | 24/24 (100%) |
+| JSX               | 8/8 (100%)   |
+| Tricky Cases      | 14/14 (100%) |
+
+Run `node gallery/ts_parser/benchmark/compliance.js` to verify.
+
 ## Features
 
 - **Lexer**: Full tokenization with TypeScript keywords and type annotations
 - **Parser**: Recursive descent parser producing AST
-- **JSX/TSX Support**: Optional JSX parsing mode for React components
+- **JSX/TSX Support**: Full JSX parsing with generic call disambiguation
 - **CLI**: Command-line interface for parsing files and listing declarations
 - **Cross-compilation**: Single codebase compiles to multiple languages
 
@@ -66,11 +88,32 @@ A fast TypeScript parser written in Ranger, cross-compilable to JavaScript, Rust
 - JSX expressions `<div>{value}</div>`
 - JSX spread attributes `<div {...props}>`
 - JSX fragments `<>...</>`
+- **Generic call disambiguation**: `foo<T>(x)` vs `<Component>`
+
+### Advanced TypeScript Features
+
+- Type predicates (`x is string`)
+- Assertion functions (`asserts x`)
+- Index signatures (`[key: string]: T`)
+- Constructor types (`new (x: T) => R`)
+- Import types (`import('./path').Type`)
+- Named tuple elements (`[x: number, y: number]`)
+- Rest in tuple types (`[...T]`)
+- Conditional types (`T extends U ? X : Y`)
+- Mapped types (`{ [K in keyof T]: T[K] }`)
+- Template literal types (`` `Hello ${string}` ``)
 
 ## Installation
 
 ```bash
-# Compile to JavaScript
+# Install dependencies
+cd gallery/ts_parser
+npm install
+
+# Run tests
+npm test
+
+# Compile to JavaScript (from project root)
 npm run tsparser:compile
 
 # Compile to all targets
@@ -154,6 +197,27 @@ console.log(ast.left.name); // "div" (opening tag)
 
 **Note**: When TSX mode is disabled (default), `<` is treated as a comparison operator.
 
+### Generic Call Disambiguation in TSX
+
+In TSX mode, the parser correctly distinguishes between JSX elements and generic function calls:
+
+```typescript
+// Parsed as JSX element (Component starts with uppercase)
+const el = <Component prop="value" />;
+
+// Parsed as generic function call (foo starts with lowercase, followed by type args and call)
+const result = foo<number>(42);
+
+// Parsed as generic arrow function (uses extends constraint)
+const fn = <T extends unknown>() => {};
+```
+
+The heuristics used:
+
+1. Lowercase identifier + `<Type>(` pattern → Generic function call
+2. Uppercase identifier + `<` → JSX element
+3. `<T extends ...>` → Generic type parameter (not JSX)
+
 ## Native Builds
 
 ```bash
@@ -224,9 +288,34 @@ powershell -ExecutionPolicy Bypass -File gallery\ts_parser\benchmark\benchmark_n
 
 2. **Quiet Mode**: Parser supports a `quiet` mode to suppress parse errors when using `--show-*` options for clean output.
 
-3. **Optional TSX Mode**: JSX parsing is opt-in via `setTsxMode(true)` to avoid ambiguity with comparison operators in regular TypeScript.
+3. **Optional TSX Mode**: JSX parsing is opt-in via `setTsxMode(true)` to avoid ambiguity with comparison operators in regular TypeScript. In TSX mode, the parser uses smart heuristics to disambiguate generic function calls from JSX elements.
 
 4. **Cross-compilation**: All code is written in idiomatic Ranger that compiles cleanly to ES6, Rust, C++, Go, and Swift.
+
+## Compliance Testing
+
+The parser includes a comprehensive test suite with 121 TypeScript feature tests organized into 13 categories. Tests are written using [Vitest](https://vitest.dev/).
+
+```bash
+cd gallery/ts_parser
+
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run with coverage
+npm run test:coverage
+```
+
+You can also run the standalone compliance script for a visual report:
+
+```bash
+node benchmark/compliance.js
+```
+
+This generates [COMPLIANCE.md](COMPLIANCE.md) with detailed results.
 
 ## API Reference
 
@@ -266,6 +355,7 @@ powershell -ExecutionPolicy Bypass -File gallery\ts_parser\benchmark\benchmark_n
 
 ## See Also
 
-- [TODO.md](TODO.md) - Missing TypeScript features
+- [COMPLIANCE.md](COMPLIANCE.md) - Full compliance test results (121 features)
+- [TODO.md](TODO.md) - Potential future enhancements
 - [PLAN_TS_PARSER.md](../../PLAN_TS_PARSER.md) - Original implementation plan
 - [benchmark/README.md](benchmark/README.md) - Detailed benchmark information

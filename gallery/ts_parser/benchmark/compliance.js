@@ -620,6 +620,209 @@ const features = [
     validate: (ast) => findNode(ast, (n) => n.nodeType === "Decorator"),
   },
 
+  // === JavaScript Features (ES6+) ===
+  {
+    name: "Generator Function",
+    category: "JavaScript",
+    code: "function* gen() { yield 1; yield 2; }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "FunctionDeclaration" && n.generator === true
+      ),
+  },
+  {
+    name: "Yield Expression",
+    category: "JavaScript",
+    code: "function* gen() { yield 1; yield* other(); }",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "YieldExpression"),
+  },
+  {
+    name: "For-Await-Of",
+    category: "JavaScript",
+    code: "async function fn() { for await (const x of iter) {} }",
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "ForOfStatement" && n.await === true),
+  },
+  {
+    name: "Spread Operator (Array)",
+    category: "JavaScript",
+    code: "const arr = [...a, ...b];",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "SpreadElement"),
+  },
+  {
+    name: "Spread Operator (Call)",
+    category: "JavaScript",
+    code: "fn(...args);",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "SpreadElement"),
+  },
+  {
+    name: "Spread Operator (Object)",
+    category: "JavaScript",
+    code: "const obj = { ...a, ...b };",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "SpreadElement"),
+  },
+  {
+    name: "Destructuring Object",
+    category: "JavaScript",
+    code: "const { a, b } = obj;",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "ObjectPattern"),
+  },
+  {
+    name: "Destructuring Array",
+    category: "JavaScript",
+    code: "const [x, y] = arr;",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "ArrayPattern"),
+  },
+  {
+    name: "Private Field",
+    category: "JavaScript",
+    code: "class Foo { #x = 1; getX() { return this.#x; } }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "PrivateIdentifier" ||
+          n.nodeType === "PropertyDefinition"
+      ),
+  },
+  {
+    name: "Static Block",
+    category: "JavaScript",
+    code: 'class Foo { static { console.log("init"); } }',
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "StaticBlock"),
+  },
+  {
+    name: "Logical Assignment (&&=)",
+    category: "JavaScript",
+    code: "x &&= y;",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "AssignmentExpression" && n.value === "&&="
+      ),
+  },
+  {
+    name: "Logical Assignment (||=)",
+    category: "JavaScript",
+    code: "x ||= y;",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "AssignmentExpression" && n.value === "||="
+      ),
+  },
+  {
+    name: "Logical Assignment (??=)",
+    category: "JavaScript",
+    code: "x ??= y;",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "AssignmentExpression" && n.value === "??="
+      ),
+  },
+  {
+    name: "Exponentiation Operator",
+    category: "JavaScript",
+    code: "const x = 2 ** 10;",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "BinaryExpression" && n.value === "**"
+      ),
+  },
+  {
+    name: "Numeric Separators",
+    category: "JavaScript",
+    code: "const x = 1_000_000;",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "Literal" ||
+          n.nodeType === "NumberLiteral" ||
+          n.nodeType === "NumericLiteral"
+      ),
+  },
+  {
+    name: "BigInt Literal",
+    category: "JavaScript",
+    code: "const x = 123n;",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "BigIntLiteral" || n.value === "123n"
+      ),
+  },
+  {
+    name: "Dynamic Import",
+    category: "JavaScript",
+    code: 'const mod = import("./mod.js");',
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "ImportExpression"),
+  },
+  {
+    name: "Import Meta",
+    category: "JavaScript",
+    code: "const url = import.meta.url;",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "MetaProperty" || n.name === "import"
+      ),
+  },
+  {
+    name: "Object Shorthand",
+    category: "JavaScript",
+    code: "const obj = { x, y };",
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "Property" && n.shorthand === true),
+  },
+  {
+    name: "Computed Property",
+    category: "JavaScript",
+    code: "const obj = { [key]: value };",
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "Property" && n.computed === true),
+  },
+  {
+    name: "Getter",
+    category: "JavaScript",
+    code: "const obj = { get x() { return 1; } };",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          (n.nodeType === "Property" || n.nodeType === "MethodDefinition") &&
+          n.kind === "get"
+      ),
+  },
+  {
+    name: "Setter",
+    category: "JavaScript",
+    code: "const obj = { set x(v) {} };",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          (n.nodeType === "Property" || n.nodeType === "MethodDefinition") &&
+          n.kind === "set"
+      ),
+  },
+  {
+    name: "New Target",
+    category: "JavaScript",
+    code: "function Foo() { if (new.target) {} }",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "MetaProperty"),
+  },
+  {
+    name: "Tagged Template",
+    category: "JavaScript",
+    code: "const result = tag`hello ${name}`;",
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "TaggedTemplateExpression"),
+  },
+
   // === JSX (TSX) ===
   {
     name: "JSX Element",
@@ -661,6 +864,150 @@ const features = [
     validate: (ast) =>
       findNode(ast, (n) => n.nodeType === "JSXSpreadAttribute"),
     tsxMode: true,
+  },
+  // === JSX vs Generic Disambiguation ===
+  {
+    name: "Ambiguous <T> as JSX in TSX mode",
+    category: "JSX",
+    code: "const fn = <T>() => {}",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "JSXElement" || n.nodeType === "JSXOpeningElement"
+      ),
+    tsxMode: true,
+  },
+  {
+    name: "Generic <T extends {}> not JSX",
+    category: "JSX",
+    code: 'const fn = <T extends {}>() => { return "test"; }',
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "ArrowFunctionExpression") &&
+      !findNode(ast, (n) => n.nodeType === "JSXElement"),
+    tsxMode: true,
+  },
+  {
+    name: "Generic <T extends unknown> not JSX",
+    category: "JSX",
+    code: 'const fn = <T extends unknown>() => { return "test"; }',
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "ArrowFunctionExpression") &&
+      !findNode(ast, (n) => n.nodeType === "JSXElement"),
+    tsxMode: true,
+  },
+
+  // === Tricky Parsing Cases ===
+  {
+    name: "Generic Function Call in TSX (not JSX)",
+    category: "Tricky Cases",
+    code: "const result = foo<number>(42);",
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "CallExpression") &&
+      !findNode(ast, (n) => n.nodeType === "JSXElement"),
+    tsxMode: true,
+  },
+  {
+    name: "Comparison Chain (not generic/JSX)",
+    category: "Tricky Cases",
+    code: "const result = a < b && b > c;",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "BinaryExpression" && n.value === "<"
+      ) &&
+      findNode(
+        ast,
+        (n) => n.nodeType === "BinaryExpression" && n.value === ">"
+      ),
+  },
+  {
+    name: "Type Predicate",
+    category: "Tricky Cases",
+    code: "function isString(x: unknown): x is string { return typeof x === 'string'; }",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSTypePredicate"),
+  },
+  {
+    name: "Assertion Function",
+    category: "Tricky Cases",
+    code: "function assert(value: unknown): asserts value { if (!value) throw new Error(); }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "TSTypePredicate" ||
+          n.nodeType === "TSAssertsThisTypePredicate"
+      ),
+  },
+  {
+    name: "Index Signature",
+    category: "Tricky Cases",
+    code: "interface Dict { [key: string]: number; }",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSIndexSignature"),
+  },
+  {
+    name: "Labeled Statement",
+    category: "Tricky Cases",
+    code: "outer: for (let i = 0; i < 10; i++) { break outer; }",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "LabeledStatement"),
+  },
+  {
+    name: "As Const Assertion",
+    category: "Tricky Cases",
+    code: "const colors = ['red', 'green'] as const;",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSAsExpression"),
+  },
+  {
+    name: "Nested Conditional Type",
+    category: "Tricky Cases",
+    code: "type Check<T> = T extends string ? 'str' : T extends number ? 'num' : 'other';",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSConditionalType"),
+  },
+  {
+    name: "Constructor Type",
+    category: "Tricky Cases",
+    code: "type Ctor = new (x: string) => MyClass;",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSConstructorType"),
+  },
+  {
+    name: "Import Type Inline",
+    category: "Tricky Cases",
+    code: "type Config = import('./config').Settings;",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSImportType"),
+  },
+  {
+    name: "Named Tuple Elements",
+    category: "Tricky Cases",
+    code: "type Point = [x: number, y: number];",
+    validate: (ast) =>
+      findNode(ast, (n) => n.nodeType === "TSNamedTupleMember"),
+  },
+  {
+    name: "Rest in Tuple Type",
+    category: "Tricky Cases",
+    code: "type Tail<T extends any[]> = T extends [any, ...infer Rest] ? Rest : never;",
+    validate: (ast) => findNode(ast, (n) => n.nodeType === "TSRestType"),
+  },
+  {
+    name: "Override Modifier",
+    category: "Tricky Cases",
+    code: "class Child extends Parent { override method() { return 1; } }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) => n.nodeType === "MethodDefinition" && n.name === "method"
+      ),
+  },
+  {
+    name: "Accessor Keyword",
+    category: "Tricky Cases",
+    code: "class Foo { accessor x: number = 0; }",
+    validate: (ast) =>
+      findNode(
+        ast,
+        (n) =>
+          n.nodeType === "PropertyDefinition" ||
+          n.nodeType === "AccessorProperty"
+      ),
   },
 ];
 

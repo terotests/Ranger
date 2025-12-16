@@ -1120,11 +1120,11 @@ class TSParserSimple  {
         const nextType = this.parseType();
         extendsList.push(nextType);
       };
-      for ( let ext_1 = 0; ext_1 < extendsList.length; ext_1++) {
-        var ext = extendsList[ext_1];
+      for ( let i = 0; i < extendsList.length; i++) {
+        var ext = extendsList[i];
         const wrapper = new TSNode();
         wrapper.nodeType = "TSExpressionWithTypeArguments";
-        wrapper.left = ext_1;
+        wrapper.left = ext;
         node.children.push(wrapper);
       };
     }
@@ -2986,6 +2986,15 @@ class TSParserSimple  {
         const prop = new TSNode();
         prop.nodeType = "Property";
         const keyTok = this.peek();
+        let isComputed = false;
+        if ( this.matchValue("[") ) {
+          this.advance();
+          const keyExpr = this.parseExpr();
+          this.expectValue("]");
+          prop.right = keyExpr;
+          isComputed = true;
+          prop.kind = "computed";
+        }
         if ( this.matchType("Identifier") ) {
           prop.name = keyTok.value;
           this.advance();
@@ -3003,11 +3012,13 @@ class TSParserSimple  {
           const valueExpr = this.parseExpr();
           prop.left = valueExpr;
         } else {
-          const shorthandVal = new TSNode();
-          shorthandVal.nodeType = "Identifier";
-          shorthandVal.name = prop.name;
-          prop.left = shorthandVal;
-          prop.kind = "shorthand";
+          if ( isComputed == false ) {
+            const shorthandVal = new TSNode();
+            shorthandVal.nodeType = "Identifier";
+            shorthandVal.name = prop.name;
+            prop.left = shorthandVal;
+            prop.kind = "shorthand";
+          }
         }
         node.children.push(prop);
       }
