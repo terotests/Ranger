@@ -34,6 +34,12 @@ function findNode(ast, predicate) {
       if (findNode(param, predicate)) return true;
     }
   }
+  // Check decorators
+  if (ast.decorators && Array.isArray(ast.decorators)) {
+    for (const dec of ast.decorators) {
+      if (findNode(dec, predicate)) return true;
+    }
+  }
   // Check other node references
   for (const key of ["left", "right", "body", "init", "typeAnnotation"]) {
     if (ast[key] && findNode(ast[key], predicate)) return true;
@@ -86,7 +92,7 @@ const features = [
     name: "Primitive Types",
     category: "Basic Types",
     code: "let a: string; let b: number; let c: boolean;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeReference") || n.name === "string"),
+    validate: (ast) => findNode(ast, (n) => n.nodeType?.includes("TypeReference") || n.nodeType?.includes("Keyword") || n.name === "string"),
   },
   {
     name: "Array Type (T[])",
@@ -396,7 +402,7 @@ const features = [
     name: "Nullish Coalescing",
     category: "Expressions",
     code: "const x = a ?? b;",
-    validate: (ast) => findNode(ast, (n) => n.nodeType === "BinaryExpression" && n.value === "??"),
+    validate: (ast) => findNode(ast, (n) => (n.nodeType === "BinaryExpression" || n.nodeType === "LogicalExpression") && n.value === "??"),
   },
 
   // === Modules ===
@@ -710,6 +716,31 @@ function generateComplianceMarkdown(results, categoryResults, allResults, total,
 > Parser: Ranger TypeScript Parser  
 > Compliance Score: **${score}%**
 
+## Quick Start
+
+### Running the Compliance Test
+
+\`\`\`bash
+# From the ts_parser directory
+cd gallery/ts_parser/benchmark
+node compliance.js
+\`\`\`
+
+This will:
+1. Run all ${total} TypeScript feature tests against the Ranger parser
+2. Display results in the terminal
+3. Generate this COMPLIANCE.md report
+
+### Regenerating This Report
+
+\`\`\`bash
+node compliance.js
+\`\`\`
+
+The report is automatically regenerated each time you run the compliance test.
+
+---
+
 ## Summary
 
 | Metric | Count |
@@ -758,6 +789,7 @@ function generateComplianceMarkdown(results, categoryResults, allResults, total,
   const missing = allResults.filter(({ result }) => result.success && !result.valid);
   if (missing.length > 0) {
     md += `## Features Needing Implementation\n\n`;
+    md += `The following features parse successfully but don't produce the expected AST node types yet:\n\n`;
     for (const { feature } of missing) {
       md += `- [ ] **${feature.name}** (${feature.category})\n`;
     }
@@ -768,6 +800,7 @@ function generateComplianceMarkdown(results, categoryResults, allResults, total,
   const errors = allResults.filter(({ result }) => !result.success);
   if (errors.length > 0) {
     md += `## Features with Parse Errors\n\n`;
+    md += `The following features cause parse errors and need investigation:\n\n`;
     for (const { feature, result } of errors) {
       md += `- ❌ **${feature.name}** (${feature.category}): ${result.error}\n`;
     }
@@ -779,6 +812,11 @@ function generateComplianceMarkdown(results, categoryResults, allResults, total,
   md += `- ✅ = Parsed and produced expected AST node type\n`;
   md += `- 🔧 = Parsed but needs AST node type implementation\n`;
   md += `- ❌ = Parse error\n`;
+  md += `\n## How to Improve Compliance\n\n`;
+  md += `1. **Check the parser source**: \`gallery/ts_parser/ts_parser_simple.rgr\`\n`;
+  md += `2. **Add missing node types**: Look at the feature's expected node type in \`benchmark/compliance.js\`\n`;
+  md += `3. **Recompile**: \`npm run tsparser:module\`\n`;
+  md += `4. **Re-run tests**: \`node compliance.js\`\n`;
 
   // Write to file
   const outputPath = join(__dirname, "..", "COMPLIANCE.md");

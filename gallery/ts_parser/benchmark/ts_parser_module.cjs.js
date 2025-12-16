@@ -696,6 +696,7 @@ class TSNode  {
     this.readonly = false;
     this.children = [];
     this.params = [];
+    this.decorators = [];
   }
 }
 class TSParserSimple  {
@@ -790,6 +791,19 @@ class TSParserSimple  {
   };
   parseStatement () {
     const tokVal = this.peekValue();
+    if ( tokVal == "@" ) {
+      let decorators = [];
+      while (this.matchValue("@")) {
+        const dec = this.parseDecorator();
+        decorators.push(dec);
+      };
+      const decorated = this.parseStatement();
+      decorated.decorators = decorators;
+      return decorated;
+    }
+    if ( tokVal == "declare" ) {
+      return this.parseDeclare();
+    }
     if ( tokVal == "import" ) {
       return this.parseImport();
     }
@@ -814,6 +828,9 @@ class TSParserSimple  {
     if ( tokVal == "enum" ) {
       return this.parseEnum();
     }
+    if ( tokVal == "namespace" ) {
+      return this.parseNamespace();
+    }
     if ( tokVal == "const" ) {
       const nextVal_1 = this.peekNextValue();
       if ( nextVal_1 == "enum" ) {
@@ -829,11 +846,17 @@ class TSParserSimple  {
     if ( tokVal == "return" ) {
       return this.parseReturn();
     }
+    if ( tokVal == "throw" ) {
+      return this.parseThrow();
+    }
     if ( tokVal == "if" ) {
       return this.parseIfStatement();
     }
     if ( tokVal == "while" ) {
       return this.parseWhileStatement();
+    }
+    if ( tokVal == "do" ) {
+      return this.parseDoWhileStatement();
     }
     if ( tokVal == "for" ) {
       return this.parseForStatement();
@@ -1200,6 +1223,18 @@ class TSParserSimple  {
     }
     return node;
   };
+  parseDecorator () {
+    const node = new TSNode();
+    node.nodeType = "Decorator";
+    const startTok = this.peek();
+    node.start = startTok.start;
+    node.line = startTok.line;
+    node.col = startTok.col;
+    this.expectValue("@");
+    const expr = this.parsePostfix();
+    node.left = expr;
+    return node;
+  };
   parseClass () {
     const node = new TSNode();
     node.nodeType = "ClassDeclaration";
@@ -1270,6 +1305,14 @@ class TSParserSimple  {
     member.start = startTok.start;
     member.line = startTok.line;
     member.col = startTok.col;
+    let decorators = [];
+    while (this.matchValue("@")) {
+      const dec = this.parseDecorator();
+      decorators.push(dec);
+    };
+    if ( (decorators.length) > 0 ) {
+      member.decorators = decorators;
+    }
     let isStatic = false;
     let isAbstract = false;
     let isReadonly = false;
@@ -1447,6 +1490,62 @@ class TSParserSimple  {
     this.expectValue("}");
     return node;
   };
+  parseNamespace () {
+    const node = new TSNode();
+    node.nodeType = "TSModuleDeclaration";
+    const startTok = this.peek();
+    node.start = startTok.start;
+    node.line = startTok.line;
+    node.col = startTok.col;
+    this.expectValue("namespace");
+    const nameTok = this.expect("Identifier");
+    node.name = nameTok.value;
+    this.expectValue("{");
+    const body = new TSNode();
+    body.nodeType = "TSModuleBlock";
+    while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
+      const stmt = this.parseStatement();
+      body.children.push(stmt);
+    };
+    this.expectValue("}");
+    node.body = body;
+    return node;
+  };
+  parseDeclare () {
+    const startTok = this.peek();
+    this.expectValue("declare");
+    const nextVal = this.peekValue();
+    if ( nextVal == "module" ) {
+      const node = new TSNode();
+      node.nodeType = "TSModuleDeclaration";
+      node.start = startTok.start;
+      node.line = startTok.line;
+      node.col = startTok.col;
+      node.kind = "declare";
+      this.advance();
+      const nameTok = this.peek();
+      if ( this.matchType("String") ) {
+        this.advance();
+        node.name = nameTok.value;
+      } else {
+        this.advance();
+        node.name = nameTok.value;
+      }
+      this.expectValue("{");
+      const body = new TSNode();
+      body.nodeType = "TSModuleBlock";
+      while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
+        const stmt = this.parseStatement();
+        body.children.push(stmt);
+      };
+      this.expectValue("}");
+      node.body = body;
+      return node;
+    }
+    const node_1 = this.parseStatement();
+    node_1.kind = "declare";
+    return node_1;
+  };
   parseIfStatement () {
     const node = new TSNode();
     node.nodeType = "IfStatement";
@@ -1482,6 +1581,41 @@ class TSParserSimple  {
     this.expectValue(")");
     const body = this.parseStatement();
     node.body = body;
+    return node;
+  };
+  parseDoWhileStatement () {
+    const node = new TSNode();
+    node.nodeType = "DoWhileStatement";
+    const startTok = this.peek();
+    node.start = startTok.start;
+    node.line = startTok.line;
+    node.col = startTok.col;
+    this.expectValue("do");
+    const body = this.parseStatement();
+    node.body = body;
+    this.expectValue("while");
+    this.expectValue("(");
+    const test = this.parseExpr();
+    node.left = test;
+    this.expectValue(")");
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return node;
+  };
+  parseThrow () {
+    const node = new TSNode();
+    node.nodeType = "ThrowStatement";
+    const startTok = this.peek();
+    node.start = startTok.start;
+    node.line = startTok.line;
+    node.col = startTok.col;
+    this.expectValue("throw");
+    const arg = this.parseExpr();
+    node.left = arg;
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
     return node;
   };
   parseForStatement () {
@@ -1697,6 +1831,13 @@ class TSParserSimple  {
     this.expectValue("function");
     const nameTok = this.expect("Identifier");
     node.name = nameTok.value;
+    if ( this.matchValue("<") ) {
+      const typeParams = this.parseTypeParams();
+      for ( let i = 0; i < typeParams.length; i++) {
+        var tp = typeParams[i];
+        node.children.push(tp);
+      };
+    }
     this.expectValue("(");
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
       if ( (node.params.length) > 0 ) {
@@ -1717,6 +1858,15 @@ class TSParserSimple  {
   parseParam () {
     const param = new TSNode();
     param.nodeType = "Parameter";
+    while (this.matchValue("@")) {
+      const dec = this.parseDecorator();
+      param.decorators.push(dec);
+    };
+    if ( this.matchValue("...") ) {
+      this.advance();
+      param.nodeType = "RestElement";
+      param.kind = "rest";
+    }
     const nameTok = this.expect("Identifier");
     param.name = nameTok.value;
     param.start = nameTok.start;
@@ -1837,16 +1987,30 @@ class TSParserSimple  {
   };
   parseArrayType () {
     let elemType = this.parsePrimaryType();
-    while (this.matchValue("[") && this.checkNext("]")) {
-      this.advance();
-      this.advance();
-      const arrayType = new TSNode();
-      arrayType.nodeType = "TSArrayType";
-      arrayType.start = elemType.start;
-      arrayType.line = elemType.line;
-      arrayType.col = elemType.col;
-      arrayType.left = elemType;
-      elemType = arrayType;
+    while (this.matchValue("[")) {
+      if ( this.checkNext("]") ) {
+        this.advance();
+        this.advance();
+        const arrayType = new TSNode();
+        arrayType.nodeType = "TSArrayType";
+        arrayType.start = elemType.start;
+        arrayType.line = elemType.line;
+        arrayType.col = elemType.col;
+        arrayType.left = elemType;
+        elemType = arrayType;
+      } else {
+        this.advance();
+        const indexType = this.parseType();
+        this.expectValue("]");
+        const indexedAccess = new TSNode();
+        indexedAccess.nodeType = "TSIndexedAccessType";
+        indexedAccess.start = elemType.start;
+        indexedAccess.line = elemType.line;
+        indexedAccess.col = elemType.col;
+        indexedAccess.left = elemType;
+        indexedAccess.right = indexType;
+        elemType = indexedAccess;
+      }
     };
     return elemType;
   };
@@ -1993,6 +2157,53 @@ class TSParserSimple  {
     const tokType = this.peekType();
     if ( tokType == "Identifier" ) {
       return this.parseTypeRef();
+    }
+    if ( tokType == "String" ) {
+      this.advance();
+      const node_12 = new TSNode();
+      node_12.nodeType = "TSLiteralType";
+      node_12.start = tok.start;
+      node_12.end = tok.end;
+      node_12.line = tok.line;
+      node_12.col = tok.col;
+      node_12.value = tok.value;
+      node_12.kind = "string";
+      return node_12;
+    }
+    if ( tokType == "Number" ) {
+      this.advance();
+      const node_13 = new TSNode();
+      node_13.nodeType = "TSLiteralType";
+      node_13.start = tok.start;
+      node_13.end = tok.end;
+      node_13.line = tok.line;
+      node_13.col = tok.col;
+      node_13.value = tok.value;
+      node_13.kind = "number";
+      return node_13;
+    }
+    if ( (tokVal == "true") || (tokVal == "false") ) {
+      this.advance();
+      const node_14 = new TSNode();
+      node_14.nodeType = "TSLiteralType";
+      node_14.start = tok.start;
+      node_14.end = tok.end;
+      node_14.line = tok.line;
+      node_14.col = tok.col;
+      node_14.value = tokVal;
+      node_14.kind = "boolean";
+      return node_14;
+    }
+    if ( tokType == "Template" ) {
+      this.advance();
+      const node_15 = new TSNode();
+      node_15.nodeType = "TSTemplateLiteralType";
+      node_15.start = tok.start;
+      node_15.end = tok.end;
+      node_15.line = tok.line;
+      node_15.col = tok.col;
+      node_15.value = tok.value;
+      return node_15;
     }
     if ( tokVal == "(" ) {
       return this.parseParenOrFunctionType();
@@ -2417,6 +2628,38 @@ class TSParserSimple  {
       unary.col = opTok.col;
       return unary;
     }
+    if ( tokVal == "await" ) {
+      const awaitTok = this.peek();
+      this.advance();
+      const arg_1 = this.parseUnary();
+      const awaitExpr = new TSNode();
+      awaitExpr.nodeType = "AwaitExpression";
+      awaitExpr.left = arg_1;
+      awaitExpr.start = awaitTok.start;
+      awaitExpr.line = awaitTok.line;
+      awaitExpr.col = awaitTok.col;
+      return awaitExpr;
+    }
+    if ( tokVal == "<" ) {
+      const startTok = this.peek();
+      this.advance();
+      const nextType = this.peekType();
+      if ( ((nextType == "Identifier") || (nextType == "Keyword")) || (nextType == "TSType") ) {
+        const typeNode = this.parseType();
+        if ( this.matchValue(">") ) {
+          this.advance();
+          const arg_2 = this.parseUnary();
+          const assertion = new TSNode();
+          assertion.nodeType = "TSTypeAssertion";
+          assertion.typeAnnotation = typeNode;
+          assertion.left = arg_2;
+          assertion.start = startTok.start;
+          assertion.line = startTok.line;
+          assertion.col = startTok.col;
+          return assertion;
+        }
+      }
+    }
     return this.parsePostfix();
   };
   parsePostfix () {
@@ -2519,20 +2762,13 @@ class TSParserSimple  {
       if ( tokVal == "!" ) {
         const tok = this.peek();
         this.advance();
-        const nextTokVal_1 = this.peekValue();
-        if ( (((nextTokVal_1 == ".") || (nextTokVal_1 == "[")) || (nextTokVal_1 == "(")) || (nextTokVal_1 == "?.") ) {
-          const nonNull = new TSNode();
-          nonNull.nodeType = "TSNonNullExpression";
-          nonNull.left = expr;
-          nonNull.start = expr.start;
-          nonNull.line = expr.line;
-          nonNull.col = tok.col;
-          expr = nonNull;
-        } else {
-          this.pos = this.pos - 1;
-          this.currentToken = tok;
-          keepParsing = false;
-        }
+        const nonNull = new TSNode();
+        nonNull.nodeType = "TSNonNullExpression";
+        nonNull.left = expr;
+        nonNull.start = expr.start;
+        nonNull.line = expr.line;
+        nonNull.col = tok.col;
+        expr = nonNull;
       }
       if ( tokVal == "as" ) {
         this.advance();
@@ -2546,8 +2782,20 @@ class TSParserSimple  {
         assertion.col = expr.col;
         expr = assertion;
       }
+      if ( tokVal == "satisfies" ) {
+        this.advance();
+        const satisfiesType = this.parseType();
+        const satisfiesExpr = new TSNode();
+        satisfiesExpr.nodeType = "TSSatisfiesExpression";
+        satisfiesExpr.left = expr;
+        satisfiesExpr.typeAnnotation = satisfiesType;
+        satisfiesExpr.start = expr.start;
+        satisfiesExpr.line = expr.line;
+        satisfiesExpr.col = expr.col;
+        expr = satisfiesExpr;
+      }
       const newTokVal = this.peekValue();
-      if ( (((((newTokVal != "(") && (newTokVal != ".")) && (newTokVal != "?.")) && (newTokVal != "[")) && (newTokVal != "!")) && (newTokVal != "as") ) {
+      if ( ((((((newTokVal != "(") && (newTokVal != ".")) && (newTokVal != "?.")) && (newTokVal != "[")) && (newTokVal != "!")) && (newTokVal != "as")) && (newTokVal != "satisfies") ) {
         keepParsing = false;
       }
     };

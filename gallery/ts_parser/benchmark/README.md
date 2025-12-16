@@ -1,6 +1,27 @@
-# TypeScript Parser Benchmark
 
-Benchmark comparing the Ranger-generated TypeScript parser against popular TypeScript/JavaScript parsers.
+# TypeScript Parser Benchmark & Compliance
+
+This document benchmarks the **Ranger TypeScript parser** against popular TypeScript/JavaScript parsers and summarizes its feature compliance.
+
+## Compliance Summary (as of 2025-12-16)
+
+| Metric                | Count      |
+|-----------------------|------------|
+| ✅ Features Supported | 75 / 80    |
+| 🔧 Needs Implementation | 5 / 80     |
+| ❌ Parse Errors        | 0 / 80     |
+| **Compliance Score**  | **93.8%**  |
+
+**All TypeScript features except JSX are fully supported (100% in all non-JSX categories).**
+
+#### Unsupported (JSX) Features
+- JSX Element
+- JSX Self-Closing
+- JSX Expression
+- JSX Fragment
+- JSX Spread Attribute
+
+See [COMPLIANCE.md](../COMPLIANCE.md) for full details.
 
 ## Parsers Compared
 
@@ -75,32 +96,41 @@ Full TypeScript parsers (tsc, ts-morph) do more work:
 - Symbol table building
 - Type information preparation
 
-## Sample Output
 
-```
-================================================================================
-TypeScript Parser Benchmark
-================================================================================
-Code size: 1234 characters, 56 lines
-Iterations: 100
-Mode: SMALL code sample
-================================================================================
+## Latest Benchmark Results (2025-12-16)
 
-Benchmarking Ranger ts_parser... done (median: 0.123ms)
-Benchmarking TypeScript (tsc)... done (median: 0.456ms)
-...
+### Small File (40 lines, 876 chars, 100 iterations)
 
-================================================================================
-Results (times in milliseconds)
-================================================================================
+| Parser                | Median (ms) | Min   | Max    | Avg    | P95    | vs Fastest |
+|-----------------------|-------------|-------|--------|--------|--------|------------|
+| **Ranger ts_parser**  | **0.030**   | 0.027 | 3.413  | 0.078  | 0.128  | 1.00x      |
+| TypeScript (tsc)      | 0.172       | 0.090 | 0.684  | 0.222  | 0.485  | 5.73x      |
+| @babel/parser         | 0.311       | 0.101 | 5.690  | 0.371  | 0.753  | 10.37x     |
+| ts-morph              | 0.347       | 0.183 | 1.370  | 0.394  | 0.767  | 11.57x     |
+| @typescript-eslint    | 0.383       | 0.266 | 1.599  | 0.438  | 0.722  | 12.77x     |
+| acorn-typescript      | 0.642       | 0.486 | 4.257  | 0.722  | 1.052  | 21.40x     |
 
-Parser                      Median       Min       Max       Avg       P95  vs Fastest
----------------------------------------------------------------------------------------
-Ranger ts_parser             0.123     0.100     0.200     0.130     0.180        1.00x
-acorn-typescript             0.234     0.200     0.300     0.240     0.280        1.90x
-@babel/parser                0.345     0.300     0.400     0.350     0.380        2.80x
-...
-```
+**Ranger ts_parser is the fastest parser on small files.**
+
+### Large File (1149 lines, 28,057 chars, 100 iterations)
+
+| Parser                | Median (ms) | Min   | Max    | Avg    | P95    | vs Fastest |
+|-----------------------|-------------|-------|--------|--------|--------|------------|
+| **Ranger ts_parser**  | **0.741**   | 0.641 | 2.564  | 0.902  | 1.917  | 1.00x      |
+| @babel/parser         | 1.875       | 1.647 | 12.559 | 2.150  | 3.264  | 2.53x      |
+| TypeScript (tsc)      | 2.041       | 1.774 | 3.716  | 2.172  | 3.066  | 2.75x      |
+| ts-morph              | 2.763       | 2.230 | 13.438 | 3.369  | 10.114 | 3.73x      |
+| @typescript-eslint    | 5.595       | 5.208 | 13.380 | 6.236  | 11.223 | 7.55x      |
+| acorn-typescript      | 17.921      | 16.762| 25.574 | 18.847 | 22.320 | 24.18x     |
+
+**Ranger ts_parser is the fastest parser on large files.**
+
+---
+
+**Summary:**
+- Ranger ts_parser is the fastest parser in both small and large file benchmarks.
+- All TypeScript features except JSX are fully supported (100% compliance in all non-JSX categories).
+- See [COMPLIANCE.md](../COMPLIANCE.md) for detailed feature support.
 
 ## Notes
 
