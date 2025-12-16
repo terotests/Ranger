@@ -219,7 +219,16 @@ class TSParserSimple {
     }
     
     if (tokVal == "function") {
-      return (this.parseFuncDecl())
+      return (this.parseFuncDecl(false))
+    }
+    
+    ; async function declarations
+    if (tokVal == "async") {
+      def nextVal:string (this.peekNextValue())
+      if (nextVal == "function") {
+        this.advance()  ; consume async
+        return (this.parseFuncDecl(true))
+      }
     }
     
     if (tokVal == "return") {
@@ -988,6 +997,7 @@ class TSParserSimple {
     def isStatic false
     def isAbstract false
     def isReadonly false
+    def isAsync false
     def accessibility ""
     
     def keepParsing true
@@ -1028,9 +1038,13 @@ class TSParserSimple {
         isReadonly = true
         this.advance()
       }
+      if (tokVal == "async") {
+        isAsync = true
+        this.advance()
+      }
       
       def newTokVal (this.peekValue())
-      if ((newTokVal != "public") && (newTokVal != "private") && (newTokVal != "protected") && (newTokVal != "static") && (newTokVal != "abstract") && (newTokVal != "readonly")) {
+      if ((newTokVal != "public") && (newTokVal != "private") && (newTokVal != "protected") && (newTokVal != "static") && (newTokVal != "abstract") && (newTokVal != "readonly") && (newTokVal != "async")) {
         keepParsing = false
       }
     }
@@ -1085,6 +1099,9 @@ class TSParserSimple {
       }
       if (isAbstract) {
         member.kind = "abstract"
+      }
+      if (isAsync) {
+        member.async = true
       }
       
       this.expectValue("(")
@@ -1837,7 +1854,7 @@ class TSParserSimple {
   
   ; === Function Declaration ===
   
-  fn parseFuncDecl:TSNode () {
+  fn parseFuncDecl:TSNode (isAsync:boolean) {
     def node (new TSNode())
     node.nodeType = "FunctionDeclaration"
     def startTok (this.peek())
@@ -1845,9 +1862,14 @@ class TSParserSimple {
     node.line = startTok.line
     node.col = startTok.col
     
+    ; Set async flag if async keyword was consumed before this call
+    if (isAsync) {
+      node.async = true
+    }
+    
     this.expectValue("function")
     
-    ; Generator function: function* name() {}
+    ; Generator function: function* name() {} or async function* name() {}
     if (this.matchValue("*")) {
       this.advance()
       node.generator = true
@@ -3847,12 +3869,26 @@ class TSParserSimple {
         def isMethod:boolean false
         def isGetter:boolean false
         def isSetter:boolean false
+        def isAsync:boolean false
         
-        ; Check for getter/setter - must look ahead to see if next is identifier or [
+        ; Check for async - must look ahead to see if next is identifier or [
         def currVal (this.peekValue())
         def nextType (this.peekNextType())
         def nextVal (this.peekNextValue())
         
+        if (currVal == "async") {
+          if ((nextType == "Identifier") || (nextVal == "[") || (nextVal == "(")) {
+            this.advance()
+            isAsync = true
+            prop.async = true
+            ; Re-fetch current values after consuming async
+            currVal = (this.peekValue())
+            nextType = (this.peekNextType())
+            nextVal = (this.peekNextValue())
+          }
+        }
+        
+        ; Check for getter/setter - must look ahead to see if next is identifier or [
         if (currVal == "get") {
           if ((nextType == "Identifier") || (nextVal == "[")) {
             this.advance()

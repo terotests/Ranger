@@ -10,6 +10,7 @@ class RangerJavaScriptClassWriter {
 
   def target_flow false
   def target_typescript false
+  def target_esm false  ; ES6/ESM module format (export/import)
 
   fn lineEnding:string () {
     return ";"
@@ -648,7 +649,8 @@ class RangerJavaScriptClassWriter {
     def is_react_native:boolean false
     def is_rn_default false
 
-    target_typescript = (ctx.hasCompilerFlag("typescript"))    
+    target_typescript = (ctx.hasCompilerFlag("typescript"))
+    target_esm = (ctx.hasCompilerFlag("esm"))  ; ES6/ESM module format
 
     if( (ctx.hasCompilerFlag('dead4main')) || (ctx.hasCompilerSetting('dceclass'))) {
       if(cl.is_used_by_main == false) {
@@ -680,7 +682,8 @@ class RangerJavaScriptClassWriter {
       }
 
       ; write the npm exports at the end of the file if required...
-      if( (ctx.hasCompilerFlag("nodemodule")) && (target_typescript == false)) {
+      ; CommonJS format: module.exports.X = X
+      if( (ctx.hasCompilerFlag("nodemodule")) && (target_typescript == false) && (target_esm == false)) {
         def root (ctx.getRoot())
         root.definedClasses.forEach({
 
@@ -708,7 +711,8 @@ class RangerJavaScriptClassWriter {
 
     def do_export false
 
-    if( is_react_native || target_typescript ) {
+    ; ES6/ESM exports for TypeScript, React Native, or when -esm flag is set
+    if( is_react_native || target_typescript || target_esm ) {
       do_export = true
       if( cl.is_system || cl.is_operator_class ) {
         do_export = false

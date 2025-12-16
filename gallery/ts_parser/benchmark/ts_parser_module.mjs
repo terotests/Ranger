@@ -1,4 +1,4 @@
-class Token  {
+export class Token  {
   constructor() {
     this.tokenType = "";
     this.value = "";
@@ -8,7 +8,7 @@ class Token  {
     this.end = 0;
   }
 }
-class TSLexer  {
+export class TSLexer  {
   constructor(src) {
     this.source = "";
     this.pos = 0;
@@ -709,7 +709,7 @@ class TSLexer  {
     return tokens;
   };
 }
-class TSNode  {
+export class TSNode  {
   constructor() {
     this.nodeType = "";
     this.start = 0;
@@ -725,7 +725,7 @@ class TSNode  {
     this.computed = false;
     this.method = false;
     this.generator = false;
-    this.async = false;     /** note: unused */
+    this.async = false;
     this.delegate = false;
     this.await = false;
     this.children = [];
@@ -733,7 +733,7 @@ class TSNode  {
     this.decorators = [];
   }
 }
-class TSParserSimple  {
+export class TSParserSimple  {
   constructor() {
     this.tokens = [];
     this.pos = 0;
@@ -875,7 +875,14 @@ class TSParserSimple  {
       return this.parseVarDecl();
     }
     if ( tokVal == "function" ) {
-      return this.parseFuncDecl();
+      return this.parseFuncDecl(false);
+    }
+    if ( tokVal == "async" ) {
+      const nextVal_2 = this.peekNextValue();
+      if ( nextVal_2 == "function" ) {
+        this.advance();
+        return this.parseFuncDecl(true);
+      }
     }
     if ( tokVal == "return" ) {
       return this.parseReturn();
@@ -912,8 +919,8 @@ class TSParserSimple  {
     }
     const tokType = this.peekType();
     if ( tokType == "Identifier" ) {
-      const nextVal_2 = this.peekNextValue();
-      if ( nextVal_2 == ":" ) {
+      const nextVal_3 = this.peekNextValue();
+      if ( nextVal_3 == ":" ) {
         return this.parseLabeledStatement();
       }
     }
@@ -1438,6 +1445,7 @@ class TSParserSimple  {
     let isStatic = false;
     let isAbstract = false;
     let isReadonly = false;
+    let isAsync = false;
     let accessibility = "";
     let keepParsing = true;
     while (keepParsing) {
@@ -1474,8 +1482,12 @@ class TSParserSimple  {
         isReadonly = true;
         this.advance();
       }
+      if ( tokVal == "async" ) {
+        isAsync = true;
+        this.advance();
+      }
       const newTokVal = this.peekValue();
-      if ( (((((newTokVal != "public") && (newTokVal != "private")) && (newTokVal != "protected")) && (newTokVal != "static")) && (newTokVal != "abstract")) && (newTokVal != "readonly") ) {
+      if ( ((((((newTokVal != "public") && (newTokVal != "private")) && (newTokVal != "protected")) && (newTokVal != "static")) && (newTokVal != "abstract")) && (newTokVal != "readonly")) && (newTokVal != "async") ) {
         keepParsing = false;
       }
     };
@@ -1515,6 +1527,9 @@ class TSParserSimple  {
       }
       if ( isAbstract ) {
         member.kind = "abstract";
+      }
+      if ( isAsync ) {
+        member.async = true;
       }
       this.expectValue("(");
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
@@ -2070,13 +2085,16 @@ class TSParserSimple  {
     this.expectValue("]");
     return node;
   };
-  parseFuncDecl () {
+  parseFuncDecl (isAsync) {
     const node = new TSNode();
     node.nodeType = "FunctionDeclaration";
     const startTok = this.peek();
     node.start = startTok.start;
     node.line = startTok.line;
     node.col = startTok.col;
+    if ( isAsync ) {
+      node.async = true;
+    }
     this.expectValue("function");
     if ( this.matchValue("*") ) {
       this.advance();
@@ -3593,9 +3611,20 @@ class TSParserSimple  {
         let isMethod = false;
         let isGetter = false;
         let isSetter = false;
-        const currVal = this.peekValue();
-        const nextType = this.peekNextType();
-        const nextVal = this.peekNextValue();
+        let isAsync = false;
+        let currVal = this.peekValue();
+        let nextType = this.peekNextType();
+        let nextVal = this.peekNextValue();
+        if ( currVal == "async" ) {
+          if ( ((nextType == "Identifier") || (nextVal == "[")) || (nextVal == "(") ) {
+            this.advance();
+            isAsync = true;
+            prop.async = true;
+            currVal = this.peekValue();
+            nextType = this.peekNextType();
+            nextVal = this.peekNextValue();
+          }
+        }
         if ( currVal == "get" ) {
           if ( (nextType == "Identifier") || (nextVal == "[") ) {
             this.advance();
@@ -4082,7 +4111,7 @@ class TSParserSimple  {
     return node;
   };
 }
-class TSParserMain  {
+export class TSParserMain  {
   constructor() {
   }
 }
@@ -4533,8 +4562,73 @@ TSParserMain.printNode = function(node, depth) {
   }
   console.log(((indent + nodeType) + " ") + loc);
 };
-module.exports.Token = Token;
-module.exports.TSLexer = TSLexer;
-module.exports.TSNode = TSNode;
-module.exports.TSParserSimple = TSParserSimple;
-module.exports.TSParserMain = TSParserMain;
+/* static JavaSript main routine at the end of the JS file */
+async function __js_main() {
+  const argCnt = (process.argv.length - 2);
+  if ( argCnt == 0 ) {
+    TSParserMain.showHelp();
+    return;
+  }
+  let inputFile = "";
+  let runDefault = false;
+  let showTokens = false;
+  let showInterfaces = false;
+  let showTypes = false;
+  let showFunctions = false;
+  let i = 0;
+  while (i < argCnt) {
+    const arg = process.argv[ 2 + i];
+    if ( (arg == "--help") || (arg == "-h") ) {
+      TSParserMain.showHelp();
+      return;
+    }
+    if ( arg == "-d" ) {
+      runDefault = true;
+      i = i + 1;
+    } else {
+      if ( arg == "-i" ) {
+        i = i + 1;
+        if ( i < argCnt ) {
+          inputFile = process.argv[ 2 + i];
+        }
+        i = i + 1;
+      } else {
+        if ( arg == "--tokens" ) {
+          showTokens = true;
+          i = i + 1;
+        } else {
+          if ( arg == "--show-interfaces" ) {
+            showInterfaces = true;
+            i = i + 1;
+          } else {
+            if ( arg == "--show-types" ) {
+              showTypes = true;
+              i = i + 1;
+            } else {
+              if ( arg == "--show-functions" ) {
+                showFunctions = true;
+                i = i + 1;
+              } else {
+                i = i + 1;
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+  if ( runDefault ) {
+    TSParserMain.runDemo();
+    return;
+  }
+  if ( (inputFile.length) > 0 ) {
+    if ( (showInterfaces || showTypes) || showFunctions ) {
+      await TSParserMain.listDeclarations(inputFile, showInterfaces, showTypes, showFunctions);
+      return;
+    }
+    await TSParserMain.parseFile(inputFile, showTokens);
+    return;
+  }
+  TSParserMain.showHelp();
+}
+__js_main();

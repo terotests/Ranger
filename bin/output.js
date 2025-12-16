@@ -21749,6 +21749,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     this.wrote_header = false;
     this.target_flow = false;
     this.target_typescript = false;
+    this.target_esm = false;
   }
   lineEnding () {
     return ";";
@@ -22326,6 +22327,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     let is_react_native = false;
     let is_rn_default = false;
     this.target_typescript = ctx.hasCompilerFlag("typescript");
+    this.target_esm = ctx.hasCompilerFlag("esm");
     if ( ctx.hasCompilerFlag("dead4main") || ctx.hasCompilerSetting("dceclass") ) {
       if ( cl.is_used_by_main == false ) {
         return;
@@ -22352,7 +22354,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       if ( ctx.hasCompilerFlag("nodecli") ) {
         wr.out("#!/usr/bin/env node", true);
       }
-      if ( ctx.hasCompilerFlag("nodemodule") && (this.target_typescript == false) ) {
+      if ( (ctx.hasCompilerFlag("nodemodule") && (this.target_typescript == false)) && (this.target_esm == false) ) {
         const root = ctx.getRoot();
         await operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
           if ( ctx.hasCompilerFlag("dead4main") || ctx.hasCompilerSetting("dceclass") ) {
@@ -22376,7 +22378,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     }
     let b_extd = false;
     let do_export = false;
-    if ( is_react_native || this.target_typescript ) {
+    if ( (is_react_native || this.target_typescript) || this.target_esm ) {
       do_export = true;
       if ( cl.is_system || cl.is_operator_class ) {
         do_export = false;
@@ -24911,12 +24913,23 @@ class VirtualCompiler  {
     }
     switch (the_lang ) { 
       case "es6" : 
-        if ( false == (the_target.endsWith(".js")) ) {
-          if ( false == (the_target.endsWith(".ts")) ) {
-            the_target = the_target + ".js";
-            if ( appCtx.hasCompilerFlag("typescript") ) {
-              the_target = the_target + ".ts";
-            }
+        let has_js_ext = false;
+        if ( the_target.endsWith(".js") ) {
+          has_js_ext = true;
+        }
+        if ( the_target.endsWith(".ts") ) {
+          has_js_ext = true;
+        }
+        if ( the_target.endsWith(".mjs") ) {
+          has_js_ext = true;
+        }
+        if ( the_target.endsWith(".cjs") ) {
+          has_js_ext = true;
+        }
+        if ( has_js_ext == false ) {
+          the_target = the_target + ".js";
+          if ( appCtx.hasCompilerFlag("typescript") ) {
+            the_target = the_target + ".ts";
           }
         }
         break;

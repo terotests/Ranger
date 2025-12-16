@@ -468,7 +468,8 @@ Flags: -<flag>
   -typescript    Writes JavaScript code with TypeScript annotations
   -npm           Write the package.json to the output directory
   -nodecli       Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file
-  -nodemodule    Export the classes as node.js modules (this option will disable the static main function)
+  -nodemodule    Export classes as CommonJS modules using module.exports (disables static main function)
+  -esm           Export classes as ES6/ESM modules using export keyword (disables static main function)
   -client        the code is ment to be run in the client environment
   -scalafiddle   scalafiddle.io compatible output
   -compiler      recompile the compiler
@@ -476,6 +477,32 @@ Flags: -<flag>
 Pragmas: (inside the source code files)
    @noinfix(true)   disable operator infix parsing and automatic type definition checking
 ```
+
+### JavaScript Module Formats
+
+The compiler supports three JavaScript module output formats:
+
+| Flag | Format | Output | Use Case |
+|------|--------|--------|----------|
+| (none) | Plain JS | No exports, runs `main()` | Standalone scripts |
+| `-nodemodule` | CommonJS | `module.exports.X = X;` | Node.js require() |
+| `-esm` | ES6/ESM | `export class X` | Modern ES modules, import/export |
+
+**Examples:**
+
+```bash
+# Standalone JavaScript (runs main function)
+node bin/output.js -es6 myfile.rgr -o=myfile.js
+
+# CommonJS module (.cjs)
+node bin/output.js -es6 -nodemodule myfile.rgr -o=myfile.cjs
+
+# ES6/ESM module (.mjs)
+node bin/output.js -es6 -esm myfile.rgr -o=myfile.mjs
+```
+
+**File Extensions:**
+The compiler automatically detects JavaScript-related extensions (`.js`, `.ts`, `.mjs`, `.cjs`) and won't double-add them. You can safely specify the full filename with extension.
 
 ## Getting started with Hello World
 
@@ -637,10 +664,16 @@ For a quick reference of available basic operators see [Operators doc](operators
 
 # Plugins
 
-Compiling
+Compiling as CommonJS module:
 
 ```
-ranger-compiler hello.clj -npm  -nodemodule
+ranger-compiler hello.clj -npm -nodemodule
+```
+
+Compiling as ES6/ESM module:
+
+```
+ranger-compiler hello.clj -npm -esm
 ```
 
 Example
