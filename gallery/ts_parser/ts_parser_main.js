@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 class Token  {
   constructor() {
     this.tokenType = "";
@@ -754,21 +755,17 @@ class TSParserSimple  {
     if ( tokVal == "class" ) {
       return this.parseClass();
     }
-    if ( tokVal == "abstract" ) {
-      const nextVal = this.peekNextValue();
-      if ( nextVal == "class" ) {
-        return this.parseClass();
-      }
-    }
+    if&&
+    tokVal == "abstract";
+    this.peekNextValue();
+    return this.parseClass();
     if ( tokVal == "enum" ) {
       return this.parseEnum();
     }
-    if ( tokVal == "const" ) {
-      const nextVal_1 = this.peekNextValue();
-      if ( nextVal_1 == "enum" ) {
-        return this.parseEnum();
-      }
-    }
+    if&&
+    tokVal == "const";
+    this.peekNextValue();
+    return this.parseEnum();
     if ( (tokVal == "let") || (tokVal == "const") ) {
       return this.parseVarDecl();
     }
@@ -854,13 +851,10 @@ class TSParserSimple  {
         const nextType = this.parseType();
         extendsList.push(nextType);
       };
-      for ( let ext_1 = 0; ext_1 < extendsList.length; ext_1++) {
-        var ext = extendsList[ext_1];
-        const wrapper = new TSNode();
-        wrapper.nodeType = "TSExpressionWithTypeArguments";
-        wrapper.left = ext_1;
-        node.children.push(wrapper);
-      };
+      forextextendsList_1const wrapper = new TSNode();
+      wrapper.nodeType = "TSExpressionWithTypeArguments";
+      =wrapper.leftext
+      node.children.push(wrapper);
     }
     const body = this.parseInterfaceBody();
     node.body = body;
@@ -1548,9 +1542,8 @@ class TSParserSimple  {
         conditional.col = checkType.col;
         conditional.left = checkType;
         conditional.params.push(extendsType);
-        conditional.body = this.parseUnionType();
-        this.expectValue(":");
-        conditional.right = this.parseUnionType();
+        deftrueTypethis.parseType=conditional.bodytrueTypethis.expectValue(":");
+        deffalseTypethis.parseType=conditional.rightfalseType
         return conditional;
       }
       return checkType;
@@ -2826,8 +2819,73 @@ TSParserMain.printNode = function(node, depth) {
   }
   console.log(((indent + nodeType) + " ") + loc);
 };
-module.exports.Token = Token;
-module.exports.TSLexer = TSLexer;
-module.exports.TSNode = TSNode;
-module.exports.TSParserSimple = TSParserSimple;
-module.exports.TSParserMain = TSParserMain;
+/* static JavaSript main routine at the end of the JS file */
+async function __js_main() {
+  const argCnt = (process.argv.length - 2);
+  if ( argCnt == 0 ) {
+    TSParserMain.showHelp();
+    return;
+  }
+  let inputFile = "";
+  let runDefault = false;
+  let showTokens = false;
+  let showInterfaces = false;
+  let showTypes = false;
+  let showFunctions = false;
+  let i = 0;
+  while (i < argCnt) {
+    const arg = process.argv[ 2 + i];
+    if ( (arg == "--help") || (arg == "-h") ) {
+      TSParserMain.showHelp();
+      return;
+    }
+    if ( arg == "-d" ) {
+      runDefault = true;
+      i = i + 1;
+    } else {
+      if ( arg == "-i" ) {
+        i = i + 1;
+        if ( i < argCnt ) {
+          inputFile = process.argv[ 2 + i];
+        }
+        i = i + 1;
+      } else {
+        if ( arg == "--tokens" ) {
+          showTokens = true;
+          i = i + 1;
+        } else {
+          if ( arg == "--show-interfaces" ) {
+            showInterfaces = true;
+            i = i + 1;
+          } else {
+            if ( arg == "--show-types" ) {
+              showTypes = true;
+              i = i + 1;
+            } else {
+              if ( arg == "--show-functions" ) {
+                showFunctions = true;
+                i = i + 1;
+              } else {
+                i = i + 1;
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+  if ( runDefault ) {
+    TSParserMain.runDemo();
+    return;
+  }
+  if ( (inputFile.length) > 0 ) {
+    if ( (showInterfaces || showTypes) || showFunctions ) {
+      await TSParserMain.listDeclarations(inputFile, showInterfaces, showTypes, showFunctions);
+      return;
+    }
+    await TSParserMain.parseFile(inputFile, showTokens);
+    return;
+  }
+  TSParserMain.showHelp();
+}
+__js_main();

@@ -110,14 +110,59 @@ class TSParser {
       return (this.parseTypeAliasDeclaration())
     }
     
-    ; Variable declaration (let/const)
-    if ((tokVal == "let") || (tokVal == "const")) {
+    ; Variable declaration (let/const/var)
+    if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
       return (this.parseVariableDeclaration())
     }
     
     ; Function declaration
     if (tokVal == "function") {
       return (this.parseFunctionDeclaration())
+    }
+    
+    ; Return statement
+    if (tokVal == "return") {
+      return (this.parseReturnStatement())
+    }
+    
+    ; If statement
+    if (tokVal == "if") {
+      return (this.parseIfStatement())
+    }
+    
+    ; While statement
+    if (tokVal == "while") {
+      return (this.parseWhileStatement())
+    }
+    
+    ; For statement
+    if (tokVal == "for") {
+      return (this.parseForStatement())
+    }
+    
+    ; Try statement
+    if (tokVal == "try") {
+      return (this.parseTryStatement())
+    }
+    
+    ; Switch statement
+    if (tokVal == "switch") {
+      return (this.parseSwitchStatement())
+    }
+    
+    ; Break statement
+    if (tokVal == "break") {
+      return (this.parseBreakStatement())
+    }
+    
+    ; Continue statement
+    if (tokVal == "continue") {
+      return (this.parseContinueStatement())
+    }
+    
+    ; Throw statement
+    if (tokVal == "throw") {
+      return (this.parseThrowStatement())
     }
     
     ; Block statement
@@ -175,8 +220,8 @@ class TSParser {
     this.expectValue("{")
     
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
-      def prop (this.parsePropertySignature())
-      push body.body prop
+      def member (this.parseInterfaceMember())
+      push body.body member
       
       ; Optional semicolon or comma
       if ((this.matchValue(";")) || (this.matchValue(","))) {
@@ -191,6 +236,117 @@ class TSParser {
     return body
   }
   
+  ; Parse interface member - could be property, method, or index signature
+  fn parseInterfaceMember:ASTNode () {
+    def startTok (this.peek())
+    def startPos startTok.start
+    def startLine startTok.line
+    def startCol startTok.col
+    
+    ; Check for readonly modifier
+    def isReadonly false
+    if (this.matchValue("readonly")) {
+      isReadonly = true
+      this.advance()
+    }
+    
+    ; Check for index signature: [key: string]: type
+    if (this.matchValue("[")) {
+      return (this.parseIndexSignature(isReadonly startPos startLine startCol))
+    }
+    
+    ; Property or method name
+    def keyTok (this.expect("Identifier"))
+    def key (new Identifier())
+    key.name = keyTok.value
+    key.start = keyTok.start
+    key.end = keyTok.end
+    key.line = keyTok.line
+    key.col = keyTok.col
+    
+    ; Check for optional marker
+    def isOptional false
+    if (this.matchValue("?")) {
+      isOptional = true
+      this.advance()
+    }
+    
+    ; Check for method signature: methodName(params): returnType
+    if (this.matchValue("(")) {
+      return (this.parseMethodSignature(key isOptional startPos startLine startCol))
+    }
+    
+    ; Otherwise it's a property signature
+    def prop (new TSPropertySignature())
+    prop.start = startPos
+    prop.line = startLine
+    prop.col = startCol
+    prop.key = key
+    prop.readonly = isReadonly
+    prop.optional = isOptional
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnotation (this.parseTypeAnnotation())
+      prop.typeAnnotation = typeAnnotation
+    }
+    
+    return prop
+  }
+  
+  fn parseMethodSignature:TSMethodSignature (key:Identifier isOptional:boolean startPos:int startLine:int startCol:int) {
+    def method (new TSMethodSignature())
+    method.start = startPos
+    method.line = startLine
+    method.col = startCol
+    method.key = key
+    method.optional = isOptional
+    
+    ; Parse parameters
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length method.params) > 0) {
+        this.expectValue(",")
+      }
+      def param (this.parseParameter())
+      push method.params param
+    }
+    this.expectValue(")")
+    
+    ; Return type annotation
+    if (this.matchValue(":")) {
+      def returnType (this.parseTypeAnnotation())
+      method.returnType = returnType
+    }
+    
+    return method
+  }
+  
+  fn parseIndexSignature:TSIndexSignature (isReadonly:boolean startPos:int startLine:int startCol:int) {
+    def indexSig (new TSIndexSignature())
+    indexSig.start = startPos
+    indexSig.line = startLine
+    indexSig.col = startCol
+    indexSig.readonly = isReadonly
+    
+    this.expectValue("[")
+    
+    ; Parse index parameter: key: string
+    def param (this.parseParameter())
+    push indexSig.parameters param
+    
+    this.expectValue("]")
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnotation (this.parseTypeAnnotation())
+      indexSig.typeAnnotation = typeAnnotation
+    }
+    
+    return indexSig
+  }
+  
+  ; Legacy property signature parser - kept for compatibility
   fn parsePropertySignature:TSPropertySignature () {
     def prop (new TSPropertySignature())
     def startTok (this.peek())
@@ -413,6 +569,404 @@ class TSParser {
     return block
   }
   
+  ; === Return Statement ===
+  
+  fn parseReturnStatement:ReturnStatement () {
+    def stmt (new ReturnStatement())
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    this.expectValue("return")
+    
+    ; Check for semicolon (empty return)
+    if ((this.matchValue(";")) == false) {
+      if ((this.matchValue("}")) == false) {
+        def arg (this.parseExpression())
+        stmt.argument = arg
+      }
+    }
+    
+    if (this.matchValue(";")) {
+      def endTok (this.peek())
+      stmt.end = endTok.end
+      this.advance()
+    }
+    
+    return stmt
+  }
+  
+  ; === If Statement ===
+  
+  fn parseIfStatement:IfStatement () {
+    def stmt (new IfStatement())
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    this.expectValue("if")
+    this.expectValue("(")
+    
+    def test (this.parseExpression())
+    stmt.test = test
+    
+    this.expectValue(")")
+    
+    ; Parse consequent (if body)
+    def consequent (this.parseStatement())
+    stmt.consequent = consequent
+    
+    ; Check for else
+    if (this.matchValue("else")) {
+      this.advance()
+      def alternate (this.parseStatement())
+      stmt.alternate = alternate
+    }
+    
+    return stmt
+  }
+  
+  ; === While Statement ===
+  
+  fn parseWhileStatement:WhileStatement () {
+    def stmt (new WhileStatement())
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    this.expectValue("while")
+    this.expectValue("(")
+    
+    def test (this.parseExpression())
+    stmt.test = test
+    
+    this.expectValue(")")
+    
+    def body (this.parseStatement())
+    stmt.body = body
+    
+    return stmt
+  }
+  
+  ; === For Statement ===
+  
+  fn parseForStatement:ASTNode () {
+    def startTok (this.peek())
+    def startPos startTok.start
+    def startLine startTok.line
+    def startCol startTok.col
+    
+    this.expectValue("for")
+    this.expectValue("(")
+    
+    ; Parse init - could be var/let/const declaration or expression
+    def init@(optional):ASTNode
+    def tokVal (this.peekValue())
+    
+    if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
+      init = (this.parseVariableDeclarationNoSemicolon())
+    } {
+      if (tokVal != ";") {
+        init = (this.parseExpression())
+      }
+    }
+    
+    ; Check for 'of' or 'in' (for-of or for-in loop)
+    if (this.matchValue("of")) {
+      this.advance()
+      def right (this.parseExpression())
+      this.expectValue(")")
+      def body (this.parseStatement())
+      
+      def forOf (new ForOfStatement())
+      forOf.start = startPos
+      forOf.line = startLine
+      forOf.col = startCol
+      forOf.left = init
+      forOf.right = right
+      forOf.body = body
+      return forOf
+    }
+    
+    if (this.matchValue("in")) {
+      this.advance()
+      def right (this.parseExpression())
+      this.expectValue(")")
+      def body (this.parseStatement())
+      
+      def forIn (new ForInStatement())
+      forIn.start = startPos
+      forIn.line = startLine
+      forIn.col = startCol
+      forIn.left = init
+      forIn.right = right
+      forIn.body = body
+      return forIn
+    }
+    
+    ; Regular for loop
+    this.expectValue(";")
+    
+    def test@(optional):ASTNode
+    if ((this.matchValue(";")) == false) {
+      test = (this.parseExpression())
+    }
+    this.expectValue(";")
+    
+    def update@(optional):ASTNode
+    if ((this.matchValue(")")) == false) {
+      update = (this.parseExpression())
+    }
+    this.expectValue(")")
+    
+    def body (this.parseStatement())
+    
+    def forStmt (new ForStatement())
+    forStmt.start = startPos
+    forStmt.line = startLine
+    forStmt.col = startCol
+    forStmt.init = init
+    forStmt.test = test
+    forStmt.update = update
+    forStmt.body = body
+    
+    return forStmt
+  }
+  
+  fn parseVariableDeclarationNoSemicolon:VariableDeclaration () {
+    def decl (new VariableDeclaration())
+    def startTok (this.peek())
+    decl.start = startTok.start
+    decl.line = startTok.line
+    decl.col = startTok.col
+    decl.kind = startTok.value
+    
+    this.advance() ; consume let/const/var
+    
+    def declarator (new VariableDeclarator())
+    
+    def idTok (this.expect("Identifier"))
+    def id (new Identifier())
+    id.name = idTok.value
+    id.start = idTok.start
+    id.end = idTok.end
+    id.line = idTok.line
+    id.col = idTok.col
+    declarator.id = id
+    declarator.start = idTok.start
+    declarator.line = idTok.line
+    declarator.col = idTok.col
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnotation (this.parseTypeAnnotation())
+      declarator.typeAnnotation = typeAnnotation
+    }
+    
+    ; Initializer (but not for for-of/for-in)
+    if (this.matchValue("=")) {
+      this.advance()
+      def initExpr (this.parseExpression())
+      declarator.varInit = initExpr
+    }
+    
+    push decl.declarations declarator
+    
+    return decl
+  }
+  
+  ; === Try Statement ===
+  
+  fn parseTryStatement:TryStatement () {
+    def stmt (new TryStatement())
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    this.expectValue("try")
+    
+    def block (this.parseBlockStatement())
+    stmt.block = block
+    
+    ; Parse catch clause
+    if (this.matchValue("catch")) {
+      this.advance()
+      def catchClause (new CatchClause())
+      def catchTok (this.peek())
+      catchClause.start = catchTok.start
+      catchClause.line = catchTok.line
+      catchClause.col = catchTok.col
+      
+      ; Optional parameter
+      if (this.matchValue("(")) {
+        this.advance()
+        def paramTok (this.expect("Identifier"))
+        def param (new Identifier())
+        param.name = paramTok.value
+        param.start = paramTok.start
+        param.end = paramTok.end
+        param.line = paramTok.line
+        param.col = paramTok.col
+        
+        ; Optional type annotation
+        if (this.matchValue(":")) {
+          def typeAnnotation (this.parseTypeAnnotation())
+          param.typeAnnotation = typeAnnotation
+        }
+        
+        catchClause.param = param
+        this.expectValue(")")
+      }
+      
+      def catchBody (this.parseBlockStatement())
+      catchClause.body = catchBody
+      stmt.handler = catchClause
+    }
+    
+    ; Parse finally clause
+    if (this.matchValue("finally")) {
+      this.advance()
+      def finalizer (this.parseBlockStatement())
+      stmt.finalizer = finalizer
+    }
+    
+    return stmt
+  }
+  
+  ; === Switch Statement ===
+  
+  fn parseSwitchStatement:SwitchStatement () {
+    def stmt (new SwitchStatement())
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    this.expectValue("switch")
+    this.expectValue("(")
+    
+    def discriminant (this.parseExpression())
+    stmt.discriminant = discriminant
+    
+    this.expectValue(")")
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def caseClause (this.parseSwitchCase())
+      push stmt.cases caseClause
+    }
+    
+    this.expectValue("}")
+    
+    return stmt
+  }
+  
+  fn parseSwitchCase:SwitchCase () {
+    def caseClause (new SwitchCase())
+    def startTok (this.peek())
+    caseClause.start = startTok.start
+    caseClause.line = startTok.line
+    caseClause.col = startTok.col
+    
+    if (this.matchValue("case")) {
+      this.advance()
+      def test (this.parseExpression())
+      caseClause.test = test
+      this.expectValue(":")
+    } {
+      if (this.matchValue("default")) {
+        this.advance()
+        this.expectValue(":")
+      }
+    }
+    
+    ; Parse statements until next case/default/}
+    while ((this.matchValue("case")) == false) {
+      if (this.matchValue("default")) {
+        return caseClause
+      }
+      if (this.matchValue("}")) {
+        return caseClause
+      }
+      if (this.isAtEnd()) {
+        return caseClause
+      }
+      def stmt (this.parseStatement())
+      if (!null? stmt) {
+        push caseClause.consequent (unwrap stmt)
+      }
+    }
+    
+    return caseClause
+  }
+  
+  ; === Break Statement ===
+  
+  fn parseBreakStatement:BreakStatement () {
+    def stmt (new BreakStatement())
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    this.expectValue("break")
+    
+    if (this.matchValue(";")) {
+      def endTok (this.peek())
+      stmt.end = endTok.end
+      this.advance()
+    }
+    
+    return stmt
+  }
+  
+  ; === Continue Statement ===
+  
+  fn parseContinueStatement:ContinueStatement () {
+    def stmt (new ContinueStatement())
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    this.expectValue("continue")
+    
+    if (this.matchValue(";")) {
+      def endTok (this.peek())
+      stmt.end = endTok.end
+      this.advance()
+    }
+    
+    return stmt
+  }
+  
+  ; === Throw Statement ===
+  
+  fn parseThrowStatement:ThrowStatement () {
+    def stmt (new ThrowStatement())
+    def startTok (this.peek())
+    stmt.start = startTok.start
+    stmt.line = startTok.line
+    stmt.col = startTok.col
+    
+    this.expectValue("throw")
+    
+    def arg (this.parseExpression())
+    stmt.argument = arg
+    
+    if (this.matchValue(";")) {
+      def endTok (this.peek())
+      stmt.end = endTok.end
+      this.advance()
+    }
+    
+    return stmt
+  }
+  
   ; === Expression Statement ===
   
   fn parseExpressionStatement:ExpressionStatement () {
@@ -620,17 +1174,19 @@ class TSParser {
       return (this.parseTypeReference())
     }
     
-    ; Parenthesized type
+    ; Parenthesized type or function type
     if (tokVal == "(") {
-      this.advance()
-      def innerType (this.parseType())
-      this.expectValue(")")
-      return innerType
+      return (this.parseParenthesizedOrFunctionType())
     }
     
     ; Object type literal
     if (tokVal == "{") {
       return (this.parseTypeLiteral())
+    }
+    
+    ; Tuple type
+    if (tokVal == "[") {
+      return (this.parseTupleType())
     }
     
     ; Fallback - create error node
@@ -866,5 +1422,241 @@ class TSParser {
     def errId (new Identifier())
     errId.name = "error"
     return errId
+  }
+  
+  ; === Tuple Type Parsing ===
+  ; [string, number, boolean?]
+  
+  fn parseTupleType:TSTupleType () {
+    def tuple (new TSTupleType())
+    def startTok (this.peek())
+    tuple.start = startTok.start
+    tuple.line = startTok.line
+    tuple.col = startTok.col
+    
+    this.expectValue("[")
+    
+    while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length tuple.elementTypes) > 0) {
+        this.expectValue(",")
+      }
+      
+      ; Check for rest element ...type[]
+      if (this.matchValue("...")) {
+        this.advance()
+        def innerType (this.parseType())
+        def restType (new TSRestType())
+        restType.start = innerType.start
+        restType.line = innerType.line
+        restType.col = innerType.col
+        restType.typeAnnotation = innerType
+        push tuple.elementTypes restType
+      } {
+        def elemType (this.parseType())
+        
+        ; Check for optional element type?
+        if (this.matchValue("?")) {
+          this.advance()
+          def optType (new TSOptionalType())
+          optType.start = elemType.start
+          optType.line = elemType.line
+          optType.col = elemType.col
+          optType.typeAnnotation = elemType
+          push tuple.elementTypes optType
+        } {
+          push tuple.elementTypes elemType
+        }
+      }
+    }
+    
+    def endTok (this.peek())
+    tuple.end = endTok.end
+    this.expectValue("]")
+    
+    return tuple
+  }
+  
+  ; === Parenthesized or Function Type Parsing ===
+  ; (type) or (params) => returnType
+  
+  fn parseParenthesizedOrFunctionType:ASTNode () {
+    def startTok (this.peek())
+    def startPos startTok.start
+    def startLine startTok.line
+    def startCol startTok.col
+    
+    this.expectValue("(")
+    
+    ; Check if this is an empty parameter list for a function type
+    if (this.matchValue(")")) {
+      this.advance()
+      ; Must be followed by => for function type
+      if (this.matchValue("=>")) {
+        this.advance()
+        def returnType (this.parseType())
+        def funcType (new TSFunctionType())
+        funcType.start = startPos
+        funcType.line = startLine
+        funcType.col = startCol
+        funcType.returnType = returnType
+        return funcType
+      }
+      ; Otherwise just return void as a fallback
+      def voidNode (new TSVoidKeyword())
+      return voidNode
+    }
+    
+    ; Parse first element - could be a type or a parameter
+    ; Look ahead to determine which
+    def firstIdent (this.peekValue())
+    def isIdentifier (this.match("Identifier"))
+    
+    ; Save state for potential backtrack
+    def savedPos this.pos
+    def savedToken:Token (unwrap this.currentToken)
+    
+    if (isIdentifier) {
+      this.advance() ; consume identifier
+      
+      ; If followed by : or ?, it's a function parameter
+      if ((this.matchValue(":")) || (this.matchValue("?"))) {
+        ; This is a function type - backtrack and parse params
+        this.pos = savedPos
+        this.currentToken = savedToken
+        return (this.parseFunctionTypeAfterParen(startPos startLine startCol))
+      }
+      
+      ; If followed by , or ), it could still be either
+      if ((this.matchValue(",")) || (this.matchValue(")"))) {
+        ; Look further ahead for =>
+        ; For simplicity, treat as function type if => follows )
+        def savedPos2 this.pos
+        def savedToken2:Token (unwrap this.currentToken)
+        
+        ; Skip to closing paren
+        while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+          this.advance()
+        }
+        if (this.matchValue(")")) {
+          this.advance()
+        }
+        
+        if (this.matchValue("=>")) {
+          ; It's a function type - backtrack and parse properly
+          this.pos = savedPos
+          this.currentToken = savedToken
+          return (this.parseFunctionTypeAfterParen(startPos startLine startCol))
+        }
+        
+        ; Not a function type - backtrack and parse as parenthesized type
+        this.pos = savedPos
+        this.currentToken = savedToken
+      }
+    }
+    
+    ; Parse as parenthesized type
+    ; (We're back at the position after "(")
+    def innerType (this.parseType())
+    
+    ; Check for closing paren
+    if (this.matchValue(")")) {
+      this.advance()
+      
+      ; Check if followed by => (function type with single untyped param)
+      if (this.matchValue("=>")) {
+        this.advance()
+        def returnType (this.parseType())
+        def funcType (new TSFunctionType())
+        funcType.start = startPos
+        funcType.line = startLine
+        funcType.col = startCol
+        funcType.returnType = returnType
+        ; innerType would be the single param - but this case is complex
+        ; For now, just return the function type
+        return funcType
+      }
+      
+      return innerType
+    }
+    
+    ; If comma, this must be a function type - parse rest of params
+    if (this.matchValue(",")) {
+      ; We already parsed first param as a type, treat it as function type
+      def funcType (new TSFunctionType())
+      funcType.start = startPos
+      funcType.line = startLine
+      funcType.col = startCol
+      
+      ; Skip remaining params for now
+      while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+        this.advance()
+      }
+      this.expectValue(")")
+      
+      if (this.matchValue("=>")) {
+        this.advance()
+        def returnType (this.parseType())
+        funcType.returnType = returnType
+      }
+      
+      return funcType
+    }
+    
+    return innerType
+  }
+  
+  fn parseFunctionTypeAfterParen:TSFunctionType (startPos:int startLine:int startCol:int) {
+    def funcType (new TSFunctionType())
+    funcType.start = startPos
+    funcType.line = startLine
+    funcType.col = startCol
+    
+    ; Parse function parameters
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length funcType.params) > 0) {
+        this.expectValue(",")
+      }
+      
+      def param (this.parseFunctionTypeParam())
+      push funcType.params param
+    }
+    
+    this.expectValue(")")
+    
+    ; Parse return type after =>
+    if (this.matchValue("=>")) {
+      this.advance()
+      def returnType (this.parseType())
+      ; Wrap in TSTypeAnnotation
+      def retAnnot (new TSTypeAnnotation())
+      retAnnot.typeAnnotation = returnType
+      funcType.returnType = retAnnot
+    }
+    
+    return funcType
+  }
+  
+  fn parseFunctionTypeParam:Identifier () {
+    def param (new Identifier())
+    def paramTok (this.expect("Identifier"))
+    param.name = paramTok.value
+    param.start = paramTok.start
+    param.end = paramTok.end
+    param.line = paramTok.line
+    param.col = paramTok.col
+    
+    ; Optional marker
+    if (this.matchValue("?")) {
+      param.optional = true
+      this.advance()
+    }
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnotation (this.parseTypeAnnotation())
+      param.typeAnnotation = typeAnnotation
+    }
+    
+    return param
   }
 }

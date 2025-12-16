@@ -745,3 +745,99 @@ cpp ( 'r_utf8_substr(' (e 1) ', ' (e 2) ', 1)'
 
 - `compiler/Lang.rgr` - polyfill definitions
 - `compiler/ng_RangerGenericClassWriter.rgr` or similar - polyfill emission logic
+
+---
+
+## Issue #13: Variable definition fails inside nested if blocks
+
+**Status:** Open (Workaround Available)  
+**Severity:** Medium  
+**Found:** December 16, 2025
+
+### Description
+
+When defining a variable with a function call result inside a nested `if` block, the compiler reports "invalid variable definition" and type mismatch errors, even when the variable has an explicit type annotation.
+
+### Error Message
+
+```
+ts_parser_simple.rgr Line: 1240
+invalid variable definition
+        def trueType:TSNode (this.parseType())
+        ^-------
+ts_parser_simple.rgr Line: 1241
+Could not match argument types for =
+        conditional.body = trueType
+        ^-------
+ts_parser_simple.rgr Line: 1241
+Type mismatch boolean <> TSNode. Can not assign variable.
+        conditional.body = trueType
+        ^-------
+```
+
+### Minimal Reproduction
+
+```ranger
+class TSNode {
+  def body@(optional):TSNode
+}
+
+class Parser {
+  fn parseType:TSNode () {
+    def node (new TSNode())
+    return node
+  }
+
+  fn matchValue:boolean (v:string) {
+    return true
+  }
+
+  fn parse:TSNode () {
+    def outer (new TSNode())
+
+    if (this.matchValue("extends")) {
+      if (this.matchValue("?")) {
+        def conditional (new TSNode())
+
+        ; This fails with "invalid variable definition"
+        def trueType:TSNode (this.parseType())
+        conditional.body = trueType  ; Type mismatch boolean <> TSNode
+
+        return conditional
+      }
+    }
+
+    return outer
+  }
+}
+```
+
+### Workaround
+
+Instead of defining an intermediate variable and then assigning, use direct assignment:
+
+```ranger
+; Instead of:
+def trueType:TSNode (this.parseType())
+conditional.body = trueType
+
+; Use direct assignment:
+conditional.body = (this.parseUnionType())
+```
+
+Note: The workaround may require calling a different function (like `parseUnionType` instead of `parseType`) if the original function would cause recursion depth issues.
+
+### Root Cause (Suspected)
+
+The compiler's type inference appears to get confused when:
+
+1. Inside nested `if` blocks (especially when the condition involves method calls returning boolean)
+2. A variable is defined with a function call that returns a class type
+3. The variable is then assigned to an optional property
+
+The compiler seems to incorrectly infer the context type as `boolean` from the enclosing `if` condition.
+
+### Files Affected
+
+- Compiler type inference logic (likely in `compiler/ng_LiveCompiler.rgr` or `compiler/ng_FlowWork.rgr`)
+- Encountered in `gallery/ts_parser/ts_parser_simple.rgr`

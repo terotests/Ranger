@@ -146,6 +146,28 @@ class TSParserSimple {
       return (this.parseTypeAlias())
     }
     
+    if (tokVal == "class") {
+      return (this.parseClass())
+    }
+    
+    if (tokVal == "abstract") {
+      def nextVal:string (this.peekNextValue())
+      if (nextVal == "class") {
+        return (this.parseClass())
+      }
+    }
+    
+    if (tokVal == "enum") {
+      return (this.parseEnum())
+    }
+    
+    if (tokVal == "const") {
+      def nextVal:string (this.peekNextValue())
+      if (nextVal == "enum") {
+        return (this.parseEnum())
+      }
+    }
+    
     if ((tokVal == "let") || (tokVal == "const")) {
       return (this.parseVarDecl())
     }
@@ -156,6 +178,26 @@ class TSParserSimple {
     
     if (tokVal == "return") {
       return (this.parseReturn())
+    }
+    
+    if (tokVal == "if") {
+      return (this.parseIfStatement())
+    }
+    
+    if (tokVal == "while") {
+      return (this.parseWhileStatement())
+    }
+    
+    if (tokVal == "for") {
+      return (this.parseForStatement())
+    }
+    
+    if (tokVal == "switch") {
+      return (this.parseSwitchStatement())
+    }
+    
+    if (tokVal == "try") {
+      return (this.parseTryStatement())
     }
     
     if (tokVal == "{") {
@@ -170,6 +212,17 @@ class TSParserSimple {
     }
     
     return (this.parseExprStmt())
+  }
+  
+  ; === Helper: peek next token value ===
+  
+  fn peekNextValue:string () {
+    def nextPos (this.pos + 1)
+    if (nextPos < (array_length this.tokens)) {
+      def nextTok:Token (itemAt this.tokens nextPos)
+      return nextTok.value
+    }
+    return ""
   }
   
   ; === Return Statement ===
@@ -213,6 +266,32 @@ class TSParserSimple {
     def nameTok (this.expect("Identifier"))
     node.name = nameTok.value
     
+    ; Parse generic type parameters <T, U>
+    if (this.matchValue("<")) {
+      def typeParams (this.parseTypeParams())
+      node.params = typeParams
+    }
+    
+    ; Parse extends clause
+    if (this.matchValue("extends")) {
+      this.advance()
+      def extendsList:[TSNode]
+      def extendsType (this.parseType())
+      push extendsList extendsType
+      while (this.matchValue(",")) {
+        this.advance()
+        def nextType (this.parseType())
+        push extendsList nextType
+      }
+      ; Store in children for extends
+      for extendsList ext:TSNode ext:TSNode {
+        def wrapper (new TSNode())
+        wrapper.nodeType = "TSExpressionWithTypeArguments"
+        wrapper.left = ext
+        push node.children wrapper
+      }
+    }
+    
     ; Parse body
     def body (this.parseInterfaceBody())
     node.body = body
@@ -241,6 +320,47 @@ class TSParserSimple {
     
     this.expectValue("}")
     return body
+  }
+  
+  ; === Generic Type Parameters <T, U extends Base> ===
+  
+  fn parseTypeParams:[TSNode] () {
+    def params:[TSNode]
+    
+    this.expectValue("<")
+    
+    while (((this.matchValue(">")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length params) > 0) {
+        this.expectValue(",")
+      }
+      
+      def param (new TSNode())
+      param.nodeType = "TSTypeParameter"
+      def nameTok (this.expect("Identifier"))
+      param.name = nameTok.value
+      param.start = nameTok.start
+      param.line = nameTok.line
+      param.col = nameTok.col
+      
+      ; extends constraint: T extends Base
+      if (this.matchValue("extends")) {
+        this.advance()
+        def constraint (this.parseType())
+        param.typeAnnotation = constraint
+      }
+      
+      ; default type: T = DefaultType
+      if (this.matchValue("=")) {
+        this.advance()
+        def defaultType (this.parseType())
+        param.init = defaultType
+      }
+      
+      push params param
+    }
+    
+    this.expectValue(">")
+    return params
   }
   
   fn parsePropertySig:TSNode () {
@@ -291,6 +411,12 @@ class TSParserSimple {
     def nameTok (this.expect("Identifier"))
     node.name = nameTok.value
     
+    ; Parse generic type parameters <T, U>
+    if (this.matchValue("<")) {
+      def typeParams (this.parseTypeParams())
+      node.params = typeParams
+    }
+    
     this.expectValue("=")
     
     def typeExpr (this.parseType())
@@ -303,6 +429,611 @@ class TSParserSimple {
     return node
   }
   
+  ; === Class Declaration ===
+  
+  fn parseClass:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "ClassDeclaration"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    ; Optional abstract modifier
+    if (this.matchValue("abstract")) {
+      node.kind = "abstract"
+      this.advance()
+    }
+    
+    this.expectValue("class")
+    
+    def nameTok (this.expect("Identifier"))
+    node.name = nameTok.value
+    
+    ; Parse generic type parameters <T, U>
+    if (this.matchValue("<")) {
+      def typeParams (this.parseTypeParams())
+      node.params = typeParams
+    }
+    
+    ; Parse extends clause
+    if (this.matchValue("extends")) {
+      this.advance()
+      def superClass (this.parseType())
+      def extendsNode (new TSNode())
+      extendsNode.nodeType = "TSExpressionWithTypeArguments"
+      extendsNode.left = superClass
+      node.left = extendsNode
+    }
+    
+    ; Parse implements clause
+    if (this.matchValue("implements")) {
+      this.advance()
+      def impl (this.parseType())
+      def implNode (new TSNode())
+      implNode.nodeType = "TSExpressionWithTypeArguments"
+      implNode.left = impl
+      push node.children implNode
+      while (this.matchValue(",")) {
+        this.advance()
+        def nextImpl (this.parseType())
+        def nextImplNode (new TSNode())
+        nextImplNode.nodeType = "TSExpressionWithTypeArguments"
+        nextImplNode.left = nextImpl
+        push node.children nextImplNode
+      }
+    }
+    
+    ; Parse class body
+    def body (this.parseClassBody())
+    node.body = body
+    
+    return node
+  }
+  
+  fn parseClassBody:TSNode () {
+    def body (new TSNode())
+    body.nodeType = "ClassBody"
+    def startTok (this.peek())
+    body.start = startTok.start
+    body.line = startTok.line
+    body.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def member (this.parseClassMember())
+      push body.children member
+      
+      ; Optional semicolon
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+    }
+    
+    this.expectValue("}")
+    return body
+  }
+  
+  fn parseClassMember:TSNode () {
+    def member (new TSNode())
+    def startTok (this.peek())
+    member.start = startTok.start
+    member.line = startTok.line
+    member.col = startTok.col
+    
+    ; Parse modifiers
+    def isStatic false
+    def isAbstract false
+    def isReadonly false
+    def accessibility ""
+    
+    def keepParsing true
+    while (keepParsing) {
+      def tokVal (this.peekValue())
+      
+      if (tokVal == "public") {
+        accessibility = "public"
+        this.advance()
+      }
+      if (tokVal == "private") {
+        accessibility = "private"
+        this.advance()
+      }
+      if (tokVal == "protected") {
+        accessibility = "protected"
+        this.advance()
+      }
+      if (tokVal == "static") {
+        isStatic = true
+        this.advance()
+      }
+      if (tokVal == "abstract") {
+        isAbstract = true
+        this.advance()
+      }
+      if (tokVal == "readonly") {
+        isReadonly = true
+        this.advance()
+      }
+      
+      def newTokVal (this.peekValue())
+      if ((newTokVal != "public") && (newTokVal != "private") && (newTokVal != "protected") && (newTokVal != "static") && (newTokVal != "abstract") && (newTokVal != "readonly")) {
+        keepParsing = false
+      }
+    }
+    
+    ; Constructor
+    if (this.matchValue("constructor")) {
+      member.nodeType = "MethodDefinition"
+      member.kind = "constructor"
+      this.advance()
+      
+      this.expectValue("(")
+      while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+        if ((array_length member.params) > 0) {
+          this.expectValue(",")
+        }
+        def param (this.parseConstructorParam())
+        push member.params param
+      }
+      this.expectValue(")")
+      
+      ; Constructor body
+      if (this.matchValue("{")) {
+        def bodyNode (this.parseBlock())
+        member.body = bodyNode
+      }
+      
+      return member
+    }
+    
+    ; Member name
+    def nameTok (this.expect("Identifier"))
+    member.name = nameTok.value
+    
+    ; Apply modifiers
+    if (accessibility != "") {
+      member.kind = accessibility
+    }
+    member.readonly = isReadonly
+    
+    ; Optional marker
+    if (this.matchValue("?")) {
+      member.optional = true
+      this.advance()
+    }
+    
+    ; Method or property?
+    if (this.matchValue("(")) {
+      ; Method
+      member.nodeType = "MethodDefinition"
+      if (isStatic) {
+        member.kind = "static"
+      }
+      if (isAbstract) {
+        member.kind = "abstract"
+      }
+      
+      this.expectValue("(")
+      while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+        if ((array_length member.params) > 0) {
+          this.expectValue(",")
+        }
+        def param (this.parseParam())
+        push member.params param
+      }
+      this.expectValue(")")
+      
+      ; Return type
+      if (this.matchValue(":")) {
+        def returnType (this.parseTypeAnnotation())
+        member.typeAnnotation = returnType
+      }
+      
+      ; Method body
+      if (this.matchValue("{")) {
+        def bodyNode (this.parseBlock())
+        member.body = bodyNode
+      }
+    } {
+      ; Property
+      member.nodeType = "PropertyDefinition"
+      if (isStatic) {
+        member.kind = "static"
+      }
+      
+      ; Type annotation
+      if (this.matchValue(":")) {
+        def typeAnnot (this.parseTypeAnnotation())
+        member.typeAnnotation = typeAnnot
+      }
+      
+      ; Initializer
+      if (this.matchValue("=")) {
+        this.advance()
+        def initExpr (this.parseExpr())
+        member.init = initExpr
+      }
+    }
+    
+    return member
+  }
+  
+  fn parseConstructorParam:TSNode () {
+    def param (new TSNode())
+    param.nodeType = "Parameter"
+    def startTok (this.peek())
+    param.start = startTok.start
+    param.line = startTok.line
+    param.col = startTok.col
+    
+    ; Check for parameter property modifiers
+    def tokVal (this.peekValue())
+    if ((tokVal == "public") || (tokVal == "private") || (tokVal == "protected") || (tokVal == "readonly")) {
+      param.kind = tokVal
+      this.advance()
+      ; Could have multiple like "private readonly"
+      def nextVal (this.peekValue())
+      if (nextVal == "readonly") {
+        param.readonly = true
+        this.advance()
+      }
+    }
+    
+    def nameTok (this.expect("Identifier"))
+    param.name = nameTok.value
+    
+    ; Optional marker
+    if (this.matchValue("?")) {
+      param.optional = true
+      this.advance()
+    }
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnot (this.parseTypeAnnotation())
+      param.typeAnnotation = typeAnnot
+    }
+    
+    ; Default value
+    if (this.matchValue("=")) {
+      this.advance()
+      def defaultVal (this.parseExpr())
+      param.init = defaultVal
+    }
+    
+    return param
+  }
+  
+  ; === Enum Declaration ===
+  
+  fn parseEnum:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "TSEnumDeclaration"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    ; const enum
+    if (this.matchValue("const")) {
+      node.kind = "const"
+      this.advance()
+    }
+    
+    this.expectValue("enum")
+    
+    def nameTok (this.expect("Identifier"))
+    node.name = nameTok.value
+    
+    ; Enum body
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def member (new TSNode())
+      member.nodeType = "TSEnumMember"
+      def memberTok (this.expect("Identifier"))
+      member.name = memberTok.value
+      member.start = memberTok.start
+      member.line = memberTok.line
+      member.col = memberTok.col
+      
+      ; Optional initializer
+      if (this.matchValue("=")) {
+        this.advance()
+        def initVal (this.parseExpr())
+        member.init = initVal
+      }
+      
+      push node.children member
+      
+      if (this.matchValue(",")) {
+        this.advance()
+      }
+    }
+    
+    this.expectValue("}")
+    return node
+  }
+  
+  ; === Control Flow Statements ===
+  
+  fn parseIfStatement:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "IfStatement"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("if")
+    this.expectValue("(")
+    def test (this.parseExpr())
+    node.left = test
+    this.expectValue(")")
+    
+    def consequent (this.parseStatement())
+    node.body = consequent
+    
+    ; else clause
+    if (this.matchValue("else")) {
+      this.advance()
+      def alternate (this.parseStatement())
+      node.right = alternate
+    }
+    
+    return node
+  }
+  
+  fn parseWhileStatement:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "WhileStatement"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("while")
+    this.expectValue("(")
+    def test (this.parseExpr())
+    node.left = test
+    this.expectValue(")")
+    
+    def body (this.parseStatement())
+    node.body = body
+    
+    return node
+  }
+  
+  fn parseForStatement:TSNode () {
+    def node (new TSNode())
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("for")
+    this.expectValue("(")
+    
+    ; Check for for...of or for...in
+    ; First parse potential variable declaration
+    def tokVal (this.peekValue())
+    
+    if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
+      def kind tokVal
+      this.advance()
+      def varName (this.expect("Identifier"))
+      
+      def nextVal (this.peekValue())
+      if (nextVal == "of") {
+        ; for...of loop
+        node.nodeType = "ForOfStatement"
+        this.advance() ; consume 'of'
+        
+        def left (new TSNode())
+        left.nodeType = "VariableDeclaration"
+        left.kind = kind
+        def declarator (new TSNode())
+        declarator.nodeType = "VariableDeclarator"
+        declarator.name = varName.value
+        push left.children declarator
+        node.left = left
+        
+        def right (this.parseExpr())
+        node.right = right
+        this.expectValue(")")
+        
+        def body (this.parseStatement())
+        node.body = body
+        return node
+      }
+      
+      if (nextVal == "in") {
+        ; for...in loop
+        node.nodeType = "ForInStatement"
+        this.advance() ; consume 'in'
+        
+        def left (new TSNode())
+        left.nodeType = "VariableDeclaration"
+        left.kind = kind
+        def declarator (new TSNode())
+        declarator.nodeType = "VariableDeclarator"
+        declarator.name = varName.value
+        push left.children declarator
+        node.left = left
+        
+        def right (this.parseExpr())
+        node.right = right
+        this.expectValue(")")
+        
+        def body (this.parseStatement())
+        node.body = body
+        return node
+      }
+      
+      ; Regular for loop - need to parse rest of init
+      node.nodeType = "ForStatement"
+      def initDecl (new TSNode())
+      initDecl.nodeType = "VariableDeclaration"
+      initDecl.kind = kind
+      def declarator (new TSNode())
+      declarator.nodeType = "VariableDeclarator"
+      declarator.name = varName.value
+      
+      ; Type annotation
+      if (this.matchValue(":")) {
+        def typeAnnot (this.parseTypeAnnotation())
+        declarator.typeAnnotation = typeAnnot
+      }
+      
+      ; Initializer
+      if (this.matchValue("=")) {
+        this.advance()
+        def initVal (this.parseExpr())
+        declarator.init = initVal
+      }
+      
+      push initDecl.children declarator
+      node.init = initDecl
+    } {
+      ; Init could be expression or empty
+      node.nodeType = "ForStatement"
+      if ((this.matchValue(";")) == false) {
+        def initExpr (this.parseExpr())
+        node.init = initExpr
+      }
+    }
+    
+    this.expectValue(";")
+    
+    ; Test condition
+    if ((this.matchValue(";")) == false) {
+      def test (this.parseExpr())
+      node.left = test
+    }
+    
+    this.expectValue(";")
+    
+    ; Update expression
+    if ((this.matchValue(")")) == false) {
+      def update (this.parseExpr())
+      node.right = update
+    }
+    
+    this.expectValue(")")
+    
+    def body (this.parseStatement())
+    node.body = body
+    
+    return node
+  }
+  
+  fn parseSwitchStatement:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "SwitchStatement"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("switch")
+    this.expectValue("(")
+    def discriminant (this.parseExpr())
+    node.left = discriminant
+    this.expectValue(")")
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def caseNode (new TSNode())
+      
+      if (this.matchValue("case")) {
+        caseNode.nodeType = "SwitchCase"
+        this.advance()
+        def test (this.parseExpr())
+        caseNode.left = test
+        this.expectValue(":")
+      }
+      
+      if (this.matchValue("default")) {
+        caseNode.nodeType = "SwitchCase"
+        caseNode.kind = "default"
+        this.advance()
+        this.expectValue(":")
+      }
+      
+      ; Parse consequent statements
+      while (((this.matchValue("case")) == false) && ((this.matchValue("default")) == false) && ((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+        if (this.matchValue("break")) {
+          def breakNode (new TSNode())
+          breakNode.nodeType = "BreakStatement"
+          this.advance()
+          if (this.matchValue(";")) {
+            this.advance()
+          }
+          push caseNode.children breakNode
+        } {
+          def stmt (this.parseStatement())
+          push caseNode.children stmt
+        }
+      }
+      
+      push node.children caseNode
+    }
+    
+    this.expectValue("}")
+    return node
+  }
+  
+  fn parseTryStatement:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "TryStatement"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("try")
+    
+    def tryBlock (this.parseBlock())
+    node.body = tryBlock
+    
+    ; catch clause
+    if (this.matchValue("catch")) {
+      def catchNode (new TSNode())
+      catchNode.nodeType = "CatchClause"
+      this.advance()
+      
+      if (this.matchValue("(")) {
+        this.advance()
+        def param (this.expect("Identifier"))
+        catchNode.name = param.value
+        
+        ; Optional type annotation
+        if (this.matchValue(":")) {
+          def typeAnnot (this.parseTypeAnnotation())
+          catchNode.typeAnnotation = typeAnnot
+        }
+        
+        this.expectValue(")")
+      }
+      
+      def catchBlock (this.parseBlock())
+      catchNode.body = catchBlock
+      node.left = catchNode
+    }
+    
+    ; finally clause
+    if (this.matchValue("finally")) {
+      this.advance()
+      def finallyBlock (this.parseBlock())
+      node.right = finallyBlock
+    }
+    
+    return node
+  }
+
   ; === Variable Declaration ===
   
   fn parseVarDecl:TSNode () {
@@ -474,11 +1205,58 @@ class TSParserSimple {
   ; === Type Expression Parsing ===
   
   fn parseType:TSNode () {
-    return (this.parseUnionType())
+    return (this.parseConditionalType())
+  }
+  
+  ; === Conditional Type: T extends U ? X : Y ===
+  
+  fn parseConditionalType:TSNode () {
+    def checkType (this.parseUnionType())
+    
+    ; Check for 'extends' keyword for conditional type
+    if (this.matchValue("extends")) {
+      this.advance()
+      
+      ; Parse the extends type (what we're checking against)
+      ; Need to be careful - the extendsType stops before ? which is the conditional marker
+      def extendsType (this.parseUnionType())
+      
+      ; If followed by ?, this is a conditional type
+      if (this.matchValue("?")) {
+        this.advance()
+        
+        def conditional (new TSNode())
+        conditional.nodeType = "TSConditionalType"
+        conditional.start = checkType.start
+        conditional.line = checkType.line
+        conditional.col = checkType.col
+        
+        ; checkType is what we're testing
+        conditional.left = checkType
+        ; extendsType is what we're testing against - store in params
+        push conditional.params extendsType
+        
+        ; Parse true type (use parseUnionType to avoid deeper recursion issues)
+        conditional.body = (this.parseUnionType())
+        
+        this.expectValue(":")
+        
+        ; Parse false type
+        conditional.right = (this.parseUnionType())
+        
+        return conditional
+      }
+      
+      ; Not a conditional type, just a type constraint (shouldn't happen at top level)
+      ; Return as-is for now
+      return checkType
+    }
+    
+    return checkType
   }
   
   fn parseUnionType:TSNode () {
-    def left (this.parseArrayType())
+    def left (this.parseIntersectionType())
     
     if (this.matchValue("|")) {
       def union (new TSNode())
@@ -490,11 +1268,34 @@ class TSParserSimple {
       
       while (this.matchValue("|")) {
         this.advance()
-        def right (this.parseArrayType())
+        def right (this.parseIntersectionType())
         push union.children right
       }
       
       return union
+    }
+    
+    return left
+  }
+  
+  fn parseIntersectionType:TSNode () {
+    def left (this.parseArrayType())
+    
+    if (this.matchValue("&")) {
+      def intersection (new TSNode())
+      intersection.nodeType = "TSIntersectionType"
+      intersection.start = left.start
+      intersection.line = left.line
+      intersection.col = left.col
+      push intersection.children left
+      
+      while (this.matchValue("&")) {
+        this.advance()
+        def right (this.parseArrayType())
+        push intersection.children right
+      }
+      
+      return intersection
     }
     
     return left
@@ -533,6 +1334,52 @@ class TSParserSimple {
   fn parsePrimaryType:TSNode () {
     def tokVal (this.peekValue())
     def tok (this.peek())
+    
+    ; keyof operator
+    if (tokVal == "keyof") {
+      this.advance()
+      def operand (this.parsePrimaryType())
+      def node (new TSNode())
+      node.nodeType = "TSTypeOperator"
+      node.value = "keyof"
+      node.start = tok.start
+      node.line = tok.line
+      node.col = tok.col
+      node.typeAnnotation = operand
+      return node
+    }
+    
+    ; typeof operator
+    if (tokVal == "typeof") {
+      this.advance()
+      def operand (this.parsePrimaryType())
+      def node (new TSNode())
+      node.nodeType = "TSTypeQuery"
+      node.value = "typeof"
+      node.start = tok.start
+      node.line = tok.line
+      node.col = tok.col
+      node.typeAnnotation = operand
+      return node
+    }
+    
+    ; infer keyword (for conditional types)
+    if (tokVal == "infer") {
+      this.advance()
+      def paramTok (this.expect("Identifier"))
+      def node (new TSNode())
+      node.nodeType = "TSInferType"
+      node.start = tok.start
+      node.line = tok.line
+      node.col = tok.col
+      
+      def typeParam (new TSNode())
+      typeParam.nodeType = "TSTypeParameter"
+      typeParam.name = paramTok.value
+      node.typeAnnotation = typeParam
+      
+      return node
+    }
     
     ; Primitive types
     if (tokVal == "string") {
@@ -612,18 +1459,47 @@ class TSParserSimple {
       return node
     }
     
+    if (tokVal == "never") {
+      this.advance()
+      def node (new TSNode())
+      node.nodeType = "TSNeverKeyword"
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
+    if (tokVal == "undefined") {
+      this.advance()
+      def node (new TSNode())
+      node.nodeType = "TSUndefinedKeyword"
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
+    
     ; Type reference (Identifier)
     def tokType (this.peekType())
     if (tokType == "Identifier") {
       return (this.parseTypeRef())
     }
     
-    ; Parenthesized type
+    ; Parenthesized type or function type
     if (tokVal == "(") {
-      this.advance()
-      def innerType (this.parseType())
-      this.expectValue(")")
-      return innerType
+      return (this.parseParenOrFunctionType())
+    }
+    
+    ; Tuple type [type, type]
+    if (tokVal == "[") {
+      return (this.parseTupleType())
+    }
+    
+    ; Object type literal { prop: type }
+    if (tokVal == "{") {
+      return (this.parseTypeLiteral())
     }
     
     ; Fallback
@@ -665,6 +1541,442 @@ class TSParserSimple {
     return ref
   }
   
+  ; === Tuple Type [type, type, ...] ===
+  
+  fn parseTupleType:TSNode () {
+    def tuple (new TSNode())
+    tuple.nodeType = "TSTupleType"
+    def startTok (this.peek())
+    tuple.start = startTok.start
+    tuple.line = startTok.line
+    tuple.col = startTok.col
+    
+    this.expectValue("[")
+    
+    while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length tuple.children) > 0) {
+        this.expectValue(",")
+      }
+      
+      ; Check for rest element ...type
+      if (this.matchValue("...")) {
+        this.advance()
+        def innerType (this.parseType())
+        def restType (new TSNode())
+        restType.nodeType = "TSRestType"
+        restType.start = innerType.start
+        restType.line = innerType.line
+        restType.col = innerType.col
+        restType.typeAnnotation = innerType
+        push tuple.children restType
+      } {
+        def elemType (this.parseType())
+        
+        ; Check for optional element type?
+        if (this.matchValue("?")) {
+          this.advance()
+          def optType (new TSNode())
+          optType.nodeType = "TSOptionalType"
+          optType.start = elemType.start
+          optType.line = elemType.line
+          optType.col = elemType.col
+          optType.typeAnnotation = elemType
+          push tuple.children optType
+        } {
+          push tuple.children elemType
+        }
+      }
+    }
+    
+    this.expectValue("]")
+    return tuple
+  }
+  
+  ; === Parenthesized or Function Type ===
+  ; (type) or (param: type) => returnType
+  
+  fn parseParenOrFunctionType:TSNode () {
+    def startTok (this.peek())
+    def startPos startTok.start
+    def startLine startTok.line
+    def startCol startTok.col
+    
+    this.expectValue("(")
+    
+    ; Empty parameter list - must be function type () => T
+    if (this.matchValue(")")) {
+      this.advance()
+      if (this.matchValue("=>")) {
+        this.advance()
+        def returnType (this.parseType())
+        def funcType (new TSNode())
+        funcType.nodeType = "TSFunctionType"
+        funcType.start = startPos
+        funcType.line = startLine
+        funcType.col = startCol
+        funcType.typeAnnotation = returnType
+        return funcType
+      }
+      ; Empty parens without => - return void type
+      def voidNode (new TSNode())
+      voidNode.nodeType = "TSVoidKeyword"
+      return voidNode
+    }
+    
+    ; Check if this looks like function params (identifier followed by : or ?)
+    def isIdentifier (this.matchType("Identifier"))
+    if (isIdentifier) {
+      ; Save position for backtracking
+      def savedPos this.pos
+      def savedToken:Token (unwrap this.currentToken)
+      
+      this.advance() ; consume identifier
+      
+      ; If followed by : or ?, it's a function type parameter
+      if ((this.matchValue(":")) || (this.matchValue("?"))) {
+        ; Reset and parse as function type
+        this.pos = savedPos
+        this.currentToken = savedToken
+        return (this.parseFunctionType(startPos startLine startCol))
+      }
+      
+      ; If followed by , it could still be function type with untyped params
+      if (this.matchValue(",")) {
+        ; Look ahead for => after closing paren
+        def savedPos2 this.pos
+        def savedToken2:Token (unwrap this.currentToken)
+        
+        ; Skip to )
+        def depth 1
+        while ((depth > 0) && ((this.isAtEnd()) == false)) {
+          if (this.matchValue("(")) {
+            depth = depth + 1
+          }
+          if (this.matchValue(")")) {
+            depth = depth - 1
+          }
+          if (depth > 0) {
+            this.advance()
+          }
+        }
+        
+        if (this.matchValue(")")) {
+          this.advance()
+          if (this.matchValue("=>")) {
+            ; It's a function type - backtrack and parse properly
+            this.pos = savedPos
+            this.currentToken = savedToken
+            return (this.parseFunctionType(startPos startLine startCol))
+          }
+        }
+        
+        ; Not a function type - backtrack and parse as parenthesized
+        this.pos = savedPos
+        this.currentToken = savedToken
+      }
+      
+      ; Reset position
+      this.pos = savedPos
+      this.currentToken = savedToken
+    }
+    
+    ; Parse as parenthesized type
+    def innerType (this.parseType())
+    this.expectValue(")")
+    
+    ; Check if followed by => (makes it a function type)
+    if (this.matchValue("=>")) {
+      this.advance()
+      def returnType (this.parseType())
+      def funcType (new TSNode())
+      funcType.nodeType = "TSFunctionType"
+      funcType.start = startPos
+      funcType.line = startLine
+      funcType.col = startCol
+      funcType.typeAnnotation = returnType
+      return funcType
+    }
+    
+    return innerType
+  }
+  
+  fn parseFunctionType:TSNode (startPos:int startLine:int startCol:int) {
+    def funcType (new TSNode())
+    funcType.nodeType = "TSFunctionType"
+    funcType.start = startPos
+    funcType.line = startLine
+    funcType.col = startCol
+    
+    ; Parse function type parameters
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length funcType.params) > 0) {
+        this.expectValue(",")
+      }
+      
+      def param (new TSNode())
+      param.nodeType = "Parameter"
+      
+      def nameTok (this.expect("Identifier"))
+      param.name = nameTok.value
+      param.start = nameTok.start
+      param.line = nameTok.line
+      param.col = nameTok.col
+      
+      ; Optional marker
+      if (this.matchValue("?")) {
+        param.optional = true
+        this.advance()
+      }
+      
+      ; Type annotation
+      if (this.matchValue(":")) {
+        def typeAnnot (this.parseTypeAnnotation())
+        param.typeAnnotation = typeAnnot
+      }
+      
+      push funcType.params param
+    }
+    
+    this.expectValue(")")
+    
+    ; Parse return type after =>
+    if (this.matchValue("=>")) {
+      this.advance()
+      def returnType (this.parseType())
+      funcType.typeAnnotation = returnType
+    }
+    
+    return funcType
+  }
+  
+  ; === Object Type Literal { prop: type } ===
+  
+  fn parseTypeLiteral:TSNode () {
+    def literal (new TSNode())
+    literal.nodeType = "TSTypeLiteral"
+    def startTok (this.peek())
+    literal.start = startTok.start
+    literal.line = startTok.line
+    literal.col = startTok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def member (this.parseTypeLiteralMember())
+      push literal.children member
+      
+      if ((this.matchValue(";")) || (this.matchValue(","))) {
+        this.advance()
+      }
+    }
+    
+    this.expectValue("}")
+    return literal
+  }
+  
+  fn parseTypeLiteralMember:TSNode () {
+    def startTok (this.peek())
+    def startPos startTok.start
+    def startLine startTok.line
+    def startCol startTok.col
+    
+    ; Check for readonly modifier (could be for mapped type or property)
+    def isReadonly false
+    if (this.matchValue("readonly")) {
+      isReadonly = true
+      this.advance()
+    }
+    
+    ; Check for +/- modifiers (mapped types)
+    def readonlyModifier ""
+    if ((this.matchValue("+")) || (this.matchValue("-"))) {
+      readonlyModifier = (this.peekValue())
+      this.advance()
+      if (this.matchValue("readonly")) {
+        isReadonly = true
+        this.advance()
+      }
+    }
+    
+    ; Check for index signature or mapped type: [key: type]: type or [K in keyof T]: T[K]
+    if (this.matchValue("[")) {
+      ; Need to look ahead to determine if this is mapped type or index signature
+      ; Mapped type: [K in ...] 
+      ; Index signature: [key: type]
+      
+      this.advance() ; consume [
+      
+      def paramName (this.expect("Identifier"))
+      
+      ; Check for 'in' keyword - indicates mapped type
+      if (this.matchValue("in")) {
+        return (this.parseMappedType(isReadonly readonlyModifier paramName.value startPos startLine startCol))
+      }
+      
+      ; Otherwise it's an index signature
+      return (this.parseIndexSignatureRest(isReadonly paramName startPos startLine startCol))
+    }
+    
+    ; Property or method name
+    def nameTok (this.expect("Identifier"))
+    def memberName nameTok.value
+    
+    ; Check for optional marker
+    def isOptional false
+    if (this.matchValue("?")) {
+      isOptional = true
+      this.advance()
+    }
+    
+    ; Check for method signature: name(params): returnType
+    if (this.matchValue("(")) {
+      return (this.parseMethodSignature(memberName isOptional startPos startLine startCol))
+    }
+    
+    ; Property signature
+    def prop (new TSNode())
+    prop.nodeType = "TSPropertySignature"
+    prop.start = startPos
+    prop.line = startLine
+    prop.col = startCol
+    prop.name = memberName
+    prop.readonly = isReadonly
+    prop.optional = isOptional
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      def typeAnnot (this.parseTypeAnnotation())
+      prop.typeAnnotation = typeAnnot
+    }
+    
+    return prop
+  }
+  
+  ; === Mapped Type { [K in keyof T]: T[K] } ===
+  
+  fn parseMappedType:TSNode (isReadonly:boolean readonlyMod:string paramName:string startPos:int startLine:int startCol:int) {
+    def mapped (new TSNode())
+    mapped.nodeType = "TSMappedType"
+    mapped.start = startPos
+    mapped.line = startLine
+    mapped.col = startCol
+    mapped.readonly = isReadonly
+    if (readonlyMod != "") {
+      mapped.kind = readonlyMod ; + or - for readonly modifier
+    }
+    
+    this.expectValue("in")
+    
+    ; Parse type parameter: K in keyof T or K in T
+    def typeParam (new TSNode())
+    typeParam.nodeType = "TSTypeParameter"
+    typeParam.name = paramName
+    
+    ; Parse constraint (what comes after 'in')
+    def constraint (this.parseType())
+    typeParam.typeAnnotation = constraint
+    
+    push mapped.params typeParam
+    
+    ; Optional 'as' clause for key remapping: [K in keyof T as NewKey]
+    if (this.matchValue("as")) {
+      this.advance()
+      def nameType (this.parseType())
+      mapped.right = nameType ; store the 'as' type
+    }
+    
+    this.expectValue("]")
+    
+    ; Optional modifier for optionality +/- ?
+    def optionalMod ""
+    if ((this.matchValue("+")) || (this.matchValue("-"))) {
+      optionalMod = (this.peekValue())
+      this.advance()
+    }
+    if (this.matchValue("?")) {
+      mapped.optional = true
+      if (optionalMod != "") {
+        mapped.value = optionalMod ; store +/- for optional
+      }
+      this.advance()
+    }
+    
+    ; Type annotation
+    if (this.matchValue(":")) {
+      this.advance()
+      def valueType (this.parseType())
+      mapped.typeAnnotation = valueType
+    }
+    
+    return mapped
+  }
+  
+  ; === Index Signature (rest of parsing after [ and param name) ===
+  
+  fn parseIndexSignatureRest:TSNode (isReadonly:boolean paramTok:Token startPos:int startLine:int startCol:int) {
+    def indexSig (new TSNode())
+    indexSig.nodeType = "TSIndexSignature"
+    indexSig.start = startPos
+    indexSig.line = startLine
+    indexSig.col = startCol
+    indexSig.readonly = isReadonly
+    
+    ; Create param node from token
+    def param (new TSNode())
+    param.nodeType = "Parameter"
+    param.name = paramTok.value
+    param.start = paramTok.start
+    param.line = paramTok.line
+    param.col = paramTok.col
+    
+    ; Type annotation for param
+    if (this.matchValue(":")) {
+      def typeAnnot (this.parseTypeAnnotation())
+      param.typeAnnotation = typeAnnot
+    }
+    
+    push indexSig.params param
+    
+    this.expectValue("]")
+    
+    ; Type annotation for index signature
+    if (this.matchValue(":")) {
+      def typeAnnot (this.parseTypeAnnotation())
+      indexSig.typeAnnotation = typeAnnot
+    }
+    
+    return indexSig
+  }
+  
+  fn parseMethodSignature:TSNode (methodName:string isOptional:boolean startPos:int startLine:int startCol:int) {
+    def method (new TSNode())
+    method.nodeType = "TSMethodSignature"
+    method.start = startPos
+    method.line = startLine
+    method.col = startCol
+    method.name = methodName
+    method.optional = isOptional
+    
+    ; Parse parameters
+    this.expectValue("(")
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+      if ((array_length method.params) > 0) {
+        this.expectValue(",")
+      }
+      def param (this.parseParam())
+      push method.params param
+    }
+    this.expectValue(")")
+    
+    ; Return type annotation
+    if (this.matchValue(":")) {
+      def returnType (this.parseTypeAnnotation())
+      method.typeAnnotation = returnType
+    }
+    
+    return method
+  }
+
   ; === Expression Parsing (simplified) ===
   
   fn parseExpr:TSNode () {
@@ -672,7 +1984,7 @@ class TSParserSimple {
   }
   
   fn parseAssign:TSNode () {
-    def left (this.parseBinary())
+    def left (this.parseNullishCoalescing())
     
     if (this.matchValue("=")) {
       this.advance()
@@ -687,6 +1999,29 @@ class TSParserSimple {
       assign.line = left.line
       assign.col = left.col
       return assign
+    }
+    
+    return left
+  }
+  
+  ; === Nullish Coalescing (??) ===
+  
+  fn parseNullishCoalescing:TSNode () {
+    def left (this.parseBinary())
+    
+    while (this.matchValue("??")) {
+      this.advance()
+      def right (this.parseBinary())
+      
+      def nullish (new TSNode())
+      nullish.nodeType = "LogicalExpression"
+      nullish.value = "??"
+      nullish.left = left
+      nullish.right = right
+      nullish.start = left.start
+      nullish.line = left.line
+      nullish.col = left.col
+      left = nullish
     }
     
     return left
@@ -734,34 +2069,173 @@ class TSParserSimple {
       return unary
     }
     
-    return (this.parseCall())
+    return (this.parsePostfix())
   }
   
-  fn parseCall:TSNode () {
-    def callee (this.parsePrimary())
+  ; === Postfix expressions: call, member access, optional chaining, non-null assertion ===
+  
+  fn parsePostfix:TSNode () {
+    def expr (this.parsePrimary())
     
-    while (this.matchValue("(")) {
-      this.advance()
-      def call (new TSNode())
-      call.nodeType = "CallExpression"
-      call.left = callee
-      call.start = callee.start
-      call.line = callee.line
-      call.col = callee.col
+    def keepParsing true
+    while (keepParsing) {
+      def tokVal (this.peekValue())
       
-      while ((this.matchValue(")")) == false) {
-        if ((array_length call.children) > 0) {
-          this.expectValue(",")
+      ; Function call ()
+      if (tokVal == "(") {
+        this.advance()
+        def call (new TSNode())
+        call.nodeType = "CallExpression"
+        call.left = expr
+        call.start = expr.start
+        call.line = expr.line
+        call.col = expr.col
+        
+        while ((this.matchValue(")")) == false) {
+          if ((array_length call.children) > 0) {
+            this.expectValue(",")
+          }
+          def arg (this.parseExpr())
+          push call.children arg
         }
-        def arg (this.parseExpr())
-        push call.children arg
+        this.expectValue(")")
+        expr = call
       }
-      this.expectValue(")")
       
-      callee = call
+      ; Member access .property
+      if (tokVal == ".") {
+        this.advance()
+        def propTok (this.expect("Identifier"))
+        def member (new TSNode())
+        member.nodeType = "MemberExpression"
+        member.left = expr
+        member.name = propTok.value
+        member.start = expr.start
+        member.line = expr.line
+        member.col = expr.col
+        expr = member
+      }
+      
+      ; Optional chaining ?.
+      if (tokVal == "?.") {
+        this.advance()
+        def nextTokVal (this.peekValue())
+        
+        ; Optional call ?.()
+        if (nextTokVal == "(") {
+          this.advance()
+          def optCall (new TSNode())
+          optCall.nodeType = "OptionalCallExpression"
+          optCall.optional = true
+          optCall.left = expr
+          optCall.start = expr.start
+          optCall.line = expr.line
+          optCall.col = expr.col
+          
+          while ((this.matchValue(")")) == false) {
+            if ((array_length optCall.children) > 0) {
+              this.expectValue(",")
+            }
+            def arg (this.parseExpr())
+            push optCall.children arg
+          }
+          this.expectValue(")")
+          expr = optCall
+        }
+        
+        ; Optional index ?.[expr]
+        if (nextTokVal == "[") {
+          this.advance()
+          def indexExpr (this.parseExpr())
+          this.expectValue("]")
+          def optIndex (new TSNode())
+          optIndex.nodeType = "OptionalMemberExpression"
+          optIndex.optional = true
+          optIndex.left = expr
+          optIndex.right = indexExpr
+          optIndex.start = expr.start
+          optIndex.line = expr.line
+          optIndex.col = expr.col
+          expr = optIndex
+        }
+        
+        ; Optional member access ?.property
+        if (this.matchType("Identifier")) {
+          def propTok (this.expect("Identifier"))
+          def optMember (new TSNode())
+          optMember.nodeType = "OptionalMemberExpression"
+          optMember.optional = true
+          optMember.left = expr
+          optMember.name = propTok.value
+          optMember.start = expr.start
+          optMember.line = expr.line
+          optMember.col = expr.col
+          expr = optMember
+        }
+      }
+      
+      ; Computed member access [expr]
+      if (tokVal == "[") {
+        this.advance()
+        def indexExpr (this.parseExpr())
+        this.expectValue("]")
+        def computed (new TSNode())
+        computed.nodeType = "MemberExpression"
+        computed.left = expr
+        computed.right = indexExpr
+        computed.start = expr.start
+        computed.line = expr.line
+        computed.col = expr.col
+        expr = computed
+      }
+      
+      ; Non-null assertion !
+      ; Only treat ! as non-null assertion when followed by . or other postfix
+      if (tokVal == "!") {
+        ; Look ahead to see if this is a postfix ! (followed by . or [ etc)
+        ; For now, consume it as non-null assertion
+        def tok (this.peek())
+        this.advance()
+        def nextTokVal (this.peekValue())
+        ; Only treat as non-null if followed by member access
+        if ((nextTokVal == ".") || (nextTokVal == "[") || (nextTokVal == "(") || (nextTokVal == "?.")) {
+          def nonNull (new TSNode())
+          nonNull.nodeType = "TSNonNullExpression"
+          nonNull.left = expr
+          nonNull.start = expr.start
+          nonNull.line = expr.line
+          nonNull.col = tok.col
+          expr = nonNull
+        } {
+          ; Put the token back - this is not a postfix !
+          this.pos = (this.pos - 1)
+          this.currentToken = tok
+          keepParsing = false
+        }
+      }
+      
+      ; Type assertion with 'as' keyword
+      if (tokVal == "as") {
+        this.advance()
+        def asType (this.parseType())
+        def assertion (new TSNode())
+        assertion.nodeType = "TSAsExpression"
+        assertion.left = expr
+        assertion.typeAnnotation = asType
+        assertion.start = expr.start
+        assertion.line = expr.line
+        assertion.col = expr.col
+        expr = assertion
+      }
+      
+      ; Check if we should continue
+      def newTokVal (this.peekValue())
+      if ((newTokVal != "(") && (newTokVal != ".") && (newTokVal != "?.") && (newTokVal != "[") && (newTokVal != "!") && (newTokVal != "as")) {
+        keepParsing = false
+      }
     }
     
-    return callee
+    return expr
   }
   
   fn parsePrimary:TSNode () {

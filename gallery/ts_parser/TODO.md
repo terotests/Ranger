@@ -6,48 +6,59 @@ Missing TypeScript syntax features that need to be implemented.
 
 ### Type System
 
-- [ ] **Arrow function types** in interfaces/type aliases
+- [x] **Arrow function types** in interfaces/type aliases ✓ (Implemented)
 
   ```typescript
   interface Example {
-    callback: (value: number) => string; // Currently not parsed correctly
+    callback: (value: number) => string; // Now parsed correctly
   }
   type Handler = (event: Event) => void;
   ```
 
-- [ ] **Generic type parameters** in type declarations
+- [x] **Generic type parameters** in type declarations ✓ (Implemented)
 
   ```typescript
-  type Container<T> = { value: T }; // <T> not parsed
+  type Container<T> = { value: T }; // Now parsed correctly
   type Result<T, E> = Success<T> | Failure<E>;
   ```
 
-- [ ] **Intersection types**
+- [x] **Intersection types** ✓ (Implemented)
 
   ```typescript
   type Combined = TypeA & TypeB;
   ```
 
-- [ ] **Tuple types**
+- [x] **Tuple types** ✓ (Implemented)
 
   ```typescript
   type Point = [number, number];
   type Named = [string, ...number[]];
   ```
 
-- [ ] **Mapped types**
+- [x] **Mapped types** ✓ (Implemented)
 
   ```typescript
   type Readonly<T> = { readonly [K in keyof T]: T[K] };
+  type Partial<T> = { [K in keyof T]?: T[K] };
+  type Rename<T> = { [K in keyof T as `new_${K}`]: T[K] };
   ```
 
-- [ ] **Conditional types**
+- [x] **Conditional types** ✓ (Implemented)
 
   ```typescript
   type NonNullable<T> = T extends null | undefined ? never : T;
+  type ReturnType<T> = T extends (...args: any[]) => infer R ? R : never;
   ```
 
-- [ ] **Index signature types**
+- [x] **Type operators** ✓ (Implemented)
+
+  ```typescript
+  type Keys = keyof MyType;
+  type Type = typeof myValue;
+  type Inferred = T extends Array<infer U> ? U : never;
+  ```
+
+- [x] **Index signature types** ✓ (Implemented)
   ```typescript
   interface StringMap {
     [key: string]: string;
@@ -56,41 +67,41 @@ Missing TypeScript syntax features that need to be implemented.
 
 ### Expressions
 
-- [ ] **Nullish coalescing** (`??`)
+- [x] **Nullish coalescing** (`??`) ✓ (Implemented)
 
   ```typescript
   const value = input ?? defaultValue;
   ```
 
-- [ ] **Optional chaining** (`?.`)
+- [x] **Optional chaining** (`?.`) ✓ (Implemented)
 
   ```typescript
   const name = user?.profile?.name;
   ```
 
-- [ ] **Type assertions**
+- [x] **Type assertions** ✓ (Implemented - 'as' keyword)
 
   ```typescript
   const x = value as string;
-  const y = <number>value;
+  const y = <number>value; // angle bracket form not yet supported
   ```
 
-- [ ] **Non-null assertion** (`!`)
+- [x] **Non-null assertion** (`!`) ✓ (Implemented)
   ```typescript
   const name = user!.name;
   ```
 
 ### Declarations
 
-- [ ] **Method signatures** in interfaces (with proper body parsing)
+- [x] **Method signatures** in interfaces (with proper body parsing) ✓ (Implemented)
 
   ```typescript
   interface Calculator {
-    add(a: number, b: number): number; // Parsed as separate properties currently
+    add(a: number, b: number): number; // Now parsed correctly
   }
   ```
 
-- [ ] **Class declarations**
+- [x] **Class declarations** ✓ (Implemented)
 
   ```typescript
   class Person {
@@ -104,7 +115,7 @@ Missing TypeScript syntax features that need to be implemented.
   }
   ```
 
-- [ ] **Enum declarations**
+- [x] **Enum declarations** ✓ (Implemented)
 
   ```typescript
   enum Color {
@@ -137,9 +148,9 @@ Missing TypeScript syntax features that need to be implemented.
 
 ### Modifiers
 
-- [ ] **Access modifiers** (public, private, protected)
-- [ ] **Static modifier**
-- [ ] **Abstract modifier**
+- [x] **Access modifiers** (public, private, protected) ✓ (Implemented in class members)
+- [x] **Static modifier** ✓ (Implemented in class members)
+- [x] **Abstract modifier** ✓ (Implemented in class and class members)
 - [ ] **Override modifier**
 
 ### Import/Export
@@ -161,21 +172,21 @@ Missing TypeScript syntax features that need to be implemented.
 
 ### Control Flow
 
-- [ ] **For...of loops**
+- [x] **For...of loops** ✓ (Implemented)
 
   ```typescript
   for (const item of items) {
   }
   ```
 
-- [ ] **For...in loops**
+- [x] **For...in loops** ✓ (Implemented)
 
   ```typescript
   for (const key in object) {
   }
   ```
 
-- [ ] **Try/catch/finally**
+- [x] **Try/catch/finally** ✓ (Implemented)
 
   ```typescript
   try {
@@ -184,7 +195,8 @@ Missing TypeScript syntax features that need to be implemented.
   }
   ```
 
-- [ ] **Switch statements**
+- [x] **Switch statements** ✓ (Implemented)
+
   ```typescript
   switch (value) {
     case 1:
@@ -193,6 +205,12 @@ Missing TypeScript syntax features that need to be implemented.
       break;
   }
   ```
+
+- [x] **If/else statements** ✓ (Implemented)
+
+- [x] **While loops** ✓ (Implemented)
+
+- [x] **For loops** ✓ (Implemented)
 
 ### Literals
 

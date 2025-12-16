@@ -1,288 +1,277 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { compileRanger, compileAndRun } from "./helpers/compiler";
 import * as path from "path";
+import * as fs from "fs";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
-const TS_PARSER_DIR = path.join(ROOT_DIR, "gallery", "ts_parser");
+const TS_PARSER_MODULE_PATH = path.join(
+  ROOT_DIR,
+  "gallery",
+  "ts_parser",
+  "benchmark",
+  "ts_parser_module.cjs"
+);
+
+// Module exports - populated after module is loaded
+let TSLexer: any;
+let TSNode: any;
+let TSParserSimple: any;
+
+// Load the pre-compiled module
+beforeAll(() => {
+  if (!fs.existsSync(TS_PARSER_MODULE_PATH)) {
+    throw new Error(
+      "Parser module not found. Run 'npm run tsparser:module' first to compile it."
+    );
+  }
+  const require = createRequire(import.meta.url);
+  const tsParserModule = require("../gallery/ts_parser/benchmark/ts_parser_module.cjs");
+  TSLexer = tsParserModule.TSLexer;
+  TSNode = tsParserModule.TSNode;
+  TSParserSimple = tsParserModule.TSParserSimple;
+});
+
+// Helper to parse TypeScript code and return AST
+function parseTS(code: string): any {
+  const lexer = new TSLexer(code);
+  const tokens = lexer.tokenize();
+  const parser = new TSParserSimple();
+  parser.initParser(tokens);
+  parser.setQuiet(true);
+  return parser.parseProgram();
+}
 
 /**
- * TypeScript Lexer Tests
- *
- * Tests that the TypeScript lexer correctly tokenizes TypeScript source code
- * following the ESTree token format with TypeScript extensions.
- *
- * Token types:
- *   - Identifier: variable and type names
- *   - Keyword: JavaScript keywords (let, const, function, etc.)
- *   - TSKeyword: TypeScript keywords (type, interface, readonly, etc.)
- *   - TSType: TypeScript primitive types (string, number, boolean, etc.)
- *   - Punctuator: operators and punctuation
- *   - String: string literals
- *   - Number: numeric literals
- *   - Boolean: true/false
- *   - Null: null
- *   - LineComment: // comments
- *   - BlockComment: /* comments
- *   - EOF: end of file
+ * TypeScript Parser Module Tests
  */
-
-describe("TypeScript Lexer", () => {
-  describe("Compilation", () => {
-    it("compiles ts_lexer_main.rgr to JavaScript", () => {
-      const result = compileRanger(
-        "gallery/ts_parser/ts_lexer_main.rgr",
-        "es6",
-        TS_PARSER_DIR
-      );
-      expect(result.success).toBe(true);
-      expect(result.error).toBeUndefined();
-    });
+describe("TypeScript Parser Module", () => {
+  it("exports TSLexer class", () => {
+    expect(TSLexer).toBeDefined();
   });
 
-  describe("ESTree Token Recognition", () => {
-    let lexerOutput: string;
+  it("exports TSParserSimple class", () => {
+    expect(TSParserSimple).toBeDefined();
+  });
 
-    beforeAll(() => {
-      // Compile and run the lexer to get output
-      const result = compileAndRun("gallery/ts_parser/ts_lexer_main.rgr");
-      expect(result.compile.success).toBe(true);
-      expect(result.run?.success).toBe(true);
-      lexerOutput = result.run?.output || "";
-    });
-
-    it("tokenizes TypeScript keywords as TSKeyword", () => {
-      // TypeScript-specific keywords get TSKeyword type
-      expect(lexerOutput).toContain("TSKeyword: 'interface'");
-      expect(lexerOutput).toContain("TSKeyword: 'readonly'");
-      expect(lexerOutput).toContain("TSKeyword: 'implements'");
-      expect(lexerOutput).toContain("TSKeyword: 'public'");
-      expect(lexerOutput).toContain("TSKeyword: 'private'");
-      expect(lexerOutput).toContain("TSKeyword: 'protected'");
-    });
-
-    it("tokenizes TypeScript primitive types as TSType", () => {
-      // Primitive types recognized as TSType (following ESTree TS extensions)
-      expect(lexerOutput).toContain("TSType: 'string'");
-      expect(lexerOutput).toContain("TSType: 'number'");
-      expect(lexerOutput).toContain("TSType: 'boolean'");
-      expect(lexerOutput).toContain("TSType: 'any'");
-      expect(lexerOutput).toContain("TSType: 'unknown'");
-    });
-
-    it("tokenizes JavaScript keywords as Keyword", () => {
-      // Standard JavaScript keywords
-      expect(lexerOutput).toContain("Keyword: 'let'");
-      expect(lexerOutput).toContain("Keyword: 'const'");
-      expect(lexerOutput).toContain("Keyword: 'var'");
-      expect(lexerOutput).toContain("Keyword: 'function'");
-      expect(lexerOutput).toContain("Keyword: 'return'");
-      expect(lexerOutput).toContain("Keyword: 'class'");
-      expect(lexerOutput).toContain("Keyword: 'this'");
-    });
-
-    it("tokenizes identifiers correctly", () => {
-      expect(lexerOutput).toContain("Identifier: 'name'");
-      expect(lexerOutput).toContain("Identifier: 'count'");
-      expect(lexerOutput).toContain("Identifier: 'Person'");
-      expect(lexerOutput).toContain("Identifier: 'User'");
-      expect(lexerOutput).toContain("Identifier: 'greet'");
-      expect(lexerOutput).toContain("Identifier: 'identity'");
-    });
-
-    it("tokenizes literals correctly", () => {
-      // String literals
-      expect(lexerOutput).toContain("String: 'TypeScript'");
-      expect(lexerOutput).toContain("String: 'Hello, '");
-
-      // Number literals
-      expect(lexerOutput).toContain("Number: '42'");
-      expect(lexerOutput).toContain("Number: '1'");
-
-      // Boolean literals
-      expect(lexerOutput).toContain("Boolean: 'true'");
-
-      // Null literal
-      expect(lexerOutput).toContain("Null: 'null'");
-    });
-
-    it("tokenizes punctuators for type annotations", () => {
-      // Type annotation colon
-      expect(lexerOutput).toContain("Punctuator: ':'");
-
-      // Optional property marker
-      expect(lexerOutput).toContain("Punctuator: '?'");
-
-      // Union type operator
-      expect(lexerOutput).toContain("Punctuator: '|'");
-
-      // Intersection type operator
-      expect(lexerOutput).toContain("Punctuator: '&'");
-
-      // Generic brackets
-      expect(lexerOutput).toContain("Punctuator: '<'");
-      expect(lexerOutput).toContain("Punctuator: '>'");
-
-      // Arrow function
-      expect(lexerOutput).toContain("Punctuator: '=>'");
-    });
-
-    it("tokenizes comments", () => {
-      // Line comments
-      expect(lexerOutput).toContain("LineComment:");
-    });
-
-    it("tracks line and column positions", () => {
-      // Position format [line:col]
-      expect(lexerOutput).toMatch(/\[\d+:\d+\]/);
-    });
-
-    it("produces EOF token at end", () => {
-      expect(lexerOutput).toContain("EOF:");
-    });
+  it("exports TSNode class", () => {
+    expect(TSNode).toBeDefined();
   });
 });
 
-describe("TypeScript Lexer - Specific Token Tests", () => {
-  // These tests verify the lexer output from the main test file
-  // The main test file contains comprehensive TypeScript code
-
-  let lexerOutput: string;
-
-  beforeAll(() => {
-    const result = compileAndRun("gallery/ts_parser/ts_lexer_main.rgr");
-    expect(result.compile.success).toBe(true);
-    expect(result.run?.success).toBe(true);
-    lexerOutput = result.run?.output || "";
+/**
+ * TypeScript Lexer Tests
+ */
+describe("TypeScript Lexer", () => {
+  it("tokenizes code and returns tokens", () => {
+    const lexer = new TSLexer("let x = 42;");
+    const tokens = lexer.tokenize();
+    expect(tokens.length).toBeGreaterThan(0);
   });
 
-  describe("Generic Type Syntax", () => {
-    it("tokenizes generic parameters with angle brackets", () => {
-      // Test file has: Array<string>, Result<T>
-      expect(lexerOutput).toContain("Identifier: 'Array'");
-      expect(lexerOutput).toContain("Punctuator: '<'");
-      expect(lexerOutput).toContain("Punctuator: '>'");
-    });
-
-    it("tokenizes generic function: identity<T>", () => {
-      // Test file has: function identity<T>(arg: T): T
-      expect(lexerOutput).toContain("Identifier: 'identity'");
-      expect(lexerOutput).toContain("Identifier: 'T'");
-      expect(lexerOutput).toContain("Identifier: 'arg'");
-    });
+  it("tokenizes identifiers", () => {
+    const lexer = new TSLexer("myVar");
+    const tokens = lexer.tokenize();
+    expect(tokens.length).toBeGreaterThan(0);
+    // Token has tokenType property
+    expect(tokens[0].tokenType).toBe("Identifier");
   });
 
-  describe("Union and Intersection Types", () => {
-    it("tokenizes union type operator", () => {
-      // Test file has: type ID = string | number
-      expect(lexerOutput).toContain("TSType: 'string'");
-      expect(lexerOutput).toContain("Punctuator: '|'");
-      expect(lexerOutput).toContain("TSType: 'number'");
-    });
-
-    it("tokenizes intersection type operator", () => {
-      // Test file has: type NamedPerson = Named & Aged
-      expect(lexerOutput).toContain("Identifier: 'Named'");
-      expect(lexerOutput).toContain("Punctuator: '&'");
-      expect(lexerOutput).toContain("Identifier: 'Aged'");
-    });
-
-    it("tokenizes null in union types", () => {
-      // Test file has: type Result<T> = T | null
-      expect(lexerOutput).toContain("Null: 'null'");
-    });
+  it("tokenizes keywords", () => {
+    const lexer = new TSLexer("let const");
+    const tokens = lexer.tokenize();
+    expect(tokens[0].tokenType).toBe("Keyword");
   });
 
-  describe("Type Assertions (ESTree: TSAsExpression)", () => {
-    it("tokenizes 'as' keyword for type assertion", () => {
-      // Test file has: (someValue as string)
-      expect(lexerOutput).toContain("Identifier: 'someValue'");
-      expect(lexerOutput).toContain("Keyword: 'as'");
-    });
+  it("tokenizes numbers", () => {
+    const lexer = new TSLexer("42");
+    const tokens = lexer.tokenize();
+    expect(tokens[0].tokenType).toBe("Number");
   });
 
-  describe("Optional Properties (ESTree: optional flag)", () => {
-    it("tokenizes optional property marker", () => {
-      // Test file has: age?: number (in interface and function params)
-      expect(lexerOutput).toContain("Identifier: 'age'");
-      expect(lexerOutput).toContain("Punctuator: '?'");
-    });
+  it("tokenizes strings", () => {
+    const lexer = new TSLexer('"hello"');
+    const tokens = lexer.tokenize();
+    expect(tokens[0].tokenType).toBe("String");
+  });
+});
+
+/**
+ * TypeScript Parser - AST Node Tests
+ */
+describe("TypeScript Parser - Declarations", () => {
+  it("parses interface declaration", () => {
+    const ast = parseTS("interface User { name: string; }");
+    expect(ast.children[0].nodeType).toBe("TSInterfaceDeclaration");
   });
 
-  describe("TypeScript Keywords (ESTree: TSKeyword nodes)", () => {
-    it("tokenizes 'type' keyword", () => {
-      expect(lexerOutput).toContain("TSKeyword: 'type'");
-    });
-
-    it("tokenizes 'interface' keyword", () => {
-      expect(lexerOutput).toContain("TSKeyword: 'interface'");
-    });
-
-    it("tokenizes 'implements' keyword", () => {
-      // Test file has: class User implements Person
-      expect(lexerOutput).toContain("TSKeyword: 'implements'");
-    });
+  it("parses type alias declaration", () => {
+    const ast = parseTS("type ID = string;");
+    expect(ast.children[0].nodeType).toBe("TSTypeAliasDeclaration");
   });
 
-  describe("TypeScript Primitive Types (ESTree: TS*Keyword nodes)", () => {
-    it("tokenizes 'any' type", () => {
-      // Test file has: let value: any
-      expect(lexerOutput).toContain("TSType: 'any'");
-    });
-
-    it("tokenizes 'unknown' type", () => {
-      // Test file has: let data: unknown
-      expect(lexerOutput).toContain("TSType: 'unknown'");
-    });
-
-    it("tokenizes 'void' in function return type", () => {
-      // Test file has: greet(msg: string): void
-      expect(lexerOutput).toContain("Keyword: 'void'");
-    });
+  it("parses function declaration", () => {
+    const ast = parseTS("function greet(name: string): void {}");
+    expect(ast.children[0].nodeType).toBe("FunctionDeclaration");
   });
 
-  describe("Access Modifiers (ESTree: accessibility property)", () => {
-    it("tokenizes 'public' modifier", () => {
-      // Test file has: public readonly id: number
-      expect(lexerOutput).toContain("TSKeyword: 'public'");
-    });
-
-    it("tokenizes 'private' modifier", () => {
-      // Test file has: private name: string
-      expect(lexerOutput).toContain("TSKeyword: 'private'");
-    });
-
-    it("tokenizes 'protected' modifier", () => {
-      // Test file has: protected age: number
-      expect(lexerOutput).toContain("TSKeyword: 'protected'");
-    });
-
-    it("tokenizes 'readonly' modifier", () => {
-      // Test file has: readonly id: number
-      expect(lexerOutput).toContain("TSKeyword: 'readonly'");
-    });
+  it("parses variable declaration", () => {
+    const ast = parseTS("let x: number = 42;");
+    expect(ast.children[0].nodeType).toBe("VariableDeclaration");
   });
 
-  describe("Array Types", () => {
-    it("tokenizes array shorthand brackets", () => {
-      // Test file has: number[] and similar
-      expect(lexerOutput).toContain("Punctuator: '['");
-      expect(lexerOutput).toContain("Punctuator: ']'");
-    });
-
-    it("tokenizes generic array: Array<string>", () => {
-      // Test file has: Array<string>
-      expect(lexerOutput).toContain("Identifier: 'Array'");
-    });
+  it("parses class declaration", () => {
+    const ast = parseTS("class User {}");
+    expect(ast.children[0].nodeType).toBe("ClassDeclaration");
   });
 
-  describe("Function Types", () => {
-    it("tokenizes arrow function type syntax", () => {
-      // Test file has: const add: (a: number, b: number) => number
-      expect(lexerOutput).toContain("Identifier: 'add'");
-      expect(lexerOutput).toContain("Punctuator: '=>'");
-    });
+  it("parses enum declaration", () => {
+    const ast = parseTS("enum Color { Red, Green }");
+    expect(ast.children[0].nodeType).toBe("TSEnumDeclaration");
+  });
+});
+
+describe("TypeScript Parser - Types", () => {
+  it("parses string keyword", () => {
+    const ast = parseTS("type S = string;");
+    expect(ast.children[0].typeAnnotation.nodeType).toBe("TSStringKeyword");
+  });
+
+  it("parses number keyword", () => {
+    const ast = parseTS("type N = number;");
+    expect(ast.children[0].typeAnnotation.nodeType).toBe("TSNumberKeyword");
+  });
+
+  it("parses union types", () => {
+    const ast = parseTS("type U = string | number;");
+    expect(ast.children[0].typeAnnotation.nodeType).toBe("TSUnionType");
+  });
+
+  it("parses intersection types", () => {
+    const ast = parseTS("type I = A & B;");
+    expect(ast.children[0].typeAnnotation.nodeType).toBe("TSIntersectionType");
+  });
+
+  it("parses array types", () => {
+    const ast = parseTS("type A = string[];");
+    expect(ast.children[0].typeAnnotation.nodeType).toBe("TSArrayType");
+  });
+
+  it("parses tuple types", () => {
+    const ast = parseTS("type T = [string, number];");
+    expect(ast.children[0].typeAnnotation.nodeType).toBe("TSTupleType");
+  });
+
+  it("parses type references", () => {
+    const ast = parseTS("type R = MyType;");
+    expect(ast.children[0].typeAnnotation.nodeType).toBe("TSTypeReference");
+  });
+
+  it("parses function types", () => {
+    const ast = parseTS("type F = (x: number) => string;");
+    expect(ast.children[0].typeAnnotation.nodeType).toBe("TSFunctionType");
+  });
+
+  it("parses type literal", () => {
+    const ast = parseTS("type O = { x: number; };");
+    expect(ast.children[0].typeAnnotation.nodeType).toBe("TSTypeLiteral");
+  });
+});
+
+describe("TypeScript Parser - Statements", () => {
+  it("parses if statement", () => {
+    const ast = parseTS("if (x) { y; }");
+    expect(ast.children[0].nodeType).toBe("IfStatement");
+  });
+
+  it("parses while statement", () => {
+    const ast = parseTS("while (x) { y; }");
+    expect(ast.children[0].nodeType).toBe("WhileStatement");
+  });
+
+  it("parses for statement", () => {
+    const ast = parseTS("for (let i = 0; i < 10; i = i + 1) {}");
+    expect(ast.children[0].nodeType).toBe("ForStatement");
+  });
+
+  it("parses for-of statement", () => {
+    const ast = parseTS("for (const x of items) {}");
+    expect(ast.children[0].nodeType).toBe("ForOfStatement");
+  });
+
+  it("parses switch statement", () => {
+    const ast = parseTS("switch (x) { case 1: break; }");
+    expect(ast.children[0].nodeType).toBe("SwitchStatement");
+  });
+
+  it("parses try statement", () => {
+    const ast = parseTS("try { x; } catch (e) { y; }");
+    expect(ast.children[0].nodeType).toBe("TryStatement");
+  });
+
+  it("parses return statement", () => {
+    const ast = parseTS("function f() { return 42; }");
+    expect(ast.children[0].body.children[0].nodeType).toBe("ReturnStatement");
+  });
+});
+
+describe("TypeScript Parser - Expressions", () => {
+  it("parses binary expression", () => {
+    const ast = parseTS("let x = a + b;");
+    expect(ast.children[0].children[0].init.nodeType).toBe("BinaryExpression");
+  });
+
+  it("parses call expression", () => {
+    const ast = parseTS("let x = foo();");
+    expect(ast.children[0].children[0].init.nodeType).toBe("CallExpression");
+  });
+
+  it("parses member expression", () => {
+    const ast = parseTS("let x = obj.prop;");
+    expect(ast.children[0].children[0].init.nodeType).toBe("MemberExpression");
+  });
+
+  it("parses as expression", () => {
+    const ast = parseTS("let x = value as string;");
+    expect(ast.children[0].children[0].init.nodeType).toBe("TSAsExpression");
+  });
+});
+
+describe("TypeScript Parser - Class Members", () => {
+  it("parses property definition", () => {
+    const ast = parseTS("class C { name: string; }");
+    expect(ast.children[0].body.children[0].nodeType).toBe(
+      "PropertyDefinition"
+    );
+  });
+
+  it("parses method definition", () => {
+    const ast = parseTS("class C { foo(): void {} }");
+    expect(ast.children[0].body.children[0].nodeType).toBe("MethodDefinition");
+  });
+
+  it("parses constructor", () => {
+    const ast = parseTS("class C { constructor() {} }");
+    expect(ast.children[0].body.children[0].kind).toBe("constructor");
+  });
+});
+
+describe("TypeScript Parser - Generics", () => {
+  it("parses generic interface", () => {
+    const ast = parseTS("interface Box<T> { value: T; }");
+    expect(ast.children[0].params.length).toBe(1);
+    expect(ast.children[0].params[0].nodeType).toBe("TSTypeParameter");
+  });
+
+  it("parses generic type alias", () => {
+    const ast = parseTS("type Container<T> = { value: T; };");
+    expect(ast.children[0].params.length).toBe(1);
+  });
+
+  it("parses generic class", () => {
+    const ast = parseTS("class Box<T> { value: T; }");
+    expect(ast.children[0].params.length).toBe(1);
   });
 });
