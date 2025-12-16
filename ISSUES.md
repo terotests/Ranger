@@ -2,9 +2,10 @@
 
 ## Issue #1: Compiler crash with `toString` method name
 
-**Status:** Open  
+**Status:** Fixed  
 **Severity:** High  
-**Found:** December 11, 2025
+**Found:** December 11, 2025  
+**Fixed:** December 16, 2025
 
 ### Description
 
@@ -54,24 +55,31 @@ class Main {
 }
 ```
 
-### Workaround
+### Root Cause
 
-Rename the `toString` method to something else, like `getSymbol`, `asString`, `toStr`, etc.
+The `get` operator for dictionaries in ES6/JavaScript used direct bracket access `obj[key]` which returns values from the prototype chain. When `key` is `"toString"`, `obj["toString"]` returns `Object.prototype.toString` (a function) instead of `undefined`.
 
+In `ng_RangerAppClassDesc.rgr`, the `addMethod` function uses:
 ```ranger
-fn getSymbol:string () {
-    return value
-}
+def defVs:RangerAppMethodVariants (get method_variants desc.name)
+if (null? defVs) { ... }
 ```
 
-### Root Cause (Suspected)
+When `desc.name` is `"toString"`, the `get` returned the inherited function, not `undefined`, so the code tried to access `.variants` on a function object, causing the crash.
 
-The name `toString` is likely a reserved/special method name in JavaScript (the target language), and the compiler's method collection phase may be trying to handle it specially but encounters an uninitialized array.
+### Resolution
 
-### Files Affected
+Fixed the `get` operator template for ES6 in `compiler/Lang.rgr` to use `hasOwnProperty` check:
 
-- Compiler source likely in `compiler/ng_LiveCompiler.clj` or related files
-- The bug occurs before code analysis phase
+```ranger
+es6 ( "( " (e 1) ".hasOwnProperty(" (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
+```
+
+This ensures that only properties directly on the object are returned, not inherited prototype properties like `toString`, `valueOf`, `hasOwnProperty`, etc.
+
+### Files Changed
+
+- `compiler/Lang.rgr` - Added ES6-specific template for dictionary `get` operator
 
 ---
 
@@ -748,11 +756,12 @@ cpp ( 'r_utf8_substr(' (e 1) ', ' (e 2) ', 1)'
 
 ---
 
-## Issue #13: Variable definition fails inside nested if blocks
+## Issue #14: Variable definition fails inside nested if blocks
 
-**Status:** Open (Workaround Available)  
+**Status:** Fixed  
 **Severity:** Medium  
-**Found:** December 16, 2025
+**Found:** December 16, 2025  
+**Fixed:** December 16, 2025
 
 ### Description
 
@@ -775,69 +784,25 @@ Type mismatch boolean <> TSNode. Can not assign variable.
         ^-------
 ```
 
-### Minimal Reproduction
+### Root Cause
+
+The parser in `ng_parser_v2.rgr` was incorrectly tokenizing identifiers that started with `true` or `false`. For example, `trueType` was being split into `true` (boolean literal) + `Type` (identifier), causing parsing errors.
+
+The `true`/`false` keyword matching checked for the character sequence but did not verify that it was followed by a word boundary character.
+
+### Resolution
+
+Fixed `ng_parser_v2.rgr` to add word boundary checks when matching `true` and `false` keywords:
 
 ```ranger
-class TSNode {
-  def body@(optional):TSNode
-}
-
-class Parser {
-  fn parseType:TSNode () {
-    def node (new TSNode())
-    return node
-  }
-
-  fn matchValue:boolean (v:string) {
-    return true
-  }
-
-  fn parse:TSNode () {
-    def outer (new TSNode())
-
-    if (this.matchValue("extends")) {
-      if (this.matchValue("?")) {
-        def conditional (new TSNode())
-
-        ; This fails with "invalid variable definition"
-        def trueType:TSNode (this.parseType())
-        conditional.body = trueType  ; Type mismatch boolean <> TSNode
-
-        return conditional
-      }
-    }
-
-    return outer
-  }
-}
+; Check for 'true' keyword - but only if followed by a word boundary
+def nextCharT:char (charAt s (i + 4))
+if ((fc == ((ccode "t"))) && ... && ((nextCharT <= 32) || (nextCharT == 40) || (nextCharT == 41) || (nextCharT == 58) || (nextCharT == ((ccode "}"))) || ((i + 4) >= len))) {
 ```
 
-### Workaround
+This ensures `true` is only recognized as a boolean literal when followed by whitespace, parentheses, colon, brace, or end of input - not when it's part of a longer identifier like `trueType`.
 
-Instead of defining an intermediate variable and then assigning, use direct assignment:
+### Files Changed
 
-```ranger
-; Instead of:
-def trueType:TSNode (this.parseType())
-conditional.body = trueType
-
-; Use direct assignment:
-conditional.body = (this.parseUnionType())
-```
-
-Note: The workaround may require calling a different function (like `parseUnionType` instead of `parseType`) if the original function would cause recursion depth issues.
-
-### Root Cause (Suspected)
-
-The compiler's type inference appears to get confused when:
-
-1. Inside nested `if` blocks (especially when the condition involves method calls returning boolean)
-2. A variable is defined with a function call that returns a class type
-3. The variable is then assigned to an optional property
-
-The compiler seems to incorrectly infer the context type as `boolean` from the enclosing `if` condition.
-
-### Files Affected
-
-- Compiler type inference logic (likely in `compiler/ng_LiveCompiler.rgr` or `compiler/ng_FlowWork.rgr`)
-- Encountered in `gallery/ts_parser/ts_parser_simple.rgr`
+- `compiler/ng_parser_v2.rgr` - Added word boundary checks for `true`/`false` keyword parsing
+- `compiler/ng_RangerLispParser.rgr` - Same fix for consistency

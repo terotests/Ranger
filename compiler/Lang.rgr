@@ -1201,7 +1201,10 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         *               cmdMulOp:int            ( left:int right:int ) { templates { * ( (e 1) " * " (e 2) ) } }
 
         /               cmdDivOp:double         ( left:double right:double ) { templates { * ( (e 1) " / " (e 2) ) } }
-        /               cmdDivOp:double         ( left:int right:int ) { templates { * ( (e 1) " / " (e 2) ) } }
+        /               cmdDivOp:double         ( left:int right:int ) { templates { 
+            go ( "float64(" (e 1) ") / float64(" (e 2) ")" )
+            * ( (e 1) " / " (e 2) ) 
+        } }
 
         ; optional string operator...
         ||              _:string         ( left:string right:string ) @doc('selects the first string if length > 0, else the second...') { 
@@ -2719,7 +2722,8 @@ r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> 
     "return res" nl
 i "}" nl ))                   
                     "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
-                )                
+                )
+                es6 ( "( " (e 1) ".hasOwnProperty(" (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
                 * ( (e 1) "[" (e 2) "]" )
             }            
         }                 
