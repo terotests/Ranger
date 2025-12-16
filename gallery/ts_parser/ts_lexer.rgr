@@ -213,6 +213,47 @@ class TSLexer {
         return (this.makeToken("String" value startPos startLine startCol))
     }
 
+    fn readTemplateLiteral:Token () {
+        def startPos:int pos
+        def startLine:int line
+        def startCol:int col
+        this.advance() ; consume opening backtick
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peek())
+            if (ch == "`") {
+                this.advance()
+                return (this.makeToken("Template" value startPos startLine startCol))
+            }
+            if (ch == "\\") {
+                this.advance()
+                def esc:string (this.advance())
+                if (esc == "n") { 
+                    value = value + "\n" 
+                } {
+                    if (esc == "t") { 
+                        value = value + "\t" 
+                    } {
+                        if (esc == "`") { 
+                            value = value + "`" 
+                        } {
+                            if (esc == "$") { 
+                                value = value + "$" 
+                            } {
+                                value = value + esc
+                            }
+                        }
+                    }
+                }
+            } {
+                ; For now, treat ${...} as literal text
+                ; A full implementation would tokenize interpolations separately
+                value = value + (this.advance())
+            }
+        }
+        return (this.makeToken("Template" value startPos startLine startCol))
+    }
+
     fn readNumber:Token () {
         def startPos:int pos
         def startLine:int line
@@ -358,6 +399,9 @@ class TSLexer {
         ; Strings
         if (ch == "\"") { return (this.readString("\"")) }
         if (ch == "'") { return (this.readString("'")) }
+        
+        ; Template literals
+        if (ch == "`") { return (this.readTemplateLiteral()) }
 
         ; Numbers
         if (this.isDigit(ch)) { return (this.readNumber()) }

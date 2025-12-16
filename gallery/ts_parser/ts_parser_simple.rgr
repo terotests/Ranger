@@ -36,6 +36,7 @@ class TSParserSimple {
   def pos:int 0
   def currentToken@(optional):Token
   def quiet:boolean false   ; suppress error messages
+  def tsxMode:boolean false ; enable JSX/TSX parsing
   
   fn initParser:void (toks:[Token]) {
     this.tokens = toks
@@ -48,6 +49,10 @@ class TSParserSimple {
   
   fn setQuiet:void (q:boolean) {
     this.quiet = q
+  }
+  
+  fn setTsxMode:void (enabled:boolean) {
+    this.tsxMode = enabled
   }
   
   fn peek:Token () {
@@ -137,6 +142,15 @@ class TSParserSimple {
   
   fn parseStatement:TSNode () {
     def tokVal (this.peekValue())
+    
+    ; Import/Export statements
+    if (tokVal == "import") {
+      return (this.parseImport())
+    }
+    
+    if (tokVal == "export") {
+      return (this.parseExport())
+    }
     
     if (tokVal == "interface") {
       return (this.parseInterface())
@@ -246,6 +260,260 @@ class TSParserSimple {
     
     if (this.matchValue(";")) {
       this.advance()
+    }
+    
+    return node
+  }
+  
+  ; === Import Declaration ===
+  
+  fn parseImport:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "ImportDeclaration"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("import")
+    
+    ; Check for type-only import
+    if (this.matchValue("type")) {
+      this.advance()
+      node.kind = "type"
+    }
+    
+    ; Check what kind of import
+    def v (this.peekValue())
+    
+    ; import { foo, bar } from "module"
+    if (v == "{") {
+      this.advance()
+      def specifiers:[TSNode]
+      
+      while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+        def spec (new TSNode())
+        spec.nodeType = "ImportSpecifier"
+        
+        ; Check for type modifier on individual specifier
+        if (this.matchValue("type")) {
+          this.advance()
+          spec.kind = "type"
+        }
+        
+        def importedName (this.expect("Identifier"))
+        spec.name = importedName.value
+        
+        ; Check for 'as' alias
+        if (this.matchValue("as")) {
+          this.advance()
+          def localName (this.expect("Identifier"))
+          spec.value = localName.value  ; local name in value
+        } {
+          spec.value = importedName.value
+        }
+        
+        push specifiers spec
+        
+        if (this.matchValue(",")) {
+          this.advance()
+        }
+      }
+      this.expectValue("}")
+      node.children = specifiers
+    }
+    
+    ; import * as name from "module"
+    if (v == "*") {
+      this.advance()
+      this.expectValue("as")
+      def namespaceName (this.expect("Identifier"))
+      
+      def nsSpec (new TSNode())
+      nsSpec.nodeType = "ImportNamespaceSpecifier"
+      nsSpec.name = namespaceName.value
+      push node.children nsSpec
+    }
+    
+    ; import defaultExport from "module"
+    if (this.matchType("Identifier")) {
+      def defaultSpec (new TSNode())
+      defaultSpec.nodeType = "ImportDefaultSpecifier"
+      def defaultName (this.expect("Identifier"))
+      defaultSpec.name = defaultName.value
+      push node.children defaultSpec
+      
+      ; Could be followed by , { named } or , * as ns
+      if (this.matchValue(",")) {
+        this.advance()
+        if (this.matchValue("{")) {
+          this.advance()
+          while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+            def spec (new TSNode())
+            spec.nodeType = "ImportSpecifier"
+            def importedName (this.expect("Identifier"))
+            spec.name = importedName.value
+            if (this.matchValue("as")) {
+              this.advance()
+              def localName (this.expect("Identifier"))
+              spec.value = localName.value
+            } {
+              spec.value = importedName.value
+            }
+            push node.children spec
+            if (this.matchValue(",")) {
+              this.advance()
+            }
+          }
+          this.expectValue("}")
+        }
+      }
+    }
+    
+    ; Parse 'from' clause
+    if (this.matchValue("from")) {
+      this.advance()
+      def sourceStr (this.expect("String"))
+      def source (new TSNode())
+      source.nodeType = "StringLiteral"
+      source.value = sourceStr.value
+      node.left = source
+    }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return node
+  }
+  
+  ; === Export Declaration ===
+  
+  fn parseExport:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "ExportNamedDeclaration"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("export")
+    
+    ; Check for type-only export
+    if (this.matchValue("type")) {
+      def nextV (this.peekNextValue())
+      ; Could be 'export type { ... }' or 'export type Foo = ...'
+      if (nextV == "{") {
+        this.advance()
+        node.kind = "type"
+      }
+    }
+    
+    def v (this.peekValue())
+    
+    ; export default
+    if (v == "default") {
+      node.nodeType = "ExportDefaultDeclaration"
+      this.advance()
+      
+      def nextVal (this.peekValue())
+      if ((nextVal == "class") || (nextVal == "function") || (nextVal == "interface")) {
+        def decl (this.parseStatement())
+        node.left = decl
+      } {
+        def expr (this.parseExpr())
+        node.left = expr
+      }
+      
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return node
+    }
+    
+    ; export { foo, bar }
+    if (v == "{") {
+      this.advance()
+      def specifiers:[TSNode]
+      
+      while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+        def spec (new TSNode())
+        spec.nodeType = "ExportSpecifier"
+        
+        def localName (this.expect("Identifier"))
+        spec.name = localName.value
+        
+        ; Check for 'as' alias
+        if (this.matchValue("as")) {
+          this.advance()
+          def exportedName (this.expect("Identifier"))
+          spec.value = exportedName.value
+        } {
+          spec.value = localName.value
+        }
+        
+        push specifiers spec
+        
+        if (this.matchValue(",")) {
+          this.advance()
+        }
+      }
+      this.expectValue("}")
+      node.children = specifiers
+      
+      ; Optional 'from' for re-exports
+      if (this.matchValue("from")) {
+        this.advance()
+        def sourceStr (this.expect("String"))
+        def source (new TSNode())
+        source.nodeType = "StringLiteral"
+        source.value = sourceStr.value
+        node.left = source
+      }
+      
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return node
+    }
+    
+    ; export * from "module"
+    if (v == "*") {
+      node.nodeType = "ExportAllDeclaration"
+      this.advance()
+      
+      ; export * as name from "module"
+      if (this.matchValue("as")) {
+        this.advance()
+        def exportName (this.expect("Identifier"))
+        node.name = exportName.value
+      }
+      
+      this.expectValue("from")
+      def sourceStr (this.expect("String"))
+      def source (new TSNode())
+      source.nodeType = "StringLiteral"
+      source.value = sourceStr.value
+      node.left = source
+      
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return node
+    }
+    
+    ; export declaration (function, class, interface, type, const, let, enum)
+    if ((v == "function") || (v == "class") || (v == "interface") || (v == "type") || (v == "const") || (v == "let") || (v == "enum") || (v == "abstract")) {
+      def decl (this.parseStatement())
+      node.left = decl
+      return node
+    }
+    
+    ; export async function
+    if (v == "async") {
+      def decl (this.parseStatement())
+      node.left = decl
+      return node
     }
     
     return node
@@ -1096,7 +1364,7 @@ class TSParserSimple {
     
     ; Parameters
     this.expectValue("(")
-    while ((this.matchValue(")")) == false) {
+    while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length node.params) > 0) {
         this.expectValue(",")
       }
@@ -1527,7 +1795,7 @@ class TSParserSimple {
     if (this.matchValue("<")) {
       this.advance()
       
-      while ((this.matchValue(">")) == false) {
+      while (((this.matchValue(">")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length ref.params) > 0) {
           this.expectValue(",")
         }
@@ -2091,7 +2359,7 @@ class TSParserSimple {
         call.line = expr.line
         call.col = expr.col
         
-        while ((this.matchValue(")")) == false) {
+        while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
           if ((array_length call.children) > 0) {
             this.expectValue(",")
           }
@@ -2132,7 +2400,7 @@ class TSParserSimple {
           optCall.line = expr.line
           optCall.col = expr.col
           
-          while ((this.matchValue(")")) == false) {
+          while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
             if ((array_length optCall.children) > 0) {
               this.expectValue(",")
             }
@@ -2282,6 +2550,11 @@ class TSParserSimple {
       return str
     }
     
+    ; Template literal
+    if (tokType == "Template") {
+      return (this.parseTemplateLiteral())
+    }
+    
     ; Boolean literal
     if ((tokVal == "true") || (tokVal == "false")) {
       this.advance()
@@ -2295,12 +2568,84 @@ class TSParserSimple {
       return bool
     }
     
-    ; Parenthesized expression
-    if (tokVal == "(") {
+    ; null literal
+    if (tokVal == "null") {
       this.advance()
-      def expr (this.parseExpr())
-      this.expectValue(")")
-      return expr
+      def nullLit (new TSNode())
+      nullLit.nodeType = "NullLiteral"
+      nullLit.start = tok.start
+      nullLit.end = tok.end
+      nullLit.line = tok.line
+      nullLit.col = tok.col
+      return nullLit
+    }
+    
+    ; undefined
+    if (tokVal == "undefined") {
+      this.advance()
+      def undefId (new TSNode())
+      undefId.nodeType = "Identifier"
+      undefId.name = "undefined"
+      undefId.start = tok.start
+      undefId.end = tok.end
+      undefId.line = tok.line
+      undefId.col = tok.col
+      return undefId
+    }
+    
+    ; Array literal [...]
+    if (tokVal == "[") {
+      return (this.parseArrayLiteral())
+    }
+    
+    ; Object literal {...}
+    if (tokVal == "{") {
+      return (this.parseObjectLiteral())
+    }
+    
+    ; JSX element in TSX mode
+    if ((this.tsxMode == true) && (tokVal == "<")) {
+      ; Check if this looks like JSX (not a comparison)
+      def nextType (this.peekNextType())
+      def nextVal (this.peekNextValue())
+      ; Fragment <>
+      if (nextVal == ">") {
+        return (this.parseJSXFragment())
+      }
+      if ((nextType == "Identifier") || (nextType == "Keyword")) {
+        return (this.parseJSXElement())
+      }
+    }
+    
+    ; Arrow function or parenthesized expression
+    if (tokVal == "(") {
+      return (this.parseParenOrArrow())
+    }
+    
+    ; async arrow function
+    if (tokVal == "async") {
+      def nextVal (this.peekNextValue())
+      def nextType (this.peekNextType())
+      if ((nextVal == "(") || (nextType == "Identifier")) {
+        return (this.parseArrowFunction())
+      }
+    }
+    
+    ; new expression
+    if (tokVal == "new") {
+      return (this.parseNewExpression())
+    }
+    
+    ; this keyword
+    if (tokVal == "this") {
+      this.advance()
+      def thisExpr (new TSNode())
+      thisExpr.nodeType = "ThisExpression"
+      thisExpr.start = tok.start
+      thisExpr.end = tok.end
+      thisExpr.line = tok.line
+      thisExpr.col = tok.col
+      return thisExpr
     }
     
     ; Fallback
@@ -2312,5 +2657,597 @@ class TSParserSimple {
     errId.nodeType = "Identifier"
     errId.name = "error"
     return errId
+  }
+  
+  ; === Template Literal ===
+  
+  fn parseTemplateLiteral:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "TemplateLiteral"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    ; Simple case: just consume the template token
+    this.advance()
+    def quasi (new TSNode())
+    quasi.nodeType = "TemplateElement"
+    quasi.value = tok.value
+    push node.children quasi
+    
+    return node
+  }
+  
+  ; === Array Literal ===
+  
+  fn parseArrayLiteral:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "ArrayExpression"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    this.expectValue("[")
+    
+    while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
+      ; Check for spread element
+      if (this.matchValue("...")) {
+        this.advance()
+        def spreadArg (this.parseExpr())
+        def spread (new TSNode())
+        spread.nodeType = "SpreadElement"
+        spread.left = spreadArg
+        push node.children spread
+      } {
+        ; Check for empty slot (elision)
+        if (this.matchValue(",")) {
+          ; Don't add anything, just skip
+        } {
+          def elem (this.parseExpr())
+          push node.children elem
+        }
+      }
+      
+      if (this.matchValue(",")) {
+        this.advance()
+      }
+    }
+    
+    this.expectValue("]")
+    return node
+  }
+  
+  ; === Object Literal ===
+  
+  fn parseObjectLiteral:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "ObjectExpression"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    this.expectValue("{")
+    
+    while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      ; Check for spread property
+      if (this.matchValue("...")) {
+        this.advance()
+        def spreadArg (this.parseExpr())
+        def spread (new TSNode())
+        spread.nodeType = "SpreadElement"
+        spread.left = spreadArg
+        push node.children spread
+      } {
+        def prop (new TSNode())
+        prop.nodeType = "Property"
+        
+        ; Property key
+        def keyTok (this.peek())
+        if (this.matchType("Identifier")) {
+          prop.name = keyTok.value
+          this.advance()
+        }
+        if (this.matchType("String")) {
+          prop.name = keyTok.value
+          this.advance()
+        }
+        if (this.matchType("Number")) {
+          prop.name = keyTok.value
+          this.advance()
+        }
+        
+        ; Check for shorthand property (no colon)
+        if (this.matchValue(":")) {
+          this.advance()
+          def valueExpr (this.parseExpr())
+          prop.left = valueExpr
+        } {
+          ; Shorthand: { foo } means { foo: foo }
+          def shorthandVal (new TSNode())
+          shorthandVal.nodeType = "Identifier"
+          shorthandVal.name = prop.name
+          prop.left = shorthandVal
+          prop.kind = "shorthand"
+        }
+        
+        push node.children prop
+      }
+      
+      if (this.matchValue(",")) {
+        this.advance()
+      }
+    }
+    
+    this.expectValue("}")
+    return node
+  }
+  
+  ; === Paren or Arrow Function ===
+  
+  fn parseParenOrArrow:TSNode () {
+    def startTok (this.peek())
+    
+    ; Look ahead to determine if this is an arrow function
+    ; Arrow function: (...) => or (...): Type =>
+    def savedPos:int this.pos
+    def savedTok:Token (unwrap this.currentToken)
+    
+    this.advance()  ; consume (
+    
+    ; Find matching )
+    def parenDepth 1
+    while ((parenDepth > 0) && ((this.isAtEnd()) == false)) {
+      def v (this.peekValue())
+      if (v == "(") {
+        parenDepth = parenDepth + 1
+      }
+      if (v == ")") {
+        parenDepth = parenDepth - 1
+      }
+      if (parenDepth > 0) {
+        this.advance()
+      }
+    }
+    
+    if ((this.matchValue(")")) == false) {
+      ; Error - restore and parse as parenthesized
+      this.pos = savedPos
+      this.currentToken = savedTok
+      this.advance()
+      def expr (this.parseExpr())
+      this.expectValue(")")
+      return expr
+    }
+    
+    this.advance()  ; consume )
+    
+    ; Check for type annotation
+    if (this.matchValue(":")) {
+      this.advance()
+      ; Skip the type
+      this.parseType()
+    }
+    
+    ; Check for =>
+    if (this.matchValue("=>")) {
+      ; It's an arrow function - restore and parse properly
+      this.pos = savedPos
+      this.currentToken = savedTok
+      return (this.parseArrowFunction())
+    }
+    
+    ; Not an arrow function - restore and parse as parenthesized expression
+    this.pos = savedPos
+    this.currentToken = savedTok
+    this.advance()  ; consume (
+    def expr (this.parseExpr())
+    this.expectValue(")")
+    return expr
+  }
+  
+  ; === Arrow Function ===
+  
+  fn parseArrowFunction:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "ArrowFunctionExpression"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    ; Check for async
+    if (this.matchValue("async")) {
+      this.advance()
+      node.kind = "async"
+    }
+    
+    ; Parse parameters
+    if (this.matchValue("(")) {
+      this.advance()
+      while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+        if ((array_length node.params) > 0) {
+          this.expectValue(",")
+        }
+        def param (this.parseParam())
+        push node.params param
+      }
+      this.expectValue(")")
+    } {
+      ; Single identifier parameter: x =>
+      def paramTok (this.expect("Identifier"))
+      def param (new TSNode())
+      param.nodeType = "Parameter"
+      param.name = paramTok.value
+      push node.params param
+    }
+    
+    ; Optional return type annotation
+    if (this.matchValue(":")) {
+      this.advance()
+      def retType (this.parseType())
+      node.typeAnnotation = retType
+    }
+    
+    this.expectValue("=>")
+    
+    ; Parse body: expression or block
+    if (this.matchValue("{")) {
+      def body (this.parseBlock())
+      node.body = body
+    } {
+      def body (this.parseExpr())
+      node.body = body
+    }
+    
+    return node
+  }
+  
+  ; === New Expression ===
+  
+  fn parseNewExpression:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "NewExpression"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    this.expectValue("new")
+    
+    ; Parse callee
+    def callee (this.parsePrimary())
+    node.left = callee
+    
+    ; Parse type arguments <T> - skip for now
+    if (this.matchValue("<")) {
+      ; Skip type args by finding matching >
+      def depth 1
+      this.advance()
+      while ((depth > 0) && ((this.isAtEnd()) == false)) {
+        def v (this.peekValue())
+        if (v == "<") {
+          depth = depth + 1
+        }
+        if (v == ">") {
+          depth = depth - 1
+        }
+        this.advance()
+      }
+    }
+    
+    ; Parse arguments
+    if (this.matchValue("(")) {
+      this.advance()
+      while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+        if ((array_length node.children) > 0) {
+          this.expectValue(",")
+        }
+        def arg (this.parseExpr())
+        push node.children arg
+      }
+      this.expectValue(")")
+    }
+    
+    return node
+  }
+  
+  ; === Helper: peek next token type ===
+  
+  fn peekNextType:string () {
+    def nextPos (this.pos + 1)
+    if (nextPos < (array_length this.tokens)) {
+      def nextTok:Token (itemAt this.tokens nextPos)
+      return nextTok.tokenType
+    }
+    return "EOF"
+  }
+  
+  ; === JSX Parsing (TSX Mode) ===
+  
+  fn parseJSXElement:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "JSXElement"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    ; Parse opening element <Component ...>
+    def opening (this.parseJSXOpeningElement())
+    node.left = opening
+    
+    ; Check if self-closing
+    if (opening.kind == "self-closing") {
+      node.nodeType = "JSXElement"
+      return node
+    }
+    
+    ; Parse children
+    def tagName opening.name
+    while ((this.isAtEnd()) == false) {
+      def v (this.peekValue())
+      
+      ; Check for closing tag
+      if (v == "<") {
+        def nextVal (this.peekNextValue())
+        if (nextVal == "/") {
+          ; This is a closing tag
+          break
+        }
+        ; Nested JSX element
+        def child (this.parseJSXElement())
+        push node.children child
+      } {
+        ; Text or expression
+        if (v == "{") {
+          def exprChild (this.parseJSXExpressionContainer())
+          push node.children exprChild
+        } {
+          ; Check for text content (anything that's not < or {)
+          def t (this.peekType())
+          if ((t != "EOF") && (v != "<") && (v != "{")) {
+            def textChild (this.parseJSXText())
+            push node.children textChild
+          } {
+            break
+          }
+        }
+      }
+    }
+    
+    ; Parse closing element </Component>
+    def closing (this.parseJSXClosingElement())
+    node.right = closing
+    
+    return node
+  }
+  
+  fn parseJSXOpeningElement:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "JSXOpeningElement"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    this.expectValue("<")
+    
+    ; Parse tag name (can be Identifier or MemberExpression like Foo.Bar)
+    def tagName (this.parseJSXElementName())
+    node.name = tagName.name
+    node.left = tagName
+    
+    ; Parse attributes
+    while ((this.isAtEnd()) == false) {
+      def v (this.peekValue())
+      if ((v == ">") || (v == "/")) {
+        break
+      }
+      def attr (this.parseJSXAttribute())
+      push node.children attr
+    }
+    
+    ; Check for self-closing />
+    if (this.matchValue("/")) {
+      this.advance()
+      node.kind = "self-closing"
+    }
+    
+    this.expectValue(">")
+    
+    return node
+  }
+  
+  fn parseJSXClosingElement:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "JSXClosingElement"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    this.expectValue("<")
+    this.expectValue("/")
+    
+    ; Parse tag name
+    def tagName (this.parseJSXElementName())
+    node.name = tagName.name
+    node.left = tagName
+    
+    this.expectValue(">")
+    
+    return node
+  }
+  
+  fn parseJSXElementName:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "JSXIdentifier"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    ; First part of name
+    def namePart tok.value
+    this.advance()
+    
+    ; Check for member expression (Foo.Bar)
+    while (this.matchValue(".")) {
+      this.advance()
+      def nextTok (this.peek())
+      namePart = namePart + "." + nextTok.value
+      this.advance()
+      node.nodeType = "JSXMemberExpression"
+    }
+    
+    node.name = namePart
+    return node
+  }
+  
+  fn parseJSXAttribute:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "JSXAttribute"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    ; Check for spread attribute {...props}
+    if (this.matchValue("{")) {
+      this.advance()
+      if (this.matchValue("...")) {
+        this.advance()
+        node.nodeType = "JSXSpreadAttribute"
+        def arg (this.parseExpr())
+        node.left = arg
+        this.expectValue("}")
+        return node
+      }
+      ; Go back - this shouldn't happen in valid JSX
+      ; But handle it gracefully
+    }
+    
+    ; Parse attribute name
+    def attrName tok.value
+    node.name = attrName
+    this.advance()
+    
+    ; Check for = and value
+    if (this.matchValue("=")) {
+      this.advance()
+      
+      def valTok (this.peekValue())
+      if (valTok == "{") {
+        ; JSX expression
+        def exprValue (this.parseJSXExpressionContainer())
+        node.right = exprValue
+      } {
+        ; String literal
+        def strTok (this.peek())
+        def strNode (new TSNode())
+        strNode.nodeType = "StringLiteral"
+        strNode.value = strTok.value
+        strNode.start = strTok.start
+        strNode.end = strTok.end
+        strNode.line = strTok.line
+        strNode.col = strTok.col
+        this.advance()
+        node.right = strNode
+      }
+    }
+    
+    return node
+  }
+  
+  fn parseJSXExpressionContainer:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "JSXExpressionContainer"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    this.expectValue("{")
+    
+    ; Check for empty expression
+    if (this.matchValue("}")) {
+      def empty (new TSNode())
+      empty.nodeType = "JSXEmptyExpression"
+      node.left = empty
+    } {
+      def expr (this.parseExpr())
+      node.left = expr
+    }
+    
+    this.expectValue("}")
+    
+    return node
+  }
+  
+  fn parseJSXText:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "JSXText"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    node.value = tok.value
+    
+    this.advance()
+    
+    return node
+  }
+  
+  ; === JSX Fragment <>...</> ===
+  
+  fn parseJSXFragment:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "JSXFragment"
+    def tok (this.peek())
+    node.start = tok.start
+    node.line = tok.line
+    node.col = tok.col
+    
+    ; Opening <>
+    this.expectValue("<")
+    this.expectValue(">")
+    
+    ; Parse children
+    while ((this.isAtEnd()) == false) {
+      def v (this.peekValue())
+      
+      if (v == "<") {
+        def nextVal (this.peekNextValue())
+        if (nextVal == "/") {
+          ; Check if it's closing fragment
+          break
+        }
+        def child (this.parseJSXElement())
+        push node.children child
+      } {
+        if (v == "{") {
+          def exprChild (this.parseJSXExpressionContainer())
+          push node.children exprChild
+        } {
+          def t (this.peekType())
+          if ((t != "EOF") && (v != "<") && (v != "{")) {
+            def textChild (this.parseJSXText())
+            push node.children textChild
+          } {
+            break
+          }
+        }
+      }
+    }
+    
+    ; Closing </>
+    this.expectValue("<")
+    this.expectValue("/")
+    this.expectValue(">")
+    
+    return node
   }
 }
