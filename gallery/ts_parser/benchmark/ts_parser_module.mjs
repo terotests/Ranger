@@ -1,4 +1,4 @@
-class Token  {
+export class Token  {
   constructor() {
     this.tokenType = "";
     this.value = "";
@@ -8,7 +8,7 @@ class Token  {
     this.end = 0;
   }
 }
-class TSLexer  {
+export class TSLexer  {
   constructor(src) {
     this.source = "";
     this.pos = 0;
@@ -709,7 +709,7 @@ class TSLexer  {
     return tokens;
   };
 }
-class TSNode  {
+export class TSNode  {
   constructor() {
     this.nodeType = "";
     this.start = 0;
@@ -733,7 +733,7 @@ class TSNode  {
     this.decorators = [];
   }
 }
-class TSParserSimple  {
+export class TSParserSimple  {
   constructor() {
     this.tokens = [];
     this.pos = 0;
@@ -4111,7 +4111,7 @@ class TSParserSimple  {
     return node;
   };
 }
-class TSParserMain  {
+export class TSParserMain  {
   constructor() {
   }
 }
@@ -4562,8 +4562,73 @@ TSParserMain.printNode = function(node, depth) {
   }
   console.log(((indent + nodeType) + " ") + loc);
 };
-module.exports.Token = Token;
-module.exports.TSLexer = TSLexer;
-module.exports.TSNode = TSNode;
-module.exports.TSParserSimple = TSParserSimple;
-module.exports.TSParserMain = TSParserMain;
+/* static JavaSript main routine at the end of the JS file */
+async function __js_main() {
+  const argCnt = (process.argv.length - 2);
+  if ( argCnt == 0 ) {
+    TSParserMain.showHelp();
+    return;
+  }
+  let inputFile = "";
+  let runDefault = false;
+  let showTokens = false;
+  let showInterfaces = false;
+  let showTypes = false;
+  let showFunctions = false;
+  let i = 0;
+  while (i < argCnt) {
+    const arg = process.argv[ 2 + i];
+    if ( (arg == "--help") || (arg == "-h") ) {
+      TSParserMain.showHelp();
+      return;
+    }
+    if ( arg == "-d" ) {
+      runDefault = true;
+      i = i + 1;
+    } else {
+      if ( arg == "-i" ) {
+        i = i + 1;
+        if ( i < argCnt ) {
+          inputFile = process.argv[ 2 + i];
+        }
+        i = i + 1;
+      } else {
+        if ( arg == "--tokens" ) {
+          showTokens = true;
+          i = i + 1;
+        } else {
+          if ( arg == "--show-interfaces" ) {
+            showInterfaces = true;
+            i = i + 1;
+          } else {
+            if ( arg == "--show-types" ) {
+              showTypes = true;
+              i = i + 1;
+            } else {
+              if ( arg == "--show-functions" ) {
+                showFunctions = true;
+                i = i + 1;
+              } else {
+                i = i + 1;
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+  if ( runDefault ) {
+    TSParserMain.runDemo();
+    return;
+  }
+  if ( (inputFile.length) > 0 ) {
+    if ( (showInterfaces || showTypes) || showFunctions ) {
+      await TSParserMain.listDeclarations(inputFile, showInterfaces, showTypes, showFunctions);
+      return;
+    }
+    await TSParserMain.parseFile(inputFile, showTokens);
+    return;
+  }
+  TSParserMain.showHelp();
+}
+__js_main();

@@ -414,12 +414,24 @@ class tester {
     ; Add file extension based on language
     switch the_lang {
       case "es6" {
-        if( false == (endsWith the_target ".js")) {
-          if( false == (endsWith the_target ".ts")) {
-            the_target = the_target + ".js"
-            if( appCtx.hasCompilerFlag( "typescript") ) {
-              the_target = the_target + ".ts"
-            }
+        ; Check for all JavaScript-related extensions (.js, .ts, .mjs, .cjs)
+        def has_js_ext false
+        if( endsWith the_target ".js") {
+          has_js_ext = true
+        }
+        if( endsWith the_target ".ts") {
+          has_js_ext = true
+        }
+        if( endsWith the_target ".mjs") {
+          has_js_ext = true
+        }
+        if( endsWith the_target ".cjs") {
+          has_js_ext = true
+        }
+        if( has_js_ext == false) {
+          the_target = the_target + ".js"
+          if( appCtx.hasCompilerFlag( "typescript") ) {
+            the_target = the_target + ".ts"
           }
         }
       }
