@@ -74,7 +74,7 @@ class BitReader {
     def data:buffer
     def pos:int          ; Byte position
     def bitPos:int       ; Bit position within byte (0-7)
-    
+
     fn readBits:int (count:int)
     fn peekBits:int (count:int)
 }
@@ -85,6 +85,7 @@ Handle byte stuffing: `FF 00` in data stream = literal `FF`
 ### 2.3 Decode Process
 
 For each 8x8 block:
+
 1. Decode DC coefficient (difference from previous block)
 2. Decode 63 AC coefficients using run-length encoding
 3. Result: 64 quantized DCT coefficients in zigzag order
@@ -104,6 +105,7 @@ Transform 8x8 frequency-domain block to spatial-domain pixels.
 ### IDCT Formula (simplified)
 
 For each pixel (x, y) in 8x8 block:
+
 ```
 pixel[x][y] = sum over u,v of:
     C(u) * C(v) * S[u][v] * cos((2x+1)*u*π/16) * cos((2y+1)*v*π/16)
@@ -114,6 +116,7 @@ Where C(0) = 1/√2, C(n) = 1 for n > 0
 ### Integer IDCT Approximation
 
 Use scaled integer arithmetic to avoid floating point:
+
 - Pre-compute cosine table (scaled by 4096)
 - Use bit shifts for division
 
@@ -128,6 +131,7 @@ B = Y + 1.772 * (Cb - 128)
 ```
 
 Integer approximation (scaled by 256):
+
 ```
 R = Y + ((359 * (Cr - 128)) >> 8)
 G = Y - ((88 * (Cb - 128)) >> 8) - ((183 * (Cr - 128)) >> 8)
@@ -139,6 +143,7 @@ B = Y + ((454 * (Cb - 128)) >> 8)
 ### Sampling Factors
 
 Common configurations:
+
 - 4:4:4 - Each component same size (1x1 sampling)
 - 4:2:2 - Cb/Cr half width (2x1 Y, 1x1 Cb/Cr)
 - 4:2:0 - Cb/Cr quarter size (2x2 Y, 1x1 Cb/Cr)
@@ -146,6 +151,7 @@ Common configurations:
 ### MCU Structure
 
 For 4:2:0 (most common):
+
 - MCU = 16x16 pixels
 - 4 Y blocks (8x8 each), 1 Cb block, 1 Cr block
 - Upsample Cb/Cr to match Y size
@@ -165,30 +171,36 @@ gallery/pdf_writer/
 ## Implementation Order
 
 ### Step 1: BitReader
+
 - Read bits from buffer
 - Handle FF00 byte stuffing
 - Track position
 
 ### Step 2: Marker Parser Enhancement
+
 - Parse DQT (quantization tables)
 - Parse DHT (Huffman tables)
 - Parse SOS (scan header)
 - Locate entropy-coded data
 
 ### Step 3: Huffman Decoder
+
 - Build code tables from DHT data
 - Decode symbol from bit stream
 
 ### Step 4: Block Decoder
+
 - Decode DC coefficient
 - Decode AC coefficients (run-length)
 - Convert zigzag to 8x8 matrix
 
 ### Step 5: IDCT
+
 - Integer IDCT implementation
 - Pre-computed cosine tables
 
 ### Step 6: Color Conversion & Output
+
 - YCbCr to RGB
 - Handle different sampling factors
 - Assemble final image
@@ -229,6 +241,7 @@ gallery/pdf_writer/
 ```
 
 Index array for zigzag to row-major:
+
 ```
 0,1,8,16,9,2,3,10,17,24,32,25,18,11,4,5,12,19,26,33,40,48,41,34,27,20,13,6,7,14,21,28,35,42,49,56,57,50,43,36,29,22,15,23,30,37,44,51,58,59,52,45,38,31,39,46,53,60,61,54,47,55,62,63
 ```
