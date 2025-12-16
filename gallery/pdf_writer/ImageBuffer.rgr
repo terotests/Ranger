@@ -364,4 +364,37 @@ class ImageBuffer {
         this.drawLine((x + w - 1) (y + h - 1) x (y + h - 1) c)
         this.drawLine(x (y + h - 1) x y c)
     }
+    
+    fn scale:ImageBuffer (factor:int) {
+        ; Scale image by integer factor (nearest neighbor)
+        def newW:int (width * factor)
+        def newH:int (height * factor)
+        def result (new ImageBuffer())
+        result.init(newW newH)
+        
+        def destY 0
+        while (destY < newH) {
+            def srcY:int (to_int (destY / factor))
+            def destX 0
+            while (destX < newW) {
+                def srcX:int (to_int (destX / factor))
+                ; Read source pixel
+                def srcOff:int (((srcY * width) + srcX) * 4)
+                def r:int (buffer_get pixels srcOff)
+                def g:int (buffer_get pixels (srcOff + 1))
+                def b:int (buffer_get pixels (srcOff + 2))
+                def a:int (buffer_get pixels (srcOff + 3))
+                ; Write to destination
+                def destOff:int (((destY * newW) + destX) * 4)
+                buffer_set result.pixels destOff r
+                buffer_set result.pixels (destOff + 1) g
+                buffer_set result.pixels (destOff + 2) b
+                buffer_set result.pixels (destOff + 3) a
+                destX = destX + 1
+            }
+            destY = destY + 1
+        }
+        
+        return result
+    }
 }

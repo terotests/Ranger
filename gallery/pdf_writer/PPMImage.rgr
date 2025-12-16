@@ -170,15 +170,6 @@ class PPMImage {
         buf.writeString((to_string img.width) + " " + (to_string img.height) + "\n")
         buf.writeString("255\n")
         
-        ; Debug: print first few pixels
-        print "DEBUG: First 5 pixels from ImageBuffer:"
-        def debugI 0
-        while (debugI < 5) {
-            def dc:Color (img.getPixel(debugI 0))
-            print ("  Pixel " + (to_string debugI) + ": R=" + (to_string dc.r) + " G=" + (to_string dc.g) + " B=" + (to_string dc.b))
-            debugI = debugI + 1
-        }
-        
         ; Pixel data (RGB only, no alpha)
         def y 0
         while (y < img.height) {

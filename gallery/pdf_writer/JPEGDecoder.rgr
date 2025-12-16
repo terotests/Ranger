@@ -465,19 +465,7 @@ class JPEGDecoder {
                             ; Dezigzag and transform
                             def tempBlock:[int]
                             idct.dezigzag(coeffs tempBlock)
-                            
-                            ; Debug before IDCT
-                            if ((mcuX == 0) && (mcuY == 0) && (compIdx == 1)) {
-                                print ("DEBUG coeffs[0] (DC)=" + (to_string (at coeffs 0)))
-                                print ("DEBUG tempBlock[0]=" + (to_string (at tempBlock 0)))
-                            }
-                            
                             idct.transform(tempBlock blockPixels)
-                            
-                            ; Debug after IDCT  
-                            if ((mcuX == 0) && (mcuY == 0) && (compIdx == 1)) {
-                                print ("DEBUG blockPixels[0] after IDCT=" + (to_string (at blockPixels 0)))
-                            }
                             
                             ; Store block
                             if (compIdx == 0) {
@@ -496,12 +484,6 @@ class JPEGDecoder {
                                 while (bi < 64) {
                                     push cbBlock (at blockPixels bi)
                                     bi = bi + 1
-                                }
-                                ; Debug Cb
-                                if ((mcuX == 0) && (mcuY == 0)) {
-                                    print ("DEBUG Cb blockPixels[0]=" + (to_string (at blockPixels 0)))
-                                    print ("DEBUG cbBlock[0]=" + (to_string (at cbBlock 0)))
-                                    print ("DEBUG cbBlock length=" + (to_string (array_length cbBlock)))
                                 }
                             }
                             if (compIdx == 2) {
@@ -569,20 +551,10 @@ class JPEGDecoder {
                             cr = (at crBlock idx)
                         }
                         
-                        ; Debug first pixel
-                        if ((imgX == 0) && (imgY == 0)) {
-                            print ("DEBUG writeMCU: Y=" + (to_string y) + " Cb=" + (to_string cb) + " Cr=" + (to_string cr))
-                        }
-                        
                         ; YCbCr to RGB
                         def r:int (y + (bit_shr (359 * (cr - 128)) 8))
                         def g:int (y - (bit_shr (88 * (cb - 128)) 8) - (bit_shr (183 * (cr - 128)) 8))
                         def b:int (y + (bit_shr (454 * (cb - 128)) 8))
-                        
-                        ; Debug first pixel RGB
-                        if ((imgX == 0) && (imgY == 0)) {
-                            print ("DEBUG RGB: R=" + (to_string r) + " G=" + (to_string g) + " B=" + (to_string b))
-                        }
                         
                         if (r < 0) { r = 0 }
                         if (r > 255) { r = 255 }
@@ -692,9 +664,13 @@ class JPEGDecoderMain {
         print ""
         print ("Output image: " + (to_string img.width) + "x" + (to_string img.height))
         
+        ; Scale image 3x larger
+        def scaled:ImageBuffer (img.scale(3))
+        print ("Scaled image: " + (to_string scaled.width) + "x" + (to_string scaled.height))
+        
         ; Save as PPM
         def ppm (new PPMImage())
-        ppm.save(img "./gallery/pdf_writer" "decoded_test.ppm")
+        ppm.save(scaled "./gallery/pdf_writer" "decoded_test.ppm")
         
         print ""
         print "Done! Open decoded_output.ppm to verify the result."

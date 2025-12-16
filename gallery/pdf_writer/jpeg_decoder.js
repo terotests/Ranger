@@ -917,6 +917,33 @@ class ImageBuffer  {
     this.drawLine((x + w) - 1, (y + h) - 1, x, (y + h) - 1, c);
     this.drawLine(x, (y + h) - 1, x, y, c);
   };
+  scale (factor) {
+    const newW = this.width * factor;
+    const newH = this.height * factor;
+    const result = new ImageBuffer();
+    result.init(newW, newH);
+    let destY = 0;
+    while (destY < newH) {
+      const srcY = Math.floor( (destY / factor));
+      let destX = 0;
+      while (destX < newW) {
+        const srcX = Math.floor( (destX / factor));
+        const srcOff = ((srcY * this.width) + srcX) * 4;
+        const r = this.pixels._view.getUint8(srcOff);
+        const g = this.pixels._view.getUint8((srcOff + 1));
+        const b = this.pixels._view.getUint8((srcOff + 2));
+        const a = this.pixels._view.getUint8((srcOff + 3));
+        const destOff = ((destY * newW) + destX) * 4;
+        result.pixels._view.setUint8(destOff, r);
+        result.pixels._view.setUint8(destOff + 1, g);
+        result.pixels._view.setUint8(destOff + 2, b);
+        result.pixels._view.setUint8(destOff + 3, a);
+        destX = destX + 1;
+      };
+      destY = destY + 1;
+    };
+    return result;
+  };
 }
 class PPMImage  {
   constructor() {
@@ -1044,13 +1071,6 @@ class PPMImage  {
     buf.writeString("P6\n");
     buf.writeString(((((img.width.toString())) + " ") + ((img.height.toString()))) + "\n");
     buf.writeString("255\n");
-    console.log("DEBUG: First 5 pixels from ImageBuffer:");
-    let debugI = 0;
-    while (debugI < 5) {
-      const dc = img.getPixel(debugI, 0);
-      console.log((((((("  Pixel " + ((debugI.toString()))) + ": R=") + ((dc.r.toString()))) + " G=") + ((dc.g.toString()))) + " B=") + ((dc.b.toString())));
-      debugI = debugI + 1;
-    };
     let y = 0;
     while (y < img.height) {
       let x = 0;
@@ -1420,14 +1440,7 @@ class JPEGDecoder  {
               };
               let tempBlock = [];
               this.idct.dezigzag(coeffs, tempBlock);
-              if ( ((mcuX == 0) && (mcuY == 0)) && (compIdx == 1) ) {
-                console.log("DEBUG coeffs[0] (DC)=" + (((coeffs[0]).toString())));
-                console.log("DEBUG tempBlock[0]=" + (((tempBlock[0]).toString())));
-              }
               this.idct.transform(tempBlock, blockPixels);
-              if ( ((mcuX == 0) && (mcuY == 0)) && (compIdx == 1) ) {
-                console.log("DEBUG blockPixels[0] after IDCT=" + (((blockPixels[0]).toString())));
-              }
               if ( compIdx == 0 ) {
                 bi = 0;
                 while (bi < 64) {
@@ -1443,11 +1456,6 @@ class JPEGDecoder  {
                   cbBlock.push(blockPixels[bi]);
                   bi = bi + 1;
                 };
-                if ( (mcuX == 0) && (mcuY == 0) ) {
-                  console.log("DEBUG Cb blockPixels[0]=" + (((blockPixels[0]).toString())));
-                  console.log("DEBUG cbBlock[0]=" + (((cbBlock[0]).toString())));
-                  console.log("DEBUG cbBlock length=" + (((cbBlock.length).toString())));
-                }
               }
               if ( compIdx == 2 ) {
                 crBlock.length = 0;
@@ -1494,15 +1502,9 @@ class JPEGDecoder  {
               cb = cbBlock[idx];
               cr = crBlock[idx];
             }
-            if ( (imgX == 0) && (imgY == 0) ) {
-              console.log((((("DEBUG writeMCU: Y=" + ((y.toString()))) + " Cb=") + ((cb.toString()))) + " Cr=") + ((cr.toString())));
-            }
             let r = y + (((359 * (cr - 128)) >> 8));
             let g = (y - (((88 * (cb - 128)) >> 8))) - (((183 * (cr - 128)) >> 8));
             let b = y + (((454 * (cb - 128)) >> 8));
-            if ( (imgX == 0) && (imgY == 0) ) {
-              console.log((((("DEBUG RGB: R=" + ((r.toString()))) + " G=") + ((g.toString()))) + " B=") + ((b.toString())));
-            }
             if ( r < 0 ) {
               r = 0;
             }
@@ -1618,8 +1620,10 @@ function __js_main() {
   const img = decoder.decode("./gallery/pdf_writer", "Canon_40D.jpg");
   console.log("");
   console.log((("Output image: " + ((img.width.toString()))) + "x") + ((img.height.toString())));
+  const scaled = img.scale(3);
+  console.log((("Scaled image: " + ((scaled.width.toString()))) + "x") + ((scaled.height.toString())));
   const ppm = new PPMImage();
-  ppm.save(img, "./gallery/pdf_writer", "decoded_test.ppm");
+  ppm.save(scaled, "./gallery/pdf_writer", "decoded_test.ppm");
   console.log("");
   console.log("Done! Open decoded_output.ppm to verify the result.");
 }
