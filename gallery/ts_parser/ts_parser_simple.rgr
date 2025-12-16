@@ -3071,8 +3071,46 @@ class TSParserSimple {
         def prop (new TSNode())
         prop.nodeType = "Property"
         
-        ; Property key
+        ; Flags for property type
+        def isComputed:boolean false
+        def isMethod:boolean false
+        def isGetter:boolean false
+        def isSetter:boolean false
+        
+        ; Check for getter/setter - must look ahead to see if next is identifier or [
+        def currVal (this.peekValue())
+        def nextType (this.peekNextType())
+        def nextVal (this.peekNextValue())
+        
+        if (currVal == "get") {
+          if ((nextType == "Identifier") || (nextVal == "[")) {
+            this.advance()
+            isGetter = true
+            prop.kind = "get"
+          }
+        }
+        if (currVal == "set") {
+          if ((nextType == "Identifier") || (nextVal == "[")) {
+            this.advance()
+            isSetter = true
+            prop.kind = "set"
+          }
+        }
+        
+        ; Now get the property key (after potentially consuming get/set)
         def keyTok (this.peek())
+        
+        ; Computed property key [expression]
+        if (this.matchValue("[")) {
+          this.advance()
+          def keyExpr (this.parseExpr())
+          this.expectValue("]")
+          prop.right = keyExpr
+          isComputed = true
+          if ((isGetter == false) && (isSetter == false)) {
+            prop.kind = "computed"
+          }
+        }
         if (this.matchType("Identifier")) {
           prop.name = keyTok.value
           this.advance()
@@ -3086,18 +3124,53 @@ class TSParserSimple {
           this.advance()
         }
         
-        ; Check for shorthand property (no colon)
-        if (this.matchValue(":")) {
+        ; Check for method shorthand or getter/setter: { foo() {} } or { get x() {} }
+        if (this.matchValue("(")) {
+          isMethod = true
+          ; Parse method as function expression
+          def fnNode (new TSNode())
+          fnNode.nodeType = "FunctionExpression"
           this.advance()
-          def valueExpr (this.parseExpr())
-          prop.left = valueExpr
-        } {
-          ; Shorthand: { foo } means { foo: foo }
-          def shorthandVal (new TSNode())
-          shorthandVal.nodeType = "Identifier"
-          shorthandVal.name = prop.name
-          prop.left = shorthandVal
-          prop.kind = "shorthand"
+          ; Parse parameters
+          while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+            if ((array_length fnNode.params) > 0) {
+              this.expectValue(",")
+            }
+            push fnNode.params (this.parseParam())
+          }
+          this.expectValue(")")
+          ; Parse optional return type
+          if (this.matchValue(":")) {
+            this.advance()
+            fnNode.typeAnnotation = (this.parseType())
+          }
+          ; Parse body
+          if (this.matchValue("{")) {
+            fnNode.body = (this.parseBlock())
+          }
+          prop.left = fnNode
+          if ((isGetter == false) && (isSetter == false)) {
+            prop.kind = "method"
+          }
+        }
+        
+        ; Check for shorthand property (no colon) or regular property
+        if (isMethod == false) {
+          if (this.matchValue(":")) {
+            this.advance()
+            def valueExpr (this.parseExpr())
+            prop.left = valueExpr
+          } {
+            ; Shorthand: { foo } means { foo: foo }
+            ; But not for computed properties
+            if (isComputed == false) {
+              def shorthandVal (new TSNode())
+              shorthandVal.nodeType = "Identifier"
+              shorthandVal.name = prop.name
+              prop.left = shorthandVal
+              prop.kind = "shorthand"
+            }
+          }
         }
         
         push node.children prop

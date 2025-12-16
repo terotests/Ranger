@@ -1119,11 +1119,11 @@ class TSParserSimple  {
         const nextType = this.parseType();
         extendsList.push(nextType);
       };
-      for ( let ext_1 = 0; ext_1 < extendsList.length; ext_1++) {
-        var ext = extendsList[ext_1];
+      for ( let i = 0; i < extendsList.length; i++) {
+        var ext = extendsList[i];
         const wrapper = new TSNode();
         wrapper.nodeType = "TSExpressionWithTypeArguments";
-        wrapper.left = ext_1;
+        wrapper.left = ext;
         node.children.push(wrapper);
       };
     }
@@ -2984,7 +2984,38 @@ class TSParserSimple  {
       } else {
         const prop = new TSNode();
         prop.nodeType = "Property";
+        let isComputed = false;
+        let isMethod = false;
+        let isGetter = false;
+        let isSetter = false;
+        const currVal = this.peekValue();
+        const nextType = this.peekNextType();
+        const nextVal = this.peekNextValue();
+        if ( currVal == "get" ) {
+          if ( (nextType == "Identifier") || (nextVal == "[") ) {
+            this.advance();
+            isGetter = true;
+            prop.kind = "get";
+          }
+        }
+        if ( currVal == "set" ) {
+          if ( (nextType == "Identifier") || (nextVal == "[") ) {
+            this.advance();
+            isSetter = true;
+            prop.kind = "set";
+          }
+        }
         const keyTok = this.peek();
+        if ( this.matchValue("[") ) {
+          this.advance();
+          const keyExpr = this.parseExpr();
+          this.expectValue("]");
+          prop.right = keyExpr;
+          isComputed = true;
+          if ( (isGetter == false) && (isSetter == false) ) {
+            prop.kind = "computed";
+          }
+        }
         if ( this.matchType("Identifier") ) {
           prop.name = keyTok.value;
           this.advance();
@@ -2997,16 +3028,44 @@ class TSParserSimple  {
           prop.name = keyTok.value;
           this.advance();
         }
-        if ( this.matchValue(":") ) {
+        if ( this.matchValue("(") ) {
+          isMethod = true;
+          const fnNode = new TSNode();
+          fnNode.nodeType = "FunctionExpression";
           this.advance();
-          const valueExpr = this.parseExpr();
-          prop.left = valueExpr;
-        } else {
-          const shorthandVal = new TSNode();
-          shorthandVal.nodeType = "Identifier";
-          shorthandVal.name = prop.name;
-          prop.left = shorthandVal;
-          prop.kind = "shorthand";
+          while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
+            if ( (fnNode.params.length) > 0 ) {
+              this.expectValue(",");
+            }
+            fnNode.params.push(this.parseParam());
+          };
+          this.expectValue(")");
+          if ( this.matchValue(":") ) {
+            this.advance();
+            fnNode.typeAnnotation = this.parseType();
+          }
+          if ( this.matchValue("{") ) {
+            fnNode.body = this.parseBlock();
+          }
+          prop.left = fnNode;
+          if ( (isGetter == false) && (isSetter == false) ) {
+            prop.kind = "method";
+          }
+        }
+        if ( isMethod == false ) {
+          if ( this.matchValue(":") ) {
+            this.advance();
+            const valueExpr = this.parseExpr();
+            prop.left = valueExpr;
+          } else {
+            if ( isComputed == false ) {
+              const shorthandVal = new TSNode();
+              shorthandVal.nodeType = "Identifier";
+              shorthandVal.name = prop.name;
+              prop.left = shorthandVal;
+              prop.kind = "shorthand";
+            }
+          }
         }
         node.children.push(prop);
       }

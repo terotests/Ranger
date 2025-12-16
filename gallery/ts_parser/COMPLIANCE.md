@@ -2,7 +2,7 @@
 
 > Generated: 2025-12-16  
 > Parser: Ranger TypeScript Parser  
-> Compliance Score: **93.8%**
+> Compliance Score: **76.9%**
 
 ## Quick Start
 
@@ -15,7 +15,7 @@ node compliance.js
 ```
 
 This will:
-1. Run all 80 TypeScript feature tests against the Ranger parser
+1. Run all 104 TypeScript feature tests against the Ranger parser
 2. Display results in the terminal
 3. Generate this COMPLIANCE.md report
 
@@ -33,9 +33,9 @@ The report is automatically regenerated each time you run the compliance test.
 
 | Metric | Count |
 |--------|-------|
-| ✅ Features Supported | 75 / 80 |
-| 🔧 Needs Implementation | 5 / 80 |
-| ❌ Parse Errors | 0 / 80 |
+| ✅ Features Supported | 80 / 104 |
+| 🔧 Needs Implementation | 24 / 104 |
+| ❌ Parse Errors | 0 / 104 |
 
 ## Category Breakdown
 
@@ -51,6 +51,7 @@ The report is automatically regenerated each time you run the compliance test.
 | Modules | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 7/7 (100%) |
 | Advanced Types | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 7/7 (100%) |
 | Decorators | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 | 4/4 (100%) |
+| JavaScript | 🟩🟩⬜⬜⬜⬜⬜⬜⬜⬜ | 5/24 (21%) |
 | JSX | ⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ | 0/5 (0%) |
 
 ## Detailed Results
@@ -180,6 +181,35 @@ The report is automatically regenerated each time you run the compliance test.
 | Property Decorator | ✅ |
 | Parameter Decorator | ✅ |
 
+### JavaScript
+
+| Feature | Status |
+|---------|--------|
+| Generator Function | 🔧 |
+| Yield Expression | 🔧 |
+| For-Await-Of | 🔧 |
+| Spread Operator (Array) | ✅ |
+| Spread Operator (Call) | 🔧 |
+| Spread Operator (Object) | ✅ |
+| Destructuring Object | 🔧 |
+| Destructuring Array | 🔧 |
+| Private Field | ✅ |
+| Static Block | 🔧 |
+| Logical Assignment (&&=) | 🔧 |
+| Logical Assignment (||=) | 🔧 |
+| Logical Assignment (??=) | 🔧 |
+| Exponentiation Operator | 🔧 |
+| Numeric Separators | 🔧 |
+| BigInt Literal | 🔧 |
+| Dynamic Import | 🔧 |
+| Import Meta | 🔧 |
+| Object Shorthand | 🔧 |
+| Computed Property | 🔧 |
+| Getter | ✅ |
+| Setter | ✅ |
+| New Target | 🔧 |
+| Tagged Template | 🔧 |
+
 ### JSX
 
 | Feature | Status |
@@ -194,6 +224,25 @@ The report is automatically regenerated each time you run the compliance test.
 
 The following features parse successfully but don't produce the expected AST node types yet:
 
+- [ ] **Generator Function** (JavaScript)
+- [ ] **Yield Expression** (JavaScript)
+- [ ] **For-Await-Of** (JavaScript)
+- [ ] **Spread Operator (Call)** (JavaScript)
+- [ ] **Destructuring Object** (JavaScript)
+- [ ] **Destructuring Array** (JavaScript)
+- [ ] **Static Block** (JavaScript)
+- [ ] **Logical Assignment (&&=)** (JavaScript)
+- [ ] **Logical Assignment (||=)** (JavaScript)
+- [ ] **Logical Assignment (??=)** (JavaScript)
+- [ ] **Exponentiation Operator** (JavaScript)
+- [ ] **Numeric Separators** (JavaScript)
+- [ ] **BigInt Literal** (JavaScript)
+- [ ] **Dynamic Import** (JavaScript)
+- [ ] **Import Meta** (JavaScript)
+- [ ] **Object Shorthand** (JavaScript)
+- [ ] **Computed Property** (JavaScript)
+- [ ] **New Target** (JavaScript)
+- [ ] **Tagged Template** (JavaScript)
 - [ ] **JSX Element** (JSX)
 - [ ] **JSX Self-Closing** (JSX)
 - [ ] **JSX Expression** (JSX)
