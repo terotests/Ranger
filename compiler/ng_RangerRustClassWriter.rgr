@@ -4,6 +4,11 @@ class RangerRustClassWriter {
   def thisName:string "self"
   def fileHeaderWritten:boolean false
   
+  ; Rust needs semicolons at end of statements
+  fn lineEnding:string () {
+    return ";"
+  }
+  
   ; Escape Rust reserved words by prefixing with r#
   fn adjustType:string (tn:string) {
     switch tn {
@@ -80,6 +85,9 @@ class RangerRustClassWriter {
       case "double" {
         return "f64"
       }
+      case "buffer" {
+        return "Vec<u8>"
+      }
     }
     return type_string
   }
@@ -96,6 +104,9 @@ class RangerRustClassWriter {
       }
       case "double" {
         return "f64"
+      }
+      case "buffer" {
+        return "Vec<u8>"
       }
     }
     return type_string
@@ -148,6 +159,9 @@ class RangerRustClassWriter {
         wr.out("u8" false)
       }
       case RangerNodeType.CharBuffer {
+        wr.out("Vec<u8>" false)
+      }
+      case RangerNodeType.Buffer {
         wr.out("Vec<u8>" false)
       }
       case RangerNodeType.Hash {
@@ -302,9 +316,11 @@ class RangerRustClassWriter {
         wr.out("/** unused:  " false)
       }
       def map_or_hash:boolean ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash))
+      ; Buffer type needs mut since buffer_set/buffer_fill/buffer_copy modify in place
+      def is_buffer:boolean (nn.value_type == RangerNodeType.Buffer)
       ; In Rust, calling &mut self methods requires the variable to be mut
       ; For now, always use mut for objects and arrays to avoid borrow issues
-      def needs_mut:boolean (((p.set_cnt > 0) || p.is_class_variable) || map_or_hash)
+      def needs_mut:boolean ((((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer)
       def is_object:boolean (nn.value_type == RangerNodeType.Object)
       if (needs_mut || is_object) {
         wr.out((("let mut " + p.compiledName) + " : ") false)

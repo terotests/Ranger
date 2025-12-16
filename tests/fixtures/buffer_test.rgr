@@ -1,0 +1,55 @@
+; Test for buffer type and operations
+; Tests the new binary buffer system
+
+class Main {
+    sfn m@(main):void () {
+        print "=== Buffer Operations Test ==="
+        
+        ; Test 1: buffer_alloc - allocate a buffer
+        print "Test 1: Allocating buffer of 16 bytes"
+        def buf:buffer (buffer_alloc 16)
+        print ("Buffer length: " + (to_string (buffer_length buf)))
+        
+        ; Test 2: buffer_set / buffer_get - single byte access
+        print "Test 2: Setting and getting bytes"
+        buffer_set buf 0 65   ; 'A'
+        buffer_set buf 1 66   ; 'B'
+        buffer_set buf 2 67   ; 'C'
+        buffer_set buf 3 0    ; null terminator
+        
+        def byte0 (buffer_get buf 0)
+        def byte1 (buffer_get buf 1)
+        def byte2 (buffer_get buf 2)
+        print ("Byte 0: " + (to_string byte0) + " (expected 65)")
+        print ("Byte 1: " + (to_string byte1) + " (expected 66)")
+        print ("Byte 2: " + (to_string byte2) + " (expected 67)")
+        
+        ; Test 3: buffer_from_string - create buffer from string
+        print "Test 3: Creating buffer from string"
+        def strBuf:buffer (buffer_from_string "Hello")
+        def strLen (buffer_length strBuf)
+        print ("String buffer length: " + (to_string strLen))
+        
+        ; Test 4: buffer_to_string - convert buffer to string
+        print "Test 4: Converting buffer to string"
+        def resultStr (buffer_to_string strBuf)
+        print ("Buffer as string: " + resultStr)
+        
+        ; Test 5: buffer_fill - fill buffer with value
+        print "Test 5: Filling buffer"
+        def fillBuf:buffer (buffer_alloc 8)
+        buffer_fill fillBuf 255 0 8
+        def filledByte (buffer_get fillBuf 0)
+        print ("Filled byte: " + (to_string filledByte) + " (expected 255)")
+        
+        ; Test 6: buffer_copy - copy between buffers
+        print "Test 6: Copying buffers"
+        def srcBuf:buffer (buffer_from_string "SOURCE")
+        def dstBuf:buffer (buffer_alloc 10)
+        buffer_copy dstBuf 0 srcBuf 0 6
+        def copiedStr (buffer_to_string dstBuf)
+        print ("Copied buffer: " + copiedStr)
+        
+        print "=== All tests completed ==="
+    }
+}

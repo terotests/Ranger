@@ -1,0 +1,14 @@
+# PDF Writer output files
+hello_world.pdf
+hello_with_image.pdf
+canon_with_metadata.pdf
+gps_with_metadata.pdf
+
+# Generated JavaScript
+pdf_writer.js
+jpeg_metadata.js
+
+# Keep example images in version control
+!Example.jpg
+!Canon_40D.jpg
+!GPS_test.jpg

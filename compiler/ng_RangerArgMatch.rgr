@@ -589,6 +589,9 @@ class RangerArgMatch {
       case "charbuffer" {
         return RangerNodeType.CharBuffer
       }
+      case "buffer" {
+        return RangerNodeType.Buffer
+      }
       case "boolean" {
         return RangerNodeType.Boolean
       }
