@@ -92,7 +92,10 @@
     "tsparser:benchmark": "npm run tsparser:module && cd gallery/ts_parser/benchmark && npm run benchmark",
     "tsparser:run": "node ./gallery/ts_parser/bin/ts_parser_main.js -d",
     "tsparser:run:rust": "./gallery/ts_parser/bin/ts_parser_rust.exe -d",
-    "tsparser": "npm run tsparser:compile && npm run tsparser:run"
+    "tsparser": "npm run tsparser:compile && npm run tsparser:run",
+    "pdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/PDFWriter.rgr -d=./gallery/pdf_writer -o=pdf_writer.js -nodecli",
+    "pdf:run": "node ./gallery/pdf_writer/pdf_writer.js",
+    "pdf": "npm run pdf:compile && npm run pdf:run"
   },
   "repository": {
     "type": "git",

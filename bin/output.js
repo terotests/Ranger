@@ -3113,7 +3113,7 @@ class RangerAppWriterContext  {
         await operatorsOf_13.forEach_19(op.opHash, (async (item, index) => { 
           const op_name = index;
           await operatorsOf.forEach_15(item.list, ((item, index) => { 
-            /** unused:  const fc = item.getFirst()   **/ 
+            const fc = item.getFirst();
             const nameNode = item.getSecond();
             const args = item.getThird();
             const newOp = new RangerAppOperatorDesc();
@@ -3467,14 +3467,14 @@ class RangerAppWriterContext  {
         lang = m;
       }
     };
-    /** unused:  let cmds   **/ 
+    let cmds;
     const langNodes = lang.children[1];
     const targetLang = operatorsOfRangerAppWriterContext_21.getTargetLang_22(this);
     for ( let i_1 = 0; i_1 < langNodes.children.length; i_1++) {
       var lch = langNodes.children[i_1];
       const fc_1 = lch.getFirst();
       if ( fc_1.vref == "reserved_words" ) {
-        /** unused:  const n = lch.getSecond()   **/ 
+        const n = lch.getSecond();
         this.reservedWords = lch.getSecond();
         for ( let i_2 = 0; i_2 < this.reservedWords.children.length; i_2++) {
           var langBlock = this.reservedWords.children[i_2];
@@ -3510,13 +3510,13 @@ class RangerAppWriterContext  {
         lang = m;
       }
     };
-    /** unused:  let cmds   **/ 
+    let cmds;
     const langNodes = lang.children[1];
     for ( let i_1 = 0; i_1 < langNodes.children.length; i_1++) {
       var lch = langNodes.children[i_1];
       const fc_1 = lch.getFirst();
       if ( fc_1.vref == "commands" ) {
-        /** unused:  const n = lch.getSecond()   **/ 
+        const n = lch.getSecond();
         this.stdCommands = lch.getSecond();
       }
     };
@@ -3824,7 +3824,7 @@ class RangerAppWriterContext  {
         };
       };
       res = new_class;
-      /** unused:  const rootCtx = this.getRoot()   **/ 
+      const rootCtx = this.getRoot();
       await flowParser.WalkNode(new_class.node, ctx, wr);
     }
     return res;
@@ -4667,7 +4667,7 @@ class RangerLispParser  {
     this.paren_cnt = 1;
   }
   joo (cm) {
-    /** unused:  const ll = cm.code.length   **/ 
+    const ll = cm.code.length;
   };
   parse_raw_annotation () {
     let sp = this.i;
@@ -4696,7 +4696,7 @@ class RangerLispParser  {
       return true;
     }
     let c = s.charCodeAt(this.i );
-    /** unused:  const bb = c == (46)   **/ 
+    const bb = c == (46);
     while ((this.i < this.__len) && (c <= 32)) {
       if ( c < 8 ) {
         this.i = this.__len;
@@ -4932,7 +4932,7 @@ class RangerLispParser  {
     const s = this.buff;
     let last_i = 0;
     const do_break = false;
-    /** unused:  const attr_name = ""   **/ 
+    const attr_name = "";
     let sp = this.i;
     let ep = this.i;
     let c = 0;
@@ -5030,9 +5030,9 @@ class RangerLispParser  {
   parseXML () {
     const s = this.buff;
     let c = 0;
-    /** unused:  const next_c = 0   **/ 
-    /** unused:  const fc = 0   **/ 
-    /** unused:  let new_node   **/ 
+    const next_c = 0;
+    const fc = 0;
+    let new_node;
     let sp = this.i;
     let ep = this.i;
     let last_i = 0;
@@ -5169,7 +5169,7 @@ class RangerLispParser  {
   parse (disable_ops) {
     const s = this.buff;
     let c = s.charCodeAt(0 );
-    /** unused:  const next_c = 0   **/ 
+    const next_c = 0;
     let fc = 0;
     let new_node;
     let sp = 0;
@@ -5215,7 +5215,7 @@ class RangerLispParser  {
           if ( (this.i + 1) < this.__len ) {
             const next_c_2 = s.charCodeAt((this.i + 1) );
             if ( ((65) < next_c_2) && ((122) > next_c_2) ) {
-              /** unused:  const spos = this.i   **/ 
+              const spos = this.i;
               this.parseXML();
               this.i = this.i + 1;
               continue;
@@ -5608,7 +5608,7 @@ class RangerLispParser  {
           };
           if ( this.i < this.__len ) {
             vt_ep = this.i;
-            /** unused:  const type_name_2 = s.substring(vt_sp, vt_ep )   **/ 
+            const type_name_2 = s.substring(vt_sp, vt_ep );
             const new_ref_node = new CodeNode(this.code, sp, ep);
             new_ref_node.vref = s.substring(sp, ep );
             new_ref_node.ns = ns_list;
@@ -5713,7 +5713,7 @@ class RangerLispParser  {
                 if ( (ifNode.operator_pred > 0) && (ifNode.operator_pred == op_pred) ) {
                   to_right = ifNode.to_the_right;
                 }
-                /** unused:  const opTarget = ifNode   **/ 
+                const opTarget = ifNode;
                 if ( to_right ) {
                   const op_node = ifNode.children.splice(until_index, 1).pop();
                   const last_value = ifNode.children.splice((until_index - 1), 1).pop();
@@ -5778,7 +5778,7 @@ class RangerArgMatch  {
     this.matchedLambdas = {};
   }
   matchArguments (args, callArgs, ctx, firstArgIndex) {
-    /** unused:  const fc = callArgs.children[0]   **/ 
+    const fc = callArgs.children[0];
     let missed_args = [];
     let all_matched = true;
     if ( ((args.children.length) == 0) && ((callArgs.children.length) > 1) ) {
@@ -6311,7 +6311,7 @@ class DictNode  {
   }
   EncodeString (orig_str) {
     let encoded_str = "";
-    /** unused:  const str_length = orig_str.length   **/ 
+    const str_length = orig_str.length;
     let ii = 0;
     const buff = orig_str;
     const cb_len = buff.length;
@@ -7045,7 +7045,7 @@ class RangerSerializeClass  {
         for ( let i_2 = 0; i_2 < pC.variables.length; i_2++) {
           var pvar_1 = pC.variables[i_2];
           declaredVariable[pvar_1.name] = true;
-          /** unused:  const nn_1 = pvar_1.nameNode   **/ 
+          const nn_1 = pvar_1.nameNode;
         };
       };
     }
@@ -7112,7 +7112,7 @@ class RangerImmutableExtension  {
         for ( let i_1 = 0; i_1 < pC.variables.length; i_1++) {
           var pvar = pC.variables[i_1];
           declaredVariable[pvar.name] = true;
-          /** unused:  const nn = pvar.nameNode   **/ 
+          const nn = pvar.nameNode;
         };
       };
     }
@@ -7131,7 +7131,7 @@ class RangerImmutableExtension  {
       if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
         continue;
       }
-      /** unused:  const nn_1 = pvar_1.nameNode   **/ 
+      const nn_1 = pvar_1.nameNode;
       if ( true ) {
         wr.out(((((((("fn set_" + pvar_1.name) + ":") + cl.name) + " (new_value_of_") + pvar_1.name) + ":") + this.typeDefOf(pvar_1)) + ") {", true);
         wr.indent(1);
@@ -7483,7 +7483,7 @@ class RangerFlowParser  {
     }
   };
   async WalkNode (node, ctx, wr) {
-    /** unused:  const line_index = node.getLine()   **/ 
+    const line_index = node.getLine();
     if ( node.flow_done ) {
       return true;
     }
@@ -7558,8 +7558,8 @@ class RangerFlowParser  {
                   await this.WalkNode(itemCopy, ctx, wr);
                   ctx.unsetTestCompile();
                   if ( ctx.hasClass(itemCopy.eval_array_type) ) {
-                    /** unused:  const paramClassDef = ctx.findClass(itemCopy.eval_array_type)   **/ 
-                    /** unused:  const chNode = item   **/ 
+                    const paramClassDef = ctx.findClass(itemCopy.eval_array_type);
+                    const chNode = item;
                     const t = CodeNode.vref1("tmp");
                     t.setFlag("temp");
                     opBody.children.push(CodeNode.fromList([CodeNode.vref1("forEach"), theNode.copy(), CodeNode.blockFromList([CodeNode.fromList([CodeNode.vref1("def"), t, CodeNode.vref1("item")]), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1(regName), CodeNode.vref1("tmp")])])]));
@@ -7573,7 +7573,7 @@ class RangerFlowParser  {
               }
               if ( item.value_type == 20 ) {
                 if ( ctx.hasClass(item.vref) ) {
-                  /** unused:  const paramClassDef_1 = ctx.findClass(item.vref)   **/ 
+                  const paramClassDef_1 = ctx.findClass(item.vref);
                   const chNode_1 = item;
                   currCnt = currCnt + 1;
                   const regN = "r" + currCnt;
@@ -7607,8 +7607,8 @@ class RangerFlowParser  {
                   await this.WalkNode(itemCopy_1, ctx, wr);
                   ctx.unsetTestCompile();
                   if ( ctx.hasClass(itemCopy_1.eval_array_type) ) {
-                    /** unused:  const paramClassDef_2 = ctx.findClass(itemCopy_1.eval_array_type)   **/ 
-                    /** unused:  const chNode_2 = item   **/ 
+                    const paramClassDef_2 = ctx.findClass(itemCopy_1.eval_array_type);
+                    const chNode_2 = item;
                     operatorsOf.forEach_11(rootClassDef.variables, ((item, index) => { 
                       if ( match.areEqualATypes(item.nameNode.array_type, itemCopy_1.eval_array_type, ctx) ) {
                         const t_1 = CodeNode.vref1("tmp");
@@ -7809,7 +7809,7 @@ class RangerFlowParser  {
             const parts = (sec.vref.substring(1, (sec.vref.length) )).split(".");
             let method_name = parts[0];
             let classDesc = ctx.findClass(fc_6.eval_type_name);
-            /** unused:  const objExpr = fc_6.copy()   **/ 
+            const objExpr = fc_6.copy();
             let calledItem = CodeNode.fromList([CodeNode.vref1("property"), fc_6.copy(), CodeNode.vref1(method_name)]);
             await operatorsOf.forEach_12(parts, ((item, index) => { 
               if ( index > 0 ) {
@@ -7848,7 +7848,7 @@ class RangerFlowParser  {
           const parts_1 = (sec_1.vref.substring(1, (sec_1.vref.length) )).split(".");
           const method_name_1 = parts_1[((parts_1.length) - 1)];
           let classDesc_1 = ctx.findClass(fc_6.eval_type_name);
-          /** unused:  const objExpr_1 = fc_6.copy()   **/ 
+          const objExpr_1 = fc_6.copy();
           let calledItem_1 = fc_6.copy();
           await operatorsOf.forEach_12(parts_1, ((item, index) => { 
             if ( index < ((parts_1.length) - 1) ) {
@@ -8095,8 +8095,8 @@ class RangerFlowParser  {
       }
     }
     if ( (rootObjName == "this") || ctx.isVarDefined(rootObjName) ) {
-      /** unused:  const vDef2 = ctx.getVariableDef(rootObjName)   **/ 
-      /** unused:  const activeFn = ctx.getCurrentMethod()   **/ 
+      const vDef2 = ctx.getVariableDef(rootObjName);
+      const activeFn = ctx.getCurrentMethod();
       const vDef = this.findParamDesc(node, ctx, wr);
       if ( (typeof(vDef) !== "undefined" && vDef != null )  ) {
         node.hasParamDesc = true;
@@ -8165,7 +8165,7 @@ class RangerFlowParser  {
         ctx.addError(node, "Function has too few arguments");
         return;
       }
-      /** unused:  let nameNode   **/ 
+      let nameNode;
       let idx = 0;
       await operatorsOf.forEach_15(node.children, ((item, index) => { 
         if ( item.vref == "static" ) {
@@ -8184,7 +8184,7 @@ class RangerFlowParser  {
   };
   async Constructor (node, ctx, wr) {
     this.shouldHaveChildCnt(3, node, ctx, "Method expexts four arguments");
-    /** unused:  const cn = node.children[1]   **/ 
+    const cn = node.children[1];
     const fnBody = node.children[2];
     const udesc = ctx.getCurrentClass();
     const desc = udesc;
@@ -8314,7 +8314,7 @@ class RangerFlowParser  {
     for ( let i = 0; i < list.length; i++) {
       var item = list[i];
       if ( item.is_block_node ) {
-        /** unused:  const newNode = new CodeNode(item.code, item.sp, item.ep)   **/ 
+        const newNode = new CodeNode(item.code, item.sp, item.ep);
         const fnArg = fnArgs[i];
         const nn = fnArg.nameNode;
         if ( typeof(nn.expression_value) === "undefined" ) {
@@ -8348,7 +8348,7 @@ class RangerFlowParser  {
       var item = list[i];
       if ( item.is_block_node ) {
         console.log("Transforming --> " + item.getCode());
-        /** unused:  const newNode = new CodeNode(item.code, item.sp, item.ep)   **/ 
+        const newNode = new CodeNode(item.code, item.sp, item.ep);
         const nn = fnArgs[i];
         if ( typeof(nn.expression_value) === "undefined" ) {
           ctx.addError(item, "Parameter is not lambda expression");
@@ -8429,7 +8429,7 @@ class RangerFlowParser  {
     const root = ctx.getRoot();
     await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
       await operatorsOf.forEach_29(item.static_methods, (async (item, index) => { 
-        /** unused:  const thisFn = item   **/ 
+        const thisFn = item;
         let set_async = ((f) => { 
         });
         let visited = [];
@@ -8476,7 +8476,7 @@ class RangerFlowParser  {
       }));
       await operatorsOf_13.forEach_30(item.method_variants, (async (item, index) => { 
         await operatorsOf.forEach_29(item.variants, (async (item, index) => { 
-          /** unused:  const thisFn_1 = item   **/ 
+          const thisFn_1 = item;
           let set_async_1 = ((f) => { 
           });
           let visited_1 = [];
@@ -8801,7 +8801,7 @@ class RangerFlowParser  {
     return true;
   };
   async testLambdaCallArgs (lambda_expression, callParams, ctx, wr) {
-    /** unused:  const lambdaDef = lambda_expression.children[0]   **/ 
+    const lambdaDef = lambda_expression.children[0];
     const lambdaArgs = lambda_expression.children[1];
     let all_matched = true;
     if ( (callParams.children.length) != (lambdaArgs.children.length) ) {
@@ -8843,7 +8843,7 @@ class RangerFlowParser  {
     const chlen = node.children.length;
     if ( chlen > 2 ) {
       let i = 2;
-      /** unused:  const chainRoot = node   **/ 
+      const chainRoot = node;
       let innerNode;
       const newNode = node.newExpressionNode();
       const sc = node.getSecond();
@@ -9089,7 +9089,7 @@ class RangerFlowParser  {
       if ( d.nameNode.value_type == 18 ) {
         const cnNode1 = node.children[0];
         await this.WalkNode(cnNode1, ctx, wr);
-        /** unused:  const lambdaDefArgs = d.nameNode.expression_value.children[1]   **/ 
+        const lambdaDefArgs = d.nameNode.expression_value.children[1];
         const callParams_1 = node.children[1];
         for ( let i_5 = 0; i_5 < callParams_1.children.length; i_5++) {
           var arg_2 = callParams_1.children[i_5];
@@ -9136,7 +9136,7 @@ class RangerFlowParser  {
     root.add(node.newVRefNode((target.ns[0])));
     let i = 1;
     const cnt = target.ns.length;
-    /** unused:  const valueExpression = node.newExpressionNode()   **/ 
+    const valueExpression = node.newExpressionNode();
     let obj_ref = target.ns[0];
     let currentParent = root;
     while (i < cnt) {
@@ -9198,7 +9198,7 @@ class RangerFlowParser  {
         }
       }
     }
-    /** unused:  const chlen = node.children.length   **/ 
+    const chlen = node.children.length;
     wr.newline();
     const n1_1 = node.getSecond();
     const n2_1 = node.getThird();
@@ -9293,8 +9293,8 @@ class RangerFlowParser  {
     desc.classNode = node;
   };
   async walkFunctionBody (m, fnBody, ctx, subCtx, wr) {
-    /** unused:  const prev_fnc = subCtx.function_level_context   **/ 
-    /** unused:  const prev_isfn = subCtx.is_function   **/ 
+    const prev_fnc = subCtx.function_level_context;
+    const prev_isfn = subCtx.is_function;
     subCtx.function_level_context = true;
     subCtx.is_function = true;
     subCtx.currentMethod = m;
@@ -9437,9 +9437,9 @@ class RangerFlowParser  {
     node.flow_done = true;
   };
   async testCompile (opFn, node, ctx, wr) {
-    /** unused:  const ok = false   **/ 
+    const ok = false;
     const rootCtx = ctx.getRoot();
-    /** unused:  const errCnt = rootCtx.compilerErrors.length   **/ 
+    const errCnt = rootCtx.compilerErrors.length;
     const opParams = opFn.children[2];
     const opBody = opFn.children[3];
     const xValue = node.copy();
@@ -9489,7 +9489,7 @@ class RangerFlowParser  {
         }
       }));
     }
-    /** unused:  const bodyCopy = opBody.copy()   **/ 
+    const bodyCopy = opBody.copy();
     const newNode = opBody.rebuildWithType(am, true);
     node.children.length = 0;
     await operatorsOf.forEach_15(newNode.children, ((item, index) => { 
@@ -9561,8 +9561,8 @@ class RangerFlowParser  {
       }));
       if ( had_v ) {
         const opFn = item.copy();
-        /** unused:  const opParams = opFn.children[2]   **/ 
-        /** unused:  const opBody = opFn.children[3]   **/ 
+        const opParams = opFn.children[2];
+        const opBody = opFn.children[3];
         let typeName = "";
         await operatorsOf.forEach_12(tryTypes, (async (item, index) => { 
           const copyOfFn = opFn.copy();
@@ -9585,7 +9585,7 @@ class RangerFlowParser  {
     }));
     if ( (newOps.length) > 0 ) {
       await operatorsOf.forEach_15(newOps, ((item, index) => { 
-        /** unused:  const tmp = item   **/ 
+        const tmp = item;
         opFnList.push(item);
       }));
     }
@@ -9766,7 +9766,7 @@ class RangerFlowParser  {
             lastLine.flow_done = false;
             lastLine.children.length = 0;
             lastLine.getChildrenFrom(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName_1), argCopy_1]));
-            /** unused:  const regE = regExpr_1.children[1]   **/ 
+            const regE = regExpr_1.children[1];
             await this.WalkNode(lastLine, blockCtx_1, wr);
             const myBlock = CodeNode.expressionNode();
             myBlock.getChildrenFrom(origNode);
@@ -9785,8 +9785,8 @@ class RangerFlowParser  {
         ctx.unsetTestCompile();
       }
     }));
-    /** unused:  const depth_2 = operatorsOf_33.transactionc95depth_34("TransformOpFn", ctx)   **/ 
-    /** unused:  const errDelta_1 = (rootCtx.compilerErrors.length) - errCnt   **/ 
+    const depth_2 = operatorsOf_33.transactionc95depth_34("TransformOpFn", ctx);
+    const errDelta_1 = (rootCtx.compilerErrors.length) - errCnt;
     const currentErrCnt_1 = rootCtx.compilerErrors.length;
     const errDelta_3 = currentErrCnt_1 - errCnt;
     if ( errDelta_3 > 0 ) {
@@ -9943,7 +9943,7 @@ class RangerFlowParser  {
       }
       subCtx.defineVariable(p2.name, p2);
     };
-    /** unused:  const cnt = body.children.length   **/ 
+    const cnt = body.children.length;
     for ( let i = 0; i < body.children.length; i++) {
       var item = body.children[i];
       const tmp = item;
@@ -9983,8 +9983,8 @@ class RangerFlowParser  {
         const testC = ctx.findClass(node.vref);
         if ( testC.is_trait ) {
           if ( testC.node.hasExpressionProperty("params") ) {
-            /** unused:  const params = testC.node.getExpressionProperty("params")   **/ 
-            /** unused:  const cnt = tAnn.children.length   **/ 
+            const params = testC.node.getExpressionProperty("params");
+            const cnt = tAnn.children.length;
             let tstr = "";
             for ( let i = 0; i < tAnn.children.length; i++) {
               var ch = tAnn.children[i];
@@ -10012,8 +10012,8 @@ class RangerFlowParser  {
         const testC = ctx.findClass(node.type_name);
         if ( testC.is_trait ) {
           if ( testC.node.hasExpressionProperty("params") ) {
-            /** unused:  const params = testC.node.getExpressionProperty("params")   **/ 
-            /** unused:  const cnt = tAnn.children.length   **/ 
+            const params = testC.node.getExpressionProperty("params");
+            const cnt = tAnn.children.length;
             let tstr = "";
             for ( let i = 0; i < tAnn.children.length; i++) {
               var ch = tAnn.children[i];
@@ -10179,7 +10179,7 @@ class RangerFlowParser  {
     for ( let i = 0; i < this.classesWithTraits.length; i++) {
       var point = this.classesWithTraits[i];
       const cl = point.class_def;
-      /** unused:  const joinPoint = point.node   **/ 
+      const joinPoint = point.node;
       const traitClassDef = point.node.children[1];
       const name = traitClassDef.vref;
       const t = ctx.findClass(name);
@@ -10387,7 +10387,7 @@ class RangerFlowParser  {
     const subCtx = ctx.fork();
     const node = this.spliceFunctionBody(3, orig_node, subCtx, wr);
     const cn = node.getSecond();
-    /** unused:  const s = node.getVRefAt(1)   **/ 
+    const s = node.getVRefAt(1);
     cn.ifNoTypeSetToVoid();
     const m = operatorsOfCodeNode_41.rc46funcdesc_42(node, ctx);
     subCtx.is_function = true;
@@ -10464,7 +10464,7 @@ class RangerFlowParser  {
     if ( node.isFirstVref("operator") ) {
       const opRef = node.children[0];
       const nameNode = node.getSecond();
-      /** unused:  const opClassName = nameNode.vref   **/ 
+      const opClassName = nameNode.vref;
       if ( nameNode.vref == "class" ) {
         const new_class = new RangerAppClassDesc();
         new_class.name = nameNode.type_name;
@@ -11534,13 +11534,13 @@ class RangerFlowParser  {
   async stdParamMatch (callArgs, inCtx, wr, require_all_match) {
     this.stdCommands = inCtx.getStdCommands();
     const callFnName = callArgs.getFirst();
-    /** unused:  const cmds = this.stdCommands   **/ 
+    const cmds = this.stdCommands;
     let some_matched = false;
-    /** unused:  const found_fn = false   **/ 
+    const found_fn = false;
     let added_ns = "";
-    /** unused:  let missed_args = []   **/ 
+    let missed_args = [];
     let ctx = inCtx.fork();
-    /** unused:  const lang_name = operatorsOf_21.getTargetLang_22(ctx)   **/ 
+    const lang_name = operatorsOf_21.getTargetLang_22(ctx);
     let expects_error = false;
     const err_cnt = inCtx.getErrorCount();
     let arg_eval_start = 0;
@@ -11551,7 +11551,7 @@ class RangerFlowParser  {
       inCtx.lastBlockOp = callArgs;
     } else {
     }
-    /** unused:  const in_chain = false   **/ 
+    const in_chain = false;
     const call_arg_cnt = callArgs.children.length;
     const op_list = await ctx.getOperators(callFnName.vref);
     for ( let main_index = 0; main_index < op_list.length; main_index++) {
@@ -11565,7 +11565,7 @@ class RangerFlowParser  {
       ctx.removeOpNs(added_ns);
       ctx.addOpNs(fc.vref);
       added_ns = fc.vref;
-      /** unused:  const line_index = callArgs.getLine()   **/ 
+      const line_index = callArgs.getLine();
       const callerArgCnt = call_arg_cnt - 1;
       const fnArgCnt = args.children.length;
       let has_eval_ctx = false;
@@ -11673,7 +11673,7 @@ class RangerFlowParser  {
             const opList = await ctx.getOpFns(callArg.vref);
             if ( (opList.length) > 0 ) {
               const signature = arg.expression_value.copy();
-              /** unused:  const params = signature.children[1]   **/ 
+              const params = signature.children[1];
             }
             if ( codeDef.is_block_node == false ) {
               const later = new WalkLater();
@@ -11830,7 +11830,7 @@ class RangerFlowParser  {
                   return;
                 }
                 const opName = index + 1;
-                /** unused:  const item = callArgs.children[(index + 1)]   **/ 
+                const item = callArgs.children[(index + 1)];
                 let regName_1 = "";
                 const realArg = callArgs.children[opName];
                 if ( (realArg.register_name.length) > 0 ) {
@@ -11858,7 +11858,7 @@ class RangerFlowParser  {
                       item.register_name = "";
                     }));
                     const eval_expr = CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName_1), argCopy_1]);
-                    /** unused:  const lastOp = loopBlock.children[((loopBlock.children.length) - 1)]   **/ 
+                    const lastOp = loopBlock.children[((loopBlock.children.length) - 1)];
                     ctx.lastBlockOp = eval_expr;
                     await this.WalkNode(eval_expr, ctx, wr);
                     item.children.push(eval_expr);
@@ -11872,7 +11872,7 @@ class RangerFlowParser  {
                   return;
                 }
                 const opName_1 = (item.getSecond()).int_value;
-                /** unused:  const opArg_1 = args.children[(opName_1 - 1)]   **/ 
+                const opArg_1 = args.children[(opName_1 - 1)];
                 if ( ( typeof(opCnts[opName_1] ) != "undefined" && opCnts.hasOwnProperty(opName_1) ) ) {
                   let regName_2 = "";
                   const realArg_1 = callArgs.children[opName_1];
@@ -11959,7 +11959,7 @@ class RangerFlowParser  {
             var later_1 = walk_later[i_2];
             const ca = later_1.callArg;
             const aa = later_1.arg;
-            /** unused:  const newNode = new CodeNode(ca.code, ca.sp, ca.ep)   **/ 
+            const newNode = new CodeNode(ca.code, ca.sp, ca.ep);
             if ( (ca.is_block_node && (ca.isFirstVref("fn") == false)) && (ca.isFirstVref("fun") == false) ) {
               const fnDef = aa.expression_value;
               const copyOf = fnDef.rebuildWithType(match, false);
@@ -11990,7 +11990,7 @@ class RangerFlowParser  {
               const callArg_1 = callArgs.children[(index + 1)];
               const arg_1 = item;
               const vName = item.copy();
-              /** unused:  const caCopy = callArg_1.copy()   **/ 
+              const caCopy = callArg_1.copy();
               const prms = this.transformParams2([callArg_1], [arg_1], ctx);
               const firstp = prms[0];
               const ad = CodeNode.op3("def", [vName, firstp]);
@@ -12100,7 +12100,7 @@ class RangerFlowParser  {
             callArgs.children.push(newArgs);
             callArgs.flow_done = false;
             await this.WalkNode(callArgs, ctx, wr);
-            /** unused:  const currMM = ctx.getCurrentMethod()   **/ 
+            const currMM = ctx.getCurrentMethod();
             for ( let i_7 = 0; i_7 < newArgs.children.length; i_7++) {
               var ca_2 = newArgs.children[i_7];
               if ( ca_2.eval_type == 18 ) {
@@ -12245,7 +12245,7 @@ class RangerFlowParser  {
           if ( (typeof(nodeP) !== "undefined" && nodeP != null )  ) {
           } else {
           }
-          /** unused:  const sig = nameNode.buildTypeSignatureUsingMatch(match)   **/ 
+          const sig = nameNode.buildTypeSignatureUsingMatch(match);
           some_matched = true;
           callArgs.has_operator = true;
           callArgs.op_index = main_index;
@@ -12468,7 +12468,7 @@ class RangerGenericClassWriter  {
     }
   };
   EncodeString (node, ctx, wr) {
-    /** unused:  const encoded_str = ""   **/ 
+    const encoded_str = "";
     const str_length = node.string_value.length;
     let encoded_str_2 = "";
     let ii = 0;
@@ -12876,7 +12876,7 @@ class RangerGenericClassWriter  {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
-      /** unused:  const fc = node.getSecond()   **/ 
+      const fc = node.getSecond();
       wr.out("new " + node.clDesc.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
@@ -13181,7 +13181,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
       if ( cc.is_system ) {
-        /** unused:  const current_sys = ctx   **/ 
+        const current_sys = ctx;
         const sName = (( cc.systemNames.hasOwnProperty("java7") ? cc.systemNames["java7"] : undefined ));
         await this.addSystemImport(cc, ctx, wr);
         return sName;
@@ -13333,7 +13333,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
           const sig_1 = this.buildLambdaSignature((node.expression_value));
           const iface_name_1 = this.getSignatureInterface(sig_1);
           wr.out(iface_name_1, false);
-          /** unused:  const package_name_2 = ctx.getCompilerSetting("package")   **/ 
+          const package_name_2 = ctx.getCompilerSetting("package");
           if ( (( typeof(this.iface_created[iface_name_1] ) != "undefined" && this.iface_created.hasOwnProperty(iface_name_1) )) == false ) {
             const fnNode_1 = node.expression_value.children[0];
             const args_1 = node.expression_value.children[1];
@@ -13739,10 +13739,10 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     const body = node.children[2];
     const sig = this.buildLambdaSignature(node);
     const iface_name = this.getSignatureInterface(sig);
-    /** unused:  const package_name = ctx.getCompilerSetting("package")   **/ 
+    const package_name = ctx.getCompilerSetting("package");
     if ( (( typeof(this.iface_created[iface_name] ) != "undefined" && this.iface_created.hasOwnProperty(iface_name) )) == false ) {
       this.iface_created[iface_name] = true;
-      /** unused:  const utilWr = wr.getFileWriter("./interfaces/", (iface_name + ".java"))   **/ 
+      const utilWr = wr.getFileWriter("./interfaces/", (iface_name + ".java"));
       let iface_dir = ".";
       if ( this.isPackaged(ctx) ) {
         iface_dir = "./interfaces/";
@@ -14086,7 +14086,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
-        /** unused:  const fc = sec.getFirst()   **/ 
+        const fc = sec.getFirst();
         wr.out("(", false);
         wr.out("(", false);
         for ( let i = 0; i < sec.children.length; i++) {
@@ -14509,7 +14509,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
-      /** unused:  const fc = node.getSecond()   **/ 
+      const fc = node.getSecond();
       wr.out(node.clDesc.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
@@ -14840,7 +14840,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
-        /** unused:  const fc = sec.getFirst()   **/ 
+        const fc = sec.getFirst();
         wr.out("(", false);
         wr.out("(", false);
         for ( let i = 0; i < sec.children.length; i++) {
@@ -15266,7 +15266,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
-      /** unused:  const fc = node.getSecond()   **/ 
+      const fc = node.getSecond();
       wr.out(node.clDesc.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
@@ -15623,7 +15623,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
-        /** unused:  const fc = sec.getFirst()   **/ 
+        const fc = sec.getFirst();
         this.import_lib("<functional>", ctx, wr);
         wr.out("std::function<", false);
         await this.writeTypeDef(rv, ctx, wr);
@@ -15991,7 +15991,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   async CreateLambda (node, ctx, wr) {
     this.import_lib("<functional>", ctx, wr);
     const lambdaCtx = node.lambda_ctx;
-    /** unused:  const fnNode = node.children[0]   **/ 
+    const fnNode = node.children[0];
     const args = node.children[1];
     const body = node.children[2];
     wr.out("[&", false);
@@ -16096,7 +16096,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
-      /** unused:  const fc = node.getSecond()   **/ 
+      const fc = node.getSecond();
       wr.out(" std::make_shared<", false);
       wr.out(node.clDesc.name, false);
       wr.out(">(", false);
@@ -16272,7 +16272,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     const classWriter = orig_wr.getTag("c++ClassDefs");
     const headerWriter = orig_wr.getTag("c++Header");
-    /** unused:  const projectName = "project"   **/ 
+    const projectName = "project";
     classWriter.out(("class " + cl.name) + ";", true);
     await this.writeClassHeader(node, ctx, headerWriter);
     wr.out(((cl.name + "::") + cl.name) + "(", false);
@@ -16958,7 +16958,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
-      /** unused:  const fc = node.getSecond()   **/ 
+      const fc = node.getSecond();
       wr.out(node.clDesc.name, false);
       wr.out("::new(", false);
       const constr = cl.constructor_fn;
@@ -17598,7 +17598,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         }
       }
     }
-    /** unused:  const max_len = node.ns.length   **/ 
+    const max_len = node.ns.length;
     if ( (node.nsp.length) > 0 ) {
       for ( let i = 0; i < node.nsp.length; i++) {
         var p = node.nsp[i];
@@ -17754,7 +17754,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
-      /** unused:  const fc = node.getSecond()   **/ 
+      const fc = node.getSecond();
       wr.out(" ", false);
       wr.out(node.clDesc.name, false);
       wr.out("(", false);
@@ -17781,7 +17781,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       return;
     }
     const wr = orig_wr;
-    /** unused:  const importFork = wr.fork()   **/ 
+    const importFork = wr.fork();
     wr.out("", true);
     wr.out("class " + cl.name, false);
     if ( cl.has_constructor ) {
@@ -17943,7 +17943,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
   async writeLambdaType (expression_value, ctx, wr) {
     const rv = expression_value.children[0];
     const sec = expression_value.children[1];
-    /** unused:  const fc = sec.getFirst()   **/ 
+    const fc = sec.getFirst();
     let is_void = false;
     if ( (rv.type_name == "void") || (rv.eval_type_name == "void") ) {
       is_void = true;
@@ -18161,7 +18161,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
   };
   async CreateLambda (node, ctx, wr) {
     const lambdaCtx = node.lambda_ctx;
-    /** unused:  const fName = node.children[1]   **/ 
+    const fName = node.children[1];
     const body = node.children[2];
     const args = node.children[1];
     wr.out("(", false);
@@ -18375,7 +18375,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
-        /** unused:  const fc = sec.getFirst()   **/ 
+        const fc = sec.getFirst();
         let is_void = false;
         if ( (rv.type_name == "void") || (rv.eval_type_name == "void") ) {
           is_void = true;
@@ -18456,7 +18456,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
-        /** unused:  const fc = sec.getFirst()   **/ 
+        const fc = sec.getFirst();
         let is_void = false;
         if ( (rv.type_name == "void") || (rv.eval_type_name == "void") ) {
           is_void = true;
@@ -18577,7 +18577,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
   async writeVarDef (node, ctx, wr) {
     if ( node.hasParamDesc ) {
       const p = node.paramDesc;
-      /** unused:  const nn = node.children[1]   **/ 
+      const nn = node.children[1];
       if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
         wr.out("/** unused ", false);
       }
@@ -18871,7 +18871,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       this.init_done = true;
       wr.createTag("beginning");
     }
-    /** unused:  const importFork = wr.getTag("imports")   **/ 
+    const importFork = wr.getTag("imports");
     const b_class_has_content = ((cl.has_constructor || ((cl.variables.length) > 0)) || ((cl.defined_variants.length) > 0)) || ((cl.extends_classes.length) > 0);
     if ( b_class_has_content ) {
       if ( (cl.extends_classes.length) > 0 ) {
@@ -19221,7 +19221,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
-        /** unused:  const fc = sec.getFirst()   **/ 
+        const fc = sec.getFirst();
         wr.out("func(", false);
         for ( let i = 0; i < sec.children.length; i++) {
           var arg = sec.children[i];
@@ -19353,7 +19353,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       }
     }
     let next_is_gs = false;
-    /** unused:  const last_was_setter = false   **/ 
+    const last_was_setter = false;
     let needs_par = false;
     const ns_last = (node.ns.length) - 1;
     if ( (node.nsp.length) > 0 ) {
@@ -19396,7 +19396,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             const up = currC.findVariable(part);
             const lvDef = ctx.getVariableDef(part);
             if ( ((typeof(up) !== "undefined" && up != null ) ) && lvDef.is_class_variable ) {
-              /** unused:  const p3 = up   **/ 
+              const p3 = up;
               wr.out(this.thisName + ".", false);
             }
           }
@@ -19433,7 +19433,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         const up_1 = currC_1.findVariable(part_1);
         const lvDef_1 = ctx.getVariableDef(part_1);
         if ( ((typeof(up_1) !== "undefined" && up_1 != null ) ) && lvDef_1.is_class_variable ) {
-          /** unused:  const p3_1 = up_1   **/ 
+          const p3_1 = up_1;
           wr.out(this.thisName + ".", false);
         }
       }
@@ -19465,7 +19465,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           const up_2 = currC_2.findVariable(part_2);
           const lvDef_2 = ctx.getVariableDef(part_2);
           if ( ((typeof(up_2) !== "undefined" && up_2 != null ) ) && lvDef_2.is_class_variable ) {
-            /** unused:  const p3_2 = up_2   **/ 
+            const p3_2 = up_2;
             wr.out(this.thisName + ".", false);
           }
         }
@@ -19488,7 +19488,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       }
     }
     let next_is_gs = false;
-    /** unused:  const last_was_setter = false   **/ 
+    const last_was_setter = false;
     let needs_par = false;
     const ns_len = (node.ns.length) - 1;
     if ( (node.nsp.length) > 0 ) {
@@ -19531,7 +19531,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             const up = currC.findVariable(part);
             const lvDef = ctx.getVariableDef(part);
             if ( ((typeof(up) !== "undefined" && up != null ) ) && lvDef.is_class_variable ) {
-              /** unused:  const p3 = up   **/ 
+              const p3 = up;
               wr.out(this.thisName + ".", false);
             }
           }
@@ -19570,7 +19570,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         const up_1 = currC_1.findVariable(part_1);
         const lvDef_1 = ctx.getVariableDef(part_1);
         if ( ((typeof(up_1) !== "undefined" && up_1 != null ) ) && lvDef_1.is_class_variable ) {
-          /** unused:  const p3_1 = up_1   **/ 
+          const p3_1 = up_1;
           wr.out(this.thisName + ".", false);
         }
       }
@@ -19602,7 +19602,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           const up_2 = currC_2.findVariable(part_2);
           const lvDef_2 = ctx.getVariableDef(part_2);
           if ( ((typeof(up_2) !== "undefined" && up_2 != null ) ) && lvDef_2.is_class_variable ) {
-            /** unused:  const p3_2 = up_2   **/ 
+            const p3_2 = up_2;
             wr.out(this.thisName + ".", false);
           }
         }
@@ -19633,7 +19633,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     wr.out(";", true);
     const left = arr_node;
     const a_len = (left.ns.length) - 1;
-    /** unused:  const last_part = left.ns[a_len]   **/ 
+    const last_part = left.ns[a_len];
     let next_is_gs = false;
     let last_was_setter = false;
     let needs_par = false;
@@ -19683,7 +19683,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           const up = currC.findVariable(part);
           const lvDef = ctx.getVariableDef(part);
           if ( ((typeof(up) !== "undefined" && up != null ) ) && lvDef.is_class_variable ) {
-            /** unused:  const p3 = up   **/ 
+            const p3 = up;
             wr.out(this.thisName + ".", false);
           }
         }
@@ -19889,7 +19889,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
-      /** unused:  const fc = node.getSecond()   **/ 
+      const fc = node.getSecond();
       wr.out(("CreateNew_" + node.clDesc.name) + "(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
@@ -20078,7 +20078,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       let b_was_static = false;
       if ( left.hasParamDesc ) {
         const a_len = (left.ns.length) - 1;
-        /** unused:  const last_part = left.ns[a_len]   **/ 
+        const last_part = left.ns[a_len];
         let next_is_gs = false;
         let last_was_setter = false;
         let needs_par = false;
@@ -20118,7 +20118,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
               const up = currC.findVariable(part);
               const lvDef = ctx.getVariableDef(part);
               if ( ((typeof(up) !== "undefined" && up != null ) ) && lvDef.is_class_variable ) {
-                /** unused:  const p3 = up   **/ 
+                const p3 = up;
                 wr.out(this.thisName + ".", false);
               }
             }
@@ -20643,7 +20643,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     return tn;
   };
   EncodeString (node, ctx, wr) {
-    /** unused:  const encoded_str = ""   **/ 
+    const encoded_str = "";
     const str_length = node.string_value.length;
     let encoded_str_2 = "";
     let ii = 0;
@@ -20960,7 +20960,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
   };
   async CreateLambda (node, ctx, wr) {
     const lambdaCtx = node.lambda_ctx;
-    /** unused:  const fnNode = node.children[0]   **/ 
+    const fnNode = node.children[0];
     const args = node.children[1];
     const body = node.children[2];
     wr.out("(function (", false);
@@ -21073,7 +21073,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
-      /** unused:  const fc = node.getSecond()   **/ 
+      const fc = node.getSecond();
       wr.out(" new ", false);
       wr.out(node.clDesc.name, false);
       wr.out("(", false);
@@ -21135,7 +21135,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     }
     let declaredFunction = {};
     const wr = orig_wr;
-    /** unused:  const importFork = wr.fork()   **/ 
+    const importFork = wr.fork();
     for ( let i = 0; i < cl.capturedLocals.length; i++) {
       var dd = cl.capturedLocals[i];
       if ( dd.is_class_variable == false ) {
@@ -21524,7 +21524,7 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
   };
   async CreateLambda (node, ctx, wr) {
     const lambdaCtx = node.lambda_ctx;
-    /** unused:  const fnNode = node.children[0]   **/ 
+    const fnNode = node.children[0];
     const args = node.children[1];
     const body = node.children[2];
     wr.out("lambda ", false);
@@ -21598,7 +21598,7 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
-      /** unused:  const fc = node.getSecond()   **/ 
+      const fc = node.getSecond();
       wr.out(node.clDesc.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
@@ -21651,7 +21651,7 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     }
     let declaredFunction = {};
     const wr = orig_wr;
-    /** unused:  const importFork = wr.fork()   **/ 
+    const importFork = wr.fork();
     if ( this.wrote_header == false ) {
       wr.out("# -*- coding: utf-8 -*-", true);
       wr.out("", true);
@@ -21965,7 +21965,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
       if ( cc.is_system ) {
-        /** unused:  const current_sys = ctx   **/ 
+        const current_sys = ctx;
         const sName = (( cc.systemNames.hasOwnProperty("es6") ? cc.systemNames["es6"] : undefined ));
         return sName;
       }
@@ -22016,7 +22016,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       case 18 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
-        /** unused:  const fc = sec.getFirst()   **/ 
+        const fc = sec.getFirst();
         wr.out("(", false);
         for ( let i = 0; i < sec.children.length; i++) {
           var arg = sec.children[i];
@@ -22078,7 +22078,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         if ( ctx.isDefinedClass(t_name) ) {
           const cc = ctx.findClass(t_name);
           if ( cc.is_system ) {
-            /** unused:  const current_sys = ctx   **/ 
+            const current_sys = ctx;
             const sName = (( cc.systemNames.hasOwnProperty("es6") ? cc.systemNames["es6"] : undefined ));
             wr.out(sName, false);
             return;
@@ -22188,7 +22188,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       const nn = node.children[1];
       const p = nn.paramDesc;
       const remove_unused = ctx.hasCompilerFlag("remove-unused-class-vars");
-      if ( (p.ref_cnt == 0) && (remove_unused || (p.is_class_variable == false)) ) {
+      if ( ((p.ref_cnt == 0) && remove_unused) && p.is_class_variable ) {
         return;
       }
       let was_set = false;
@@ -22232,10 +22232,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     if ( node.hasParamDesc ) {
       const nn = node.children[1];
       const p = nn.paramDesc;
-      /** unused:  const opt_js = ctx.hasCompilerFlag("optimize-js")   **/ 
-      if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-        wr.out("/** unused:  ", false);
-      }
+      const opt_js = ctx.hasCompilerFlag("optimize-js");
       let has_value = false;
       if ( (node.children.length) > 2 ) {
         has_value = true;
@@ -22275,12 +22272,8 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
         wr.out("     /** note: unused */", false);
       }
-      if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-        wr.out("   **/ ", true);
-      } else {
-        wr.out(";", false);
-        wr.newline();
-      }
+      wr.out(";", false);
+      wr.newline();
     }
   };
   async writeClassVarDef (p, ctx, wr) {
@@ -22414,7 +22407,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       is_rn_default = true;
     }
     const wr = orig_wr;
-    /** unused:  const importFork = wr.fork()   **/ 
+    const importFork = wr.fork();
     if ( this.wrote_header == false ) {
       this.wrote_header = true;
       if ( ctx.hasCompilerFlag("nodecli") ) {
@@ -22701,7 +22694,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     wr.out("}", true);
     const codeNode = this.BuildAST(wr.getCode());
     const serviceClassDef = CodeNode.op3("class", [CodeNode.vref1("appServices"), serviceBlock]);
-    /** unused:  const subCtx = root.fork()   **/ 
+    const subCtx = root.fork();
     const theEnd = orig_wr.getTag("file_end");
     await parser.WalkCollectMethods(serviceClassDef, root, theEnd);
     await parser.WalkCollectMethods(codeNode, root, theEnd);
@@ -22932,7 +22925,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
-      /** unused:  const fc = node.getSecond()   **/ 
+      const fc = node.getSecond();
       wr.out("(new " + node.clDesc.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
@@ -23149,13 +23142,13 @@ class RangerActiveOperators  {
     if ( typeof(lang) === "undefined" ) {
       return;
     }
-    /** unused:  let cmds   **/ 
+    let cmds;
     const langNodes = lang.children[1];
     for ( let i_1 = 0; i_1 < langNodes.children.length; i_1++) {
       var lch = langNodes.children[i_1];
       const fc_1 = lch.getFirst();
       if ( fc_1.vref == "commands" ) {
-        /** unused:  const n = lch.getSecond()   **/ 
+        const n = lch.getSecond();
         this.stdCommands = lch.getSecond();
       }
     };
@@ -23223,7 +23216,7 @@ class LiveCompiler  {
     }
   };
   EncodeString (node, ctx, wr) {
-    /** unused:  const encoded_str = ""   **/ 
+    const encoded_str = "";
     const str_length = node.string_value.length;
     let encoded_str_2 = "";
     let ii = 0;
@@ -23303,7 +23296,7 @@ class LiveCompiler  {
     }
     const env = ctx.getEnv();
     this.installedFile[filename] = true;
-    /** unused:  const fName = (operatorsOf_8.installc95directory_51(env) + "/") + filename   **/ 
+    const fName = (operatorsOf_8.installc95directory_51(env) + "/") + filename;
     if ( operatorsOf_8.filec95exists_9(env, (operatorsOf_8.installc95directory_51(env) + "/"), filename) ) {
       const fileData = await (new Promise(resolve => { require('fs').readFile( (operatorsOf_8.installc95directory_51(env) + "/") + '/' + filename , 'utf8', (err,data)=>{ resolve(data) }) } ));
       if ( (typeof(fileData) !== "undefined" && fileData != null )  ) {
@@ -23409,8 +23402,8 @@ class LiveCompiler  {
     }
   };
   async findOpTemplate (op, node, ctx, wr) {
-    /** unused:  const fnName = op.children[1]   **/ 
-    /** unused:  const root = ctx.getRoot()   **/ 
+    const fnName = op.children[1];
+    const root = ctx.getRoot();
     const langName = operatorsOf_21.getTargetLang_22(ctx);
     let rv;
     const opDef = op;
@@ -23510,7 +23503,7 @@ class LiveCompiler  {
       return;
     }
     let liveNodes = [];
-    /** unused:  const rootItem = node   **/ 
+    const rootItem = node;
     if ( (node.register_expressions.length) > 0 ) {
       await operatorsOf.forEach_15(node.register_expressions, ((item, index) => { 
         liveNodes.push(item);
@@ -23553,7 +23546,7 @@ class LiveCompiler  {
     if ( (node.children.length) > 0 ) {
       if ( node.has_operator ) {
         const op = ctx.findOperator(node);
-        /** unused:  const fc = op.getFirst()   **/ 
+        const fc = op.getFirst();
         const tplImpl = await this.findOpTemplate(op, node, ctx, wr);
         let evalCtx = ctx;
         if ( (typeof(node.evalCtx) !== "undefined" && node.evalCtx != null )  ) {
@@ -23594,7 +23587,7 @@ class LiveCompiler  {
           return;
         }
       }
-      /** unused:  const fc_1 = node.getFirst()   **/ 
+      const fc_1 = node.getFirst();
     }
     if ( node.expression ) {
       for ( let i = 0; i < node.children.length; i++) {
@@ -23604,7 +23597,7 @@ class LiveCompiler  {
         }
         if ( node.is_block_node ) {
           let liveNodes_2 = [];
-          /** unused:  const rootItem_2 = item   **/ 
+          const rootItem_2 = item;
           if ( (item.register_expressions.length) > 0 ) {
             await operatorsOf.forEach_15(item.register_expressions, ((item, index) => { 
               liveNodes_2.push(item);
@@ -24030,7 +24023,7 @@ class LiveCompiler  {
           testCtx.targetLangName = "ranger";
           await this.walkCommandList(cmdArg, node, testCtx, newWriter);
           const p_str = newWriter.getCode();
-          /** unused:  const root_1 = ctx.getRoot()   **/ 
+          const root_1 = ctx.getRoot();
           if ( (( typeof(p_write_1.compiledTags[p_str] ) != "undefined" && p_write_1.compiledTags.hasOwnProperty(p_str) )) == false ) {
             p_write_1.compiledTags[p_str] = true;
             const mCtx = ctx.fork();
@@ -24966,7 +24959,7 @@ class VirtualCompiler  {
     }));
     if ( (allowed_languages.indexOf(the_lang)) < 0 ) {
       console.log("Invalid language : " + the_lang);
-      /** unused:  const s = ""   **/ 
+      const s = "";
       console.log("allowed languages: " + (allowed_languages.join(" ")));
       return res;
     }
@@ -25168,7 +25161,7 @@ class VirtualCompiler  {
       wr.createTag("after_imports");
       const contentFork = wr.fork();
       wr.createTag("utilities");
-      /** unused:  const theEnd = wr.createTag("file_end")   **/ 
+      const theEnd = wr.createTag("file_end");
       wr = contentFork;
       let handledClasses = {};
       for ( let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {
@@ -25525,7 +25518,7 @@ operatorsOf.forEach_37 = function(__self, cb) {
   };
 };
 operatorsOf.map_44 = function(__self, cb) {
-  /** unused:  const __len = __self.length   **/ 
+  const __len = __self.length;
   let res_8 = [];
   for ( let i_23 = 0; i_23 < __self.length; i_23++) {
     var it_14 = __self[i_23];
@@ -25534,7 +25527,7 @@ operatorsOf.map_44 = function(__self, cb) {
   return res_8;
 };
 operatorsOf.map_45 = function(__self, cb) {
-  /** unused:  const len_1 = __self.length   **/ 
+  const len_1 = __self.length;
   let res_9 = [];
   for ( let i_24 = 0; i_24 < __self.length; i_24++) {
     var it_15 = __self[i_24];
@@ -25551,7 +25544,7 @@ operatorsOf.clone_46 = function(__self) {
   return res_10;
 };
 operatorsOf.map_47 = function(__self, cb) {
-  /** unused:  const len_2 = __self.length   **/ 
+  const len_2 = __self.length;
   let res_11 = [];
   for ( let i_26 = 0; i_26 < __self.length; i_26++) {
     var it_17 = __self[i_26];
@@ -25896,7 +25889,7 @@ operatorsOf_21.createc95var_48 = function(__self, name, type_name) {
   return p_2;
 };
 operatorsOf_21.createc95var_49 = function(__self, name, usingNode) {
-  /** unused:  const fieldNode_1 = CodeNode.vref1(name)   **/ 
+  const fieldNode_1 = CodeNode.vref1(name);
   const p_3 = new RangerAppParamDesc();
   p_3.name = name;
   p_3.value_type = usingNode.value_type;

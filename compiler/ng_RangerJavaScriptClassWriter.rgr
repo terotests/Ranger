@@ -427,7 +427,8 @@ class RangerJavaScriptClassWriter {
       def p:RangerAppParamDesc nn.paramDesc
       def remove_unused:boolean (ctx.hasCompilerFlag("remove-unused-class-vars"))
 
-      if ((p.ref_cnt == 0) && (remove_unused || (p.is_class_variable == false))) {
+      ; Only skip class variables when remove-unused-class-vars flag is set
+      if ((p.ref_cnt == 0) && remove_unused && p.is_class_variable) {
        return
       }
 
@@ -475,9 +476,7 @@ class RangerJavaScriptClassWriter {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       def opt_js:boolean (ctx.hasCompilerFlag("optimize-js"))
-      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/** unused:  " false)
-      }
+      ; No longer comment out unused local variables
       def has_value false
       if ((array_length node.children) > 2) {
         has_value = true
@@ -521,12 +520,8 @@ class RangerJavaScriptClassWriter {
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
         wr.out("     /** note: unused */" false)
       }
-      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("   **/ " true)
-      } {
-        wr.out(";" false)
-        wr.newline()
-      }
+      wr.out(";" false)
+      wr.newline()
     }
   }
   fn writeClassVarDef:void (p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {

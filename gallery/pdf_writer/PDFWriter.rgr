@@ -1,0 +1,189 @@
+; PDFWriter - A minimalistic PDF generator for Ranger
+; Demonstrates PDF structure generation
+;
+; PDF Reference: https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/PDF32000_2008.pdf
+;
+; Compile ES6: npm run pdf:compile
+; Run: npm run pdf:run
+
+class PDFWriter {
+    def nextObjNum:int 1
+    def pdfOutput:string ""
+    def objectOffsets:[int]
+    
+    Constructor () {
+        ; Initialize
+    }
+    
+    fn writeObject:void (content:string) {
+        push objectOffsets (strlen pdfOutput)
+        pdfOutput = pdfOutput + (to_string nextObjNum) + " 0 obj\n"
+        pdfOutput = pdfOutput + content
+        pdfOutput = pdfOutput + "\nendobj\n\n"
+        nextObjNum = nextObjNum + 1
+    }
+    
+    fn escapeText:string (text:string) {
+        ; Basic PDF text escaping - escape parentheses and backslashes
+        def result ""
+        def len (strlen text)
+        def i 0
+        while (i < len) {
+            def ch (charAt text i)
+            if (ch == 40) {  ; (
+                result = result + "\\("
+            } {
+                if (ch == 41) {  ; )
+                    result = result + "\\)"
+                } {
+                    if (ch == 92) {  ; \
+                        result = result + "\\\\"
+                    } {
+                        result = result + (strfromcode ch)
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn createHelloWorldPDF:string (message:string) {
+        ; Reset state
+        nextObjNum = 1
+        pdfOutput = ""
+        clear objectOffsets
+        
+        ; PDF header
+        pdfOutput = pdfOutput + "%PDF-1.4\n"
+        ; Binary marker for PDF readers
+        pdfOutput = pdfOutput + "%\xE2\xE3\xCF\xD3\n"
+        
+        ; Object 1: Catalog (root)
+        this.writeObject("<< /Type /Catalog /Pages 2 0 R >>")
+        
+        ; Object 2: Pages container
+        this.writeObject("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+        
+        ; Object 3: Page definition
+        this.writeObject("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>")
+        
+        ; Build page content stream
+        ; PDF coordinates: origin at bottom-left, y increases upward
+        ; Page size: 612x792 points (8.5x11 inches at 72dpi)
+        
+        def stream ""
+        
+        ; Draw a red rectangle (path element)
+        stream = stream + "q\n"                    ; Save graphics state
+        stream = stream + "1 0 0 RG\n"             ; Red stroke color
+        stream = stream + "1 0.8 0.8 rg\n"         ; Light red fill
+        stream = stream + "2 w\n"                  ; Line width 2
+        stream = stream + "100 600 200 100 re\n"   ; Rectangle: x y width height
+        stream = stream + "B\n"                    ; Fill and stroke
+        stream = stream + "Q\n"                    ; Restore graphics state
+        
+        ; Draw a blue triangle (path element)
+        stream = stream + "q\n"
+        stream = stream + "0 0 1 RG\n"             ; Blue stroke
+        stream = stream + "0.8 0.8 1 rg\n"         ; Light blue fill
+        stream = stream + "2 w\n"
+        stream = stream + "350 600 m\n"            ; Move to point
+        stream = stream + "450 600 l\n"            ; Line to
+        stream = stream + "400 700 l\n"            ; Line to
+        stream = stream + "h\n"                    ; Close path
+        stream = stream + "B\n"                    ; Fill and stroke
+        stream = stream + "Q\n"
+        
+        ; Draw a green circle (approximated with bezier curves)
+        stream = stream + "q\n"
+        stream = stream + "0 0.5 0 RG\n"           ; Dark green stroke
+        stream = stream + "0.8 1 0.8 rg\n"         ; Light green fill
+        stream = stream + "2 w\n"
+        ; Circle at (200, 450) with radius 50
+        ; Using bezier approximation: control point distance = radius * 0.552284749831
+        def cx 200
+        def cy 450
+        def r 50
+        def k 27  ; ~50 * 0.552
+        stream = stream + (to_string (cx + r)) + " " + (to_string cy) + " m\n"
+        stream = stream + (to_string (cx + r)) + " " + (to_string (cy + k)) + " " + (to_string (cx + k)) + " " + (to_string (cy + r)) + " " + (to_string cx) + " " + (to_string (cy + r)) + " c\n"
+        stream = stream + (to_string (cx - k)) + " " + (to_string (cy + r)) + " " + (to_string (cx - r)) + " " + (to_string (cy + k)) + " " + (to_string (cx - r)) + " " + (to_string cy) + " c\n"
+        stream = stream + (to_string (cx - r)) + " " + (to_string (cy - k)) + " " + (to_string (cx - k)) + " " + (to_string (cy - r)) + " " + (to_string cx) + " " + (to_string (cy - r)) + " c\n"
+        stream = stream + (to_string (cx + k)) + " " + (to_string (cy - r)) + " " + (to_string (cx + r)) + " " + (to_string (cy - k)) + " " + (to_string (cx + r)) + " " + (to_string cy) + " c\n"
+        stream = stream + "B\n"
+        stream = stream + "Q\n"
+        
+        ; Draw decorative line
+        stream = stream + "q\n"
+        stream = stream + "0.5 0.5 0.5 RG\n"       ; Gray stroke
+        stream = stream + "1 w\n"
+        stream = stream + "50 350 m\n"
+        stream = stream + "562 350 l\n"
+        stream = stream + "S\n"                    ; Stroke only
+        stream = stream + "Q\n"
+        
+        ; Add the main text
+        stream = stream + "BT\n"                   ; Begin text
+        stream = stream + "/F1 36 Tf\n"            ; Font F1, 36pt
+        stream = stream + "100 300 Td\n"           ; Text position
+        stream = stream + "(" + (this.escapeText(message)) + ") Tj\n"  ; Show text
+        stream = stream + "ET\n"                   ; End text
+        
+        ; Add subtitle
+        stream = stream + "BT\n"
+        stream = stream + "/F1 14 Tf\n"
+        stream = stream + "100 260 Td\n"
+        stream = stream + "(Generated by Ranger PDF Writer) Tj\n"
+        stream = stream + "ET\n"
+        
+        ; Object 4: Content stream
+        def streamLen (strlen stream)
+        this.writeObject("<< /Length " + (to_string streamLen) + " >>\nstream\n" + stream + "endstream")
+        
+        ; Object 5: Font
+        this.writeObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+        
+        ; Cross-reference table
+        def xrefOffset (strlen pdfOutput)
+        pdfOutput = pdfOutput + "xref\n"
+        pdfOutput = pdfOutput + "0 " + (to_string nextObjNum) + "\n"
+        pdfOutput = pdfOutput + "0000000000 65535 f \n"
+        
+        for objectOffsets offset:int i {
+            def offsetStr (to_string offset)
+            ; Pad to 10 digits
+            while ((strlen offsetStr) < 10) {
+                offsetStr = "0" + offsetStr
+            }
+            pdfOutput = pdfOutput + offsetStr + " 00000 n \n"
+        }
+        
+        ; Trailer
+        pdfOutput = pdfOutput + "trailer\n"
+        pdfOutput = pdfOutput + "<< /Size " + (to_string nextObjNum) + " /Root 1 0 R >>\n"
+        pdfOutput = pdfOutput + "startxref\n"
+        pdfOutput = pdfOutput + (to_string xrefOffset) + "\n"
+        pdfOutput = pdfOutput + "%%EOF\n"
+        
+        return pdfOutput
+    }
+    
+    fn savePDF:void (path:string filename:string message:string) {
+        def pdfContent (this.createHelloWorldPDF(message))
+        write_file path filename pdfContent
+        print ("PDF saved to " + path + "/" + filename)
+    }
+}
+
+class Main {
+    sfn m@(main):void () {
+        print "=== Ranger PDF Writer ==="
+        
+        def writer (new PDFWriter())
+        writer.savePDF("./gallery/pdf_writer" "hello_world.pdf" "Hello, World!")
+        
+        print "PDF generation complete!"
+        print "Open gallery/pdf_writer/hello_world.pdf to see the result."
+    }
+}
