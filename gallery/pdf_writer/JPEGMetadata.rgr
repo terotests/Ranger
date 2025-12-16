@@ -1,0 +1,744 @@
+; JPEGMetadata.rgr - JPEG Metadata Parser for Ranger
+; Parses EXIF, JFIF, and other metadata from JPEG files
+;
+; JPEG APP Markers:
+; FFE0 (APP0) - JFIF with resolution info
+; FFE1 (APP1) - EXIF data (camera, GPS, date, etc.)
+; FFE2 (APP2) - ICC color profile
+; FFED (APP13) - IPTC/Photoshop
+; FFFE - Comment
+
+Import "Buffer.rgr"
+
+class ExifTag {
+    def tagId:int 0
+    def tagName:string ""
+    def tagValue:string ""
+    def dataType:int 0
+    
+    Constructor () {
+    }
+}
+
+class JPEGMetadataInfo {
+    def isValid:boolean false
+    def errorMessage:string ""
+    
+    ; JFIF info
+    def hasJFIF:boolean false
+    def jfifVersion:string ""
+    def densityUnits:int 0          ; 0=no units, 1=pixels/inch, 2=pixels/cm
+    def xDensity:int 0
+    def yDensity:int 0
+    
+    ; Basic image info
+    def width:int 0
+    def height:int 0
+    def colorComponents:int 0
+    def bitsPerComponent:int 0
+    
+    ; EXIF info
+    def hasExif:boolean false
+    def cameraMake:string ""
+    def cameraModel:string ""
+    def software:string ""
+    def dateTime:string ""
+    def dateTimeOriginal:string ""
+    def exposureTime:string ""
+    def fNumber:string ""
+    def isoSpeed:string ""
+    def focalLength:string ""
+    def flash:string ""
+    def orientation:int 1
+    def xResolution:string ""
+    def yResolution:string ""
+    def resolutionUnit:int 0
+    
+    ; GPS info
+    def hasGPS:boolean false
+    def gpsLatitude:string ""
+    def gpsLongitude:string ""
+    def gpsAltitude:string ""
+    def gpsLatitudeRef:string ""    ; N or S
+    def gpsLongitudeRef:string ""   ; E or W
+    
+    ; Comment
+    def hasComment:boolean false
+    def comment:string ""
+    
+    ; Raw tags for debugging
+    def exifTags:[ExifTag]
+    
+    Constructor () {
+    }
+}
+
+class JPEGMetadataParser {
+    def data:buffer (buffer_alloc 0)
+    def dataLen:int 0
+    def littleEndian:boolean false   ; EXIF byte order
+    
+    Constructor () {
+    }
+    
+    fn readUint16BE:int (offset:int) {
+        def high:int (buffer_get data offset)
+        def low:int (buffer_get data (offset + 1))
+        return ((high * 256) + low)
+    }
+    
+    fn readUint16:int (offset:int) {
+        ; Read with current endianness (for EXIF)
+        def result 0
+        if littleEndian {
+            def low:int (buffer_get data offset)
+            def high:int (buffer_get data (offset + 1))
+            result = ((high * 256) + low)
+        } {
+            def high:int (buffer_get data offset)
+            def low:int (buffer_get data (offset + 1))
+            result = ((high * 256) + low)
+        }
+        return result
+    }
+    
+    fn readUint32:int (offset:int) {
+        ; Read 32-bit with current endianness
+        def result 0
+        if littleEndian {
+            def b0:int (buffer_get data offset)
+            def b1:int (buffer_get data (offset + 1))
+            def b2:int (buffer_get data (offset + 2))
+            def b3:int (buffer_get data (offset + 3))
+            result = (((b3 * 16777216) + (b2 * 65536)) + (b1 * 256)) + b0
+        } {
+            def b0:int (buffer_get data offset)
+            def b1:int (buffer_get data (offset + 1))
+            def b2:int (buffer_get data (offset + 2))
+            def b3:int (buffer_get data (offset + 3))
+            result = (((b0 * 16777216) + (b1 * 65536)) + (b2 * 256)) + b3
+        }
+        return result
+    }
+    
+    fn readString:string (offset:int length:int) {
+        def result ""
+        def i 0
+        while (i < length) {
+            def b:int (buffer_get data (offset + i))
+            if (b == 0) {
+                ; Null terminator
+                return result
+            }
+            result = result + (strfromcode b)
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn getTagName:string (tagId:int ifdType:int) {
+        ; IFD types: 0=IFD0, 1=EXIF, 2=GPS
+        if (ifdType == 2) {
+            ; GPS tags
+            if (tagId == 0) { return "GPSVersionID" }
+            if (tagId == 1) { return "GPSLatitudeRef" }
+            if (tagId == 2) { return "GPSLatitude" }
+            if (tagId == 3) { return "GPSLongitudeRef" }
+            if (tagId == 4) { return "GPSLongitude" }
+            if (tagId == 5) { return "GPSAltitudeRef" }
+            if (tagId == 6) { return "GPSAltitude" }
+            return "GPS_" + (to_string tagId)
+        }
+        
+        ; Common EXIF tags
+        if (tagId == 256) { return "ImageWidth" }
+        if (tagId == 257) { return "ImageHeight" }
+        if (tagId == 258) { return "BitsPerSample" }
+        if (tagId == 259) { return "Compression" }
+        if (tagId == 262) { return "PhotometricInterpretation" }
+        if (tagId == 270) { return "ImageDescription" }
+        if (tagId == 271) { return "Make" }
+        if (tagId == 272) { return "Model" }
+        if (tagId == 274) { return "Orientation" }
+        if (tagId == 282) { return "XResolution" }
+        if (tagId == 283) { return "YResolution" }
+        if (tagId == 296) { return "ResolutionUnit" }
+        if (tagId == 305) { return "Software" }
+        if (tagId == 306) { return "DateTime" }
+        if (tagId == 315) { return "Artist" }
+        if (tagId == 33432) { return "Copyright" }
+        if (tagId == 33434) { return "ExposureTime" }
+        if (tagId == 33437) { return "FNumber" }
+        if (tagId == 34850) { return "ExposureProgram" }
+        if (tagId == 34855) { return "ISOSpeedRatings" }
+        if (tagId == 36864) { return "ExifVersion" }
+        if (tagId == 36867) { return "DateTimeOriginal" }
+        if (tagId == 36868) { return "DateTimeDigitized" }
+        if (tagId == 37377) { return "ShutterSpeedValue" }
+        if (tagId == 37378) { return "ApertureValue" }
+        if (tagId == 37380) { return "ExposureBiasValue" }
+        if (tagId == 37381) { return "MaxApertureValue" }
+        if (tagId == 37383) { return "MeteringMode" }
+        if (tagId == 37384) { return "LightSource" }
+        if (tagId == 37385) { return "Flash" }
+        if (tagId == 37386) { return "FocalLength" }
+        if (tagId == 37500) { return "MakerNote" }
+        if (tagId == 37510) { return "UserComment" }
+        if (tagId == 40960) { return "FlashpixVersion" }
+        if (tagId == 40961) { return "ColorSpace" }
+        if (tagId == 40962) { return "PixelXDimension" }
+        if (tagId == 40963) { return "PixelYDimension" }
+        if (tagId == 41486) { return "FocalPlaneXResolution" }
+        if (tagId == 41487) { return "FocalPlaneYResolution" }
+        if (tagId == 41488) { return "FocalPlaneResolutionUnit" }
+        if (tagId == 41495) { return "SensingMethod" }
+        if (tagId == 41728) { return "FileSource" }
+        if (tagId == 41729) { return "SceneType" }
+        if (tagId == 41985) { return "CustomRendered" }
+        if (tagId == 41986) { return "ExposureMode" }
+        if (tagId == 41987) { return "WhiteBalance" }
+        if (tagId == 41988) { return "DigitalZoomRatio" }
+        if (tagId == 41989) { return "FocalLengthIn35mmFilm" }
+        if (tagId == 41990) { return "SceneCaptureType" }
+        if (tagId == 34665) { return "ExifIFDPointer" }
+        if (tagId == 34853) { return "GPSInfoIFDPointer" }
+        
+        return "Tag_" + (to_string tagId)
+    }
+    
+    fn formatRational:string (offset:int) {
+        def numerator:int (this.readUint32(offset))
+        def denominator:int (this.readUint32(offset + 4))
+        if (denominator == 0) {
+            return (to_string numerator)
+        }
+        if (denominator == 1) {
+            return (to_string numerator)
+        }
+        return (to_string numerator) + "/" + (to_string denominator)
+    }
+    
+    fn formatGPSCoordinate:string (offset:int ref:string) {
+        ; GPS coordinates are stored as 3 RATIONALs: degrees, minutes, seconds
+        ; Each RATIONAL is 8 bytes (numerator + denominator)
+        def degNum:int (this.readUint32(offset))
+        def degDen:int (this.readUint32(offset + 4))
+        def minNum:int (this.readUint32(offset + 8))
+        def minDen:int (this.readUint32(offset + 12))
+        def secNum:int (this.readUint32(offset + 16))
+        def secDen:int (this.readUint32(offset + 20))
+        
+        ; Calculate degrees (integer division using repeated subtraction approach)
+        def degrees:int 0
+        if (degDen > 0) {
+            def tempDeg:int degNum
+            while (tempDeg >= degDen) {
+                tempDeg = tempDeg - degDen
+                degrees = degrees + 1
+            }
+        }
+        
+        ; Calculate minutes 
+        def minutes:int 0
+        if (minDen > 0) {
+            def tempMin:int minNum
+            while (tempMin >= minDen) {
+                tempMin = tempMin - minDen
+                minutes = minutes + 1
+            }
+        }
+        
+        ; Calculate seconds (as decimal string)
+        def seconds:string "0"
+        if (secDen > 0) {
+            def secWhole:int 0
+            def tempSec:int secNum
+            while (tempSec >= secDen) {
+                tempSec = tempSec - secDen
+                secWhole = secWhole + 1
+            }
+            def secRem:int tempSec
+            if (secRem > 0) {
+                ; Calculate decimal part (2 decimal places)
+                def decPartTemp:int (secRem * 100)
+                def decPart:int 0
+                while (decPartTemp >= secDen) {
+                    decPartTemp = decPartTemp - secDen
+                    decPart = decPart + 1
+                }
+                if (decPart < 10) {
+                    seconds = (to_string secWhole) + ".0" + (to_string decPart)
+                } {
+                    seconds = (to_string secWhole) + "." + (to_string decPart)
+                }
+            } {
+                seconds = (to_string secWhole)
+            }
+        }
+        
+        return (to_string degrees) + "° " + (to_string minutes) + "' " + seconds + "\" " + ref
+    }
+    
+    fn parseIFD:void (info:JPEGMetadataInfo tiffStart:int ifdOffset:int ifdType:int) {
+        def pos:int (tiffStart + ifdOffset)
+        if ((pos + 2) > dataLen) {
+            return
+        }
+        
+        def numEntries:int (this.readUint16(pos))
+        pos = pos + 2
+        
+        def i 0
+        while (i < numEntries) {
+            if ((pos + 12) > dataLen) {
+                return
+            }
+            
+            def tagId:int (this.readUint16(pos))
+            def dataType:int (this.readUint16(pos + 2))
+            def numValues:int (this.readUint32(pos + 4))
+            def valueOffset:int (pos + 8)
+            
+            ; Calculate data size
+            def dataSize 0
+            if (dataType == 1) { dataSize = numValues }      ; BYTE
+            if (dataType == 2) { dataSize = numValues }      ; ASCII
+            if (dataType == 3) { dataSize = numValues * 2 }  ; SHORT
+            if (dataType == 4) { dataSize = numValues * 4 }  ; LONG
+            if (dataType == 5) { dataSize = numValues * 8 }  ; RATIONAL
+            if (dataType == 7) { dataSize = numValues }      ; UNDEFINED
+            if (dataType == 9) { dataSize = numValues * 4 }  ; SLONG
+            if (dataType == 10) { dataSize = numValues * 8 } ; SRATIONAL
+            
+            ; If data > 4 bytes, valueOffset contains pointer to actual data
+            if (dataSize > 4) {
+                valueOffset = tiffStart + (this.readUint32(pos + 8))
+            }
+            
+            def tagName:string (this.getTagName(tagId ifdType))
+            def tagValue ""
+            
+            ; Parse value based on type
+            if (dataType == 2) {
+                ; ASCII string
+                tagValue = (this.readString(valueOffset numValues))
+            }
+            if (dataType == 3) {
+                ; SHORT
+                if (dataSize <= 4) {
+                    tagValue = (to_string (this.readUint16(pos + 8)))
+                } {
+                    tagValue = (to_string (this.readUint16(valueOffset)))
+                }
+            }
+            if (dataType == 4) {
+                ; LONG
+                if (dataSize <= 4) {
+                    tagValue = (to_string (this.readUint32(pos + 8)))
+                } {
+                    tagValue = (to_string (this.readUint32(valueOffset)))
+                }
+            }
+            if (dataType == 5) {
+                ; RATIONAL
+                tagValue = (this.formatRational(valueOffset))
+            }
+            
+            ; Store in ExifTag
+            def tag (new ExifTag())
+            tag.tagId = tagId
+            tag.tagName = tagName
+            tag.tagValue = tagValue
+            tag.dataType = dataType
+            push info.exifTags tag
+            
+            ; Extract specific fields
+            if (tagId == 271) { info.cameraMake = tagValue }
+            if (tagId == 272) { info.cameraModel = tagValue }
+            if (tagId == 305) { info.software = tagValue }
+            if (tagId == 306) { info.dateTime = tagValue }
+            if (tagId == 274) { info.orientation = (this.readUint16(pos + 8)) }
+            if (tagId == 282) { info.xResolution = tagValue }
+            if (tagId == 283) { info.yResolution = tagValue }
+            if (tagId == 296) { info.resolutionUnit = (this.readUint16(pos + 8)) }
+            if (tagId == 36867) { info.dateTimeOriginal = tagValue }
+            if (tagId == 33434) { info.exposureTime = tagValue }
+            if (tagId == 33437) { info.fNumber = tagValue }
+            if (tagId == 34855) { info.isoSpeed = tagValue }
+            if (tagId == 37386) { info.focalLength = tagValue }
+            if (tagId == 37385) { 
+                def flashVal:int (this.readUint16(pos + 8))
+                if ((flashVal % 2) == 1) {
+                    info.flash = "Fired"
+                } {
+                    info.flash = "Did not fire"
+                }
+            }
+            
+            ; Check for sub-IFDs
+            if (tagId == 34665) {
+                ; EXIF IFD pointer
+                def exifOffset:int (this.readUint32(pos + 8))
+                this.parseIFD(info tiffStart exifOffset 1)
+            }
+            if (tagId == 34853) {
+                ; GPS IFD pointer
+                info.hasGPS = true
+                def gpsOffset:int (this.readUint32(pos + 8))
+                this.parseIFD(info tiffStart gpsOffset 2)
+            }
+            
+            ; GPS specific fields (ifdType 2 = GPS IFD)
+            if (ifdType == 2) {
+                ; GPS LatitudeRef (N or S)
+                if (tagId == 1) { 
+                    info.gpsLatitudeRef = tagValue 
+                }
+                ; GPS Latitude (3 RATIONALs)
+                if (tagId == 2) { 
+                    info.gpsLatitude = (this.formatGPSCoordinate(valueOffset info.gpsLatitudeRef))
+                }
+                ; GPS LongitudeRef (E or W)
+                if (tagId == 3) { 
+                    info.gpsLongitudeRef = tagValue 
+                }
+                ; GPS Longitude (3 RATIONALs)
+                if (tagId == 4) { 
+                    info.gpsLongitude = (this.formatGPSCoordinate(valueOffset info.gpsLongitudeRef))
+                }
+                ; GPS Altitude
+                if (tagId == 6) { 
+                    def altNum:int (this.readUint32(valueOffset))
+                    def altDen:int (this.readUint32(valueOffset + 4))
+                    if (altDen > 0) {
+                        def altWhole:int 0
+                        def tempAlt:int altNum
+                        while (tempAlt >= altDen) {
+                            tempAlt = tempAlt - altDen
+                            altWhole = altWhole + 1
+                        }
+                        def altRem:int tempAlt
+                        if (altRem > 0) {
+                            def altDecTemp:int (altRem * 10)
+                            def altDec:int 0
+                            while (altDecTemp >= altDen) {
+                                altDecTemp = altDecTemp - altDen
+                                altDec = altDec + 1
+                            }
+                            info.gpsAltitude = (to_string altWhole) + "." + (to_string altDec) + " m"
+                        } {
+                            info.gpsAltitude = (to_string altWhole) + " m"
+                        }
+                    } {
+                        info.gpsAltitude = (to_string altNum) + " m"
+                    }
+                }
+            }
+            
+            pos = pos + 12
+            i = i + 1
+        }
+    }
+    
+    fn parseExif:void (info:JPEGMetadataInfo appStart:int appLen:int) {
+        ; Check for "Exif\0\0" header
+        def header:string (this.readString(appStart 4))
+        if (header != "Exif") {
+            return
+        }
+        
+        info.hasExif = true
+        
+        ; TIFF header starts at appStart + 6
+        def tiffStart:int (appStart + 6)
+        
+        ; Read byte order
+        def byteOrder0:int (buffer_get data tiffStart)
+        def byteOrder1:int (buffer_get data (tiffStart + 1))
+        
+        if ((byteOrder0 == 73) && (byteOrder1 == 73)) {
+            ; "II" = Intel = little endian
+            littleEndian = true
+        } {
+            if ((byteOrder0 == 77) && (byteOrder1 == 77)) {
+                ; "MM" = Motorola = big endian
+                littleEndian = false
+            } {
+                return
+            }
+        }
+        
+        ; Verify TIFF magic number (42)
+        def magic:int (this.readUint16(tiffStart + 2))
+        if (magic != 42) {
+            return
+        }
+        
+        ; Get IFD0 offset
+        def ifd0Offset:int (this.readUint32(tiffStart + 4))
+        
+        ; Parse IFD0
+        this.parseIFD(info tiffStart ifd0Offset 0)
+    }
+    
+    fn parseJFIF:void (info:JPEGMetadataInfo appStart:int appLen:int) {
+        def header:string (this.readString(appStart 4))
+        if (header != "JFIF") {
+            return
+        }
+        
+        info.hasJFIF = true
+        
+        ; Version
+        def verMajor:int (buffer_get data (appStart + 5))
+        def verMinor:int (buffer_get data (appStart + 6))
+        info.jfifVersion = (to_string verMajor) + "." + (to_string verMinor)
+        
+        ; Density units
+        info.densityUnits = (buffer_get data (appStart + 7))
+        
+        ; X and Y density
+        info.xDensity = (this.readUint16BE(appStart + 8))
+        info.yDensity = (this.readUint16BE(appStart + 10))
+    }
+    
+    fn parseComment:void (info:JPEGMetadataInfo appStart:int appLen:int) {
+        info.hasComment = true
+        info.comment = (this.readString(appStart appLen))
+    }
+    
+    fn parseMetadata:JPEGMetadataInfo (dirPath:string fileName:string) {
+        def info (new JPEGMetadataInfo())
+        
+        ; Read file
+        data = (buffer_read_file dirPath fileName)
+        dataLen = (buffer_length data)
+        
+        if (dataLen < 4) {
+            info.errorMessage = "File too small"
+            return info
+        }
+        
+        ; Check JPEG signature
+        def m1:int (buffer_get data 0)
+        def m2:int (buffer_get data 1)
+        if ((m1 != 255) || (m2 != 216)) {
+            info.errorMessage = "Not a valid JPEG file"
+            return info
+        }
+        
+        info.isValid = true
+        
+        ; Parse markers
+        def pos 2
+        while (pos < dataLen) {
+            def marker1:int (buffer_get data pos)
+            if (marker1 != 255) {
+                pos = pos + 1
+                continue
+            }
+            
+            def marker2:int (buffer_get data (pos + 1))
+            
+            ; Skip padding 0xFF bytes
+            if (marker2 == 255) {
+                pos = pos + 1
+                continue
+            }
+            
+            ; SOI, EOI, RST markers have no length
+            if ((marker2 == 216) || (marker2 == 217)) {
+                pos = pos + 2
+                continue
+            }
+            if ((marker2 >= 208) && (marker2 <= 215)) {
+                pos = pos + 2
+                continue
+            }
+            
+            ; Read segment length
+            if ((pos + 4) > dataLen) {
+                return info
+            }
+            def segLen:int (this.readUint16BE(pos + 2))
+            def segStart:int (pos + 4)
+            
+            ; APP0 (JFIF)
+            if (marker2 == 224) {
+                this.parseJFIF(info segStart (segLen - 2))
+            }
+            
+            ; APP1 (EXIF)
+            if (marker2 == 225) {
+                this.parseExif(info segStart (segLen - 2))
+            }
+            
+            ; Comment (FFFE)
+            if (marker2 == 254) {
+                this.parseComment(info segStart (segLen - 2))
+            }
+            
+            ; SOF0/SOF2 - Start of Frame (image dimensions)
+            if ((marker2 == 192) || (marker2 == 194)) {
+                if ((pos + 9) < dataLen) {
+                    info.bitsPerComponent = (buffer_get data (pos + 4))
+                    info.height = (this.readUint16BE(pos + 5))
+                    info.width = (this.readUint16BE(pos + 7))
+                    info.colorComponents = (buffer_get data (pos + 9))
+                }
+            }
+            
+            ; SOS - Start of Scan, image data follows
+            if (marker2 == 218) {
+                return info
+            }
+            
+            ; EOI - End of Image
+            if (marker2 == 217) {
+                return info
+            }
+            
+            pos = (pos + 2) + segLen
+        }
+        
+        return info
+    }
+    
+    fn formatMetadata:string (info:JPEGMetadataInfo) {
+        def out (new GrowableBuffer())
+        
+        out.writeString("=== JPEG Metadata ===\n\n")
+        
+        if (info.isValid == false) {
+            out.writeString("Error: " + info.errorMessage + "\n")
+            return (out.toString())
+        }
+        
+        ; Basic info
+        out.writeString("--- Image Info ---\n")
+        out.writeString("  Dimensions: " + (to_string info.width) + " x " + (to_string info.height) + "\n")
+        out.writeString("  Color Components: " + (to_string info.colorComponents) + "\n")
+        out.writeString("  Bits per Component: " + (to_string info.bitsPerComponent) + "\n")
+        
+        ; JFIF info
+        if info.hasJFIF {
+            out.writeString("\n--- JFIF Info ---\n")
+            out.writeString("  Version: " + info.jfifVersion + "\n")
+            def densityStr "No units (aspect ratio)"
+            if (info.densityUnits == 1) {
+                densityStr = "pixels/inch"
+            }
+            if (info.densityUnits == 2) {
+                densityStr = "pixels/cm"
+            }
+            out.writeString("  Density: " + (to_string info.xDensity) + " x " + (to_string info.yDensity) + " " + densityStr + "\n")
+        }
+        
+        ; EXIF info
+        if info.hasExif {
+            out.writeString("\n--- EXIF Info ---\n")
+            if ((strlen info.cameraMake) > 0) {
+                out.writeString("  Camera Make: " + info.cameraMake + "\n")
+            }
+            if ((strlen info.cameraModel) > 0) {
+                out.writeString("  Camera Model: " + info.cameraModel + "\n")
+            }
+            if ((strlen info.software) > 0) {
+                out.writeString("  Software: " + info.software + "\n")
+            }
+            if ((strlen info.dateTimeOriginal) > 0) {
+                out.writeString("  Date/Time Original: " + info.dateTimeOriginal + "\n")
+            } {
+                if ((strlen info.dateTime) > 0) {
+                    out.writeString("  Date/Time: " + info.dateTime + "\n")
+                }
+            }
+            if ((strlen info.exposureTime) > 0) {
+                out.writeString("  Exposure Time: " + info.exposureTime + " sec\n")
+            }
+            if ((strlen info.fNumber) > 0) {
+                out.writeString("  F-Number: f/" + info.fNumber + "\n")
+            }
+            if ((strlen info.isoSpeed) > 0) {
+                out.writeString("  ISO Speed: " + info.isoSpeed + "\n")
+            }
+            if ((strlen info.focalLength) > 0) {
+                out.writeString("  Focal Length: " + info.focalLength + " mm\n")
+            }
+            if ((strlen info.flash) > 0) {
+                out.writeString("  Flash: " + info.flash + "\n")
+            }
+            
+            def orientStr "Normal"
+            if (info.orientation == 2) { orientStr = "Flip horizontal" }
+            if (info.orientation == 3) { orientStr = "Rotate 180" }
+            if (info.orientation == 4) { orientStr = "Flip vertical" }
+            if (info.orientation == 5) { orientStr = "Transpose" }
+            if (info.orientation == 6) { orientStr = "Rotate 90 CW" }
+            if (info.orientation == 7) { orientStr = "Transverse" }
+            if (info.orientation == 8) { orientStr = "Rotate 270 CW" }
+            out.writeString("  Orientation: " + orientStr + "\n")
+        }
+        
+        ; GPS info
+        if info.hasGPS {
+            out.writeString("\n--- GPS Info ---\n")
+            if ((strlen info.gpsLatitude) > 0) {
+                out.writeString("  Latitude: " + info.gpsLatitude + "\n")
+            }
+            if ((strlen info.gpsLongitude) > 0) {
+                out.writeString("  Longitude: " + info.gpsLongitude + "\n")
+            }
+            if ((strlen info.gpsAltitude) > 0) {
+                out.writeString("  Altitude: " + info.gpsAltitude + "\n")
+            }
+        }
+        
+        ; Comment
+        if info.hasComment {
+            out.writeString("\n--- Comment ---\n")
+            out.writeString("  " + info.comment + "\n")
+        }
+        
+        ; Raw tags
+        def tagCount (array_length info.exifTags)
+        if (tagCount > 0) {
+            out.writeString("\n--- All EXIF Tags (" + (to_string tagCount) + ") ---\n")
+            for info.exifTags tag:ExifTag idx {
+                out.writeString("  " + tag.tagName + " (0x")
+                ; Simple hex conversion for tag ID
+                def tagHex ""
+                def tid:int tag.tagId
+                def hexChars "0123456789ABCDEF"
+                def h3D:double (tid / 4096)
+                def h3:int (to_int h3D)
+                def r3:int (tid - (h3 * 4096))
+                def h2D:double (r3 / 256)
+                def h2:int (to_int h2D)
+                def r2:int (r3 - (h2 * 256))
+                def h1D:double (r2 / 16)
+                def h1:int (to_int h1D)
+                def h0:int (r2 - (h1 * 16))
+                tagHex = (substring hexChars h3 (h3 + 1)) + (substring hexChars h2 (h2 + 1)) + (substring hexChars h1 (h1 + 1)) + (substring hexChars h0 (h0 + 1))
+                out.writeString(tagHex + "): " + tag.tagValue + "\n")
+            }
+        }
+        
+        return (out.toString())
+    }
+}
+
+class JPEGMetadataMain {
+    sfn m@(main):void () {
+        print "=== JPEG Metadata Parser ==="
+        print ""
+        
+        def parser (new JPEGMetadataParser())
+        
+        ; Parse Example.jpg
+        def info:JPEGMetadataInfo (parser.parseMetadata("./gallery/pdf_writer" "Example.jpg"))
+        
+        def output:string (parser.formatMetadata(info))
+        print output
+    }
+}

@@ -95,7 +95,10 @@
     "tsparser": "npm run tsparser:compile && npm run tsparser:run",
     "pdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/PDFWriter.rgr -d=./gallery/pdf_writer -o=pdf_writer.js -nodecli",
     "pdf:run": "node ./gallery/pdf_writer/pdf_writer.js",
-    "pdf": "npm run pdf:compile && npm run pdf:run"
+    "pdf": "npm run pdf:compile && npm run pdf:run",
+    "jpegmeta:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/JPEGMetadata.rgr -d=./gallery/pdf_writer -o=jpeg_metadata.js -nodecli",
+    "jpegmeta:run": "node ./gallery/pdf_writer/jpeg_metadata.js",
+    "jpegmeta": "npm run jpegmeta:compile && npm run jpegmeta:run"
   },
   "repository": {
     "type": "git",

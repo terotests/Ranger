@@ -943,3 +943,81 @@ Until refactored, document the full list of files that need changes when adding 
 
 - `buffer` type was added in December 2025 for PDF generation support
 - Type mismatch errors appear as "Types were X vs Y" where X and Y are enum integers
+---
+
+## Issue #16: Function return value not recognized when both if/else branches return
+
+**Status:** Open  
+**Severity:** Low (warning only, code still compiles)  
+**Found:** December 16, 2025
+
+### Description
+
+The Ranger compiler emits a warning "Function does not return any values!" when a function has return statements in both branches of an if/else block, but no return statement after the if/else.
+
+### Example Code
+
+```ranger
+fn readUint16:int (offset:int) {
+    if littleEndian {
+        def low:int (buffer_get data offset)
+        def high:int (buffer_get data (offset + 1))
+        return ((high * 256) + low)
+    } {
+        def high:int (buffer_get data offset)
+        def low:int (buffer_get data (offset + 1))
+        return ((high * 256) + low)
+    }
+}
+```
+
+### Warning Message
+
+```
+JPEGMetadata.rgr Line: 88
+Function does not return any values!
+    fn readUint16:int (offset:int) {
+       ^-------
+```
+
+### Expected Behavior
+
+The compiler should recognize that when **all** branches of a conditional return a value, the function is guaranteed to return. No warning should be emitted.
+
+### Current Workaround
+
+Add a dummy return statement after the if/else block:
+
+```ranger
+fn readUint16:int (offset:int) {
+    def result:int 0
+    if littleEndian {
+        result = (...)
+    } {
+        result = (...)
+    }
+    return result
+}
+```
+
+### Root Cause
+
+The return value analysis in the compiler doesn't perform control flow analysis to detect that all paths through the function return a value. It likely only checks for a return statement at the function's top level.
+
+### Proposed Solution
+
+Implement basic control flow analysis for return statements:
+
+1. Track whether each branch of if/else has a return
+2. If all branches return, consider the function as returning
+3. For nested conditionals, recursively analyze branches
+
+### Files Likely Affected
+
+- `ng_Compiler.rgr` or similar - Function analysis phase
+- Wherever "Function does not return any values" warning is generated
+
+### Related
+
+- This pattern is common in parsers and readers where behavior varies based on a flag (e.g., endianness)
+- Code compiles correctly, only warning is incorrect
