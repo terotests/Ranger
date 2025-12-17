@@ -1,0 +1,363 @@
+; EVGLayout.rgr - Layout algorithm for EVG
+
+Import "EVGElement.rgr"
+Import "EVGTextMeasurer.rgr"
+
+class EVGLayout {
+    def measurer:EVGTextMeasurer
+    def pageWidth:double 612.0
+    def pageHeight:double 792.0
+    def currentPage:int 0
+    def debug:boolean false
+    
+    Constructor () {
+        def m (new SimpleTextMeasurer())
+        measurer = m
+    }
+    
+    fn setMeasurer:void (m:EVGTextMeasurer) {
+        measurer = m
+    }
+    
+    fn setPageSize:void (w:double h:double) {
+        pageWidth = w
+        pageHeight = h
+    }
+    
+    fn setDebug:void (d:boolean) {
+        debug = d
+    }
+    
+    fn log:void (msg:string) {
+        if debug {
+            print msg
+        }
+    }
+    
+    fn layout:void (root:EVGElement) {
+        ; Layout the entire element tree
+        this.log("EVGLayout: Starting layout")
+        currentPage = 0
+        
+        ; Resolve root dimensions
+        if (root.width.isSet == false) {
+            root.width = (EVGUnit.pixels(pageWidth))
+        }
+        if (root.height.isSet == false) {
+            root.height = (EVGUnit.pixels(pageHeight))
+        }
+        
+        ; Layout root at (0, 0)
+        this.layoutElement(root 0.0 0.0 pageWidth pageHeight)
+        
+        this.log("EVGLayout: Layout complete")
+    }
+    
+    fn layoutElement:void (element:EVGElement parentX:double parentY:double parentWidth:double parentHeight:double) {
+        ; Resolve units for this element
+        element.resolveUnits(parentWidth parentHeight)
+        
+        ; Calculate element dimensions
+        def width:double parentWidth
+        if element.width.isSet {
+            width = element.width.pixels
+        }
+        
+        def height:double 0.0
+        def autoHeight:boolean true
+        if element.height.isSet {
+            height = element.height.pixels
+            autoHeight = false
+        }
+        
+        ; Apply min/max constraints
+        if element.minWidth.isSet {
+            if (width < element.minWidth.pixels) {
+                width = element.minWidth.pixels
+            }
+        }
+        if element.maxWidth.isSet {
+            if (width > element.maxWidth.pixels) {
+                width = element.maxWidth.pixels
+            }
+        }
+        
+        ; Store calculated dimensions (before content layout for children to reference)
+        element.calculatedWidth = width
+        element.calculatedInnerWidth = (element.box.getInnerWidth(width))
+        
+        ; Handle absolute positioning
+        if element.isAbsolute {
+            this.layoutAbsolute(element parentWidth parentHeight)
+        }
+        
+        ; Layout children and get content height
+        def childCount:int (element.getChildCount())
+        def contentHeight:double 0.0
+        
+        if (childCount > 0) {
+            contentHeight = (this.layoutChildren(element))
+        }
+        
+        ; Finalize height
+        if autoHeight {
+            ; Add padding and border
+            height = contentHeight + element.box.paddingTopPx + element.box.paddingBottomPx + (element.box.borderWidthPx * 2.0)
+        }
+        
+        ; Apply min/max height constraints
+        if element.minHeight.isSet {
+            if (height < element.minHeight.pixels) {
+                height = element.minHeight.pixels
+            }
+        }
+        if element.maxHeight.isSet {
+            if (height > element.maxHeight.pixels) {
+                height = element.maxHeight.pixels
+            }
+        }
+        
+        element.calculatedHeight = height
+        element.calculatedInnerHeight = (element.box.getInnerHeight(height))
+        element.calculatedPage = currentPage
+        element.isLayoutComplete = true
+        
+        this.log(("  Laid out " + element.tagName + " id=" + element.id + " at (" + (to_string element.calculatedX) + "," + (to_string element.calculatedY) + ") size=" + (to_string width) + "x" + (to_string height)))
+    }
+    
+    fn layoutChildren:double (parent:EVGElement) {
+        ; Layout all children using flow algorithm
+        ; Returns total content height
+        
+        def childCount:int (parent.getChildCount())
+        if (childCount == 0) {
+            return 0.0
+        }
+        
+        def innerWidth:double parent.calculatedInnerWidth
+        def innerHeight:double parent.calculatedInnerHeight
+        
+        ; Starting position (after padding)
+        def startX:double (parent.calculatedX + parent.box.marginLeftPx + parent.box.borderWidthPx + parent.box.paddingLeftPx)
+        def startY:double (parent.calculatedY + parent.box.marginTopPx + parent.box.borderWidthPx + parent.box.paddingTopPx)
+        
+        def currentX:double startX
+        def currentY:double startY
+        def rowHeight:double 0.0
+        def rowElements:[EVGElement]
+        def totalHeight:double 0.0
+        
+        ; Check layout direction
+        def isColumn:boolean (parent.direction == "column")
+        
+        def i:int 0
+        while (i < childCount) {
+            def child:EVGElement (parent.getChild(i))
+            
+            ; Inherit properties from parent
+            child.inheritProperties(parent)
+            
+            ; Resolve child units
+            child.resolveUnits(innerWidth innerHeight)
+            
+            ; Skip absolute positioned elements in flow
+            if child.isAbsolute {
+                this.layoutAbsolute(child innerWidth innerHeight)
+                child.calculatedX = child.calculatedX + startX
+                child.calculatedY = child.calculatedY + startY
+                ; Recurse for children of absolute element
+                if ((child.getChildCount()) > 0) {
+                    this.layoutChildren(child)
+                }
+                i = i + 1
+                continue
+            }
+            
+            ; Calculate child dimensions
+            def childWidth:double innerWidth
+            if child.width.isSet {
+                childWidth = child.width.pixels
+            }
+            
+            ; Total width including margins
+            def childTotalWidth:double (childWidth + child.box.marginLeftPx + child.box.marginRightPx)
+            
+            ; Check if we need to wrap to next row (for row direction)
+            if (isColumn == false) {
+                def availableWidth:double ((startX + innerWidth) - currentX)
+                if ((childTotalWidth > availableWidth) && ((array_length rowElements) > 0)) {
+                    ; Wrap to next row
+                    this.alignRow(rowElements parent rowHeight startX innerWidth)
+                    currentY = currentY + rowHeight
+                    totalHeight = totalHeight + rowHeight
+                    currentX = startX
+                    rowHeight = 0.0
+                    clear rowElements
+                }
+            }
+            
+            ; Position child
+            child.calculatedX = currentX + child.box.marginLeftPx
+            child.calculatedY = currentY + child.box.marginTopPx
+            
+            ; Layout child element (recursive)
+            this.layoutElement(child child.calculatedX child.calculatedY childWidth innerHeight)
+            
+            ; Get actual child height after layout
+            def childHeight:double child.calculatedHeight
+            def childTotalHeight:double (childHeight + child.box.marginTopPx + child.box.marginBottomPx)
+            
+            ; Update position tracking
+            if isColumn {
+                ; Column direction: stack vertically
+                currentY = currentY + childTotalHeight
+                totalHeight = totalHeight + childTotalHeight
+            } {
+                ; Row direction: advance horizontally
+                currentX = currentX + childTotalWidth
+                push rowElements child
+                if (childTotalHeight > rowHeight) {
+                    rowHeight = childTotalHeight
+                }
+            }
+            
+            ; Handle explicit line break
+            if child.lineBreak {
+                if (isColumn == false) {
+                    this.alignRow(rowElements parent rowHeight startX innerWidth)
+                    currentY = currentY + rowHeight
+                    totalHeight = totalHeight + rowHeight
+                    currentX = startX
+                    rowHeight = 0.0
+                    clear rowElements
+                }
+            }
+            
+            i = i + 1
+        }
+        
+        ; Handle final row
+        if ((isColumn == false) && ((array_length rowElements) > 0)) {
+            this.alignRow(rowElements parent rowHeight startX innerWidth)
+            totalHeight = totalHeight + rowHeight
+        }
+        
+        return totalHeight
+    }
+    
+    fn alignRow:void (rowElements:[EVGElement] parent:EVGElement rowHeight:double startX:double innerWidth:double) {
+        ; Apply horizontal and vertical alignment to a row of elements
+        def elementCount:int (array_length rowElements)
+        if (elementCount == 0) {
+            return
+        }
+        
+        ; Calculate row width
+        def rowWidth:double 0.0
+        def i:int 0
+        while (i < elementCount) {
+            def el:EVGElement (itemAt rowElements i)
+            rowWidth = rowWidth + el.calculatedWidth + el.box.marginLeftPx + el.box.marginRightPx
+            i = i + 1
+        }
+        
+        ; Horizontal alignment
+        def offsetX:double 0.0
+        if (parent.align == "center") {
+            offsetX = ((innerWidth - rowWidth) / 2.0)
+        }
+        if (parent.align == "right") {
+            offsetX = (innerWidth - rowWidth)
+        }
+        
+        ; Apply alignment offsets
+        i = 0
+        while (i < elementCount) {
+            def el:EVGElement (itemAt rowElements i)
+            
+            ; Horizontal offset
+            if (offsetX != 0.0) {
+                el.calculatedX = el.calculatedX + offsetX
+            }
+            
+            ; Vertical alignment within row
+            def childTotalHeight:double (el.calculatedHeight + el.box.marginTopPx + el.box.marginBottomPx)
+            def offsetY:double 0.0
+            
+            if (parent.verticalAlign == "center") {
+                offsetY = ((rowHeight - childTotalHeight) / 2.0)
+            }
+            if (parent.verticalAlign == "bottom") {
+                offsetY = (rowHeight - childTotalHeight)
+            }
+            
+            if (offsetY != 0.0) {
+                el.calculatedY = el.calculatedY + offsetY
+            }
+            
+            i = i + 1
+        }
+    }
+    
+    fn layoutAbsolute:void (element:EVGElement parentWidth:double parentHeight:double) {
+        ; Position absolutely positioned element
+        
+        ; X position
+        if element.left.isSet {
+            element.calculatedX = element.left.pixels + element.box.marginLeftPx
+        } {
+            if element.x.isSet {
+                element.calculatedX = element.x.pixels + element.box.marginLeftPx
+            } {
+                if element.right.isSet {
+                    def width:double element.calculatedWidth
+                    if (width == 0.0) {
+                        if element.width.isSet {
+                            width = element.width.pixels
+                        }
+                    }
+                    element.calculatedX = parentWidth - element.right.pixels - width - element.box.marginRightPx
+                }
+            }
+        }
+        
+        ; Y position
+        if element.top.isSet {
+            element.calculatedY = element.top.pixels + element.box.marginTopPx
+        } {
+            if element.y.isSet {
+                element.calculatedY = element.y.pixels + element.box.marginTopPx
+            } {
+                if element.bottom.isSet {
+                    def height:double element.calculatedHeight
+                    if (height == 0.0) {
+                        if element.height.isSet {
+                            height = element.height.pixels
+                        }
+                    }
+                    element.calculatedY = parentHeight - element.bottom.pixels - height - element.box.marginBottomPx
+                }
+            }
+        }
+    }
+    
+    fn printLayout:void (element:EVGElement indent:int) {
+        ; Print layout tree for debugging
+        def indentStr:string ""
+        def i:int 0
+        while (i < indent) {
+            indentStr = indentStr + "  "
+            i = i + 1
+        }
+        
+        print (indentStr + element.tagName + " id=\"" + element.id + "\" (" + (to_string element.calculatedX) + ", " + (to_string element.calculatedY) + ") " + (to_string element.calculatedWidth) + "x" + (to_string element.calculatedHeight))
+        
+        def childCount:int (element.getChildCount())
+        i = 0
+        while (i < childCount) {
+            def child:EVGElement (element.getChild(i))
+            this.printLayout(child (indent + 1))
+            i = i + 1
+        }
+    }
+}

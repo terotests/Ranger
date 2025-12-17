@@ -68,6 +68,9 @@ class JPEGDecoder {
     def maxHSamp:int 1
     def maxVSamp:int 1
     
+    ; Restart interval (0 = no restart markers)
+    def restartInterval:int 0
+    
     Constructor () {
         huffman = (new HuffmanDecoder())
         idct = (new IDCT())
@@ -194,13 +197,20 @@ class JPEGDecoder {
         scanDataStart = pos
         
         ; Find end of scan data (next marker or EOI)
+        ; Note: RST markers (FFD0-FFD7) are part of scan data and should not stop the search
         def searchPos:int pos
         while (searchPos < (dataLen - 1)) {
             def b:int (buffer_get data searchPos)
             if (b == 255) {
                 def nextB:int (buffer_get data (searchPos + 1))
                 if ((nextB != 0) && (nextB != 255)) {
-                    ; Found a marker
+                    ; Check if it's a RST marker (D0-D7 = 208-215)
+                    if ((nextB >= 208) && (nextB <= 215)) {
+                        ; RST marker - skip it and continue searching
+                        searchPos = searchPos + 2
+                        continue
+                    }
+                    ; Found a non-RST marker - end of scan data
                     scanDataLen = searchPos - scanDataStart
                     return
                 }
@@ -296,6 +306,11 @@ class JPEGDecoder {
             if (marker2 == 219) {
                 print "  DQT (Quantization Tables)"
                 this.parseDQT(dataStart markerDataLen)
+            }
+            if (marker2 == 221) {
+                ; DRI - Define Restart Interval
+                restartInterval = (this.readUint16BE(dataStart))
+                print ("  DRI (Restart Interval: " + (to_string restartInterval) + ")")
             }
             if (marker2 == 218) {
                 print "  SOS (Start of Scan)"
@@ -428,11 +443,27 @@ class JPEGDecoder {
         def cbBlock:[int]
         def crBlock:[int]
         
+        ; MCU counter for restart interval
+        def mcuCount:int 0
+        
         ; Decode MCU by MCU
         def mcuY 0
         while (mcuY < mcusPerCol) {
             def mcuX 0
             while (mcuX < mcusPerRow) {
+                ; Check for restart interval - reset DC predictions
+                if ((restartInterval > 0) && (mcuCount > 0) && ((mcuCount % restartInterval) == 0)) {
+                    ; Reset DC predictions after restart marker
+                    c = 0
+                    while (c < numComponents) {
+                        def compRst:JPEGComponent (at components c)
+                        compRst.prevDC = 0
+                        c = c + 1
+                    }
+                    ; Align bit reader to byte boundary (skip partial byte after RST marker)
+                    reader.alignToByte()
+                }
+                
                 ; Decode all blocks in this MCU
                 clear yBlocksData
                 yBlockCount = 0
@@ -504,6 +535,7 @@ class JPEGDecoder {
                 this.writeMCU(img mcuX mcuY yBlocksData yBlockCount cbBlock crBlock)
                 
                 mcuX = mcuX + 1
+                mcuCount = mcuCount + 1
             }
             mcuY = mcuY + 1
             

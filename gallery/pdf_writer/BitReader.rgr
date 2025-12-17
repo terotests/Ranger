@@ -24,7 +24,7 @@ class BitReader {
     }
     
     fn loadNextByte:void () {
-        ; Load next byte, handling FF00 byte stuffing
+        ; Load next byte, handling FF00 byte stuffing and RST markers
         if (bytePos >= dataEnd) {
             eof = true
             currentByte = 0
@@ -35,7 +35,7 @@ class BitReader {
         currentByte = (buffer_get data bytePos)
         bytePos = bytePos + 1
         
-        ; Check for byte stuffing: FF followed by 00 means literal FF
+        ; Check for byte stuffing and markers
         if (currentByte == 255) {
             if (bytePos < dataEnd) {
                 def nextByte:int (buffer_get data bytePos)
@@ -43,8 +43,15 @@ class BitReader {
                     ; FF00 = literal FF, skip the 00
                     bytePos = bytePos + 1
                 } {
-                    ; FF followed by non-zero is a marker - shouldn't happen in entropy data
-                    ; but handle gracefully
+                    ; RST markers (D0-D7 = 208-215) - skip them
+                    if ((nextByte >= 208) && (nextByte <= 215)) {
+                        ; Skip the RST marker
+                        bytePos = bytePos + 1
+                        ; Load the next actual byte
+                        this.loadNextByte()
+                        return
+                    }
+                    ; FF followed by other non-zero is a marker - shouldn't happen in entropy data
                     if (nextByte == 255) {
                         ; FF FF padding, skip
                         bytePos = bytePos + 1
