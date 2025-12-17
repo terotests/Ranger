@@ -7,20 +7,23 @@
 The TSX → EVG → PDF pipeline is now functional with the following features:
 
 **Working Features:**
+
 - ✅ TSX parsing with JSX support (View, span elements)
 - ✅ Inline style attributes (React-style camelCase converted to CSS kebab-case)
 - ✅ Box model: padding, margin, border
-- ✅ Flex layout with `flexDirection="row"` 
+- ✅ Flex layout with `flexDirection="row"`
 - ✅ Text word wrapping with proper height calculation
 - ✅ Background colors
 - ✅ Font styling: fontSize, fontWeight, color
 - ✅ Nested element hierarchy
 
 **Sample Output:**
+
 - `test_simple.tsx` - Picture book layout with images and wrapped text
 - `test_output.pdf` - Generated PDF sample (committed to repo)
 
 **Known Issues (see gallery/ts_parser/ISSUES.md):**
+
 - Apostrophe (`'`) in JSX text content breaks the parser
 - Workaround: avoid apostrophes or use word "is" instead of contractions
 
@@ -655,8 +658,8 @@ These will be added in future phases.
 
 ## Timeline
 
-| Week | Tasks                                                 | Status |
-| ---- | ----------------------------------------------------- | ------ |
+| Week | Tasks                                                 | Status  |
+| ---- | ----------------------------------------------------- | ------- |
 | 1    | JSXToEVG.rgr - Parse TSX, extract JSX, convert to EVG | ✅ Done |
 | 2    | EVGPDFRenderer.rgr - Render EVG to PDF, CLI tool      | ✅ Done |
 | 2    | Testing with sample.tsx                               | ✅ Done |
@@ -664,25 +667,30 @@ These will be added in future phases.
 ## Next Steps (Phase 2)
 
 ### Priority 1: Fix Parser Issues
+
 - [ ] Fix apostrophe parsing in JSX text content
 - [ ] Handle special characters properly
 
 ### Priority 2: Image Support
+
 - [ ] Implement `<Image src="...">` element
 - [ ] Load and embed JPEG images using existing JPEGDecoder
 - [ ] Scale images to fit dimensions
 
 ### Priority 3: Multi-page Support
+
 - [ ] Auto page breaks when content overflows
 - [ ] `<Page>` element for explicit page breaks
 - [ ] Page numbering
 
 ### Priority 4: Enhanced Text
+
 - [ ] Bold/italic font variants
 - [ ] Text alignment (center, right, justify)
 - [ ] Line height support
 
 ### Priority 5: Border Rendering
+
 - [ ] Render border rectangles
 - [ ] Border color and width
 
