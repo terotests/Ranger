@@ -1,0 +1,680 @@
+; ImageBuffer.rgr - Raw RGBA pixel buffer for image manipulation
+; Provides a simple interface for pixel operations
+;
+; Note: JPEG decoding/encoding requires complex algorithms (DCT, Huffman, quantization).
+; This module works with raw pixel data and uses PPM format for I/O (simple, uncompressed).
+
+Import "Buffer.rgr"
+
+class Color {
+    def r:int 0
+    def g:int 0
+    def b:int 0
+    def a:int 255
+    
+    Constructor () {
+    }
+    
+    fn setRGB:void (red:int green:int blue:int) {
+        r = red
+        g = green
+        b = blue
+        a = 255
+    }
+    
+    fn setRGBA:void (red:int green:int blue:int alpha:int) {
+        r = red
+        g = green
+        b = blue
+        a = alpha
+    }
+    
+    fn clamp:int (val:int) {
+        if (val < 0) { return 0 }
+        if (val > 255) { return 255 }
+        return val
+    }
+    
+    fn set:void (red:int green:int blue:int) {
+        r = (this.clamp(red))
+        g = (this.clamp(green))
+        b = (this.clamp(blue))
+    }
+    
+    fn grayscale:int () {
+        ; Luminance formula: 0.299*R + 0.587*G + 0.114*B
+        ; Using integer approximation: (77*R + 150*G + 29*B) >> 8
+        return (bit_shr ((r * 77) + (g * 150) + (b * 29)) 8)
+    }
+    
+    fn toGrayscale:void () {
+        def gray:int (this.grayscale())
+        r = gray
+        g = gray
+        b = gray
+    }
+    
+    fn invert:void () {
+        r = 255 - r
+        g = 255 - g
+        b = 255 - b
+    }
+    
+    fn adjustBrightness:void (amount:int) {
+        r = (this.clamp(r + amount))
+        g = (this.clamp(g + amount))
+        b = (this.clamp(b + amount))
+    }
+}
+
+class ImageBuffer {
+    def width:int 0
+    def height:int 0
+    def pixels:buffer (buffer_alloc 0)
+    
+    Constructor () {
+    }
+    
+    fn init:void (w:int h:int) {
+        width = w
+        height = h
+        ; RGBA = 4 bytes per pixel
+        def size:int (w * h * 4)
+        pixels = (buffer_alloc size)
+        ; Initialize to white
+        this.fill(255 255 255 255)
+    }
+    
+    fn getPixelOffset:int (x:int y:int) {
+        return ((y * width) + x) * 4
+    }
+    
+    fn isValidCoord:boolean (x:int y:int) {
+        if (x < 0) { return false }
+        if (y < 0) { return false }
+        if (x >= width) { return false }
+        if (y >= height) { return false }
+        return true
+    }
+    
+    fn getPixel:Color (x:int y:int) {
+        def c (new Color())
+        if (this.isValidCoord(x y)) {
+            def off:int (this.getPixelOffset(x y))
+            c.r = (buffer_get pixels off)
+            c.g = (buffer_get pixels (off + 1))
+            c.b = (buffer_get pixels (off + 2))
+            c.a = (buffer_get pixels (off + 3))
+        }
+        return c
+    }
+    
+    fn setPixel:void (x:int y:int c:Color) {
+        if (this.isValidCoord(x y)) {
+            def off:int (this.getPixelOffset(x y))
+            buffer_set pixels off c.r
+            buffer_set pixels (off + 1) c.g
+            buffer_set pixels (off + 2) c.b
+            buffer_set pixels (off + 3) c.a
+        }
+    }
+    
+    fn setPixelRGB:void (x:int y:int r:int g:int b:int) {
+        if (this.isValidCoord(x y)) {
+            def off:int (this.getPixelOffset(x y))
+            buffer_set pixels off r
+            buffer_set pixels (off + 1) g
+            buffer_set pixels (off + 2) b
+            buffer_set pixels (off + 3) 255
+        }
+    }
+    
+    fn fill:void (r:int g:int b:int a:int) {
+        def size:int (width * height * 4)
+        def i 0
+        while (i < size) {
+            buffer_set pixels i r
+            buffer_set pixels (i + 1) g
+            buffer_set pixels (i + 2) b
+            buffer_set pixels (i + 3) a
+            i = i + 4
+        }
+    }
+    
+    fn fillRect:void (x:int y:int w:int h:int c:Color) {
+        def endX:int (x + w)
+        def endY:int (y + h)
+        def py:int y
+        while (py < endY) {
+            def px:int x
+            while (px < endX) {
+                this.setPixel(px py c)
+                px = px + 1
+            }
+            py = py + 1
+        }
+    }
+    
+    ; Image operations
+    
+    fn invert:void () {
+        def size:int (width * height)
+        def i 0
+        while (i < size) {
+            def off:int (i * 4)
+            def r:int (buffer_get pixels off)
+            def g:int (buffer_get pixels (off + 1))
+            def b:int (buffer_get pixels (off + 2))
+            buffer_set pixels off (255 - r)
+            buffer_set pixels (off + 1) (255 - g)
+            buffer_set pixels (off + 2) (255 - b)
+            i = i + 1
+        }
+    }
+    
+    fn grayscale:void () {
+        def size:int (width * height)
+        def i 0
+        while (i < size) {
+            def off:int (i * 4)
+            def r:int (buffer_get pixels off)
+            def g:int (buffer_get pixels (off + 1))
+            def b:int (buffer_get pixels (off + 2))
+            ; Luminance: (77*R + 150*G + 29*B) >> 8
+            def gray:int (bit_shr ((r * 77) + (g * 150) + (b * 29)) 8)
+            buffer_set pixels off gray
+            buffer_set pixels (off + 1) gray
+            buffer_set pixels (off + 2) gray
+            i = i + 1
+        }
+    }
+    
+    fn adjustBrightness:void (amount:int) {
+        def size:int (width * height)
+        def i 0
+        while (i < size) {
+            def off:int (i * 4)
+            def r:int (buffer_get pixels off)
+            def g:int (buffer_get pixels (off + 1))
+            def b:int (buffer_get pixels (off + 2))
+            r = r + amount
+            g = g + amount
+            b = b + amount
+            if (r < 0) { r = 0 }
+            if (r > 255) { r = 255 }
+            if (g < 0) { g = 0 }
+            if (g > 255) { g = 255 }
+            if (b < 0) { b = 0 }
+            if (b > 255) { b = 255 }
+            buffer_set pixels off r
+            buffer_set pixels (off + 1) g
+            buffer_set pixels (off + 2) b
+            i = i + 1
+        }
+    }
+    
+    fn threshold:void (level:int) {
+        ; Convert to black and white based on threshold
+        def size:int (width * height)
+        def i 0
+        while (i < size) {
+            def off:int (i * 4)
+            def r:int (buffer_get pixels off)
+            def g:int (buffer_get pixels (off + 1))
+            def b:int (buffer_get pixels (off + 2))
+            def gray:int (bit_shr ((r * 77) + (g * 150) + (b * 29)) 8)
+            def val:int 0
+            if (gray >= level) {
+                val = 255
+            }
+            buffer_set pixels off val
+            buffer_set pixels (off + 1) val
+            buffer_set pixels (off + 2) val
+            i = i + 1
+        }
+    }
+    
+    fn sepia:void () {
+        ; Sepia tone effect
+        def size:int (width * height)
+        def i 0
+        while (i < size) {
+            def off:int (i * 4)
+            def r:int (buffer_get pixels off)
+            def g:int (buffer_get pixels (off + 1))
+            def b:int (buffer_get pixels (off + 2))
+            ; Sepia formula (integer approximation)
+            def newR:int (bit_shr ((r * 101) + (g * 197) + (b * 48)) 8)
+            def newG:int (bit_shr ((r * 89) + (g * 175) + (b * 43)) 8)
+            def newB:int (bit_shr ((r * 70) + (g * 137) + (b * 33)) 8)
+            if (newR > 255) { newR = 255 }
+            if (newG > 255) { newG = 255 }
+            if (newB > 255) { newB = 255 }
+            buffer_set pixels off newR
+            buffer_set pixels (off + 1) newG
+            buffer_set pixels (off + 2) newB
+            i = i + 1
+        }
+    }
+    
+    fn flipHorizontal:void () {
+        def y 0
+        while (y < height) {
+            def x 0
+            def halfW:int (bit_shr width 1)
+            while (x < halfW) {
+                def x2:int ((width - 1) - x)
+                def off1:int (this.getPixelOffset(x y))
+                def off2:int (this.getPixelOffset(x2 y))
+                ; Swap pixels
+                def r1:int (buffer_get pixels off1)
+                def g1:int (buffer_get pixels (off1 + 1))
+                def b1:int (buffer_get pixels (off1 + 2))
+                def a1:int (buffer_get pixels (off1 + 3))
+                def r2:int (buffer_get pixels off2)
+                def g2:int (buffer_get pixels (off2 + 1))
+                def b2:int (buffer_get pixels (off2 + 2))
+                def a2:int (buffer_get pixels (off2 + 3))
+                buffer_set pixels off1 r2
+                buffer_set pixels (off1 + 1) g2
+                buffer_set pixels (off1 + 2) b2
+                buffer_set pixels (off1 + 3) a2
+                buffer_set pixels off2 r1
+                buffer_set pixels (off2 + 1) g1
+                buffer_set pixels (off2 + 2) b1
+                buffer_set pixels (off2 + 3) a1
+                x = x + 1
+            }
+            y = y + 1
+        }
+    }
+    
+    fn flipVertical:void () {
+        def y 0
+        def halfH:int (bit_shr height 1)
+        while (y < halfH) {
+            def y2:int ((height - 1) - y)
+            def x 0
+            while (x < width) {
+                def off1:int (this.getPixelOffset(x y))
+                def off2:int (this.getPixelOffset(x y2))
+                ; Swap pixels
+                def r1:int (buffer_get pixels off1)
+                def g1:int (buffer_get pixels (off1 + 1))
+                def b1:int (buffer_get pixels (off1 + 2))
+                def a1:int (buffer_get pixels (off1 + 3))
+                def r2:int (buffer_get pixels off2)
+                def g2:int (buffer_get pixels (off2 + 1))
+                def b2:int (buffer_get pixels (off2 + 2))
+                def a2:int (buffer_get pixels (off2 + 3))
+                buffer_set pixels off1 r2
+                buffer_set pixels (off1 + 1) g2
+                buffer_set pixels (off1 + 2) b2
+                buffer_set pixels (off1 + 3) a2
+                buffer_set pixels off2 r1
+                buffer_set pixels (off2 + 1) g1
+                buffer_set pixels (off2 + 2) b1
+                buffer_set pixels (off2 + 3) a1
+                x = x + 1
+            }
+            y = y + 1
+        }
+    }
+    
+    ; Drawing primitives
+    
+    fn drawLine:void (x1:int y1:int x2:int y2:int c:Color) {
+        ; Bresenham's line algorithm
+        def dx:int (x2 - x1)
+        def dy:int (y2 - y1)
+        if (dx < 0) { dx = 0 - dx }
+        if (dy < 0) { dy = 0 - dy }
+        
+        def sx:int 1
+        if (x1 > x2) { sx = -1 }
+        def sy:int 1
+        if (y1 > y2) { sy = -1 }
+        
+        def err:int (dx - dy)
+        def x:int x1
+        def y:int y1
+        
+        def done:boolean false
+        while (done == false) {
+            this.setPixel(x y c)
+            if ((x == x2) && (y == y2)) {
+                done = true
+            } {
+                def e2:int (err * 2)
+                if (e2 > (0 - dy)) {
+                    err = err - dy
+                    x = x + sx
+                }
+                if (e2 < dx) {
+                    err = err + dx
+                    y = y + sy
+                }
+            }
+        }
+    }
+    
+    fn drawRect:void (x:int y:int w:int h:int c:Color) {
+        this.drawLine(x y (x + w - 1) y c)
+        this.drawLine((x + w - 1) y (x + w - 1) (y + h - 1) c)
+        this.drawLine((x + w - 1) (y + h - 1) x (y + h - 1) c)
+        this.drawLine(x (y + h - 1) x y c)
+    }
+    
+    fn scale:ImageBuffer (factor:int) {
+        ; Scale image by integer factor (nearest neighbor)
+        def newW:int (width * factor)
+        def newH:int (height * factor)
+        return (this.scaleToSize(newW newH))
+    }
+    
+    fn scaleToSize:ImageBuffer (newW:int newH:int) {
+        ; Scale image to specific size using bilinear interpolation
+        def result (new ImageBuffer())
+        result.init(newW newH)
+        
+        def scaleX:double ((to_double width) / (to_double newW))
+        def scaleY:double ((to_double height) / (to_double newH))
+        
+        def destY 0
+        while (destY < newH) {
+            def srcYf:double ((to_double destY) * scaleY)
+            def srcY0:int (to_int srcYf)
+            def srcY1:int (srcY0 + 1)
+            if (srcY1 >= height) { srcY1 = (height - 1) }
+            def fy:double (srcYf - (to_double srcY0))
+            
+            def destX 0
+            while (destX < newW) {
+                def srcXf:double ((to_double destX) * scaleX)
+                def srcX0:int (to_int srcXf)
+                def srcX1:int (srcX0 + 1)
+                if (srcX1 >= width) { srcX1 = (width - 1) }
+                def fx:double (srcXf - (to_double srcX0))
+                
+                ; Bilinear interpolation
+                def off00:int (((srcY0 * width) + srcX0) * 4)
+                def off01:int (((srcY0 * width) + srcX1) * 4)
+                def off10:int (((srcY1 * width) + srcX0) * 4)
+                def off11:int (((srcY1 * width) + srcX1) * 4)
+                
+                ; Interpolate each channel
+                def r:int (this.bilinear(
+                    (buffer_get pixels off00)
+                    (buffer_get pixels off01)
+                    (buffer_get pixels off10)
+                    (buffer_get pixels off11)
+                    fx fy))
+                def g:int (this.bilinear(
+                    (buffer_get pixels (off00 + 1))
+                    (buffer_get pixels (off01 + 1))
+                    (buffer_get pixels (off10 + 1))
+                    (buffer_get pixels (off11 + 1))
+                    fx fy))
+                def b:int (this.bilinear(
+                    (buffer_get pixels (off00 + 2))
+                    (buffer_get pixels (off01 + 2))
+                    (buffer_get pixels (off10 + 2))
+                    (buffer_get pixels (off11 + 2))
+                    fx fy))
+                def a:int (this.bilinear(
+                    (buffer_get pixels (off00 + 3))
+                    (buffer_get pixels (off01 + 3))
+                    (buffer_get pixels (off10 + 3))
+                    (buffer_get pixels (off11 + 3))
+                    fx fy))
+                
+                ; Write to destination
+                def destOff:int (((destY * newW) + destX) * 4)
+                buffer_set result.pixels destOff r
+                buffer_set result.pixels (destOff + 1) g
+                buffer_set result.pixels (destOff + 2) b
+                buffer_set result.pixels (destOff + 3) a
+                destX = destX + 1
+            }
+            destY = destY + 1
+        }
+        
+        return result
+    }
+    
+    fn bilinear:int (v00:int v01:int v10:int v11:int fx:double fy:double) {
+        ; Bilinear interpolation helper
+        def top:double ((to_double v00) * (1.0 - fx) + (to_double v01) * fx)
+        def bottom:double ((to_double v10) * (1.0 - fx) + (to_double v11) * fx)
+        def result:double (top * (1.0 - fy) + bottom * fy)
+        return (to_int result)
+    }
+    
+    fn rotate90CW:ImageBuffer () {
+        ; Rotate 90 degrees clockwise
+        ; New dimensions: width becomes height, height becomes width
+        def result (new ImageBuffer())
+        result.init(height width)
+        
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                ; Source pixel at (x, y) goes to (height-1-y, x) in destination
+                ; After 90 CW: newX = height - 1 - y, newY = x
+                def newX:int (height - 1 - y)
+                def newY:int x
+                
+                def srcOff:int (((y * width) + x) * 4)
+                def destOff:int (((newY * height) + newX) * 4)
+                
+                buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        return result
+    }
+    
+    fn rotate180:ImageBuffer () {
+        ; Rotate 180 degrees
+        def result (new ImageBuffer())
+        result.init(width height)
+        
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                def newX:int (width - 1 - x)
+                def newY:int (height - 1 - y)
+                
+                def srcOff:int (((y * width) + x) * 4)
+                def destOff:int (((newY * width) + newX) * 4)
+                
+                buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        return result
+    }
+    
+    fn rotate270CW:ImageBuffer () {
+        ; Rotate 270 degrees clockwise (= 90 counter-clockwise)
+        def result (new ImageBuffer())
+        result.init(height width)
+        
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                ; After 270 CW (90 CCW): newX = y, newY = width - 1 - x
+                def newX:int y
+                def newY:int (width - 1 - x)
+                
+                def srcOff:int (((y * width) + x) * 4)
+                def destOff:int (((newY * height) + newX) * 4)
+                
+                buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        return result
+    }
+    
+    fn transpose:ImageBuffer () {
+        ; Transpose: swap x and y (mirror along diagonal)
+        def result (new ImageBuffer())
+        result.init(height width)
+        
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                def srcOff:int (((y * width) + x) * 4)
+                def destOff:int (((x * height) + y) * 4)
+                
+                buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        return result
+    }
+    
+    fn transverse:ImageBuffer () {
+        ; Transverse: rotate 90 CW then flip horizontal (or flip vertical then rotate 90 CW)
+        def result (new ImageBuffer())
+        result.init(height width)
+        
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                ; Transverse: newX = height - 1 - y, newY = width - 1 - x... wait
+                ; Actually: transpose + rotate 180 = newX = y, newY = width - 1 - x
+                ; No: transverse is anti-diagonal reflection
+                ; pixel(x,y) -> pixel(height-1-y, width-1-x) in transposed space
+                def newX:int (height - 1 - y)
+                def newY:int (width - 1 - x)
+                
+                def srcOff:int (((y * width) + x) * 4)
+                def destOff:int (((newY * height) + newX) * 4)
+                
+                buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        return result
+    }
+    
+    fn applyExifOrientation:ImageBuffer (orientation:int) {
+        ; Apply EXIF orientation correction
+        ; Orientation values:
+        ; 1 = Normal (no transform needed)
+        ; 2 = Flip horizontal
+        ; 3 = Rotate 180
+        ; 4 = Flip vertical
+        ; 5 = Transpose (flip horizontal + rotate 270)
+        ; 6 = Rotate 90 CW
+        ; 7 = Transverse (flip horizontal + rotate 90)
+        ; 8 = Rotate 270 CW (= rotate 90 CCW)
+        
+        if (orientation == 1) {
+            ; Normal - return copy
+            return (this.scale(1))
+        }
+        
+        if (orientation == 2) {
+            ; Flip horizontal
+            def result (new ImageBuffer())
+            result.init(width height)
+            def y 0
+            while (y < height) {
+                def x 0
+                while (x < width) {
+                    def srcOff:int (((y * width) + x) * 4)
+                    def destOff:int (((y * width) + (width - 1 - x)) * 4)
+                    buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                    buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                    buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                    buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                    x = x + 1
+                }
+                y = y + 1
+            }
+            return result
+        }
+        
+        if (orientation == 3) {
+            return (this.rotate180())
+        }
+        
+        if (orientation == 4) {
+            ; Flip vertical
+            def result (new ImageBuffer())
+            result.init(width height)
+            def y 0
+            while (y < height) {
+                def x 0
+                while (x < width) {
+                    def srcOff:int (((y * width) + x) * 4)
+                    def destOff:int ((((height - 1 - y) * width) + x) * 4)
+                    buffer_set result.pixels destOff (buffer_get pixels srcOff)
+                    buffer_set result.pixels (destOff + 1) (buffer_get pixels (srcOff + 1))
+                    buffer_set result.pixels (destOff + 2) (buffer_get pixels (srcOff + 2))
+                    buffer_set result.pixels (destOff + 3) (buffer_get pixels (srcOff + 3))
+                    x = x + 1
+                }
+                y = y + 1
+            }
+            return result
+        }
+        
+        if (orientation == 5) {
+            return (this.transpose())
+        }
+        
+        if (orientation == 6) {
+            return (this.rotate90CW())
+        }
+        
+        if (orientation == 7) {
+            return (this.transverse())
+        }
+        
+        if (orientation == 8) {
+            return (this.rotate270CW())
+        }
+        
+        ; Unknown orientation - return copy
+        return (this.scale(1))
+    }
+}

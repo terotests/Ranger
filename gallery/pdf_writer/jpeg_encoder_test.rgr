@@ -1,0 +1,60 @@
+; jpeg_encoder_test.rgr - Test for JPEG encoder
+; Reads JPEGs (baseline and progressive), scales them, and writes new JPEGs
+
+Import "JPEGDecoder.rgr"
+Import "JPEGEncoder.rgr"
+Import "ProgressiveJPEGDecoder.rgr"
+
+class JPEGEncoderTest {
+    sfn m@(main):void () {
+        print "=== Ranger JPEG Encoder Test ==="
+        print ""
+        
+        def basePath:string "c:/Users/terok/proj/Ranger/gallery/pdf_writer"
+        
+        ; Test 1: Baseline JPEG (Canon_40D.jpg)
+        print "--- Test 1: Baseline JPEG ---"
+        print "Loading Canon_40D.jpg..."
+        def decoder (new JPEGDecoder())
+        def img:ImageBuffer (decoder.decode(basePath "Canon_40D.jpg"))
+        
+        print ("Original image: " + (to_string img.width) + "x" + (to_string img.height))
+        
+        ; Scale image 5x
+        print "Scaling 5x..."
+        def scaled:ImageBuffer (img.scale(5))
+        print ("Scaled image: " + (to_string scaled.width) + "x" + (to_string scaled.height))
+        
+        ; Encode scaled image as new JPEG
+        def encoder:JPEGEncoder (new JPEGEncoder())
+        encoder.setQuality(85)
+        encoder.encode(scaled basePath "Canon_40D_scaled.jpg")
+        print "Saved: Canon_40D_scaled.jpg"
+        
+        ; Test 2: Progressive JPEG (Example.jpg)
+        print ""
+        print "--- Test 2: Progressive JPEG ---"
+        print "Loading Example.jpg (progressive)..."
+        def progDecoder (new ProgressiveJPEGDecoder())
+        def progImg:ImageBuffer (progDecoder.decode(basePath "Example.jpg"))
+        
+        print ("Original image: " + (to_string progImg.width) + "x" + (to_string progImg.height))
+        
+        ; Scale image 2x
+        print "Scaling 2x..."
+        def progScaled:ImageBuffer (progImg.scale(2))
+        print ("Scaled image: " + (to_string progScaled.width) + "x" + (to_string progScaled.height))
+        
+        ; Encode scaled progressive image as new JPEG
+        def encoder2:JPEGEncoder (new JPEGEncoder())
+        encoder2.setQuality(90)
+        encoder2.encode(progScaled basePath "Example_scaled.jpg")
+        print "Saved: Example_scaled.jpg"
+        
+        print ""
+        print "=== Done! ==="
+        print "Results:"
+        print "  - Canon_40D_scaled.jpg (100x68 -> 500x340)"
+        print "  - Example_scaled.jpg (300x300 -> 600x600)"
+    }
+}

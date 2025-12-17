@@ -1,0 +1,1428 @@
+; JPEGEncoder.rgr - JPEG encoder for Ranger
+; Encodes ImageBuffer to baseline JPEG format
+
+Import "Buffer.rgr"
+Import "ImageBuffer.rgr"
+
+; Forward DCT class for encoding
+class FDCT {
+    ; Cosine table: cos((2*x+1) * u * pi / 16) * 1024
+    def cosTable:[int]
+    
+    ; Row-major to zigzag mapping
+    def zigzagOrder:[int]
+    
+    Constructor () {
+        ; Same cosine values as IDCT - the table is symmetric
+        ; Row x=0: u=0,1,2,3,4,5,6,7
+        push cosTable 1024
+        push cosTable 1004
+        push cosTable 946
+        push cosTable 851
+        push cosTable 724
+        push cosTable 569
+        push cosTable 392
+        push cosTable 200
+        
+        ; Row x=1
+        push cosTable 1024
+        push cosTable 851
+        push cosTable 392
+        push cosTable -200
+        push cosTable -724
+        push cosTable -1004
+        push cosTable -946
+        push cosTable -569
+        
+        ; Row x=2
+        push cosTable 1024
+        push cosTable 569
+        push cosTable -392
+        push cosTable -1004
+        push cosTable -724
+        push cosTable 200
+        push cosTable 946
+        push cosTable 851
+        
+        ; Row x=3
+        push cosTable 1024
+        push cosTable 200
+        push cosTable -946
+        push cosTable -569
+        push cosTable 724
+        push cosTable 851
+        push cosTable -392
+        push cosTable -1004
+        
+        ; Row x=4
+        push cosTable 1024
+        push cosTable -200
+        push cosTable -946
+        push cosTable 569
+        push cosTable 724
+        push cosTable -851
+        push cosTable -392
+        push cosTable 1004
+        
+        ; Row x=5
+        push cosTable 1024
+        push cosTable -569
+        push cosTable -392
+        push cosTable 1004
+        push cosTable -724
+        push cosTable -200
+        push cosTable 946
+        push cosTable -851
+        
+        ; Row x=6
+        push cosTable 1024
+        push cosTable -851
+        push cosTable 392
+        push cosTable 200
+        push cosTable -724
+        push cosTable 1004
+        push cosTable -946
+        push cosTable 569
+        
+        ; Row x=7
+        push cosTable 1024
+        push cosTable -1004
+        push cosTable 946
+        push cosTable -851
+        push cosTable 724
+        push cosTable -569
+        push cosTable 392
+        push cosTable -200
+        
+        ; Zigzag order (row-major index for each zigzag position)
+        push zigzagOrder 0
+        push zigzagOrder 1
+        push zigzagOrder 8
+        push zigzagOrder 16
+        push zigzagOrder 9
+        push zigzagOrder 2
+        push zigzagOrder 3
+        push zigzagOrder 10
+        push zigzagOrder 17
+        push zigzagOrder 24
+        push zigzagOrder 32
+        push zigzagOrder 25
+        push zigzagOrder 18
+        push zigzagOrder 11
+        push zigzagOrder 4
+        push zigzagOrder 5
+        push zigzagOrder 12
+        push zigzagOrder 19
+        push zigzagOrder 26
+        push zigzagOrder 33
+        push zigzagOrder 40
+        push zigzagOrder 48
+        push zigzagOrder 41
+        push zigzagOrder 34
+        push zigzagOrder 27
+        push zigzagOrder 20
+        push zigzagOrder 13
+        push zigzagOrder 6
+        push zigzagOrder 7
+        push zigzagOrder 14
+        push zigzagOrder 21
+        push zigzagOrder 28
+        push zigzagOrder 35
+        push zigzagOrder 42
+        push zigzagOrder 49
+        push zigzagOrder 56
+        push zigzagOrder 57
+        push zigzagOrder 50
+        push zigzagOrder 43
+        push zigzagOrder 36
+        push zigzagOrder 29
+        push zigzagOrder 22
+        push zigzagOrder 15
+        push zigzagOrder 23
+        push zigzagOrder 30
+        push zigzagOrder 37
+        push zigzagOrder 44
+        push zigzagOrder 51
+        push zigzagOrder 58
+        push zigzagOrder 59
+        push zigzagOrder 52
+        push zigzagOrder 45
+        push zigzagOrder 38
+        push zigzagOrder 31
+        push zigzagOrder 39
+        push zigzagOrder 46
+        push zigzagOrder 53
+        push zigzagOrder 60
+        push zigzagOrder 61
+        push zigzagOrder 54
+        push zigzagOrder 47
+        push zigzagOrder 55
+        push zigzagOrder 62
+        push zigzagOrder 63
+    }
+    
+    fn dct1d:void (input:[int] startIdx:int stride:int output:[int] outIdx:int outStride:int) {
+        ; 1D DCT: F(u) = C(u)/2 * sum over x of: f(x) * cos((2x+1)*u*pi/16)
+        ; C(0) = 1/sqrt(2), C(u>0) = 1
+        
+        def u 0
+        while (u < 8) {
+            def sum:int 0
+            def x 0
+            while (x < 8) {
+                def pixel:int (at input (startIdx + (x * stride)))
+                def cosVal:int (at cosTable ((x * 8) + u))
+                sum = sum + (pixel * cosVal)
+                x = x + 1
+            }
+            ; Apply C(u) normalization: C(0) = 1/sqrt(2) ≈ 724/1024
+            if (u == 0) {
+                sum = (bit_shr (sum * 724) 10)
+            }
+            ; Scale down: cosTable is *1024, so shift right 10 bits
+            ; Then divide by 2*sqrt(2) for proper DCT normalization ≈ shift 1 more
+            set output (outIdx + (u * outStride)) (bit_shr sum 11)
+            u = u + 1
+        }
+    }
+    
+    fn transform:[int] (pixels:[int]) {
+        ; Perform 2D DCT on 8x8 block
+        ; Level shift first: subtract 128
+        def shifted:[int]
+        def i 0
+        while (i < 64) {
+            push shifted ((at pixels i) - 128)
+            i = i + 1
+        }
+        
+        ; Temporary buffer
+        def temp:[int]
+        i = 0
+        while (i < 64) {
+            push temp 0
+            i = i + 1
+        }
+        
+        ; First pass: 1D DCT on rows
+        def row 0
+        while (row < 8) {
+            def rowStart:int (row * 8)
+            this.dct1d(shifted rowStart 1 temp rowStart 1)
+            row = row + 1
+        }
+        
+        ; Output coefficients
+        def coeffs:[int]
+        i = 0
+        while (i < 64) {
+            push coeffs 0
+            i = i + 1
+        }
+        
+        ; Second pass: 1D DCT on columns
+        def col 0
+        while (col < 8) {
+            this.dct1d(temp col 8 coeffs col 8)
+            col = col + 1
+        }
+        
+        return coeffs
+    }
+    
+    fn zigzag:[int] (block:[int]) {
+        ; Convert from row-major to zigzag order
+        def zigzagOut:[int]
+        def i 0
+        while (i < 64) {
+            def pos:int (at zigzagOrder i)
+            push zigzagOut (at block pos)
+            i = i + 1
+        }
+        return zigzagOut
+    }
+}
+
+; Bit writer for encoding - uses GrowableBuffer for unlimited size
+class BitWriter {
+    def buffer:GrowableBuffer (new GrowableBuffer())
+    def bitBuffer:int 0
+    def bitCount:int 0
+    
+    Constructor () {
+        ; buffer already initialized
+    }
+    
+    fn writeBit:void (bit:int) {
+        bitBuffer = (bit_shl bitBuffer 1)
+        bitBuffer = (bit_or bitBuffer (bit_and bit 1))
+        bitCount = bitCount + 1
+        
+        if (bitCount == 8) {
+            this.flushByte()
+        }
+    }
+    
+    fn writeBits:void (value:int numBits:int) {
+        ; Write bits from MSB to LSB
+        def i:int (numBits - 1)
+        while (i >= 0) {
+            def bit:int (bit_and (bit_shr value i) 1)
+            this.writeBit(bit)
+            i = i - 1
+        }
+    }
+    
+    fn flushByte:void () {
+        if (bitCount > 0) {
+            ; Pad remaining bits with 1s
+            while (bitCount < 8) {
+                bitBuffer = (bit_shl bitBuffer 1)
+                bitBuffer = (bit_or bitBuffer 1)
+                bitCount = bitCount + 1
+            }
+            
+            ; Write byte and check for byte stuffing (0xFF needs 0x00 after it)
+            buffer.writeByte(bitBuffer)
+            
+            if (bitBuffer == 255) {
+                buffer.writeByte(0)
+            }
+            
+            bitBuffer = 0
+            bitCount = 0
+        }
+    }
+    
+    fn writeByte:void (b:int) {
+        this.flushByte()
+        buffer.writeByte(b)
+    }
+    
+    fn writeWord:void (w:int) {
+        ; Big endian
+        this.writeByte((bit_shr w 8))
+        this.writeByte((bit_and w 255))
+    }
+    
+    fn getBuffer:buffer () {
+        this.flushByte()
+        return (buffer.toBuffer())
+    }
+    
+    fn getLength:int () {
+        return (buffer.size())
+    }
+}
+
+; JPEG Encoder main class
+class JPEGEncoder {
+    def fdct:FDCT
+    def quality:int 75
+    
+    ; Quantization tables
+    def yQuantTable:[int]
+    def cQuantTable:[int]
+    
+    ; Standard luminance quantization table
+    def stdYQuant:[int]
+    ; Standard chrominance quantization table
+    def stdCQuant:[int]
+    
+    ; Huffman tables (simplified - using standard JPEG tables)
+    ; DC luminance
+    def dcYBits:[int]
+    def dcYValues:[int]
+    ; AC luminance
+    def acYBits:[int]
+    def acYValues:[int]
+    ; DC chrominance
+    def dcCBits:[int]
+    def dcCValues:[int]
+    ; AC chrominance
+    def acCBits:[int]
+    def acCValues:[int]
+    
+    ; Huffman encoding lookup tables
+    def dcYCodes:[int]
+    def dcYLengths:[int]
+    def acYCodes:[int]
+    def acYLengths:[int]
+    def dcCCodes:[int]
+    def dcCLengths:[int]
+    def acCCodes:[int]
+    def acCLengths:[int]
+    
+    ; Previous DC values for differential encoding
+    def prevDCY:int 0
+    def prevDCCb:int 0
+    def prevDCCr:int 0
+    
+    Constructor () {
+        fdct = (new FDCT())
+        this.initQuantTables()
+        this.initHuffmanTables()
+    }
+    
+    fn initQuantTables:void () {
+        ; Standard JPEG luminance quantization table
+        push stdYQuant 16
+        push stdYQuant 11
+        push stdYQuant 10
+        push stdYQuant 16
+        push stdYQuant 24
+        push stdYQuant 40
+        push stdYQuant 51
+        push stdYQuant 61
+        push stdYQuant 12
+        push stdYQuant 12
+        push stdYQuant 14
+        push stdYQuant 19
+        push stdYQuant 26
+        push stdYQuant 58
+        push stdYQuant 60
+        push stdYQuant 55
+        push stdYQuant 14
+        push stdYQuant 13
+        push stdYQuant 16
+        push stdYQuant 24
+        push stdYQuant 40
+        push stdYQuant 57
+        push stdYQuant 69
+        push stdYQuant 56
+        push stdYQuant 14
+        push stdYQuant 17
+        push stdYQuant 22
+        push stdYQuant 29
+        push stdYQuant 51
+        push stdYQuant 87
+        push stdYQuant 80
+        push stdYQuant 62
+        push stdYQuant 18
+        push stdYQuant 22
+        push stdYQuant 37
+        push stdYQuant 56
+        push stdYQuant 68
+        push stdYQuant 109
+        push stdYQuant 103
+        push stdYQuant 77
+        push stdYQuant 24
+        push stdYQuant 35
+        push stdYQuant 55
+        push stdYQuant 64
+        push stdYQuant 81
+        push stdYQuant 104
+        push stdYQuant 113
+        push stdYQuant 92
+        push stdYQuant 49
+        push stdYQuant 64
+        push stdYQuant 78
+        push stdYQuant 87
+        push stdYQuant 103
+        push stdYQuant 121
+        push stdYQuant 120
+        push stdYQuant 101
+        push stdYQuant 72
+        push stdYQuant 92
+        push stdYQuant 95
+        push stdYQuant 98
+        push stdYQuant 112
+        push stdYQuant 100
+        push stdYQuant 103
+        push stdYQuant 99
+        
+        ; Standard JPEG chrominance quantization table
+        push stdCQuant 17
+        push stdCQuant 18
+        push stdCQuant 24
+        push stdCQuant 47
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 18
+        push stdCQuant 21
+        push stdCQuant 26
+        push stdCQuant 66
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 24
+        push stdCQuant 26
+        push stdCQuant 56
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 47
+        push stdCQuant 66
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        push stdCQuant 99
+        
+        ; Scale tables based on quality
+        this.scaleQuantTables(quality)
+    }
+    
+    fn scaleQuantTables:void (q:int) {
+        ; Scale factor: q < 50 => scale = 5000/q, q >= 50 => scale = 200 - 2*q
+        def scale:int 0
+        if (q < 50) {
+            scale = (to_int (5000 / q))
+        } {
+            scale = 200 - (q * 2)
+        }
+        
+        clear yQuantTable
+        clear cQuantTable
+        
+        def i 0
+        while (i < 64) {
+            ; Y table
+            def yVal:int (to_int (((at stdYQuant i) * scale + 50) / 100))
+            if (yVal < 1) { yVal = 1 }
+            if (yVal > 255) { yVal = 255 }
+            push yQuantTable yVal
+            
+            ; C table
+            def cVal:int (to_int (((at stdCQuant i) * scale + 50) / 100))
+            if (cVal < 1) { cVal = 1 }
+            if (cVal > 255) { cVal = 255 }
+            push cQuantTable cVal
+            
+            i = i + 1
+        }
+    }
+    
+    fn initHuffmanTables:void () {
+        ; Standard JPEG Huffman tables
+        ; DC Luminance bits (number of codes of each length 1-16)
+        push dcYBits 0
+        push dcYBits 1
+        push dcYBits 5
+        push dcYBits 1
+        push dcYBits 1
+        push dcYBits 1
+        push dcYBits 1
+        push dcYBits 1
+        push dcYBits 1
+        push dcYBits 0
+        push dcYBits 0
+        push dcYBits 0
+        push dcYBits 0
+        push dcYBits 0
+        push dcYBits 0
+        push dcYBits 0
+        
+        ; DC Luminance values
+        push dcYValues 0
+        push dcYValues 1
+        push dcYValues 2
+        push dcYValues 3
+        push dcYValues 4
+        push dcYValues 5
+        push dcYValues 6
+        push dcYValues 7
+        push dcYValues 8
+        push dcYValues 9
+        push dcYValues 10
+        push dcYValues 11
+        
+        ; AC Luminance bits
+        push acYBits 0
+        push acYBits 2
+        push acYBits 1
+        push acYBits 3
+        push acYBits 3
+        push acYBits 2
+        push acYBits 4
+        push acYBits 3
+        push acYBits 5
+        push acYBits 5
+        push acYBits 4
+        push acYBits 4
+        push acYBits 0
+        push acYBits 0
+        push acYBits 1
+        push acYBits 125
+        
+        ; AC Luminance values (162 values total)
+        push acYValues 1
+        push acYValues 2
+        push acYValues 3
+        push acYValues 0
+        push acYValues 4
+        push acYValues 17
+        push acYValues 5
+        push acYValues 18
+        push acYValues 33
+        push acYValues 49
+        push acYValues 65
+        push acYValues 6
+        push acYValues 19
+        push acYValues 81
+        push acYValues 97
+        push acYValues 7
+        push acYValues 34
+        push acYValues 113
+        push acYValues 20
+        push acYValues 50
+        push acYValues 129
+        push acYValues 145
+        push acYValues 161
+        push acYValues 8
+        push acYValues 35
+        push acYValues 66
+        push acYValues 177
+        push acYValues 193
+        push acYValues 21
+        push acYValues 82
+        push acYValues 209
+        push acYValues 240
+        push acYValues 36
+        push acYValues 51
+        push acYValues 98
+        push acYValues 114
+        push acYValues 130
+        push acYValues 9
+        push acYValues 10
+        push acYValues 22
+        push acYValues 23
+        push acYValues 24
+        push acYValues 25
+        push acYValues 26
+        push acYValues 37
+        push acYValues 38
+        push acYValues 39
+        push acYValues 40
+        push acYValues 41
+        push acYValues 42
+        push acYValues 52
+        push acYValues 53
+        push acYValues 54
+        push acYValues 55
+        push acYValues 56
+        push acYValues 57
+        push acYValues 58
+        push acYValues 67
+        push acYValues 68
+        push acYValues 69
+        push acYValues 70
+        push acYValues 71
+        push acYValues 72
+        push acYValues 73
+        push acYValues 74
+        push acYValues 83
+        push acYValues 84
+        push acYValues 85
+        push acYValues 86
+        push acYValues 87
+        push acYValues 88
+        push acYValues 89
+        push acYValues 90
+        push acYValues 99
+        push acYValues 100
+        push acYValues 101
+        push acYValues 102
+        push acYValues 103
+        push acYValues 104
+        push acYValues 105
+        push acYValues 106
+        push acYValues 115
+        push acYValues 116
+        push acYValues 117
+        push acYValues 118
+        push acYValues 119
+        push acYValues 120
+        push acYValues 121
+        push acYValues 122
+        push acYValues 131
+        push acYValues 132
+        push acYValues 133
+        push acYValues 134
+        push acYValues 135
+        push acYValues 136
+        push acYValues 137
+        push acYValues 138
+        push acYValues 146
+        push acYValues 147
+        push acYValues 148
+        push acYValues 149
+        push acYValues 150
+        push acYValues 151
+        push acYValues 152
+        push acYValues 153
+        push acYValues 154
+        push acYValues 162
+        push acYValues 163
+        push acYValues 164
+        push acYValues 165
+        push acYValues 166
+        push acYValues 167
+        push acYValues 168
+        push acYValues 169
+        push acYValues 170
+        push acYValues 178
+        push acYValues 179
+        push acYValues 180
+        push acYValues 181
+        push acYValues 182
+        push acYValues 183
+        push acYValues 184
+        push acYValues 185
+        push acYValues 186
+        push acYValues 194
+        push acYValues 195
+        push acYValues 196
+        push acYValues 197
+        push acYValues 198
+        push acYValues 199
+        push acYValues 200
+        push acYValues 201
+        push acYValues 202
+        push acYValues 210
+        push acYValues 211
+        push acYValues 212
+        push acYValues 213
+        push acYValues 214
+        push acYValues 215
+        push acYValues 216
+        push acYValues 217
+        push acYValues 218
+        push acYValues 225
+        push acYValues 226
+        push acYValues 227
+        push acYValues 228
+        push acYValues 229
+        push acYValues 230
+        push acYValues 231
+        push acYValues 232
+        push acYValues 233
+        push acYValues 234
+        push acYValues 241
+        push acYValues 242
+        push acYValues 243
+        push acYValues 244
+        push acYValues 245
+        push acYValues 246
+        push acYValues 247
+        push acYValues 248
+        push acYValues 249
+        push acYValues 250
+        
+        ; DC Chrominance bits
+        push dcCBits 0
+        push dcCBits 3
+        push dcCBits 1
+        push dcCBits 1
+        push dcCBits 1
+        push dcCBits 1
+        push dcCBits 1
+        push dcCBits 1
+        push dcCBits 1
+        push dcCBits 1
+        push dcCBits 1
+        push dcCBits 0
+        push dcCBits 0
+        push dcCBits 0
+        push dcCBits 0
+        push dcCBits 0
+        
+        ; DC Chrominance values
+        push dcCValues 0
+        push dcCValues 1
+        push dcCValues 2
+        push dcCValues 3
+        push dcCValues 4
+        push dcCValues 5
+        push dcCValues 6
+        push dcCValues 7
+        push dcCValues 8
+        push dcCValues 9
+        push dcCValues 10
+        push dcCValues 11
+        
+        ; AC Chrominance bits
+        push acCBits 0
+        push acCBits 2
+        push acCBits 1
+        push acCBits 2
+        push acCBits 4
+        push acCBits 4
+        push acCBits 3
+        push acCBits 4
+        push acCBits 7
+        push acCBits 5
+        push acCBits 4
+        push acCBits 4
+        push acCBits 0
+        push acCBits 1
+        push acCBits 2
+        push acCBits 119
+        
+        ; AC Chrominance values (162 values total)
+        push acCValues 0
+        push acCValues 1
+        push acCValues 2
+        push acCValues 3
+        push acCValues 17
+        push acCValues 4
+        push acCValues 5
+        push acCValues 33
+        push acCValues 49
+        push acCValues 6
+        push acCValues 18
+        push acCValues 65
+        push acCValues 81
+        push acCValues 7
+        push acCValues 97
+        push acCValues 113
+        push acCValues 19
+        push acCValues 34
+        push acCValues 50
+        push acCValues 129
+        push acCValues 8
+        push acCValues 20
+        push acCValues 66
+        push acCValues 145
+        push acCValues 161
+        push acCValues 177
+        push acCValues 193
+        push acCValues 9
+        push acCValues 35
+        push acCValues 51
+        push acCValues 82
+        push acCValues 240
+        push acCValues 21
+        push acCValues 98
+        push acCValues 114
+        push acCValues 209
+        push acCValues 10
+        push acCValues 22
+        push acCValues 36
+        push acCValues 52
+        push acCValues 225
+        push acCValues 37
+        push acCValues 241
+        push acCValues 23
+        push acCValues 24
+        push acCValues 25
+        push acCValues 26
+        push acCValues 38
+        push acCValues 39
+        push acCValues 40
+        push acCValues 41
+        push acCValues 42
+        push acCValues 53
+        push acCValues 54
+        push acCValues 55
+        push acCValues 56
+        push acCValues 57
+        push acCValues 58
+        push acCValues 67
+        push acCValues 68
+        push acCValues 69
+        push acCValues 70
+        push acCValues 71
+        push acCValues 72
+        push acCValues 73
+        push acCValues 74
+        push acCValues 83
+        push acCValues 84
+        push acCValues 85
+        push acCValues 86
+        push acCValues 87
+        push acCValues 88
+        push acCValues 89
+        push acCValues 90
+        push acCValues 99
+        push acCValues 100
+        push acCValues 101
+        push acCValues 102
+        push acCValues 103
+        push acCValues 104
+        push acCValues 105
+        push acCValues 106
+        push acCValues 115
+        push acCValues 116
+        push acCValues 117
+        push acCValues 118
+        push acCValues 119
+        push acCValues 120
+        push acCValues 121
+        push acCValues 122
+        push acCValues 130
+        push acCValues 131
+        push acCValues 132
+        push acCValues 133
+        push acCValues 134
+        push acCValues 135
+        push acCValues 136
+        push acCValues 137
+        push acCValues 138
+        push acCValues 146
+        push acCValues 147
+        push acCValues 148
+        push acCValues 149
+        push acCValues 150
+        push acCValues 151
+        push acCValues 152
+        push acCValues 153
+        push acCValues 154
+        push acCValues 162
+        push acCValues 163
+        push acCValues 164
+        push acCValues 165
+        push acCValues 166
+        push acCValues 167
+        push acCValues 168
+        push acCValues 169
+        push acCValues 170
+        push acCValues 178
+        push acCValues 179
+        push acCValues 180
+        push acCValues 181
+        push acCValues 182
+        push acCValues 183
+        push acCValues 184
+        push acCValues 185
+        push acCValues 186
+        push acCValues 194
+        push acCValues 195
+        push acCValues 196
+        push acCValues 197
+        push acCValues 198
+        push acCValues 199
+        push acCValues 200
+        push acCValues 201
+        push acCValues 202
+        push acCValues 210
+        push acCValues 211
+        push acCValues 212
+        push acCValues 213
+        push acCValues 214
+        push acCValues 215
+        push acCValues 216
+        push acCValues 217
+        push acCValues 218
+        push acCValues 226
+        push acCValues 227
+        push acCValues 228
+        push acCValues 229
+        push acCValues 230
+        push acCValues 231
+        push acCValues 232
+        push acCValues 233
+        push acCValues 234
+        push acCValues 242
+        push acCValues 243
+        push acCValues 244
+        push acCValues 245
+        push acCValues 246
+        push acCValues 247
+        push acCValues 248
+        push acCValues 249
+        push acCValues 250
+        
+        ; Initialize lookup tables with 256 entries each
+        def i 0
+        while (i < 256) {
+            push dcYCodes 0
+            push dcYLengths 0
+            push acYCodes 0
+            push acYLengths 0
+            push dcCCodes 0
+            push dcCLengths 0
+            push acCCodes 0
+            push acCLengths 0
+            i = i + 1
+        }
+        
+        ; Build encoding lookup tables
+        this.buildHuffmanCodes(dcYBits dcYValues dcYCodes dcYLengths)
+        this.buildHuffmanCodes(acYBits acYValues acYCodes acYLengths)
+        this.buildHuffmanCodes(dcCBits dcCValues dcCCodes dcCLengths)
+        this.buildHuffmanCodes(acCBits acCValues acCCodes acCLengths)
+    }
+    
+    fn buildHuffmanCodes:void (bits:[int] values:[int] codes:[int] lengths:[int]) {
+        ; Build lookup table: codes[symbol] = huffman code, lengths[symbol] = code length
+        ; NOTE: codes and lengths must be pre-initialized with 256 zeros
+        
+        ; Generate codes
+        def code:int 0
+        def valueIdx:int 0
+        
+        def bitLen 1
+        while (bitLen <= 16) {
+            def count:int (at bits (bitLen - 1))
+            def j 0
+            while (j < count) {
+                def symbol:int (at values valueIdx)
+                set codes symbol code
+                set lengths symbol bitLen
+                code = code + 1
+                valueIdx = valueIdx + 1
+                j = j + 1
+            }
+            code = (bit_shl code 1)
+            bitLen = bitLen + 1
+        }
+    }
+    
+    fn getCategory:int (value:int) {
+        ; Get the category (number of bits needed) for a value
+        if (value < 0) {
+            value = 0 - value
+        }
+        if (value == 0) { return 0 }
+        
+        def cat:int 0
+        while (value > 0) {
+            cat = cat + 1
+            value = (bit_shr value 1)
+        }
+        return cat
+    }
+    
+    fn encodeNumber:int (value:int category:int) {
+        ; Encode a number in its category
+        ; Positive numbers: just the value
+        ; Negative numbers: value - 1 (complement)
+        if (value < 0) {
+            return value + ((bit_shl 1 category) - 1)
+        }
+        return value
+    }
+    
+    fn encodeBlock:void (writer:BitWriter coeffs:[int] quantTable:[int] dcCodes:[int] dcLengths:[int] acCodes:[int] acLengths:[int] prevDC:int) {
+        ; Quantize coefficients
+        def quantized:[int]
+        def i 0
+        while (i < 64) {
+            def q:int (at quantTable i)
+            def c:int (at coeffs i)
+            ; Round to nearest integer during quantization
+            def qVal:int 0
+            if (c >= 0) {
+                qVal = (to_int ((c + (bit_shr q 1)) / q))
+            } {
+                qVal = (to_int ((c - (bit_shr q 1)) / q))
+            }
+            push quantized qVal
+            i = i + 1
+        }
+        
+        ; Zigzag reorder
+        def zigzagged:[int] (fdct.zigzag(quantized))
+        
+        ; Encode DC coefficient (differential)
+        def dc:int (at zigzagged 0)
+        def dcDiff:int (dc - prevDC)
+        def dcCat:int (this.getCategory(dcDiff))
+        
+        ; Write DC Huffman code
+        def dcCode:int (at dcCodes dcCat)
+        def dcLen:int (at dcLengths dcCat)
+        writer.writeBits(dcCode dcLen)
+        
+        ; Write DC value if non-zero
+        if (dcCat > 0) {
+            def dcVal:int (this.encodeNumber(dcDiff dcCat))
+            writer.writeBits(dcVal dcCat)
+        }
+        
+        ; Encode AC coefficients
+        def zeroRun:int 0
+        def k 1
+        while (k < 64) {
+            def ac:int (at zigzagged k)
+            
+            if (ac == 0) {
+                zeroRun = zeroRun + 1
+            } {
+                ; Write any ZRL (16 zeros) symbols needed
+                while (zeroRun >= 16) {
+                    ; ZRL = 0xF0
+                    def zrlCode:int (at acCodes 240)
+                    def zrlLen:int (at acLengths 240)
+                    writer.writeBits(zrlCode zrlLen)
+                    zeroRun = zeroRun - 16
+                }
+                
+                ; Write run/category symbol
+                def acCat:int (this.getCategory(ac))
+                def runCat:int (bit_or (bit_shl zeroRun 4) acCat)
+                def acHuffCode:int (at acCodes runCat)
+                def acHuffLen:int (at acLengths runCat)
+                writer.writeBits(acHuffCode acHuffLen)
+                
+                ; Write AC value
+                def acVal:int (this.encodeNumber(ac acCat))
+                writer.writeBits(acVal acCat)
+                
+                zeroRun = 0
+            }
+            k = k + 1
+        }
+        
+        ; Write EOB if there are trailing zeros
+        if (zeroRun > 0) {
+            def eobCode:int (at acCodes 0)
+            def eobLen:int (at acLengths 0)
+            writer.writeBits(eobCode eobLen)
+        }
+    }
+    
+    fn rgbToYCbCr:void (r:int g:int b:int yOut:[int] cbOut:[int] crOut:[int]) {
+        ; RGB to YCbCr conversion using integer arithmetic
+        ; Y  =  0.299*R + 0.587*G + 0.114*B
+        ; Cb = -0.169*R - 0.331*G + 0.500*B + 128
+        ; Cr =  0.500*R - 0.419*G - 0.081*B + 128
+        
+        def y:int (bit_shr ((77 * r) + (150 * g) + (29 * b)) 8)
+        def cb:int (bit_shr ((0 - (43 * r)) - (85 * g) + (128 * b)) 8) + 128
+        def cr:int (bit_shr ((128 * r) - (107 * g) - (21 * b)) 8) + 128
+        
+        if (y < 0) { y = 0 }
+        if (y > 255) { y = 255 }
+        if (cb < 0) { cb = 0 }
+        if (cb > 255) { cb = 255 }
+        if (cr < 0) { cr = 0 }
+        if (cr > 255) { cr = 255 }
+        
+        push yOut y
+        push cbOut cb
+        push crOut cr
+    }
+    
+    fn extractBlock:[int] (img:ImageBuffer blockX:int blockY:int channel:int) {
+        ; Extract 8x8 block of a channel (0=Y, 1=Cb, 2=Cr)
+        def output:[int]
+        
+        def py 0
+        while (py < 8) {
+            def px 0
+            while (px < 8) {
+                def imgX:int (blockX + px)
+                def imgY:int (blockY + py)
+                
+                ; Clamp to image bounds
+                if (imgX >= img.width) { imgX = img.width - 1 }
+                if (imgY >= img.height) { imgY = img.height - 1 }
+                
+                def c:Color (img.getPixel(imgX imgY))
+                
+                ; Convert to YCbCr on the fly
+                def y:int (bit_shr ((77 * c.r) + (150 * c.g) + (29 * c.b)) 8)
+                def cb:int (bit_shr ((0 - (43 * c.r)) - (85 * c.g) + (128 * c.b)) 8) + 128
+                def cr:int (bit_shr ((128 * c.r) - (107 * c.g) - (21 * c.b)) 8) + 128
+                
+                if (channel == 0) {
+                    push output y
+                } 
+                if (channel == 1) {
+                    push output cb
+                }
+                if (channel == 2) {
+                    push output cr
+                }
+                
+                px = px + 1
+            }
+            py = py + 1
+        }
+        return output
+    }
+    
+    fn writeMarkers:void (writer:BitWriter width:int height:int) {
+        ; SOI - Start of Image
+        writer.writeByte(255)
+        writer.writeByte(216)
+        
+        ; APP0 - JFIF marker
+        writer.writeByte(255)
+        writer.writeByte(224)
+        writer.writeWord(16)  ; Length
+        writer.writeByte(74)  ; J
+        writer.writeByte(70)  ; F
+        writer.writeByte(73)  ; I
+        writer.writeByte(70)  ; F
+        writer.writeByte(0)   ; Null
+        writer.writeByte(1)   ; Version major
+        writer.writeByte(1)   ; Version minor
+        writer.writeByte(0)   ; Units (0 = no units)
+        writer.writeWord(1)   ; X density
+        writer.writeWord(1)   ; Y density
+        writer.writeByte(0)   ; Thumbnail width
+        writer.writeByte(0)   ; Thumbnail height
+        
+        ; DQT - Quantization tables
+        ; Table 0 (luminance)
+        writer.writeByte(255)
+        writer.writeByte(219)
+        writer.writeWord(67)  ; Length = 2 + 1 + 64
+        writer.writeByte(0)   ; Table ID 0, 8-bit precision
+        def i 0
+        while (i < 64) {
+            writer.writeByte((at yQuantTable (at fdct.zigzagOrder i)))
+            i = i + 1
+        }
+        
+        ; Table 1 (chrominance)
+        writer.writeByte(255)
+        writer.writeByte(219)
+        writer.writeWord(67)
+        writer.writeByte(1)   ; Table ID 1
+        i = 0
+        while (i < 64) {
+            writer.writeByte((at cQuantTable (at fdct.zigzagOrder i)))
+            i = i + 1
+        }
+        
+        ; SOF0 - Start of Frame (Baseline DCT)
+        writer.writeByte(255)
+        writer.writeByte(192)
+        writer.writeWord(17)  ; Length = 8 + 3*components
+        writer.writeByte(8)   ; Precision (8 bits)
+        writer.writeWord(height)
+        writer.writeWord(width)
+        writer.writeByte(3)   ; Number of components
+        ; Component 1: Y
+        writer.writeByte(1)   ; Component ID
+        writer.writeByte(17)  ; Sampling: 1x1 (0x11)
+        writer.writeByte(0)   ; Quant table 0
+        ; Component 2: Cb
+        writer.writeByte(2)
+        writer.writeByte(17)  ; 1x1
+        writer.writeByte(1)   ; Quant table 1
+        ; Component 3: Cr
+        writer.writeByte(3)
+        writer.writeByte(17)  ; 1x1
+        writer.writeByte(1)   ; Quant table 1
+        
+        ; DHT - Huffman tables
+        ; DC Luminance (table 0)
+        writer.writeByte(255)
+        writer.writeByte(196)
+        writer.writeWord(31)  ; Length
+        writer.writeByte(0)   ; DC table 0
+        i = 0
+        while (i < 16) {
+            writer.writeByte((at dcYBits i))
+            i = i + 1
+        }
+        i = 0
+        while (i < 12) {
+            writer.writeByte((at dcYValues i))
+            i = i + 1
+        }
+        
+        ; AC Luminance (table 0)
+        writer.writeByte(255)
+        writer.writeByte(196)
+        writer.writeWord(181)  ; Length = 2 + 1 + 16 + 162
+        writer.writeByte(16)   ; AC table 0
+        i = 0
+        while (i < 16) {
+            writer.writeByte((at acYBits i))
+            i = i + 1
+        }
+        i = 0
+        while (i < 162) {
+            writer.writeByte((at acYValues i))
+            i = i + 1
+        }
+        
+        ; DC Chrominance (table 1)
+        writer.writeByte(255)
+        writer.writeByte(196)
+        writer.writeWord(31)
+        writer.writeByte(1)   ; DC table 1
+        i = 0
+        while (i < 16) {
+            writer.writeByte((at dcCBits i))
+            i = i + 1
+        }
+        i = 0
+        while (i < 12) {
+            writer.writeByte((at dcCValues i))
+            i = i + 1
+        }
+        
+        ; AC Chrominance (table 1)
+        writer.writeByte(255)
+        writer.writeByte(196)
+        writer.writeWord(181)
+        writer.writeByte(17)  ; AC table 1
+        i = 0
+        while (i < 16) {
+            writer.writeByte((at acCBits i))
+            i = i + 1
+        }
+        i = 0
+        while (i < 162) {
+            writer.writeByte((at acCValues i))
+            i = i + 1
+        }
+        
+        ; SOS - Start of Scan
+        writer.writeByte(255)
+        writer.writeByte(218)
+        writer.writeWord(12)  ; Length
+        writer.writeByte(3)   ; Number of components
+        ; Component 1: Y
+        writer.writeByte(1)   ; Component ID
+        writer.writeByte(0)   ; DC table 0, AC table 0
+        ; Component 2: Cb
+        writer.writeByte(2)
+        writer.writeByte(17)  ; DC table 1, AC table 1
+        ; Component 3: Cr
+        writer.writeByte(3)
+        writer.writeByte(17)  ; DC table 1, AC table 1
+        writer.writeByte(0)   ; Spectral selection start
+        writer.writeByte(63)  ; Spectral selection end
+        writer.writeByte(0)   ; Successive approximation
+    }
+    
+    fn encode:void (img:ImageBuffer dirPath:string fileName:string) {
+        print ("Encoding JPEG: " + fileName)
+        print ("  Image size: " + (to_string img.width) + "x" + (to_string img.height))
+        
+        def writer (new BitWriter())
+        
+        ; Write JPEG headers
+        this.writeMarkers(writer img.width img.height)
+        
+        ; Calculate MCU grid
+        def mcuWidth:int (to_int ((img.width + 7) / 8))
+        def mcuHeight:int (to_int ((img.height + 7) / 8))
+        print ("  MCU grid: " + (to_string mcuWidth) + "x" + (to_string mcuHeight))
+        
+        ; Reset DC predictors
+        prevDCY = 0
+        prevDCCb = 0
+        prevDCCr = 0
+        
+        ; Encode MCU by MCU
+        def mcuY 0
+        while (mcuY < mcuHeight) {
+            def mcuX 0
+            while (mcuX < mcuWidth) {
+                def blockX:int (mcuX * 8)
+                def blockY:int (mcuY * 8)
+                
+                ; Extract and encode Y block
+                def yBlock:[int] (this.extractBlock(img blockX blockY 0))
+                def yCoeffs:[int] (fdct.transform(yBlock))
+                this.encodeBlock(writer yCoeffs yQuantTable dcYCodes dcYLengths acYCodes acYLengths prevDCY)
+                
+                ; Update DC predictor
+                def yZig:[int] (fdct.zigzag(yCoeffs))
+                def yQ:int (at yQuantTable 0)
+                def yDC:int (at yZig 0)
+                if (yDC >= 0) {
+                    prevDCY = (to_int ((yDC + (bit_shr yQ 1)) / yQ))
+                } {
+                    prevDCY = (to_int ((yDC - (bit_shr yQ 1)) / yQ))
+                }
+                
+                ; Extract and encode Cb block
+                def cbBlock:[int] (this.extractBlock(img blockX blockY 1))
+                def cbCoeffs:[int] (fdct.transform(cbBlock))
+                this.encodeBlock(writer cbCoeffs cQuantTable dcCCodes dcCLengths acCCodes acCLengths prevDCCb)
+                
+                def cbZig:[int] (fdct.zigzag(cbCoeffs))
+                def cbQ:int (at cQuantTable 0)
+                def cbDC:int (at cbZig 0)
+                if (cbDC >= 0) {
+                    prevDCCb = (to_int ((cbDC + (bit_shr cbQ 1)) / cbQ))
+                } {
+                    prevDCCb = (to_int ((cbDC - (bit_shr cbQ 1)) / cbQ))
+                }
+                
+                ; Extract and encode Cr block
+                def crBlock:[int] (this.extractBlock(img blockX blockY 2))
+                def crCoeffs:[int] (fdct.transform(crBlock))
+                this.encodeBlock(writer crCoeffs cQuantTable dcCCodes dcCLengths acCCodes acCLengths prevDCCr)
+                
+                def crZig:[int] (fdct.zigzag(crCoeffs))
+                def crQ:int (at cQuantTable 0)
+                def crDC:int (at crZig 0)
+                if (crDC >= 0) {
+                    prevDCCr = (to_int ((crDC + (bit_shr crQ 1)) / crQ))
+                } {
+                    prevDCCr = (to_int ((crDC - (bit_shr crQ 1)) / crQ))
+                }
+                
+                mcuX = mcuX + 1
+            }
+            mcuY = mcuY + 1
+        }
+        
+        ; Flush remaining bits
+        writer.flushByte()
+        
+        ; Write EOI marker directly to buffer
+        def outBuf:buffer (writer.getBuffer())
+        def outLen:int (writer.getLength())
+        
+        ; Create final buffer with EOI
+        def finalBuf:buffer (buffer_alloc (outLen + 2))
+        def i 0
+        while (i < outLen) {
+            buffer_set finalBuf i (buffer_get outBuf i)
+            i = i + 1
+        }
+        buffer_set finalBuf outLen 255
+        buffer_set finalBuf (outLen + 1) 217
+        
+        ; Write to file
+        buffer_write_file dirPath fileName finalBuf
+        
+        print ("  Encoded size: " + (to_string (outLen + 2)) + " bytes")
+        print ("  Saved: " + dirPath + "/" + fileName)
+    }
+    
+    fn setQuality:void (q:int) {
+        quality = q
+        this.scaleQuantTables(q)
+    }
+}

@@ -1238,6 +1238,102 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 * ( (e 1) " % " (e 2) )
             }
         }
+
+        ; ============================================================================
+        ; Bitwise operators for integer manipulation
+        ; ============================================================================
+
+        ; Bitwise AND
+        bit_and  _:int (left:int right:int) {
+            templates {
+                es6 ( "(" (e 1) " & " (e 2) ")" )
+                go ( "int64(" (e 1) " & " (e 2) ")" )
+                rust ( "((" (e 1) ") & (" (e 2) "))" )
+                cpp ( "((" (e 1) ") & (" (e 2) "))" )
+                java7 ( "((" (e 1) ") & (" (e 2) "))" )
+                python ( "((" (e 1) ") & (" (e 2) "))" )
+                swift6 ( "(Int64(" (e 1) ") & Int64(" (e 2) "))" )
+                csharp ( "((" (e 1) ") & (" (e 2) "))" )
+                * ( "((" (e 1) ") & (" (e 2) "))" )
+            }
+        }
+
+        ; Bitwise OR
+        bit_or  _:int (left:int right:int) {
+            templates {
+                es6 ( "(" (e 1) " | " (e 2) ")" )
+                go ( "int64(" (e 1) " | " (e 2) ")" )
+                rust ( "((" (e 1) ") | (" (e 2) "))" )
+                cpp ( "((" (e 1) ") | (" (e 2) "))" )
+                java7 ( "((" (e 1) ") | (" (e 2) "))" )
+                python ( "((" (e 1) ") | (" (e 2) "))" )
+                swift6 ( "(Int64(" (e 1) ") | Int64(" (e 2) "))" )
+                csharp ( "((" (e 1) ") | (" (e 2) "))" )
+                * ( "((" (e 1) ") | (" (e 2) "))" )
+            }
+        }
+
+        ; Bitwise XOR
+        bit_xor  _:int (left:int right:int) {
+            templates {
+                es6 ( "(" (e 1) " ^ " (e 2) ")" )
+                go ( "int64(" (e 1) " ^ " (e 2) ")" )
+                rust ( "((" (e 1) ") ^ (" (e 2) "))" )
+                cpp ( "((" (e 1) ") ^ (" (e 2) "))" )
+                java7 ( "((" (e 1) ") ^ (" (e 2) "))" )
+                python ( "((" (e 1) ") ^ (" (e 2) "))" )
+                swift6 ( "(Int64(" (e 1) ") ^ Int64(" (e 2) "))" )
+                csharp ( "((" (e 1) ") ^ (" (e 2) "))" )
+                * ( "((" (e 1) ") ^ (" (e 2) "))" )
+            }
+        }
+
+        ; Bitwise NOT (ones complement)
+        bit_not  _:int (value:int) {
+            templates {
+                es6 ( "(~" (e 1) ")" )
+                go ( "int64(^" (e 1) ")" )
+                rust ( "(!" (e 1) ")" )
+                cpp ( "(~" (e 1) ")" )
+                java7 ( "(~" (e 1) ")" )
+                python ( "(~" (e 1) ")" )
+                swift6 ( "(~Int64(" (e 1) "))" )
+                csharp ( "(~" (e 1) ")" )
+                * ( "(~" (e 1) ")" )
+            }
+        }
+
+        ; Bit shift left
+        bit_shl  _:int (value:int count:int) {
+            templates {
+                es6 ( "(" (e 1) " << " (e 2) ")" )
+                go ( "int64(" (e 1) " << uint(" (e 2) "))" )
+                rust ( "((" (e 1) ") << (" (e 2) "))" )
+                cpp ( "((" (e 1) ") << (" (e 2) "))" )
+                java7 ( "((" (e 1) ") << (" (e 2) "))" )
+                python ( "((" (e 1) ") << (" (e 2) "))" )
+                swift6 ( "(Int64(" (e 1) ") << Int64(" (e 2) "))" )
+                csharp ( "((" (e 1) ") << (int)(" (e 2) "))" )
+                * ( "((" (e 1) ") << (" (e 2) "))" )
+            }
+        }
+
+        ; Bit shift right (arithmetic/signed)
+        bit_shr  _:int (value:int count:int) {
+            templates {
+                es6 ( "(" (e 1) " >> " (e 2) ")" )
+                go ( "int64(" (e 1) " >> uint(" (e 2) "))" )
+                rust ( "((" (e 1) ") >> (" (e 2) "))" )
+                cpp ( "((" (e 1) ") >> (" (e 2) "))" )
+                java7 ( "((" (e 1) ") >> (" (e 2) "))" )
+                python ( "((" (e 1) ") >> (" (e 2) "))" )
+                swift6 ( "(Int64(" (e 1) ") >> Int64(" (e 2) "))" )
+                csharp ( "((" (e 1) ") >> (int)(" (e 2) "))" )
+                * ( "((" (e 1) ") >> (" (e 2) "))" )
+            }
+        }
+
+        ; ============================================================================
                 
         +               cmdPlusOp:string             ( left:double right:string ) { 
             templates { 
@@ -2239,7 +2335,7 @@ void r_buffer_write_file(const std::string& path, const std::string& filename, c
             templates {
                 ranger ( "(buffer_read_file " (e 1) " " (e 2) ")" )
                 es6 ( "(function(){ var b = require('fs').readFileSync(" (e 1) " + '/' + " (e 2) "); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })()" )
-                go ( "func() []byte { d, _ := os.ReadFile(" (e 1) " + \"/\" + " (e 2) "); return d }()" (imp "os") )
+                go ( "func() []byte { d, _ := os.ReadFile(filepath.Join(" (e 1) ", " (e 2) ")); return d }()" (imp "os") (imp "path/filepath") )
                 rust ( "std::fs::read(format!(\"{}/{}\", " (e 1) ", " (e 2) ")).unwrap_or_default()" )
                 cpp ( "r_buffer_read_file(" (e 1) ", " (e 2) ")" (imp "<fstream>") (imp "<vector>") (imp "<iterator>")
 (create_polyfill "
@@ -3321,7 +3417,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  php ( nl (e 1) " = array();" nl)
                  java7 ( (e 1) ".clear();" )                                                              
                  scala ( (e 1) ".clear()" )
-                 go ( (e 1) " = nil" )                                                     
+                 go ( (e 1) " = " (e 1) "[:0]" )                                                     
                  * ( (e 1) ".length = 0;" nl )                                              
             }
         }
