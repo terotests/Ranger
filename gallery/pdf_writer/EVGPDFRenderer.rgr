@@ -1,0 +1,432 @@
+; EVGPDFRenderer.rgr - Render EVG elements to PDF
+; 
+; Takes EVG element tree with calculated positions and renders to PDF using PDFWriter.
+
+Import "PDFWriter.rgr"
+Import "../evg/EVGElement.rgr"
+Import "../evg/EVGLayout.rgr"
+Import "../evg/EVGUnit.rgr"
+Import "../evg/EVGColor.rgr"
+Import "Buffer.rgr"
+
+class EVGPDFRenderer {
+    def writer:PDFWriter
+    def layout:EVGLayout
+    def streamBuffer:GrowableBuffer
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def nextObjNum:int 1
+    def fontObjNum:int 0
+    def pagesObjNum:int 0
+    def contentObjNums:[int]
+    def pageCount:int 1
+    def debug:boolean false
+    
+    Constructor () {
+        def w (new PDFWriter())
+        writer = w
+        def lay (new EVGLayout())
+        layout = lay
+        def buf (new GrowableBuffer())
+        streamBuffer = buf
+    }
+    
+    fn setPageSize:void (width:double height:double) {
+        pageWidth = width
+        pageHeight = height
+        layout.setPageSize(width height)
+    }
+    
+    fn setDebug:void (enabled:boolean) {
+        layout.debug = enabled
+        this.debug = enabled
+    }
+    
+    fn render:buffer (root:EVGElement) {
+        ; Layout the tree first
+        layout.layout(root)
+        
+        ; Render to PDF
+        return (this.renderToPDF(root))
+    }
+    
+    fn renderToPDF:buffer (root:EVGElement) {
+        ; Build PDF with the rendered content
+        def pdf (new GrowableBuffer())
+        nextObjNum = 1
+        clear contentObjNums
+        
+        ; PDF header
+        pdf.writeString("%PDF-1.4\n")
+        pdf.writeByte(37)   ; %
+        pdf.writeByte(226)  ; high-bit char
+        pdf.writeByte(227)  ; high-bit char
+        pdf.writeByte(207)  ; high-bit char
+        pdf.writeByte(211)  ; high-bit char
+        pdf.writeByte(10)   ; newline
+        
+        ; Keep track of object offsets
+        def objectOffsets:[int]
+        
+        ; Build content stream for the page
+        streamBuffer.clear()
+        this.renderElement(root 0.0 0.0)
+        def contentData:buffer (streamBuffer.toBuffer())
+        def contentLen:int (buffer_length contentData)
+        
+        ; Object 1: Font
+        push objectOffsets (pdf.size())
+        pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+        pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n")
+        pdf.writeString("endobj\n\n")
+        fontObjNum = nextObjNum
+        nextObjNum = nextObjNum + 1
+        
+        ; Object 2: Font Bold
+        push objectOffsets (pdf.size())
+        pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+        pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\n")
+        pdf.writeString("endobj\n\n")
+        def fontBoldObjNum:int nextObjNum
+        nextObjNum = nextObjNum + 1
+        
+        ; Object 3: Font Italic
+        push objectOffsets (pdf.size())
+        pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+        pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>\n")
+        pdf.writeString("endobj\n\n")
+        def fontItalicObjNum:int nextObjNum
+        nextObjNum = nextObjNum + 1
+        
+        ; Object 4: Content stream
+        push objectOffsets (pdf.size())
+        pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+        pdf.writeString("<< /Length " + (to_string contentLen) + " >>\n")
+        pdf.writeString("stream\n")
+        pdf.writeBuffer(contentData)
+        pdf.writeString("\nendstream\n")
+        pdf.writeString("endobj\n\n")
+        def contentObjNum:int nextObjNum
+        nextObjNum = nextObjNum + 1
+        
+        ; Object 5: Page
+        push objectOffsets (pdf.size())
+        pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+        def pagesRef:int (nextObjNum + 1)
+        pdf.writeString("<< /Type /Page /Parent " + (to_string pagesRef) + " 0 R")
+        pdf.writeString(" /MediaBox [0 0 " + (this.formatNum(pageWidth)) + " " + (this.formatNum(pageHeight)) + "]")
+        pdf.writeString(" /Contents " + (to_string contentObjNum) + " 0 R")
+        pdf.writeString(" /Resources << /Font << /F1 " + (to_string fontObjNum) + " 0 R")
+        pdf.writeString(" /F2 " + (to_string fontBoldObjNum) + " 0 R")
+        pdf.writeString(" /F3 " + (to_string fontItalicObjNum) + " 0 R")
+        pdf.writeString(" >> >> >>\n")
+        pdf.writeString("endobj\n\n")
+        def pageObjNum:int nextObjNum
+        nextObjNum = nextObjNum + 1
+        
+        ; Object 6: Pages
+        push objectOffsets (pdf.size())
+        pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+        pdf.writeString("<< /Type /Pages /Kids [" + (to_string pageObjNum) + " 0 R] /Count 1 >>\n")
+        pdf.writeString("endobj\n\n")
+        pagesObjNum = nextObjNum
+        nextObjNum = nextObjNum + 1
+        
+        ; Object 7: Catalog
+        push objectOffsets (pdf.size())
+        pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+        pdf.writeString("<< /Type /Catalog /Pages " + (to_string pagesObjNum) + " 0 R >>\n")
+        pdf.writeString("endobj\n\n")
+        def catalogObjNum:int nextObjNum
+        nextObjNum = nextObjNum + 1
+        
+        ; Xref table
+        def xrefOffset:int (pdf.size())
+        pdf.writeString("xref\n")
+        pdf.writeString("0 " + (to_string nextObjNum) + "\n")
+        pdf.writeString("0000000000 65535 f \n")
+        
+        def i 0
+        while (i < (array_length objectOffsets)) {
+            def offset:int (itemAt objectOffsets i)
+            pdf.writeString((this.padLeft((to_string offset) 10 "0")) + " 00000 n \n")
+            i = i + 1
+        }
+        
+        ; Trailer
+        pdf.writeString("trailer\n")
+        pdf.writeString("<< /Size " + (to_string nextObjNum) + " /Root " + (to_string catalogObjNum) + " 0 R >>\n")
+        pdf.writeString("startxref\n")
+        pdf.writeString((to_string xrefOffset) + "\n")
+        pdf.writeString("%%EOF\n")
+        
+        return (pdf.toBuffer())
+    }
+    
+    fn renderElement:void (el:EVGElement offsetX:double offsetY:double) {
+        ; Get element position
+        def x:double (el.calculatedX + offsetX)
+        def y:double (el.calculatedY + offsetY)
+        def w:double el.calculatedWidth
+        def h:double el.calculatedHeight
+        
+        ; PDF uses bottom-left origin, flip Y
+        def pdfY:double (pageHeight - y - h)
+        
+        ; Render background if set
+        def bgColor:EVGColor (unwrap el.backgroundColor)
+        if this.debug {
+            print ("  bg check: " + el.tagName + " isSet=" + (to_string bgColor.isSet) + " r=" + (to_string bgColor.r))
+        }
+        if bgColor.isSet {
+            this.renderBackground(x pdfY w h bgColor)
+        }
+        
+        ; Render border
+        this.renderBorder(el x pdfY w h)
+        
+        ; Render text content
+        if (el.tagName == "text") {
+            this.renderText(el x pdfY w h)
+        }
+        
+        ; Handle divider element
+        if (el.tagName == "divider") {
+            this.renderDivider(el x pdfY w h)
+        }
+        
+        ; Render children - children have absolute positions from layout engine
+        ; so pass the same offset that was passed to this element
+        def i 0
+        def childCount:int (el.getChildCount())
+        while (i < childCount) {
+            def child:EVGElement (el.getChild(i))
+            this.renderElement(child offsetX offsetY)
+            i = i + 1
+        }
+    }
+    
+    fn renderBackground:void (x:double y:double w:double h:double color:EVGColor) {
+        streamBuffer.writeString("q\n")
+        ; Set fill color
+        def r:double (color.r / 255.0)
+        def g:double (color.g / 255.0)
+        def b:double (color.b / 255.0)
+        streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
+        ; Draw rectangle
+        streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum(y)) + " " + (this.formatNum(w)) + " " + (this.formatNum(h)) + " re\n")
+        streamBuffer.writeString("f\n")
+        streamBuffer.writeString("Q\n")
+    }
+    
+    fn renderBorder:void (el:EVGElement x:double y:double w:double h:double) {
+        ; Get border width from box
+        def borderWidth:double el.box.borderWidth.pixels
+        if (borderWidth <= 0.0) {
+            return
+        }
+        
+        ; Get border color
+        def borderColor:EVGColor (unwrap el.box.borderColor)
+        if (borderColor.isSet == false) {
+            borderColor = (EVGColor.black())
+        }
+        
+        streamBuffer.writeString("q\n")
+        ; Set stroke color
+        def r:double (borderColor.r / 255.0)
+        def g:double (borderColor.g / 255.0)
+        def b:double (borderColor.b / 255.0)
+        streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " RG\n")
+        ; Set line width
+        streamBuffer.writeString((this.formatNum(borderWidth)) + " w\n")
+        ; Draw rectangle outline
+        streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum(y)) + " " + (this.formatNum(w)) + " " + (this.formatNum(h)) + " re\n")
+        streamBuffer.writeString("S\n")
+        streamBuffer.writeString("Q\n")
+    }
+    
+    fn renderText:void (el:EVGElement x:double y:double w:double h:double) {
+        ; Get text content (scan children for text nodes)
+        def text:string (this.getTextContent(el))
+        if ((strlen text) == 0) {
+            return
+        }
+        
+        ; Get font size
+        def fontSize:double 14.0
+        if el.fontSize.isSet {
+            fontSize = el.fontSize.pixels
+        }
+        
+        ; Get text color
+        def color:EVGColor el.color
+        if (color.isSet == false) {
+            color = (EVGColor.black())
+        }
+        
+        ; Get line height
+        def lineHeight:double el.lineHeight
+        if (lineHeight <= 0.0) {
+            lineHeight = 1.2
+        }
+        def lineSpacing:double (fontSize * lineHeight)
+        
+        ; Wrap text to fit width
+        def lines:[string] (this.wrapText(text w fontSize))
+        
+        ; Set font - map fontWeight to font variant
+        def fontName:string "/F1"
+        if (el.fontWeight == "bold") {
+            fontName = "/F2"
+        }
+        if (el.fontWeight == "italic") {
+            fontName = "/F3"
+        }
+        
+        ; Render each line
+        def lineY:double (y + h - fontSize)
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            
+            streamBuffer.writeString("BT\n")
+            streamBuffer.writeString(fontName + " " + (this.formatNum(fontSize)) + " Tf\n")
+            
+            ; Set text color
+            def r:double (color.r / 255.0)
+            def g:double (color.g / 255.0)
+            def b:double (color.b / 255.0)
+            streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
+            
+            ; Position text
+            def textX:double x
+            
+            ; Handle text alignment
+            if (el.textAlign == "center") {
+                def textWidth:double (this.estimateTextWidth(line fontSize))
+                textX = x + ((w - textWidth) / 2.0)
+            }
+            if (el.textAlign == "right") {
+                def textWidth:double (this.estimateTextWidth(line fontSize))
+                textX = x + w - textWidth
+            }
+            
+            streamBuffer.writeString((this.formatNum(textX)) + " " + (this.formatNum(lineY)) + " Td\n")
+            streamBuffer.writeString("(" + (this.escapeText(line)) + ") Tj\n")
+            streamBuffer.writeString("ET\n")
+            
+            lineY = lineY - lineSpacing
+            i = i + 1
+        }
+    }
+    
+    fn wrapText:[string] (text:string maxWidth:double fontSize:double) {
+        ; Word wrap text to fit within maxWidth
+        def lines:[string]
+        def words:[string] (strsplit text " ")
+        def currentLine:string ""
+        
+        def i:int 0
+        while (i < (array_length words)) {
+            def word:string (itemAt words i)
+            def testLine:string ""
+            if ((strlen currentLine) == 0) {
+                testLine = word
+            } {
+                testLine = currentLine + " " + word
+            }
+            
+            def testWidth:double (this.estimateTextWidth(testLine fontSize))
+            if ((testWidth > maxWidth) && ((strlen currentLine) > 0)) {
+                ; Line is too long, push current and start new
+                push lines currentLine
+                currentLine = word
+            } {
+                currentLine = testLine
+            }
+            
+            i = i + 1
+        }
+        
+        ; Push final line
+        if ((strlen currentLine) > 0) {
+            push lines currentLine
+        }
+        
+        return lines
+    }
+    
+    fn renderDivider:void (el:EVGElement x:double y:double w:double h:double) {
+        ; Render a horizontal line
+        def color:EVGColor el.color
+        if (color.isSet == false) {
+            color = (EVGColor.rgb(200 200 200))
+        }
+        
+        def lineY:double (y + (h / 2.0))
+        
+        streamBuffer.writeString("q\n")
+        def r:double (color.r / 255.0)
+        def g:double (color.g / 255.0)
+        def b:double (color.b / 255.0)
+        streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " RG\n")
+        streamBuffer.writeString("1 w\n")
+        streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum(lineY)) + " m\n")
+        streamBuffer.writeString((this.formatNum((x + w))) + " " + (this.formatNum(lineY)) + " l\n")
+        streamBuffer.writeString("S\n")
+        streamBuffer.writeString("Q\n")
+    }
+    
+    fn getTextContent:string (el:EVGElement) {
+        ; Get text content from element's textContent property
+        ; This is set by the JSX parser for span/Label/text elements
+        return el.textContent
+    }
+    
+    fn estimateTextWidth:double (text:string fontSize:double) {
+        ; Rough estimate: average character width ~= 0.5 * fontSize
+        def len:int (strlen text)
+        return ((to_double len) * fontSize * 0.5)
+    }
+    
+    fn escapeText:string (text:string) {
+        ; Escape parentheses and backslashes for PDF
+        def result:string ""
+        def len:int (strlen text)
+        def i 0
+        while (i < len) {
+            def ch:int (charAt text i)
+            if (ch == 40) {  ; (
+                result = result + "\\("
+            } {
+                if (ch == 41) {  ; )
+                    result = result + "\\)"
+                } {
+                    if (ch == 92) {  ; \
+                        result = result + "\\\\"
+                    } {
+                        result = result + (strfromcode ch)
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn formatNum:string (n:double) {
+        ; Format number for PDF - simple conversion
+        ; PDF doesn't need high precision for most values
+        def result:string (to_string n)
+        return result
+    }
+    
+    fn padLeft:string (s:string len:int padChar:string) {
+        def result:string s
+        while ((strlen result) < len) {
+            result = padChar + result
+        }
+        return result
+    }
+}

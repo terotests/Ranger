@@ -2737,7 +2737,21 @@ class RangerFlowParser {
       removeLast node.children
 
       def rn:CodeNode (unwrap parser.rootNode)
+      
+      ; Add the imported file's directory to library paths for recursive imports
+      def fullPath:string (filePathIs + "/" + import_file)
+      def importFileDir:string (path_dirname fullPath)
+      if ((strlen importFileDir) > 0) {
+        push rootCtx.libraryPaths importFileDir
+      }
+      
       this.mergeImports( rn ctx wr)
+      
+      ; Remove the directory after processing
+      if ((strlen importFileDir) > 0) {
+        removeLast rootCtx.libraryPaths
+      }
+      
       push node.children rn
     } {
       for node.children item:CodeNode i {
@@ -3370,9 +3384,24 @@ class RangerFlowParser {
       find_more = false
     }
     if ((node.isFirstVref("Import")) || (node.isFirstVref("import"))) {
+      ; Check if this import was already merged by mergeImports
+      ; After merging, children[0] becomes the imported AST root
+      ; and children[1] (filename) is removed
+      if ((size node.children) < 2) {
+        ; Already merged - just walk the imported content
+        for node.children item:CodeNode i {
+          this.WalkCollectMethods(item ctx wr)
+        }
+        return
+      }
+      
       def fNameNode:CodeNode (itemAt node.children 1)
       def import_file:string fNameNode.string_value
       if (has ctx.already_imported import_file) {
+        ; Already imported - walk any merged children
+        for node.children item:CodeNode i {
+          this.WalkCollectMethods(item ctx wr)
+        }
         return
       } {
         set ctx.already_imported import_file true
@@ -3396,7 +3425,21 @@ class RangerFlowParser {
       def parser:RangerLispParser (new RangerLispParser (code))
       parser.parse()
       def rnode:CodeNode parser.rootNode
+      
+      ; Add the imported file's directory to library paths for recursive imports
+      def fullPath:string (filePathIs + "/" + import_file)
+      def importFileDir:string (path_dirname fullPath)
+      if ((strlen importFileDir) > 0) {
+        push rootCtx.libraryPaths importFileDir
+      }
+      
       this.WalkCollectMethods( (unwrap rnode) ctx wr)
+      
+      ; Remove the directory after processing
+      if ((strlen importFileDir) > 0) {
+        removeLast rootCtx.libraryPaths
+      }
+      
       find_more = false
     }
     ; consumes_traits

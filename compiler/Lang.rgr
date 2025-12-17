@@ -3157,6 +3157,34 @@ int r_string_index_of( std::string str, std::string key )  {
             }        
         }
 
+        lastIndexOf cmdStringLastIndex:int (str:string key:string) {
+            templates {
+                es6 ( (e 1) ".lastIndexOf(" (e 2 ) ")" )
+                java7 ( (e 1) ".lastIndexOf(" (e 2 ) ")" )
+                python ( (e 1) ".rfind(" (e 2) ")" )
+                go ( "int64(strings.LastIndex(" (e 1) ", " (e 2) "))" (imp "strings"))
+                swift3 ( "(" (e 1) ".range(of:" (e 2) ", options: .backwards).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
+                swift6 ( "(" (e 1) ".range(of:" (e 2) ", options: .backwards).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
+                php( "strrpos(" (e 1) ", " (e 2) ") !== false ? strrpos(" (e 1) ", " (e 2) ") : -1")
+                cpp (
+                    "r_string_last_index_of(" (e 1) " , " (e 2) ")"
+(create_polyfill
+"
+int r_string_last_index_of( std::string str, std::string key )  { 
+    auto n = str.rfind( key );
+    if (n == std::string::npos) {
+        return -1;
+    }   
+    return n;
+}
+" )                   
+                )
+                rust ( "(" (e 1) ".rfind(" (e 2) ").map(|i| i as i64).unwrap_or(-1))" )
+                kotlin ( (e 1) ".lastIndexOf(" (e 2) ")" )
+                ranger ( "(lastIndexOf " (e 1) " " (e 2) ")")
+            }        
+        }
+
         startsWith _:boolean (str:string prefix:string) {
             templates {
                 ranger ( "(startsWith " (e 1) " " (e 2) ")")

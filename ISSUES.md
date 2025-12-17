@@ -1208,3 +1208,108 @@ Uses `filepath.Join()` which handles:
 ### Files Changed
 
 - `compiler/Lang.rgr` - `buffer_read_file` operator Go template
+
+---
+
+## Issue #61: Import paths don't work recursively
+
+**Status:** Open - HIGH PRIORITY  
+**Severity:** High  
+**Found:** December 17, 2025
+
+### Description
+
+When importing a file from another directory using a relative path like `Import "../ts_parser/ts_parser_simple.rgr"`, the imported file's own imports fail because they use simple filenames (e.g., `Import "ts_token.rgr"`) which are searched relative to the original file's directory, not the imported file's directory.
+
+### Error Message
+
+```
+../ts_parser/ts_parser_simple.rgr Line: 4
+Could not import file ts_token.rgr
+Import "ts_token.rgr"
+^-------
+```
+
+### Minimal Reproduction
+
+```
+gallery/
+  pdf_writer/
+    main.rgr          ; Import "../ts_parser/ts_parser_simple.rgr"
+  ts_parser/
+    ts_parser_simple.rgr   ; Import "ts_token.rgr"
+    ts_token.rgr
+```
+
+When compiling `main.rgr`, the import of `ts_parser_simple.rgr` works, but `ts_token.rgr` fails because the compiler looks for it in `pdf_writer/` instead of `ts_parser/`.
+
+### Root Cause
+
+In `compiler/ng_RangerFlowParser.rgr` (and `ng_FlowWork.rgr`), the `mergeImports` function uses `rootCtx.libraryPaths` to search for imports, but doesn't update the library paths based on the directory of the currently imported file. The paths are set once at compilation start and not updated for nested imports.
+
+### Expected Behavior
+
+When importing a file, the compiler should:
+
+1. Resolve the import path relative to the current file
+2. Add the imported file's directory to the library paths for processing that file's imports
+3. Pop the path when done processing that file
+
+### Impact
+
+This prevents modular organization of code across directories. Currently all files must be in the same directory or explicitly added to RANGER_LIB.
+
+### Workaround
+
+Add all needed directories to RANGER_LIB environment variable:
+
+```
+RANGER_LIB=./compiler/Lang.rgr;./gallery/pdf_writer;./gallery/evg;./gallery/ts_parser
+```
+
+### Proposed Fix
+
+In `ng_RangerFlowParser.rgr`, modify `mergeImports` to:
+
+1. Extract the directory from the imported file path
+2. Push it to `libraryPaths` before processing the file
+3. Pop it after processing
+
+### Files to Change
+
+- `compiler/ng_RangerFlowParser.rgr` - `mergeImports` function
+- `compiler/ng_FlowWork.rgr` - `mergeImports` function (if still used)
+
+---
+
+## EVG PDF Renderer Status
+
+**Status:** Implementation In Progress  
+**Date:** December 17, 2025
+
+### Overview
+
+Building a pipeline to convert TSX files with JSX to PDF using EVG layout engine.
+
+### Components Created
+
+| File                                    | Status  | Description                                      |
+| --------------------------------------- | ------- | ------------------------------------------------ |
+| `gallery/pdf_writer/evg_types.tsx`      | ✅ Done | TypeScript type definitions for IDE intellisense |
+| `gallery/pdf_writer/sample.tsx`         | ✅ Done | Sample TSX document with JSX content             |
+| `gallery/pdf_writer/JSXToEVG.rgr`       | ✅ Done | Converts JSX AST to EVG elements                 |
+| `gallery/pdf_writer/EVGPDFRenderer.rgr` | ✅ Done | Renders EVG tree to PDF                          |
+| `gallery/pdf_writer/evg_pdf_tool.rgr`   | ✅ Done | CLI tool for TSX to PDF                          |
+| `package.json` scripts                  | ✅ Done | npm scripts for evgpdf                           |
+
+### Blocked By
+
+- **Issue #61**: Import paths don't work recursively
+  - Cannot import from `../ts_parser/` and `../evg/` directories
+  - Need to fix compiler before EVG PDF tool can compile
+
+### Next Steps
+
+1. Fix Issue #61 in the Ranger compiler
+2. Test compilation of evg_pdf_tool.rgr
+3. Run end-to-end test with sample.tsx
