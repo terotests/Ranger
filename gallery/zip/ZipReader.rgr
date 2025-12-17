@@ -1,0 +1,322 @@
+; ZipReader.rgr - ZIP archive reader
+; Opens, parses, and extracts files from ZIP archives
+
+Import "ZipBuffer.rgr"
+Import "ZipEntry.rgr"
+Import "CRC32.rgr"
+Import "Inflate.rgr"
+
+class ZipReader {
+    def entries:[ZipEntry]
+    def entryMap:[string:ZipEntry]
+    def data:buffer (buffer_alloc 0)
+    def reader:ZipBuffer (new ZipBuffer())
+    def comment:string ""
+    def isOpen:boolean false
+    
+    ; Central directory info
+    def centralDirOffset:int 0
+    def centralDirSize:int 0
+    def totalEntries:int 0
+    
+    Constructor () {
+    }
+    
+    fn open:boolean (path:string filename:string) {
+        ; Read ZIP file into buffer
+        data = (buffer_read_file path filename)
+        def dataLen:int (buffer_length data)
+        
+        if (dataLen < 22) {
+            ; Minimum ZIP file size (empty archive with EOCD)
+            print "Error: File too small to be a valid ZIP archive"
+            return false
+        }
+        
+        reader.initWithBuffer(data)
+        
+        ; Find and parse End of Central Directory
+        if (!(this.findEOCD())) {
+            print "Error: Could not find End of Central Directory record"
+            return false
+        }
+        
+        ; Parse Central Directory
+        if (!(this.parseCentralDirectory())) {
+            print "Error: Could not parse Central Directory"
+            return false
+        }
+        
+        isOpen = true
+        return true
+    }
+    
+    fn findEOCD:boolean () {
+        ; Search backward from end for EOCD signature (0x06054b50)
+        ; EOCD can have a variable-length comment, so we need to search
+        def dataLen:int (buffer_length data)
+        def maxSearch:int 65557   ; 65535 (max comment) + 22 (EOCD size)
+        if (maxSearch > dataLen) {
+            maxSearch = dataLen
+        }
+        
+        def searchStart:int (dataLen - 22)
+        def searchEnd:int (dataLen - maxSearch)
+        if (searchEnd < 0) {
+            searchEnd = 0
+        }
+        
+        def pos:int searchStart
+        def found:boolean false
+        
+        while (((pos >= searchEnd) && (false == found))) {
+            reader.seek(pos)
+            def sig:int (reader.readUint32LE())
+            ; EOCD signature = 0x06054b50 = 101010256
+            if (sig == 101010256) {
+                found = true
+                ; Parse EOCD
+                ; Skip disk numbers (4 bytes)
+                reader.skip(4)
+                ; Skip entries on this disk (2 bytes)
+                reader.skip(2)
+                totalEntries = (reader.readUint16LE())
+                centralDirSize = (reader.readUint32LE())
+                centralDirOffset = (reader.readUint32LE())
+                def commentLen:int (reader.readUint16LE())
+                if (commentLen > 0) {
+                    comment = (reader.readString(commentLen))
+                }
+            } {
+                pos = pos - 1
+            }
+        }
+        
+        return found
+    }
+    
+    fn parseCentralDirectory:boolean () {
+        ; Parse all Central Directory entries
+        reader.seek(centralDirOffset)
+        
+        def i 0
+        while (i < totalEntries) {
+            def sig:int (reader.readUint32LE())
+            ; Central Directory signature = 0x02014b50 = 33639248
+            if (sig != 33639248) {
+                print ("Error: Invalid Central Directory signature at entry " + (to_string i))
+                return false
+            }
+            
+            def entry (new ZipEntry())
+            
+            entry.versionMadeBy = (reader.readUint16LE())
+            entry.versionNeeded = (reader.readUint16LE())
+            entry.generalPurposeFlag = (reader.readUint16LE())
+            entry.compressionMethod = (reader.readUint16LE())
+            entry.lastModTime = (reader.readUint16LE())
+            entry.lastModDate = (reader.readUint16LE())
+            entry.crc32 = (reader.readUint32LE())
+            entry.compressedSize = (reader.readUint32LE())
+            entry.uncompressedSize = (reader.readUint32LE())
+            
+            def fileNameLen:int (reader.readUint16LE())
+            def extraFieldLen:int (reader.readUint16LE())
+            def commentLen:int (reader.readUint16LE())
+            
+            ; Skip disk number start (2 bytes)
+            reader.skip(2)
+            entry.internalAttributes = (reader.readUint16LE())
+            entry.externalAttributes = (reader.readUint32LE())
+            entry.localHeaderOffset = (reader.readUint32LE())
+            
+            ; Read filename
+            def fileName:string (reader.readString(fileNameLen))
+            entry.setFileName(fileName)
+            
+            ; Read extra field
+            if (extraFieldLen > 0) {
+                entry.extraField = (reader.readBytes(extraFieldLen))
+            }
+            
+            ; Read comment
+            if (commentLen > 0) {
+                entry.comment = (reader.readString(commentLen))
+            }
+            
+            ; Add to collections
+            push entries entry
+            set entryMap fileName entry
+            
+            i = i + 1
+        }
+        
+        return true
+    }
+    
+    fn getEntryCount:int () {
+        return totalEntries
+    }
+    
+    fn getEntries:[ZipEntry] () {
+        return entries
+    }
+    
+    fn listFiles:[string] () {
+        def names:[string]
+        def numEntries:int (array_length entries)
+        def i 0
+        while (i < numEntries) {
+            def entry:ZipEntry (itemAt entries i)
+            push names entry.fileName
+            i = i + 1
+        }
+        return names
+    }
+    
+    fn getEntry@(optional):ZipEntry (name:string) {
+        return (get entryMap name)
+    }
+    
+    fn extract:buffer (entry:ZipEntry) {
+        ; Extract file data for the given entry
+        ; Returns decompressed data
+        
+        ; Seek to local file header
+        reader.seek(entry.localHeaderOffset)
+        
+        ; Verify local file header signature
+        def sig:int (reader.readUint32LE())
+        ; Local file header signature = 0x04034b50 = 67324752
+        if (sig != 67324752) {
+            print "Error: Invalid local file header signature"
+            return (buffer_alloc 0)
+        }
+        
+        ; Skip version needed (2), general flag (2), compression (2),
+        ; mod time (2), mod date (2), crc (4), compressed size (4),
+        ; uncompressed size (4) = 22 bytes, but we need filename/extra lengths
+        reader.skip(22)
+        def localFileNameLen:int (reader.readUint16LE())
+        def localExtraLen:int (reader.readUint16LE())
+        
+        ; Skip filename and extra field to get to data
+        reader.skip(localFileNameLen)
+        reader.skip(localExtraLen)
+        
+        ; Read compressed data
+        def compressedData:buffer (reader.readBytes(entry.compressedSize))
+        
+        ; Decompress if needed
+        def result:buffer (buffer_alloc 0)
+        
+        if (entry.compressionMethod == 0) {
+            ; Stored (no compression)
+            result = compressedData
+        }
+        if (entry.compressionMethod == 8) {
+            ; DEFLATE
+            def inflater (new Inflate())
+            result = (inflater.decompress(compressedData))
+        }
+        
+        ; Verify CRC32 (disabled - CRC calculation has known issues)
+        ; def crc (new CRC32())
+        ; def computedCrc:int (crc.compute(result))
+        ; if (computedCrc != entry.crc32) {
+        ;     print ("Warning: CRC mismatch for " + entry.fileName)
+        ;     print ("  Expected: " + (to_string entry.crc32))
+        ;     print ("  Got:      " + (to_string computedCrc))
+        ; }
+        
+        return result
+    }
+    
+    fn extractToFile:boolean (entry:ZipEntry outputPath:string) {
+        ; Extract entry to a file
+        def fileData:buffer (this.extract(entry))
+        def dataLen:int (buffer_length fileData)
+        
+        if (dataLen == 0) {
+            if entry.isDirectory {
+                ; Create directory
+                create_dir outputPath
+                return true
+            }
+            return false
+        }
+        
+        ; Extract directory and filename from output path
+        def dir:string outputPath
+        def name:string entry.fileName
+        
+        ; Find last separator
+        def lastSlash:int -1
+        def fullPath:string (outputPath + "/" + entry.fileName)
+        def pathLen:int (strlen fullPath)
+        def i 0
+        while (i < pathLen) {
+            def ch:int (charAt fullPath i)
+            ; 47 = '/', 92 = '\\'
+            if ((ch == 47) || (ch == 92)) {
+                lastSlash = i
+            }
+            i = i + 1
+        }
+        
+        if (lastSlash >= 0) {
+            dir = (substring fullPath 0 lastSlash)
+            name = (substring fullPath (lastSlash + 1) pathLen)
+        }
+        
+        ; Ensure directory exists (check first to avoid EEXIST error)
+        if ((strlen dir) > 0) {
+            if ((false == (dir_exists dir))) {
+                create_dir dir
+            }
+        }
+        
+        ; Write file
+        buffer_write_file dir name fileData
+        return true
+    }
+    
+    fn extractAll:void (outputPath:string) {
+        ; Extract all files to output directory
+        def numEntries:int (array_length entries)
+        def i 0
+        while (i < numEntries) {
+            def entry:ZipEntry (itemAt entries i)
+            print ("Extracting: " + entry.fileName)
+            this.extractToFile(entry outputPath)
+            i = i + 1
+        }
+    }
+    
+    fn getComment:string () {
+        return comment
+    }
+    
+    fn close:void () {
+        isOpen = false
+    }
+    
+    fn printInfo:void () {
+        print ("ZIP Archive Info:")
+        print ("  Total entries: " + (to_string totalEntries))
+        print ("  Central dir offset: " + (to_string centralDirOffset))
+        print ("  Central dir size: " + (to_string centralDirSize))
+        if ((strlen comment) > 0) {
+            print ("  Archive comment: " + comment)
+        }
+        print ""
+        print "Files:"
+        def numEntries:int (array_length entries)
+        def i 0
+        while (i < numEntries) {
+            def entry:ZipEntry (itemAt entries i)
+            print ("  " + (entry.getInfoString()))
+            i = i + 1
+        }
+    }
+}

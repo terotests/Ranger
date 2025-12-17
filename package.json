@@ -107,7 +107,10 @@
     "jpegenc": "npm run jpegenc:compile && npm run jpegenc:run",
     "exif:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/exif_orientation_test.rgr -d=./gallery/pdf_writer -o=exif_orientation_test.js -nodecli",
     "exif:run": "node ./gallery/pdf_writer/exif_orientation_test.js",
-    "exif": "npm run exif:compile && npm run exif:run"
+    "exif": "npm run exif:compile && npm run exif:run",
+    "zip:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/zip/zip_tool.rgr -d=./gallery/zip/bin -o=zip_tool.js -nodecli",
+    "zip:run": "node ./gallery/zip/bin/zip_tool.js",
+    "zip": "npm run zip:compile && npm run zip:run"
   },
   "repository": {
     "type": "git",

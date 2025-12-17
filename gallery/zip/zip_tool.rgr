@@ -1,0 +1,302 @@
+; zip_tool.rgr - ZIP archive command-line tool
+; Usage:
+;   zip_tool list <archive.zip>              - List files in archive
+;   zip_tool extract <archive.zip> [outdir]  - Extract all files
+;   zip_tool create <archive.zip> <files...> - Create new archive
+;   zip_tool add <archive.zip> <file>        - Add file to archive
+;   zip_tool info <archive.zip>              - Show archive info
+
+Import "ZipReader.rgr"
+Import "ZipWriter.rgr"
+
+class ZipTool {
+    
+    sfn m@(main):void () {
+        def tool (new ZipTool())
+        tool.run()
+    }
+    
+    fn run:void () {
+        def argc:int (shell_arg_cnt)
+        
+        if (argc < 1) {
+            this.printUsage()
+            return
+        }
+        
+        def command:string (shell_arg 0)
+        
+        if (command == "list") {
+            if (argc < 2) {
+                print "Error: Missing archive filename"
+                return
+            }
+            def archive:string (shell_arg 1)
+            this.listArchive(archive)
+            return
+        }
+        
+        if (command == "extract") {
+            if (argc < 2) {
+                print "Error: Missing archive filename"
+                return
+            }
+            def archive:string (shell_arg 1)
+            def outDir:string "."
+            if (argc >= 3) {
+                outDir = (shell_arg 2)
+            }
+            this.extractArchive(archive outDir)
+            return
+        }
+        
+        if (command == "create") {
+            if (argc < 3) {
+                print "Error: Missing archive filename or files"
+                return
+            }
+            def archive:string (shell_arg 1)
+            this.createArchive(archive argc)
+            return
+        }
+        
+        if (command == "info") {
+            if (argc < 2) {
+                print "Error: Missing archive filename"
+                return
+            }
+            def archive:string (shell_arg 1)
+            this.showInfo(archive)
+            return
+        }
+        
+        if (command == "test") {
+            this.runTest()
+            return
+        }
+        
+        print ("Unknown command: " + command)
+        this.printUsage()
+    }
+    
+    fn splitPath:void (fullPath:string dirOut:[string] nameOut:[string]) {
+        ; Split a path into directory and filename
+        def dir:string "."
+        def name:string fullPath
+        def lastSlash:int -1
+        def len:int (strlen fullPath)
+        def i 0
+        while (i < len) {
+            def ch:int (charAt fullPath i)
+            ; 47 = '/', 92 = '\\'
+            if ((ch == 47) || (ch == 92)) {
+                lastSlash = i
+            }
+            i = i + 1
+        }
+        if (lastSlash >= 0) {
+            dir = (substring fullPath 0 lastSlash)
+            name = (substring fullPath (lastSlash + 1) len)
+        }
+        push dirOut dir
+        push nameOut name
+    }
+    
+    fn listArchive:void (archivePath:string) {
+        def dirs:[string]
+        def names:[string]
+        this.splitPath(archivePath dirs names)
+        def dir:string (itemAt dirs 0)
+        def name:string (itemAt names 0)
+        
+        def reader (new ZipReader())
+        def success:boolean (reader.open(dir name))
+        
+        if ((false == success)) {
+            print ("Error: Could not open " + archivePath)
+            return
+        }
+        
+        print ("Archive: " + archivePath)
+        print ""
+        
+        def files:[string] (reader.listFiles())
+        def numFiles:int (array_length files)
+        
+        print ("  Length      Method   Name")
+        print ("  ----------  ------   ----")
+        
+        def entries:[ZipEntry] (reader.getEntries())
+        def i 0
+        while (i < numFiles) {
+            def entry:ZipEntry (itemAt entries i)
+            def sizeStr:string (to_string entry.uncompressedSize)
+            def method:string "stored"
+            if (entry.compressionMethod == 8) {
+                method = "deflate"
+            }
+            ; Pad size string
+            while ((strlen sizeStr) < 10) {
+                sizeStr = (" " + sizeStr)
+            }
+            ; Pad method string
+            while ((strlen method) < 8) {
+                method = (method + " ")
+            }
+            print ("  " + sizeStr + "  " + method + " " + entry.fileName)
+            i = i + 1
+        }
+        
+        print ""
+        print ((to_string numFiles) + " file(s)")
+        
+        reader.close()
+    }
+    
+    fn extractArchive:void (archivePath:string outputDir:string) {
+        def dirs:[string]
+        def names:[string]
+        this.splitPath(archivePath dirs names)
+        def dir:string (itemAt dirs 0)
+        def name:string (itemAt names 0)
+        
+        def reader (new ZipReader())
+        def success:boolean (reader.open(dir name))
+        
+        if ((false == success)) {
+            print ("Error: Could not open " + archivePath)
+            return
+        }
+        
+        print ("Extracting " + archivePath + " to " + outputDir)
+        print ""
+        
+        reader.extractAll(outputDir)
+        
+        print ""
+        print "Done!"
+        
+        reader.close()
+    }
+    
+    fn createArchive:void (archivePath:string argc:int) {
+        def writer (new ZipWriter())
+        writer.create()
+        
+        ; Add files from arguments (starting at index 2)
+        def i 2
+        while (i < argc) {
+            def filePath:string (shell_arg i)
+            
+            def dirs:[string]
+            def names:[string]
+            this.splitPath(filePath dirs names)
+            def dir:string (itemAt dirs 0)
+            def name:string (itemAt names 0)
+            
+            print ("Adding: " + filePath)
+            writer.addFileFromDisk(name dir name)
+            
+            i = i + 1
+        }
+        
+        ; Save archive
+        def outDirs:[string]
+        def outNames:[string]
+        this.splitPath(archivePath outDirs outNames)
+        def outDir:string (itemAt outDirs 0)
+        def outName:string (itemAt outNames 0)
+        
+        writer.save(outDir outName)
+        
+        print ""
+        print ("Created: " + archivePath)
+        print ((to_string (writer.getEntryCount())) + " file(s) added")
+    }
+    
+    fn showInfo:void (archivePath:string) {
+        def dirs:[string]
+        def names:[string]
+        this.splitPath(archivePath dirs names)
+        def dir:string (itemAt dirs 0)
+        def name:string (itemAt names 0)
+        
+        def reader (new ZipReader())
+        def success:boolean (reader.open(dir name))
+        
+        if ((false == success)) {
+            print ("Error: Could not open " + archivePath)
+            return
+        }
+        
+        reader.printInfo()
+        reader.close()
+    }
+    
+    fn runTest:void () {
+        ; Built-in test: create a ZIP, read it back
+        print "ZIP Tool Test"
+        print "============="
+        print ""
+        
+        ; Create a test ZIP file
+        print "Creating test.zip..."
+        def writer (new ZipWriter())
+        writer.create()
+        
+        ; Add some test files
+        writer.addString("hello.txt" "Hello, World!\nThis is a test file.\n")
+        writer.addString("data/numbers.txt" "1\n2\n3\n4\n5\n")
+        writer.addString("readme.md" "# Test Archive\n\nThis is a test ZIP archive created by zip_tool.\n")
+        
+        writer.setComment("Created by Ranger ZIP Tool")
+        writer.save("." "test.zip")
+        
+        print ("Created test.zip with " + (to_string (writer.getEntryCount())) + " files")
+        print ""
+        
+        ; Read it back
+        print "Reading test.zip..."
+        def reader (new ZipReader())
+        def success:boolean (reader.open("." "test.zip"))
+        
+        if ((false == success)) {
+            print "Error: Could not read test.zip"
+            return
+        }
+        
+        reader.printInfo()
+        print ""
+        
+        ; Extract and display a file
+        def helloEntry@(optional):ZipEntry (reader.getEntry("hello.txt"))
+        if (!null? helloEntry) {
+            def entry:ZipEntry (unwrap helloEntry)
+            def data:buffer (reader.extract(entry))
+            def content:string (buffer_to_string data)
+            print "Contents of hello.txt:"
+            print content
+        }
+        
+        reader.close()
+        print ""
+        print "Test complete!"
+    }
+    
+    fn printUsage:void () {
+        print "ZIP Tool - Ranger ZIP Archive Utility"
+        print ""
+        print "Usage:"
+        print "  zip_tool list <archive.zip>              List files in archive"
+        print "  zip_tool extract <archive.zip> [outdir]  Extract all files"
+        print "  zip_tool create <archive.zip> <files...> Create new archive"
+        print "  zip_tool info <archive.zip>              Show archive details"
+        print "  zip_tool test                            Run built-in test"
+        print ""
+        print "Examples:"
+        print "  zip_tool list myarchive.zip"
+        print "  zip_tool extract myarchive.zip ./output"
+        print "  zip_tool create new.zip file1.txt file2.txt"
+        print "  zip_tool info myarchive.zip"
+    }
+}
