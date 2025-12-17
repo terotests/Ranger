@@ -3412,6 +3412,9 @@ class RangerFlowParser {
       set ctx.already_imported import_file true
       def rootCtx (ctx.getRoot())
       
+      ; Calculate the full path and directory of the imported file
+      def importFileDir:string ""
+      
       if( (strlen source_code) == 0 ) {
         def filePathIs (TFiles.searchEnv( env rootCtx.libraryPaths import_file ))
         if( ( file_exists env filePathIs import_file ) == false ) {
@@ -3422,10 +3425,17 @@ class RangerFlowParser {
           return
         }
         if(ctx.hasCompilerFlag("verbose")) {
-          print "importing " + import_file
+          print "importing " + import_file + " from " + filePathIs
         }
         def c:string (read_file env filePathIs import_file)
         source_code = (unwrap c)
+        
+        ; Extract directory of imported file for recursive imports
+        def fullPath:string (filePathIs + "/" + import_file)
+        importFileDir = (path_dirname fullPath)
+        if(ctx.hasCompilerFlag("verbose")) {
+          print "  -> file read OK, importFileDir=" + importFileDir
+        }
       }
       def code:SourceCode (new SourceCode ( source_code ))
       code.filename = import_file
@@ -3443,8 +3453,26 @@ class RangerFlowParser {
       }
 
       def rn:CodeNode (unwrap parser.rootNode)
+      
+      ; Add the imported file's directory to library paths for recursive imports
+      if ((strlen importFileDir) > 0) {
+        push rootCtx.libraryPaths importFileDir
+        if(ctx.hasCompilerFlag("verbose")) {
+          print "  -> pushed importFileDir to libraryPaths: " + importFileDir
+        }
+      }
+      
       this.mergeImports( rn ctx wr)
+      
+      ; Remove the directory after processing (restore original paths)
+      if ((strlen importFileDir) > 0) {
+        removeLast rootCtx.libraryPaths
+      }
+      
       push node.children rn
+      if(ctx.hasCompilerFlag("verbose")) {
+        print "  -> merged import, node now has " + (size node.children) + " children"
+      }
     } {
       for node.children item:CodeNode i {
         this.mergeImports(item ctx wr)
@@ -4349,9 +4377,24 @@ class RangerFlowParser {
       find_more = false
     }
     if ((node.isFirstVref("Import")) || (node.isFirstVref("import"))) {
+      ; Check if this import was already merged by mergeImports
+      ; After merging, children[0] becomes the imported AST root (no vref="Import")
+      ; and children[1] (filename) is removed
+      if ((size node.children) < 2) {
+        ; Already merged - just walk the imported content
+        for node.children item:CodeNode i {
+          this.WalkCollectMethods(item ctx wr)
+        }
+        return
+      }
+      
       def fNameNode:CodeNode (at node.children 1)
       def import_file:string fNameNode.string_value
       if (has ctx.already_imported import_file) {
+        ; Already imported - walk any merged children
+        for node.children item:CodeNode i {
+          this.WalkCollectMethods(item ctx wr)
+        }
         return
       } {
         set ctx.already_imported import_file true
@@ -4375,7 +4418,21 @@ class RangerFlowParser {
       def parser:RangerLispParser (new RangerLispParser (code))
       parser.parse((ctx.hasCompilerFlag("no-op-transform")))
       def rnode:CodeNode parser.rootNode
+      
+      ; Add the imported file's directory to library paths for recursive imports
+      def fullPath:string (filePathIs + "/" + import_file)
+      def importFileDir:string (path_dirname fullPath)
+      if ((strlen importFileDir) > 0) {
+        push rootCtx.libraryPaths importFileDir
+      }
+      
       this.WalkCollectMethods( (unwrap rnode) ctx wr)
+      
+      ; Remove the directory after processing
+      if ((strlen importFileDir) > 0) {
+        removeLast rootCtx.libraryPaths
+      }
+      
       find_more = false
     }
     ; consumes_traits

@@ -10124,6 +10124,7 @@ class RangerFlowParser  {
       }
       ctx.already_imported[import_file] = true;
       const rootCtx = ctx.getRoot();
+      let importFileDir = "";
       if ( (source_code.length) == 0 ) {
         const filePathIs = TFiles.searchEnv(env, rootCtx.libraryPaths, import_file);
         if ( operatorsOf_8.filec95exists_9(env, filePathIs, import_file) == false ) {
@@ -10134,10 +10135,15 @@ class RangerFlowParser  {
           return;
         }
         if ( ctx.hasCompilerFlag("verbose") ) {
-          console.log("importing " + import_file);
+          console.log((("importing " + import_file) + " from ") + filePathIs);
         }
         const c = await operatorsOf_8.readc95file_9(env, filePathIs, import_file);
         source_code = c;
+        const fullPath = (filePathIs + "/") + import_file;
+        importFileDir = require("path").dirname(fullPath);
+        if ( ctx.hasCompilerFlag("verbose") ) {
+          console.log("  -> file read OK, importFileDir=" + importFileDir);
+        }
       }
       const code = new SourceCode(source_code);
       code.filename = import_file;
@@ -10153,8 +10159,20 @@ class RangerFlowParser  {
         fileWr.raw(source_code, false);
       }
       const rn = parser.rootNode;
+      if ( (importFileDir.length) > 0 ) {
+        rootCtx.libraryPaths.push(importFileDir);
+        if ( ctx.hasCompilerFlag("verbose") ) {
+          console.log("  -> pushed importFileDir to libraryPaths: " + importFileDir);
+        }
+      }
       await this.mergeImports(rn, ctx, wr);
+      if ( (importFileDir.length) > 0 ) {
+        rootCtx.libraryPaths.pop();
+      }
       node.children.push(rn);
+      if ( ctx.hasCompilerFlag("verbose") ) {
+        console.log(("  -> merged import, node now has " + (node.children.length)) + " children");
+      }
     } else {
       for ( let i = 0; i < node.children.length; i++) {
         var item = node.children[i];
@@ -10924,9 +10942,20 @@ class RangerFlowParser  {
       find_more = false;
     }
     if ( node.isFirstVref("Import") || node.isFirstVref("import") ) {
+      if ( (node.children.length) < 2 ) {
+        for ( let i_12 = 0; i_12 < node.children.length; i_12++) {
+          var item_3 = node.children[i_12];
+          await this.WalkCollectMethods(item_3, ctx, wr);
+        };
+        return;
+      }
       const fNameNode_2 = node.children[1];
       const import_file = fNameNode_2.string_value;
       if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && ctx.already_imported.hasOwnProperty(import_file) ) ) {
+        for ( let i_13 = 0; i_13 < node.children.length; i_13++) {
+          var item_4 = node.children[i_13];
+          await this.WalkCollectMethods(item_4, ctx, wr);
+        };
         return;
       } else {
         ctx.already_imported[import_file] = true;
@@ -10949,7 +10978,15 @@ class RangerFlowParser  {
       const parser = new RangerLispParser(code);
       parser.parse(ctx.hasCompilerFlag("no-op-transform"));
       const rnode = parser.rootNode;
+      const fullPath = (filePathIs + "/") + import_file;
+      const importFileDir = require("path").dirname(fullPath);
+      if ( (importFileDir.length) > 0 ) {
+        rootCtx.libraryPaths.push(importFileDir);
+      }
       await this.WalkCollectMethods(rnode, ctx, wr);
+      if ( (importFileDir.length) > 0 ) {
+        rootCtx.libraryPaths.pop();
+      }
       find_more = false;
     }
     if ( node.isFirstVref("does") ) {
@@ -11049,9 +11086,9 @@ class RangerFlowParser  {
       return;
     }
     if ( find_more ) {
-      for ( let i_12 = 0; i_12 < node.children.length; i_12++) {
-        var item_3 = node.children[i_12];
-        await this.WalkCollectMethods(item_3, ctx, wr);
+      for ( let i_14 = 0; i_14 < node.children.length; i_14++) {
+        var item_5 = node.children[i_14];
+        await this.WalkCollectMethods(item_5, ctx, wr);
       };
     }
     if ( node.hasBooleanProperty("serialize") ) {

@@ -53,7 +53,46 @@ class EVGElement {
     ; Typography (inherited)
     def fontSize:EVGUnit
     def fontFamily:string "Helvetica"
+    def fontWeight:string "normal"
+    def lineHeight:double 1.2
+    def textAlign:string "left"
     def color:EVGColor
+    def textContent:string ""
+    
+    ; CSS Flexbox properties
+    def display:string "block"
+    def flex:double 0.0
+    def flexDirection:string "column"
+    def justifyContent:string "flex-start"
+    def alignItems:string "flex-start"
+    def gap:EVGUnit
+    def position:string "relative"
+    
+    ; CSS Margin/Padding (shorthand expansion handled at parse time)
+    def marginTop:EVGUnit
+    def marginRight:EVGUnit
+    def marginBottom:EVGUnit
+    def marginLeft:EVGUnit
+    def paddingTop:EVGUnit
+    def paddingRight:EVGUnit
+    def paddingBottom:EVGUnit
+    def paddingLeft:EVGUnit
+    
+    ; CSS Border
+    def borderWidth:EVGUnit
+    def borderTopWidth:EVGUnit
+    def borderRightWidth:EVGUnit
+    def borderBottomWidth:EVGUnit
+    def borderLeftWidth:EVGUnit
+    def borderColor:EVGColor
+    def borderRadius:EVGUnit
+    
+    ; Image properties
+    def src:string ""
+    def alt:string ""
+    
+    ; CSS class (for reference)
+    def className:string ""
     
     ; Transform
     def rotate:double 0.0
@@ -72,6 +111,7 @@ class EVGElement {
     def calculatedHeight:double 0.0
     def calculatedInnerWidth:double 0.0
     def calculatedInnerHeight:double 0.0
+    def calculatedFlexWidth:double 0.0
     def calculatedPage:int 0
     def isAbsolute:boolean false
     def isLayoutComplete:boolean false

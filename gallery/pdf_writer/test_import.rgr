@@ -1,0 +1,12 @@
+; Test cross-directory imports
+
+Import "../ts_parser/ts_parser_simple.rgr"
+
+Main () {
+    def parser (new TSParserSimple())
+    parser.tsxMode = true
+    parser.init("let x = 1;")
+    def ast (parser.parseProgram())
+    print "Parsed!"
+    print ast.nodeType
+}

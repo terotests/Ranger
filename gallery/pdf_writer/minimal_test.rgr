@@ -1,0 +1,17 @@
+; Minimal test without imports
+class MinimalClass {
+    def value:int 0
+    
+    Constructor () {
+        value = 42
+    }
+    
+    fn getValue:int () {
+        return value
+    }
+    
+    sfn m@(main):void () {
+        def obj (new MinimalClass())
+        print (obj.getValue())
+    }
+}

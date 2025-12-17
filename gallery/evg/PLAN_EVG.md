@@ -72,13 +72,14 @@ gallery/evg/
 ### Phase 1: Core Data Structures
 
 #### 3.1.1 EVGUnit.rgr - Unit System
+
 ```ranger
 class EVGUnit {
     def value:double 0.0
     def unitType:int 0      ; 0=px, 1=%, 2=em, 3=hp, 4=fill
     def isSet:boolean false
     def pixels:double 0.0   ; Resolved pixel value
-    
+
     sfn parse:EVGUnit (str:string)
     fn resolve:void (parentSize:double fontSize:double)
 }
@@ -92,6 +93,7 @@ class EVGUnit {
 ```
 
 #### 3.1.2 EVGColor.rgr - Color Parsing
+
 ```ranger
 class EVGColor {
     def r:double 0.0
@@ -99,7 +101,7 @@ class EVGColor {
     def b:double 0.0
     def a:double 1.0
     def isSet:boolean false
-    
+
     sfn parse:EVGColor (str:string)       ; Parse hex, rgb, rgba, hsl, named
     sfn noColor:EVGColor ()               ; Transparent/unset
     fn toCSSString:string ()
@@ -109,6 +111,7 @@ class EVGColor {
 ```
 
 #### 3.1.3 EVGBox.rgr - Box Model
+
 ```ranger
 class EVGBox {
     ; Margins
@@ -116,18 +119,18 @@ class EVGBox {
     def marginRight:EVGUnit
     def marginBottom:EVGUnit
     def marginLeft:EVGUnit
-    
+
     ; Padding
     def paddingTop:EVGUnit
     def paddingRight:EVGUnit
     def paddingBottom:EVGUnit
     def paddingLeft:EVGUnit
-    
+
     ; Border
     def borderWidth:EVGUnit
     def borderColor:EVGColor
     def borderRadius:EVGUnit
-    
+
     fn resolveUnits:void (parentWidth:double parentHeight:double fontSize:double)
     fn getInnerWidth:double (outerWidth:double)
     fn getInnerHeight:double (outerHeight:double)
@@ -139,30 +142,31 @@ class EVGBox {
 ### Phase 2: Element Classes
 
 #### 3.2.1 EVGElement.rgr - Base Element
+
 ```ranger
 class EVGElement {
     def id:string ""
     def tagName:string "div"
     def parent@(optional):EVGElement
     def children:[EVGElement]
-    
+
     ; Dimensions
     def width:EVGUnit
     def height:EVGUnit
-    
+
     ; Position (for absolute)
     def left:EVGUnit
     def top:EVGUnit
     def right:EVGUnit
     def bottom:EVGUnit
-    
+
     ; Box model
     def box:EVGBox
-    
+
     ; Visual
     def backgroundColor:EVGColor
     def opacity:double 1.0
-    
+
     ; Layout properties
     def direction:string "row"        ; row, column
     def align:string "left"           ; left, center, right
@@ -170,7 +174,7 @@ class EVGElement {
     def isInline:boolean false
     def lineBreak:boolean false
     def overflow:string "visible"     ; visible, hidden, page-break
-    
+
     ; Calculated values (output)
     def calculatedX:double 0.0
     def calculatedY:double 0.0
@@ -178,7 +182,7 @@ class EVGElement {
     def calculatedHeight:double 0.0
     def calculatedPage:int 0          ; For multi-page
     def isAbsolute:boolean false
-    
+
     fn setAttribute:void (name:string value:string)
     fn addChild:void (child:EVGElement)
     fn resolveUnits:void (parentWidth:double parentHeight:double fontSize:double)
@@ -186,55 +190,58 @@ class EVGElement {
 ```
 
 #### 3.2.2 EVGText.rgr - Text Element
+
 ```ranger
 class EVGText {
     Extends(EVGElement)
-    
+
     def text:string ""
     def fontFamily:string "Helvetica"
     def fontSize:EVGUnit              ; Default 14px
     def color:EVGColor
-    
+
     ; Calculated text metrics
     def measuredWidth:double 0.0
     def measuredHeight:double 0.0
     def lineCount:int 1
     def lines:[string]                ; Wrapped lines
-    
+
     fn measureText:void (measurer:ITextMeasurer maxWidth:double)
     fn wrapText:void (measurer:ITextMeasurer maxWidth:double)
 }
 ```
 
 #### 3.2.3 EVGImage.rgr - Image Element
+
 ```ranger
 class EVGImage {
     Extends(EVGElement)
-    
+
     def src:string ""
     def naturalWidth:double 0.0
     def naturalHeight:double 0.0
     def imageData@(optional):buffer   ; For embedded images
-    
+
     fn setImageSize:void (w:double h:double)
 }
 ```
 
 #### 3.2.4 EVGContainer.rgr - Container Element
+
 ```ranger
 class EVGContainer {
     Extends(EVGElement)
-    
+
     ; Gradient support
     def linearGradient:string ""
     def radialGradient:string ""
-    
+
     ; Shadow
     def shadowRadius:EVGUnit
     def shadowColor:EVGColor
     def shadowOffsetX:EVGUnit
     def shadowOffsetY:EVGUnit
-    
+
     ; Transform
     def rotate:double 0.0
     def scale:double 1.0
@@ -244,6 +251,7 @@ class EVGContainer {
 ### Phase 3: Text Measurement Interface
 
 #### 3.3.1 EVGRenderer.rgr - Abstract Interface
+
 ```ranger
 ; Interface for text measurement - must be implemented by renderer
 class ITextMeasurer {
@@ -263,7 +271,7 @@ class EVGTextMetrics {
 ; Simple fallback measurer (estimates)
 class SimpleTextMeasurer {
     Extends(ITextMeasurer)
-    
+
     fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
         ; Estimate: average character width is ~0.5-0.6 of fontSize
         def avgCharWidth:double (fontSize * 0.55)
@@ -277,15 +285,16 @@ class SimpleTextMeasurer {
 ### Phase 4: XML Parser
 
 #### 3.4.1 EVGParser.rgr - XML to Element Tree
+
 ```ranger
 class EVGParser {
     def root@(optional):EVGElement
     def measurer@(optional):ITextMeasurer
-    
+
     fn parse:EVGElement (xml:string)
     fn parseElement:EVGElement (tagName:string attributes:map children:[EVGElement])
     fn parseAttributes:void (element:EVGElement attrMap:map)
-    
+
     ; Attribute parsing helpers
     fn parseUnit:EVGUnit (value:string)
     fn parseColor:EVGColor (value:string)
@@ -296,22 +305,23 @@ class EVGParser {
 ### Phase 5: Layout Algorithm
 
 #### 3.5.1 EVGLayout.rgr - Layout Calculator
+
 ```ranger
 class EVGLayout {
     def measurer:ITextMeasurer
     def pageWidth:double 0.0
     def pageHeight:double 0.0
     def currentPage:int 0
-    
+
     fn layout:void (root:EVGElement)
-    fn layoutElement:void (element:EVGElement parentX:double parentY:double 
+    fn layoutElement:void (element:EVGElement parentX:double parentY:double
                            parentWidth:double parentHeight:double)
     fn layoutChildren:double (parent:EVGElement)  ; Returns content height
     fn layoutFlow:double (parent:EVGElement children:[EVGElement])
     fn layoutAbsolute:void (element:EVGElement parent:EVGElement)
     fn alignRow:void (row:[EVGElement] parent:EVGElement rowHeight:double)
     fn measureTextElement:void (text:EVGText maxWidth:double)
-    
+
     ; Unit resolution
     fn resolveUnit:double (unit:EVGUnit parentSize:double fontSize:double)
 }
@@ -320,6 +330,7 @@ class EVGLayout {
 ### Phase 6: Document and Pages
 
 #### 3.6.1 EVGDocument.rgr - Multi-page Document
+
 ```ranger
 class EVGPage {
     def pageNumber:int 0
@@ -333,7 +344,7 @@ class EVGDocument {
     def defaultWidth:double 612.0    ; Letter size in points
     def defaultHeight:double 792.0
     def root@(optional):EVGElement
-    
+
     fn addPage:EVGPage ()
     fn layoutDocument:void (measurer:ITextMeasurer)
     fn getElementsForPage:array (pageNum:int)
@@ -377,14 +388,14 @@ class EVGDocument {
 class EVGPDFRenderer {
     def writer:PDFWriter
     def document:EVGDocument
-    
+
     fn render:buffer ()
     fn renderPage:void (page:EVGPage)
     fn renderElement:void (element:EVGElement)
     fn renderText:void (text:EVGText)
     fn renderImage:void (image:EVGImage)
     fn renderContainer:void (container:EVGContainer)
-    
+
     ; ITextMeasurer implementation using PDF font metrics
     fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double)
 }
@@ -406,15 +417,15 @@ main {
         </div>
         <img src=\"./image.jpg\" width=\"200\" />
     </div>"
-    
+
     def parser (new EVGParser())
     def root:EVGElement (parser.parse(xml))
-    
+
     def renderer (new EVGPDFRenderer())
     def document (new EVGDocument())
     document.root = root
     document.layoutDocument(renderer)
-    
+
     def pdfData:buffer (renderer.render())
     buffer_write_file "." "output.pdf" pdfData
 }
@@ -423,33 +434,38 @@ main {
 ## 6. npm Scripts
 
 Add to package.json:
+
 ```json
 {
-    "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/evg/evg_test.rgr -d=./gallery/evg/bin -o=evg_test.js -nodecli",
-    "evg:run": "node ./gallery/evg/bin/evg_test.js",
-    "evg": "npm run evg:compile && npm run evg:run"
+  "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/evg/evg_test.rgr -d=./gallery/evg/bin -o=evg_test.js -nodecli",
+  "evg:run": "node ./gallery/evg/bin/evg_test.js",
+  "evg": "npm run evg:compile && npm run evg:run"
 }
 ```
 
 ## 7. Implementation Order
 
 ### Week 1: Core Types
+
 1. [ ] EVGUnit.rgr - Unit parsing and resolution
 2. [ ] EVGColor.rgr - Color parsing (port from original/EVGColor.clj)
 3. [ ] EVGBox.rgr - Box model calculations
 
 ### Week 2: Elements
+
 4. [ ] EVGElement.rgr - Base element class
 5. [ ] EVGText.rgr - Text element
 6. [ ] EVGImage.rgr - Image element
 7. [ ] EVGContainer.rgr - Container with gradients/shadows
 
 ### Week 3: Parser & Layout
+
 8. [ ] EVGParser.rgr - Simple XML parser
 9. [ ] EVGLayout.rgr - Flow layout algorithm
 10. [ ] EVGDocument.rgr - Multi-page support
 
 ### Week 4: Renderer Integration
+
 11. [ ] EVGRenderer.rgr - Abstract interface
 12. [ ] evg_test.rgr - Test CLI
 13. [ ] Integration with pdf_writer (future)
@@ -457,16 +473,19 @@ Add to package.json:
 ## 8. Testing Strategy
 
 ### 8.1 Unit Tests (in evg_test.rgr)
+
 - Unit parsing: "100px", "50%", "2em", "fill"
 - Color parsing: "#FF5733", "rgb(255,87,51)", "rgba(...)", "red"
 - Box model calculations
 - Layout positioning
 
 ### 8.2 Visual Tests
+
 - Generate test PDFs with known layouts
 - Compare coordinates to expected values
 
 ### 8.3 Example Documents
+
 - Simple card layout
 - Multi-column layout
 - Text wrapping test

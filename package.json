@@ -115,7 +115,13 @@
     "zip": "npm run zip:compile && npm run zip:run",
     "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/evg/evg_test.rgr -d=./gallery/evg/bin -o=evg_test.js -nodecli",
     "evg:run": "node ./gallery/evg/bin/evg_test.js",
-    "evg": "npm run evg:compile && npm run evg:run"
+    "evg": "npm run evg:compile && npm run evg:run",
+    "evgpdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.js -nodecli",
+    "evgpdf:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./gallery/pdf_writer/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.go -nodecli",
+    "evgpdf:build:go": "npm run evgpdf:compile:go && cd gallery/pdf_writer/bin && go build -o evg_pdf_tool.exe evg_pdf_tool.go",
+    "evgpdf:run": "node ./gallery/pdf_writer/bin/evg_pdf_tool.js ./gallery/pdf_writer/sample.tsx ./gallery/pdf_writer/bin/sample_output.pdf",
+    "evgpdf:test": "npm run evgpdf:compile && npm run evgpdf:run",
+    "evgpdf": "npm run evgpdf:compile && npm run evgpdf:run"
   },
   "repository": {
     "type": "git",

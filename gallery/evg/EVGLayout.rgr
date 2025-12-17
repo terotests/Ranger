@@ -97,6 +97,31 @@ class EVGLayout {
         
         if (childCount > 0) {
             contentHeight = (this.layoutChildren(element))
+        } {
+            ; For text elements without children, calculate height from font size and text wrapping
+            if ((element.tagName == "text") || (element.tagName == "span")) {
+                def fontSize:double element.inheritedFontSize
+                if element.fontSize.isSet {
+                    fontSize = element.fontSize.pixels
+                }
+                if (fontSize <= 0.0) {
+                    fontSize = 14.0
+                }
+                
+                ; Get line height
+                def lineHeightFactor:double element.lineHeight
+                if (lineHeightFactor <= 0.0) {
+                    lineHeightFactor = 1.2
+                }
+                def lineSpacing:double (fontSize * lineHeightFactor)
+                
+                ; Calculate number of wrapped lines based on text width
+                def textContent:string element.textContent
+                def availableWidth:double (width - element.box.paddingLeftPx - element.box.paddingRightPx)
+                def lineCount:int (this.estimateLineCount(textContent availableWidth fontSize))
+                
+                contentHeight = (lineSpacing * (to_double lineCount))
+            }
         }
         
         ; Finalize height
@@ -147,8 +172,51 @@ class EVGLayout {
         def rowElements:[EVGElement]
         def totalHeight:double 0.0
         
-        ; Check layout direction
-        def isColumn:boolean (parent.direction == "column")
+        ; Check layout direction using flexDirection (CSS standard)
+        def isColumn:boolean (parent.flexDirection == "column")
+        
+        ; For row layout with flex items, we need to calculate available space first
+        if (isColumn == false) {
+            ; Calculate total fixed width and total flex
+            def fixedWidth:double 0.0
+            def totalFlex:double 0.0
+            def j:int 0
+            while (j < childCount) {
+                def c:EVGElement (parent.getChild(j))
+                c.resolveUnits(innerWidth innerHeight)
+                if c.width.isSet {
+                    fixedWidth = fixedWidth + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx
+                } {
+                    if (c.flex > 0.0) {
+                        totalFlex = totalFlex + c.flex
+                        fixedWidth = fixedWidth + c.box.marginLeftPx + c.box.marginRightPx
+                    } {
+                        ; No width and no flex - treat as taking full width (will wrap)
+                        fixedWidth = fixedWidth + innerWidth + c.box.marginLeftPx + c.box.marginRightPx
+                    }
+                }
+                j = j + 1
+            }
+            
+            ; Calculate available space for flex items
+            def availableForFlex:double (innerWidth - fixedWidth)
+            if (availableForFlex < 0.0) {
+                availableForFlex = 0.0
+            }
+            
+            ; Assign flex widths to children
+            if (totalFlex > 0.0) {
+                j = 0
+                while (j < childCount) {
+                    def c:EVGElement (parent.getChild(j))
+                    if ((c.width.isSet == false) && (c.flex > 0.0)) {
+                        def flexWidth:double ((availableForFlex * c.flex) / totalFlex)
+                        c.calculatedFlexWidth = flexWidth
+                    }
+                    j = j + 1
+                }
+            }
+        }
         
         def i:int 0
         while (i < childCount) {
@@ -177,6 +245,11 @@ class EVGLayout {
             def childWidth:double innerWidth
             if child.width.isSet {
                 childWidth = child.width.pixels
+            } {
+                ; Check if this child has a calculated flex width
+                if (child.calculatedFlexWidth > 0.0) {
+                    childWidth = child.calculatedFlexWidth
+                }
             }
             
             ; Total width including margins
@@ -359,5 +432,46 @@ class EVGLayout {
             this.printLayout(child (indent + 1))
             i = i + 1
         }
+    }
+    
+    fn estimateLineCount:int (text:string maxWidth:double fontSize:double) {
+        ; Estimate how many lines text will wrap to
+        if ((strlen text) == 0) {
+            return 1
+        }
+        if (maxWidth <= 0.0) {
+            return 1
+        }
+        
+        ; Split text into words
+        def words:[string] (strsplit text " ")
+        def lineCount:int 1
+        def currentLineWidth:double 0.0
+        def spaceWidth:double (fontSize * 0.3)
+        
+        def i:int 0
+        while (i < (array_length words)) {
+            def word:string (itemAt words i)
+            def wordWidth:double (measurer.measureTextWidth(word "Helvetica" fontSize))
+            
+            if (currentLineWidth == 0.0) {
+                ; First word on line
+                currentLineWidth = wordWidth
+            } {
+                ; Check if word fits on current line
+                def testWidth:double (currentLineWidth + spaceWidth + wordWidth)
+                if (testWidth > maxWidth) {
+                    ; Word doesn't fit, wrap to new line
+                    lineCount = lineCount + 1
+                    currentLineWidth = wordWidth
+                } {
+                    currentLineWidth = testWidth
+                }
+            }
+            
+            i = i + 1
+        }
+        
+        return lineCount
     }
 }
