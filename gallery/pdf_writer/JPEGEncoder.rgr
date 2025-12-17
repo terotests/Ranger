@@ -186,7 +186,7 @@ class FDCT {
         }
     }
     
-    fn transform:void (pixels:[int] coeffs:[int]) {
+    fn transform:[int] (pixels:[int]) {
         ; Perform 2D DCT on 8x8 block
         ; Level shift first: subtract 128
         def shifted:[int]
@@ -212,8 +212,8 @@ class FDCT {
             row = row + 1
         }
         
-        ; Clear coeffs and prepare
-        clear coeffs
+        ; Output coefficients
+        def coeffs:[int]
         i = 0
         while (i < 64) {
             push coeffs 0
@@ -226,28 +226,31 @@ class FDCT {
             this.dct1d(temp col 8 coeffs col 8)
             col = col + 1
         }
+        
+        return coeffs
     }
     
-    fn zigzag:void (block:[int] zigzagOut:[int]) {
+    fn zigzag:[int] (block:[int]) {
         ; Convert from row-major to zigzag order
-        clear zigzagOut
+        def zigzagOut:[int]
         def i 0
         while (i < 64) {
             def pos:int (at zigzagOrder i)
             push zigzagOut (at block pos)
             i = i + 1
         }
+        return zigzagOut
     }
 }
 
 ; Bit writer for encoding - uses GrowableBuffer for unlimited size
 class BitWriter {
-    def buffer:GrowableBuffer
+    def buffer:GrowableBuffer (new GrowableBuffer())
     def bitBuffer:int 0
     def bitCount:int 0
     
     Constructor () {
-        buffer = (new GrowableBuffer())
+        ; buffer already initialized
     }
     
     fn writeBit:void (bit:int) {
@@ -958,6 +961,20 @@ class JPEGEncoder {
         push acCValues 249
         push acCValues 250
         
+        ; Initialize lookup tables with 256 entries each
+        def i 0
+        while (i < 256) {
+            push dcYCodes 0
+            push dcYLengths 0
+            push acYCodes 0
+            push acYLengths 0
+            push dcCCodes 0
+            push dcCLengths 0
+            push acCCodes 0
+            push acCLengths 0
+            i = i + 1
+        }
+        
         ; Build encoding lookup tables
         this.buildHuffmanCodes(dcYBits dcYValues dcYCodes dcYLengths)
         this.buildHuffmanCodes(acYBits acYValues acYCodes acYLengths)
@@ -967,15 +984,7 @@ class JPEGEncoder {
     
     fn buildHuffmanCodes:void (bits:[int] values:[int] codes:[int] lengths:[int]) {
         ; Build lookup table: codes[symbol] = huffman code, lengths[symbol] = code length
-        ; Initialize with 256 entries
-        clear codes
-        clear lengths
-        def i 0
-        while (i < 256) {
-            push codes 0
-            push lengths 0
-            i = i + 1
-        }
+        ; NOTE: codes and lengths must be pre-initialized with 256 zeros
         
         ; Generate codes
         def code:int 0
@@ -1042,8 +1051,7 @@ class JPEGEncoder {
         }
         
         ; Zigzag reorder
-        def zigzagged:[int]
-        fdct.zigzag(quantized zigzagged)
+        def zigzagged:[int] (fdct.zigzag(quantized))
         
         ; Encode DC coefficient (differential)
         def dc:int (at zigzagged 0)
@@ -1125,9 +1133,9 @@ class JPEGEncoder {
         push crOut cr
     }
     
-    fn extractBlock:void (img:ImageBuffer blockX:int blockY:int channel:int output:[int]) {
+    fn extractBlock:[int] (img:ImageBuffer blockX:int blockY:int channel:int) {
         ; Extract 8x8 block of a channel (0=Y, 1=Cb, 2=Cr)
-        clear output
+        def output:[int]
         
         def py 0
         while (py < 8) {
@@ -1161,6 +1169,7 @@ class JPEGEncoder {
             }
             py = py + 1
         }
+        return output
     }
     
     fn writeMarkers:void (writer:BitWriter width:int height:int) {
@@ -1341,15 +1350,12 @@ class JPEGEncoder {
                 def blockY:int (mcuY * 8)
                 
                 ; Extract and encode Y block
-                def yBlock:[int]
-                this.extractBlock(img blockX blockY 0 yBlock)
-                def yCoeffs:[int]
-                fdct.transform(yBlock yCoeffs)
+                def yBlock:[int] (this.extractBlock(img blockX blockY 0))
+                def yCoeffs:[int] (fdct.transform(yBlock))
                 this.encodeBlock(writer yCoeffs yQuantTable dcYCodes dcYLengths acYCodes acYLengths prevDCY)
                 
                 ; Update DC predictor
-                def yZig:[int]
-                fdct.zigzag(yCoeffs yZig)
+                def yZig:[int] (fdct.zigzag(yCoeffs))
                 def yQ:int (at yQuantTable 0)
                 def yDC:int (at yZig 0)
                 if (yDC >= 0) {
@@ -1359,14 +1365,11 @@ class JPEGEncoder {
                 }
                 
                 ; Extract and encode Cb block
-                def cbBlock:[int]
-                this.extractBlock(img blockX blockY 1 cbBlock)
-                def cbCoeffs:[int]
-                fdct.transform(cbBlock cbCoeffs)
+                def cbBlock:[int] (this.extractBlock(img blockX blockY 1))
+                def cbCoeffs:[int] (fdct.transform(cbBlock))
                 this.encodeBlock(writer cbCoeffs cQuantTable dcCCodes dcCLengths acCCodes acCLengths prevDCCb)
                 
-                def cbZig:[int]
-                fdct.zigzag(cbCoeffs cbZig)
+                def cbZig:[int] (fdct.zigzag(cbCoeffs))
                 def cbQ:int (at cQuantTable 0)
                 def cbDC:int (at cbZig 0)
                 if (cbDC >= 0) {
@@ -1376,14 +1379,11 @@ class JPEGEncoder {
                 }
                 
                 ; Extract and encode Cr block
-                def crBlock:[int]
-                this.extractBlock(img blockX blockY 2 crBlock)
-                def crCoeffs:[int]
-                fdct.transform(crBlock crCoeffs)
+                def crBlock:[int] (this.extractBlock(img blockX blockY 2))
+                def crCoeffs:[int] (fdct.transform(crBlock))
                 this.encodeBlock(writer crCoeffs cQuantTable dcCCodes dcCLengths acCCodes acCLengths prevDCCr)
                 
-                def crZig:[int]
-                fdct.zigzag(crCoeffs crZig)
+                def crZig:[int] (fdct.zigzag(crCoeffs))
                 def crQ:int (at cQuantTable 0)
                 def crDC:int (at crZig 0)
                 if (crDC >= 0) {

@@ -56,10 +56,10 @@ class ProgressiveJPEGDecoder {
     def quantTables:[QuantizationTable]
     
     ; Huffman decoder
-    def huffman:HuffmanDecoder
+    def huffman:HuffmanDecoder (new HuffmanDecoder())
     
     ; DCT transformer
-    def idct:IDCT
+    def idct:IDCT (new IDCT())
     
     ; MCU dimensions
     def mcuWidth:int 8
@@ -869,8 +869,7 @@ class ProgressiveJPEGDecoder {
                             k = k + 1
                         }
                         
-                        def tempBlock:[int]
-                        idct.dezigzag(blockCoeffs tempBlock)
+                        def tempBlock:[int] (idct.dezigzag(blockCoeffs))
                         
                         def blockPixels:[int]
                         k = 0
@@ -907,8 +906,7 @@ class ProgressiveJPEGDecoder {
                         k = k + 1
                     }
                     
-                    def tempBlock:[int]
-                    idct.dezigzag(blockCoeffs tempBlock)
+                    def tempBlock:[int] (idct.dezigzag(blockCoeffs))
                     k = 0
                     while (k < 64) {
                         push cbBlock 0
@@ -927,14 +925,13 @@ class ProgressiveJPEGDecoder {
                         k = k + 1
                     }
                     
-                    clear tempBlock
-                    idct.dezigzag(blockCoeffs tempBlock)
+                    def crTempBlock:[int] (idct.dezigzag(blockCoeffs))
                     k = 0
                     while (k < 64) {
                         push crBlock 0
                         k = k + 1
                     }
-                    idct.transform(tempBlock crBlock)
+                    idct.transform(crTempBlock crBlock)
                 }
                 
                 this.writeMCU(img baseX baseY yBlocksData cbBlock crBlock)

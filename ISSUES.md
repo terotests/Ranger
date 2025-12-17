@@ -1022,3 +1022,189 @@ Implement basic control flow analysis for return statements:
 
 - This pattern is common in parsers and readers where behavior varies based on a flag (e.g., endianness)
 - Code compiles correctly, only warning is incorrect
+
+---
+
+## Issue #58: Go slice/array pass-by-value causes data loss
+
+**Status:** Open (Workaround documented)  
+**Severity:** High  
+**Found:** December 17, 2025
+
+### Description
+
+When compiling Ranger code to Go, functions that modify array parameters using `push`, `clear`, or resize operations don't work correctly because Go slices are passed by value. The slice header (pointer, length, capacity) is copied, so when `append()` creates a new backing array or changes length, the caller doesn't see the changes.
+
+### Affected Patterns
+
+1. **Output parameters with push:**
+
+```ranger
+fn fillArray:void (output:[int]) {
+    push output 1
+    push output 2
+    push output 3
+}
+
+; Caller - output remains empty!
+def arr:[int]
+fillArray(arr)
+```
+
+2. **Clear and refill:**
+
+```ranger
+fn processArray:void (data:[int]) {
+    clear data
+    push data 42
+}
+```
+
+3. **Any function that grows/shrinks an array parameter**
+
+### Root Cause
+
+In Go, slices are passed by value (the slice header struct is copied). When `append()` needs to grow the slice beyond its capacity, it allocates a new backing array. The caller's slice header still points to the old (unchanged) array.
+
+JavaScript works because arrays are reference types and `push()` modifies in-place.
+
+### Generated Go Code Example
+
+```go
+func fillArray(output []int64) {
+    output = append(output, 1)  // Creates new slice, caller doesn't see it
+    output = append(output, 2)
+    output = append(output, 3)
+}
+```
+
+### Workaround
+
+Change functions to **return the array** instead of using output parameters:
+
+```ranger
+; Instead of this:
+fn fillArray:void (output:[int]) {
+    push output 1
+}
+
+; Do this:
+fn fillArray:[int] () {
+    def output:[int]
+    push output 1
+    return output
+}
+```
+
+### Proper Fix Options
+
+1. **Generate pointer parameters for arrays in Go:**
+
+```go
+func fillArray(output *[]int64) {
+    *output = append(*output, 1)
+}
+```
+
+2. **Detect array-modifying functions and auto-return:**
+
+   - Analyze if function modifies array parameters
+   - Automatically return modified arrays
+
+3. **Use wrapper struct with pointer semantics**
+
+### Files Affected
+
+- `compiler/ng_RangerGolangClassWriter.rgr` - Go code generation
+- `compiler/Lang.rgr` - `push`, `clear`, `set` operator templates for Go
+
+### Related Issues
+
+- Also affects `clear` operator (see Issue #59)
+- Same issue exists for any mutable container passed as parameter
+
+---
+
+## Issue #59: Go `clear` operator sets slice to nil
+
+**Status:** Fixed  
+**Severity:** Medium  
+**Found:** December 17, 2025  
+**Fixed:** December 17, 2025
+
+### Description
+
+The `clear` operator for arrays in Go was generating `array = nil` which completely removes the slice, making subsequent `x[:0]` slice operations panic.
+
+### Previous Go Template
+
+```ranger
+go ( (e 1) " = nil" )
+```
+
+### Problem
+
+```go
+data = nil       // data is now nil
+data = data[:0]  // PANIC: cannot slice nil
+```
+
+### Fixed Go Template
+
+```ranger
+go ( (e 1) " = " (e 1) "[:0]" )
+```
+
+### Result
+
+```go
+data = data[:0]  // Keeps backing array, just sets length to 0
+```
+
+### Files Changed
+
+- `compiler/Lang.rgr` - Line ~3420, `clear` operator Go template
+
+---
+
+## Issue #60: Go `buffer_read_file` uses hardcoded `/` separator
+
+**Status:** Fixed  
+**Severity:** Medium  
+**Found:** December 17, 2025  
+**Fixed:** December 17, 2025
+
+### Description
+
+The `buffer_read_file` operator in Go used string concatenation with `/` which doesn't work on Windows.
+
+### Previous Go Template
+
+```ranger
+go ( "func() []byte { d, _ := os.ReadFile(" (e 1) " + \"/\" + " (e 2) "); return d }()" (imp "os") )
+```
+
+### Problem
+
+On Windows with `dir=""` and `name="file.jpg"`:
+
+- Generated: `os.ReadFile("" + "/" + "file.jpg")` → `/file.jpg`
+- Expected: `file.jpg` or `.\file.jpg`
+
+### Fixed Go Template
+
+```ranger
+go ( "func() []byte { d, _ := os.ReadFile(filepath.Join(" (e 1) ", " (e 2) ")); return d }()" (imp "os") (imp "path/filepath") )
+```
+
+### Result
+
+Uses `filepath.Join()` which handles:
+
+- Empty path components correctly
+- Platform-specific separators
+- Path normalization
+
+### Files Changed
+
+- `compiler/Lang.rgr` - `buffer_read_file` operator Go template

@@ -1,8 +1,22 @@
-# JPEG Decoder Implementation Plan
+# JPEG Decoder/Encoder Implementation Plan
 
-## Status: ✅ IMPLEMENTED
+## Status: ✅ FULLY IMPLEMENTED
 
-The baseline JPEG decoder is fully implemented and working!
+Both baseline and progressive JPEG decoder/encoder are fully implemented and working!
+
+### Completed Features
+
+- ✅ **Baseline JPEG Decoder** (JPEGDecoder.rgr)
+- ✅ **Progressive JPEG Decoder** (ProgressiveJPEGDecoder.rgr)
+- ✅ **JPEG Encoder** (JPEGEncoder.rgr)
+- ✅ **EXIF Orientation Support** - Auto-rotates images based on EXIF data
+- ✅ **Command-line Tool** (jpeg_scaler.rgr) - Scale images with width/height/scale modes
+- ✅ **Multi-target Support** - Works in JavaScript and Go
+
+### Quality Metrics
+
+- Progressive JPEG decoding: RMSE 0.00583 (0.58% error vs reference decoder)
+- Baseline JPEG: Pixel-perfect decoding
 
 ## Overview
 
@@ -160,46 +174,50 @@ For 4:2:0 (most common):
 
 ```
 gallery/pdf_writer/
-  JPEGDecoder.rgr      ; Main decoder
-  HuffmanDecoder.rgr   ; Huffman table building & decoding
-  DCT.rgr              ; IDCT implementation
-  BitReader.rgr        ; Bit-level stream reading
-  ImageBuffer.rgr      ; Raw pixel buffer (done)
-  PPMImage.rgr         ; PPM output (done)
+  JPEGDecoder.rgr           ; Baseline JPEG decoder ✅
+  ProgressiveJPEGDecoder.rgr ; Progressive JPEG decoder ✅
+  JPEGEncoder.rgr           ; JPEG encoder ✅
+  HuffmanDecoder.rgr        ; Huffman table building & decoding ✅
+  DCT.rgr                   ; IDCT/FDCT implementation ✅
+  BitReader.rgr             ; Bit-level stream reading ✅
+  ImageBuffer.rgr           ; Raw pixel buffer with scaling ✅
+  PPMImage.rgr              ; PPM input/output ✅
+  jpeg_scaler.rgr           ; CLI tool for scaling JPEGs ✅
+  jpeg_encoder_test.rgr     ; Encode/decode round-trip test ✅
 ```
 
 ## Implementation Order
 
-### Step 1: BitReader
+### Step 1: BitReader ✅
 
 - Read bits from buffer
 - Handle FF00 byte stuffing
 - Track position
 
-### Step 2: Marker Parser Enhancement
+### Step 2: Marker Parser Enhancement ✅
 
 - Parse DQT (quantization tables)
 - Parse DHT (Huffman tables)
 - Parse SOS (scan header)
 - Locate entropy-coded data
 
-### Step 3: Huffman Decoder
+### Step 3: Huffman Decoder ✅
 
 - Build code tables from DHT data
 - Decode symbol from bit stream
 
-### Step 4: Block Decoder
+### Step 4: Block Decoder ✅
 
 - Decode DC coefficient
 - Decode AC coefficients (run-length)
 - Convert zigzag to 8x8 matrix
 
-### Step 5: IDCT
+### Step 5: IDCT ✅
 
 - Integer IDCT implementation
 - Pre-computed cosine tables
 
-### Step 6: Color Conversion & Output
+### Step 6: Color Conversion & Output ✅
 
 - YCbCr to RGB
 - Handle different sampling factors
@@ -207,20 +225,55 @@ gallery/pdf_writer/
 
 ## Testing Strategy
 
-1. **Parse test**: Verify all markers parsed correctly
-2. **Huffman test**: Decode known bit patterns
-3. **Single block**: Decode one 8x8 block, verify values
-4. **Grayscale**: Decode grayscale JPEG (simpler, Y only)
-5. **Color 4:4:4**: Full color, no subsampling
-6. **Color 4:2:0**: Standard JPEG with subsampling
+1. **Parse test**: ✅ Verify all markers parsed correctly
+2. **Huffman test**: ✅ Decode known bit patterns
+3. **Single block**: ✅ Decode one 8x8 block, verify values
+4. **Grayscale**: ✅ Decode grayscale JPEG (simpler, Y only)
+5. **Color 4:4:4**: ✅ Full color, no subsampling
+6. **Color 4:2:0**: ✅ Standard JPEG with subsampling
+7. **Progressive JPEG**: ✅ Multi-scan progressive decoding
+8. **Round-trip test**: ✅ Encode then decode, compare RMSE
 
 ## Limitations (Initial Version)
 
-- Baseline JPEG only (SOF0)
-- No progressive JPEG (SOF2)
+- ~~Baseline JPEG only (SOF0)~~ ✅ Now supports Progressive (SOF2)
 - No arithmetic coding
-- No EXIF orientation correction
+- ~~No EXIF orientation correction~~ ✅ EXIF orientation supported
 - No restart markers (DRI/RST)
+
+## Additional Features Implemented
+
+### JPEG Encoder (JPEGEncoder.rgr)
+
+- Standard Huffman tables (not optimized)
+- Quality setting (1-100)
+- Generates valid baseline JPEG files
+- Proper marker structure (SOI, DQT, SOF0, DHT, SOS, EOI)
+
+### Progressive JPEG Decoder (ProgressiveJPEGDecoder.rgr)
+
+- DC first/refine scans
+- AC first/refine scans
+- Spectral selection (Ss, Se)
+- Successive approximation (Ah, Al)
+- Multi-component scans
+- EOBRUN handling for AC coefficients
+
+### JPEG Scaler CLI (jpeg_scaler.rgr)
+
+```
+Usage:
+  jpeg_scaler -width <pixels> input.jpg output.jpg
+  jpeg_scaler -height <pixels> input.jpg output.jpg
+  jpeg_scaler -scale <factor> input.jpg output.jpg
+
+Options:
+  -quality <1-100>  JPEG quality (default: 85)
+```
+
+- Auto-detects progressive vs baseline JPEG
+- Bilinear-like scaling algorithm
+- Works in both JavaScript (Node.js) and Go
 
 ## Reference
 

@@ -369,21 +369,65 @@ class ImageBuffer {
         ; Scale image by integer factor (nearest neighbor)
         def newW:int (width * factor)
         def newH:int (height * factor)
+        return (this.scaleToSize(newW newH))
+    }
+    
+    fn scaleToSize:ImageBuffer (newW:int newH:int) {
+        ; Scale image to specific size using bilinear interpolation
         def result (new ImageBuffer())
         result.init(newW newH)
         
+        def scaleX:double ((to_double width) / (to_double newW))
+        def scaleY:double ((to_double height) / (to_double newH))
+        
         def destY 0
         while (destY < newH) {
-            def srcY:int (to_int (destY / factor))
+            def srcYf:double ((to_double destY) * scaleY)
+            def srcY0:int (to_int srcYf)
+            def srcY1:int (srcY0 + 1)
+            if (srcY1 >= height) { srcY1 = (height - 1) }
+            def fy:double (srcYf - (to_double srcY0))
+            
             def destX 0
             while (destX < newW) {
-                def srcX:int (to_int (destX / factor))
-                ; Read source pixel
-                def srcOff:int (((srcY * width) + srcX) * 4)
-                def r:int (buffer_get pixels srcOff)
-                def g:int (buffer_get pixels (srcOff + 1))
-                def b:int (buffer_get pixels (srcOff + 2))
-                def a:int (buffer_get pixels (srcOff + 3))
+                def srcXf:double ((to_double destX) * scaleX)
+                def srcX0:int (to_int srcXf)
+                def srcX1:int (srcX0 + 1)
+                if (srcX1 >= width) { srcX1 = (width - 1) }
+                def fx:double (srcXf - (to_double srcX0))
+                
+                ; Bilinear interpolation
+                def off00:int (((srcY0 * width) + srcX0) * 4)
+                def off01:int (((srcY0 * width) + srcX1) * 4)
+                def off10:int (((srcY1 * width) + srcX0) * 4)
+                def off11:int (((srcY1 * width) + srcX1) * 4)
+                
+                ; Interpolate each channel
+                def r:int (this.bilinear(
+                    (buffer_get pixels off00)
+                    (buffer_get pixels off01)
+                    (buffer_get pixels off10)
+                    (buffer_get pixels off11)
+                    fx fy))
+                def g:int (this.bilinear(
+                    (buffer_get pixels (off00 + 1))
+                    (buffer_get pixels (off01 + 1))
+                    (buffer_get pixels (off10 + 1))
+                    (buffer_get pixels (off11 + 1))
+                    fx fy))
+                def b:int (this.bilinear(
+                    (buffer_get pixels (off00 + 2))
+                    (buffer_get pixels (off01 + 2))
+                    (buffer_get pixels (off10 + 2))
+                    (buffer_get pixels (off11 + 2))
+                    fx fy))
+                def a:int (this.bilinear(
+                    (buffer_get pixels (off00 + 3))
+                    (buffer_get pixels (off01 + 3))
+                    (buffer_get pixels (off10 + 3))
+                    (buffer_get pixels (off11 + 3))
+                    fx fy))
+                
                 ; Write to destination
                 def destOff:int (((destY * newW) + destX) * 4)
                 buffer_set result.pixels destOff r
@@ -396,6 +440,14 @@ class ImageBuffer {
         }
         
         return result
+    }
+    
+    fn bilinear:int (v00:int v01:int v10:int v11:int fx:double fy:double) {
+        ; Bilinear interpolation helper
+        def top:double ((to_double v00) * (1.0 - fx) + (to_double v01) * fx)
+        def bottom:double ((to_double v10) * (1.0 - fx) + (to_double v11) * fx)
+        def result:double (top * (1.0 - fy) + bottom * fy)
+        return (to_int result)
     }
     
     fn rotate90CW:ImageBuffer () {

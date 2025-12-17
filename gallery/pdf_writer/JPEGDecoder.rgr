@@ -463,8 +463,7 @@ class JPEGDecoder {
                             }
                             
                             ; Dezigzag and transform
-                            def tempBlock:[int]
-                            idct.dezigzag(coeffs tempBlock)
+                            def tempBlock:[int] (idct.dezigzag(coeffs))
                             idct.transform(tempBlock blockPixels)
                             
                             ; Store block

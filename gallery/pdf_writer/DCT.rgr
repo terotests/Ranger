@@ -167,9 +167,10 @@ class IDCT {
         push zigzagMap 63
     }
     
-    fn dezigzag:void (zigzag:[int] block:[int]) {
+    fn dezigzag:[int] (zigzag:[int]) {
         ; Convert from zigzag order to row-major 8x8 block
-        clear block
+        ; Returns new 64-element array
+        def block:[int]
         def i 0
         while (i < 64) {
             push block 0
@@ -182,6 +183,7 @@ class IDCT {
             set block pos (at zigzag i)
             i = i + 1
         }
+        return block
     }
     
     fn idct1d:void (input:[int] startIdx:int stride:int output:[int] outIdx:int outStride:int) {

@@ -23,13 +23,13 @@ class BufferChunk {
 }
 
 class GrowableBuffer {
-    def firstChunk:BufferChunk
-    def currentChunk:BufferChunk
+    def firstChunk:BufferChunk (new BufferChunk(4096))
+    def currentChunk:BufferChunk (new BufferChunk(4096))
     def chunkSize:int 4096       ; Default chunk size: 4KB
     def totalSize:int 0
     
     Constructor () {
-        ; Create first chunk
+        ; Create first chunk - reassign with proper size
         def chunk (new BufferChunk(chunkSize))
         firstChunk = chunk
         currentChunk = chunk
