@@ -1,0 +1,184 @@
+; ZipEntry.rgr - ZIP file entry data structure
+; Represents a single file or directory entry in a ZIP archive
+
+class ZipEntry {
+    ; File identification
+    def fileName:string ""
+    def isDirectory:boolean false
+    
+    ; Size information
+    def compressedSize:int 0
+    def uncompressedSize:int 0
+    
+    ; Compression
+    def compressionMethod:int 0    ; 0 = stored (no compression), 8 = deflate
+    
+    ; Integrity
+    def crc32:int 0
+    
+    ; Timestamps (MS-DOS format)
+    def lastModTime:int 0          ; MS-DOS time format
+    def lastModDate:int 0          ; MS-DOS date format
+    
+    ; Version information
+    def versionMadeBy:int 20       ; Default: 2.0
+    def versionNeeded:int 20       ; Default: 2.0
+    
+    ; Flags
+    def generalPurposeFlag:int 0
+    
+    ; Position in archive
+    def localHeaderOffset:int 0    ; Offset of local file header in archive
+    
+    ; Attributes
+    def internalAttributes:int 0
+    def externalAttributes:int 0
+    
+    ; Extra fields
+    def extraField:buffer (buffer_alloc 0)
+    def comment:string ""
+    
+    ; Extracted data (populated after extraction)
+    def data@(optional):buffer
+    
+    Constructor () {
+    }
+    
+    fn setFileName:void (name:string) {
+        fileName = name
+        ; Check if it's a directory (ends with /)
+        def len:int (strlen name)
+        if (len > 0) {
+            def lastChar:int (charAt name (len - 1))
+            ; 47 = '/'
+            isDirectory = (lastChar == 47)
+        }
+    }
+    
+    fn getFileName:string () {
+        return fileName
+    }
+    
+    fn isCompressed:boolean () {
+        return (compressionMethod != 0)
+    }
+    
+    fn isStored:boolean () {
+        return (compressionMethod == 0)
+    }
+    
+    fn isDeflated:boolean () {
+        return (compressionMethod == 8)
+    }
+    
+    ; === MS-DOS Date/Time Conversion ===
+    
+    fn setModificationTime:void (year:int month:int day:int hour:int minute:int second:int) {
+        ; Convert to MS-DOS date format:
+        ; Bits 0-4: Day (1-31)
+        ; Bits 5-8: Month (1-12)
+        ; Bits 9-15: Year (offset from 1980)
+        def yearOffset:int (year - 1980)
+        if (yearOffset < 0) {
+            yearOffset = 0
+        }
+        lastModDate = (day + (month * 32) + (yearOffset * 512))
+        
+        ; Convert to MS-DOS time format:
+        ; Bits 0-4: Second/2 (0-29)
+        ; Bits 5-10: Minute (0-59)
+        ; Bits 11-15: Hour (0-23)
+        def sec2D:double ((to_double second) / 2.0)
+        def sec2:int (to_int sec2D)
+        lastModTime = (sec2 + (minute * 32) + (hour * 2048))
+    }
+    
+    fn getModYear:int () {
+        def yearOffsetD:double ((to_double lastModDate) / 512.0)
+        return ((to_int yearOffsetD) + 1980)
+    }
+    
+    fn getModMonth:int () {
+        def rem:int (lastModDate % 512)
+        def monthD:double ((to_double rem) / 32.0)
+        return (to_int monthD)
+    }
+    
+    fn getModDay:int () {
+        return (lastModDate % 32)
+    }
+    
+    fn getModHour:int () {
+        def hourD:double ((to_double lastModTime) / 2048.0)
+        return (to_int hourD)
+    }
+    
+    fn getModMinute:int () {
+        def rem:int (lastModTime % 2048)
+        def minD:double ((to_double rem) / 32.0)
+        return (to_int minD)
+    }
+    
+    fn getModSecond:int () {
+        return ((lastModTime % 32) * 2)
+    }
+    
+    ; === String Representation ===
+    
+    fn getInfoString:string () {
+        def sizeStr:string (to_string uncompressedSize)
+        def compStr:string (to_string compressedSize)
+        def method:string "stored"
+        if (compressionMethod == 8) {
+            method = "deflate"
+        }
+        def dateStr:string ((to_string (this.getModYear())) + "-" + (to_string (this.getModMonth())) + "-" + (to_string (this.getModDay())))
+        return (fileName + " (" + sizeStr + " bytes, " + method + ", " + dateStr + ")")
+    }
+    
+    ; === Data Header Size Calculation ===
+    
+    fn getLocalHeaderSize:int () {
+        ; 30 bytes fixed + filename length + extra field length
+        return (30 + (strlen fileName) + (buffer_length extraField))
+    }
+    
+    fn getCentralHeaderSize:int () {
+        ; 46 bytes fixed + filename length + extra field length + comment length
+        return (46 + (strlen fileName) + (buffer_length extraField) + (strlen comment))
+    }
+}
+
+; ZIP compression method constants
+class ZipCompressionMethod {
+    sfn STORED:int () {
+        return 0
+    }
+    
+    sfn DEFLATE:int () {
+        return 8
+    }
+}
+
+; ZIP signature constants
+class ZipSignature {
+    sfn LOCAL_FILE_HEADER:int () {
+        ; PK\x03\x04 = 0x04034b50
+        return 67324752
+    }
+    
+    sfn CENTRAL_DIRECTORY_HEADER:int () {
+        ; PK\x01\x02 = 0x02014b50
+        return 33639248
+    }
+    
+    sfn END_OF_CENTRAL_DIRECTORY:int () {
+        ; PK\x05\x06 = 0x06054b50
+        return 101010256
+    }
+    
+    sfn DATA_DESCRIPTOR:int () {
+        ; PK\x07\x08 = 0x08074b50
+        return 134695760
+    }
+}

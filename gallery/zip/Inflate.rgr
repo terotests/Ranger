@@ -1,0 +1,607 @@
+; Inflate.rgr - DEFLATE decompression (RFC 1951)
+; Used to decompress ZIP files with compression method 8
+
+Import "ZipBuffer.rgr"
+
+class InflateHuffmanTable {
+    def counts:[int]     ; Count of codes at each bit length (index 0-15)
+    def symbols:[int]    ; Symbol for each code
+    def maxBits:int 0
+    
+    Constructor () {
+        ; Initialize counts array (16 entries for bit lengths 0-15)
+        def i 0
+        while (i < 16) {
+            push counts 0
+            i = i + 1
+        }
+    }
+    
+    fn build:void (lengths:[int] numSymbols:int) {
+        ; Build Huffman table from code lengths
+        ; lengths[i] = bit length for symbol i
+        
+        ; Count codes of each length
+        def i 0
+        while (i < 16) {
+            set counts i 0
+            i = i + 1
+        }
+        
+        i = 0
+        while (i < numSymbols) {
+            def len:int (itemAt lengths i)
+            if (len > 0) {
+                def cnt:int (itemAt counts len)
+                set counts len (cnt + 1)
+                if (len > maxBits) {
+                    maxBits = len
+                }
+            }
+            i = i + 1
+        }
+        
+        ; Generate offsets for sorting symbols by code length
+        def offsets:[int]
+        def offset:int 0
+        i = 0
+        while (i < 16) {
+            push offsets offset
+            def cnt:int (itemAt counts i)
+            offset = offset + cnt
+            i = i + 1
+        }
+        
+        ; Sort symbols by code length, preserving order within same length
+        ; Allocate symbols array
+        i = 0
+        while (i < numSymbols) {
+            push symbols 0
+            i = i + 1
+        }
+        
+        i = 0
+        while (i < numSymbols) {
+            def len:int (itemAt lengths i)
+            if (len > 0) {
+                def off:int (itemAt offsets len)
+                set symbols off i
+                set offsets len (off + 1)
+            }
+            i = i + 1
+        }
+    }
+    
+    fn decode:int (reader:InflateBitReader) {
+        ; Decode next symbol using this Huffman table
+        def code:int 0
+        def first:int 0
+        def index:int 0
+        
+        def len:int 1
+        while (len <= maxBits) {
+            def bit:int (reader.readBit())
+            code = (code * 2) + bit
+            def count:int (itemAt counts len)
+            if ((code - first) < count) {
+                return (itemAt symbols (index + code - first))
+            }
+            index = index + count
+            first = (first + count) * 2
+            len = len + 1
+        }
+        
+        ; Invalid code
+        return -1
+    }
+}
+
+class InflateBitReader {
+    def data:buffer (buffer_alloc 0)
+    def bytePos:int 0
+    def bitPos:int 0       ; Bits remaining in current byte (0 = need new byte)
+    def currentByte:int 0
+    def dataLength:int 0
+    
+    Constructor () {
+    }
+    
+    fn init:void (buf:buffer offset:int length:int) {
+        data = buf
+        bytePos = offset
+        dataLength = offset + length
+        bitPos = 0
+        currentByte = 0
+    }
+    
+    fn readBit:int () {
+        ; DEFLATE reads bits LSB first (unlike JPEG which is MSB first)
+        if (bitPos == 0) {
+            if (bytePos >= dataLength) {
+                return 0
+            }
+            currentByte = (buffer_get data bytePos)
+            bytePos = bytePos + 1
+            bitPos = 8
+        }
+        
+        def bit:int (currentByte % 2)
+        def shifted:double ((to_double currentByte) / 2.0)
+        currentByte = (to_int shifted)
+        bitPos = bitPos - 1
+        return bit
+    }
+    
+    fn readBits:int (count:int) {
+        ; Read multiple bits, LSB first
+        def result:int 0
+        def multiplier:int 1
+        def i 0
+        while (i < count) {
+            def bit:int (this.readBit())
+            result = result + (bit * multiplier)
+            multiplier = multiplier * 2
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn alignToByte:void () {
+        ; Skip remaining bits in current byte
+        bitPos = 0
+    }
+    
+    fn readByte:int () {
+        this.alignToByte()
+        if (bytePos >= dataLength) {
+            return 0
+        }
+        def b:int (buffer_get data bytePos)
+        bytePos = bytePos + 1
+        return b
+    }
+    
+    fn readUint16LE:int () {
+        def b0:int (this.readByte())
+        def b1:int (this.readByte())
+        return (b0 + (b1 * 256))
+    }
+    
+    fn getBytePosition:int () {
+        return bytePos
+    }
+    
+    fn isEOF:boolean () {
+        return ((bytePos >= dataLength) && (bitPos == 0))
+    }
+}
+
+class Inflate {
+    def input:buffer (buffer_alloc 0)
+    def output:GrowableZipBuffer (new GrowableZipBuffer())
+    def reader:InflateBitReader (new InflateBitReader())
+    
+    ; Fixed Huffman tables (built once)
+    def fixedLitLen:InflateHuffmanTable (new InflateHuffmanTable())
+    def fixedDist:InflateHuffmanTable (new InflateHuffmanTable())
+    def fixedTablesBuilt:boolean false
+    
+    ; Length and distance extra bits tables
+    def lengthBase:[int]
+    def lengthExtra:[int]
+    def distBase:[int]
+    def distExtra:[int]
+    
+    Constructor () {
+        this.buildLengthDistTables()
+    }
+    
+    fn buildLengthDistTables:void () {
+        ; Length codes 257-285 -> lengths 3-258
+        ; Base lengths for codes 257-285
+        def bases:[int]
+        push bases 3     ; 257
+        push bases 4     ; 258
+        push bases 5     ; 259
+        push bases 6     ; 260
+        push bases 7     ; 261
+        push bases 8     ; 262
+        push bases 9     ; 263
+        push bases 10    ; 264
+        push bases 11    ; 265
+        push bases 13    ; 266
+        push bases 15    ; 267
+        push bases 17    ; 268
+        push bases 19    ; 269
+        push bases 23    ; 270
+        push bases 27    ; 271
+        push bases 31    ; 272
+        push bases 35    ; 273
+        push bases 43    ; 274
+        push bases 51    ; 275
+        push bases 59    ; 276
+        push bases 67    ; 277
+        push bases 83    ; 278
+        push bases 99    ; 279
+        push bases 115   ; 280
+        push bases 131   ; 281
+        push bases 163   ; 282
+        push bases 195   ; 283
+        push bases 227   ; 284
+        push bases 258   ; 285
+        lengthBase = bases
+        
+        ; Extra bits for length codes 257-285
+        def extras:[int]
+        push extras 0    ; 257
+        push extras 0    ; 258
+        push extras 0    ; 259
+        push extras 0    ; 260
+        push extras 0    ; 261
+        push extras 0    ; 262
+        push extras 0    ; 263
+        push extras 0    ; 264
+        push extras 1    ; 265
+        push extras 1    ; 266
+        push extras 1    ; 267
+        push extras 1    ; 268
+        push extras 2    ; 269
+        push extras 2    ; 270
+        push extras 2    ; 271
+        push extras 2    ; 272
+        push extras 3    ; 273
+        push extras 3    ; 274
+        push extras 3    ; 275
+        push extras 3    ; 276
+        push extras 4    ; 277
+        push extras 4    ; 278
+        push extras 4    ; 279
+        push extras 4    ; 280
+        push extras 5    ; 281
+        push extras 5    ; 282
+        push extras 5    ; 283
+        push extras 5    ; 284
+        push extras 0    ; 285
+        lengthExtra = extras
+        
+        ; Distance codes 0-29 -> distances 1-32768
+        def dBases:[int]
+        push dBases 1
+        push dBases 2
+        push dBases 3
+        push dBases 4
+        push dBases 5
+        push dBases 7
+        push dBases 9
+        push dBases 13
+        push dBases 17
+        push dBases 25
+        push dBases 33
+        push dBases 49
+        push dBases 65
+        push dBases 97
+        push dBases 129
+        push dBases 193
+        push dBases 257
+        push dBases 385
+        push dBases 513
+        push dBases 769
+        push dBases 1025
+        push dBases 1537
+        push dBases 2049
+        push dBases 3073
+        push dBases 4097
+        push dBases 6145
+        push dBases 8193
+        push dBases 12289
+        push dBases 16385
+        push dBases 24577
+        distBase = dBases
+        
+        def dExtras:[int]
+        push dExtras 0
+        push dExtras 0
+        push dExtras 0
+        push dExtras 0
+        push dExtras 1
+        push dExtras 1
+        push dExtras 2
+        push dExtras 2
+        push dExtras 3
+        push dExtras 3
+        push dExtras 4
+        push dExtras 4
+        push dExtras 5
+        push dExtras 5
+        push dExtras 6
+        push dExtras 6
+        push dExtras 7
+        push dExtras 7
+        push dExtras 8
+        push dExtras 8
+        push dExtras 9
+        push dExtras 9
+        push dExtras 10
+        push dExtras 10
+        push dExtras 11
+        push dExtras 11
+        push dExtras 12
+        push dExtras 12
+        push dExtras 13
+        push dExtras 13
+        distExtra = dExtras
+    }
+    
+    fn buildFixedTables:void () {
+        if fixedTablesBuilt {
+            return
+        }
+        
+        ; Build fixed literal/length Huffman table
+        ; Literals 0-143: 8-bit codes
+        ; Literals 144-255: 9-bit codes
+        ; End-of-block 256: 7-bit code
+        ; Lengths 257-279: 7-bit codes
+        ; Lengths 280-287: 8-bit codes
+        def lengths:[int]
+        def i 0
+        while (i < 144) {
+            push lengths 8
+            i = i + 1
+        }
+        while (i < 256) {
+            push lengths 9
+            i = i + 1
+        }
+        while (i < 280) {
+            push lengths 7
+            i = i + 1
+        }
+        while (i < 288) {
+            push lengths 8
+            i = i + 1
+        }
+        fixedLitLen.build(lengths 288)
+        
+        ; Build fixed distance Huffman table (all 5-bit codes)
+        def distLengths:[int]
+        i = 0
+        while (i < 32) {
+            push distLengths 5
+            i = i + 1
+        }
+        fixedDist.build(distLengths 32)
+        
+        fixedTablesBuilt = true
+    }
+    
+    fn decompress:buffer (data:buffer) {
+        input = data
+        output = (new GrowableZipBuffer())
+        def dataLen:int (buffer_length data)
+        reader.init(data 0 dataLen)
+        
+        this.buildFixedTables()
+        
+        def finalBlock:boolean false
+        while ((false == finalBlock)) {
+            ; Read block header
+            def bfinal:int (reader.readBit())
+            def btype:int (reader.readBits(2))
+            
+            finalBlock = (bfinal == 1)
+            
+            if (btype == 0) {
+                ; Stored block (no compression)
+                this.decompressStored()
+            }
+            if (btype == 1) {
+                ; Fixed Huffman codes
+                this.decompressHuffman(fixedLitLen fixedDist)
+            }
+            if (btype == 2) {
+                ; Dynamic Huffman codes
+                this.decompressDynamic()
+            }
+            ; btype == 3 is reserved/error
+        }
+        
+        return (output.toBuffer())
+    }
+    
+    fn decompressStored:void () {
+        ; Stored block: skip to byte boundary, read length, copy literal bytes
+        reader.alignToByte()
+        def len:int (reader.readUint16LE())
+        def nlen:int (reader.readUint16LE())
+        ; nlen should be one's complement of len (we could verify)
+        
+        def i 0
+        while (i < len) {
+            def b:int (reader.readByte())
+            output.writeUint8(b)
+            i = i + 1
+        }
+    }
+    
+    fn decompressHuffman:void (litLenTable:InflateHuffmanTable distTable:InflateHuffmanTable) {
+        ; Decode Huffman-compressed data
+        def done:boolean false
+        while ((false == done)) {
+            def sym:int (litLenTable.decode(reader))
+            
+            if (sym < 256) {
+                ; Literal byte
+                output.writeUint8(sym)
+            }
+            if (sym == 256) {
+                ; End of block
+                done = true
+            }
+            if (sym > 256) {
+                ; Length/distance pair
+                def lengthCode:int (sym - 257)
+                def length:int (itemAt lengthBase lengthCode)
+                def extraBits:int (itemAt lengthExtra lengthCode)
+                if (extraBits > 0) {
+                    length = length + (reader.readBits(extraBits))
+                }
+                
+                def distCode:int (distTable.decode(reader))
+                def dist:int (itemAt distBase distCode)
+                def distExtraBits:int (itemAt distExtra distCode)
+                if (distExtraBits > 0) {
+                    dist = dist + (reader.readBits(distExtraBits))
+                }
+                
+                ; Copy from output buffer (LZ77)
+                this.copyFromOutput(dist length)
+            }
+        }
+    }
+    
+    fn decompressDynamic:void () {
+        ; Read dynamic Huffman table definitions
+        def hlit:int ((reader.readBits(5)) + 257)   ; # of literal/length codes
+        def hdist:int ((reader.readBits(5)) + 1)    ; # of distance codes
+        def hclen:int ((reader.readBits(4)) + 4)    ; # of code length codes
+        
+        ; Code length code order
+        def clOrder:[int]
+        push clOrder 16
+        push clOrder 17
+        push clOrder 18
+        push clOrder 0
+        push clOrder 8
+        push clOrder 7
+        push clOrder 9
+        push clOrder 6
+        push clOrder 10
+        push clOrder 5
+        push clOrder 11
+        push clOrder 4
+        push clOrder 12
+        push clOrder 3
+        push clOrder 13
+        push clOrder 2
+        push clOrder 14
+        push clOrder 1
+        push clOrder 15
+        
+        ; Read code length code lengths
+        def clLengths:[int]
+        def i 0
+        while (i < 19) {
+            push clLengths 0
+            i = i + 1
+        }
+        
+        i = 0
+        while (i < hclen) {
+            def idx:int (itemAt clOrder i)
+            def len:int (reader.readBits(3))
+            set clLengths idx len
+            i = i + 1
+        }
+        
+        ; Build code length Huffman table
+        def clTable (new InflateHuffmanTable())
+        clTable.build(clLengths 19)
+        
+        ; Decode literal/length and distance code lengths
+        def allLengths:[int]
+        def totalCodes:int (hlit + hdist)
+        i = 0
+        while (i < totalCodes) {
+            def sym:int (clTable.decode(reader))
+            
+            if (sym < 16) {
+                ; Literal code length
+                push allLengths sym
+                i = i + 1
+            }
+            if (sym == 16) {
+                ; Repeat previous length 3-6 times
+                def repeat:int ((reader.readBits(2)) + 3)
+                def prevLen:int 0
+                def arrLen:int (array_length allLengths)
+                if (arrLen > 0) {
+                    prevLen = (itemAt allLengths (arrLen - 1))
+                }
+                def j 0
+                while (j < repeat) {
+                    push allLengths prevLen
+                    j = j + 1
+                }
+                i = i + repeat
+            }
+            if (sym == 17) {
+                ; Repeat zero 3-10 times
+                def repeat:int ((reader.readBits(3)) + 3)
+                def j 0
+                while (j < repeat) {
+                    push allLengths 0
+                    j = j + 1
+                }
+                i = i + repeat
+            }
+            if (sym == 18) {
+                ; Repeat zero 11-138 times
+                def repeat:int ((reader.readBits(7)) + 11)
+                def j 0
+                while (j < repeat) {
+                    push allLengths 0
+                    j = j + 1
+                }
+                i = i + repeat
+            }
+        }
+        
+        ; Split into literal/length and distance lengths
+        def litLenLengths:[int]
+        def distLengths:[int]
+        i = 0
+        while (i < hlit) {
+            push litLenLengths (itemAt allLengths i)
+            i = i + 1
+        }
+        while (i < totalCodes) {
+            push distLengths (itemAt allLengths i)
+            i = i + 1
+        }
+        
+        ; Build dynamic Huffman tables
+        def dynLitLen (new InflateHuffmanTable())
+        dynLitLen.build(litLenLengths hlit)
+        
+        def dynDist (new InflateHuffmanTable())
+        dynDist.build(distLengths hdist)
+        
+        ; Decode data using dynamic tables
+        this.decompressHuffman(dynLitLen dynDist)
+    }
+    
+    fn copyFromOutput:void (distance:int length:int) {
+        ; Copy 'length' bytes from 'distance' bytes back in output
+        ; Note: we need to handle overlapping copies (distance < length)
+        def outputBuf:buffer (output.toBuffer())
+        def outputLen:int (buffer_length outputBuf)
+        def srcPos:int (outputLen - distance)
+        
+        def i 0
+        while (i < length) {
+            def b:int 0
+            if ((srcPos + i) >= 0) {
+                ; Re-get buffer in case it grew
+                def currentBuf:buffer (output.toBuffer())
+                def currentLen:int (buffer_length currentBuf)
+                def readPos:int (srcPos + i)
+                if (readPos < currentLen) {
+                    b = (buffer_get currentBuf readPos)
+                }
+            }
+            output.writeUint8(b)
+            i = i + 1
+        }
+    }
+}

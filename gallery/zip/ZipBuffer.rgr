@@ -1,0 +1,332 @@
+; ZipBuffer.rgr - Little-endian buffer utilities for ZIP format
+; ZIP uses little-endian byte order (unlike JPEG which uses big-endian)
+
+class ZipBuffer {
+    def data:buffer (buffer_alloc 0)
+    def pos:int 0
+    def length:int 0
+    
+    Constructor () {
+    }
+    
+    fn initWithBuffer:void (buf:buffer) {
+        data = buf
+        length = (buffer_length buf)
+        pos = 0
+    }
+    
+    fn initWithSize:void (size:int) {
+        data = (buffer_alloc size)
+        length = size
+        pos = 0
+    }
+    
+    ; === Position Management ===
+    
+    fn getPosition:int () {
+        return pos
+    }
+    
+    fn setPosition:void (newPos:int) {
+        pos = newPos
+    }
+    
+    fn seek:void (offset:int) {
+        pos = offset
+    }
+    
+    fn skip:void (count:int) {
+        pos = pos + count
+    }
+    
+    fn remaining:int () {
+        return (length - pos)
+    }
+    
+    fn isEOF:boolean () {
+        return (pos >= length)
+    }
+    
+    ; === Little-Endian Read Operations ===
+    
+    fn readUint8:int () {
+        if (pos >= length) {
+            return 0
+        }
+        def value:int (buffer_get data pos)
+        pos = pos + 1
+        return value
+    }
+    
+    fn readUint16LE:int () {
+        ; Read 16-bit unsigned integer, little-endian (low byte first)
+        def b0:int (this.readUint8())
+        def b1:int (this.readUint8())
+        return (b0 + (b1 * 256))
+    }
+    
+    fn readUint32LE:int () {
+        ; Read 32-bit unsigned integer, little-endian
+        def b0:int (this.readUint8())
+        def b1:int (this.readUint8())
+        def b2:int (this.readUint8())
+        def b3:int (this.readUint8())
+        return (b0 + (b1 * 256) + (b2 * 65536) + (b3 * 16777216))
+    }
+    
+    fn readBytes:buffer (count:int) {
+        ; Read count bytes into a new buffer
+        def result:buffer (buffer_alloc count)
+        def i 0
+        while (i < count) {
+            if (pos < length) {
+                def b:int (buffer_get data pos)
+                buffer_set result i b
+                pos = pos + 1
+            }
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn readString:string (count:int) {
+        ; Read count bytes as ASCII string
+        def result:string ""
+        def i 0
+        while (i < count) {
+            if (pos < length) {
+                def ch:int (buffer_get data pos)
+                result = (result + (strfromcode ch))
+                pos = pos + 1
+            }
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn peekUint8:int () {
+        if (pos >= length) {
+            return 0
+        }
+        return (buffer_get data pos)
+    }
+    
+    fn peekUint32LE:int () {
+        def savedPos:int pos
+        def value:int (this.readUint32LE())
+        pos = savedPos
+        return value
+    }
+    
+    ; === Little-Endian Write Operations ===
+    
+    fn writeUint8:void (value:int) {
+        if (pos < length) {
+            buffer_set data pos value
+            pos = pos + 1
+        }
+    }
+    
+    fn writeUint16LE:void (value:int) {
+        ; Write 16-bit unsigned integer, little-endian (low byte first)
+        def b0:int (value % 256)
+        def b1D:double ((to_double value) / 256.0)
+        def b1:int ((to_int b1D) % 256)
+        this.writeUint8(b0)
+        this.writeUint8(b1)
+    }
+    
+    fn writeUint32LE:void (value:int) {
+        ; Write 32-bit unsigned integer, little-endian
+        def b0:int (value % 256)
+        def rem1D:double ((to_double value) / 256.0)
+        def rem1:int (to_int rem1D)
+        def b1:int (rem1 % 256)
+        def rem2D:double ((to_double rem1) / 256.0)
+        def rem2:int (to_int rem2D)
+        def b2:int (rem2 % 256)
+        def rem3D:double ((to_double rem2) / 256.0)
+        def b3:int (to_int rem3D)
+        this.writeUint8(b0)
+        this.writeUint8(b1)
+        this.writeUint8(b2)
+        this.writeUint8(b3)
+    }
+    
+    fn writeBytes:void (src:buffer srcOffset:int count:int) {
+        def i 0
+        while (i < count) {
+            def b:int (buffer_get src (srcOffset + i))
+            this.writeUint8(b)
+            i = i + 1
+        }
+    }
+    
+    fn writeBuffer:void (src:buffer) {
+        def len:int (buffer_length src)
+        this.writeBytes(src 0 len)
+    }
+    
+    fn writeString:void (s:string) {
+        def len:int (strlen s)
+        def i 0
+        while (i < len) {
+            def ch:int (charAt s i)
+            this.writeUint8(ch)
+            i = i + 1
+        }
+    }
+    
+    ; === Buffer Access ===
+    
+    fn getBuffer:buffer () {
+        return data
+    }
+    
+    fn getLength:int () {
+        return length
+    }
+    
+    ; === Search Operations ===
+    
+    fn findSignatureBackward:int (sig:int startPos:int) {
+        ; Search backward from startPos for a 4-byte signature (little-endian)
+        ; Returns position of signature or -1 if not found
+        def searchPos:int startPos
+        while (searchPos >= 0) {
+            def savedPos:int pos
+            pos = searchPos
+            def value:int (this.readUint32LE())
+            pos = savedPos
+            if (value == sig) {
+                return searchPos
+            }
+            searchPos = searchPos - 1
+        }
+        return -1
+    }
+}
+
+; GrowableZipBuffer - Dynamic buffer that grows as needed
+class GrowableZipBuffer {
+    def chunks:[buffer]
+    def chunkSize:int 4096
+    def currentChunk:buffer (buffer_alloc 0)
+    def currentPos:int 0
+    def totalSize:int 0
+    
+    Constructor () {
+        currentPos = 0
+        totalSize = 0
+        def initSize:int 4096
+        currentChunk = (buffer_alloc initSize)
+    }
+    
+    fn setChunkSize:void (size:int) {
+        chunkSize = size
+    }
+    
+    fn allocateNewChunk:void () {
+        push chunks currentChunk
+        def size:int chunkSize
+        currentChunk = (buffer_alloc size)
+        currentPos = 0
+    }
+    
+    fn writeUint8:void (value:int) {
+        if (currentPos >= chunkSize) {
+            this.allocateNewChunk()
+        }
+        buffer_set currentChunk currentPos value
+        currentPos = currentPos + 1
+        totalSize = totalSize + 1
+    }
+    
+    fn writeUint16LE:void (value:int) {
+        def b0:int (value % 256)
+        def b1D:double ((to_double value) / 256.0)
+        def b1:int ((to_int b1D) % 256)
+        this.writeUint8(b0)
+        this.writeUint8(b1)
+    }
+    
+    fn writeUint32LE:void (value:int) {
+        def b0:int (value % 256)
+        def rem1D:double ((to_double value) / 256.0)
+        def rem1:int (to_int rem1D)
+        def b1:int (rem1 % 256)
+        def rem2D:double ((to_double rem1) / 256.0)
+        def rem2:int (to_int rem2D)
+        def b2:int (rem2 % 256)
+        def rem3D:double ((to_double rem2) / 256.0)
+        def b3:int (to_int rem3D)
+        this.writeUint8(b0)
+        this.writeUint8(b1)
+        this.writeUint8(b2)
+        this.writeUint8(b3)
+    }
+    
+    fn writeBytes:void (src:buffer srcOffset:int count:int) {
+        def i 0
+        while (i < count) {
+            def b:int (buffer_get src (srcOffset + i))
+            this.writeUint8(b)
+            i = i + 1
+        }
+    }
+    
+    fn writeBuffer:void (src:buffer) {
+        def len:int (buffer_length src)
+        this.writeBytes(src 0 len)
+    }
+    
+    fn writeString:void (s:string) {
+        def len:int (strlen s)
+        def i 0
+        while (i < len) {
+            def ch:int (charAt s i)
+            this.writeUint8(ch)
+            i = i + 1
+        }
+    }
+    
+    fn getSize:int () {
+        return totalSize
+    }
+    
+    fn toBuffer:buffer () {
+        ; Consolidate all chunks into a single buffer
+        def size:int totalSize
+        def result:buffer (buffer_alloc size)
+        def destPos:int 0
+        
+        ; Copy all complete chunks
+        def numChunks:int (array_length chunks)
+        def chSize:int chunkSize
+        def i 0
+        while (i < numChunks) {
+            def chunk:buffer (itemAt chunks i)
+            def j 0
+            while (j < chSize) {
+                def b:int (buffer_get chunk j)
+                buffer_set result destPos b
+                destPos = destPos + 1
+                j = j + 1
+            }
+            i = i + 1
+        }
+        
+        ; Copy current chunk (partial)
+        def curPos:int currentPos
+        def curChunk:buffer currentChunk
+        def j 0
+        while (j < curPos) {
+            def b:int (buffer_get curChunk j)
+            buffer_set result destPos b
+            destPos = destPos + 1
+            j = j + 1
+        }
+        
+        return result
+    }
+}

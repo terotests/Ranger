@@ -1,0 +1,294 @@
+; ZipWriter.rgr - ZIP archive writer
+; Creates ZIP archives with stored (uncompressed) files
+
+Import "ZipBuffer.rgr"
+Import "ZipEntry.rgr"
+Import "CRC32.rgr"
+
+class ZipWriter {
+    def entries:[ZipEntry]
+    def output:GrowableZipBuffer (new GrowableZipBuffer())
+    def comment:string ""
+    def crc:CRC32 (new CRC32())
+    
+    Constructor () {
+    }
+    
+    fn create:void () {
+        ; Initialize for a new archive
+        output = (new GrowableZipBuffer())
+        ; Clear entries array by creating new one
+        def newEntries:[ZipEntry]
+        entries = newEntries
+        comment = ""
+    }
+    
+    fn addFile:void (name:string fileData:buffer) {
+        ; Add a file with STORED compression (no compression)
+        def entry (new ZipEntry())
+        entry.setFileName(name)
+        entry.compressionMethod = 0  ; Stored
+        entry.uncompressedSize = (buffer_length fileData)
+        entry.compressedSize = entry.uncompressedSize
+        entry.crc32 = (crc.compute(fileData))
+        
+        ; Set modification time to current (dummy values for now)
+        entry.setModificationTime(2025 12 17 12 0 0)
+        
+        ; Record offset before writing local header
+        entry.localHeaderOffset = (output.getSize())
+        
+        ; Write local file header
+        this.writeLocalFileHeader(entry)
+        
+        ; Write file data
+        output.writeBuffer(fileData)
+        
+        ; Add to entries list
+        push entries entry
+    }
+    
+    fn addFileFromDisk:void (name:string path:string filename:string) {
+        ; Add a file from disk
+        def fileData:buffer (buffer_read_file path filename)
+        this.addFile(name fileData)
+    }
+    
+    fn addString:void (name:string content:string) {
+        ; Add a text file from string content
+        def len:int (strlen content)
+        def data:buffer (buffer_alloc len)
+        def i 0
+        while (i < len) {
+            def ch:int (charAt content i)
+            buffer_set data i ch
+            i = i + 1
+        }
+        this.addFile(name data)
+    }
+    
+    fn addDirectory:void (name:string) {
+        ; Add a directory entry (name should end with /)
+        def dirName:string name
+        def len:int (strlen name)
+        if (len > 0) {
+            def lastChar:int (charAt name (len - 1))
+            ; 47 = '/'
+            if (lastChar != 47) {
+                dirName = (name + "/")
+            }
+        }
+        
+        def entry (new ZipEntry())
+        entry.setFileName(dirName)
+        entry.compressionMethod = 0
+        entry.uncompressedSize = 0
+        entry.compressedSize = 0
+        entry.crc32 = 0
+        entry.isDirectory = true
+        entry.externalAttributes = 16  ; Directory attribute
+        
+        entry.setModificationTime(2025 12 17 12 0 0)
+        entry.localHeaderOffset = (output.getSize())
+        
+        this.writeLocalFileHeader(entry)
+        
+        push entries entry
+    }
+    
+    fn writeLocalFileHeader:void (entry:ZipEntry) {
+        ; Local file header signature (0x04034b50)
+        output.writeUint32LE(67324752)
+        
+        ; Version needed to extract (2.0)
+        output.writeUint16LE(20)
+        
+        ; General purpose bit flag
+        output.writeUint16LE(entry.generalPurposeFlag)
+        
+        ; Compression method
+        output.writeUint16LE(entry.compressionMethod)
+        
+        ; Last mod time
+        output.writeUint16LE(entry.lastModTime)
+        
+        ; Last mod date
+        output.writeUint16LE(entry.lastModDate)
+        
+        ; CRC-32
+        output.writeUint32LE(entry.crc32)
+        
+        ; Compressed size
+        output.writeUint32LE(entry.compressedSize)
+        
+        ; Uncompressed size
+        output.writeUint32LE(entry.uncompressedSize)
+        
+        ; Filename length
+        def fileNameLen:int (strlen entry.fileName)
+        output.writeUint16LE(fileNameLen)
+        
+        ; Extra field length
+        def extraLen:int (buffer_length entry.extraField)
+        output.writeUint16LE(extraLen)
+        
+        ; Filename
+        output.writeString(entry.fileName)
+        
+        ; Extra field
+        if (extraLen > 0) {
+            output.writeBuffer(entry.extraField)
+        }
+    }
+    
+    fn writeCentralDirectory:int () {
+        ; Write central directory and return its size
+        def startOffset:int (output.getSize())
+        
+        def numEntries:int (array_length entries)
+        def i 0
+        while (i < numEntries) {
+            def entry:ZipEntry (itemAt entries i)
+            this.writeCentralDirectoryEntry(entry)
+            i = i + 1
+        }
+        
+        def endOffset:int (output.getSize())
+        return (endOffset - startOffset)
+    }
+    
+    fn writeCentralDirectoryEntry:void (entry:ZipEntry) {
+        ; Central directory file header signature (0x02014b50)
+        output.writeUint32LE(33639248)
+        
+        ; Version made by (2.0, DOS)
+        output.writeUint16LE(20)
+        
+        ; Version needed to extract
+        output.writeUint16LE(20)
+        
+        ; General purpose bit flag
+        output.writeUint16LE(entry.generalPurposeFlag)
+        
+        ; Compression method
+        output.writeUint16LE(entry.compressionMethod)
+        
+        ; Last mod time
+        output.writeUint16LE(entry.lastModTime)
+        
+        ; Last mod date
+        output.writeUint16LE(entry.lastModDate)
+        
+        ; CRC-32
+        output.writeUint32LE(entry.crc32)
+        
+        ; Compressed size
+        output.writeUint32LE(entry.compressedSize)
+        
+        ; Uncompressed size
+        output.writeUint32LE(entry.uncompressedSize)
+        
+        ; Filename length
+        def fileNameLen:int (strlen entry.fileName)
+        output.writeUint16LE(fileNameLen)
+        
+        ; Extra field length
+        def extraLen:int (buffer_length entry.extraField)
+        output.writeUint16LE(extraLen)
+        
+        ; Comment length
+        def commentLen:int (strlen entry.comment)
+        output.writeUint16LE(commentLen)
+        
+        ; Disk number start
+        output.writeUint16LE(0)
+        
+        ; Internal file attributes
+        output.writeUint16LE(entry.internalAttributes)
+        
+        ; External file attributes
+        output.writeUint32LE(entry.externalAttributes)
+        
+        ; Relative offset of local header
+        output.writeUint32LE(entry.localHeaderOffset)
+        
+        ; Filename
+        output.writeString(entry.fileName)
+        
+        ; Extra field
+        if (extraLen > 0) {
+            output.writeBuffer(entry.extraField)
+        }
+        
+        ; Comment
+        if (commentLen > 0) {
+            output.writeString(entry.comment)
+        }
+    }
+    
+    fn writeEndOfCentralDirectory:void (centralDirOffset:int centralDirSize:int) {
+        ; End of central directory signature (0x06054b50)
+        output.writeUint32LE(101010256)
+        
+        ; Number of this disk
+        output.writeUint16LE(0)
+        
+        ; Disk where central directory starts
+        output.writeUint16LE(0)
+        
+        ; Number of central directory records on this disk
+        def numEntries:int (array_length entries)
+        output.writeUint16LE(numEntries)
+        
+        ; Total number of central directory records
+        output.writeUint16LE(numEntries)
+        
+        ; Size of central directory
+        output.writeUint32LE(centralDirSize)
+        
+        ; Offset of central directory
+        output.writeUint32LE(centralDirOffset)
+        
+        ; Comment length
+        def commentLen:int (strlen comment)
+        output.writeUint16LE(commentLen)
+        
+        ; Comment
+        if (commentLen > 0) {
+            output.writeString(comment)
+        }
+    }
+    
+    fn setComment:void (c:string) {
+        comment = c
+    }
+    
+    fn save:void (path:string filename:string) {
+        ; Finalize and write ZIP file to disk
+        
+        ; Record central directory offset
+        def centralDirOffset:int (output.getSize())
+        
+        ; Write central directory
+        def centralDirSize:int (this.writeCentralDirectory())
+        
+        ; Write end of central directory
+        this.writeEndOfCentralDirectory(centralDirOffset centralDirSize)
+        
+        ; Get final buffer and write to file
+        def finalData:buffer (output.toBuffer())
+        buffer_write_file path filename finalData
+    }
+    
+    fn toBuffer:buffer () {
+        ; Finalize and return as buffer (without writing to file)
+        def centralDirOffset:int (output.getSize())
+        def centralDirSize:int (this.writeCentralDirectory())
+        this.writeEndOfCentralDirectory(centralDirOffset centralDirSize)
+        return (output.toBuffer())
+    }
+    
+    fn getEntryCount:int () {
+        return (array_length entries)
+    }
+}
