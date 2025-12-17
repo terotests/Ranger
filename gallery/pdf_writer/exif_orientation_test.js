@@ -17,6 +17,8 @@ class BufferChunk  {
 }
 class GrowableBuffer  {
   constructor() {
+    this.firstChunk = new BufferChunk(4096);
+    this.currentChunk = new BufferChunk(4096);
     this.chunkSize = 4096;
     this.totalSize = 0;
     const chunk = new BufferChunk(this.chunkSize);
@@ -497,8 +499,8 @@ class IDCT  {
     this.zigzagMap.push(62);
     this.zigzagMap.push(63);
   }
-  dezigzag (zigzag, block) {
-    block.length = 0;
+  dezigzag (zigzag) {
+    let block = [];
     let i = 0;
     while (i < 64) {
       block.push(0);
@@ -510,6 +512,7 @@ class IDCT  {
       block[pos] = zigzag[i];
       i = i + 1;
     };
+    return block;
   };
   idct1d (input, startIdx, stride, output, outIdx, outStride) {
     let x = 0;
@@ -920,19 +923,39 @@ class ImageBuffer  {
   scale (factor) {
     const newW = this.width * factor;
     const newH = this.height * factor;
+    return this.scaleToSize(newW, newH);
+  };
+  scaleToSize (newW, newH) {
     const result = new ImageBuffer();
     result.init(newW, newH);
+    const scaleX = (this.width) / (newW);
+    const scaleY = (this.height) / (newH);
     let destY = 0;
     while (destY < newH) {
-      const srcY = Math.floor( (destY / factor));
+      const srcYf = (destY) * scaleY;
+      const srcY0 = Math.floor( srcYf);
+      let srcY1 = srcY0 + 1;
+      if ( srcY1 >= this.height ) {
+        srcY1 = this.height - 1;
+      }
+      const fy = srcYf - (srcY0);
       let destX = 0;
       while (destX < newW) {
-        const srcX = Math.floor( (destX / factor));
-        const srcOff = ((srcY * this.width) + srcX) * 4;
-        const r = this.pixels._view.getUint8(srcOff);
-        const g = this.pixels._view.getUint8((srcOff + 1));
-        const b = this.pixels._view.getUint8((srcOff + 2));
-        const a = this.pixels._view.getUint8((srcOff + 3));
+        const srcXf = (destX) * scaleX;
+        const srcX0 = Math.floor( srcXf);
+        let srcX1 = srcX0 + 1;
+        if ( srcX1 >= this.width ) {
+          srcX1 = this.width - 1;
+        }
+        const fx = srcXf - (srcX0);
+        const off00 = ((srcY0 * this.width) + srcX0) * 4;
+        const off01 = ((srcY0 * this.width) + srcX1) * 4;
+        const off10 = ((srcY1 * this.width) + srcX0) * 4;
+        const off11 = ((srcY1 * this.width) + srcX1) * 4;
+        const r = this.bilinear((this.pixels._view.getUint8(off00)), (this.pixels._view.getUint8(off01)), (this.pixels._view.getUint8(off10)), (this.pixels._view.getUint8(off11)), fx, fy);
+        const g = this.bilinear((this.pixels._view.getUint8((off00 + 1))), (this.pixels._view.getUint8((off01 + 1))), (this.pixels._view.getUint8((off10 + 1))), (this.pixels._view.getUint8((off11 + 1))), fx, fy);
+        const b = this.bilinear((this.pixels._view.getUint8((off00 + 2))), (this.pixels._view.getUint8((off01 + 2))), (this.pixels._view.getUint8((off10 + 2))), (this.pixels._view.getUint8((off11 + 2))), fx, fy);
+        const a = this.bilinear((this.pixels._view.getUint8((off00 + 3))), (this.pixels._view.getUint8((off01 + 3))), (this.pixels._view.getUint8((off10 + 3))), (this.pixels._view.getUint8((off11 + 3))), fx, fy);
         const destOff = ((destY * newW) + destX) * 4;
         result.pixels._view.setUint8(destOff, r);
         result.pixels._view.setUint8(destOff + 1, g);
@@ -943,6 +966,12 @@ class ImageBuffer  {
       destY = destY + 1;
     };
     return result;
+  };
+  bilinear (v00, v01, v10, v11, fx, fy) {
+    const top = ((v00) * (1.0 - fx)) + ((v01) * fx);
+    const bottom = ((v10) * (1.0 - fx)) + ((v11) * fx);
+    const result = (top * (1.0 - fy)) + (bottom * fy);
+    return Math.floor( result);
   };
   rotate90CW () {
     const result = new ImageBuffer();
@@ -1508,8 +1537,8 @@ class JPEGDecoder  {
     };
     return true;
   };
-  decodeBlock (reader, comp, quantTable, coeffs) {
-    coeffs.length = 0;
+  decodeBlock (reader, comp, quantTable) {
+    let coeffs = [];
     let i = 0;
     while (i < 64) {
       coeffs.push(0);
@@ -1544,6 +1573,7 @@ class JPEGDecoder  {
         }
       }
     };
+    return coeffs;
   };
   decode (dirPath, fileName) {
     this.data = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
@@ -1573,8 +1603,6 @@ class JPEGDecoder  {
       comp.prevDC = 0;
       c = c + 1;
     };
-    let coeffs = [];
-    let blockPixels = [];
     let yBlocksData = [];
     let yBlockCount = 0;
     let cbBlock = [];
@@ -1593,15 +1621,14 @@ class JPEGDecoder  {
           while (blockV < comp_1.vSamp) {
             let blockH = 0;
             while (blockH < comp_1.hSamp) {
-              this.decodeBlock(reader, comp_1, quantTable, coeffs);
-              blockPixels.length = 0;
+              const coeffs = this.decodeBlock(reader, comp_1, quantTable);
+              let blockPixels = [];
               let bi = 0;
               while (bi < 64) {
                 blockPixels.push(0);
                 bi = bi + 1;
               };
-              let tempBlock = [];
-              this.idct.dezigzag(coeffs, tempBlock);
+              const tempBlock = this.idct.dezigzag(coeffs);
               this.idct.transform(tempBlock, blockPixels);
               if ( compIdx == 0 ) {
                 bi = 0;
@@ -1752,20 +1779,73 @@ class JPEGDecoder  {
       };
       return;
     }
-    if ( yBlockCount > 0 ) {
-      let py_2 = 0;
-      while (py_2 < 8) {
-        let px_2 = 0;
-        while (px_2 < 8) {
-          const imgX_2 = baseX + px_2;
-          const imgY_2 = baseY + py_2;
-          if ( (imgX_2 < this.width) && (imgY_2 < this.height) ) {
-            const y_2 = yBlocksData[((py_2 * 8) + px_2)];
-            img.setPixelRGB(imgX_2, imgY_2, y_2, y_2, y_2);
-          }
-          px_2 = px_2 + 1;
+    if ( (this.maxHSamp == 2) && (this.maxVSamp == 1) ) {
+      let blockX_1 = 0;
+      while (blockX_1 < 2) {
+        const yBlockOffset_1 = blockX_1 * 64;
+        let py_2 = 0;
+        while (py_2 < 8) {
+          let px_2 = 0;
+          while (px_2 < 8) {
+            const imgX_2 = (baseX + (blockX_1 * 8)) + px_2;
+            const imgY_2 = baseY + py_2;
+            if ( (imgX_2 < this.width) && (imgY_2 < this.height) ) {
+              const yIdx_1 = (yBlockOffset_1 + (py_2 * 8)) + px_2;
+              const y_2 = yBlocksData[yIdx_1];
+              const chromaX_1 = (blockX_1 * 4) + ((px_2 >> 1));
+              const chromaY_1 = py_2;
+              const chromaIdx_1 = (chromaY_1 * 8) + chromaX_1;
+              let cb_2 = 128;
+              let cr_2 = 128;
+              if ( this.numComponents >= 3 ) {
+                cb_2 = cbBlock[chromaIdx_1];
+                cr_2 = crBlock[chromaIdx_1];
+              }
+              let r_2 = y_2 + (((359 * (cr_2 - 128)) >> 8));
+              let g_2 = (y_2 - (((88 * (cb_2 - 128)) >> 8))) - (((183 * (cr_2 - 128)) >> 8));
+              let b_2 = y_2 + (((454 * (cb_2 - 128)) >> 8));
+              if ( r_2 < 0 ) {
+                r_2 = 0;
+              }
+              if ( r_2 > 255 ) {
+                r_2 = 255;
+              }
+              if ( g_2 < 0 ) {
+                g_2 = 0;
+              }
+              if ( g_2 > 255 ) {
+                g_2 = 255;
+              }
+              if ( b_2 < 0 ) {
+                b_2 = 0;
+              }
+              if ( b_2 > 255 ) {
+                b_2 = 255;
+              }
+              img.setPixelRGB(imgX_2, imgY_2, r_2, g_2, b_2);
+            }
+            px_2 = px_2 + 1;
+          };
+          py_2 = py_2 + 1;
         };
-        py_2 = py_2 + 1;
+        blockX_1 = blockX_1 + 1;
+      };
+      return;
+    }
+    if ( yBlockCount > 0 ) {
+      let py_3 = 0;
+      while (py_3 < 8) {
+        let px_3 = 0;
+        while (px_3 < 8) {
+          const imgX_3 = baseX + px_3;
+          const imgY_3 = baseY + py_3;
+          if ( (imgX_3 < this.width) && (imgY_3 < this.height) ) {
+            const y_3 = yBlocksData[((py_3 * 8) + px_3)];
+            img.setPixelRGB(imgX_3, imgY_3, y_3, y_3, y_3);
+          }
+          px_3 = px_3 + 1;
+        };
+        py_3 = py_3 + 1;
       };
     }
   };

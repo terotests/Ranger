@@ -108,9 +108,14 @@
     "exif:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/exif_orientation_test.rgr -d=./gallery/pdf_writer -o=exif_orientation_test.js -nodecli",
     "exif:run": "node ./gallery/pdf_writer/exif_orientation_test.js",
     "exif": "npm run exif:compile && npm run exif:run",
+    "jpegscaler:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./gallery/pdf_writer/jpeg_scaler.rgr -d=./gallery/pdf_writer/bin -o=jpeg_scaler.go -nodecli",
+    "jpegscaler:build:go": "npm run jpegscaler:compile:go && cd gallery/pdf_writer/bin && go build -o jpeg_scaler.exe jpeg_scaler.go",
     "zip:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/zip/zip_tool.rgr -d=./gallery/zip/bin -o=zip_tool.js -nodecli",
     "zip:run": "node ./gallery/zip/bin/zip_tool.js",
-    "zip": "npm run zip:compile && npm run zip:run"
+    "zip": "npm run zip:compile && npm run zip:run",
+    "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/evg/evg_test.rgr -d=./gallery/evg/bin -o=evg_test.js -nodecli",
+    "evg:run": "node ./gallery/evg/bin/evg_test.js",
+    "evg": "npm run evg:compile && npm run evg:run"
   },
   "repository": {
     "type": "git",

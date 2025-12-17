@@ -240,6 +240,11 @@ func (this *BitReader) loadNextByte () () {
       if  nextByte == int64(0) {
         this.bytePos = this.bytePos + int64(1); 
       } else {
+        if  (nextByte >= int64(208)) && (nextByte <= int64(215)) {
+          this.bytePos = this.bytePos + int64(1); 
+          this.loadNextByte();
+          return
+        }
         if  nextByte == int64(255) {
           this.bytePos = this.bytePos + int64(1); 
           this.loadNextByte();
@@ -1463,6 +1468,7 @@ type JPEGDecoder struct {
   mcusPerCol int64 `json:"mcusPerCol"` 
   maxHSamp int64 `json:"maxHSamp"` 
   maxVSamp int64 `json:"maxVSamp"` 
+  restartInterval int64 `json:"restartInterval"` 
 }
 
 func CreateNew_JPEGDecoder() *JPEGDecoder {
@@ -1485,6 +1491,7 @@ func CreateNew_JPEGDecoder() *JPEGDecoder {
   me.mcusPerCol = int64(0)
   me.maxHSamp = int64(1)
   me.maxVSamp = int64(1)
+  me.restartInterval = int64(0)
   me.huffman = new(GoNullable);
   me.idct = new(GoNullable);
   me.huffman.value = CreateNew_HuffmanDecoder();
@@ -1590,6 +1597,10 @@ func (this *JPEGDecoder) parseSOS (pos int64, length int64) () {
     if  b == int64(255) {
       var nextB int64= int64(this.data[(searchPos + int64(1))]);
       if  (nextB != int64(0)) && (nextB != int64(255)) {
+        if  (nextB >= int64(208)) && (nextB <= int64(215)) {
+          searchPos = searchPos + int64(2); 
+          continue;
+        }
         this.scanDataLen = searchPos - this.scanDataStart; 
         return
       }
@@ -1664,6 +1675,10 @@ func (this *JPEGDecoder) parseMarkers () bool {
     if  marker2 == int64(219) {
       fmt.Println( "  DQT (Quantization Tables)" )
       this.parseDQT(dataStart, markerDataLen);
+    }
+    if  marker2 == int64(221) {
+      this.restartInterval = this.readUint16BE(dataStart); 
+      fmt.Println( ("  DRI (Restart Interval: " + (strconv.FormatInt(this.restartInterval, 10))) + ")" )
     }
     if  marker2 == int64(218) {
       fmt.Println( "  SOS (Start of Scan)" )
@@ -1754,10 +1769,20 @@ func (this *JPEGDecoder) decode (dirPath string, fileName string) *ImageBuffer {
   var yBlockCount int64= int64(0);
   var cbBlock []int64 = make([]int64, 0);
   var crBlock []int64 = make([]int64, 0);
+  var mcuCount int64= int64(0);
   var mcuY int64= int64(0);
   for mcuY < this.mcusPerCol {
     var mcuX int64= int64(0);
     for mcuX < this.mcusPerRow {
+      if  ((this.restartInterval > int64(0)) && (mcuCount > int64(0))) && ((mcuCount % this.restartInterval) == int64(0)) {
+        c = int64(0); 
+        for c < this.numComponents {
+          var compRst *JPEGComponent= this.components[c];
+          compRst.prevDC = int64(0); 
+          c = c + int64(1); 
+        }
+        reader.alignToByte();
+      }
       yBlocksData = yBlocksData[:0]
       yBlockCount = int64(0); 
       var compIdx int64= int64(0);
@@ -1809,6 +1834,7 @@ func (this *JPEGDecoder) decode (dirPath string, fileName string) *ImageBuffer {
       }
       this.writeMCU(img, mcuX, mcuY, yBlocksData, yBlockCount, cbBlock, crBlock);
       mcuX = mcuX + int64(1); 
+      mcuCount = mcuCount + int64(1); 
     }
     mcuY = mcuY + int64(1); 
     if  (mcuY % int64(10)) == int64(0) {
@@ -4203,6 +4229,811 @@ func (this *ProgressiveJPEGDecoder) decode (dirPath string, fileName string) *Im
   fmt.Println( "Decode complete!" )
   return img
 }
+type ExifTag struct { 
+  tagId int64 `json:"tagId"` 
+  tagName string `json:"tagName"` 
+  tagValue string `json:"tagValue"` 
+  dataType int64 `json:"dataType"` 
+}
+
+func CreateNew_ExifTag() *ExifTag {
+  me := new(ExifTag)
+  me.tagId = int64(0)
+  me.tagName = ""
+  me.tagValue = ""
+  me.dataType = int64(0)
+  return me;
+}
+type JPEGMetadataInfo struct { 
+  isValid bool `json:"isValid"` 
+  errorMessage string `json:"errorMessage"` 
+  hasJFIF bool `json:"hasJFIF"` 
+  jfifVersion string `json:"jfifVersion"` 
+  densityUnits int64 `json:"densityUnits"` 
+  xDensity int64 `json:"xDensity"` 
+  yDensity int64 `json:"yDensity"` 
+  width int64 `json:"width"` 
+  height int64 `json:"height"` 
+  colorComponents int64 `json:"colorComponents"` 
+  bitsPerComponent int64 `json:"bitsPerComponent"` 
+  hasExif bool `json:"hasExif"` 
+  cameraMake string `json:"cameraMake"` 
+  cameraModel string `json:"cameraModel"` 
+  software string `json:"software"` 
+  dateTime string `json:"dateTime"` 
+  dateTimeOriginal string `json:"dateTimeOriginal"` 
+  exposureTime string `json:"exposureTime"` 
+  fNumber string `json:"fNumber"` 
+  isoSpeed string `json:"isoSpeed"` 
+  focalLength string `json:"focalLength"` 
+  flash string `json:"flash"` 
+  orientation int64 `json:"orientation"` 
+  xResolution string `json:"xResolution"` 
+  yResolution string `json:"yResolution"` 
+  resolutionUnit int64 `json:"resolutionUnit"` 
+  hasGPS bool `json:"hasGPS"` 
+  gpsLatitude string `json:"gpsLatitude"` 
+  gpsLongitude string `json:"gpsLongitude"` 
+  gpsAltitude string `json:"gpsAltitude"` 
+  gpsLatitudeRef string `json:"gpsLatitudeRef"` 
+  gpsLongitudeRef string `json:"gpsLongitudeRef"` 
+  hasComment bool `json:"hasComment"` 
+  comment string `json:"comment"` 
+  exifTags []*ExifTag `json:"exifTags"` 
+}
+
+func CreateNew_JPEGMetadataInfo() *JPEGMetadataInfo {
+  me := new(JPEGMetadataInfo)
+  me.isValid = false
+  me.errorMessage = ""
+  me.hasJFIF = false
+  me.jfifVersion = ""
+  me.densityUnits = int64(0)
+  me.xDensity = int64(0)
+  me.yDensity = int64(0)
+  me.width = int64(0)
+  me.height = int64(0)
+  me.colorComponents = int64(0)
+  me.bitsPerComponent = int64(0)
+  me.hasExif = false
+  me.cameraMake = ""
+  me.cameraModel = ""
+  me.software = ""
+  me.dateTime = ""
+  me.dateTimeOriginal = ""
+  me.exposureTime = ""
+  me.fNumber = ""
+  me.isoSpeed = ""
+  me.focalLength = ""
+  me.flash = ""
+  me.orientation = int64(1)
+  me.xResolution = ""
+  me.yResolution = ""
+  me.resolutionUnit = int64(0)
+  me.hasGPS = false
+  me.gpsLatitude = ""
+  me.gpsLongitude = ""
+  me.gpsAltitude = ""
+  me.gpsLatitudeRef = ""
+  me.gpsLongitudeRef = ""
+  me.hasComment = false
+  me.comment = ""
+  me.exifTags = make([]*ExifTag,0)
+  return me;
+}
+type JPEGMetadataParser struct { 
+  data []byte `json:"data"` 
+  dataLen int64 `json:"dataLen"` 
+  littleEndian bool `json:"littleEndian"` 
+}
+
+func CreateNew_JPEGMetadataParser() *JPEGMetadataParser {
+  me := new(JPEGMetadataParser)
+  me.data = 
+  make([]byte, int64(0))
+  
+  me.dataLen = int64(0)
+  me.littleEndian = false
+  return me;
+}
+func (this *JPEGMetadataParser) readUint16BE (offset int64) int64 {
+  var high int64= int64(this.data[offset]);
+  var low int64= int64(this.data[(offset + int64(1))]);
+  return (high * int64(256)) + low
+}
+func (this *JPEGMetadataParser) readUint16 (offset int64) int64 {
+  var result int64= int64(0);
+  if  this.littleEndian {
+    var low int64= int64(this.data[offset]);
+    var high int64= int64(this.data[(offset + int64(1))]);
+    result = (high * int64(256)) + low; 
+  } else {
+    var high_1 int64= int64(this.data[offset]);
+    var low_1 int64= int64(this.data[(offset + int64(1))]);
+    result = (high_1 * int64(256)) + low_1; 
+  }
+  return result
+}
+func (this *JPEGMetadataParser) readUint32 (offset int64) int64 {
+  var result int64= int64(0);
+  if  this.littleEndian {
+    var b0 int64= int64(this.data[offset]);
+    var b1 int64= int64(this.data[(offset + int64(1))]);
+    var b2 int64= int64(this.data[(offset + int64(2))]);
+    var b3 int64= int64(this.data[(offset + int64(3))]);
+    result = (((b3 * int64(16777216)) + (b2 * int64(65536))) + (b1 * int64(256))) + b0; 
+  } else {
+    var b0_1 int64= int64(this.data[offset]);
+    var b1_1 int64= int64(this.data[(offset + int64(1))]);
+    var b2_1 int64= int64(this.data[(offset + int64(2))]);
+    var b3_1 int64= int64(this.data[(offset + int64(3))]);
+    result = (((b0_1 * int64(16777216)) + (b1_1 * int64(65536))) + (b2_1 * int64(256))) + b3_1; 
+  }
+  return result
+}
+func (this *JPEGMetadataParser) readString (offset int64, length int64) string {
+  var result string= "";
+  var i int64= int64(0);
+  for i < length {
+    var b int64= int64(this.data[(offset + i)]);
+    if  b == int64(0) {
+      return result
+    }
+    result = result + (string([] byte{byte(b)})); 
+    i = i + int64(1); 
+  }
+  return result
+}
+func (this *JPEGMetadataParser) getTagName (tagId int64, ifdType int64) string {
+  if  ifdType == int64(2) {
+    if  tagId == int64(0) {
+      return "GPSVersionID"
+    }
+    if  tagId == int64(1) {
+      return "GPSLatitudeRef"
+    }
+    if  tagId == int64(2) {
+      return "GPSLatitude"
+    }
+    if  tagId == int64(3) {
+      return "GPSLongitudeRef"
+    }
+    if  tagId == int64(4) {
+      return "GPSLongitude"
+    }
+    if  tagId == int64(5) {
+      return "GPSAltitudeRef"
+    }
+    if  tagId == int64(6) {
+      return "GPSAltitude"
+    }
+    return "GPS_" + (strconv.FormatInt(tagId, 10))
+  }
+  if  tagId == int64(256) {
+    return "ImageWidth"
+  }
+  if  tagId == int64(257) {
+    return "ImageHeight"
+  }
+  if  tagId == int64(258) {
+    return "BitsPerSample"
+  }
+  if  tagId == int64(259) {
+    return "Compression"
+  }
+  if  tagId == int64(262) {
+    return "PhotometricInterpretation"
+  }
+  if  tagId == int64(270) {
+    return "ImageDescription"
+  }
+  if  tagId == int64(271) {
+    return "Make"
+  }
+  if  tagId == int64(272) {
+    return "Model"
+  }
+  if  tagId == int64(274) {
+    return "Orientation"
+  }
+  if  tagId == int64(282) {
+    return "XResolution"
+  }
+  if  tagId == int64(283) {
+    return "YResolution"
+  }
+  if  tagId == int64(296) {
+    return "ResolutionUnit"
+  }
+  if  tagId == int64(305) {
+    return "Software"
+  }
+  if  tagId == int64(306) {
+    return "DateTime"
+  }
+  if  tagId == int64(315) {
+    return "Artist"
+  }
+  if  tagId == int64(33432) {
+    return "Copyright"
+  }
+  if  tagId == int64(33434) {
+    return "ExposureTime"
+  }
+  if  tagId == int64(33437) {
+    return "FNumber"
+  }
+  if  tagId == int64(34850) {
+    return "ExposureProgram"
+  }
+  if  tagId == int64(34855) {
+    return "ISOSpeedRatings"
+  }
+  if  tagId == int64(36864) {
+    return "ExifVersion"
+  }
+  if  tagId == int64(36867) {
+    return "DateTimeOriginal"
+  }
+  if  tagId == int64(36868) {
+    return "DateTimeDigitized"
+  }
+  if  tagId == int64(37377) {
+    return "ShutterSpeedValue"
+  }
+  if  tagId == int64(37378) {
+    return "ApertureValue"
+  }
+  if  tagId == int64(37380) {
+    return "ExposureBiasValue"
+  }
+  if  tagId == int64(37381) {
+    return "MaxApertureValue"
+  }
+  if  tagId == int64(37383) {
+    return "MeteringMode"
+  }
+  if  tagId == int64(37384) {
+    return "LightSource"
+  }
+  if  tagId == int64(37385) {
+    return "Flash"
+  }
+  if  tagId == int64(37386) {
+    return "FocalLength"
+  }
+  if  tagId == int64(37500) {
+    return "MakerNote"
+  }
+  if  tagId == int64(37510) {
+    return "UserComment"
+  }
+  if  tagId == int64(40960) {
+    return "FlashpixVersion"
+  }
+  if  tagId == int64(40961) {
+    return "ColorSpace"
+  }
+  if  tagId == int64(40962) {
+    return "PixelXDimension"
+  }
+  if  tagId == int64(40963) {
+    return "PixelYDimension"
+  }
+  if  tagId == int64(41486) {
+    return "FocalPlaneXResolution"
+  }
+  if  tagId == int64(41487) {
+    return "FocalPlaneYResolution"
+  }
+  if  tagId == int64(41488) {
+    return "FocalPlaneResolutionUnit"
+  }
+  if  tagId == int64(41495) {
+    return "SensingMethod"
+  }
+  if  tagId == int64(41728) {
+    return "FileSource"
+  }
+  if  tagId == int64(41729) {
+    return "SceneType"
+  }
+  if  tagId == int64(41985) {
+    return "CustomRendered"
+  }
+  if  tagId == int64(41986) {
+    return "ExposureMode"
+  }
+  if  tagId == int64(41987) {
+    return "WhiteBalance"
+  }
+  if  tagId == int64(41988) {
+    return "DigitalZoomRatio"
+  }
+  if  tagId == int64(41989) {
+    return "FocalLengthIn35mmFilm"
+  }
+  if  tagId == int64(41990) {
+    return "SceneCaptureType"
+  }
+  if  tagId == int64(34665) {
+    return "ExifIFDPointer"
+  }
+  if  tagId == int64(34853) {
+    return "GPSInfoIFDPointer"
+  }
+  return "Tag_" + (strconv.FormatInt(tagId, 10))
+}
+func (this *JPEGMetadataParser) formatRational (offset int64) string {
+  var numerator int64= this.readUint32(offset);
+  var denominator int64= this.readUint32((offset + int64(4)));
+  if  denominator == int64(0) {
+    return strconv.FormatInt(numerator, 10)
+  }
+  if  denominator == int64(1) {
+    return strconv.FormatInt(numerator, 10)
+  }
+  return ((strconv.FormatInt(numerator, 10)) + "/") + (strconv.FormatInt(denominator, 10))
+}
+func (this *JPEGMetadataParser) formatGPSCoordinate (offset int64, ref string) string {
+  var degNum int64= this.readUint32(offset);
+  var degDen int64= this.readUint32((offset + int64(4)));
+  var minNum int64= this.readUint32((offset + int64(8)));
+  var minDen int64= this.readUint32((offset + int64(12)));
+  var secNum int64= this.readUint32((offset + int64(16)));
+  var secDen int64= this.readUint32((offset + int64(20)));
+  var degrees int64= int64(0);
+  if  degDen > int64(0) {
+    var tempDeg int64= degNum;
+    for tempDeg >= degDen {
+      tempDeg = tempDeg - degDen; 
+      degrees = degrees + int64(1); 
+    }
+  }
+  var minutes int64= int64(0);
+  if  minDen > int64(0) {
+    var tempMin int64= minNum;
+    for tempMin >= minDen {
+      tempMin = tempMin - minDen; 
+      minutes = minutes + int64(1); 
+    }
+  }
+  var seconds string= "0";
+  if  secDen > int64(0) {
+    var secWhole int64= int64(0);
+    var tempSec int64= secNum;
+    for tempSec >= secDen {
+      tempSec = tempSec - secDen; 
+      secWhole = secWhole + int64(1); 
+    }
+    var secRem int64= tempSec;
+    if  secRem > int64(0) {
+      var decPartTemp int64= secRem * int64(100);
+      var decPart int64= int64(0);
+      for decPartTemp >= secDen {
+        decPartTemp = decPartTemp - secDen; 
+        decPart = decPart + int64(1); 
+      }
+      if  decPart < int64(10) {
+        seconds = ((strconv.FormatInt(secWhole, 10)) + ".0") + (strconv.FormatInt(decPart, 10)); 
+      } else {
+        seconds = ((strconv.FormatInt(secWhole, 10)) + ".") + (strconv.FormatInt(decPart, 10)); 
+      }
+    } else {
+      seconds = strconv.FormatInt(secWhole, 10); 
+    }
+  }
+  return ((((((strconv.FormatInt(degrees, 10)) + "° ") + (strconv.FormatInt(minutes, 10))) + "' ") + seconds) + "\" ") + ref
+}
+func (this *JPEGMetadataParser) parseIFD (info *JPEGMetadataInfo, tiffStart int64, ifdOffset int64, ifdType int64) () {
+  var pos int64= tiffStart + ifdOffset;
+  if  (pos + int64(2)) > this.dataLen {
+    return
+  }
+  var numEntries int64= this.readUint16(pos);
+  pos = pos + int64(2); 
+  var i int64= int64(0);
+  for i < numEntries {
+    if  (pos + int64(12)) > this.dataLen {
+      return
+    }
+    var tagId int64= this.readUint16(pos);
+    var dataType int64= this.readUint16((pos + int64(2)));
+    var numValues int64= this.readUint32((pos + int64(4)));
+    var valueOffset int64= pos + int64(8);
+    var dataSize int64= int64(0);
+    if  dataType == int64(1) {
+      dataSize = numValues; 
+    }
+    if  dataType == int64(2) {
+      dataSize = numValues; 
+    }
+    if  dataType == int64(3) {
+      dataSize = numValues * int64(2); 
+    }
+    if  dataType == int64(4) {
+      dataSize = numValues * int64(4); 
+    }
+    if  dataType == int64(5) {
+      dataSize = numValues * int64(8); 
+    }
+    if  dataType == int64(7) {
+      dataSize = numValues; 
+    }
+    if  dataType == int64(9) {
+      dataSize = numValues * int64(4); 
+    }
+    if  dataType == int64(10) {
+      dataSize = numValues * int64(8); 
+    }
+    if  dataSize > int64(4) {
+      valueOffset = tiffStart + this.readUint32((pos + int64(8))); 
+    }
+    var tagName string= this.getTagName(tagId, ifdType);
+    var tagValue string= "";
+    if  dataType == int64(2) {
+      tagValue = this.readString(valueOffset, numValues); 
+    }
+    if  dataType == int64(3) {
+      if  dataSize <= int64(4) {
+        tagValue = strconv.FormatInt(this.readUint16((pos + int64(8))), 10); 
+      } else {
+        tagValue = strconv.FormatInt(this.readUint16(valueOffset), 10); 
+      }
+    }
+    if  dataType == int64(4) {
+      if  dataSize <= int64(4) {
+        tagValue = strconv.FormatInt(this.readUint32((pos + int64(8))), 10); 
+      } else {
+        tagValue = strconv.FormatInt(this.readUint32(valueOffset), 10); 
+      }
+    }
+    if  dataType == int64(5) {
+      tagValue = this.formatRational(valueOffset); 
+    }
+    var tag *ExifTag= CreateNew_ExifTag();
+    tag.tagId = tagId; 
+    tag.tagName = tagName; 
+    tag.tagValue = tagValue; 
+    tag.dataType = dataType; 
+    info.exifTags = append(info.exifTags,tag); 
+    if  tagId == int64(271) {
+      info.cameraMake = tagValue; 
+    }
+    if  tagId == int64(272) {
+      info.cameraModel = tagValue; 
+    }
+    if  tagId == int64(305) {
+      info.software = tagValue; 
+    }
+    if  tagId == int64(306) {
+      info.dateTime = tagValue; 
+    }
+    if  tagId == int64(274) {
+      info.orientation = this.readUint16((pos + int64(8))); 
+    }
+    if  tagId == int64(282) {
+      info.xResolution = tagValue; 
+    }
+    if  tagId == int64(283) {
+      info.yResolution = tagValue; 
+    }
+    if  tagId == int64(296) {
+      info.resolutionUnit = this.readUint16((pos + int64(8))); 
+    }
+    if  tagId == int64(36867) {
+      info.dateTimeOriginal = tagValue; 
+    }
+    if  tagId == int64(33434) {
+      info.exposureTime = tagValue; 
+    }
+    if  tagId == int64(33437) {
+      info.fNumber = tagValue; 
+    }
+    if  tagId == int64(34855) {
+      info.isoSpeed = tagValue; 
+    }
+    if  tagId == int64(37386) {
+      info.focalLength = tagValue; 
+    }
+    if  tagId == int64(37385) {
+      var flashVal int64= this.readUint16((pos + int64(8)));
+      if  (flashVal % int64(2)) == int64(1) {
+        info.flash = "Fired"; 
+      } else {
+        info.flash = "Did not fire"; 
+      }
+    }
+    if  tagId == int64(34665) {
+      var exifOffset int64= this.readUint32((pos + int64(8)));
+      this.parseIFD(info, tiffStart, exifOffset, int64(1));
+    }
+    if  tagId == int64(34853) {
+      info.hasGPS = true; 
+      var gpsOffset int64= this.readUint32((pos + int64(8)));
+      this.parseIFD(info, tiffStart, gpsOffset, int64(2));
+    }
+    if  ifdType == int64(2) {
+      if  tagId == int64(1) {
+        info.gpsLatitudeRef = tagValue; 
+      }
+      if  tagId == int64(2) {
+        info.gpsLatitude = this.formatGPSCoordinate(valueOffset, info.gpsLatitudeRef); 
+      }
+      if  tagId == int64(3) {
+        info.gpsLongitudeRef = tagValue; 
+      }
+      if  tagId == int64(4) {
+        info.gpsLongitude = this.formatGPSCoordinate(valueOffset, info.gpsLongitudeRef); 
+      }
+      if  tagId == int64(6) {
+        var altNum int64= this.readUint32(valueOffset);
+        var altDen int64= this.readUint32((valueOffset + int64(4)));
+        if  altDen > int64(0) {
+          var altWhole int64= int64(0);
+          var tempAlt int64= altNum;
+          for tempAlt >= altDen {
+            tempAlt = tempAlt - altDen; 
+            altWhole = altWhole + int64(1); 
+          }
+          var altRem int64= tempAlt;
+          if  altRem > int64(0) {
+            var altDecTemp int64= altRem * int64(10);
+            var altDec int64= int64(0);
+            for altDecTemp >= altDen {
+              altDecTemp = altDecTemp - altDen; 
+              altDec = altDec + int64(1); 
+            }
+            info.gpsAltitude = (((strconv.FormatInt(altWhole, 10)) + ".") + (strconv.FormatInt(altDec, 10))) + " m"; 
+          } else {
+            info.gpsAltitude = (strconv.FormatInt(altWhole, 10)) + " m"; 
+          }
+        } else {
+          info.gpsAltitude = (strconv.FormatInt(altNum, 10)) + " m"; 
+        }
+      }
+    }
+    pos = pos + int64(12); 
+    i = i + int64(1); 
+  }
+}
+func (this *JPEGMetadataParser) parseExif (info *JPEGMetadataInfo, appStart int64, appLen int64) () {
+  var header string= this.readString(appStart, int64(4));
+  if  header != "Exif" {
+    return
+  }
+  info.hasExif = true; 
+  var tiffStart int64= appStart + int64(6);
+  var byteOrder0 int64= int64(this.data[tiffStart]);
+  var byteOrder1 int64= int64(this.data[(tiffStart + int64(1))]);
+  if  (byteOrder0 == int64(73)) && (byteOrder1 == int64(73)) {
+    this.littleEndian = true; 
+  } else {
+    if  (byteOrder0 == int64(77)) && (byteOrder1 == int64(77)) {
+      this.littleEndian = false; 
+    } else {
+      return
+    }
+  }
+  var magic int64= this.readUint16((tiffStart + int64(2)));
+  if  magic != int64(42) {
+    return
+  }
+  var ifd0Offset int64= this.readUint32((tiffStart + int64(4)));
+  this.parseIFD(info, tiffStart, ifd0Offset, int64(0));
+}
+func (this *JPEGMetadataParser) parseJFIF (info *JPEGMetadataInfo, appStart int64, appLen int64) () {
+  var header string= this.readString(appStart, int64(4));
+  if  header != "JFIF" {
+    return
+  }
+  info.hasJFIF = true; 
+  var verMajor int64= int64(this.data[(appStart + int64(5))]);
+  var verMinor int64= int64(this.data[(appStart + int64(6))]);
+  info.jfifVersion = ((strconv.FormatInt(verMajor, 10)) + ".") + (strconv.FormatInt(verMinor, 10)); 
+  info.densityUnits = int64(this.data[(appStart + int64(7))]); 
+  info.xDensity = this.readUint16BE((appStart + int64(8))); 
+  info.yDensity = this.readUint16BE((appStart + int64(10))); 
+}
+func (this *JPEGMetadataParser) parseComment (info *JPEGMetadataInfo, appStart int64, appLen int64) () {
+  info.hasComment = true; 
+  info.comment = this.readString(appStart, appLen); 
+}
+func (this *JPEGMetadataParser) parseMetadata (dirPath string, fileName string) *JPEGMetadataInfo {
+  var info *JPEGMetadataInfo= CreateNew_JPEGMetadataInfo();
+  this.data = func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fileName)); return d }(); 
+  this.dataLen = int64(len(this.data)); 
+  if  this.dataLen < int64(4) {
+    info.errorMessage = "File too small"; 
+    return info
+  }
+  var m1 int64= int64(this.data[int64(0)]);
+  var m2 int64= int64(this.data[int64(1)]);
+  if  (m1 != int64(255)) || (m2 != int64(216)) {
+    info.errorMessage = "Not a valid JPEG file"; 
+    return info
+  }
+  info.isValid = true; 
+  var pos int64= int64(2);
+  for pos < this.dataLen {
+    var marker1 int64= int64(this.data[pos]);
+    if  marker1 != int64(255) {
+      pos = pos + int64(1); 
+      continue;
+    }
+    var marker2 int64= int64(this.data[(pos + int64(1))]);
+    if  marker2 == int64(255) {
+      pos = pos + int64(1); 
+      continue;
+    }
+    if  (marker2 == int64(216)) || (marker2 == int64(217)) {
+      pos = pos + int64(2); 
+      continue;
+    }
+    if  (marker2 >= int64(208)) && (marker2 <= int64(215)) {
+      pos = pos + int64(2); 
+      continue;
+    }
+    if  (pos + int64(4)) > this.dataLen {
+      return info
+    }
+    var segLen int64= this.readUint16BE((pos + int64(2)));
+    var segStart int64= pos + int64(4);
+    if  marker2 == int64(224) {
+      this.parseJFIF(info, segStart, segLen - int64(2));
+    }
+    if  marker2 == int64(225) {
+      this.parseExif(info, segStart, segLen - int64(2));
+    }
+    if  marker2 == int64(254) {
+      this.parseComment(info, segStart, segLen - int64(2));
+    }
+    if  (marker2 == int64(192)) || (marker2 == int64(194)) {
+      if  (pos + int64(9)) < this.dataLen {
+        info.bitsPerComponent = int64(this.data[(pos + int64(4))]); 
+        info.height = this.readUint16BE((pos + int64(5))); 
+        info.width = this.readUint16BE((pos + int64(7))); 
+        info.colorComponents = int64(this.data[(pos + int64(9))]); 
+      }
+    }
+    if  marker2 == int64(218) {
+      return info
+    }
+    if  marker2 == int64(217) {
+      return info
+    }
+    pos = (pos + int64(2)) + segLen; 
+  }
+  return info
+}
+func (this *JPEGMetadataParser) formatMetadata (info *JPEGMetadataInfo) string {
+  var out *GrowableBuffer= CreateNew_GrowableBuffer();
+  out.writeString("=== JPEG Metadata ===\n\n");
+  if  info.isValid == false {
+    out.writeString(("Error: " + info.errorMessage) + "\n");
+    return (out).toString()
+  }
+  out.writeString("--- Image Info ---\n");
+  out.writeString(((("  Dimensions: " + (strconv.FormatInt(info.width, 10))) + " x ") + (strconv.FormatInt(info.height, 10))) + "\n");
+  out.writeString(("  Color Components: " + (strconv.FormatInt(info.colorComponents, 10))) + "\n");
+  out.writeString(("  Bits per Component: " + (strconv.FormatInt(info.bitsPerComponent, 10))) + "\n");
+  if  info.hasJFIF {
+    out.writeString("\n--- JFIF Info ---\n");
+    out.writeString(("  Version: " + info.jfifVersion) + "\n");
+    var densityStr string= "No units (aspect ratio)";
+    if  info.densityUnits == int64(1) {
+      densityStr = "pixels/inch"; 
+    }
+    if  info.densityUnits == int64(2) {
+      densityStr = "pixels/cm"; 
+    }
+    out.writeString(((((("  Density: " + (strconv.FormatInt(info.xDensity, 10))) + " x ") + (strconv.FormatInt(info.yDensity, 10))) + " ") + densityStr) + "\n");
+  }
+  if  info.hasExif {
+    out.writeString("\n--- EXIF Info ---\n");
+    if  (int64(len(info.cameraMake))) > int64(0) {
+      out.writeString(("  Camera Make: " + info.cameraMake) + "\n");
+    }
+    if  (int64(len(info.cameraModel))) > int64(0) {
+      out.writeString(("  Camera Model: " + info.cameraModel) + "\n");
+    }
+    if  (int64(len(info.software))) > int64(0) {
+      out.writeString(("  Software: " + info.software) + "\n");
+    }
+    if  (int64(len(info.dateTimeOriginal))) > int64(0) {
+      out.writeString(("  Date/Time Original: " + info.dateTimeOriginal) + "\n");
+    } else {
+      if  (int64(len(info.dateTime))) > int64(0) {
+        out.writeString(("  Date/Time: " + info.dateTime) + "\n");
+      }
+    }
+    if  (int64(len(info.exposureTime))) > int64(0) {
+      out.writeString(("  Exposure Time: " + info.exposureTime) + " sec\n");
+    }
+    if  (int64(len(info.fNumber))) > int64(0) {
+      out.writeString(("  F-Number: f/" + info.fNumber) + "\n");
+    }
+    if  (int64(len(info.isoSpeed))) > int64(0) {
+      out.writeString(("  ISO Speed: " + info.isoSpeed) + "\n");
+    }
+    if  (int64(len(info.focalLength))) > int64(0) {
+      out.writeString(("  Focal Length: " + info.focalLength) + " mm\n");
+    }
+    if  (int64(len(info.flash))) > int64(0) {
+      out.writeString(("  Flash: " + info.flash) + "\n");
+    }
+    var orientStr string= "Normal";
+    if  info.orientation == int64(2) {
+      orientStr = "Flip horizontal"; 
+    }
+    if  info.orientation == int64(3) {
+      orientStr = "Rotate 180"; 
+    }
+    if  info.orientation == int64(4) {
+      orientStr = "Flip vertical"; 
+    }
+    if  info.orientation == int64(5) {
+      orientStr = "Transpose"; 
+    }
+    if  info.orientation == int64(6) {
+      orientStr = "Rotate 90 CW"; 
+    }
+    if  info.orientation == int64(7) {
+      orientStr = "Transverse"; 
+    }
+    if  info.orientation == int64(8) {
+      orientStr = "Rotate 270 CW"; 
+    }
+    out.writeString(("  Orientation: " + orientStr) + "\n");
+  }
+  if  info.hasGPS {
+    out.writeString("\n--- GPS Info ---\n");
+    if  (int64(len(info.gpsLatitude))) > int64(0) {
+      out.writeString(("  Latitude: " + info.gpsLatitude) + "\n");
+    }
+    if  (int64(len(info.gpsLongitude))) > int64(0) {
+      out.writeString(("  Longitude: " + info.gpsLongitude) + "\n");
+    }
+    if  (int64(len(info.gpsAltitude))) > int64(0) {
+      out.writeString(("  Altitude: " + info.gpsAltitude) + "\n");
+    }
+  }
+  if  info.hasComment {
+    out.writeString("\n--- Comment ---\n");
+    out.writeString(("  " + info.comment) + "\n");
+  }
+  var tagCount int64= int64(len(info.exifTags));
+  if  tagCount > int64(0) {
+    out.writeString(("\n--- All EXIF Tags (" + (strconv.FormatInt(tagCount, 10))) + ") ---\n");
+    var idx int64 = 0;  
+    for ; idx < int64(len(info.exifTags)) ; idx++ {
+      tag := info.exifTags[idx];
+      out.writeString(("  " + tag.tagName) + " (0x");
+      var tagHex string= "";
+      var tid int64= tag.tagId;
+      var hexChars string= "0123456789ABCDEF";
+      var h3D float64= float64(tid) / float64(int64(4096));
+      var h3 int64= int64(h3D);
+      var r3 int64= tid - (h3 * int64(4096));
+      var h2D float64= float64(r3) / float64(int64(256));
+      var h2 int64= int64(h2D);
+      var r2 int64= r3 - (h2 * int64(256));
+      var h1D float64= float64(r2) / float64(int64(16));
+      var h1 int64= int64(h1D);
+      var h0 int64= r2 - (h1 * int64(16));
+      tagHex = (((hexChars[h3:(h3 + int64(1))]) + (hexChars[h2:(h2 + int64(1))])) + (hexChars[h1:(h1 + int64(1))])) + (hexChars[h0:(h0 + int64(1))]); 
+      out.writeString(((tagHex + "): ") + tag.tagValue) + "\n");
+    }
+  }
+  return (out).toString()
+}
+type JPEGMetadataMain struct { 
+}
+
+func CreateNew_JPEGMetadataMain() *JPEGMetadataMain {
+  me := new(JPEGMetadataMain)
+  return me;
+}
 type JPEGScaler struct { 
 }
 
@@ -4285,10 +5116,35 @@ func (this *JPEGScaler) run () () {
   fmt.Println( (("Mode:   " + mode) + " = ") + (strconv.FormatFloat(value,'f', 6, 64)) )
   fmt.Println( "Quality: " + (strconv.FormatInt(quality, 10)) )
   fmt.Println( "" )
+  var inputDir string= ".";
+  var inputName string= inputFile;
+  var lastInputSlash int64= int64(-1);
+  var k int64= int64(0);
+  for k < (int64(len(inputFile))) {
+    var ch int64= int64(inputFile[k]);
+    if  (ch == int64(47)) || (ch == int64(92)) {
+      lastInputSlash = k; 
+    }
+    k = k + int64(1); 
+  }
+  if  lastInputSlash >= int64(0) {
+    inputDir = inputFile[int64(0):lastInputSlash]; 
+    inputName = inputFile[(lastInputSlash + int64(1)):(int64(len(inputFile)))]; 
+  }
+  var metaParser *JPEGMetadataParser= CreateNew_JPEGMetadataParser();
+  var metaInfo *JPEGMetadataInfo= metaParser.parseMetadata(inputDir, inputName);
+  var orientation int64= metaInfo.orientation;
+  fmt.Println( "EXIF Orientation: " + (strconv.FormatInt(orientation, 10)) )
   var img *ImageBuffer= this.decodeJPEG(inputFile);
   if  img.width == int64(0) {
     fmt.Println( "Error: Failed to decode input JPEG" )
     return
+  }
+  fmt.Println( (("Decoded size: " + (strconv.FormatInt(img.width, 10))) + "x") + (strconv.FormatInt(img.height, 10)) )
+  if  orientation > int64(1) {
+    fmt.Println( "Applying EXIF orientation correction..." )
+    img = img.applyExifOrientation(orientation); 
+    fmt.Println( (("After orientation: " + (strconv.FormatInt(img.width, 10))) + "x") + (strconv.FormatInt(img.height, 10)) )
   }
   fmt.Println( (("Original size: " + (strconv.FormatInt(img.width, 10))) + "x") + (strconv.FormatInt(img.height, 10)) )
   var newWidth int64= int64(0);
@@ -4314,8 +5170,8 @@ func (this *JPEGScaler) run () () {
   var lastSlash int64= int64(-1);
   var j int64= int64(0);
   for j < (int64(len(outputFile))) {
-    var ch int64= int64(outputFile[j]);
-    if  (ch == int64(47)) || (ch == int64(92)) {
+    var ch_1 int64= int64(outputFile[j]);
+    if  (ch_1 == int64(47)) || (ch_1 == int64(92)) {
       lastSlash = j; 
     }
     j = j + int64(1); 

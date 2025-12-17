@@ -1,0 +1,576 @@
+; EVGColor.rgr - Color parsing and manipulation for EVG layout
+; Supports: hex (#RGB, #RRGGBB, #RRGGBBAA), rgb(), rgba(), hsl(), named colors
+
+class EVGColor {
+    def r:double 0.0
+    def g:double 0.0
+    def b:double 0.0
+    def a:double 1.0
+    def isSet:boolean true
+    
+    Constructor () {
+        r = 0.0
+        g = 0.0
+        b = 0.0
+        a = 1.0
+        isSet = true
+    }
+    
+    sfn create:EVGColor (red:double green:double blue:double alpha:double) {
+        def c (new EVGColor())
+        c.r = red
+        c.g = green
+        c.b = blue
+        c.a = alpha
+        c.isSet = true
+        return c
+    }
+    
+    sfn rgb:EVGColor (red:int green:int blue:int) {
+        return (EVGColor.create((to_double red) (to_double green) (to_double blue) 1.0))
+    }
+    
+    sfn rgba:EVGColor (red:int green:int blue:int alpha:double) {
+        return (EVGColor.create((to_double red) (to_double green) (to_double blue) alpha))
+    }
+    
+    sfn noColor:EVGColor () {
+        def c (new EVGColor())
+        c.isSet = false
+        return c
+    }
+    
+    sfn black:EVGColor () {
+        return (EVGColor.rgb(0 0 0))
+    }
+    
+    sfn white:EVGColor () {
+        return (EVGColor.rgb(255 255 255))
+    }
+    
+    sfn transparent:EVGColor () {
+        return (EVGColor.rgba(0 0 0 0.0))
+    }
+    
+    ; Parse hex digit to int (0-15)
+    sfn hexDigit:int (ch:int) {
+        ; '0'-'9' = 48-57
+        if ((ch >= 48) && (ch <= 57)) {
+            return (ch - 48)
+        }
+        ; 'A'-'F' = 65-70
+        if ((ch >= 65) && (ch <= 70)) {
+            return ((ch - 65) + 10)
+        }
+        ; 'a'-'f' = 97-102
+        if ((ch >= 97) && (ch <= 102)) {
+            return ((ch - 97) + 10)
+        }
+        return 0
+    }
+    
+    sfn parseHex:EVGColor (hex:string) {
+        def c (new EVGColor())
+        def len:int (strlen hex)
+        def start:int 0
+        
+        ; Skip # if present
+        if (len > 0) {
+            def firstChar:int (charAt hex 0)
+            if (firstChar == 35) {  ; '#'
+                start = 1
+                len = len - 1
+            }
+        }
+        
+        ; #RGB (3 digits)
+        if (len == 3) {
+            def r1:int (EVGColor.hexDigit((charAt hex start)))
+            def g1:int (EVGColor.hexDigit((charAt hex (start + 1))))
+            def b1:int (EVGColor.hexDigit((charAt hex (start + 2))))
+            c.r = (to_double ((r1 * 16) + r1))
+            c.g = (to_double ((g1 * 16) + g1))
+            c.b = (to_double ((b1 * 16) + b1))
+            c.a = 1.0
+            c.isSet = true
+            return c
+        }
+        
+        ; #RRGGBB (6 digits)
+        if (len == 6) {
+            def r1:int (EVGColor.hexDigit((charAt hex start)))
+            def r2:int (EVGColor.hexDigit((charAt hex (start + 1))))
+            def g1:int (EVGColor.hexDigit((charAt hex (start + 2))))
+            def g2:int (EVGColor.hexDigit((charAt hex (start + 3))))
+            def b1:int (EVGColor.hexDigit((charAt hex (start + 4))))
+            def b2:int (EVGColor.hexDigit((charAt hex (start + 5))))
+            c.r = (to_double ((r1 * 16) + r2))
+            c.g = (to_double ((g1 * 16) + g2))
+            c.b = (to_double ((b1 * 16) + b2))
+            c.a = 1.0
+            c.isSet = true
+            return c
+        }
+        
+        ; #RRGGBBAA (8 digits)
+        if (len == 8) {
+            def r1:int (EVGColor.hexDigit((charAt hex start)))
+            def r2:int (EVGColor.hexDigit((charAt hex (start + 1))))
+            def g1:int (EVGColor.hexDigit((charAt hex (start + 2))))
+            def g2:int (EVGColor.hexDigit((charAt hex (start + 3))))
+            def b1:int (EVGColor.hexDigit((charAt hex (start + 4))))
+            def b2:int (EVGColor.hexDigit((charAt hex (start + 5))))
+            def a1:int (EVGColor.hexDigit((charAt hex (start + 6))))
+            def a2:int (EVGColor.hexDigit((charAt hex (start + 7))))
+            c.r = (to_double ((r1 * 16) + r2))
+            c.g = (to_double ((g1 * 16) + g2))
+            c.b = (to_double ((b1 * 16) + b2))
+            c.a = ((to_double ((a1 * 16) + a2)) / 255.0)
+            c.isSet = true
+            return c
+        }
+        
+        c.isSet = false
+        return c
+    }
+    
+    sfn hue2rgb:double (p:double q:double tt:double) {
+        def t:double tt
+        if (t < 0.0) {
+            t = t + 1.0
+        }
+        if (t > 1.0) {
+            t = t - 1.0
+        }
+        if (t < (1.0 / 6.0)) {
+            return (p + ((q - p) * 6.0 * t))
+        }
+        if (t < (1.0 / 2.0)) {
+            return q
+        }
+        if (t < (2.0 / 3.0)) {
+            return (p + ((q - p) * ((2.0 / 3.0) - t) * 6.0))
+        }
+        return p
+    }
+    
+    sfn hslToRgb:EVGColor (h:double s:double l:double) {
+        ; h = hue (0-360), s = saturation (0-100), l = lightness (0-100)
+        def c (new EVGColor())
+        def hNorm:double (h / 360.0)
+        def sNorm:double (s / 100.0)
+        def lNorm:double (l / 100.0)
+        
+        if (sNorm == 0.0) {
+            ; Achromatic (gray)
+            def gray:double (lNorm * 255.0)
+            c.r = gray
+            c.g = gray
+            c.b = gray
+        } {
+            def q:double 0.0
+            if (lNorm < 0.5) {
+                q = (lNorm * (1.0 + sNorm))
+            } {
+                q = (lNorm + sNorm - (lNorm * sNorm))
+            }
+            def p:double ((2.0 * lNorm) - q)
+            c.r = ((EVGColor.hue2rgb(p q (hNorm + (1.0 / 3.0)))) * 255.0)
+            c.g = ((EVGColor.hue2rgb(p q hNorm)) * 255.0)
+            c.b = ((EVGColor.hue2rgb(p q (hNorm - (1.0 / 3.0)))) * 255.0)
+        }
+        
+        c.a = 1.0
+        c.isSet = true
+        return c
+    }
+    
+    sfn parseNumber:double (str:string) {
+        ; Parse a number, handling potential whitespace
+        def val@(optional):double (to_double (trim str))
+        return (unwrap val)
+    }
+    
+    sfn parse:EVGColor (str:string) {
+        ; Parse color string in various formats
+        def trimmed:string (trim str)
+        def len:int (strlen trimmed)
+        
+        if (len == 0) {
+            return (EVGColor.noColor())
+        }
+        
+        ; Check for hex color
+        def firstChar:int (charAt trimmed 0)
+        if (firstChar == 35) {  ; '#'
+            return (EVGColor.parseHex(trimmed))
+        }
+        
+        ; Check for rgb()/rgba()
+        if (len >= 4) {
+            def prefix:string (substring trimmed 0 4)
+            if (prefix == "rgba") {
+                return (EVGColor.parseRgba(trimmed))
+            }
+            def prefix3:string (substring trimmed 0 3)
+            if (prefix3 == "rgb") {
+                return (EVGColor.parseRgb(trimmed))
+            }
+            if (prefix3 == "hsl") {
+                return (EVGColor.parseHsl(trimmed))
+            }
+        }
+        
+        ; Try named color
+        return (EVGColor.parseNamed(trimmed))
+    }
+    
+    sfn parseRgb:EVGColor (str:string) {
+        ; Parse rgb(r, g, b) or rgb(r g b)
+        def c (new EVGColor())
+        def len:int (strlen str)
+        
+        ; Find opening paren
+        def start:int 0
+        def i:int 0
+        while (i < len) {
+            def ch:int (charAt str i)
+            if (ch == 40) {  ; '('
+                start = i + 1
+            }
+            i = i + 1
+        }
+        
+        ; Extract content between parens
+        def end:int (len - 1)
+        i = len - 1
+        while (i >= 0) {
+            def ch:int (charAt str i)
+            if (ch == 41) {  ; ')'
+                end = i
+            }
+            i = i - 1
+        }
+        
+        def content:string (substring str start end)
+        
+        ; Split by comma or space
+        def parts:[string]
+        def current:string ""
+        i = 0
+        def contentLen:int (strlen content)
+        while (i < contentLen) {
+            def ch:int (charAt content i)
+            if ((ch == 44) || (ch == 32)) {  ; ',' or space
+                def trimPart:string (trim current)
+                if ((strlen trimPart) > 0) {
+                    push parts trimPart
+                }
+                current = ""
+            } {
+                current = (current + (strfromcode ch))
+            }
+            i = i + 1
+        }
+        def trimPart:string (trim current)
+        if ((strlen trimPart) > 0) {
+            push parts trimPart
+        }
+        
+        if ((array_length parts) >= 3) {
+            c.r = (EVGColor.parseNumber((itemAt parts 0)))
+            c.g = (EVGColor.parseNumber((itemAt parts 1)))
+            c.b = (EVGColor.parseNumber((itemAt parts 2)))
+            c.a = 1.0
+            c.isSet = true
+        }
+        
+        return c
+    }
+    
+    sfn parseRgba:EVGColor (str:string) {
+        ; Parse rgba(r, g, b, a)
+        def c:EVGColor (EVGColor.parseRgb(str))
+        def len:int (strlen str)
+        
+        ; Find content between parens
+        def start:int 0
+        def end:int (len - 1)
+        def i:int 0
+        while (i < len) {
+            def ch:int (charAt str i)
+            if (ch == 40) {
+                start = i + 1
+            }
+            if (ch == 41) {
+                end = i
+            }
+            i = i + 1
+        }
+        
+        def content:string (substring str start end)
+        
+        ; Split and get alpha
+        def parts:[string]
+        def current:string ""
+        i = 0
+        def contentLen:int (strlen content)
+        while (i < contentLen) {
+            def ch:int (charAt content i)
+            if ((ch == 44) || (ch == 32)) {
+                def trimPart:string (trim current)
+                if ((strlen trimPart) > 0) {
+                    push parts trimPart
+                }
+                current = ""
+            } {
+                current = (current + (strfromcode ch))
+            }
+            i = i + 1
+        }
+        def trimPart:string (trim current)
+        if ((strlen trimPart) > 0) {
+            push parts trimPart
+        }
+        
+        if ((array_length parts) >= 4) {
+            c.r = (EVGColor.parseNumber((itemAt parts 0)))
+            c.g = (EVGColor.parseNumber((itemAt parts 1)))
+            c.b = (EVGColor.parseNumber((itemAt parts 2)))
+            c.a = (EVGColor.parseNumber((itemAt parts 3)))
+            c.isSet = true
+        }
+        
+        return c
+    }
+    
+    sfn parseHsl:EVGColor (str:string) {
+        ; Parse hsl(h, s%, l%) or hsla(h, s%, l%, a)
+        def len:int (strlen str)
+        def start:int 0
+        def end:int (len - 1)
+        def i:int 0
+        while (i < len) {
+            def ch:int (charAt str i)
+            if (ch == 40) {
+                start = i + 1
+            }
+            if (ch == 41) {
+                end = i
+            }
+            i = i + 1
+        }
+        
+        def content:string (substring str start end)
+        
+        ; Split by comma or space
+        def parts:[string]
+        def current:string ""
+        i = 0
+        def contentLen:int (strlen content)
+        while (i < contentLen) {
+            def ch:int (charAt content i)
+            if ((ch == 44) || (ch == 32)) {
+                def trimPart:string (trim current)
+                if ((strlen trimPart) > 0) {
+                    push parts trimPart
+                }
+                current = ""
+            } {
+                current = (current + (strfromcode ch))
+            }
+            i = i + 1
+        }
+        def trimPart:string (trim current)
+        if ((strlen trimPart) > 0) {
+            push parts trimPart
+        }
+        
+        if ((array_length parts) >= 3) {
+            def h:double (EVGColor.parseNumber((itemAt parts 0)))
+            def s:double (EVGColor.parseNumber((itemAt parts 1)))
+            def l:double (EVGColor.parseNumber((itemAt parts 2)))
+            def c:EVGColor (EVGColor.hslToRgb(h s l))
+            if ((array_length parts) >= 4) {
+                c.a = (EVGColor.parseNumber((itemAt parts 3)))
+            }
+            return c
+        }
+        
+        return (EVGColor.noColor())
+    }
+    
+    sfn parseNamed:EVGColor (name:string) {
+        ; Parse named colors (common CSS colors)
+        ; Manual lowercase since 'lowercase' operator not available
+        def lower:string ""
+        def len:int (strlen name)
+        def i:int 0
+        while (i < len) {
+            def ch:int (charAt name i)
+            ; A-Z is 65-90, convert to lowercase by adding 32
+            if ((ch >= 65) && (ch <= 90)) {
+                lower = (lower + (strfromcode (ch + 32)))
+            } {
+                lower = (lower + (strfromcode ch))
+            }
+            i = i + 1
+        }
+        
+        if (lower == "black") {
+            return (EVGColor.rgb(0 0 0))
+        }
+        if (lower == "white") {
+            return (EVGColor.rgb(255 255 255))
+        }
+        if (lower == "red") {
+            return (EVGColor.rgb(255 0 0))
+        }
+        if (lower == "green") {
+            return (EVGColor.rgb(0 128 0))
+        }
+        if (lower == "blue") {
+            return (EVGColor.rgb(0 0 255))
+        }
+        if (lower == "yellow") {
+            return (EVGColor.rgb(255 255 0))
+        }
+        if (lower == "cyan") {
+            return (EVGColor.rgb(0 255 255))
+        }
+        if (lower == "magenta") {
+            return (EVGColor.rgb(255 0 255))
+        }
+        if (lower == "gray") {
+            return (EVGColor.rgb(128 128 128))
+        }
+        if (lower == "grey") {
+            return (EVGColor.rgb(128 128 128))
+        }
+        if (lower == "orange") {
+            return (EVGColor.rgb(255 165 0))
+        }
+        if (lower == "purple") {
+            return (EVGColor.rgb(128 0 128))
+        }
+        if (lower == "pink") {
+            return (EVGColor.rgb(255 192 203))
+        }
+        if (lower == "brown") {
+            return (EVGColor.rgb(165 42 42))
+        }
+        if (lower == "transparent") {
+            return (EVGColor.transparent())
+        }
+        if (lower == "none") {
+            return (EVGColor.noColor())
+        }
+        
+        ; Unknown color
+        return (EVGColor.noColor())
+    }
+    
+    fn red:int () {
+        if (r > 255.0) {
+            return 255
+        }
+        if (r < 0.0) {
+            return 0
+        }
+        return (to_int r)
+    }
+    
+    fn green:int () {
+        if (g > 255.0) {
+            return 255
+        }
+        if (g < 0.0) {
+            return 0
+        }
+        return (to_int g)
+    }
+    
+    fn blue:int () {
+        if (b > 255.0) {
+            return 255
+        }
+        if (b < 0.0) {
+            return 0
+        }
+        return (to_int b)
+    }
+    
+    fn alpha:double () {
+        if (a < 0.0) {
+            return 0.0
+        }
+        if (a > 1.0) {
+            return 1.0
+        }
+        return a
+    }
+    
+    fn toCSSString:string () {
+        if (isSet == false) {
+            return "none"
+        }
+        if (a < 1.0) {
+            return ("rgba(" + (to_string (this.red())) + "," + (to_string (this.green())) + "," + (to_string (this.blue())) + "," + (to_string (this.alpha())) + ")")
+        }
+        return ("rgb(" + (to_string (this.red())) + "," + (to_string (this.green())) + "," + (to_string (this.blue())) + ")")
+    }
+    
+    fn toHexString:string () {
+        if (isSet == false) {
+            return "none"
+        }
+        ; Simple hex output (no alpha)
+        def hexChars:string "0123456789ABCDEF"
+        def rH:int (this.red())
+        def gH:int (this.green())
+        def bH:int (this.blue())
+        
+        def r1D:double ((to_double rH) / 16.0)
+        def r1:int (to_int r1D)
+        def r2:int (rH % 16)
+        def g1D:double ((to_double gH) / 16.0)
+        def g1:int (to_int g1D)
+        def g2:int (gH % 16)
+        def b1D:double ((to_double bH) / 16.0)
+        def b1:int (to_int b1D)
+        def b2:int (bH % 16)
+        
+        return ("#" + (strfromcode (charAt hexChars r1)) + (strfromcode (charAt hexChars r2)) + (strfromcode (charAt hexChars g1)) + (strfromcode (charAt hexChars g2)) + (strfromcode (charAt hexChars b1)) + (strfromcode (charAt hexChars b2)))
+    }
+    
+    fn toPDFColorString:string () {
+        ; PDF color values are 0-1 range
+        if (isSet == false) {
+            return ""
+        }
+        def rN:double (r / 255.0)
+        def gN:double (g / 255.0)
+        def bN:double (b / 255.0)
+        return ((to_string rN) + " " + (to_string gN) + " " + (to_string bN))
+    }
+    
+    fn withAlpha:EVGColor (newAlpha:double) {
+        return (EVGColor.create(r g b newAlpha))
+    }
+    
+    fn lighten:EVGColor (amount:double) {
+        ; Lighten color by amount (0-1)
+        def newR:double (r + ((255.0 - r) * amount))
+        def newG:double (g + ((255.0 - g) * amount))
+        def newB:double (b + ((255.0 - b) * amount))
+        return (EVGColor.create(newR newG newB a))
+    }
+    
+    fn darken:EVGColor (amount:double) {
+        ; Darken color by amount (0-1)
+        def newR:double (r * (1.0 - amount))
+        def newG:double (g * (1.0 - amount))
+        def newB:double (b * (1.0 - amount))
+        return (EVGColor.create(newR newG newB a))
+    }
+}

@@ -1,0 +1,179 @@
+; EVGBox.rgr - Box model for EVG layout (margin, padding, border)
+
+Import "EVGUnit.rgr"
+Import "EVGColor.rgr"
+
+class EVGBox {
+    ; Margins (outer spacing)
+    def marginTop:EVGUnit
+    def marginRight:EVGUnit
+    def marginBottom:EVGUnit
+    def marginLeft:EVGUnit
+    
+    ; Padding (inner spacing)
+    def paddingTop:EVGUnit
+    def paddingRight:EVGUnit
+    def paddingBottom:EVGUnit
+    def paddingLeft:EVGUnit
+    
+    ; Border
+    def borderWidth:EVGUnit
+    def borderColor:EVGColor
+    def borderRadius:EVGUnit
+    
+    ; Resolved pixel values
+    def marginTopPx:double 0.0
+    def marginRightPx:double 0.0
+    def marginBottomPx:double 0.0
+    def marginLeftPx:double 0.0
+    def paddingTopPx:double 0.0
+    def paddingRightPx:double 0.0
+    def paddingBottomPx:double 0.0
+    def paddingLeftPx:double 0.0
+    def borderWidthPx:double 0.0
+    def borderRadiusPx:double 0.0
+    
+    Constructor () {
+        marginTop = (EVGUnit.unset())
+        marginRight = (EVGUnit.unset())
+        marginBottom = (EVGUnit.unset())
+        marginLeft = (EVGUnit.unset())
+        paddingTop = (EVGUnit.unset())
+        paddingRight = (EVGUnit.unset())
+        paddingBottom = (EVGUnit.unset())
+        paddingLeft = (EVGUnit.unset())
+        borderWidth = (EVGUnit.unset())
+        borderColor = (EVGColor.noColor())
+        borderRadius = (EVGUnit.unset())
+    }
+    
+    fn setMargin:void (all:EVGUnit) {
+        marginTop = all
+        marginRight = all
+        marginBottom = all
+        marginLeft = all
+    }
+    
+    fn setMarginValues:void (top:EVGUnit right:EVGUnit bottom:EVGUnit left:EVGUnit) {
+        marginTop = top
+        marginRight = right
+        marginBottom = bottom
+        marginLeft = left
+    }
+    
+    fn setPadding:void (all:EVGUnit) {
+        paddingTop = all
+        paddingRight = all
+        paddingBottom = all
+        paddingLeft = all
+    }
+    
+    fn setPaddingValues:void (top:EVGUnit right:EVGUnit bottom:EVGUnit left:EVGUnit) {
+        paddingTop = top
+        paddingRight = right
+        paddingBottom = bottom
+        paddingLeft = left
+    }
+    
+    fn resolveUnits:void (parentWidth:double parentHeight:double fontSize:double) {
+        ; Resolve all units to pixel values
+        
+        ; Margins - use width for horizontal, height for vertical (like CSS)
+        marginTop.resolve(parentHeight fontSize)
+        marginTopPx = marginTop.pixels
+        
+        marginRight.resolve(parentWidth fontSize)
+        marginRightPx = marginRight.pixels
+        
+        marginBottom.resolve(parentHeight fontSize)
+        marginBottomPx = marginBottom.pixels
+        
+        marginLeft.resolve(parentWidth fontSize)
+        marginLeftPx = marginLeft.pixels
+        
+        ; Padding
+        paddingTop.resolve(parentHeight fontSize)
+        paddingTopPx = paddingTop.pixels
+        
+        paddingRight.resolve(parentWidth fontSize)
+        paddingRightPx = paddingRight.pixels
+        
+        paddingBottom.resolve(parentHeight fontSize)
+        paddingBottomPx = paddingBottom.pixels
+        
+        paddingLeft.resolve(parentWidth fontSize)
+        paddingLeftPx = paddingLeft.pixels
+        
+        ; Border
+        borderWidth.resolve(parentWidth fontSize)
+        borderWidthPx = borderWidth.pixels
+        
+        ; Border radius - percentage is relative to smaller dimension
+        def smallerDim:double parentWidth
+        if (parentHeight < parentWidth) {
+            smallerDim = parentHeight
+        }
+        borderRadius.resolve(smallerDim fontSize)
+        borderRadiusPx = borderRadius.pixels
+    }
+    
+    fn getInnerWidth:double (outerWidth:double) {
+        ; Calculate inner width after padding and border
+        return (outerWidth - paddingLeftPx - paddingRightPx - (borderWidthPx * 2.0))
+    }
+    
+    fn getInnerHeight:double (outerHeight:double) {
+        ; Calculate inner height after padding and border
+        return (outerHeight - paddingTopPx - paddingBottomPx - (borderWidthPx * 2.0))
+    }
+    
+    fn getTotalWidth:double (contentWidth:double) {
+        ; Calculate total width including margin, padding, border
+        return (contentWidth + marginLeftPx + marginRightPx + paddingLeftPx + paddingRightPx + (borderWidthPx * 2.0))
+    }
+    
+    fn getTotalHeight:double (contentHeight:double) {
+        ; Calculate total height including margin, padding, border
+        return (contentHeight + marginTopPx + marginBottomPx + paddingTopPx + paddingBottomPx + (borderWidthPx * 2.0))
+    }
+    
+    fn getContentX:double (elementX:double) {
+        ; Get X position for content area
+        return (elementX + marginLeftPx + borderWidthPx + paddingLeftPx)
+    }
+    
+    fn getContentY:double (elementY:double) {
+        ; Get Y position for content area
+        return (elementY + marginTopPx + borderWidthPx + paddingTopPx)
+    }
+    
+    fn getHorizontalSpace:double () {
+        ; Total horizontal space (margin + border + padding on both sides)
+        return (marginLeftPx + marginRightPx + paddingLeftPx + paddingRightPx + (borderWidthPx * 2.0))
+    }
+    
+    fn getVerticalSpace:double () {
+        ; Total vertical space (margin + border + padding on both sides)
+        return (marginTopPx + marginBottomPx + paddingTopPx + paddingBottomPx + (borderWidthPx * 2.0))
+    }
+    
+    fn getMarginHorizontal:double () {
+        return (marginLeftPx + marginRightPx)
+    }
+    
+    fn getMarginVertical:double () {
+        return (marginTopPx + marginBottomPx)
+    }
+    
+    fn getPaddingHorizontal:double () {
+        return (paddingLeftPx + paddingRightPx)
+    }
+    
+    fn getPaddingVertical:double () {
+        return (paddingTopPx + paddingBottomPx)
+    }
+    
+    fn toString:string () {
+        return ("Box[margin:" + (to_string marginTopPx) + "/" + (to_string marginRightPx) + "/" + (to_string marginBottomPx) + "/" + (to_string marginLeftPx) + " padding:" + (to_string paddingTopPx) + "/" + (to_string paddingRightPx) + "/" + (to_string paddingBottomPx) + "/" + (to_string paddingLeftPx) + " border:" + (to_string borderWidthPx) + "]")
+    }
+}

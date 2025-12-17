@@ -1,0 +1,311 @@
+; evg_test.rgr - Test CLI for EVG Layout Engine
+; 
+; Compile: npm run evg:compile
+; Run: npm run evg:run
+
+Import "EVGUnit.rgr"
+Import "EVGColor.rgr"
+Import "EVGBox.rgr"
+Import "EVGElement.rgr"
+Import "EVGTextMeasurer.rgr"
+Import "EVGText.rgr"
+Import "EVGLayout.rgr"
+
+class EVGTest {
+    
+    sfn m@(main):void () {
+        def test (new EVGTest())
+        test.run()
+    }
+    
+    fn run:void () {
+        print "=== EVG Layout Engine Tests ==="
+        print ""
+        
+        this.testUnits()
+        this.testColors()
+        this.testBox()
+        this.testTextMeasurer()
+        this.testSimpleLayout()
+        this.testNestedLayout()
+        this.testAlignment()
+        
+        print ""
+        print "=== All tests completed ==="
+    }
+    
+    fn testUnits:void () {
+        print "--- Unit Parsing Tests ---"
+        
+        ; Test pixel parsing
+        def u1:EVGUnit (EVGUnit.parse("100px"))
+        print ("  100px -> " + (u1.toString()) + " isPixels=" + (to_string (u1.isPixels())))
+        
+        ; Test percentage parsing
+        def u2:EVGUnit (EVGUnit.parse("50%"))
+        print ("  50% -> " + (u2.toString()) + " isPercent=" + (to_string (u2.isPercent())))
+        
+        ; Test em parsing
+        def u3:EVGUnit (EVGUnit.parse("2em"))
+        print ("  2em -> " + (u3.toString()) + " isEm=" + (to_string (u3.isEm())))
+        
+        ; Test fill parsing
+        def u4:EVGUnit (EVGUnit.parse("fill"))
+        print ("  fill -> " + (u4.toString()) + " isFill=" + (to_string (u4.isFill())))
+        
+        ; Test number without unit (default to px)
+        def u5:EVGUnit (EVGUnit.parse("200"))
+        print ("  200 -> " + (u5.toString()))
+        
+        ; Test height percentage
+        def u6:EVGUnit (EVGUnit.parse("30hp"))
+        print ("  30hp -> " + (u6.toString()) + " isHeightPercent=" + (to_string (u6.isHeightPercent())))
+        
+        ; Test unit resolution
+        def u7:EVGUnit (EVGUnit.parse("50%"))
+        u7.resolve(400.0 14.0)
+        print ("  50% of 400 = " + (to_string u7.pixels) + "px")
+        
+        def u8:EVGUnit (EVGUnit.parse("1.5em"))
+        u8.resolve(400.0 16.0)
+        print ("  1.5em at fontSize=16 = " + (to_string u8.pixels) + "px")
+        
+        print ""
+    }
+    
+    fn testColors:void () {
+        print "--- Color Parsing Tests ---"
+        
+        ; Test hex colors
+        def c1:EVGColor (EVGColor.parse("#FF5733"))
+        print ("  #FF5733 -> " + (c1.toCSSString()) + " hex=" + (c1.toHexString()))
+        
+        ; Test short hex
+        def c2:EVGColor (EVGColor.parse("#F00"))
+        print ("  #F00 -> " + (c2.toCSSString()))
+        
+        ; Test rgb()
+        def c3:EVGColor (EVGColor.parse("rgb(100, 150, 200)"))
+        print ("  rgb(100, 150, 200) -> " + (c3.toCSSString()))
+        
+        ; Test rgba()
+        def c4:EVGColor (EVGColor.parse("rgba(255, 0, 0, 0.5)"))
+        print ("  rgba(255, 0, 0, 0.5) -> " + (c4.toCSSString()))
+        
+        ; Test named colors
+        def c5:EVGColor (EVGColor.parse("red"))
+        print ("  red -> " + (c5.toCSSString()))
+        
+        def c6:EVGColor (EVGColor.parse("blue"))
+        print ("  blue -> " + (c6.toCSSString()))
+        
+        ; Test HSL
+        def c7:EVGColor (EVGColor.hslToRgb(195.0 100.0 50.0))
+        print ("  hsl(195, 100, 50) -> " + (c7.toCSSString()))
+        
+        ; Test color manipulation
+        def c8:EVGColor (EVGColor.parse("#3366FF"))
+        def lighter:EVGColor (c8.lighten(0.3))
+        print ("  #3366FF lighten(0.3) -> " + (lighter.toHexString()))
+        
+        def darker:EVGColor (c8.darken(0.3))
+        print ("  #3366FF darken(0.3) -> " + (darker.toHexString()))
+        
+        print ""
+    }
+    
+    fn testBox:void () {
+        print "--- Box Model Tests ---"
+        
+        def box (new EVGBox())
+        box.setMargin((EVGUnit.pixels(10.0)))
+        box.setPadding((EVGUnit.pixels(20.0)))
+        box.borderWidth = (EVGUnit.pixels(2.0))
+        
+        ; Resolve units
+        box.resolveUnits(400.0 300.0 14.0)
+        
+        print ("  Box: " + (box.toString()))
+        print ("  Inner width of 200: " + (to_string (box.getInnerWidth(200.0))))
+        print ("  Inner height of 150: " + (to_string (box.getInnerHeight(150.0))))
+        print ("  Total width from content 100: " + (to_string (box.getTotalWidth(100.0))))
+        print ("  Horizontal space: " + (to_string (box.getHorizontalSpace())))
+        
+        print ""
+    }
+    
+    fn testTextMeasurer:void () {
+        print "--- Text Measurement Tests ---"
+        
+        def measurer (new SimpleTextMeasurer())
+        
+        ; Measure simple text
+        def metrics:EVGTextMetrics (measurer.measureText("Hello, World!" "Helvetica" 14.0))
+        print ("  'Hello, World!' at 14px: " + (to_string metrics.width) + "x" + (to_string metrics.height))
+        
+        ; Measure with different font size
+        def metrics2:EVGTextMetrics (measurer.measureText("Hello" "Arial" 24.0))
+        print ("  'Hello' at 24px: " + (to_string metrics2.width) + "x" + (to_string metrics2.height))
+        
+        ; Test text wrapping
+        def longText:string "This is a long text that should wrap to multiple lines when the width is limited."
+        def lines:[string] (measurer.wrapText(longText "Helvetica" 14.0 150.0))
+        print ("  Wrapped text (maxWidth=150):")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            print ("    Line " + (to_string (i + 1)) + ": \"" + line + "\"")
+            i = i + 1
+        }
+        
+        print ""
+    }
+    
+    fn testSimpleLayout:void () {
+        print "--- Simple Layout Test ---"
+        
+        ; Create a simple layout: root with two children
+        def root (new EVGElement())
+        root.id = "root"
+        root.width = (EVGUnit.pixels(400.0))
+        root.height = (EVGUnit.pixels(300.0))
+        root.backgroundColor = (EVGColor.parse("#f0f0f0"))
+        root.box.setPadding((EVGUnit.pixels(20.0)))
+        
+        def child1 (new EVGElement())
+        child1.id = "box1"
+        child1.width = (EVGUnit.pixels(100.0))
+        child1.height = (EVGUnit.pixels(80.0))
+        child1.backgroundColor = (EVGColor.parse("#3498db"))
+        child1.box.setMargin((EVGUnit.pixels(10.0)))
+        root.addChild(child1)
+        
+        def child2 (new EVGElement())
+        child2.id = "box2"
+        child2.width = (EVGUnit.pixels(100.0))
+        child2.height = (EVGUnit.pixels(80.0))
+        child2.backgroundColor = (EVGColor.parse("#e74c3c"))
+        child2.box.setMargin((EVGUnit.pixels(10.0)))
+        root.addChild(child2)
+        
+        ; Layout
+        def layout (new EVGLayout())
+        layout.layout(root)
+        
+        ; Print results
+        print "  Layout result:"
+        layout.printLayout(root 2)
+        
+        print ""
+    }
+    
+    fn testNestedLayout:void () {
+        print "--- Nested Layout Test ---"
+        
+        ; Create nested layout
+        def root (new EVGElement())
+        root.id = "page"
+        root.width = (EVGUnit.pixels(400.0))
+        root.height = (EVGUnit.pixels(400.0))
+        root.box.setPadding((EVGUnit.pixels(10.0)))
+        root.direction = "column"
+        
+        ; Header
+        def header (new EVGElement())
+        header.id = "header"
+        header.width = (EVGUnit.parse("100%"))
+        header.height = (EVGUnit.pixels(50.0))
+        header.backgroundColor = (EVGColor.parse("#2c3e50"))
+        root.addChild(header)
+        
+        ; Content area with two columns
+        def content (new EVGElement())
+        content.id = "content"
+        content.width = (EVGUnit.parse("100%"))
+        content.height = (EVGUnit.pixels(250.0))
+        content.direction = "row"
+        root.addChild(content)
+        
+        def leftCol (new EVGElement())
+        leftCol.id = "sidebar"
+        leftCol.width = (EVGUnit.pixels(100.0))
+        leftCol.height = (EVGUnit.parse("100%"))
+        leftCol.backgroundColor = (EVGColor.parse("#34495e"))
+        content.addChild(leftCol)
+        
+        def rightCol (new EVGElement())
+        rightCol.id = "main"
+        rightCol.width = (EVGUnit.pixels(270.0))
+        rightCol.height = (EVGUnit.parse("100%"))
+        rightCol.backgroundColor = (EVGColor.parse("#ecf0f1"))
+        rightCol.box.setPadding((EVGUnit.pixels(10.0)))
+        content.addChild(rightCol)
+        
+        ; Footer
+        def footer (new EVGElement())
+        footer.id = "footer"
+        footer.width = (EVGUnit.parse("100%"))
+        footer.height = (EVGUnit.pixels(40.0))
+        footer.backgroundColor = (EVGColor.parse("#2c3e50"))
+        root.addChild(footer)
+        
+        ; Layout
+        def layout (new EVGLayout())
+        layout.layout(root)
+        
+        ; Print results
+        print "  Nested layout result:"
+        layout.printLayout(root 2)
+        
+        print ""
+    }
+    
+    fn testAlignment:void () {
+        print "--- Alignment Test ---"
+        
+        ; Test center alignment
+        def root (new EVGElement())
+        root.id = "centered"
+        root.width = (EVGUnit.pixels(400.0))
+        root.height = (EVGUnit.pixels(200.0))
+        root.align = "center"
+        root.verticalAlign = "center"
+        root.box.setPadding((EVGUnit.pixels(10.0)))
+        
+        def box (new EVGElement())
+        box.id = "box"
+        box.width = (EVGUnit.pixels(100.0))
+        box.height = (EVGUnit.pixels(50.0))
+        box.backgroundColor = (EVGColor.parse("#9b59b6"))
+        root.addChild(box)
+        
+        ; Layout
+        def layout (new EVGLayout())
+        layout.layout(root)
+        
+        print "  Center aligned box:"
+        layout.printLayout(root 2)
+        
+        ; Test right alignment
+        def root2 (new EVGElement())
+        root2.id = "rightAlign"
+        root2.width = (EVGUnit.pixels(400.0))
+        root2.height = (EVGUnit.pixels(100.0))
+        root2.align = "right"
+        root2.box.setPadding((EVGUnit.pixels(10.0)))
+        
+        def box2 (new EVGElement())
+        box2.id = "rightBox"
+        box2.width = (EVGUnit.pixels(80.0))
+        box2.height = (EVGUnit.pixels(40.0))
+        root2.addChild(box2)
+        
+        def layout2 (new EVGLayout())
+        layout2.layout(root2)
+        
+        print "  Right aligned box:"
+        layout2.printLayout(root2 2)
+        
+        print ""
+    }
+}

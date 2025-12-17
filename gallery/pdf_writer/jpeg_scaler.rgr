@@ -6,6 +6,7 @@
 Import "JPEGDecoder.rgr"
 Import "JPEGEncoder.rgr"
 Import "ProgressiveJPEGDecoder.rgr"
+Import "JPEGMetadata.rgr"
 
 class JPEGScaler {
     
@@ -94,12 +95,43 @@ class JPEGScaler {
         print ("Quality: " + (to_string quality))
         print ""
         
+        ; Parse EXIF to get orientation
+        def inputDir:string "."
+        def inputName:string inputFile
+        def lastInputSlash:int -1
+        def k 0
+        while (k < (strlen inputFile)) {
+            def ch:int (charAt inputFile k)
+            if ((ch == 47) || (ch == 92)) {
+                lastInputSlash = k
+            }
+            k = k + 1
+        }
+        if (lastInputSlash >= 0) {
+            inputDir = (substring inputFile 0 lastInputSlash)
+            inputName = (substring inputFile (lastInputSlash + 1) (strlen inputFile))
+        }
+        
+        def metaParser (new JPEGMetadataParser())
+        def metaInfo:JPEGMetadataInfo (metaParser.parseMetadata(inputDir inputName))
+        def orientation:int metaInfo.orientation
+        print ("EXIF Orientation: " + (to_string orientation))
+        
         ; Decode input JPEG (try progressive first, then baseline)
         def img:ImageBuffer (this.decodeJPEG(inputFile))
         
         if (img.width == 0) {
             print "Error: Failed to decode input JPEG"
             return
+        }
+        
+        print ("Decoded size: " + (to_string img.width) + "x" + (to_string img.height))
+        
+        ; Apply EXIF orientation correction
+        if (orientation > 1) {
+            print ("Applying EXIF orientation correction...")
+            img = (img.applyExifOrientation(orientation))
+            print ("After orientation: " + (to_string img.width) + "x" + (to_string img.height))
         }
         
         print ("Original size: " + (to_string img.width) + "x" + (to_string img.height))

@@ -1,0 +1,222 @@
+; EVGUnit.rgr - Unit parsing and resolution for EVG layout
+; Supports: px, %, em, hp (height percent), fill
+
+; Unit type constants
+; 0 = PIXELS (default)
+; 1 = PERCENT (% of parent width)
+; 2 = EM (relative to font size)
+; 3 = HEIGHT_PERCENT (% of parent height)
+; 4 = FILL (expand to fill available space)
+
+class EVGUnit {
+    def value:double 0.0
+    def unitType:int 0
+    def isSet:boolean false
+    def pixels:double 0.0
+    
+    Constructor () {
+        value = 0.0
+        unitType = 0
+        isSet = false
+        pixels = 0.0
+    }
+    
+    sfn create:EVGUnit (val:double uType:int) {
+        def unit (new EVGUnit())
+        unit.value = val
+        unit.unitType = uType
+        unit.isSet = true
+        return unit
+    }
+    
+    sfn pixels:EVGUnit (val:double) {
+        return (EVGUnit.create(val 0))
+    }
+    
+    sfn percent:EVGUnit (val:double) {
+        return (EVGUnit.create(val 1))
+    }
+    
+    sfn em:EVGUnit (val:double) {
+        return (EVGUnit.create(val 2))
+    }
+    
+    sfn heightPercent:EVGUnit (val:double) {
+        return (EVGUnit.create(val 3))
+    }
+    
+    sfn fill:EVGUnit () {
+        return (EVGUnit.create(100.0 4))
+    }
+    
+    sfn unset:EVGUnit () {
+        def unit (new EVGUnit())
+        unit.isSet = false
+        return unit
+    }
+    
+    sfn parse:EVGUnit (str:string) {
+        ; Parse unit string like "100px", "50%", "2em", "30hp", "fill"
+        def unit (new EVGUnit())
+        def trimmed:string (trim str)
+        def len:int (strlen trimmed)
+        
+        if (len == 0) {
+            return unit
+        }
+        
+        ; Check for "fill"
+        if (trimmed == "fill") {
+            unit.value = 100.0
+            unit.unitType = 4
+            unit.isSet = true
+            return unit
+        }
+        
+        ; Check for percentage
+        def lastChar:int (charAt trimmed (len - 1))
+        if (lastChar == 37) {  ; '%'
+            def numStr:string (substring trimmed 0 (len - 1))
+            def numVal@(optional):double (to_double numStr)
+            unit.value = (unwrap numVal)
+            unit.unitType = 1
+            unit.isSet = true
+            return unit
+        }
+        
+        ; Check for "em"
+        if (len >= 2) {
+            def suffix:string (substring trimmed (len - 2) len)
+            if (suffix == "em") {
+                def numStr:string (substring trimmed 0 (len - 2))
+                def numVal@(optional):double (to_double numStr)
+                unit.value = (unwrap numVal)
+                unit.unitType = 2
+                unit.isSet = true
+                return unit
+            }
+            if (suffix == "px") {
+                def numStr:string (substring trimmed 0 (len - 2))
+                def numVal@(optional):double (to_double numStr)
+                unit.value = (unwrap numVal)
+                unit.unitType = 0
+                unit.isSet = true
+                return unit
+            }
+            if (suffix == "hp") {
+                def numStr:string (substring trimmed 0 (len - 2))
+                def numVal@(optional):double (to_double numStr)
+                unit.value = (unwrap numVal)
+                unit.unitType = 3
+                unit.isSet = true
+                return unit
+            }
+        }
+        
+        ; Default: treat as pixels
+        def numVal@(optional):double (to_double trimmed)
+        unit.value = (unwrap numVal)
+        unit.unitType = 0
+        unit.isSet = true
+        return unit
+    }
+    
+    fn resolve:void (parentSize:double fontSize:double) {
+        ; Resolve unit to actual pixel value
+        if (isSet == false) {
+            pixels = 0.0
+            return
+        }
+        
+        ; PIXELS
+        if (unitType == 0) {
+            pixels = value
+            return
+        }
+        
+        ; PERCENT
+        if (unitType == 1) {
+            pixels = ((parentSize * value) / 100.0)
+            return
+        }
+        
+        ; EM
+        if (unitType == 2) {
+            pixels = (fontSize * value)
+            return
+        }
+        
+        ; HEIGHT_PERCENT (resolved separately with height)
+        if (unitType == 3) {
+            pixels = ((parentSize * value) / 100.0)
+            return
+        }
+        
+        ; FILL - resolved by layout engine
+        if (unitType == 4) {
+            pixels = parentSize
+            return
+        }
+        
+        pixels = value
+    }
+    
+    fn resolveWithHeight:void (parentWidth:double parentHeight:double fontSize:double) {
+        ; Resolve unit using both dimensions
+        if (isSet == false) {
+            pixels = 0.0
+            return
+        }
+        
+        if (unitType == 3) {
+            ; HEIGHT_PERCENT uses parent height
+            pixels = ((parentHeight * value) / 100.0)
+            return
+        }
+        
+        ; For other types, use width
+        this.resolve(parentWidth fontSize)
+    }
+    
+    fn isPixels:boolean () {
+        return (unitType == 0)
+    }
+    
+    fn isPercent:boolean () {
+        return (unitType == 1)
+    }
+    
+    fn isEm:boolean () {
+        return (unitType == 2)
+    }
+    
+    fn isHeightPercent:boolean () {
+        return (unitType == 3)
+    }
+    
+    fn isFill:boolean () {
+        return (unitType == 4)
+    }
+    
+    fn toString:string () {
+        if (isSet == false) {
+            return "unset"
+        }
+        if (unitType == 0) {
+            return ((to_string value) + "px")
+        }
+        if (unitType == 1) {
+            return ((to_string value) + "%")
+        }
+        if (unitType == 2) {
+            return ((to_string value) + "em")
+        }
+        if (unitType == 3) {
+            return ((to_string value) + "hp")
+        }
+        if (unitType == 4) {
+            return "fill"
+        }
+        return (to_string value)
+    }
+}

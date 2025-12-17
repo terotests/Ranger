@@ -1,0 +1,103 @@
+; EVGText.rgr - Text element for EVG layout
+
+Import "EVGElement.rgr"
+Import "EVGTextMeasurer.rgr"
+
+class EVGText {
+    ; Extend base element
+    def element@(optional):EVGElement
+    
+    ; Text content
+    def text:string ""
+    
+    ; Calculated text metrics
+    def measuredWidth:double 0.0
+    def measuredHeight:double 0.0
+    def lineCount:int 1
+    def lines:[string]
+    
+    Constructor () {
+        def el (new EVGElement())
+        el.tagName = "span"
+        el.elementType = 1
+        element = el
+    }
+    
+    sfn create:EVGText (content:string) {
+        def t (new EVGText())
+        t.text = content
+        return t
+    }
+    
+    fn getElement:EVGElement () {
+        return (unwrap element)
+    }
+    
+    fn setText:void (content:string) {
+        text = content
+    }
+    
+    fn setFontSize:void (size:double) {
+        element.fontSize = (EVGUnit.pixels(size))
+        element.inheritedFontSize = size
+    }
+    
+    fn setFontFamily:void (family:string) {
+        element.fontFamily = family
+    }
+    
+    fn setColor:void (c:EVGColor) {
+        element.color = c
+    }
+    
+    fn measureText:void (measurer:EVGTextMeasurer maxWidth:double) {
+        ; Measure text and wrap if needed
+        def fs:double element.inheritedFontSize
+        def ff:string element.fontFamily
+        
+        if (maxWidth > 0.0) {
+            ; Wrap text to fit width
+            lines = (measurer.wrapText(text ff fs maxWidth))
+            lineCount = (array_length lines)
+            
+            ; Calculate total dimensions
+            def lineHeight:double (measurer.getLineHeight(ff fs))
+            measuredHeight = ((to_double lineCount) * lineHeight)
+            
+            ; Find widest line
+            measuredWidth = 0.0
+            def i:int 0
+            while (i < lineCount) {
+                def line:string (itemAt lines i)
+                def lineWidth:double (measurer.measureTextWidth(line ff fs))
+                if (lineWidth > measuredWidth) {
+                    measuredWidth = lineWidth
+                }
+                i = i + 1
+            }
+        } {
+            ; No wrapping - single line
+            def metrics:EVGTextMetrics (measurer.measureText(text ff fs))
+            measuredWidth = metrics.width
+            measuredHeight = metrics.height
+            lineCount = 1
+            clear lines
+            push lines text
+        }
+        
+        ; Update element calculated dimensions
+        element.calculatedWidth = measuredWidth
+        element.calculatedHeight = measuredHeight
+    }
+    
+    fn getLine:string (index:int) {
+        if (index < (array_length lines)) {
+            return (itemAt lines index)
+        }
+        return ""
+    }
+    
+    fn toString:string () {
+        return ("EVGText[\"" + text + "\" " + (to_string measuredWidth) + "x" + (to_string measuredHeight) + " lines:" + (to_string lineCount) + "]")
+    }
+}

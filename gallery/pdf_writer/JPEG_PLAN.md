@@ -10,6 +10,7 @@ Both baseline and progressive JPEG decoder/encoder are fully implemented and wor
 - ✅ **Progressive JPEG Decoder** (ProgressiveJPEGDecoder.rgr)
 - ✅ **JPEG Encoder** (JPEGEncoder.rgr)
 - ✅ **EXIF Orientation Support** - Auto-rotates images based on EXIF data
+- ✅ **Restart Marker Support** - Handles DRI/RST markers for iPhone and other camera JPEGs
 - ✅ **Command-line Tool** (jpeg_scaler.rgr) - Scale images with width/height/scale modes
 - ✅ **Multi-target Support** - Works in JavaScript and Go
 
@@ -36,6 +37,8 @@ Parse JPEG structure to extract:
 - [x] SOF0 (FFC0) - Start of Frame (baseline DCT) - width, height, components
 - [x] DQT (FFDB) - Define Quantization Table(s)
 - [x] DHT (FFC4) - Define Huffman Table(s)
+- [x] DRI (FFDD) - Define Restart Interval
+- [x] RST0-RST7 (FFD0-FFD7) - Restart markers (handled in BitReader)
 - [x] SOS (FFDA) - Start of Scan (entropy-coded data follows)
 - [x] EOI (FFD9) - End of Image
 
@@ -95,6 +98,8 @@ class BitReader {
 ```
 
 Handle byte stuffing: `FF 00` in data stream = literal `FF`
+
+Handle restart markers: `FF D0` - `FF D7` are skipped during bit reading, and DC predictions are reset at restart interval boundaries.
 
 ### 2.3 Decode Process
 
