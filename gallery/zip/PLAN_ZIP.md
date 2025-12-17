@@ -7,6 +7,7 @@ Implementation of a ZIP archive reader/writer in Ranger to open, read, and compr
 ## Overview
 
 Create a ZIP archive library in Ranger that can:
+
 - **Read ZIP files**: Parse archive structure, list contents, extract files
 - **Write ZIP files**: Create new archives, add files with compression
 - **Cross-platform**: Works across all Ranger targets (JavaScript, Go, Rust, etc.)
@@ -36,12 +37,12 @@ ZIP File Structure:
 
 ## Key Signatures (Little-Endian)
 
-| Signature   | Hex Value   | Description                    |
-|-------------|-------------|--------------------------------|
-| Local File  | 0x04034b50  | "PK\x03\x04" - Local header    |
-| Central Dir | 0x02014b50  | "PK\x01\x02" - Central header  |
-| EOCD        | 0x06054b50  | "PK\x05\x06" - End of central  |
-| Data Desc   | 0x08074b50  | "PK\x07\x08" - Data descriptor |
+| Signature   | Hex Value  | Description                    |
+| ----------- | ---------- | ------------------------------ |
+| Local File  | 0x04034b50 | "PK\x03\x04" - Local header    |
+| Central Dir | 0x02014b50 | "PK\x01\x02" - Central header  |
+| EOCD        | 0x06054b50 | "PK\x05\x06" - End of central  |
+| Data Desc   | 0x08074b50 | "PK\x07\x08" - Data descriptor |
 
 ## Phase 1: Buffer Utilities & Structures
 
@@ -51,20 +52,20 @@ ZIP File Structure:
 class ZipBuffer {
     def data:buffer
     def pos:int 0
-    
+
     ; Read little-endian integers
     fn readUint16LE:int ()
     fn readUint32LE:int ()
-    
+
     ; Write little-endian integers
     fn writeUint16LE:void (value:int)
     fn writeUint32LE:void (value:int)
-    
+
     ; Seek and position management
     fn seek:void (position:int)
     fn skip:void (count:int)
     fn getPosition:int ()
-    
+
     ; Read bytes
     fn readBytes:buffer (count:int)
     fn readString:string (count:int)
@@ -87,7 +88,7 @@ class ZipEntry {
     def isDirectory:boolean false
     def extraField:buffer
     def comment:string ""
-    
+
     ; Decoded file data (after extraction)
     def data@(optional):buffer
 }
@@ -98,6 +99,7 @@ class ZipEntry {
 ### 2.1 Create ZipReader.rgr
 
 **Core functionality:**
+
 - Parse End of Central Directory Record (EOCD)
 - Parse Central Directory entries
 - Extract individual files
@@ -110,7 +112,7 @@ class ZipReader {
     def entryMap:[string:ZipEntry]
     def data:buffer
     def comment:string ""
-    
+
     fn open:boolean (path:string filename:string)
     fn listFiles:[string] ()
     fn getEntry@(optional):ZipEntry (name:string)
@@ -137,60 +139,60 @@ class ZipReader {
 
 ### 2.3 EOCD Structure (End of Central Directory)
 
-| Offset | Size | Description                    |
-|--------|------|--------------------------------|
-| 0      | 4    | Signature (0x06054b50)         |
-| 4      | 2    | Disk number                    |
-| 6      | 2    | Disk with central dir          |
-| 8      | 2    | Entries on this disk           |
-| 10     | 2    | Total entries                  |
-| 12     | 4    | Central directory size         |
-| 16     | 4    | Central directory offset       |
-| 20     | 2    | Comment length                 |
-| 22     | n    | Comment                        |
+| Offset | Size | Description              |
+| ------ | ---- | ------------------------ |
+| 0      | 4    | Signature (0x06054b50)   |
+| 4      | 2    | Disk number              |
+| 6      | 2    | Disk with central dir    |
+| 8      | 2    | Entries on this disk     |
+| 10     | 2    | Total entries            |
+| 12     | 4    | Central directory size   |
+| 16     | 4    | Central directory offset |
+| 20     | 2    | Comment length           |
+| 22     | n    | Comment                  |
 
 ### 2.4 Central Directory Entry Structure
 
-| Offset | Size | Description                    |
-|--------|------|--------------------------------|
-| 0      | 4    | Signature (0x02014b50)         |
-| 4      | 2    | Version made by                |
-| 6      | 2    | Version needed                 |
-| 8      | 2    | General purpose bit flag       |
-| 10     | 2    | Compression method             |
-| 12     | 2    | Last mod time                  |
-| 14     | 2    | Last mod date                  |
-| 16     | 4    | CRC-32                         |
-| 20     | 4    | Compressed size                |
-| 24     | 4    | Uncompressed size              |
-| 28     | 2    | Filename length                |
-| 30     | 2    | Extra field length             |
-| 32     | 2    | Comment length                 |
-| 34     | 2    | Disk number start              |
-| 36     | 2    | Internal attributes            |
-| 38     | 4    | External attributes            |
-| 42     | 4    | Local header offset            |
-| 46     | n    | Filename                       |
-| 46+n   | m    | Extra field                    |
-| 46+n+m | k    | Comment                        |
+| Offset | Size | Description              |
+| ------ | ---- | ------------------------ |
+| 0      | 4    | Signature (0x02014b50)   |
+| 4      | 2    | Version made by          |
+| 6      | 2    | Version needed           |
+| 8      | 2    | General purpose bit flag |
+| 10     | 2    | Compression method       |
+| 12     | 2    | Last mod time            |
+| 14     | 2    | Last mod date            |
+| 16     | 4    | CRC-32                   |
+| 20     | 4    | Compressed size          |
+| 24     | 4    | Uncompressed size        |
+| 28     | 2    | Filename length          |
+| 30     | 2    | Extra field length       |
+| 32     | 2    | Comment length           |
+| 34     | 2    | Disk number start        |
+| 36     | 2    | Internal attributes      |
+| 38     | 4    | External attributes      |
+| 42     | 4    | Local header offset      |
+| 46     | n    | Filename                 |
+| 46+n   | m    | Extra field              |
+| 46+n+m | k    | Comment                  |
 
 ### 2.5 Local File Header Structure
 
-| Offset | Size | Description                    |
-|--------|------|--------------------------------|
-| 0      | 4    | Signature (0x04034b50)         |
-| 4      | 2    | Version needed                 |
-| 6      | 2    | General purpose bit flag       |
-| 8      | 2    | Compression method             |
-| 10     | 2    | Last mod time                  |
-| 12     | 2    | Last mod date                  |
-| 14     | 4    | CRC-32                         |
-| 18     | 4    | Compressed size                |
-| 22     | 4    | Uncompressed size              |
-| 26     | 2    | Filename length                |
-| 28     | 2    | Extra field length             |
-| 30     | n    | Filename                       |
-| 30+n   | m    | Extra field                    |
+| Offset | Size | Description              |
+| ------ | ---- | ------------------------ |
+| 0      | 4    | Signature (0x04034b50)   |
+| 4      | 2    | Version needed           |
+| 6      | 2    | General purpose bit flag |
+| 8      | 2    | Compression method       |
+| 10     | 2    | Last mod time            |
+| 12     | 2    | Last mod date            |
+| 14     | 4    | CRC-32                   |
+| 18     | 4    | Compressed size          |
+| 22     | 4    | Uncompressed size        |
+| 26     | 2    | Filename length          |
+| 28     | 2    | Extra field length       |
+| 30     | n    | Filename                 |
+| 30+n   | m    | Extra field              |
 
 ## Phase 3: Deflate Decompression
 
@@ -199,13 +201,15 @@ class ZipReader {
 DEFLATE is the standard compression for ZIP files. Implementation requires:
 
 **Block types:**
+
 - Type 0: Stored (no compression)
 - Type 1: Fixed Huffman codes
 - Type 2: Dynamic Huffman codes
 
 **Components:**
+
 - Huffman decoder for literal/length codes
-- Huffman decoder for distance codes  
+- Huffman decoder for distance codes
 - LZ77 sliding window (32KB)
 - Bit reader for variable-length codes
 
@@ -218,7 +222,7 @@ class Inflate {
     def output:GrowableBuffer
     def window:[int]        ; 32KB sliding window
     def windowPos:int 0
-    
+
     fn decompress:buffer (data:buffer)
     fn decompressBlock:void ()
     fn decodeHuffman:int (table:HuffmanTable)
@@ -228,6 +232,7 @@ class Inflate {
 ### 3.2 Fixed Huffman Tables
 
 Pre-defined tables for block type 1:
+
 - Literals 0-143: 8-bit codes (00110000 - 10111111)
 - Literals 144-255: 9-bit codes (110010000 - 111111111)
 - End of block 256: 7-bit code (0000000)
@@ -248,7 +253,7 @@ class ZipWriter {
     def entries:[ZipEntry]
     def output:GrowableBuffer
     def comment:string ""
-    
+
     fn create:void ()
     fn addFile:void (name:string data:buffer)
     fn addFileCompressed:void (name:string data:buffer)
@@ -280,7 +285,7 @@ class Deflate {
     def output:GrowableBuffer
     def windowSize:int 32768
     def hashTable:[int:int]
-    
+
     fn compress:buffer (data:buffer)
     fn findMatch:void (pos:int)
     fn writeHuffmanCode:void (code:int length:int)
@@ -288,6 +293,7 @@ class Deflate {
 ```
 
 **Compression strategy:**
+
 - Use fixed Huffman codes for simplicity
 - LZ77 matching with hash table
 - Consider compression level parameter
@@ -301,7 +307,7 @@ CRC-32 is required for file integrity verification:
 ```ranger
 class CRC32 {
     def table:[int]    ; 256-entry lookup table
-    
+
     Constructor ()     ; Build table
     fn update:int (crc:int data:buffer)
     fn compute:int (data:buffer)
@@ -383,6 +389,7 @@ Add to package.json:
 ### Verification
 
 Compare output with standard tools:
+
 - `unzip -l archive.zip` - list contents
 - `unzip -t archive.zip` - test integrity
 - Windows Explorer / macOS Finder - extract and verify
@@ -397,13 +404,15 @@ Compare output with standard tools:
 ## Dependencies
 
 Uses existing Ranger buffer operations:
+
 - `buffer_alloc` - Create buffer
-- `buffer_length` - Get buffer size  
+- `buffer_length` - Get buffer size
 - `buffer_get` / `buffer_set` - Read/write bytes
 - `buffer_read_file` / `buffer_write_file` - File I/O
 - `buffer_slice` / `buffer_copy` - Buffer manipulation
 
 Can reuse from pdf_writer project:
+
 - `GrowableBuffer` from Buffer.rgr - Dynamic buffer growth
 - `BitReader` pattern from BitReader.rgr - Bit-level reading
 

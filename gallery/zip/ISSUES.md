@@ -39,6 +39,7 @@ When compiling with `-d=./gallery/zip/bin`, the output file is still written to 
 ### Workaround
 
 After compilation, move the output file to the desired location:
+
 ```powershell
 Move-Item -Path c:\Users\terok\proj\Ranger\zip_tool.js -Destination c:\Users\terok\proj\Ranger\gallery\zip\bin\zip_tool.js -Force
 ```
@@ -121,13 +122,17 @@ def buf (buffer_alloc size)  ; use local var
 ## Limitations (Not Bugs)
 
 ### No ZIP64 Support
+
 Files larger than 4GB are not supported.
 
 ### No Encryption
+
 Password-protected ZIP files cannot be created or read.
 
 ### No Split/Spanned Archives
+
 Multi-part ZIP archives are not supported.
 
 ### No Unicode Filename Flag
+
 UTF-8 filenames are written but the general purpose bit flag for UTF-8 is not set.

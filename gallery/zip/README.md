@@ -70,24 +70,24 @@ Verifies the archive can be read without errors.
 
 ## Source Files
 
-| File | Description |
-|------|-------------|
+| File                           | Description                                                          |
+| ------------------------------ | -------------------------------------------------------------------- |
 | [ZipBuffer.rgr](ZipBuffer.rgr) | Little-endian buffer utilities and growable buffer for decompression |
-| [ZipEntry.rgr](ZipEntry.rgr) | ZIP entry data structure with MS-DOS date/time handling |
-| [CRC32.rgr](CRC32.rgr) | CRC-32 checksum using polynomial 0xEDB88320 |
-| [Inflate.rgr](Inflate.rgr) | DEFLATE decompression with fixed and dynamic Huffman tables |
-| [ZipReader.rgr](ZipReader.rgr) | Parse EOCD, Central Directory, and extract files |
-| [ZipWriter.rgr](ZipWriter.rgr) | Create ZIP archives with STORED compression |
-| [zip_tool.rgr](zip_tool.rgr) | CLI tool main entry point |
+| [ZipEntry.rgr](ZipEntry.rgr)   | ZIP entry data structure with MS-DOS date/time handling              |
+| [CRC32.rgr](CRC32.rgr)         | CRC-32 checksum using polynomial 0xEDB88320                          |
+| [Inflate.rgr](Inflate.rgr)     | DEFLATE decompression with fixed and dynamic Huffman tables          |
+| [ZipReader.rgr](ZipReader.rgr) | Parse EOCD, Central Directory, and extract files                     |
+| [ZipWriter.rgr](ZipWriter.rgr) | Create ZIP archives with STORED compression                          |
+| [zip_tool.rgr](zip_tool.rgr)   | CLI tool main entry point                                            |
 
 ## ZIP Format Support
 
 ### Compression Methods
 
-| Method | Name | Read | Write |
-|--------|------|------|-------|
-| 0 | STORED (no compression) | ✅ | ✅ |
-| 8 | DEFLATE | ✅ | ❌ |
+| Method | Name                    | Read | Write |
+| ------ | ----------------------- | ---- | ----- |
+| 0      | STORED (no compression) | ✅   | ✅    |
+| 8      | DEFLATE                 | ✅   | ❌    |
 
 ### Structures
 
@@ -108,7 +108,7 @@ main {
         for reader.entries entry:ZipEntry {
             print (entry.fileName + " - " + (to_string entry.uncompressedSize) + " bytes")
         }
-        
+
         ; Extract a specific file
         def entry:ZipEntry (reader.getEntry("document.txt"))
         if (null != entry) {
@@ -139,8 +139,9 @@ npm run zip            # Compile and run
 ### DEFLATE Implementation
 
 The DEFLATE decompressor ([Inflate.rgr](Inflate.rgr)) supports:
+
 - Non-compressed blocks (type 0)
-- Fixed Huffman codes (type 1)  
+- Fixed Huffman codes (type 1)
 - Dynamic Huffman codes (type 2)
 - Length/distance decoding with extra bits
 - Sliding window back-references
