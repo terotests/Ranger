@@ -17,6 +17,8 @@ class BufferChunk  {
 }
 class GrowableBuffer  {
   constructor() {
+    this.firstChunk = new BufferChunk(4096);
+    this.currentChunk = new BufferChunk(4096);
     this.chunkSize = 4096;
     this.totalSize = 0;
     const chunk = new BufferChunk(this.chunkSize);
@@ -497,8 +499,8 @@ class IDCT  {
     this.zigzagMap.push(62);
     this.zigzagMap.push(63);
   }
-  dezigzag (zigzag, block) {
-    block.length = 0;
+  dezigzag (zigzag) {
+    let block = [];
     let i = 0;
     while (i < 64) {
       block.push(0);
@@ -510,6 +512,7 @@ class IDCT  {
       block[pos] = zigzag[i];
       i = i + 1;
     };
+    return block;
   };
   idct1d (input, startIdx, stride, output, outIdx, outStride) {
     let x = 0;
@@ -1534,8 +1537,8 @@ class JPEGDecoder  {
     };
     return true;
   };
-  decodeBlock (reader, comp, quantTable, coeffs) {
-    coeffs.length = 0;
+  decodeBlock (reader, comp, quantTable) {
+    let coeffs = [];
     let i = 0;
     while (i < 64) {
       coeffs.push(0);
@@ -1570,6 +1573,7 @@ class JPEGDecoder  {
         }
       }
     };
+    return coeffs;
   };
   decode (dirPath, fileName) {
     this.data = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
@@ -1599,8 +1603,6 @@ class JPEGDecoder  {
       comp.prevDC = 0;
       c = c + 1;
     };
-    let coeffs = [];
-    let blockPixels = [];
     let yBlocksData = [];
     let yBlockCount = 0;
     let cbBlock = [];
@@ -1619,15 +1621,14 @@ class JPEGDecoder  {
           while (blockV < comp_1.vSamp) {
             let blockH = 0;
             while (blockH < comp_1.hSamp) {
-              this.decodeBlock(reader, comp_1, quantTable, coeffs);
-              blockPixels.length = 0;
+              const coeffs = this.decodeBlock(reader, comp_1, quantTable);
+              let blockPixels = [];
               let bi = 0;
               while (bi < 64) {
                 blockPixels.push(0);
                 bi = bi + 1;
               };
-              let tempBlock = [];
-              this.idct.dezigzag(coeffs, tempBlock);
+              const tempBlock = this.idct.dezigzag(coeffs);
               this.idct.transform(tempBlock, blockPixels);
               if ( compIdx == 0 ) {
                 bi = 0;
@@ -1778,20 +1779,73 @@ class JPEGDecoder  {
       };
       return;
     }
-    if ( yBlockCount > 0 ) {
-      let py_2 = 0;
-      while (py_2 < 8) {
-        let px_2 = 0;
-        while (px_2 < 8) {
-          const imgX_2 = baseX + px_2;
-          const imgY_2 = baseY + py_2;
-          if ( (imgX_2 < this.width) && (imgY_2 < this.height) ) {
-            const y_2 = yBlocksData[((py_2 * 8) + px_2)];
-            img.setPixelRGB(imgX_2, imgY_2, y_2, y_2, y_2);
-          }
-          px_2 = px_2 + 1;
+    if ( (this.maxHSamp == 2) && (this.maxVSamp == 1) ) {
+      let blockX_1 = 0;
+      while (blockX_1 < 2) {
+        const yBlockOffset_1 = blockX_1 * 64;
+        let py_2 = 0;
+        while (py_2 < 8) {
+          let px_2 = 0;
+          while (px_2 < 8) {
+            const imgX_2 = (baseX + (blockX_1 * 8)) + px_2;
+            const imgY_2 = baseY + py_2;
+            if ( (imgX_2 < this.width) && (imgY_2 < this.height) ) {
+              const yIdx_1 = (yBlockOffset_1 + (py_2 * 8)) + px_2;
+              const y_2 = yBlocksData[yIdx_1];
+              const chromaX_1 = (blockX_1 * 4) + ((px_2 >> 1));
+              const chromaY_1 = py_2;
+              const chromaIdx_1 = (chromaY_1 * 8) + chromaX_1;
+              let cb_2 = 128;
+              let cr_2 = 128;
+              if ( this.numComponents >= 3 ) {
+                cb_2 = cbBlock[chromaIdx_1];
+                cr_2 = crBlock[chromaIdx_1];
+              }
+              let r_2 = y_2 + (((359 * (cr_2 - 128)) >> 8));
+              let g_2 = (y_2 - (((88 * (cb_2 - 128)) >> 8))) - (((183 * (cr_2 - 128)) >> 8));
+              let b_2 = y_2 + (((454 * (cb_2 - 128)) >> 8));
+              if ( r_2 < 0 ) {
+                r_2 = 0;
+              }
+              if ( r_2 > 255 ) {
+                r_2 = 255;
+              }
+              if ( g_2 < 0 ) {
+                g_2 = 0;
+              }
+              if ( g_2 > 255 ) {
+                g_2 = 255;
+              }
+              if ( b_2 < 0 ) {
+                b_2 = 0;
+              }
+              if ( b_2 > 255 ) {
+                b_2 = 255;
+              }
+              img.setPixelRGB(imgX_2, imgY_2, r_2, g_2, b_2);
+            }
+            px_2 = px_2 + 1;
+          };
+          py_2 = py_2 + 1;
         };
-        py_2 = py_2 + 1;
+        blockX_1 = blockX_1 + 1;
+      };
+      return;
+    }
+    if ( yBlockCount > 0 ) {
+      let py_3 = 0;
+      while (py_3 < 8) {
+        let px_3 = 0;
+        while (px_3 < 8) {
+          const imgX_3 = baseX + px_3;
+          const imgY_3 = baseY + py_3;
+          if ( (imgX_3 < this.width) && (imgY_3 < this.height) ) {
+            const y_3 = yBlocksData[((py_3 * 8) + px_3)];
+            img.setPixelRGB(imgX_3, imgY_3, y_3, y_3, y_3);
+          }
+          px_3 = px_3 + 1;
+        };
+        py_3 = py_3 + 1;
       };
     }
   };
@@ -1947,7 +2001,7 @@ class FDCT  {
       u = u + 1;
     };
   };
-  transform (pixels, coeffs) {
+  transform (pixels) {
     let shifted = [];
     let i = 0;
     while (i < 64) {
@@ -1966,7 +2020,7 @@ class FDCT  {
       this.dct1d(shifted, rowStart, 1, temp, rowStart, 1);
       row = row + 1;
     };
-    coeffs.length = 0;
+    let coeffs = [];
     i = 0;
     while (i < 64) {
       coeffs.push(0);
@@ -1977,22 +2031,24 @@ class FDCT  {
       this.dct1d(temp, col, 8, coeffs, col, 8);
       col = col + 1;
     };
+    return coeffs;
   };
-  zigzag (block, zigzagOut) {
-    zigzagOut.length = 0;
+  zigzag (block) {
+    let zigzagOut = [];
     let i = 0;
     while (i < 64) {
       const pos = this.zigzagOrder[i];
       zigzagOut.push(block[pos]);
       i = i + 1;
     };
+    return zigzagOut;
   };
 }
 class BitWriter  {
   constructor() {
+    this.buffer = new GrowableBuffer();
     this.bitBuffer = 0;
     this.bitCount = 0;
-    this.buffer = new GrowableBuffer();
   }
   writeBit (bit) {
     this.bitBuffer = (this.bitBuffer << 1);
@@ -2645,20 +2701,24 @@ class JPEGEncoder  {
     this.acCValues.push(248);
     this.acCValues.push(249);
     this.acCValues.push(250);
+    let i = 0;
+    while (i < 256) {
+      this.dcYCodes.push(0);
+      this.dcYLengths.push(0);
+      this.acYCodes.push(0);
+      this.acYLengths.push(0);
+      this.dcCCodes.push(0);
+      this.dcCLengths.push(0);
+      this.acCCodes.push(0);
+      this.acCLengths.push(0);
+      i = i + 1;
+    };
     this.buildHuffmanCodes(this.dcYBits, this.dcYValues, this.dcYCodes, this.dcYLengths);
     this.buildHuffmanCodes(this.acYBits, this.acYValues, this.acYCodes, this.acYLengths);
     this.buildHuffmanCodes(this.dcCBits, this.dcCValues, this.dcCCodes, this.dcCLengths);
     this.buildHuffmanCodes(this.acCBits, this.acCValues, this.acCCodes, this.acCLengths);
   };
   buildHuffmanCodes (bits, values, codes, lengths) {
-    codes.length = 0;
-    lengths.length = 0;
-    let i = 0;
-    while (i < 256) {
-      codes.push(0);
-      lengths.push(0);
-      i = i + 1;
-    };
     let code = 0;
     let valueIdx = 0;
     let bitLen = 1;
@@ -2712,8 +2772,7 @@ class JPEGEncoder  {
       quantized.push(qVal);
       i = i + 1;
     };
-    let zigzagged = [];
-    this.fdct.zigzag(quantized, zigzagged);
+    const zigzagged = this.fdct.zigzag(quantized);
     const dc = zigzagged[0];
     const dcDiff = dc - prevDC;
     const dcCat = this.getCategory(dcDiff);
@@ -2780,8 +2839,8 @@ class JPEGEncoder  {
     cbOut.push(cb);
     crOut.push(cr);
   };
-  extractBlock (img, blockX, blockY, channel, output) {
-    output.length = 0;
+  extractBlock (img, blockX, blockY, channel) {
+    let output = [];
     let py = 0;
     while (py < 8) {
       let px = 0;
@@ -2811,6 +2870,7 @@ class JPEGEncoder  {
       };
       py = py + 1;
     };
+    return output;
   };
   writeMarkers (writer, width, height) {
     writer.writeByte(255);
@@ -2951,13 +3011,10 @@ class JPEGEncoder  {
       while (mcuX < mcuWidth) {
         const blockX = mcuX * 8;
         const blockY = mcuY * 8;
-        let yBlock = [];
-        this.extractBlock(img, blockX, blockY, 0, yBlock);
-        let yCoeffs = [];
-        this.fdct.transform(yBlock, yCoeffs);
+        const yBlock = this.extractBlock(img, blockX, blockY, 0);
+        const yCoeffs = this.fdct.transform(yBlock);
         this.encodeBlock(writer, yCoeffs, this.yQuantTable, this.dcYCodes, this.dcYLengths, this.acYCodes, this.acYLengths, this.prevDCY);
-        let yZig = [];
-        this.fdct.zigzag(yCoeffs, yZig);
+        const yZig = this.fdct.zigzag(yCoeffs);
         const yQ = this.yQuantTable[0];
         const yDC = yZig[0];
         if ( yDC >= 0 ) {
@@ -2965,13 +3022,10 @@ class JPEGEncoder  {
         } else {
           this.prevDCY = Math.floor( ((yDC - ((yQ >> 1))) / yQ));
         }
-        let cbBlock = [];
-        this.extractBlock(img, blockX, blockY, 1, cbBlock);
-        let cbCoeffs = [];
-        this.fdct.transform(cbBlock, cbCoeffs);
+        const cbBlock = this.extractBlock(img, blockX, blockY, 1);
+        const cbCoeffs = this.fdct.transform(cbBlock);
         this.encodeBlock(writer, cbCoeffs, this.cQuantTable, this.dcCCodes, this.dcCLengths, this.acCCodes, this.acCLengths, this.prevDCCb);
-        let cbZig = [];
-        this.fdct.zigzag(cbCoeffs, cbZig);
+        const cbZig = this.fdct.zigzag(cbCoeffs);
         const cbQ = this.cQuantTable[0];
         const cbDC = cbZig[0];
         if ( cbDC >= 0 ) {
@@ -2979,13 +3033,10 @@ class JPEGEncoder  {
         } else {
           this.prevDCCb = Math.floor( ((cbDC - ((cbQ >> 1))) / cbQ));
         }
-        let crBlock = [];
-        this.extractBlock(img, blockX, blockY, 2, crBlock);
-        let crCoeffs = [];
-        this.fdct.transform(crBlock, crCoeffs);
+        const crBlock = this.extractBlock(img, blockX, blockY, 2);
+        const crCoeffs = this.fdct.transform(crBlock);
         this.encodeBlock(writer, crCoeffs, this.cQuantTable, this.dcCCodes, this.dcCLengths, this.acCCodes, this.acCLengths, this.prevDCCr);
-        let crZig = [];
-        this.fdct.zigzag(crCoeffs, crZig);
+        const crZig = this.fdct.zigzag(crCoeffs);
         const crQ = this.cQuantTable[0];
         const crDC = crZig[0];
         if ( crDC >= 0 ) {
@@ -3052,6 +3103,8 @@ class ProgressiveJPEGDecoder  {
     this.isProgressive = false;
     this.components = [];
     this.quantTables = [];
+    this.huffman = new HuffmanDecoder();
+    this.idct = new IDCT();
     this.mcuWidth = 8;
     this.mcuHeight = 8;
     this.mcusPerRow = 0;
@@ -3726,8 +3779,7 @@ class ProgressiveJPEGDecoder  {
               blockCoeffs.push((yBuf).get(blockIdx, k));
               k = k + 1;
             };
-            let tempBlock = [];
-            this.idct.dezigzag(blockCoeffs, tempBlock);
+            const tempBlock = this.idct.dezigzag(blockCoeffs);
             let blockPixels = [];
             k = 0;
             while (k < 64) {
@@ -3755,8 +3807,7 @@ class ProgressiveJPEGDecoder  {
             blockCoeffs_1.push((cbBuf).get(cbBlockIdx, k_1));
             k_1 = k_1 + 1;
           };
-          let tempBlock_1 = [];
-          this.idct.dezigzag(blockCoeffs_1, tempBlock_1);
+          const tempBlock_1 = this.idct.dezigzag(blockCoeffs_1);
           k_1 = 0;
           while (k_1 < 64) {
             cbBlock.push(0);
@@ -3771,14 +3822,13 @@ class ProgressiveJPEGDecoder  {
             blockCoeffs_1.push((crBuf).get(crBlockIdx, k_1));
             k_1 = k_1 + 1;
           };
-          tempBlock_1.length = 0;
-          this.idct.dezigzag(blockCoeffs_1, tempBlock_1);
+          const crTempBlock = this.idct.dezigzag(blockCoeffs_1);
           k_1 = 0;
           while (k_1 < 64) {
             crBlock.push(0);
             k_1 = k_1 + 1;
           };
-          this.idct.transform(tempBlock_1, crBlock);
+          this.idct.transform(crTempBlock, crBlock);
         }
         this.writeMCU(img, baseX, baseY, yBlocksData, cbBlock, crBlock);
         mcuX = mcuX + 1;
@@ -3954,27 +4004,36 @@ class JPEGScaler  {
         mode = "width";
         i = i + 1;
         if ( i < argc ) {
-          value = isNaN( parseFloat((process.argv[ 2 + i])) ) ? undefined : parseFloat((process.argv[ 2 + i]));
+          const valStr = process.argv[ 2 + i];
+          const optVal = isNaN( parseFloat(valStr) ) ? undefined : parseFloat(valStr);
+          value = optVal;
         }
       }
       if ( arg == "-height" ) {
         mode = "height";
         i = i + 1;
         if ( i < argc ) {
-          value = isNaN( parseFloat((process.argv[ 2 + i])) ) ? undefined : parseFloat((process.argv[ 2 + i]));
+          const valStr_1 = process.argv[ 2 + i];
+          const optVal_1 = isNaN( parseFloat(valStr_1) ) ? undefined : parseFloat(valStr_1);
+          value = optVal_1;
         }
       }
       if ( arg == "-scale" ) {
         mode = "scale";
         i = i + 1;
         if ( i < argc ) {
-          value = isNaN( parseFloat((process.argv[ 2 + i])) ) ? undefined : parseFloat((process.argv[ 2 + i]));
+          const valStr_2 = process.argv[ 2 + i];
+          const optVal_2 = isNaN( parseFloat(valStr_2) ) ? undefined : parseFloat(valStr_2);
+          value = optVal_2;
         }
       }
       if ( arg == "-quality" ) {
         i = i + 1;
         if ( i < argc ) {
-          quality = isNaN( parseInt((process.argv[ 2 + i])) ) ? undefined : parseInt((process.argv[ 2 + i]));
+          const valStr_3 = process.argv[ 2 + i];
+          const optVal_3 = isNaN( parseInt(valStr_3) ) ? undefined : parseInt(valStr_3);
+          const qVal = optVal_3;
+          quality = qVal;
         }
       }
       if ( (arg.charCodeAt(0 )) != 45 ) {
@@ -4022,7 +4081,7 @@ class JPEGScaler  {
     }
     console.log((("New size: " + ((newWidth.toString()))) + "x") + ((newHeight.toString())));
     const scaled = img.scaleToSize(newWidth, newHeight);
-    let outDir = "";
+    let outDir = ".";
     let outName = outputFile;
     let lastSlash = -1;
     let j = 0;
@@ -4044,7 +4103,7 @@ class JPEGScaler  {
     console.log("Done!");
   };
   decodeJPEG (filePath) {
-    let dir = "";
+    let dir = ".";
     let name = filePath;
     let lastSlash = -1;
     let j = 0;

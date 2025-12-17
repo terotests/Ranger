@@ -321,11 +321,11 @@ class JPEGDecoder {
         return true
     }
     
-    fn decodeBlock:void (reader:BitReader comp:JPEGComponent quantTable:QuantizationTable coeffs:[int]) {
+    fn decodeBlock:[int] (reader:BitReader comp:JPEGComponent quantTable:QuantizationTable) {
         ; Decode one 8x8 block
-        ; coeffs will contain 64 dequantized DCT coefficients in zigzag order
+        ; Returns 64 dequantized DCT coefficients in zigzag order
         
-        clear coeffs
+        def coeffs:[int]
         def i 0
         while (i < 64) {
             push coeffs 0
@@ -377,6 +377,7 @@ class JPEGDecoder {
                 }
             }
         }
+        return coeffs
     }
     
     fn decode:ImageBuffer (dirPath:string fileName:string) {
@@ -420,10 +421,6 @@ class JPEGDecoder {
             c = c + 1
         }
         
-        ; Temporary arrays for decoded blocks
-        def coeffs:[int]
-        def blockPixels:[int]
-        
         ; Component block buffers - use flat arrays, 64 values per block
         ; For 2x2 subsampling max, we need 4 Y blocks = 256 values
         def yBlocksData:[int]   ; Up to 4 Y blocks * 64 = 256 values
@@ -452,10 +449,10 @@ class JPEGDecoder {
                         def blockH 0
                         while (blockH < comp.hSamp) {
                             ; Decode block
-                            this.decodeBlock(reader comp quantTable coeffs)
+                            def coeffs:[int] (this.decodeBlock(reader comp quantTable))
                             
                             ; IDCT to get pixels
-                            clear blockPixels
+                            def blockPixels:[int]
                             def bi 0
                             while (bi < 64) {
                                 push blockPixels 0
@@ -628,6 +625,66 @@ class JPEGDecoder {
                     blockX = blockX + 1
                 }
                 blockY = blockY + 1
+            }
+            return
+        }
+        
+        ; 2x1 subsampling (4:2:2) - horizontal subsampling only
+        if ((maxHSamp == 2) && (maxVSamp == 1)) {
+            ; 2 Y blocks side by side, 1 Cb, 1 Cr
+            ; MCU is 16x8 pixels
+            ; Y block 0 covers pixels 0-7 horizontally
+            ; Y block 1 covers pixels 8-15 horizontally
+            ; Cb/Cr are subsampled 2:1 horizontally (each chroma sample covers 2 Y samples)
+            
+            def blockX 0
+            while (blockX < 2) {
+                def yBlockOffset:int (blockX * 64)
+                
+                def py 0
+                while (py < 8) {
+                    def px 0
+                    while (px < 8) {
+                        def imgX:int (baseX + (blockX * 8) + px)
+                        def imgY:int (baseY + py)
+                        
+                        if ((imgX < width) && (imgY < height)) {
+                            def yIdx:int (yBlockOffset + (py * 8) + px)
+                            def y:int (at yBlocksData yIdx)
+                            
+                            ; Cb/Cr are subsampled horizontally only
+                            ; chromaX = (blockX * 4) + (px / 2), maps 16 px to 8
+                            ; chromaY = py (no vertical subsampling)
+                            def chromaX:int ((blockX * 4) + (bit_shr px 1))
+                            def chromaY:int py
+                            def chromaIdx:int ((chromaY * 8) + chromaX)
+                            
+                            def cb:int 128
+                            def cr:int 128
+                            if (numComponents >= 3) {
+                                cb = (at cbBlock chromaIdx)
+                                cr = (at crBlock chromaIdx)
+                            }
+                            
+                            ; YCbCr to RGB
+                            def r:int (y + (bit_shr (359 * (cr - 128)) 8))
+                            def g:int (y - (bit_shr (88 * (cb - 128)) 8) - (bit_shr (183 * (cr - 128)) 8))
+                            def b:int (y + (bit_shr (454 * (cb - 128)) 8))
+                            
+                            if (r < 0) { r = 0 }
+                            if (r > 255) { r = 255 }
+                            if (g < 0) { g = 0 }
+                            if (g > 255) { g = 255 }
+                            if (b < 0) { b = 0 }
+                            if (b > 255) { b = 255 }
+                            
+                            img.setPixelRGB(imgX imgY r g b)
+                        }
+                        px = px + 1
+                    }
+                    py = py + 1
+                }
+                blockX = blockX + 1
             }
             return
         }

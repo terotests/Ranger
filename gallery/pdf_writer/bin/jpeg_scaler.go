@@ -1684,8 +1684,8 @@ func (this *JPEGDecoder) parseMarkers () bool {
   }
   return true
 }
-func (this *JPEGDecoder) decodeBlock (reader *BitReader, comp *JPEGComponent, quantTable *QuantizationTable, coeffs []int64) () {
-  coeffs = coeffs[:0]
+func (this *JPEGDecoder) decodeBlock (reader *BitReader, comp *JPEGComponent, quantTable *QuantizationTable) []int64 {
+  var coeffs []int64 = make([]int64, 0);
   var i int64= int64(0);
   for i < int64(64) {
     coeffs = append(coeffs,int64(0)); 
@@ -1720,6 +1720,7 @@ func (this *JPEGDecoder) decodeBlock (reader *BitReader, comp *JPEGComponent, qu
       }
     }
   }
+  return coeffs
 }
 func (this *JPEGDecoder) decode (dirPath string, fileName string) *ImageBuffer {
   this.data = func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fileName)); return d }(); 
@@ -1749,8 +1750,6 @@ func (this *JPEGDecoder) decode (dirPath string, fileName string) *ImageBuffer {
     comp.prevDC = int64(0); 
     c = c + int64(1); 
   }
-  var coeffs []int64 = make([]int64, 0);
-  var blockPixels []int64 = make([]int64, 0);
   var yBlocksData []int64 = make([]int64, 0);
   var yBlockCount int64= int64(0);
   var cbBlock []int64 = make([]int64, 0);
@@ -1769,8 +1768,8 @@ func (this *JPEGDecoder) decode (dirPath string, fileName string) *ImageBuffer {
         for blockV < comp_1.vSamp {
           var blockH int64= int64(0);
           for blockH < comp_1.hSamp {
-            this.decodeBlock(reader, comp_1, quantTable, coeffs);
-            blockPixels = blockPixels[:0]
+            var coeffs []int64= this.decodeBlock(reader, comp_1, quantTable);
+            var blockPixels []int64 = make([]int64, 0);
             var bi int64= int64(0);
             for bi < int64(64) {
               blockPixels = append(blockPixels,int64(0)); 
@@ -1927,20 +1926,73 @@ func (this *JPEGDecoder) writeMCU (img *ImageBuffer, mcuX int64, mcuY int64, yBl
     }
     return
   }
-  if  yBlockCount > int64(0) {
-    var py_2 int64= int64(0);
-    for py_2 < int64(8) {
-      var px_2 int64= int64(0);
-      for px_2 < int64(8) {
-        var imgX_2 int64= baseX + px_2;
-        var imgY_2 int64= baseY + py_2;
-        if  (imgX_2 < this.width) && (imgY_2 < this.height) {
-          var y_2 int64= yBlocksData[((py_2 * int64(8)) + px_2)];
-          img.setPixelRGB(imgX_2, imgY_2, y_2, y_2, y_2);
+  if  (this.maxHSamp == int64(2)) && (this.maxVSamp == int64(1)) {
+    var blockX_1 int64= int64(0);
+    for blockX_1 < int64(2) {
+      var yBlockOffset_1 int64= blockX_1 * int64(64);
+      var py_2 int64= int64(0);
+      for py_2 < int64(8) {
+        var px_2 int64= int64(0);
+        for px_2 < int64(8) {
+          var imgX_2 int64= (baseX + (blockX_1 * int64(8))) + px_2;
+          var imgY_2 int64= baseY + py_2;
+          if  (imgX_2 < this.width) && (imgY_2 < this.height) {
+            var yIdx_1 int64= (yBlockOffset_1 + (py_2 * int64(8))) + px_2;
+            var y_2 int64= yBlocksData[yIdx_1];
+            var chromaX_1 int64= (blockX_1 * int64(4)) + (int64(px_2 >> uint(int64(1))));
+            var chromaY_1 int64= py_2;
+            var chromaIdx_1 int64= (chromaY_1 * int64(8)) + chromaX_1;
+            var cb_2 int64= int64(128);
+            var cr_2 int64= int64(128);
+            if  this.numComponents >= int64(3) {
+              cb_2 = cbBlock[chromaIdx_1]; 
+              cr_2 = crBlock[chromaIdx_1]; 
+            }
+            var r_2 int64= y_2 + (int64((int64(359) * (cr_2 - int64(128))) >> uint(int64(8))));
+            var g_2 int64= (y_2 - (int64((int64(88) * (cb_2 - int64(128))) >> uint(int64(8))))) - (int64((int64(183) * (cr_2 - int64(128))) >> uint(int64(8))));
+            var b_2 int64= y_2 + (int64((int64(454) * (cb_2 - int64(128))) >> uint(int64(8))));
+            if  r_2 < int64(0) {
+              r_2 = int64(0); 
+            }
+            if  r_2 > int64(255) {
+              r_2 = int64(255); 
+            }
+            if  g_2 < int64(0) {
+              g_2 = int64(0); 
+            }
+            if  g_2 > int64(255) {
+              g_2 = int64(255); 
+            }
+            if  b_2 < int64(0) {
+              b_2 = int64(0); 
+            }
+            if  b_2 > int64(255) {
+              b_2 = int64(255); 
+            }
+            img.setPixelRGB(imgX_2, imgY_2, r_2, g_2, b_2);
+          }
+          px_2 = px_2 + int64(1); 
         }
-        px_2 = px_2 + int64(1); 
+        py_2 = py_2 + int64(1); 
       }
-      py_2 = py_2 + int64(1); 
+      blockX_1 = blockX_1 + int64(1); 
+    }
+    return
+  }
+  if  yBlockCount > int64(0) {
+    var py_3 int64= int64(0);
+    for py_3 < int64(8) {
+      var px_3 int64= int64(0);
+      for px_3 < int64(8) {
+        var imgX_3 int64= baseX + px_3;
+        var imgY_3 int64= baseY + py_3;
+        if  (imgX_3 < this.width) && (imgY_3 < this.height) {
+          var y_3 int64= yBlocksData[((py_3 * int64(8)) + px_3)];
+          img.setPixelRGB(imgX_3, imgY_3, y_3, y_3, y_3);
+        }
+        px_3 = px_3 + int64(1); 
+      }
+      py_3 = py_3 + int64(1); 
     }
   }
 }
