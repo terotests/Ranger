@@ -1,20 +1,111 @@
-# Ranger PDF Writer & JPEG Decoder
+# Ranger PDF Writer & JPEG Tools
 
 A collection of binary format utilities written in Ranger:
 
-- **PDF Writer** - Generate PDFs with shapes, text, and embedded JPEGs
+- **EVG PDF Renderer** - TSX → PDF pipeline with flexbox layout, TrueType fonts, and JPEG images
 - **JPEG Decoder** - Full baseline DCT JPEG decoder with Huffman decoding
+- **JPEG Encoder** - Baseline JPEG encoder with configurable quality
+- **TrueType Parser** - TTF font parsing for glyph metrics and PDF embedding
 
-## Usage
+## EVG PDF Tool (TSX → PDF)
 
-### PDF Writer
+Generate PDFs from TSX files using a React-like syntax with flexbox layout.
+
+### Quick Start
 
 ```bash
-# From project root
+# Compile the tool
+npm run evgpdf:compile
+
+# Generate a PDF from TSX
+npm run evgpdf:run
+
+# Or run directly
+node ./gallery/pdf_writer/bin/evg_pdf_tool.js input.tsx output.pdf
+```
+
+### TSX Syntax
+
+```tsx
+const MyDocument = (
+  <div width="100%" height="100%" padding="30px">
+    <Text fontSize="24px" fontWeight="bold" color="#2c3e50">
+      Hello, PDF World!
+    </Text>
+
+    <div flexDirection="row" marginTop="20px">
+      <Image src="./photo.jpg" width="200px" height="150px" />
+      <div flex="1" marginLeft="20px">
+        <Text fontSize="14px" lineHeight="1.6">
+          This is a paragraph with automatic text wrapping.
+        </Text>
+      </div>
+    </div>
+  </div>
+);
+
+export default MyDocument;
+```
+
+### Supported Elements
+
+| Element   | Description                                      |
+| --------- | ------------------------------------------------ |
+| `<div>`   | Container with flexbox layout                    |
+| `<Text>`  | Text element with font styling                   |
+| `<Image>` | JPEG image with automatic resize and orientation |
+
+### Supported Styles
+
+| Style                       | Example                   | Description                       |
+| --------------------------- | ------------------------- | --------------------------------- |
+| `width` / `height`          | `100%`, `200px`           | Dimensions (percentage or pixels) |
+| `padding`                   | `20px`                    | Internal spacing                  |
+| `margin` / `marginTop` etc. | `10px`                    | External spacing                  |
+| `flexDirection`             | `row`, `column`           | Layout direction                  |
+| `flex`                      | `1`                       | Flex grow factor                  |
+| `fontSize`                  | `14px`                    | Font size in pixels               |
+| `fontWeight`                | `bold`, `normal`          | Font weight                       |
+| `fontFamily`                | `Open Sans`               | Font family name                  |
+| `color`                     | `#333333`                 | Text color (hex)                  |
+| `backgroundColor`           | `#f5f5f5`                 | Background color                  |
+| `lineHeight`                | `1.6`                     | Line height multiplier            |
+| `textAlign`                 | `left`, `center`, `right` | Text alignment                    |
+
+### Font Support
+
+Fonts are loaded from `./gallery/pdf_writer/fonts/`. The following are included:
+
+- **Open Sans** (Regular, Bold) - Default sans-serif
+- **Helvetica** (Regular)
+- **Cinzel** (Regular, Bold) - Elegant serif
+- **Josefin Sans** (Regular, Bold) - Modern geometric
+- **Great Vibes** (Regular) - Script/cursive
+- **Noto Sans** (Regular, Bold) - Unicode coverage
+
+TrueType fonts are embedded in the PDF with proper glyph metrics for accurate text measurement and layout.
+
+### Image Processing
+
+Images are automatically processed:
+
+1. **EXIF Orientation** - Rotates/flips based on camera orientation tag
+2. **Resize** - Scales large images to max 800×800 (configurable)
+3. **Quality** - Re-encodes at 75% JPEG quality (configurable)
+
+This reduces PDF file size significantly (e.g., 8MB photo → 500KB in PDF).
+
+---
+
+## Legacy PDF Writer
+
+Simple PDF generation without layout engine.
+
+```bash
 npm run pdf
 ```
 
-This compiles and runs PDFWriter.rgr, generating sample PDFs in this directory.
+## JPEG Tools
 
 ### JPEG Metadata Parser
 
@@ -30,115 +121,170 @@ npm run jpegdec
 
 Decodes `Canon_40D.jpg` and outputs `decoded_output.ppm`.
 
-## Output Files
+---
 
-**PDF Files:**
+## File Reference
 
-- `hello_world.pdf` - Basic PDF with shapes and text
-- `hello_with_image.pdf` - PDF with Example.jpg
-- `canon_with_metadata.pdf` - PDF with Canon_40D.jpg and EXIF data
-- `gps_with_metadata.pdf` - PDF with GPS_test.jpg and GPS coordinates
-
-**Decoded Images:**
-
-- `decoded_output.ppm` - Decoded JPEG in PPM format
-
-## Files
-
-### PDF Writer
-
-| File               | Description                                   |
-| ------------------ | --------------------------------------------- |
-| `Buffer.rgr`       | GrowableBuffer with linked list of 4KB chunks |
-| `JPEGReader.rgr`   | JPEG parser for dimensions                    |
-| `JPEGMetadata.rgr` | EXIF/JFIF/GPS metadata parser                 |
-| `PDFWriter.rgr`    | PDF generator                                 |
-
-### JPEG Decoder
+### EVG PDF Pipeline
 
 | File                 | Description                                    |
 | -------------------- | ---------------------------------------------- |
-| `JPEGDecoder.rgr`    | Main JPEG decoder (marker parsing, MCU decode) |
-| `BitReader.rgr`      | Bit-level stream reader for entropy decoding   |
-| `HuffmanDecoder.rgr` | Huffman table building and symbol decoding     |
-| `DCT.rgr`            | 8x8 IDCT (Inverse Discrete Cosine Transform)   |
-| `ImageBuffer.rgr`    | RGB image buffer with component assembly       |
-| `PPMImage.rgr`       | PPM (Portable Pixmap) file writer              |
+| `evg_pdf_tool.rgr`   | CLI tool for TSX → PDF conversion              |
+| `EVGPDFRenderer.rgr` | PDF rendering engine with font/image embedding |
+| `EVGLayout.rgr`      | Flexbox layout algorithm                       |
+| `EVGElement.rgr`     | Element tree and style model                   |
+| `JSXToEVG.rgr`       | TSX parser to EVG element tree                 |
+| `FontManager.rgr`    | TrueType font loading and management           |
+| `TrueTypeParser.rgr` | TTF file parser (cmap, glyf, hmtx tables)      |
+
+### JPEG Processing
+
+| File                 | Description                            |
+| -------------------- | -------------------------------------- |
+| `JPEGDecoder.rgr`    | Full baseline DCT decoder              |
+| `JPEGEncoder.rgr`    | Baseline JPEG encoder                  |
+| `JPEGReader.rgr`     | Quick JPEG dimension/metadata reader   |
+| `JPEGMetadata.rgr`   | EXIF/JFIF/GPS metadata parser          |
+| `ImageBuffer.rgr`    | RGB buffer with resize and orientation |
+| `BitReader.rgr`      | Bit-level stream reader                |
+| `HuffmanDecoder.rgr` | Huffman table building and decoding    |
+| `DCT.rgr`            | 8×8 IDCT and DCT transforms            |
+
+### Utilities
+
+| File           | Description                       |
+| -------------- | --------------------------------- |
+| `Buffer.rgr`   | GrowableBuffer with linked chunks |
+| `PPMImage.rgr` | PPM image file writer             |
+
+---
 
 ## Examples
 
-### PDF Writer
+### Generate PDF with Image
 
-```ranger
-Import "Buffer.rgr"
-Import "JPEGReader.rgr"
-Import "JPEGMetadata.rgr"
+```tsx
+// test_image.tsx
+const ImageDocument = (
+  <div width="100%" height="100%" padding="30px">
+    <Text fontSize="28px" fontWeight="bold">
+      Image on the left
+    </Text>
 
-class Main {
-    sfn m@(main):void () {
-        def writer (new PDFWriter())
-        writer.savePDF("./output" "test.pdf" "Hello!")
-        writer.savePDFWithImage("./output" "photo.pdf" "Title" "./images" "photo.jpg")
-    }
-}
+    <div flexDirection="row" marginTop="30px">
+      <Image src="./bin/IMG_6573.jpg" width="250px" height="200px" />
+      <div flex="1" marginLeft="20px">
+        <Text fontSize="18px" fontWeight="bold">
+          Text on the right
+        </Text>
+        <Text fontSize="14px" marginTop="10px" lineHeight="1.6">
+          The image is automatically resized and oriented correctly.
+        </Text>
+      </div>
+    </div>
+  </div>
+);
+
+export default ImageDocument;
 ```
 
-### JPEG Decoder
+### Multiple Fonts
+
+```tsx
+// test_fonts.tsx
+const FontShowcase = (
+  <div width="100%" padding="40px">
+    <Text fontFamily="Cinzel" fontSize="32px" fontWeight="bold">
+      Elegant Cinzel Heading
+    </Text>
+    <Text fontFamily="Open Sans" fontSize="16px" marginTop="20px">
+      Open Sans body text for readability.
+    </Text>
+    <Text fontFamily="Great Vibes" fontSize="28px" marginTop="20px">
+      Beautiful Script Font
+    </Text>
+  </div>
+);
+
+export default FontShowcase;
+```
+
+### JPEG Decoder (Programmatic)
 
 ```ranger
 Import "JPEGDecoder.rgr"
+Import "PPMImage.rgr"
 
 class Main {
     sfn m@(main):void () {
         def decoder (new JPEGDecoder())
-        decoder.loadFile("./gallery/pdf_writer" "Canon_40D.jpg")
-        decoder.decode()
+        def img:ImageBuffer (decoder.decode("./photos" "photo.jpg"))
+
+        ; Apply EXIF orientation
+        img = (img.applyExifOrientation(decoder.metaInfo.orientation))
+
+        ; Resize
+        img = (img.scaleToSize(800 600))
 
         ; Save as PPM
         def ppm (new PPMImage())
-        ppm.save(decoder.image "./gallery/pdf_writer" "decoded_output.ppm")
+        ppm.save(img "./output" "resized.ppm")
     }
 }
 ```
 
-## Notes
+---
 
-### GPS Coordinates
+## Technical Notes
 
-GPS data in EXIF is stored as three RATIONALs (degrees, minutes, seconds). Output format:
+### TrueType Font Embedding
 
-```
-43° 27' 52.43" N
-11° 52' 55.43" E
-```
+Fonts are embedded as PDF font subsets with:
 
-### JPEG Embedding
+- **cmap table** - Character to glyph mapping (format 4)
+- **glyf table** - Glyph outlines for rendering
+- **hmtx table** - Horizontal metrics for text layout
+- **Widths array** - Per-character widths for PDF text positioning
 
-Uses `/Filter /DCTDecode` to embed raw JPEG data without re-encoding.
+### JPEG Processing Pipeline
 
-### Buffer System
+1. **Decode** - Parse markers, Huffman decode, IDCT, YCbCr→RGB
+2. **Orient** - Apply EXIF orientation (rotation/flip)
+3. **Resize** - Bilinear interpolation to target size
+4. **Encode** - DCT, quantization, Huffman encode at specified quality
 
-`GrowableBuffer` uses linked list of chunks to avoid large reallocations.
+### PDF Image Embedding
+
+Uses `/Filter /DCTDecode` to embed JPEG data natively without transcoding.
+
+### Flexbox Layout
+
+The layout engine implements a subset of CSS flexbox:
+
+- Main axis distribution (row/column)
+- Cross axis alignment
+- Flex grow for remaining space
+- Percentage and pixel dimensions
+- Margin and padding
 
 ### JPEG Decoder Architecture
 
-The decoder implements baseline DCT JPEG (the most common format):
+Supports baseline DCT JPEG (SOF0):
 
-1. **Marker Parsing** - Reads JPEG structure (SOI, DQT, DHT, SOF0, SOS, EOI)
-2. **Huffman Decoding** - Decodes entropy-coded scan data using DC/AC tables
-3. **Dequantization** - Applies quantization tables to DCT coefficients
-4. **IDCT** - 8x8 Inverse Discrete Cosine Transform per block
-5. **YCbCr→RGB** - Color space conversion for final output
+1. **Marker Parsing** - JPEG structure (SOI, DQT, DHT, SOF0, SOS, EOI)
+2. **Huffman Decoding** - Entropy-coded scan data
+3. **Dequantization** - Apply quantization tables
+4. **IDCT** - 8×8 Inverse Discrete Cosine Transform
+5. **YCbCr→RGB** - Color space conversion
 
-Supported:
+**Supported:**
 
 - Baseline DCT (SOF0)
-- 8x8 MCU blocks
-- YCbCr color images (3 components)
-- Grayscale images (1 component)
+- YCbCr and grayscale
+- Chroma subsampling (4:4:4, 4:2:2, 4:2:0)
+- EXIF orientation
 
-Not supported:
+**Not supported:**
 
 - Progressive JPEG
 - Arithmetic coding
-- Subsampled chroma (4:2:0, 4:2:2)

@@ -671,25 +671,46 @@ These will be added in future phases.
 - [ ] Fix apostrophe parsing in JSX text content
 - [ ] Handle special characters properly
 
-### Priority 2: Image Support
+### Priority 2: Accurate Font Metrics
+
+- [ ] Parse TrueType/OpenType font files for actual glyph widths
+- [ ] Implement `AFMTextMeasurer` using Adobe Font Metrics files
+- [ ] Or embed pre-computed width tables for core PDF fonts (Helvetica, Times, Courier)
+- [ ] Support kerning pairs for proper letter spacing
+
+**Font Metrics Approach Options:**
+
+1. **AFM Files** - Adobe Font Metrics are text files with character widths
+   - Helvetica.afm, Times-Roman.afm, Courier.afm
+   - Easy to parse, widely available
+2. **TrueType Parsing** - Read .ttf files directly
+   - Parse 'cmap' table for character mapping
+   - Parse 'hmtx' table for horizontal metrics (advance widths)
+   - More complex but supports any font
+3. **Embedded Tables** - Hardcode width tables for PDF core 14 fonts
+   - No external dependencies
+   - Limited to standard fonts
+   - Smallest implementation
+
+### Priority 3: Image Support
 
 - [ ] Implement `<Image src="...">` element
 - [ ] Load and embed JPEG images using existing JPEGDecoder
 - [ ] Scale images to fit dimensions
 
-### Priority 3: Multi-page Support
+### Priority 4: Multi-page Support
 
 - [ ] Auto page breaks when content overflows
 - [ ] `<Page>` element for explicit page breaks
 - [ ] Page numbering
 
-### Priority 4: Enhanced Text
+### Priority 5: Enhanced Text
 
 - [ ] Bold/italic font variants
 - [ ] Text alignment (center, right, justify)
 - [ ] Line height support
 
-### Priority 5: Border Rendering
+### Priority 6: Border Rendering
 
 - [ ] Render border rectangles
 - [ ] Border color and width
