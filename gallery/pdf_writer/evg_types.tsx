@@ -197,18 +197,27 @@ export interface EVGDividerProps extends EVGBaseProps {
 // =============================================================================
 // JSX Intrinsic Elements Declaration
 // =============================================================================
+// These elements map to what JSXToEVG.rgr parser supports
 
 declare global {
   namespace JSX {
     interface IntrinsicElements {
       /** Document page - the root container with fixed dimensions */
       page: EVGPageProps;
-      /** Generic container element */
-      box: EVGBoxProps;
+      /** Generic container element (like div) */
+      View: EVGViewProps;
       /** Text content element */
+      Label: EVGTextProps;
+      /** Text content element (lowercase alias) */
+      label: EVGTextProps;
+      /** Text content element (alias) */
       text: EVGTextProps;
       /** Image element - supports JPEG */
+      Image: EVGImageProps;
+      /** Image element (lowercase alias) */
       image: EVGImageProps;
+      /** Generic box container */
+      box: EVGBoxProps;
       /** Horizontal flex container (shorthand for box with flexDirection: row) */
       row: EVGRowProps;
       /** Vertical flex container (shorthand for box with flexDirection: column) */
@@ -219,6 +228,84 @@ declare global {
       divider: EVGDividerProps;
     }
   }
+}
+
+// View props - main container element with inline style support
+export interface EVGViewProps {
+  id?: string;
+  className?: string;
+  children?: any;
+
+  // Dimensions
+  width?: string;
+  height?: string;
+  minWidth?: string;
+  maxWidth?: string;
+  minHeight?: string;
+  maxHeight?: string;
+
+  // Box Model - Margin
+  margin?: string;
+  marginTop?: string;
+  marginRight?: string;
+  marginBottom?: string;
+  marginLeft?: string;
+
+  // Box Model - Padding
+  padding?: string;
+  paddingTop?: string;
+  paddingRight?: string;
+  paddingBottom?: string;
+  paddingLeft?: string;
+
+  // Border
+  borderWidth?: string;
+  borderColor?: string;
+  borderRadius?: string;
+
+  // Layout - Flexbox
+  flexDirection?: "row" | "column";
+  flex?: string | number;
+  justifyContent?: "start" | "center" | "end" | "space-between";
+  alignItems?: "start" | "center" | "end" | "stretch";
+  gap?: string;
+
+  // Visual
+  backgroundColor?: string;
+  opacity?: number;
+}
+
+// Text/span props
+export interface EVGTextProps {
+  id?: string;
+  className?: string;
+  children?: string | number;
+
+  // Dimensions
+  width?: string;
+  height?: string;
+
+  // Box Model
+  margin?: string;
+  marginTop?: string;
+  marginRight?: string;
+  marginBottom?: string;
+  marginLeft?: string;
+  padding?: string;
+
+  // Text styling
+  fontSize?: string;
+  fontFamily?: string;
+  fontWeight?: "normal" | "bold" | string;
+  fontStyle?: "normal" | "italic";
+  color?: string;
+  textAlign?: "left" | "center" | "right" | "justify";
+  lineHeight?: string | number;
+  letterSpacing?: string;
+
+  // Visual
+  backgroundColor?: string;
+  opacity?: number;
 }
 
 // =============================================================================
@@ -268,5 +355,15 @@ export const Colors = {
   purple: "#A855F7",
   pink: "#EC4899",
 } as const;
+
+// =============================================================================
+// Component Exports for JSX usage
+// =============================================================================
+// These are placeholder functions that allow TypeScript to recognize the JSX elements.
+// The actual rendering is done by the EVG parser, not React.
+
+export const View = (props: EVGViewProps): any => null;
+export const Label = (props: EVGTextProps): any => null;
+export const Image = (props: EVGImageProps): any => null;
 
 export default {};

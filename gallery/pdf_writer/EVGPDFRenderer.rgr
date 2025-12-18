@@ -5,6 +5,7 @@
 Import "PDFWriter.rgr"
 Import "../evg/EVGElement.rgr"
 Import "../evg/EVGLayout.rgr"
+Import "../evg/EVGTextMeasurer.rgr"
 Import "../evg/EVGUnit.rgr"
 Import "../evg/EVGColor.rgr"
 Import "Buffer.rgr"
@@ -12,6 +13,7 @@ Import "Buffer.rgr"
 class EVGPDFRenderer {
     def writer:PDFWriter
     def layout:EVGLayout
+    def measurer:EVGTextMeasurer
     def streamBuffer:GrowableBuffer
     def pageWidth:double 595.0
     def pageHeight:double 842.0
@@ -27,6 +29,8 @@ class EVGPDFRenderer {
         writer = w
         def lay (new EVGLayout())
         layout = lay
+        def m (new SimpleTextMeasurer())
+        measurer = m
         def buf (new GrowableBuffer())
         streamBuffer = buf
     }
@@ -385,9 +389,8 @@ class EVGPDFRenderer {
     }
     
     fn estimateTextWidth:double (text:string fontSize:double) {
-        ; Rough estimate: average character width ~= 0.5 * fontSize
-        def len:int (strlen text)
-        return ((to_double len) * fontSize * 0.5)
+        ; Use the same text measurer as layout for consistent results
+        return (measurer.measureTextWidth(text "Helvetica" fontSize))
     }
     
     fn escapeText:string (text:string) {

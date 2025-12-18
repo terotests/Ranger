@@ -1,0 +1,21 @@
+{
+  "name": "pdf_writer",
+  "version": "1.0.0",
+  "description": "A collection of binary format utilities written in Ranger:",
+  "main": "pdf_writer.js",
+  "bin": {
+    "pdf_writer": "bin/evg_pdf_tool.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
+  }
+}

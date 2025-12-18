@@ -7741,6 +7741,8 @@ class EVGPDFRenderer  {
     this.writer = w;
     const lay = new EVGLayout();
     this.layout = lay;
+    const m_1 = new SimpleTextMeasurer();
+    this.measurer = m_1;
     const buf_1 = new GrowableBuffer();
     this.streamBuffer = buf_1;
   }
@@ -7999,8 +8001,7 @@ class EVGPDFRenderer  {
     return el.textContent;
   };
   estimateTextWidth (text, fontSize) {
-    const __len = text.length;
-    return ((__len) * fontSize) * 0.5;
+    return this.measurer.measureTextWidth(text, "Helvetica", fontSize);
   };
   escapeText (text) {
     let result = "";
