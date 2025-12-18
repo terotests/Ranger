@@ -115,6 +115,7 @@ class EVGElement {
     def calculatedPage:int 0
     def isAbsolute:boolean false
     def isLayoutComplete:boolean false
+    def unitsResolved:boolean false
     
     ; Inherited font size in pixels
     def inheritedFontSize:double 14.0
@@ -175,6 +176,22 @@ class EVGElement {
     fn addChild:void (child:EVGElement) {
         child.parent = this
         push children child
+    }
+    
+    fn resetLayoutState:void () {
+        ; Reset layout state for re-layout
+        unitsResolved = false
+        calculatedX = 0.0
+        calculatedY = 0.0
+        calculatedWidth = 0.0
+        calculatedHeight = 0.0
+        ; Recursively reset children
+        def i:int 0
+        while (i < (array_length children)) {
+            def child:EVGElement (itemAt children i)
+            child.resetLayoutState()
+            i = i + 1
+        }
     }
     
     fn getChildCount:int () {
@@ -248,12 +265,18 @@ class EVGElement {
     }
     
     fn resolveUnits:void (parentWidth:double parentHeight:double) {
+        ; Skip if already resolved - prevents double-resolution of percentages
+        if unitsResolved {
+            return
+        }
+        unitsResolved = true
+        
         ; Resolve all unit values to pixels
         def fs:double inheritedFontSize
         
-        ; Dimensions
+        ; Dimensions - width uses parentWidth, height uses parentHeight
         width.resolveWithHeight(parentWidth parentHeight fs)
-        height.resolveWithHeight(parentWidth parentHeight fs)
+        height.resolveForHeight(parentWidth parentHeight fs)
         minWidth.resolve(parentWidth fs)
         minHeight.resolve(parentHeight fs)
         maxWidth.resolve(parentWidth fs)

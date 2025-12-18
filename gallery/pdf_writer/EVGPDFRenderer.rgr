@@ -6,6 +6,7 @@ Import "PDFWriter.rgr"
 Import "../evg/EVGElement.rgr"
 Import "../evg/EVGLayout.rgr"
 Import "../evg/EVGTextMeasurer.rgr"
+Import "../evg/EVGImageMeasurer.rgr"
 Import "../evg/EVGUnit.rgr"
 Import "../evg/EVGColor.rgr"
 Import "Buffer.rgr"
@@ -47,6 +48,7 @@ class EmbeddedImage {
 }
 
 class EVGPDFRenderer {
+    Extends(EVGImageMeasurer)
     def writer:PDFWriter
     def layout:EVGLayout
     def measurer:EVGTextMeasurer
@@ -71,6 +73,8 @@ class EVGPDFRenderer {
     def maxImageWidth:int 800
     def maxImageHeight:int 800
     def jpegQuality:int 75
+    def imageDimensionsCache:[EVGImageDimensions]
+    def imageDimensionsCacheKeys:[string]
     
     Constructor () {
         def w (new PDFWriter())
@@ -87,6 +91,12 @@ class EVGPDFRenderer {
         usedFontNames = uf
         def ei:[EmbeddedImage]
         embeddedImages = ei
+        def idc:[EVGImageDimensions]
+        imageDimensionsCache = idc
+        def idck:[string]
+        imageDimensionsCacheKeys = idck
+        ; Set this renderer as the image measurer for layout
+        layout.setImageMeasurer(this)
     }
     
     fn setPageSize:void (width:double height:double) {
@@ -113,6 +123,81 @@ class EVGPDFRenderer {
         this.debug = enabled
     }
     
+    fn getImageDimensions:EVGImageDimensions (src:string) {
+        ; Check cache first
+        def i:int 0
+        while (i < (array_length imageDimensionsCacheKeys)) {
+            def key:string (itemAt imageDimensionsCacheKeys i)
+            if (key == src) {
+                return (itemAt imageDimensionsCache i)
+            }
+            i = i + 1
+        }
+        
+        ; Not in cache, load from file
+        def dims (new EVGImageDimensions())
+        
+        ; Resolve the image path - handle relative paths like "./bin/image.jpg"
+        def imgDir:string ""
+        def imgFile:string ""
+        def imgSrc:string src
+        
+        ; Remove leading "./" if present
+        if ((strlen src) > 2) {
+            def prefix:string (substring src 0 2)
+            if (prefix == "./") {
+                imgSrc = (substring src 2 (strlen src))
+            }
+        }
+        
+        ; Find last path separator
+        def lastSlash:int (lastIndexOf imgSrc "/")
+        def lastBackslash:int (lastIndexOf imgSrc "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            ; Combine baseDir with the path from imgSrc
+            imgDir = baseDir + (substring imgSrc 0 (lastSep + 1))
+            imgFile = (substring imgSrc (lastSep + 1) (strlen imgSrc))
+        } {
+            ; No path separator, use baseDir directly
+            imgDir = baseDir
+            imgFile = imgSrc
+        }
+        
+        ; Read JPEG dimensions using JPEGReader
+        def reader:JPEGReader (new JPEGReader())
+        def jpegImage:JPEGImage (reader.readJPEG(imgDir imgFile))
+        
+        if jpegImage.isValid {
+            ; Get EXIF orientation to determine final dimensions  
+            def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
+            def orientation:int metaInfo.orientation
+            
+            def imgW:int jpegImage.width
+            def imgH:int jpegImage.height
+            
+            ; Swap dimensions for 90/270 degree rotations
+            if ((orientation == 5) || (orientation == 6) || (orientation == 7) || (orientation == 8)) {
+                def tmp:int imgW
+                imgW = imgH
+                imgH = tmp
+            }
+            
+            dims = (EVGImageDimensions.create(imgW imgH))
+            print (("Image dimensions: " + src + " = " + (to_string imgW) + "x" + (to_string imgH) + " (orientation=" + (to_string orientation) + ")"))
+        }
+        
+        ; Cache the result
+        push imageDimensionsCacheKeys src
+        push imageDimensionsCache dims
+        
+        return dims
+    }
+    
     fn getPdfFontName:string (fontFamily:string) {
         ; Get the PDF font name (F1, F2, etc.) for a font family
         def i:int 0
@@ -129,11 +214,504 @@ class EVGPDFRenderer {
     }
     
     fn render:buffer (root:EVGElement) {
-        ; Layout the tree first
+        ; Check if this is a multi-page document (print element)
+        if (root.tagName == "print") {
+            return (this.renderMultiPageToPDF(root))
+        }
+        
+        ; Single page - Layout the tree first
         layout.layout(root)
         
         ; Render to PDF
         return (this.renderToPDF(root))
+    }
+    
+    fn findPageElements:void (el:EVGElement pages:[EVGElement]) {
+        ; Recursively find all Page elements
+        if (el.tagName == "page") {
+            push pages el
+        }
+        def i:int 0
+        def childCount:int (el.getChildCount())
+        while (i < childCount) {
+            def child:EVGElement (el.getChild(i))
+            this.findPageElements(child pages)
+            i = i + 1
+        }
+    }
+    
+    fn findSectionElements:void (el:EVGElement sections:[EVGElement]) {
+        ; Find all Section elements (direct children of print)
+        def i:int 0
+        def childCount:int (el.getChildCount())
+        while (i < childCount) {
+            def child:EVGElement (el.getChild(i))
+            if (child.tagName == "section") {
+                push sections child
+            }
+            i = i + 1
+        }
+    }
+    
+    fn getSectionPageWidth:double (section:EVGElement) {
+        ; Get page width from section, default to A4
+        if section.width.isSet {
+            return section.width.pixels
+        }
+        return 595.0
+    }
+    
+    fn getSectionPageHeight:double (section:EVGElement) {
+        ; Get page height from section, default to A4
+        if section.height.isSet {
+            return section.height.pixels
+        }
+        return 842.0
+    }
+    
+    fn getSectionMargin:double (section:EVGElement) {
+        ; Get margin from section (use marginTop as the uniform margin)
+        ; Check box.marginTop since that's where parsed margin values go
+        def m:EVGUnit section.box.marginTop
+        if m.isSet {
+            return m.pixels
+        }
+        return 40.0
+    }
+    
+    fn renderMultiPageToPDF:buffer (root:EVGElement) {
+        ; Render a multi-page document with Print/Section/Page structure
+        def pdf (new GrowableBuffer())
+        nextObjNum = 1
+        clear contentObjNums
+        clear usedFontNames
+        clear embeddedFonts
+        clear embeddedImages
+        
+        ; PDF header
+        pdf.writeString("%PDF-1.5\n")
+        pdf.writeByte(37)   ; %
+        pdf.writeByte(226)  ; high-bit char
+        pdf.writeByte(227)  ; high-bit char
+        pdf.writeByte(207)  ; high-bit char
+        pdf.writeByte(211)  ; high-bit char
+        pdf.writeByte(10)   ; newline
+        
+        def objectOffsets:[int]
+        
+        ; Find all sections and pages
+        def sections:[EVGElement]
+        this.findSectionElements(root sections)
+        
+        ; Collect all pages from all sections
+        def allPages:[EVGElement]
+        def allPageWidths:[double]
+        def allPageHeights:[double]
+        def allPageMargins:[double]
+        
+        def si:int 0
+        while (si < (array_length sections)) {
+            def section:EVGElement (itemAt sections si)
+            def sectionWidth:double (this.getSectionPageWidth(section))
+            def sectionHeight:double (this.getSectionPageHeight(section))
+            def sectionMargin:double (this.getSectionMargin(section))
+            
+            ; Find pages within this section
+            def pages:[EVGElement]
+            this.findPageElements(section pages)
+            
+            def pi:int 0
+            while (pi < (array_length pages)) {
+                def pg:EVGElement (itemAt pages pi)
+                push allPages pg
+                push allPageWidths sectionWidth
+                push allPageHeights sectionHeight
+                push allPageMargins sectionMargin
+                
+                ; Set page dimensions for layout - this is the content area inside margins
+                def contentWidth:double (sectionWidth - (sectionMargin * 2.0))
+                def contentHeight:double (sectionHeight - (sectionMargin * 2.0))
+                
+                print ("Page " + (to_string (pi + 1)) + " content size: " + (to_string contentWidth) + " x " + (to_string contentHeight))
+                
+                ; Set the layout engine's page dimensions before layout
+                layout.pageWidth = contentWidth
+                layout.pageHeight = contentHeight
+                
+                ; Reset layout state for fresh layout
+                pg.resetLayoutState()
+                
+                pg.width.pixels = contentWidth
+                pg.width.value = contentWidth
+                pg.width.unitType = 0  ; pixels
+                pg.width.isSet = true
+                pg.height.pixels = contentHeight
+                pg.height.value = contentHeight
+                pg.height.unitType = 0  ; pixels
+                pg.height.isSet = true
+                
+                ; Layout each page independently
+                layout.layout(pg)
+                
+                print ("  After layout: pg.calculatedWidth=" + (to_string pg.calculatedWidth) + " pg.calculatedHeight=" + (to_string pg.calculatedHeight))
+                
+                ; Check first child
+                if ((pg.getChildCount()) > 0) {
+                    def firstChild:EVGElement (pg.getChild(0))
+                    print ("  First child: w=" + (to_string firstChild.calculatedWidth) + " h=" + (to_string firstChild.calculatedHeight))
+                }
+                
+                pi = pi + 1
+            }
+            si = si + 1
+        }
+        
+        ; If no sections found, treat the whole document as single page
+        if ((array_length allPages) == 0) {
+            layout.layout(root)
+            push allPages root
+            push allPageWidths pageWidth
+            push allPageHeights pageHeight
+            push allPageMargins 0.0
+        }
+        
+        def numPages:int (array_length allPages)
+        print ("Rendering " + (to_string numPages) + " pages")
+        
+        ; Build content streams for all pages (this collects fonts and images)
+        def contentDataList:[buffer]
+        def pgi:int 0
+        while (pgi < numPages) {
+            def pg:EVGElement (itemAt allPages pgi)
+            def pgWidth:double (itemAt allPageWidths pgi)
+            def pgHeight:double (itemAt allPageHeights pgi)
+            def pgMargin:double (itemAt allPageMargins pgi)
+            
+            ; Store page height for Y coordinate flipping
+            pageHeight = pgHeight
+            
+            streamBuffer.clear()
+            ; Apply margin offset when rendering
+            this.renderElement(pg pgMargin pgMargin)
+            def contentData:buffer (streamBuffer.toBuffer())
+            push contentDataList contentData
+            
+            print ("  Page " + (to_string (pgi + 1)) + ": " + (to_string (buffer_length contentData)) + " bytes")
+            pgi = pgi + 1
+        }
+        
+        ; Embed fonts
+        def fontObjNums:[int]
+        def fi:int 0
+        while (fi < (array_length usedFontNames)) {
+            def fontName:string (itemAt usedFontNames fi)
+            def ttfFont:TrueTypeFont (fontManager.getFont(fontName))
+            
+            if (ttfFont.unitsPerEm > 0) {
+                ; Embed TrueType font
+                def fontFileData:buffer (ttfFont.getFontData())
+                def fontFileLen:int (buffer_length fontFileData)
+                
+                ; Font file stream object
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                pdf.writeString("<< /Length " + (to_string fontFileLen) + " /Length1 " + (to_string fontFileLen) + " >>\n")
+                pdf.writeString("stream\n")
+                pdf.writeBuffer(fontFileData)
+                pdf.writeString("\nendstream\n")
+                pdf.writeString("endobj\n\n")
+                def fontFileObjNum:int nextObjNum
+                nextObjNum = nextObjNum + 1
+                
+                ; Font descriptor object
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                pdf.writeString("<< /Type /FontDescriptor")
+                pdf.writeString(" /FontName /" + (this.sanitizeFontName(ttfFont.fontFamily)))
+                pdf.writeString(" /Flags 32")
+                pdf.writeString(" /FontBBox [0 " + (to_string ttfFont.descender) + " 1000 " + (to_string ttfFont.ascender) + "]")
+                pdf.writeString(" /ItalicAngle 0")
+                pdf.writeString(" /Ascent " + (to_string ttfFont.ascender))
+                pdf.writeString(" /Descent " + (to_string ttfFont.descender))
+                pdf.writeString(" /CapHeight " + (to_string ttfFont.ascender))
+                pdf.writeString(" /StemV 80")
+                pdf.writeString(" /FontFile2 " + (to_string fontFileObjNum) + " 0 R")
+                pdf.writeString(" >>\n")
+                pdf.writeString("endobj\n\n")
+                def fontDescObjNum:int nextObjNum
+                nextObjNum = nextObjNum + 1
+                
+                ; ToUnicode CMap
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                def toUnicodeStream:string "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n"
+                toUnicodeStream = toUnicodeStream + "2 beginbfrange\n<20> <7E> <0020>\n<A0> <FF> <00A0>\nendbfrange\n"
+                toUnicodeStream = toUnicodeStream + "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend"
+                def toUnicodeLen:int (strlen toUnicodeStream)
+                pdf.writeString("<< /Length " + (to_string toUnicodeLen) + " >>\n")
+                pdf.writeString("stream\n")
+                pdf.writeString(toUnicodeStream)
+                pdf.writeString("\nendstream\n")
+                pdf.writeString("endobj\n\n")
+                def toUnicodeObjNum:int nextObjNum
+                nextObjNum = nextObjNum + 1
+                
+                ; Font object (TrueType)
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                pdf.writeString("<< /Type /Font")
+                pdf.writeString(" /Subtype /TrueType")
+                pdf.writeString(" /BaseFont /" + (this.sanitizeFontName(ttfFont.fontFamily)))
+                pdf.writeString(" /FirstChar 32")
+                pdf.writeString(" /LastChar 255")
+                pdf.writeString(" /Widths [")
+                def ch:int 32
+                while (ch <= 255) {
+                    def cw:int (ttfFont.getCharWidth(ch))
+                    def scaledWd:double (((to_double cw) * 1000.0) / (to_double ttfFont.unitsPerEm))
+                    def scaledW:int (to_int scaledWd)
+                    pdf.writeString((to_string scaledW))
+                    if (ch < 255) {
+                        pdf.writeString(" ")
+                    }
+                    ch = ch + 1
+                }
+                pdf.writeString("]")
+                pdf.writeString(" /FontDescriptor " + (to_string fontDescObjNum) + " 0 R")
+                pdf.writeString(" /Encoding /WinAnsiEncoding")
+                pdf.writeString(" /ToUnicode " + (to_string toUnicodeObjNum) + " 0 R")
+                pdf.writeString(" >>\n")
+                pdf.writeString("endobj\n\n")
+                push fontObjNums nextObjNum
+                nextObjNum = nextObjNum + 1
+            } {
+                ; Fallback to built-in Helvetica
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n")
+                pdf.writeString("endobj\n\n")
+                push fontObjNums nextObjNum
+                nextObjNum = nextObjNum + 1
+            }
+            fi = fi + 1
+        }
+        
+        ; Ensure at least one font exists
+        if ((array_length fontObjNums) == 0) {
+            push objectOffsets (pdf.size())
+            pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+            pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n")
+            pdf.writeString("endobj\n\n")
+            push fontObjNums nextObjNum
+            nextObjNum = nextObjNum + 1
+        }
+        
+        ; Embed images
+        def imgIdx:int 0
+        while (imgIdx < (array_length embeddedImages)) {
+            def embImg:EmbeddedImage (itemAt embeddedImages imgIdx)
+            def imgSrc:string embImg.src
+            def imgDir:string baseDir
+            def imgFile:string imgSrc
+            
+            if ((strlen imgSrc) > 2) {
+                def prefix:string (substring imgSrc 0 2)
+                if (prefix == "./") {
+                    imgSrc = (substring imgSrc 2 (strlen imgSrc))
+                }
+            }
+            
+            def lastSlash:int (lastIndexOf imgSrc "/")
+            def lastBackslash:int (lastIndexOf imgSrc "\\")
+            def lastSep:int lastSlash
+            if (lastBackslash > lastSep) {
+                lastSep = lastBackslash
+            }
+            
+            if (lastSep >= 0) {
+                imgDir = baseDir + (substring imgSrc 0 (lastSep + 1))
+                imgFile = (substring imgSrc (lastSep + 1) (strlen imgSrc))
+            } {
+                imgDir = baseDir
+                imgFile = imgSrc
+            }
+            
+            print ("Loading image: dir=" + imgDir + " file=" + imgFile)
+            
+            def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
+            embImg.orientation = metaInfo.orientation
+            
+            def imgBuffer:ImageBuffer (jpegDecoder.decode(imgDir imgFile))
+            
+            if ((imgBuffer.width > 1) && (imgBuffer.height > 1)) {
+                if (metaInfo.orientation > 1) {
+                    print ("  Applying EXIF orientation: " + (to_string metaInfo.orientation))
+                    imgBuffer = (imgBuffer.applyExifOrientation(metaInfo.orientation))
+                }
+                
+                def origW:int imgBuffer.width
+                def origH:int imgBuffer.height
+                def newW:int origW
+                def newH:int origH
+                
+                if ((origW > maxImageWidth) || (origH > maxImageHeight)) {
+                    def scaleW:double ((to_double maxImageWidth) / (to_double origW))
+                    def scaleH:double ((to_double maxImageHeight) / (to_double origH))
+                    def scale:double scaleW
+                    if (scaleH < scaleW) {
+                        scale = scaleH
+                    }
+                    newW = (to_int ((to_double origW) * scale))
+                    newH = (to_int ((to_double origH) * scale))
+                    
+                    print ("  Resizing from " + (to_string origW) + "x" + (to_string origH) + " to " + (to_string newW) + "x" + (to_string newH))
+                    imgBuffer = (imgBuffer.scaleToSize(newW newH))
+                }
+                
+                jpegEncoder.setQuality(jpegQuality)
+                def encodedData:buffer (jpegEncoder.encodeToBuffer(imgBuffer))
+                def encodedLen:int (buffer_length encodedData)
+                
+                embImg.width = newW
+                embImg.height = newH
+                
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                pdf.writeString("<< /Type /XObject")
+                pdf.writeString(" /Subtype /Image")
+                pdf.writeString(" /Width " + (to_string newW))
+                pdf.writeString(" /Height " + (to_string newH))
+                pdf.writeString(" /ColorSpace /DeviceRGB")
+                pdf.writeString(" /BitsPerComponent 8")
+                pdf.writeString(" /Filter /DCTDecode")
+                pdf.writeString(" /Length " + (to_string encodedLen))
+                pdf.writeString(" >>\n")
+                pdf.writeString("stream\n")
+                pdf.writeBuffer(encodedData)
+                pdf.writeString("\nendstream\n")
+                pdf.writeString("endobj\n\n")
+                
+                embImg.objNum = nextObjNum
+                embImg.pdfName = "/Im" + (to_string (imgIdx + 1))
+                nextObjNum = nextObjNum + 1
+                
+                print ("Embedded image: " + embImg.src + " (" + (to_string newW) + "x" + (to_string newH) + ")")
+            } {
+                print ("Failed to decode image: " + embImg.src)
+            }
+            
+            imgIdx = imgIdx + 1
+        }
+        
+        ; Write content streams for all pages
+        def contentObjNumList:[int]
+        def ci:int 0
+        while (ci < numPages) {
+            def contentData:buffer (itemAt contentDataList ci)
+            def contentLen:int (buffer_length contentData)
+            
+            push objectOffsets (pdf.size())
+            pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+            pdf.writeString("<< /Length " + (to_string contentLen) + " >>\n")
+            pdf.writeString("stream\n")
+            pdf.writeBuffer(contentData)
+            pdf.writeString("\nendstream\n")
+            pdf.writeString("endobj\n\n")
+            push contentObjNumList nextObjNum
+            nextObjNum = nextObjNum + 1
+            ci = ci + 1
+        }
+        
+        ; Write page objects
+        def pageObjNumList:[int]
+        def pagesRefNum:int (nextObjNum + numPages)  ; Calculate where Pages object will be
+        
+        def pi2:int 0
+        while (pi2 < numPages) {
+            def pgWidth:double (itemAt allPageWidths pi2)
+            def pgHeight:double (itemAt allPageHeights pi2)
+            def contentObjN:int (itemAt contentObjNumList pi2)
+            
+            push objectOffsets (pdf.size())
+            pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+            pdf.writeString("<< /Type /Page /Parent " + (to_string pagesRefNum) + " 0 R")
+            pdf.writeString(" /MediaBox [0 0 " + (this.formatNum(pgWidth)) + " " + (this.formatNum(pgHeight)) + "]")
+            pdf.writeString(" /Contents " + (to_string contentObjN) + " 0 R")
+            pdf.writeString(" /Resources <<")
+            pdf.writeString(" /Font <<")
+            def ffi:int 0
+            while (ffi < (array_length fontObjNums)) {
+                def fontObjN:int (itemAt fontObjNums ffi)
+                pdf.writeString(" /F" + (to_string (ffi + 1)) + " " + (to_string fontObjN) + " 0 R")
+                ffi = ffi + 1
+            }
+            pdf.writeString(" >>")
+            if ((array_length embeddedImages) > 0) {
+                pdf.writeString(" /XObject <<")
+                def ii:int 0
+                while (ii < (array_length embeddedImages)) {
+                    def embImg:EmbeddedImage (itemAt embeddedImages ii)
+                    if (embImg.objNum > 0) {
+                        pdf.writeString(" /Im" + (to_string (ii + 1)) + " " + (to_string embImg.objNum) + " 0 R")
+                    }
+                    ii = ii + 1
+                }
+                pdf.writeString(" >>")
+            }
+            pdf.writeString(" >> >>\n")
+            pdf.writeString("endobj\n\n")
+            push pageObjNumList nextObjNum
+            nextObjNum = nextObjNum + 1
+            pi2 = pi2 + 1
+        }
+        
+        ; Pages object
+        push objectOffsets (pdf.size())
+        pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+        pdf.writeString("<< /Type /Pages /Kids [")
+        def ki:int 0
+        while (ki < numPages) {
+            def pageObjN:int (itemAt pageObjNumList ki)
+            pdf.writeString((to_string pageObjN) + " 0 R")
+            if (ki < (numPages - 1)) {
+                pdf.writeString(" ")
+            }
+            ki = ki + 1
+        }
+        pdf.writeString("] /Count " + (to_string numPages) + " >>\n")
+        pdf.writeString("endobj\n\n")
+        pagesObjNum = nextObjNum
+        nextObjNum = nextObjNum + 1
+        
+        ; Catalog object
+        push objectOffsets (pdf.size())
+        pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+        pdf.writeString("<< /Type /Catalog /Pages " + (to_string pagesObjNum) + " 0 R >>\n")
+        pdf.writeString("endobj\n\n")
+        def catalogObjNum:int nextObjNum
+        nextObjNum = nextObjNum + 1
+        
+        ; Xref table
+        def xrefOffset:int (pdf.size())
+        pdf.writeString("xref\n")
+        pdf.writeString("0 " + (to_string nextObjNum) + "\n")
+        pdf.writeString("0000000000 65535 f \n")
+        
+        def xi:int 0
+        while (xi < (array_length objectOffsets)) {
+            def offset:int (itemAt objectOffsets xi)
+            pdf.writeString((this.padLeft((to_string offset) 10 "0")) + " 00000 n \n")
+            xi = xi + 1
+        }
+        
+        ; Trailer
+        pdf.writeString("trailer\n")
+        pdf.writeString("<< /Size " + (to_string nextObjNum) + " /Root " + (to_string catalogObjNum) + " 0 R >>\n")
+        pdf.writeString("startxref\n")
+        pdf.writeString((to_string xrefOffset) + "\n")
+        pdf.writeString("%%EOF\n")
+        
+        return (pdf.toBuffer())
     }
     
     fn renderToPDF:buffer (root:EVGElement) {

@@ -4150,6 +4150,21 @@ class EVGUnit  {
     }
     this.pixels = this.value;
   };
+  resolveForHeight (parentWidth, parentHeight, fontSize) {
+    if ( this.isSet == false ) {
+      this.pixels = 0.0;
+      return;
+    }
+    if ( this.unitType == 3 ) {
+      this.pixels = (parentHeight * this.value) / 100.0;
+      return;
+    }
+    if ( this.unitType == 1 ) {
+      this.pixels = (parentHeight * this.value) / 100.0;
+      return;
+    }
+    this.resolve(parentWidth, fontSize);
+  };
   resolveWithHeight (parentWidth, parentHeight, fontSize) {
     if ( this.isSet == false ) {
       this.pixels = 0.0;
@@ -4261,6 +4276,7 @@ EVGUnit.parse = function(str) {
       const numStr_2 = trimmed.substring(0, (__len - 2) );
       const numVal_2 = isNaN( parseFloat(numStr_2) ) ? undefined : parseFloat(numStr_2);
       unit.value = numVal_2;
+      unit.pixels = unit.value;
       unit.unitType = 0;
       unit.isSet = true;
       return unit;
@@ -4276,6 +4292,7 @@ EVGUnit.parse = function(str) {
   }
   const numVal_4 = isNaN( parseFloat(trimmed) ) ? undefined : parseFloat(trimmed);
   unit.value = numVal_4;
+  unit.pixels = unit.value;
   unit.unitType = 0;
   unit.isSet = true;
   return unit;
@@ -4916,6 +4933,7 @@ class EVGElement  {
     this.calculatedPage = 0;
     this.isAbsolute = false;
     this.isLayoutComplete = false;
+    this.unitsResolved = false;
     this.inheritedFontSize = 14.0;
     this.tagName = "div";
     this.elementType = 0;
@@ -4944,6 +4962,19 @@ class EVGElement  {
   addChild (child) {
     child.parent = this;
     this.children.push(child);
+  };
+  resetLayoutState () {
+    this.unitsResolved = false;
+    this.calculatedX = 0.0;
+    this.calculatedY = 0.0;
+    this.calculatedWidth = 0.0;
+    this.calculatedHeight = 0.0;
+    let i = 0;
+    while (i < (this.children.length)) {
+      const child = this.children[i];
+      child.resetLayoutState();
+      i = i + 1;
+    };
   };
   getChildCount () {
     return this.children.length;
@@ -5004,9 +5035,13 @@ class EVGElement  {
     }
   };
   resolveUnits (parentWidth, parentHeight) {
+    if ( this.unitsResolved ) {
+      return;
+    }
+    this.unitsResolved = true;
     const fs = this.inheritedFontSize;
     this.width.resolveWithHeight(parentWidth, parentHeight, fs);
-    this.height.resolveWithHeight(parentWidth, parentHeight, fs);
+    this.height.resolveForHeight(parentWidth, parentHeight, fs);
     this.minWidth.resolve(parentWidth, fs);
     this.minHeight.resolve(parentHeight, fs);
     this.maxWidth.resolve(parentWidth, fs);
@@ -5396,8 +5431,10 @@ class JSXToEVG  {
           return element;
         }
       }
+      element.tagName = "";
       return element;
     }
+    element.tagName = "";
     return element;
   };
   convertJSXElement (jsxNode) {
@@ -5469,10 +5506,31 @@ class JSXToEVG  {
     return result;
   };
   mapTagName (jsxTag) {
+    if ( jsxTag == "Print" ) {
+      return "print";
+    }
+    if ( jsxTag == "Section" ) {
+      return "section";
+    }
+    if ( jsxTag == "Page" ) {
+      return "page";
+    }
+    if ( jsxTag == "page" ) {
+      return "page";
+    }
     if ( jsxTag == "View" ) {
       return "div";
     }
     if ( jsxTag == "div" ) {
+      return "div";
+    }
+    if ( jsxTag == "box" ) {
+      return "div";
+    }
+    if ( jsxTag == "row" ) {
+      return "div";
+    }
+    if ( jsxTag == "column" ) {
       return "div";
     }
     if ( jsxTag == "span" ) {
@@ -5492,18 +5550,6 @@ class JSXToEVG  {
     }
     if ( jsxTag == "Image" ) {
       return "image";
-    }
-    if ( jsxTag == "box" ) {
-      return "div";
-    }
-    if ( jsxTag == "page" ) {
-      return "page";
-    }
-    if ( jsxTag == "row" ) {
-      return "div";
-    }
-    if ( jsxTag == "column" ) {
-      return "div";
     }
     return "div";
   };
@@ -5541,6 +5587,14 @@ class JSXToEVG  {
           if ( (unit_1.unitType == 0) && (unit_1.pixels > 0.0) ) {
             this.pageHeight = unit_1.pixels;
           }
+        }
+        if ( attrName == "page-width" ) {
+          const unit_2 = EVGUnit.parse(attrValue);
+          element.width = unit_2;
+        }
+        if ( attrName == "page-height" ) {
+          const unit_3 = EVGUnit.parse(attrValue);
+          element.height = unit_3;
         }
         if ( attrName == "color" ) {
           element.color = EVGColor.parse(attrValue);
@@ -7384,6 +7438,70 @@ class SimpleTextMeasurer  extends EVGTextMeasurer {
     return metrics;
   };
 }
+class EVGImageDimensions  {
+  constructor() {
+    this.width = 0;
+    this.height = 0;
+    this.aspectRatio = 1.0;
+    this.isValid = false;
+    this.width = 0;
+    this.height = 0;
+    this.aspectRatio = 1.0;
+    this.isValid = false;
+  }
+}
+EVGImageDimensions.create = function(w, h) {
+  const d = new EVGImageDimensions();
+  d.width = w;
+  d.height = h;
+  if ( h > 0 ) {
+    d.aspectRatio = (w) / (h);
+  }
+  d.isValid = true;
+  return d;
+};
+class EVGImageMeasurer  {
+  constructor() {
+  }
+  getImageDimensions (src) {
+    const dims = new EVGImageDimensions();
+    return dims;
+  };
+  calculateHeightForWidth (src, targetWidth) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid ) {
+      return targetWidth / dims.aspectRatio;
+    }
+    return targetWidth;
+  };
+  calculateWidthForHeight (src, targetHeight) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid ) {
+      return targetHeight * dims.aspectRatio;
+    }
+    return targetHeight;
+  };
+  calculateFitDimensions (src, maxWidth, maxHeight) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid == false ) {
+      return EVGImageDimensions.create((Math.floor( maxWidth)), (Math.floor( maxHeight)));
+    }
+    const scaleW = maxWidth / (dims.width);
+    const scaleH = maxHeight / (dims.height);
+    let scale = scaleW;
+    if ( scaleH < scaleW ) {
+      scale = scaleH;
+    }
+    const newW = Math.floor( ((dims.width) * scale));
+    const newH = Math.floor( ((dims.height) * scale));
+    return EVGImageDimensions.create(newW, newH);
+  };
+}
+class SimpleImageMeasurer  extends EVGImageMeasurer {
+  constructor() {
+    super()
+  }
+}
 class EVGLayout  {
   constructor() {
     this.pageWidth = 612.0;
@@ -7392,9 +7510,14 @@ class EVGLayout  {
     this.debug = false;
     const m = new SimpleTextMeasurer();
     this.measurer = m;
+    const im = new SimpleImageMeasurer();
+    this.imageMeasurer = im;
   }
   setMeasurer (m) {
     this.measurer = m;
+  };
+  setImageMeasurer (m) {
+    this.imageMeasurer = m;
   };
   setPageSize (w, h) {
     this.pageWidth = w;
@@ -7432,6 +7555,34 @@ class EVGLayout  {
       height = element.height.pixels;
       autoHeight = false;
     }
+    if ( element.tagName == "image" ) {
+      const imgSrc = element.src;
+      if ( (imgSrc.length) > 0 ) {
+        const dims = this.imageMeasurer.getImageDimensions(imgSrc);
+        if ( dims.isValid ) {
+          if ( element.width.isSet && (element.height.isSet == false) ) {
+            height = width / dims.aspectRatio;
+            autoHeight = false;
+            this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> height=") + ((height.toString())));
+          }
+          if ( (element.width.isSet == false) && element.height.isSet ) {
+            width = height * dims.aspectRatio;
+            this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> width=") + ((width.toString())));
+          }
+          if ( (element.width.isSet == false) && (element.height.isSet == false) ) {
+            width = dims.width;
+            height = dims.height;
+            if ( width > parentWidth ) {
+              const scale = parentWidth / width;
+              width = parentWidth;
+              height = height * scale;
+            }
+            autoHeight = false;
+            this.log((("  Image natural size: " + ((width.toString()))) + "x") + ((height.toString())));
+          }
+        }
+      }
+    }
     if ( element.minWidth.isSet ) {
       if ( width < element.minWidth.pixels ) {
         width = element.minWidth.pixels;
@@ -7444,6 +7595,10 @@ class EVGLayout  {
     }
     element.calculatedWidth = width;
     element.calculatedInnerWidth = element.box.getInnerWidth(width);
+    if ( autoHeight == false ) {
+      element.calculatedHeight = height;
+      element.calculatedInnerHeight = element.box.getInnerHeight(height);
+    }
     if ( element.isAbsolute ) {
       this.layoutAbsolute(element, parentWidth, parentHeight);
     }
@@ -11324,8 +11479,9 @@ class EmbeddedImage  {
     this.src = s;
   }
 }
-class EVGPDFRenderer  {
+class EVGPDFRenderer  extends EVGImageMeasurer {
   constructor() {
+    super()
     this.pageWidth = 595.0;
     this.pageHeight = 842.0;
     this.nextObjNum = 1;
@@ -11346,6 +11502,8 @@ class EVGPDFRenderer  {
     this.maxImageWidth = 800;
     this.maxImageHeight = 800;
     this.jpegQuality = 75;
+    this.imageDimensionsCache = [];
+    this.imageDimensionsCacheKeys = [];
     const w = new PDFWriter();
     this.writer = w;
     const lay = new EVGLayout();
@@ -11360,6 +11518,11 @@ class EVGPDFRenderer  {
     this.usedFontNames = uf;
     let ei = [];
     this.embeddedImages = ei;
+    let idc = [];
+    this.imageDimensionsCache = idc;
+    let idck = [];
+    this.imageDimensionsCacheKeys = idck;
+    this.layout.setImageMeasurer(this);
   }
   setPageSize (width, height) {
     this.pageWidth = width;
@@ -11380,6 +11543,57 @@ class EVGPDFRenderer  {
     this.layout.debug = enabled;
     this.debug = enabled;
   };
+  getImageDimensions (src) {
+    let i = 0;
+    while (i < (this.imageDimensionsCacheKeys.length)) {
+      const key = this.imageDimensionsCacheKeys[i];
+      if ( key == src ) {
+        return this.imageDimensionsCache[i];
+      }
+      i = i + 1;
+    };
+    let dims = new EVGImageDimensions();
+    let imgDir = "";
+    let imgFile = "";
+    let imgSrc = src;
+    if ( (src.length) > 2 ) {
+      const prefix = src.substring(0, 2 );
+      if ( prefix == "./" ) {
+        imgSrc = src.substring(2, (src.length) );
+      }
+    }
+    const lastSlash = imgSrc.lastIndexOf("/");
+    const lastBackslash = imgSrc.lastIndexOf("\\");
+    let lastSep = lastSlash;
+    if ( lastBackslash > lastSep ) {
+      lastSep = lastBackslash;
+    }
+    if ( lastSep >= 0 ) {
+      imgDir = this.baseDir + (imgSrc.substring(0, (lastSep + 1) ));
+      imgFile = imgSrc.substring((lastSep + 1), (imgSrc.length) );
+    } else {
+      imgDir = this.baseDir;
+      imgFile = imgSrc;
+    }
+    const reader = new JPEGReader();
+    const jpegImage = reader.readJPEG(imgDir, imgFile);
+    if ( jpegImage.isValid ) {
+      const metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
+      const orientation = metaInfo.orientation;
+      let imgW = jpegImage.width;
+      let imgH = jpegImage.height;
+      if ( (((orientation == 5) || (orientation == 6)) || (orientation == 7)) || (orientation == 8) ) {
+        const tmp = imgW;
+        imgW = imgH;
+        imgH = tmp;
+      }
+      dims = EVGImageDimensions.create(imgW, imgH);
+      console.log(((((((("Image dimensions: " + src) + " = ") + ((imgW.toString()))) + "x") + ((imgH.toString()))) + " (orientation=") + ((orientation.toString()))) + ")");
+    }
+    this.imageDimensionsCacheKeys.push(src);
+    this.imageDimensionsCache.push(dims);
+    return dims;
+  };
   getPdfFontName (fontFamily) {
     let i = 0;
     while (i < (this.usedFontNames.length)) {
@@ -11393,8 +11607,401 @@ class EVGPDFRenderer  {
     return "/F" + (((this.usedFontNames.length).toString()));
   };
   render (root) {
+    if ( root.tagName == "print" ) {
+      return this.renderMultiPageToPDF(root);
+    }
     this.layout.layout(root);
     return this.renderToPDF(root);
+  };
+  findPageElements (el, pages) {
+    if ( el.tagName == "page" ) {
+      pages.push(el);
+    }
+    let i = 0;
+    const childCount = el.getChildCount();
+    while (i < childCount) {
+      const child = el.getChild(i);
+      this.findPageElements(child, pages);
+      i = i + 1;
+    };
+  };
+  findSectionElements (el, sections) {
+    let i = 0;
+    const childCount = el.getChildCount();
+    while (i < childCount) {
+      const child = el.getChild(i);
+      if ( child.tagName == "section" ) {
+        sections.push(child);
+      }
+      i = i + 1;
+    };
+  };
+  getSectionPageWidth (section) {
+    if ( section.width.isSet ) {
+      return section.width.pixels;
+    }
+    return 595.0;
+  };
+  getSectionPageHeight (section) {
+    if ( section.height.isSet ) {
+      return section.height.pixels;
+    }
+    return 842.0;
+  };
+  getSectionMargin (section) {
+    const m = section.box.marginTop;
+    if ( m.isSet ) {
+      return m.pixels;
+    }
+    return 40.0;
+  };
+  renderMultiPageToPDF (root) {
+    const pdf = new GrowableBuffer();
+    this.nextObjNum = 1;
+    this.contentObjNums.length = 0;
+    this.usedFontNames.length = 0;
+    this.embeddedFonts.length = 0;
+    this.embeddedImages.length = 0;
+    pdf.writeString("%PDF-1.5\n");
+    pdf.writeByte(37);
+    pdf.writeByte(226);
+    pdf.writeByte(227);
+    pdf.writeByte(207);
+    pdf.writeByte(211);
+    pdf.writeByte(10);
+    let objectOffsets = [];
+    let sections = [];
+    this.findSectionElements(root, sections);
+    let allPages = [];
+    let allPageWidths = [];
+    let allPageHeights = [];
+    let allPageMargins = [];
+    let si = 0;
+    while (si < (sections.length)) {
+      const section = sections[si];
+      const sectionWidth = this.getSectionPageWidth(section);
+      const sectionHeight = this.getSectionPageHeight(section);
+      const sectionMargin = this.getSectionMargin(section);
+      let pages = [];
+      this.findPageElements(section, pages);
+      let pi = 0;
+      while (pi < (pages.length)) {
+        const pg = pages[pi];
+        allPages.push(pg);
+        allPageWidths.push(sectionWidth);
+        allPageHeights.push(sectionHeight);
+        allPageMargins.push(sectionMargin);
+        const contentWidth = sectionWidth - (sectionMargin * 2.0);
+        const contentHeight = sectionHeight - (sectionMargin * 2.0);
+        console.log((((("Page " + (((pi + 1).toString()))) + " content size: ") + ((contentWidth.toString()))) + " x ") + ((contentHeight.toString())));
+        this.layout.pageWidth = contentWidth;
+        this.layout.pageHeight = contentHeight;
+        pg.resetLayoutState();
+        pg.width.pixels = contentWidth;
+        pg.width.value = contentWidth;
+        pg.width.unitType = 0;
+        pg.width.isSet = true;
+        pg.height.pixels = contentHeight;
+        pg.height.value = contentHeight;
+        pg.height.unitType = 0;
+        pg.height.isSet = true;
+        this.layout.layout(pg);
+        console.log((("  After layout: pg.calculatedWidth=" + ((pg.calculatedWidth.toString()))) + " pg.calculatedHeight=") + ((pg.calculatedHeight.toString())));
+        if ( pg.getChildCount() > 0 ) {
+          const firstChild = pg.getChild(0);
+          console.log((("  First child: w=" + ((firstChild.calculatedWidth.toString()))) + " h=") + ((firstChild.calculatedHeight.toString())));
+        }
+        pi = pi + 1;
+      };
+      si = si + 1;
+    };
+    if ( (allPages.length) == 0 ) {
+      this.layout.layout(root);
+      allPages.push(root);
+      allPageWidths.push(this.pageWidth);
+      allPageHeights.push(this.pageHeight);
+      allPageMargins.push(0.0);
+    }
+    const numPages = allPages.length;
+    console.log(("Rendering " + ((numPages.toString()))) + " pages");
+    let contentDataList = [];
+    let pgi = 0;
+    while (pgi < numPages) {
+      const pg_1 = allPages[pgi];
+      const pgWidth = allPageWidths[pgi];
+      const pgHeight = allPageHeights[pgi];
+      const pgMargin = allPageMargins[pgi];
+      this.pageHeight = pgHeight;
+      (this.streamBuffer).clear();
+      this.renderElement(pg_1, pgMargin, pgMargin);
+      const contentData = this.streamBuffer.toBuffer();
+      contentDataList.push(contentData);
+      console.log(((("  Page " + (((pgi + 1).toString()))) + ": ") + (((contentData.byteLength).toString()))) + " bytes");
+      pgi = pgi + 1;
+    };
+    let fontObjNums = [];
+    let fi = 0;
+    while (fi < (this.usedFontNames.length)) {
+      const fontName = this.usedFontNames[fi];
+      const ttfFont = this.fontManager.getFont(fontName);
+      if ( ttfFont.unitsPerEm > 0 ) {
+        const fontFileData = ttfFont.getFontData();
+        const fontFileLen = fontFileData.byteLength;
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        pdf.writeString(((("<< /Length " + ((fontFileLen.toString()))) + " /Length1 ") + ((fontFileLen.toString()))) + " >>\n");
+        pdf.writeString("stream\n");
+        pdf.writeBuffer(fontFileData);
+        pdf.writeString("\nendstream\n");
+        pdf.writeString("endobj\n\n");
+        const fontFileObjNum = this.nextObjNum;
+        this.nextObjNum = this.nextObjNum + 1;
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        pdf.writeString("<< /Type /FontDescriptor");
+        pdf.writeString(" /FontName /" + this.sanitizeFontName(ttfFont.fontFamily));
+        pdf.writeString(" /Flags 32");
+        pdf.writeString((((" /FontBBox [0 " + ((ttfFont.descender.toString()))) + " 1000 ") + ((ttfFont.ascender.toString()))) + "]");
+        pdf.writeString(" /ItalicAngle 0");
+        pdf.writeString(" /Ascent " + ((ttfFont.ascender.toString())));
+        pdf.writeString(" /Descent " + ((ttfFont.descender.toString())));
+        pdf.writeString(" /CapHeight " + ((ttfFont.ascender.toString())));
+        pdf.writeString(" /StemV 80");
+        pdf.writeString((" /FontFile2 " + ((fontFileObjNum.toString()))) + " 0 R");
+        pdf.writeString(" >>\n");
+        pdf.writeString("endobj\n\n");
+        const fontDescObjNum = this.nextObjNum;
+        this.nextObjNum = this.nextObjNum + 1;
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        let toUnicodeStream = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n";
+        toUnicodeStream = toUnicodeStream + "2 beginbfrange\n<20> <7E> <0020>\n<A0> <FF> <00A0>\nendbfrange\n";
+        toUnicodeStream = toUnicodeStream + "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend";
+        const toUnicodeLen = toUnicodeStream.length;
+        pdf.writeString(("<< /Length " + ((toUnicodeLen.toString()))) + " >>\n");
+        pdf.writeString("stream\n");
+        pdf.writeString(toUnicodeStream);
+        pdf.writeString("\nendstream\n");
+        pdf.writeString("endobj\n\n");
+        const toUnicodeObjNum = this.nextObjNum;
+        this.nextObjNum = this.nextObjNum + 1;
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        pdf.writeString("<< /Type /Font");
+        pdf.writeString(" /Subtype /TrueType");
+        pdf.writeString(" /BaseFont /" + this.sanitizeFontName(ttfFont.fontFamily));
+        pdf.writeString(" /FirstChar 32");
+        pdf.writeString(" /LastChar 255");
+        pdf.writeString(" /Widths [");
+        let ch = 32;
+        while (ch <= 255) {
+          const cw = ttfFont.getCharWidth(ch);
+          const scaledWd = ((cw) * 1000.0) / (ttfFont.unitsPerEm);
+          const scaledW = Math.floor( scaledWd);
+          pdf.writeString((scaledW.toString()));
+          if ( ch < 255 ) {
+            pdf.writeString(" ");
+          }
+          ch = ch + 1;
+        };
+        pdf.writeString("]");
+        pdf.writeString((" /FontDescriptor " + ((fontDescObjNum.toString()))) + " 0 R");
+        pdf.writeString(" /Encoding /WinAnsiEncoding");
+        pdf.writeString((" /ToUnicode " + ((toUnicodeObjNum.toString()))) + " 0 R");
+        pdf.writeString(" >>\n");
+        pdf.writeString("endobj\n\n");
+        fontObjNums.push(this.nextObjNum);
+        this.nextObjNum = this.nextObjNum + 1;
+      } else {
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n");
+        pdf.writeString("endobj\n\n");
+        fontObjNums.push(this.nextObjNum);
+        this.nextObjNum = this.nextObjNum + 1;
+      }
+      fi = fi + 1;
+    };
+    if ( (fontObjNums.length) == 0 ) {
+      objectOffsets.push((pdf).size());
+      pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+      pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n");
+      pdf.writeString("endobj\n\n");
+      fontObjNums.push(this.nextObjNum);
+      this.nextObjNum = this.nextObjNum + 1;
+    }
+    let imgIdx = 0;
+    while (imgIdx < (this.embeddedImages.length)) {
+      const embImg = this.embeddedImages[imgIdx];
+      let imgSrc = embImg.src;
+      let imgDir = this.baseDir;
+      let imgFile = imgSrc;
+      if ( (imgSrc.length) > 2 ) {
+        const prefix = imgSrc.substring(0, 2 );
+        if ( prefix == "./" ) {
+          imgSrc = imgSrc.substring(2, (imgSrc.length) );
+        }
+      }
+      const lastSlash = imgSrc.lastIndexOf("/");
+      const lastBackslash = imgSrc.lastIndexOf("\\");
+      let lastSep = lastSlash;
+      if ( lastBackslash > lastSep ) {
+        lastSep = lastBackslash;
+      }
+      if ( lastSep >= 0 ) {
+        imgDir = this.baseDir + (imgSrc.substring(0, (lastSep + 1) ));
+        imgFile = imgSrc.substring((lastSep + 1), (imgSrc.length) );
+      } else {
+        imgDir = this.baseDir;
+        imgFile = imgSrc;
+      }
+      console.log((("Loading image: dir=" + imgDir) + " file=") + imgFile);
+      const metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
+      embImg.orientation = metaInfo.orientation;
+      let imgBuffer = this.jpegDecoder.decode(imgDir, imgFile);
+      if ( (imgBuffer.width > 1) && (imgBuffer.height > 1) ) {
+        if ( metaInfo.orientation > 1 ) {
+          console.log("  Applying EXIF orientation: " + ((metaInfo.orientation.toString())));
+          imgBuffer = imgBuffer.applyExifOrientation(metaInfo.orientation);
+        }
+        const origW = imgBuffer.width;
+        const origH = imgBuffer.height;
+        let newW = origW;
+        let newH = origH;
+        if ( (origW > this.maxImageWidth) || (origH > this.maxImageHeight) ) {
+          const scaleW = (this.maxImageWidth) / (origW);
+          const scaleH = (this.maxImageHeight) / (origH);
+          let scale = scaleW;
+          if ( scaleH < scaleW ) {
+            scale = scaleH;
+          }
+          newW = Math.floor( ((origW) * scale));
+          newH = Math.floor( ((origH) * scale));
+          console.log((((((("  Resizing from " + ((origW.toString()))) + "x") + ((origH.toString()))) + " to ") + ((newW.toString()))) + "x") + ((newH.toString())));
+          imgBuffer = imgBuffer.scaleToSize(newW, newH);
+        }
+        this.jpegEncoder.setQuality(this.jpegQuality);
+        const encodedData = this.jpegEncoder.encodeToBuffer(imgBuffer);
+        const encodedLen = encodedData.byteLength;
+        embImg.width = newW;
+        embImg.height = newH;
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        pdf.writeString("<< /Type /XObject");
+        pdf.writeString(" /Subtype /Image");
+        pdf.writeString(" /Width " + ((newW.toString())));
+        pdf.writeString(" /Height " + ((newH.toString())));
+        pdf.writeString(" /ColorSpace /DeviceRGB");
+        pdf.writeString(" /BitsPerComponent 8");
+        pdf.writeString(" /Filter /DCTDecode");
+        pdf.writeString(" /Length " + ((encodedLen.toString())));
+        pdf.writeString(" >>\n");
+        pdf.writeString("stream\n");
+        pdf.writeBuffer(encodedData);
+        pdf.writeString("\nendstream\n");
+        pdf.writeString("endobj\n\n");
+        embImg.objNum = this.nextObjNum;
+        embImg.pdfName = "/Im" + (((imgIdx + 1).toString()));
+        this.nextObjNum = this.nextObjNum + 1;
+        console.log(((((("Embedded image: " + embImg.src) + " (") + ((newW.toString()))) + "x") + ((newH.toString()))) + ")");
+      } else {
+        console.log("Failed to decode image: " + embImg.src);
+      }
+      imgIdx = imgIdx + 1;
+    };
+    let contentObjNumList = [];
+    let ci = 0;
+    while (ci < numPages) {
+      const contentData_1 = contentDataList[ci];
+      const contentLen = contentData_1.byteLength;
+      objectOffsets.push((pdf).size());
+      pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+      pdf.writeString(("<< /Length " + ((contentLen.toString()))) + " >>\n");
+      pdf.writeString("stream\n");
+      pdf.writeBuffer(contentData_1);
+      pdf.writeString("\nendstream\n");
+      pdf.writeString("endobj\n\n");
+      contentObjNumList.push(this.nextObjNum);
+      this.nextObjNum = this.nextObjNum + 1;
+      ci = ci + 1;
+    };
+    let pageObjNumList = [];
+    const pagesRefNum = this.nextObjNum + numPages;
+    let pi2 = 0;
+    while (pi2 < numPages) {
+      const pgWidth_1 = allPageWidths[pi2];
+      const pgHeight_1 = allPageHeights[pi2];
+      const contentObjN = contentObjNumList[pi2];
+      objectOffsets.push((pdf).size());
+      pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+      pdf.writeString(("<< /Type /Page /Parent " + ((pagesRefNum.toString()))) + " 0 R");
+      pdf.writeString((((" /MediaBox [0 0 " + this.formatNum(pgWidth_1)) + " ") + this.formatNum(pgHeight_1)) + "]");
+      pdf.writeString((" /Contents " + ((contentObjN.toString()))) + " 0 R");
+      pdf.writeString(" /Resources <<");
+      pdf.writeString(" /Font <<");
+      let ffi = 0;
+      while (ffi < (fontObjNums.length)) {
+        const fontObjN = fontObjNums[ffi];
+        pdf.writeString((((" /F" + (((ffi + 1).toString()))) + " ") + ((fontObjN.toString()))) + " 0 R");
+        ffi = ffi + 1;
+      };
+      pdf.writeString(" >>");
+      if ( (this.embeddedImages.length) > 0 ) {
+        pdf.writeString(" /XObject <<");
+        let ii = 0;
+        while (ii < (this.embeddedImages.length)) {
+          const embImg_1 = this.embeddedImages[ii];
+          if ( embImg_1.objNum > 0 ) {
+            pdf.writeString((((" /Im" + (((ii + 1).toString()))) + " ") + ((embImg_1.objNum.toString()))) + " 0 R");
+          }
+          ii = ii + 1;
+        };
+        pdf.writeString(" >>");
+      }
+      pdf.writeString(" >> >>\n");
+      pdf.writeString("endobj\n\n");
+      pageObjNumList.push(this.nextObjNum);
+      this.nextObjNum = this.nextObjNum + 1;
+      pi2 = pi2 + 1;
+    };
+    objectOffsets.push((pdf).size());
+    pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+    pdf.writeString("<< /Type /Pages /Kids [");
+    let ki = 0;
+    while (ki < numPages) {
+      const pageObjN = pageObjNumList[ki];
+      pdf.writeString(((pageObjN.toString())) + " 0 R");
+      if ( ki < (numPages - 1) ) {
+        pdf.writeString(" ");
+      }
+      ki = ki + 1;
+    };
+    pdf.writeString(("] /Count " + ((numPages.toString()))) + " >>\n");
+    pdf.writeString("endobj\n\n");
+    this.pagesObjNum = this.nextObjNum;
+    this.nextObjNum = this.nextObjNum + 1;
+    objectOffsets.push((pdf).size());
+    pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+    pdf.writeString(("<< /Type /Catalog /Pages " + ((this.pagesObjNum.toString()))) + " 0 R >>\n");
+    pdf.writeString("endobj\n\n");
+    const catalogObjNum = this.nextObjNum;
+    this.nextObjNum = this.nextObjNum + 1;
+    const xrefOffset = (pdf).size();
+    pdf.writeString("xref\n");
+    pdf.writeString(("0 " + ((this.nextObjNum.toString()))) + "\n");
+    pdf.writeString("0000000000 65535 f \n");
+    let xi = 0;
+    while (xi < (objectOffsets.length)) {
+      const offset = objectOffsets[xi];
+      pdf.writeString(this.padLeft(((offset.toString())), 10, "0") + " 00000 n \n");
+      xi = xi + 1;
+    };
+    pdf.writeString("trailer\n");
+    pdf.writeString(((("<< /Size " + ((this.nextObjNum.toString()))) + " /Root ") + ((catalogObjNum.toString()))) + " 0 R >>\n");
+    pdf.writeString("startxref\n");
+    pdf.writeString(((xrefOffset.toString())) + "\n");
+    pdf.writeString("%%EOF\n");
+    return pdf.toBuffer();
   };
   renderToPDF (root) {
     const pdf = new GrowableBuffer();
