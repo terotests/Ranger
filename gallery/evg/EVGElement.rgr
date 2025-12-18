@@ -115,6 +115,7 @@ class EVGElement {
     def calculatedPage:int 0
     def isAbsolute:boolean false
     def isLayoutComplete:boolean false
+    def unitsResolved:boolean false
     
     ; Inherited font size in pixels
     def inheritedFontSize:double 14.0
@@ -248,6 +249,12 @@ class EVGElement {
     }
     
     fn resolveUnits:void (parentWidth:double parentHeight:double) {
+        ; Skip if already resolved - prevents double-resolution of percentages
+        if unitsResolved {
+            return
+        }
+        unitsResolved = true
+        
         ; Resolve all unit values to pixels
         def fs:double inheritedFontSize
         

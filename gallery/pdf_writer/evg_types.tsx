@@ -168,6 +168,9 @@ export interface EVGImageProps extends EVGBaseProps {
   src: string;
   /** Alternative text for accessibility */
   alt?: string;
+
+  width?: Unit;
+  height?: Unit;
 }
 
 export interface EVGRowProps extends EVGBaseProps {

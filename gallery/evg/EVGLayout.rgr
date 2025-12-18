@@ -2,9 +2,11 @@
 
 Import "EVGElement.rgr"
 Import "EVGTextMeasurer.rgr"
+Import "EVGImageMeasurer.rgr"
 
 class EVGLayout {
     def measurer:EVGTextMeasurer
+    def imageMeasurer:EVGImageMeasurer
     def pageWidth:double 612.0
     def pageHeight:double 792.0
     def currentPage:int 0
@@ -13,10 +15,16 @@ class EVGLayout {
     Constructor () {
         def m (new SimpleTextMeasurer())
         measurer = m
+        def im (new SimpleImageMeasurer())
+        imageMeasurer = im
     }
     
     fn setMeasurer:void (m:EVGTextMeasurer) {
         measurer = m
+    }
+    
+    fn setImageMeasurer:void (m:EVGImageMeasurer) {
+        imageMeasurer = m
     }
     
     fn setPageSize:void (w:double h:double) {
@@ -54,7 +62,7 @@ class EVGLayout {
     }
     
     fn layoutElement:void (element:EVGElement parentX:double parentY:double parentWidth:double parentHeight:double) {
-        ; Resolve units for this element
+        ; Resolve units for this element (will be skipped if already resolved in layoutChildren)
         element.resolveUnits(parentWidth parentHeight)
         
         ; Calculate element dimensions
@@ -68,6 +76,39 @@ class EVGLayout {
         if element.height.isSet {
             height = element.height.pixels
             autoHeight = false
+        }
+        
+        ; For image elements, calculate dimensions based on aspect ratio
+        if (element.tagName == "image") {
+            def imgSrc:string element.src
+            if ((strlen imgSrc) > 0) {
+                def dims:EVGImageDimensions (imageMeasurer.getImageDimensions(imgSrc))
+                if dims.isValid {
+                    if (element.width.isSet && (element.height.isSet == false)) {
+                        ; Width is set, calculate height from aspect ratio
+                        height = (width / dims.aspectRatio)
+                        autoHeight = false
+                        this.log(("  Image aspect ratio: " + (to_string dims.aspectRatio) + " -> height=" + (to_string height)))
+                    }
+                    if ((element.width.isSet == false) && element.height.isSet) {
+                        ; Height is set, calculate width from aspect ratio
+                        width = (height * dims.aspectRatio)
+                        this.log(("  Image aspect ratio: " + (to_string dims.aspectRatio) + " -> width=" + (to_string width)))
+                    }
+                    if ((element.width.isSet == false) && (element.height.isSet == false)) {
+                        ; Neither set, use natural size (capped at parent)
+                        width = (to_double dims.width)
+                        height = (to_double dims.height)
+                        if (width > parentWidth) {
+                            def scale:double (parentWidth / width)
+                            width = parentWidth
+                            height = (height * scale)
+                        }
+                        autoHeight = false
+                        this.log(("  Image natural size: " + (to_string width) + "x" + (to_string height)))
+                    }
+                }
+            }
         }
         
         ; Apply min/max constraints
@@ -274,6 +315,7 @@ class EVGLayout {
             child.calculatedY = currentY + child.box.marginTopPx
             
             ; Layout child element (recursive)
+            ; Units were already resolved in layoutChildren, pass childWidth so layoutElement knows the actual size
             this.layoutElement(child child.calculatedX child.calculatedY childWidth innerHeight)
             
             ; Get actual child height after layout

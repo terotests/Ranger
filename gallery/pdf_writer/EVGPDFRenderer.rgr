@@ -6,6 +6,7 @@ Import "PDFWriter.rgr"
 Import "../evg/EVGElement.rgr"
 Import "../evg/EVGLayout.rgr"
 Import "../evg/EVGTextMeasurer.rgr"
+Import "../evg/EVGImageMeasurer.rgr"
 Import "../evg/EVGUnit.rgr"
 Import "../evg/EVGColor.rgr"
 Import "Buffer.rgr"
@@ -47,6 +48,7 @@ class EmbeddedImage {
 }
 
 class EVGPDFRenderer {
+    Extends(EVGImageMeasurer)
     def writer:PDFWriter
     def layout:EVGLayout
     def measurer:EVGTextMeasurer
@@ -71,6 +73,8 @@ class EVGPDFRenderer {
     def maxImageWidth:int 800
     def maxImageHeight:int 800
     def jpegQuality:int 75
+    def imageDimensionsCache:[EVGImageDimensions]
+    def imageDimensionsCacheKeys:[string]
     
     Constructor () {
         def w (new PDFWriter())
@@ -87,6 +91,12 @@ class EVGPDFRenderer {
         usedFontNames = uf
         def ei:[EmbeddedImage]
         embeddedImages = ei
+        def idc:[EVGImageDimensions]
+        imageDimensionsCache = idc
+        def idck:[string]
+        imageDimensionsCacheKeys = idck
+        ; Set this renderer as the image measurer for layout
+        layout.setImageMeasurer(this)
     }
     
     fn setPageSize:void (width:double height:double) {
@@ -111,6 +121,81 @@ class EVGPDFRenderer {
     fn setDebug:void (enabled:boolean) {
         layout.debug = enabled
         this.debug = enabled
+    }
+    
+    fn getImageDimensions:EVGImageDimensions (src:string) {
+        ; Check cache first
+        def i:int 0
+        while (i < (array_length imageDimensionsCacheKeys)) {
+            def key:string (itemAt imageDimensionsCacheKeys i)
+            if (key == src) {
+                return (itemAt imageDimensionsCache i)
+            }
+            i = i + 1
+        }
+        
+        ; Not in cache, load from file
+        def dims (new EVGImageDimensions())
+        
+        ; Resolve the image path - handle relative paths like "./bin/image.jpg"
+        def imgDir:string ""
+        def imgFile:string ""
+        def imgSrc:string src
+        
+        ; Remove leading "./" if present
+        if ((strlen src) > 2) {
+            def prefix:string (substring src 0 2)
+            if (prefix == "./") {
+                imgSrc = (substring src 2 (strlen src))
+            }
+        }
+        
+        ; Find last path separator
+        def lastSlash:int (lastIndexOf imgSrc "/")
+        def lastBackslash:int (lastIndexOf imgSrc "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            ; Combine baseDir with the path from imgSrc
+            imgDir = baseDir + (substring imgSrc 0 (lastSep + 1))
+            imgFile = (substring imgSrc (lastSep + 1) (strlen imgSrc))
+        } {
+            ; No path separator, use baseDir directly
+            imgDir = baseDir
+            imgFile = imgSrc
+        }
+        
+        ; Read JPEG dimensions using JPEGReader
+        def reader:JPEGReader (new JPEGReader())
+        def jpegImage:JPEGImage (reader.readJPEG(imgDir imgFile))
+        
+        if jpegImage.isValid {
+            ; Get EXIF orientation to determine final dimensions  
+            def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
+            def orientation:int metaInfo.orientation
+            
+            def imgW:int jpegImage.width
+            def imgH:int jpegImage.height
+            
+            ; Swap dimensions for 90/270 degree rotations
+            if ((orientation == 5) || (orientation == 6) || (orientation == 7) || (orientation == 8)) {
+                def tmp:int imgW
+                imgW = imgH
+                imgH = tmp
+            }
+            
+            dims = (EVGImageDimensions.create(imgW imgH))
+            print (("Image dimensions: " + src + " = " + (to_string imgW) + "x" + (to_string imgH) + " (orientation=" + (to_string orientation) + ")"))
+        }
+        
+        ; Cache the result
+        push imageDimensionsCacheKeys src
+        push imageDimensionsCache dims
+        
+        return dims
     }
     
     fn getPdfFontName:string (fontFamily:string) {

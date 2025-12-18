@@ -238,10 +238,13 @@ class JSXToEVG {
                     return element
                 }
             }
-            ; Return empty for complex expressions
+            ; Return empty for complex expressions (including comments like {/* ... */})
+            element.tagName = ""
             return element
         }
         
+        ; Default: return empty element (tagName = "" means skip)
+        element.tagName = ""
         return element
     }
     

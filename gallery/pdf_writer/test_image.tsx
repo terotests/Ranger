@@ -10,12 +10,12 @@ function render() {
         Testing JPEG image embedding in PDF
       </Label>
 
-      <View flexDirection="row" marginTop="30px">
+      <View marginTop="30px" flexDirection="row" width="100%">
         {/* Image on the left */}
-        <Image src="./bin/IMG_6573.jpg" width="250px" height="200px" />
+        <Image src="./bin/IMG_6573.jpg" width="40%" />
 
         {/* Text on the right */}
-        <View flex="1" marginLeft="20px">
+        <View flex="1" marginLeft="20px" width="40%">
           <Label fontSize="18px" fontWeight="bold" color="#34495e">
             About This Image
           </Label>

@@ -4916,6 +4916,7 @@ class EVGElement  {
     this.calculatedPage = 0;
     this.isAbsolute = false;
     this.isLayoutComplete = false;
+    this.unitsResolved = false;
     this.inheritedFontSize = 14.0;
     this.tagName = "div";
     this.elementType = 0;
@@ -5004,6 +5005,10 @@ class EVGElement  {
     }
   };
   resolveUnits (parentWidth, parentHeight) {
+    if ( this.unitsResolved ) {
+      return;
+    }
+    this.unitsResolved = true;
     const fs = this.inheritedFontSize;
     this.width.resolveWithHeight(parentWidth, parentHeight, fs);
     this.height.resolveWithHeight(parentWidth, parentHeight, fs);
@@ -5396,8 +5401,10 @@ class JSXToEVG  {
           return element;
         }
       }
+      element.tagName = "";
       return element;
     }
+    element.tagName = "";
     return element;
   };
   convertJSXElement (jsxNode) {
@@ -7384,6 +7391,70 @@ class SimpleTextMeasurer  extends EVGTextMeasurer {
     return metrics;
   };
 }
+class EVGImageDimensions  {
+  constructor() {
+    this.width = 0;
+    this.height = 0;
+    this.aspectRatio = 1.0;
+    this.isValid = false;
+    this.width = 0;
+    this.height = 0;
+    this.aspectRatio = 1.0;
+    this.isValid = false;
+  }
+}
+EVGImageDimensions.create = function(w, h) {
+  const d = new EVGImageDimensions();
+  d.width = w;
+  d.height = h;
+  if ( h > 0 ) {
+    d.aspectRatio = (w) / (h);
+  }
+  d.isValid = true;
+  return d;
+};
+class EVGImageMeasurer  {
+  constructor() {
+  }
+  getImageDimensions (src) {
+    const dims = new EVGImageDimensions();
+    return dims;
+  };
+  calculateHeightForWidth (src, targetWidth) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid ) {
+      return targetWidth / dims.aspectRatio;
+    }
+    return targetWidth;
+  };
+  calculateWidthForHeight (src, targetHeight) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid ) {
+      return targetHeight * dims.aspectRatio;
+    }
+    return targetHeight;
+  };
+  calculateFitDimensions (src, maxWidth, maxHeight) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid == false ) {
+      return EVGImageDimensions.create((Math.floor( maxWidth)), (Math.floor( maxHeight)));
+    }
+    const scaleW = maxWidth / (dims.width);
+    const scaleH = maxHeight / (dims.height);
+    let scale = scaleW;
+    if ( scaleH < scaleW ) {
+      scale = scaleH;
+    }
+    const newW = Math.floor( ((dims.width) * scale));
+    const newH = Math.floor( ((dims.height) * scale));
+    return EVGImageDimensions.create(newW, newH);
+  };
+}
+class SimpleImageMeasurer  extends EVGImageMeasurer {
+  constructor() {
+    super()
+  }
+}
 class EVGLayout  {
   constructor() {
     this.pageWidth = 612.0;
@@ -7392,9 +7463,14 @@ class EVGLayout  {
     this.debug = false;
     const m = new SimpleTextMeasurer();
     this.measurer = m;
+    const im = new SimpleImageMeasurer();
+    this.imageMeasurer = im;
   }
   setMeasurer (m) {
     this.measurer = m;
+  };
+  setImageMeasurer (m) {
+    this.imageMeasurer = m;
   };
   setPageSize (w, h) {
     this.pageWidth = w;
@@ -7431,6 +7507,34 @@ class EVGLayout  {
     if ( element.height.isSet ) {
       height = element.height.pixels;
       autoHeight = false;
+    }
+    if ( element.tagName == "image" ) {
+      const imgSrc = element.src;
+      if ( (imgSrc.length) > 0 ) {
+        const dims = this.imageMeasurer.getImageDimensions(imgSrc);
+        if ( dims.isValid ) {
+          if ( element.width.isSet && (element.height.isSet == false) ) {
+            height = width / dims.aspectRatio;
+            autoHeight = false;
+            this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> height=") + ((height.toString())));
+          }
+          if ( (element.width.isSet == false) && element.height.isSet ) {
+            width = height * dims.aspectRatio;
+            this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> width=") + ((width.toString())));
+          }
+          if ( (element.width.isSet == false) && (element.height.isSet == false) ) {
+            width = dims.width;
+            height = dims.height;
+            if ( width > parentWidth ) {
+              const scale = parentWidth / width;
+              width = parentWidth;
+              height = height * scale;
+            }
+            autoHeight = false;
+            this.log((("  Image natural size: " + ((width.toString()))) + "x") + ((height.toString())));
+          }
+        }
+      }
     }
     if ( element.minWidth.isSet ) {
       if ( width < element.minWidth.pixels ) {
@@ -11324,8 +11428,9 @@ class EmbeddedImage  {
     this.src = s;
   }
 }
-class EVGPDFRenderer  {
+class EVGPDFRenderer  extends EVGImageMeasurer {
   constructor() {
+    super()
     this.pageWidth = 595.0;
     this.pageHeight = 842.0;
     this.nextObjNum = 1;
@@ -11346,6 +11451,8 @@ class EVGPDFRenderer  {
     this.maxImageWidth = 800;
     this.maxImageHeight = 800;
     this.jpegQuality = 75;
+    this.imageDimensionsCache = [];
+    this.imageDimensionsCacheKeys = [];
     const w = new PDFWriter();
     this.writer = w;
     const lay = new EVGLayout();
@@ -11360,6 +11467,11 @@ class EVGPDFRenderer  {
     this.usedFontNames = uf;
     let ei = [];
     this.embeddedImages = ei;
+    let idc = [];
+    this.imageDimensionsCache = idc;
+    let idck = [];
+    this.imageDimensionsCacheKeys = idck;
+    this.layout.setImageMeasurer(this);
   }
   setPageSize (width, height) {
     this.pageWidth = width;
@@ -11379,6 +11491,57 @@ class EVGPDFRenderer  {
   setDebug (enabled) {
     this.layout.debug = enabled;
     this.debug = enabled;
+  };
+  getImageDimensions (src) {
+    let i = 0;
+    while (i < (this.imageDimensionsCacheKeys.length)) {
+      const key = this.imageDimensionsCacheKeys[i];
+      if ( key == src ) {
+        return this.imageDimensionsCache[i];
+      }
+      i = i + 1;
+    };
+    let dims = new EVGImageDimensions();
+    let imgDir = "";
+    let imgFile = "";
+    let imgSrc = src;
+    if ( (src.length) > 2 ) {
+      const prefix = src.substring(0, 2 );
+      if ( prefix == "./" ) {
+        imgSrc = src.substring(2, (src.length) );
+      }
+    }
+    const lastSlash = imgSrc.lastIndexOf("/");
+    const lastBackslash = imgSrc.lastIndexOf("\\");
+    let lastSep = lastSlash;
+    if ( lastBackslash > lastSep ) {
+      lastSep = lastBackslash;
+    }
+    if ( lastSep >= 0 ) {
+      imgDir = this.baseDir + (imgSrc.substring(0, (lastSep + 1) ));
+      imgFile = imgSrc.substring((lastSep + 1), (imgSrc.length) );
+    } else {
+      imgDir = this.baseDir;
+      imgFile = imgSrc;
+    }
+    const reader = new JPEGReader();
+    const jpegImage = reader.readJPEG(imgDir, imgFile);
+    if ( jpegImage.isValid ) {
+      const metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
+      const orientation = metaInfo.orientation;
+      let imgW = jpegImage.width;
+      let imgH = jpegImage.height;
+      if ( (((orientation == 5) || (orientation == 6)) || (orientation == 7)) || (orientation == 8) ) {
+        const tmp = imgW;
+        imgW = imgH;
+        imgH = tmp;
+      }
+      dims = EVGImageDimensions.create(imgW, imgH);
+      console.log(((((((("Image dimensions: " + src) + " = ") + ((imgW.toString()))) + "x") + ((imgH.toString()))) + " (orientation=") + ((orientation.toString()))) + ")");
+    }
+    this.imageDimensionsCacheKeys.push(src);
+    this.imageDimensionsCache.push(dims);
+    return dims;
   };
   getPdfFontName (fontFamily) {
     let i = 0;
