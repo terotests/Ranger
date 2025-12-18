@@ -7,6 +7,7 @@
 
 Import "JSXToEVG.rgr"
 Import "EVGPDFRenderer.rgr"
+Import "FontManager.rgr"
 Import "Buffer.rgr"
 Import "../evg/EVGElement.rgr"
 
@@ -15,7 +16,9 @@ class EVGPDFTool {
     def outputFile:string ""
     def pageWidth:double 595.0
     def pageHeight:double 842.0
+    def fontsDir:string "./gallery/pdf_writer/Fonts"
     def debug:boolean false
+    def fontManager:FontManager (new FontManager()) (new FontManager())
     
     sfn m@(main):void () {
         def tool (new EVGPDFTool())
@@ -73,7 +76,32 @@ class EVGPDFTool {
         print ("Output: " + outputFile)
         print ("Page:   " + (to_string pageWidth) + " x " + (to_string pageHeight) + " points")
         
+        ; Initialize font manager
+        this.initFonts()
+        
         this.convert()
+    }
+    
+    fn initFonts:void () {
+        ; Initialize font manager with TrueType fonts
+        print ""
+        print "Loading fonts..."
+        
+        fontManager.setFontsDirectory(fontsDir)
+        
+        ; Load common fonts
+        fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        fontManager.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        fontManager.loadFont("Helvetica/Helvetica.ttf")
+        
+        ; Load additional fonts for variety
+        fontManager.loadFont("Cinzel/Cinzel-Regular.ttf")
+        fontManager.loadFont("Cinzel/Cinzel-Bold.ttf")
+        fontManager.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+        fontManager.loadFont("Josefin_Sans/JosefinSans-Bold.ttf")
+        fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf")
+        fontManager.loadFont("Noto_Sans/NotoSans-Regular.ttf")
+        fontManager.loadFont("Noto_Sans/NotoSans-Bold.ttf")
     }
     
     fn printUsage:void () {
@@ -138,9 +166,15 @@ class EVGPDFTool {
         
         def renderer (new EVGPDFRenderer())
         renderer.setPageSize(pageWidth pageHeight)
+        renderer.setFontManager(fontManager)
+        renderer.setBaseDir(inputDir)
         if debug {
             renderer.setDebug(true)
         }
+        
+        ; Use TTF text measurer for accurate measurements
+        def ttfMeasurer (new TTFTextMeasurer(fontManager))
+        renderer.setMeasurer(ttfMeasurer)
         
         def pdfData:buffer (renderer.render(root))
         

@@ -354,6 +354,9 @@ class JSXToEVG {
         if (jsxTag == "image") {
             return "image"
         }
+        if (jsxTag == "Image") {
+            return "image"
+        }
         if (jsxTag == "box") {
             return "div"
         }

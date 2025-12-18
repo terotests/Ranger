@@ -121,7 +121,10 @@
     "evgpdf:build:go": "npm run evgpdf:compile:go && cd gallery/pdf_writer/bin && go build -o evg_pdf_tool.exe evg_pdf_tool.go",
     "evgpdf:run": "node ./gallery/pdf_writer/bin/evg_pdf_tool.js ./gallery/pdf_writer/sample.tsx ./gallery/pdf_writer/bin/sample_output.pdf",
     "evgpdf:test": "npm run evgpdf:compile && npm run evgpdf:run",
-    "evgpdf": "npm run evgpdf:compile && npm run evgpdf:run"
+    "evgpdf": "npm run evgpdf:compile && npm run evgpdf:run",
+    "font:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/font_test.rgr -d=./gallery/pdf_writer/bin -o=font_test.js -nodecli",
+    "font:run": "node ./gallery/pdf_writer/bin/font_test.js",
+    "font": "npm run font:compile && npm run font:run"
   },
   "repository": {
     "type": "git",

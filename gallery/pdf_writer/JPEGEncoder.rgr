@@ -1322,6 +1322,98 @@ class JPEGEncoder {
         writer.writeByte(0)   ; Successive approximation
     }
     
+    fn encodeToBuffer:buffer (img:ImageBuffer) {
+        ; Encode image to a buffer (for PDF embedding)
+        def writer (new BitWriter())
+        
+        ; Write JPEG headers
+        this.writeMarkers(writer img.width img.height)
+        
+        ; Calculate MCU grid
+        def mcuWidth:int (to_int ((img.width + 7) / 8))
+        def mcuHeight:int (to_int ((img.height + 7) / 8))
+        
+        ; Reset DC predictors
+        prevDCY = 0
+        prevDCCb = 0
+        prevDCCr = 0
+        
+        ; Encode MCU by MCU
+        def mcuY 0
+        while (mcuY < mcuHeight) {
+            def mcuX 0
+            while (mcuX < mcuWidth) {
+                def blockX:int (mcuX * 8)
+                def blockY:int (mcuY * 8)
+                
+                ; Extract and encode Y block
+                def yBlock:[int] (this.extractBlock(img blockX blockY 0))
+                def yCoeffs:[int] (fdct.transform(yBlock))
+                this.encodeBlock(writer yCoeffs yQuantTable dcYCodes dcYLengths acYCodes acYLengths prevDCY)
+                
+                ; Update DC predictor
+                def yZig:[int] (fdct.zigzag(yCoeffs))
+                def yQ:int (at yQuantTable 0)
+                def yDC:int (at yZig 0)
+                if (yDC >= 0) {
+                    prevDCY = (to_int ((yDC + (bit_shr yQ 1)) / yQ))
+                } {
+                    prevDCY = (to_int ((yDC - (bit_shr yQ 1)) / yQ))
+                }
+                
+                ; Extract and encode Cb block
+                def cbBlock:[int] (this.extractBlock(img blockX blockY 1))
+                def cbCoeffs:[int] (fdct.transform(cbBlock))
+                this.encodeBlock(writer cbCoeffs cQuantTable dcCCodes dcCLengths acCCodes acCLengths prevDCCb)
+                
+                def cbZig:[int] (fdct.zigzag(cbCoeffs))
+                def cbQ:int (at cQuantTable 0)
+                def cbDC:int (at cbZig 0)
+                if (cbDC >= 0) {
+                    prevDCCb = (to_int ((cbDC + (bit_shr cbQ 1)) / cbQ))
+                } {
+                    prevDCCb = (to_int ((cbDC - (bit_shr cbQ 1)) / cbQ))
+                }
+                
+                ; Extract and encode Cr block
+                def crBlock:[int] (this.extractBlock(img blockX blockY 2))
+                def crCoeffs:[int] (fdct.transform(crBlock))
+                this.encodeBlock(writer crCoeffs cQuantTable dcCCodes dcCLengths acCCodes acCLengths prevDCCr)
+                
+                def crZig:[int] (fdct.zigzag(crCoeffs))
+                def crQ:int (at cQuantTable 0)
+                def crDC:int (at crZig 0)
+                if (crDC >= 0) {
+                    prevDCCr = (to_int ((crDC + (bit_shr crQ 1)) / crQ))
+                } {
+                    prevDCCr = (to_int ((crDC - (bit_shr crQ 1)) / crQ))
+                }
+                
+                mcuX = mcuX + 1
+            }
+            mcuY = mcuY + 1
+        }
+        
+        ; Flush remaining bits
+        writer.flushByte()
+        
+        ; Write EOI marker directly to buffer
+        def outBuf:buffer (writer.getBuffer())
+        def outLen:int (writer.getLength())
+        
+        ; Create final buffer with EOI
+        def finalBuf:buffer (buffer_alloc (outLen + 2))
+        def i 0
+        while (i < outLen) {
+            buffer_set finalBuf i (buffer_get outBuf i)
+            i = i + 1
+        }
+        buffer_set finalBuf outLen 255
+        buffer_set finalBuf (outLen + 1) 217
+        
+        return finalBuf
+    }
+    
     fn encode:void (img:ImageBuffer dirPath:string fileName:string) {
         print ("Encoding JPEG: " + fileName)
         print ("  Image size: " + (to_string img.width) + "x" + (to_string img.height))

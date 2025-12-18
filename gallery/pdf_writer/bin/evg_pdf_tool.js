@@ -5490,6 +5490,9 @@ class JSXToEVG  {
     if ( jsxTag == "image" ) {
       return "image";
     }
+    if ( jsxTag == "Image" ) {
+      return "image";
+    }
     if ( jsxTag == "box" ) {
       return "div";
     }
@@ -7727,31 +7730,3667 @@ class EVGLayout  {
     return lineCount;
   };
 }
+class TTFTableRecord  {
+  constructor() {
+    this.tag = "";
+    this.checksum = 0;
+    this.offset = 0;
+    this.length = 0;
+  }
+}
+class TTFGlyphMetrics  {
+  constructor() {
+    this.advanceWidth = 0;     /** note: unused */
+    this.leftSideBearing = 0;     /** note: unused */
+  }
+}
+class TrueTypeFont  {
+  constructor() {
+    this.fontData = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.fontPath = "";
+    this.fontFamily = "";
+    this.fontStyle = "Regular";
+    this.sfntVersion = 0;
+    this.numTables = 0;
+    this.searchRange = 0;
+    this.entrySelector = 0;
+    this.rangeShift = 0;
+    this.tables = [];
+    this.unitsPerEm = 1000;
+    this.xMin = 0;
+    this.yMin = 0;
+    this.xMax = 0;
+    this.yMax = 0;
+    this.indexToLocFormat = 0;
+    this.ascender = 0;
+    this.descender = 0;
+    this.lineGap = 0;
+    this.numberOfHMetrics = 0;
+    this.numGlyphs = 0;
+    this.cmapFormat = 0;
+    this.cmapOffset = 0;
+    this.glyphWidths = [];
+    this.defaultWidth = 500;
+    this.charWidths = [];
+    this.charWidthsLoaded = false;
+    let t = [];
+    this.tables = t;
+    let gw = [];
+    this.glyphWidths = gw;
+    let cw = [];
+    this.charWidths = cw;
+  }
+  loadFromFile (path) {
+    this.fontPath = path;
+    let lastSlash = -1;
+    let i = 0;
+    while (i < (path.length)) {
+      const ch = path.charCodeAt(i );
+      if ( (ch == 47) || (ch == 92) ) {
+        lastSlash = i;
+      }
+      i = i + 1;
+    };
+    let dirPath = ".";
+    let fileName = path;
+    if ( lastSlash >= 0 ) {
+      dirPath = path.substring(0, lastSlash );
+      fileName = path.substring((lastSlash + 1), (path.length) );
+    }
+    this.fontData = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+    if ( (this.fontData.byteLength) == 0 ) {
+      console.log("TrueTypeFont: Failed to load " + path);
+      return false;
+    }
+    if ( this.parseOffsetTable() == false ) {
+      return false;
+    }
+    if ( this.parseTableDirectory() == false ) {
+      return false;
+    }
+    this.parseHeadTable();
+    this.parseHheaTable();
+    this.parseMaxpTable();
+    this.parseCmapTable();
+    this.parseHmtxTable();
+    this.parseNameTable();
+    this.buildCharWidthCache();
+    return true;
+  };
+  parseOffsetTable () {
+    if ( (this.fontData.byteLength) < 12 ) {
+      return false;
+    }
+    this.sfntVersion = this.readUInt32(0);
+    this.numTables = this.readUInt16(4);
+    this.searchRange = this.readUInt16(6);
+    this.entrySelector = this.readUInt16(8);
+    this.rangeShift = this.readUInt16(10);
+    return true;
+  };
+  parseTableDirectory () {
+    let offset = 12;
+    let i = 0;
+    while (i < this.numTables) {
+      const record = new TTFTableRecord();
+      record.tag = this.readTag(offset);
+      record.checksum = this.readUInt32((offset + 4));
+      record.offset = this.readUInt32((offset + 8));
+      record.length = this.readUInt32((offset + 12));
+      this.tables.push(record);
+      offset = offset + 16;
+      i = i + 1;
+    };
+    return true;
+  };
+  findTable (tag) {
+    let i = 0;
+    while (i < (this.tables.length)) {
+      const t = this.tables[i];
+      if ( t.tag == tag ) {
+        return t;
+      }
+      i = i + 1;
+    };
+    const empty = new TTFTableRecord();
+    return empty;
+  };
+  parseHeadTable () {
+    const table = this.findTable("head");
+    if ( table.offset == 0 ) {
+      return;
+    }
+    const off = table.offset;
+    this.unitsPerEm = this.readUInt16((off + 18));
+    this.xMin = this.readInt16((off + 36));
+    this.yMin = this.readInt16((off + 38));
+    this.xMax = this.readInt16((off + 40));
+    this.yMax = this.readInt16((off + 42));
+    this.indexToLocFormat = this.readInt16((off + 50));
+  };
+  parseHheaTable () {
+    const table = this.findTable("hhea");
+    if ( table.offset == 0 ) {
+      return;
+    }
+    const off = table.offset;
+    this.ascender = this.readInt16((off + 4));
+    this.descender = this.readInt16((off + 6));
+    this.lineGap = this.readInt16((off + 8));
+    this.numberOfHMetrics = this.readUInt16((off + 34));
+  };
+  parseMaxpTable () {
+    const table = this.findTable("maxp");
+    if ( table.offset == 0 ) {
+      return;
+    }
+    const off = table.offset;
+    this.numGlyphs = this.readUInt16((off + 4));
+  };
+  parseCmapTable () {
+    const table = this.findTable("cmap");
+    if ( table.offset == 0 ) {
+      return;
+    }
+    const off = table.offset;
+    const numSubtables = this.readUInt16((off + 2));
+    let i = 0;
+    let subtableOffset = 0;
+    while (i < numSubtables) {
+      const recordOff = (off + 4) + (i * 8);
+      const platformID = this.readUInt16(recordOff);
+      const encodingID = this.readUInt16((recordOff + 2));
+      const subOff = this.readUInt32((recordOff + 4));
+      if ( (platformID == 3) && (encodingID == 1) ) {
+        subtableOffset = subOff;
+      }
+      if ( (platformID == 0) && (subtableOffset == 0) ) {
+        subtableOffset = subOff;
+      }
+      i = i + 1;
+    };
+    if ( subtableOffset > 0 ) {
+      this.cmapOffset = off + subtableOffset;
+      this.cmapFormat = this.readUInt16(this.cmapOffset);
+    }
+  };
+  parseHmtxTable () {
+    const table = this.findTable("hmtx");
+    if ( table.offset == 0 ) {
+      return;
+    }
+    const off = table.offset;
+    let i = 0;
+    while (i < this.numberOfHMetrics) {
+      const advanceWidth = this.readUInt16((off + (i * 4)));
+      this.glyphWidths.push(advanceWidth);
+      i = i + 1;
+    };
+    if ( this.numberOfHMetrics > 0 ) {
+      this.defaultWidth = this.glyphWidths[(this.numberOfHMetrics - 1)];
+    }
+  };
+  parseNameTable () {
+    const table = this.findTable("name");
+    if ( table.offset == 0 ) {
+      return;
+    }
+    const off = table.offset;
+    const count = this.readUInt16((off + 2));
+    const stringOffset = this.readUInt16((off + 4));
+    let i = 0;
+    while (i < count) {
+      const recordOff = (off + 6) + (i * 12);
+      const platformID = this.readUInt16(recordOff);
+      const encodingID = this.readUInt16((recordOff + 2));
+      const languageID = this.readUInt16((recordOff + 4));
+      const nameID = this.readUInt16((recordOff + 6));
+      const length = this.readUInt16((recordOff + 8));
+      const strOffset = this.readUInt16((recordOff + 10));
+      if ( (nameID == 1) && (platformID == 3) ) {
+        const strOff = (off + stringOffset) + strOffset;
+        this.fontFamily = this.readUnicodeString(strOff, length);
+      }
+      if ( ((nameID == 1) && (platformID == 1)) && ((this.fontFamily.length) == 0) ) {
+        const strOff_1 = (off + stringOffset) + strOffset;
+        this.fontFamily = this.readAsciiString(strOff_1, length);
+      }
+      if ( (nameID == 2) && (platformID == 3) ) {
+        const strOff_2 = (off + stringOffset) + strOffset;
+        this.fontStyle = this.readUnicodeString(strOff_2, length);
+      }
+      if ( ((nameID == 2) && (platformID == 1)) && ((this.fontStyle.length) == 0) ) {
+        const strOff_3 = (off + stringOffset) + strOffset;
+        this.fontStyle = this.readAsciiString(strOff_3, length);
+      }
+      i = i + 1;
+    };
+  };
+  getGlyphIndex (charCode) {
+    if ( this.cmapOffset == 0 ) {
+      return 0;
+    }
+    if ( this.cmapFormat == 4 ) {
+      return this.getGlyphIndexFormat4(charCode);
+    }
+    if ( this.cmapFormat == 0 ) {
+      if ( charCode < 256 ) {
+        return this.readUInt8(((this.cmapOffset + 6) + charCode));
+      }
+    }
+    if ( this.cmapFormat == 6 ) {
+      const firstCode = this.readUInt16((this.cmapOffset + 6));
+      const entryCount = this.readUInt16((this.cmapOffset + 8));
+      if ( (charCode >= firstCode) && (charCode < (firstCode + entryCount)) ) {
+        return this.readUInt16(((this.cmapOffset + 10) + ((charCode - firstCode) * 2)));
+      }
+    }
+    return 0;
+  };
+  getGlyphIndexFormat4 (charCode) {
+    const off = this.cmapOffset;
+    const segCountX2 = this.readUInt16((off + 6));
+    const segCountD = (segCountX2) / 2.0;
+    const segCount = Math.floor( segCountD);
+    const endCodesOff = off + 14;
+    const startCodesOff = (endCodesOff + segCountX2) + 2;
+    const idDeltaOff = startCodesOff + segCountX2;
+    const idRangeOffsetOff = idDeltaOff + segCountX2;
+    let i = 0;
+    while (i < segCount) {
+      const endCode = this.readUInt16((endCodesOff + (i * 2)));
+      const startCode = this.readUInt16((startCodesOff + (i * 2)));
+      if ( (charCode >= startCode) && (charCode <= endCode) ) {
+        const idDelta = this.readInt16((idDeltaOff + (i * 2)));
+        const idRangeOffset = this.readUInt16((idRangeOffsetOff + (i * 2)));
+        if ( idRangeOffset == 0 ) {
+          return (charCode + idDelta) % 65536;
+        } else {
+          const glyphIdOff = ((idRangeOffsetOff + (i * 2)) + idRangeOffset) + ((charCode - startCode) * 2);
+          const glyphId = this.readUInt16(glyphIdOff);
+          if ( glyphId != 0 ) {
+            return (glyphId + idDelta) % 65536;
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return 0;
+  };
+  getGlyphWidth (glyphIndex) {
+    if ( glyphIndex < (this.glyphWidths.length) ) {
+      return this.glyphWidths[glyphIndex];
+    }
+    return this.defaultWidth;
+  };
+  buildCharWidthCache () {
+    let i = 0;
+    while (i < 256) {
+      const glyphIdx = this.getGlyphIndex(i);
+      const width = this.getGlyphWidth(glyphIdx);
+      this.charWidths.push(width);
+      i = i + 1;
+    };
+    this.charWidthsLoaded = true;
+  };
+  getCharWidth (charCode) {
+    if ( this.charWidthsLoaded && (charCode < 256) ) {
+      return this.charWidths[charCode];
+    }
+    const glyphIdx = this.getGlyphIndex(charCode);
+    return this.getGlyphWidth(glyphIdx);
+  };
+  getCharWidthPoints (charCode, fontSize) {
+    const fontUnits = this.getCharWidth(charCode);
+    return ((fontUnits) * fontSize) / (this.unitsPerEm);
+  };
+  measureText (text, fontSize) {
+    let width = 0.0;
+    const __len = text.length;
+    let i = 0;
+    while (i < __len) {
+      const ch = text.charCodeAt(i );
+      width = width + this.getCharWidthPoints(ch, fontSize);
+      i = i + 1;
+    };
+    return width;
+  };
+  getAscender (fontSize) {
+    return ((this.ascender) * fontSize) / (this.unitsPerEm);
+  };
+  getDescender (fontSize) {
+    return ((this.descender) * fontSize) / (this.unitsPerEm);
+  };
+  getLineHeight (fontSize) {
+    const asc = this.getAscender(fontSize);
+    const desc = this.getDescender(fontSize);
+    const gap = ((this.lineGap) * fontSize) / (this.unitsPerEm);
+    return (asc - desc) + gap;
+  };
+  getFontData () {
+    return this.fontData;
+  };
+  getPostScriptName () {
+    const name = this.fontFamily;
+    let result = "";
+    let i = 0;
+    while (i < (name.length)) {
+      const ch = name.charCodeAt(i );
+      if ( ch != 32 ) {
+        result = result + (String.fromCharCode(ch));
+      }
+      i = i + 1;
+    };
+    if ( (result.length) == 0 ) {
+      return "CustomFont";
+    }
+    return result;
+  };
+  readUInt8 (offset) {
+    return this.fontData._view.getUint8(offset);
+  };
+  readUInt16 (offset) {
+    const b1 = this.fontData._view.getUint8(offset);
+    const b2 = this.fontData._view.getUint8((offset + 1));
+    return (b1 * 256) + b2;
+  };
+  readInt16 (offset) {
+    const val = this.readUInt16(offset);
+    if ( val >= 32768 ) {
+      return val - 65536;
+    }
+    return val;
+  };
+  readUInt32 (offset) {
+    const b1 = this.fontData._view.getUint8(offset);
+    const b2 = this.fontData._view.getUint8((offset + 1));
+    const b3 = this.fontData._view.getUint8((offset + 2));
+    const b4 = this.fontData._view.getUint8((offset + 3));
+    const result = (((((b1 * 256) + b2) * 256) + b3) * 256) + b4;
+    return result;
+  };
+  readTag (offset) {
+    let result = "";
+    let i = 0;
+    while (i < 4) {
+      const ch = this.fontData._view.getUint8((offset + i));
+      result = result + (String.fromCharCode(ch));
+      i = i + 1;
+    };
+    return result;
+  };
+  readAsciiString (offset, length) {
+    let result = "";
+    let i = 0;
+    while (i < length) {
+      const ch = this.fontData._view.getUint8((offset + i));
+      if ( ch > 0 ) {
+        result = result + (String.fromCharCode(ch));
+      }
+      i = i + 1;
+    };
+    return result;
+  };
+  readUnicodeString (offset, length) {
+    let result = "";
+    let i = 0;
+    while (i < length) {
+      const ch = this.readUInt16((offset + i));
+      if ( (ch > 0) && (ch < 128) ) {
+        result = result + (String.fromCharCode(ch));
+      }
+      i = i + 2;
+    };
+    return result;
+  };
+  printInfo () {
+    console.log((("Font: " + this.fontFamily) + " ") + this.fontStyle);
+    console.log("  Units per EM: " + ((this.unitsPerEm.toString())));
+    console.log("  Ascender: " + ((this.ascender.toString())));
+    console.log("  Descender: " + ((this.descender.toString())));
+    console.log("  Line gap: " + ((this.lineGap.toString())));
+    console.log("  Num glyphs: " + ((this.numGlyphs.toString())));
+    console.log("  Num hMetrics: " + ((this.numberOfHMetrics.toString())));
+    console.log("  Tables: " + (((this.tables.length).toString())));
+  };
+}
+class FontManager  {
+  constructor() {
+    this.fonts = [];
+    this.fontNames = [];
+    this.fontsDirectory = "./Fonts";
+    this.defaultFont = new TrueTypeFont();
+    this.hasDefaultFont = false;
+    let f = [];
+    this.fonts = f;
+    let n = [];
+    this.fontNames = n;
+  }
+  setFontsDirectory (path) {
+    this.fontsDirectory = path;
+  };
+  loadFont (relativePath) {
+    const fullPath = (this.fontsDirectory + "/") + relativePath;
+    const font = new TrueTypeFont();
+    if ( font.loadFromFile(fullPath) == false ) {
+      console.log("FontManager: Failed to load font: " + fullPath);
+      return false;
+    }
+    this.fonts.push(font);
+    this.fontNames.push(font.fontFamily);
+    if ( this.hasDefaultFont == false ) {
+      this.defaultFont = font;
+      this.hasDefaultFont = true;
+    }
+    console.log(((("FontManager: Loaded font '" + font.fontFamily) + "' (") + font.fontStyle) + ")");
+    return true;
+  };
+  loadFontFamily (familyDir) {
+    this.loadFont(((familyDir + "/") + familyDir) + "-Regular.ttf");
+  };
+  getFont (fontFamily) {
+    let i = 0;
+    while (i < (this.fonts.length)) {
+      const f = this.fonts[i];
+      if ( f.fontFamily == fontFamily ) {
+        return f;
+      }
+      i = i + 1;
+    };
+    i = 0;
+    while (i < (this.fonts.length)) {
+      const f_1 = this.fonts[i];
+      if ( (f_1.fontFamily.indexOf(fontFamily)) >= 0 ) {
+        return f_1;
+      }
+      i = i + 1;
+    };
+    return this.defaultFont;
+  };
+  measureText (text, fontFamily, fontSize) {
+    const font = this.getFont(fontFamily);
+    if ( font.unitsPerEm > 0 ) {
+      return font.measureText(text, fontSize);
+    }
+    return (((text.length)) * fontSize) * 0.5;
+  };
+  getLineHeight (fontFamily, fontSize) {
+    const font = this.getFont(fontFamily);
+    if ( font.unitsPerEm > 0 ) {
+      return font.getLineHeight(fontSize);
+    }
+    return fontSize * 1.2;
+  };
+  getAscender (fontFamily, fontSize) {
+    const font = this.getFont(fontFamily);
+    if ( font.unitsPerEm > 0 ) {
+      return font.getAscender(fontSize);
+    }
+    return fontSize * 0.8;
+  };
+  getDescender (fontFamily, fontSize) {
+    const font = this.getFont(fontFamily);
+    if ( font.unitsPerEm > 0 ) {
+      return font.getDescender(fontSize);
+    }
+    return fontSize * -0.2;
+  };
+  getFontData (fontFamily) {
+    const font = this.getFont(fontFamily);
+    return font.getFontData();
+  };
+  getPostScriptName (fontFamily) {
+    const font = this.getFont(fontFamily);
+    return font.getPostScriptName();
+  };
+  printLoadedFonts () {
+    console.log(("FontManager: " + (((this.fonts.length).toString()))) + " fonts loaded:");
+    let i = 0;
+    while (i < (this.fonts.length)) {
+      const f = this.fonts[i];
+      console.log(((("  - " + f.fontFamily) + " (") + f.fontStyle) + ")");
+      i = i + 1;
+    };
+  };
+}
+class TTFTextMeasurer  extends EVGTextMeasurer {
+  constructor(fm) {
+    super()
+    this.fontManager = fm;
+  }
+  measureText (text, fontFamily, fontSize) {
+    const width = this.fontManager.measureText(text, fontFamily, fontSize);
+    const lineHeight = this.fontManager.getLineHeight(fontFamily, fontSize);
+    const ascent = this.fontManager.getAscender(fontFamily, fontSize);
+    const descent = this.fontManager.getDescender(fontFamily, fontSize);
+    const metrics = new EVGTextMetrics();
+    metrics.width = width;
+    metrics.height = lineHeight;
+    metrics.ascent = ascent;
+    metrics.descent = descent;
+    metrics.lineHeight = lineHeight;
+    return metrics;
+  };
+  measureTextWidth (text, fontFamily, fontSize) {
+    return this.fontManager.measureText(text, fontFamily, fontSize);
+  };
+  getLineHeight (fontFamily, fontSize) {
+    return this.fontManager.getLineHeight(fontFamily, fontSize);
+  };
+  measureChar (ch, fontFamily, fontSize) {
+    const font = this.fontManager.getFont(fontFamily);
+    if ( font.unitsPerEm > 0 ) {
+      return font.getCharWidthPoints(ch, fontSize);
+    }
+    return fontSize * 0.5;
+  };
+}
+class BitReader  {
+  constructor() {
+    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.dataStart = 0;
+    this.dataEnd = 0;
+    this.bytePos = 0;
+    this.bitPos = 0;
+    this.currentByte = 0;
+    this.eof = false;
+  }
+  init (buf, startPos, length) {
+    this.data = buf;
+    this.dataStart = startPos;
+    this.dataEnd = startPos + length;
+    this.bytePos = startPos;
+    this.bitPos = 0;
+    this.currentByte = 0;
+    this.eof = false;
+  };
+  loadNextByte () {
+    if ( this.bytePos >= this.dataEnd ) {
+      this.eof = true;
+      this.currentByte = 0;
+      this.bitPos = 8;
+      return;
+    }
+    this.currentByte = this.data._view.getUint8(this.bytePos);
+    this.bytePos = this.bytePos + 1;
+    if ( this.currentByte == 255 ) {
+      if ( this.bytePos < this.dataEnd ) {
+        const nextByte = this.data._view.getUint8(this.bytePos);
+        if ( nextByte == 0 ) {
+          this.bytePos = this.bytePos + 1;
+        } else {
+          if ( (nextByte >= 208) && (nextByte <= 215) ) {
+            this.bytePos = this.bytePos + 1;
+            this.loadNextByte();
+            return;
+          }
+          if ( nextByte == 255 ) {
+            this.bytePos = this.bytePos + 1;
+            this.loadNextByte();
+            return;
+          }
+        }
+      }
+    }
+    this.bitPos = 8;
+  };
+  readBit () {
+    if ( this.bitPos == 0 ) {
+      this.loadNextByte();
+    }
+    if ( this.eof ) {
+      return 0;
+    }
+    this.bitPos = this.bitPos - 1;
+    const bit = (((this.currentByte >> this.bitPos)) & 1);
+    return bit;
+  };
+  readBits (count) {
+    let result = 0;
+    let i = 0;
+    while (i < count) {
+      result = (((result << 1)) | this.readBit());
+      i = i + 1;
+    };
+    return result;
+  };
+  peekBits (count) {
+    const savedBytePos = this.bytePos;
+    const savedBitPos = this.bitPos;
+    const savedCurrentByte = this.currentByte;
+    const savedEof = this.eof;
+    const result = this.readBits(count);
+    this.bytePos = savedBytePos;
+    this.bitPos = savedBitPos;
+    this.currentByte = savedCurrentByte;
+    this.eof = savedEof;
+    return result;
+  };
+  alignToByte () {
+    this.bitPos = 0;
+  };
+  getBytePosition () {
+    return this.bytePos;
+  };
+  isEOF () {
+    return this.eof;
+  };
+  receiveExtend (length) {
+    if ( length == 0 ) {
+      return 0;
+    }
+    let value = this.readBits(length);
+    const threshold = (1 << (length - 1));
+    if ( value < threshold ) {
+      value = value - (((threshold << 1)) - 1);
+    }
+    return value;
+  };
+}
+class HuffmanTable  {
+  constructor() {
+    this.bits = [];
+    this.values = [];
+    this.maxCode = [];
+    this.minCode = [];
+    this.valPtr = [];
+    this.tableClass = 0;
+    this.tableId = 0;
+    let i = 0;
+    while (i < 16) {
+      this.bits.push(0);
+      this.maxCode.push(-1);
+      this.minCode.push(0);
+      this.valPtr.push(0);
+      i = i + 1;
+    };
+  }
+  build () {
+    let code = 0;
+    let valueIdx = 0;
+    let i = 0;
+    while (i < 16) {
+      const count = this.bits[i];
+      if ( count > 0 ) {
+        this.minCode[i] = code;
+        this.valPtr[i] = valueIdx;
+        valueIdx = valueIdx + count;
+        code = code + count;
+        this.maxCode[i] = code - 1;
+      } else {
+        this.maxCode[i] = -1;
+        this.minCode[i] = 0;
+        this.valPtr[i] = valueIdx;
+      }
+      code = (code << 1);
+      i = i + 1;
+    };
+  };
+  decode (reader) {
+    let code = 0;
+    let length = 0;
+    while (length < 16) {
+      const bit = reader.readBit();
+      code = (((code << 1)) | bit);
+      const maxC = this.maxCode[length];
+      if ( maxC >= 0 ) {
+        if ( code <= maxC ) {
+          const minC = this.minCode[length];
+          const ptr = this.valPtr[length];
+          const idx = ptr + (code - minC);
+          return this.values[idx];
+        }
+      }
+      length = length + 1;
+    };
+    console.log("Huffman decode error: code not found");
+    return 0;
+  };
+}
+class HuffmanDecoder  {
+  constructor() {
+    this.dcTable0 = new HuffmanTable();
+    this.dcTable1 = new HuffmanTable();
+    this.acTable0 = new HuffmanTable();
+    this.acTable1 = new HuffmanTable();
+  }
+  getDCTable (id) {
+    if ( id == 0 ) {
+      return this.dcTable0;
+    }
+    return this.dcTable1;
+  };
+  getACTable (id) {
+    if ( id == 0 ) {
+      return this.acTable0;
+    }
+    return this.acTable1;
+  };
+  parseDHT (data, pos, length) {
+    const endPos = pos + length;
+    while (pos < endPos) {
+      const tableInfo = data._view.getUint8(pos);
+      pos = pos + 1;
+      const tableClass = (tableInfo >> 4);
+      const tableId = (tableInfo & 15);
+      let table = this.getDCTable(tableId);
+      if ( tableClass == 1 ) {
+        table = this.getACTable(tableId);
+      }
+      table.tableClass = tableClass;
+      table.tableId = tableId;
+      table.bits.length = 0;
+      let totalSymbols = 0;
+      let i = 0;
+      while (i < 16) {
+        const count = data._view.getUint8(pos);
+        table.bits.push(count);
+        totalSymbols = totalSymbols + count;
+        pos = pos + 1;
+        i = i + 1;
+      };
+      table.values.length = 0;
+      table.maxCode.length = 0;
+      table.minCode.length = 0;
+      table.valPtr.length = 0;
+      i = 0;
+      while (i < 16) {
+        table.maxCode.push(-1);
+        table.minCode.push(0);
+        table.valPtr.push(0);
+        i = i + 1;
+      };
+      i = 0;
+      while (i < totalSymbols) {
+        table.values.push(data._view.getUint8(pos));
+        pos = pos + 1;
+        i = i + 1;
+      };
+      table.build();
+      let classStr = "DC";
+      if ( tableClass == 1 ) {
+        classStr = "AC";
+      }
+      console.log((((("  Huffman table " + classStr) + ((tableId.toString()))) + ": ") + ((totalSymbols.toString()))) + " symbols");
+    };
+  };
+}
+class IDCT  {
+  constructor() {
+    this.cosTable = [];
+    this.zigzagMap = [];
+    this.cosTable.push(1024);
+    this.cosTable.push(1004);
+    this.cosTable.push(946);
+    this.cosTable.push(851);
+    this.cosTable.push(724);
+    this.cosTable.push(569);
+    this.cosTable.push(392);
+    this.cosTable.push(200);
+    this.cosTable.push(1024);
+    this.cosTable.push(851);
+    this.cosTable.push(392);
+    this.cosTable.push(-200);
+    this.cosTable.push(-724);
+    this.cosTable.push(-1004);
+    this.cosTable.push(-946);
+    this.cosTable.push(-569);
+    this.cosTable.push(1024);
+    this.cosTable.push(569);
+    this.cosTable.push(-392);
+    this.cosTable.push(-1004);
+    this.cosTable.push(-724);
+    this.cosTable.push(200);
+    this.cosTable.push(946);
+    this.cosTable.push(851);
+    this.cosTable.push(1024);
+    this.cosTable.push(200);
+    this.cosTable.push(-946);
+    this.cosTable.push(-569);
+    this.cosTable.push(724);
+    this.cosTable.push(851);
+    this.cosTable.push(-392);
+    this.cosTable.push(-1004);
+    this.cosTable.push(1024);
+    this.cosTable.push(-200);
+    this.cosTable.push(-946);
+    this.cosTable.push(569);
+    this.cosTable.push(724);
+    this.cosTable.push(-851);
+    this.cosTable.push(-392);
+    this.cosTable.push(1004);
+    this.cosTable.push(1024);
+    this.cosTable.push(-569);
+    this.cosTable.push(-392);
+    this.cosTable.push(1004);
+    this.cosTable.push(-724);
+    this.cosTable.push(-200);
+    this.cosTable.push(946);
+    this.cosTable.push(-851);
+    this.cosTable.push(1024);
+    this.cosTable.push(-851);
+    this.cosTable.push(392);
+    this.cosTable.push(200);
+    this.cosTable.push(-724);
+    this.cosTable.push(1004);
+    this.cosTable.push(-946);
+    this.cosTable.push(569);
+    this.cosTable.push(1024);
+    this.cosTable.push(-1004);
+    this.cosTable.push(946);
+    this.cosTable.push(-851);
+    this.cosTable.push(724);
+    this.cosTable.push(-569);
+    this.cosTable.push(392);
+    this.cosTable.push(-200);
+    this.zigzagMap.push(0);
+    this.zigzagMap.push(1);
+    this.zigzagMap.push(8);
+    this.zigzagMap.push(16);
+    this.zigzagMap.push(9);
+    this.zigzagMap.push(2);
+    this.zigzagMap.push(3);
+    this.zigzagMap.push(10);
+    this.zigzagMap.push(17);
+    this.zigzagMap.push(24);
+    this.zigzagMap.push(32);
+    this.zigzagMap.push(25);
+    this.zigzagMap.push(18);
+    this.zigzagMap.push(11);
+    this.zigzagMap.push(4);
+    this.zigzagMap.push(5);
+    this.zigzagMap.push(12);
+    this.zigzagMap.push(19);
+    this.zigzagMap.push(26);
+    this.zigzagMap.push(33);
+    this.zigzagMap.push(40);
+    this.zigzagMap.push(48);
+    this.zigzagMap.push(41);
+    this.zigzagMap.push(34);
+    this.zigzagMap.push(27);
+    this.zigzagMap.push(20);
+    this.zigzagMap.push(13);
+    this.zigzagMap.push(6);
+    this.zigzagMap.push(7);
+    this.zigzagMap.push(14);
+    this.zigzagMap.push(21);
+    this.zigzagMap.push(28);
+    this.zigzagMap.push(35);
+    this.zigzagMap.push(42);
+    this.zigzagMap.push(49);
+    this.zigzagMap.push(56);
+    this.zigzagMap.push(57);
+    this.zigzagMap.push(50);
+    this.zigzagMap.push(43);
+    this.zigzagMap.push(36);
+    this.zigzagMap.push(29);
+    this.zigzagMap.push(22);
+    this.zigzagMap.push(15);
+    this.zigzagMap.push(23);
+    this.zigzagMap.push(30);
+    this.zigzagMap.push(37);
+    this.zigzagMap.push(44);
+    this.zigzagMap.push(51);
+    this.zigzagMap.push(58);
+    this.zigzagMap.push(59);
+    this.zigzagMap.push(52);
+    this.zigzagMap.push(45);
+    this.zigzagMap.push(38);
+    this.zigzagMap.push(31);
+    this.zigzagMap.push(39);
+    this.zigzagMap.push(46);
+    this.zigzagMap.push(53);
+    this.zigzagMap.push(60);
+    this.zigzagMap.push(61);
+    this.zigzagMap.push(54);
+    this.zigzagMap.push(47);
+    this.zigzagMap.push(55);
+    this.zigzagMap.push(62);
+    this.zigzagMap.push(63);
+  }
+  dezigzag (zigzag) {
+    let block = [];
+    let i = 0;
+    while (i < 64) {
+      block.push(0);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 64) {
+      const pos = this.zigzagMap[i];
+      block[pos] = zigzag[i];
+      i = i + 1;
+    };
+    return block;
+  };
+  idct1d (input, startIdx, stride, output, outIdx, outStride) {
+    let x = 0;
+    while (x < 8) {
+      let sum = 0;
+      let u = 0;
+      while (u < 8) {
+        const coeff = input[(startIdx + (u * stride))];
+        if ( coeff != 0 ) {
+          const cosVal = this.cosTable[((x * 8) + u)];
+          let contrib = coeff * cosVal;
+          if ( u == 0 ) {
+            contrib = ((contrib * 724) >> 10);
+          }
+          sum = sum + contrib;
+        }
+        u = u + 1;
+      };
+      output[outIdx + (x * outStride)] = (sum >> 11);
+      x = x + 1;
+    };
+  };
+  transform (block, output) {
+    let temp = [];
+    let i = 0;
+    while (i < 64) {
+      temp.push(0);
+      i = i + 1;
+    };
+    let row = 0;
+    while (row < 8) {
+      const rowStart = row * 8;
+      this.idct1d(block, rowStart, 1, temp, rowStart, 1);
+      row = row + 1;
+    };
+    let col = 0;
+    while (col < 8) {
+      this.idct1d(temp, col, 8, output, col, 8);
+      col = col + 1;
+    };
+    i = 0;
+    while (i < 64) {
+      let val = (output[i]) + 128;
+      if ( val < 0 ) {
+        val = 0;
+      }
+      if ( val > 255 ) {
+        val = 255;
+      }
+      output[i] = val;
+      i = i + 1;
+    };
+  };
+  transformFast (coeffs, output) {
+    this.transform(coeffs, output);
+  };
+}
+class Color  {
+  constructor() {
+    this.r = 0;
+    this.g = 0;
+    this.b = 0;
+    this.a = 255;
+  }
+  setRGB (red, green, blue) {
+    this.r = red;
+    this.g = green;
+    this.b = blue;
+    this.a = 255;
+  };
+  setRGBA (red, green, blue, alpha) {
+    this.r = red;
+    this.g = green;
+    this.b = blue;
+    this.a = alpha;
+  };
+  clamp (val) {
+    if ( val < 0 ) {
+      return 0;
+    }
+    if ( val > 255 ) {
+      return 255;
+    }
+    return val;
+  };
+  set (red, green, blue) {
+    this.r = this.clamp(red);
+    this.g = this.clamp(green);
+    this.b = this.clamp(blue);
+  };
+  grayscale () {
+    return ((((this.r * 77) + (this.g * 150)) + (this.b * 29)) >> 8);
+  };
+  toGrayscale () {
+    const gray = this.grayscale();
+    this.r = gray;
+    this.g = gray;
+    this.b = gray;
+  };
+  invert () {
+    this.r = 255 - this.r;
+    this.g = 255 - this.g;
+    this.b = 255 - this.b;
+  };
+  adjustBrightness (amount) {
+    this.r = this.clamp((this.r + amount));
+    this.g = this.clamp((this.g + amount));
+    this.b = this.clamp((this.b + amount));
+  };
+}
+class ImageBuffer  {
+  constructor() {
+    this.width = 0;
+    this.height = 0;
+    this.pixels = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+  }
+  init (w, h) {
+    this.width = w;
+    this.height = h;
+    const size = (w * h) * 4;
+    this.pixels = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.fill(255, 255, 255, 255);
+  };
+  getPixelOffset (x, y) {
+    return ((y * this.width) + x) * 4;
+  };
+  isValidCoord (x, y) {
+    if ( x < 0 ) {
+      return false;
+    }
+    if ( y < 0 ) {
+      return false;
+    }
+    if ( x >= this.width ) {
+      return false;
+    }
+    if ( y >= this.height ) {
+      return false;
+    }
+    return true;
+  };
+  getPixel (x, y) {
+    const c = new Color();
+    if ( this.isValidCoord(x, y) ) {
+      const off = this.getPixelOffset(x, y);
+      c.r = this.pixels._view.getUint8(off);
+      c.g = this.pixels._view.getUint8((off + 1));
+      c.b = this.pixels._view.getUint8((off + 2));
+      c.a = this.pixels._view.getUint8((off + 3));
+    }
+    return c;
+  };
+  setPixel (x, y, c) {
+    if ( this.isValidCoord(x, y) ) {
+      const off = this.getPixelOffset(x, y);
+      this.pixels._view.setUint8(off, c.r);
+      this.pixels._view.setUint8(off + 1, c.g);
+      this.pixels._view.setUint8(off + 2, c.b);
+      this.pixels._view.setUint8(off + 3, c.a);
+    }
+  };
+  setPixelRGB (x, y, r, g, b) {
+    if ( this.isValidCoord(x, y) ) {
+      const off = this.getPixelOffset(x, y);
+      this.pixels._view.setUint8(off, r);
+      this.pixels._view.setUint8(off + 1, g);
+      this.pixels._view.setUint8(off + 2, b);
+      this.pixels._view.setUint8(off + 3, 255);
+    }
+  };
+  fill (r, g, b, a) {
+    const size = (this.width * this.height) * 4;
+    let i = 0;
+    while (i < size) {
+      this.pixels._view.setUint8(i, r);
+      this.pixels._view.setUint8(i + 1, g);
+      this.pixels._view.setUint8(i + 2, b);
+      this.pixels._view.setUint8(i + 3, a);
+      i = i + 4;
+    };
+  };
+  fillRect (x, y, w, h, c) {
+    const endX = x + w;
+    const endY = y + h;
+    let py = y;
+    while (py < endY) {
+      let px = x;
+      while (px < endX) {
+        this.setPixel(px, py, c);
+        px = px + 1;
+      };
+      py = py + 1;
+    };
+  };
+  invert () {
+    const size = this.width * this.height;
+    let i = 0;
+    while (i < size) {
+      const off = i * 4;
+      const r = this.pixels._view.getUint8(off);
+      const g = this.pixels._view.getUint8((off + 1));
+      const b = this.pixels._view.getUint8((off + 2));
+      this.pixels._view.setUint8(off, 255 - r);
+      this.pixels._view.setUint8(off + 1, 255 - g);
+      this.pixels._view.setUint8(off + 2, 255 - b);
+      i = i + 1;
+    };
+  };
+  grayscale () {
+    const size = this.width * this.height;
+    let i = 0;
+    while (i < size) {
+      const off = i * 4;
+      const r = this.pixels._view.getUint8(off);
+      const g = this.pixels._view.getUint8((off + 1));
+      const b = this.pixels._view.getUint8((off + 2));
+      const gray = ((((r * 77) + (g * 150)) + (b * 29)) >> 8);
+      this.pixels._view.setUint8(off, gray);
+      this.pixels._view.setUint8(off + 1, gray);
+      this.pixels._view.setUint8(off + 2, gray);
+      i = i + 1;
+    };
+  };
+  adjustBrightness (amount) {
+    const size = this.width * this.height;
+    let i = 0;
+    while (i < size) {
+      const off = i * 4;
+      let r = this.pixels._view.getUint8(off);
+      let g = this.pixels._view.getUint8((off + 1));
+      let b = this.pixels._view.getUint8((off + 2));
+      r = r + amount;
+      g = g + amount;
+      b = b + amount;
+      if ( r < 0 ) {
+        r = 0;
+      }
+      if ( r > 255 ) {
+        r = 255;
+      }
+      if ( g < 0 ) {
+        g = 0;
+      }
+      if ( g > 255 ) {
+        g = 255;
+      }
+      if ( b < 0 ) {
+        b = 0;
+      }
+      if ( b > 255 ) {
+        b = 255;
+      }
+      this.pixels._view.setUint8(off, r);
+      this.pixels._view.setUint8(off + 1, g);
+      this.pixels._view.setUint8(off + 2, b);
+      i = i + 1;
+    };
+  };
+  threshold (level) {
+    const size = this.width * this.height;
+    let i = 0;
+    while (i < size) {
+      const off = i * 4;
+      const r = this.pixels._view.getUint8(off);
+      const g = this.pixels._view.getUint8((off + 1));
+      const b = this.pixels._view.getUint8((off + 2));
+      const gray = ((((r * 77) + (g * 150)) + (b * 29)) >> 8);
+      let val = 0;
+      if ( gray >= level ) {
+        val = 255;
+      }
+      this.pixels._view.setUint8(off, val);
+      this.pixels._view.setUint8(off + 1, val);
+      this.pixels._view.setUint8(off + 2, val);
+      i = i + 1;
+    };
+  };
+  sepia () {
+    const size = this.width * this.height;
+    let i = 0;
+    while (i < size) {
+      const off = i * 4;
+      const r = this.pixels._view.getUint8(off);
+      const g = this.pixels._view.getUint8((off + 1));
+      const b = this.pixels._view.getUint8((off + 2));
+      let newR = ((((r * 101) + (g * 197)) + (b * 48)) >> 8);
+      let newG = ((((r * 89) + (g * 175)) + (b * 43)) >> 8);
+      let newB = ((((r * 70) + (g * 137)) + (b * 33)) >> 8);
+      if ( newR > 255 ) {
+        newR = 255;
+      }
+      if ( newG > 255 ) {
+        newG = 255;
+      }
+      if ( newB > 255 ) {
+        newB = 255;
+      }
+      this.pixels._view.setUint8(off, newR);
+      this.pixels._view.setUint8(off + 1, newG);
+      this.pixels._view.setUint8(off + 2, newB);
+      i = i + 1;
+    };
+  };
+  flipHorizontal () {
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      const halfW = (this.width >> 1);
+      while (x < halfW) {
+        const x2 = (this.width - 1) - x;
+        const off1 = this.getPixelOffset(x, y);
+        const off2 = this.getPixelOffset(x2, y);
+        const r1 = this.pixels._view.getUint8(off1);
+        const g1 = this.pixels._view.getUint8((off1 + 1));
+        const b1 = this.pixels._view.getUint8((off1 + 2));
+        const a1 = this.pixels._view.getUint8((off1 + 3));
+        const r2 = this.pixels._view.getUint8(off2);
+        const g2 = this.pixels._view.getUint8((off2 + 1));
+        const b2 = this.pixels._view.getUint8((off2 + 2));
+        const a2 = this.pixels._view.getUint8((off2 + 3));
+        this.pixels._view.setUint8(off1, r2);
+        this.pixels._view.setUint8(off1 + 1, g2);
+        this.pixels._view.setUint8(off1 + 2, b2);
+        this.pixels._view.setUint8(off1 + 3, a2);
+        this.pixels._view.setUint8(off2, r1);
+        this.pixels._view.setUint8(off2 + 1, g1);
+        this.pixels._view.setUint8(off2 + 2, b1);
+        this.pixels._view.setUint8(off2 + 3, a1);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+  };
+  flipVertical () {
+    let y = 0;
+    const halfH = (this.height >> 1);
+    while (y < halfH) {
+      const y2 = (this.height - 1) - y;
+      let x = 0;
+      while (x < this.width) {
+        const off1 = this.getPixelOffset(x, y);
+        const off2 = this.getPixelOffset(x, y2);
+        const r1 = this.pixels._view.getUint8(off1);
+        const g1 = this.pixels._view.getUint8((off1 + 1));
+        const b1 = this.pixels._view.getUint8((off1 + 2));
+        const a1 = this.pixels._view.getUint8((off1 + 3));
+        const r2 = this.pixels._view.getUint8(off2);
+        const g2 = this.pixels._view.getUint8((off2 + 1));
+        const b2 = this.pixels._view.getUint8((off2 + 2));
+        const a2 = this.pixels._view.getUint8((off2 + 3));
+        this.pixels._view.setUint8(off1, r2);
+        this.pixels._view.setUint8(off1 + 1, g2);
+        this.pixels._view.setUint8(off1 + 2, b2);
+        this.pixels._view.setUint8(off1 + 3, a2);
+        this.pixels._view.setUint8(off2, r1);
+        this.pixels._view.setUint8(off2 + 1, g1);
+        this.pixels._view.setUint8(off2 + 2, b1);
+        this.pixels._view.setUint8(off2 + 3, a1);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+  };
+  drawLine (x1, y1, x2, y2, c) {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    if ( dx < 0 ) {
+      dx = 0 - dx;
+    }
+    if ( dy < 0 ) {
+      dy = 0 - dy;
+    }
+    let sx = 1;
+    if ( x1 > x2 ) {
+      sx = -1;
+    }
+    let sy = 1;
+    if ( y1 > y2 ) {
+      sy = -1;
+    }
+    let err = dx - dy;
+    let x = x1;
+    let y = y1;
+    let done = false;
+    while (done == false) {
+      this.setPixel(x, y, c);
+      if ( (x == x2) && (y == y2) ) {
+        done = true;
+      } else {
+        const e2 = err * 2;
+        if ( e2 > (0 - dy) ) {
+          err = err - dy;
+          x = x + sx;
+        }
+        if ( e2 < dx ) {
+          err = err + dx;
+          y = y + sy;
+        }
+      }
+    };
+  };
+  drawRect (x, y, w, h, c) {
+    this.drawLine(x, y, (x + w) - 1, y, c);
+    this.drawLine((x + w) - 1, y, (x + w) - 1, (y + h) - 1, c);
+    this.drawLine((x + w) - 1, (y + h) - 1, x, (y + h) - 1, c);
+    this.drawLine(x, (y + h) - 1, x, y, c);
+  };
+  scale (factor) {
+    const newW = this.width * factor;
+    const newH = this.height * factor;
+    return this.scaleToSize(newW, newH);
+  };
+  scaleToSize (newW, newH) {
+    const result = new ImageBuffer();
+    result.init(newW, newH);
+    const scaleX = (this.width) / (newW);
+    const scaleY = (this.height) / (newH);
+    let destY = 0;
+    while (destY < newH) {
+      const srcYf = (destY) * scaleY;
+      const srcY0 = Math.floor( srcYf);
+      let srcY1 = srcY0 + 1;
+      if ( srcY1 >= this.height ) {
+        srcY1 = this.height - 1;
+      }
+      const fy = srcYf - (srcY0);
+      let destX = 0;
+      while (destX < newW) {
+        const srcXf = (destX) * scaleX;
+        const srcX0 = Math.floor( srcXf);
+        let srcX1 = srcX0 + 1;
+        if ( srcX1 >= this.width ) {
+          srcX1 = this.width - 1;
+        }
+        const fx = srcXf - (srcX0);
+        const off00 = ((srcY0 * this.width) + srcX0) * 4;
+        const off01 = ((srcY0 * this.width) + srcX1) * 4;
+        const off10 = ((srcY1 * this.width) + srcX0) * 4;
+        const off11 = ((srcY1 * this.width) + srcX1) * 4;
+        const r = this.bilinear((this.pixels._view.getUint8(off00)), (this.pixels._view.getUint8(off01)), (this.pixels._view.getUint8(off10)), (this.pixels._view.getUint8(off11)), fx, fy);
+        const g = this.bilinear((this.pixels._view.getUint8((off00 + 1))), (this.pixels._view.getUint8((off01 + 1))), (this.pixels._view.getUint8((off10 + 1))), (this.pixels._view.getUint8((off11 + 1))), fx, fy);
+        const b = this.bilinear((this.pixels._view.getUint8((off00 + 2))), (this.pixels._view.getUint8((off01 + 2))), (this.pixels._view.getUint8((off10 + 2))), (this.pixels._view.getUint8((off11 + 2))), fx, fy);
+        const a = this.bilinear((this.pixels._view.getUint8((off00 + 3))), (this.pixels._view.getUint8((off01 + 3))), (this.pixels._view.getUint8((off10 + 3))), (this.pixels._view.getUint8((off11 + 3))), fx, fy);
+        const destOff = ((destY * newW) + destX) * 4;
+        result.pixels._view.setUint8(destOff, r);
+        result.pixels._view.setUint8(destOff + 1, g);
+        result.pixels._view.setUint8(destOff + 2, b);
+        result.pixels._view.setUint8(destOff + 3, a);
+        destX = destX + 1;
+      };
+      destY = destY + 1;
+    };
+    return result;
+  };
+  bilinear (v00, v01, v10, v11, fx, fy) {
+    const top = ((v00) * (1.0 - fx)) + ((v01) * fx);
+    const bottom = ((v10) * (1.0 - fx)) + ((v11) * fx);
+    const result = (top * (1.0 - fy)) + (bottom * fy);
+    return Math.floor( result);
+  };
+  rotate90CW () {
+    const result = new ImageBuffer();
+    result.init(this.height, this.width);
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const newX = (this.height - 1) - y;
+        const newY = x;
+        const srcOff = ((y * this.width) + x) * 4;
+        const destOff = ((newY * this.height) + newX) * 4;
+        result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+        result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+        result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+        result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return result;
+  };
+  rotate180 () {
+    const result = new ImageBuffer();
+    result.init(this.width, this.height);
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const newX = (this.width - 1) - x;
+        const newY = (this.height - 1) - y;
+        const srcOff = ((y * this.width) + x) * 4;
+        const destOff = ((newY * this.width) + newX) * 4;
+        result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+        result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+        result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+        result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return result;
+  };
+  rotate270CW () {
+    const result = new ImageBuffer();
+    result.init(this.height, this.width);
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const newX = y;
+        const newY = (this.width - 1) - x;
+        const srcOff = ((y * this.width) + x) * 4;
+        const destOff = ((newY * this.height) + newX) * 4;
+        result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+        result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+        result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+        result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return result;
+  };
+  transpose () {
+    const result = new ImageBuffer();
+    result.init(this.height, this.width);
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const srcOff = ((y * this.width) + x) * 4;
+        const destOff = ((x * this.height) + y) * 4;
+        result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+        result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+        result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+        result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return result;
+  };
+  transverse () {
+    const result = new ImageBuffer();
+    result.init(this.height, this.width);
+    let y = 0;
+    while (y < this.height) {
+      let x = 0;
+      while (x < this.width) {
+        const newX = (this.height - 1) - y;
+        const newY = (this.width - 1) - x;
+        const srcOff = ((y * this.width) + x) * 4;
+        const destOff = ((newY * this.height) + newX) * 4;
+        result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+        result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+        result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+        result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    return result;
+  };
+  applyExifOrientation (orientation) {
+    if ( orientation == 1 ) {
+      return this.scale(1);
+    }
+    if ( orientation == 2 ) {
+      const result = new ImageBuffer();
+      result.init(this.width, this.height);
+      let y = 0;
+      while (y < this.height) {
+        let x = 0;
+        while (x < this.width) {
+          const srcOff = ((y * this.width) + x) * 4;
+          const destOff = ((y * this.width) + ((this.width - 1) - x)) * 4;
+          result.pixels._view.setUint8(destOff, this.pixels._view.getUint8(srcOff));
+          result.pixels._view.setUint8(destOff + 1, this.pixels._view.getUint8((srcOff + 1)));
+          result.pixels._view.setUint8(destOff + 2, this.pixels._view.getUint8((srcOff + 2)));
+          result.pixels._view.setUint8(destOff + 3, this.pixels._view.getUint8((srcOff + 3)));
+          x = x + 1;
+        };
+        y = y + 1;
+      };
+      return result;
+    }
+    if ( orientation == 3 ) {
+      return this.rotate180();
+    }
+    if ( orientation == 4 ) {
+      const result_1 = new ImageBuffer();
+      result_1.init(this.width, this.height);
+      let y_1 = 0;
+      while (y_1 < this.height) {
+        let x_1 = 0;
+        while (x_1 < this.width) {
+          const srcOff_1 = ((y_1 * this.width) + x_1) * 4;
+          const destOff_1 = ((((this.height - 1) - y_1) * this.width) + x_1) * 4;
+          result_1.pixels._view.setUint8(destOff_1, this.pixels._view.getUint8(srcOff_1));
+          result_1.pixels._view.setUint8(destOff_1 + 1, this.pixels._view.getUint8((srcOff_1 + 1)));
+          result_1.pixels._view.setUint8(destOff_1 + 2, this.pixels._view.getUint8((srcOff_1 + 2)));
+          result_1.pixels._view.setUint8(destOff_1 + 3, this.pixels._view.getUint8((srcOff_1 + 3)));
+          x_1 = x_1 + 1;
+        };
+        y_1 = y_1 + 1;
+      };
+      return result_1;
+    }
+    if ( orientation == 5 ) {
+      return this.transpose();
+    }
+    if ( orientation == 6 ) {
+      return this.rotate90CW();
+    }
+    if ( orientation == 7 ) {
+      return this.transverse();
+    }
+    if ( orientation == 8 ) {
+      return this.rotate270CW();
+    }
+    return this.scale(1);
+  };
+}
+class PPMImage  {
+  constructor() {
+  }
+  parseNumber (data, startPos, endPos) {
+    const __len = data.byteLength;
+    let pos = startPos;
+    let skipping = true;
+    while (skipping && (pos < __len)) {
+      const ch = data._view.getUint8(pos);
+      if ( (((ch == 32) || (ch == 10)) || (ch == 13)) || (ch == 9) ) {
+        pos = pos + 1;
+      } else {
+        skipping = false;
+      }
+    };
+    let value = 0;
+    let parsing = true;
+    while (parsing && (pos < __len)) {
+      const ch_1 = data._view.getUint8(pos);
+      if ( (ch_1 >= 48) && (ch_1 <= 57) ) {
+        value = (value * 10) + (ch_1 - 48);
+        pos = pos + 1;
+      } else {
+        parsing = false;
+      }
+    };
+    endPos[0] = pos;
+    return value;
+  };
+  skipToNextLine (data, pos) {
+    const __len = data.byteLength;
+    while (pos < __len) {
+      const ch = data._view.getUint8(pos);
+      pos = pos + 1;
+      if ( ch == 10 ) {
+        return pos;
+      }
+    };
+    return pos;
+  };
+  load (dirPath, fileName) {
+    const data = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+    const __len = data.byteLength;
+    if ( __len < 10 ) {
+      console.log("Error: File too small: " + fileName);
+      const errImg = new ImageBuffer();
+      errImg.init(1, 1);
+      return errImg;
+    }
+    const m1 = data._view.getUint8(0);
+    const m2 = data._view.getUint8(1);
+    if ( (m1 != 80) || ((m2 != 54) && (m2 != 51)) ) {
+      console.log("Error: Not a PPM file (P3 or P6): " + fileName);
+      const errImg_1 = new ImageBuffer();
+      errImg_1.init(1, 1);
+      return errImg_1;
+    }
+    const isBinary = m2 == 54;
+    let pos = 2;
+    let endPos = [];
+    endPos.push(0);
+    let skippingComments = true;
+    while (skippingComments && (pos < __len)) {
+      const ch = data._view.getUint8(pos);
+      if ( (((ch == 32) || (ch == 10)) || (ch == 13)) || (ch == 9) ) {
+        pos = pos + 1;
+      } else {
+        if ( ch == 35 ) {
+          pos = this.skipToNextLine(data, pos);
+        } else {
+          skippingComments = false;
+        }
+      }
+    };
+    const width = this.parseNumber(data, pos, endPos);
+    pos = endPos[0];
+    const height = this.parseNumber(data, pos, endPos);
+    pos = endPos[0];
+    const maxVal = this.parseNumber(data, pos, endPos);
+    pos = endPos[0];
+    if ( pos < __len ) {
+      pos = pos + 1;
+    }
+    console.log((((("Loading PPM: " + ((width.toString()))) + "x") + ((height.toString()))) + ", maxval=") + ((maxVal.toString())));
+    const img = new ImageBuffer();
+    img.init(width, height);
+    if ( isBinary ) {
+      let y = 0;
+      while (y < height) {
+        let x = 0;
+        while (x < width) {
+          if ( (pos + 2) < __len ) {
+            const r = data._view.getUint8(pos);
+            const g = data._view.getUint8((pos + 1));
+            const b = data._view.getUint8((pos + 2));
+            img.setPixelRGB(x, y, r, g, b);
+            pos = pos + 3;
+          }
+          x = x + 1;
+        };
+        y = y + 1;
+      };
+    } else {
+      let y_1 = 0;
+      while (y_1 < height) {
+        let x_1 = 0;
+        while (x_1 < width) {
+          const r_1 = this.parseNumber(data, pos, endPos);
+          pos = endPos[0];
+          const g_1 = this.parseNumber(data, pos, endPos);
+          pos = endPos[0];
+          const b_1 = this.parseNumber(data, pos, endPos);
+          pos = endPos[0];
+          img.setPixelRGB(x_1, y_1, r_1, g_1, b_1);
+          x_1 = x_1 + 1;
+        };
+        y_1 = y_1 + 1;
+      };
+    }
+    return img;
+  };
+  save (img, dirPath, fileName) {
+    const buf = new GrowableBuffer();
+    buf.writeString("P6\n");
+    buf.writeString(((((img.width.toString())) + " ") + ((img.height.toString()))) + "\n");
+    buf.writeString("255\n");
+    let y = 0;
+    while (y < img.height) {
+      let x = 0;
+      while (x < img.width) {
+        const c = img.getPixel(x, y);
+        buf.writeByte(c.r);
+        buf.writeByte(c.g);
+        buf.writeByte(c.b);
+        x = x + 1;
+      };
+      y = y + 1;
+    };
+    const data = buf.toBuffer();
+    require('fs').writeFileSync(dirPath + '/' + fileName, Buffer.from(data));
+    console.log((("Saved PPM: " + dirPath) + "/") + fileName);
+  };
+  saveP3 (img, dirPath, fileName) {
+    const buf = new GrowableBuffer();
+    buf.writeString("P3\n");
+    buf.writeString("# Created by Ranger ImageEditor\n");
+    buf.writeString(((((img.width.toString())) + " ") + ((img.height.toString()))) + "\n");
+    buf.writeString("255\n");
+    let y = 0;
+    while (y < img.height) {
+      let x = 0;
+      while (x < img.width) {
+        const c = img.getPixel(x, y);
+        buf.writeString((((((c.r.toString())) + " ") + ((c.g.toString()))) + " ") + ((c.b.toString())));
+        if ( x < (img.width - 1) ) {
+          buf.writeString("  ");
+        }
+        x = x + 1;
+      };
+      buf.writeString("\n");
+      y = y + 1;
+    };
+    const data = buf.toBuffer();
+    require('fs').writeFileSync(dirPath + '/' + fileName, Buffer.from(data));
+    console.log((("Saved PPM (ASCII): " + dirPath) + "/") + fileName);
+  };
+}
+class JPEGComponent  {
+  constructor() {
+    this.id = 0;
+    this.hSamp = 1;
+    this.vSamp = 1;
+    this.quantTableId = 0;
+    this.dcTableId = 0;
+    this.acTableId = 0;
+    this.prevDC = 0;
+  }
+}
+class QuantizationTable  {
+  constructor() {
+    this.values = [];
+    this.id = 0;
+    let i_1 = 0;
+    while (i_1 < 64) {
+      this.values.push(1);
+      i_1 = i_1 + 1;
+    };
+  }
+}
+class JPEGDecoder  {
+  constructor() {
+    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.dataLen = 0;
+    this.width = 0;
+    this.height = 0;
+    this.numComponents = 0;
+    this.precision = 8;
+    this.components = [];
+    this.quantTables = [];
+    this.scanDataStart = 0;
+    this.scanDataLen = 0;
+    this.mcuWidth = 8;
+    this.mcuHeight = 8;
+    this.mcusPerRow = 0;
+    this.mcusPerCol = 0;
+    this.maxHSamp = 1;
+    this.maxVSamp = 1;
+    this.restartInterval = 0;
+    this.huffman = new HuffmanDecoder();
+    this.idct = new IDCT();
+    let i_2 = 0;
+    while (i_2 < 4) {
+      this.quantTables.push(new QuantizationTable());
+      i_2 = i_2 + 1;
+    };
+  }
+  readUint16BE (pos) {
+    const high = this.data._view.getUint8(pos);
+    const low = this.data._view.getUint8((pos + 1));
+    return (high * 256) + low;
+  };
+  parseSOF (pos, length) {
+    this.precision = this.data._view.getUint8(pos);
+    this.height = this.readUint16BE((pos + 1));
+    this.width = this.readUint16BE((pos + 3));
+    this.numComponents = this.data._view.getUint8((pos + 5));
+    console.log(((((("  Image: " + ((this.width.toString()))) + "x") + ((this.height.toString()))) + ", ") + ((this.numComponents.toString()))) + " components");
+    this.components.length = 0;
+    this.maxHSamp = 1;
+    this.maxVSamp = 1;
+    let i = 0;
+    let offset = pos + 6;
+    while (i < this.numComponents) {
+      const comp = new JPEGComponent();
+      comp.id = this.data._view.getUint8(offset);
+      const sampling = this.data._view.getUint8((offset + 1));
+      comp.hSamp = (sampling >> 4);
+      comp.vSamp = (sampling & 15);
+      comp.quantTableId = this.data._view.getUint8((offset + 2));
+      if ( comp.hSamp > this.maxHSamp ) {
+        this.maxHSamp = comp.hSamp;
+      }
+      if ( comp.vSamp > this.maxVSamp ) {
+        this.maxVSamp = comp.vSamp;
+      }
+      this.components.push(comp);
+      console.log((((((("    Component " + ((comp.id.toString()))) + ": ") + ((comp.hSamp.toString()))) + "x") + ((comp.vSamp.toString()))) + " sampling, quant table ") + ((comp.quantTableId.toString())));
+      offset = offset + 3;
+      i = i + 1;
+    };
+    this.mcuWidth = this.maxHSamp * 8;
+    this.mcuHeight = this.maxVSamp * 8;
+    this.mcusPerRow = Math.floor( (((this.width + this.mcuWidth) - 1) / this.mcuWidth));
+    this.mcusPerCol = Math.floor( (((this.height + this.mcuHeight) - 1) / this.mcuHeight));
+    console.log((((((("  MCU size: " + ((this.mcuWidth.toString()))) + "x") + ((this.mcuHeight.toString()))) + ", grid: ") + ((this.mcusPerRow.toString()))) + "x") + ((this.mcusPerCol.toString())));
+  };
+  parseDQT (pos, length) {
+    const endPos = pos + length;
+    while (pos < endPos) {
+      const info = this.data._view.getUint8(pos);
+      pos = pos + 1;
+      const precision_1 = (info >> 4);
+      const tableId = (info & 15);
+      const table = this.quantTables[tableId];
+      table.id = tableId;
+      table.values.length = 0;
+      let i = 0;
+      while (i < 64) {
+        if ( precision_1 == 0 ) {
+          table.values.push(this.data._view.getUint8(pos));
+          pos = pos + 1;
+        } else {
+          table.values.push(this.readUint16BE(pos));
+          pos = pos + 2;
+        }
+        i = i + 1;
+      };
+      console.log(((("  Quantization table " + ((tableId.toString()))) + " (") + (((precision_1 + 1).toString()))) + "-byte values)");
+    };
+  };
+  parseSOS (pos, length) {
+    const numScanComponents = this.data._view.getUint8(pos);
+    pos = pos + 1;
+    let i = 0;
+    while (i < numScanComponents) {
+      const compId = this.data._view.getUint8(pos);
+      const tableSelect = this.data._view.getUint8((pos + 1));
+      pos = pos + 2;
+      let j = 0;
+      while (j < this.numComponents) {
+        const comp = this.components[j];
+        if ( comp.id == compId ) {
+          comp.dcTableId = (tableSelect >> 4);
+          comp.acTableId = (tableSelect & 15);
+          console.log((((("    Component " + ((compId.toString()))) + ": DC table ") + ((comp.dcTableId.toString()))) + ", AC table ") + ((comp.acTableId.toString())));
+        }
+        j = j + 1;
+      };
+      i = i + 1;
+    };
+    pos = pos + 3;
+    this.scanDataStart = pos;
+    let searchPos = pos;
+    while (searchPos < (this.dataLen - 1)) {
+      const b = this.data._view.getUint8(searchPos);
+      if ( b == 255 ) {
+        const nextB = this.data._view.getUint8((searchPos + 1));
+        if ( (nextB != 0) && (nextB != 255) ) {
+          if ( (nextB >= 208) && (nextB <= 215) ) {
+            searchPos = searchPos + 2;
+            continue;
+          }
+          this.scanDataLen = searchPos - this.scanDataStart;
+          return;
+        }
+      }
+      searchPos = searchPos + 1;
+    };
+    this.scanDataLen = this.dataLen - this.scanDataStart;
+  };
+  parseMarkers () {
+    let pos = 0;
+    if ( this.dataLen < 2 ) {
+      console.log("Error: File too small");
+      return false;
+    }
+    const m1 = this.data._view.getUint8(0);
+    const m2 = this.data._view.getUint8(1);
+    if ( (m1 != 255) || (m2 != 216) ) {
+      console.log("Error: Not a JPEG file (missing SOI)");
+      return false;
+    }
+    pos = 2;
+    console.log("Parsing JPEG markers...");
+    while (pos < (this.dataLen - 1)) {
+      const marker1 = this.data._view.getUint8(pos);
+      if ( marker1 != 255 ) {
+        pos = pos + 1;
+        continue;
+      }
+      const marker2 = this.data._view.getUint8((pos + 1));
+      if ( marker2 == 255 ) {
+        pos = pos + 1;
+        continue;
+      }
+      if ( marker2 == 0 ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( marker2 == 216 ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( marker2 == 217 ) {
+        console.log("  End of Image");
+        return true;
+      }
+      if ( (marker2 >= 208) && (marker2 <= 215) ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( (pos + 4) > this.dataLen ) {
+        return true;
+      }
+      const markerLen = this.readUint16BE((pos + 2));
+      const dataStart = pos + 4;
+      const markerDataLen = markerLen - 2;
+      if ( marker2 == 192 ) {
+        console.log("  SOF0 (Baseline DCT)");
+        this.parseSOF(dataStart, markerDataLen);
+      }
+      if ( marker2 == 193 ) {
+        console.log("  SOF1 (Extended Sequential DCT)");
+        this.parseSOF(dataStart, markerDataLen);
+      }
+      if ( marker2 == 194 ) {
+        console.log("  SOF2 (Progressive DCT) - NOT SUPPORTED");
+        return false;
+      }
+      if ( marker2 == 196 ) {
+        console.log("  DHT (Huffman Tables)");
+        this.huffman.parseDHT(this.data, dataStart, markerDataLen);
+      }
+      if ( marker2 == 219 ) {
+        console.log("  DQT (Quantization Tables)");
+        this.parseDQT(dataStart, markerDataLen);
+      }
+      if ( marker2 == 221 ) {
+        this.restartInterval = this.readUint16BE(dataStart);
+        console.log(("  DRI (Restart Interval: " + ((this.restartInterval.toString()))) + ")");
+      }
+      if ( marker2 == 218 ) {
+        console.log("  SOS (Start of Scan)");
+        this.parseSOS(dataStart, markerDataLen);
+        pos = this.scanDataStart + this.scanDataLen;
+        continue;
+      }
+      if ( marker2 == 224 ) {
+        console.log("  APP0 (JFIF)");
+      }
+      if ( marker2 == 225 ) {
+        console.log("  APP1 (EXIF)");
+      }
+      if ( marker2 == 254 ) {
+        console.log("  COM (Comment)");
+      }
+      pos = (pos + 2) + markerLen;
+    };
+    return true;
+  };
+  decodeBlock (reader, comp, quantTable) {
+    let coeffs = [];
+    let i = 0;
+    while (i < 64) {
+      coeffs.push(0);
+      i = i + 1;
+    };
+    const dcTable = this.huffman.getDCTable(comp.dcTableId);
+    const dcCategory = dcTable.decode(reader);
+    const dcDiff = reader.receiveExtend(dcCategory);
+    const dcValue = comp.prevDC + dcDiff;
+    comp.prevDC = dcValue;
+    const dcQuant = quantTable.values[0];
+    coeffs[0] = dcValue * dcQuant;
+    const acTable = this.huffman.getACTable(comp.acTableId);
+    let k = 1;
+    while (k < 64) {
+      const acSymbol = acTable.decode(reader);
+      if ( acSymbol == 0 ) {
+        k = 64;
+      } else {
+        const runLength = (acSymbol >> 4);
+        const acCategory = (acSymbol & 15);
+        if ( acSymbol == 240 ) {
+          k = k + 16;
+        } else {
+          k = k + runLength;
+          if ( k < 64 ) {
+            const acValue = reader.receiveExtend(acCategory);
+            const acQuant = quantTable.values[k];
+            coeffs[k] = acValue * acQuant;
+            k = k + 1;
+          }
+        }
+      }
+    };
+    return coeffs;
+  };
+  decode (dirPath, fileName) {
+    this.data = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+    this.dataLen = this.data.byteLength;
+    console.log(((("Decoding JPEG: " + fileName) + " (") + ((this.dataLen.toString()))) + " bytes)");
+    const ok = this.parseMarkers();
+    if ( ok == false ) {
+      console.log("Error parsing JPEG markers");
+      const errImg = new ImageBuffer();
+      errImg.init(1, 1);
+      return errImg;
+    }
+    if ( (this.width == 0) || (this.height == 0) ) {
+      console.log("Error: Invalid image dimensions");
+      const errImg_1 = new ImageBuffer();
+      errImg_1.init(1, 1);
+      return errImg_1;
+    }
+    console.log(("Decoding " + ((this.scanDataLen.toString()))) + " bytes of scan data...");
+    const img = new ImageBuffer();
+    img.init(this.width, this.height);
+    const reader = new BitReader();
+    reader.init(this.data, this.scanDataStart, this.scanDataLen);
+    let c = 0;
+    while (c < this.numComponents) {
+      const comp = this.components[c];
+      comp.prevDC = 0;
+      c = c + 1;
+    };
+    let yBlocksData = [];
+    let yBlockCount = 0;
+    let cbBlock = [];
+    let crBlock = [];
+    let mcuCount = 0;
+    let mcuY = 0;
+    while (mcuY < this.mcusPerCol) {
+      let mcuX = 0;
+      while (mcuX < this.mcusPerRow) {
+        if ( ((this.restartInterval > 0) && (mcuCount > 0)) && ((mcuCount % this.restartInterval) == 0) ) {
+          c = 0;
+          while (c < this.numComponents) {
+            const compRst = this.components[c];
+            compRst.prevDC = 0;
+            c = c + 1;
+          };
+          reader.alignToByte();
+        }
+        yBlocksData.length = 0;
+        yBlockCount = 0;
+        let compIdx = 0;
+        while (compIdx < this.numComponents) {
+          const comp_1 = this.components[compIdx];
+          const quantTable = this.quantTables[comp_1.quantTableId];
+          let blockV = 0;
+          while (blockV < comp_1.vSamp) {
+            let blockH = 0;
+            while (blockH < comp_1.hSamp) {
+              const coeffs = this.decodeBlock(reader, comp_1, quantTable);
+              let blockPixels = [];
+              let bi = 0;
+              while (bi < 64) {
+                blockPixels.push(0);
+                bi = bi + 1;
+              };
+              const tempBlock = this.idct.dezigzag(coeffs);
+              this.idct.transform(tempBlock, blockPixels);
+              if ( compIdx == 0 ) {
+                bi = 0;
+                while (bi < 64) {
+                  yBlocksData.push(blockPixels[bi]);
+                  bi = bi + 1;
+                };
+                yBlockCount = yBlockCount + 1;
+              }
+              if ( compIdx == 1 ) {
+                cbBlock.length = 0;
+                bi = 0;
+                while (bi < 64) {
+                  cbBlock.push(blockPixels[bi]);
+                  bi = bi + 1;
+                };
+              }
+              if ( compIdx == 2 ) {
+                crBlock.length = 0;
+                bi = 0;
+                while (bi < 64) {
+                  crBlock.push(blockPixels[bi]);
+                  bi = bi + 1;
+                };
+              }
+              blockH = blockH + 1;
+            };
+            blockV = blockV + 1;
+          };
+          compIdx = compIdx + 1;
+        };
+        this.writeMCU(img, mcuX, mcuY, yBlocksData, yBlockCount, cbBlock, crBlock);
+        mcuX = mcuX + 1;
+        mcuCount = mcuCount + 1;
+      };
+      mcuY = mcuY + 1;
+      if ( (mcuY % 10) == 0 ) {
+        console.log((("  Row " + ((mcuY.toString()))) + "/") + ((this.mcusPerCol.toString())));
+      }
+    };
+    console.log("Decode complete!");
+    return img;
+  };
+  writeMCU (img, mcuX, mcuY, yBlocksData, yBlockCount, cbBlock, crBlock) {
+    const baseX = mcuX * this.mcuWidth;
+    const baseY = mcuY * this.mcuHeight;
+    const comp0 = this.components[0];
+    if ( (this.maxHSamp == 1) && (this.maxVSamp == 1) ) {
+      let py = 0;
+      while (py < 8) {
+        let px = 0;
+        while (px < 8) {
+          const imgX = baseX + px;
+          const imgY = baseY + py;
+          if ( (imgX < this.width) && (imgY < this.height) ) {
+            const idx = (py * 8) + px;
+            const y = yBlocksData[idx];
+            let cb = 128;
+            let cr = 128;
+            if ( this.numComponents >= 3 ) {
+              cb = cbBlock[idx];
+              cr = crBlock[idx];
+            }
+            let r = y + (((359 * (cr - 128)) >> 8));
+            let g = (y - (((88 * (cb - 128)) >> 8))) - (((183 * (cr - 128)) >> 8));
+            let b = y + (((454 * (cb - 128)) >> 8));
+            if ( r < 0 ) {
+              r = 0;
+            }
+            if ( r > 255 ) {
+              r = 255;
+            }
+            if ( g < 0 ) {
+              g = 0;
+            }
+            if ( g > 255 ) {
+              g = 255;
+            }
+            if ( b < 0 ) {
+              b = 0;
+            }
+            if ( b > 255 ) {
+              b = 255;
+            }
+            img.setPixelRGB(imgX, imgY, r, g, b);
+          }
+          px = px + 1;
+        };
+        py = py + 1;
+      };
+      return;
+    }
+    if ( (this.maxHSamp == 2) && (this.maxVSamp == 2) ) {
+      let blockIdx = 0;
+      let blockY = 0;
+      while (blockY < 2) {
+        let blockX = 0;
+        while (blockX < 2) {
+          const yBlockOffset = blockIdx * 64;
+          let py_1 = 0;
+          while (py_1 < 8) {
+            let px_1 = 0;
+            while (px_1 < 8) {
+              const imgX_1 = (baseX + (blockX * 8)) + px_1;
+              const imgY_1 = (baseY + (blockY * 8)) + py_1;
+              if ( (imgX_1 < this.width) && (imgY_1 < this.height) ) {
+                const yIdx = (yBlockOffset + (py_1 * 8)) + px_1;
+                const y_1 = yBlocksData[yIdx];
+                const chromaX = (blockX * 4) + ((px_1 >> 1));
+                const chromaY = (blockY * 4) + ((py_1 >> 1));
+                const chromaIdx = (chromaY * 8) + chromaX;
+                let cb_1 = 128;
+                let cr_1 = 128;
+                if ( this.numComponents >= 3 ) {
+                  cb_1 = cbBlock[chromaIdx];
+                  cr_1 = crBlock[chromaIdx];
+                }
+                let r_1 = y_1 + (((359 * (cr_1 - 128)) >> 8));
+                let g_1 = (y_1 - (((88 * (cb_1 - 128)) >> 8))) - (((183 * (cr_1 - 128)) >> 8));
+                let b_1 = y_1 + (((454 * (cb_1 - 128)) >> 8));
+                if ( r_1 < 0 ) {
+                  r_1 = 0;
+                }
+                if ( r_1 > 255 ) {
+                  r_1 = 255;
+                }
+                if ( g_1 < 0 ) {
+                  g_1 = 0;
+                }
+                if ( g_1 > 255 ) {
+                  g_1 = 255;
+                }
+                if ( b_1 < 0 ) {
+                  b_1 = 0;
+                }
+                if ( b_1 > 255 ) {
+                  b_1 = 255;
+                }
+                img.setPixelRGB(imgX_1, imgY_1, r_1, g_1, b_1);
+              }
+              px_1 = px_1 + 1;
+            };
+            py_1 = py_1 + 1;
+          };
+          blockIdx = blockIdx + 1;
+          blockX = blockX + 1;
+        };
+        blockY = blockY + 1;
+      };
+      return;
+    }
+    if ( (this.maxHSamp == 2) && (this.maxVSamp == 1) ) {
+      let blockX_1 = 0;
+      while (blockX_1 < 2) {
+        const yBlockOffset_1 = blockX_1 * 64;
+        let py_2 = 0;
+        while (py_2 < 8) {
+          let px_2 = 0;
+          while (px_2 < 8) {
+            const imgX_2 = (baseX + (blockX_1 * 8)) + px_2;
+            const imgY_2 = baseY + py_2;
+            if ( (imgX_2 < this.width) && (imgY_2 < this.height) ) {
+              const yIdx_1 = (yBlockOffset_1 + (py_2 * 8)) + px_2;
+              const y_2 = yBlocksData[yIdx_1];
+              const chromaX_1 = (blockX_1 * 4) + ((px_2 >> 1));
+              const chromaY_1 = py_2;
+              const chromaIdx_1 = (chromaY_1 * 8) + chromaX_1;
+              let cb_2 = 128;
+              let cr_2 = 128;
+              if ( this.numComponents >= 3 ) {
+                cb_2 = cbBlock[chromaIdx_1];
+                cr_2 = crBlock[chromaIdx_1];
+              }
+              let r_2 = y_2 + (((359 * (cr_2 - 128)) >> 8));
+              let g_2 = (y_2 - (((88 * (cb_2 - 128)) >> 8))) - (((183 * (cr_2 - 128)) >> 8));
+              let b_2 = y_2 + (((454 * (cb_2 - 128)) >> 8));
+              if ( r_2 < 0 ) {
+                r_2 = 0;
+              }
+              if ( r_2 > 255 ) {
+                r_2 = 255;
+              }
+              if ( g_2 < 0 ) {
+                g_2 = 0;
+              }
+              if ( g_2 > 255 ) {
+                g_2 = 255;
+              }
+              if ( b_2 < 0 ) {
+                b_2 = 0;
+              }
+              if ( b_2 > 255 ) {
+                b_2 = 255;
+              }
+              img.setPixelRGB(imgX_2, imgY_2, r_2, g_2, b_2);
+            }
+            px_2 = px_2 + 1;
+          };
+          py_2 = py_2 + 1;
+        };
+        blockX_1 = blockX_1 + 1;
+      };
+      return;
+    }
+    if ( yBlockCount > 0 ) {
+      let py_3 = 0;
+      while (py_3 < 8) {
+        let px_3 = 0;
+        while (px_3 < 8) {
+          const imgX_3 = baseX + px_3;
+          const imgY_3 = baseY + py_3;
+          if ( (imgX_3 < this.width) && (imgY_3 < this.height) ) {
+            const y_3 = yBlocksData[((py_3 * 8) + px_3)];
+            img.setPixelRGB(imgX_3, imgY_3, y_3, y_3, y_3);
+          }
+          px_3 = px_3 + 1;
+        };
+        py_3 = py_3 + 1;
+      };
+    }
+  };
+}
+class FDCT  {
+  constructor() {
+    this.cosTable = [];
+    this.zigzagOrder = [];
+    this.cosTable.push(1024);
+    this.cosTable.push(1004);
+    this.cosTable.push(946);
+    this.cosTable.push(851);
+    this.cosTable.push(724);
+    this.cosTable.push(569);
+    this.cosTable.push(392);
+    this.cosTable.push(200);
+    this.cosTable.push(1024);
+    this.cosTable.push(851);
+    this.cosTable.push(392);
+    this.cosTable.push(-200);
+    this.cosTable.push(-724);
+    this.cosTable.push(-1004);
+    this.cosTable.push(-946);
+    this.cosTable.push(-569);
+    this.cosTable.push(1024);
+    this.cosTable.push(569);
+    this.cosTable.push(-392);
+    this.cosTable.push(-1004);
+    this.cosTable.push(-724);
+    this.cosTable.push(200);
+    this.cosTable.push(946);
+    this.cosTable.push(851);
+    this.cosTable.push(1024);
+    this.cosTable.push(200);
+    this.cosTable.push(-946);
+    this.cosTable.push(-569);
+    this.cosTable.push(724);
+    this.cosTable.push(851);
+    this.cosTable.push(-392);
+    this.cosTable.push(-1004);
+    this.cosTable.push(1024);
+    this.cosTable.push(-200);
+    this.cosTable.push(-946);
+    this.cosTable.push(569);
+    this.cosTable.push(724);
+    this.cosTable.push(-851);
+    this.cosTable.push(-392);
+    this.cosTable.push(1004);
+    this.cosTable.push(1024);
+    this.cosTable.push(-569);
+    this.cosTable.push(-392);
+    this.cosTable.push(1004);
+    this.cosTable.push(-724);
+    this.cosTable.push(-200);
+    this.cosTable.push(946);
+    this.cosTable.push(-851);
+    this.cosTable.push(1024);
+    this.cosTable.push(-851);
+    this.cosTable.push(392);
+    this.cosTable.push(200);
+    this.cosTable.push(-724);
+    this.cosTable.push(1004);
+    this.cosTable.push(-946);
+    this.cosTable.push(569);
+    this.cosTable.push(1024);
+    this.cosTable.push(-1004);
+    this.cosTable.push(946);
+    this.cosTable.push(-851);
+    this.cosTable.push(724);
+    this.cosTable.push(-569);
+    this.cosTable.push(392);
+    this.cosTable.push(-200);
+    this.zigzagOrder.push(0);
+    this.zigzagOrder.push(1);
+    this.zigzagOrder.push(8);
+    this.zigzagOrder.push(16);
+    this.zigzagOrder.push(9);
+    this.zigzagOrder.push(2);
+    this.zigzagOrder.push(3);
+    this.zigzagOrder.push(10);
+    this.zigzagOrder.push(17);
+    this.zigzagOrder.push(24);
+    this.zigzagOrder.push(32);
+    this.zigzagOrder.push(25);
+    this.zigzagOrder.push(18);
+    this.zigzagOrder.push(11);
+    this.zigzagOrder.push(4);
+    this.zigzagOrder.push(5);
+    this.zigzagOrder.push(12);
+    this.zigzagOrder.push(19);
+    this.zigzagOrder.push(26);
+    this.zigzagOrder.push(33);
+    this.zigzagOrder.push(40);
+    this.zigzagOrder.push(48);
+    this.zigzagOrder.push(41);
+    this.zigzagOrder.push(34);
+    this.zigzagOrder.push(27);
+    this.zigzagOrder.push(20);
+    this.zigzagOrder.push(13);
+    this.zigzagOrder.push(6);
+    this.zigzagOrder.push(7);
+    this.zigzagOrder.push(14);
+    this.zigzagOrder.push(21);
+    this.zigzagOrder.push(28);
+    this.zigzagOrder.push(35);
+    this.zigzagOrder.push(42);
+    this.zigzagOrder.push(49);
+    this.zigzagOrder.push(56);
+    this.zigzagOrder.push(57);
+    this.zigzagOrder.push(50);
+    this.zigzagOrder.push(43);
+    this.zigzagOrder.push(36);
+    this.zigzagOrder.push(29);
+    this.zigzagOrder.push(22);
+    this.zigzagOrder.push(15);
+    this.zigzagOrder.push(23);
+    this.zigzagOrder.push(30);
+    this.zigzagOrder.push(37);
+    this.zigzagOrder.push(44);
+    this.zigzagOrder.push(51);
+    this.zigzagOrder.push(58);
+    this.zigzagOrder.push(59);
+    this.zigzagOrder.push(52);
+    this.zigzagOrder.push(45);
+    this.zigzagOrder.push(38);
+    this.zigzagOrder.push(31);
+    this.zigzagOrder.push(39);
+    this.zigzagOrder.push(46);
+    this.zigzagOrder.push(53);
+    this.zigzagOrder.push(60);
+    this.zigzagOrder.push(61);
+    this.zigzagOrder.push(54);
+    this.zigzagOrder.push(47);
+    this.zigzagOrder.push(55);
+    this.zigzagOrder.push(62);
+    this.zigzagOrder.push(63);
+  }
+  dct1d (input, startIdx, stride, output, outIdx, outStride) {
+    let u = 0;
+    while (u < 8) {
+      let sum = 0;
+      let x = 0;
+      while (x < 8) {
+        const pixel = input[(startIdx + (x * stride))];
+        const cosVal = this.cosTable[((x * 8) + u)];
+        sum = sum + (pixel * cosVal);
+        x = x + 1;
+      };
+      if ( u == 0 ) {
+        sum = ((sum * 724) >> 10);
+      }
+      output[outIdx + (u * outStride)] = (sum >> 11);
+      u = u + 1;
+    };
+  };
+  transform (pixels) {
+    let shifted = [];
+    let i = 0;
+    while (i < 64) {
+      shifted.push((pixels[i]) - 128);
+      i = i + 1;
+    };
+    let temp = [];
+    i = 0;
+    while (i < 64) {
+      temp.push(0);
+      i = i + 1;
+    };
+    let row = 0;
+    while (row < 8) {
+      const rowStart = row * 8;
+      this.dct1d(shifted, rowStart, 1, temp, rowStart, 1);
+      row = row + 1;
+    };
+    let coeffs = [];
+    i = 0;
+    while (i < 64) {
+      coeffs.push(0);
+      i = i + 1;
+    };
+    let col = 0;
+    while (col < 8) {
+      this.dct1d(temp, col, 8, coeffs, col, 8);
+      col = col + 1;
+    };
+    return coeffs;
+  };
+  zigzag (block) {
+    let zigzagOut = [];
+    let i = 0;
+    while (i < 64) {
+      const pos = this.zigzagOrder[i];
+      zigzagOut.push(block[pos]);
+      i = i + 1;
+    };
+    return zigzagOut;
+  };
+}
+class BitWriter  {
+  constructor() {
+    this.buffer = new GrowableBuffer();
+    this.bitBuffer = 0;
+    this.bitCount = 0;
+  }
+  writeBit (bit) {
+    this.bitBuffer = (this.bitBuffer << 1);
+    this.bitBuffer = (this.bitBuffer | ((bit & 1)));
+    this.bitCount = this.bitCount + 1;
+    if ( this.bitCount == 8 ) {
+      this.flushByte();
+    }
+  };
+  writeBits (value, numBits) {
+    let i = numBits - 1;
+    while (i >= 0) {
+      const bit = (((value >> i)) & 1);
+      this.writeBit(bit);
+      i = i - 1;
+    };
+  };
+  flushByte () {
+    if ( this.bitCount > 0 ) {
+      while (this.bitCount < 8) {
+        this.bitBuffer = (this.bitBuffer << 1);
+        this.bitBuffer = (this.bitBuffer | 1);
+        this.bitCount = this.bitCount + 1;
+      };
+      this.buffer.writeByte(this.bitBuffer);
+      if ( this.bitBuffer == 255 ) {
+        this.buffer.writeByte(0);
+      }
+      this.bitBuffer = 0;
+      this.bitCount = 0;
+    }
+  };
+  writeByte (b) {
+    this.flushByte();
+    this.buffer.writeByte(b);
+  };
+  writeWord (w) {
+    this.writeByte((w >> 8));
+    this.writeByte((w & 255));
+  };
+  getBuffer () {
+    this.flushByte();
+    return this.buffer.toBuffer();
+  };
+  getLength () {
+    return (this.buffer).size();
+  };
+}
+class JPEGEncoder  {
+  constructor() {
+    this.quality = 75;
+    this.yQuantTable = [];
+    this.cQuantTable = [];
+    this.stdYQuant = [];
+    this.stdCQuant = [];
+    this.dcYBits = [];
+    this.dcYValues = [];
+    this.acYBits = [];
+    this.acYValues = [];
+    this.dcCBits = [];
+    this.dcCValues = [];
+    this.acCBits = [];
+    this.acCValues = [];
+    this.dcYCodes = [];
+    this.dcYLengths = [];
+    this.acYCodes = [];
+    this.acYLengths = [];
+    this.dcCCodes = [];
+    this.dcCLengths = [];
+    this.acCCodes = [];
+    this.acCLengths = [];
+    this.prevDCY = 0;
+    this.prevDCCb = 0;
+    this.prevDCCr = 0;
+    this.fdct = new FDCT();
+    this.initQuantTables();
+    this.initHuffmanTables();
+  }
+  initQuantTables () {
+    this.stdYQuant.push(16);
+    this.stdYQuant.push(11);
+    this.stdYQuant.push(10);
+    this.stdYQuant.push(16);
+    this.stdYQuant.push(24);
+    this.stdYQuant.push(40);
+    this.stdYQuant.push(51);
+    this.stdYQuant.push(61);
+    this.stdYQuant.push(12);
+    this.stdYQuant.push(12);
+    this.stdYQuant.push(14);
+    this.stdYQuant.push(19);
+    this.stdYQuant.push(26);
+    this.stdYQuant.push(58);
+    this.stdYQuant.push(60);
+    this.stdYQuant.push(55);
+    this.stdYQuant.push(14);
+    this.stdYQuant.push(13);
+    this.stdYQuant.push(16);
+    this.stdYQuant.push(24);
+    this.stdYQuant.push(40);
+    this.stdYQuant.push(57);
+    this.stdYQuant.push(69);
+    this.stdYQuant.push(56);
+    this.stdYQuant.push(14);
+    this.stdYQuant.push(17);
+    this.stdYQuant.push(22);
+    this.stdYQuant.push(29);
+    this.stdYQuant.push(51);
+    this.stdYQuant.push(87);
+    this.stdYQuant.push(80);
+    this.stdYQuant.push(62);
+    this.stdYQuant.push(18);
+    this.stdYQuant.push(22);
+    this.stdYQuant.push(37);
+    this.stdYQuant.push(56);
+    this.stdYQuant.push(68);
+    this.stdYQuant.push(109);
+    this.stdYQuant.push(103);
+    this.stdYQuant.push(77);
+    this.stdYQuant.push(24);
+    this.stdYQuant.push(35);
+    this.stdYQuant.push(55);
+    this.stdYQuant.push(64);
+    this.stdYQuant.push(81);
+    this.stdYQuant.push(104);
+    this.stdYQuant.push(113);
+    this.stdYQuant.push(92);
+    this.stdYQuant.push(49);
+    this.stdYQuant.push(64);
+    this.stdYQuant.push(78);
+    this.stdYQuant.push(87);
+    this.stdYQuant.push(103);
+    this.stdYQuant.push(121);
+    this.stdYQuant.push(120);
+    this.stdYQuant.push(101);
+    this.stdYQuant.push(72);
+    this.stdYQuant.push(92);
+    this.stdYQuant.push(95);
+    this.stdYQuant.push(98);
+    this.stdYQuant.push(112);
+    this.stdYQuant.push(100);
+    this.stdYQuant.push(103);
+    this.stdYQuant.push(99);
+    this.stdCQuant.push(17);
+    this.stdCQuant.push(18);
+    this.stdCQuant.push(24);
+    this.stdCQuant.push(47);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(18);
+    this.stdCQuant.push(21);
+    this.stdCQuant.push(26);
+    this.stdCQuant.push(66);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(24);
+    this.stdCQuant.push(26);
+    this.stdCQuant.push(56);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(47);
+    this.stdCQuant.push(66);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.stdCQuant.push(99);
+    this.scaleQuantTables(this.quality);
+  };
+  scaleQuantTables (q) {
+    let scale = 0;
+    if ( q < 50 ) {
+      scale = Math.floor( (5000 / q));
+    } else {
+      scale = 200 - (q * 2);
+    }
+    this.yQuantTable.length = 0;
+    this.cQuantTable.length = 0;
+    let i = 0;
+    while (i < 64) {
+      let yVal = Math.floor( ((((this.stdYQuant[i]) * scale) + 50) / 100));
+      if ( yVal < 1 ) {
+        yVal = 1;
+      }
+      if ( yVal > 255 ) {
+        yVal = 255;
+      }
+      this.yQuantTable.push(yVal);
+      let cVal = Math.floor( ((((this.stdCQuant[i]) * scale) + 50) / 100));
+      if ( cVal < 1 ) {
+        cVal = 1;
+      }
+      if ( cVal > 255 ) {
+        cVal = 255;
+      }
+      this.cQuantTable.push(cVal);
+      i = i + 1;
+    };
+  };
+  initHuffmanTables () {
+    this.dcYBits.push(0);
+    this.dcYBits.push(1);
+    this.dcYBits.push(5);
+    this.dcYBits.push(1);
+    this.dcYBits.push(1);
+    this.dcYBits.push(1);
+    this.dcYBits.push(1);
+    this.dcYBits.push(1);
+    this.dcYBits.push(1);
+    this.dcYBits.push(0);
+    this.dcYBits.push(0);
+    this.dcYBits.push(0);
+    this.dcYBits.push(0);
+    this.dcYBits.push(0);
+    this.dcYBits.push(0);
+    this.dcYBits.push(0);
+    this.dcYValues.push(0);
+    this.dcYValues.push(1);
+    this.dcYValues.push(2);
+    this.dcYValues.push(3);
+    this.dcYValues.push(4);
+    this.dcYValues.push(5);
+    this.dcYValues.push(6);
+    this.dcYValues.push(7);
+    this.dcYValues.push(8);
+    this.dcYValues.push(9);
+    this.dcYValues.push(10);
+    this.dcYValues.push(11);
+    this.acYBits.push(0);
+    this.acYBits.push(2);
+    this.acYBits.push(1);
+    this.acYBits.push(3);
+    this.acYBits.push(3);
+    this.acYBits.push(2);
+    this.acYBits.push(4);
+    this.acYBits.push(3);
+    this.acYBits.push(5);
+    this.acYBits.push(5);
+    this.acYBits.push(4);
+    this.acYBits.push(4);
+    this.acYBits.push(0);
+    this.acYBits.push(0);
+    this.acYBits.push(1);
+    this.acYBits.push(125);
+    this.acYValues.push(1);
+    this.acYValues.push(2);
+    this.acYValues.push(3);
+    this.acYValues.push(0);
+    this.acYValues.push(4);
+    this.acYValues.push(17);
+    this.acYValues.push(5);
+    this.acYValues.push(18);
+    this.acYValues.push(33);
+    this.acYValues.push(49);
+    this.acYValues.push(65);
+    this.acYValues.push(6);
+    this.acYValues.push(19);
+    this.acYValues.push(81);
+    this.acYValues.push(97);
+    this.acYValues.push(7);
+    this.acYValues.push(34);
+    this.acYValues.push(113);
+    this.acYValues.push(20);
+    this.acYValues.push(50);
+    this.acYValues.push(129);
+    this.acYValues.push(145);
+    this.acYValues.push(161);
+    this.acYValues.push(8);
+    this.acYValues.push(35);
+    this.acYValues.push(66);
+    this.acYValues.push(177);
+    this.acYValues.push(193);
+    this.acYValues.push(21);
+    this.acYValues.push(82);
+    this.acYValues.push(209);
+    this.acYValues.push(240);
+    this.acYValues.push(36);
+    this.acYValues.push(51);
+    this.acYValues.push(98);
+    this.acYValues.push(114);
+    this.acYValues.push(130);
+    this.acYValues.push(9);
+    this.acYValues.push(10);
+    this.acYValues.push(22);
+    this.acYValues.push(23);
+    this.acYValues.push(24);
+    this.acYValues.push(25);
+    this.acYValues.push(26);
+    this.acYValues.push(37);
+    this.acYValues.push(38);
+    this.acYValues.push(39);
+    this.acYValues.push(40);
+    this.acYValues.push(41);
+    this.acYValues.push(42);
+    this.acYValues.push(52);
+    this.acYValues.push(53);
+    this.acYValues.push(54);
+    this.acYValues.push(55);
+    this.acYValues.push(56);
+    this.acYValues.push(57);
+    this.acYValues.push(58);
+    this.acYValues.push(67);
+    this.acYValues.push(68);
+    this.acYValues.push(69);
+    this.acYValues.push(70);
+    this.acYValues.push(71);
+    this.acYValues.push(72);
+    this.acYValues.push(73);
+    this.acYValues.push(74);
+    this.acYValues.push(83);
+    this.acYValues.push(84);
+    this.acYValues.push(85);
+    this.acYValues.push(86);
+    this.acYValues.push(87);
+    this.acYValues.push(88);
+    this.acYValues.push(89);
+    this.acYValues.push(90);
+    this.acYValues.push(99);
+    this.acYValues.push(100);
+    this.acYValues.push(101);
+    this.acYValues.push(102);
+    this.acYValues.push(103);
+    this.acYValues.push(104);
+    this.acYValues.push(105);
+    this.acYValues.push(106);
+    this.acYValues.push(115);
+    this.acYValues.push(116);
+    this.acYValues.push(117);
+    this.acYValues.push(118);
+    this.acYValues.push(119);
+    this.acYValues.push(120);
+    this.acYValues.push(121);
+    this.acYValues.push(122);
+    this.acYValues.push(131);
+    this.acYValues.push(132);
+    this.acYValues.push(133);
+    this.acYValues.push(134);
+    this.acYValues.push(135);
+    this.acYValues.push(136);
+    this.acYValues.push(137);
+    this.acYValues.push(138);
+    this.acYValues.push(146);
+    this.acYValues.push(147);
+    this.acYValues.push(148);
+    this.acYValues.push(149);
+    this.acYValues.push(150);
+    this.acYValues.push(151);
+    this.acYValues.push(152);
+    this.acYValues.push(153);
+    this.acYValues.push(154);
+    this.acYValues.push(162);
+    this.acYValues.push(163);
+    this.acYValues.push(164);
+    this.acYValues.push(165);
+    this.acYValues.push(166);
+    this.acYValues.push(167);
+    this.acYValues.push(168);
+    this.acYValues.push(169);
+    this.acYValues.push(170);
+    this.acYValues.push(178);
+    this.acYValues.push(179);
+    this.acYValues.push(180);
+    this.acYValues.push(181);
+    this.acYValues.push(182);
+    this.acYValues.push(183);
+    this.acYValues.push(184);
+    this.acYValues.push(185);
+    this.acYValues.push(186);
+    this.acYValues.push(194);
+    this.acYValues.push(195);
+    this.acYValues.push(196);
+    this.acYValues.push(197);
+    this.acYValues.push(198);
+    this.acYValues.push(199);
+    this.acYValues.push(200);
+    this.acYValues.push(201);
+    this.acYValues.push(202);
+    this.acYValues.push(210);
+    this.acYValues.push(211);
+    this.acYValues.push(212);
+    this.acYValues.push(213);
+    this.acYValues.push(214);
+    this.acYValues.push(215);
+    this.acYValues.push(216);
+    this.acYValues.push(217);
+    this.acYValues.push(218);
+    this.acYValues.push(225);
+    this.acYValues.push(226);
+    this.acYValues.push(227);
+    this.acYValues.push(228);
+    this.acYValues.push(229);
+    this.acYValues.push(230);
+    this.acYValues.push(231);
+    this.acYValues.push(232);
+    this.acYValues.push(233);
+    this.acYValues.push(234);
+    this.acYValues.push(241);
+    this.acYValues.push(242);
+    this.acYValues.push(243);
+    this.acYValues.push(244);
+    this.acYValues.push(245);
+    this.acYValues.push(246);
+    this.acYValues.push(247);
+    this.acYValues.push(248);
+    this.acYValues.push(249);
+    this.acYValues.push(250);
+    this.dcCBits.push(0);
+    this.dcCBits.push(3);
+    this.dcCBits.push(1);
+    this.dcCBits.push(1);
+    this.dcCBits.push(1);
+    this.dcCBits.push(1);
+    this.dcCBits.push(1);
+    this.dcCBits.push(1);
+    this.dcCBits.push(1);
+    this.dcCBits.push(1);
+    this.dcCBits.push(1);
+    this.dcCBits.push(0);
+    this.dcCBits.push(0);
+    this.dcCBits.push(0);
+    this.dcCBits.push(0);
+    this.dcCBits.push(0);
+    this.dcCValues.push(0);
+    this.dcCValues.push(1);
+    this.dcCValues.push(2);
+    this.dcCValues.push(3);
+    this.dcCValues.push(4);
+    this.dcCValues.push(5);
+    this.dcCValues.push(6);
+    this.dcCValues.push(7);
+    this.dcCValues.push(8);
+    this.dcCValues.push(9);
+    this.dcCValues.push(10);
+    this.dcCValues.push(11);
+    this.acCBits.push(0);
+    this.acCBits.push(2);
+    this.acCBits.push(1);
+    this.acCBits.push(2);
+    this.acCBits.push(4);
+    this.acCBits.push(4);
+    this.acCBits.push(3);
+    this.acCBits.push(4);
+    this.acCBits.push(7);
+    this.acCBits.push(5);
+    this.acCBits.push(4);
+    this.acCBits.push(4);
+    this.acCBits.push(0);
+    this.acCBits.push(1);
+    this.acCBits.push(2);
+    this.acCBits.push(119);
+    this.acCValues.push(0);
+    this.acCValues.push(1);
+    this.acCValues.push(2);
+    this.acCValues.push(3);
+    this.acCValues.push(17);
+    this.acCValues.push(4);
+    this.acCValues.push(5);
+    this.acCValues.push(33);
+    this.acCValues.push(49);
+    this.acCValues.push(6);
+    this.acCValues.push(18);
+    this.acCValues.push(65);
+    this.acCValues.push(81);
+    this.acCValues.push(7);
+    this.acCValues.push(97);
+    this.acCValues.push(113);
+    this.acCValues.push(19);
+    this.acCValues.push(34);
+    this.acCValues.push(50);
+    this.acCValues.push(129);
+    this.acCValues.push(8);
+    this.acCValues.push(20);
+    this.acCValues.push(66);
+    this.acCValues.push(145);
+    this.acCValues.push(161);
+    this.acCValues.push(177);
+    this.acCValues.push(193);
+    this.acCValues.push(9);
+    this.acCValues.push(35);
+    this.acCValues.push(51);
+    this.acCValues.push(82);
+    this.acCValues.push(240);
+    this.acCValues.push(21);
+    this.acCValues.push(98);
+    this.acCValues.push(114);
+    this.acCValues.push(209);
+    this.acCValues.push(10);
+    this.acCValues.push(22);
+    this.acCValues.push(36);
+    this.acCValues.push(52);
+    this.acCValues.push(225);
+    this.acCValues.push(37);
+    this.acCValues.push(241);
+    this.acCValues.push(23);
+    this.acCValues.push(24);
+    this.acCValues.push(25);
+    this.acCValues.push(26);
+    this.acCValues.push(38);
+    this.acCValues.push(39);
+    this.acCValues.push(40);
+    this.acCValues.push(41);
+    this.acCValues.push(42);
+    this.acCValues.push(53);
+    this.acCValues.push(54);
+    this.acCValues.push(55);
+    this.acCValues.push(56);
+    this.acCValues.push(57);
+    this.acCValues.push(58);
+    this.acCValues.push(67);
+    this.acCValues.push(68);
+    this.acCValues.push(69);
+    this.acCValues.push(70);
+    this.acCValues.push(71);
+    this.acCValues.push(72);
+    this.acCValues.push(73);
+    this.acCValues.push(74);
+    this.acCValues.push(83);
+    this.acCValues.push(84);
+    this.acCValues.push(85);
+    this.acCValues.push(86);
+    this.acCValues.push(87);
+    this.acCValues.push(88);
+    this.acCValues.push(89);
+    this.acCValues.push(90);
+    this.acCValues.push(99);
+    this.acCValues.push(100);
+    this.acCValues.push(101);
+    this.acCValues.push(102);
+    this.acCValues.push(103);
+    this.acCValues.push(104);
+    this.acCValues.push(105);
+    this.acCValues.push(106);
+    this.acCValues.push(115);
+    this.acCValues.push(116);
+    this.acCValues.push(117);
+    this.acCValues.push(118);
+    this.acCValues.push(119);
+    this.acCValues.push(120);
+    this.acCValues.push(121);
+    this.acCValues.push(122);
+    this.acCValues.push(130);
+    this.acCValues.push(131);
+    this.acCValues.push(132);
+    this.acCValues.push(133);
+    this.acCValues.push(134);
+    this.acCValues.push(135);
+    this.acCValues.push(136);
+    this.acCValues.push(137);
+    this.acCValues.push(138);
+    this.acCValues.push(146);
+    this.acCValues.push(147);
+    this.acCValues.push(148);
+    this.acCValues.push(149);
+    this.acCValues.push(150);
+    this.acCValues.push(151);
+    this.acCValues.push(152);
+    this.acCValues.push(153);
+    this.acCValues.push(154);
+    this.acCValues.push(162);
+    this.acCValues.push(163);
+    this.acCValues.push(164);
+    this.acCValues.push(165);
+    this.acCValues.push(166);
+    this.acCValues.push(167);
+    this.acCValues.push(168);
+    this.acCValues.push(169);
+    this.acCValues.push(170);
+    this.acCValues.push(178);
+    this.acCValues.push(179);
+    this.acCValues.push(180);
+    this.acCValues.push(181);
+    this.acCValues.push(182);
+    this.acCValues.push(183);
+    this.acCValues.push(184);
+    this.acCValues.push(185);
+    this.acCValues.push(186);
+    this.acCValues.push(194);
+    this.acCValues.push(195);
+    this.acCValues.push(196);
+    this.acCValues.push(197);
+    this.acCValues.push(198);
+    this.acCValues.push(199);
+    this.acCValues.push(200);
+    this.acCValues.push(201);
+    this.acCValues.push(202);
+    this.acCValues.push(210);
+    this.acCValues.push(211);
+    this.acCValues.push(212);
+    this.acCValues.push(213);
+    this.acCValues.push(214);
+    this.acCValues.push(215);
+    this.acCValues.push(216);
+    this.acCValues.push(217);
+    this.acCValues.push(218);
+    this.acCValues.push(226);
+    this.acCValues.push(227);
+    this.acCValues.push(228);
+    this.acCValues.push(229);
+    this.acCValues.push(230);
+    this.acCValues.push(231);
+    this.acCValues.push(232);
+    this.acCValues.push(233);
+    this.acCValues.push(234);
+    this.acCValues.push(242);
+    this.acCValues.push(243);
+    this.acCValues.push(244);
+    this.acCValues.push(245);
+    this.acCValues.push(246);
+    this.acCValues.push(247);
+    this.acCValues.push(248);
+    this.acCValues.push(249);
+    this.acCValues.push(250);
+    let i = 0;
+    while (i < 256) {
+      this.dcYCodes.push(0);
+      this.dcYLengths.push(0);
+      this.acYCodes.push(0);
+      this.acYLengths.push(0);
+      this.dcCCodes.push(0);
+      this.dcCLengths.push(0);
+      this.acCCodes.push(0);
+      this.acCLengths.push(0);
+      i = i + 1;
+    };
+    this.buildHuffmanCodes(this.dcYBits, this.dcYValues, this.dcYCodes, this.dcYLengths);
+    this.buildHuffmanCodes(this.acYBits, this.acYValues, this.acYCodes, this.acYLengths);
+    this.buildHuffmanCodes(this.dcCBits, this.dcCValues, this.dcCCodes, this.dcCLengths);
+    this.buildHuffmanCodes(this.acCBits, this.acCValues, this.acCCodes, this.acCLengths);
+  };
+  buildHuffmanCodes (bits, values, codes, lengths) {
+    let code = 0;
+    let valueIdx = 0;
+    let bitLen = 1;
+    while (bitLen <= 16) {
+      const count = bits[(bitLen - 1)];
+      let j = 0;
+      while (j < count) {
+        const symbol = values[valueIdx];
+        codes[symbol] = code;
+        lengths[symbol] = bitLen;
+        code = code + 1;
+        valueIdx = valueIdx + 1;
+        j = j + 1;
+      };
+      code = (code << 1);
+      bitLen = bitLen + 1;
+    };
+  };
+  getCategory (value) {
+    if ( value < 0 ) {
+      value = 0 - value;
+    }
+    if ( value == 0 ) {
+      return 0;
+    }
+    let cat = 0;
+    while (value > 0) {
+      cat = cat + 1;
+      value = (value >> 1);
+    };
+    return cat;
+  };
+  encodeNumber (value, category) {
+    if ( value < 0 ) {
+      return value + (((1 << category)) - 1);
+    }
+    return value;
+  };
+  encodeBlock (writer, coeffs, quantTable, dcCodes, dcLengths, acCodes, acLengths, prevDC) {
+    let quantized = [];
+    let i = 0;
+    while (i < 64) {
+      const q = quantTable[i];
+      const c = coeffs[i];
+      let qVal = 0;
+      if ( c >= 0 ) {
+        qVal = Math.floor( ((c + ((q >> 1))) / q));
+      } else {
+        qVal = Math.floor( ((c - ((q >> 1))) / q));
+      }
+      quantized.push(qVal);
+      i = i + 1;
+    };
+    const zigzagged = this.fdct.zigzag(quantized);
+    const dc = zigzagged[0];
+    const dcDiff = dc - prevDC;
+    const dcCat = this.getCategory(dcDiff);
+    const dcCode = dcCodes[dcCat];
+    const dcLen = dcLengths[dcCat];
+    writer.writeBits(dcCode, dcLen);
+    if ( dcCat > 0 ) {
+      const dcVal = this.encodeNumber(dcDiff, dcCat);
+      writer.writeBits(dcVal, dcCat);
+    }
+    let zeroRun = 0;
+    let k = 1;
+    while (k < 64) {
+      const ac = zigzagged[k];
+      if ( ac == 0 ) {
+        zeroRun = zeroRun + 1;
+      } else {
+        while (zeroRun >= 16) {
+          const zrlCode = acCodes[240];
+          const zrlLen = acLengths[240];
+          writer.writeBits(zrlCode, zrlLen);
+          zeroRun = zeroRun - 16;
+        };
+        const acCat = this.getCategory(ac);
+        const runCat = (((zeroRun << 4)) | acCat);
+        const acHuffCode = acCodes[runCat];
+        const acHuffLen = acLengths[runCat];
+        writer.writeBits(acHuffCode, acHuffLen);
+        const acVal = this.encodeNumber(ac, acCat);
+        writer.writeBits(acVal, acCat);
+        zeroRun = 0;
+      }
+      k = k + 1;
+    };
+    if ( zeroRun > 0 ) {
+      const eobCode = acCodes[0];
+      const eobLen = acLengths[0];
+      writer.writeBits(eobCode, eobLen);
+    }
+  };
+  rgbToYCbCr (r, g, b, yOut, cbOut, crOut) {
+    let y = ((((77 * r) + (150 * g)) + (29 * b)) >> 8);
+    let cb = (((((0 - (43 * r)) - (85 * g)) + (128 * b)) >> 8)) + 128;
+    let cr = (((((128 * r) - (107 * g)) - (21 * b)) >> 8)) + 128;
+    if ( y < 0 ) {
+      y = 0;
+    }
+    if ( y > 255 ) {
+      y = 255;
+    }
+    if ( cb < 0 ) {
+      cb = 0;
+    }
+    if ( cb > 255 ) {
+      cb = 255;
+    }
+    if ( cr < 0 ) {
+      cr = 0;
+    }
+    if ( cr > 255 ) {
+      cr = 255;
+    }
+    yOut.push(y);
+    cbOut.push(cb);
+    crOut.push(cr);
+  };
+  extractBlock (img, blockX, blockY, channel) {
+    let output = [];
+    let py = 0;
+    while (py < 8) {
+      let px = 0;
+      while (px < 8) {
+        let imgX = blockX + px;
+        let imgY = blockY + py;
+        if ( imgX >= img.width ) {
+          imgX = img.width - 1;
+        }
+        if ( imgY >= img.height ) {
+          imgY = img.height - 1;
+        }
+        const c = img.getPixel(imgX, imgY);
+        const y = ((((77 * c.r) + (150 * c.g)) + (29 * c.b)) >> 8);
+        const cb = (((((0 - (43 * c.r)) - (85 * c.g)) + (128 * c.b)) >> 8)) + 128;
+        const cr = (((((128 * c.r) - (107 * c.g)) - (21 * c.b)) >> 8)) + 128;
+        if ( channel == 0 ) {
+          output.push(y);
+        }
+        if ( channel == 1 ) {
+          output.push(cb);
+        }
+        if ( channel == 2 ) {
+          output.push(cr);
+        }
+        px = px + 1;
+      };
+      py = py + 1;
+    };
+    return output;
+  };
+  writeMarkers (writer, width, height) {
+    writer.writeByte(255);
+    writer.writeByte(216);
+    writer.writeByte(255);
+    writer.writeByte(224);
+    writer.writeWord(16);
+    writer.writeByte(74);
+    writer.writeByte(70);
+    writer.writeByte(73);
+    writer.writeByte(70);
+    writer.writeByte(0);
+    writer.writeByte(1);
+    writer.writeByte(1);
+    writer.writeByte(0);
+    writer.writeWord(1);
+    writer.writeWord(1);
+    writer.writeByte(0);
+    writer.writeByte(0);
+    writer.writeByte(255);
+    writer.writeByte(219);
+    writer.writeWord(67);
+    writer.writeByte(0);
+    let i = 0;
+    while (i < 64) {
+      writer.writeByte(this.yQuantTable[(this.fdct.zigzagOrder[i])]);
+      i = i + 1;
+    };
+    writer.writeByte(255);
+    writer.writeByte(219);
+    writer.writeWord(67);
+    writer.writeByte(1);
+    i = 0;
+    while (i < 64) {
+      writer.writeByte(this.cQuantTable[(this.fdct.zigzagOrder[i])]);
+      i = i + 1;
+    };
+    writer.writeByte(255);
+    writer.writeByte(192);
+    writer.writeWord(17);
+    writer.writeByte(8);
+    writer.writeWord(height);
+    writer.writeWord(width);
+    writer.writeByte(3);
+    writer.writeByte(1);
+    writer.writeByte(17);
+    writer.writeByte(0);
+    writer.writeByte(2);
+    writer.writeByte(17);
+    writer.writeByte(1);
+    writer.writeByte(3);
+    writer.writeByte(17);
+    writer.writeByte(1);
+    writer.writeByte(255);
+    writer.writeByte(196);
+    writer.writeWord(31);
+    writer.writeByte(0);
+    i = 0;
+    while (i < 16) {
+      writer.writeByte(this.dcYBits[i]);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 12) {
+      writer.writeByte(this.dcYValues[i]);
+      i = i + 1;
+    };
+    writer.writeByte(255);
+    writer.writeByte(196);
+    writer.writeWord(181);
+    writer.writeByte(16);
+    i = 0;
+    while (i < 16) {
+      writer.writeByte(this.acYBits[i]);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 162) {
+      writer.writeByte(this.acYValues[i]);
+      i = i + 1;
+    };
+    writer.writeByte(255);
+    writer.writeByte(196);
+    writer.writeWord(31);
+    writer.writeByte(1);
+    i = 0;
+    while (i < 16) {
+      writer.writeByte(this.dcCBits[i]);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 12) {
+      writer.writeByte(this.dcCValues[i]);
+      i = i + 1;
+    };
+    writer.writeByte(255);
+    writer.writeByte(196);
+    writer.writeWord(181);
+    writer.writeByte(17);
+    i = 0;
+    while (i < 16) {
+      writer.writeByte(this.acCBits[i]);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 162) {
+      writer.writeByte(this.acCValues[i]);
+      i = i + 1;
+    };
+    writer.writeByte(255);
+    writer.writeByte(218);
+    writer.writeWord(12);
+    writer.writeByte(3);
+    writer.writeByte(1);
+    writer.writeByte(0);
+    writer.writeByte(2);
+    writer.writeByte(17);
+    writer.writeByte(3);
+    writer.writeByte(17);
+    writer.writeByte(0);
+    writer.writeByte(63);
+    writer.writeByte(0);
+  };
+  encodeToBuffer (img) {
+    const writer = new BitWriter();
+    this.writeMarkers(writer, img.width, img.height);
+    const mcuWidth = Math.floor( ((img.width + 7) / 8));
+    const mcuHeight = Math.floor( ((img.height + 7) / 8));
+    this.prevDCY = 0;
+    this.prevDCCb = 0;
+    this.prevDCCr = 0;
+    let mcuY = 0;
+    while (mcuY < mcuHeight) {
+      let mcuX = 0;
+      while (mcuX < mcuWidth) {
+        const blockX = mcuX * 8;
+        const blockY = mcuY * 8;
+        const yBlock = this.extractBlock(img, blockX, blockY, 0);
+        const yCoeffs = this.fdct.transform(yBlock);
+        this.encodeBlock(writer, yCoeffs, this.yQuantTable, this.dcYCodes, this.dcYLengths, this.acYCodes, this.acYLengths, this.prevDCY);
+        const yZig = this.fdct.zigzag(yCoeffs);
+        const yQ = this.yQuantTable[0];
+        const yDC = yZig[0];
+        if ( yDC >= 0 ) {
+          this.prevDCY = Math.floor( ((yDC + ((yQ >> 1))) / yQ));
+        } else {
+          this.prevDCY = Math.floor( ((yDC - ((yQ >> 1))) / yQ));
+        }
+        const cbBlock = this.extractBlock(img, blockX, blockY, 1);
+        const cbCoeffs = this.fdct.transform(cbBlock);
+        this.encodeBlock(writer, cbCoeffs, this.cQuantTable, this.dcCCodes, this.dcCLengths, this.acCCodes, this.acCLengths, this.prevDCCb);
+        const cbZig = this.fdct.zigzag(cbCoeffs);
+        const cbQ = this.cQuantTable[0];
+        const cbDC = cbZig[0];
+        if ( cbDC >= 0 ) {
+          this.prevDCCb = Math.floor( ((cbDC + ((cbQ >> 1))) / cbQ));
+        } else {
+          this.prevDCCb = Math.floor( ((cbDC - ((cbQ >> 1))) / cbQ));
+        }
+        const crBlock = this.extractBlock(img, blockX, blockY, 2);
+        const crCoeffs = this.fdct.transform(crBlock);
+        this.encodeBlock(writer, crCoeffs, this.cQuantTable, this.dcCCodes, this.dcCLengths, this.acCCodes, this.acCLengths, this.prevDCCr);
+        const crZig = this.fdct.zigzag(crCoeffs);
+        const crQ = this.cQuantTable[0];
+        const crDC = crZig[0];
+        if ( crDC >= 0 ) {
+          this.prevDCCr = Math.floor( ((crDC + ((crQ >> 1))) / crQ));
+        } else {
+          this.prevDCCr = Math.floor( ((crDC - ((crQ >> 1))) / crQ));
+        }
+        mcuX = mcuX + 1;
+      };
+      mcuY = mcuY + 1;
+    };
+    writer.flushByte();
+    const outBuf = writer.getBuffer();
+    const outLen = writer.getLength();
+    const finalBuf = (function(){ var b = new ArrayBuffer((outLen + 2)); b._view = new DataView(b); return b; })();
+    let i = 0;
+    while (i < outLen) {
+      finalBuf._view.setUint8(i, outBuf._view.getUint8(i));
+      i = i + 1;
+    };
+    finalBuf._view.setUint8(outLen, 255);
+    finalBuf._view.setUint8(outLen + 1, 217);
+    return finalBuf;
+  };
+  encode (img, dirPath, fileName) {
+    console.log("Encoding JPEG: " + fileName);
+    console.log((("  Image size: " + ((img.width.toString()))) + "x") + ((img.height.toString())));
+    const writer = new BitWriter();
+    this.writeMarkers(writer, img.width, img.height);
+    const mcuWidth = Math.floor( ((img.width + 7) / 8));
+    const mcuHeight = Math.floor( ((img.height + 7) / 8));
+    console.log((("  MCU grid: " + ((mcuWidth.toString()))) + "x") + ((mcuHeight.toString())));
+    this.prevDCY = 0;
+    this.prevDCCb = 0;
+    this.prevDCCr = 0;
+    let mcuY = 0;
+    while (mcuY < mcuHeight) {
+      let mcuX = 0;
+      while (mcuX < mcuWidth) {
+        const blockX = mcuX * 8;
+        const blockY = mcuY * 8;
+        const yBlock = this.extractBlock(img, blockX, blockY, 0);
+        const yCoeffs = this.fdct.transform(yBlock);
+        this.encodeBlock(writer, yCoeffs, this.yQuantTable, this.dcYCodes, this.dcYLengths, this.acYCodes, this.acYLengths, this.prevDCY);
+        const yZig = this.fdct.zigzag(yCoeffs);
+        const yQ = this.yQuantTable[0];
+        const yDC = yZig[0];
+        if ( yDC >= 0 ) {
+          this.prevDCY = Math.floor( ((yDC + ((yQ >> 1))) / yQ));
+        } else {
+          this.prevDCY = Math.floor( ((yDC - ((yQ >> 1))) / yQ));
+        }
+        const cbBlock = this.extractBlock(img, blockX, blockY, 1);
+        const cbCoeffs = this.fdct.transform(cbBlock);
+        this.encodeBlock(writer, cbCoeffs, this.cQuantTable, this.dcCCodes, this.dcCLengths, this.acCCodes, this.acCLengths, this.prevDCCb);
+        const cbZig = this.fdct.zigzag(cbCoeffs);
+        const cbQ = this.cQuantTable[0];
+        const cbDC = cbZig[0];
+        if ( cbDC >= 0 ) {
+          this.prevDCCb = Math.floor( ((cbDC + ((cbQ >> 1))) / cbQ));
+        } else {
+          this.prevDCCb = Math.floor( ((cbDC - ((cbQ >> 1))) / cbQ));
+        }
+        const crBlock = this.extractBlock(img, blockX, blockY, 2);
+        const crCoeffs = this.fdct.transform(crBlock);
+        this.encodeBlock(writer, crCoeffs, this.cQuantTable, this.dcCCodes, this.dcCLengths, this.acCCodes, this.acCLengths, this.prevDCCr);
+        const crZig = this.fdct.zigzag(crCoeffs);
+        const crQ = this.cQuantTable[0];
+        const crDC = crZig[0];
+        if ( crDC >= 0 ) {
+          this.prevDCCr = Math.floor( ((crDC + ((crQ >> 1))) / crQ));
+        } else {
+          this.prevDCCr = Math.floor( ((crDC - ((crQ >> 1))) / crQ));
+        }
+        mcuX = mcuX + 1;
+      };
+      mcuY = mcuY + 1;
+    };
+    writer.flushByte();
+    const outBuf = writer.getBuffer();
+    const outLen = writer.getLength();
+    const finalBuf = (function(){ var b = new ArrayBuffer((outLen + 2)); b._view = new DataView(b); return b; })();
+    let i = 0;
+    while (i < outLen) {
+      finalBuf._view.setUint8(i, outBuf._view.getUint8(i));
+      i = i + 1;
+    };
+    finalBuf._view.setUint8(outLen, 255);
+    finalBuf._view.setUint8(outLen + 1, 217);
+    require('fs').writeFileSync(dirPath + '/' + fileName, Buffer.from(finalBuf));
+    console.log(("  Encoded size: " + (((outLen + 2).toString()))) + " bytes");
+    console.log((("  Saved: " + dirPath) + "/") + fileName);
+  };
+  setQuality (q) {
+    this.quality = q;
+    this.scaleQuantTables(q);
+  };
+}
+class EmbeddedFont  {
+  constructor(n, pn, font) {
+    this.name = "";
+    this.fontObjNum = 0;     /** note: unused */
+    this.fontDescObjNum = 0;     /** note: unused */
+    this.fontFileObjNum = 0;     /** note: unused */
+    this.pdfName = "";
+    this.name = n;
+    this.pdfName = pn;
+    this.ttfFont = font;
+  }
+}
+class EmbeddedImage  {
+  constructor(s) {
+    this.src = "";
+    this.objNum = 0;
+    this.width = 0;
+    this.height = 0;
+    this.orientation = 1;
+    this.pdfName = "";
+    this.src = s;
+  }
+}
 class EVGPDFRenderer  {
   constructor() {
     this.pageWidth = 595.0;
     this.pageHeight = 842.0;
     this.nextObjNum = 1;
-    this.fontObjNum = 0;
+    this.fontObjNum = 0;     /** note: unused */
     this.pagesObjNum = 0;
     this.contentObjNums = [];
     this.pageCount = 1;     /** note: unused */
     this.debug = false;
+    this.fontManager = new FontManager();
+    this.embeddedFonts = [];
+    this.usedFontNames = [];
+    this.embeddedImages = [];
+    this.jpegReader = new JPEGReader();     /** note: unused */
+    this.jpegDecoder = new JPEGDecoder();
+    this.jpegEncoder = new JPEGEncoder();
+    this.metadataParser = new JPEGMetadataParser();
+    this.baseDir = "./";
+    this.maxImageWidth = 800;
+    this.maxImageHeight = 800;
+    this.jpegQuality = 75;
     const w = new PDFWriter();
     this.writer = w;
     const lay = new EVGLayout();
     this.layout = lay;
+    const m_1 = new SimpleTextMeasurer();
+    this.measurer = m_1;
     const buf_1 = new GrowableBuffer();
     this.streamBuffer = buf_1;
+    let ef = [];
+    this.embeddedFonts = ef;
+    let uf = [];
+    this.usedFontNames = uf;
+    let ei = [];
+    this.embeddedImages = ei;
   }
   setPageSize (width, height) {
     this.pageWidth = width;
     this.pageHeight = height;
     this.layout.setPageSize(width, height);
   };
+  setBaseDir (dir) {
+    this.baseDir = dir;
+  };
+  setMeasurer (m) {
+    this.measurer = m;
+    this.layout.setMeasurer(m);
+  };
+  setFontManager (fm) {
+    this.fontManager = fm;
+  };
   setDebug (enabled) {
     this.layout.debug = enabled;
     this.debug = enabled;
+  };
+  getPdfFontName (fontFamily) {
+    let i = 0;
+    while (i < (this.usedFontNames.length)) {
+      const name = this.usedFontNames[i];
+      if ( name == fontFamily ) {
+        return "/F" + (((i + 1).toString()));
+      }
+      i = i + 1;
+    };
+    this.usedFontNames.push(fontFamily);
+    return "/F" + (((this.usedFontNames.length).toString()));
   };
   render (root) {
     this.layout.layout(root);
@@ -7761,7 +11400,10 @@ class EVGPDFRenderer  {
     const pdf = new GrowableBuffer();
     this.nextObjNum = 1;
     this.contentObjNums.length = 0;
-    pdf.writeString("%PDF-1.4\n");
+    this.usedFontNames.length = 0;
+    this.embeddedFonts.length = 0;
+    this.embeddedImages.length = 0;
+    pdf.writeString("%PDF-1.5\n");
     pdf.writeByte(37);
     pdf.writeByte(226);
     pdf.writeByte(227);
@@ -7773,24 +11415,176 @@ class EVGPDFRenderer  {
     this.renderElement(root, 0.0, 0.0);
     const contentData = this.streamBuffer.toBuffer();
     const contentLen = contentData.byteLength;
-    objectOffsets.push((pdf).size());
-    pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
-    pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n");
-    pdf.writeString("endobj\n\n");
-    this.fontObjNum = this.nextObjNum;
-    this.nextObjNum = this.nextObjNum + 1;
-    objectOffsets.push((pdf).size());
-    pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
-    pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\n");
-    pdf.writeString("endobj\n\n");
-    const fontBoldObjNum = this.nextObjNum;
-    this.nextObjNum = this.nextObjNum + 1;
-    objectOffsets.push((pdf).size());
-    pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
-    pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>\n");
-    pdf.writeString("endobj\n\n");
-    const fontItalicObjNum = this.nextObjNum;
-    this.nextObjNum = this.nextObjNum + 1;
+    let fontObjNums = [];
+    let i = 0;
+    while (i < (this.usedFontNames.length)) {
+      const fontName = this.usedFontNames[i];
+      const ttfFont = this.fontManager.getFont(fontName);
+      if ( ttfFont.unitsPerEm > 0 ) {
+        const fontFileData = ttfFont.getFontData();
+        const fontFileLen = fontFileData.byteLength;
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        pdf.writeString(((("<< /Length " + ((fontFileLen.toString()))) + " /Length1 ") + ((fontFileLen.toString()))) + " >>\n");
+        pdf.writeString("stream\n");
+        pdf.writeBuffer(fontFileData);
+        pdf.writeString("\nendstream\n");
+        pdf.writeString("endobj\n\n");
+        const fontFileObjNum = this.nextObjNum;
+        this.nextObjNum = this.nextObjNum + 1;
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        pdf.writeString("<< /Type /FontDescriptor");
+        pdf.writeString(" /FontName /" + this.sanitizeFontName(ttfFont.fontFamily));
+        pdf.writeString(" /Flags 32");
+        pdf.writeString((((" /FontBBox [0 " + ((ttfFont.descender.toString()))) + " 1000 ") + ((ttfFont.ascender.toString()))) + "]");
+        pdf.writeString(" /ItalicAngle 0");
+        pdf.writeString(" /Ascent " + ((ttfFont.ascender.toString())));
+        pdf.writeString(" /Descent " + ((ttfFont.descender.toString())));
+        pdf.writeString(" /CapHeight " + ((ttfFont.ascender.toString())));
+        pdf.writeString(" /StemV 80");
+        pdf.writeString((" /FontFile2 " + ((fontFileObjNum.toString()))) + " 0 R");
+        pdf.writeString(" >>\n");
+        pdf.writeString("endobj\n\n");
+        const fontDescObjNum = this.nextObjNum;
+        this.nextObjNum = this.nextObjNum + 1;
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        let toUnicodeStream = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n";
+        toUnicodeStream = toUnicodeStream + "2 beginbfrange\n<20> <7E> <0020>\n<A0> <FF> <00A0>\nendbfrange\n";
+        toUnicodeStream = toUnicodeStream + "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend";
+        const toUnicodeLen = toUnicodeStream.length;
+        pdf.writeString(("<< /Length " + ((toUnicodeLen.toString()))) + " >>\n");
+        pdf.writeString("stream\n");
+        pdf.writeString(toUnicodeStream);
+        pdf.writeString("\nendstream\n");
+        pdf.writeString("endobj\n\n");
+        const toUnicodeObjNum = this.nextObjNum;
+        this.nextObjNum = this.nextObjNum + 1;
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        pdf.writeString("<< /Type /Font");
+        pdf.writeString(" /Subtype /TrueType");
+        pdf.writeString(" /BaseFont /" + this.sanitizeFontName(ttfFont.fontFamily));
+        pdf.writeString(" /FirstChar 32");
+        pdf.writeString(" /LastChar 255");
+        pdf.writeString(" /Widths [");
+        let ch = 32;
+        while (ch <= 255) {
+          const w = ttfFont.getCharWidth(ch);
+          const scaledWd = ((w) * 1000.0) / (ttfFont.unitsPerEm);
+          const scaledW = Math.floor( scaledWd);
+          pdf.writeString((scaledW.toString()));
+          if ( ch < 255 ) {
+            pdf.writeString(" ");
+          }
+          ch = ch + 1;
+        };
+        pdf.writeString("]");
+        pdf.writeString((" /FontDescriptor " + ((fontDescObjNum.toString()))) + " 0 R");
+        pdf.writeString(" /Encoding /WinAnsiEncoding");
+        pdf.writeString((" /ToUnicode " + ((toUnicodeObjNum.toString()))) + " 0 R");
+        pdf.writeString(" >>\n");
+        pdf.writeString("endobj\n\n");
+        fontObjNums.push(this.nextObjNum);
+        this.nextObjNum = this.nextObjNum + 1;
+      } else {
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n");
+        pdf.writeString("endobj\n\n");
+        fontObjNums.push(this.nextObjNum);
+        this.nextObjNum = this.nextObjNum + 1;
+      }
+      i = i + 1;
+    };
+    if ( (fontObjNums.length) == 0 ) {
+      objectOffsets.push((pdf).size());
+      pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+      pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n");
+      pdf.writeString("endobj\n\n");
+      fontObjNums.push(this.nextObjNum);
+      this.nextObjNum = this.nextObjNum + 1;
+    }
+    let imgIdx = 0;
+    while (imgIdx < (this.embeddedImages.length)) {
+      const embImg = this.embeddedImages[imgIdx];
+      let imgSrc = embImg.src;
+      let imgDir = this.baseDir;
+      let imgFile = imgSrc;
+      if ( (imgSrc.length) > 2 ) {
+        const prefix = imgSrc.substring(0, 2 );
+        if ( prefix == "./" ) {
+          imgSrc = imgSrc.substring(2, (imgSrc.length) );
+        }
+      }
+      const lastSlash = imgSrc.lastIndexOf("/");
+      const lastBackslash = imgSrc.lastIndexOf("\\");
+      let lastSep = lastSlash;
+      if ( lastBackslash > lastSep ) {
+        lastSep = lastBackslash;
+      }
+      if ( lastSep >= 0 ) {
+        imgDir = this.baseDir + (imgSrc.substring(0, (lastSep + 1) ));
+        imgFile = imgSrc.substring((lastSep + 1), (imgSrc.length) );
+      } else {
+        imgDir = this.baseDir;
+        imgFile = imgSrc;
+      }
+      console.log((("Loading image: dir=" + imgDir) + " file=") + imgFile);
+      const metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
+      embImg.orientation = metaInfo.orientation;
+      let imgBuffer = this.jpegDecoder.decode(imgDir, imgFile);
+      if ( (imgBuffer.width > 1) && (imgBuffer.height > 1) ) {
+        if ( metaInfo.orientation > 1 ) {
+          console.log("  Applying EXIF orientation: " + ((metaInfo.orientation.toString())));
+          imgBuffer = imgBuffer.applyExifOrientation(metaInfo.orientation);
+        }
+        const origW = imgBuffer.width;
+        const origH = imgBuffer.height;
+        let newW = origW;
+        let newH = origH;
+        if ( (origW > this.maxImageWidth) || (origH > this.maxImageHeight) ) {
+          const scaleW = (this.maxImageWidth) / (origW);
+          const scaleH = (this.maxImageHeight) / (origH);
+          let scale = scaleW;
+          if ( scaleH < scaleW ) {
+            scale = scaleH;
+          }
+          newW = Math.floor( ((origW) * scale));
+          newH = Math.floor( ((origH) * scale));
+          console.log((((((("  Resizing from " + ((origW.toString()))) + "x") + ((origH.toString()))) + " to ") + ((newW.toString()))) + "x") + ((newH.toString())));
+          imgBuffer = imgBuffer.scaleToSize(newW, newH);
+        }
+        this.jpegEncoder.setQuality(this.jpegQuality);
+        const encodedData = this.jpegEncoder.encodeToBuffer(imgBuffer);
+        const encodedLen = encodedData.byteLength;
+        embImg.width = newW;
+        embImg.height = newH;
+        objectOffsets.push((pdf).size());
+        pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
+        pdf.writeString("<< /Type /XObject");
+        pdf.writeString(" /Subtype /Image");
+        pdf.writeString(" /Width " + ((newW.toString())));
+        pdf.writeString(" /Height " + ((newH.toString())));
+        pdf.writeString(" /ColorSpace /DeviceRGB");
+        pdf.writeString(" /BitsPerComponent 8");
+        pdf.writeString(" /Filter /DCTDecode");
+        pdf.writeString(" /Length " + ((encodedLen.toString())));
+        pdf.writeString(" >>\n");
+        pdf.writeString("stream\n");
+        pdf.writeBuffer(encodedData);
+        pdf.writeString("\nendstream\n");
+        pdf.writeString("endobj\n\n");
+        embImg.objNum = this.nextObjNum;
+        embImg.pdfName = "/Im" + (((imgIdx + 1).toString()));
+        this.nextObjNum = this.nextObjNum + 1;
+        console.log(((((((("Embedded image: " + imgSrc) + " (resized to ") + ((newW.toString()))) + "x") + ((newH.toString()))) + ", ") + ((encodedLen.toString()))) + " bytes)");
+      } else {
+        console.log("Failed to decode image: " + imgSrc);
+      }
+      imgIdx = imgIdx + 1;
+    };
     objectOffsets.push((pdf).size());
     pdf.writeString(((this.nextObjNum.toString())) + " 0 obj\n");
     pdf.writeString(("<< /Length " + ((contentLen.toString()))) + " >>\n");
@@ -7806,10 +11600,28 @@ class EVGPDFRenderer  {
     pdf.writeString(("<< /Type /Page /Parent " + ((pagesRef.toString()))) + " 0 R");
     pdf.writeString((((" /MediaBox [0 0 " + this.formatNum(this.pageWidth)) + " ") + this.formatNum(this.pageHeight)) + "]");
     pdf.writeString((" /Contents " + ((contentObjNum.toString()))) + " 0 R");
-    pdf.writeString((" /Resources << /Font << /F1 " + ((this.fontObjNum.toString()))) + " 0 R");
-    pdf.writeString((" /F2 " + ((fontBoldObjNum.toString()))) + " 0 R");
-    pdf.writeString((" /F3 " + ((fontItalicObjNum.toString()))) + " 0 R");
-    pdf.writeString(" >> >> >>\n");
+    pdf.writeString(" /Resources <<");
+    pdf.writeString(" /Font <<");
+    let fi = 0;
+    while (fi < (fontObjNums.length)) {
+      const fontObjN = fontObjNums[fi];
+      pdf.writeString((((" /F" + (((fi + 1).toString()))) + " ") + ((fontObjN.toString()))) + " 0 R");
+      fi = fi + 1;
+    };
+    pdf.writeString(" >>");
+    if ( (this.embeddedImages.length) > 0 ) {
+      pdf.writeString(" /XObject <<");
+      let ii = 0;
+      while (ii < (this.embeddedImages.length)) {
+        const embImg_1 = this.embeddedImages[ii];
+        if ( embImg_1.objNum > 0 ) {
+          pdf.writeString((((" /Im" + (((ii + 1).toString()))) + " ") + ((embImg_1.objNum.toString()))) + " 0 R");
+        }
+        ii = ii + 1;
+      };
+      pdf.writeString(" >>");
+    }
+    pdf.writeString(" >> >>\n");
     pdf.writeString("endobj\n\n");
     const pageObjNum = this.nextObjNum;
     this.nextObjNum = this.nextObjNum + 1;
@@ -7829,11 +11641,11 @@ class EVGPDFRenderer  {
     pdf.writeString("xref\n");
     pdf.writeString(("0 " + ((this.nextObjNum.toString()))) + "\n");
     pdf.writeString("0000000000 65535 f \n");
-    let i = 0;
-    while (i < (objectOffsets.length)) {
-      const offset = objectOffsets[i];
+    let i_2 = 0;
+    while (i_2 < (objectOffsets.length)) {
+      const offset = objectOffsets[i_2];
       pdf.writeString(this.padLeft(((offset.toString())), 10, "0") + " 00000 n \n");
-      i = i + 1;
+      i_2 = i_2 + 1;
     };
     pdf.writeString("trailer\n");
     pdf.writeString(((("<< /Size " + ((this.nextObjNum.toString()))) + " /Root ") + ((catalogObjNum.toString()))) + " 0 R >>\n");
@@ -7862,6 +11674,9 @@ class EVGPDFRenderer  {
     if ( el.tagName == "divider" ) {
       this.renderDivider(el, x, pdfY, w, h);
     }
+    if ( el.tagName == "image" ) {
+      this.renderImage(el, x, pdfY, w, h);
+    }
     let i = 0;
     const childCount = el.getChildCount();
     while (i < childCount) {
@@ -7869,6 +11684,30 @@ class EVGPDFRenderer  {
       this.renderElement(child, offsetX, offsetY);
       i = i + 1;
     };
+  };
+  getImagePdfName (src) {
+    let i = 0;
+    while (i < (this.embeddedImages.length)) {
+      const embImg = this.embeddedImages[i];
+      if ( embImg.src == src ) {
+        return "/Im" + (((i + 1).toString()));
+      }
+      i = i + 1;
+    };
+    const newImg = new EmbeddedImage(src);
+    this.embeddedImages.push(newImg);
+    return "/Im" + (((this.embeddedImages.length).toString()));
+  };
+  renderImage (el, x, y, w, h) {
+    const src = el.src;
+    if ( (src.length) == 0 ) {
+      return;
+    }
+    const imgName = this.getImagePdfName(src);
+    this.streamBuffer.writeString("q\n");
+    this.streamBuffer.writeString(((((((this.formatNum(w) + " 0 0 ") + this.formatNum(h)) + " ") + this.formatNum(x)) + " ") + this.formatNum(y)) + " cm\n");
+    this.streamBuffer.writeString(imgName + " Do\n");
+    this.streamBuffer.writeString("Q\n");
   };
   renderBackground (x, y, w, h, color) {
     this.streamBuffer.writeString("q\n");
@@ -7917,14 +11756,12 @@ class EVGPDFRenderer  {
       lineHeight = 1.2;
     }
     const lineSpacing = fontSize * lineHeight;
-    const lines = this.wrapText(text, w, fontSize);
-    let fontName = "/F1";
-    if ( el.fontWeight == "bold" ) {
-      fontName = "/F2";
+    let fontFamily = el.fontFamily;
+    if ( (fontFamily.length) == 0 ) {
+      fontFamily = "Helvetica";
     }
-    if ( el.fontWeight == "italic" ) {
-      fontName = "/F3";
-    }
+    const lines = this.wrapText(text, w, fontSize, fontFamily);
+    const fontName = this.getPdfFontName(fontFamily);
     let lineY = (y + h) - fontSize;
     let i = 0;
     while (i < (lines.length)) {
@@ -7937,11 +11774,11 @@ class EVGPDFRenderer  {
       this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
       let textX = x;
       if ( el.textAlign == "center" ) {
-        const textWidth = this.estimateTextWidth(line, fontSize);
+        const textWidth = this.measurer.measureTextWidth(line, fontFamily, fontSize);
         textX = x + ((w - textWidth) / 2.0);
       }
       if ( el.textAlign == "right" ) {
-        const textWidth_1 = this.estimateTextWidth(line, fontSize);
+        const textWidth_1 = this.measurer.measureTextWidth(line, fontFamily, fontSize);
         textX = (x + w) - textWidth_1;
       }
       this.streamBuffer.writeString(((this.formatNum(textX) + " ") + this.formatNum(lineY)) + " Td\n");
@@ -7951,7 +11788,7 @@ class EVGPDFRenderer  {
       i = i + 1;
     };
   };
-  wrapText (text, maxWidth, fontSize) {
+  wrapText (text, maxWidth, fontSize, fontFamily) {
     let lines = [];
     const words = text.split(" ");
     let currentLine = "";
@@ -7964,7 +11801,7 @@ class EVGPDFRenderer  {
       } else {
         testLine = (currentLine + " ") + word;
       }
-      const testWidth = this.estimateTextWidth(testLine, fontSize);
+      const testWidth = this.measurer.measureTextWidth(testLine, fontFamily, fontSize);
       if ( (testWidth > maxWidth) && ((currentLine.length) > 0) ) {
         lines.push(currentLine);
         currentLine = word;
@@ -7999,8 +11836,7 @@ class EVGPDFRenderer  {
     return el.textContent;
   };
   estimateTextWidth (text, fontSize) {
-    const __len = text.length;
-    return ((__len) * fontSize) * 0.5;
+    return this.measurer.measureTextWidth(text, "Helvetica", fontSize);
   };
   escapeText (text) {
     let result = "";
@@ -8036,6 +11872,19 @@ class EVGPDFRenderer  {
     };
     return result;
   };
+  sanitizeFontName (name) {
+    let result = "";
+    const __len = name.length;
+    let i = 0;
+    while (i < __len) {
+      const ch = name.charCodeAt(i );
+      if ( (((ch >= 65) && (ch <= 90)) || ((ch >= 97) && (ch <= 122))) || ((ch >= 48) && (ch <= 57)) ) {
+        result = result + (String.fromCharCode(ch));
+      }
+      i = i + 1;
+    };
+    return result;
+  };
 }
 class EVGPDFTool  {
   constructor() {
@@ -8043,7 +11892,9 @@ class EVGPDFTool  {
     this.outputFile = "";
     this.pageWidth = 595.0;
     this.pageHeight = 842.0;
+    this.fontsDir = "./gallery/pdf_writer/Fonts";
     this.debug = false;
+    this.fontManager = new FontManager();
   }
   run () {
     const argCount = (process.argv.length - 2);
@@ -8085,7 +11936,23 @@ class EVGPDFTool  {
     console.log("Input:  " + this.inputFile);
     console.log("Output: " + this.outputFile);
     console.log(((("Page:   " + ((this.pageWidth.toString()))) + " x ") + ((this.pageHeight.toString()))) + " points");
+    this.initFonts();
     this.convert();
+  };
+  initFonts () {
+    console.log("");
+    console.log("Loading fonts...");
+    this.fontManager.setFontsDirectory(this.fontsDir);
+    this.fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf");
+    this.fontManager.loadFont("Open_Sans/OpenSans-Bold.ttf");
+    this.fontManager.loadFont("Helvetica/Helvetica.ttf");
+    this.fontManager.loadFont("Cinzel/Cinzel-Regular.ttf");
+    this.fontManager.loadFont("Cinzel/Cinzel-Bold.ttf");
+    this.fontManager.loadFont("Josefin_Sans/JosefinSans-Regular.ttf");
+    this.fontManager.loadFont("Josefin_Sans/JosefinSans-Bold.ttf");
+    this.fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf");
+    this.fontManager.loadFont("Noto_Sans/NotoSans-Regular.ttf");
+    this.fontManager.loadFont("Noto_Sans/NotoSans-Bold.ttf");
   };
   printUsage () {
     console.log("EVG PDF Tool - Convert TSX files to PDF");
@@ -8135,9 +12002,13 @@ class EVGPDFTool  {
     console.log("Rendering to PDF...");
     const renderer = new EVGPDFRenderer();
     renderer.setPageSize(this.pageWidth, this.pageHeight);
+    renderer.setFontManager(this.fontManager);
+    renderer.setBaseDir(inputDir);
     if ( this.debug ) {
       renderer.setDebug(true);
     }
+    const ttfMeasurer = new TTFTextMeasurer(this.fontManager);
+    renderer.setMeasurer(ttfMeasurer);
     const pdfData = renderer.render(root);
     console.log("");
     console.log("Writing PDF to: " + this.outputFile);
