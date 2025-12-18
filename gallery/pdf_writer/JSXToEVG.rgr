@@ -335,13 +335,38 @@ class JSXToEVG {
     }
     
     fn mapTagName:string (jsxTag:string) {
-        ; EVG spec element names
+        ; Document structure elements
+        if (jsxTag == "Print") {
+            return "print"
+        }
+        if (jsxTag == "Section") {
+            return "section"
+        }
+        if (jsxTag == "Page") {
+            return "page"
+        }
+        if (jsxTag == "page") {
+            return "page"
+        }
+        
+        ; Container elements
         if (jsxTag == "View") {
             return "div"
         }
         if (jsxTag == "div") {
             return "div"
         }
+        if (jsxTag == "box") {
+            return "div"
+        }
+        if (jsxTag == "row") {
+            return "div"
+        }
+        if (jsxTag == "column") {
+            return "div"
+        }
+        
+        ; Text elements
         if (jsxTag == "span") {
             return "text"
         }
@@ -351,6 +376,8 @@ class JSXToEVG {
         if (jsxTag == "text") {
             return "text"
         }
+        
+        ; Image elements
         if (jsxTag == "img") {
             return "image"
         }
@@ -360,18 +387,7 @@ class JSXToEVG {
         if (jsxTag == "Image") {
             return "image"
         }
-        if (jsxTag == "box") {
-            return "div"
-        }
-        if (jsxTag == "page") {
-            return "page"
-        }
-        if (jsxTag == "row") {
-            return "div"
-        }
-        if (jsxTag == "column") {
-            return "div"
-        }
+        
         ; Default to div
         return "div"
     }
@@ -426,6 +442,16 @@ class JSXToEVG {
                     if ((unit.unitType == 0) && (unit.pixels > 0.0)) {
                         pageHeight = unit.pixels
                     }
+                }
+                
+                ; Handle pageWidth/pageHeight for Section elements
+                if (attrName == "page-width") {
+                    def unit:EVGUnit (EVGUnit.parse(attrValue))
+                    element.width = unit
+                }
+                if (attrName == "page-height") {
+                    def unit:EVGUnit (EVGUnit.parse(attrValue))
+                    element.height = unit
                 }
                 
                 ; Handle color for divider and text color

@@ -178,6 +178,22 @@ class EVGElement {
         push children child
     }
     
+    fn resetLayoutState:void () {
+        ; Reset layout state for re-layout
+        unitsResolved = false
+        calculatedX = 0.0
+        calculatedY = 0.0
+        calculatedWidth = 0.0
+        calculatedHeight = 0.0
+        ; Recursively reset children
+        def i:int 0
+        while (i < (array_length children)) {
+            def child:EVGElement (itemAt children i)
+            child.resetLayoutState()
+            i = i + 1
+        }
+    }
+    
     fn getChildCount:int () {
         return (array_length children)
     }
@@ -258,9 +274,9 @@ class EVGElement {
         ; Resolve all unit values to pixels
         def fs:double inheritedFontSize
         
-        ; Dimensions
+        ; Dimensions - width uses parentWidth, height uses parentHeight
         width.resolveWithHeight(parentWidth parentHeight fs)
-        height.resolveWithHeight(parentWidth parentHeight fs)
+        height.resolveForHeight(parentWidth parentHeight fs)
         minWidth.resolve(parentWidth fs)
         minHeight.resolve(parentHeight fs)
         maxWidth.resolve(parentWidth fs)

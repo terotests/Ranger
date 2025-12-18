@@ -127,6 +127,13 @@ class EVGLayout {
         element.calculatedWidth = width
         element.calculatedInnerWidth = (element.box.getInnerWidth(width))
         
+        ; If height is explicitly set (not auto), pre-calculate inner height for children
+        ; This allows children with height="100%" to resolve correctly
+        if (autoHeight == false) {
+            element.calculatedHeight = height
+            element.calculatedInnerHeight = (element.box.getInnerHeight(height))
+        }
+        
         ; Handle absolute positioning
         if element.isAbsolute {
             this.layoutAbsolute(element parentWidth parentHeight)

@@ -99,6 +99,7 @@ class EVGUnit {
                 def numStr:string (substring trimmed 0 (len - 2))
                 def numVal@(optional):double (to_double numStr)
                 unit.value = (unwrap numVal)
+                unit.pixels = unit.value  ; For pixels, set pixels immediately
                 unit.unitType = 0
                 unit.isSet = true
                 return unit
@@ -116,6 +117,7 @@ class EVGUnit {
         ; Default: treat as pixels
         def numVal@(optional):double (to_double trimmed)
         unit.value = (unwrap numVal)
+        unit.pixels = unit.value  ; For pixels, set pixels immediately
         unit.unitType = 0
         unit.isSet = true
         return unit
@@ -161,8 +163,31 @@ class EVGUnit {
         pixels = value
     }
     
+    fn resolveForHeight:void (parentWidth:double parentHeight:double fontSize:double) {
+        ; Resolve unit for HEIGHT property - percent uses parentHeight
+        if (isSet == false) {
+            pixels = 0.0
+            return
+        }
+        
+        if (unitType == 3) {
+            ; HEIGHT_PERCENT uses parent height
+            pixels = ((parentHeight * value) / 100.0)
+            return
+        }
+        
+        ; For percentage on height property, use parentHeight
+        if (unitType == 1) {
+            pixels = ((parentHeight * value) / 100.0)
+            return
+        }
+        
+        ; For other types (px, em), use normal resolve
+        this.resolve(parentWidth fontSize)
+    }
+    
     fn resolveWithHeight:void (parentWidth:double parentHeight:double fontSize:double) {
-        ; Resolve unit using both dimensions
+        ; Resolve unit using width as primary (for width property)
         if (isSet == false) {
             pixels = 0.0
             return

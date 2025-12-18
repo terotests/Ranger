@@ -147,14 +147,6 @@ export interface EVGBaseProps {
   className?: string;
 }
 
-export interface EVGPageProps {
-  /** Page width in points (1 point = 1/72 inch). A4 = 595 */
-  width: number;
-  /** Page height in points (1 point = 1/72 inch). A4 = 842 */
-  height: number;
-  style?: EVGStyle;
-}
-
 export interface EVGBoxProps extends EVGBaseProps {
   children?: any;
 }
@@ -205,7 +197,13 @@ export interface EVGDividerProps extends EVGBaseProps {
 declare global {
   namespace JSX {
     interface IntrinsicElements {
-      /** Document page - the root container with fixed dimensions */
+      /** Print document - top-level container for multi-page documents */
+      Print: EVGPrintProps;
+      /** Section - groups pages with shared settings (margins, headers, footers) */
+      Section: EVGSectionProps;
+      /** Page - a single page in the document */
+      Page: EVGPageProps;
+      /** Document page - the root container with fixed dimensions (legacy) */
       page: EVGPageProps;
       /** Generic container element (like div) */
       View: EVGViewProps;
@@ -231,6 +229,51 @@ declare global {
       divider: EVGDividerProps;
     }
   }
+}
+
+// =============================================================================
+// Print Document Props
+// =============================================================================
+
+/** Print document properties - top-level container */
+export interface EVGPrintProps {
+  children?: any;
+  /** Document title for metadata */
+  title?: string;
+  /** Document author for metadata */
+  author?: string;
+}
+
+/** Section properties - groups pages with shared settings */
+export interface EVGSectionProps {
+  children?: any;
+  /** Page width in points (default: 595 = A4) */
+  pageWidth?: string;
+  /** Page height in points (default: 842 = A4) */
+  pageHeight?: string;
+  /** Margin for all sides */
+  margin?: string;
+  /** Top margin */
+  marginTop?: string;
+  /** Right margin */
+  marginRight?: string;
+  /** Bottom margin */
+  marginBottom?: string;
+  /** Left margin */
+  marginLeft?: string;
+}
+
+/** Page properties */
+export interface EVGPageProps {
+  children?: any;
+  /** Page width in points (overrides section) */
+  width?: string;
+  /** Page height in points (overrides section) */
+  height?: string;
+  /** Padding for page content area */
+  padding?: string;
+  /** Background color */
+  backgroundColor?: string;
 }
 
 // View props - main container element with inline style support
@@ -365,6 +408,9 @@ export const Colors = {
 // These are placeholder functions that allow TypeScript to recognize the JSX elements.
 // The actual rendering is done by the EVG parser, not React.
 
+export const Print = (props: EVGPrintProps): any => null;
+export const Section = (props: EVGSectionProps): any => null;
+export const Page = (props: EVGPageProps): any => null;
 export const View = (props: EVGViewProps): any => null;
 export const Label = (props: EVGTextProps): any => null;
 export const Image = (props: EVGImageProps): any => null;

@@ -49,11 +49,55 @@ export default MyDocument;
 
 ### Supported Elements
 
-| Element   | Description                                      |
-| --------- | ------------------------------------------------ |
-| `<div>`   | Container with flexbox layout                    |
-| `<Text>`  | Text element with font styling                   |
-| `<Image>` | JPEG image with automatic resize and orientation |
+| Element     | Description                                      |
+| ----------- | ------------------------------------------------ |
+| `<Print>`   | Root element for multi-page documents            |
+| `<Section>` | Page settings container (dimensions, margins)    |
+| `<Page>`    | Individual page boundary                         |
+| `<View>`    | Container with flexbox layout (alias: `<div>`)   |
+| `<Label>`   | Text element with font styling (alias: `<Text>`) |
+| `<Image>`   | JPEG image with automatic resize and orientation |
+
+### Multi-Page Documents
+
+For documents with multiple pages, use the `Print`, `Section`, and `Page` elements:
+
+```tsx
+import { Print, Section, Page, View, Label } from "./evg_types";
+
+const MultiPageDocument = (
+  <Print title="My Document" author="Author Name">
+    <Section pageWidth="595" pageHeight="842" margin="40px">
+      <Page>
+        <View width="100%" height="100%" backgroundColor="#f0f0f0">
+          <Label fontSize="24px" fontWeight="bold">Page 1</Label>
+          <Label fontSize="14px" marginTop="20px">First page content...</Label>
+        </View>
+      </Page>
+      
+      <Page>
+        <View width="100%" height="100%">
+          <Label fontSize="24px" fontWeight="bold">Page 2</Label>
+          <Label fontSize="14px" marginTop="20px">Second page content...</Label>
+        </View>
+      </Page>
+    </Section>
+  </Print>
+);
+```
+
+#### Section Attributes
+
+| Attribute    | Example   | Description                     |
+| ------------ | --------- | ------------------------------- |
+| `pageWidth`  | `"595"`   | Page width in points (A4 = 595) |
+| `pageHeight` | `"842"`   | Page height in points (A4 = 842)|
+| `margin`     | `"40px"`  | Page margin (all sides)         |
+
+Standard page sizes:
+- **A4**: 595 × 842 points
+- **Letter**: 612 × 792 points
+- **Legal**: 612 × 1008 points
 
 ### Supported Styles
 
