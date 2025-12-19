@@ -1,0 +1,243 @@
+; =============================================================================
+; evg_component_tool.rgr - PDF Generator with Component Support
+; =============================================================================
+; Command line tool that processes TSX files with imports and components
+; and generates PDF output.
+;
+; Usage: ranger evg_component_tool.rgr <input.tsx> <output.pdf>
+
+Import "../../../ts_parser/ts_parser_simple.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../core/EVGPDFRenderer.rgr"
+Import "../jsx/ComponentEngine.rgr"
+Import "../fonts/FontManager.rgr"
+
+class EVGComponentTool {
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def inputPath:string ""
+    def outputPath:string ""
+    def fontsDir:string "./Fonts"
+    def assetPaths:string ""  ; Semicolon-separated asset paths
+    def fontManager:FontManager (new FontManager()) (new FontManager())
+    
+    Constructor () {}
+    
+    fn main:void (args:[string]) {
+        print "EVG Component Tool v1.0 - PDF Generator with TSX Components"
+        print "============================================================"
+        
+        if ((array_length args) < 3) {
+            print "Usage: evg_component_tool <input.tsx> <output.pdf> [--assets=path1;path2;...]"
+            print ""
+            print "Options:"
+            print "  --assets=PATHS  Semicolon-separated list of asset directories"
+            print "                  Used for fonts, components, and images"
+            print ""
+            print "Example:"
+            print "  evg_component_tool test.tsx output.pdf --assets=./Fonts;./components"
+            return
+        }
+        
+        inputPath = (itemAt args 1)
+        outputPath = (itemAt args 2)
+        
+        ; Parse optional arguments
+        def i:int 3
+        while (i < (array_length args)) {
+            def arg:string (itemAt args i)
+            if ((indexOf arg "--assets=") == 0) {
+                assetPaths = (substring arg 9 (strlen arg))
+                print ("Asset paths: " + assetPaths)
+            }
+            i = i + 1
+        }
+        
+        print ("Input:  " + inputPath)
+        print ("Output: " + outputPath)
+        print ""
+        
+        ; Determine base path from input file
+        def basePath:string (this.getDirectory(inputPath))
+        def fileName:string (this.getFileName(inputPath))
+        
+        print ("Base path: " + basePath)
+        print ("File name: " + fileName)
+        print ""
+        
+        ; Initialize font manager with asset paths
+        this.initFonts()
+        
+        ; Create the component engine
+        def engine (new ComponentEngine())
+        engine.pageWidth = pageWidth
+        engine.pageHeight = pageHeight
+        
+        ; Set asset paths for component resolution
+        if ((strlen assetPaths) > 0) {
+            engine.setAssetPaths(assetPaths)
+        }
+        
+        ; Parse and convert to EVG
+        print "Parsing TSX with components..."
+        def evgRoot:EVGElement (engine.parseFile(basePath fileName))
+        
+        if ((strlen evgRoot.tagName) == 0) {
+            print "Error: Failed to generate EVG tree"
+            return
+        }
+        
+        print "EVG tree generated successfully"
+        print ""
+        
+        ; Print the EVG tree for debugging
+        print "EVG Tree Structure:"
+        print "-------------------"
+        this.printEVGTree(evgRoot 0)
+        print ""
+        
+        ; Render to PDF
+        print "Rendering to PDF..."
+        def renderer (new EVGPDFRenderer())
+        renderer.setPageSize(pageWidth pageHeight)
+        renderer.setFontManager(fontManager)
+        renderer.setBaseDir(basePath)
+        
+        ; Set asset paths for image resolution
+        if ((strlen assetPaths) > 0) {
+            renderer.setAssetPaths(assetPaths)
+        }
+        
+        ; Use TTF text measurer for accurate measurements
+        def ttfMeasurer (new TTFTextMeasurer(fontManager))
+        renderer.setMeasurer(ttfMeasurer)
+        
+        def pdfBuffer:buffer (renderer.render(evgRoot))
+        
+        ; Split output path into directory and filename
+        def outputDir:string (this.getDirectory(outputPath))
+        def outputFileName:string (this.getFileName(outputPath))
+        
+        ; Write the buffer to file
+        buffer_write_file outputDir outputFileName pdfBuffer
+        print ("PDF generated successfully: " + outputPath)
+    }
+    
+    fn printEVGTree:void (el:EVGElement depth:int) {
+        def indent:string ""
+        def i:int 0
+        while (i < depth) {
+            indent = indent + "  "
+            i = i + 1
+        }
+        
+        def info:string (indent + "<" + el.tagName)
+        
+        if ((strlen el.id) > 0) {
+            info = info + " id=\"" + el.id + "\""
+        }
+        if ((strlen el.textContent) > 0) {
+            if ((strlen el.textContent) > 30) {
+                info = info + " text=\"" + (substring el.textContent 0 30) + "...\""
+            } {
+                info = info + " text=\"" + el.textContent + "\""
+            }
+        }
+        
+        info = info + "> pos=(" + (to_string el.calculatedX) + "," + (to_string el.calculatedY) + ") size=" + (to_string el.calculatedWidth) + "x" + (to_string el.calculatedHeight)
+        print info
+        
+        ; Print children
+        i = 0
+        while (i < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children i)
+            this.printEVGTree(child (depth + 1))
+            i = i + 1
+        }
+    }
+    
+    fn initFonts:void () {
+        ; Initialize font manager with TrueType fonts
+        print "Loading fonts..."
+        
+        ; Use asset paths if provided, otherwise fallback to fontsDir
+        if ((strlen assetPaths) > 0) {
+            fontManager.setFontsDirectories(assetPaths)
+        } {
+            fontManager.setFontsDirectory(fontsDir)
+        }
+        
+        ; Load common fonts
+        fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        fontManager.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        fontManager.loadFont("Helvetica/Helvetica.ttf")
+        fontManager.loadFont("Noto_Sans/NotoSans-Regular.ttf")
+        fontManager.loadFont("Noto_Sans/NotoSans-Bold.ttf")
+        
+        ; Load decorative fonts for test_features
+        fontManager.loadFont("Cinzel/Cinzel-Regular.ttf")
+        fontManager.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+        fontManager.loadFont("Gloria_Hallelujah/GloriaHallelujah.ttf")
+        fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf")
+        fontManager.loadFont("Kaushan_Script/KaushanScript-Regular.ttf")
+    }
+    
+    fn getDirectory:string (path:string) {
+        ; Find last / or \
+        def lastSlash:int -1
+        def i:int 0
+        def len:int (strlen path)
+        while (i < len) {
+            def ch:string (substring path i (i + 1))
+            if ((ch == "/") || (ch == "\\")) {
+                lastSlash = i
+            }
+            i = i + 1
+        }
+        
+        if (lastSlash >= 0) {
+            return (substring path 0 (lastSlash + 1))
+        }
+        return "./"
+    }
+    
+    fn getFileName:string (path:string) {
+        ; Find last / or \
+        def lastSlash:int -1
+        def i:int 0
+        def len:int (strlen path)
+        while (i < len) {
+            def ch:string (substring path i (i + 1))
+            if ((ch == "/") || (ch == "\\")) {
+                lastSlash = i
+            }
+            i = i + 1
+        }
+        
+        if (lastSlash >= 0) {
+            return (substring path (lastSlash + 1) len)
+        }
+        return path
+    }
+    
+    sfn m@(main):void () {
+        def tool (new EVGComponentTool())
+        
+        def argCount:int (shell_arg_cnt)
+        if (argCount < 2) {
+            print "Usage: evg_component_tool <input.tsx> <output.pdf>"
+            return
+        }
+        
+        def args:[string]
+        push args "evg_component_tool"
+        
+        def i:int 0
+        while (i < argCount) {
+            push args (shell_arg i)
+            i = i + 1
+        }
+        
+        tool.main(args)
+    }
+}

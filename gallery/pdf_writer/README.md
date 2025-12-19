@@ -7,6 +7,47 @@ A collection of binary format utilities written in Ranger:
 - **JPEG Encoder** - Baseline JPEG encoder with configurable quality
 - **TrueType Parser** - TTF font parsing for glyph metrics and PDF embedding
 
+## Folder Structure
+
+```
+pdf_writer/
+├── src/                    # Ranger source files (.rgr)
+│   ├── core/              # Core PDF rendering engine
+│   │   ├── EVGElement.rgr
+│   │   ├── EVGLayout.rgr
+│   │   ├── EVGPDFRenderer.rgr
+│   │   └── ...
+│   ├── jsx/               # TSX/JSX parsing and component engine
+│   │   ├── ComponentEngine.rgr
+│   │   └── ...
+│   ├── jpeg/              # JPEG decoder/encoder
+│   │   ├── TurboJPEGDecoder.rgr
+│   │   ├── TurboJPEGEncoder.rgr
+│   │   └── ...
+│   ├── fonts/             # TrueType font handling
+│   │   └── FontManager.rgr
+│   └── tools/             # Command-line tools
+│       └── evg_component_tool.rgr
+├── bin/                   # Compiled JavaScript output
+├── components/            # Reusable TSX components
+│   ├── PhotoLayouts.tsx
+│   └── ...
+├── examples/              # Example TSX files
+│   ├── test_gallery.tsx
+│   ├── test_imports.tsx
+│   └── ...
+├── assets/                # Static assets
+│   ├── fonts/            # TrueType fonts
+│   │   ├── Open_Sans/
+│   │   ├── Noto_Sans/
+│   │   └── ...
+│   └── images/           # Sample images
+│       └── IMG_6573.jpg
+├── output/                # Generated PDFs (gitignored)
+│   └── pdfs/
+└── docs/                  # Documentation
+```
+
 ## EVG PDF Tool (TSX → PDF)
 
 Generate PDFs from TSX files using a React-like syntax with flexbox layout.
@@ -15,13 +56,31 @@ Generate PDFs from TSX files using a React-like syntax with flexbox layout.
 
 ```bash
 # Compile the tool
-npm run evgpdf:compile
+npm run evgcomp:compile
 
-# Generate a PDF from TSX
-npm run evgpdf:run
+# Generate a PDF from TSX (with asset paths for fonts and components)
+node bin/evg_component_tool.js examples/test_gallery.tsx output/pdfs/gallery.pdf "--assets=./assets/fonts;./components"
 
-# Or run directly
-node ./gallery/pdf_writer/bin/evg_pdf_tool.js input.tsx output.pdf
+# Or run the npm script
+npm run evgcomp:run
+```
+
+### Command Line Arguments
+
+```bash
+node bin/evg_component_tool.js <input.tsx> <output.pdf> [options]
+
+Options:
+  --assets=<paths>   Semicolon-separated list of asset directories
+                     (fonts, images, components)
+  --quality=<n>      JPEG quality 1-100 (default: 85)
+  --maxsize=<n>      Maximum image dimension in pixels (default: 1200)
+```
+
+**Example with multiple asset paths:**
+
+```bash
+node bin/evg_component_tool.js examples/doc.tsx output/pdfs/doc.pdf "--assets=./assets/fonts;./assets/images;./components"
 ```
 
 ### TSX Syntax
@@ -102,10 +161,10 @@ export function ListItem({ label, index }: { label: string; index: number }) {
 Import your components and use them like built-in elements:
 
 ```tsx
-// test_imports.tsx
-import { View, Label, Section, Page, Print } from "./evg_types";
-import { Header } from "./components/Header";
-import { ListItem } from "./components/ListItem";
+// examples/test_imports.tsx
+import { View, Label, Section, Page, Print } from "../evg_types";
+import { Header } from "../components/Header";
+import { ListItem } from "../components/ListItem";
 
 const title = "Component Import Test";
 const items = ["Apple", "Banana", "Cherry", "Date"];
@@ -274,7 +333,7 @@ import { TitlePage, TitlePageWithPhoto } from "./components/PhotoLayouts";
 npm run evgcomp:compile
 
 # Generate PDF from TSX file with components
-node ./gallery/pdf_writer/bin/evg_component_tool.js ./test_imports.tsx ./output.pdf
+node bin/evg_component_tool.js examples/test_imports.tsx output/pdfs/imports.pdf "--assets=./assets/fonts;./components"
 ```
 
 The component system enables building sophisticated, maintainable PDF documents using familiar React patterns while maintaining full type safety through TypeScript.

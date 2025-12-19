@@ -1,0 +1,234 @@
+; evg_pdf_tool.rgr - CLI tool for TSX to PDF conversion
+;
+; Usage: evg_pdf_tool.exe input.tsx output.pdf
+;
+; Compile: npm run evgpdf:compile
+; Run: npm run evgpdf:run
+
+Import "../jsx/JSXToEVG.rgr"
+Import "../core/EVGPDFRenderer.rgr"
+Import "../fonts/FontManager.rgr"
+Import "../core/Buffer.rgr"
+Import "../../../evg/EVGElement.rgr"
+
+class EVGPDFTool {
+    def inputFile:string ""
+    def outputFile:string ""
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def fontsDir:string "./gallery/pdf_writer/Fonts"
+    def debug:boolean false
+    def fontManager:FontManager (new FontManager()) (new FontManager())
+    
+    sfn m@(main):void () {
+        def tool (new EVGPDFTool())
+        tool.run()
+    }
+    
+    fn run:void () {
+        def argCount:int (shell_arg_cnt)
+        
+        if (argCount < 2) {
+            this.printUsage()
+            return
+        }
+        
+        ; Parse arguments
+        inputFile = (shell_arg 0)
+        outputFile = (shell_arg 1)
+        
+        ; Parse optional arguments
+        def i 2
+        while (i < argCount) {
+            def arg:string (shell_arg i)
+            
+            if (arg == "-w") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    def wArg:string (shell_arg i)
+                    def wVal@(optional):double (to_double wArg)
+                    if wVal {
+                        pageWidth = (unwrap wVal)
+                    }
+                }
+            }
+            
+            if (arg == "-h") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    def hArg:string (shell_arg i)
+                    def hVal@(optional):double (to_double hArg)
+                    if hVal {
+                        pageHeight = (unwrap hVal)
+                    }
+                }
+            }
+            
+            if (arg == "-debug") {
+                debug = true
+            }
+            
+            i = i + 1
+        }
+        
+        print ("EVG PDF Tool")
+        print ("Input:  " + inputFile)
+        print ("Output: " + outputFile)
+        print ("Page:   " + (to_string pageWidth) + " x " + (to_string pageHeight) + " points")
+        
+        ; Initialize font manager
+        this.initFonts()
+        
+        this.convert()
+    }
+    
+    fn initFonts:void () {
+        ; Initialize font manager with TrueType fonts
+        print ""
+        print "Loading fonts..."
+        
+        fontManager.setFontsDirectory(fontsDir)
+        
+        ; Load common fonts
+        fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        fontManager.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        fontManager.loadFont("Helvetica/Helvetica.ttf")
+        
+        ; Load additional fonts for variety
+        fontManager.loadFont("Cinzel/Cinzel-Regular.ttf")
+        fontManager.loadFont("Cinzel/Cinzel-Bold.ttf")
+        fontManager.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+        fontManager.loadFont("Josefin_Sans/JosefinSans-Bold.ttf")
+        fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf")
+        fontManager.loadFont("Noto_Sans/NotoSans-Regular.ttf")
+        fontManager.loadFont("Noto_Sans/NotoSans-Bold.ttf")
+    }
+    
+    fn printUsage:void () {
+        print "EVG PDF Tool - Convert TSX files to PDF"
+        print ""
+        print "Usage: evg_pdf_tool input.tsx output.pdf"
+        print ""
+        print "Options:"
+        print "  -w WIDTH   Page width in points (default: 595 = A4)"
+        print "  -h HEIGHT  Page height in points (default: 842 = A4)"
+        print "  -debug     Enable debug output"
+        print ""
+        print "Example:"
+        print "  evg_pdf_tool sample.tsx output.pdf"
+        print "  evg_pdf_tool sample.tsx output.pdf -w 612 -h 792"
+    }
+    
+    fn convert:void () {
+        ; Extract directory and filename from input path
+        def inputDir:string ""
+        def inputFileName:string inputFile
+        
+        def lastSlash:int (lastIndexOf inputFile "/")
+        def lastBackslash:int (lastIndexOf inputFile "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            inputDir = (substring inputFile 0 (lastSep + 1))
+            inputFileName = (substring inputFile (lastSep + 1) (strlen inputFile))
+        } {
+            inputDir = "./"
+        }
+        
+        ; Parse TSX file
+        print ""
+        print "Parsing TSX file..."
+        
+        def converter (new JSXToEVG())
+        converter.pageWidth = pageWidth
+        converter.pageHeight = pageHeight
+        
+        def root:EVGElement (converter.parseFile(inputDir inputFileName))
+        
+        if (root.tagName == "") {
+            print "Error: Failed to parse TSX file or no JSX content found"
+            return
+        }
+        
+        print ("Found root element: <" + root.tagName + ">")
+        print ("Children: " + (to_string (root.getChildCount())))
+        
+        if debug {
+            this.printTree(root 0)
+        }
+        
+        ; Render to PDF
+        print ""
+        print "Rendering to PDF..."
+        
+        def renderer (new EVGPDFRenderer())
+        renderer.setPageSize(pageWidth pageHeight)
+        renderer.setFontManager(fontManager)
+        renderer.setBaseDir(inputDir)
+        if debug {
+            renderer.setDebug(true)
+        }
+        
+        ; Use TTF text measurer for accurate measurements
+        def ttfMeasurer (new TTFTextMeasurer(fontManager))
+        renderer.setMeasurer(ttfMeasurer)
+        
+        def pdfData:buffer (renderer.render(root))
+        
+        ; Write output file
+        print ""
+        print ("Writing PDF to: " + outputFile)
+        
+        def outputDir:string ""
+        def outputFileName:string outputFile
+        
+        lastSlash = (lastIndexOf outputFile "/")
+        lastBackslash = (lastIndexOf outputFile "\\")
+        lastSep = lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            outputDir = (substring outputFile 0 (lastSep + 1))
+            outputFileName = (substring outputFile (lastSep + 1) (strlen outputFile))
+        } {
+            outputDir = "./"
+        }
+        
+        buffer_write_file outputDir outputFileName pdfData
+        
+        print ""
+        print ("Done! PDF written: " + (to_string (buffer_length pdfData)) + " bytes")
+    }
+    
+    fn printTree:void (el:EVGElement indent:int) {
+        def spaces:string ""
+        def i 0
+        while (i < indent) {
+            spaces = spaces + "  "
+            i = i + 1
+        }
+        
+        def info:string (spaces + "<" + el.tagName)
+        if ((strlen el.id) > 0) {
+            info = info + " id=\"" + el.id + "\""
+        }
+        if ((strlen el.textContent) > 0) {
+            info = info + " text=\"" + el.textContent + "\""
+        }
+        info = info + "> pos=(" + (to_string el.calculatedX) + "," + (to_string el.calculatedY) + ") size=" + (to_string el.calculatedWidth) + "x" + (to_string el.calculatedHeight)
+        print info
+        
+        def j 0
+        def childCount:int (el.getChildCount())
+        while (j < childCount) {
+            def child:EVGElement (el.getChild(j))
+            this.printTree(child (indent + 1))
+            j = j + 1
+        }
+    }
+}

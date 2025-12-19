@@ -1,0 +1,115 @@
+; EXIF Orientation Test
+; Tests all 8 EXIF orientation values
+
+Import "../jpeg/JPEGDecoder.rgr"
+Import "../jpeg/JPEGMetadata.rgr"
+Import "../jpeg/ImageBuffer.rgr"
+Import "../jpeg/PPMImage.rgr"
+
+class ExifOrientationTest {
+    sfn m@(main):void () {
+        print "=== EXIF Orientation Test ==="
+        
+        def dirPath "c:\\Users\\terok\\proj\\Ranger\\gallery\\pdf_writer\\"
+        def fileName "Canon_40D.jpg"
+        
+        ; Load the test image
+        print "Loading " + fileName + "..."
+        def decoder (new JPEGDecoder())
+        def imgBuf:ImageBuffer (decoder.decode(dirPath fileName))
+        
+        print "Original size: " + (to_string imgBuf.width) + "x" + (to_string imgBuf.height)
+        
+        ; Parse EXIF metadata to get actual orientation
+        def metaParser (new JPEGMetadataParser())
+        def info:JPEGMetadataInfo (metaParser.parseMetadata(dirPath fileName))
+        print "EXIF Orientation from file: " + (to_string info.orientation)
+        
+        ; Test all 8 orientations
+        print ""
+        print "Testing all 8 orientations..."
+        
+        ; Orientation 1 - Normal
+        def img1 (imgBuf.applyExifOrientation(1))
+        print "Orientation 1 (Normal): " + (to_string img1.width) + "x" + (to_string img1.height)
+        
+        ; Orientation 2 - Flip horizontal
+        def img2 (imgBuf.applyExifOrientation(2))
+        print "Orientation 2 (Flip H): " + (to_string img2.width) + "x" + (to_string img2.height)
+        
+        ; Orientation 3 - Rotate 180
+        def img3 (imgBuf.applyExifOrientation(3))
+        print "Orientation 3 (Rot 180): " + (to_string img3.width) + "x" + (to_string img3.height)
+        
+        ; Orientation 4 - Flip vertical
+        def img4 (imgBuf.applyExifOrientation(4))
+        print "Orientation 4 (Flip V): " + (to_string img4.width) + "x" + (to_string img4.height)
+        
+        ; Orientation 5 - Transpose
+        def img5 (imgBuf.applyExifOrientation(5))
+        print "Orientation 5 (Transpose): " + (to_string img5.width) + "x" + (to_string img5.height)
+        
+        ; Orientation 6 - Rotate 90 CW
+        def img6 (imgBuf.applyExifOrientation(6))
+        print "Orientation 6 (Rot 90 CW): " + (to_string img6.width) + "x" + (to_string img6.height)
+        
+        ; Orientation 7 - Transverse
+        def img7 (imgBuf.applyExifOrientation(7))
+        print "Orientation 7 (Transverse): " + (to_string img7.width) + "x" + (to_string img7.height)
+        
+        ; Orientation 8 - Rotate 270 CW
+        def img8 (imgBuf.applyExifOrientation(8))
+        print "Orientation 8 (Rot 270 CW): " + (to_string img8.width) + "x" + (to_string img8.height)
+        
+        ; Scale them all 3x for better visibility and save
+        print ""
+        print "Saving PPM files (3x scaled)..."
+        
+        def ppm (new PPMImage())
+        
+        def s1 (img1.scale(3))
+        ppm.save(s1 dirPath "orientation_1.ppm")
+        print "Saved orientation_1.ppm"
+        
+        def s2 (img2.scale(3))
+        ppm.save(s2 dirPath "orientation_2.ppm")
+        print "Saved orientation_2.ppm"
+        
+        def s3 (img3.scale(3))
+        ppm.save(s3 dirPath "orientation_3.ppm")
+        print "Saved orientation_3.ppm"
+        
+        def s4 (img4.scale(3))
+        ppm.save(s4 dirPath "orientation_4.ppm")
+        print "Saved orientation_4.ppm"
+        
+        def s5 (img5.scale(3))
+        ppm.save(s5 dirPath "orientation_5.ppm")
+        print "Saved orientation_5.ppm"
+        
+        def s6 (img6.scale(3))
+        ppm.save(s6 dirPath "orientation_6.ppm")
+        print "Saved orientation_6.ppm"
+        
+        def s7 (img7.scale(3))
+        ppm.save(s7 dirPath "orientation_7.ppm")
+        print "Saved orientation_7.ppm"
+        
+        def s8 (img8.scale(3))
+        ppm.save(s8 dirPath "orientation_8.ppm")
+        print "Saved orientation_8.ppm"
+        
+        ; Now apply actual EXIF orientation from file
+        if (info.orientation > 0) {
+            print ""
+            print "Applying actual EXIF orientation " + (to_string info.orientation) + " from file..."
+            def corrected (imgBuf.applyExifOrientation(info.orientation))
+            def correctedScaled (corrected.scale(3))
+            ppm.save(correctedScaled dirPath "orientation_corrected.ppm")
+            print "Saved orientation_corrected.ppm (" + (to_string correctedScaled.width) + "x" + (to_string correctedScaled.height) + ")"
+        }
+        
+        print ""
+        print "=== Test Complete ==="
+    }
+}

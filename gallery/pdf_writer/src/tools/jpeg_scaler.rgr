@@ -1,0 +1,265 @@
+; jpeg_scaler.rgr - JPEG image scaler command line tool
+; Usage: jpeg_scaler -width 800 input.jpg output.jpg
+;    or: jpeg_scaler -height 600 input.jpg output.jpg
+;    or: jpeg_scaler -scale 2.0 input.jpg output.jpg
+
+Import "../jpeg/JPEGDecoder.rgr"
+Import "../jpeg/JPEGEncoder.rgr"
+Import "../jpeg/ProgressiveJPEGDecoder.rgr"
+Import "../jpeg/JPEGMetadata.rgr"
+
+class JPEGScaler {
+    
+    sfn m@(main):void () {
+        def scaler (new JPEGScaler())
+        scaler.run()
+    }
+    
+    fn run:void () {
+        def argc:int (shell_arg_cnt)
+        
+        if (argc < 4) {
+            this.printUsage()
+            return
+        }
+        
+        def mode:string ""
+        def value:double 0.0
+        def inputFile:string ""
+        def outputFile:string ""
+        def quality:int 85
+        
+        def i 0
+        while (i < argc) {
+            def arg:string (shell_arg i)
+            
+            if (arg == "-width") {
+                mode = "width"
+                i = i + 1
+                if (i < argc) {
+                    def valStr:string (shell_arg i)
+                    def optVal@(optional):double (to_double valStr)
+                    value = (unwrap optVal)
+                }
+            }
+            if (arg == "-height") {
+                mode = "height"
+                i = i + 1
+                if (i < argc) {
+                    def valStr:string (shell_arg i)
+                    def optVal@(optional):double (to_double valStr)
+                    value = (unwrap optVal)
+                }
+            }
+            if (arg == "-scale") {
+                mode = "scale"
+                i = i + 1
+                if (i < argc) {
+                    def valStr:string (shell_arg i)
+                    def optVal@(optional):double (to_double valStr)
+                    value = (unwrap optVal)
+                }
+            }
+            if (arg == "-quality") {
+                i = i + 1
+                if (i < argc) {
+                    def valStr:string (shell_arg i)
+                    def optVal@(optional):int (to_int valStr)
+                    def qVal:int (unwrap optVal)
+                    quality = qVal
+                }
+            }
+            ; 45 = '-'
+            if ((charAt arg 0) != 45) {
+                if (inputFile == "") {
+                    inputFile = arg
+                } {
+                    if (outputFile == "") {
+                        outputFile = arg
+                    }
+                }
+            }
+            
+            i = i + 1
+        }
+        
+        if ((mode == "") || (inputFile == "") || (outputFile == "")) {
+            this.printUsage()
+            return
+        }
+        
+        print ("JPEG Scaler")
+        print ("Input:  " + inputFile)
+        print ("Output: " + outputFile)
+        print ("Mode:   " + mode + " = " + (to_string value))
+        print ("Quality: " + (to_string quality))
+        print ""
+        
+        ; Parse EXIF to get orientation
+        def inputDir:string "."
+        def inputName:string inputFile
+        def lastInputSlash:int -1
+        def k 0
+        while (k < (strlen inputFile)) {
+            def ch:int (charAt inputFile k)
+            if ((ch == 47) || (ch == 92)) {
+                lastInputSlash = k
+            }
+            k = k + 1
+        }
+        if (lastInputSlash >= 0) {
+            inputDir = (substring inputFile 0 lastInputSlash)
+            inputName = (substring inputFile (lastInputSlash + 1) (strlen inputFile))
+        }
+        
+        def metaParser (new JPEGMetadataParser())
+        def metaInfo:JPEGMetadataInfo (metaParser.parseMetadata(inputDir inputName))
+        def orientation:int metaInfo.orientation
+        print ("EXIF Orientation: " + (to_string orientation))
+        
+        ; Decode input JPEG (try progressive first, then baseline)
+        def img:ImageBuffer (this.decodeJPEG(inputFile))
+        
+        if (img.width == 0) {
+            print "Error: Failed to decode input JPEG"
+            return
+        }
+        
+        print ("Decoded size: " + (to_string img.width) + "x" + (to_string img.height))
+        
+        ; Apply EXIF orientation correction
+        if (orientation > 1) {
+            print ("Applying EXIF orientation correction...")
+            img = (img.applyExifOrientation(orientation))
+            print ("After orientation: " + (to_string img.width) + "x" + (to_string img.height))
+        }
+        
+        print ("Original size: " + (to_string img.width) + "x" + (to_string img.height))
+        
+        ; Calculate new dimensions
+        def newWidth:int 0
+        def newHeight:int 0
+        
+        if (mode == "width") {
+            newWidth = (to_int value)
+            def ratio:double ((to_double newWidth) / (to_double img.width))
+            newHeight = (to_int ((to_double img.height) * ratio))
+        }
+        if (mode == "height") {
+            newHeight = (to_int value)
+            def ratio:double ((to_double newHeight) / (to_double img.height))
+            newWidth = (to_int ((to_double img.width) * ratio))
+        }
+        if (mode == "scale") {
+            newWidth = (to_int ((to_double img.width) * value))
+            newHeight = (to_int ((to_double img.height) * value))
+        }
+        
+        print ("New size: " + (to_string newWidth) + "x" + (to_string newHeight))
+        
+        ; Scale the image
+        def scaled:ImageBuffer (img.scaleToSize(newWidth newHeight))
+        
+        ; Extract directory and filename from output path
+        def outDir:string "."
+        def outName:string outputFile
+        def lastSlash:int -1
+        def j 0
+        while (j < (strlen outputFile)) {
+            def ch:int (charAt outputFile j)
+            ; 47 = '/', 92 = '\\'
+            if ((ch == 47) || (ch == 92)) {
+                lastSlash = j
+            }
+            j = j + 1
+        }
+        if (lastSlash >= 0) {
+            outDir = (substring outputFile 0 lastSlash)
+            outName = (substring outputFile (lastSlash + 1) (strlen outputFile))
+        }
+        
+        ; Encode output JPEG
+        def encoder:JPEGEncoder (new JPEGEncoder())
+        encoder.setQuality(quality)
+        encoder.encode(scaled outDir outName)
+        
+        print ""
+        print "Done!"
+    }
+    
+    fn decodeJPEG:ImageBuffer (filePath:string) {
+        ; Extract directory and filename
+        def dir:string "."
+        def name:string filePath
+        def lastSlash:int -1
+        def j 0
+        while (j < (strlen filePath)) {
+            def c:int (charAt filePath j)
+            ; 47 = '/', 92 = '\\'
+            if ((c == 47) || (c == 92)) {
+                lastSlash = j
+            }
+            j = j + 1
+        }
+        if (lastSlash >= 0) {
+            dir = (substring filePath 0 lastSlash)
+            name = (substring filePath (lastSlash + 1) (strlen filePath))
+        }
+        
+        ; Read file to detect type
+        def data:buffer (buffer_read_file dir name)
+        def dataLen:int (buffer_length data)
+        def isProgressive:boolean false
+        
+        ; Search for SOF marker to determine type
+        def i 0
+        def marker:int 0
+        while (i < (dataLen - 1)) {
+            def b:int (buffer_get data i)
+            if (b == 255) {
+                marker = (buffer_get data (i + 1))
+                if (marker == 194) {
+                    ; SOF2 = Progressive
+                    isProgressive = true
+                    i = dataLen
+                }
+                if (marker == 192) {
+                    ; SOF0 = Baseline
+                    isProgressive = false
+                    i = dataLen
+                }
+            }
+            i = i + 1
+        }
+        
+        if (isProgressive) {
+            print "Detected: Progressive JPEG"
+            def decoder (new ProgressiveJPEGDecoder())
+            return (decoder.decode(dir name))
+        }
+        print "Detected: Baseline JPEG"
+        def decoder (new JPEGDecoder())
+        return (decoder.decode(dir name))
+    }
+    
+    fn printUsage:void () {
+        print "JPEG Scaler - Scale JPEG images"
+        print ""
+        print "Usage:"
+        print "  jpeg_scaler -width <pixels> input.jpg output.jpg"
+        print "  jpeg_scaler -height <pixels> input.jpg output.jpg"
+        print "  jpeg_scaler -scale <factor> input.jpg output.jpg"
+        print ""
+        print "Options:"
+        print "  -width <pixels>   Scale to specified width (height proportional)"
+        print "  -height <pixels>  Scale to specified height (width proportional)"
+        print "  -scale <factor>   Scale by factor (e.g., 2.0 = double size)"
+        print "  -quality <1-100>  JPEG quality (default: 85)"
+        print ""
+        print "Examples:"
+        print "  jpeg_scaler -width 800 photo.jpg photo_800.jpg"
+        print "  jpeg_scaler -height 600 photo.jpg photo_600h.jpg"
+        print "  jpeg_scaler -scale 0.5 photo.jpg photo_half.jpg"
+        print "  jpeg_scaler -width 1920 -quality 95 input.jpg output.jpg"
+    }
+}

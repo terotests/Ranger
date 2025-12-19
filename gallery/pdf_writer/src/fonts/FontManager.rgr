@@ -1,0 +1,236 @@
+; FontManager.rgr - Manage loaded fonts and provide text measurement
+;
+; Usage:
+;   def fm (new FontManager())
+;   fm.setFontsDirectory("./Fonts")
+;   fm.loadFont("Open_Sans/OpenSans-Regular.ttf")
+;   def width:double (fm.measureText("Hello" "Open Sans" 14.0))
+
+Import "TrueTypeFont.rgr"
+Import "../../../evg/EVGTextMeasurer.rgr"
+
+class FontManager {
+    def fonts:[TrueTypeFont]
+    def fontNames:[string]
+    def fontsDirectory:string "./Fonts"
+    def fontsDirectories:[string]  ; Multiple search directories
+    def defaultFont:TrueTypeFont (new TrueTypeFont())
+    def hasDefaultFont:boolean false
+    
+    Constructor () {
+        def f:[TrueTypeFont]
+        fonts = f
+        def n:[string]
+        fontNames = n
+        def fd:[string]
+        fontsDirectories = fd
+    }
+    
+    fn setFontsDirectory:void (path:string) {
+        fontsDirectory = path
+    }
+    
+    ; Add a directory to search for fonts
+    fn addFontsDirectory:void (path:string) {
+        push fontsDirectories path
+    }
+    
+    ; Set multiple directories from semicolon-separated string
+    ; Example: "./Fonts;./assets/fonts;/usr/share/fonts"
+    fn setFontsDirectories:void (paths:string) {
+        ; Split by semicolon
+        def start:int 0
+        def i:int 0
+        def len:int (strlen paths)
+        while (i <= len) {
+            def ch:string ""
+            if (i < len) {
+                ch = (substring paths i (i + 1))
+            }
+            if ((ch == ";") || (i == len)) {
+                if (i > start) {
+                    def part:string (substring paths start i)
+                    push fontsDirectories part
+                    print ("FontManager: Added fonts directory: " + part)
+                }
+                start = i + 1
+            }
+            i = i + 1
+        }
+        ; Set first as primary
+        if ((array_length fontsDirectories) > 0) {
+            fontsDirectory = (itemAt fontsDirectories 0)
+        }
+    }
+    
+    fn loadFont:boolean (relativePath:string) {
+        ; Try each directory in order
+        def i:int 0
+        while (i < (array_length fontsDirectories)) {
+            def dir:string (itemAt fontsDirectories i)
+            def fullPath:string (dir + "/" + relativePath)
+            def font (new TrueTypeFont())
+            if ((font.loadFromFile(fullPath)) == true) {
+                push fonts font
+                push fontNames font.fontFamily
+                if (hasDefaultFont == false) {
+                    defaultFont = font
+                    hasDefaultFont = true
+                }
+                print ("FontManager: Loaded font '" + font.fontFamily + "' (" + font.fontStyle + ") from " + fullPath)
+                return true
+            }
+            i = i + 1
+        }
+        ; Fallback to single fontsDirectory for backward compatibility
+        def fullPath:string (fontsDirectory + "/" + relativePath)
+        def font (new TrueTypeFont())
+        
+        if ((font.loadFromFile(fullPath)) == false) {
+            print ("FontManager: Failed to load font: " + relativePath)
+            return false
+        }
+        
+        push fonts font
+        push fontNames font.fontFamily
+        
+        ; First loaded font becomes default
+        if (hasDefaultFont == false) {
+            defaultFont = font
+            hasDefaultFont = true
+        }
+        
+        print ("FontManager: Loaded font '" + font.fontFamily + "' (" + font.fontStyle + ")")
+        return true
+    }
+    
+    fn loadFontFamily:void (familyDir:string) {
+        ; Load common variants from a font family directory
+        ; e.g., loadFontFamily("Open_Sans") loads Regular, Bold, Italic, BoldItalic
+        this.loadFont(familyDir + "/" + familyDir + "-Regular.ttf")
+        ; Try common naming patterns
+        ; OpenSans-Regular.ttf, Roboto-Regular.ttf, etc.
+    }
+    
+    fn getFont:TrueTypeFont (fontFamily:string) {
+        ; Find font by family name
+        def i:int 0
+        while (i < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts i)
+            if (f.fontFamily == fontFamily) {
+                return f
+            }
+            i = i + 1
+        }
+        
+        ; Try partial match
+        i = 0
+        while (i < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts i)
+            ; Check if fontFamily contains the search term
+            if ((indexOf f.fontFamily fontFamily) >= 0) {
+                return f
+            }
+            i = i + 1
+        }
+        
+        ; Return default font (may be empty if no fonts loaded)
+        return defaultFont
+    }
+    
+    fn measureText:double (text:string fontFamily:string fontSize:double) {
+        def font:TrueTypeFont (this.getFont(fontFamily))
+        if (font.unitsPerEm > 0) {
+            return (font.measureText(text fontSize))
+        }
+        ; Fallback to estimate
+        return ((to_double (strlen text)) * fontSize * 0.5)
+    }
+    
+    fn getLineHeight:double (fontFamily:string fontSize:double) {
+        def font:TrueTypeFont (this.getFont(fontFamily))
+        if (font.unitsPerEm > 0) {
+            return (font.getLineHeight(fontSize))
+        }
+        return (fontSize * 1.2)
+    }
+    
+    fn getAscender:double (fontFamily:string fontSize:double) {
+        def font:TrueTypeFont (this.getFont(fontFamily))
+        if (font.unitsPerEm > 0) {
+            return (font.getAscender(fontSize))
+        }
+        return (fontSize * 0.8)
+    }
+    
+    fn getDescender:double (fontFamily:string fontSize:double) {
+        def font:TrueTypeFont (this.getFont(fontFamily))
+        if (font.unitsPerEm > 0) {
+            return (font.getDescender(fontSize))
+        }
+        return (fontSize * -0.2)
+    }
+    
+    fn getFontData:buffer (fontFamily:string) {
+        def font:TrueTypeFont (this.getFont(fontFamily))
+        return (font.getFontData())
+    }
+    
+    fn getPostScriptName:string (fontFamily:string) {
+        def font:TrueTypeFont (this.getFont(fontFamily))
+        return (font.getPostScriptName())
+    }
+    
+    fn printLoadedFonts:void () {
+        print ("FontManager: " + (to_string (array_length fonts)) + " fonts loaded:")
+        def i:int 0
+        while (i < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts i)
+            print ("  - " + f.fontFamily + " (" + f.fontStyle + ")")
+            i = i + 1
+        }
+    }
+}
+
+; Text measurer that uses FontManager for accurate measurements
+class TTFTextMeasurer {
+    Extends(EVGTextMeasurer)
+    
+    def fontManager:FontManager
+    
+    Constructor (fm:FontManager) {
+        fontManager = fm
+    }
+    
+    fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
+        def width:double (fontManager.measureText(text fontFamily fontSize))
+        def lineHeight:double (fontManager.getLineHeight(fontFamily fontSize))
+        def ascent:double (fontManager.getAscender(fontFamily fontSize))
+        def descent:double (fontManager.getDescender(fontFamily fontSize))
+        
+        def metrics (new EVGTextMetrics())
+        metrics.width = width
+        metrics.height = lineHeight
+        metrics.ascent = ascent
+        metrics.descent = descent
+        metrics.lineHeight = lineHeight
+        return metrics
+    }
+    
+    fn measureTextWidth:double (text:string fontFamily:string fontSize:double) {
+        return (fontManager.measureText(text fontFamily fontSize))
+    }
+    
+    fn getLineHeight:double (fontFamily:string fontSize:double) {
+        return (fontManager.getLineHeight(fontFamily fontSize))
+    }
+    
+    fn measureChar:double (ch:int fontFamily:string fontSize:double) {
+        def font:TrueTypeFont (fontManager.getFont(fontFamily))
+        if (font.unitsPerEm > 0) {
+            return (font.getCharWidthPoints(ch fontSize))
+        }
+        ; Fallback
+        return (fontSize * 0.5)
+    }
+}
