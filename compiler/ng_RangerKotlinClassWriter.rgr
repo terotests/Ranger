@@ -39,6 +39,15 @@ class RangerKotlinClassWriter {
       case "chararray" {
         return "CharArray"
       }
+      case "buffer" {
+        return "ByteArray"
+      }
+      case "int_buffer" {
+        return "LongArray"
+      }
+      case "double_buffer" {
+        return "DoubleArray"
+      }
       case "char" {
         return "Char"
       }
@@ -61,6 +70,15 @@ class RangerKotlinClassWriter {
       }
       case "chararray" {
         return "CharArray"
+      }
+      case "buffer" {
+        return "ByteArray"
+      }
+      case "int_buffer" {
+        return "LongArray"
+      }
+      case "double_buffer" {
+        return "DoubleArray"
       }
       case "char" {
         return "Char"
@@ -94,6 +112,15 @@ class RangerKotlinClassWriter {
       }
       case RangerNodeType.CharBuffer {
         wr.out("CharArray" false)
+      }
+      case RangerNodeType.Buffer {
+        wr.out("ByteArray" false)
+      }
+      case RangerNodeType.IntBuffer {
+        wr.out("LongArray" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.out("DoubleArray" false)
       }
       case RangerNodeType.String {
         wr.out("String" false)

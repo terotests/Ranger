@@ -1,0 +1,21 @@
+; Test FDCT class with int_buffer - using member variable with initializer
+
+class FDCT {
+    def cosTable:int_buffer (int_buffer_alloc 64)
+    
+    Constructor () {
+        int_buffer_set cosTable 0 1024
+    }
+    
+    fn test:void () {
+        def val0:int (int_buffer_get cosTable 0)
+        print ("Value 0: " + (to_string val0))
+    }
+}
+
+class Main {
+    sfn m@(main):void () {
+        def f (new FDCT())
+        f.test()
+    }
+}

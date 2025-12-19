@@ -88,6 +88,12 @@ class RangerRustClassWriter {
       case "buffer" {
         return "Vec<u8>"
       }
+      case "int_buffer" {
+        return "Vec<i64>"
+      }
+      case "double_buffer" {
+        return "Vec<f64>"
+      }
     }
     return type_string
   }
@@ -107,6 +113,12 @@ class RangerRustClassWriter {
       }
       case "buffer" {
         return "Vec<u8>"
+      }
+      case "int_buffer" {
+        return "Vec<i64>"
+      }
+      case "double_buffer" {
+        return "Vec<f64>"
       }
     }
     return type_string
@@ -163,6 +175,12 @@ class RangerRustClassWriter {
       }
       case RangerNodeType.Buffer {
         wr.out("Vec<u8>" false)
+      }
+      case RangerNodeType.IntBuffer {
+        wr.out("Vec<i64>" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.out("Vec<f64>" false)
       }
       case RangerNodeType.Hash {
         wr.out((((("HashMap<" + (this.getObjectTypeString(node.key_type ctx))) + ",") + (this.getObjectTypeString(node.array_type ctx))) + ">") false)
@@ -317,7 +335,7 @@ class RangerRustClassWriter {
       }
       def map_or_hash:boolean ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash))
       ; Buffer type needs mut since buffer_set/buffer_fill/buffer_copy modify in place
-      def is_buffer:boolean (nn.value_type == RangerNodeType.Buffer)
+      def is_buffer:boolean ((nn.value_type == RangerNodeType.Buffer) || (nn.value_type == RangerNodeType.IntBuffer) || (nn.value_type == RangerNodeType.DoubleBuffer))
       ; In Rust, calling &mut self methods requires the variable to be mut
       ; For now, always use mut for objects and arrays to avoid borrow issues
       def needs_mut:boolean ((((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer)

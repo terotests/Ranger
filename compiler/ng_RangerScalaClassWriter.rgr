@@ -50,6 +50,15 @@
       case "chararray" {
         return "Array[Byte]"
       }
+      case "buffer" {
+        return "Array[Byte]"
+      }
+      case "int_buffer" {
+        return "Array[Long]"
+      }
+      case "double_buffer" {
+        return "Array[Double]"
+      }
       case "char" {
         return "byte"
       }
@@ -127,6 +136,15 @@
       }
       case RangerNodeType.CharBuffer {
         wr.out("Array[Byte]" false)
+      }
+      case RangerNodeType.Buffer {
+        wr.out("Array[Byte]" false)
+      }
+      case RangerNodeType.IntBuffer {
+        wr.out("Array[Long]" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.out("Array[Double]" false)
       }
       case RangerNodeType.Hash {
         wr.addImport("scala.collection.mutable")
@@ -211,6 +229,15 @@
       }
       case RangerNodeType.CharBuffer {
         wr.out("Array[Byte]" false)
+      }
+      case RangerNodeType.Buffer {
+        wr.out("Array[Byte]" false)
+      }
+      case RangerNodeType.IntBuffer {
+        wr.out("Array[Long]" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.out("Array[Double]" false)
       }
       case RangerNodeType.Hash {
         wr.addImport("scala.collection.mutable")

@@ -1,0 +1,24 @@
+; Test int_buffer_from and double_buffer_from operators
+
+class Main {
+    sfn m@(main):void () {
+        ; Test int_buffer_from - creates buffer with initial values
+        def cosRow0:int_buffer (int_buffer_from 1024 1004 946 851 724 569 392 200)
+        
+        print "Testing int_buffer_from:"
+        print ("  Length: " + (to_string (int_buffer_length cosRow0)))
+        print ("  [0] = " + (to_string (int_buffer_get cosRow0 0)))
+        print ("  [1] = " + (to_string (int_buffer_get cosRow0 1)))
+        print ("  [7] = " + (to_string (int_buffer_get cosRow0 7)))
+        
+        ; Test double_buffer_from
+        def doubles:double_buffer (double_buffer_from 1.5 2.5 3.5 4.5)
+        
+        print "Testing double_buffer_from:"
+        print ("  Length: " + (to_string (double_buffer_length doubles)))
+        print ("  [0] = " + (to_string (double_buffer_get doubles 0)))
+        print ("  [3] = " + (to_string (double_buffer_get doubles 3)))
+        
+        print "All tests passed!"
+    }
+}

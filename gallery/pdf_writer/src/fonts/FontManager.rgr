@@ -30,6 +30,11 @@ class FontManager {
         fontsDirectory = path
     }
     
+    ; Returns the number of fonts that have been successfully loaded
+    fn getFontCount:int () {
+        return (array_length fonts)
+    }
+    
     ; Add a directory to search for fonts
     fn addFontsDirectory:void (path:string) {
         push fontsDirectories path

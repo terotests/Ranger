@@ -42,6 +42,8 @@ Enum RangerNodeType:int (
   Char
   CharBuffer
   Buffer
+  IntBuffer
+  DoubleBuffer
   Expression
   ExpressionType
   Lambda

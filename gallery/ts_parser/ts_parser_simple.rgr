@@ -4073,7 +4073,6 @@ class TSParserSimple {
         def isMethod:boolean false
         def isGetter:boolean false
         def isSetter:boolean false
-        def isAsync:boolean false
         
         ; Check for async - must look ahead to see if next is identifier or [
         def currVal (this.peekValue())
@@ -4083,7 +4082,6 @@ class TSParserSimple {
         if (currVal == "async") {
           if ((nextType == "Identifier") || (nextVal == "[") || (nextVal == "(")) {
             this.advance()
-            isAsync = true
             prop.async = true
             ; Re-fetch current values after consuming async
             currVal = (this.peekValue())

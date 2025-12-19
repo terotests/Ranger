@@ -99,6 +99,11 @@ class TrueTypeFont {
             fileName = (substring path (lastSlash + 1) (strlen path))
         }
         
+        ; Check if file exists before trying to load
+        if ((file_exists dirPath fileName) == false) {
+            return false
+        }
+        
         fontData = (buffer_read_file dirPath fileName)
         if ((buffer_length fontData) == 0) {
             print ("TrueTypeFont: Failed to load " + path)

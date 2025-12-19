@@ -172,6 +172,15 @@ class RangerJavaScriptClassWriter {
       case "charbuffer" {
         return "string"
       }
+      case "buffer" {
+        return "Uint8Array"
+      }
+      case "int_buffer" {
+        return "BigInt64Array"
+      }
+      case "double_buffer" {
+        return "Float64Array"
+      }
       case "char" {
         return "number"
       }
@@ -206,6 +215,15 @@ class RangerJavaScriptClassWriter {
       }
       case "charbuffer" {
         return "string"
+      }
+      case "buffer" {
+        return "Uint8Array"
+      }
+      case "int_buffer" {
+        return "BigInt64Array"
+      }
+      case "double_buffer" {
+        return "Float64Array"
       }
       case "char" {
         return "number"
@@ -287,8 +305,14 @@ class RangerJavaScriptClassWriter {
         wr.out("string" false)
       }
       case RangerNodeType.Buffer {
-        wr.out("ArrayBuffer" false)
-      }            
+        wr.out("Uint8Array" false)
+      }
+      case RangerNodeType.IntBuffer {
+        wr.out("BigInt64Array" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.out("Float64Array" false)
+      }
       case RangerNodeType.Double {
         wr.out("number" false)
       }

@@ -3762,14 +3762,12 @@ class TSParserSimple  {
         let isMethod = false;
         let isGetter = false;
         let isSetter = false;
-        let isAsync = false;
         let currVal = this.peekValue();
         let nextType = this.peekNextType();
         let nextVal = this.peekNextValue();
         if ( currVal == "async" ) {
           if ( ((nextType == "Identifier") || (nextVal == "[")) || (nextVal == "(") ) {
             this.advance();
-            isAsync = true;
             prop.async = true;
             currVal = this.peekValue();
             nextType = this.peekNextType();
@@ -7912,6 +7910,9 @@ class TrueTypeFont  {
       dirPath = path.substring(0, lastSlash );
       fileName = path.substring((lastSlash + 1), (path.length) );
     }
+    if ( (require("fs").existsSync(dirPath + "/" + fileName )) == false ) {
+      return false;
+    }
     this.fontData = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
     if ( (this.fontData.byteLength) == 0 ) {
       console.log("TrueTypeFont: Failed to load " + path);
@@ -8286,6 +8287,9 @@ class FontManager  {
   }
   setFontsDirectory (path) {
     this.fontsDirectory = path;
+  };
+  getFontCount () {
+    return this.fonts.length;
   };
   addFontsDirectory (path) {
     this.fontsDirectories.push(path);
@@ -13171,7 +13175,18 @@ class ComponentEngine  {
     const fileContent = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fullPath); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
     const src = (function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(fileContent);
     if ( (src.length) == 0 ) {
-      console.log("Warning: Could not load module: " + fullPath);
+      console.log("");
+      console.log(("ERROR: Could not load component module: " + dirPath) + fullPath);
+      console.log("");
+      console.log("Please ensure the imported file exists. You may need to:");
+      console.log("  1. Check that the import path is correct in your TSX file");
+      console.log("  2. Make sure the component file exists in one of your asset paths:");
+      let pathIdx = 0;
+      while (pathIdx < (this.assetPaths.length)) {
+        console.log("     - " + (this.assetPaths[pathIdx]));
+        pathIdx = pathIdx + 1;
+      };
+      console.log("");
       return;
     }
     const lexer = new TSLexer(src);
@@ -14237,6 +14252,18 @@ class EVGComponentTool  {
       }
       i = i + 1;
     };
+    if ( (this.assetPaths.length) == 0 ) {
+      console.log("");
+      console.log("ERROR: Missing required --assets argument");
+      console.log("");
+      console.log("The --assets argument is required to specify where fonts and components are located.");
+      console.log("");
+      console.log("Usage: evg_component_tool <input.tsx> <output.pdf> --assets=path1;path2;...");
+      console.log("");
+      console.log("Example:");
+      console.log("  evg_component_tool test.tsx output.pdf --assets=./Fonts;./components");
+      return;
+    }
     console.log("Input:  " + this.inputPath);
     console.log("Output: " + this.outputPath);
     console.log("");
@@ -14246,6 +14273,16 @@ class EVGComponentTool  {
     console.log("File name: " + fileName);
     console.log("");
     this.initFonts();
+    if ( this.fontManager.getFontCount() == 0 ) {
+      console.log("");
+      console.log("ERROR: No fonts were loaded!");
+      console.log("");
+      console.log("Please check that your --assets path contains a fonts directory with .ttf files.");
+      console.log("Expected structure: <assets-path>/Open_Sans/OpenSans-Regular.ttf");
+      console.log("");
+      console.log("Current asset paths: " + this.assetPaths);
+      return;
+    }
     const engine = new ComponentEngine();
     engine.pageWidth = this.pageWidth;
     engine.pageHeight = this.pageHeight;

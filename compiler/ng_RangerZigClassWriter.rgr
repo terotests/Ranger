@@ -46,6 +46,15 @@ class RangerZigClassWriter {
       case "charbuffer" {
         return "[]u8"
       }
+      case "buffer" {
+        return "[]u8"
+      }
+      case "int_buffer" {
+        return "[]i64"
+      }
+      case "double_buffer" {
+        return "[]f64"
+      }
     }
     return type_string
   }
@@ -69,6 +78,15 @@ class RangerZigClassWriter {
       }
       case "charbuffer" {
         return "[]u8"
+      }
+      case "buffer" {
+        return "[]u8"
+      }
+      case "int_buffer" {
+        return "[]i64"
+      }
+      case "double_buffer" {
+        return "[]f64"
       }
       case "void" {
         return "void"
@@ -109,6 +127,15 @@ class RangerZigClassWriter {
       }
       case RangerNodeType.CharBuffer {
         wr.out("[]u8" false)
+      }
+      case RangerNodeType.Buffer {
+        wr.out("[]u8" false)
+      }
+      case RangerNodeType.IntBuffer {
+        wr.out("[]i64" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.out("[]f64" false)
       }
       case RangerNodeType.Hash {
         ; Zig uses std.AutoHashMap for hash maps

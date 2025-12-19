@@ -83,6 +83,12 @@ class RangerJava7ClassWriter {
       case "buffer" {
         return "byte[]"
       }
+      case "int_buffer" {
+        return "long[]"
+      }
+      case "double_buffer" {
+        return "double[]"
+      }
       case "char" {
         return "byte"
       }

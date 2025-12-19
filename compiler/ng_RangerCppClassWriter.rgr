@@ -43,6 +43,12 @@ class RangerCppClassWriter {
       }
       case "buffer" {
         return "std::vector<uint8_t>"
+      }
+      case "int_buffer" {
+        return "std::vector<int64_t>"
+      }
+      case "double_buffer" {
+        return "std::vector<double>"
       }       
       case "int" {
         return "int"
@@ -82,6 +88,12 @@ class RangerCppClassWriter {
       }
       case "buffer" {
         return "std::vector<uint8_t>"
+      }
+      case "int_buffer" {
+        return "std::vector<int64_t>"
+      }
+      case "double_buffer" {
+        return "std::vector<double>"
       }       
       case "int" {
         return "int"

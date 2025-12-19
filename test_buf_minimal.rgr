@@ -1,0 +1,24 @@
+; Test int_buffer and double_buffer compilation
+
+fn testBuffers:void () {
+    ; Test int_buffer
+    def intBuf:int_buffer (int_buffer_alloc 5)
+    int_buffer_set intBuf 0 100
+    int_buffer_set intBuf 1 200
+    int_buffer_set intBuf 2 300
+    
+    def len1:int (int_buffer_length intBuf)
+    def val0:int (int_buffer_get intBuf 0)
+    def val1:int (int_buffer_get intBuf 1)
+    
+    ; Test double_buffer
+    def dblBuf:double_buffer (double_buffer_alloc 3)
+    double_buffer_set dblBuf 0 3.14
+    double_buffer_set dblBuf 1 2.71
+    
+    def len2:int (double_buffer_length dblBuf)
+    def dval0:double (double_buffer_get dblBuf 0)
+    def dval1:double (double_buffer_get dblBuf 1)
+}
+
+testBuffers()
