@@ -180,7 +180,7 @@ gallery/pdf_writer/
 pdf_writer/
 ├── components/       <- Shared TSX components
 ├── assets/
-│   ├── fonts/       <- Shared fonts  
+│   ├── fonts/       <- Shared fonts
 │   └── images/      <- Shared images
 └── examples/        <- Example TSX files
 ```
@@ -188,12 +188,14 @@ pdf_writer/
 ### From example files (`examples/test_gallery.tsx`):
 
 **Component imports:**
+
 ```tsx
-import Header from '../components/Header.tsx';
-import { PhotoGrid } from '../components/PhotoLayouts.tsx';
+import Header from "../components/Header.tsx";
+import { PhotoGrid } from "../components/PhotoLayouts.tsx";
 ```
 
 **Image paths:**
+
 ```tsx
 <Image src="../assets/images/photo1.jpg" />
 ```
@@ -204,6 +206,7 @@ Currently, fonts are resolved relative to the working directory (where you run `
 The tool has hardcoded `fontsDir = "./Fonts"`.
 
 **Current structure (running from repo root):**
+
 ```
 Ranger/                          <- Working directory
 └── gallery/pdf_writer/
@@ -233,6 +236,7 @@ fontsDir = inputDir + "/../assets/fonts"
 ```
 
 This way, from `examples/test_gallery.tsx`:
+
 - Input dir: `examples/`
 - Fonts dir: `examples/../assets/fonts` = `assets/fonts`
 
