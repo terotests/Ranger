@@ -135,6 +135,10 @@ export interface EVGStyle {
   scale?: number;
   translateX?: Unit;
   translateY?: Unit;
+
+  // SVG Path / Clipping
+  /** SVG path data for clipping this element */
+  clipPath?: string;
 }
 
 // =============================================================================
@@ -145,6 +149,8 @@ export interface EVGBaseProps {
   id?: string;
   style?: EVGStyle;
   className?: string;
+  /** SVG path for clipping */
+  clipPath?: string;
 }
 
 export interface EVGBoxProps extends EVGBaseProps {
@@ -160,6 +166,24 @@ export interface EVGImageProps extends EVGBaseProps {
   src: string;
   /** Alternative text for accessibility */
   alt?: string;
+
+  width?: Unit;
+  height?: Unit;
+}
+
+export interface EVGPathProps extends EVGBaseProps {
+  /** SVG path data (M, L, C, Q, Z commands) */
+  d?: string;
+  /** SVG path data (alternate name) */
+  svgPath?: string;
+  /** ViewBox for scaling (minX minY width height) */
+  viewBox?: string;
+  /** Fill color */
+  fill?: Color;
+  /** Stroke color */
+  stroke?: Color;
+  /** Stroke width */
+  strokeWidth?: number;
 
   width?: Unit;
   height?: Unit;
@@ -217,6 +241,10 @@ declare global {
       Image: EVGImageProps;
       /** Image element (lowercase alias) */
       image: EVGImageProps;
+      /** SVG Path element - renders vector shapes */
+      Path: EVGPathProps;
+      /** SVG Path element (lowercase alias) */
+      path: EVGPathProps;
       /** Generic box container */
       box: EVGBoxProps;
       /** Horizontal flex container (shorthand for box with flexDirection: row) */

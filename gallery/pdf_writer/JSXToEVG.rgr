@@ -388,6 +388,14 @@ class JSXToEVG {
             return "image"
         }
         
+        ; Path elements
+        if (jsxTag == "path") {
+            return "path"
+        }
+        if (jsxTag == "Path") {
+            return "path"
+        }
+        
         ; Default to div
         return "div"
     }
@@ -424,6 +432,36 @@ class JSXToEVG {
                 ; Handle alt for images
                 if (attrName == "alt") {
                     element.alt = attrValue
+                }
+                
+                ; Handle SVG path data (d or svgPath)
+                if ((attrName == "d") || (attrName == "svg-path")) {
+                    element.svgPath = attrValue
+                }
+                
+                ; Handle viewBox
+                if (attrName == "view-box") {
+                    element.viewBox = attrValue
+                }
+                
+                ; Handle fill color
+                if (attrName == "fill") {
+                    element.fillColor = (EVGColor.parse(attrValue))
+                }
+                
+                ; Handle stroke color
+                if (attrName == "stroke") {
+                    element.strokeColor = (EVGColor.parse(attrValue))
+                }
+                
+                ; Handle strokeWidth
+                if (attrName == "stroke-width") {
+                    element.strokeWidth = (unwrap (str2double attrValue))
+                }
+                
+                ; Handle clipPath
+                if (attrName == "clip-path") {
+                    element.clipPath = attrValue
                 }
                 
                 ; Handle width/height - support both pixels and percentages

@@ -9,6 +9,7 @@ Import "../evg/EVGTextMeasurer.rgr"
 Import "../evg/EVGImageMeasurer.rgr"
 Import "../evg/EVGUnit.rgr"
 Import "../evg/EVGColor.rgr"
+Import "../evg/SVGPathParser.rgr"
 Import "Buffer.rgr"
 Import "FontManager.rgr"
 Import "JPEGReader.rgr"
@@ -1056,6 +1057,14 @@ class EVGPDFRenderer {
         ; PDF uses bottom-left origin, flip Y
         def pdfY:double (pageHeight - y - h)
         
+        ; Apply clip path if set
+        def hasClipPath:boolean false
+        if ((strlen el.clipPath) > 0) {
+            hasClipPath = true
+            streamBuffer.writeString("q\n")
+            this.applyClipPath(el.clipPath x pdfY w h)
+        }
+        
         ; Render background if set
         def bgColor:EVGColor (unwrap el.backgroundColor)
         if this.debug {
@@ -1083,6 +1092,11 @@ class EVGPDFRenderer {
             this.renderImage(el x pdfY w h)
         }
         
+        ; Handle path element
+        if (el.tagName == "path") {
+            this.renderPath(el x pdfY w h)
+        }
+        
         ; Render children - children have absolute positions from layout engine
         ; so pass the same offset that was passed to this element
         def i 0
@@ -1091,6 +1105,11 @@ class EVGPDFRenderer {
             def child:EVGElement (el.getChild(i))
             this.renderElement(child offsetX offsetY)
             i = i + 1
+        }
+        
+        ; Restore state if clip path was applied
+        if hasClipPath {
+            streamBuffer.writeString("Q\n")
         }
     }
     
@@ -1126,6 +1145,167 @@ class EVGPDFRenderer {
         streamBuffer.writeString((this.formatNum(w)) + " 0 0 " + (this.formatNum(h)) + " " + (this.formatNum(x)) + " " + (this.formatNum(y)) + " cm\n")
         streamBuffer.writeString(imgName + " Do\n")
         streamBuffer.writeString("Q\n")
+    }
+    
+    fn renderPath:void (el:EVGElement x:double y:double w:double h:double) {
+        def pathData:string el.svgPath
+        if ((strlen pathData) == 0) {
+            return
+        }
+        
+        ; Parse SVG path
+        def parser (new SVGPathParser())
+        parser.parse(pathData)
+        
+        ; Get scaled commands
+        def commands:[PathCommand] (parser.getScaledCommands(w h))
+        
+        ; Determine fill and stroke colors
+        def fillColor:EVGColor el.fillColor
+        def strokeColor:EVGColor el.strokeColor
+        
+        ; Default to backgroundColor if fill not set
+        if (fillColor.isSet == false) {
+            fillColor = el.backgroundColor
+        }
+        
+        ; Start path
+        streamBuffer.writeString("q\n")
+        
+        ; Translate to element position
+        streamBuffer.writeString("1 0 0 1 " + (this.formatNum(x)) + " " + (this.formatNum(y)) + " cm\n")
+        
+        ; Flip Y axis for path coordinates (SVG uses top-left, PDF uses bottom-left)
+        streamBuffer.writeString("1 0 0 -1 0 " + (this.formatNum(h)) + " cm\n")
+        
+        ; Build path commands
+        def i:int 0
+        while (i < (array_length commands)) {
+            def cmd:PathCommand (itemAt commands i)
+            
+            if (cmd.type == "M") {
+                ; Move to
+                streamBuffer.writeString((this.formatNum(cmd.x)) + " " + (this.formatNum(cmd.y)) + " m\n")
+            }
+            
+            if (cmd.type == "L") {
+                ; Line to
+                streamBuffer.writeString((this.formatNum(cmd.x)) + " " + (this.formatNum(cmd.y)) + " l\n")
+            }
+            
+            if (cmd.type == "C") {
+                ; Cubic Bezier curve
+                streamBuffer.writeString((this.formatNum(cmd.x1)) + " " + (this.formatNum(cmd.y1)) + " " + (this.formatNum(cmd.x2)) + " " + (this.formatNum(cmd.y2)) + " " + (this.formatNum(cmd.x)) + " " + (this.formatNum(cmd.y)) + " c\n")
+            }
+            
+            if (cmd.type == "Q") {
+                ; Quadratic Bezier - convert to cubic
+                ; Control point is at 2/3 between current and q control point
+                ; For simplicity, approximate with cubic
+                streamBuffer.writeString((this.formatNum(cmd.x1)) + " " + (this.formatNum(cmd.y1)) + " " + (this.formatNum(cmd.x1)) + " " + (this.formatNum(cmd.y1)) + " " + (this.formatNum(cmd.x)) + " " + (this.formatNum(cmd.y)) + " c\n")
+            }
+            
+            if (cmd.type == "Z") {
+                ; Close path
+                streamBuffer.writeString("h\n")
+            }
+            
+            i = i + 1
+        }
+        
+        ; Apply fill and/or stroke
+        if ((fillColor.isSet) && (strokeColor.isSet)) {
+            ; Set fill color
+            def r:double (fillColor.r / 255.0)
+            def g:double (fillColor.g / 255.0)
+            def b:double (fillColor.b / 255.0)
+            streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
+            ; Set stroke color
+            def sr:double (strokeColor.r / 255.0)
+            def sg:double (strokeColor.g / 255.0)
+            def sb:double (strokeColor.b / 255.0)
+            streamBuffer.writeString((this.formatNum(sr)) + " " + (this.formatNum(sg)) + " " + (this.formatNum(sb)) + " RG\n")
+            ; Set stroke width
+            if (el.strokeWidth > 0.0) {
+                streamBuffer.writeString((this.formatNum(el.strokeWidth)) + " w\n")
+            }
+            ; Fill and stroke
+            streamBuffer.writeString("B\n")
+        } {
+            if fillColor.isSet {
+                ; Set fill color
+                def r:double (fillColor.r / 255.0)
+                def g:double (fillColor.g / 255.0)
+                def b:double (fillColor.b / 255.0)
+                streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
+                ; Fill
+                streamBuffer.writeString("f\n")
+            } {
+                if strokeColor.isSet {
+                    ; Set stroke color
+                    def sr:double (strokeColor.r / 255.0)
+                    def sg:double (strokeColor.g / 255.0)
+                    def sb:double (strokeColor.b / 255.0)
+                    streamBuffer.writeString((this.formatNum(sr)) + " " + (this.formatNum(sg)) + " " + (this.formatNum(sb)) + " RG\n")
+                    ; Set stroke width
+                    if (el.strokeWidth > 0.0) {
+                        streamBuffer.writeString((this.formatNum(el.strokeWidth)) + " w\n")
+                    }
+                    ; Stroke
+                    streamBuffer.writeString("S\n")
+                }
+            }
+        }
+        
+        streamBuffer.writeString("Q\n")
+    }
+    
+    fn applyClipPath:void (pathData:string x:double y:double w:double h:double) {
+        ; Parse and scale the path, then use it as clipping
+        def parser (new SVGPathParser())
+        parser.parse(pathData)
+        
+        ; Get scaled commands
+        def commands:[PathCommand] (parser.getScaledCommands(w h))
+        
+        ; Build path directly in page coordinates
+        ; Note: x, y are already in PDF coordinates (y from bottom)
+        ; SVG path has Y going down, PDF has Y going up
+        ; So we need to flip Y: pdfY = y + h - svgY
+        def i:int 0
+        while (i < (array_length commands)) {
+            def cmd:PathCommand (itemAt commands i)
+            
+            ; Transform: pageX = x + cmd.x, pageY = y + h - cmd.y
+            def px:double (x + cmd.x)
+            def py:double (y + h - cmd.y)
+            def px1:double (x + cmd.x1)
+            def py1:double (y + h - cmd.y1)
+            def px2:double (x + cmd.x2)
+            def py2:double (y + h - cmd.y2)
+            
+            if (cmd.type == "M") {
+                streamBuffer.writeString((this.formatNum(px)) + " " + (this.formatNum(py)) + " m\n")
+            }
+            if (cmd.type == "L") {
+                streamBuffer.writeString((this.formatNum(px)) + " " + (this.formatNum(py)) + " l\n")
+            }
+            if (cmd.type == "C") {
+                streamBuffer.writeString((this.formatNum(px1)) + " " + (this.formatNum(py1)) + " " + (this.formatNum(px2)) + " " + (this.formatNum(py2)) + " " + (this.formatNum(px)) + " " + (this.formatNum(py)) + " c\n")
+            }
+            if (cmd.type == "Q") {
+                ; Convert quadratic to cubic bezier
+                streamBuffer.writeString((this.formatNum(px1)) + " " + (this.formatNum(py1)) + " " + (this.formatNum(px1)) + " " + (this.formatNum(py1)) + " " + (this.formatNum(px)) + " " + (this.formatNum(py)) + " c\n")
+            }
+            if (cmd.type == "Z") {
+                streamBuffer.writeString("h\n")
+            }
+            
+            i = i + 1
+        }
+        
+        ; Apply as clipping path (W = set clipping, n = end path without fill/stroke)
+        streamBuffer.writeString("W n\n")
     }
     
     fn renderBackground:void (x:double y:double w:double h:double color:EVGColor) {
