@@ -141,6 +141,132 @@ function render() {
 - **Reusability**: Extract repeated patterns into components
 - **Organization**: Keep components in a `components/` directory
 
+### Photo Album Components
+
+The `components/PhotoLayouts.tsx` file provides pre-built Higher-Order Components for creating photo album layouts:
+
+#### Full Page Layouts
+
+```tsx
+import { FullPagePhoto, FullPagePhotoWithCaption } from "./components/PhotoLayouts";
+
+// Edge-to-edge photo
+<FullPagePhoto src="./photo.jpg" />
+
+// Full page with caption overlay
+<FullPagePhotoWithCaption
+  src="./photo.jpg"
+  caption="Summer sunset at the beach"
+/>
+```
+
+#### Multi-Photo Grids
+
+```tsx
+import { FourPhotoGrid, TwoPhotoHorizontal, TwoPhotoVertical } from "./components/PhotoLayouts";
+
+// 2x2 grid with background color
+<FourPhotoGrid
+  src1="./photo1.jpg"
+  src2="./photo2.jpg"
+  src3="./photo3.jpg"
+  src4="./photo4.jpg"
+  backgroundColor="#e8f4f8"
+  gap="15px"
+  padding="30px"
+/>
+
+// Two photos side by side
+<TwoPhotoHorizontal
+  src1="./left.jpg"
+  src2="./right.jpg"
+  backgroundColor="#ffffff"
+/>
+
+// Two photos stacked vertically
+<TwoPhotoVertical
+  src1="./top.jpg"
+  src2="./bottom.jpg"
+/>
+```
+
+#### Photo with Caption
+
+```tsx
+import { PhotoCaptionBelow, PhotoCaptionOverlay, PhotoCaptionRight, PhotoCaptionLeft } from "./components/PhotoLayouts";
+
+// Caption below the image
+<PhotoCaptionBelow
+  src="./photo.jpg"
+  caption="A memorable moment from our trip."
+/>
+
+// Caption overlaid on the image
+<PhotoCaptionOverlay
+  src="./photo.jpg"
+  caption="Summer 2024"
+  overlayColor="rgba(0,0,0,0.6)"
+/>
+
+// Photo left, caption right
+<PhotoCaptionRight
+  src="./photo.jpg"
+  title="Beach Day"
+  caption="We finally made it to the coast..."
+  accentColor="#2980b9"
+/>
+
+// Caption left, photo right
+<PhotoCaptionLeft
+  src="./photo.jpg"
+  title="Golden Hour"
+  caption="There's something magical about sunset..."
+  accentColor="#e67e22"
+/>
+```
+
+#### Three Photo Feature
+
+```tsx
+import { ThreePhotoFeatureLeft, ThreePhotoFeatureRight } from "./components/PhotoLayouts";
+
+// Large photo on left, two small on right
+<ThreePhotoFeatureLeft
+  src1="./main.jpg"
+  src2="./small1.jpg"
+  src3="./small2.jpg"
+  backgroundColor="#fafafa"
+/>
+
+// Two small on left, large on right
+<ThreePhotoFeatureRight
+  src1="./main.jpg"
+  src2="./small1.jpg"
+  src3="./small2.jpg"
+/>
+```
+
+#### Title Pages
+
+```tsx
+import { TitlePage, TitlePageWithPhoto } from "./components/PhotoLayouts";
+
+// Solid color title page
+<TitlePage
+  title="Summer Memories"
+  subtitle="2024"
+  backgroundColor="#34495e"
+/>
+
+// Photo background title page
+<TitlePageWithPhoto
+  title="Our Adventures"
+  subtitle="A Year in Photos"
+  backgroundSrc="./cover.jpg"
+  overlayColor="rgba(0,0,0,0.5)"
+/>
+```
+
 #### Generate PDF from Components
 
 ```bash
@@ -163,6 +289,8 @@ The component system enables building sophisticated, maintainable PDF documents 
 | `<View>`    | Container with flexbox layout                    |
 | `<Label>`   | Text element with font styling                   |
 | `<Image>`   | JPEG image with automatic resize and orientation |
+| `<Path>`    | SVG path element with fill color                 |
+| `<Rect>`    | Rectangle with optional border radius            |
 
 ### Multi-Page Documents
 
@@ -230,6 +358,57 @@ Standard page sizes:
 | `backgroundColor`           | `#f5f5f5`                 | Background color                  |
 | `lineHeight`                | `1.6`                     | Line height multiplier            |
 | `textAlign`                 | `left`, `center`, `right` | Text alignment                    |
+| `borderRadius`              | `5px`                     | Rounded corners                   |
+| `clipPath`                  | `circle`, `ellipse`       | Clip content to shape             |
+| `opacity`                   | `0.5`                     | Element transparency              |
+
+### SVG Path and Graphics
+
+The `<Path>` element allows drawing custom vector graphics with SVG path syntax:
+
+```tsx
+// Star icon
+<Path
+  d="M10,2 L12,8 L18,8 L13,12 L15,18 L10,14 L5,18 L7,12 L2,8 L8,8 Z"
+  width="20px"
+  height="20px"
+  fill="#f1c40f"
+/>
+
+// Heart icon
+<Path
+  d="M10,18 C10,18 2,12 2,7 C2,4 4,2 7,2 C9,2 10,4 10,4 C10,4 11,2 13,2 C16,2 18,4 18,7 C18,12 10,18 10,18 Z"
+  width="20px"
+  height="20px"
+  fill="#e74c3c"
+/>
+```
+
+**Path Properties:**
+
+| Property | Description                                    |
+| -------- | ---------------------------------------------- |
+| `d`      | SVG path data (M, L, C, Q, Z commands)         |
+| `width`  | Required: explicit width (viewBox not enough)  |
+| `height` | Required: explicit height (viewBox not enough) |
+| `fill`   | Fill color (hex or named color)                |
+| `stroke` | Stroke color                                   |
+
+### Clip Paths
+
+Clip content to shapes using `clipPath`:
+
+```tsx
+// Circular avatar
+<View width="100px" height="100px" clipPath="circle">
+  <Image src="./avatar.jpg" width="100%" height="100%" />
+</View>
+
+// Ellipse clip
+<View width="200px" height="100px" clipPath="ellipse">
+  <Image src="./banner.jpg" width="100%" height="100%" />
+</View>
+```
 
 ### Font Support
 
@@ -492,6 +671,46 @@ The component system includes a TypeScript expression evaluator that executes Ty
 - Function parameters with destructuring: `{ text, color = "#000" }`
 - Default parameter values
 - Array iteration with `.map()`
+
+### Parser Limitations
+
+The TSX parser has some limitations compared to full TypeScript/React:
+
+| Pattern                       | Status            | Workaround                              |
+| ----------------------------- | ----------------- | --------------------------------------- |
+| `{condition && <Element />}`  | ⚠️ Limited        | May not work reliably in all contexts   |
+| `{condition ? <A /> : <B />}` | ⚠️ Limited        | Create separate components instead      |
+| `{array.map(...)}`            | ✅ Works          | Use in main render function             |
+| `{obj.prop}`                  | ✅ Works          | Direct property access                  |
+| `{arr[0].prop}`               | ❌ Not supported  | Use individual props (src1, src2, etc.) |
+| `/* JSDoc */` comments        | ⚠️ Parse warnings | Use `//` comments instead               |
+
+**Array Props Workaround:**
+
+Instead of passing arrays of objects:
+
+```tsx
+// ❌ NOT WORKING - array index access
+<MyComponent photos={[{ src: "a.jpg" }, { src: "b.jpg" }]} />;
+function MyComponent({ photos }) {
+  return <Image src={photos[0].src} />;
+}
+```
+
+Use individual props:
+
+```tsx
+// ✅ WORKING - individual props
+<MyComponent src1="a.jpg" src2="b.jpg" />;
+function MyComponent({ src1, src2 }) {
+  return (
+    <View>
+      <Image src={src1} />
+      <Image src={src2} />
+    </View>
+  );
+}
+```
 
 ### Example Usage
 
