@@ -13,6 +13,7 @@ class FontManager {
     def fonts:[TrueTypeFont]
     def fontNames:[string]
     def fontsDirectory:string "./Fonts"
+    def fontsDirectories:[string]  ; Multiple search directories
     def defaultFont:TrueTypeFont (new TrueTypeFont())
     def hasDefaultFont:boolean false
     
@@ -21,18 +22,72 @@ class FontManager {
         fonts = f
         def n:[string]
         fontNames = n
+        def fd:[string]
+        fontsDirectories = fd
     }
     
     fn setFontsDirectory:void (path:string) {
         fontsDirectory = path
     }
     
+    ; Add a directory to search for fonts
+    fn addFontsDirectory:void (path:string) {
+        push fontsDirectories path
+    }
+    
+    ; Set multiple directories from semicolon-separated string
+    ; Example: "./Fonts;./assets/fonts;/usr/share/fonts"
+    fn setFontsDirectories:void (paths:string) {
+        ; Split by semicolon
+        def start:int 0
+        def i:int 0
+        def len:int (strlen paths)
+        while (i <= len) {
+            def ch:string ""
+            if (i < len) {
+                ch = (substring paths i (i + 1))
+            }
+            if ((ch == ";") || (i == len)) {
+                if (i > start) {
+                    def part:string (substring paths start i)
+                    push fontsDirectories part
+                    print ("FontManager: Added fonts directory: " + part)
+                }
+                start = i + 1
+            }
+            i = i + 1
+        }
+        ; Set first as primary
+        if ((array_length fontsDirectories) > 0) {
+            fontsDirectory = (itemAt fontsDirectories 0)
+        }
+    }
+    
     fn loadFont:boolean (relativePath:string) {
+        ; Try each directory in order
+        def i:int 0
+        while (i < (array_length fontsDirectories)) {
+            def dir:string (itemAt fontsDirectories i)
+            def fullPath:string (dir + "/" + relativePath)
+            def font (new TrueTypeFont())
+            if ((font.loadFromFile(fullPath)) == true) {
+                push fonts font
+                push fontNames font.fontFamily
+                if (hasDefaultFont == false) {
+                    defaultFont = font
+                    hasDefaultFont = true
+                }
+                print ("FontManager: Loaded font '" + font.fontFamily + "' (" + font.fontStyle + ") from " + fullPath)
+                return true
+            }
+            i = i + 1
+        }
+        ; Fallback to single fontsDirectory for backward compatibility
         def fullPath:string (fontsDirectory + "/" + relativePath)
         def font (new TrueTypeFont())
         
         if ((font.loadFromFile(fullPath)) == false) {
-            print ("FontManager: Failed to load font: " + fullPath)
+            print ("FontManager: Failed to load font: " + relativePath)
             return false
         }
         

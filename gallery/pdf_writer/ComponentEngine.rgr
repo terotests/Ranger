@@ -99,6 +99,7 @@ class ComponentEngine {
     def parser:TSParserSimple
     def source:string ""
     def basePath:string "./"
+    def assetPaths:[string]  ; Multiple asset directories for component resolution
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     
@@ -124,6 +125,8 @@ class ComponentEngine {
         context = ctx
         def prim:[string]
         primitives = prim
+        def ap:[string]
+        assetPaths = ap
         
         ; Register primitive element names
         push primitives "View"
@@ -143,6 +146,52 @@ class ComponentEngine {
         push primitives "h3"
         push primitives "img"
         push primitives "path"
+    }
+    
+    ; ==========================================================================
+    ; Asset Path Management
+    ; ==========================================================================
+    
+    ; Set multiple asset directories from semicolon-separated string
+    ; Example: "./Fonts;./components;./images"
+    fn setAssetPaths:void (paths:string) {
+        ; Split by semicolon
+        def start:int 0
+        def i:int 0
+        def len:int (strlen paths)
+        while (i <= len) {
+            def ch:string ""
+            if (i < len) {
+                ch = (substring paths i (i + 1))
+            }
+            if ((ch == ";") || (i == len)) {
+                if (i > start) {
+                    def part:string (substring paths start i)
+                    push assetPaths part
+                    print ("ComponentEngine: Added asset path: " + part)
+                }
+                start = i + 1
+            }
+            i = i + 1
+        }
+    }
+    
+    ; Resolve a component file path, searching asset directories
+    fn resolveComponentPath:string (relativePath:string) {
+        ; First try relative to basePath (current file's directory)
+        def fullPath:string (basePath + relativePath)
+        ; For now just return the basePath-relative path
+        ; In future, could check file existence in each asset path
+        
+        ; Try each asset path
+        def i:int 0
+        while (i < (array_length assetPaths)) {
+            def assetDir:string (itemAt assetPaths i)
+            ; Could check if file exists here
+            i = i + 1
+        }
+        
+        return fullPath
     }
     
     ; ==========================================================================

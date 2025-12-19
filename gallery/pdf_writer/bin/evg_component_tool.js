@@ -8274,30 +8274,76 @@ class FontManager  {
     this.fonts = [];
     this.fontNames = [];
     this.fontsDirectory = "./Fonts";
+    this.fontsDirectories = [];
     this.defaultFont = new TrueTypeFont();
     this.hasDefaultFont = false;
     let f = [];
     this.fonts = f;
     let n = [];
     this.fontNames = n;
+    let fd = [];
+    this.fontsDirectories = fd;
   }
   setFontsDirectory (path) {
     this.fontsDirectory = path;
   };
+  addFontsDirectory (path) {
+    this.fontsDirectories.push(path);
+  };
+  setFontsDirectories (paths) {
+    let start = 0;
+    let i = 0;
+    const __len = paths.length;
+    while (i <= __len) {
+      let ch = "";
+      if ( i < __len ) {
+        ch = paths.substring(i, (i + 1) );
+      }
+      if ( (ch == ";") || (i == __len) ) {
+        if ( i > start ) {
+          const part = paths.substring(start, i );
+          this.fontsDirectories.push(part);
+          console.log("FontManager: Added fonts directory: " + part);
+        }
+        start = i + 1;
+      }
+      i = i + 1;
+    };
+    if ( (this.fontsDirectories.length) > 0 ) {
+      this.fontsDirectory = this.fontsDirectories[0];
+    }
+  };
   loadFont (relativePath) {
-    const fullPath = (this.fontsDirectory + "/") + relativePath;
-    const font = new TrueTypeFont();
-    if ( font.loadFromFile(fullPath) == false ) {
-      console.log("FontManager: Failed to load font: " + fullPath);
+    let i = 0;
+    while (i < (this.fontsDirectories.length)) {
+      const dir = this.fontsDirectories[i];
+      const fullPath = (dir + "/") + relativePath;
+      const font = new TrueTypeFont();
+      if ( font.loadFromFile(fullPath) == true ) {
+        this.fonts.push(font);
+        this.fontNames.push(font.fontFamily);
+        if ( this.hasDefaultFont == false ) {
+          this.defaultFont = font;
+          this.hasDefaultFont = true;
+        }
+        console.log((((("FontManager: Loaded font '" + font.fontFamily) + "' (") + font.fontStyle) + ") from ") + fullPath);
+        return true;
+      }
+      i = i + 1;
+    };
+    const fullPath_1 = (this.fontsDirectory + "/") + relativePath;
+    const font_1 = new TrueTypeFont();
+    if ( font_1.loadFromFile(fullPath_1) == false ) {
+      console.log("FontManager: Failed to load font: " + relativePath);
       return false;
     }
-    this.fonts.push(font);
-    this.fontNames.push(font.fontFamily);
+    this.fonts.push(font_1);
+    this.fontNames.push(font_1.fontFamily);
     if ( this.hasDefaultFont == false ) {
-      this.defaultFont = font;
+      this.defaultFont = font_1;
       this.hasDefaultFont = true;
     }
-    console.log(((("FontManager: Loaded font '" + font.fontFamily) + "' (") + font.fontStyle) + ")");
+    console.log(((("FontManager: Loaded font '" + font_1.fontFamily) + "' (") + font_1.fontStyle) + ")");
     return true;
   };
   loadFontFamily (familyDir) {
@@ -11459,6 +11505,7 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.jpegEncoder = new JPEGEncoder();
     this.metadataParser = new JPEGMetadataParser();
     this.baseDir = "./";
+    this.assetPaths = [];
     this.maxImageWidth = 800;
     this.maxImageHeight = 800;
     this.jpegQuality = 75;
@@ -11482,6 +11529,8 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.imageDimensionsCache = idc;
     let idck = [];
     this.imageDimensionsCacheKeys = idck;
+    let ap = [];
+    this.assetPaths = ap;
     this.layout.setImageMeasurer(this);
   }
   setPageSize (width, height) {
@@ -11491,6 +11540,37 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
   };
   setBaseDir (dir) {
     this.baseDir = dir;
+  };
+  setAssetPaths (paths) {
+    let start = 0;
+    let i = 0;
+    const __len = paths.length;
+    while (i <= __len) {
+      let ch = "";
+      if ( i < __len ) {
+        ch = paths.substring(i, (i + 1) );
+      }
+      if ( (ch == ";") || (i == __len) ) {
+        if ( i > start ) {
+          const part = paths.substring(start, i );
+          this.assetPaths.push(part);
+          console.log("EVGPDFRenderer: Added asset path: " + part);
+        }
+        start = i + 1;
+      }
+      i = i + 1;
+    };
+  };
+  resolveImagePath (src) {
+    let imgSrc = src;
+    if ( (src.length) > 2 ) {
+      const prefix = src.substring(0, 2 );
+      if ( prefix == "./" ) {
+        imgSrc = src.substring(2, (src.length) );
+      }
+    }
+    const fullPath = this.baseDir + imgSrc;
+    return fullPath;
   };
   setMeasurer (m) {
     this.measurer = m;
@@ -12955,6 +13035,7 @@ class ComponentEngine  {
   constructor() {
     this.source = "";
     this.basePath = "./";
+    this.assetPaths = [];
     this.pageWidth = 595.0;
     this.pageHeight = 842.0;
     this.imports = [];
@@ -12971,6 +13052,8 @@ class ComponentEngine  {
     this.context = ctx;
     let prim = [];
     this.primitives = prim;
+    let ap_1 = [];
+    this.assetPaths = ap_1;
     this.primitives.push("View");
     this.primitives.push("Label");
     this.primitives.push("Print");
@@ -12989,6 +13072,35 @@ class ComponentEngine  {
     this.primitives.push("img");
     this.primitives.push("path");
   }
+  setAssetPaths (paths) {
+    let start = 0;
+    let i = 0;
+    const __len = paths.length;
+    while (i <= __len) {
+      let ch = "";
+      if ( i < __len ) {
+        ch = paths.substring(i, (i + 1) );
+      }
+      if ( (ch == ";") || (i == __len) ) {
+        if ( i > start ) {
+          const part = paths.substring(start, i );
+          this.assetPaths.push(part);
+          console.log("ComponentEngine: Added asset path: " + part);
+        }
+        start = i + 1;
+      }
+      i = i + 1;
+    };
+  };
+  resolveComponentPath (relativePath) {
+    const fullPath = this.basePath + relativePath;
+    let i = 0;
+    while (i < (this.assetPaths.length)) {
+      const assetDir = this.assetPaths[i];
+      i = i + 1;
+    };
+    return fullPath;
+  };
   parseFile (dirPath, fileName) {
     this.basePath = dirPath;
     const fileContent = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
@@ -14097,20 +14209,34 @@ class EVGComponentTool  {
     this.inputPath = "";
     this.outputPath = "";
     this.fontsDir = "./Fonts";
+    this.assetPaths = "";
     this.fontManager = new FontManager();
   }
   main (args) {
     console.log("EVG Component Tool v1.0 - PDF Generator with TSX Components");
     console.log("============================================================");
     if ( (args.length) < 3 ) {
-      console.log("Usage: ranger evg_component_tool.rgr <input.tsx> <output.pdf>");
+      console.log("Usage: evg_component_tool <input.tsx> <output.pdf> [--assets=path1;path2;...]");
+      console.log("");
+      console.log("Options:");
+      console.log("  --assets=PATHS  Semicolon-separated list of asset directories");
+      console.log("                  Used for fonts, components, and images");
       console.log("");
       console.log("Example:");
-      console.log("  ranger evg_component_tool.rgr test_invoice.tsx invoice.pdf");
+      console.log("  evg_component_tool test.tsx output.pdf --assets=./Fonts;./components");
       return;
     }
     this.inputPath = args[1];
     this.outputPath = args[2];
+    let i = 3;
+    while (i < (args.length)) {
+      const arg = args[i];
+      if ( (arg.indexOf("--assets=")) == 0 ) {
+        this.assetPaths = arg.substring(9, (arg.length) );
+        console.log("Asset paths: " + this.assetPaths);
+      }
+      i = i + 1;
+    };
     console.log("Input:  " + this.inputPath);
     console.log("Output: " + this.outputPath);
     console.log("");
@@ -14123,6 +14249,9 @@ class EVGComponentTool  {
     const engine = new ComponentEngine();
     engine.pageWidth = this.pageWidth;
     engine.pageHeight = this.pageHeight;
+    if ( (this.assetPaths.length) > 0 ) {
+      engine.setAssetPaths(this.assetPaths);
+    }
     console.log("Parsing TSX with components...");
     const evgRoot = engine.parseFile(basePath, fileName);
     if ( (evgRoot.tagName.length) == 0 ) {
@@ -14140,6 +14269,9 @@ class EVGComponentTool  {
     renderer.setPageSize(this.pageWidth, this.pageHeight);
     renderer.setFontManager(this.fontManager);
     renderer.setBaseDir(basePath);
+    if ( (this.assetPaths.length) > 0 ) {
+      renderer.setAssetPaths(this.assetPaths);
+    }
     const ttfMeasurer = new TTFTextMeasurer(this.fontManager);
     renderer.setMeasurer(ttfMeasurer);
     const pdfBuffer = renderer.render(evgRoot);
@@ -14177,7 +14309,11 @@ class EVGComponentTool  {
   };
   initFonts () {
     console.log("Loading fonts...");
-    this.fontManager.setFontsDirectory(this.fontsDir);
+    if ( (this.assetPaths.length) > 0 ) {
+      this.fontManager.setFontsDirectories(this.assetPaths);
+    } else {
+      this.fontManager.setFontsDirectory(this.fontsDir);
+    }
     this.fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf");
     this.fontManager.loadFont("Open_Sans/OpenSans-Bold.ttf");
     this.fontManager.loadFont("Helvetica/Helvetica.ttf");

@@ -172,6 +172,77 @@ gallery/pdf_writer/
     └── test_simple_output.pdf
 ```
 
+## Path Resolution for Examples
+
+**Important**: The structure keeps shared resources at the `pdf_writer/` level so examples can access them via relative paths:
+
+```
+pdf_writer/
+├── components/       <- Shared TSX components
+├── assets/
+│   ├── fonts/       <- Shared fonts  
+│   └── images/      <- Shared images
+└── examples/        <- Example TSX files
+```
+
+### From example files (`examples/test_gallery.tsx`):
+
+**Component imports:**
+```tsx
+import Header from '../components/Header.tsx';
+import { PhotoGrid } from '../components/PhotoLayouts.tsx';
+```
+
+**Image paths:**
+```tsx
+<Image src="../assets/images/photo1.jpg" />
+```
+
+### Font Resolution
+
+Currently, fonts are resolved relative to the working directory (where you run `node`).
+The tool has hardcoded `fontsDir = "./Fonts"`.
+
+**Current structure (running from repo root):**
+```
+Ranger/                          <- Working directory
+└── gallery/pdf_writer/
+    └── Fonts/                   <- Tool expects ./Fonts - FAILS
+```
+
+**After migration - Option A: Absolute path in npm scripts (Recommended)**
+
+Update `fontsDir` to accept a command-line argument or use full path from repo root:
+
+```bash
+# In package.json
+"evgcomp:run": "node ./gallery/pdf_writer/bin/evg_component_tool.js --fonts=./gallery/pdf_writer/assets/fonts"
+```
+
+Or update the tool to compute fontsDir relative to the tool's own location.
+
+**After migration - Option B: Update tool to use basePath**
+
+Change `evg_component_tool.rgr` to resolve fonts relative to TSX file:
+
+```ranger
+; In initFonts, compute fontsDir relative to input file
+; If input is examples/test.tsx, fontsDir = examples/../assets/fonts = assets/fonts
+def inputDir:string (this.getDirectory(inputPath))
+fontsDir = inputDir + "/../assets/fonts"
+```
+
+This way, from `examples/test_gallery.tsx`:
+- Input dir: `examples/`
+- Fonts dir: `examples/../assets/fonts` = `assets/fonts`
+
+### Code Changes Required
+
+1. **evg_component_tool.rgr**: Update `fontsDir` calculation
+2. **evg_pdf_tool.rgr**: Same change
+3. **font_test.rgr**: Update hardcoded paths
+4. **FontManager.rgr**: No change (already uses `fontsDir` parameter)
+
 ## Migration Steps
 
 ### Phase 1: Create Directory Structure

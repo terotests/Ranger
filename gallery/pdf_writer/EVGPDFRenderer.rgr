@@ -71,6 +71,7 @@ class EVGPDFRenderer {
     def jpegEncoder:JPEGEncoder (new JPEGEncoder())
     def metadataParser:JPEGMetadataParser (new JPEGMetadataParser())
     def baseDir:string "./"
+    def assetPaths:[string]  ; Multiple asset directories for image resolution
     def maxImageWidth:int 800
     def maxImageHeight:int 800
     def jpegQuality:int 75
@@ -96,6 +97,8 @@ class EVGPDFRenderer {
         imageDimensionsCache = idc
         def idck:[string]
         imageDimensionsCacheKeys = idck
+        def ap:[string]
+        assetPaths = ap
         ; Set this renderer as the image measurer for layout
         layout.setImageMeasurer(this)
     }
@@ -108,6 +111,50 @@ class EVGPDFRenderer {
     
     fn setBaseDir:void (dir:string) {
         baseDir = dir
+    }
+    
+    ; Set multiple asset directories from semicolon-separated string
+    ; Example: "./images;./assets/photos"
+    fn setAssetPaths:void (paths:string) {
+        ; Split by semicolon
+        def start:int 0
+        def i:int 0
+        def len:int (strlen paths)
+        while (i <= len) {
+            def ch:string ""
+            if (i < len) {
+                ch = (substring paths i (i + 1))
+            }
+            if ((ch == ";") || (i == len)) {
+                if (i > start) {
+                    def part:string (substring paths start i)
+                    push assetPaths part
+                    print ("EVGPDFRenderer: Added asset path: " + part)
+                }
+                start = i + 1
+            }
+            i = i + 1
+        }
+    }
+    
+    ; Resolve an image path, searching asset directories
+    fn resolveImagePath:string (src:string) {
+        ; Remove leading "./" if present
+        def imgSrc:string src
+        if ((strlen src) > 2) {
+            def prefix:string (substring src 0 2)
+            if (prefix == "./") {
+                imgSrc = (substring src 2 (strlen src))
+            }
+        }
+        
+        ; First try relative to baseDir
+        def fullPath:string (baseDir + imgSrc)
+        ; Could check file existence here and fall back to asset paths
+        
+        ; For now return baseDir-relative path
+        ; In future, iterate assetPaths and check file existence
+        return fullPath
     }
     
     fn setMeasurer:void (m:EVGTextMeasurer) {

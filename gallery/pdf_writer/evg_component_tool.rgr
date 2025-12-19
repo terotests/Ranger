@@ -18,6 +18,7 @@ class EVGComponentTool {
     def inputPath:string ""
     def outputPath:string ""
     def fontsDir:string "./Fonts"
+    def assetPaths:string ""  ; Semicolon-separated asset paths
     def fontManager:FontManager (new FontManager()) (new FontManager())
     
     Constructor () {}
@@ -27,15 +28,30 @@ class EVGComponentTool {
         print "============================================================"
         
         if ((array_length args) < 3) {
-            print "Usage: ranger evg_component_tool.rgr <input.tsx> <output.pdf>"
+            print "Usage: evg_component_tool <input.tsx> <output.pdf> [--assets=path1;path2;...]"
+            print ""
+            print "Options:"
+            print "  --assets=PATHS  Semicolon-separated list of asset directories"
+            print "                  Used for fonts, components, and images"
             print ""
             print "Example:"
-            print "  ranger evg_component_tool.rgr test_invoice.tsx invoice.pdf"
+            print "  evg_component_tool test.tsx output.pdf --assets=./Fonts;./components"
             return
         }
         
         inputPath = (itemAt args 1)
         outputPath = (itemAt args 2)
+        
+        ; Parse optional arguments
+        def i:int 3
+        while (i < (array_length args)) {
+            def arg:string (itemAt args i)
+            if ((indexOf arg "--assets=") == 0) {
+                assetPaths = (substring arg 9 (strlen arg))
+                print ("Asset paths: " + assetPaths)
+            }
+            i = i + 1
+        }
         
         print ("Input:  " + inputPath)
         print ("Output: " + outputPath)
@@ -49,13 +65,18 @@ class EVGComponentTool {
         print ("File name: " + fileName)
         print ""
         
-        ; Initialize font manager
+        ; Initialize font manager with asset paths
         this.initFonts()
         
         ; Create the component engine
         def engine (new ComponentEngine())
         engine.pageWidth = pageWidth
         engine.pageHeight = pageHeight
+        
+        ; Set asset paths for component resolution
+        if ((strlen assetPaths) > 0) {
+            engine.setAssetPaths(assetPaths)
+        }
         
         ; Parse and convert to EVG
         print "Parsing TSX with components..."
@@ -81,6 +102,11 @@ class EVGComponentTool {
         renderer.setPageSize(pageWidth pageHeight)
         renderer.setFontManager(fontManager)
         renderer.setBaseDir(basePath)
+        
+        ; Set asset paths for image resolution
+        if ((strlen assetPaths) > 0) {
+            renderer.setAssetPaths(assetPaths)
+        }
         
         ; Use TTF text measurer for accurate measurements
         def ttfMeasurer (new TTFTextMeasurer(fontManager))
@@ -134,7 +160,12 @@ class EVGComponentTool {
         ; Initialize font manager with TrueType fonts
         print "Loading fonts..."
         
-        fontManager.setFontsDirectory(fontsDir)
+        ; Use asset paths if provided, otherwise fallback to fontsDir
+        if ((strlen assetPaths) > 0) {
+            fontManager.setFontsDirectories(assetPaths)
+        } {
+            fontManager.setFontsDirectory(fontsDir)
+        }
         
         ; Load common fonts
         fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf")
