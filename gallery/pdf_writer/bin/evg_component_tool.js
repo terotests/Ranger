@@ -12542,7 +12542,51 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
           if ( ch == 92 ) {
             result = result + "\\\\";
           } else {
-            result = result + (String.fromCharCode(ch));
+            if ( ch < 32 ) {
+              result = result + " ";
+            } else {
+              if ( ch <= 255 ) {
+                result = result + (String.fromCharCode(ch));
+              } else {
+                if ( ch == 9733 ) {
+                  result = result + "*";
+                } else {
+                  if ( ch == 9734 ) {
+                    result = result + "*";
+                  } else {
+                    if ( ch == 9829 ) {
+                      result = result + (String.fromCharCode(183));
+                    } else {
+                      if ( ch == 9825 ) {
+                        result = result + (String.fromCharCode(183));
+                      } else {
+                        if ( ch == 10003 ) {
+                          result = result + "v";
+                        } else {
+                          if ( ch == 10007 ) {
+                            result = result + "x";
+                          } else {
+                            if ( ch == 8226 ) {
+                              result = result + (String.fromCharCode(149));
+                            } else {
+                              if ( ch == 8594 ) {
+                                result = result + "->";
+                              } else {
+                                if ( ch == 8592 ) {
+                                  result = result + "<-";
+                                } else {
+                                  result = result + "?";
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -12607,6 +12651,9 @@ class EvalValue  {
   };
   isFunction () {
     return this.valueType == 6;
+  };
+  isElement () {
+    return this.valueType == 7;
   };
   toNumber () {
     if ( this.valueType == 1 ) {
@@ -12677,6 +12724,13 @@ class EvalValue  {
     if ( this.valueType == 6 ) {
       return ("[Function: " + this.functionName) + "]";
     }
+    if ( this.valueType == 7 ) {
+      if ( typeof(this.evgElement) != "undefined" ) {
+        const el = this.evgElement;
+        return ("[EVGElement: " + el.tagName) + "]";
+      }
+      return "[EVGElement: null]";
+    }
     return "undefined";
   };
   toBool () {
@@ -12699,6 +12753,9 @@ class EvalValue  {
       return true;
     }
     if ( this.valueType == 6 ) {
+      return true;
+    }
+    if ( this.valueType == 7 ) {
       return true;
     }
     return false;
@@ -12798,6 +12855,12 @@ EvalValue.object = function(keys, values) {
   v.valueType = 5;
   v.objectKeys = keys;
   v.objectValues = values;
+  return v;
+};
+EvalValue.element = function(el) {
+  const v = new EvalValue();
+  v.valueType = 7;
+  v.evgElement = el;
   return v;
 };
 class ImportedSymbol  {
@@ -13276,7 +13339,69 @@ class ComponentEngine  {
         i = i + 1;
       };
     }
+    let hasExplicitChildren = false;
+    let ci = 0;
+    while (ci < (keys.length)) {
+      if ( (keys[ci]) == "children" ) {
+        hasExplicitChildren = true;
+      }
+      ci = ci + 1;
+    };
+    if ( hasExplicitChildren == false ) {
+      const childElements = this.collectChildElements(jsxNode);
+      if ( (childElements.length) > 0 ) {
+        keys.push("children");
+        if ( (childElements.length) == 1 ) {
+          values.push(childElements[0]);
+        } else {
+          values.push(EvalValue.array(childElements));
+        }
+      }
+    }
     return EvalValue.object(keys, values);
+  };
+  collectChildElements (jsxNode) {
+    let results = [];
+    let i = 0;
+    while (i < (jsxNode.children.length)) {
+      const child = jsxNode.children[i];
+      if ( child.nodeType == "JSXElement" ) {
+        const el = this.evaluateJSXElement(child);
+        if ( (el.tagName.length) > 0 ) {
+          results.push(EvalValue.element(el));
+        }
+      }
+      if ( child.nodeType == "JSXText" ) {
+        const text = this.trimText(child.value);
+        if ( (text.length) > 0 ) {
+          const textEl = new EVGElement();
+          textEl.tagName = "text";
+          textEl.textContent = text;
+          results.push(EvalValue.element(textEl));
+        }
+      }
+      if ( child.nodeType == "JSXExpressionContainer" ) {
+        if ( typeof(child.left) != "undefined" ) {
+          const exprNode = child.left;
+          const exprValue = this.evaluateExpr(exprNode);
+          if ( exprValue.isElement() ) {
+            results.push(exprValue);
+          }
+          if ( (exprValue).isArray() ) {
+            let ai = 0;
+            while (ai < (exprValue.arrayValue.length)) {
+              const arrItem = exprValue.arrayValue[ai];
+              if ( arrItem.isElement() ) {
+                results.push(arrItem);
+              }
+              ai = ai + 1;
+            };
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return results;
   };
   evaluateAttributeValue (attr) {
     if ( typeof(attr.right) != "undefined" ) {
@@ -13410,6 +13535,31 @@ class ComponentEngine  {
         }
       }
       const value = this.evaluateExpr(exprNode);
+      if ( value.isElement() ) {
+        if ( typeof(value.evgElement) != "undefined" ) {
+          const childEl = value.evgElement;
+          if ( (childEl.tagName.length) > 0 ) {
+            element.addChild(childEl);
+          }
+        }
+        return;
+      }
+      if ( (value).isArray() ) {
+        let ai = 0;
+        while (ai < (value.arrayValue.length)) {
+          const arrItem = value.arrayValue[ai];
+          if ( arrItem.isElement() ) {
+            if ( typeof(arrItem.evgElement) != "undefined" ) {
+              const arrChildEl = arrItem.evgElement;
+              if ( (arrChildEl.tagName.length) > 0 ) {
+                element.addChild(arrChildEl);
+              }
+            }
+          }
+          ai = ai + 1;
+        };
+        return;
+      }
       const isStr = value.isString();
       const isNum = value.isNumber();
       if ( isStr || isNum ) {
@@ -13579,6 +13729,16 @@ class ComponentEngine  {
         const inner = node.left;
         return this.evaluateExpr(inner);
       }
+    }
+    if ( node.nodeType == "JSXElement" ) {
+      const el = this.evaluateJSXElement(node);
+      return EvalValue.element(el);
+    }
+    if ( node.nodeType == "JSXFragment" ) {
+      const el_1 = new EVGElement();
+      el_1.tagName = "div";
+      this.evaluateChildren(el_1, node);
+      return EvalValue.element(el_1);
     }
     return EvalValue.null();
   };
@@ -13861,7 +14021,7 @@ class ComponentEngine  {
     if ( ((first == 41) || (first == 93)) || (first == 125) ) {
       return true;
     }
-    if ( (first == 39) || (first == 34) ) {
+    if ( ((first == 39) || (first == 34)) || (first == 45) ) {
       return true;
     }
     return false;
@@ -13872,7 +14032,7 @@ class ComponentEngine  {
       return false;
     }
     const last = s.charCodeAt((__len - 1) );
-    if ( ((last == 40) || (last == 91)) || (last == 123) ) {
+    if ( (((last == 40) || (last == 91)) || (last == 123)) || (last == 45) ) {
       return true;
     }
     return false;

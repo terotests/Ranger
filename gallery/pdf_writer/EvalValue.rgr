@@ -2,7 +2,7 @@
 ; EvalValue - Runtime value type for expression evaluation
 ; =============================================================================
 ; Represents values that can be evaluated: numbers, strings, booleans, 
-; null, arrays, objects, and functions.
+; null, arrays, objects, functions, and EVG elements.
 
 ; Value types
 ; 0 = null
@@ -12,6 +12,7 @@
 ; 4 = array
 ; 5 = object
 ; 6 = function
+; 7 = evgElement (for JSX elements as props)
 
 class EvalValue {
     def valueType:int 0         ; Type tag
@@ -23,6 +24,7 @@ class EvalValue {
     def objectValues:[EvalValue]
     def functionName:string ""
     def functionBody:string ""  ; For parsed functions
+    def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
     ; Constructors
     sfn null:EvalValue () {
@@ -74,6 +76,13 @@ class EvalValue {
         return v
     }
     
+    sfn element:EvalValue (el:EVGElement) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 7
+        v.evgElement = el
+        return v
+    }
+    
     ; Type checks
     fn isNull:boolean () {
         return (valueType == 0)
@@ -101,6 +110,10 @@ class EvalValue {
     
     fn isFunction:boolean () {
         return (valueType == 6)
+    }
+    
+    fn isElement:boolean () {
+        return (valueType == 7)
     }
     
     ; Type coercion
@@ -177,6 +190,13 @@ class EvalValue {
         if (valueType == 6) {
             return "[Function: " + functionName + "]"
         }
+        if (valueType == 7) {
+            if evgElement {
+                def el:EVGElement (unwrap evgElement)
+                return "[EVGElement: " + el.tagName + "]"
+            }
+            return "[EVGElement: null]"
+        }
         return "undefined"
     }
     
@@ -201,6 +221,9 @@ class EvalValue {
         }
         if (valueType == 6) {
             return true ; Functions are always truthy
+        }
+        if (valueType == 7) {
+            return true ; Elements are always truthy
         }
         return false
     }

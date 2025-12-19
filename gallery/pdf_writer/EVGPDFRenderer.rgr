@@ -1519,6 +1519,7 @@ class EVGPDFRenderer {
     
     fn escapeText:string (text:string) {
         ; Escape parentheses and backslashes for PDF
+        ; Also handle Unicode characters outside WinAnsi range
         def result:string ""
         def len:int (strlen text)
         def i 0
@@ -1533,7 +1534,65 @@ class EVGPDFRenderer {
                     if (ch == 92) {  ; \
                         result = result + "\\\\"
                     } {
-                        result = result + (strfromcode ch)
+                        if (ch < 32) {
+                            ; Control characters - skip or use octal
+                            result = result + " "
+                        } {
+                            if (ch <= 255) {
+                                ; Standard WinAnsi range
+                                result = result + (strfromcode ch)
+                            } {
+                                ; Unicode character outside WinAnsi
+                                ; Map common symbols to available characters
+                                if (ch == 9733) {
+                                    ; ★ Black Star - use asterisk
+                                    result = result + "*"
+                                } {
+                                    if (ch == 9734) {
+                                        ; ☆ White Star - use asterisk
+                                        result = result + "*"
+                                    } {
+                                        if (ch == 9829) {
+                                            ; ♥ Black Heart - use bullet
+                                            result = result + (strfromcode 183)
+                                        } {
+                                            if (ch == 9825) {
+                                                ; ♡ White Heart - use bullet
+                                                result = result + (strfromcode 183)
+                                            } {
+                                                if (ch == 10003) {
+                                                    ; ✓ Check mark
+                                                    result = result + "v"
+                                                } {
+                                                    if (ch == 10007) {
+                                                        ; ✗ X mark
+                                                        result = result + "x"
+                                                    } {
+                                                        if (ch == 8226) {
+                                                            ; • Bullet - WinAnsi 149
+                                                            result = result + (strfromcode 149)
+                                                        } {
+                                                            if (ch == 8594) {
+                                                                ; → Right arrow
+                                                                result = result + "->"
+                                                            } {
+                                                                if (ch == 8592) {
+                                                                    ; ← Left arrow
+                                                                    result = result + "<-"
+                                                                } {
+                                                                    ; Unknown Unicode - use placeholder
+                                                                    result = result + "?"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

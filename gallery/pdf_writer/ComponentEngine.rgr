@@ -675,7 +675,87 @@ class ComponentEngine {
             }
         }
         
+        ; Also collect JSX children and add as "children" prop
+        ; Only if there are children and no explicit children prop
+        def hasExplicitChildren:boolean false
+        def ci:int 0
+        while (ci < (array_length keys)) {
+            if ((itemAt keys ci) == "children") {
+                hasExplicitChildren = true
+            }
+            ci = ci + 1
+        }
+        
+        if (hasExplicitChildren == false) {
+            def childElements:[EvalValue] (this.collectChildElements(jsxNode))
+            if ((array_length childElements) > 0) {
+                push keys "children"
+                if ((array_length childElements) == 1) {
+                    ; Single child - pass as element directly
+                    push values (itemAt childElements 0)
+                } {
+                    ; Multiple children - pass as array
+                    push values (EvalValue.array(childElements))
+                }
+            }
+        }
+        
         return (EvalValue.object(keys values))
+    }
+    
+    ; Collect child JSX elements as EvalValue elements
+    fn collectChildElements:[EvalValue] (jsxNode:TSNode) {
+        def results:[EvalValue]
+        
+        def i:int 0
+        while (i < (array_length jsxNode.children)) {
+            def child:TSNode (itemAt jsxNode.children i)
+            
+            if (child.nodeType == "JSXElement") {
+                def el:EVGElement (this.evaluateJSXElement(child))
+                if ((strlen el.tagName) > 0) {
+                    push results (EvalValue.element(el))
+                }
+            }
+            
+            if (child.nodeType == "JSXText") {
+                ; Only include non-whitespace text as children
+                def text:string (this.trimText(child.value))
+                if ((strlen text) > 0) {
+                    ; Create a text element
+                    def textEl (new EVGElement())
+                    textEl.tagName = "text"
+                    textEl.textContent = text
+                    push results (EvalValue.element(textEl))
+                }
+            }
+            
+            if (child.nodeType == "JSXExpressionContainer") {
+                if child.left {
+                    def exprNode:TSNode (unwrap child.left)
+                    def exprValue:EvalValue (this.evaluateExpr(exprNode))
+                    
+                    if (exprValue.isElement()) {
+                        push results exprValue
+                    }
+                    if (exprValue.isArray()) {
+                        ; Flatten array elements into children
+                        def ai:int 0
+                        while (ai < (array_length exprValue.arrayValue)) {
+                            def arrItem:EvalValue (itemAt exprValue.arrayValue ai)
+                            if (arrItem.isElement()) {
+                                push results arrItem
+                            }
+                            ai = ai + 1
+                        }
+                    }
+                }
+            }
+            
+            i = i + 1
+        }
+        
+        return results
     }
     
     fn evaluateAttributeValue:EvalValue (attr:TSNode) {
@@ -860,6 +940,36 @@ class ComponentEngine {
             
             ; For literals, add as text
             def value:EvalValue (this.evaluateExpr(exprNode))
+            
+            ; Handle EVGElement values (e.g., {children} prop containing JSX)
+            if (value.isElement()) {
+                if value.evgElement {
+                    def childEl:EVGElement (unwrap value.evgElement)
+                    if ((strlen childEl.tagName) > 0) {
+                        element.addChild(childEl)
+                    }
+                }
+                return
+            }
+            
+            ; Handle arrays of EVGElements (e.g., {children} containing multiple elements)
+            if (value.isArray()) {
+                def ai:int 0
+                while (ai < (array_length value.arrayValue)) {
+                    def arrItem:EvalValue (itemAt value.arrayValue ai)
+                    if (arrItem.isElement()) {
+                        if arrItem.evgElement {
+                            def arrChildEl:EVGElement (unwrap arrItem.evgElement)
+                            if ((strlen arrChildEl.tagName) > 0) {
+                                element.addChild(arrChildEl)
+                            }
+                        }
+                    }
+                    ai = ai + 1
+                }
+                return
+            }
+            
             def isStr:boolean (value.isString())
             def isNum:boolean (value.isNumber())
             if (isStr || isNum) {
@@ -1086,6 +1196,21 @@ class ComponentEngine {
                 def inner:TSNode (unwrap node.left)
                 return (this.evaluateExpr(inner))
             }
+        }
+        
+        ; JSX Element as expression (for props like children={<View/>})
+        if (node.nodeType == "JSXElement") {
+            def el:EVGElement (this.evaluateJSXElement(node))
+            return (EvalValue.element(el))
+        }
+        
+        ; JSX Fragment as expression
+        if (node.nodeType == "JSXFragment") {
+            ; Create a container div for the fragment
+            def el (new EVGElement())
+            el.tagName = "div"
+            this.evaluateChildren(el node)
+            return (EvalValue.element(el))
         }
         
         return (EvalValue.null())
@@ -1388,7 +1513,7 @@ class ComponentEngine {
             return false
         }
         def first:int (charAt s 0)
-        ; Common punctuation: , . ! ? : ; ) ] } ' "
+        ; Common punctuation: , . ! ? : ; ) ] } ' " -
         if ((first == 44) || (first == 46) || (first == 33) || (first == 63) || (first == 58) || (first == 59)) {
             return true
         }
@@ -1396,8 +1521,8 @@ class ComponentEngine {
         if ((first == 41) || (first == 93) || (first == 125)) {
             return true
         }
-        ; ' "
-        if ((first == 39) || (first == 34)) {
+        ; ' " -
+        if ((first == 39) || (first == 34) || (first == 45)) {
             return true
         }
         return false
@@ -1410,8 +1535,8 @@ class ComponentEngine {
             return false
         }
         def last:int (charAt s (len - 1))
-        ; ( [ { ' "
-        if ((last == 40) || (last == 91) || (last == 123)) {
+        ; ( [ { ' " -
+        if ((last == 40) || (last == 91) || (last == 123) || (last == 45)) {
             return true
         }
         return false
