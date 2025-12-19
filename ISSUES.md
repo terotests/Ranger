@@ -1313,3 +1313,51 @@ Building a pipeline to convert TSX files with JSX to PDF using EVG layout engine
 1. Fix Issue #61 in the Ranger compiler
 2. Test compilation of evg_pdf_tool.rgr
 3. Run end-to-end test with sample.tsx
+
+---
+
+## Issue #62: Output directory (-d) and filename (-o) options ignored for -nodemodule
+
+**Status:** Open  
+**Severity:** Medium  
+**Found:** December 19, 2025
+
+### Description
+
+When compiling with `-nodemodule` flag to create a CommonJS module, the `-d` (output directory) and `-o` (output filename) options are ignored. The output file is always written to the current working directory with the `.js` extension, regardless of the specified destination.
+
+### Reproduction
+
+```bash
+# Expected: output to gallery/pdf_writer/bin/eval_value_module.cjs
+node bin/output.js -es6 -nodemodule ./gallery/pdf_writer/eval_value_module.rgr -d=./gallery/pdf_writer/bin -o=eval_value_module.cjs
+
+# Actual: output to ./eval_value_module.js (root directory, wrong extension)
+```
+
+### Expected Behavior
+
+1. `-d` should set the output directory
+2. `-o` should set the output filename (including extension)
+3. Both should work together: `-d=./bin -o=output.cjs` → `./bin/output.cjs`
+
+### Current Workaround
+
+Manually move the file after compilation:
+
+```bash
+node bin/output.js -es6 -nodemodule ./file.rgr -o=file.cjs && move file.cjs target/dir/
+```
+
+### Root Cause
+
+The `-nodemodule` code path in `VirtualCompiler.clj` likely has separate output handling that doesn't respect the `-d` and `-o` options that work for regular compilation.
+
+### Files Affected
+
+- `compiler/VirtualCompiler.clj` - nodemodule output path handling
+
+### Related
+
+- Issue #6 documents similar problems with `-d` and `-o` for regular compilation
+- This issue is specific to the `-nodemodule` flag

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 class Token  {
   constructor() {
     this.tokenType = "";
@@ -3021,10 +3020,10 @@ class TSParserSimple  {
     return left;
   };
   parseNullishCoalescing () {
-    let left = this.parseBinary();
+    let left = this.parseTernary();
     while (this.matchValue("??")) {
       this.advance();
-      const right = this.parseBinary();
+      const right = this.parseTernary();
       const nullish = new TSNode();
       nullish.nodeType = "LogicalExpression";
       nullish.value = "??";
@@ -3037,10 +3036,86 @@ class TSParserSimple  {
     };
     return left;
   };
-  parseBinary () {
-    let left = this.parseUnary();
+  parseTernary () {
+    const testExpr = this.parseLogicalOr();
+    if ( this.matchValue("?") ) {
+      this.advance();
+      const consequentExpr = this.parseAssign();
+      if ( this.matchValue(":") ) {
+        this.advance();
+        const alternateExpr = this.parseAssign();
+        const cond = new TSNode();
+        cond.nodeType = "ConditionalExpression";
+        cond.start = testExpr.start;
+        cond.line = testExpr.line;
+        cond.col = testExpr.col;
+        cond.left = testExpr;
+        cond.test = testExpr;
+        cond.consequent = consequentExpr;
+        cond.alternate = alternateExpr;
+        return cond;
+      }
+    }
+    return testExpr;
+  };
+  parseLogicalOr () {
+    let left = this.parseLogicalAnd();
+    while (this.matchValue("||")) {
+      this.advance();
+      const right = this.parseLogicalAnd();
+      const expr = new TSNode();
+      expr.nodeType = "BinaryExpression";
+      expr.value = "||";
+      expr.left = left;
+      expr.right = right;
+      expr.start = left.start;
+      expr.line = left.line;
+      expr.col = left.col;
+      left = expr;
+    };
+    return left;
+  };
+  parseLogicalAnd () {
+    let left = this.parseEquality();
+    while (this.matchValue("&&")) {
+      this.advance();
+      const right = this.parseEquality();
+      const expr = new TSNode();
+      expr.nodeType = "BinaryExpression";
+      expr.value = "&&";
+      expr.left = left;
+      expr.right = right;
+      expr.start = left.start;
+      expr.line = left.line;
+      expr.col = left.col;
+      left = expr;
+    };
+    return left;
+  };
+  parseEquality () {
+    let left = this.parseComparison();
     let tokVal = this.peekValue();
-    while (((((((((tokVal == "+") || (tokVal == "-")) || (tokVal == "*")) || (tokVal == "/")) || (tokVal == "**")) || (tokVal == "===")) || (tokVal == "!==")) || (tokVal == "<")) || (tokVal == ">")) {
+    while ((((tokVal == "==") || (tokVal == "!=")) || (tokVal == "===")) || (tokVal == "!==")) {
+      const opTok = this.peek();
+      this.advance();
+      const right = this.parseComparison();
+      const expr = new TSNode();
+      expr.nodeType = "BinaryExpression";
+      expr.value = opTok.value;
+      expr.left = left;
+      expr.right = right;
+      expr.start = left.start;
+      expr.line = left.line;
+      expr.col = left.col;
+      left = expr;
+      tokVal = this.peekValue();
+    };
+    return left;
+  };
+  parseComparison () {
+    let left = this.parseBinary();
+    let tokVal = this.peekValue();
+    while ((((tokVal == "<") || (tokVal == ">")) || (tokVal == "<=")) || (tokVal == ">=")) {
       if ( tokVal == "<" ) {
         if ( this.tsxMode == true ) {
           if ( left.nodeType == "Identifier" ) {
@@ -3050,18 +3125,28 @@ class TSParserSimple  {
               }
             }
           }
-          if ( left.nodeType == "MemberExpression" ) {
-            if ( this.looksLikeGenericCall() ) {
-              return left;
-            }
-          }
-          if ( left.nodeType == "CallExpression" ) {
-            if ( this.looksLikeGenericCall() ) {
-              return left;
-            }
-          }
         }
       }
+      const opTok = this.peek();
+      this.advance();
+      const right = this.parseBinary();
+      const expr = new TSNode();
+      expr.nodeType = "BinaryExpression";
+      expr.value = opTok.value;
+      expr.left = left;
+      expr.right = right;
+      expr.start = left.start;
+      expr.line = left.line;
+      expr.col = left.col;
+      left = expr;
+      tokVal = this.peekValue();
+    };
+    return left;
+  };
+  parseBinary () {
+    let left = this.parseUnary();
+    let tokVal = this.peekValue();
+    while ((((((tokVal == "+") || (tokVal == "-")) || (tokVal == "*")) || (tokVal == "/")) || (tokVal == "**")) || (tokVal == "%")) {
       const opTok = this.peek();
       this.advance();
       const right = this.parseUnary();
@@ -4563,73 +4648,8 @@ TSParserMain.printNode = function(node, depth) {
   }
   console.log(((indent + nodeType) + " ") + loc);
 };
-/* static JavaSript main routine at the end of the JS file */
-async function __js_main() {
-  const argCnt = (process.argv.length - 2);
-  if ( argCnt == 0 ) {
-    TSParserMain.showHelp();
-    return;
-  }
-  let inputFile = "";
-  let runDefault = false;
-  let showTokens = false;
-  let showInterfaces = false;
-  let showTypes = false;
-  let showFunctions = false;
-  let i = 0;
-  while (i < argCnt) {
-    const arg = process.argv[ 2 + i];
-    if ( (arg == "--help") || (arg == "-h") ) {
-      TSParserMain.showHelp();
-      return;
-    }
-    if ( arg == "-d" ) {
-      runDefault = true;
-      i = i + 1;
-    } else {
-      if ( arg == "-i" ) {
-        i = i + 1;
-        if ( i < argCnt ) {
-          inputFile = process.argv[ 2 + i];
-        }
-        i = i + 1;
-      } else {
-        if ( arg == "--tokens" ) {
-          showTokens = true;
-          i = i + 1;
-        } else {
-          if ( arg == "--show-interfaces" ) {
-            showInterfaces = true;
-            i = i + 1;
-          } else {
-            if ( arg == "--show-types" ) {
-              showTypes = true;
-              i = i + 1;
-            } else {
-              if ( arg == "--show-functions" ) {
-                showFunctions = true;
-                i = i + 1;
-              } else {
-                i = i + 1;
-              }
-            }
-          }
-        }
-      }
-    }
-  };
-  if ( runDefault ) {
-    TSParserMain.runDemo();
-    return;
-  }
-  if ( (inputFile.length) > 0 ) {
-    if ( (showInterfaces || showTypes) || showFunctions ) {
-      await TSParserMain.listDeclarations(inputFile, showInterfaces, showTypes, showFunctions);
-      return;
-    }
-    await TSParserMain.parseFile(inputFile, showTokens);
-    return;
-  }
-  TSParserMain.showHelp();
-}
-__js_main();
+module.exports.Token = Token;
+module.exports.TSLexer = TSLexer;
+module.exports.TSNode = TSNode;
+module.exports.TSParserSimple = TSParserSimple;
+module.exports.TSParserMain = TSParserMain;

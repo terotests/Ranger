@@ -1,0 +1,15 @@
+; =============================================================================
+; EvalValue Module - Runtime value type for expression evaluation
+; =============================================================================
+; Compile with: npm run evalvalue:module
+; This creates a CommonJS module that can be imported by Vitest tests
+
+Import "EvalValue.rgr"
+
+; Export the EvalValue class for testing
+class EvalValueModule {
+    sfn m@(main):void () {
+        ; Module entry point - not used directly
+        print "EvalValue module loaded"
+    }
+}

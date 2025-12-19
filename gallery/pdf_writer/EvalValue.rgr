@@ -1,0 +1,271 @@
+; =============================================================================
+; EvalValue - Runtime value type for expression evaluation
+; =============================================================================
+; Represents values that can be evaluated: numbers, strings, booleans, 
+; null, arrays, objects, and functions.
+
+; Value types
+; 0 = null
+; 1 = number
+; 2 = string
+; 3 = boolean
+; 4 = array
+; 5 = object
+; 6 = function
+
+class EvalValue {
+    def valueType:int 0         ; Type tag
+    def numberValue:double 0.0
+    def stringValue:string ""
+    def boolValue:boolean false
+    def arrayValue:[EvalValue]
+    def objectKeys:[string]
+    def objectValues:[EvalValue]
+    def functionName:string ""
+    def functionBody:string ""  ; For parsed functions
+    
+    ; Constructors
+    sfn null:EvalValue () {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 0
+        return v
+    }
+    
+    sfn number:EvalValue (n:double) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 1
+        v.numberValue = n
+        return v
+    }
+    
+    sfn fromInt:EvalValue (n:int) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 1
+        v.numberValue = (to_double n)
+        return v
+    }
+    
+    sfn string:EvalValue (s:string) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 2
+        v.stringValue = s
+        return v
+    }
+    
+    sfn boolean:EvalValue (b:boolean) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 3
+        v.boolValue = b
+        return v
+    }
+    
+    sfn array:EvalValue (items:[EvalValue]) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 4
+        v.arrayValue = items
+        return v
+    }
+    
+    sfn object:EvalValue (keys:[string] values:[EvalValue]) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 5
+        v.objectKeys = keys
+        v.objectValues = values
+        return v
+    }
+    
+    ; Type checks
+    fn isNull:boolean () {
+        return (valueType == 0)
+    }
+    
+    fn isNumber:boolean () {
+        return (valueType == 1)
+    }
+    
+    fn isString:boolean () {
+        return (valueType == 2)
+    }
+    
+    fn isBoolean:boolean () {
+        return (valueType == 3)
+    }
+    
+    fn isArray:boolean () {
+        return (valueType == 4)
+    }
+    
+    fn isObject:boolean () {
+        return (valueType == 5)
+    }
+    
+    fn isFunction:boolean () {
+        return (valueType == 6)
+    }
+    
+    ; Type coercion
+    fn toNumber:double () {
+        if (valueType == 1) {
+            return numberValue
+        }
+        if (valueType == 2) {
+            ; Try to parse string as number
+            def parsed@(optional):double (to_double stringValue)
+            return (unwrap parsed)
+        }
+        if (valueType == 3) {
+            if boolValue {
+                return 1.0
+            }
+            return 0.0
+        }
+        return 0.0
+    }
+    
+    fn toString:string () {
+        if (valueType == 0) {
+            return "null"
+        }
+        if (valueType == 1) {
+            ; Format number - remove trailing zeros
+            def s:string (to_string numberValue)
+            ; Check if it's a whole number
+            def intVal:int (to_int numberValue)
+            if ((to_double intVal) == numberValue) {
+                return (to_string intVal)
+            }
+            return s
+        }
+        if (valueType == 2) {
+            return stringValue
+        }
+        if (valueType == 3) {
+            if boolValue {
+                return "true"
+            }
+            return "false"
+        }
+        if (valueType == 4) {
+            def result:string "["
+            def i:int 0
+            while (i < (array_length arrayValue)) {
+                if (i > 0) {
+                    result = result + ", "
+                }
+                def item:EvalValue (itemAt arrayValue i)
+                def itemStr:string (item.toString())
+                result = result + itemStr
+                i = i + 1
+            }
+            return result + "]"
+        }
+        if (valueType == 5) {
+            def result:string "{"
+            def i:int 0
+            while (i < (array_length objectKeys)) {
+                if (i > 0) {
+                    result = result + ", "
+                }
+                def key:string (itemAt objectKeys i)
+                def val:EvalValue (itemAt objectValues i)
+                def valStr:string (val.toString())
+                result = result + key + ": " + valStr
+                i = i + 1
+            }
+            return result + "}"
+        }
+        if (valueType == 6) {
+            return "[Function: " + functionName + "]"
+        }
+        return "undefined"
+    }
+    
+    fn toBool:boolean () {
+        if (valueType == 0) {
+            return false
+        }
+        if (valueType == 1) {
+            return (numberValue != 0.0)
+        }
+        if (valueType == 2) {
+            return ((strlen stringValue) > 0)
+        }
+        if (valueType == 3) {
+            return boolValue
+        }
+        if (valueType == 4) {
+            return true ; Arrays are always truthy
+        }
+        if (valueType == 5) {
+            return true ; Objects are always truthy
+        }
+        if (valueType == 6) {
+            return true ; Functions are always truthy
+        }
+        return false
+    }
+    
+    ; Object member access
+    fn getMember:EvalValue (key:string) {
+        if (valueType == 5) {
+            def i:int 0
+            while (i < (array_length objectKeys)) {
+                if ((itemAt objectKeys i) == key) {
+                    return (itemAt objectValues i)
+                }
+                i = i + 1
+            }
+        }
+        ; Array length property
+        if (valueType == 4) {
+            if (key == "length") {
+                return (EvalValue.fromInt((array_length arrayValue)))
+            }
+        }
+        ; String length property
+        if (valueType == 2) {
+            if (key == "length") {
+                return (EvalValue.fromInt((strlen stringValue)))
+            }
+        }
+        return (EvalValue.null())
+    }
+    
+    ; Array index access
+    fn getIndex:EvalValue (index:int) {
+        if (valueType == 4) {
+            if ((index >= 0) && (index < (array_length arrayValue))) {
+                return (itemAt arrayValue index)
+            }
+        }
+        ; String character access
+        if (valueType == 2) {
+            if ((index >= 0) && (index < (strlen stringValue))) {
+                def charStr:string (substring stringValue index (index + 1))
+                return (EvalValue.string(charStr))
+            }
+        }
+        return (EvalValue.null())
+    }
+    
+    ; Equality check
+    fn equals:boolean (other:EvalValue) {
+        if (valueType != other.valueType) {
+            return false
+        }
+        if (valueType == 0) {
+            return true
+        }
+        if (valueType == 1) {
+            return (numberValue == other.numberValue)
+        }
+        if (valueType == 2) {
+            return (stringValue == other.stringValue)
+        }
+        if (valueType == 3) {
+            return (boolValue == other.boolValue)
+        }
+        ; Arrays and objects - reference equality for now
+        return false
+    }
+}

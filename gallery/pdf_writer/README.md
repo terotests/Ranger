@@ -47,6 +47,110 @@ const MyDocument = (
 export default MyDocument;
 ```
 
+### Component System
+
+The PDF Writer now supports **reusable components** with TSX, allowing you to build modular, maintainable PDF layouts by extracting common UI patterns into separate components.
+
+#### Creating Components
+
+Components are TypeScript functions that accept props and return TSX elements. Create them in separate `.tsx` files:
+
+```tsx
+// components/Header.tsx
+import { View, Label } from "../evg_types";
+
+export function Header({
+  text,
+  backgroundColor = "#3b82f6",
+}: {
+  text: string;
+  backgroundColor?: string;
+}) {
+  return (
+    <View padding={20} backgroundColor={backgroundColor}>
+      <Label fontSize={24} fontWeight="bold" color="#ffffff">
+        {text}
+      </Label>
+    </View>
+  );
+}
+```
+
+```tsx
+// components/ListItem.tsx
+import { View, Label } from "../evg_types";
+
+export function ListItem({ label, index }: { label: string; index: number }) {
+  return (
+    <View
+      padding={8}
+      marginBottom={4}
+      backgroundColor={index % 2 === 0 ? "#f0f0f0" : "#ffffff"}
+    >
+      <Label fontSize={14} color="#333333">
+        {index + 1}. {label}
+      </Label>
+    </View>
+  );
+}
+```
+
+#### Using Components
+
+Import your components and use them like built-in elements:
+
+```tsx
+// test_imports.tsx
+import { View, Label, Section, Page, Print } from "./evg_types";
+import { Header } from "./components/Header";
+import { ListItem } from "./components/ListItem";
+
+const title = "Component Import Test";
+const items = ["Apple", "Banana", "Cherry", "Date"];
+
+function render() {
+  return (
+    <Print>
+      <Page>
+        <Section>
+          <Header text={title} />
+
+          <View padding={16}>
+            <Label fontSize={16} fontWeight="bold" marginBottom={8}>
+              Fruit List:
+            </Label>
+
+            {items.map((item, i) => (
+              <ListItem label={item} index={i} />
+            ))}
+          </View>
+        </Section>
+      </Page>
+    </Print>
+  );
+}
+```
+
+#### Component Best Practices
+
+- **Type Safety**: Use TypeScript interfaces for props to catch errors early
+- **Default Props**: Provide sensible defaults for optional properties
+- **Composability**: Build complex layouts by combining simple components
+- **Reusability**: Extract repeated patterns into components
+- **Organization**: Keep components in a `components/` directory
+
+#### Generate PDF from Components
+
+```bash
+# Compile the component-based EVG tool
+npm run evgcomp:compile
+
+# Generate PDF from TSX file with components
+node ./gallery/pdf_writer/bin/evg_component_tool.js ./test_imports.tsx ./output.pdf
+```
+
+The component system enables building sophisticated, maintainable PDF documents using familiar React patterns while maintaining full type safety through TypeScript.
+
 ### Supported Elements
 
 | Element     | Description                                      |
@@ -70,15 +174,23 @@ const MultiPageDocument = (
     <Section pageWidth="595" pageHeight="842" margin="40px">
       <Page>
         <View width="100%" height="100%" backgroundColor="#f0f0f0">
-          <Label fontSize="24px" fontWeight="bold">Page 1</Label>
-          <Label fontSize="14px" marginTop="20px">First page content...</Label>
+          <Label fontSize="24px" fontWeight="bold">
+            Page 1
+          </Label>
+          <Label fontSize="14px" marginTop="20px">
+            First page content...
+          </Label>
         </View>
       </Page>
-      
+
       <Page>
         <View width="100%" height="100%">
-          <Label fontSize="24px" fontWeight="bold">Page 2</Label>
-          <Label fontSize="14px" marginTop="20px">Second page content...</Label>
+          <Label fontSize="24px" fontWeight="bold">
+            Page 2
+          </Label>
+          <Label fontSize="14px" marginTop="20px">
+            Second page content...
+          </Label>
         </View>
       </Page>
     </Section>
@@ -88,13 +200,14 @@ const MultiPageDocument = (
 
 #### Section Attributes
 
-| Attribute    | Example   | Description                     |
-| ------------ | --------- | ------------------------------- |
-| `pageWidth`  | `"595"`   | Page width in points (A4 = 595) |
-| `pageHeight` | `"842"`   | Page height in points (A4 = 842)|
-| `margin`     | `"40px"`  | Page margin (all sides)         |
+| Attribute    | Example  | Description                      |
+| ------------ | -------- | -------------------------------- |
+| `pageWidth`  | `"595"`  | Page width in points (A4 = 595)  |
+| `pageHeight` | `"842"`  | Page height in points (A4 = 842) |
+| `margin`     | `"40px"` | Page margin (all sides)          |
 
 Standard page sizes:
+
 - **A4**: 595 × 842 points
 - **Letter**: 612 × 792 points
 - **Legal**: 612 × 1008 points
