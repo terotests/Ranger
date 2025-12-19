@@ -1,0 +1,486 @@
+; PDFWriter - A minimalistic PDF generator for Ranger
+; Demonstrates PDF structure generation using buffer-based output
+;
+; PDF Reference: https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/PDF32000_2008.pdf
+;
+; Compile ES6: npm run pdf:compile
+; Run: npm run pdf:run
+
+Import "Buffer.rgr"
+Import "../jpeg/JPEGReader.rgr"
+Import "../jpeg/JPEGMetadata.rgr"
+
+class PDFWriter {
+    def nextObjNum:int 1
+    def pdfBuffer@(optional):GrowableBuffer
+    def objectOffsets:[int]
+    def jpegReader@(optional):JPEGReader
+    def metadataParser@(optional):JPEGMetadataParser
+    def imageObjNum:int 0
+    def lastImageMetadata@(optional):JPEGMetadataInfo
+    
+    Constructor () {
+        def buf (new GrowableBuffer())
+        pdfBuffer = buf
+        def reader (new JPEGReader())
+        jpegReader = reader
+        def parser (new JPEGMetadataParser())
+        metadataParser = parser
+    }
+    
+    fn writeObject:void (content:string) {
+        def buf:GrowableBuffer (unwrap pdfBuffer)
+        push objectOffsets (buf.size())
+        buf.writeString((to_string nextObjNum) + " 0 obj\n")
+        buf.writeString(content)
+        buf.writeString("\nendobj\n\n")
+        nextObjNum = nextObjNum + 1
+    }
+    
+    fn writeObjectGetNum:int (content:string) {
+        def objNum nextObjNum
+        this.writeObject(content)
+        return objNum
+    }
+    
+    fn writeImageObject:int (header:string imageData:buffer footer:string) {
+        ; Write image object with raw binary data
+        def buf:GrowableBuffer (unwrap pdfBuffer)
+        push objectOffsets (buf.size())
+        buf.writeString((to_string nextObjNum) + " 0 obj\n")
+        buf.writeString(header)
+        buf.writeBuffer(imageData)
+        buf.writeString(footer)
+        buf.writeString("\nendobj\n\n")
+        def objNum nextObjNum
+        nextObjNum = nextObjNum + 1
+        return objNum
+    }
+    
+    fn addJPEGImage:int (dirPath:string fileName:string) {
+        ; Read and add a JPEG image, returns the object number
+        def reader:JPEGReader (unwrap jpegReader)
+        def img:JPEGImage (reader.readJPEG(dirPath fileName))
+        
+        if (img.isValid == false) {
+            print ("Error loading image: " + img.errorMessage)
+            return 0
+        }
+        
+        print (reader.getImageInfo(img))
+        
+        ; Parse JPEG metadata
+        def parser:JPEGMetadataParser (unwrap metadataParser)
+        def meta:JPEGMetadataInfo (parser.parseMetadata(dirPath fileName))
+        lastImageMetadata = meta
+        
+        ; Determine color space
+        def colorSpace "/DeviceRGB"
+        if (img.colorComponents == 1) {
+            colorSpace = "/DeviceGray"
+        }
+        if (img.colorComponents == 4) {
+            colorSpace = "/DeviceCMYK"
+        }
+        
+        ; Get raw JPEG data - unwrap the optional buffer
+        def imgData:buffer (unwrap img.imageData)
+        def dataLen:int (buffer_length imgData)
+        
+        ; Create image XObject header with DCTDecode (raw JPEG)
+        def imgHeader "<< /Type /XObject /Subtype /Image"
+        imgHeader = imgHeader + " /Width " + (to_string img.width)
+        imgHeader = imgHeader + " /Height " + (to_string img.height)
+        imgHeader = imgHeader + " /ColorSpace " + colorSpace
+        imgHeader = imgHeader + " /BitsPerComponent " + (to_string img.bitsPerComponent)
+        imgHeader = imgHeader + " /Filter /DCTDecode"
+        imgHeader = imgHeader + " /Length " + (to_string dataLen)
+        imgHeader = imgHeader + " >>\nstream\n"
+        
+        def imgFooter "\nendstream"
+        
+        imageObjNum = (this.writeImageObject(imgHeader imgData imgFooter))
+        return imageObjNum
+    }
+    
+    fn escapeText:string (text:string) {
+        ; Basic PDF text escaping - escape parentheses and backslashes
+        def result ""
+        def len (strlen text)
+        def i 0
+        while (i < len) {
+            def ch (charAt text i)
+            if (ch == 40) {  ; (
+                result = result + "\\("
+            } {
+                if (ch == 41) {  ; )
+                    result = result + "\\)"
+                } {
+                    if (ch == 92) {  ; \
+                        result = result + "\\\\"
+                    } {
+                        result = result + (strfromcode ch)
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn createHelloWorldPDF:buffer (message:string) {
+        return (this.createPDFWithImage(message "" ""))
+    }
+    
+    fn createPDFWithImage:buffer (message:string imageDirPath:string imageFileName:string) {
+        ; Reset state
+        nextObjNum = 1
+        def buf:GrowableBuffer (unwrap pdfBuffer)
+        buf.clear()
+        imageObjNum = 0
+        clear objectOffsets
+        
+        ; PDF header
+        buf.writeString("%PDF-1.4\n")
+        ; Binary marker for PDF readers (high-bit bytes)
+        buf.writeByte(37)   ; %
+        buf.writeByte(226)  ; high-bit char
+        buf.writeByte(227)  ; high-bit char
+        buf.writeByte(207)  ; high-bit char
+        buf.writeByte(211)  ; high-bit char
+        buf.writeByte(10)   ; newline
+        
+        ; If we have an image, add it first (will be object 1)
+        def hasImage:boolean ((strlen imageFileName) > 0)
+        if hasImage {
+            def imgNum:int (this.addJPEGImage(imageDirPath imageFileName))
+            if (imgNum == 0) {
+                hasImage = false
+            }
+        }
+        
+        ; Object: Catalog (root) - references Pages
+        def catalogObjNum nextObjNum
+        def pagesObjNum (nextObjNum + 1)
+        this.writeObject("<< /Type /Catalog /Pages " + (to_string pagesObjNum) + " 0 R >>")
+        
+        ; Object: Pages container - references Page
+        def pageObjNum (nextObjNum + 1)
+        this.writeObject("<< /Type /Pages /Kids [" + (to_string pageObjNum) + " 0 R] /Count 1 >>")
+        
+        ; Object: Page definition - references Content and Resources
+        def contentObjNum (nextObjNum + 1)
+        def fontObjNum (nextObjNum + 2)
+        def resourcesStr "<< /Font << /F1 " + (to_string fontObjNum) + " 0 R >>"
+        if hasImage {
+            resourcesStr = resourcesStr + " /XObject << /Img1 " + (to_string imageObjNum) + " 0 R >>"
+        }
+        resourcesStr = resourcesStr + " >>"
+        this.writeObject("<< /Type /Page /Parent " + (to_string pagesObjNum) + " 0 R /MediaBox [0 0 612 792] /Contents " + (to_string contentObjNum) + " 0 R /Resources " + resourcesStr + " >>")
+        
+        ; Build page content stream using a local buffer
+        def streamBuf (new GrowableBuffer())
+        
+        ; If we have an image, draw it first (at the top)
+        if hasImage {
+            ; Draw image: save state, transform matrix, draw, restore
+            streamBuf.writeString("q\n")
+            streamBuf.writeString("150 0 0 150 400 600 cm\n")
+            streamBuf.writeString("/Img1 Do\n")
+            streamBuf.writeString("Q\n")
+        }
+        
+        ; Draw a red rectangle (path element)
+        streamBuf.writeString("q\n")
+        streamBuf.writeString("1 0 0 RG\n")
+        streamBuf.writeString("1 0.8 0.8 rg\n")
+        streamBuf.writeString("2 w\n")
+        streamBuf.writeString("100 650 80 60 re\n")
+        streamBuf.writeString("B\n")
+        streamBuf.writeString("Q\n")
+        
+        ; Draw a blue triangle (path element)
+        streamBuf.writeString("q\n")
+        streamBuf.writeString("0 0 1 RG\n")
+        streamBuf.writeString("0.8 0.8 1 rg\n")
+        streamBuf.writeString("2 w\n")
+        streamBuf.writeString("220 650 m\n")
+        streamBuf.writeString("280 650 l\n")
+        streamBuf.writeString("250 710 l\n")
+        streamBuf.writeString("h\n")
+        streamBuf.writeString("B\n")
+        streamBuf.writeString("Q\n")
+        
+        ; Draw a green circle (approximated with bezier curves)
+        streamBuf.writeString("q\n")
+        streamBuf.writeString("0 0.5 0 RG\n")
+        streamBuf.writeString("0.8 1 0.8 rg\n")
+        streamBuf.writeString("2 w\n")
+        ; Circle at (370, 680) with radius 30
+        def cx 370
+        def cy 680
+        def r 30
+        def k 17  ; ~30 * 0.552
+        streamBuf.writeString((to_string (cx + r)) + " " + (to_string cy) + " m\n")
+        streamBuf.writeString((to_string (cx + r)) + " " + (to_string (cy + k)) + " " + (to_string (cx + k)) + " " + (to_string (cy + r)) + " " + (to_string cx) + " " + (to_string (cy + r)) + " c\n")
+        streamBuf.writeString((to_string (cx - k)) + " " + (to_string (cy + r)) + " " + (to_string (cx - r)) + " " + (to_string (cy + k)) + " " + (to_string (cx - r)) + " " + (to_string cy) + " c\n")
+        streamBuf.writeString((to_string (cx - r)) + " " + (to_string (cy - k)) + " " + (to_string (cx - k)) + " " + (to_string (cy - r)) + " " + (to_string cx) + " " + (to_string (cy - r)) + " c\n")
+        streamBuf.writeString((to_string (cx + k)) + " " + (to_string (cy - r)) + " " + (to_string (cx + r)) + " " + (to_string (cy - k)) + " " + (to_string (cx + r)) + " " + (to_string cy) + " c\n")
+        streamBuf.writeString("B\n")
+        streamBuf.writeString("Q\n")
+        
+        ; Draw a HEART shape using bezier curves - red/pink fill
+        streamBuf.writeString("q\n")
+        streamBuf.writeString("0.8 0 0.2 RG\n")
+        streamBuf.writeString("1 0.4 0.5 rg\n")
+        streamBuf.writeString("2 w\n")
+        streamBuf.writeString("140 480 m\n")
+        streamBuf.writeString("90 510 80 560 110 580 c\n")
+        streamBuf.writeString("130 595 140 580 140 565 c\n")
+        streamBuf.writeString("140 580 150 595 170 580 c\n")
+        streamBuf.writeString("200 560 190 510 140 480 c\n")
+        streamBuf.writeString("h\n")
+        streamBuf.writeString("B\n")
+        streamBuf.writeString("Q\n")
+        
+        ; Draw a SNOWFLAKE pattern using lines
+        streamBuf.writeString("q\n")
+        streamBuf.writeString("0 0.5 0.8 RG\n")
+        streamBuf.writeString("2 w\n")
+        def sx 300
+        def sy 530
+        def arm 50
+        ; Main 6 arms of snowflake
+        streamBuf.writeString((to_string sx) + " " + (to_string sy) + " m\n")
+        streamBuf.writeString((to_string sx) + " " + (to_string (sy + arm)) + " l\n")
+        streamBuf.writeString((to_string sx) + " " + (to_string sy) + " m\n")
+        streamBuf.writeString((to_string (sx + 43)) + " " + (to_string (sy + 25)) + " l\n")
+        streamBuf.writeString((to_string sx) + " " + (to_string sy) + " m\n")
+        streamBuf.writeString((to_string (sx + 43)) + " " + (to_string (sy - 25)) + " l\n")
+        streamBuf.writeString((to_string sx) + " " + (to_string sy) + " m\n")
+        streamBuf.writeString((to_string sx) + " " + (to_string (sy - arm)) + " l\n")
+        streamBuf.writeString((to_string sx) + " " + (to_string sy) + " m\n")
+        streamBuf.writeString((to_string (sx - 43)) + " " + (to_string (sy - 25)) + " l\n")
+        streamBuf.writeString((to_string sx) + " " + (to_string sy) + " m\n")
+        streamBuf.writeString((to_string (sx - 43)) + " " + (to_string (sy + 25)) + " l\n")
+        ; Branches
+        streamBuf.writeString((to_string (sx - 10)) + " " + (to_string (sy + arm - 10)) + " m\n")
+        streamBuf.writeString((to_string sx) + " " + (to_string (sy + arm)) + " l\n")
+        streamBuf.writeString((to_string (sx + 10)) + " " + (to_string (sy + arm - 10)) + " l\n")
+        streamBuf.writeString((to_string (sx - 10)) + " " + (to_string (sy - arm + 10)) + " m\n")
+        streamBuf.writeString((to_string sx) + " " + (to_string (sy - arm)) + " l\n")
+        streamBuf.writeString((to_string (sx + 10)) + " " + (to_string (sy - arm + 10)) + " l\n")
+        streamBuf.writeString("S\n")
+        streamBuf.writeString("Q\n")
+        
+        ; Draw a STAR shape using lines
+        streamBuf.writeString("q\n")
+        streamBuf.writeString("0.8 0.6 0 RG\n")
+        streamBuf.writeString("1 0.9 0.3 rg\n")
+        streamBuf.writeString("2 w\n")
+        streamBuf.writeString("460 575 m\n")
+        streamBuf.writeString("472 545 l\n")
+        streamBuf.writeString("505 545 l\n")
+        streamBuf.writeString("478 522 l\n")
+        streamBuf.writeString("488 490 l\n")
+        streamBuf.writeString("460 508 l\n")
+        streamBuf.writeString("432 490 l\n")
+        streamBuf.writeString("442 522 l\n")
+        streamBuf.writeString("415 545 l\n")
+        streamBuf.writeString("448 545 l\n")
+        streamBuf.writeString("h\n")
+        streamBuf.writeString("B\n")
+        streamBuf.writeString("Q\n")
+        
+        ; Draw decorative line
+        streamBuf.writeString("q\n")
+        streamBuf.writeString("0.5 0.5 0.5 RG\n")
+        streamBuf.writeString("1 w\n")
+        streamBuf.writeString("50 450 m\n")
+        streamBuf.writeString("562 450 l\n")
+        streamBuf.writeString("S\n")
+        streamBuf.writeString("Q\n")
+        
+        ; Draw a curved wave/ribbon
+        streamBuf.writeString("q\n")
+        streamBuf.writeString("0.6 0 0.6 RG\n")
+        streamBuf.writeString("3 w\n")
+        streamBuf.writeString("50 400 m\n")
+        streamBuf.writeString("150 450 200 350 300 400 c\n")
+        streamBuf.writeString("400 450 450 350 550 400 c\n")
+        streamBuf.writeString("S\n")
+        streamBuf.writeString("Q\n")
+        
+        ; Add the main text
+        streamBuf.writeString("BT\n")
+        streamBuf.writeString("/F1 36 Tf\n")
+        streamBuf.writeString("100 320 Td\n")
+        streamBuf.writeString("(" + (this.escapeText(message)) + ") Tj\n")
+        streamBuf.writeString("ET\n")
+        
+        ; Add subtitle
+        streamBuf.writeString("BT\n")
+        streamBuf.writeString("/F1 14 Tf\n")
+        streamBuf.writeString("100 280 Td\n")
+        streamBuf.writeString("(Generated by Ranger PDF Writer) Tj\n")
+        streamBuf.writeString("ET\n")
+        
+        ; Add shape labels
+        streamBuf.writeString("BT\n/F1 10 Tf\n100 630 Td\n(Rectangle) Tj\nET\n")
+        streamBuf.writeString("BT\n/F1 10 Tf\n225 630 Td\n(Triangle) Tj\nET\n")
+        streamBuf.writeString("BT\n/F1 10 Tf\n355 630 Td\n(Circle) Tj\nET\n")
+        streamBuf.writeString("BT\n/F1 10 Tf\n125 465 Td\n(Heart) Tj\nET\n")
+        streamBuf.writeString("BT\n/F1 10 Tf\n275 465 Td\n(Snowflake) Tj\nET\n")
+        streamBuf.writeString("BT\n/F1 10 Tf\n445 465 Td\n(Star) Tj\nET\n")
+        
+        ; Add image label and metadata if we have an image
+        if hasImage {
+            streamBuf.writeString("BT\n/F1 10 Tf\n400 585 Td\n(JPEG Image) Tj\nET\n")
+            
+            ; Display EXIF metadata below image if available
+            if (!null? lastImageMetadata) {
+                def meta:JPEGMetadataInfo (unwrap lastImageMetadata)
+                def metaY 240
+                
+                ; Header
+                streamBuf.writeString("BT\n/F1 12 Tf\n400 " + (to_string metaY) + " Td\n(Image Metadata:) Tj\nET\n")
+                metaY = metaY - 14
+                
+                ; Dimensions
+                streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Size: " + (to_string meta.width) + " x " + (to_string meta.height) + ") Tj\nET\n")
+                metaY = metaY - 12
+                
+                if meta.hasExif {
+                    ; Camera info
+                    if ((strlen meta.cameraMake) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Make: " + (this.escapeText(meta.cameraMake)) + ") Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                    if ((strlen meta.cameraModel) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Model: " + (this.escapeText(meta.cameraModel)) + ") Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                    if ((strlen meta.dateTimeOriginal) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Date: " + (this.escapeText(meta.dateTimeOriginal)) + ") Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                    if ((strlen meta.exposureTime) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Exposure: " + meta.exposureTime + " sec) Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                    if ((strlen meta.fNumber) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Aperture: f/" + meta.fNumber + ") Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                    if ((strlen meta.isoSpeed) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(ISO: " + meta.isoSpeed + ") Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                    if ((strlen meta.focalLength) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Focal Length: " + meta.focalLength + " mm) Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                    if ((strlen meta.flash) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Flash: " + meta.flash + ") Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                }
+                
+                if meta.hasGPS {
+                    streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(--- GPS Data ---) Tj\nET\n")
+                    metaY = metaY - 12
+                    if ((strlen meta.gpsLatitude) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Latitude: " + meta.gpsLatitude + ") Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                    if ((strlen meta.gpsLongitude) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Longitude: " + meta.gpsLongitude + ") Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                    if ((strlen meta.gpsAltitude) > 0) {
+                        streamBuf.writeString("BT\n/F1 9 Tf\n400 " + (to_string metaY) + " Td\n(Altitude: " + meta.gpsAltitude + ") Tj\nET\n")
+                        metaY = metaY - 12
+                    }
+                }
+            }
+        }
+        
+        ; Content stream object
+        def streamLen (streamBuf.size())
+        def streamContent:string (streamBuf.toString())
+        this.writeObject("<< /Length " + (to_string streamLen) + " >>\nstream\n" + streamContent + "endstream")
+        
+        ; Font object
+        this.writeObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+        
+        ; Cross-reference table
+        def rootObjNum 1
+        if hasImage {
+            rootObjNum = 2
+        }
+        
+        def xrefOffset (buf.size())
+        buf.writeString("xref\n")
+        buf.writeString("0 " + (to_string nextObjNum) + "\n")
+        buf.writeString("0000000000 65535 f \n")
+        
+        for objectOffsets offset:int i {
+            def offsetStr (to_string offset)
+            while ((strlen offsetStr) < 10) {
+                offsetStr = "0" + offsetStr
+            }
+            buf.writeString(offsetStr + " 00000 n \n")
+        }
+        
+        ; Trailer
+        buf.writeString("trailer\n")
+        buf.writeString("<< /Size " + (to_string nextObjNum) + " /Root " + (to_string rootObjNum) + " 0 R >>\n")
+        buf.writeString("startxref\n")
+        buf.writeString((to_string xrefOffset) + "\n")
+        buf.writeString("%%EOF\n")
+        
+        return (buf.toBuffer())
+    }
+    
+    fn savePDF:void (path:string filename:string message:string) {
+        def pdfContent:buffer (this.createHelloWorldPDF(message))
+        buffer_write_file path filename pdfContent
+        print ("PDF saved to " + path + "/" + filename)
+    }
+    
+    fn savePDFWithImage:void (path:string filename:string message:string imageDirPath:string imageFileName:string) {
+        def pdfContent:buffer (this.createPDFWithImage(message imageDirPath imageFileName))
+        buffer_write_file path filename pdfContent
+        print ("PDF saved to " + path + "/" + filename)
+    }
+}
+
+class Main {
+    sfn m@(main):void () {
+        print "=== Ranger PDF Writer (Buffer-based) ==="
+        
+        def writer (new PDFWriter())
+        
+        ; Create PDF without image
+        writer.savePDF("./gallery/pdf_writer" "hello_world.pdf" "Hello, World!")
+        
+        ; Create PDF with Example.jpg image
+        writer.savePDFWithImage("./gallery/pdf_writer" "hello_with_image.pdf" "Hello, World!" "./gallery/pdf_writer" "Example.jpg")
+        
+        ; Create PDF with Canon_40D.jpg (has EXIF data)
+        print ""
+        print "--- Creating PDF with Canon_40D.jpg (EXIF metadata) ---"
+        def writer2 (new PDFWriter())
+        writer2.savePDFWithImage("./gallery/pdf_writer" "canon_with_metadata.pdf" "Canon 40D Sample Photo" "./gallery/pdf_writer" "Canon_40D.jpg")
+        
+        ; Create PDF with GPS_test.jpg (has GPS data)
+        print ""
+        print "--- Creating PDF with GPS_test.jpg (GPS metadata) ---"
+        def writer3 (new PDFWriter())
+        writer3.savePDFWithImage("./gallery/pdf_writer" "gps_with_metadata.pdf" "GPS Test Photo" "./gallery/pdf_writer" "GPS_test.jpg")
+        
+        print ""
+        print "PDF generation complete!"
+        print "Open gallery/pdf_writer/*.pdf to see results."
+    }
+}

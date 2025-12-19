@@ -104,6 +104,10 @@ class EVGElement {
     ; CSS class (for reference)
     def className:string ""
     
+    ; PDF/Print settings (for Print element)
+    def imageQuality:int 0          ; JPEG quality 1-100 (0 = use default)
+    def maxImageSize:int 0          ; Max image dimension in pixels (0 = use default)
+    
     ; Transform
     def rotate:double 0.0
     def scale:double 1.0
@@ -564,6 +568,22 @@ class EVGElement {
         ; Clip path (SVG path for clipping)
         if ((name == "clip-path") || (name == "clipPath")) {
             clipPath = value
+            return
+        }
+        
+        ; PDF/Print settings
+        if (name == "imageQuality") {
+            def val@(optional):int (to_int value)
+            if val {
+                imageQuality = (unwrap val)
+            }
+            return
+        }
+        if (name == "maxImageSize") {
+            def val@(optional):int (to_int value)
+            if val {
+                maxImageSize = (unwrap val)
+            }
             return
         }
         

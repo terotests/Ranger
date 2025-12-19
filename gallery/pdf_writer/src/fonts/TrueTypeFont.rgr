@@ -1,0 +1,569 @@
+; TrueTypeFont.rgr - Parse TrueType font files for metrics and embedding
+;
+; TrueType file structure:
+; - Offset Table (header)
+; - Table Directory (list of tables)
+; - Tables: head, hhea, hmtx, cmap, maxp, name, OS/2, post, glyf, loca, etc.
+;
+; For text measurement we need:
+; - cmap: character to glyph mapping
+; - hmtx: horizontal metrics (advance widths)
+; - hhea: horizontal header (ascender, descender)
+; - head: font header (units per em)
+
+Import "../core/Buffer.rgr"
+
+class TTFTableRecord {
+    def tag:string ""
+    def checksum:int 0
+    def offset:int 0
+    def length:int 0
+}
+
+class TTFGlyphMetrics {
+    def advanceWidth:int 0
+    def leftSideBearing:int 0
+}
+
+class TrueTypeFont {
+    def fontData:buffer (buffer_alloc 0)
+    def fontPath:string ""
+    def fontFamily:string ""
+    def fontStyle:string "Regular"
+    
+    ; Offset table
+    def sfntVersion:int 0
+    def numTables:int 0
+    def searchRange:int 0
+    def entrySelector:int 0
+    def rangeShift:int 0
+    
+    ; Table directory
+    def tables:[TTFTableRecord]
+    
+    ; head table
+    def unitsPerEm:int 1000
+    def xMin:int 0
+    def yMin:int 0
+    def xMax:int 0
+    def yMax:int 0
+    def indexToLocFormat:int 0
+    
+    ; hhea table
+    def ascender:int 0
+    def descender:int 0
+    def lineGap:int 0
+    def numberOfHMetrics:int 0
+    
+    ; maxp table
+    def numGlyphs:int 0
+    
+    ; cmap table - character to glyph mapping
+    def cmapFormat:int 0
+    def cmapOffset:int 0
+    
+    ; hmtx table - glyph widths
+    def glyphWidths:[int]
+    def defaultWidth:int 500
+    
+    ; Character to width cache (ASCII 0-255)
+    def charWidths:[int]
+    def charWidthsLoaded:boolean false
+    
+    Constructor () {
+        def t:[TTFTableRecord]
+        tables = t
+        def gw:[int]
+        glyphWidths = gw
+        def cw:[int]
+        charWidths = cw
+    }
+    
+    fn loadFromFile:boolean (path:string) {
+        fontPath = path
+        ; Split path into directory and filename for buffer_read_file
+        def lastSlash:int -1
+        def i:int 0
+        while (i < (strlen path)) {
+            def ch:int (charAt path i)
+            if ((ch == 47) || (ch == 92)) {
+                lastSlash = i
+            }
+            i = i + 1
+        }
+        
+        def dirPath:string "."
+        def fileName:string path
+        if (lastSlash >= 0) {
+            dirPath = (substring path 0 lastSlash)
+            fileName = (substring path (lastSlash + 1) (strlen path))
+        }
+        
+        fontData = (buffer_read_file dirPath fileName)
+        if ((buffer_length fontData) == 0) {
+            print ("TrueTypeFont: Failed to load " + path)
+            return false
+        }
+        
+        ; Parse the font
+        if ((this.parseOffsetTable()) == false) {
+            return false
+        }
+        if ((this.parseTableDirectory()) == false) {
+            return false
+        }
+        
+        ; Parse required tables
+        this.parseHeadTable()
+        this.parseHheaTable()
+        this.parseMaxpTable()
+        this.parseCmapTable()
+        this.parseHmtxTable()
+        this.parseNameTable()
+        
+        ; Build character width cache
+        this.buildCharWidthCache()
+        
+        return true
+    }
+    
+    fn parseOffsetTable:boolean () {
+        if ((buffer_length fontData) < 12) {
+            return false
+        }
+        
+        sfntVersion = (this.readUInt32(0))
+        numTables = (this.readUInt16(4))
+        searchRange = (this.readUInt16(6))
+        entrySelector = (this.readUInt16(8))
+        rangeShift = (this.readUInt16(10))
+        
+        return true
+    }
+    
+    fn parseTableDirectory:boolean () {
+        def offset:int 12
+        def i:int 0
+        
+        while (i < numTables) {
+            def record (new TTFTableRecord())
+            record.tag = (this.readTag(offset))
+            record.checksum = (this.readUInt32(offset + 4))
+            record.offset = (this.readUInt32(offset + 8))
+            record.length = (this.readUInt32(offset + 12))
+            push tables record
+            offset = offset + 16
+            i = i + 1
+        }
+        
+        return true
+    }
+    
+    fn findTable:TTFTableRecord (tag:string) {
+        def i:int 0
+        while (i < (array_length tables)) {
+            def t:TTFTableRecord (itemAt tables i)
+            if (t.tag == tag) {
+                return t
+            }
+            i = i + 1
+        }
+        ; Return empty record if not found
+        def empty (new TTFTableRecord())
+        return empty
+    }
+    
+    fn parseHeadTable:void () {
+        def table:TTFTableRecord (this.findTable("head"))
+        if (table.offset == 0) {
+            return
+        }
+        
+        def off:int table.offset
+        ; Skip version, fontRevision, checksumAdjustment, magicNumber, flags
+        unitsPerEm = (this.readUInt16(off + 18))
+        ; Skip created, modified dates (16 bytes)
+        xMin = (this.readInt16(off + 36))
+        yMin = (this.readInt16(off + 38))
+        xMax = (this.readInt16(off + 40))
+        yMax = (this.readInt16(off + 42))
+        ; Skip macStyle, lowestRecPPEM, fontDirectionHint
+        indexToLocFormat = (this.readInt16(off + 50))
+    }
+    
+    fn parseHheaTable:void () {
+        def table:TTFTableRecord (this.findTable("hhea"))
+        if (table.offset == 0) {
+            return
+        }
+        
+        def off:int table.offset
+        ; Skip version (4 bytes)
+        ascender = (this.readInt16(off + 4))
+        descender = (this.readInt16(off + 6))
+        lineGap = (this.readInt16(off + 8))
+        ; Skip advanceWidthMax, minLeftSideBearing, minRightSideBearing, xMaxExtent
+        ; Skip caretSlopeRise, caretSlopeRun, caretOffset, reserved (8 bytes)
+        ; Skip metricDataFormat
+        numberOfHMetrics = (this.readUInt16(off + 34))
+    }
+    
+    fn parseMaxpTable:void () {
+        def table:TTFTableRecord (this.findTable("maxp"))
+        if (table.offset == 0) {
+            return
+        }
+        
+        def off:int table.offset
+        ; Skip version (4 bytes)
+        numGlyphs = (this.readUInt16(off + 4))
+    }
+    
+    fn parseCmapTable:void () {
+        def table:TTFTableRecord (this.findTable("cmap"))
+        if (table.offset == 0) {
+            return
+        }
+        
+        def off:int table.offset
+        ; Skip version (2 bytes)
+        def numSubtables:int (this.readUInt16(off + 2))
+        
+        ; Look for Unicode BMP table (platformID=3, encodingID=1 for Windows Unicode BMP)
+        ; or platformID=0 for Unicode
+        def i:int 0
+        def subtableOffset:int 0
+        
+        while (i < numSubtables) {
+            def recordOff:int (off + 4 + (i * 8))
+            def platformID:int (this.readUInt16(recordOff))
+            def encodingID:int (this.readUInt16(recordOff + 2))
+            def subOff:int (this.readUInt32(recordOff + 4))
+            
+            ; Prefer Windows Unicode BMP (3,1) or Unicode (0,3)
+            if ((platformID == 3) && (encodingID == 1)) {
+                subtableOffset = subOff
+            }
+            if ((platformID == 0) && (subtableOffset == 0)) {
+                subtableOffset = subOff
+            }
+            
+            i = i + 1
+        }
+        
+        if (subtableOffset > 0) {
+            cmapOffset = off + subtableOffset
+            cmapFormat = (this.readUInt16(cmapOffset))
+        }
+    }
+    
+    fn parseHmtxTable:void () {
+        def table:TTFTableRecord (this.findTable("hmtx"))
+        if (table.offset == 0) {
+            return
+        }
+        
+        def off:int table.offset
+        
+        ; Read all advance widths
+        def i:int 0
+        while (i < numberOfHMetrics) {
+            def advanceWidth:int (this.readUInt16(off + (i * 4)))
+            push glyphWidths advanceWidth
+            i = i + 1
+        }
+        
+        ; Remaining glyphs use the last advance width
+        if (numberOfHMetrics > 0) {
+            defaultWidth = (itemAt glyphWidths (numberOfHMetrics - 1))
+        }
+    }
+    
+    fn parseNameTable:void () {
+        def table:TTFTableRecord (this.findTable("name"))
+        if (table.offset == 0) {
+            return
+        }
+        
+        def off:int table.offset
+        ; Skip format (2 bytes)
+        def count:int (this.readUInt16(off + 2))
+        def stringOffset:int (this.readUInt16(off + 4))
+        
+        ; Look for font family name (nameID = 1) and subfamily (nameID = 2)
+        def i:int 0
+        while (i < count) {
+            def recordOff:int (off + 6 + (i * 12))
+            def platformID:int (this.readUInt16(recordOff))
+            def encodingID:int (this.readUInt16(recordOff + 2))
+            def languageID:int (this.readUInt16(recordOff + 4))
+            def nameID:int (this.readUInt16(recordOff + 6))
+            def length:int (this.readUInt16(recordOff + 8))
+            def strOffset:int (this.readUInt16(recordOff + 10))
+            
+            ; Get font family (nameID = 1) - prefer Windows platform (3)
+            if ((nameID == 1) && (platformID == 3)) {
+                def strOff:int (off + stringOffset + strOffset)
+                fontFamily = (this.readUnicodeString(strOff length))
+            }
+            if ((nameID == 1) && (platformID == 1) && ((strlen fontFamily) == 0)) {
+                def strOff:int (off + stringOffset + strOffset)
+                fontFamily = (this.readAsciiString(strOff length))
+            }
+            
+            ; Get font style (nameID = 2)
+            if ((nameID == 2) && (platformID == 3)) {
+                def strOff:int (off + stringOffset + strOffset)
+                fontStyle = (this.readUnicodeString(strOff length))
+            }
+            if ((nameID == 2) && (platformID == 1) && ((strlen fontStyle) == 0)) {
+                def strOff:int (off + stringOffset + strOffset)
+                fontStyle = (this.readAsciiString(strOff length))
+            }
+            
+            i = i + 1
+        }
+    }
+    
+    fn getGlyphIndex:int (charCode:int) {
+        ; Get glyph index for a character code using cmap
+        if (cmapOffset == 0) {
+            return 0
+        }
+        
+        ; Format 4: Segment mapping to delta values (most common for Unicode BMP)
+        if (cmapFormat == 4) {
+            return (this.getGlyphIndexFormat4(charCode))
+        }
+        
+        ; Format 0: Byte encoding table (simple, limited to 256 chars)
+        if (cmapFormat == 0) {
+            if (charCode < 256) {
+                return (this.readUInt8(cmapOffset + 6 + charCode))
+            }
+        }
+        
+        ; Format 6: Trimmed table mapping
+        if (cmapFormat == 6) {
+            def firstCode:int (this.readUInt16(cmapOffset + 6))
+            def entryCount:int (this.readUInt16(cmapOffset + 8))
+            if ((charCode >= firstCode) && (charCode < (firstCode + entryCount))) {
+                return (this.readUInt16(cmapOffset + 10 + ((charCode - firstCode) * 2)))
+            }
+        }
+        
+        return 0  ; .notdef glyph
+    }
+    
+    fn getGlyphIndexFormat4:int (charCode:int) {
+        ; Format 4 is segment-based mapping
+        def off:int cmapOffset
+        ; Skip format, length (4 bytes)
+        def segCountX2:int (this.readUInt16(off + 6))
+        def segCountD:double ((to_double segCountX2) / 2.0)
+        def segCount:int (to_int segCountD)
+        
+        ; Arrays start after header (14 bytes)
+        def endCodesOff:int (off + 14)
+        def startCodesOff:int (endCodesOff + segCountX2 + 2)  ; +2 for reservedPad
+        def idDeltaOff:int (startCodesOff + segCountX2)
+        def idRangeOffsetOff:int (idDeltaOff + segCountX2)
+        
+        ; Binary search for segment (or linear for simplicity)
+        def i:int 0
+        while (i < segCount) {
+            def endCode:int (this.readUInt16(endCodesOff + (i * 2)))
+            def startCode:int (this.readUInt16(startCodesOff + (i * 2)))
+            
+            if ((charCode >= startCode) && (charCode <= endCode)) {
+                def idDelta:int (this.readInt16(idDeltaOff + (i * 2)))
+                def idRangeOffset:int (this.readUInt16(idRangeOffsetOff + (i * 2)))
+                
+                if (idRangeOffset == 0) {
+                    ; Simple delta
+                    return ((charCode + idDelta) % 65536)
+                } {
+                    ; Use glyph ID array
+                    def glyphIdOff:int (idRangeOffsetOff + (i * 2) + idRangeOffset + ((charCode - startCode) * 2))
+                    def glyphId:int (this.readUInt16(glyphIdOff))
+                    if (glyphId != 0) {
+                        return ((glyphId + idDelta) % 65536)
+                    }
+                }
+            }
+            i = i + 1
+        }
+        
+        return 0
+    }
+    
+    fn getGlyphWidth:int (glyphIndex:int) {
+        if (glyphIndex < (array_length glyphWidths)) {
+            return (itemAt glyphWidths glyphIndex)
+        }
+        return defaultWidth
+    }
+    
+    fn buildCharWidthCache:void () {
+        ; Pre-compute widths for ASCII characters (0-255)
+        def i:int 0
+        while (i < 256) {
+            def glyphIdx:int (this.getGlyphIndex(i))
+            def width:int (this.getGlyphWidth(glyphIdx))
+            push charWidths width
+            i = i + 1
+        }
+        charWidthsLoaded = true
+    }
+    
+    fn getCharWidth:int (charCode:int) {
+        ; Get width for a character in font units
+        if (charWidthsLoaded && (charCode < 256)) {
+            return (itemAt charWidths charCode)
+        }
+        def glyphIdx:int (this.getGlyphIndex(charCode))
+        return (this.getGlyphWidth(glyphIdx))
+    }
+    
+    fn getCharWidthPoints:double (charCode:int fontSize:double) {
+        ; Get character width in points
+        def fontUnits:int (this.getCharWidth(charCode))
+        return ((to_double fontUnits) * fontSize / (to_double unitsPerEm))
+    }
+    
+    fn measureText:double (text:string fontSize:double) {
+        ; Measure text width in points
+        def width:double 0.0
+        def len:int (strlen text)
+        def i:int 0
+        
+        while (i < len) {
+            def ch:int (charAt text i)
+            width = width + (this.getCharWidthPoints(ch fontSize))
+            i = i + 1
+        }
+        
+        return width
+    }
+    
+    fn getAscender:double (fontSize:double) {
+        return ((to_double ascender) * fontSize / (to_double unitsPerEm))
+    }
+    
+    fn getDescender:double (fontSize:double) {
+        return ((to_double descender) * fontSize / (to_double unitsPerEm))
+    }
+    
+    fn getLineHeight:double (fontSize:double) {
+        def asc:double (this.getAscender(fontSize))
+        def desc:double (this.getDescender(fontSize))
+        def gap:double ((to_double lineGap) * fontSize / (to_double unitsPerEm))
+        return (asc - desc + gap)
+    }
+    
+    ; Get font data for PDF embedding (subset or full)
+    fn getFontData:buffer () {
+        return fontData
+    }
+    
+    ; Get PostScript name for PDF
+    fn getPostScriptName:string () {
+        ; Usually fontFamily with spaces removed
+        def name:string fontFamily
+        ; Simple space removal
+        def result:string ""
+        def i:int 0
+        while (i < (strlen name)) {
+            def ch:int (charAt name i)
+            if (ch != 32) {
+                result = result + (strfromcode ch)
+            }
+            i = i + 1
+        }
+        if ((strlen result) == 0) {
+            return "CustomFont"
+        }
+        return result
+    }
+    
+    ; ============ Binary reading helpers ============
+    
+    fn readUInt8:int (offset:int) {
+        return (buffer_get fontData offset)
+    }
+    
+    fn readUInt16:int (offset:int) {
+        ; Big-endian
+        def b1:int (buffer_get fontData offset)
+        def b2:int (buffer_get fontData (offset + 1))
+        return ((b1 * 256) + b2)
+    }
+    
+    fn readInt16:int (offset:int) {
+        def val:int (this.readUInt16(offset))
+        if (val >= 32768) {
+            return (val - 65536)
+        }
+        return val
+    }
+    
+    fn readUInt32:int (offset:int) {
+        ; Big-endian
+        def b1:int (buffer_get fontData offset)
+        def b2:int (buffer_get fontData (offset + 1))
+        def b3:int (buffer_get fontData (offset + 2))
+        def b4:int (buffer_get fontData (offset + 3))
+        def result:int (((((b1 * 256) + b2) * 256) + b3) * 256 + b4)
+        return result
+    }
+    
+    fn readTag:string (offset:int) {
+        def result:string ""
+        def i:int 0
+        while (i < 4) {
+            def ch:int (buffer_get fontData (offset + i))
+            result = result + (strfromcode ch)
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn readAsciiString:string (offset:int length:int) {
+        def result:string ""
+        def i:int 0
+        while (i < length) {
+            def ch:int (buffer_get fontData (offset + i))
+            if (ch > 0) {
+                result = result + (strfromcode ch)
+            }
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn readUnicodeString:string (offset:int length:int) {
+        ; UTF-16BE string
+        def result:string ""
+        def i:int 0
+        while (i < length) {
+            def ch:int (this.readUInt16(offset + i))
+            if ((ch > 0) && (ch < 128)) {
+                result = result + (strfromcode ch)
+            }
+            i = i + 2
+        }
+        return result
+    }
+    
+    ; Debug: print font info
+    fn printInfo:void () {
+        print ("Font: " + fontFamily + " " + fontStyle)
+        print ("  Units per EM: " + (to_string unitsPerEm))
+        print ("  Ascender: " + (to_string ascender))
+        print ("  Descender: " + (to_string descender))
+        print ("  Line gap: " + (to_string lineGap))
+        print ("  Num glyphs: " + (to_string numGlyphs))
+        print ("  Num hMetrics: " + (to_string numberOfHMetrics))
+        print ("  Tables: " + (to_string (array_length tables)))
+    }
+}

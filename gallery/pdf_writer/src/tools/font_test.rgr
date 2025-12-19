@@ -1,0 +1,71 @@
+; font_test.rgr - Test TrueType font parsing
+
+Import "../fonts/TrueTypeFont.rgr"
+Import "../fonts/FontManager.rgr"
+
+class FontTest {
+    sfn m@(main):void () {
+        print "TrueType Font Test"
+        print "=================="
+        print ""
+        
+        ; Test loading a single font
+        def font (new TrueTypeFont())
+        def loaded:boolean (font.loadFromFile("./gallery/pdf_writer/Fonts/Open_Sans/OpenSans-Regular.ttf"))
+        
+        if loaded {
+            font.printInfo()
+            print ""
+            
+            ; Test text measurement
+            def testText:string "Hello, World!"
+            def fontSize:double 14.0
+            def width:double (font.measureText(testText fontSize))
+            print ("Text: '" + testText + "'")
+            print ("Font size: " + (to_string fontSize) + "pt")
+            print ("Measured width: " + (to_string width) + "pt")
+            print ""
+            
+            ; Test individual character widths
+            print "Character widths at 14pt:"
+            def chars:string "ABCM Wij"
+            def i:int 0
+            while (i < (strlen chars)) {
+                def ch:int (charAt chars i)
+                def charW:double (font.getCharWidthPoints(ch fontSize))
+                print ("  '" + (strfromcode ch) + "' = " + (to_string charW) + "pt")
+                i = i + 1
+            }
+            print ""
+            
+            ; Compare with estimate
+            def estimate:double ((to_double (strlen testText)) * fontSize * 0.5)
+            print ("Estimated width (simple): " + (to_string estimate) + "pt")
+            print ("Difference: " + (to_string (width - estimate)) + "pt")
+        } {
+            print "Failed to load font!"
+        }
+        
+        print ""
+        print "=================="
+        
+        ; Test FontManager
+        print ""
+        print "FontManager Test"
+        print "================"
+        
+        def fm (new FontManager())
+        fm.setFontsDirectory("./gallery/pdf_writer/Fonts")
+        fm.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        fm.loadFont("Helvetica/Helvetica.ttf")
+        
+        fm.printLoadedFonts()
+        
+        print ""
+        def w1:double (fm.measureText("Hello" "Open Sans" 14.0))
+        def w2:double (fm.measureText("Hello" "Helvetica" 14.0))
+        print ("'Hello' in Open Sans 14pt: " + (to_string w1) + "pt")
+        print ("'Hello' in Helvetica 14pt: " + (to_string w2) + "pt")
+    }
+}
