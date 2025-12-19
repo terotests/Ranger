@@ -326,9 +326,36 @@ class JSXToEVG {
                             result = text
                         }
                     }
+                    if (child.left.nodeType == "TemplateLiteral") {
+                        ; Template literals have children with TemplateElement nodes
+                        def text:string (this.extractTemplateLiteralText(child.left))
+                        if ((strlen result) > 0) {
+                            result = result + " " + text
+                        } {
+                            result = text
+                        }
+                    }
                 }
             }
             
+            i = i + 1
+        }
+        return result
+    }
+    
+    ; Extract text from a TemplateLiteral node
+    fn extractTemplateLiteralText:string (node:TSNode) {
+        def result:string ""
+        def i 0
+        while (i < (array_length node.children)) {
+            def child:TSNode (itemAt node.children i)
+            if (child.nodeType == "TemplateElement") {
+                if ((strlen result) > 0) {
+                    result = result + child.value
+                } {
+                    result = child.value
+                }
+            }
             i = i + 1
         }
         return result

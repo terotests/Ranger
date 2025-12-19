@@ -749,12 +749,8 @@ class ComponentEngine {
                 def rawText:string child.value
                 
                 if ((strlen rawText) > 0) {
-                    ; Add space before this token if we already have content
-                    ; (JSX text tokens are separated by whitespace in the source)
-                    if ((strlen result) > 0) {
-                        result = result + " "
-                    }
-                    result = result + rawText
+                    ; Use smart join to handle punctuation properly
+                    result = (this.smartJoinText(result rawText))
                 }
             }
             
@@ -764,10 +760,8 @@ class ComponentEngine {
                     def exprValue:EvalValue (this.evaluateExpr(exprNode))
                     def exprStr:string (exprValue.toString())
                     
-                    if ((strlen result) > 0) {
-                        result = result + " "
-                    }
-                    result = result + exprStr
+                    ; Use smart join to handle punctuation properly
+                    result = (this.smartJoinText(result exprStr))
                 }
             }
             
@@ -789,11 +783,8 @@ class ComponentEngine {
             def child:TSNode (itemAt jsxNode.children i)
             
             if (child.nodeType == "JSXText") {
-                ; Accumulate consecutive JSXText nodes
-                if ((strlen accumulatedText) > 0) {
-                    accumulatedText = accumulatedText + " "
-                }
-                accumulatedText = accumulatedText + child.value
+                ; Accumulate consecutive JSXText nodes with smart joining
+                accumulatedText = (this.smartJoinText(accumulatedText child.value))
                 i = i + 1
                 continue
             }
@@ -1030,6 +1021,20 @@ class ComponentEngine {
         
         if (node.nodeType == "StringLiteral") {
             return (EvalValue.string((this.unquote(node.value))))
+        }
+        
+        if (node.nodeType == "TemplateLiteral") {
+            ; Template literals have TemplateElement children with the text
+            def templateText:string ""
+            def ti:int 0
+            while (ti < (array_length node.children)) {
+                def templateChild:TSNode (itemAt node.children ti)
+                if (templateChild.nodeType == "TemplateElement") {
+                    templateText = templateText + templateChild.value
+                }
+                ti = ti + 1
+            }
+            return (EvalValue.string(templateText))
         }
         
         if (node.nodeType == "BooleanLiteral") {
@@ -1375,6 +1380,61 @@ class ComponentEngine {
         }
         
         return result
+    }
+    
+    ; Check if a string starts with punctuation that should attach to previous word
+    fn startsWithPunctuation:boolean (s:string) {
+        if ((strlen s) == 0) {
+            return false
+        }
+        def first:int (charAt s 0)
+        ; Common punctuation: , . ! ? : ; ) ] } ' "
+        if ((first == 44) || (first == 46) || (first == 33) || (first == 63) || (first == 58) || (first == 59)) {
+            return true
+        }
+        ; ) ] }
+        if ((first == 41) || (first == 93) || (first == 125)) {
+            return true
+        }
+        ; ' "
+        if ((first == 39) || (first == 34)) {
+            return true
+        }
+        return false
+    }
+    
+    ; Check if a string ends with punctuation that should attach to next word
+    fn endsWithOpenPunctuation:boolean (s:string) {
+        def len:int (strlen s)
+        if (len == 0) {
+            return false
+        }
+        def last:int (charAt s (len - 1))
+        ; ( [ { ' "
+        if ((last == 40) || (last == 91) || (last == 123)) {
+            return true
+        }
+        return false
+    }
+    
+    ; Smart join two text fragments, handling punctuation properly
+    fn smartJoinText:string (existing:string newText:string) {
+        if ((strlen existing) == 0) {
+            return newText
+        }
+        if ((strlen newText) == 0) {
+            return existing
+        }
+        ; Don't add space if new text starts with punctuation
+        if (this.startsWithPunctuation(newText)) {
+            return existing + newText
+        }
+        ; Don't add space if existing text ends with opening punctuation
+        if (this.endsWithOpenPunctuation(existing)) {
+            return existing + newText
+        }
+        ; Otherwise add space between
+        return existing + " " + newText
     }
     
     fn unquote:string (s:string) {

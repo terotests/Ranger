@@ -1,4 +1,4 @@
-import { Print, Section, Page, View, Label, Image } from "./evg_types";
+import { Print, Section, Page, View, Label, Image, Path } from "./evg_types";
 
 function render() {
   return (
@@ -565,16 +565,82 @@ function render() {
               </View>
             </View>
 
-            <View
-              marginTop="30px"
-              padding="15px"
-              backgroundColor="#fff3cd"
-              borderRadius="5px"
+            <Label
+              fontSize="16px"
+              fontWeight="bold"
+              color="#34495e"
+              marginTop="25px"
+              marginBottom="15px"
             >
-              <Label fontSize="12px" fontWeight="bold" color="#856404">
-                Note: SVG Path elements are not yet implemented (see ISSUES.md)
-              </Label>
+              SVG Path Shapes:
+            </Label>
+            <View flexDirection="row" marginBottom="15px">
+              <View
+                width="70px"
+                height="70px"
+                backgroundColor="#f0f0f0"
+                padding="8px"
+                marginRight="15px"
+                borderRadius="5px"
+              >
+                <Path
+                  d="M25,10 L30,20 L40,22 L32,30 L35,40 L25,35 L15,40 L18,30 L10,22 L20,20 Z"
+                  width="54px"
+                  height="54px"
+                  fill="#f39c12"
+                />
+              </View>
+              <View
+                width="70px"
+                height="70px"
+                backgroundColor="#f0f0f0"
+                padding="8px"
+                marginRight="15px"
+                borderRadius="5px"
+              >
+                <Path
+                  d="M50,25 C50,11.2 38.8,0 25,0 S0,11.2 0,25 S11.2,50 25,50 S50,38.8 50,25 Z"
+                  width="54px"
+                  height="54px"
+                  fill="#3498db"
+                />
+              </View>
+              <View
+                width="70px"
+                height="70px"
+                backgroundColor="#f0f0f0"
+                padding="8px"
+                marginRight="15px"
+                borderRadius="5px"
+              >
+                <Path
+                  d="M25,45 L10,30 C5,25 5,15 10,10 C15,5 25,10 25,10 C25,10 35,5 40,10 C45,15 45,25 40,30 Z"
+                  width="54px"
+                  height="54px"
+                  fill="#e74c3c"
+                />
+              </View>
+              <View
+                width="70px"
+                height="70px"
+                backgroundColor="#f0f0f0"
+                padding="8px"
+                borderRadius="5px"
+              >
+                <Path
+                  d="M30,5 L55,30 L30,55 L5,30 Z"
+                  width="54px"
+                  height="54px"
+                  fill="#9b59b6"
+                  stroke="#8e44ad"
+                  strokeWidth={2}
+                />
+              </View>
             </View>
+
+            <Label fontSize="12px" color="#7f8c8d" marginTop="10px">
+              Path shapes: Star, Circle (Bezier), Heart, Diamond with stroke
+            </Label>
           </View>
         </Page>
 
@@ -704,10 +770,10 @@ function render() {
                 textAlign="justify"
                 marginTop="10px"
               >
-                Justified text creates clean, even edges on both sides of a text
+                {`Justified text creates clean, even edges on both sides of a text
                 block. This is commonly used in newspapers and books to create a
                 formal, structured appearance. The spacing between words is
-                adjusted to ensure the text reaches both edges.
+                adjusted to ensure the text reaches both edges`}
               </Label>
             </View>
 
@@ -752,6 +818,294 @@ function render() {
                   Right
                 </Label>
               </View>
+            </View>
+          </View>
+        </Page>
+
+        {/* Page 7: Element Alignment */}
+        <Page>
+          <View width="100%" height="100%" backgroundColor="#ffffff">
+            <Label
+              fontSize="32px"
+              fontWeight="bold"
+              color="#2c3e50"
+              marginBottom="25px"
+            >
+              Page 7: Element Alignment
+            </Label>
+
+            <Label fontSize="14px" color="#7f8c8d" marginBottom="20px">
+              Using align and verticalAlign for element positioning
+            </Label>
+
+            <Label
+              fontSize="16px"
+              fontWeight="bold"
+              color="#34495e"
+              marginBottom="10px"
+            >
+              Horizontal Alignment (align):
+            </Label>
+
+            <View
+              width="100%"
+              height="50px"
+              backgroundColor="#ecf0f1"
+              flexDirection="row"
+              align="left"
+              marginBottom="10px"
+              borderRadius="5px"
+              padding="5px"
+            >
+              <View
+                width="60px"
+                height="40px"
+                backgroundColor="#3498db"
+                borderRadius="3px"
+              >
+                <Label fontSize="10px" color="#ffffff" textAlign="center">
+                  left
+                </Label>
+              </View>
+            </View>
+
+            <View
+              width="100%"
+              height="50px"
+              backgroundColor="#ecf0f1"
+              flexDirection="row"
+              align="center"
+              marginBottom="10px"
+              borderRadius="5px"
+              padding="5px"
+            >
+              <View
+                width="60px"
+                height="40px"
+                backgroundColor="#2ecc71"
+                borderRadius="3px"
+              >
+                <Label fontSize="10px" color="#ffffff" textAlign="center">
+                  center
+                </Label>
+              </View>
+            </View>
+
+            <View
+              width="100%"
+              height="50px"
+              backgroundColor="#ecf0f1"
+              flexDirection="row"
+              align="right"
+              marginBottom="15px"
+              borderRadius="5px"
+              padding="5px"
+            >
+              <View
+                width="60px"
+                height="40px"
+                backgroundColor="#e74c3c"
+                borderRadius="3px"
+              >
+                <Label fontSize="10px" color="#ffffff" textAlign="center">
+                  right
+                </Label>
+              </View>
+            </View>
+
+            <Label
+              fontSize="16px"
+              fontWeight="bold"
+              color="#34495e"
+              marginBottom="10px"
+            >
+              Vertical Alignment (verticalAlign):
+            </Label>
+
+            <View flexDirection="row" width="100%" marginBottom="15px">
+              <View
+                width="30%"
+                height="80px"
+                backgroundColor="#e8f8f5"
+                flexDirection="row"
+                verticalAlign="top"
+                marginRight="5%"
+                borderRadius="5px"
+                padding="5px"
+              >
+                <View
+                  width="50px"
+                  height="30px"
+                  backgroundColor="#1abc9c"
+                  borderRadius="3px"
+                >
+                  <Label fontSize="8px" color="#ffffff" textAlign="center">
+                    top
+                  </Label>
+                </View>
+              </View>
+              <View
+                width="30%"
+                height="80px"
+                backgroundColor="#fef5e7"
+                flexDirection="row"
+                verticalAlign="center"
+                marginRight="5%"
+                borderRadius="5px"
+                padding="5px"
+              >
+                <View
+                  width="50px"
+                  height="30px"
+                  backgroundColor="#f39c12"
+                  borderRadius="3px"
+                >
+                  <Label fontSize="8px" color="#ffffff" textAlign="center">
+                    center
+                  </Label>
+                </View>
+              </View>
+              <View
+                width="30%"
+                height="80px"
+                backgroundColor="#fdeaea"
+                flexDirection="row"
+                verticalAlign="bottom"
+                borderRadius="5px"
+                padding="5px"
+              >
+                <View
+                  width="50px"
+                  height="30px"
+                  backgroundColor="#e74c3c"
+                  borderRadius="3px"
+                >
+                  <Label fontSize="8px" color="#ffffff" textAlign="center">
+                    bottom
+                  </Label>
+                </View>
+              </View>
+            </View>
+
+            <Label
+              fontSize="16px"
+              fontWeight="bold"
+              color="#34495e"
+              marginBottom="10px"
+            >
+              Combined Alignment (Center Both):
+            </Label>
+
+            <View
+              width="100%"
+              height="100px"
+              backgroundColor="#f5eef8"
+              flexDirection="row"
+              align="center"
+              verticalAlign="center"
+              borderRadius="5px"
+            >
+              <View
+                width="120px"
+                height="50px"
+                backgroundColor="#8e44ad"
+                borderRadius="5px"
+              >
+                <Label fontSize="11px" color="#ffffff" textAlign="center">
+                  Centered Box
+                </Label>
+              </View>
+            </View>
+
+            <Label fontSize="12px" color="#7f8c8d" marginTop="15px">
+              Properties: align (left/center/right), verticalAlign
+              (top/center/bottom)
+            </Label>
+          </View>
+        </Page>
+
+        {/* Page 8: Clip Paths */}
+        <Page>
+          <View width="100%" height="100%" backgroundColor="#ffffff">
+            <Label
+              fontSize="32px"
+              fontWeight="bold"
+              color="#2c3e50"
+              marginBottom="25px"
+            >
+              Page 8: Clip Paths
+            </Label>
+
+            <Label fontSize="14px" color="#7f8c8d" marginBottom="20px">
+              Using clipPath to mask content to SVG shapes
+            </Label>
+
+            <Label
+              fontSize="16px"
+              fontWeight="bold"
+              color="#34495e"
+              marginBottom="15px"
+            >
+              Image Clipped to Circle:
+            </Label>
+
+            <View
+              width="150px"
+              height="150px"
+              marginBottom="20px"
+              clipPath="M75,37.5 C75,58.2 58.2,75 37.5,75 C16.8,75 0,58.2 0,37.5 C0,16.8 16.8,0 37.5,0 C58.2,0 75,16.8 75,37.5 Z"
+            >
+              <Image src="./bin/IMG_6573.jpg" width="150px" height="150px" />
+            </View>
+
+            <Label
+              fontSize="16px"
+              fontWeight="bold"
+              color="#34495e"
+              marginBottom="15px"
+            >
+              Image Clipped to Star:
+            </Label>
+
+            <View
+              width="150px"
+              height="150px"
+              marginBottom="20px"
+              clipPath="M75,15 L90,60 L135,69 L99,105 L109,150 L75,124 L41,150 L51,105 L15,69 L60,60 Z"
+            >
+              <Image src="./bin/IMG_6573.jpg" width="150px" height="150px" />
+            </View>
+
+            <Label
+              fontSize="16px"
+              fontWeight="bold"
+              color="#34495e"
+              marginBottom="15px"
+            >
+              Views with Colored Backgrounds Clipped to Heart:
+            </Label>
+
+            <View flexDirection="row">
+              <View
+                width="100px"
+                height="100px"
+                marginRight="15px"
+                backgroundColor="#e74c3c"
+                clipPath="M50,90 L20,60 C10,50 10,30 20,20 C30,10 50,20 50,20 C50,20 70,10 80,20 C90,30 90,50 80,60 Z"
+              />
+              <View
+                width="100px"
+                height="100px"
+                marginRight="15px"
+                backgroundColor="#3498db"
+                clipPath="M50,90 L20,60 C10,50 10,30 20,20 C30,10 50,20 50,20 C50,20 70,10 80,20 C90,30 90,50 80,60 Z"
+              />
+              <View
+                width="100px"
+                height="100px"
+                backgroundColor="#2ecc71"
+                clipPath="M50,90 L20,60 C10,50 10,30 20,20 C30,10 50,20 50,20 C50,20 70,10 80,20 C90,30 90,50 80,60 Z"
+              />
             </View>
           </View>
         </Page>

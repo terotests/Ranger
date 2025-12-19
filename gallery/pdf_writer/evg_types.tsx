@@ -442,5 +442,6 @@ export const Page = (props: EVGPageProps): any => null;
 export const View = (props: EVGViewProps): any => null;
 export const Label = (props: EVGTextProps): any => null;
 export const Image = (props: EVGImageProps): any => null;
+export const Path = (props: EVGPathProps): any => null;
 
 export default {};

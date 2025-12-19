@@ -7316,6 +7316,13 @@ class EVGLayout  {
     if ( parent.align == "right" ) {
       offsetX = innerWidth - rowWidth;
     }
+    let effectiveRowHeight = rowHeight;
+    if ( parent.height.isSet ) {
+      const parentInnerHeight = parent.calculatedInnerHeight;
+      if ( parentInnerHeight > rowHeight ) {
+        effectiveRowHeight = parentInnerHeight;
+      }
+    }
     i = 0;
     while (i < elementCount) {
       const el_1 = rowElements[i];
@@ -7325,10 +7332,10 @@ class EVGLayout  {
       const childTotalHeight = (el_1.calculatedHeight + el_1.box.marginTopPx) + el_1.box.marginBottomPx;
       let offsetY = 0.0;
       if ( parent.verticalAlign == "center" ) {
-        offsetY = (rowHeight - childTotalHeight) / 2.0;
+        offsetY = (effectiveRowHeight - childTotalHeight) / 2.0;
       }
       if ( parent.verticalAlign == "bottom" ) {
-        offsetY = rowHeight - childTotalHeight;
+        offsetY = effectiveRowHeight - childTotalHeight;
       }
       if ( offsetY != 0.0 ) {
         el_1.calculatedY = el_1.calculatedY + offsetY;
@@ -13322,10 +13329,7 @@ class ComponentEngine  {
       if ( child.nodeType == "JSXText" ) {
         const rawText = child.value;
         if ( (rawText.length) > 0 ) {
-          if ( (result.length) > 0 ) {
-            result = result + " ";
-          }
-          result = result + rawText;
+          result = this.smartJoinText(result, rawText);
         }
       }
       if ( child.nodeType == "JSXExpressionContainer" ) {
@@ -13333,10 +13337,7 @@ class ComponentEngine  {
           const exprNode = child.left;
           const exprValue = this.evaluateExpr(exprNode);
           const exprStr = (exprValue).toString();
-          if ( (result.length) > 0 ) {
-            result = result + " ";
-          }
-          result = result + exprStr;
+          result = this.smartJoinText(result, exprStr);
         }
       }
       i = i + 1;
@@ -13351,10 +13352,7 @@ class ComponentEngine  {
     while (i < (jsxNode.children.length)) {
       const child = jsxNode.children[i];
       if ( child.nodeType == "JSXText" ) {
-        if ( (accumulatedText.length) > 0 ) {
-          accumulatedText = accumulatedText + " ";
-        }
-        accumulatedText = accumulatedText + child.value;
+        accumulatedText = this.smartJoinText(accumulatedText, child.value);
         i = i + 1;
         continue;
       }
@@ -13536,6 +13534,18 @@ class ComponentEngine  {
     }
     if ( node.nodeType == "StringLiteral" ) {
       return EvalValue.string(this.unquote(node.value));
+    }
+    if ( node.nodeType == "TemplateLiteral" ) {
+      let templateText = "";
+      let ti = 0;
+      while (ti < (node.children.length)) {
+        const templateChild = node.children[ti];
+        if ( templateChild.nodeType == "TemplateElement" ) {
+          templateText = templateText + templateChild.value;
+        }
+        ti = ti + 1;
+      };
+      return EvalValue.string(templateText);
     }
     if ( node.nodeType == "BooleanLiteral" ) {
       return EvalValue.boolean((node.value == "true"));
@@ -13840,6 +13850,48 @@ class ComponentEngine  {
     };
     return result;
   };
+  startsWithPunctuation (s) {
+    if ( (s.length) == 0 ) {
+      return false;
+    }
+    const first = s.charCodeAt(0 );
+    if ( (((((first == 44) || (first == 46)) || (first == 33)) || (first == 63)) || (first == 58)) || (first == 59) ) {
+      return true;
+    }
+    if ( ((first == 41) || (first == 93)) || (first == 125) ) {
+      return true;
+    }
+    if ( (first == 39) || (first == 34) ) {
+      return true;
+    }
+    return false;
+  };
+  endsWithOpenPunctuation (s) {
+    const __len = s.length;
+    if ( __len == 0 ) {
+      return false;
+    }
+    const last = s.charCodeAt((__len - 1) );
+    if ( ((last == 40) || (last == 91)) || (last == 123) ) {
+      return true;
+    }
+    return false;
+  };
+  smartJoinText (existing, newText) {
+    if ( (existing.length) == 0 ) {
+      return newText;
+    }
+    if ( (newText.length) == 0 ) {
+      return existing;
+    }
+    if ( this.startsWithPunctuation(newText) ) {
+      return existing + newText;
+    }
+    if ( this.endsWithOpenPunctuation(existing) ) {
+      return existing + newText;
+    }
+    return (existing + " ") + newText;
+  };
   unquote (s) {
     const __len = s.length;
     if ( __len < 2 ) {
@@ -13946,6 +13998,11 @@ class EVGComponentTool  {
     this.fontManager.loadFont("Helvetica/Helvetica.ttf");
     this.fontManager.loadFont("Noto_Sans/NotoSans-Regular.ttf");
     this.fontManager.loadFont("Noto_Sans/NotoSans-Bold.ttf");
+    this.fontManager.loadFont("Cinzel/Cinzel-Regular.ttf");
+    this.fontManager.loadFont("Josefin_Sans/JosefinSans-Regular.ttf");
+    this.fontManager.loadFont("Gloria_Hallelujah/GloriaHallelujah.ttf");
+    this.fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf");
+    this.fontManager.loadFont("Kaushan_Script/KaushanScript-Regular.ttf");
   };
   getDirectory (path) {
     let lastSlash = -1;

@@ -142,6 +142,13 @@ class EVGComponentTool {
         fontManager.loadFont("Helvetica/Helvetica.ttf")
         fontManager.loadFont("Noto_Sans/NotoSans-Regular.ttf")
         fontManager.loadFont("Noto_Sans/NotoSans-Bold.ttf")
+        
+        ; Load decorative fonts for test_features
+        fontManager.loadFont("Cinzel/Cinzel-Regular.ttf")
+        fontManager.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+        fontManager.loadFont("Gloria_Hallelujah/GloriaHallelujah.ttf")
+        fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf")
+        fontManager.loadFont("Kaushan_Script/KaushanScript-Regular.ttf")
     }
     
     fn getDirectory:string (path:string) {
