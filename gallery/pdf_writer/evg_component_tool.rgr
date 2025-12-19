@@ -17,7 +17,7 @@ class EVGComponentTool {
     def pageHeight:double 842.0
     def inputPath:string ""
     def outputPath:string ""
-    def fontsDir:string "./gallery/pdf_writer/Fonts"
+    def fontsDir:string "./Fonts"
     def fontManager:FontManager (new FontManager()) (new FontManager())
     
     Constructor () {}

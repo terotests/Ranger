@@ -1301,9 +1301,35 @@ class EVGPDFRenderer {
     }
     
     fn getTextContent:string (el:EVGElement) {
-        ; Get text content from element's textContent property
-        ; This is set by the JSX parser for span/Label/text elements
-        return el.textContent
+        ; If element has textContent property, use it
+        if ((strlen el.textContent) > 0) {
+            return el.textContent
+        }
+        
+        ; Otherwise, collect text from all child text nodes
+        def result:string ""
+        def i:int 0
+        def childCount:int (el.getChildCount())
+        while (i < childCount) {
+            def child:EVGElement (el.getChild(i))
+            if (child.tagName == "text") {
+                def childText:string child.textContent
+                if ((strlen childText) > 0) {
+                    ; Add space between text nodes if needed
+                    if ((strlen result) > 0) {
+                        def lastChar:int (charAt result ((strlen result) - 1))
+                        def firstChar:int (charAt childText 0)
+                        ; Add space if neither ends/starts with whitespace
+                        if ((lastChar != 32) && (firstChar != 32)) {
+                            result = result + " "
+                        }
+                    }
+                    result = result + childText
+                }
+            }
+            i = i + 1
+        }
+        return result
     }
     
     fn estimateTextWidth:double (text:string fontSize:double) {
