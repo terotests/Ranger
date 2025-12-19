@@ -27,21 +27,23 @@ node ./gallery/pdf_writer/bin/evg_pdf_tool.js input.tsx output.pdf
 ### TSX Syntax
 
 ```tsx
-const MyDocument = (
-  <div width="100%" height="100%" padding="30px">
-    <Text fontSize="24px" fontWeight="bold" color="#2c3e50">
-      Hello, PDF World!
-    </Text>
+import { View, Label, Image } from "./evg_types";
 
-    <div flexDirection="row" marginTop="20px">
+const MyDocument = (
+  <View width="100%" height="100%" padding="30px">
+    <Label fontSize="24px" fontWeight="bold" color="#2c3e50">
+      Hello, PDF World!
+    </Label>
+
+    <View flexDirection="row" marginTop="20px">
       <Image src="./photo.jpg" width="200px" height="150px" />
-      <div flex="1" marginLeft="20px">
-        <Text fontSize="14px" lineHeight="1.6">
+      <View flex="1" marginLeft="20px">
+        <Label fontSize="14px" lineHeight="1.6">
           This is a paragraph with automatic text wrapping.
-        </Text>
-      </div>
-    </div>
-  </div>
+        </Label>
+      </View>
+    </View>
+  </View>
 );
 
 export default MyDocument;
@@ -158,8 +160,8 @@ The component system enables building sophisticated, maintainable PDF documents 
 | `<Print>`   | Root element for multi-page documents            |
 | `<Section>` | Page settings container (dimensions, margins)    |
 | `<Page>`    | Individual page boundary                         |
-| `<View>`    | Container with flexbox layout (alias: `<div>`)   |
-| `<Label>`   | Text element with font styling (alias: `<Text>`) |
+| `<View>`    | Container with flexbox layout                    |
+| `<Label>`   | Text element with font styling                   |
 | `<Image>`   | JPEG image with automatic resize and orientation |
 
 ### Multi-Page Documents
@@ -322,24 +324,26 @@ Decodes `Canon_40D.jpg` and outputs `decoded_output.ppm`.
 
 ```tsx
 // test_image.tsx
-const ImageDocument = (
-  <div width="100%" height="100%" padding="30px">
-    <Text fontSize="28px" fontWeight="bold">
-      Image on the left
-    </Text>
+import { View, Label, Image } from "./evg_types";
 
-    <div flexDirection="row" marginTop="30px">
+const ImageDocument = (
+  <View width="100%" height="100%" padding="30px">
+    <Label fontSize="28px" fontWeight="bold">
+      Image on the left
+    </Label>
+
+    <View flexDirection="row" marginTop="30px">
       <Image src="./bin/IMG_6573.jpg" width="250px" height="200px" />
-      <div flex="1" marginLeft="20px">
-        <Text fontSize="18px" fontWeight="bold">
+      <View flex="1" marginLeft="20px">
+        <Label fontSize="18px" fontWeight="bold">
           Text on the right
-        </Text>
-        <Text fontSize="14px" marginTop="10px" lineHeight="1.6">
+        </Label>
+        <Label fontSize="14px" marginTop="10px" lineHeight="1.6">
           The image is automatically resized and oriented correctly.
-        </Text>
-      </div>
-    </div>
-  </div>
+        </Label>
+      </View>
+    </View>
+  </View>
 );
 
 export default ImageDocument;
@@ -349,18 +353,20 @@ export default ImageDocument;
 
 ```tsx
 // test_fonts.tsx
+import { View, Label } from "./evg_types";
+
 const FontShowcase = (
-  <div width="100%" padding="40px">
-    <Text fontFamily="Cinzel" fontSize="32px" fontWeight="bold">
+  <View width="100%" padding="40px">
+    <Label fontFamily="Cinzel" fontSize="32px" fontWeight="bold">
       Elegant Cinzel Heading
-    </Text>
-    <Text fontFamily="Open Sans" fontSize="16px" marginTop="20px">
+    </Label>
+    <Label fontFamily="Open Sans" fontSize="16px" marginTop="20px">
       Open Sans body text for readability.
-    </Text>
-    <Text fontFamily="Great Vibes" fontSize="28px" marginTop="20px">
+    </Label>
+    <Label fontFamily="Great Vibes" fontSize="28px" marginTop="20px">
       Beautiful Script Font
-    </Text>
-  </div>
+    </Label>
+  </View>
 );
 
 export default FontShowcase;
@@ -445,3 +451,77 @@ Supports baseline DCT JPEG (SOF0):
 
 - Progressive JPEG
 - Arithmetic coding
+
+---
+
+## TypeScript Expression Evaluator
+
+The component system includes a TypeScript expression evaluator that executes TypeScript/JavaScript expressions at compile-time to enable dynamic PDF content generation.
+
+### Supported Operations
+
+**Literals:**
+
+- Numbers: `42`, `3.14`
+- Strings: `"hello"`, `'world'`
+- Booleans: `true`, `false`
+- Null: `null`
+- Arrays: `[1, 2, 3]`, `["a", "b", "c"]`
+- Objects: `{ name: "John", age: 30 }`
+
+**Operators:**
+
+| Type           | Operators                               | Description                 |
+| -------------- | --------------------------------------- | --------------------------- | ----- | -------------------------------------------------- |
+| **Arithmetic** | `+` `-` `*` `/` `%`                     | Basic math operations       |
+| **Comparison** | `<` `>` `<=` `>=` `==` `===` `!=` `!==` | Comparison operators        |
+| **Logical**    | `&&` `                                  |                             | ` `!` | Logical AND, OR, NOT with short-circuit evaluation |
+| **Unary**      | `+` `-` `!`                             | Unary plus, minus, negation |
+
+**Expressions:**
+
+- **Variables**: Variable lookup from scope (`title`, `items`)
+- **Member access**: Object/array property access (`obj.prop`, `arr[0]`)
+- **Ternary operator**: Conditional expressions (`condition ? true : false`)
+- **Array methods**: `array.map((item, index) => ...)` for iteration
+- **Conditional rendering**: `condition && <Element />` for conditional elements
+
+**Control Flow:**
+
+- Variable declarations with `const`, `let`, `var`
+- Function parameters with destructuring: `{ text, color = "#000" }`
+- Default parameter values
+- Array iteration with `.map()`
+
+### Example Usage
+
+```tsx
+import { View, Label } from "./evg_types";
+
+const title = "Shopping List";
+const items = ["Milk", "Eggs", "Bread"];
+const showHeader = true;
+const count = items.length;
+
+function render() {
+  return (
+    <View padding={20}>
+      {showHeader && <Label fontSize={24}>{title}</Label>}
+
+      <Label fontSize={14} marginTop={10}>
+        Total items: {count}
+      </Label>
+
+      {items.map((item, i) => (
+        <View padding={8} backgroundColor={i % 2 === 0 ? "#f0f0f0" : "#ffffff"}>
+          <Label>
+            {i + 1}. {item}
+          </Label>
+        </View>
+      ))}
+    </View>
+  );
+}
+```
+
+All expressions are evaluated during PDF compilation, allowing for dynamic content generation while maintaining the performance benefits of static compilation. The evaluator supports variable scoping, function parameters, and complex expressions, making it possible to create sophisticated, data-driven PDF documents.
