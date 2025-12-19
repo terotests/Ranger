@@ -4,7 +4,8 @@ import { Header } from "./components/Header";
 import { ListItem } from "./components/ListItem";
 
 const title = "Component Import Test";
-const items = ["Apple", "Banana", "Cherry", "Date"];
+const subtitle = "A Beautiful Demonstration";
+const items = ["Apple", "Banana", "Cherry", "Date", "Elderberry", "Fig"];
 
 function render() {
   return (
@@ -13,8 +14,33 @@ function render() {
         <Section>
           <Header text={title} />
 
-          <View padding={16}>
-            <Label fontSize={16} fontWeight="bold" marginBottom={8}>
+          <View padding={20} backgroundColor="#fafafa">
+            <Label
+              fontFamily="Cinzel"
+              fontSize={22}
+              fontWeight="bold"
+              color="#2c3e50"
+              marginBottom={6}
+            >
+              {subtitle}
+            </Label>
+
+            <Label
+              fontFamily="Josefin Sans"
+              fontSize={14}
+              color="#7f8c8d"
+              marginBottom={20}
+            >
+              Showcasing custom fonts and component composition
+            </Label>
+
+            <Label
+              fontFamily="Open Sans"
+              fontSize={16}
+              fontWeight="bold"
+              color="#34495e"
+              marginBottom={12}
+            >
               Fruit List:
             </Label>
 

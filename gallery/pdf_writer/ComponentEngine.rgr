@@ -737,7 +737,6 @@ class ComponentEngine {
     
     fn evaluateTextContent:string (jsxNode:TSNode) {
         def result:string ""
-        def needsSpace:boolean false
         
         def i:int 0
         while (i < (array_length jsxNode.children)) {
@@ -746,23 +745,14 @@ class ComponentEngine {
             if (child.nodeType == "JSXText") {
                 ; Get the actual text content
                 def rawText:string child.value
-                def text:string (this.trimText(rawText))
                 
-                if ((strlen text) > 0) {
-                    ; Add space if previous item needs one
-                    if (((strlen result) > 0) && needsSpace) {
+                if ((strlen rawText) > 0) {
+                    ; Add space before this token if we already have content
+                    ; (JSX text tokens are separated by whitespace in the source)
+                    if ((strlen result) > 0) {
                         result = result + " "
                     }
-                    result = result + text
-                    
-                    ; Check if there's trailing whitespace for next item
-                    def lastRawChar:int (charAt rawText ((strlen rawText) - 1))
-                    needsSpace = ((lastRawChar == 32) || (lastRawChar == 9) || (lastRawChar == 10) || (lastRawChar == 13))
-                } {
-                    ; Text was all whitespace - mark that we need space for next item
-                    if ((strlen rawText) > 0) {
-                        needsSpace = true
-                    }
+                    result = result + rawText
                 }
             }
             
@@ -772,39 +762,57 @@ class ComponentEngine {
                     def exprValue:EvalValue (this.evaluateExpr(exprNode))
                     def exprStr:string (exprValue.toString())
                     
-                    if (((strlen result) > 0) && needsSpace) {
+                    if ((strlen result) > 0) {
                         result = result + " "
                     }
                     result = result + exprStr
-                    needsSpace = false
                 }
             }
             
             i = i + 1
         }
         
-        return result
+        ; Now normalize and trim the complete text
+        def normalizedText:string (this.normalizeWhitespace(result))
+        def trimmedText:string (this.trimText(normalizedText))
+        
+        return trimmedText
     }
     
     fn evaluateChildren:void (element:EVGElement jsxNode:TSNode) {
         def i:int 0
+        def accumulatedText:string ""
+        
         while (i < (array_length jsxNode.children)) {
             def child:TSNode (itemAt jsxNode.children i)
             
-            if (child.nodeType == "JSXElement") {
-                def childEl:EVGElement (this.evaluateJSXElement(child))
-                if ((strlen childEl.tagName) > 0) {
-                    element.addChild(childEl)
+            if (child.nodeType == "JSXText") {
+                ; Accumulate consecutive JSXText nodes
+                if ((strlen accumulatedText) > 0) {
+                    accumulatedText = accumulatedText + " "
                 }
+                accumulatedText = accumulatedText + child.value
+                i = i + 1
+                continue
             }
             
-            if (child.nodeType == "JSXText") {
-                def text:string (this.trimText(child.value))
+            ; Flush accumulated text before processing other node types
+            if ((strlen accumulatedText) > 0) {
+                def normalizedText:string (this.normalizeWhitespace(accumulatedText))
+                def text:string (this.trimText(normalizedText))
                 if ((strlen text) > 0) {
                     def textEl (new EVGElement())
                     textEl.tagName = "text"
                     textEl.textContent = text
                     element.addChild(textEl)
+                }
+                accumulatedText = ""
+            }
+            
+            if (child.nodeType == "JSXElement") {
+                def childEl:EVGElement (this.evaluateJSXElement(child))
+                if ((strlen childEl.tagName) > 0) {
+                    element.addChild(childEl)
                 }
             }
             
@@ -818,6 +826,18 @@ class ComponentEngine {
             }
             
             i = i + 1
+        }
+        
+        ; Flush any remaining accumulated text at the end
+        if ((strlen accumulatedText) > 0) {
+            def normalizedText:string (this.normalizeWhitespace(accumulatedText))
+            def text:string (this.trimText(normalizedText))
+            if ((strlen text) > 0) {
+                def textEl (new EVGElement())
+                textEl.tagName = "text"
+                textEl.textContent = text
+                element.addChild(textEl)
+            }
         }
     }
     

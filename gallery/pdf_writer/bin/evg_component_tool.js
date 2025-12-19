@@ -11935,7 +11935,30 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.streamBuffer.writeString("Q\n");
   };
   getTextContent (el) {
-    return el.textContent;
+    if ( (el.textContent.length) > 0 ) {
+      return el.textContent;
+    }
+    let result = "";
+    let i = 0;
+    const childCount = el.getChildCount();
+    while (i < childCount) {
+      const child = el.getChild(i);
+      if ( child.tagName == "text" ) {
+        const childText = child.textContent;
+        if ( (childText.length) > 0 ) {
+          if ( (result.length) > 0 ) {
+            const lastChar = result.charCodeAt(((result.length) - 1) );
+            const firstChar = childText.charCodeAt(0 );
+            if ( (lastChar != 32) && (firstChar != 32) ) {
+              result = result + " ";
+            }
+          }
+          result = result + childText;
+        }
+      }
+      i = i + 1;
+    };
+    return result;
   };
   estimateTextWidth (text, fontSize) {
     return this.measurer.measureTextWidth(text, "Helvetica", fontSize);
@@ -12734,26 +12757,16 @@ class ComponentEngine  {
   };
   evaluateTextContent (jsxNode) {
     let result = "";
-    let needsSpace = false;
     let i = 0;
     while (i < (jsxNode.children.length)) {
       const child = jsxNode.children[i];
       if ( child.nodeType == "JSXText" ) {
         const rawText = child.value;
-        const text = this.trimText(rawText);
-        if ( (text.length) > 0 ) {
-          const firstRawChar = rawText.charCodeAt(0 );
-          const hasLeadingSpace = (((firstRawChar == 32) || (firstRawChar == 9)) || (firstRawChar == 10)) || (firstRawChar == 13);
-          if ( ((result.length) > 0) && hasLeadingSpace ) {
+        if ( (rawText.length) > 0 ) {
+          if ( (result.length) > 0 ) {
             result = result + " ";
           }
-          result = result + text;
-          const lastRawChar = rawText.charCodeAt(((rawText.length) - 1) );
-          needsSpace = (((lastRawChar == 32) || (lastRawChar == 9)) || (lastRawChar == 10)) || (lastRawChar == 13);
-        } else {
-          if ( (rawText.length) > 0 ) {
-            needsSpace = true;
-          }
+          result = result + rawText;
         }
       }
       if ( child.nodeType == "JSXExpressionContainer" ) {
@@ -12761,34 +12774,50 @@ class ComponentEngine  {
           const exprNode = child.left;
           const exprValue = this.evaluateExpr(exprNode);
           const exprStr = (exprValue).toString();
-          if ( ((result.length) > 0) && needsSpace ) {
+          if ( (result.length) > 0 ) {
             result = result + " ";
           }
           result = result + exprStr;
-          needsSpace = false;
         }
       }
       i = i + 1;
     };
-    return result;
+    const normalizedText = this.normalizeWhitespace(result);
+    const trimmedText = this.trimText(normalizedText);
+    return trimmedText;
   };
   evaluateChildren (element, jsxNode) {
     let i = 0;
+    let accumulatedText = "";
     while (i < (jsxNode.children.length)) {
       const child = jsxNode.children[i];
-      if ( child.nodeType == "JSXElement" ) {
-        const childEl = this.evaluateJSXElement(child);
-        if ( (childEl.tagName.length) > 0 ) {
-          element.addChild(childEl);
-        }
-      }
       if ( child.nodeType == "JSXText" ) {
-        const text = this.trimText(child.value);
+        console.log(("JSXText token value: [" + child.value) + "]");
+        if ( (accumulatedText.length) > 0 ) {
+          accumulatedText = accumulatedText + " ";
+        }
+        accumulatedText = accumulatedText + child.value;
+        i = i + 1;
+        continue;
+      }
+      if ( (accumulatedText.length) > 0 ) {
+        console.log(("Accumulated JSXText: [" + accumulatedText) + "]");
+        const normalizedText = this.normalizeWhitespace(accumulatedText);
+        console.log(("After normalization: [" + normalizedText) + "]");
+        const text = this.trimText(normalizedText);
+        console.log(("After trim: [" + text) + "]");
         if ( (text.length) > 0 ) {
           const textEl = new EVGElement();
           textEl.tagName = "text";
           textEl.textContent = text;
           element.addChild(textEl);
+        }
+        accumulatedText = "";
+      }
+      if ( child.nodeType == "JSXElement" ) {
+        const childEl = this.evaluateJSXElement(child);
+        if ( (childEl.tagName.length) > 0 ) {
+          element.addChild(childEl);
         }
       }
       if ( child.nodeType == "JSXExpressionContainer" ) {
@@ -12799,6 +12828,16 @@ class ComponentEngine  {
       }
       i = i + 1;
     };
+    if ( (accumulatedText.length) > 0 ) {
+      const normalizedText_1 = this.normalizeWhitespace(accumulatedText);
+      const text_1 = this.trimText(normalizedText_1);
+      if ( (text_1.length) > 0 ) {
+        const textEl_1 = new EVGElement();
+        textEl_1.tagName = "text";
+        textEl_1.textContent = text_1;
+        element.addChild(textEl_1);
+      }
+    }
   };
   evaluateExpressionChild (element, exprContainer) {
     if ( typeof(exprContainer.left) != "undefined" ) {
@@ -12821,9 +12860,11 @@ class ComponentEngine  {
       const isStr = value.isString();
       const isNum = value.isNumber();
       if ( isStr || isNum ) {
+        const textContent = (value).toString();
+        console.log(("Expression text value: [" + textContent) + "]");
         const textEl = new EVGElement();
         textEl.tagName = "text";
-        textEl.textContent = (value).toString();
+        textEl.textContent = textContent;
         element.addChild(textEl);
       }
     }
@@ -13259,7 +13300,7 @@ class EVGComponentTool  {
     this.pageHeight = 842.0;
     this.inputPath = "";
     this.outputPath = "";
-    this.fontsDir = "./gallery/pdf_writer/Fonts";
+    this.fontsDir = "./Fonts";
     this.fontManager = new FontManager();
   }
   main (args) {
