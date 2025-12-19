@@ -12792,7 +12792,6 @@ class ComponentEngine  {
     while (i < (jsxNode.children.length)) {
       const child = jsxNode.children[i];
       if ( child.nodeType == "JSXText" ) {
-        console.log(("JSXText token value: [" + child.value) + "]");
         if ( (accumulatedText.length) > 0 ) {
           accumulatedText = accumulatedText + " ";
         }
@@ -12801,11 +12800,8 @@ class ComponentEngine  {
         continue;
       }
       if ( (accumulatedText.length) > 0 ) {
-        console.log(("Accumulated JSXText: [" + accumulatedText) + "]");
         const normalizedText = this.normalizeWhitespace(accumulatedText);
-        console.log(("After normalization: [" + normalizedText) + "]");
         const text = this.trimText(normalizedText);
-        console.log(("After trim: [" + text) + "]");
         if ( (text.length) > 0 ) {
           const textEl = new EVGElement();
           textEl.tagName = "text";
@@ -12860,11 +12856,9 @@ class ComponentEngine  {
       const isStr = value.isString();
       const isNum = value.isNumber();
       if ( isStr || isNum ) {
-        const textContent = (value).toString();
-        console.log(("Expression text value: [" + textContent) + "]");
         const textEl = new EVGElement();
         textEl.tagName = "text";
-        textEl.textContent = textContent;
+        textEl.textContent = (value).toString();
         element.addChild(textEl);
       }
     }

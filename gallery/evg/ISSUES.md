@@ -77,6 +77,71 @@ Modified `ComponentEngine.evaluateTextContent` to:
 
 ---
 
+## Issue #3: SVG Path Elements Not Implemented
+
+**Status:** Open  
+**Severity:** Medium  
+**Found:** December 19, 2025 (via test_features.tsx)  
+**Component:** ComponentEngine.rgr, EVGElement.rgr, EVGPDFRenderer.rgr
+
+### Description
+
+SVG `<Path>` elements are not implemented in the EVG component system. When used in TSX files, they are treated as unknown components and rendered as empty `<div>` elements.
+
+### Problem
+
+When attempting to use SVG paths for icons or vector graphics:
+
+```tsx
+<Path
+  d="M10,6.5c-2.2,0-4,1.8-4,4s1.8,4,4,4s4-1.8,4-4S12.2,6.5,10,6.5"
+  width="80"
+  height="80"
+  viewBox="0 0 20 20"
+  backgroundColor="#27ae60"
+/>
+```
+
+The system outputs:
+
+- **Warning:** "Unknown component: Path"
+- Renders as: `<div>` with no visual output
+
+### Impact
+
+- Cannot render vector icons or SVG graphics
+- Must use raster images instead (PNG/JPG)
+- Limits design flexibility for scalable icons and shapes
+
+### Required Implementation
+
+1. **Add Path to evg_types.tsx:**
+
+   ```tsx
+   export function Path(props: PathProps): JSX.Element;
+
+   interface PathProps extends EVGStyle {
+     d: string; // SVG path data
+     svgPath?: string; // Alias for d
+     viewBox?: string; // ViewBox for scaling
+     fill?: Color; // Fill color
+     stroke?: Color; // Stroke color
+     strokeWidth?: number; // Stroke width
+   }
+   ```
+
+2. **Update ComponentEngine.rgr:** Add "path" to known element types (currently recognizes: View, Label, Image, Section, Page, Print)
+
+3. **Implement path rendering in EVGPDFRenderer.rgr:** Parse SVG path commands (M, L, C, Z, etc.) and render using PDF drawing primitives
+
+4. **Add path rendering to EVGElement.rgr:** Store path data (d attribute, viewBox) as element properties
+
+### Workaround
+
+Use raster image formats (PNG, JPG) for icons and graphics instead of vector SVG paths.
+
+---
+
 Explicitly set a width percentage or fixed width on text elements in row layouts:
 
 ```tsx
