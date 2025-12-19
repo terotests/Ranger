@@ -91,6 +91,16 @@ class EVGElement {
     def src:string ""
     def alt:string ""
     
+    ; SVG Path properties
+    def svgPath:string ""
+    def viewBox:string ""
+    def fillColor:EVGColor
+    def strokeColor:EVGColor
+    def strokeWidth:double 0.0
+    
+    ; Clip path (for any element)
+    def clipPath:string ""
+    
     ; CSS class (for reference)
     def className:string ""
     
@@ -150,6 +160,9 @@ class EVGElement {
         shadowColor = (EVGColor.noColor())
         shadowOffsetX = (EVGUnit.unset())
         shadowOffsetY = (EVGUnit.unset())
+        
+        fillColor = (EVGColor.noColor())
+        strokeColor = (EVGColor.noColor())
     }
     
     sfn createDiv:EVGElement () {
@@ -170,6 +183,13 @@ class EVGElement {
         def el (new EVGElement())
         el.tagName = "img"
         el.elementType = 2
+        return el
+    }
+    
+    sfn createPath:EVGElement () {
+        def el (new EVGElement())
+        el.tagName = "path"
+        el.elementType = 3
         return el
     }
     
@@ -538,6 +558,37 @@ class EVGElement {
         }
         if ((name == "shadow-offset-y") || (name == "shadowOffsetY")) {
             shadowOffsetY = (EVGUnit.parse(value))
+            return
+        }
+        
+        ; Clip path (SVG path for clipping)
+        if ((name == "clip-path") || (name == "clipPath")) {
+            clipPath = value
+            return
+        }
+        
+        ; SVG Path attributes
+        if ((name == "d") || (name == "svgPath")) {
+            svgPath = value
+            return
+        }
+        if (name == "viewBox") {
+            viewBox = value
+            return
+        }
+        if (name == "fill") {
+            fillColor = (EVGColor.parse(value))
+            return
+        }
+        if (name == "stroke") {
+            strokeColor = (EVGColor.parse(value))
+            return
+        }
+        if ((name == "stroke-width") || (name == "strokeWidth")) {
+            def val@(optional):double (to_double value)
+            if val {
+                strokeWidth = (unwrap val)
+            }
             return
         }
     }

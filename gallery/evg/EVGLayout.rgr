@@ -392,6 +392,16 @@ class EVGLayout {
             offsetX = (innerWidth - rowWidth)
         }
         
+        ; For vertical alignment, use parent's inner height if it has a fixed height
+        ; This allows verticalAlign to work when parent has explicit height
+        def effectiveRowHeight:double rowHeight
+        if parent.height.isSet {
+            def parentInnerHeight:double parent.calculatedInnerHeight
+            if (parentInnerHeight > rowHeight) {
+                effectiveRowHeight = parentInnerHeight
+            }
+        }
+        
         ; Apply alignment offsets
         i = 0
         while (i < elementCount) {
@@ -407,10 +417,10 @@ class EVGLayout {
             def offsetY:double 0.0
             
             if (parent.verticalAlign == "center") {
-                offsetY = ((rowHeight - childTotalHeight) / 2.0)
+                offsetY = ((effectiveRowHeight - childTotalHeight) / 2.0)
             }
             if (parent.verticalAlign == "bottom") {
-                offsetY = (rowHeight - childTotalHeight)
+                offsetY = (effectiveRowHeight - childTotalHeight)
             }
             
             if (offsetY != 0.0) {

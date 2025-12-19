@@ -5070,6 +5070,10 @@ class EVGElement  {
     this.position = "relative";     /** note: unused */
     this.src = "";
     this.alt = "";     /** note: unused */
+    this.svgPath = "";
+    this.viewBox = "";
+    this.strokeWidth = 0.0;
+    this.clipPath = "";
     this.className = "";
     this.rotate = 0.0;
     this.scale = 1.0;
@@ -5108,6 +5112,8 @@ class EVGElement  {
     this.shadowColor = EVGColor.noColor();
     this.shadowOffsetX = EVGUnit.unset();
     this.shadowOffsetY = EVGUnit.unset();
+    this.fillColor = EVGColor.noColor();
+    this.strokeColor = EVGColor.noColor();
   }
   addChild (child) {
     child.parent = this;
@@ -5422,6 +5428,33 @@ class EVGElement  {
       this.shadowOffsetY = EVGUnit.parse(value);
       return;
     }
+    if ( (name == "clip-path") || (name == "clipPath") ) {
+      this.clipPath = value;
+      return;
+    }
+    if ( (name == "d") || (name == "svgPath") ) {
+      this.svgPath = value;
+      return;
+    }
+    if ( name == "viewBox" ) {
+      this.viewBox = value;
+      return;
+    }
+    if ( name == "fill" ) {
+      this.fillColor = EVGColor.parse(value);
+      return;
+    }
+    if ( name == "stroke" ) {
+      this.strokeColor = EVGColor.parse(value);
+      return;
+    }
+    if ( (name == "stroke-width") || (name == "strokeWidth") ) {
+      const val_5 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(val_5) != "undefined" ) {
+        this.strokeWidth = val_5;
+      }
+      return;
+    }
   };
   getCalculatedBounds () {
     return (((((("(" + ((this.calculatedX.toString()))) + ", ") + ((this.calculatedY.toString()))) + ") ") + ((this.calculatedWidth.toString()))) + "x") + ((this.calculatedHeight.toString()));
@@ -5446,6 +5479,12 @@ EVGElement.createImg = function() {
   const el = new EVGElement();
   el.tagName = "img";
   el.elementType = 2;
+  return el;
+};
+EVGElement.createPath = function() {
+  const el = new EVGElement();
+  el.tagName = "path";
+  el.elementType = 3;
   return el;
 };
 class BufferChunk  {
@@ -7277,6 +7316,13 @@ class EVGLayout  {
     if ( parent.align == "right" ) {
       offsetX = innerWidth - rowWidth;
     }
+    let effectiveRowHeight = rowHeight;
+    if ( parent.height.isSet ) {
+      const parentInnerHeight = parent.calculatedInnerHeight;
+      if ( parentInnerHeight > rowHeight ) {
+        effectiveRowHeight = parentInnerHeight;
+      }
+    }
     i = 0;
     while (i < elementCount) {
       const el_1 = rowElements[i];
@@ -7286,10 +7332,10 @@ class EVGLayout  {
       const childTotalHeight = (el_1.calculatedHeight + el_1.box.marginTopPx) + el_1.box.marginBottomPx;
       let offsetY = 0.0;
       if ( parent.verticalAlign == "center" ) {
-        offsetY = (rowHeight - childTotalHeight) / 2.0;
+        offsetY = (effectiveRowHeight - childTotalHeight) / 2.0;
       }
       if ( parent.verticalAlign == "bottom" ) {
-        offsetY = rowHeight - childTotalHeight;
+        offsetY = effectiveRowHeight - childTotalHeight;
       }
       if ( offsetY != 0.0 ) {
         el_1.calculatedY = el_1.calculatedY + offsetY;
@@ -7378,6 +7424,409 @@ class EVGLayout  {
       i = i + 1;
     };
     return lineCount;
+  };
+}
+class PathCommand  {
+  constructor() {
+    this.type = "";
+    this.x = 0.0;
+    this.y = 0.0;
+    this.x1 = 0.0;
+    this.y1 = 0.0;
+    this.x2 = 0.0;
+    this.y2 = 0.0;
+    this.rx = 0.0;     /** note: unused */
+    this.ry = 0.0;     /** note: unused */
+    this.rotation = 0.0;     /** note: unused */
+    this.largeArc = false;     /** note: unused */
+    this.sweep = false;     /** note: unused */
+  }
+}
+class PathBounds  {
+  constructor() {
+    this.minX = 0.0;
+    this.minY = 0.0;
+    this.maxX = 0.0;
+    this.maxY = 0.0;
+    this.width = 0.0;
+    this.height = 0.0;
+  }
+}
+class SVGPathParser  {
+  constructor() {
+    this.pathData = "";
+    this.i = 0;
+    this.__len = 0;
+    this.currentX = 0.0;
+    this.currentY = 0.0;
+    this.startX = 0.0;
+    this.startY = 0.0;
+    this.commands = [];
+    let emptyCommands = [];
+    this.commands = emptyCommands;
+    this.bounds = new PathBounds();
+  }
+  parse (data) {
+    this.pathData = data;
+    this.i = 0;
+    this.__len = data.length;
+    this.currentX = 0.0;
+    this.currentY = 0.0;
+    this.startX = 0.0;
+    this.startY = 0.0;
+    let emptyCommands = [];
+    this.commands = emptyCommands;
+    while (this.i < this.__len) {
+      this.skipWhitespace();
+      if ( this.i >= this.__len ) {
+        break;
+      }
+      const ch = this.pathData.charCodeAt(this.i );
+      const chInt = ch;
+      if ( ((chInt >= 65) && (chInt <= 90)) || ((chInt >= 97) && (chInt <= 122)) ) {
+        this.parseCommand(ch);
+      } else {
+        this.i = this.i + 1;
+      }
+    };
+    this.calculateBounds();
+  };
+  skipWhitespace () {
+    while (this.i < this.__len) {
+      const ch = this.pathData.charCodeAt(this.i );
+      const chInt = ch;
+      if ( ((((chInt == 32) || (chInt == 9)) || (chInt == 10)) || (chInt == 13)) || (chInt == 44) ) {
+        this.i = this.i + 1;
+      } else {
+        break;
+      }
+    };
+  };
+  parseNumber () {
+    this.skipWhitespace();
+    const start = this.i;
+    const ch = this.pathData.charCodeAt(this.i );
+    const chInt = ch;
+    if ( (chInt == 45) || (chInt == 43) ) {
+      this.i = this.i + 1;
+    }
+    while (this.i < this.__len) {
+      const ch2 = this.pathData.charCodeAt(this.i );
+      const chInt2 = ch2;
+      if ( (chInt2 >= 48) && (chInt2 <= 57) ) {
+        this.i = this.i + 1;
+      } else {
+        break;
+      }
+    };
+    if ( this.i < this.__len ) {
+      const ch3 = this.pathData.charCodeAt(this.i );
+      const chInt3 = ch3;
+      if ( chInt3 == 46 ) {
+        this.i = this.i + 1;
+        while (this.i < this.__len) {
+          const ch4 = this.pathData.charCodeAt(this.i );
+          const chInt4 = ch4;
+          if ( (chInt4 >= 48) && (chInt4 <= 57) ) {
+            this.i = this.i + 1;
+          } else {
+            break;
+          }
+        };
+      }
+    }
+    if ( this.i < this.__len ) {
+      const ch5 = this.pathData.charCodeAt(this.i );
+      const chInt5 = ch5;
+      if ( (chInt5 == 101) || (chInt5 == 69) ) {
+        this.i = this.i + 1;
+        if ( this.i < this.__len ) {
+          const ch6 = this.pathData.charCodeAt(this.i );
+          const chInt6 = ch6;
+          if ( (chInt6 == 45) || (chInt6 == 43) ) {
+            this.i = this.i + 1;
+          }
+        }
+        while (this.i < this.__len) {
+          const ch7 = this.pathData.charCodeAt(this.i );
+          const chInt7 = ch7;
+          if ( (chInt7 >= 48) && (chInt7 <= 57) ) {
+            this.i = this.i + 1;
+          } else {
+            break;
+          }
+        };
+      }
+    }
+    const numStr = this.pathData.substring(start, this.i );
+    const result = (isNaN( parseFloat(numStr) ) ? undefined : parseFloat(numStr));
+    return result;
+  };
+  parseCommand (cmd) {
+    const cmdInt = cmd;
+    const cmdStr = String.fromCharCode(cmdInt);
+    this.i = this.i + 1;
+    if ( (cmdInt == 77) || (cmdInt == 109) ) {
+      let x = this.parseNumber();
+      let y = this.parseNumber();
+      if ( cmdInt == 109 ) {
+        x = this.currentX + x;
+        y = this.currentY + y;
+      }
+      const pathCmd = new PathCommand();
+      pathCmd.type = "M";
+      pathCmd.x = x;
+      pathCmd.y = y;
+      this.commands.push(pathCmd);
+      this.currentX = x;
+      this.currentY = y;
+      this.startX = x;
+      this.startY = y;
+      return;
+    }
+    if ( (cmdInt == 76) || (cmdInt == 108) ) {
+      let x_1 = this.parseNumber();
+      let y_1 = this.parseNumber();
+      if ( cmdInt == 108 ) {
+        x_1 = this.currentX + x_1;
+        y_1 = this.currentY + y_1;
+      }
+      const pathCmd_1 = new PathCommand();
+      pathCmd_1.type = "L";
+      pathCmd_1.x = x_1;
+      pathCmd_1.y = y_1;
+      this.commands.push(pathCmd_1);
+      this.currentX = x_1;
+      this.currentY = y_1;
+      return;
+    }
+    if ( (cmdInt == 72) || (cmdInt == 104) ) {
+      let x_2 = this.parseNumber();
+      if ( cmdInt == 104 ) {
+        x_2 = this.currentX + x_2;
+      }
+      const pathCmd_2 = new PathCommand();
+      pathCmd_2.type = "L";
+      pathCmd_2.x = x_2;
+      pathCmd_2.y = this.currentY;
+      this.commands.push(pathCmd_2);
+      this.currentX = x_2;
+      return;
+    }
+    if ( (cmdInt == 86) || (cmdInt == 118) ) {
+      let y_2 = this.parseNumber();
+      if ( cmdInt == 118 ) {
+        y_2 = this.currentY + y_2;
+      }
+      const pathCmd_3 = new PathCommand();
+      pathCmd_3.type = "L";
+      pathCmd_3.x = this.currentX;
+      pathCmd_3.y = y_2;
+      this.commands.push(pathCmd_3);
+      this.currentY = y_2;
+      return;
+    }
+    if ( (cmdInt == 67) || (cmdInt == 99) ) {
+      let x1 = this.parseNumber();
+      let y1 = this.parseNumber();
+      let x2 = this.parseNumber();
+      let y2 = this.parseNumber();
+      let x_3 = this.parseNumber();
+      let y_3 = this.parseNumber();
+      if ( cmdInt == 99 ) {
+        x1 = this.currentX + x1;
+        y1 = this.currentY + y1;
+        x2 = this.currentX + x2;
+        y2 = this.currentY + y2;
+        x_3 = this.currentX + x_3;
+        y_3 = this.currentY + y_3;
+      }
+      const pathCmd_4 = new PathCommand();
+      pathCmd_4.type = "C";
+      pathCmd_4.x1 = x1;
+      pathCmd_4.y1 = y1;
+      pathCmd_4.x2 = x2;
+      pathCmd_4.y2 = y2;
+      pathCmd_4.x = x_3;
+      pathCmd_4.y = y_3;
+      this.commands.push(pathCmd_4);
+      this.currentX = x_3;
+      this.currentY = y_3;
+      return;
+    }
+    if ( (cmdInt == 81) || (cmdInt == 113) ) {
+      let x1_1 = this.parseNumber();
+      let y1_1 = this.parseNumber();
+      let x_4 = this.parseNumber();
+      let y_4 = this.parseNumber();
+      if ( cmdInt == 113 ) {
+        x1_1 = this.currentX + x1_1;
+        y1_1 = this.currentY + y1_1;
+        x_4 = this.currentX + x_4;
+        y_4 = this.currentY + y_4;
+      }
+      const pathCmd_5 = new PathCommand();
+      pathCmd_5.type = "Q";
+      pathCmd_5.x1 = x1_1;
+      pathCmd_5.y1 = y1_1;
+      pathCmd_5.x = x_4;
+      pathCmd_5.y = y_4;
+      this.commands.push(pathCmd_5);
+      this.currentX = x_4;
+      this.currentY = y_4;
+      return;
+    }
+    if ( (cmdInt == 90) || (cmdInt == 122) ) {
+      const pathCmd_6 = new PathCommand();
+      pathCmd_6.type = "Z";
+      this.commands.push(pathCmd_6);
+      this.currentX = this.startX;
+      this.currentY = this.startY;
+      return;
+    }
+  };
+  calculateBounds () {
+    if ( (this.commands.length) == 0 ) {
+      return;
+    }
+    let minX = 999999.0;
+    let minY = 999999.0;
+    let maxX = -999999.0;
+    let maxY = -999999.0;
+    let i_1 = 0;
+    while (i_1 < (this.commands.length)) {
+      const cmd = this.commands[i_1];
+      if ( (cmd.type == "M") || (cmd.type == "L") ) {
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      if ( cmd.type == "C" ) {
+        if ( cmd.x1 < minX ) {
+          minX = cmd.x1;
+        }
+        if ( cmd.x1 > maxX ) {
+          maxX = cmd.x1;
+        }
+        if ( cmd.y1 < minY ) {
+          minY = cmd.y1;
+        }
+        if ( cmd.y1 > maxY ) {
+          maxY = cmd.y1;
+        }
+        if ( cmd.x2 < minX ) {
+          minX = cmd.x2;
+        }
+        if ( cmd.x2 > maxX ) {
+          maxX = cmd.x2;
+        }
+        if ( cmd.y2 < minY ) {
+          minY = cmd.y2;
+        }
+        if ( cmd.y2 > maxY ) {
+          maxY = cmd.y2;
+        }
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      if ( cmd.type == "Q" ) {
+        if ( cmd.x1 < minX ) {
+          minX = cmd.x1;
+        }
+        if ( cmd.x1 > maxX ) {
+          maxX = cmd.x1;
+        }
+        if ( cmd.y1 < minY ) {
+          minY = cmd.y1;
+        }
+        if ( cmd.y1 > maxY ) {
+          maxY = cmd.y1;
+        }
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      i_1 = i_1 + 1;
+    };
+    this.bounds.minX = minX;
+    this.bounds.minY = minY;
+    this.bounds.maxX = maxX;
+    this.bounds.maxY = maxY;
+    this.bounds.width = maxX - minX;
+    this.bounds.height = maxY - minY;
+  };
+  getBounds () {
+    const result = this.bounds;
+    return result;
+  };
+  getCommands () {
+    return this.commands;
+  };
+  getScaledCommands (targetWidth, targetHeight) {
+    let scaleX = 1.0;
+    let scaleY = 1.0;
+    if ( this.bounds.width > 0.0 ) {
+      scaleX = targetWidth / this.bounds.width;
+    }
+    if ( this.bounds.height > 0.0 ) {
+      scaleY = targetHeight / this.bounds.height;
+    }
+    let scaled = [];
+    let i_1 = 0;
+    while (i_1 < (this.commands.length)) {
+      const cmd = this.commands[i_1];
+      const newCmd = new PathCommand();
+      newCmd.type = cmd.type;
+      if ( (cmd.type == "M") || (cmd.type == "L") ) {
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      if ( cmd.type == "C" ) {
+        newCmd.x1 = (cmd.x1 - this.bounds.minX) * scaleX;
+        newCmd.y1 = (cmd.y1 - this.bounds.minY) * scaleY;
+        newCmd.x2 = (cmd.x2 - this.bounds.minX) * scaleX;
+        newCmd.y2 = (cmd.y2 - this.bounds.minY) * scaleY;
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      if ( cmd.type == "Q" ) {
+        newCmd.x1 = (cmd.x1 - this.bounds.minX) * scaleX;
+        newCmd.y1 = (cmd.y1 - this.bounds.minY) * scaleY;
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      scaled.push(newCmd);
+      i_1 = i_1 + 1;
+    };
+    return scaled;
   };
 }
 class TTFTableRecord  {
@@ -11762,6 +12211,12 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     const w = el.calculatedWidth;
     const h = el.calculatedHeight;
     const pdfY = (this.pageHeight - y) - h;
+    let hasClipPath = false;
+    if ( (el.clipPath.length) > 0 ) {
+      hasClipPath = true;
+      this.streamBuffer.writeString("q\n");
+      this.applyClipPath(el.clipPath, x, pdfY, w, h);
+    }
     const bgColor = el.backgroundColor;
     if ( this.debug ) {
       console.log((((("  bg check: " + el.tagName) + " isSet=") + ((bgColor.isSet.toString()))) + " r=") + ((bgColor.r.toString())));
@@ -11779,6 +12234,9 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     if ( el.tagName == "image" ) {
       this.renderImage(el, x, pdfY, w, h);
     }
+    if ( el.tagName == "path" ) {
+      this.renderPath(el, x, pdfY, w, h);
+    }
     let i = 0;
     const childCount = el.getChildCount();
     while (i < childCount) {
@@ -11786,6 +12244,9 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
       this.renderElement(child, offsetX, offsetY);
       i = i + 1;
     };
+    if ( hasClipPath ) {
+      this.streamBuffer.writeString("Q\n");
+    }
   };
   getImagePdfName (src) {
     let i = 0;
@@ -11810,6 +12271,109 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.streamBuffer.writeString(((((((this.formatNum(w) + " 0 0 ") + this.formatNum(h)) + " ") + this.formatNum(x)) + " ") + this.formatNum(y)) + " cm\n");
     this.streamBuffer.writeString(imgName + " Do\n");
     this.streamBuffer.writeString("Q\n");
+  };
+  renderPath (el, x, y, w, h) {
+    const pathData = el.svgPath;
+    if ( (pathData.length) == 0 ) {
+      return;
+    }
+    const parser = new SVGPathParser();
+    parser.parse(pathData);
+    const commands = parser.getScaledCommands(w, h);
+    let fillColor = el.fillColor;
+    const strokeColor = el.strokeColor;
+    if ( fillColor.isSet == false ) {
+      fillColor = el.backgroundColor;
+    }
+    this.streamBuffer.writeString("q\n");
+    this.streamBuffer.writeString(((("1 0 0 1 " + this.formatNum(x)) + " ") + this.formatNum(y)) + " cm\n");
+    this.streamBuffer.writeString(("1 0 0 -1 0 " + this.formatNum(h)) + " cm\n");
+    let i = 0;
+    while (i < (commands.length)) {
+      const cmd = commands[i];
+      if ( cmd.type == "M" ) {
+        this.streamBuffer.writeString(((this.formatNum(cmd.x) + " ") + this.formatNum(cmd.y)) + " m\n");
+      }
+      if ( cmd.type == "L" ) {
+        this.streamBuffer.writeString(((this.formatNum(cmd.x) + " ") + this.formatNum(cmd.y)) + " l\n");
+      }
+      if ( cmd.type == "C" ) {
+        this.streamBuffer.writeString(((((((((((this.formatNum(cmd.x1) + " ") + this.formatNum(cmd.y1)) + " ") + this.formatNum(cmd.x2)) + " ") + this.formatNum(cmd.y2)) + " ") + this.formatNum(cmd.x)) + " ") + this.formatNum(cmd.y)) + " c\n");
+      }
+      if ( cmd.type == "Q" ) {
+        this.streamBuffer.writeString(((((((((((this.formatNum(cmd.x1) + " ") + this.formatNum(cmd.y1)) + " ") + this.formatNum(cmd.x1)) + " ") + this.formatNum(cmd.y1)) + " ") + this.formatNum(cmd.x)) + " ") + this.formatNum(cmd.y)) + " c\n");
+      }
+      if ( cmd.type == "Z" ) {
+        this.streamBuffer.writeString("h\n");
+      }
+      i = i + 1;
+    };
+    if ( fillColor.isSet && strokeColor.isSet ) {
+      const r = fillColor.r / 255.0;
+      const g = fillColor.g / 255.0;
+      const b = fillColor.b / 255.0;
+      this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
+      const sr = strokeColor.r / 255.0;
+      const sg = strokeColor.g / 255.0;
+      const sb = strokeColor.b / 255.0;
+      this.streamBuffer.writeString(((((this.formatNum(sr) + " ") + this.formatNum(sg)) + " ") + this.formatNum(sb)) + " RG\n");
+      if ( el.strokeWidth > 0.0 ) {
+        this.streamBuffer.writeString(this.formatNum(el.strokeWidth) + " w\n");
+      }
+      this.streamBuffer.writeString("B\n");
+    } else {
+      if ( fillColor.isSet ) {
+        const r_1 = fillColor.r / 255.0;
+        const g_1 = fillColor.g / 255.0;
+        const b_1 = fillColor.b / 255.0;
+        this.streamBuffer.writeString(((((this.formatNum(r_1) + " ") + this.formatNum(g_1)) + " ") + this.formatNum(b_1)) + " rg\n");
+        this.streamBuffer.writeString("f\n");
+      } else {
+        if ( strokeColor.isSet ) {
+          const sr_1 = strokeColor.r / 255.0;
+          const sg_1 = strokeColor.g / 255.0;
+          const sb_1 = strokeColor.b / 255.0;
+          this.streamBuffer.writeString(((((this.formatNum(sr_1) + " ") + this.formatNum(sg_1)) + " ") + this.formatNum(sb_1)) + " RG\n");
+          if ( el.strokeWidth > 0.0 ) {
+            this.streamBuffer.writeString(this.formatNum(el.strokeWidth) + " w\n");
+          }
+          this.streamBuffer.writeString("S\n");
+        }
+      }
+    }
+    this.streamBuffer.writeString("Q\n");
+  };
+  applyClipPath (pathData, x, y, w, h) {
+    const parser = new SVGPathParser();
+    parser.parse(pathData);
+    const commands = parser.getScaledCommands(w, h);
+    let i = 0;
+    while (i < (commands.length)) {
+      const cmd = commands[i];
+      const px = x + cmd.x;
+      const py = (y + h) - cmd.y;
+      const px1 = x + cmd.x1;
+      const py1 = (y + h) - cmd.y1;
+      const px2 = x + cmd.x2;
+      const py2 = (y + h) - cmd.y2;
+      if ( cmd.type == "M" ) {
+        this.streamBuffer.writeString(((this.formatNum(px) + " ") + this.formatNum(py)) + " m\n");
+      }
+      if ( cmd.type == "L" ) {
+        this.streamBuffer.writeString(((this.formatNum(px) + " ") + this.formatNum(py)) + " l\n");
+      }
+      if ( cmd.type == "C" ) {
+        this.streamBuffer.writeString(((((((((((this.formatNum(px1) + " ") + this.formatNum(py1)) + " ") + this.formatNum(px2)) + " ") + this.formatNum(py2)) + " ") + this.formatNum(px)) + " ") + this.formatNum(py)) + " c\n");
+      }
+      if ( cmd.type == "Q" ) {
+        this.streamBuffer.writeString(((((((((((this.formatNum(px1) + " ") + this.formatNum(py1)) + " ") + this.formatNum(px1)) + " ") + this.formatNum(py1)) + " ") + this.formatNum(px)) + " ") + this.formatNum(py)) + " c\n");
+      }
+      if ( cmd.type == "Z" ) {
+        this.streamBuffer.writeString("h\n");
+      }
+      i = i + 1;
+    };
+    this.streamBuffer.writeString("W n\n");
   };
   renderBackground (x, y, w, h, color) {
     this.streamBuffer.writeString("q\n");
@@ -11978,7 +12542,51 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
           if ( ch == 92 ) {
             result = result + "\\\\";
           } else {
-            result = result + (String.fromCharCode(ch));
+            if ( ch < 32 ) {
+              result = result + " ";
+            } else {
+              if ( ch <= 255 ) {
+                result = result + (String.fromCharCode(ch));
+              } else {
+                if ( ch == 9733 ) {
+                  result = result + "*";
+                } else {
+                  if ( ch == 9734 ) {
+                    result = result + "*";
+                  } else {
+                    if ( ch == 9829 ) {
+                      result = result + (String.fromCharCode(183));
+                    } else {
+                      if ( ch == 9825 ) {
+                        result = result + (String.fromCharCode(183));
+                      } else {
+                        if ( ch == 10003 ) {
+                          result = result + "v";
+                        } else {
+                          if ( ch == 10007 ) {
+                            result = result + "x";
+                          } else {
+                            if ( ch == 8226 ) {
+                              result = result + (String.fromCharCode(149));
+                            } else {
+                              if ( ch == 8594 ) {
+                                result = result + "->";
+                              } else {
+                                if ( ch == 8592 ) {
+                                  result = result + "<-";
+                                } else {
+                                  result = result + "?";
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -12043,6 +12651,9 @@ class EvalValue  {
   };
   isFunction () {
     return this.valueType == 6;
+  };
+  isElement () {
+    return this.valueType == 7;
   };
   toNumber () {
     if ( this.valueType == 1 ) {
@@ -12113,6 +12724,13 @@ class EvalValue  {
     if ( this.valueType == 6 ) {
       return ("[Function: " + this.functionName) + "]";
     }
+    if ( this.valueType == 7 ) {
+      if ( typeof(this.evgElement) != "undefined" ) {
+        const el = this.evgElement;
+        return ("[EVGElement: " + el.tagName) + "]";
+      }
+      return "[EVGElement: null]";
+    }
     return "undefined";
   };
   toBool () {
@@ -12135,6 +12753,9 @@ class EvalValue  {
       return true;
     }
     if ( this.valueType == 6 ) {
+      return true;
+    }
+    if ( this.valueType == 7 ) {
       return true;
     }
     return false;
@@ -12236,6 +12857,12 @@ EvalValue.object = function(keys, values) {
   v.objectValues = values;
   return v;
 };
+EvalValue.element = function(el) {
+  const v = new EvalValue();
+  v.valueType = 7;
+  v.evgElement = el;
+  return v;
+};
 class ImportedSymbol  {
   constructor() {
     this.name = "";
@@ -12325,6 +12952,7 @@ class ComponentEngine  {
     this.primitives.push("Section");
     this.primitives.push("Page");
     this.primitives.push("Image");
+    this.primitives.push("Path");
     this.primitives.push("Spacer");
     this.primitives.push("Divider");
     this.primitives.push("div");
@@ -12334,6 +12962,7 @@ class ComponentEngine  {
     this.primitives.push("h2");
     this.primitives.push("h3");
     this.primitives.push("img");
+    this.primitives.push("path");
   }
   parseFile (dirPath, fileName) {
     this.basePath = dirPath;
@@ -12710,7 +13339,69 @@ class ComponentEngine  {
         i = i + 1;
       };
     }
+    let hasExplicitChildren = false;
+    let ci = 0;
+    while (ci < (keys.length)) {
+      if ( (keys[ci]) == "children" ) {
+        hasExplicitChildren = true;
+      }
+      ci = ci + 1;
+    };
+    if ( hasExplicitChildren == false ) {
+      const childElements = this.collectChildElements(jsxNode);
+      if ( (childElements.length) > 0 ) {
+        keys.push("children");
+        if ( (childElements.length) == 1 ) {
+          values.push(childElements[0]);
+        } else {
+          values.push(EvalValue.array(childElements));
+        }
+      }
+    }
     return EvalValue.object(keys, values);
+  };
+  collectChildElements (jsxNode) {
+    let results = [];
+    let i = 0;
+    while (i < (jsxNode.children.length)) {
+      const child = jsxNode.children[i];
+      if ( child.nodeType == "JSXElement" ) {
+        const el = this.evaluateJSXElement(child);
+        if ( (el.tagName.length) > 0 ) {
+          results.push(EvalValue.element(el));
+        }
+      }
+      if ( child.nodeType == "JSXText" ) {
+        const text = this.trimText(child.value);
+        if ( (text.length) > 0 ) {
+          const textEl = new EVGElement();
+          textEl.tagName = "text";
+          textEl.textContent = text;
+          results.push(EvalValue.element(textEl));
+        }
+      }
+      if ( child.nodeType == "JSXExpressionContainer" ) {
+        if ( typeof(child.left) != "undefined" ) {
+          const exprNode = child.left;
+          const exprValue = this.evaluateExpr(exprNode);
+          if ( exprValue.isElement() ) {
+            results.push(exprValue);
+          }
+          if ( (exprValue).isArray() ) {
+            let ai = 0;
+            while (ai < (exprValue.arrayValue.length)) {
+              const arrItem = exprValue.arrayValue[ai];
+              if ( arrItem.isElement() ) {
+                results.push(arrItem);
+              }
+              ai = ai + 1;
+            };
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return results;
   };
   evaluateAttributeValue (attr) {
     if ( typeof(attr.right) != "undefined" ) {
@@ -12763,10 +13454,7 @@ class ComponentEngine  {
       if ( child.nodeType == "JSXText" ) {
         const rawText = child.value;
         if ( (rawText.length) > 0 ) {
-          if ( (result.length) > 0 ) {
-            result = result + " ";
-          }
-          result = result + rawText;
+          result = this.smartJoinText(result, rawText);
         }
       }
       if ( child.nodeType == "JSXExpressionContainer" ) {
@@ -12774,10 +13462,7 @@ class ComponentEngine  {
           const exprNode = child.left;
           const exprValue = this.evaluateExpr(exprNode);
           const exprStr = (exprValue).toString();
-          if ( (result.length) > 0 ) {
-            result = result + " ";
-          }
-          result = result + exprStr;
+          result = this.smartJoinText(result, exprStr);
         }
       }
       i = i + 1;
@@ -12792,20 +13477,13 @@ class ComponentEngine  {
     while (i < (jsxNode.children.length)) {
       const child = jsxNode.children[i];
       if ( child.nodeType == "JSXText" ) {
-        console.log(("JSXText token value: [" + child.value) + "]");
-        if ( (accumulatedText.length) > 0 ) {
-          accumulatedText = accumulatedText + " ";
-        }
-        accumulatedText = accumulatedText + child.value;
+        accumulatedText = this.smartJoinText(accumulatedText, child.value);
         i = i + 1;
         continue;
       }
       if ( (accumulatedText.length) > 0 ) {
-        console.log(("Accumulated JSXText: [" + accumulatedText) + "]");
         const normalizedText = this.normalizeWhitespace(accumulatedText);
-        console.log(("After normalization: [" + normalizedText) + "]");
         const text = this.trimText(normalizedText);
-        console.log(("After trim: [" + text) + "]");
         if ( (text.length) > 0 ) {
           const textEl = new EVGElement();
           textEl.tagName = "text";
@@ -12857,14 +13535,37 @@ class ComponentEngine  {
         }
       }
       const value = this.evaluateExpr(exprNode);
+      if ( value.isElement() ) {
+        if ( typeof(value.evgElement) != "undefined" ) {
+          const childEl = value.evgElement;
+          if ( (childEl.tagName.length) > 0 ) {
+            element.addChild(childEl);
+          }
+        }
+        return;
+      }
+      if ( (value).isArray() ) {
+        let ai = 0;
+        while (ai < (value.arrayValue.length)) {
+          const arrItem = value.arrayValue[ai];
+          if ( arrItem.isElement() ) {
+            if ( typeof(arrItem.evgElement) != "undefined" ) {
+              const arrChildEl = arrItem.evgElement;
+              if ( (arrChildEl.tagName.length) > 0 ) {
+                element.addChild(arrChildEl);
+              }
+            }
+          }
+          ai = ai + 1;
+        };
+        return;
+      }
       const isStr = value.isString();
       const isNum = value.isNumber();
       if ( isStr || isNum ) {
-        const textContent = (value).toString();
-        console.log(("Expression text value: [" + textContent) + "]");
         const textEl = new EVGElement();
         textEl.tagName = "text";
-        textEl.textContent = textContent;
+        textEl.textContent = (value).toString();
         element.addChild(textEl);
       }
     }
@@ -12984,6 +13685,18 @@ class ComponentEngine  {
     if ( node.nodeType == "StringLiteral" ) {
       return EvalValue.string(this.unquote(node.value));
     }
+    if ( node.nodeType == "TemplateLiteral" ) {
+      let templateText = "";
+      let ti = 0;
+      while (ti < (node.children.length)) {
+        const templateChild = node.children[ti];
+        if ( templateChild.nodeType == "TemplateElement" ) {
+          templateText = templateText + templateChild.value;
+        }
+        ti = ti + 1;
+      };
+      return EvalValue.string(templateText);
+    }
     if ( node.nodeType == "BooleanLiteral" ) {
       return EvalValue.boolean((node.value == "true"));
     }
@@ -13016,6 +13729,16 @@ class ComponentEngine  {
         const inner = node.left;
         return this.evaluateExpr(inner);
       }
+    }
+    if ( node.nodeType == "JSXElement" ) {
+      const el = this.evaluateJSXElement(node);
+      return EvalValue.element(el);
+    }
+    if ( node.nodeType == "JSXFragment" ) {
+      const el_1 = new EVGElement();
+      el_1.tagName = "div";
+      this.evaluateChildren(el_1, node);
+      return EvalValue.element(el_1);
     }
     return EvalValue.null();
   };
@@ -13213,6 +13936,9 @@ class ComponentEngine  {
     if ( jsxTag == "Image" ) {
       return "image";
     }
+    if ( jsxTag == "Path" ) {
+      return "path";
+    }
     if ( jsxTag == "Spacer" ) {
       return "spacer";
     }
@@ -13227,6 +13953,9 @@ class ComponentEngine  {
     }
     if ( jsxTag == "img" ) {
       return "image";
+    }
+    if ( jsxTag == "path" ) {
+      return "path";
     }
     return "div";
   };
@@ -13280,6 +14009,48 @@ class ComponentEngine  {
       i = i + 1;
     };
     return result;
+  };
+  startsWithPunctuation (s) {
+    if ( (s.length) == 0 ) {
+      return false;
+    }
+    const first = s.charCodeAt(0 );
+    if ( (((((first == 44) || (first == 46)) || (first == 33)) || (first == 63)) || (first == 58)) || (first == 59) ) {
+      return true;
+    }
+    if ( ((first == 41) || (first == 93)) || (first == 125) ) {
+      return true;
+    }
+    if ( ((first == 39) || (first == 34)) || (first == 45) ) {
+      return true;
+    }
+    return false;
+  };
+  endsWithOpenPunctuation (s) {
+    const __len = s.length;
+    if ( __len == 0 ) {
+      return false;
+    }
+    const last = s.charCodeAt((__len - 1) );
+    if ( (((last == 40) || (last == 91)) || (last == 123)) || (last == 45) ) {
+      return true;
+    }
+    return false;
+  };
+  smartJoinText (existing, newText) {
+    if ( (existing.length) == 0 ) {
+      return newText;
+    }
+    if ( (newText.length) == 0 ) {
+      return existing;
+    }
+    if ( this.startsWithPunctuation(newText) ) {
+      return existing + newText;
+    }
+    if ( this.endsWithOpenPunctuation(existing) ) {
+      return existing + newText;
+    }
+    return (existing + " ") + newText;
   };
   unquote (s) {
     const __len = s.length;
@@ -13387,6 +14158,11 @@ class EVGComponentTool  {
     this.fontManager.loadFont("Helvetica/Helvetica.ttf");
     this.fontManager.loadFont("Noto_Sans/NotoSans-Regular.ttf");
     this.fontManager.loadFont("Noto_Sans/NotoSans-Bold.ttf");
+    this.fontManager.loadFont("Cinzel/Cinzel-Regular.ttf");
+    this.fontManager.loadFont("Josefin_Sans/JosefinSans-Regular.ttf");
+    this.fontManager.loadFont("Gloria_Hallelujah/GloriaHallelujah.ttf");
+    this.fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf");
+    this.fontManager.loadFont("Kaushan_Script/KaushanScript-Regular.ttf");
   };
   getDirectory (path) {
     let lastSlash = -1;

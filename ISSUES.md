@@ -1361,3 +1361,161 @@ The `-nodemodule` code path in `VirtualCompiler.clj` likely has separate output 
 
 - Issue #6 documents similar problems with `-d` and `-o` for regular compilation
 - This issue is specific to the `-nodemodule` flag
+
+---
+
+## Issue #14: EVG TSX Parser - Conditional JSX expressions not supported
+
+**Status:** Open  
+**Severity:** Medium  
+**Found:** December 19, 2025
+
+### Description
+
+The EVG component TSX parser does not properly handle conditional JSX expressions using the `&&` logical AND pattern commonly used in React/JSX for conditional rendering.
+
+### Error Message
+
+```
+Parse error: expected ',' but got ':'
+```
+
+Or silent failures where the expression evaluates to `null`, causing downstream errors like:
+
+```
+Error: ENOENT: no such file or directory, open '...\null'
+```
+
+### Minimal Reproduction
+
+```tsx
+// This pattern is NOT supported by EVG parser
+export function MyComponent({ showLabel, data }) {
+  return (
+    <View>
+      <Image src={data.src} />
+      {showLabel && data.caption && <Label>{data.caption}</Label>}
+    </View>
+  );
+}
+```
+
+### What Happens
+
+1. The parser encounters `{showLabel && data.caption && (...)}`
+2. It fails to parse the conditional expression correctly
+3. The expression may evaluate to `null` or cause parse errors
+4. When used in `src` attributes, this causes file-not-found errors trying to open "null"
+
+### Current Workaround
+
+Avoid conditional JSX patterns. Create separate components or use unconditional rendering:
+
+```tsx
+// WORKING: No conditionals
+export function PhotoGrid({ photos }) {
+  return (
+    <View>
+      <Image src={photos[0].src} />
+      <Image src={photos[1].src} />
+    </View>
+  );
+}
+
+// NOT WORKING: Conditional rendering
+export function PhotoGrid({ photos, showCaptions }) {
+  return (
+    <View>
+      <Image src={photos[0].src} />
+      {showCaptions && <Label>{photos[0].caption}</Label>}
+    </View>
+  );
+}
+```
+
+### Affected Patterns
+
+The following JSX patterns are NOT supported:
+
+1. `{condition && <Element />}` - Logical AND rendering
+2. `{condition ? <ElementA /> : <ElementB />}` - Ternary rendering
+3. `{array.map(item => <Element />)}` - Map rendering (likely)
+4. Complex expressions in attributes: `src={condition ? pathA : pathB}`
+5. Array index access: `src={photos[0].src}` - Array element property access
+6. Object destructuring with defaults from arrays
+7. JSDoc-style comments `/** ... */` - Cause parse warnings (use `//` instead)
+
+### JSDoc Comment Warnings
+
+The parser shows warnings for JSDoc-style comments:
+
+```
+Parse error: expected ',' but got ':'
+Unexpected token: *
+ * FullPagePhoto - Edge-to-edge photo with no borders
+```
+
+These are non-fatal warnings but clutter the output. Use single-line comments instead:
+
+```tsx
+// CAUSES WARNINGS
+/**
+ * MyComponent - Description here
+ */
+export function MyComponent() { ... }
+
+// RECOMMENDED
+// MyComponent - Description here
+export function MyComponent() { ... }
+```
+
+### Expected Behavior
+
+The parser should either:
+
+1. Support standard JSX conditional patterns, OR
+2. Provide clear error messages when unsupported patterns are used
+
+### Workaround for Array Props
+
+Instead of using arrays of objects:
+
+```tsx
+// NOT WORKING
+interface Props {
+  photos: [PhotoProps, PhotoProps];
+}
+function Component({ photos }) {
+  return <Image src={photos[0].src} />;
+}
+<Component photos={[{ src: "a.jpg" }, { src: "b.jpg" }]} />;
+```
+
+Use individual props:
+
+```tsx
+// WORKING
+interface Props {
+  src1: string;
+  src2: string;
+}
+function Component({ src1, src2 }) {
+  return (
+    <>
+      <Image src={src1} />
+      <Image src={src2} />
+    </>
+  );
+}
+<Component src1="a.jpg" src2="b.jpg" />;
+```
+
+### Files Affected
+
+- `compiler/ng_parser.rgr` or related TSX parsing code
+- `gallery/pdf_writer/bin/evg_component_tool.js` - compiled parser
+
+### Related
+
+- This affects HOC (Higher-Order Component) patterns in photo album layouts
+- Components must be designed without conditional rendering for EVG compatibility
