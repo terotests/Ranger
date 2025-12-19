@@ -267,11 +267,11 @@ export interface EVGSectionProps {
 export interface EVGPageProps {
   children?: any;
   /** Page width in points (overrides section) */
-  width?: string;
+  width?: string | number;
   /** Page height in points (overrides section) */
-  height?: string;
+  height?: string | number;
   /** Padding for page content area */
-  padding?: string;
+  padding?: string | number;
   /** Background color */
   backgroundColor?: string;
 }
@@ -283,38 +283,38 @@ export interface EVGViewProps {
   children?: any;
 
   // Dimensions
-  width?: string;
-  height?: string;
-  minWidth?: string;
-  maxWidth?: string;
-  minHeight?: string;
-  maxHeight?: string;
+  width?: string | number;
+  height?: string | number;
+  minWidth?: string | number;
+  maxWidth?: string | number;
+  minHeight?: string | number;
+  maxHeight?: string | number;
 
   // Box Model - Margin
-  margin?: string;
-  marginTop?: string;
-  marginRight?: string;
-  marginBottom?: string;
-  marginLeft?: string;
+  margin?: string | number;
+  marginTop?: string | number;
+  marginRight?: string | number;
+  marginBottom?: string | number;
+  marginLeft?: string | number;
 
   // Box Model - Padding
-  padding?: string;
-  paddingTop?: string;
-  paddingRight?: string;
-  paddingBottom?: string;
-  paddingLeft?: string;
+  padding?: string | number;
+  paddingTop?: string | number;
+  paddingRight?: string | number;
+  paddingBottom?: string | number;
+  paddingLeft?: string | number;
 
   // Border
-  borderWidth?: string;
+  borderWidth?: string | number;
   borderColor?: string;
-  borderRadius?: string;
+  borderRadius?: string | number;
 
   // Layout - Flexbox
   flexDirection?: "row" | "column";
   flex?: string | number;
   justifyContent?: "start" | "center" | "end" | "space-between";
   alignItems?: "start" | "center" | "end" | "stretch";
-  gap?: string;
+  gap?: string | number;
 
   // Visual
   backgroundColor?: string;
@@ -328,26 +328,26 @@ export interface EVGTextProps {
   children?: string | number;
 
   // Dimensions
-  width?: string;
-  height?: string;
+  width?: string | number;
+  height?: string | number;
 
   // Box Model
-  margin?: string;
-  marginTop?: string;
-  marginRight?: string;
-  marginBottom?: string;
-  marginLeft?: string;
-  padding?: string;
+  margin?: string | number;
+  marginTop?: string | number;
+  marginRight?: string | number;
+  marginBottom?: string | number;
+  marginLeft?: string | number;
+  padding?: string | number;
 
   // Text styling
-  fontSize?: string;
+  fontSize?: string | number;
   fontFamily?: string;
   fontWeight?: "normal" | "bold" | string;
   fontStyle?: "normal" | "italic";
   color?: string;
   textAlign?: "left" | "center" | "right" | "justify";
   lineHeight?: string | number;
-  letterSpacing?: string;
+  letterSpacing?: string | number;
 
   // Visual
   backgroundColor?: string;

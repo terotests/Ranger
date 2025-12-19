@@ -461,6 +461,31 @@ class EVGElement {
             return
         }
         
+        ; Flexbox
+        if ((name == "flex-direction") || (name == "flexDirection")) {
+            flexDirection = value
+            return
+        }
+        if (name == "flex") {
+            def val@(optional):double (to_double value)
+            if val {
+                flex = (unwrap val)
+            }
+            return
+        }
+        if (name == "gap") {
+            gap = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "justify-content") || (name == "justifyContent")) {
+            justifyContent = value
+            return
+        }
+        if ((name == "align-items") || (name == "alignItems")) {
+            alignItems = value
+            return
+        }
+        
         ; Typography
         if ((name == "font-size") || (name == "fontSize")) {
             fontSize = (EVGUnit.parse(value))
@@ -468,6 +493,21 @@ class EVGElement {
         }
         if ((name == "font-family") || (name == "fontFamily")) {
             fontFamily = value
+            return
+        }
+        if ((name == "font-weight") || (name == "fontWeight")) {
+            fontWeight = value
+            return
+        }
+        if ((name == "text-align") || (name == "textAlign")) {
+            textAlign = value
+            return
+        }
+        if ((name == "line-height") || (name == "lineHeight")) {
+            def val@(optional):double (to_double value)
+            if val {
+                lineHeight = (unwrap val)
+            }
             return
         }
         

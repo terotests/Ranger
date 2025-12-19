@@ -7,15 +7,26 @@ function render() {
         Simple Row Test
       </Label>
 
-      <View marginTop="20px" flexDirection="row" width="100%" backgroundColor="#eeeeee">
+      <View
+        marginTop="20px"
+        flexDirection="row"
+        width="100%"
+        backgroundColor="#eeeeee"
+      >
         <View width="30%" backgroundColor="#ff6666">
-          <Label fontSize="14px" color="#ffffff">Box 1</Label>
+          <Label fontSize="14px" color="#ffffff">
+            Box 1
+          </Label>
         </View>
         <View width="30%" backgroundColor="#66ff66">
-          <Label fontSize="14px" color="#000000">Box 2</Label>
+          <Label fontSize="14px" color="#000000">
+            Box 2
+          </Label>
         </View>
         <View width="30%" backgroundColor="#6666ff">
-          <Label fontSize="14px" color="#ffffff">Box 3</Label>
+          <Label fontSize="14px" color="#ffffff">
+            Box 3
+          </Label>
         </View>
       </View>
     </View>

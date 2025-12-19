@@ -70,15 +70,23 @@ const MultiPageDocument = (
     <Section pageWidth="595" pageHeight="842" margin="40px">
       <Page>
         <View width="100%" height="100%" backgroundColor="#f0f0f0">
-          <Label fontSize="24px" fontWeight="bold">Page 1</Label>
-          <Label fontSize="14px" marginTop="20px">First page content...</Label>
+          <Label fontSize="24px" fontWeight="bold">
+            Page 1
+          </Label>
+          <Label fontSize="14px" marginTop="20px">
+            First page content...
+          </Label>
         </View>
       </Page>
-      
+
       <Page>
         <View width="100%" height="100%">
-          <Label fontSize="24px" fontWeight="bold">Page 2</Label>
-          <Label fontSize="14px" marginTop="20px">Second page content...</Label>
+          <Label fontSize="24px" fontWeight="bold">
+            Page 2
+          </Label>
+          <Label fontSize="14px" marginTop="20px">
+            Second page content...
+          </Label>
         </View>
       </Page>
     </Section>
@@ -88,13 +96,14 @@ const MultiPageDocument = (
 
 #### Section Attributes
 
-| Attribute    | Example   | Description                     |
-| ------------ | --------- | ------------------------------- |
-| `pageWidth`  | `"595"`   | Page width in points (A4 = 595) |
-| `pageHeight` | `"842"`   | Page height in points (A4 = 842)|
-| `margin`     | `"40px"`  | Page margin (all sides)         |
+| Attribute    | Example  | Description                      |
+| ------------ | -------- | -------------------------------- |
+| `pageWidth`  | `"595"`  | Page width in points (A4 = 595)  |
+| `pageHeight` | `"842"`  | Page height in points (A4 = 842) |
+| `margin`     | `"40px"` | Page margin (all sides)          |
 
 Standard page sizes:
+
 - **A4**: 595 × 842 points
 - **Letter**: 612 × 792 points
 - **Legal**: 612 × 1008 points

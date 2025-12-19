@@ -1,0 +1,1368 @@
+; =============================================================================
+; ComponentEngine.rgr - JSX Component System with Import Support
+; =============================================================================
+; Extends JSXToEVG with:
+; - Component function expansion
+; - Expression evaluation in JSX context
+; - Variable scope/context management
+
+Import "../ts_parser/ts_parser_simple.rgr"
+Import "../ts_parser/ts_lexer.rgr"
+Import "../evg/EVGElement.rgr"
+Import "EvalValue.rgr"
+
+; =============================================================================
+; ImportedSymbol - Represents an imported component or function
+; =============================================================================
+class ImportedSymbol {
+    def name:string ""           ; Local name in current file
+    def originalName:string ""   ; Name in source file
+    def sourcePath:string ""     ; File path
+    def symbolType:string ""     ; "component" | "function" | "constant"
+    def functionNode@(optional):TSNode      ; AST node for function components
+}
+
+; =============================================================================
+; EvalContext - Variable scope for expression evaluation
+; =============================================================================
+class EvalContext {
+    def variables:[string]
+    def values:[EvalValue]
+    def parent@(optional):EvalContext
+    
+    Constructor () {
+        def v:[string]
+        variables = v
+        def vl:[EvalValue]
+        values = vl
+    }
+    
+    fn define:void (name:string value:EvalValue) {
+        ; Check if already defined
+        def i:int 0
+        while (i < (array_length variables)) {
+            if ((itemAt variables i) == name) {
+                ; Update existing
+                set values i value
+                return
+            }
+            i = i + 1
+        }
+        ; Add new
+        push variables name
+        push values value
+    }
+    
+    fn lookup:EvalValue (name:string) {
+        def i:int 0
+        while (i < (array_length variables)) {
+            if ((itemAt variables i) == name) {
+                return (itemAt values i)
+            }
+            i = i + 1
+        }
+        ; Check parent scope
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.lookup(name))
+        }
+        return (EvalValue.null())
+    }
+    
+    fn has:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length variables)) {
+            if ((itemAt variables i) == name) {
+                return true
+            }
+            i = i + 1
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.has(name))
+        }
+        return false
+    }
+    
+    ; Create child context (for function calls)
+    fn createChild:EvalContext () {
+        def child (new EvalContext())
+        child.parent = this
+        return child
+    }
+}
+
+; =============================================================================
+; ComponentEngine - Main engine for JSX processing with components
+; =============================================================================
+class ComponentEngine {
+    def parser:TSParserSimple
+    def source:string ""
+    def basePath:string "./"
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    
+    ; Import/export tracking
+    def imports:[ImportedSymbol]
+    def localComponents:[ImportedSymbol]
+    
+    ; Evaluation context
+    def context:EvalContext
+    
+    ; Primitive EVG elements (not components)
+    def primitives:[string]
+    
+    Constructor () {
+        def p:TSParserSimple (new TSParserSimple())
+        parser = p
+        parser.tsxMode = true
+        def imp:[ImportedSymbol]
+        imports = imp
+        def loc:[ImportedSymbol]
+        localComponents = loc
+        def ctx:EvalContext (new EvalContext())
+        context = ctx
+        def prim:[string]
+        primitives = prim
+        
+        ; Register primitive element names
+        push primitives "View"
+        push primitives "Label"
+        push primitives "Print"
+        push primitives "Section"
+        push primitives "Page"
+        push primitives "Image"
+        push primitives "Spacer"
+        push primitives "Divider"
+        push primitives "div"
+        push primitives "span"
+        push primitives "p"
+        push primitives "h1"
+        push primitives "h2"
+        push primitives "h3"
+        push primitives "img"
+    }
+    
+    ; ==========================================================================
+    ; Main Entry Points
+    ; ==========================================================================
+    
+    fn parseFile:EVGElement (dirPath:string fileName:string) {
+        basePath = dirPath
+        def fileContent:buffer (buffer_read_file dirPath fileName)
+        def src:string (buffer_to_string fileContent)
+        return (this.parse(src))
+    }
+    
+    fn parse:EVGElement (src:string) {
+        source = src
+        
+        ; Tokenize and parse
+        def lexer (new TSLexer(src))
+        def tokens:[Token] (lexer.tokenize())
+        parser.initParser(tokens)
+        parser.tsxMode = true
+        def ast:TSNode (parser.parseProgram())
+        
+        ; 1. Process imports - load external components
+        this.processImports(ast)
+        
+        ; 2. Register local components (function declarations)
+        this.registerComponents(ast)
+        
+        ; 3. Process top-level variable declarations
+        this.processVariables(ast)
+        
+        ; 3. Find and evaluate render() function
+        def renderFn:TSNode (this.findRenderFunction(ast))
+        if (renderFn.nodeType == "") {
+            print "Error: No render() function found"
+            def empty (new EVGElement())
+            return empty
+        }
+        
+        ; 4. Evaluate render function and return EVG tree
+        return (this.evaluateFunction(renderFn))
+    }
+    
+    ; ==========================================================================
+    ; Component Registration
+    ; ==========================================================================
+    
+    fn processImports:void (ast:TSNode) {
+        ; Process all import declarations
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            
+            if (node.nodeType == "ImportDeclaration") {
+                this.processImportDeclaration(node)
+            }
+            
+            i = i + 1
+        }
+    }
+    
+    fn processImportDeclaration:void (node:TSNode) {
+        ; Get the module path from node.left (StringLiteral - 'from' clause)
+        def modulePath:string ""
+        if node.left {
+            def srcNode:TSNode (unwrap node.left)
+            modulePath = (this.unquote(srcNode.value))
+        }
+        
+        ; Skip primitive imports (evg_types) and empty paths
+        if ((strlen modulePath) == 0) {
+            return
+        }
+        if ((indexOf modulePath "evg_types") >= 0) {
+            return
+        }
+        if ((indexOf modulePath "evg_") >= 0) {
+            return
+        }
+        
+        ; Get imported symbols from node.children (import specifiers)
+        def importedNames:[string]
+        def j:int 0
+        while (j < (array_length node.children)) {
+            def spec:TSNode (itemAt node.children j)
+            if (spec.nodeType == "ImportSpecifier") {
+                push importedNames spec.name
+            }
+            if (spec.nodeType == "ImportDefaultSpecifier") {
+                push importedNames spec.name
+            }
+            j = j + 1
+        }
+        
+        ; Load and parse the imported module
+        def fullPath:string (this.resolveModulePath(modulePath))
+        
+        ; Skip empty paths
+        if ((strlen fullPath) == 0) {
+            return
+        }
+        
+        ; Save basePath to local variable to avoid 'this' binding issue in closure
+        def dirPath:string basePath
+        print ("Loading import: " + dirPath + fullPath)
+        
+        def fileContent:buffer (buffer_read_file dirPath fullPath)
+        def src:string (buffer_to_string fileContent)
+        if ((strlen src) == 0) {
+            print ("Warning: Could not load module: " + fullPath)
+            return
+        }
+        
+        ; Parse the imported file
+        def lexer (new TSLexer(src))
+        def tokens:[Token] (lexer.tokenize())
+        def importParser:TSParserSimple (new TSParserSimple())
+        importParser.initParser(tokens)
+        importParser.tsxMode = true
+        def importAst:TSNode (importParser.parseProgram())
+        
+        ; Find exported functions that match imported names
+        def k:int 0
+        while (k < (array_length importAst.children)) {
+            def stmt:TSNode (itemAt importAst.children k)
+            
+            ; Check for exported function declarations
+            if (stmt.nodeType == "ExportNamedDeclaration") {
+                if stmt.left {
+                    def declNode:TSNode (unwrap stmt.left)
+                    if (declNode.nodeType == "FunctionDeclaration") {
+                        def fnName:string declNode.name
+                        ; Check if this function is in our import list
+                        if (this.isInList(fnName importedNames)) {
+                            def sym (new ImportedSymbol())
+                            sym.name = fnName
+                            sym.originalName = fnName
+                            sym.sourcePath = fullPath
+                            sym.symbolType = "component"
+                            sym.functionNode = declNode
+                            push localComponents sym
+                            print ("Imported component: " + fnName + " from " + fullPath)
+                        }
+                    }
+                }
+            }
+            
+            ; Also check for regular function declarations (may be exported separately)
+            if (stmt.nodeType == "FunctionDeclaration") {
+                def fnName:string stmt.name
+                if (this.isInList(fnName importedNames)) {
+                    def sym (new ImportedSymbol())
+                    sym.name = fnName
+                    sym.originalName = fnName
+                    sym.sourcePath = fullPath
+                    sym.symbolType = "component"
+                    sym.functionNode = stmt
+                    push localComponents sym
+                    print ("Imported component: " + fnName + " from " + fullPath)
+                }
+            }
+            
+            k = k + 1
+        }
+    }
+    
+    fn resolveModulePath:string (modulePath:string) {
+        ; Handle relative paths
+        if ((indexOf modulePath "./") == 0) {
+            ; Remove leading ./
+            def path:string (substring modulePath 2 (strlen modulePath))
+            ; Skip if path is too short (just had "./")
+            if ((strlen path) == 0) {
+                return ""
+            }
+            ; Add .tsx extension if needed
+            if ((indexOf path ".tsx") < 0) {
+                if ((indexOf path ".ts") < 0) {
+                    path = path + ".tsx"
+                }
+            }
+            return path
+        }
+        
+        ; For now, just add extension
+        if ((indexOf modulePath ".tsx") < 0) {
+            if ((indexOf modulePath ".ts") < 0) {
+                return (modulePath + ".tsx")
+            }
+        }
+        return modulePath
+    }
+    
+    fn isInList:boolean (name:string list:[string]) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == name) {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+    
+    fn registerComponents:void (ast:TSNode) {
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            
+            if (node.nodeType == "FunctionDeclaration") {
+                ; Skip render function
+                if (node.name != "render") {
+                    def sym (new ImportedSymbol())
+                    sym.name = node.name
+                    sym.originalName = node.name
+                    sym.symbolType = "component"
+                    sym.functionNode = node
+                    push localComponents sym
+                    print ("Registered local component: " + node.name)
+                }
+            }
+            
+            i = i + 1
+        }
+    }
+    
+    fn findRenderFunction:TSNode (ast:TSNode) {
+        def empty (new TSNode())
+        
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "FunctionDeclaration") {
+                if (node.name == "render") {
+                    return node
+                }
+            }
+            i = i + 1
+        }
+        
+        return empty
+    }
+    
+    ; ==========================================================================
+    ; Variable Processing
+    ; ==========================================================================
+    
+    fn processVariables:void (ast:TSNode) {
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "VariableDeclaration") {
+                this.processVariableDeclaration(node)
+            }
+            i = i + 1
+        }
+    }
+    
+    fn processVariableDeclaration:void (node:TSNode) {
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def decl:TSNode (itemAt node.children i)
+            if (decl.nodeType == "VariableDeclarator") {
+                def varName:string decl.name
+                if decl.init {
+                    def initNode:TSNode (unwrap decl.init)
+                    def value:EvalValue (this.evaluateExpr(initNode))
+                    context.define(varName value)
+                    print ("Defined variable: " + varName + " = " + (value.toString()))
+                }
+            }
+            i = i + 1
+        }
+    }
+    
+    ; ==========================================================================
+    ; Function/Component Evaluation
+    ; ==========================================================================
+    
+    fn evaluateFunction:EVGElement (fnNode:TSNode) {
+        ; Create new context for function scope
+        def savedContext:EvalContext context
+        context = (context.createChild())
+        
+        ; Process function body
+        def body:TSNode (this.getFunctionBody(fnNode))
+        def result:EVGElement (this.evaluateFunctionBody(body))
+        
+        ; Restore context
+        context = savedContext
+        
+        return result
+    }
+    
+    fn evaluateFunctionWithProps:EVGElement (fnNode:TSNode props:EvalValue) {
+        ; Create new context for function scope
+        def savedContext:EvalContext context
+        context = (context.createChild())
+        
+        ; Process function parameters and bind props
+        this.bindFunctionParams(fnNode props)
+        
+        ; Process function body
+        def body:TSNode (this.getFunctionBody(fnNode))
+        def result:EVGElement (this.evaluateFunctionBody(body))
+        
+        ; Restore context
+        context = savedContext
+        
+        return result
+    }
+    
+    fn bindFunctionParams:void (fnNode:TSNode props:EvalValue) {
+        ; Check function params
+        def i:int 0
+        while (i < (array_length fnNode.params)) {
+            def param:TSNode (itemAt fnNode.params i)
+            
+            ; Handle destructured params: { color, size = 40 }
+            if (param.nodeType == "ObjectPattern") {
+                this.bindObjectPattern(param props)
+            }
+            
+            ; Handle simple param: (props)
+            if (param.nodeType == "Parameter") {
+                context.define(param.name props)
+            }
+            if (param.nodeType == "Identifier") {
+                context.define(param.name props)
+            }
+            
+            i = i + 1
+        }
+    }
+    
+    fn bindObjectPattern:void (pattern:TSNode props:EvalValue) {
+        def i:int 0
+        while (i < (array_length pattern.children)) {
+            def prop:TSNode (itemAt pattern.children i)
+            
+            if (prop.nodeType == "Property") {
+                def propName:string prop.name
+                
+                ; Check if prop exists in provided props
+                def propValue:EvalValue (props.getMember(propName))
+                
+                if (propValue.isNull()) {
+                    ; Use default value if provided
+                    if prop.init {
+                        def initNode:TSNode (unwrap prop.init)
+                        propValue = (this.evaluateExpr(initNode))
+                    }
+                }
+                
+                context.define(propName propValue)
+            }
+            
+            i = i + 1
+        }
+    }
+    
+    fn getFunctionBody:TSNode (fnNode:TSNode) {
+        if fnNode.body {
+            return (unwrap fnNode.body)
+        }
+        def empty (new TSNode())
+        return empty
+    }
+    
+    fn evaluateFunctionBody:EVGElement (body:TSNode) {
+        def empty (new EVGElement())
+        
+        ; Process statements
+        def i:int 0
+        while (i < (array_length body.children)) {
+            def stmt:TSNode (itemAt body.children i)
+            
+            ; Process variable declarations
+            if (stmt.nodeType == "VariableDeclaration") {
+                this.processVariableDeclaration(stmt)
+            }
+            
+            ; Process return statement
+            if (stmt.nodeType == "ReturnStatement") {
+                if stmt.left {
+                    def returnExpr:TSNode (unwrap stmt.left)
+                    return (this.evaluateJSX(returnExpr))
+                }
+            }
+            
+            i = i + 1
+        }
+        
+        ; Arrow function with expression body
+        if ((body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment")) {
+            return (this.evaluateJSX(body))
+        }
+        
+        return empty
+    }
+    
+    ; ==========================================================================
+    ; JSX Evaluation
+    ; ==========================================================================
+    
+    fn evaluateJSX:EVGElement (node:TSNode) {
+        def element (new EVGElement())
+        
+        if (node.nodeType == "JSXElement") {
+            return (this.evaluateJSXElement(node))
+        }
+        
+        if (node.nodeType == "JSXFragment") {
+            element.tagName = "div"
+            this.evaluateChildren(element node)
+            return element
+        }
+        
+        if (node.nodeType == "ParenthesizedExpression") {
+            if node.left {
+                def inner:TSNode (unwrap node.left)
+                return (this.evaluateJSX(inner))
+            }
+        }
+        
+        return element
+    }
+    
+    fn evaluateJSXElement:EVGElement (jsxNode:TSNode) {
+        ; Get tag name from opening element
+        def tagName:string ""
+        if jsxNode.left {
+            def openingEl:TSNode (unwrap jsxNode.left)
+            tagName = openingEl.name
+        }
+        
+        ; Check if it's a component (not a primitive)
+        if (this.isComponent(tagName)) {
+            return (this.expandComponent(tagName jsxNode))
+        }
+        
+        ; Primitive element - create EVG element
+        def element (new EVGElement())
+        element.tagName = (this.mapTagName(tagName))
+        
+        ; Parse attributes
+        if jsxNode.left {
+            def openingEl:TSNode (unwrap jsxNode.left)
+            this.evaluateAttributes(element openingEl)
+        }
+        
+        ; Handle text content for Label/text elements
+        if ((tagName == "Label") || (tagName == "span") || (tagName == "text")) {
+            element.textContent = (this.evaluateTextContent(jsxNode))
+        } {
+            ; Evaluate children
+            this.evaluateChildren(element jsxNode)
+        }
+        
+        return element
+    }
+    
+    fn isComponent:boolean (name:string) {
+        if ((strlen name) == 0) {
+            return false
+        }
+        
+        ; Check if it's a primitive
+        def i:int 0
+        while (i < (array_length primitives)) {
+            if ((itemAt primitives i) == name) {
+                return false
+            }
+            i = i + 1
+        }
+        
+        ; Check if first character is uppercase (A-Z is 65-90)
+        def firstChar:int (charAt name 0)
+        if ((firstChar >= 65) && (firstChar <= 90)) {
+            return true
+        }
+        
+        return false
+    }
+    
+    fn expandComponent:EVGElement (name:string jsxNode:TSNode) {
+        ; Find the component definition
+        def i:int 0
+        while (i < (array_length localComponents)) {
+            def sym:ImportedSymbol (itemAt localComponents i)
+            if (sym.name == name) {
+                ; Found the component - evaluate it
+                def props:EvalValue (this.evaluateProps(jsxNode))
+                if sym.functionNode {
+                    def fnNode:TSNode (unwrap sym.functionNode)
+                    return (this.evaluateFunctionWithProps(fnNode props))
+                }
+            }
+            i = i + 1
+        }
+        
+        ; Not found - return empty element
+        print ("Warning: Unknown component: " + name)
+        def empty (new EVGElement())
+        empty.tagName = "div"
+        return empty
+    }
+    
+    fn evaluateProps:EvalValue (jsxNode:TSNode) {
+        def keys:[string]
+        def values:[EvalValue]
+        
+        if jsxNode.left {
+            def openingEl:TSNode (unwrap jsxNode.left)
+            
+            def i:int 0
+            while (i < (array_length openingEl.children)) {
+                def attr:TSNode (itemAt openingEl.children i)
+                
+                if (attr.nodeType == "JSXAttribute") {
+                    def attrName:string attr.name
+                    def attrValue:EvalValue (this.evaluateAttributeValue(attr))
+                    
+                    push keys attrName
+                    push values attrValue
+                }
+                
+                i = i + 1
+            }
+        }
+        
+        return (EvalValue.object(keys values))
+    }
+    
+    fn evaluateAttributeValue:EvalValue (attr:TSNode) {
+        if attr.right {
+            def rightNode:TSNode (unwrap attr.right)
+            
+            ; String literal
+            if (rightNode.nodeType == "StringLiteral") {
+                return (EvalValue.string((this.unquote(rightNode.value))))
+            }
+            
+            ; Expression container
+            if (rightNode.nodeType == "JSXExpressionContainer") {
+                if rightNode.left {
+                    def exprNode:TSNode (unwrap rightNode.left)
+                    return (this.evaluateExpr(exprNode))
+                }
+            }
+        }
+        
+        ; Boolean attribute (no value means true)
+        return (EvalValue.boolean(true))
+    }
+    
+    fn evaluateAttributes:void (element:EVGElement openingNode:TSNode) {
+        def i:int 0
+        while (i < (array_length openingNode.children)) {
+            def attr:TSNode (itemAt openingNode.children i)
+            
+            if (attr.nodeType == "JSXAttribute") {
+                def rawAttrName:string attr.name
+                def attrValue:EvalValue (this.evaluateAttributeValue(attr))
+                def strValue:string (attrValue.toString())
+                
+                ; Apply attribute to element
+                this.applyAttribute(element rawAttrName strValue)
+            }
+            
+            i = i + 1
+        }
+    }
+    
+    fn applyAttribute:void (element:EVGElement rawName:string strValue:string) {
+        ; Handle special attributes
+        if (rawName == "id") {
+            element.id = strValue
+            return
+        }
+        if (rawName == "className") {
+            element.className = strValue
+            return
+        }
+        if (rawName == "src") {
+            element.src = strValue
+            return
+        }
+        
+        ; For everything else, use setAttribute which handles all the parsing
+        element.setAttribute(rawName strValue)
+    }
+    
+    fn evaluateTextContent:string (jsxNode:TSNode) {
+        def result:string ""
+        def needsSpace:boolean false
+        
+        def i:int 0
+        while (i < (array_length jsxNode.children)) {
+            def child:TSNode (itemAt jsxNode.children i)
+            
+            if (child.nodeType == "JSXText") {
+                ; Get the actual text content
+                def rawText:string child.value
+                def text:string (this.trimText(rawText))
+                
+                if ((strlen text) > 0) {
+                    ; Add space if previous item needs one
+                    if (((strlen result) > 0) && needsSpace) {
+                        result = result + " "
+                    }
+                    result = result + text
+                    
+                    ; Check if there's trailing whitespace for next item
+                    def lastRawChar:int (charAt rawText ((strlen rawText) - 1))
+                    needsSpace = ((lastRawChar == 32) || (lastRawChar == 9) || (lastRawChar == 10) || (lastRawChar == 13))
+                } {
+                    ; Text was all whitespace - mark that we need space for next item
+                    if ((strlen rawText) > 0) {
+                        needsSpace = true
+                    }
+                }
+            }
+            
+            if (child.nodeType == "JSXExpressionContainer") {
+                if child.left {
+                    def exprNode:TSNode (unwrap child.left)
+                    def exprValue:EvalValue (this.evaluateExpr(exprNode))
+                    def exprStr:string (exprValue.toString())
+                    
+                    if (((strlen result) > 0) && needsSpace) {
+                        result = result + " "
+                    }
+                    result = result + exprStr
+                    needsSpace = false
+                }
+            }
+            
+            i = i + 1
+        }
+        
+        return result
+    }
+    
+    fn evaluateChildren:void (element:EVGElement jsxNode:TSNode) {
+        def i:int 0
+        while (i < (array_length jsxNode.children)) {
+            def child:TSNode (itemAt jsxNode.children i)
+            
+            if (child.nodeType == "JSXElement") {
+                def childEl:EVGElement (this.evaluateJSXElement(child))
+                if ((strlen childEl.tagName) > 0) {
+                    element.addChild(childEl)
+                }
+            }
+            
+            if (child.nodeType == "JSXText") {
+                def text:string (this.trimText(child.value))
+                if ((strlen text) > 0) {
+                    def textEl (new EVGElement())
+                    textEl.tagName = "text"
+                    textEl.textContent = text
+                    element.addChild(textEl)
+                }
+            }
+            
+            if (child.nodeType == "JSXExpressionContainer") {
+                this.evaluateExpressionChild(element child)
+            }
+            
+            if (child.nodeType == "JSXFragment") {
+                ; Flatten fragment children
+                this.evaluateChildren(element child)
+            }
+            
+            i = i + 1
+        }
+    }
+    
+    fn evaluateExpressionChild:void (element:EVGElement exprContainer:TSNode) {
+        if exprContainer.left {
+            def exprNode:TSNode (unwrap exprContainer.left)
+            
+            ; Handle array.map()
+            if (exprNode.nodeType == "CallExpression") {
+                this.evaluateArrayMapChild(element exprNode)
+                return
+            }
+            
+            ; Handle ternary conditionals
+            if (exprNode.nodeType == "ConditionalExpression") {
+                this.evaluateTernaryChild(element exprNode)
+                return
+            }
+            
+            ; Handle && conditionals
+            if (exprNode.nodeType == "BinaryExpression") {
+                if (exprNode.value == "&&") {
+                    this.evaluateAndChild(element exprNode)
+                    return
+                }
+            }
+            
+            ; For literals, add as text
+            def value:EvalValue (this.evaluateExpr(exprNode))
+            def isStr:boolean (value.isString())
+            def isNum:boolean (value.isNumber())
+            if (isStr || isNum) {
+                def textEl (new EVGElement())
+                textEl.tagName = "text"
+                textEl.textContent = (value.toString())
+                element.addChild(textEl)
+            }
+        }
+    }
+    
+    fn evaluateArrayMapChild:void (element:EVGElement callNode:TSNode) {
+        ; Get the array being mapped
+        if callNode.left {
+            def calleeNode:TSNode (unwrap callNode.left)
+            if (calleeNode.nodeType == "MemberExpression") {
+                def methodName:string calleeNode.name
+                if (methodName == "map") {
+                    ; Get the array
+                    if calleeNode.left {
+                        def arrayExpr:TSNode (unwrap calleeNode.left)
+                        def arrayValue:EvalValue (this.evaluateExpr(arrayExpr))
+                        
+                        if (arrayValue.isArray()) {
+                            ; Get the callback function
+                            if ((array_length callNode.children) > 0) {
+                                def callback:TSNode (itemAt callNode.children 0)
+                                
+                                ; Map over array
+                                def i:int 0
+                                while (i < (array_length arrayValue.arrayValue)) {
+                                    def item:EvalValue (itemAt arrayValue.arrayValue i)
+                                    
+                                    ; Create child context with map variable
+                                    def savedContext:EvalContext context
+                                    context = (context.createChild())
+                                    
+                                    ; Bind the callback parameter
+                                    this.bindMapCallback(callback item i)
+                                    
+                                    ; Evaluate callback body
+                                    def resultEl:EVGElement (this.evaluateMapCallbackBody(callback))
+                                    if ((strlen resultEl.tagName) > 0) {
+                                        element.addChild(resultEl)
+                                    }
+                                    
+                                    context = savedContext
+                                    i = i + 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    fn bindMapCallback:void (callback:TSNode item:EvalValue index:int) {
+        if (callback.nodeType == "ArrowFunctionExpression") {
+            ; Get parameter name
+            if ((array_length callback.params) > 0) {
+                def param:TSNode (itemAt callback.params 0)
+                def paramName:string param.name
+                context.define(paramName item)
+            }
+            ; Bind index if second param exists
+            if ((array_length callback.params) > 1) {
+                def indexParam:TSNode (itemAt callback.params 1)
+                context.define(indexParam.name (EvalValue.fromInt(index)))
+            }
+        }
+    }
+    
+    fn evaluateMapCallbackBody:EVGElement (callback:TSNode) {
+        def empty (new EVGElement())
+        
+        if (callback.nodeType == "ArrowFunctionExpression") {
+            ; Arrow function body
+            if callback.body {
+                def body:TSNode (unwrap callback.body)
+                if ((body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment")) {
+                    return (this.evaluateJSX(body))
+                }
+                if (body.nodeType == "BlockStatement") {
+                    return (this.evaluateFunctionBody(body))
+                }
+            }
+        }
+        
+        return empty
+    }
+    
+    fn evaluateTernaryChild:void (element:EVGElement node:TSNode) {
+        ; Evaluate condition
+        if node.test {
+            def testExpr:TSNode (unwrap node.test)
+            def testValue:EvalValue (this.evaluateExpr(testExpr))
+            
+            if (testValue.toBool()) {
+                ; True branch
+                if node.consequent {
+                    def conseqNode:TSNode (unwrap node.consequent)
+                    if ((conseqNode.nodeType == "JSXElement") || (conseqNode.nodeType == "JSXFragment")) {
+                        def childEl:EVGElement (this.evaluateJSX(conseqNode))
+                        if ((strlen childEl.tagName) > 0) {
+                            element.addChild(childEl)
+                        }
+                    }
+                }
+            } {
+                ; False branch
+                if node.alternate {
+                    def altNode:TSNode (unwrap node.alternate)
+                    if ((altNode.nodeType == "JSXElement") || (altNode.nodeType == "JSXFragment")) {
+                        def childEl:EVGElement (this.evaluateJSX(altNode))
+                        if ((strlen childEl.tagName) > 0) {
+                            element.addChild(childEl)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    fn evaluateAndChild:void (element:EVGElement node:TSNode) {
+        ; Evaluate left side
+        if node.left {
+            def leftExpr:TSNode (unwrap node.left)
+            def leftValue:EvalValue (this.evaluateExpr(leftExpr))
+            
+            if (leftValue.toBool()) {
+                ; Render right side (the JSX element)
+                if node.right {
+                    def rightNode:TSNode (unwrap node.right)
+                    if ((rightNode.nodeType == "JSXElement") || (rightNode.nodeType == "JSXFragment")) {
+                        def childEl:EVGElement (this.evaluateJSX(rightNode))
+                        if ((strlen childEl.tagName) > 0) {
+                            element.addChild(childEl)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    ; ==========================================================================
+    ; Expression Evaluation
+    ; ==========================================================================
+    
+    fn evaluateExpr:EvalValue (node:TSNode) {
+        ; Literals
+        if (node.nodeType == "NumericLiteral") {
+            def numVal@(optional):double (to_double node.value)
+            if numVal {
+                return (EvalValue.number((unwrap numVal)))
+            }
+            return (EvalValue.number(0.0))
+        }
+        
+        if (node.nodeType == "StringLiteral") {
+            return (EvalValue.string((this.unquote(node.value))))
+        }
+        
+        if (node.nodeType == "BooleanLiteral") {
+            return (EvalValue.boolean((node.value == "true")))
+        }
+        
+        if (node.nodeType == "NullLiteral") {
+            return (EvalValue.null())
+        }
+        
+        ; Identifier (variable lookup)
+        if (node.nodeType == "Identifier") {
+            return (context.lookup(node.name))
+        }
+        
+        ; Binary expression
+        if (node.nodeType == "BinaryExpression") {
+            return (this.evaluateBinaryExpr(node))
+        }
+        
+        ; Unary expression
+        if (node.nodeType == "UnaryExpression") {
+            return (this.evaluateUnaryExpr(node))
+        }
+        
+        ; Conditional expression (ternary)
+        if (node.nodeType == "ConditionalExpression") {
+            return (this.evaluateConditionalExpr(node))
+        }
+        
+        ; Member expression
+        if (node.nodeType == "MemberExpression") {
+            return (this.evaluateMemberExpr(node))
+        }
+        
+        ; Array expression
+        if (node.nodeType == "ArrayExpression") {
+            return (this.evaluateArrayExpr(node))
+        }
+        
+        ; Object expression
+        if (node.nodeType == "ObjectExpression") {
+            return (this.evaluateObjectExpr(node))
+        }
+        
+        ; Parenthesized expression
+        if (node.nodeType == "ParenthesizedExpression") {
+            if node.left {
+                def inner:TSNode (unwrap node.left)
+                return (this.evaluateExpr(inner))
+            }
+        }
+        
+        return (EvalValue.null())
+    }
+    
+    fn evaluateBinaryExpr:EvalValue (node:TSNode) {
+        def op:string node.value
+        
+        ; Logical operators with short-circuit evaluation
+        if (op == "&&") {
+            if node.left {
+                def leftExpr:TSNode (unwrap node.left)
+                def left:EvalValue (this.evaluateExpr(leftExpr))
+                if ((left.toBool()) == false) {
+                    return left
+                }
+                if node.right {
+                    def rightExpr:TSNode (unwrap node.right)
+                    return (this.evaluateExpr(rightExpr))
+                }
+            }
+        }
+        
+        if (op == "||") {
+            if node.left {
+                def leftExpr:TSNode (unwrap node.left)
+                def left:EvalValue (this.evaluateExpr(leftExpr))
+                if (left.toBool()) {
+                    return left
+                }
+                if node.right {
+                    def rightExpr:TSNode (unwrap node.right)
+                    return (this.evaluateExpr(rightExpr))
+                }
+            }
+        }
+        
+        ; Evaluate both sides for other operators
+        def left:EvalValue (EvalValue.null())
+        def right:EvalValue (EvalValue.null())
+        
+        if node.left {
+            def leftExpr:TSNode (unwrap node.left)
+            left = (this.evaluateExpr(leftExpr))
+        }
+        if node.right {
+            def rightExpr:TSNode (unwrap node.right)
+            right = (this.evaluateExpr(rightExpr))
+        }
+        
+        ; Arithmetic
+        if (op == "+") {
+            def isLeftStr:boolean (left.isString())
+            def isRightStr:boolean (right.isString())
+            if (isLeftStr || isRightStr) {
+                return (EvalValue.string((left.toString()) + (right.toString())))
+            }
+            return (EvalValue.number((left.toNumber()) + (right.toNumber())))
+        }
+        if (op == "-") {
+            return (EvalValue.number((left.toNumber()) - (right.toNumber())))
+        }
+        if (op == "*") {
+            return (EvalValue.number((left.toNumber()) * (right.toNumber())))
+        }
+        if (op == "/") {
+            def rightNum:double (right.toNumber())
+            if (rightNum != 0.0) {
+                return (EvalValue.number((left.toNumber()) / rightNum))
+            }
+            return (EvalValue.number(0.0))
+        }
+        if (op == "%") {
+            def leftInt:int (to_int (left.toNumber()))
+            def rightInt:int (to_int (right.toNumber()))
+            if (rightInt != 0) {
+                return (EvalValue.fromInt((leftInt % rightInt)))
+            }
+            return (EvalValue.number(0.0))
+        }
+        
+        ; Comparison
+        if (op == "<") {
+            return (EvalValue.boolean((left.toNumber()) < (right.toNumber())))
+        }
+        if (op == ">") {
+            return (EvalValue.boolean((left.toNumber()) > (right.toNumber())))
+        }
+        if (op == "<=") {
+            return (EvalValue.boolean((left.toNumber()) <= (right.toNumber())))
+        }
+        if (op == ">=") {
+            return (EvalValue.boolean((left.toNumber()) >= (right.toNumber())))
+        }
+        
+        ; Equality
+        if ((op == "==") || (op == "===")) {
+            return (EvalValue.boolean((left.equals(right))))
+        }
+        if ((op == "!=") || (op == "!==")) {
+            return (EvalValue.boolean(((left.equals(right)) == false)))
+        }
+        
+        return (EvalValue.null())
+    }
+    
+    fn evaluateUnaryExpr:EvalValue (node:TSNode) {
+        def op:string node.value
+        if node.left {
+            def argExpr:TSNode (unwrap node.left)
+            def arg:EvalValue (this.evaluateExpr(argExpr))
+            
+            if (op == "!") {
+                return (EvalValue.boolean(((arg.toBool()) == false)))
+            }
+            if (op == "-") {
+                return (EvalValue.number(0.0 - (arg.toNumber())))
+            }
+            if (op == "+") {
+                return (EvalValue.number((arg.toNumber())))
+            }
+        }
+        
+        return (EvalValue.null())
+    }
+    
+    fn evaluateConditionalExpr:EvalValue (node:TSNode) {
+        if node.test {
+            def testExpr:TSNode (unwrap node.test)
+            def test:EvalValue (this.evaluateExpr(testExpr))
+            
+            if (test.toBool()) {
+                if node.consequent {
+                    def conseqNode:TSNode (unwrap node.consequent)
+                    return (this.evaluateExpr(conseqNode))
+                }
+            } {
+                if node.alternate {
+                    def altNode:TSNode (unwrap node.alternate)
+                    return (this.evaluateExpr(altNode))
+                }
+            }
+        }
+        
+        return (EvalValue.null())
+    }
+    
+    fn evaluateMemberExpr:EvalValue (node:TSNode) {
+        if node.left {
+            def leftExpr:TSNode (unwrap node.left)
+            def obj:EvalValue (this.evaluateExpr(leftExpr))
+            def propName:string node.name
+            
+            ; Check for computed access [index]
+            if node.computed {
+                if node.right {
+                    def indexExpr:TSNode (unwrap node.right)
+                    def indexVal:EvalValue (this.evaluateExpr(indexExpr))
+                    if (indexVal.isNumber()) {
+                        def idx:int (to_int (indexVal.toNumber()))
+                        return (obj.getIndex(idx))
+                    }
+                    if (indexVal.isString()) {
+                        return (obj.getMember(indexVal.stringValue))
+                    }
+                }
+            }
+            
+            return (obj.getMember(propName))
+        }
+        
+        return (EvalValue.null())
+    }
+    
+    fn evaluateArrayExpr:EvalValue (node:TSNode) {
+        def items:[EvalValue]
+        
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def elem:TSNode (itemAt node.children i)
+            def value:EvalValue (this.evaluateExpr(elem))
+            push items value
+            i = i + 1
+        }
+        
+        return (EvalValue.array(items))
+    }
+    
+    fn evaluateObjectExpr:EvalValue (node:TSNode) {
+        def keys:[string]
+        def values:[EvalValue]
+        
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def prop:TSNode (itemAt node.children i)
+            if (prop.nodeType == "Property") {
+                def key:string prop.name
+                push keys key
+                
+                if prop.left {
+                    def valueNode:TSNode (unwrap prop.left)
+                    push values (this.evaluateExpr(valueNode))
+                } {
+                    push values (EvalValue.null())
+                }
+            }
+            i = i + 1
+        }
+        
+        return (EvalValue.object(keys values))
+    }
+    
+    ; ==========================================================================
+    ; Utility Functions
+    ; ==========================================================================
+    
+    fn mapTagName:string (jsxTag:string) {
+        if (jsxTag == "Print") { return "print" }
+        if (jsxTag == "Section") { return "section" }
+        if (jsxTag == "Page") { return "page" }
+        if (jsxTag == "View") { return "div" }
+        if (jsxTag == "Label") { return "text" }
+        if (jsxTag == "Image") { return "image" }
+        if (jsxTag == "Spacer") { return "spacer" }
+        if (jsxTag == "Divider") { return "divider" }
+        if (jsxTag == "div") { return "div" }
+        if (jsxTag == "span") { return "text" }
+        if (jsxTag == "img") { return "image" }
+        return "div"
+    }
+    
+    fn trimText:string (text:string) {
+        ; Simple trim - remove leading/trailing whitespace
+        def result:string ""
+        def started:boolean false
+        def i:int 0
+        def len:int (strlen text)
+        
+        while (i < len) {
+            def c:int (charAt text i)
+            def isWhitespace:boolean ((c == 32) || (c == 9) || (c == 10) || (c == 13))
+            
+            if started {
+                result = result + (strfromcode c)
+            } {
+                if (isWhitespace == false) {
+                    started = true
+                    result = (strfromcode c)
+                }
+            }
+            i = i + 1
+        }
+        
+        ; Trim trailing
+        def trimLen:int (strlen result)
+        while (trimLen > 0) {
+            def lastC:int (charAt result (trimLen - 1))
+            if ((lastC == 32) || (lastC == 9) || (lastC == 10) || (lastC == 13)) {
+                result = (substring result 0 (trimLen - 1))
+                trimLen = trimLen - 1
+            } {
+                trimLen = 0
+            }
+        }
+        
+        return result
+    }
+    
+    fn normalizeWhitespace:string (text:string) {
+        ; Convert newlines/tabs to spaces and collapse multiple spaces to single space
+        def result:string ""
+        def lastWasSpace:boolean false
+        def i:int 0
+        def len:int (strlen text)
+        
+        while (i < len) {
+            def c:int (charAt text i)
+            def isWhitespace:boolean ((c == 32) || (c == 9) || (c == 10) || (c == 13))
+            
+            if isWhitespace {
+                if (lastWasSpace == false) {
+                    result = result + " "
+                    lastWasSpace = true
+                }
+            } {
+                result = result + (strfromcode c)
+                lastWasSpace = false
+            }
+            i = i + 1
+        }
+        
+        return result
+    }
+    
+    fn unquote:string (s:string) {
+        def len:int (strlen s)
+        if (len < 2) {
+            return s
+        }
+        def first:int (charAt s 0)
+        def last:int (charAt s (len - 1))
+        if (((first == 34) || (first == 39)) && (first == last)) {
+            return (substring s 1 (len - 1))
+        }
+        return s
+    }
+}

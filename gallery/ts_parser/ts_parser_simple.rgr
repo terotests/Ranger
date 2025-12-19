@@ -39,6 +39,11 @@ class TSNode {
   def body@(optional):TSNode
   def init@(optional):TSNode
   def typeAnnotation@(optional):TSNode
+  
+  ; ConditionalExpression fields (ESTree compatible)
+  def test@(optional):TSNode      ; condition in ternary
+  def consequent@(optional):TSNode ; true branch in ternary
+  def alternate@(optional):TSNode  ; false branch in ternary
 }
 
 class TSParserSimple {
@@ -1779,7 +1784,9 @@ class TSParserSimple {
         ; Check for default value = expr
         if (this.matchValue("=")) {
           this.advance()
-          prop.init = (this.parseExpr())
+          def defaultExpr (this.parseExpr())
+          prop.init = defaultExpr
+          prop.left = defaultExpr  ; Also set left for compatibility
         }
         
         push node.children prop
@@ -1912,20 +1919,64 @@ class TSParserSimple {
   }
   
   fn parseParam:TSNode () {
-    def param (new TSNode())
-    param.nodeType = "Parameter"
-    
     ; Check for parameter decorators (@inject, @Required, etc.)
+    def decorators:[TSNode]
     while (this.matchValue("@")) {
       def dec (this.parseDecorator())
-      push param.decorators dec
+      push decorators dec
     }
     
     ; Check for rest parameter (...name)
+    def isRest:boolean false
     if (this.matchValue("...")) {
       this.advance()
+      isRest = true
+    }
+    
+    ; Check for object destructuring { name, value = default }
+    if (this.matchValue("{")) {
+      def pattern (this.parseObjectPattern())
+      ; Copy decorators if any
+      for decorators d:TSNode i {
+        push pattern.decorators d
+      }
+      if isRest {
+        def restElem (new TSNode())
+        restElem.nodeType = "RestElement"
+        restElem.left = pattern
+        return restElem
+      }
+      return pattern
+    }
+    
+    ; Check for array destructuring [ a, b, c ]
+    if (this.matchValue("[")) {
+      def pattern (this.parseArrayPattern())
+      ; Copy decorators if any
+      for decorators d:TSNode i {
+        push pattern.decorators d
+      }
+      if isRest {
+        def restElem (new TSNode())
+        restElem.nodeType = "RestElement"
+        restElem.left = pattern
+        return restElem
+      }
+      return pattern
+    }
+    
+    ; Simple parameter: name or ...name
+    def param (new TSNode())
+    if isRest {
       param.nodeType = "RestElement"
       param.kind = "rest"
+    } {
+      param.nodeType = "Parameter"
+    }
+    
+    ; Copy decorators
+    for decorators d:TSNode i {
+      push param.decorators d
     }
     
     def nameTok (this.expect("Identifier"))
@@ -1944,6 +1995,12 @@ class TSParserSimple {
     if (this.matchValue(":")) {
       def typeAnnot (this.parseTypeAnnotation())
       param.typeAnnotation = typeAnnot
+    }
+    
+    ; Default value
+    if (this.matchValue("=")) {
+      this.advance()
+      param.init = (this.parseExpr())
     }
     
     return param
@@ -3116,11 +3173,11 @@ class TSParserSimple {
   ; === Nullish Coalescing (??) ===
   
   fn parseNullishCoalescing:TSNode () {
-    def left (this.parseBinary())
+    def left (this.parseTernary())
     
     while (this.matchValue("??")) {
       this.advance()
-      def right (this.parseBinary())
+      def right (this.parseTernary())
       
       def nullish (new TSNode())
       nullish.nodeType = "LogicalExpression"
@@ -3136,36 +3193,183 @@ class TSParserSimple {
     return left
   }
   
-  fn parseBinary:TSNode () {
-    def left (this.parseUnary())
+  ; === Ternary/Conditional Expression (? :) ===
+  
+  fn parseTernary:TSNode () {
+    def testExpr (this.parseLogicalOr())
+    
+    if (this.matchValue("?")) {
+      this.advance()
+      def consequentExpr (this.parseAssign())
+      
+      if (this.matchValue(":")) {
+        this.advance()
+        def alternateExpr (this.parseAssign())
+        
+        def cond (new TSNode())
+        cond.nodeType = "ConditionalExpression"
+        cond.start = testExpr.start
+        cond.line = testExpr.line
+        cond.col = testExpr.col
+        cond.left = testExpr
+        ; Set ESTree standard field names
+        cond.test = testExpr
+        cond.consequent = consequentExpr
+        cond.alternate = alternateExpr
+        return cond
+      }
+    }
+    
+    return testExpr
+  }
+  
+  ; === Logical OR (||) ===
+  
+  fn parseLogicalOr:TSNode () {
+    def left (this.parseLogicalAnd())
+    
+    while (this.matchValue("||")) {
+      this.advance()
+      def right (this.parseLogicalAnd())
+      
+      def expr (new TSNode())
+      expr.nodeType = "BinaryExpression"
+      expr.value = "||"
+      expr.left = left
+      expr.right = right
+      expr.start = left.start
+      expr.line = left.line
+      expr.col = left.col
+      left = expr
+    }
+    
+    return left
+  }
+  
+  ; === Logical AND (&&) ===
+  
+  fn parseLogicalAnd:TSNode () {
+    def left (this.parseEquality())
+    
+    while (this.matchValue("&&")) {
+      this.advance()
+      def right (this.parseEquality())
+      
+      def expr (new TSNode())
+      expr.nodeType = "BinaryExpression"
+      expr.value = "&&"
+      expr.left = left
+      expr.right = right
+      expr.start = left.start
+      expr.line = left.line
+      expr.col = left.col
+      left = expr
+    }
+    
+    return left
+  }
+  
+  ; === Equality (==, !=, ===, !==) ===
+  
+  fn parseEquality:TSNode () {
+    def left (this.parseComparison())
     
     def tokVal (this.peekValue())
-    while ((tokVal == "+") || (tokVal == "-") || (tokVal == "*") || (tokVal == "/") || (tokVal == "**") || (tokVal == "===") || (tokVal == "!==") || (tokVal == "<") || (tokVal == ">")) {
+    while ((tokVal == "==") || (tokVal == "!=") || (tokVal == "===") || (tokVal == "!==")) {
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseComparison())
       
-      ; In TSX mode, check if < might be a generic call instead of comparison
-      ; If left is a lowercase identifier and < looks like generic call pattern, stop here
+      def expr (new TSNode())
+      expr.nodeType = "BinaryExpression"
+      expr.value = opTok.value
+      expr.left = left
+      expr.right = right
+      expr.start = left.start
+      expr.line = left.line
+      expr.col = left.col
+      left = expr
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  ; === Comparison (<, >, <=, >=) ===
+  
+  fn parseComparison:TSNode () {
+    def left (this.parseAdditive())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "<") || (tokVal == ">") || (tokVal == "<=") || (tokVal == ">=")) {
+      ; In TSX mode, check if < might be a generic call
       if (tokVal == "<") {
         if (this.tsxMode == true) {
           if (left.nodeType == "Identifier") {
             if (this.startsWithLowerCase(left.name)) {
               if (this.looksLikeGenericCall()) {
-                ; This is foo<T>(...), not a comparison - don't consume <
                 return left
               }
             }
           }
-          if (left.nodeType == "MemberExpression") {
-            if (this.looksLikeGenericCall()) {
-              return left
-            }
-          }
-          if (left.nodeType == "CallExpression") {
-            if (this.looksLikeGenericCall()) {
-              return left
-            }
-          }
         }
       }
+      
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseAdditive())
+      
+      def expr (new TSNode())
+      expr.nodeType = "BinaryExpression"
+      expr.value = opTok.value
+      expr.left = left
+      expr.right = right
+      expr.start = left.start
+      expr.line = left.line
+      expr.col = left.col
+      left = expr
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  ; === Additive (+ -) ===
+  ; Lower precedence than multiplicative
+
+  fn parseAdditive:TSNode () {
+    def left (this.parseMultiplicative())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "+") || (tokVal == "-")) {
+      
+      def opTok (this.peek())
+      this.advance()
+      def right (this.parseMultiplicative())
+      
+      def binExpr (new TSNode())
+      binExpr.nodeType = "BinaryExpression"
+      binExpr.value = opTok.value
+      binExpr.left = left
+      binExpr.right = right
+      binExpr.start = left.start
+      binExpr.line = left.line
+      binExpr.col = left.col
+      left = binExpr
+      tokVal = (this.peekValue())
+    }
+    
+    return left
+  }
+  
+  ; === Multiplicative (* / % **) ===
+  ; Higher precedence than additive
+
+  fn parseMultiplicative:TSNode () {
+    def left (this.parseUnary())
+    
+    def tokVal (this.peekValue())
+    while ((tokVal == "*") || (tokVal == "/") || (tokVal == "%") || (tokVal == "**")) {
       
       def opTok (this.peek())
       this.advance()
@@ -3576,8 +3780,8 @@ class TSParserSimple {
     def tokVal (this.peekValue())
     def tok (this.peek())
     
-    ; Identifier
-    if (tokType == "Identifier") {
+    ; Identifier (including TSType keywords like 'symbol', 'string', 'number' used as variable names)
+    if ((tokType == "Identifier") || (tokType == "TSType")) {
       this.advance()
       def id (new TSNode())
       id.nodeType = "Identifier"
