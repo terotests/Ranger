@@ -5075,6 +5075,8 @@ class EVGElement  {
     this.strokeWidth = 0.0;
     this.clipPath = "";
     this.className = "";
+    this.imageQuality = 0;
+    this.maxImageSize = 0;
     this.rotate = 0.0;
     this.scale = 1.0;
     this.calculatedX = 0.0;
@@ -5432,6 +5434,20 @@ class EVGElement  {
       this.clipPath = value;
       return;
     }
+    if ( name == "imageQuality" ) {
+      const val_5 = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      if ( typeof(val_5) != "undefined" ) {
+        this.imageQuality = val_5;
+      }
+      return;
+    }
+    if ( name == "maxImageSize" ) {
+      const val_6 = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      if ( typeof(val_6) != "undefined" ) {
+        this.maxImageSize = val_6;
+      }
+      return;
+    }
     if ( (name == "d") || (name == "svgPath") ) {
       this.svgPath = value;
       return;
@@ -5449,9 +5465,9 @@ class EVGElement  {
       return;
     }
     if ( (name == "stroke-width") || (name == "strokeWidth") ) {
-      const val_5 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
-      if ( typeof(val_5) != "undefined" ) {
-        this.strokeWidth = val_5;
+      const val_7 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(val_7) != "undefined" ) {
+        this.strokeWidth = val_7;
       }
       return;
     }
@@ -11606,6 +11622,15 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.usedFontNames.length = 0;
     this.embeddedFonts.length = 0;
     this.embeddedImages.length = 0;
+    if ( root.imageQuality > 0 ) {
+      this.jpegQuality = root.imageQuality;
+      console.log("Image quality: " + ((this.jpegQuality.toString())));
+    }
+    if ( root.maxImageSize > 0 ) {
+      this.maxImageWidth = root.maxImageSize;
+      this.maxImageHeight = root.maxImageSize;
+      console.log(("Max image size: " + ((this.maxImageWidth.toString()))) + "px");
+    }
     pdf.writeString("%PDF-1.5\n");
     pdf.writeByte(37);
     pdf.writeByte(226);

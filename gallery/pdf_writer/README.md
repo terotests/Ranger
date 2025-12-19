@@ -300,7 +300,7 @@ For documents with multiple pages, use the `Print`, `Section`, and `Page` elemen
 import { Print, Section, Page, View, Label } from "./evg_types";
 
 const MultiPageDocument = (
-  <Print title="My Document" author="Author Name">
+  <Print title="My Document" author="Author Name" imageQuality="85" maxImageSize="1200">
     <Section pageWidth="595" pageHeight="842" margin="40px">
       <Page>
         <View width="100%" height="100%" backgroundColor="#f0f0f0">
@@ -327,6 +327,24 @@ const MultiPageDocument = (
   </Print>
 );
 ```
+
+#### Print Element Attributes
+
+| Attribute       | Example    | Description                                        |
+| --------------- | ---------- | -------------------------------------------------- |
+| `title`         | `"My Doc"` | PDF document title (metadata)                      |
+| `author`        | `"Name"`   | PDF document author (metadata)                     |
+| `imageQuality`  | `"85"`     | JPEG quality 1-100 (default: 75, higher = better)  |
+| `maxImageSize`  | `"1200"`   | Max image dimension in pixels (default: 800)       |
+
+**Image Quality Guidelines:**
+
+| Quality | Use Case                              | File Size |
+| ------- | ------------------------------------- | --------- |
+| `50-60` | Web/screen viewing, drafts            | Smallest  |
+| `70-80` | Standard print, good balance          | Medium    |
+| `85-95` | High-quality print, photo books       | Larger    |
+| `100`   | Maximum quality (rarely needed)       | Largest   |
 
 #### Section Attributes
 
@@ -428,10 +446,20 @@ TrueType fonts are embedded in the PDF with proper glyph metrics for accurate te
 Images are automatically processed:
 
 1. **EXIF Orientation** - Rotates/flips based on camera orientation tag
-2. **Resize** - Scales large images to max 800×800 (configurable)
-3. **Quality** - Re-encodes at 75% JPEG quality (configurable)
+2. **Resize** - Scales large images to max dimension (default: 800px, configurable via `maxImageSize`)
+3. **Quality** - Re-encodes at configurable JPEG quality (default: 75, set via `imageQuality`)
 
-This reduces PDF file size significantly (e.g., 8MB photo → 500KB in PDF).
+Configure image settings on the `<Print>` element:
+
+```tsx
+<Print 
+  title="Photo Book" 
+  imageQuality="90"     // Higher quality for print (1-100)
+  maxImageSize="1200"   // Larger images for better detail
+>
+```
+
+This reduces PDF file size significantly (e.g., 8MB photo → 500KB in PDF at default settings, or ~1.5MB at quality 90 / size 1200).
 
 ---
 

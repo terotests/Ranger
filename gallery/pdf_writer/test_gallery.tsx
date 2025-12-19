@@ -23,7 +23,7 @@ const samplePhoto = "./bin/IMG_6573.jpg";
 
 function render() {
   return (
-    <Print title="Photo Album Gallery Test" author="EVG Demo">
+    <Print title="Photo Album Gallery Test" author="EVG Demo" imageQuality="85" maxImageSize="1200">
       <Section pageWidth="595" pageHeight="842" margin="0">
         {/* Page 1: Title Page */}
         <Page>

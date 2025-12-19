@@ -289,6 +289,17 @@ class EVGPDFRenderer {
         clear embeddedFonts
         clear embeddedImages
         
+        ; Read image settings from Print element
+        if (root.imageQuality > 0) {
+            jpegQuality = root.imageQuality
+            print ("Image quality: " + (to_string jpegQuality))
+        }
+        if (root.maxImageSize > 0) {
+            maxImageWidth = root.maxImageSize
+            maxImageHeight = root.maxImageSize
+            print ("Max image size: " + (to_string maxImageWidth) + "px")
+        }
+        
         ; PDF header
         pdf.writeString("%PDF-1.5\n")
         pdf.writeByte(37)   ; %
