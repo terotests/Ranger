@@ -94,6 +94,16 @@ class RangerAppParamDesc {
   def is_set:boolean false
   def is_class_variable:boolean false
   def is_captured:boolean false
+  
+  ; Static analysis fields for C++/Rust code generation
+  def mutation_count:int 0
+  def read_count:int 0
+  def is_assigned_from_member:boolean false
+  def source_member_name:string ""
+  def escapes_function:boolean false
+  def needs_cpp_reference:boolean false
+  def rust_borrow_type:int 0  ; 0=owned, 1=borrow, 2=mut_borrow
+  
   def node@(weak):CodeNode
   def nameNode@(weak):CodeNode
   def fnBody@(weak):CodeNode

@@ -23,6 +23,12 @@ class TTypes {
             case "buffer" {
                 return RangerNodeType.Buffer
             }
+            case "int_buffer" {
+                return RangerNodeType.IntBuffer
+            }
+            case "double_buffer" {
+                return RangerNodeType.DoubleBuffer
+            }
         }
         return RangerNodeType.NoType
     }
@@ -54,6 +60,12 @@ class TTypes {
             case RangerNodeType.Buffer {
                 return true
             }
+            case RangerNodeType.IntBuffer {
+                return true
+            }
+            case RangerNodeType.DoubleBuffer {
+                return true
+            }
             case RangerNodeType.Enum {
                 return true
             }
@@ -83,6 +95,12 @@ class TTypes {
             }
             case RangerNodeType.Buffer {
                 return "buffer"
+            }
+            case RangerNodeType.IntBuffer {
+                return "int_buffer"
+            }
+            case RangerNodeType.DoubleBuffer {
+                return "double_buffer"
             }
             case RangerNodeType.NoType {
                 return "<no type>"

@@ -1,0 +1,4 @@
+; Minimal int_buffer test
+
+def myBuf:int_buffer (int_buffer_alloc 5)
+print "allocated"

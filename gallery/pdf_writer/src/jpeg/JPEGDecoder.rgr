@@ -336,16 +336,12 @@ class JPEGDecoder {
         return true
     }
     
-    fn decodeBlock:[int] (reader:BitReader comp:JPEGComponent quantTable:QuantizationTable) {
+    fn decodeBlock:int_buffer (reader:BitReader comp:JPEGComponent quantTable:QuantizationTable) {
         ; Decode one 8x8 block
         ; Returns 64 dequantized DCT coefficients in zigzag order
         
-        def coeffs:[int]
-        def i 0
-        while (i < 64) {
-            push coeffs 0
-            i = i + 1
-        }
+        def coeffs:int_buffer (int_buffer_alloc 64)
+        int_buffer_fill coeffs 0 0 64
         
         ; Decode DC coefficient
         def dcTable:HuffmanTable (huffman.getDCTable(comp.dcTableId))
@@ -356,7 +352,7 @@ class JPEGDecoder {
         
         ; Dequantize DC
         def dcQuant:int (at quantTable.values 0)
-        set coeffs 0 (dcValue * dcQuant)
+        int_buffer_set coeffs 0 (dcValue * dcQuant)
         
         ; Decode AC coefficients
         def acTable:HuffmanTable (huffman.getACTable(comp.acTableId))
@@ -385,7 +381,7 @@ class JPEGDecoder {
                         
                         ; Dequantize
                         def acQuant:int (at quantTable.values k)
-                        set coeffs k (acValue * acQuant)
+                        int_buffer_set coeffs k (acValue * acQuant)
                         
                         k = k + 1
                     }
@@ -480,26 +476,22 @@ class JPEGDecoder {
                         def blockH 0
                         while (blockH < comp.hSamp) {
                             ; Decode block
-                            def coeffs:[int] (this.decodeBlock(reader comp quantTable))
+                            def coeffs:int_buffer (this.decodeBlock(reader comp quantTable))
                             
                             ; IDCT to get pixels
-                            def blockPixels:[int]
-                            def bi 0
-                            while (bi < 64) {
-                                push blockPixels 0
-                                bi = bi + 1
-                            }
+                            def blockPixels:int_buffer (int_buffer_alloc 64)
+                            int_buffer_fill blockPixels 0 0 64
                             
                             ; Dezigzag and transform
-                            def tempBlock:[int] (idct.dezigzag(coeffs))
+                            def tempBlock:int_buffer (idct.dezigzag(coeffs))
                             idct.transform(tempBlock blockPixels)
                             
                             ; Store block
                             if (compIdx == 0) {
                                 ; Y component - append to flat array
-                                bi = 0
+                                def bi 0
                                 while (bi < 64) {
-                                    push yBlocksData (at blockPixels bi)
+                                    push yBlocksData (int_buffer_get blockPixels bi)
                                     bi = bi + 1
                                 }
                                 yBlockCount = yBlockCount + 1
@@ -507,18 +499,18 @@ class JPEGDecoder {
                             if (compIdx == 1) {
                                 ; Cb component
                                 clear cbBlock
-                                bi = 0
+                                def bi 0
                                 while (bi < 64) {
-                                    push cbBlock (at blockPixels bi)
+                                    push cbBlock (int_buffer_get blockPixels bi)
                                     bi = bi + 1
                                 }
                             }
                             if (compIdx == 2) {
                                 ; Cr component
                                 clear crBlock
-                                bi = 0
+                                def bi 0
                                 while (bi < 64) {
-                                    push crBlock (at blockPixels bi)
+                                    push crBlock (int_buffer_get blockPixels bi)
                                     bi = bi + 1
                                 }
                             }

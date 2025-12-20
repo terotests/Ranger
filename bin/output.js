@@ -432,10 +432,17 @@ class RangerAppParamDesc  {
     this.initRefType = 0;
     this.paramIndex = 0;     /** note: unused */
     this.is_optional = false;
-    this.is_mutating = false;     /** note: unused */
+    this.is_mutating = false;
     this.is_set = false;     /** note: unused */
     this.is_class_variable = false;
     this.is_captured = false;
+    this.mutation_count = 0;
+    this.read_count = 0;     /** note: unused */
+    this.is_assigned_from_member = false;
+    this.source_member_name = "";
+    this.escapes_function = false;     /** note: unused */
+    this.needs_cpp_reference = false;
+    this.rust_borrow_type = 0;
     this.params = [];     /** note: unused */
     this.description = "";     /** note: unused */
     this.git_doc = "";
@@ -733,6 +740,11 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
     this.isUsingClasses = [];
     this.isDirectlyUsingClasses = [];
     this.myLambdas = [];
+    this.returns_member_field = false;
+    this.returned_member_name = "";
+    this.all_paths_return = false;     /** note: unused */
+    this.mutates_self = false;     /** note: unused */
+    this.static_analysis_done = false;
   }
   addCallTo (m) {
     if ( (m.isCalledBy.indexOf(this)) < 0 ) {
@@ -1966,7 +1978,7 @@ class CodeNode  {
         wr.out(this.vref, false);
         wr.out((":[" + this.array_type) + "]", false);
         break;
-      case 18 : 
+      case 20 : 
         wr.out("(fn--> ", false);
         for ( let i = 0; i < this.children.length; i++) {
           var ch = this.children[i];
@@ -2022,11 +2034,11 @@ class CodeNode  {
     const cn = node.children[1];
     const nodeValue = node.children[2];
     if ( (typeof(cn.expression_value) !== "undefined" && cn.expression_value != null )  ) {
-      cn.value_type = 18;
-      cn.parsed_type = 18;
+      cn.value_type = 20;
+      cn.parsed_type = 20;
       cn.has_vref_annotation = true;
     }
-    if ( nodeValue.eval_type == 18 ) {
+    if ( nodeValue.eval_type == 20 ) {
       if ( (typeof(nodeValue.expression_value) !== "undefined" && nodeValue.expression_value != null )  ) {
         cn.expression_value = nodeValue.expression_value.copy();
       } else {
@@ -2036,7 +2048,7 @@ class CodeNode  {
           cn.expression_value = copyOf;
         }
       }
-      cn.value_type = 18;
+      cn.value_type = 20;
     }
   };
   inferDefTypeFromValue (node) {
@@ -2046,7 +2058,7 @@ class CodeNode  {
     cn.type_name = nodeValue.eval_type_name;
     cn.array_type = nodeValue.eval_array_type;
     cn.key_type = nodeValue.eval_key_type;
-    if ( nodeValue.eval_type == 18 ) {
+    if ( nodeValue.eval_type == 20 ) {
       if ( (typeof(nodeValue.expression_value) !== "undefined" && nodeValue.expression_value != null )  ) {
         cn.expression_value = nodeValue.expression_value.copy();
       } else {
@@ -2225,7 +2237,7 @@ class CodeNode  {
       case 5 : 
         newNode.boolean_value = this.boolean_value;
         break;
-      case 18 : 
+      case 20 : 
         if ( (typeof(this.expression_value) !== "undefined" && this.expression_value != null )  ) {
           newNode.expression_value = this.expression_value.cloneWithType(match, changeVref);
         }
@@ -2317,7 +2329,7 @@ class CodeNode  {
       case 5 : 
         newNode.boolean_value = this.boolean_value;
         break;
-      case 18 : 
+      case 20 : 
         if ( (typeof(this.expression_value) !== "undefined" && this.expression_value != null )  ) {
           newNode.expression_value = this.expression_value.rebuildWithType(match, changeVref);
         }
@@ -2400,7 +2412,7 @@ class CodeNode  {
       s = s + "]";
       return s;
     }
-    if ( this.value_type == 18 ) {
+    if ( this.value_type == 20 ) {
       const fnNode = this.expression_value.getFirst();
       const argNode = this.expression_value.getSecond();
       s = (s + "(_:") + fnNode.buildTypeSignature();
@@ -2439,15 +2451,15 @@ class CodeNode  {
     return "";
   };
   typeNameAsType (ctx) {
-    if ( (this.value_type == 18) || (this.eval_type == 18) ) {
-      return 18;
+    if ( (this.value_type == 20) || (this.eval_type == 20) ) {
+      return 20;
     }
     const conv = TTypes.nameToValue(this.type_name);
     if ( conv != 0 ) {
       return conv;
     }
     if ( true == this.expression ) {
-      return 18;
+      return 20;
     }
     if ( this.value_type == 11 ) {
       if ( ctx.isEnumDefined(this.type_name) ) {
@@ -2493,13 +2505,13 @@ class CodeNode  {
     if ( node.value_type == 6 ) {
       this.eval_type = 6;
     }
-    if ( node.value_type == 18 ) {
-      this.eval_type = 18;
+    if ( node.value_type == 20 ) {
+      this.eval_type = 20;
       this.eval_function = node.eval_function;
     }
   };
   defineNodeTypeTo (node, ctx) {
-    if ( (node.value_type == 18) || (node.eval_type == 18) ) {
+    if ( (node.value_type == 20) || (node.eval_type == 20) ) {
       return;
     }
     switch (this.type_name ) { 
@@ -2528,6 +2540,16 @@ class CodeNode  {
         node.eval_type = 16;
         node.eval_type_name = "buffer";
         break;
+      case "int_buffer" : 
+        node.value_type = 17;
+        node.eval_type = 17;
+        node.eval_type_name = "int_buffer";
+        break;
+      case "double_buffer" : 
+        node.value_type = 18;
+        node.eval_type = 18;
+        node.eval_type_name = "double_buffer";
+        break;
       case "string" : 
         node.value_type = 4;
         node.eval_type = 4;
@@ -2540,8 +2562,8 @@ class CodeNode  {
         break;
       default: 
         if ( true == this.expression ) {
-          node.value_type = 18;
-          node.eval_type = 18;
+          node.value_type = 20;
+          node.eval_type = 20;
           node.expression = true;
         }
         if ( this.value_type == 6 ) {
@@ -2592,7 +2614,7 @@ class CodeNode  {
       this.eval_type_name = node.eval_type_name;
       this.eval_array_type = node.eval_array_type;
       this.eval_key_type = node.eval_key_type;
-      if ( node.value_type == 18 ) {
+      if ( node.value_type == 20 ) {
         if ( typeof(this.expression_value) === "undefined" ) {
           const copyOf = node.rebuildWithType(new RangerArgMatch(), false);
           copyOf.children.pop();
@@ -3538,7 +3560,7 @@ class RangerAppWriterContext  {
     return typeName;
   };
   isPrimitiveType (typeName) {
-    if ( ((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "boolean") ) {
+    if ( ((((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "int_buffer")) || (typeName == "double_buffer")) || (typeName == "boolean") ) {
       return true;
     }
     return false;
@@ -3547,7 +3569,7 @@ class RangerAppWriterContext  {
     if ( typeName == "Any" ) {
       return true;
     }
-    if ( ((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "boolean") ) {
+    if ( ((((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "int_buffer")) || (typeName == "double_buffer")) || (typeName == "boolean") ) {
       return true;
     }
     if ( this.isEnumDefined(typeName) ) {
@@ -3589,7 +3611,7 @@ class RangerAppWriterContext  {
     if ( this.isDefinedType(node.type_name) ) {
       return true;
     } else {
-      if ( node.value_type == 18 ) {
+      if ( node.value_type == 20 ) {
       } else {
         this.addError(node, (("Unknown type: " + node.type_name) + " type ID : ") + node.value_type);
       }
@@ -4984,7 +5006,7 @@ class RangerLispParser  {
       if ( c == (123) ) {
         const cNode = this.curr_node;
         const new_attr = new CodeNode(this.code, sp, ep);
-        new_attr.value_type = 22;
+        new_attr.value_type = 24;
         new_attr.parsed_type = new_attr.value_type;
         new_attr.vref = s.substring(an_sp, (an_ep + 1) );
         new_attr.string_value = s.substring(sp, ep );
@@ -5013,7 +5035,7 @@ class RangerLispParser  {
         ep = this.i;
         if ( (this.i < this.__len) && (ep > sp) ) {
           const new_attr_1 = new CodeNode(this.code, sp, ep);
-          new_attr_1.value_type = 22;
+          new_attr_1.value_type = 24;
           new_attr_1.parsed_type = new_attr_1.value_type;
           new_attr_1.vref = s.substring(an_sp, (an_ep + 1) );
           new_attr_1.string_value = s.substring(sp, ep );
@@ -5115,7 +5137,7 @@ class RangerLispParser  {
         if ( typeof(this.curr_node) === "undefined" ) {
           const new_rnode = new CodeNode(this.code, sp, ep);
           new_rnode.vref = new_tag;
-          new_rnode.value_type = 20;
+          new_rnode.value_type = 22;
           new_rnode.parsed_type = new_rnode.value_type;
           this.rootNode = new_rnode;
           this.parents.push(new_rnode);
@@ -5123,7 +5145,7 @@ class RangerLispParser  {
         } else {
           const new_node_2 = new CodeNode(this.code, sp, ep);
           new_node_2.vref = new_tag;
-          new_node_2.value_type = 20;
+          new_node_2.value_type = 22;
           new_node_2.parsed_type = new_node_2.value_type;
           this.curr_node.children.push(new_node_2);
           new_node_2.parent = this.curr_node;
@@ -5155,7 +5177,7 @@ class RangerLispParser  {
         if ( ep > sp ) {
           const new_node_3 = new CodeNode(this.code, sp, ep);
           new_node_3.string_value = s.substring(sp, ep );
-          new_node_3.value_type = 21;
+          new_node_3.value_type = 23;
           new_node_3.parsed_type = new_node_3.value_type;
           this.curr_node.children.push(new_node_3);
           new_node_3.parent = this.curr_node;
@@ -5179,10 +5201,10 @@ class RangerLispParser  {
     let disable_ops_set = disable_ops;
     while (this.i < this.__len) {
       if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
-        if ( this.curr_node.value_type == 22 ) {
+        if ( this.curr_node.value_type == 24 ) {
           return;
         }
-        if ( this.curr_node.value_type == 20 ) {
+        if ( this.curr_node.value_type == 22 ) {
           return;
         }
       }
@@ -5521,8 +5543,8 @@ class RangerLispParser  {
             new_expr_node_1.vref = s.substring(sp, ep );
             new_expr_node_1.ns = ns_list;
             new_expr_node_1.expression_value = vann_arr2;
-            new_expr_node_1.parsed_type = 18;
-            new_expr_node_1.value_type = 18;
+            new_expr_node_1.parsed_type = 20;
+            new_expr_node_1.value_type = 20;
             if ( vref_had_type_ann ) {
               new_expr_node_1.vref_annotation = vref_ann_node;
               new_expr_node_1.has_vref_annotation = true;
@@ -5810,7 +5832,7 @@ class RangerArgMatch  {
         }
       }
       if ( arg.isPrimitiveType() ) {
-        if ( (callArg.value_type == 18) || (callArg.eval_type == 18) ) {
+        if ( (callArg.value_type == 20) || (callArg.eval_type == 20) ) {
           all_matched = false;
           break;
         }
@@ -6239,11 +6261,11 @@ class RangerArgMatch  {
     }
     switch (t_name ) { 
       case "expression" : 
-        return 17;
+        return 19;
       case "block" : 
-        return 17;
+        return 19;
       case "arguments" : 
-        return 17;
+        return 19;
       case "string" : 
         return 4;
       case "int" : 
@@ -6254,6 +6276,10 @@ class RangerArgMatch  {
         return 15;
       case "buffer" : 
         return 16;
+      case "int_buffer" : 
+        return 17;
+      case "double_buffer" : 
+        return 18;
       case "boolean" : 
         return 5;
       case "double" : 
@@ -6273,7 +6299,7 @@ class RangerArgMatch  {
     if ( (arg.value_type != 7) && (arg.value_type != 6) ) {
       if ( ( typeof(this.matchedLambdas[arg.type_name] ) != "undefined" && this.matchedLambdas.hasOwnProperty(arg.type_name) ) ) {
         const lam = ( this.matchedLambdas.hasOwnProperty(arg.type_name) ? this.matchedLambdas[arg.type_name] : undefined );
-        node.eval_type = 18;
+        node.eval_type = 20;
         node.expression_value = lam.copy();
         return true;
       }
@@ -7262,6 +7288,10 @@ TTypes.nameToValue = function(name) {
       return 15;
     case "buffer" : 
       return 16;
+    case "int_buffer" : 
+      return 17;
+    case "double_buffer" : 
+      return 18;
   };
   return 0;
 };
@@ -7280,6 +7310,10 @@ TTypes.isPrimitive = function(valueType) {
     case 15 : 
       return true;
     case 16 : 
+      return true;
+    case 17 : 
+      return true;
+    case 18 : 
       return true;
     case 13 : 
       return true;
@@ -7302,6 +7336,10 @@ TTypes.valueAsString = function(valueType) {
       return "charbuffer";
     case 16 : 
       return "buffer";
+    case 17 : 
+      return "int_buffer";
+    case 18 : 
+      return "double_buffer";
     case 0 : 
       return "<no type>";
     case 1 : 
@@ -7322,43 +7360,43 @@ TTypes.valueAsString = function(valueType) {
       return "Enum";
     case 12 : 
       return "Comment";
-    case 17 : 
-      return "Expression";
-    case 18 : 
-      return "ExpressionType";
     case 19 : 
-      return "Lambda";
+      return "Expression";
     case 20 : 
-      return "XMLNode";
+      return "ExpressionType";
     case 21 : 
-      return "XMLText";
+      return "Lambda";
     case 22 : 
-      return "XMLAttr";
+      return "XMLNode";
     case 23 : 
-      return "XMLAttr";
+      return "XMLText";
     case 24 : 
-      return "Dictionary";
+      return "XMLAttr";
     case 25 : 
-      return "Any";
+      return "XMLAttr";
     case 26 : 
-      return "Class";
+      return "Dictionary";
     case 27 : 
-      return "GenericClass";
+      return "Any";
     case 28 : 
-      return "ClassRef";
+      return "Class";
     case 29 : 
-      return "Method";
+      return "GenericClass";
     case 30 : 
-      return "ClassVar";
+      return "ClassRef";
     case 31 : 
-      return "ClassVar";
+      return "Method";
     case 32 : 
-      return "Literal";
+      return "ClassVar";
     case 33 : 
-      return "Quasiliteral";
+      return "ClassVar";
     case 34 : 
-      return "Null";
+      return "Literal";
     case 35 : 
+      return "Quasiliteral";
+    case 36 : 
+      return "Null";
+    case 37 : 
       return "ArrayLiteral";
     default: 
       return "InvalidValueTypeEnum";
@@ -7527,9 +7565,9 @@ class RangerFlowParser  {
       }
       return true;
     }
-    if ( node.value_type == 20 ) {
+    if ( node.value_type == 22 ) {
       const fc = node;
-      if ( fc.value_type == 20 ) {
+      if ( fc.value_type == 22 ) {
         const opBody = CodeNode.blockNode();
         const opTpl = CodeNode.fromList([CodeNode.vref1("defn"), CodeNode.vref1("tmp_create"), CodeNode.expressionNode()]);
         let currCnt = 1;
@@ -7550,7 +7588,7 @@ class RangerFlowParser  {
               }
             }));
             await operatorsOf.forEach_15(xmlNode.children, (async (item, index) => { 
-              if ( item.value_type != 20 ) {
+              if ( item.value_type != 22 ) {
                 if ( item.expression ) {
                   const itemCopy = item.copy();
                   const theNode = item;
@@ -7571,7 +7609,7 @@ class RangerFlowParser  {
                 } else {
                 }
               }
-              if ( item.value_type == 20 ) {
+              if ( item.value_type == 22 ) {
                 if ( ctx.hasClass(item.vref) ) {
                   const paramClassDef_1 = ctx.findClass(item.vref);
                   const chNode_1 = item;
@@ -7599,7 +7637,7 @@ class RangerFlowParser  {
               }
             }));
             await operatorsOf.forEach_15(xmlNode.children, (async (item, index) => { 
-              if ( item.value_type != 20 ) {
+              if ( item.value_type != 22 ) {
                 if ( item.expression ) {
                   const itemCopy_1 = item.copy();
                   const theNode_1 = item;
@@ -7621,7 +7659,7 @@ class RangerFlowParser  {
                   }
                 }
               }
-              if ( item.value_type == 20 ) {
+              if ( item.value_type == 22 ) {
                 if ( ctx.hasClass(item.vref) ) {
                   const paramClassDef_3 = ctx.findClass(item.vref);
                   const chNode_3 = item;
@@ -7902,7 +7940,7 @@ class RangerFlowParser  {
         }
         node.copyEvalResFrom(item);
         if ( (i == 0) && ((node.children.length) == 2) ) {
-          if ( (item.eval_type == 29) && ((typeof(item.paramDesc) !== "undefined" && item.paramDesc != null ) ) ) {
+          if ( (item.eval_type == 31) && ((typeof(item.paramDesc) !== "undefined" && item.paramDesc != null ) ) ) {
             const mDesc = item.paramDesc;
             node.eval_type = mDesc.nameNode.value_type;
             node.eval_type_name = mDesc.nameNode.type_name;
@@ -7912,7 +7950,7 @@ class RangerFlowParser  {
             return true;
           }
         }
-        if ( (((typeof(item.expression_value) !== "undefined" && item.expression_value != null ) ) || (item.value_type == 18)) || (item.eval_type == 18) ) {
+        if ( (((typeof(item.expression_value) !== "undefined" && item.expression_value != null ) ) || (item.value_type == 20)) || (item.eval_type == 20) ) {
           if ( (i == 0) && ((node.children.length) == 2) ) {
             node.has_lambda_call = true;
             const second = node.children[1];
@@ -7926,7 +7964,7 @@ class RangerFlowParser  {
               node.eval_type_name = nn.type_name;
               node.eval_array_type = nn.array_type;
               node.eval_key_type = nn.key_type;
-              if ( node.eval_type == 18 ) {
+              if ( node.eval_type == 20 ) {
                 node.expression_value = nn.expression_value.copy();
               }
               if ( nn.hasFlag("optional") ) {
@@ -8033,7 +8071,7 @@ class RangerFlowParser  {
         }
         const mDef = currC.findMethod(prop.vref);
         if ( (typeof(mDef) !== "undefined" && mDef != null )  ) {
-          node.eval_type = 29;
+          node.eval_type = 31;
           node.hasParamDesc = true;
           node.ownParamDesc = mDef;
           node.paramDesc = mDef;
@@ -8135,7 +8173,7 @@ class RangerFlowParser  {
       let class_or_this = rootObjName == this.getThisName();
       if ( ctx.isDefinedClass(rootObjName) ) {
         class_or_this = true;
-        node.eval_type = 26;
+        node.eval_type = 28;
         node.eval_type_name = rootObjName;
         const m_2 = ctx.getCurrentMethod();
         m_2.addClassUsage(ctx.findClass(rootObjName), ctx);
@@ -8700,7 +8738,7 @@ class RangerFlowParser  {
             ctx.addError(obj_2, ("The method " + m.name) + " potentially throws an exception, try { } block is required");
           }
         }
-        if ( nn.value_type == 18 ) {
+        if ( nn.value_type == 20 ) {
           node.expression_value = nn.expression_value.copy();
         }
         if ( nn.hasFlag("optional") ) {
@@ -8761,7 +8799,7 @@ class RangerFlowParser  {
       if ( item2.key_type != item.key_type ) {
         all_matched = false;
       }
-      if ( all_matched && (item.value_type == 18) ) {
+      if ( all_matched && (item.value_type == 20) ) {
         if ( false == await this.matchLambdaArgs((item.expression_value), (item2.expression_value), ctx, wr) ) {
           all_matched = false;
         }
@@ -8785,7 +8823,7 @@ class RangerFlowParser  {
       if ( item2_1.key_type != item.key_type ) {
         all_matched = false;
       }
-      if ( all_matched && (item.value_type == 18) ) {
+      if ( all_matched && (item.value_type == 20) ) {
         if ( false == await this.matchLambdaArgs((item.expression_value), (item2_1.expression_value), ctx, wr) ) {
           all_matched = false;
         }
@@ -9000,7 +9038,7 @@ class RangerFlowParser  {
         node.eval_type_name = nn.type_name;
         node.eval_array_type = nn.array_type;
         node.eval_key_type = nn.key_type;
-        if ( node.eval_type == 18 ) {
+        if ( node.eval_type == 20 ) {
           node.expression_value = nn.expression_value.copy();
         }
         if ( nn.hasFlag("optional") ) {
@@ -9086,7 +9124,7 @@ class RangerFlowParser  {
       if ( d.nameNode.hasFlag("optional") ) {
         ctx.addError(node, "Can not call optional lambda function, unwrap the function first!");
       }
-      if ( d.nameNode.value_type == 18 ) {
+      if ( d.nameNode.value_type == 20 ) {
         const cnNode1 = node.children[0];
         await this.WalkNode(cnNode1, ctx, wr);
         const lambdaDefArgs = d.nameNode.expression_value.children[1];
@@ -9104,7 +9142,7 @@ class RangerFlowParser  {
         node.eval_type_name = lambdaDef.type_name;
         node.eval_array_type = lambdaDef.array_type;
         node.eval_key_type = lambdaDef.key_type;
-        if ( node.eval_type == 18 ) {
+        if ( node.eval_type == 20 ) {
           if ( (typeof(lambdaDef.expression_value) !== "undefined" && lambdaDef.expression_value != null )  ) {
             node.expression_value = lambdaDef.expression_value.copy();
           }
@@ -9744,7 +9782,7 @@ class RangerFlowParser  {
             nameNode.type_name = origNode.eval_type_name;
             nameNode.array_type = origNode.eval_array_type;
             nameNode.key_type = origNode.eval_key_type;
-            if ( argVal.eval_type == 18 ) {
+            if ( argVal.eval_type == 20 ) {
               if ( (typeof(argVal.expression_value) !== "undefined" && argVal.expression_value != null )  ) {
                 nameNode.expression_value = argVal.expression_value.copy();
               } else {
@@ -9960,7 +9998,7 @@ class RangerFlowParser  {
     };
     node.has_lambda = true;
     node.lambda_ctx = subCtx;
-    node.eval_type = 18;
+    node.eval_type = 20;
     node.eval_function = node;
     node.expression_value = node.copy();
     node.lambdaFnDesc = m;
@@ -11314,7 +11352,7 @@ class RangerFlowParser  {
     }
   };
   async areEqualTypes (n1, n2, ctx, wr) {
-    if ( n1.eval_type == 18 ) {
+    if ( n1.eval_type == 20 ) {
       let n1Expr = n1.expression_value;
       let n2Expr = n2.expression_value;
       if ( typeof(n1Expr) === "undefined" ) {
@@ -11360,7 +11398,7 @@ class RangerFlowParser  {
           return await this.areEqualTypes(n1, n2, ctx, wr);
         }
       }
-      if ( n2.eval_type == 29 ) {
+      if ( n2.eval_type == 31 ) {
         const pDesc = (n2.paramDesc);
         await this.transformMethodToLambda(n2, pDesc, ctx, wr);
         return true;
@@ -11706,7 +11744,7 @@ class RangerFlowParser  {
             continue;
           }
           last_walked = i + 1;
-          if ( arg.value_type == 18 ) {
+          if ( arg.value_type == 20 ) {
             const opList = await ctx.getOpFns(callArg.vref);
             if ( (opList.length) > 0 ) {
               const signature = arg.expression_value.copy();
@@ -12140,7 +12178,7 @@ class RangerFlowParser  {
             const currMM = ctx.getCurrentMethod();
             for ( let i_7 = 0; i_7 < newArgs.children.length; i_7++) {
               var ca_2 = newArgs.children[i_7];
-              if ( ca_2.eval_type == 18 ) {
+              if ( ca_2.eval_type == 20 ) {
                 if ( (typeof(ca_2.lambdaFnDesc) !== "undefined" && ca_2.lambdaFnDesc != null )  ) {
                   if ( (typeof(staticMethod) !== "undefined" && staticMethod != null )  ) {
                     staticMethod.addCallTo(ca_2.lambdaFnDesc);
@@ -12208,19 +12246,19 @@ class RangerFlowParser  {
           }
           if ( nameNode.hasFlag("returns") ) {
             const activeFn_2 = ctx.getCurrentMethod();
-            if ( (activeFn_2.nameNode.type_name != "void") || (activeFn_2.nameNode.value_type == 18) ) {
+            if ( (activeFn_2.nameNode.type_name != "void") || (activeFn_2.nameNode.value_type == 20) ) {
               if ( (callArgs.children.length) < 2 ) {
                 ctx.addError(callArgs, " missing return value !!!");
               } else {
                 const returnedValue = callArgs.children[1];
                 let validated_returnvalue = false;
-                if ( activeFn_2.nameNode.value_type == 18 ) {
+                if ( activeFn_2.nameNode.value_type == 20 ) {
                   validated_returnvalue = true;
                   const fnExpr = activeFn_2.nameNode.expression_value;
                   if ( typeof(fnExpr) === "undefined" ) {
                     ctx.addError(activeFn_2.nameNode, "returned anonymous function should have a method signature");
                   } else {
-                    if ( (returnedValue.value_type != 18) && (returnedValue.eval_type != 18) ) {
+                    if ( (returnedValue.value_type != 20) && (returnedValue.eval_type != 20) ) {
                       ctx.addError(returnedValue, "Function should return anonymous function!");
                     } else {
                       if ( returnedValue.hasParamDesc && ((typeof(returnedValue.paramDesc.nameNode) !== "undefined" && returnedValue.paramDesc.nameNode != null ) ) ) {
@@ -12240,7 +12278,7 @@ class RangerFlowParser  {
                       ctx.addError(returnedValue, "invalid return value type!!! " + returnedValue.getCode());
                       ctx.addError(returnedValue, "^ code: " + returnedValue.getCode());
                       ctx.addError(activeFn_2.nameNode, "^ regarding to");
-                      if ( returnedValue.eval_type == 29 ) {
+                      if ( returnedValue.eval_type == 31 ) {
                         ctx.addError(activeFn_2.nameNode, "^ which was a method");
                       }
                       ctx.addError(activeFn_2.nameNode, "^ value type = " + returnedValue.eval_type);
@@ -12376,7 +12414,7 @@ TFactory.new_def_signature = function(node, ctx, wr) {
     const newTC = ctx.addTypeClass(sig);
     newTC.value_type = node.value_type;
     newTC.is_primitive = TTypes.isPrimitive(node.value_type);
-    if ( node.value_type == 18 ) {
+    if ( node.value_type == 20 ) {
       newTC.is_lambda = true;
     }
     if ( node.value_type == 6 ) {
@@ -12441,7 +12479,7 @@ TFactory.baseSignature = function(node) {
     s = s + "]";
     return s;
   }
-  if ( node.value_type == 18 ) {
+  if ( node.value_type == 20 ) {
     const fnNode = node.expression_value.getFirst();
     const argNode = node.expression_value.getSecond();
     s = (s + "(_:") + TFactory.baseSignature(fnNode);
@@ -13239,6 +13277,10 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
         return "byte[]";
       case "buffer" : 
         return "byte[]";
+      case "int_buffer" : 
+        return "long[]";
+      case "double_buffer" : 
+        return "double[]";
       case "char" : 
         return "byte";
       case "boolean" : 
@@ -13270,7 +13312,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     }
     if ( node.hasFlag("optional") ) {
       switch (v_type ) { 
-        case 18 : 
+        case 20 : 
           const sig = this.buildLambdaSignature((node.expression_value));
           const iface_name = this.getSignatureInterface(sig);
           wr.out(iface_name, false);
@@ -13366,7 +13408,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       };
     } else {
       switch (v_type ) { 
-        case 18 : 
+        case 20 : 
           const sig_1 = this.buildLambdaSignature((node.expression_value));
           const iface_name_1 = this.getSignatureInterface(sig_1);
           wr.out(iface_name_1, false);
@@ -14120,7 +14162,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 18 : 
+      case 20 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         const fc = sec.getFirst();
@@ -14367,7 +14409,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(arg.compiledName + " : ", false);
       const nn = arg.nameNode;
-      if ( nn.value_type == 18 ) {
+      if ( nn.value_type == 20 ) {
         wr.out("  @escaping  ", false);
       }
       await this.writeTypeDef(arg.nameNode, ctx, wr);
@@ -14390,7 +14432,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out(local.compiledName + " : ", false);
       const nn = arg.nameNode;
       if ( nn.hasFlag("strong") ) {
-        if ( nn.value_type == 18 ) {
+        if ( nn.value_type == 20 ) {
           wr.out("  @escaping  ", false);
         }
       }
@@ -14827,6 +14869,12 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         return "String";
       case "charbuffer" : 
         return "[UInt8]";
+      case "buffer" : 
+        return "[UInt8]";
+      case "int_buffer" : 
+        return "[Int64]";
+      case "double_buffer" : 
+        return "[Double]";
       case "char" : 
         return "UInt8";
       case "boolean" : 
@@ -14844,6 +14892,12 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         return "String";
       case "charbuffer" : 
         return "[UInt8]";
+      case "buffer" : 
+        return "[UInt8]";
+      case "int_buffer" : 
+        return "[Int64]";
+      case "double_buffer" : 
+        return "[Double]";
       case "char" : 
         return "UInt8";
       case "boolean" : 
@@ -14874,7 +14928,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 18 : 
+      case 20 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         const fc = sec.getFirst();
@@ -14909,6 +14963,15 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         break;
       case 15 : 
         wr.out("[UInt8]", false);
+        break;
+      case 16 : 
+        wr.out("[UInt8]", false);
+        break;
+      case 17 : 
+        wr.out("[Int64]", false);
+        break;
+      case 18 : 
+        wr.out("[Double]", false);
         break;
       case 5 : 
         wr.out("Bool", false);
@@ -15124,7 +15187,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(arg.compiledName + " : ", false);
       const nn = arg.nameNode;
-      if ( nn.value_type == 18 ) {
+      if ( nn.value_type == 20 ) {
         wr.out("  @escaping  ", false);
       }
       await this.writeTypeDef(arg.nameNode, ctx, wr);
@@ -15147,7 +15210,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       wr.out(local.compiledName + " : ", false);
       const nn = arg.nameNode;
       if ( nn.hasFlag("strong") ) {
-        if ( nn.value_type == 18 ) {
+        if ( nn.value_type == 20 ) {
           wr.out("  @escaping  ", false);
         }
       }
@@ -15553,6 +15616,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     super()
     this.header_created = false;
   }
+  lineEnding () {
+    return ";";
+  };
   adjustType (tn) {
     if ( tn == "this" ) {
       return "this";
@@ -15588,6 +15654,10 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         return "const char*";
       case "buffer" : 
         return "std::vector<uint8_t>";
+      case "int_buffer" : 
+        return "std::vector<int64_t>";
+      case "double_buffer" : 
+        return "std::vector<double>";
       case "int" : 
         return "int";
       case "string" : 
@@ -15617,6 +15687,10 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         return "const char*";
       case "buffer" : 
         return "std::vector<uint8_t>";
+      case "int_buffer" : 
+        return "std::vector<int64_t>";
+      case "double_buffer" : 
+        return "std::vector<double>";
       case "int" : 
         return "int";
       case "string" : 
@@ -15657,7 +15731,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 18 : 
+      case 20 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         const fc = sec.getFirst();
@@ -15837,6 +15911,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         wr.out("", false);
       }
       await this.writeTypeDef(p.nameNode, ctx, wr);
+      if ( p.needs_cpp_reference ) {
+        wr.out("&", false);
+      }
       wr.out(" ", false);
       wr.out(p.compiledName, false);
       if ( (node.children.length) > 2 ) {
@@ -16095,6 +16172,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(" ", false);
       await this.writeTypeDef(arg.nameNode, ctx, wr);
+      if ( arg.needs_cpp_reference ) {
+        wr.out("&", false);
+      }
       wr.out((" " + arg.compiledName) + " ", false);
     };
   };
@@ -16535,6 +16615,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         return "f64";
       case "buffer" : 
         return "Vec<u8>";
+      case "int_buffer" : 
+        return "Vec<i64>";
+      case "double_buffer" : 
+        return "Vec<f64>";
     };
     return type_string;
   };
@@ -16550,6 +16634,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         return "f64";
       case "buffer" : 
         return "Vec<u8>";
+      case "int_buffer" : 
+        return "Vec<i64>";
+      case "double_buffer" : 
+        return "Vec<f64>";
     };
     return type_string;
   };
@@ -16601,6 +16689,12 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         break;
       case 16 : 
         wr.out("Vec<u8>", false);
+        break;
+      case 17 : 
+        wr.out("Vec<i64>", false);
+        break;
+      case 18 : 
+        wr.out("Vec<f64>", false);
         break;
       case 7 : 
         wr.out(((("HashMap<" + this.getObjectTypeString(node.key_type, ctx)) + ",") + this.getObjectTypeString(node.array_type, ctx)) + ">", false);
@@ -16700,7 +16794,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         }
       }
       const p_1 = node.paramDesc;
-      wr.out(p_1.compiledName, false);
+      wr.out(this.adjustType(p_1.compiledName), false);
       return;
     }
     let b_was_static = false;
@@ -16746,10 +16840,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       const nn = node.children[1];
       const p = nn.paramDesc;
       if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-        wr.out("/** unused:  ", false);
+        wr.out("// unused:  ", false);
       }
       const map_or_hash = (nn.value_type == 6) || (nn.value_type == 7);
-      const is_buffer = nn.value_type == 16;
+      const is_buffer = ((nn.value_type == 16) || (nn.value_type == 17)) || (nn.value_type == 18);
       const needs_mut = (((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer;
       const is_object = nn.value_type == 10;
       if ( needs_mut || is_object ) {
@@ -16785,10 +16879,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(";", false);
       if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-        wr.out("     /** note: unused */", false);
+        wr.out("     // note: unused", false);
       }
       if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-        wr.out("   **/ ", true);
+        wr.newline();
       } else {
         wr.newline();
       }
@@ -16805,11 +16899,16 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
         v_type = nameN.typeNameAsType(ctx);
       }
-      const is_object = ((v_type == 10) || (v_type == 6)) || (v_type == 7);
+      const is_object = ((((((v_type == 10) || (v_type == 6)) || (v_type == 7)) || (v_type == 17)) || (v_type == 18)) || (v_type == 15)) || (v_type == 16);
+      const paramName = this.adjustType(arg.compiledName);
       if ( is_object ) {
-        wr.out(("mut " + arg.name) + " : ", false);
+        wr.out(("mut " + paramName) + " : ", false);
       } else {
-        wr.out(arg.name + " : ", false);
+        if ( arg.set_cnt > 0 ) {
+          wr.out(("mut " + paramName) + " : ", false);
+        } else {
+          wr.out(paramName + " : ", false);
+        }
       }
       await this.writeTypeDef(nameN, ctx, wr);
     };
@@ -16863,18 +16962,6 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             tempVars.push("");
           }
         };
-        if ( (part != "this") && ctx.isMemberVariable(part) ) {
-          const uc = ctx.getCurrentClass();
-          if ( (typeof(uc) !== "undefined" && uc != null )  ) {
-            const currC = uc;
-            const up = currC.findVariable(part);
-            if ( (typeof(up) !== "undefined" && up != null )  ) {
-              if ( false == ctx.isInStatic() ) {
-                wr.out(this.thisName + ".", false);
-              }
-            }
-          }
-        }
         await this.WriteVRef(fc, ctx, wr);
         wr.out("(", false);
         for ( let i = 0; i < node.fnDesc.params.length; i++) {
@@ -16917,6 +17004,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             if ( arg_type == 10 ) {
               needs_clone = true;
             }
+            if ( (((((arg_type == 6) || (arg_type == 7)) || (arg_type == 17)) || (arg_type == 18)) || (arg_type == 15)) || (arg_type == 16) ) {
+              needs_clone = true;
+            }
             if ( needs_clone ) {
               if ( nVal.value_type == 11 ) {
                 wr.out(".clone()", false);
@@ -16929,18 +17019,6 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           wr.out(";", true);
         }
         return;
-      }
-      if ( (part != "this") && ctx.isMemberVariable(part) ) {
-        const uc_1 = ctx.getCurrentClass();
-        if ( (typeof(uc_1) !== "undefined" && uc_1 != null )  ) {
-          const currC_1 = uc_1;
-          const up_1 = currC_1.findVariable(part);
-          if ( (typeof(up_1) !== "undefined" && up_1 != null )  ) {
-            if ( false == ctx.isInStatic() ) {
-              wr.out(this.thisName + ".", false);
-            }
-          }
-        }
       }
       await this.WriteVRef(fc, ctx, wr);
       wr.out("(", false);
@@ -16978,6 +17056,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           needs_clone_1 = true;
         }
         if ( arg_type_1 == 10 ) {
+          needs_clone_1 = true;
+        }
+        if ( (((((arg_type_1 == 6) || (arg_type_1 == 7)) || (arg_type_1 == 17)) || (arg_type_1 == 18)) || (arg_type_1 == 15)) || (arg_type_1 == 16) ) {
           needs_clone_1 = true;
         }
         if ( needs_clone_1 ) {
@@ -17019,6 +17100,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             needs_clone = true;
           }
           if ( arg_type == 10 ) {
+            needs_clone = true;
+          }
+          if ( (((((arg_type == 6) || (arg_type == 7)) || (arg_type == 17)) || (arg_type == 18)) || (arg_type == 15)) || (arg_type == 16) ) {
             needs_clone = true;
           }
           if ( needs_clone ) {
@@ -17092,7 +17176,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( (node_1.children.length) > 2 ) {
           const valueNode = node_1.children[2];
           wr.out(this.adjustType(pvar_1.compiledName) + ":", false);
+          ctx.setInExpr();
           await this.WalkNode(valueNode, ctx, wr);
+          ctx.unsetInExpr();
           wr.out(", ", true);
         } else {
           if ( (pvar_1).isArray() ) {
@@ -17180,7 +17266,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     for ( let i_6 = 0; i_6 < cl.static_methods.length; i_6++) {
       var variant_2 = cl.static_methods[i_6];
       const nn_1 = variant_2.nameNode;
-      if ( nn_1.hasFlag("main") ) {
+      if ( nn_1.hasFlag("main") && (nn_1.code.filename == ctx.getRootFile()) ) {
         wr.out("fn main() {", true);
         wr.indent(1);
         wr.newline();
@@ -17548,6 +17634,12 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         return "String";
       case "chararray" : 
         return "CharArray";
+      case "buffer" : 
+        return "ByteArray";
+      case "int_buffer" : 
+        return "LongArray";
+      case "double_buffer" : 
+        return "DoubleArray";
       case "char" : 
         return "Char";
       case "boolean" : 
@@ -17565,6 +17657,12 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         return "String";
       case "chararray" : 
         return "CharArray";
+      case "buffer" : 
+        return "ByteArray";
+      case "int_buffer" : 
+        return "LongArray";
+      case "double_buffer" : 
+        return "DoubleArray";
       case "char" : 
         return "Char";
       case "boolean" : 
@@ -17594,6 +17692,15 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         break;
       case 15 : 
         wr.out("CharArray", false);
+        break;
+      case 16 : 
+        wr.out("ByteArray", false);
+        break;
+      case 17 : 
+        wr.out("LongArray", false);
+        break;
+      case 18 : 
+        wr.out("DoubleArray", false);
         break;
       case 4 : 
         wr.out("String", false);
@@ -17951,6 +18058,12 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
         return "String";
       case "chararray" : 
         return "byte[]";
+      case "buffer" : 
+        return "byte[]";
+      case "int_buffer" : 
+        return "long[]";
+      case "double_buffer" : 
+        return "double[]";
       case "char" : 
         return "byte";
       case "boolean" : 
@@ -17968,6 +18081,12 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
         return "String";
       case "chararray" : 
         return "byte[]";
+      case "buffer" : 
+        return "byte[]";
+      case "int_buffer" : 
+        return "long[]";
+      case "double_buffer" : 
+        return "double[]";
       case "char" : 
         return "byte";
       case "boolean" : 
@@ -18035,7 +18154,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 18 : 
+      case 20 : 
         await this.writeLambdaType(node.expression_value, ctx, wr);
         break;
       case 13 : 
@@ -18052,6 +18171,15 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
         break;
       case 15 : 
         wr.out("byte[]", false);
+        break;
+      case 16 : 
+        wr.out("byte[]", false);
+        break;
+      case 17 : 
+        wr.out("long[]", false);
+        break;
+      case 18 : 
+        wr.out("double[]", false);
         break;
       case 4 : 
         wr.out("String", false);
@@ -18380,6 +18508,12 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         return "Double";
       case "chararray" : 
         return "Array[Byte]";
+      case "buffer" : 
+        return "Array[Byte]";
+      case "int_buffer" : 
+        return "Array[Long]";
+      case "double_buffer" : 
+        return "Array[Double]";
       case "char" : 
         return "byte";
     };
@@ -18409,7 +18543,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 18 : 
+      case 20 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         const fc = sec.getFirst();
@@ -18453,6 +18587,15 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         break;
       case 15 : 
         wr.out("Array[Byte]", false);
+        break;
+      case 16 : 
+        wr.out("Array[Byte]", false);
+        break;
+      case 17 : 
+        wr.out("Array[Long]", false);
+        break;
+      case 18 : 
+        wr.out("Array[Double]", false);
         break;
       case 7 : 
         wr.addImport("scala.collection.mutable");
@@ -18490,7 +18633,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       v_type = node.eval_type;
     }
     switch (v_type ) { 
-      case 18 : 
+      case 20 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         const fc = sec.getFirst();
@@ -18534,6 +18677,15 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         break;
       case 15 : 
         wr.out("Array[Byte]", false);
+        break;
+      case 16 : 
+        wr.out("Array[Byte]", false);
+        break;
+      case 17 : 
+        wr.out("Array[Long]", false);
+        break;
+      case 18 : 
+        wr.out("Array[Double]", false);
         break;
       case 7 : 
         wr.addImport("scala.collection.mutable");
@@ -19144,6 +19296,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         return "[]byte";
       case "buffer" : 
         return "[]byte";
+      case "int_buffer" : 
+        return "[]int64";
+      case "double_buffer" : 
+        return "[]float64";
     };
     return ctx.transformTypeName(type_string);
   };
@@ -19166,6 +19322,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         return "[]byte";
       case "buffer" : 
         return "[]byte";
+      case "int_buffer" : 
+        return "[]int64";
+      case "double_buffer" : 
+        return "[]float64";
     };
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
@@ -19255,7 +19415,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 18 : 
+      case 20 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         const fc = sec.getFirst();
@@ -19293,6 +19453,12 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         break;
       case 16 : 
         wr.out("[]byte", false);
+        break;
+      case 17 : 
+        wr.out("[]int64", false);
+        break;
+      case 18 : 
+        wr.out("[]float64", false);
         break;
       case 7 : 
         if ( this.write_raw_type ) {
@@ -19778,6 +19944,56 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
+  async CreateCallExpression (node, ctx, wr) {
+    if ( node.has_call ) {
+      const obj = node.getSecond();
+      const method = node.getThird();
+      const args = node.children[3];
+      let needs_unwrap = false;
+      let obj_type_name = "";
+      if ( obj.hasParamDesc ) {
+        const p = obj.paramDesc;
+        if ( p.is_optional ) {
+          if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+            needs_unwrap = true;
+            obj_type_name = p.nameNode.type_name;
+          }
+        }
+      }
+      wr.out("(", false);
+      ctx.setInExpr();
+      await this.WalkNode(obj, ctx, wr);
+      ctx.unsetInExpr();
+      if ( needs_unwrap ) {
+        wr.out(").value.(*", false);
+        wr.out(obj_type_name, false);
+        wr.out(").", false);
+      } else {
+        wr.out(").", false);
+      }
+      wr.out(method.vref, false);
+      wr.out("(", false);
+      ctx.setInExpr();
+      const pms = operatorsOf.filter_36(args.children, ((item, index) => { 
+        if ( item.hasFlag("keyword") ) {
+          return false;
+        }
+        return true;
+      }));
+      for ( let i = 0; i < pms.length; i++) {
+        var arg = pms[i];
+        if ( i > 0 ) {
+          wr.out(", ", false);
+        }
+        await this.WalkNode(arg, ctx, wr);
+      };
+      ctx.unsetInExpr();
+      wr.out(")", false);
+      if ( ctx.expressionLevel() == 0 ) {
+        wr.out(";", true);
+      }
+    }
+  };
   async writeVarDef (node, ctx, wr) {
     if ( node.hasParamDesc ) {
       const nn = node.children[1];
@@ -19877,8 +20093,14 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         if ( p.nameNode.eval_type_name == "char" ) {
           wr.out("byte(", false);
         }
+        if ( (p.nameNode.eval_type_name == "int") && (value_6.eval_type_name == "char") ) {
+          wr.out("int64(", false);
+        }
         await this.WalkNode(value_6, ctx, wr);
         if ( p.nameNode.eval_type_name == "char" ) {
+          wr.out(")", false);
+        }
+        if ( (p.nameNode.eval_type_name == "int") && (value_6.eval_type_name == "char") ) {
           wr.out(")", false);
         }
         ctx.unsetInExpr();
@@ -21992,6 +22214,12 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         return "string";
       case "charbuffer" : 
         return "string";
+      case "buffer" : 
+        return "Uint8Array";
+      case "int_buffer" : 
+        return "BigInt64Array";
+      case "double_buffer" : 
+        return "Float64Array";
       case "char" : 
         return "number";
       case "boolean" : 
@@ -22020,6 +22248,12 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         return "string";
       case "charbuffer" : 
         return "string";
+      case "buffer" : 
+        return "Uint8Array";
+      case "int_buffer" : 
+        return "BigInt64Array";
+      case "double_buffer" : 
+        return "Float64Array";
       case "char" : 
         return "number";
       case "boolean" : 
@@ -22050,7 +22284,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     }
     switch (v_type ) { 
-      case 18 : 
+      case 20 : 
         const rv = node.expression_value.children[0];
         const sec = node.expression_value.children[1];
         const fc = sec.getFirst();
@@ -22090,7 +22324,13 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out("string", false);
         break;
       case 16 : 
-        wr.out("ArrayBuffer", false);
+        wr.out("Uint8Array", false);
+        break;
+      case 17 : 
+        wr.out("BigInt64Array", false);
+        break;
+      case 18 : 
+        wr.out("Float64Array", false);
         break;
       case 2 : 
         wr.out("number", false);
@@ -23576,7 +23816,7 @@ class LiveCompiler  {
       await this.WriteVRef(node, ctx, wr);
       return;
     }
-    if ( node.value_type == 19 ) {
+    if ( node.value_type == 21 ) {
       await this.WriteVRef(node, ctx, wr);
       return;
     }
@@ -23656,7 +23896,7 @@ class LiveCompiler  {
         await this.WalkNode(item, ctx, wr);
       };
     } else {
-      if ( node.value_type == 18 ) {
+      if ( node.value_type == 20 ) {
         await this.WriteVRef(node, ctx, wr);
       }
     }
@@ -24249,7 +24489,7 @@ class RangerDocGenerator  {
       case 7 : 
         wr.out(((("[" + item.key_type) + ":") + item.array_type) + "]", false);
         break;
-      case 18 : 
+      case 20 : 
         wr.out("(fn:", false);
         try {
           const rv = item.expression_value.children[0];
@@ -24498,1963 +24738,2235 @@ class RangerDocGenerator  {
     }
   };
 }
-class viewbuilder_Android  {
+class StaticAnalyzer  {
   constructor() {
+    this.debug = false;
+    this.mutatingOps = {};
   }
-  _attr (wr, name, value) {
-    wr.out((((("android:" + name) + "=") + "\"") + value) + "\" ", true);
+  initMutatingOps () {
+    this.mutatingOps["buffer_set"] = true;
+    this.mutatingOps["int_buffer_set"] = true;
+    this.mutatingOps["double_buffer_set"] = true;
+    this.mutatingOps["int_buffer_fill"] = true;
+    this.mutatingOps["double_buffer_fill"] = true;
+    this.mutatingOps["push"] = true;
+    this.mutatingOps["set"] = true;
+    this.mutatingOps["clear"] = true;
+    this.mutatingOps["remove"] = true;
+    this.mutatingOps["removeIndex"] = true;
+    this.mutatingOps["removeLast"] = true;
+    this.mutatingOps["removeFirst"] = true;
+    this.mutatingOps["put"] = true;
   };
-  async elWithText (name, node, wr) {
-    wr.out(("<" + name) + " ", true);
-    wr.indent(1);
-    let width = "match_parent";
-    const height = "wrap_content";
-    let weight = "";
-    await operatorsOf.forEach_15(node.children, ((item, index) => { 
-      switch (item.value_type ) { 
-        case 21 : 
-          this._attr(wr, "text", item.string_value);
+  isMutatingOperator (opName) {
+    if ( ( typeof(this.mutatingOps[opName] ) != "undefined" && this.mutatingOps.hasOwnProperty(opName) ) ) {
+      return (( this.mutatingOps.hasOwnProperty(opName) ? this.mutatingOps[opName] : undefined ));
+    }
+    return false;
+  };
+  isMutatingNode (node) {
+    if ( node.expression == false ) {
+      return false;
+    }
+    if ( (node.children.length) == 0 ) {
+      return false;
+    }
+    const first = node.getFirst();
+    if ( (first.vref.length) > 0 ) {
+      return this.isMutatingOperator(first.vref);
+    }
+    return false;
+  };
+  getRootVarName (node) {
+    if ( (node.vref.length) > 0 ) {
+      return node.vref;
+    }
+    if ( (node.children.length) > 0 ) {
+      const first = node.getFirst();
+      if ( (first.vref.length) > 0 ) {
+        return first.vref;
+      }
+    }
+    return "";
+  };
+  isMemberAccess (node) {
+    if ( (node.ns.length) >= 2 ) {
+      return true;
+    }
+    if ( (node.vref.length) > 0 ) {
+      const idx = node.vref.indexOf(".");
+      if ( idx > 0 ) {
+        return true;
+      }
+    }
+    if ( node.expression ) {
+      if ( (node.children.length) >= 2 ) {
+        const first = node.getFirst();
+        if ( (first.vref.length) > 0 ) {
+          const second = node.getSecond();
+          if ( (second.vref.length) > 0 ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+  getMemberPath (node) {
+    if ( (node.ns.length) >= 2 ) {
+      let path = "";
+      for ( let i = 0; i < node.ns.length; i++) {
+        var part = node.ns[i];
+        if ( i > 0 ) {
+          path = path + ".";
+        }
+        path = path + part;
+      };
+      return path;
+    }
+    if ( (node.vref.length) > 0 ) {
+      const idx = node.vref.indexOf(".");
+      if ( idx > 0 ) {
+        return node.vref;
+      }
+    }
+    if ( node.expression ) {
+      if ( (node.children.length) >= 2 ) {
+        const first = node.getFirst();
+        const second = node.getSecond();
+        if ( ((first.vref.length) > 0) && ((second.vref.length) > 0) ) {
+          return (first.vref + ".") + second.vref;
+        }
+      }
+    }
+    return "";
+  };
+  markVarAsMutated (varName, fnCtx) {
+    if ( (varName.length) == 0 ) {
+      return;
+    }
+    const param = fnCtx.getVariableDef(varName);
+    if ( (param.name.length) > 0 ) {
+      param.is_mutating = true;
+      param.mutation_count = param.mutation_count + 1;
+      if ( param.is_assigned_from_member ) {
+        param.needs_cpp_reference = true;
+        param.rust_borrow_type = 2;
+        if ( this.debug ) {
+          console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated, assigned from member)");
+        }
+      }
+      if ( param.varType == 4 ) {
+        if ( (typeof(param.nameNode) !== "undefined" && param.nameNode != null )  ) {
+          const typeNode = param.nameNode;
+          if ( (typeNode.array_type.length) > 0 ) {
+            param.needs_cpp_reference = true;
+            if ( this.debug ) {
+              console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated array function parameter)");
+            }
+          }
+          if ( (typeNode.key_type.length) > 0 ) {
+            param.needs_cpp_reference = true;
+            if ( this.debug ) {
+              console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated hash function parameter)");
+            }
+          }
+          if ( typeNode.type_name == "int_buffer" ) {
+            param.needs_cpp_reference = true;
+            if ( this.debug ) {
+              console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated int_buffer function parameter)");
+            }
+          }
+          if ( typeNode.type_name == "double_buffer" ) {
+            param.needs_cpp_reference = true;
+            if ( this.debug ) {
+              console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated double_buffer function parameter)");
+            }
+          }
+          if ( typeNode.type_name == "buffer" ) {
+            param.needs_cpp_reference = true;
+            if ( this.debug ) {
+              console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated buffer function parameter)");
+            }
+          }
+        }
+      }
+    }
+  };
+  analyzeVarDef (node) {
+    if ( (node.children.length) < 2 ) {
+      return;
+    }
+    const nameNode = node.getSecond();
+    const varName = nameNode.vref;
+    if ( (varName.length) == 0 ) {
+      return;
+    }
+    if ( (typeof(nameNode.paramDesc) !== "undefined" && nameNode.paramDesc != null )  ) {
+      if ( (node.children.length) >= 3 ) {
+        const valueNode = node.children[2];
+        if ( this.isMemberAccess(valueNode) ) {
+          const param = nameNode.paramDesc;
+          param.is_assigned_from_member = true;
+          param.source_member_name = this.getMemberPath(valueNode);
+          if ( this.debug ) {
+            console.log((("StaticAnalysis: " + varName) + " assigned from member ") + param.source_member_name);
+          }
+        }
+      }
+    }
+  };
+  walkForMutations (node, fnCtx) {
+    if ( node.expression ) {
+      if ( (node.children.length) > 0 ) {
+        const first = node.getFirst();
+        if ( first.vref == "def" ) {
+          this.analyzeVarDef(node);
+        }
+      }
+    }
+    if ( this.isMutatingNode(node) ) {
+      if ( (node.children.length) >= 2 ) {
+        const target = node.getSecond();
+        const varName = this.getRootVarName(target);
+        this.markVarAsMutated(varName, fnCtx);
+      }
+    }
+    for ( let i = 0; i < node.children.length; i++) {
+      var child = node.children[i];
+      this.walkForMutations(child, fnCtx);
+    };
+  };
+  walkForReturns (node) {
+    if ( node.expression ) {
+      if ( (node.children.length) > 0 ) {
+        const first = node.getFirst();
+        if ( first.vref == "return" ) {
+          if ( (node.children.length) >= 2 ) {
+            const retValue = node.getSecond();
+            const path = this.getMemberPath(retValue);
+            if ( (path.length) > 0 ) {
+              const idx = path.indexOf("this.");
+              if ( idx == 0 ) {
+                if ( (typeof(this.currentFunction) !== "undefined" && this.currentFunction != null )  ) {
+                  const fn = this.currentFunction;
+                  fn.returns_member_field = true;
+                  const memberName = path.substring(5, (path.length) );
+                  fn.returned_member_name = memberName;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    for ( let i = 0; i < node.children.length; i++) {
+      var child = node.children[i];
+      this.walkForReturns(child);
+    };
+  };
+  analyzeFunction (fn) {
+    if ( fn.static_analysis_done ) {
+      return;
+    }
+    this.currentFunction = fn;
+    if ( (typeof(fn.fnBody) !== "undefined" && fn.fnBody != null )  ) {
+      if ( (typeof(fn.fnCtx) !== "undefined" && fn.fnCtx != null )  ) {
+        this.walkForMutations(fn.fnBody, fn.fnCtx);
+      }
+      this.walkForReturns(fn.fnBody);
+    }
+    fn.static_analysis_done = true;
+  };
+  analyzeClass (cl) {
+    this.currentClass = cl;
+    for ( let i = 0; i < cl.methods.length; i++) {
+      var m = cl.methods[i];
+      this.analyzeFunction(m);
+    };
+    if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
+      this.analyzeFunction(cl.constructor_fn);
+    }
+  };
+  analyzeAll () {
+    if ( typeof(this.ctx) === "undefined" ) {
+      return;
+    }
+    this.initMutatingOps();
+    const root = ((this.ctx)).getRoot();
+    for( var i in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i)) {
+        var cl = root.definedClasses[i] 
+        this.analyzeClass(cl);
+      } };
+      if ( this.debug ) {
+        console.log("StaticAnalysis: completed analysis of all classes");
+      }
+    };
+  }
+  class viewbuilder_Android  {
+    constructor() {
+    }
+    _attr (wr, name, value) {
+      wr.out((((("android:" + name) + "=") + "\"") + value) + "\" ", true);
+    };
+    async elWithText (name, node, wr) {
+      wr.out(("<" + name) + " ", true);
+      wr.indent(1);
+      let width = "match_parent";
+      const height = "wrap_content";
+      let weight = "";
+      await operatorsOf.forEach_15(node.children, ((item, index) => { 
+        switch (item.value_type ) { 
+          case 23 : 
+            this._attr(wr, "text", item.string_value);
+            break;
+        };
+      }));
+      await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+        if ( item.vref == "font-size" ) {
+          this._attr(wr, "textSize", item.string_value + "dp");
+        }
+        if ( item.vref == "id" ) {
+          this._attr(wr, "id", "@+id/" + item.string_value);
+        }
+        if ( item.vref == "width-pros" ) {
+          weight = item.string_value;
+        }
+        if ( item.vref == "width" ) {
+          width = item.string_value + "dp";
+        }
+      }));
+      this._attr(wr, "layout_width", width);
+      this._attr(wr, "layout_height", height);
+      if ( (weight.length) > 0 ) {
+        this._attr(wr, "layout_weight", weight);
+      }
+      wr.out("/>", true);
+      wr.indent(-1);
+    };
+    async WalkNode (node, ctx, wr) {
+      switch (node.vref ) { 
+        case "ScrollView" : 
+          wr.out("<ScrollView ", true);
+          wr.indent(1);
+          this._attr(wr, "layout_width", "match_parent");
+          this._attr(wr, "layout_height", "wrap_content");
+          await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+            if ( item.vref == "id" ) {
+              this._attr(wr, "id", "@+id/" + item.string_value);
+            }
+          }));
+          wr.out(">", true);
+          wr.indent(1);
+          await operatorsOf.forEach_15(node.children, (async (item, index) => { 
+            await this.WalkNode(item, ctx, wr);
+          }));
+          wr.indent(-1);
+          wr.out("</ScrollView>", true);
+          wr.indent(-1);
+          break;
+        case "LinearLayout" : 
+          wr.out("<LinearLayout ", true);
+          wr.indent(1);
+          this._attr(wr, "layout_width", "match_parent");
+          this._attr(wr, "layout_height", "wrap_content");
+          let orientation = "vertical";
+          await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+            if ( item.vref == "id" ) {
+              this._attr(wr, "id", "@+id/" + item.string_value);
+            }
+            if ( item.vref == "direction" ) {
+              orientation = item.string_value;
+            }
+          }));
+          this._attr(wr, "orientation", orientation);
+          this._attr(wr, "weightSum", "100");
+          wr.out(">", true);
+          wr.indent(1);
+          await operatorsOf.forEach_15(node.children, (async (item, index) => { 
+            await this.WalkNode(item, ctx, wr);
+          }));
+          wr.indent(-1);
+          wr.out("</LinearLayout>", true);
+          wr.indent(-1);
+          break;
+        case "Button" : 
+          await this.elWithText("Button", node, wr);
+          break;
+        case "Text" : 
+          await this.elWithText("TextView", node, wr);
+          break;
+        case "Input" : 
+          wr.out("<EditText ", true);
+          wr.indent(1);
+          this._attr(wr, "layout_width", "match_parent");
+          this._attr(wr, "layout_height", "wrap_content");
+          await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+            if ( item.vref == "hint" ) {
+              this._attr(wr, "hint", item.string_value);
+            }
+            if ( item.vref == "id" ) {
+              this._attr(wr, "id", "@+id/" + item.string_value);
+            }
+            if ( (item.vref == "type") && (item.string_value == "password") ) {
+              this._attr(wr, "inputType", "textPassword");
+            }
+          }));
+          await operatorsOf.forEach_15(node.children, ((item, index) => { 
+            switch (item.value_type ) { 
+              case 23 : 
+                this._attr(wr, "text", item.string_value);
+                break;
+            };
+          }));
+          wr.out("/>", true);
+          wr.indent(-1);
           break;
       };
-    }));
-    await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-      if ( item.vref == "font-size" ) {
-        this._attr(wr, "textSize", item.string_value + "dp");
+    };
+    async writeClass (node, ctx, orig_wr) {
+      let viewName = "";
+      let b_scroll = false;
+      await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+        if ( item.vref == "name" ) {
+          viewName = item.string_value;
+        }
+        if ( item.vref == "type" ) {
+          if ( item.string_value == "scroll" ) {
+            b_scroll = true;
+          }
+        }
+      }));
+      const wr = orig_wr.getFileWriter("layout", (("activity_" + viewName) + ".xml"));
+      wr.out("<?xml version=\"1.0\" encoding=\"utf-8\"?>", true);
+      let viewTag = "LinearLayout";
+      if ( b_scroll ) {
+        viewTag = "ScrollView";
       }
-      if ( item.vref == "id" ) {
-        this._attr(wr, "id", "@+id/" + item.string_value);
+      wr.out(("<" + viewTag) + " xmlns:android=\"http://schemas.android.com/apk/res/android\" ", true);
+      wr.indent(1);
+      this._attr(wr, "layout_width", "match_parent");
+      this._attr(wr, "layout_height", "match_parent");
+      if ( b_scroll == false ) {
+        this._attr(wr, "paddingLeft", "16dp");
+        this._attr(wr, "paddingRight", "16dp");
+        this._attr(wr, "orientation", "vertical");
       }
-      if ( item.vref == "width-pros" ) {
-        weight = item.string_value;
-      }
-      if ( item.vref == "width" ) {
-        width = item.string_value + "dp";
-      }
-    }));
-    this._attr(wr, "layout_width", width);
-    this._attr(wr, "layout_height", height);
-    if ( (weight.length) > 0 ) {
-      this._attr(wr, "layout_weight", weight);
+      this._attr(wr, "id", "@+id/view_id_" + viewName);
+      wr.out(">", true);
+      await operatorsOf.forEach_15(node.children, (async (item, index) => { 
+        await this.WalkNode(item, ctx, wr);
+      }));
+      wr.indent(-1);
+      wr.out(("</" + viewTag) + ">", true);
+    };
+  }
+  class viewbuilder_Web  {
+    constructor() {
     }
-    wr.out("/>", true);
-    wr.indent(-1);
-  };
-  async WalkNode (node, ctx, wr) {
-    switch (node.vref ) { 
-      case "ScrollView" : 
-        wr.out("<ScrollView ", true);
-        wr.indent(1);
-        this._attr(wr, "layout_width", "match_parent");
-        this._attr(wr, "layout_height", "wrap_content");
-        await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-          if ( item.vref == "id" ) {
-            this._attr(wr, "id", "@+id/" + item.string_value);
+    _attr (wr, name, value) {
+      wr.out(((((" " + name) + "=") + "\"") + value) + "\" ", false);
+    };
+    async tagAttrs (node, ctx, wr) {
+      await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+        if ( item.vref == "id" ) {
+          this._attr(wr, "x-id", item.string_value);
+        }
+        if ( item.vref == "hint" ) {
+          this._attr(wr, "tooltip", item.string_value);
+          this._attr(wr, "title", item.string_value);
+          this._attr(wr, "placeholder", item.string_value);
+        }
+      }));
+    };
+    async tagText (node, ctx, wr) {
+      await operatorsOf.forEach_15(node.children, ((item, index) => { 
+        switch (item.value_type ) { 
+          case 23 : 
+            wr.out(item.string_value, false);
+            break;
+        };
+      }));
+    };
+    async tag (name, node, ctx, wr) {
+      wr.out("<" + name, false);
+      await this.tagAttrs(node, ctx, wr);
+      wr.out(">", false);
+      await this.tagText(node, ctx, wr);
+      wr.out(("</" + name) + ">", true);
+    };
+    async WalkNode (node, ctx, wr) {
+      switch (node.vref ) { 
+        case "LinearLayout" : 
+          await this.tag("div", node, ctx, wr);
+          break;
+        case "Button" : 
+          wr.out("<div><a class='waves-effect waves-light btn' ", false);
+          await this.tagAttrs(node, ctx, wr);
+          wr.out(">", false);
+          await this.tagText(node, ctx, wr);
+          wr.out("</a></div>", false);
+          break;
+        case "Text" : 
+          await this.tag("div", node, ctx, wr);
+          break;
+        case "Input" : 
+          wr.out("<div>", true);
+          await this.tag("input", node, ctx, wr);
+          wr.out("</div>", true);
+          break;
+      };
+    };
+    async CreateViews (ctx, wr) {
+      wr.out("<!DOCTYPE html>", true);
+      wr.out("<html>", true);
+      wr.indent(1);
+      wr.out("<head>", true);
+      wr.indent(1);
+      wr.out("\r\n  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css\">\r\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js\"></script>    \r\n    ", true);
+      wr.indent(-1);
+      wr.out("</head>", true);
+      wr.out("<body>", true);
+      await operatorsOf_13.forEach_25(ctx.viewClassBody, (async (item, index) => { 
+        await this.writeClass(item, ctx, wr);
+      }));
+      wr.out("</body>", true);
+      wr.out("</html>", true);
+    };
+    async writeClass (node, ctx, wr) {
+      let viewName = "";
+      await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+        if ( item.vref == "name" ) {
+          viewName = item.string_value;
+        }
+      }));
+      wr.out("", true);
+      wr.out(("<div id=\"" + viewName) + "\">", true);
+      wr.indent(1);
+      await operatorsOf.forEach_15(node.children, (async (item, index) => { 
+        await this.WalkNode(item, ctx, wr);
+      }));
+      wr.indent(-1);
+      wr.out("</div>", true);
+    };
+  }
+  class CompilerResults  {
+    constructor() {
+      this.target_dir = "";
+      this.hasErrors = false;
+      this.errorMessage = "";
+    }
+  }
+  class VirtualCompiler  {
+    constructor() {
+    }
+    getEnvVar (name) {
+      return operatorsOf_8.envc95var_54((this.envObj), name);
+    };
+    possiblePaths (envVarName) {
+      let res = [];
+      const parts = envVarName.split(";");
+      res.push("./");
+      for ( let i = 0; i < parts.length; i++) {
+        var str = parts[i];
+        const s = str.trim();
+        if ( (s.length) > 0 ) {
+          let dirNames = s.split("/");
+          dirNames.pop();
+          const theDir = dirNames.join("/");
+          res.push(theDir);
+        }
+      };
+      res.push(operatorsOf_8.installc95directory_51((this.envObj)));
+      return res;
+    };
+    searchLib (paths, libname) {
+      for ( let i = 0; i < paths.length; i++) {
+        var path = paths[i];
+        if ( operatorsOf_8.filec95exists_9((this.envObj), path, libname) ) {
+          return path;
+        }
+      };
+      return "";
+    };
+    fillStr (cnt) {
+      let s = "";
+      let i = cnt;
+      while (i > 0) {
+        s = s + " ";
+        i = i - 1;
+      };
+      return s;
+    };
+    async run (env) {
+      const res = new CompilerResults();
+      this.envObj = env;
+      const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "cpp", "php", "csharp", "python", "rust"];
+      const params = env.commandLine;
+      let the_file = "";
+      let plugins_only = false;
+      const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file"];
+      const valid_flags = ["deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "typescript", "Writes JavaScript code with TypeScript annotations", "npm", "Write the package.json to the output directory", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as node.js modules (this option will disable the static main function)", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
+      const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
+      if ( ( typeof(params.flags["compiler"] ) != "undefined" && params.flags.hasOwnProperty("compiler") ) ) {
+        console.log("---------------------------------------------");
+        console.log(" re-compiling the compiler itself ");
+        console.log("---------------------------------------------");
+        the_file = "ng_Compiler.rgr";
+      } else {
+        if ( (params.values.length) < 1 ) {
+          console.log("Ranger compiler, version " + "2.1.71");
+          console.log("Installed at: " + operatorsOf_8.installc95directory_51(env));
+          console.log("Usage: <file> <options> <flags>");
+          console.log("Options: -<option>=<value> ");
+          let optCnt = 0;
+          while (optCnt < (valid_options.length)) {
+            const option = valid_options[optCnt];
+            const optionDesc = valid_options[(optCnt + 1)];
+            console.log(((("  -" + option) + "=<value> ") + this.fillStr((13 - (option.length)))) + optionDesc);
+            optCnt = optCnt + 2;
+          };
+          console.log("Flags: -<flag> ");
+          let optCnt_1 = 0;
+          while (optCnt_1 < (valid_flags.length)) {
+            const option_1 = valid_flags[optCnt_1];
+            const optionDesc_1 = valid_flags[(optCnt_1 + 1)];
+            console.log(((("  -" + option_1) + " ") + this.fillStr((13 - (option_1.length)))) + optionDesc_1);
+            optCnt_1 = optCnt_1 + 2;
+          };
+          console.log("Pragmas: (inside the source code files) ");
+          let optCnt_2 = 0;
+          while (optCnt_2 < (parser_pragmas.length)) {
+            const option_2 = parser_pragmas[optCnt_2];
+            const optionDesc_2 = parser_pragmas[(optCnt_2 + 1)];
+            console.log(((("   " + option_2) + " ") + this.fillStr((16 - (option_2.length)))) + optionDesc_2);
+            optCnt_2 = optCnt_2 + 2;
+          };
+          return res;
+        }
+        the_file = params.values[0];
+      }
+      let root_file = the_file;
+      const root_dir = require("path").normalize((((operatorsOf_8.currentc95directory_51(env) + "/") + (require('path').dirname(the_file))) + "/"));
+      const the_lang_file = "Lang.rgr";
+      let the_lang = "es6";
+      let the_target_dir = root_dir + "bin";
+      let the_target = "output";
+      let package_name = "";
+      let comp_attrs = {};
+      const outDir = params.getParam("o");
+      if ( (typeof(outDir) !== "undefined" && outDir != null )  ) {
+        the_target = outDir;
+      }
+      let langLibEnv = operatorsOf_8.envc95var_54(env, "RANGER_LIB");
+      const idir = __dirname;
+      langLibEnv = (((((root_dir + ";") + (require("path").normalize((idir + "/../compiler/")))) + ";") + (require("path").normalize((idir + "/../lib/")))) + ";") + langLibEnv;
+      env.setEnv("RANGER_LIB", langLibEnv);
+      console.log("ENV: " + operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
+      const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
+      const theFilePath = this.searchLib(theFilePaths, the_file);
+      if ( operatorsOf_8.filec95exists_9(env, theFilePath, the_file) == false ) {
+        console.log("Could not compile.");
+        console.log("File not found: " + the_file);
+        return res;
+      }
+      const langFilePaths = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
+      const langFilePath = this.searchLib(langFilePaths, the_lang_file);
+      if ( operatorsOf_8.filec95exists_9(env, langFilePath, the_lang_file) == false ) {
+        console.log(("language file " + the_lang_file) + " not found! Check the library directory or RANGER_LIB enviroment variable");
+        console.log("currently pointing at : " + langLibEnv);
+        console.log("download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.rgr");
+        return res;
+      } else {
+        console.log("Using language file from : " + langFilePath);
+      }
+      console.log("File to be compiled: " + the_file);
+      let langFileDirs = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
+      const sourceFileDir = require("path").dirname(((theFilePath + "/") + the_file));
+      langFileDirs.push(sourceFileDir);
+      const c = await operatorsOf_8.readc95file_9(env, theFilePath, the_file);
+      const code = new SourceCode(c);
+      code.filename = the_file;
+      const parser = new RangerLispParser(code);
+      if ( ( typeof(params.flags["no-op-transform"] ) != "undefined" && params.flags.hasOwnProperty("no-op-transform") ) ) {
+        parser.disableOperators = true;
+      }
+      parser.parse(( typeof(params.flags["no-op-transform"] ) != "undefined" && params.flags.hasOwnProperty("no-op-transform") ));
+      const root = parser.rootNode;
+      console.log("--> ready to compile");
+      const flags = Object.keys(params.flags);
+      for ( let ci = 0; ci < root.children.length; ci++) {
+        var ch = root.children[ci];
+        let inserted_nodes = [];
+        if ( (ch.children.length) > 2 ) {
+          const fc = ch.getFirst();
+          if ( fc.vref == "flag" ) {
+            const fName = ch.getSecond();
+            for ( let i = 0; i < flags.length; i++) {
+              var flag_name = flags[i];
+              if ( flag_name == fName.vref ) {
+                const compInfo = ch.getThird();
+                let i_1 = 0;
+                const cnt = compInfo.children.length;
+                while (i_1 < (cnt - 1)) {
+                  const fc_1 = compInfo.children[i_1];
+                  const sc = compInfo.children[(i_1 + 1)];
+                  switch (fc_1.vref ) { 
+                    case "libpath" : 
+                      langFileDirs = this.possiblePaths(sc.string_value);
+                      break;
+                    case "output" : 
+                      the_target = sc.string_value;
+                      break;
+                    case "root-file" : 
+                      root_file = sc.string_value;
+                      break;
+                    case "language" : 
+                      the_lang = sc.string_value;
+                      break;
+                    case "absolute_output_dir" : 
+                      the_target_dir = sc.string_value;
+                      break;
+                    case "relative_output_dir" : 
+                      the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + sc.string_value;
+                      break;
+                    case "package" : 
+                      package_name = sc.string_value;
+                      break;
+                    case "android_res_dir" : 
+                      comp_attrs[fc_1.vref] = sc.string_value;
+                      break;
+                    case "web_res_dir" : 
+                      comp_attrs[fc_1.vref] = sc.string_value;
+                      break;
+                    case "Import" : 
+                      inserted_nodes.push(CodeNode.fromList([CodeNode.vref1("Import"), CodeNode.newStr(sc.string_value)]));
+                      break;
+                    default: 
+                      if ( (sc.string_value.length) > 0 ) {
+                        comp_attrs[fc_1.vref] = sc.string_value;
+                      }
+                      break;
+                  };
+                  i_1 = i_1 + 2;
+                };
+              }
+            };
+            ch.children.length = 0;
+            for ( let i_2 = 0; i_2 < inserted_nodes.length; i_2++) {
+              var new_node = inserted_nodes[i_2];
+              console.log(" *** Inserting " + new_node.getCode());
+              root.children.splice(0, 0, new_node);
+            };
+          }
+        }
+      };
+      root.children.splice(0, 0, CodeNode.fromList([CodeNode.vref1("Import"), CodeNode.newStr("stdlib.rgr")]));
+      const outDir_2 = params.getParam("o");
+      if ( (typeof(outDir_2) !== "undefined" && outDir_2 != null )  ) {
+        the_target = outDir_2;
+      }
+      comp_attrs["o"] = the_target;
+      const dirParam = params.getParam("d");
+      if ( (typeof(dirParam) !== "undefined" && dirParam != null )  ) {
+        the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + (dirParam);
+      }
+      the_target_dir = require("path").normalize(the_target_dir);
+      comp_attrs["d"] = the_target_dir;
+      const pLang = params.getParam("l");
+      if ( (typeof(pLang) !== "undefined" && pLang != null )  ) {
+        the_lang = pLang;
+      }
+      const appCtx = new RangerAppWriterContext();
+      appCtx.env = env;
+      appCtx.libraryPaths = langFileDirs;
+      appCtx.compilerSettings["package"] = package_name;
+      if ( appCtx.hasCompilerFlag("verbose") ) {
+        for ( let i_3 = 0; i_3 < appCtx.libraryPaths.length; i_3++) {
+          var include_path = appCtx.libraryPaths[i_3];
+          console.log("include-path : " + include_path);
+        };
+      }
+      operatorsOf_13.forEach_55(params.flags, ((item, index) => { 
+        const n = index;
+        appCtx.compilerFlags[n] = true;
+      }));
+      operatorsOf_13.forEach_40(params.params, ((item, index) => { 
+        const v = item;
+        comp_attrs[index] = v;
+      }));
+      operatorsOf_13.forEach_40(comp_attrs, ((item, index) => { 
+        const n_1 = item;
+        appCtx.compilerSettings[index] = n_1;
+      }));
+      if ( (allowed_languages.indexOf(the_lang)) < 0 ) {
+        console.log("Invalid language : " + the_lang);
+        const s = "";
+        console.log("allowed languages: " + (allowed_languages.join(" ")));
+        return res;
+      }
+      appCtx.compilerSettings["l"] = the_lang;
+      if ( the_target == "output" ) {
+        const root_parts = root_file.split(".");
+        if ( (root_parts.length) == 2 ) {
+          the_target = root_parts[0];
+        }
+      }
+      switch (the_lang ) { 
+        case "es6" : 
+          let has_js_ext = false;
+          if ( the_target.endsWith(".js") ) {
+            has_js_ext = true;
+          }
+          if ( the_target.endsWith(".ts") ) {
+            has_js_ext = true;
+          }
+          if ( the_target.endsWith(".mjs") ) {
+            has_js_ext = true;
+          }
+          if ( the_target.endsWith(".cjs") ) {
+            has_js_ext = true;
+          }
+          if ( has_js_ext == false ) {
+            the_target = the_target + ".js";
+            if ( appCtx.hasCompilerFlag("typescript") ) {
+              the_target = the_target + ".ts";
+            }
+          }
+          break;
+        case "swift3" : 
+          if ( false == (the_target.endsWith(".swift")) ) {
+            the_target = the_target + ".swift";
+          }
+          break;
+        case "swift6" : 
+          if ( false == (the_target.endsWith(".swift")) ) {
+            the_target = the_target + ".swift";
+          }
+          break;
+        case "php" : 
+          if ( false == (the_target.endsWith(".php")) ) {
+            the_target = the_target + ".php";
+          }
+          break;
+        case "csharp" : 
+          if ( false == (the_target.endsWith(".cs")) ) {
+            the_target = the_target + ".cs";
+          }
+          break;
+        case "java7" : 
+          if ( false == (the_target.endsWith(".java")) ) {
+            the_target = the_target + ".java";
+          }
+          break;
+        case "go" : 
+          if ( false == (the_target.endsWith(".go")) ) {
+            the_target = the_target + ".go";
+          }
+          break;
+        case "scala" : 
+          if ( false == (the_target.endsWith(".scala")) ) {
+            the_target = the_target + ".scala";
+          }
+          break;
+        case "kotlin" : 
+          if ( false == (the_target.endsWith(".kt")) ) {
+            the_target = the_target + ".kt";
+          }
+          break;
+        case "cpp" : 
+          if ( false == (the_target.endsWith(".cpp")) ) {
+            the_target = the_target + ".cpp";
+          }
+          break;
+        case "python" : 
+          if ( false == (the_target.endsWith(".py")) ) {
+            the_target = the_target + ".py";
+          }
+          break;
+        case "rust" : 
+          if ( false == (the_target.endsWith(".rs")) ) {
+            the_target = the_target + ".rs";
+          }
+          break;
+      };
+      appCtx.compilerSettings["o"] = the_target;
+      const lcc = new LiveCompiler();
+      const node = parser.rootNode;
+      const flowParser = new RangerFlowParser();
+      const fileSystem = new CodeFileSystem();
+      const file = fileSystem.getFile(".", the_target);
+      let wr = file.getWriter();
+      if ( appCtx.hasCompilerFlag("copysrc") ) {
+        console.log("--> copying " + code.filename);
+        const fileWr = wr.getFileWriter(".", code.filename);
+        fileWr.raw(code.code, false);
+      }
+      appCtx.parser = flowParser;
+      appCtx.compiler = lcc;
+      lcc.parser = flowParser;
+      if ( appCtx.hasCompilerSetting("plugins") ) {
+        const val = appCtx.getCompilerSetting("plugins");
+        const list = val.split(",");
+        await operatorsOf.forEach_12(list, (async (item, index) => { 
+          try {
+            const plugin = require( item );
+            const features = (new plugin.Plugin () ).features();
+            if ( appCtx.hasCompilerFlag("verbose") ) {
+              console.log(("Plugin " + item) + " registered with features ");
+              await operatorsOf.forEach_12(features, ((item, index) => { 
+                console.log(" [x] " + item);
+              }));
+            }
+            const regPlug = new RangerRegisteredPlugin();
+            regPlug.name = item;
+            regPlug.features = operatorsOf.clone_56(features);
+            appCtx.addPlugin(regPlug);
+          } catch(e) {
+            console.log("Failed to register plugin " + item);
           }
         }));
-        wr.out(">", true);
-        wr.indent(1);
-        await operatorsOf.forEach_15(node.children, (async (item, index) => { 
-          await this.WalkNode(item, ctx, wr);
-        }));
-        wr.indent(-1);
-        wr.out("</ScrollView>", true);
-        wr.indent(-1);
-        break;
-      case "LinearLayout" : 
-        wr.out("<LinearLayout ", true);
-        wr.indent(1);
-        this._attr(wr, "layout_width", "match_parent");
-        this._attr(wr, "layout_height", "wrap_content");
-        let orientation = "vertical";
-        await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-          if ( item.vref == "id" ) {
-            this._attr(wr, "id", "@+id/" + item.string_value);
-          }
-          if ( item.vref == "direction" ) {
-            orientation = item.string_value;
-          }
-        }));
-        this._attr(wr, "orientation", orientation);
-        this._attr(wr, "weightSum", "100");
-        wr.out(">", true);
-        wr.indent(1);
-        await operatorsOf.forEach_15(node.children, (async (item, index) => { 
-          await this.WalkNode(item, ctx, wr);
-        }));
-        wr.indent(-1);
-        wr.out("</LinearLayout>", true);
-        wr.indent(-1);
-        break;
-      case "Button" : 
-        await this.elWithText("Button", node, wr);
-        break;
-      case "Text" : 
-        await this.elWithText("TextView", node, wr);
-        break;
-      case "Input" : 
-        wr.out("<EditText ", true);
-        wr.indent(1);
-        this._attr(wr, "layout_width", "match_parent");
-        this._attr(wr, "layout_height", "wrap_content");
-        await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-          if ( item.vref == "hint" ) {
-            this._attr(wr, "hint", item.string_value);
-          }
-          if ( item.vref == "id" ) {
-            this._attr(wr, "id", "@+id/" + item.string_value);
-          }
-          if ( (item.vref == "type") && (item.string_value == "password") ) {
-            this._attr(wr, "inputType", "textPassword");
+      }
+      plugins_only = appCtx.hasCompilerFlag("plugins-only");
+      try {
+        await flowParser.mergeImports(node, appCtx, wr);
+        const lang_str = await operatorsOf_8.readc95file_9(env, langFilePath, the_lang_file);
+        const lang_code = new SourceCode(lang_str);
+        lang_code.filename = the_lang_file;
+        const lang_parser = new RangerLispParser(lang_code);
+        lang_parser.parse(false);
+        appCtx.langOperators = lang_parser.rootNode;
+        appCtx.setRootFile(root_file);
+        const ops = new RangerActiveOperators();
+        ops.initFrom(lang_parser.rootNode);
+        appCtx.operators = ops;
+        appCtx.targetLangName = the_lang;
+        lcc.initWriter(appCtx);
+        console.log("--- context inited ---");
+        console.log("1. Collecting available methods.");
+        await flowParser.CollectMethods(node, appCtx, wr);
+        if ( (appCtx.compilerErrors.length) > 0 ) {
+          VirtualCompiler.displayCompilerErrors(appCtx);
+          res.hasErrors = true;
+          res.errorMessage = "Errors during method collection phase";
+          res.ctx = appCtx;
+          return res;
+        }
+        await flowParser.CreateCTTI(node, appCtx, wr);
+        if ( appCtx.hasCompilerFlag("rtti") ) {
+          await flowParser.CreateRTTI(node, appCtx, wr);
+        }
+        const ppList = appCtx.findPluginsFor("pre_flow");
+        await operatorsOf.forEach_12(ppList, ((item, index) => { 
+          try {
+            const plugin_1 = require( item );
+            ( (new plugin_1.Plugin () )["pre_flow"] )( root, appCtx , wr );
+          } catch(e) {
           }
         }));
-        await operatorsOf.forEach_15(node.children, ((item, index) => { 
-          switch (item.value_type ) { 
-            case 21 : 
-              this._attr(wr, "text", item.string_value);
+        await appCtx.initOpList();
+        console.log("2. Analyzing the code.");
+        console.log("selected language is " + appCtx.targetLangName);
+        await flowParser.StartWalk(node, appCtx, wr);
+        await flowParser.SolveAsyncFuncs(root, appCtx, wr);
+        if ( (appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust") ) {
+          console.log("2b. Running static analysis for " + appCtx.targetLangName);
+          const staticAnalyzer = new StaticAnalyzer();
+          staticAnalyzer.ctx = appCtx;
+          staticAnalyzer.analyzeAll();
+        }
+        console.log("3. Compiling the source code.");
+        switch (appCtx.targetLangName ) { 
+          case "java7" : 
+            if ( ( typeof(comp_attrs["android_res_dir"] ) != "undefined" && comp_attrs.hasOwnProperty("android_res_dir") ) ) {
+              console.log("--> had android res dir");
+              const resDir = (( comp_attrs.hasOwnProperty("android_res_dir") ? comp_attrs["android_res_dir"] : undefined ));
+              const resFs = new CodeFileSystem();
+              const file_2 = resFs.getFile(".", "README.txt");
+              const wr_2 = file_2.getWriter();
+              const builder = new viewbuilder_Android();
+              await operatorsOf_13.forEach_25(appCtx.viewClassBody, (async (item, index) => { 
+                await builder.writeClass(item, appCtx, wr_2);
+              }));
+              resFs.saveTo(resDir, appCtx.hasCompilerFlag("show-writes"));
+            }
+            break;
+          case "es6" : 
+            if ( ( typeof(comp_attrs["web_res_dir"] ) != "undefined" && comp_attrs.hasOwnProperty("web_res_dir") ) ) {
+              console.log("--> had web res dir");
+              const resDir_1 = (( comp_attrs.hasOwnProperty("web_res_dir") ? comp_attrs["web_res_dir"] : undefined ));
+              const resFs_1 = new CodeFileSystem();
+              const file_3 = resFs_1.getFile(".", "webviews.html");
+              const wr_3 = file_3.getWriter();
+              const builder_1 = new viewbuilder_Web();
+              await builder_1.CreateViews(appCtx, wr_3);
+              resFs_1.saveTo(resDir_1, appCtx.hasCompilerFlag("show-writes"));
+            }
+            break;
+        };
+        let staticMethods;
+        const importFork = wr.fork();
+        wr.createTag("after_imports");
+        const contentFork = wr.fork();
+        wr.createTag("utilities");
+        const theEnd = wr.createTag("file_end");
+        wr = contentFork;
+        let handledClasses = {};
+        for ( let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {
+          var cName = appCtx.definedClassList[i_4];
+          if ( cName == "RangerStaticMethods" ) {
+            staticMethods = ( appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined );
+            continue;
+          }
+          const cl = ( appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined );
+          if ( cl.is_operator_class ) {
+            continue;
+          }
+          if ( cl.is_trait ) {
+            continue;
+          }
+          if ( cl.is_system ) {
+            continue;
+          }
+          if ( cl.is_generic_instance ) {
+            continue;
+          }
+          if ( cl.is_system_union ) {
+            continue;
+          }
+          if ( cl.is_union ) {
+            continue;
+          }
+          if ( ( typeof(handledClasses[cName] ) != "undefined" && handledClasses.hasOwnProperty(cName) ) ) {
+            continue;
+          }
+          handledClasses[cName] = true;
+          if ( (cl.extends_classes.length) > 0 ) {
+            for ( let i_5 = 0; i_5 < cl.extends_classes.length; i_5++) {
+              var eClassName = cl.extends_classes[i_5];
+              if ( ( typeof(handledClasses[eClassName] ) != "undefined" && handledClasses.hasOwnProperty(eClassName) ) ) {
+                continue;
+              }
+              const parentCl = ( appCtx.definedClasses.hasOwnProperty(eClassName) ? appCtx.definedClasses[eClassName] : undefined );
+              await lcc.WalkNode(parentCl.classNode, appCtx, wr);
+              handledClasses[eClassName] = true;
+            };
+          }
+          await lcc.WalkNode(cl.classNode, appCtx, wr);
+        };
+        if ( (typeof(staticMethods) !== "undefined" && staticMethods != null )  ) {
+          await lcc.WalkNode(staticMethods.classNode, appCtx, wr);
+        }
+        for ( let i_6 = 0; i_6 < flowParser.collectedIntefaces.length; i_6++) {
+          var ifDesc = flowParser.collectedIntefaces[i_6];
+          console.log("should define also interface " + ifDesc.name);
+          await lcc.langWriter.writeInterface(ifDesc, appCtx, wr);
+        };
+        for ( let i_7 = 0; i_7 < appCtx.definedClassList.length; i_7++) {
+          var cName_1 = appCtx.definedClassList[i_7];
+          if ( ( typeof(handledClasses[cName_1] ) != "undefined" && handledClasses.hasOwnProperty(cName_1) ) ) {
+            continue;
+          }
+          if ( cName_1 == "RangerStaticMethods" ) {
+            staticMethods = ( appCtx.definedClasses.hasOwnProperty(cName_1) ? appCtx.definedClasses[cName_1] : undefined );
+            continue;
+          }
+          const cl_1 = ( appCtx.definedClasses.hasOwnProperty(cName_1) ? appCtx.definedClasses[cName_1] : undefined );
+          if ( cl_1.is_operator_class ) {
+            continue;
+          }
+          if ( cl_1.is_generic_instance ) {
+            await lcc.WalkNode(cl_1.classNode, appCtx, wr);
+          }
+          if ( cl_1.is_trait ) {
+            continue;
+          }
+          if ( cl_1.is_system ) {
+            continue;
+          }
+          if ( cl_1.is_operator_class ) {
+            continue;
+          }
+          if ( cl_1.is_generic_instance ) {
+            continue;
+          }
+          if ( cl_1.is_system_union ) {
+            continue;
+          }
+          if ( cl_1.is_union ) {
+            continue;
+          }
+          await lcc.WalkNode(cl_1.classNode, appCtx, wr);
+        };
+        for ( let i_8 = 0; i_8 < appCtx.definedClassList.length; i_8++) {
+          var cName_2 = appCtx.definedClassList[i_8];
+          const cl_2 = ( appCtx.definedClasses.hasOwnProperty(cName_2) ? appCtx.definedClasses[cName_2] : undefined );
+          if ( cl_2.is_operator_class ) {
+            await lcc.WalkNode(cl_2.classNode, appCtx, wr);
+          }
+        };
+        const import_list = wr.getImports();
+        if ( appCtx.targetLangName == "go" ) {
+          importFork.out("package main", true);
+          importFork.newline();
+          importFork.out("import (", true);
+          importFork.indent(1);
+        }
+        let added_import = {};
+        for ( let i_9 = 0; i_9 < import_list.length; i_9++) {
+          var codeStr = import_list[i_9];
+          if ( ( typeof(added_import[codeStr] ) != "undefined" && added_import.hasOwnProperty(codeStr) ) ) {
+            continue;
+          }
+          added_import[codeStr] = true;
+          switch (appCtx.targetLangName ) { 
+            case "es6" : 
+              const parts = codeStr.split(".");
+              const p0 = parts[0];
+              if ( (parts.length) > 1 ) {
+                const p1 = parts[1];
+                importFork.out(((((("const " + p1) + " = require('") + p0) + "').") + p1) + ";", true);
+              }
+              if ( (parts.length) == 1 ) {
+                importFork.out(((("const " + p0) + " = require('") + p0) + "');", true);
+              }
+              break;
+            case "go" : 
+              if ( (codeStr.charCodeAt(0 )) == (("_".charCodeAt(0))) ) {
+                importFork.out((" _ \"" + (codeStr.substring(1, (codeStr.length) ))) + "\"", true);
+              } else {
+                importFork.out(("\"" + codeStr) + "\"", true);
+              }
+              break;
+            case "csharp" : 
+              importFork.out(("using " + codeStr) + ";", true);
+              break;
+            case "rust" : 
+              importFork.out(("use " + codeStr) + ";", true);
+              break;
+            case "java7" : 
+              importFork.out(("import " + codeStr) + ";", true);
+              break;
+            case "cpp" : 
+              importFork.out("#include  " + codeStr, true);
+              break;
+            default: 
+              importFork.out("import " + codeStr, true);
               break;
           };
-        }));
-        wr.out("/>", true);
-        wr.indent(-1);
-        break;
-    };
-  };
-  async writeClass (node, ctx, orig_wr) {
-    let viewName = "";
-    let b_scroll = false;
-    await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-      if ( item.vref == "name" ) {
-        viewName = item.string_value;
-      }
-      if ( item.vref == "type" ) {
-        if ( item.string_value == "scroll" ) {
-          b_scroll = true;
-        }
-      }
-    }));
-    const wr = orig_wr.getFileWriter("layout", (("activity_" + viewName) + ".xml"));
-    wr.out("<?xml version=\"1.0\" encoding=\"utf-8\"?>", true);
-    let viewTag = "LinearLayout";
-    if ( b_scroll ) {
-      viewTag = "ScrollView";
-    }
-    wr.out(("<" + viewTag) + " xmlns:android=\"http://schemas.android.com/apk/res/android\" ", true);
-    wr.indent(1);
-    this._attr(wr, "layout_width", "match_parent");
-    this._attr(wr, "layout_height", "match_parent");
-    if ( b_scroll == false ) {
-      this._attr(wr, "paddingLeft", "16dp");
-      this._attr(wr, "paddingRight", "16dp");
-      this._attr(wr, "orientation", "vertical");
-    }
-    this._attr(wr, "id", "@+id/view_id_" + viewName);
-    wr.out(">", true);
-    await operatorsOf.forEach_15(node.children, (async (item, index) => { 
-      await this.WalkNode(item, ctx, wr);
-    }));
-    wr.indent(-1);
-    wr.out(("</" + viewTag) + ">", true);
-  };
-}
-class viewbuilder_Web  {
-  constructor() {
-  }
-  _attr (wr, name, value) {
-    wr.out(((((" " + name) + "=") + "\"") + value) + "\" ", false);
-  };
-  async tagAttrs (node, ctx, wr) {
-    await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-      if ( item.vref == "id" ) {
-        this._attr(wr, "x-id", item.string_value);
-      }
-      if ( item.vref == "hint" ) {
-        this._attr(wr, "tooltip", item.string_value);
-        this._attr(wr, "title", item.string_value);
-        this._attr(wr, "placeholder", item.string_value);
-      }
-    }));
-  };
-  async tagText (node, ctx, wr) {
-    await operatorsOf.forEach_15(node.children, ((item, index) => { 
-      switch (item.value_type ) { 
-        case 21 : 
-          wr.out(item.string_value, false);
-          break;
-      };
-    }));
-  };
-  async tag (name, node, ctx, wr) {
-    wr.out("<" + name, false);
-    await this.tagAttrs(node, ctx, wr);
-    wr.out(">", false);
-    await this.tagText(node, ctx, wr);
-    wr.out(("</" + name) + ">", true);
-  };
-  async WalkNode (node, ctx, wr) {
-    switch (node.vref ) { 
-      case "LinearLayout" : 
-        await this.tag("div", node, ctx, wr);
-        break;
-      case "Button" : 
-        wr.out("<div><a class='waves-effect waves-light btn' ", false);
-        await this.tagAttrs(node, ctx, wr);
-        wr.out(">", false);
-        await this.tagText(node, ctx, wr);
-        wr.out("</a></div>", false);
-        break;
-      case "Text" : 
-        await this.tag("div", node, ctx, wr);
-        break;
-      case "Input" : 
-        wr.out("<div>", true);
-        await this.tag("input", node, ctx, wr);
-        wr.out("</div>", true);
-        break;
-    };
-  };
-  async CreateViews (ctx, wr) {
-    wr.out("<!DOCTYPE html>", true);
-    wr.out("<html>", true);
-    wr.indent(1);
-    wr.out("<head>", true);
-    wr.indent(1);
-    wr.out("\r\n  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css\">\r\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js\"></script>    \r\n    ", true);
-    wr.indent(-1);
-    wr.out("</head>", true);
-    wr.out("<body>", true);
-    await operatorsOf_13.forEach_25(ctx.viewClassBody, (async (item, index) => { 
-      await this.writeClass(item, ctx, wr);
-    }));
-    wr.out("</body>", true);
-    wr.out("</html>", true);
-  };
-  async writeClass (node, ctx, wr) {
-    let viewName = "";
-    await operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-      if ( item.vref == "name" ) {
-        viewName = item.string_value;
-      }
-    }));
-    wr.out("", true);
-    wr.out(("<div id=\"" + viewName) + "\">", true);
-    wr.indent(1);
-    await operatorsOf.forEach_15(node.children, (async (item, index) => { 
-      await this.WalkNode(item, ctx, wr);
-    }));
-    wr.indent(-1);
-    wr.out("</div>", true);
-  };
-}
-class CompilerResults  {
-  constructor() {
-    this.target_dir = "";
-    this.hasErrors = false;
-    this.errorMessage = "";
-  }
-}
-class VirtualCompiler  {
-  constructor() {
-  }
-  getEnvVar (name) {
-    return operatorsOf_8.envc95var_54((this.envObj), name);
-  };
-  possiblePaths (envVarName) {
-    let res = [];
-    const parts = envVarName.split(";");
-    res.push("./");
-    for ( let i = 0; i < parts.length; i++) {
-      var str = parts[i];
-      const s = str.trim();
-      if ( (s.length) > 0 ) {
-        let dirNames = s.split("/");
-        dirNames.pop();
-        const theDir = dirNames.join("/");
-        res.push(theDir);
-      }
-    };
-    res.push(operatorsOf_8.installc95directory_51((this.envObj)));
-    return res;
-  };
-  searchLib (paths, libname) {
-    for ( let i = 0; i < paths.length; i++) {
-      var path = paths[i];
-      if ( operatorsOf_8.filec95exists_9((this.envObj), path, libname) ) {
-        return path;
-      }
-    };
-    return "";
-  };
-  fillStr (cnt) {
-    let s = "";
-    let i = cnt;
-    while (i > 0) {
-      s = s + " ";
-      i = i - 1;
-    };
-    return s;
-  };
-  async run (env) {
-    const res = new CompilerResults();
-    this.envObj = env;
-    const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "cpp", "php", "csharp", "python", "rust"];
-    const params = env.commandLine;
-    let the_file = "";
-    let plugins_only = false;
-    const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file"];
-    const valid_flags = ["deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "typescript", "Writes JavaScript code with TypeScript annotations", "npm", "Write the package.json to the output directory", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as node.js modules (this option will disable the static main function)", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
-    const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
-    if ( ( typeof(params.flags["compiler"] ) != "undefined" && params.flags.hasOwnProperty("compiler") ) ) {
-      console.log("---------------------------------------------");
-      console.log(" re-compiling the compiler itself ");
-      console.log("---------------------------------------------");
-      the_file = "ng_Compiler.rgr";
-    } else {
-      if ( (params.values.length) < 1 ) {
-        console.log("Ranger compiler, version " + "2.1.71");
-        console.log("Installed at: " + operatorsOf_8.installc95directory_51(env));
-        console.log("Usage: <file> <options> <flags>");
-        console.log("Options: -<option>=<value> ");
-        let optCnt = 0;
-        while (optCnt < (valid_options.length)) {
-          const option = valid_options[optCnt];
-          const optionDesc = valid_options[(optCnt + 1)];
-          console.log(((("  -" + option) + "=<value> ") + this.fillStr((13 - (option.length)))) + optionDesc);
-          optCnt = optCnt + 2;
         };
-        console.log("Flags: -<flag> ");
-        let optCnt_1 = 0;
-        while (optCnt_1 < (valid_flags.length)) {
-          const option_1 = valid_flags[optCnt_1];
-          const optionDesc_1 = valid_flags[(optCnt_1 + 1)];
-          console.log(((("  -" + option_1) + " ") + this.fillStr((13 - (option_1.length)))) + optionDesc_1);
-          optCnt_1 = optCnt_1 + 2;
-        };
-        console.log("Pragmas: (inside the source code files) ");
-        let optCnt_2 = 0;
-        while (optCnt_2 < (parser_pragmas.length)) {
-          const option_2 = parser_pragmas[optCnt_2];
-          const optionDesc_2 = parser_pragmas[(optCnt_2 + 1)];
-          console.log(((("   " + option_2) + " ") + this.fillStr((16 - (option_2.length)))) + optionDesc_2);
-          optCnt_2 = optCnt_2 + 2;
-        };
-        return res;
-      }
-      the_file = params.values[0];
-    }
-    let root_file = the_file;
-    const root_dir = require("path").normalize((((operatorsOf_8.currentc95directory_51(env) + "/") + (require('path').dirname(the_file))) + "/"));
-    const the_lang_file = "Lang.rgr";
-    let the_lang = "es6";
-    let the_target_dir = root_dir + "bin";
-    let the_target = "output";
-    let package_name = "";
-    let comp_attrs = {};
-    const outDir = params.getParam("o");
-    if ( (typeof(outDir) !== "undefined" && outDir != null )  ) {
-      the_target = outDir;
-    }
-    let langLibEnv = operatorsOf_8.envc95var_54(env, "RANGER_LIB");
-    const idir = __dirname;
-    langLibEnv = (((((root_dir + ";") + (require("path").normalize((idir + "/../compiler/")))) + ";") + (require("path").normalize((idir + "/../lib/")))) + ";") + langLibEnv;
-    env.setEnv("RANGER_LIB", langLibEnv);
-    console.log("ENV: " + operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
-    const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
-    const theFilePath = this.searchLib(theFilePaths, the_file);
-    if ( operatorsOf_8.filec95exists_9(env, theFilePath, the_file) == false ) {
-      console.log("Could not compile.");
-      console.log("File not found: " + the_file);
-      return res;
-    }
-    const langFilePaths = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
-    const langFilePath = this.searchLib(langFilePaths, the_lang_file);
-    if ( operatorsOf_8.filec95exists_9(env, langFilePath, the_lang_file) == false ) {
-      console.log(("language file " + the_lang_file) + " not found! Check the library directory or RANGER_LIB enviroment variable");
-      console.log("currently pointing at : " + langLibEnv);
-      console.log("download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.rgr");
-      return res;
-    } else {
-      console.log("Using language file from : " + langFilePath);
-    }
-    console.log("File to be compiled: " + the_file);
-    let langFileDirs = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
-    const sourceFileDir = require("path").dirname(((theFilePath + "/") + the_file));
-    langFileDirs.push(sourceFileDir);
-    const c = await operatorsOf_8.readc95file_9(env, theFilePath, the_file);
-    const code = new SourceCode(c);
-    code.filename = the_file;
-    const parser = new RangerLispParser(code);
-    if ( ( typeof(params.flags["no-op-transform"] ) != "undefined" && params.flags.hasOwnProperty("no-op-transform") ) ) {
-      parser.disableOperators = true;
-    }
-    parser.parse(( typeof(params.flags["no-op-transform"] ) != "undefined" && params.flags.hasOwnProperty("no-op-transform") ));
-    const root = parser.rootNode;
-    console.log("--> ready to compile");
-    const flags = Object.keys(params.flags);
-    for ( let ci = 0; ci < root.children.length; ci++) {
-      var ch = root.children[ci];
-      let inserted_nodes = [];
-      if ( (ch.children.length) > 2 ) {
-        const fc = ch.getFirst();
-        if ( fc.vref == "flag" ) {
-          const fName = ch.getSecond();
-          for ( let i = 0; i < flags.length; i++) {
-            var flag_name = flags[i];
-            if ( flag_name == fName.vref ) {
-              const compInfo = ch.getThird();
-              let i_1 = 0;
-              const cnt = compInfo.children.length;
-              while (i_1 < (cnt - 1)) {
-                const fc_1 = compInfo.children[i_1];
-                const sc = compInfo.children[(i_1 + 1)];
-                switch (fc_1.vref ) { 
-                  case "libpath" : 
-                    langFileDirs = this.possiblePaths(sc.string_value);
-                    break;
-                  case "output" : 
-                    the_target = sc.string_value;
-                    break;
-                  case "root-file" : 
-                    root_file = sc.string_value;
-                    break;
-                  case "language" : 
-                    the_lang = sc.string_value;
-                    break;
-                  case "absolute_output_dir" : 
-                    the_target_dir = sc.string_value;
-                    break;
-                  case "relative_output_dir" : 
-                    the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + sc.string_value;
-                    break;
-                  case "package" : 
-                    package_name = sc.string_value;
-                    break;
-                  case "android_res_dir" : 
-                    comp_attrs[fc_1.vref] = sc.string_value;
-                    break;
-                  case "web_res_dir" : 
-                    comp_attrs[fc_1.vref] = sc.string_value;
-                    break;
-                  case "Import" : 
-                    inserted_nodes.push(CodeNode.fromList([CodeNode.vref1("Import"), CodeNode.newStr(sc.string_value)]));
-                    break;
-                  default: 
-                    if ( (sc.string_value.length) > 0 ) {
-                      comp_attrs[fc_1.vref] = sc.string_value;
-                    }
-                    break;
-                };
-                i_1 = i_1 + 2;
-              };
-            }
-          };
-          ch.children.length = 0;
-          for ( let i_2 = 0; i_2 < inserted_nodes.length; i_2++) {
-            var new_node = inserted_nodes[i_2];
-            console.log(" *** Inserting " + new_node.getCode());
-            root.children.splice(0, 0, new_node);
-          };
+        if ( appCtx.targetLangName == "go" ) {
+          importFork.indent(-1);
+          importFork.out(")", true);
         }
-      }
-    };
-    root.children.splice(0, 0, CodeNode.fromList([CodeNode.vref1("Import"), CodeNode.newStr("stdlib.rgr")]));
-    const outDir_2 = params.getParam("o");
-    if ( (typeof(outDir_2) !== "undefined" && outDir_2 != null )  ) {
-      the_target = outDir_2;
-    }
-    comp_attrs["o"] = the_target;
-    const dirParam = params.getParam("d");
-    if ( (typeof(dirParam) !== "undefined" && dirParam != null )  ) {
-      the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + (dirParam);
-    }
-    the_target_dir = require("path").normalize(the_target_dir);
-    comp_attrs["d"] = the_target_dir;
-    const pLang = params.getParam("l");
-    if ( (typeof(pLang) !== "undefined" && pLang != null )  ) {
-      the_lang = pLang;
-    }
-    const appCtx = new RangerAppWriterContext();
-    appCtx.env = env;
-    appCtx.libraryPaths = langFileDirs;
-    appCtx.compilerSettings["package"] = package_name;
-    if ( appCtx.hasCompilerFlag("verbose") ) {
-      for ( let i_3 = 0; i_3 < appCtx.libraryPaths.length; i_3++) {
-        var include_path = appCtx.libraryPaths[i_3];
-        console.log("include-path : " + include_path);
-      };
-    }
-    operatorsOf_13.forEach_55(params.flags, ((item, index) => { 
-      const n = index;
-      appCtx.compilerFlags[n] = true;
-    }));
-    operatorsOf_13.forEach_40(params.params, ((item, index) => { 
-      const v = item;
-      comp_attrs[index] = v;
-    }));
-    operatorsOf_13.forEach_40(comp_attrs, ((item, index) => { 
-      const n_1 = item;
-      appCtx.compilerSettings[index] = n_1;
-    }));
-    if ( (allowed_languages.indexOf(the_lang)) < 0 ) {
-      console.log("Invalid language : " + the_lang);
-      const s = "";
-      console.log("allowed languages: " + (allowed_languages.join(" ")));
-      return res;
-    }
-    appCtx.compilerSettings["l"] = the_lang;
-    if ( the_target == "output" ) {
-      const root_parts = root_file.split(".");
-      if ( (root_parts.length) == 2 ) {
-        the_target = root_parts[0];
-      }
-    }
-    switch (the_lang ) { 
-      case "es6" : 
-        let has_js_ext = false;
-        if ( the_target.endsWith(".js") ) {
-          has_js_ext = true;
+        if ( appCtx.hasCompilerSetting("classdoc") ) {
+          const gen = new RangerDocGenerator();
+          await gen.createClassDoc(root, appCtx, wr);
         }
-        if ( the_target.endsWith(".ts") ) {
-          has_js_ext = true;
+        if ( appCtx.hasCompilerSetting("operatordoc") ) {
+          const gen_1 = new RangerDocGenerator();
+          await gen_1.createOperatorDoc(root, appCtx, wr);
         }
-        if ( the_target.endsWith(".mjs") ) {
-          has_js_ext = true;
-        }
-        if ( the_target.endsWith(".cjs") ) {
-          has_js_ext = true;
-        }
-        if ( has_js_ext == false ) {
-          the_target = the_target + ".js";
-          if ( appCtx.hasCompilerFlag("typescript") ) {
-            the_target = the_target + ".ts";
-          }
-        }
-        break;
-      case "swift3" : 
-        if ( false == (the_target.endsWith(".swift")) ) {
-          the_target = the_target + ".swift";
-        }
-        break;
-      case "swift6" : 
-        if ( false == (the_target.endsWith(".swift")) ) {
-          the_target = the_target + ".swift";
-        }
-        break;
-      case "php" : 
-        if ( false == (the_target.endsWith(".php")) ) {
-          the_target = the_target + ".php";
-        }
-        break;
-      case "csharp" : 
-        if ( false == (the_target.endsWith(".cs")) ) {
-          the_target = the_target + ".cs";
-        }
-        break;
-      case "java7" : 
-        if ( false == (the_target.endsWith(".java")) ) {
-          the_target = the_target + ".java";
-        }
-        break;
-      case "go" : 
-        if ( false == (the_target.endsWith(".go")) ) {
-          the_target = the_target + ".go";
-        }
-        break;
-      case "scala" : 
-        if ( false == (the_target.endsWith(".scala")) ) {
-          the_target = the_target + ".scala";
-        }
-        break;
-      case "kotlin" : 
-        if ( false == (the_target.endsWith(".kt")) ) {
-          the_target = the_target + ".kt";
-        }
-        break;
-      case "cpp" : 
-        if ( false == (the_target.endsWith(".cpp")) ) {
-          the_target = the_target + ".cpp";
-        }
-        break;
-      case "python" : 
-        if ( false == (the_target.endsWith(".py")) ) {
-          the_target = the_target + ".py";
-        }
-        break;
-      case "rust" : 
-        if ( false == (the_target.endsWith(".rs")) ) {
-          the_target = the_target + ".rs";
-        }
-        break;
-    };
-    appCtx.compilerSettings["o"] = the_target;
-    const lcc = new LiveCompiler();
-    const node = parser.rootNode;
-    const flowParser = new RangerFlowParser();
-    const fileSystem = new CodeFileSystem();
-    const file = fileSystem.getFile(".", the_target);
-    let wr = file.getWriter();
-    if ( appCtx.hasCompilerFlag("copysrc") ) {
-      console.log("--> copying " + code.filename);
-      const fileWr = wr.getFileWriter(".", code.filename);
-      fileWr.raw(code.code, false);
-    }
-    appCtx.parser = flowParser;
-    appCtx.compiler = lcc;
-    lcc.parser = flowParser;
-    if ( appCtx.hasCompilerSetting("plugins") ) {
-      const val = appCtx.getCompilerSetting("plugins");
-      const list = val.split(",");
-      await operatorsOf.forEach_12(list, (async (item, index) => { 
-        try {
-          const plugin = require( item );
-          const features = (new plugin.Plugin () ).features();
-          if ( appCtx.hasCompilerFlag("verbose") ) {
-            console.log(("Plugin " + item) + " registered with features ");
-            await operatorsOf.forEach_12(features, ((item, index) => { 
-              console.log(" [x] " + item);
-            }));
-          }
-          const regPlug = new RangerRegisteredPlugin();
-          regPlug.name = item;
-          regPlug.features = operatorsOf.clone_56(features);
-          appCtx.addPlugin(regPlug);
-        } catch(e) {
-          console.log("Failed to register plugin " + item);
-        }
-      }));
-    }
-    plugins_only = appCtx.hasCompilerFlag("plugins-only");
-    try {
-      await flowParser.mergeImports(node, appCtx, wr);
-      const lang_str = await operatorsOf_8.readc95file_9(env, langFilePath, the_lang_file);
-      const lang_code = new SourceCode(lang_str);
-      lang_code.filename = the_lang_file;
-      const lang_parser = new RangerLispParser(lang_code);
-      lang_parser.parse(false);
-      appCtx.langOperators = lang_parser.rootNode;
-      appCtx.setRootFile(root_file);
-      const ops = new RangerActiveOperators();
-      ops.initFrom(lang_parser.rootNode);
-      appCtx.operators = ops;
-      appCtx.targetLangName = the_lang;
-      lcc.initWriter(appCtx);
-      console.log("--- context inited ---");
-      console.log("1. Collecting available methods.");
-      await flowParser.CollectMethods(node, appCtx, wr);
-      if ( (appCtx.compilerErrors.length) > 0 ) {
         VirtualCompiler.displayCompilerErrors(appCtx);
-        res.hasErrors = true;
-        res.errorMessage = "Errors during method collection phase";
+        if ( (appCtx.compilerErrors.length) > 0 ) {
+          res.hasErrors = true;
+          res.errorMessage = "Errors during compilation phase";
+        }
+        const ppList_1 = appCtx.findPluginsFor("postprocess");
+        await operatorsOf.forEach_12(ppList_1, ((item, index) => { 
+          try {
+            const plugin_2 = require( item );
+            ( (new plugin_2.Plugin () )["postprocess"] )( root, appCtx , wr );
+          } catch(e) {
+          }
+        }));
+        res.target_dir = the_target_dir;
+        res.fileSystem = fileSystem;
         res.ctx = appCtx;
-        return res;
-      }
-      await flowParser.CreateCTTI(node, appCtx, wr);
-      if ( appCtx.hasCompilerFlag("rtti") ) {
-        await flowParser.CreateRTTI(node, appCtx, wr);
-      }
-      const ppList = appCtx.findPluginsFor("pre_flow");
-      await operatorsOf.forEach_12(ppList, ((item, index) => { 
-        try {
-          const plugin_1 = require( item );
-          ( (new plugin_1.Plugin () )["pre_flow"] )( root, appCtx , wr );
-        } catch(e) {
-        }
-      }));
-      await appCtx.initOpList();
-      console.log("2. Analyzing the code.");
-      console.log("selected language is " + appCtx.targetLangName);
-      await flowParser.StartWalk(node, appCtx, wr);
-      await flowParser.SolveAsyncFuncs(root, appCtx, wr);
-      console.log("3. Compiling the source code.");
-      switch (appCtx.targetLangName ) { 
-        case "java7" : 
-          if ( ( typeof(comp_attrs["android_res_dir"] ) != "undefined" && comp_attrs.hasOwnProperty("android_res_dir") ) ) {
-            console.log("--> had android res dir");
-            const resDir = (( comp_attrs.hasOwnProperty("android_res_dir") ? comp_attrs["android_res_dir"] : undefined ));
-            const resFs = new CodeFileSystem();
-            const file_2 = resFs.getFile(".", "README.txt");
-            const wr_2 = file_2.getWriter();
-            const builder = new viewbuilder_Android();
-            await operatorsOf_13.forEach_25(appCtx.viewClassBody, (async (item, index) => { 
-              await builder.writeClass(item, appCtx, wr_2);
-            }));
-            resFs.saveTo(resDir, appCtx.hasCompilerFlag("show-writes"));
-          }
-          break;
-        case "es6" : 
-          if ( ( typeof(comp_attrs["web_res_dir"] ) != "undefined" && comp_attrs.hasOwnProperty("web_res_dir") ) ) {
-            console.log("--> had web res dir");
-            const resDir_1 = (( comp_attrs.hasOwnProperty("web_res_dir") ? comp_attrs["web_res_dir"] : undefined ));
-            const resFs_1 = new CodeFileSystem();
-            const file_3 = resFs_1.getFile(".", "webviews.html");
-            const wr_3 = file_3.getWriter();
-            const builder_1 = new viewbuilder_Web();
-            await builder_1.CreateViews(appCtx, wr_3);
-            resFs_1.saveTo(resDir_1, appCtx.hasCompilerFlag("show-writes"));
-          }
-          break;
-      };
-      let staticMethods;
-      const importFork = wr.fork();
-      wr.createTag("after_imports");
-      const contentFork = wr.fork();
-      wr.createTag("utilities");
-      const theEnd = wr.createTag("file_end");
-      wr = contentFork;
-      let handledClasses = {};
-      for ( let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {
-        var cName = appCtx.definedClassList[i_4];
-        if ( cName == "RangerStaticMethods" ) {
-          staticMethods = ( appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined );
-          continue;
-        }
-        const cl = ( appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined );
-        if ( cl.is_operator_class ) {
-          continue;
-        }
-        if ( cl.is_trait ) {
-          continue;
-        }
-        if ( cl.is_system ) {
-          continue;
-        }
-        if ( cl.is_generic_instance ) {
-          continue;
-        }
-        if ( cl.is_system_union ) {
-          continue;
-        }
-        if ( cl.is_union ) {
-          continue;
-        }
-        if ( ( typeof(handledClasses[cName] ) != "undefined" && handledClasses.hasOwnProperty(cName) ) ) {
-          continue;
-        }
-        handledClasses[cName] = true;
-        if ( (cl.extends_classes.length) > 0 ) {
-          for ( let i_5 = 0; i_5 < cl.extends_classes.length; i_5++) {
-            var eClassName = cl.extends_classes[i_5];
-            if ( ( typeof(handledClasses[eClassName] ) != "undefined" && handledClasses.hasOwnProperty(eClassName) ) ) {
-              continue;
-            }
-            const parentCl = ( appCtx.definedClasses.hasOwnProperty(eClassName) ? appCtx.definedClasses[eClassName] : undefined );
-            await lcc.WalkNode(parentCl.classNode, appCtx, wr);
-            handledClasses[eClassName] = true;
-          };
-        }
-        await lcc.WalkNode(cl.classNode, appCtx, wr);
-      };
-      if ( (typeof(staticMethods) !== "undefined" && staticMethods != null )  ) {
-        await lcc.WalkNode(staticMethods.classNode, appCtx, wr);
-      }
-      for ( let i_6 = 0; i_6 < flowParser.collectedIntefaces.length; i_6++) {
-        var ifDesc = flowParser.collectedIntefaces[i_6];
-        console.log("should define also interface " + ifDesc.name);
-        await lcc.langWriter.writeInterface(ifDesc, appCtx, wr);
-      };
-      for ( let i_7 = 0; i_7 < appCtx.definedClassList.length; i_7++) {
-        var cName_1 = appCtx.definedClassList[i_7];
-        if ( ( typeof(handledClasses[cName_1] ) != "undefined" && handledClasses.hasOwnProperty(cName_1) ) ) {
-          continue;
-        }
-        if ( cName_1 == "RangerStaticMethods" ) {
-          staticMethods = ( appCtx.definedClasses.hasOwnProperty(cName_1) ? appCtx.definedClasses[cName_1] : undefined );
-          continue;
-        }
-        const cl_1 = ( appCtx.definedClasses.hasOwnProperty(cName_1) ? appCtx.definedClasses[cName_1] : undefined );
-        if ( cl_1.is_operator_class ) {
-          continue;
-        }
-        if ( cl_1.is_generic_instance ) {
-          await lcc.WalkNode(cl_1.classNode, appCtx, wr);
-        }
-        if ( cl_1.is_trait ) {
-          continue;
-        }
-        if ( cl_1.is_system ) {
-          continue;
-        }
-        if ( cl_1.is_operator_class ) {
-          continue;
-        }
-        if ( cl_1.is_generic_instance ) {
-          continue;
-        }
-        if ( cl_1.is_system_union ) {
-          continue;
-        }
-        if ( cl_1.is_union ) {
-          continue;
-        }
-        await lcc.WalkNode(cl_1.classNode, appCtx, wr);
-      };
-      for ( let i_8 = 0; i_8 < appCtx.definedClassList.length; i_8++) {
-        var cName_2 = appCtx.definedClassList[i_8];
-        const cl_2 = ( appCtx.definedClasses.hasOwnProperty(cName_2) ? appCtx.definedClasses[cName_2] : undefined );
-        if ( cl_2.is_operator_class ) {
-          await lcc.WalkNode(cl_2.classNode, appCtx, wr);
-        }
-      };
-      const import_list = wr.getImports();
-      if ( appCtx.targetLangName == "go" ) {
-        importFork.out("package main", true);
-        importFork.newline();
-        importFork.out("import (", true);
-        importFork.indent(1);
-      }
-      let added_import = {};
-      for ( let i_9 = 0; i_9 < import_list.length; i_9++) {
-        var codeStr = import_list[i_9];
-        if ( ( typeof(added_import[codeStr] ) != "undefined" && added_import.hasOwnProperty(codeStr) ) ) {
-          continue;
-        }
-        added_import[codeStr] = true;
-        switch (appCtx.targetLangName ) { 
-          case "es6" : 
-            const parts = codeStr.split(".");
-            const p0 = parts[0];
-            if ( (parts.length) > 1 ) {
-              const p1 = parts[1];
-              importFork.out(((((("const " + p1) + " = require('") + p0) + "').") + p1) + ";", true);
-            }
-            if ( (parts.length) == 1 ) {
-              importFork.out(((("const " + p0) + " = require('") + p0) + "');", true);
-            }
-            break;
-          case "go" : 
-            if ( (codeStr.charCodeAt(0 )) == (("_".charCodeAt(0))) ) {
-              importFork.out((" _ \"" + (codeStr.substring(1, (codeStr.length) ))) + "\"", true);
-            } else {
-              importFork.out(("\"" + codeStr) + "\"", true);
-            }
-            break;
-          case "csharp" : 
-            importFork.out(("using " + codeStr) + ";", true);
-            break;
-          case "rust" : 
-            importFork.out(("use " + codeStr) + ";", true);
-            break;
-          case "java7" : 
-            importFork.out(("import " + codeStr) + ";", true);
-            break;
-          case "cpp" : 
-            importFork.out("#include  " + codeStr, true);
-            break;
-          default: 
-            importFork.out("import " + codeStr, true);
-            break;
-        };
-      };
-      if ( appCtx.targetLangName == "go" ) {
-        importFork.indent(-1);
-        importFork.out(")", true);
-      }
-      if ( appCtx.hasCompilerSetting("classdoc") ) {
-        const gen = new RangerDocGenerator();
-        await gen.createClassDoc(root, appCtx, wr);
-      }
-      if ( appCtx.hasCompilerSetting("operatordoc") ) {
-        const gen_1 = new RangerDocGenerator();
-        await gen_1.createOperatorDoc(root, appCtx, wr);
-      }
-      VirtualCompiler.displayCompilerErrors(appCtx);
-      if ( (appCtx.compilerErrors.length) > 0 ) {
+      } catch(e) {
+        const err_msg = ( e.toString());
+        console.log(err_msg);
         res.hasErrors = true;
-        res.errorMessage = "Errors during compilation phase";
-      }
-      const ppList_1 = appCtx.findPluginsFor("postprocess");
-      await operatorsOf.forEach_12(ppList_1, ((item, index) => { 
-        try {
-          const plugin_2 = require( item );
-          ( (new plugin_2.Plugin () )["postprocess"] )( root, appCtx , wr );
-        } catch(e) {
+        res.ctx = appCtx;
+        if ( typeof(lcc.lastProcessedNode) != "undefined" ) {
+          console.log("Got compiler error close to");
+          console.log(lcc.lastProcessedNode.getLineAsString());
+          res.errorMessage = err_msg;
+          return res;
         }
-      }));
-      res.target_dir = the_target_dir;
-      res.fileSystem = fileSystem;
-      res.ctx = appCtx;
-    } catch(e) {
-      const err_msg = ( e.toString());
-      console.log(err_msg);
-      res.hasErrors = true;
-      res.ctx = appCtx;
-      if ( typeof(lcc.lastProcessedNode) != "undefined" ) {
-        console.log("Got compiler error close to");
-        console.log(lcc.lastProcessedNode.getLineAsString());
+        if ( typeof(flowParser.lastProcessedNode) != "undefined" ) {
+          console.log("Got compiler error close to");
+          console.log(flowParser.lastProcessedNode.getLineAsString());
+          res.errorMessage = err_msg;
+          return res;
+        }
+        console.log("Got unknown compiler error");
         res.errorMessage = err_msg;
-        return res;
       }
-      if ( typeof(flowParser.lastProcessedNode) != "undefined" ) {
-        console.log("Got compiler error close to");
-        console.log(flowParser.lastProcessedNode.getLineAsString());
-        res.errorMessage = err_msg;
-        return res;
+      return res;
+    };
+  }
+  VirtualCompiler.create_env = async function() {
+    const env = new InputEnv();
+    env.filesystem = new InputFSFolder();
+    env.commandLine = new CmdParams();
+    operatorsOf_3.createc95file_4(env.filesystem, "Lang.rgr", (await (new Promise(resolve => { require('fs').readFile( "." + '/' + "Lang.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "stdlib.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdlib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "stdops.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdops.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Timers.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Timers.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "DOMLib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Ajax.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Ajax.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Crypto.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Crypto.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "Storage.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Storage.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "JSON.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+    operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
+    require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
+  };
+  VirtualCompiler.displayCompilerErrors = function(appCtx) {
+    const cons = new ColorConsole();
+    for ( let i = 0; i < appCtx.compilerErrors.length; i++) {
+      var e = appCtx.compilerErrors[i];
+      const line_index = e.node.getLine();
+      cons.out("gray", (e.node.getFilename() + " Line: ") + (1 + line_index));
+      cons.out("gray", e.description);
+      cons.out("gray", e.node.getLineString(line_index));
+      cons.out("", e.node.getColStartString() + "^-------");
+    };
+  };
+  VirtualCompiler.displayParserErrors = function(appCtx) {
+    if ( (appCtx.parserErrors.length) == 0 ) {
+      console.log("no language test errors");
+      return;
+    }
+    console.log("LANGUAGE TEST ERRORS:");
+    for ( let i = 0; i < appCtx.parserErrors.length; i++) {
+      var e = appCtx.parserErrors[i];
+      const line_index = e.node.getLine();
+      console.log((e.node.getFilename() + " Line: ") + (1 + line_index));
+      console.log(e.description);
+      console.log(e.node.getLineString(line_index));
+    };
+  };
+  class CompilerInterface  {
+    constructor() {
+    }
+  }
+  CompilerInterface.create_env = function() {
+    const env = new InputEnv();
+    env.use_real = true;
+    env.commandLine = new CmdParams();
+    env.commandLine.collect();
+    return env;
+  };
+  class operatorsOf  {
+    constructor() {
+    }
+  }
+  operatorsOf.forEach_2 = function(__self, cb) {
+    for ( let i = 0; i < __self.length; i++) {
+      var it = __self[i];
+      cb(it, i);
+    };
+  };
+  operatorsOf.filter_6 = function(__self, cb) {
+    let res_1 = [];
+    for ( let i_1 = 0; i_1 < __self.length; i_1++) {
+      var it_1 = __self[i_1];
+      if ( cb(it_1, i_1) ) {
+        res_1.push(it_1);
       }
-      console.log("Got unknown compiler error");
-      res.errorMessage = err_msg;
-    }
-    return res;
+    };
+    return res_1;
   };
-}
-VirtualCompiler.create_env = async function() {
-  const env = new InputEnv();
-  env.filesystem = new InputFSFolder();
-  env.commandLine = new CmdParams();
-  operatorsOf_3.createc95file_4(env.filesystem, "Lang.rgr", (await (new Promise(resolve => { require('fs').readFile( "." + '/' + "Lang.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "stdlib.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdlib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "stdops.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdops.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "Timers.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Timers.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "DOMLib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "Ajax.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Ajax.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "Crypto.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Crypto.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "Storage.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Storage.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "JSON.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-  operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
-  require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
-};
-VirtualCompiler.displayCompilerErrors = function(appCtx) {
-  const cons = new ColorConsole();
-  for ( let i = 0; i < appCtx.compilerErrors.length; i++) {
-    var e = appCtx.compilerErrors[i];
-    const line_index = e.node.getLine();
-    cons.out("gray", (e.node.getFilename() + " Line: ") + (1 + line_index));
-    cons.out("gray", e.description);
-    cons.out("gray", e.node.getLineString(line_index));
-    cons.out("", e.node.getColStartString() + "^-------");
+  operatorsOf.filter_7 = function(__self, cb) {
+    let res_2 = [];
+    for ( let i_2 = 0; i_2 < __self.length; i_2++) {
+      var it_2 = __self[i_2];
+      if ( cb(it_2, i_2) ) {
+        res_2.push(it_2);
+      }
+    };
+    return res_2;
   };
-};
-VirtualCompiler.displayParserErrors = function(appCtx) {
-  if ( (appCtx.parserErrors.length) == 0 ) {
-    console.log("no language test errors");
-    return;
-  }
-  console.log("LANGUAGE TEST ERRORS:");
-  for ( let i = 0; i < appCtx.parserErrors.length; i++) {
-    var e = appCtx.parserErrors[i];
-    const line_index = e.node.getLine();
-    console.log((e.node.getFilename() + " Line: ") + (1 + line_index));
-    console.log(e.description);
-    console.log(e.node.getLineString(line_index));
+  operatorsOf.forEach_10 = function(__self, cb) {
+    for ( let i_4 = 0; i_4 < __self.length; i_4++) {
+      var it_3 = __self[i_4];
+      cb(it_3, i_4);
+    };
   };
-};
-class CompilerInterface  {
-  constructor() {
-  }
-}
-CompilerInterface.create_env = function() {
-  const env = new InputEnv();
-  env.use_real = true;
-  env.commandLine = new CmdParams();
-  env.commandLine.collect();
-  return env;
-};
-class operatorsOf  {
-  constructor() {
-  }
-}
-operatorsOf.forEach_2 = function(__self, cb) {
-  for ( let i = 0; i < __self.length; i++) {
-    var it = __self[i];
-    cb(it, i);
+  operatorsOf.forEach_11 = function(__self, cb) {
+    for ( let i_5 = 0; i_5 < __self.length; i_5++) {
+      var it_4 = __self[i_5];
+      cb(it_4, i_5);
+    };
   };
-};
-operatorsOf.filter_6 = function(__self, cb) {
-  let res_1 = [];
-  for ( let i_1 = 0; i_1 < __self.length; i_1++) {
-    var it_1 = __self[i_1];
-    if ( cb(it_1, i_1) ) {
-      res_1.push(it_1);
-    }
+  operatorsOf.forEach_12 = async function(__self, cb) {
+    for ( let i_6 = 0; i_6 < __self.length; i_6++) {
+      var it_5 = __self[i_6];
+      await cb(it_5, i_6);
+    };
   };
-  return res_1;
-};
-operatorsOf.filter_7 = function(__self, cb) {
-  let res_2 = [];
-  for ( let i_2 = 0; i_2 < __self.length; i_2++) {
-    var it_2 = __self[i_2];
-    if ( cb(it_2, i_2) ) {
-      res_2.push(it_2);
-    }
+  operatorsOf.forEach_15 = async function(__self, cb) {
+    for ( let i_8 = 0; i_8 < __self.length; i_8++) {
+      var it_6 = __self[i_8];
+      await cb(it_6, i_8);
+    };
   };
-  return res_2;
-};
-operatorsOf.forEach_10 = function(__self, cb) {
-  for ( let i_4 = 0; i_4 < __self.length; i_4++) {
-    var it_3 = __self[i_4];
-    cb(it_3, i_4);
+  operatorsOf.forEach_17 = async function(__self, cb) {
+    for ( let i_10 = 0; i_10 < __self.length; i_10++) {
+      var it_7 = __self[i_10];
+      await cb(it_7, i_10);
+    };
   };
-};
-operatorsOf.forEach_11 = function(__self, cb) {
-  for ( let i_5 = 0; i_5 < __self.length; i_5++) {
-    var it_4 = __self[i_5];
-    cb(it_4, i_5);
+  operatorsOf.clone_18 = function(__self) {
+    let res_5 = [];
+    for ( let i_11 = 0; i_11 < __self.length; i_11++) {
+      var it_8 = __self[i_11];
+      res_5.push(it_8);
+    };
+    return res_5;
   };
-};
-operatorsOf.forEach_12 = async function(__self, cb) {
-  for ( let i_6 = 0; i_6 < __self.length; i_6++) {
-    var it_5 = __self[i_6];
-    await cb(it_5, i_6);
+  operatorsOf.forEach_29 = async function(__self, cb) {
+    for ( let i_15 = 0; i_15 < __self.length; i_15++) {
+      var it_9 = __self[i_15];
+      await cb(it_9, i_15);
+    };
   };
-};
-operatorsOf.forEach_15 = async function(__self, cb) {
-  for ( let i_8 = 0; i_8 < __self.length; i_8++) {
-    var it_6 = __self[i_8];
-    await cb(it_6, i_8);
+  operatorsOf.forEach_31 = function(__self, cb) {
+    for ( let i_17 = 0; i_17 < __self.length; i_17++) {
+      var it_10 = __self[i_17];
+      cb(it_10, i_17);
+    };
   };
-};
-operatorsOf.forEach_17 = async function(__self, cb) {
-  for ( let i_10 = 0; i_10 < __self.length; i_10++) {
-    var it_7 = __self[i_10];
-    await cb(it_7, i_10);
+  operatorsOf.filter_32 = function(__self, cb) {
+    let res_6 = [];
+    for ( let i_18 = 0; i_18 < __self.length; i_18++) {
+      var it_11 = __self[i_18];
+      if ( cb(it_11, i_18) ) {
+        res_6.push(it_11);
+      }
+    };
+    return res_6;
   };
-};
-operatorsOf.clone_18 = function(__self) {
-  let res_5 = [];
-  for ( let i_11 = 0; i_11 < __self.length; i_11++) {
-    var it_8 = __self[i_11];
-    res_5.push(it_8);
+  operatorsOf.filter_36 = function(__self, cb) {
+    let res_7 = [];
+    for ( let i_19 = 0; i_19 < __self.length; i_19++) {
+      var it_12 = __self[i_19];
+      if ( cb(it_12, i_19) ) {
+        res_7.push(it_12);
+      }
+    };
+    return res_7;
   };
-  return res_5;
-};
-operatorsOf.forEach_29 = async function(__self, cb) {
-  for ( let i_15 = 0; i_15 < __self.length; i_15++) {
-    var it_9 = __self[i_15];
-    await cb(it_9, i_15);
+  operatorsOf.forEach_37 = function(__self, cb) {
+    for ( let i_20 = 0; i_20 < __self.length; i_20++) {
+      var it_13 = __self[i_20];
+      cb(it_13, i_20);
+    };
   };
-};
-operatorsOf.forEach_31 = function(__self, cb) {
-  for ( let i_17 = 0; i_17 < __self.length; i_17++) {
-    var it_10 = __self[i_17];
-    cb(it_10, i_17);
+  operatorsOf.map_44 = function(__self, cb) {
+    const __len = __self.length;
+    let res_8 = [];
+    for ( let i_23 = 0; i_23 < __self.length; i_23++) {
+      var it_14 = __self[i_23];
+      res_8.push(cb(it_14, i_23));
+    };
+    return res_8;
   };
-};
-operatorsOf.filter_32 = function(__self, cb) {
-  let res_6 = [];
-  for ( let i_18 = 0; i_18 < __self.length; i_18++) {
-    var it_11 = __self[i_18];
-    if ( cb(it_11, i_18) ) {
-      res_6.push(it_11);
-    }
+  operatorsOf.map_45 = function(__self, cb) {
+    const len_1 = __self.length;
+    let res_9 = [];
+    for ( let i_24 = 0; i_24 < __self.length; i_24++) {
+      var it_15 = __self[i_24];
+      res_9.push(cb(it_15, i_24));
+    };
+    return res_9;
   };
-  return res_6;
-};
-operatorsOf.filter_36 = function(__self, cb) {
-  let res_7 = [];
-  for ( let i_19 = 0; i_19 < __self.length; i_19++) {
-    var it_12 = __self[i_19];
-    if ( cb(it_12, i_19) ) {
-      res_7.push(it_12);
-    }
+  operatorsOf.clone_46 = function(__self) {
+    let res_10 = [];
+    for ( let i_25 = 0; i_25 < __self.length; i_25++) {
+      var it_16 = __self[i_25];
+      res_10.push(it_16);
+    };
+    return res_10;
   };
-  return res_7;
-};
-operatorsOf.forEach_37 = function(__self, cb) {
-  for ( let i_20 = 0; i_20 < __self.length; i_20++) {
-    var it_13 = __self[i_20];
-    cb(it_13, i_20);
+  operatorsOf.map_47 = function(__self, cb) {
+    const len_2 = __self.length;
+    let res_11 = [];
+    for ( let i_26 = 0; i_26 < __self.length; i_26++) {
+      var it_17 = __self[i_26];
+      res_11.push(cb(it_17, i_26));
+    };
+    return res_11;
   };
-};
-operatorsOf.map_44 = function(__self, cb) {
-  const __len = __self.length;
-  let res_8 = [];
-  for ( let i_23 = 0; i_23 < __self.length; i_23++) {
-    var it_14 = __self[i_23];
-    res_8.push(cb(it_14, i_23));
+  operatorsOf.filter_50 = function(__self, cb) {
+    let res_12 = [];
+    for ( let i_27 = 0; i_27 < __self.length; i_27++) {
+      var it_18 = __self[i_27];
+      if ( cb(it_18, i_27) ) {
+        res_12.push(it_18);
+      }
+    };
+    return res_12;
   };
-  return res_8;
-};
-operatorsOf.map_45 = function(__self, cb) {
-  const len_1 = __self.length;
-  let res_9 = [];
-  for ( let i_24 = 0; i_24 < __self.length; i_24++) {
-    var it_15 = __self[i_24];
-    res_9.push(cb(it_15, i_24));
+  operatorsOf.filter_52 = function(__self, cb) {
+    let res_13 = [];
+    for ( let i_28 = 0; i_28 < __self.length; i_28++) {
+      var it_19 = __self[i_28];
+      if ( cb(it_19, i_28) ) {
+        res_13.push(it_19);
+      }
+    };
+    return res_13;
   };
-  return res_9;
-};
-operatorsOf.clone_46 = function(__self) {
-  let res_10 = [];
-  for ( let i_25 = 0; i_25 < __self.length; i_25++) {
-    var it_16 = __self[i_25];
-    res_10.push(it_16);
+  operatorsOf.groupBy_53 = function(__self, cb) {
+    let res_14 = [];
+    let mapper = {};
+    for ( let i_29 = 0; i_29 < __self.length; i_29++) {
+      var it_20 = __self[i_29];
+      const key = cb(it_20);
+      if ( false == (( typeof(mapper[key] ) != "undefined" && mapper.hasOwnProperty(key) )) ) {
+        res_14.push(it_20);
+        mapper[key] = true;
+      }
+    };
+    return res_14;
   };
-  return res_10;
-};
-operatorsOf.map_47 = function(__self, cb) {
-  const len_2 = __self.length;
-  let res_11 = [];
-  for ( let i_26 = 0; i_26 < __self.length; i_26++) {
-    var it_17 = __self[i_26];
-    res_11.push(cb(it_17, i_26));
+  operatorsOf.clone_56 = function(__self) {
+    let res_15 = [];
+    for ( let i_31 = 0; i_31 < __self.length; i_31++) {
+      var it_21 = __self[i_31];
+      res_15.push(it_21);
+    };
+    return res_15;
   };
-  return res_11;
-};
-operatorsOf.filter_50 = function(__self, cb) {
-  let res_12 = [];
-  for ( let i_27 = 0; i_27 < __self.length; i_27++) {
-    var it_18 = __self[i_27];
-    if ( cb(it_18, i_27) ) {
-      res_12.push(it_18);
-    }
-  };
-  return res_12;
-};
-operatorsOf.filter_52 = function(__self, cb) {
-  let res_13 = [];
-  for ( let i_28 = 0; i_28 < __self.length; i_28++) {
-    var it_19 = __self[i_28];
-    if ( cb(it_19, i_28) ) {
-      res_13.push(it_19);
-    }
-  };
-  return res_13;
-};
-operatorsOf.groupBy_53 = function(__self, cb) {
-  let res_14 = [];
-  let mapper = {};
-  for ( let i_29 = 0; i_29 < __self.length; i_29++) {
-    var it_20 = __self[i_29];
-    const key = cb(it_20);
-    if ( false == (( typeof(mapper[key] ) != "undefined" && mapper.hasOwnProperty(key) )) ) {
-      res_14.push(it_20);
-      mapper[key] = true;
-    }
-  };
-  return res_14;
-};
-operatorsOf.clone_56 = function(__self) {
-  let res_15 = [];
-  for ( let i_31 = 0; i_31 < __self.length; i_31++) {
-    var it_21 = __self[i_31];
-    res_15.push(it_21);
-  };
-  return res_15;
-};
-class operatorsOfInputFSFolder_3  {
-  constructor() {
-  }
-}
-operatorsOfInputFSFolder_3.createc95file_4 = function(fs, name, data) {
-  const f_1 = operatorsOf_3.createc95file_5(fs, name);
-  if ( (typeof(f_1) !== "undefined" && f_1 != null )  ) {
-    f_1.data = data;
-  }
-  return f_1;
-};
-class operatorsOf_3  {
-  constructor() {
-  }
-}
-operatorsOf_3.createc95file_5 = function(fs, name) {
-  let res;
-  const files = operatorsOf.filter_6(fs.files, ((item, index) => { 
-    return item.name == name;
-  }));
-  const folders = operatorsOf.filter_7(fs.folders, ((item, index) => { 
-    return item.name == name;
-  }));
-  if ( false == ((folders.length) > 0) ) {
-    if ( (files.length) > 0 ) {
-      res = files[0];
-    } else {
-      const f = new InputFSFile();
-      f.name = name;
-      fs.files.push(f);
-      res = f;
+  class operatorsOfInputFSFolder_3  {
+    constructor() {
     }
   }
-  return res;
-};
-operatorsOf_3.createc95file_4 = function(fs, name, data) {
-  const f_2 = operatorsOf_3.createc95file_5(fs, name);
-  if ( (typeof(f_2) !== "undefined" && f_2 != null )  ) {
-    f_2.data = data;
-  }
-  return f_2;
-};
-operatorsOf_3.createc95folder_5 = function(fs, name) {
-  let res_3;
-  const files_1 = operatorsOf.filter_6(fs.files, ((item, index) => { 
-    return item.name == name;
-  }));
-  const folders_1 = operatorsOf.filter_7(fs.folders, ((item, index) => { 
-    return item.name == name;
-  }));
-  if ( false == ((files_1.length) > 0) ) {
-    if ( (folders_1.length) > 0 ) {
-      res_3 = folders_1[0];
-    } else {
-      const f_3 = new InputFSFolder();
-      f_3.name = name;
-      fs.folders.push(f_3);
-      res_3 = f_3;
+  operatorsOfInputFSFolder_3.createc95file_4 = function(fs, name, data) {
+    const f_1 = operatorsOf_3.createc95file_5(fs, name);
+    if ( (typeof(f_1) !== "undefined" && f_1 != null )  ) {
+      f_1.data = data;
+    }
+    return f_1;
+  };
+  class operatorsOf_3  {
+    constructor() {
     }
   }
-  return res_3;
-};
-class operatorsOfInputEnv_8  {
-  constructor() {
-  }
-}
-operatorsOfInputEnv_8.readc95file_9 = async function(env, path, name) {
-  if ( env.use_real ) {
-    return await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
-  }
-  let resStr;
-  const f_4 = operatorsOf_8.findc95file_9(env, path, name);
-  if ( (typeof(f_4) !== "undefined" && f_4 != null )  ) {
-    resStr = f_4.data;
-  }
-  return resStr;
-};
-class operatorsOf_8  {
-  constructor() {
-  }
-}
-operatorsOf_8.findc95file_9 = function(env, path, name) {
-  let res_4;
-  if ( path == "/" ) {
-    const files_2 = operatorsOf.filter_6(env.filesystem.files, ((item, index) => { 
+  operatorsOf_3.createc95file_5 = function(fs, name) {
+    let res;
+    const files = operatorsOf.filter_6(fs.files, ((item, index) => { 
       return item.name == name;
     }));
-    if ( (files_2.length) > 0 ) {
-      res_4 = files_2[0];
+    const folders = operatorsOf.filter_7(fs.folders, ((item, index) => { 
+      return item.name == name;
+    }));
+    if ( false == ((folders.length) > 0) ) {
+      if ( (files.length) > 0 ) {
+        res = files[0];
+      } else {
+        const f = new InputFSFile();
+        f.name = name;
+        fs.files.push(f);
+        res = f;
+      }
+    }
+    return res;
+  };
+  operatorsOf_3.createc95file_4 = function(fs, name, data) {
+    const f_2 = operatorsOf_3.createc95file_5(fs, name);
+    if ( (typeof(f_2) !== "undefined" && f_2 != null )  ) {
+      f_2.data = data;
+    }
+    return f_2;
+  };
+  operatorsOf_3.createc95folder_5 = function(fs, name) {
+    let res_3;
+    const files_1 = operatorsOf.filter_6(fs.files, ((item, index) => { 
+      return item.name == name;
+    }));
+    const folders_1 = operatorsOf.filter_7(fs.folders, ((item, index) => { 
+      return item.name == name;
+    }));
+    if ( false == ((files_1.length) > 0) ) {
+      if ( (folders_1.length) > 0 ) {
+        res_3 = folders_1[0];
+      } else {
+        const f_3 = new InputFSFolder();
+        f_3.name = name;
+        fs.folders.push(f_3);
+        res_3 = f_3;
+      }
+    }
+    return res_3;
+  };
+  class operatorsOfInputEnv_8  {
+    constructor() {
+    }
+  }
+  operatorsOfInputEnv_8.readc95file_9 = async function(env, path, name) {
+    if ( env.use_real ) {
+      return await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
+    }
+    let resStr;
+    const f_4 = operatorsOf_8.findc95file_9(env, path, name);
+    if ( (typeof(f_4) !== "undefined" && f_4 != null )  ) {
+      resStr = f_4.data;
+    }
+    return resStr;
+  };
+  class operatorsOf_8  {
+    constructor() {
+    }
+  }
+  operatorsOf_8.findc95file_9 = function(env, path, name) {
+    let res_4;
+    if ( path == "/" ) {
+      const files_2 = operatorsOf.filter_6(env.filesystem.files, ((item, index) => { 
+        return item.name == name;
+      }));
+      if ( (files_2.length) > 0 ) {
+        res_4 = files_2[0];
+      }
+      return res_4;
+    }
+    const parts = path.split("/");
+    let fold = env.filesystem;
+    let i_3 = 0;
+    while (((parts.length) > i_3) && ((typeof(fold) !== "undefined" && fold != null ) )) {
+      const pathName = parts[i_3];
+      if ( (pathName.length) > 0 ) {
+        const folder = operatorsOf.filter_7(fold.folders, ((item, index) => { 
+          return item.name == pathName;
+        }));
+        if ( (folder.length) > 0 ) {
+          fold = folder[0];
+        } else {
+          return res_4;
+        }
+      }
+      i_3 = i_3 + 1;
+    };
+    if ( (typeof(fold) !== "undefined" && fold != null )  ) {
+      const files_3 = operatorsOf.filter_6(fold.files, ((item, index) => { 
+        return item.name == name;
+      }));
+      if ( (files_3.length) > 0 ) {
+        res_4 = files_3[0];
+      }
     }
     return res_4;
+  };
+  operatorsOf_8.readc95file_9 = async function(env, path, name) {
+    if ( env.use_real ) {
+      return await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
+    }
+    let resStr_1;
+    const f_5 = operatorsOf_8.findc95file_9(env, path, name);
+    if ( (typeof(f_5) !== "undefined" && f_5 != null )  ) {
+      resStr_1 = f_5.data;
+    }
+    return resStr_1;
+  };
+  operatorsOf_8.filec95exists_9 = function(env, path, name) {
+    if ( env.use_real ) {
+      return require("fs").existsSync(path + "/" + name );
+    }
+    const fo = operatorsOf_8.findc95file_9(env, path, name);
+    return (typeof(fo) !== "undefined" && fo != null ) ;
+  };
+  operatorsOf_8.installc95directory_51 = function(env) {
+    if ( env.use_real ) {
+      return __dirname;
+    }
+    return "/";
+  };
+  operatorsOf_8.envc95var_54 = function(env, name) {
+    if ( env.use_real ) {
+      if ( ( typeof(env.envVars[name] ) != "undefined" && env.envVars.hasOwnProperty(name) ) ) {
+        return (( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined ));
+      }
+      const ev = process.env[name];
+      if ( (typeof(ev) !== "undefined" && ev != null )  ) {
+        return ev;
+      }
+      return "";
+    }
+    return ((typeof((( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined ))) !== "undefined" && (( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined )) != null ) ) ? ((( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined ))) : "";
+  };
+  operatorsOf_8.currentc95directory_51 = function(env) {
+    if ( env.use_real ) {
+      return process.cwd();
+    }
+    return "/";
+  };
+  class operatorsOf_13  {
+    constructor() {
+    }
   }
-  const parts = path.split("/");
-  let fold = env.filesystem;
-  let i_3 = 0;
-  while (((parts.length) > i_3) && ((typeof(fold) !== "undefined" && fold != null ) )) {
-    const pathName = parts[i_3];
-    if ( (pathName.length) > 0 ) {
-      const folder = operatorsOf.filter_7(fold.folders, ((item, index) => { 
-        return item.name == pathName;
-      }));
-      if ( (folder.length) > 0 ) {
-        fold = folder[0];
+  operatorsOf_13.forEach_14 = async function(__self, cb) {
+    const list = Object.keys(__self);
+    for ( let i_7 = 0; i_7 < list.length; i_7++) {
+      var kk = list[i_7];
+      const value = (( __self.hasOwnProperty(kk) ? __self[kk] : undefined ));
+      await cb(value, kk);
+    };
+  };
+  operatorsOf_13.forEach_16 = async function(__self, cb) {
+    const list_1 = Object.keys(__self);
+    for ( let i_9 = 0; i_9 < list_1.length; i_9++) {
+      var kk_1 = list_1[i_9];
+      const value_1 = (( __self.hasOwnProperty(kk_1) ? __self[kk_1] : undefined ));
+      await cb(value_1, kk_1);
+    };
+  };
+  operatorsOf_13.forEach_19 = async function(__self, cb) {
+    const list_2 = Object.keys(__self);
+    for ( let i_12 = 0; i_12 < list_2.length; i_12++) {
+      var kk_2 = list_2[i_12];
+      const value_2 = (( __self.hasOwnProperty(kk_2) ? __self[kk_2] : undefined ));
+      await cb(value_2, kk_2);
+    };
+  };
+  operatorsOf_13.forEach_20 = async function(__self, cb) {
+    const list_3 = Object.keys(__self);
+    for ( let i_13 = 0; i_13 < list_3.length; i_13++) {
+      var kk_3 = list_3[i_13];
+      const value_3 = (( __self.hasOwnProperty(kk_3) ? __self[kk_3] : undefined ));
+      await cb(value_3, kk_3);
+    };
+  };
+  operatorsOf_13.forEach_25 = async function(__self, cb) {
+    const list_4 = Object.keys(__self);
+    for ( let i_14 = 0; i_14 < list_4.length; i_14++) {
+      var kk_4 = list_4[i_14];
+      const value_4 = (( __self.hasOwnProperty(kk_4) ? __self[kk_4] : undefined ));
+      await cb(value_4, kk_4);
+    };
+  };
+  operatorsOf_13.forEach_30 = async function(__self, cb) {
+    const list_5 = Object.keys(__self);
+    for ( let i_16 = 0; i_16 < list_5.length; i_16++) {
+      var kk_5 = list_5[i_16];
+      const value_5 = (( __self.hasOwnProperty(kk_5) ? __self[kk_5] : undefined ));
+      await cb(value_5, kk_5);
+    };
+  };
+  operatorsOf_13.forEach_40 = function(__self, cb) {
+    const list_6 = Object.keys(__self);
+    for ( let i_22 = 0; i_22 < list_6.length; i_22++) {
+      var kk_6 = list_6[i_22];
+      const value_6 = (( __self.hasOwnProperty(kk_6) ? __self[kk_6] : undefined ));
+      cb(value_6, kk_6);
+    };
+  };
+  operatorsOf_13.forEach_55 = function(__self, cb) {
+    const list_7 = Object.keys(__self);
+    for ( let i_30 = 0; i_30 < list_7.length; i_30++) {
+      var kk_7 = list_7[i_30];
+      const value_7 = (( __self.hasOwnProperty(kk_7) ? __self[kk_7] : undefined ));
+      cb(value_7, kk_7);
+    };
+  };
+  class operatorsOfRangerAppWriterContext_21  {
+    constructor() {
+    }
+  }
+  operatorsOfRangerAppWriterContext_21.getTargetLang_22 = function(__self) {
+    if ( (__self.targetLangName.length) > 0 ) {
+      return __self.targetLangName;
+    }
+    if ( typeof(__self.parent) != "undefined" ) {
+      return operatorsOf_21.getTargetLang_22((__self.parent));
+    }
+    return "ranger";
+  };
+  class operatorsOf_21  {
+    constructor() {
+    }
+  }
+  operatorsOf_21.getTargetLang_22 = function(__self) {
+    if ( (__self.targetLangName.length) > 0 ) {
+      return __self.targetLangName;
+    }
+    if ( typeof(__self.parent) != "undefined" ) {
+      return operatorsOf_21.getTargetLang_22((__self.parent));
+    }
+    return "ranger";
+  };
+  operatorsOf_21.addUsage_28 = function(__self, cn) {
+    const ctx = __self;
+    const currM = ctx.getCurrentMethod();
+    if ( ctx.isDefinedClass(cn.type_name) ) {
+      const cl = ctx.findClass(cn.type_name);
+      currM.addClassUsage(cl, ctx);
+    }
+    if ( ctx.isDefinedClass(cn.eval_type_name) ) {
+      const cl_1 = ctx.findClass(cn.eval_type_name);
+      currM.addClassUsage(cl_1, ctx);
+    }
+    if ( ctx.isDefinedClass(cn.eval_array_type) ) {
+      const cl_2 = ctx.findClass(cn.eval_array_type);
+      currM.addClassUsage(cl_2, ctx);
+    }
+  };
+  operatorsOf_21.getActiveTransaction_22 = function(c) {
+    let rValue;
+    if ( (c.activeTransaction.length) > 0 ) {
+      rValue = c.activeTransaction[((c.activeTransaction.length) - 1)];
+    } else {
+      if ( (typeof(c.parent) !== "undefined" && c.parent != null )  ) {
+        return operatorsOf_21.getActiveTransaction_22((c.parent));
+      }
+    }
+    return rValue;
+  };
+  operatorsOf_21.createc95var_48 = function(__self, name, type_name) {
+    const fieldNode = CodeNode.vref2(name, type_name);
+    fieldNode.value_type = fieldNode.typeNameAsType(__self);
+    const p_2 = new RangerAppParamDesc();
+    p_2.name = name;
+    p_2.value_type = fieldNode.value_type;
+    p_2.node = fieldNode;
+    p_2.nameNode = fieldNode;
+    p_2.is_optional = false;
+    __self.defineVariable(p_2.name, p_2);
+    return p_2;
+  };
+  operatorsOf_21.createc95var_49 = function(__self, name, usingNode) {
+    const fieldNode_1 = CodeNode.vref1(name);
+    const p_3 = new RangerAppParamDesc();
+    p_3.name = name;
+    p_3.value_type = usingNode.value_type;
+    p_3.node = usingNode;
+    p_3.nameNode = usingNode;
+    p_3.is_optional = false;
+    __self.defineVariable(p_3.name, p_3);
+    return p_3;
+  };
+  class operatorsOfchar_23  {
+    constructor() {
+    }
+  }
+  operatorsOfchar_23.isc95notc95limiter_24 = function(c) {
+    return (((((c > 32) && (c != (59))) && (c != (41))) && (c != (40))) && (c != (125))) && (c != (44));
+  };
+  class operatorsOfRangerFlowParser_26  {
+    constructor() {
+    }
+  }
+  operatorsOfRangerFlowParser_26.EnterVarDef_27 = async function(__self, node, ctx, wr) {
+    if ( ctx.isInMethod() ) {
+      if ( (node.children.length) < 2 ) {
+        ctx.addError(node, "invalid variable definition");
+        return;
+      }
+      const tName = node.getSecond();
+      await __self.CheckTypeAnnotationOf(tName, ctx, wr);
+      if ( tName.expression && ((tName.vref.length) == 0) ) {
+        node.children.splice(1, 1);
+        await operatorsOf.forEach_15(tName.children, ((item, index) => { 
+          if ( index == 1 ) {
+            if ( item.expression ) {
+              node.children.push(((item.children[0])).copy());
+            } else {
+              node.children.push(item.copy());
+            }
+          }
+          if ( index > 1 ) {
+            node.children.push(item.copy());
+          }
+        }));
+      }
+      if ( (node.children.length) > 3 ) {
+        ctx.addError(node, "invalid variable definition");
+        return;
+      }
+      const cn = node.children[1];
+      const p = new RangerAppParamDesc();
+      let defaultArg;
+      let is_immutable = false;
+      cn.definedTypeClass = TFactory.new_def_signature(cn, ctx, wr);
+      if ( (node.children.length) == 2 ) {
+        if ( (cn.value_type != 6) && (cn.value_type != 7) ) {
+          if ( false == cn.hasFlag("unwrap") ) {
+            cn.setFlag("optional");
+          }
+        }
+      }
+      if ( (cn.vref.length) == 0 ) {
+        ctx.addError(node, "invalid variable definition");
+      }
+      if ( cn.hasFlag("weak") ) {
+        p.changeStrength(0, 1, node);
       } else {
-        return res_4;
+        p.changeStrength(1, 1, node);
       }
-    }
-    i_3 = i_3 + 1;
-  };
-  if ( (typeof(fold) !== "undefined" && fold != null )  ) {
-    const files_3 = operatorsOf.filter_6(fold.files, ((item, index) => { 
-      return item.name == name;
-    }));
-    if ( (files_3.length) > 0 ) {
-      res_4 = files_3[0];
-    }
-  }
-  return res_4;
-};
-operatorsOf_8.readc95file_9 = async function(env, path, name) {
-  if ( env.use_real ) {
-    return await (new Promise(resolve => { require('fs').readFile( path + '/' + name , 'utf8', (err,data)=>{ resolve(data) }) } ));
-  }
-  let resStr_1;
-  const f_5 = operatorsOf_8.findc95file_9(env, path, name);
-  if ( (typeof(f_5) !== "undefined" && f_5 != null )  ) {
-    resStr_1 = f_5.data;
-  }
-  return resStr_1;
-};
-operatorsOf_8.filec95exists_9 = function(env, path, name) {
-  if ( env.use_real ) {
-    return require("fs").existsSync(path + "/" + name );
-  }
-  const fo = operatorsOf_8.findc95file_9(env, path, name);
-  return (typeof(fo) !== "undefined" && fo != null ) ;
-};
-operatorsOf_8.installc95directory_51 = function(env) {
-  if ( env.use_real ) {
-    return __dirname;
-  }
-  return "/";
-};
-operatorsOf_8.envc95var_54 = function(env, name) {
-  if ( env.use_real ) {
-    if ( ( typeof(env.envVars[name] ) != "undefined" && env.envVars.hasOwnProperty(name) ) ) {
-      return (( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined ));
-    }
-    const ev = process.env[name];
-    if ( (typeof(ev) !== "undefined" && ev != null )  ) {
-      return ev;
-    }
-    return "";
-  }
-  return ((typeof((( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined ))) !== "undefined" && (( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined )) != null ) ) ? ((( env.envVars.hasOwnProperty(name) ? env.envVars[name] : undefined ))) : "";
-};
-operatorsOf_8.currentc95directory_51 = function(env) {
-  if ( env.use_real ) {
-    return process.cwd();
-  }
-  return "/";
-};
-class operatorsOf_13  {
-  constructor() {
-  }
-}
-operatorsOf_13.forEach_14 = async function(__self, cb) {
-  const list = Object.keys(__self);
-  for ( let i_7 = 0; i_7 < list.length; i_7++) {
-    var kk = list[i_7];
-    const value = (( __self.hasOwnProperty(kk) ? __self[kk] : undefined ));
-    await cb(value, kk);
-  };
-};
-operatorsOf_13.forEach_16 = async function(__self, cb) {
-  const list_1 = Object.keys(__self);
-  for ( let i_9 = 0; i_9 < list_1.length; i_9++) {
-    var kk_1 = list_1[i_9];
-    const value_1 = (( __self.hasOwnProperty(kk_1) ? __self[kk_1] : undefined ));
-    await cb(value_1, kk_1);
-  };
-};
-operatorsOf_13.forEach_19 = async function(__self, cb) {
-  const list_2 = Object.keys(__self);
-  for ( let i_12 = 0; i_12 < list_2.length; i_12++) {
-    var kk_2 = list_2[i_12];
-    const value_2 = (( __self.hasOwnProperty(kk_2) ? __self[kk_2] : undefined ));
-    await cb(value_2, kk_2);
-  };
-};
-operatorsOf_13.forEach_20 = async function(__self, cb) {
-  const list_3 = Object.keys(__self);
-  for ( let i_13 = 0; i_13 < list_3.length; i_13++) {
-    var kk_3 = list_3[i_13];
-    const value_3 = (( __self.hasOwnProperty(kk_3) ? __self[kk_3] : undefined ));
-    await cb(value_3, kk_3);
-  };
-};
-operatorsOf_13.forEach_25 = async function(__self, cb) {
-  const list_4 = Object.keys(__self);
-  for ( let i_14 = 0; i_14 < list_4.length; i_14++) {
-    var kk_4 = list_4[i_14];
-    const value_4 = (( __self.hasOwnProperty(kk_4) ? __self[kk_4] : undefined ));
-    await cb(value_4, kk_4);
-  };
-};
-operatorsOf_13.forEach_30 = async function(__self, cb) {
-  const list_5 = Object.keys(__self);
-  for ( let i_16 = 0; i_16 < list_5.length; i_16++) {
-    var kk_5 = list_5[i_16];
-    const value_5 = (( __self.hasOwnProperty(kk_5) ? __self[kk_5] : undefined ));
-    await cb(value_5, kk_5);
-  };
-};
-operatorsOf_13.forEach_40 = function(__self, cb) {
-  const list_6 = Object.keys(__self);
-  for ( let i_22 = 0; i_22 < list_6.length; i_22++) {
-    var kk_6 = list_6[i_22];
-    const value_6 = (( __self.hasOwnProperty(kk_6) ? __self[kk_6] : undefined ));
-    cb(value_6, kk_6);
-  };
-};
-operatorsOf_13.forEach_55 = function(__self, cb) {
-  const list_7 = Object.keys(__self);
-  for ( let i_30 = 0; i_30 < list_7.length; i_30++) {
-    var kk_7 = list_7[i_30];
-    const value_7 = (( __self.hasOwnProperty(kk_7) ? __self[kk_7] : undefined ));
-    cb(value_7, kk_7);
-  };
-};
-class operatorsOfRangerAppWriterContext_21  {
-  constructor() {
-  }
-}
-operatorsOfRangerAppWriterContext_21.getTargetLang_22 = function(__self) {
-  if ( (__self.targetLangName.length) > 0 ) {
-    return __self.targetLangName;
-  }
-  if ( typeof(__self.parent) != "undefined" ) {
-    return operatorsOf_21.getTargetLang_22((__self.parent));
-  }
-  return "ranger";
-};
-class operatorsOf_21  {
-  constructor() {
-  }
-}
-operatorsOf_21.getTargetLang_22 = function(__self) {
-  if ( (__self.targetLangName.length) > 0 ) {
-    return __self.targetLangName;
-  }
-  if ( typeof(__self.parent) != "undefined" ) {
-    return operatorsOf_21.getTargetLang_22((__self.parent));
-  }
-  return "ranger";
-};
-operatorsOf_21.addUsage_28 = function(__self, cn) {
-  const ctx = __self;
-  const currM = ctx.getCurrentMethod();
-  if ( ctx.isDefinedClass(cn.type_name) ) {
-    const cl = ctx.findClass(cn.type_name);
-    currM.addClassUsage(cl, ctx);
-  }
-  if ( ctx.isDefinedClass(cn.eval_type_name) ) {
-    const cl_1 = ctx.findClass(cn.eval_type_name);
-    currM.addClassUsage(cl_1, ctx);
-  }
-  if ( ctx.isDefinedClass(cn.eval_array_type) ) {
-    const cl_2 = ctx.findClass(cn.eval_array_type);
-    currM.addClassUsage(cl_2, ctx);
-  }
-};
-operatorsOf_21.getActiveTransaction_22 = function(c) {
-  let rValue;
-  if ( (c.activeTransaction.length) > 0 ) {
-    rValue = c.activeTransaction[((c.activeTransaction.length) - 1)];
-  } else {
-    if ( (typeof(c.parent) !== "undefined" && c.parent != null )  ) {
-      return operatorsOf_21.getActiveTransaction_22((c.parent));
-    }
-  }
-  return rValue;
-};
-operatorsOf_21.createc95var_48 = function(__self, name, type_name) {
-  const fieldNode = CodeNode.vref2(name, type_name);
-  fieldNode.value_type = fieldNode.typeNameAsType(__self);
-  const p_2 = new RangerAppParamDesc();
-  p_2.name = name;
-  p_2.value_type = fieldNode.value_type;
-  p_2.node = fieldNode;
-  p_2.nameNode = fieldNode;
-  p_2.is_optional = false;
-  __self.defineVariable(p_2.name, p_2);
-  return p_2;
-};
-operatorsOf_21.createc95var_49 = function(__self, name, usingNode) {
-  const fieldNode_1 = CodeNode.vref1(name);
-  const p_3 = new RangerAppParamDesc();
-  p_3.name = name;
-  p_3.value_type = usingNode.value_type;
-  p_3.node = usingNode;
-  p_3.nameNode = usingNode;
-  p_3.is_optional = false;
-  __self.defineVariable(p_3.name, p_3);
-  return p_3;
-};
-class operatorsOfchar_23  {
-  constructor() {
-  }
-}
-operatorsOfchar_23.isc95notc95limiter_24 = function(c) {
-  return (((((c > 32) && (c != (59))) && (c != (41))) && (c != (40))) && (c != (125))) && (c != (44));
-};
-class operatorsOfRangerFlowParser_26  {
-  constructor() {
-  }
-}
-operatorsOfRangerFlowParser_26.EnterVarDef_27 = async function(__self, node, ctx, wr) {
-  if ( ctx.isInMethod() ) {
-    if ( (node.children.length) < 2 ) {
-      ctx.addError(node, "invalid variable definition");
-      return;
-    }
-    const tName = node.getSecond();
-    await __self.CheckTypeAnnotationOf(tName, ctx, wr);
-    if ( tName.expression && ((tName.vref.length) == 0) ) {
-      node.children.splice(1, 1);
-      await operatorsOf.forEach_15(tName.children, ((item, index) => { 
-        if ( index == 1 ) {
-          if ( item.expression ) {
-            node.children.push(((item.children[0])).copy());
-          } else {
-            node.children.push(item.copy());
-          }
-        }
-        if ( index > 1 ) {
-          node.children.push(item.copy());
-        }
-      }));
-    }
-    if ( (node.children.length) > 3 ) {
-      ctx.addError(node, "invalid variable definition");
-      return;
-    }
-    const cn = node.children[1];
-    const p = new RangerAppParamDesc();
-    let defaultArg;
-    let is_immutable = false;
-    cn.definedTypeClass = TFactory.new_def_signature(cn, ctx, wr);
-    if ( (node.children.length) == 2 ) {
-      if ( (cn.value_type != 6) && (cn.value_type != 7) ) {
-        if ( false == cn.hasFlag("unwrap") ) {
+      node.hasVarDef = true;
+      if ( (node.children.length) > 2 ) {
+        p.init_cnt = 1;
+        p.def_value = node.children[2];
+        p.is_optional = false;
+        defaultArg = node.children[2];
+        ctx.setInExpr();
+        await __self.WalkNode(defaultArg, ctx, wr);
+        ctx.unsetInExpr();
+        if ( defaultArg.hasFlag("optional") ) {
           cn.setFlag("optional");
         }
-      }
-    }
-    if ( (cn.vref.length) == 0 ) {
-      ctx.addError(node, "invalid variable definition");
-    }
-    if ( cn.hasFlag("weak") ) {
-      p.changeStrength(0, 1, node);
-    } else {
-      p.changeStrength(1, 1, node);
-    }
-    node.hasVarDef = true;
-    if ( (node.children.length) > 2 ) {
-      p.init_cnt = 1;
-      p.def_value = node.children[2];
-      p.is_optional = false;
-      defaultArg = node.children[2];
-      ctx.setInExpr();
-      await __self.WalkNode(defaultArg, ctx, wr);
-      ctx.unsetInExpr();
-      if ( defaultArg.hasFlag("optional") ) {
-        cn.setFlag("optional");
-      }
-      if ( defaultArg.hasFlag("immutable") ) {
-        cn.setFlag("immutable");
-      }
-      if ( defaultArg.hasParamDesc ) {
-        const paramDesc = defaultArg.paramDesc;
-        if ( (typeof(paramDesc.propertyClass) !== "undefined" && paramDesc.propertyClass != null )  ) {
-          if ( paramDesc.propertyClass.nameNode.hasFlag("immutable") ) {
-            if ( (defaultArg.eval_type == 6) || (defaultArg.eval_type == 7) ) {
-              is_immutable = true;
+        if ( defaultArg.hasFlag("immutable") ) {
+          cn.setFlag("immutable");
+        }
+        if ( defaultArg.hasParamDesc ) {
+          const paramDesc = defaultArg.paramDesc;
+          if ( (typeof(paramDesc.propertyClass) !== "undefined" && paramDesc.propertyClass != null )  ) {
+            if ( paramDesc.propertyClass.nameNode.hasFlag("immutable") ) {
+              if ( (defaultArg.eval_type == 6) || (defaultArg.eval_type == 7) ) {
+                is_immutable = true;
+              }
             }
           }
-        }
-        if ( paramDesc.is_immutable ) {
-          is_immutable = true;
-        }
-      }
-      if ( defaultArg.eval_type == 6 ) {
-        node.op_index = 1;
-      }
-      if ( cn.value_type == 13 ) {
-        cn.eval_type_name = defaultArg.ns[0];
-      }
-      if ( cn.value_type == 14 ) {
-        if ( (defaultArg.eval_type != 3) && (defaultArg.eval_type != 14) ) {
-          ctx.addError(defaultArg, "Char should be assigned char or integer value --> " + defaultArg.getCode());
-        } else {
-          defaultArg.eval_type = 14;
-        }
-      }
-    } else {
-      if ( ((cn.value_type != 7) && (cn.value_type != 6)) && (false == cn.hasFlag("optional")) ) {
-        if ( cn.hasFlag("unwrap") ) {
-        } else {
-          cn.setFlag("optional");
-        }
-      }
-    }
-    if ( (node.children.length) > 2 ) {
-      if ( ((cn.type_name.length) == 0) && ((cn.array_type.length) == 0) ) {
-        cn.inferDefTypeFromValue(node);
-        if ( cn.value_type == 18 ) {
-          cn.eval_type = 18;
-        }
-      }
-    }
-    ctx.hadValidType(cn);
-    cn.defineNodeTypeTo(cn, ctx);
-    p.name = cn.vref;
-    if ( p.value_type == 0 ) {
-      if ( (0 == (cn.type_name.length)) && ((typeof(defaultArg) !== "undefined" && defaultArg != null ) ) ) {
-        p.value_type = defaultArg.eval_type;
-        cn.type_name = defaultArg.eval_type_name;
-        cn.eval_type_name = defaultArg.eval_type_name;
-        cn.value_type = defaultArg.eval_type;
-      }
-    } else {
-      p.value_type = cn.value_type;
-    }
-    p.node = node;
-    p.nameNode = cn;
-    p.varType = 5;
-    if ( is_immutable ) {
-      p.is_immutable = is_immutable;
-    }
-    if ( cn.has_vref_annotation ) {
-      ctx.log(node, "ann", "At a variable -> Found has_vref_annotation annotated reference ");
-      const ann = cn.vref_annotation;
-      if ( (ann.children.length) > 0 ) {
-        const fc = ann.children[0];
-        ctx.log(node, "ann", (("value of first annotation " + fc.vref) + " and variable name ") + cn.vref);
-      }
-    }
-    if ( cn.has_type_annotation ) {
-      ctx.log(node, "ann", "At a variable -> Found annotated reference ");
-      const ann_1 = cn.type_annotation;
-      if ( (ann_1.children.length) > 0 ) {
-        const fc_1 = ann_1.children[0];
-        ctx.log(node, "ann", (("value of first annotation " + fc_1.vref) + " and variable name ") + cn.vref);
-      }
-    }
-    cn.hasParamDesc = true;
-    cn.ownParamDesc = p;
-    cn.paramDesc = p;
-    node.hasParamDesc = true;
-    node.paramDesc = p;
-    cn.eval_type = cn.typeNameAsType(ctx);
-    cn.eval_type_name = cn.type_name;
-    if ( (node.children.length) > 2 ) {
-      if ( (defaultArg.register_name.length) > 0 ) {
-        const rr = ctx.getVariableDef(defaultArg.register_name);
-        if ( (typeof(rr.nameNode) !== "undefined" && rr.nameNode != null )  ) {
-          if ( (typeof(rr.nameNode.expression_value) !== "undefined" && rr.nameNode.expression_value != null )  ) {
-            cn.expression_value = rr.nameNode.expression_value.copy();
+          if ( paramDesc.is_immutable ) {
+            is_immutable = true;
           }
         }
-      }
-      if ( defaultArg.eval_type == 18 ) {
-        if ( (typeof(defaultArg.expression_value) !== "undefined" && defaultArg.expression_value != null )  ) {
-          cn.expression_value = defaultArg.expression_value.copy();
-        } else {
-          if ( defaultArg.hasParamDesc ) {
-            if ( ((typeof(defaultArg.paramDesc.nameNode) !== "undefined" && defaultArg.paramDesc.nameNode != null ) ) && ((typeof(defaultArg.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg.paramDesc.nameNode.expression_value != null ) ) ) {
-              cn.eval_type = 18;
-              cn.expression_value = defaultArg.paramDesc.nameNode.expression_value.copy();
-            }
-          }
+        if ( defaultArg.eval_type == 6 ) {
+          node.op_index = 1;
         }
-      }
-      if ( (typeof(defaultArg) !== "undefined" && defaultArg != null )  ) {
-        await __self.convertToUnion(cn.eval_type_name, defaultArg, ctx, wr);
-        if ( (typeof(defaultArg.evalTypeClass) !== "undefined" && defaultArg.evalTypeClass != null )  ) {
-          cn.evalTypeClass = defaultArg.evalTypeClass;
+        if ( cn.value_type == 13 ) {
+          cn.eval_type_name = defaultArg.ns[0];
         }
-      }
-      if ( cn.eval_type != defaultArg.eval_type ) {
-        const b1 = (cn.eval_type == 14) && (defaultArg.eval_type == 3);
-        const b2 = (cn.eval_type == 3) && (defaultArg.eval_type == 14);
-        if ( false == (b1 || b2) ) {
-          ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cn.eval_type) + " vs ") + defaultArg.eval_type);
-        }
-      }
-    } else {
-      p.is_optional = true;
-    }
-    ctx.defineVariable(p.name, p);
-    if ( (node.children.length) > 2 ) {
-      __self.shouldBeEqualTypes(cn, p.def_value, ctx, "Variable was assigned an incompatible type.");
-    }
-    operatorsOf_21.addUsage_28(ctx, cn);
-  } else {
-    const cn_1 = node.children[1];
-    cn_1.eval_type = cn_1.typeNameAsType(ctx);
-    cn_1.eval_type_name = cn_1.type_name;
-    if ( (node.children.length) > 2 ) {
-      __self.shouldBeEqualTypes(node.children[1], node.children[2], ctx, "Variable was assigned an incompatible type.");
-    }
-  }
-};
-class operatorsOf_26  {
-  constructor() {
-  }
-}
-operatorsOf_26.EnterVarDef_27 = async function(__self, node, ctx, wr) {
-  if ( ctx.isInMethod() ) {
-    if ( (node.children.length) < 2 ) {
-      ctx.addError(node, "invalid variable definition");
-      return;
-    }
-    const tName_1 = node.getSecond();
-    await __self.CheckTypeAnnotationOf(tName_1, ctx, wr);
-    if ( tName_1.expression && ((tName_1.vref.length) == 0) ) {
-      node.children.splice(1, 1);
-      await operatorsOf.forEach_15(tName_1.children, ((item, index) => { 
-        if ( index == 1 ) {
-          if ( item.expression ) {
-            node.children.push(((item.children[0])).copy());
+        if ( cn.value_type == 14 ) {
+          if ( (defaultArg.eval_type != 3) && (defaultArg.eval_type != 14) ) {
+            ctx.addError(defaultArg, "Char should be assigned char or integer value --> " + defaultArg.getCode());
           } else {
+            defaultArg.eval_type = 14;
+          }
+        }
+      } else {
+        if ( ((cn.value_type != 7) && (cn.value_type != 6)) && (false == cn.hasFlag("optional")) ) {
+          if ( cn.hasFlag("unwrap") ) {
+          } else {
+            cn.setFlag("optional");
+          }
+        }
+      }
+      if ( (node.children.length) > 2 ) {
+        if ( ((cn.type_name.length) == 0) && ((cn.array_type.length) == 0) ) {
+          cn.inferDefTypeFromValue(node);
+          if ( cn.value_type == 20 ) {
+            cn.eval_type = 20;
+          }
+        }
+      }
+      ctx.hadValidType(cn);
+      cn.defineNodeTypeTo(cn, ctx);
+      p.name = cn.vref;
+      if ( p.value_type == 0 ) {
+        if ( (0 == (cn.type_name.length)) && ((typeof(defaultArg) !== "undefined" && defaultArg != null ) ) ) {
+          p.value_type = defaultArg.eval_type;
+          cn.type_name = defaultArg.eval_type_name;
+          cn.eval_type_name = defaultArg.eval_type_name;
+          cn.value_type = defaultArg.eval_type;
+        }
+      } else {
+        p.value_type = cn.value_type;
+      }
+      p.node = node;
+      p.nameNode = cn;
+      p.varType = 5;
+      if ( is_immutable ) {
+        p.is_immutable = is_immutable;
+      }
+      if ( cn.has_vref_annotation ) {
+        ctx.log(node, "ann", "At a variable -> Found has_vref_annotation annotated reference ");
+        const ann = cn.vref_annotation;
+        if ( (ann.children.length) > 0 ) {
+          const fc = ann.children[0];
+          ctx.log(node, "ann", (("value of first annotation " + fc.vref) + " and variable name ") + cn.vref);
+        }
+      }
+      if ( cn.has_type_annotation ) {
+        ctx.log(node, "ann", "At a variable -> Found annotated reference ");
+        const ann_1 = cn.type_annotation;
+        if ( (ann_1.children.length) > 0 ) {
+          const fc_1 = ann_1.children[0];
+          ctx.log(node, "ann", (("value of first annotation " + fc_1.vref) + " and variable name ") + cn.vref);
+        }
+      }
+      cn.hasParamDesc = true;
+      cn.ownParamDesc = p;
+      cn.paramDesc = p;
+      node.hasParamDesc = true;
+      node.paramDesc = p;
+      cn.eval_type = cn.typeNameAsType(ctx);
+      cn.eval_type_name = cn.type_name;
+      if ( (node.children.length) > 2 ) {
+        if ( (defaultArg.register_name.length) > 0 ) {
+          const rr = ctx.getVariableDef(defaultArg.register_name);
+          if ( (typeof(rr.nameNode) !== "undefined" && rr.nameNode != null )  ) {
+            if ( (typeof(rr.nameNode.expression_value) !== "undefined" && rr.nameNode.expression_value != null )  ) {
+              cn.expression_value = rr.nameNode.expression_value.copy();
+            }
+          }
+        }
+        if ( defaultArg.eval_type == 20 ) {
+          if ( (typeof(defaultArg.expression_value) !== "undefined" && defaultArg.expression_value != null )  ) {
+            cn.expression_value = defaultArg.expression_value.copy();
+          } else {
+            if ( defaultArg.hasParamDesc ) {
+              if ( ((typeof(defaultArg.paramDesc.nameNode) !== "undefined" && defaultArg.paramDesc.nameNode != null ) ) && ((typeof(defaultArg.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg.paramDesc.nameNode.expression_value != null ) ) ) {
+                cn.eval_type = 20;
+                cn.expression_value = defaultArg.paramDesc.nameNode.expression_value.copy();
+              }
+            }
+          }
+        }
+        if ( (typeof(defaultArg) !== "undefined" && defaultArg != null )  ) {
+          await __self.convertToUnion(cn.eval_type_name, defaultArg, ctx, wr);
+          if ( (typeof(defaultArg.evalTypeClass) !== "undefined" && defaultArg.evalTypeClass != null )  ) {
+            cn.evalTypeClass = defaultArg.evalTypeClass;
+          }
+        }
+        if ( cn.eval_type != defaultArg.eval_type ) {
+          const b1 = (cn.eval_type == 14) && (defaultArg.eval_type == 3);
+          const b2 = (cn.eval_type == 3) && (defaultArg.eval_type == 14);
+          if ( false == (b1 || b2) ) {
+            ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cn.eval_type) + " vs ") + defaultArg.eval_type);
+          }
+        }
+      } else {
+        p.is_optional = true;
+      }
+      ctx.defineVariable(p.name, p);
+      if ( (node.children.length) > 2 ) {
+        __self.shouldBeEqualTypes(cn, p.def_value, ctx, "Variable was assigned an incompatible type.");
+      }
+      operatorsOf_21.addUsage_28(ctx, cn);
+    } else {
+      const cn_1 = node.children[1];
+      cn_1.eval_type = cn_1.typeNameAsType(ctx);
+      cn_1.eval_type_name = cn_1.type_name;
+      if ( (node.children.length) > 2 ) {
+        __self.shouldBeEqualTypes(node.children[1], node.children[2], ctx, "Variable was assigned an incompatible type.");
+      }
+    }
+  };
+  class operatorsOf_26  {
+    constructor() {
+    }
+  }
+  operatorsOf_26.EnterVarDef_27 = async function(__self, node, ctx, wr) {
+    if ( ctx.isInMethod() ) {
+      if ( (node.children.length) < 2 ) {
+        ctx.addError(node, "invalid variable definition");
+        return;
+      }
+      const tName_1 = node.getSecond();
+      await __self.CheckTypeAnnotationOf(tName_1, ctx, wr);
+      if ( tName_1.expression && ((tName_1.vref.length) == 0) ) {
+        node.children.splice(1, 1);
+        await operatorsOf.forEach_15(tName_1.children, ((item, index) => { 
+          if ( index == 1 ) {
+            if ( item.expression ) {
+              node.children.push(((item.children[0])).copy());
+            } else {
+              node.children.push(item.copy());
+            }
+          }
+          if ( index > 1 ) {
             node.children.push(item.copy());
           }
+        }));
+      }
+      if ( (node.children.length) > 3 ) {
+        ctx.addError(node, "invalid variable definition");
+        return;
+      }
+      const cn_2 = node.children[1];
+      const p_1 = new RangerAppParamDesc();
+      let defaultArg_1;
+      let is_immutable_1 = false;
+      cn_2.definedTypeClass = TFactory.new_def_signature(cn_2, ctx, wr);
+      if ( (node.children.length) == 2 ) {
+        if ( (cn_2.value_type != 6) && (cn_2.value_type != 7) ) {
+          if ( false == cn_2.hasFlag("unwrap") ) {
+            cn_2.setFlag("optional");
+          }
         }
-        if ( index > 1 ) {
-          node.children.push(item.copy());
-        }
-      }));
-    }
-    if ( (node.children.length) > 3 ) {
-      ctx.addError(node, "invalid variable definition");
-      return;
-    }
-    const cn_2 = node.children[1];
-    const p_1 = new RangerAppParamDesc();
-    let defaultArg_1;
-    let is_immutable_1 = false;
-    cn_2.definedTypeClass = TFactory.new_def_signature(cn_2, ctx, wr);
-    if ( (node.children.length) == 2 ) {
-      if ( (cn_2.value_type != 6) && (cn_2.value_type != 7) ) {
-        if ( false == cn_2.hasFlag("unwrap") ) {
+      }
+      if ( (cn_2.vref.length) == 0 ) {
+        ctx.addError(node, "invalid variable definition");
+      }
+      if ( cn_2.hasFlag("weak") ) {
+        p_1.changeStrength(0, 1, node);
+      } else {
+        p_1.changeStrength(1, 1, node);
+      }
+      node.hasVarDef = true;
+      if ( (node.children.length) > 2 ) {
+        p_1.init_cnt = 1;
+        p_1.def_value = node.children[2];
+        p_1.is_optional = false;
+        defaultArg_1 = node.children[2];
+        ctx.setInExpr();
+        await __self.WalkNode(defaultArg_1, ctx, wr);
+        ctx.unsetInExpr();
+        if ( defaultArg_1.hasFlag("optional") ) {
           cn_2.setFlag("optional");
         }
+        if ( defaultArg_1.hasFlag("immutable") ) {
+          cn_2.setFlag("immutable");
+        }
+        if ( defaultArg_1.hasParamDesc ) {
+          const paramDesc_1 = defaultArg_1.paramDesc;
+          if ( (typeof(paramDesc_1.propertyClass) !== "undefined" && paramDesc_1.propertyClass != null )  ) {
+            if ( paramDesc_1.propertyClass.nameNode.hasFlag("immutable") ) {
+              if ( (defaultArg_1.eval_type == 6) || (defaultArg_1.eval_type == 7) ) {
+                is_immutable_1 = true;
+              }
+            }
+          }
+          if ( paramDesc_1.is_immutable ) {
+            is_immutable_1 = true;
+          }
+        }
+        if ( defaultArg_1.eval_type == 6 ) {
+          node.op_index = 1;
+        }
+        if ( cn_2.value_type == 13 ) {
+          cn_2.eval_type_name = defaultArg_1.ns[0];
+        }
+        if ( cn_2.value_type == 14 ) {
+          if ( (defaultArg_1.eval_type != 3) && (defaultArg_1.eval_type != 14) ) {
+            ctx.addError(defaultArg_1, "Char should be assigned char or integer value --> " + defaultArg_1.getCode());
+          } else {
+            defaultArg_1.eval_type = 14;
+          }
+        }
+      } else {
+        if ( ((cn_2.value_type != 7) && (cn_2.value_type != 6)) && (false == cn_2.hasFlag("optional")) ) {
+          if ( cn_2.hasFlag("unwrap") ) {
+          } else {
+            cn_2.setFlag("optional");
+          }
+        }
       }
-    }
-    if ( (cn_2.vref.length) == 0 ) {
-      ctx.addError(node, "invalid variable definition");
-    }
-    if ( cn_2.hasFlag("weak") ) {
-      p_1.changeStrength(0, 1, node);
-    } else {
-      p_1.changeStrength(1, 1, node);
-    }
-    node.hasVarDef = true;
-    if ( (node.children.length) > 2 ) {
-      p_1.init_cnt = 1;
-      p_1.def_value = node.children[2];
-      p_1.is_optional = false;
-      defaultArg_1 = node.children[2];
-      ctx.setInExpr();
-      await __self.WalkNode(defaultArg_1, ctx, wr);
-      ctx.unsetInExpr();
-      if ( defaultArg_1.hasFlag("optional") ) {
-        cn_2.setFlag("optional");
+      if ( (node.children.length) > 2 ) {
+        if ( ((cn_2.type_name.length) == 0) && ((cn_2.array_type.length) == 0) ) {
+          cn_2.inferDefTypeFromValue(node);
+          if ( cn_2.value_type == 20 ) {
+            cn_2.eval_type = 20;
+          }
+        }
       }
-      if ( defaultArg_1.hasFlag("immutable") ) {
-        cn_2.setFlag("immutable");
+      ctx.hadValidType(cn_2);
+      cn_2.defineNodeTypeTo(cn_2, ctx);
+      p_1.name = cn_2.vref;
+      if ( p_1.value_type == 0 ) {
+        if ( (0 == (cn_2.type_name.length)) && ((typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null ) ) ) {
+          p_1.value_type = defaultArg_1.eval_type;
+          cn_2.type_name = defaultArg_1.eval_type_name;
+          cn_2.eval_type_name = defaultArg_1.eval_type_name;
+          cn_2.value_type = defaultArg_1.eval_type;
+        }
+      } else {
+        p_1.value_type = cn_2.value_type;
       }
-      if ( defaultArg_1.hasParamDesc ) {
-        const paramDesc_1 = defaultArg_1.paramDesc;
-        if ( (typeof(paramDesc_1.propertyClass) !== "undefined" && paramDesc_1.propertyClass != null )  ) {
-          if ( paramDesc_1.propertyClass.nameNode.hasFlag("immutable") ) {
-            if ( (defaultArg_1.eval_type == 6) || (defaultArg_1.eval_type == 7) ) {
-              is_immutable_1 = true;
+      p_1.node = node;
+      p_1.nameNode = cn_2;
+      p_1.varType = 5;
+      if ( is_immutable_1 ) {
+        p_1.is_immutable = is_immutable_1;
+      }
+      if ( cn_2.has_vref_annotation ) {
+        ctx.log(node, "ann", "At a variable -> Found has_vref_annotation annotated reference ");
+        const ann_2 = cn_2.vref_annotation;
+        if ( (ann_2.children.length) > 0 ) {
+          const fc_2 = ann_2.children[0];
+          ctx.log(node, "ann", (("value of first annotation " + fc_2.vref) + " and variable name ") + cn_2.vref);
+        }
+      }
+      if ( cn_2.has_type_annotation ) {
+        ctx.log(node, "ann", "At a variable -> Found annotated reference ");
+        const ann_3 = cn_2.type_annotation;
+        if ( (ann_3.children.length) > 0 ) {
+          const fc_3 = ann_3.children[0];
+          ctx.log(node, "ann", (("value of first annotation " + fc_3.vref) + " and variable name ") + cn_2.vref);
+        }
+      }
+      cn_2.hasParamDesc = true;
+      cn_2.ownParamDesc = p_1;
+      cn_2.paramDesc = p_1;
+      node.hasParamDesc = true;
+      node.paramDesc = p_1;
+      cn_2.eval_type = cn_2.typeNameAsType(ctx);
+      cn_2.eval_type_name = cn_2.type_name;
+      if ( (node.children.length) > 2 ) {
+        if ( (defaultArg_1.register_name.length) > 0 ) {
+          const rr_1 = ctx.getVariableDef(defaultArg_1.register_name);
+          if ( (typeof(rr_1.nameNode) !== "undefined" && rr_1.nameNode != null )  ) {
+            if ( (typeof(rr_1.nameNode.expression_value) !== "undefined" && rr_1.nameNode.expression_value != null )  ) {
+              cn_2.expression_value = rr_1.nameNode.expression_value.copy();
             }
           }
         }
-        if ( paramDesc_1.is_immutable ) {
-          is_immutable_1 = true;
-        }
-      }
-      if ( defaultArg_1.eval_type == 6 ) {
-        node.op_index = 1;
-      }
-      if ( cn_2.value_type == 13 ) {
-        cn_2.eval_type_name = defaultArg_1.ns[0];
-      }
-      if ( cn_2.value_type == 14 ) {
-        if ( (defaultArg_1.eval_type != 3) && (defaultArg_1.eval_type != 14) ) {
-          ctx.addError(defaultArg_1, "Char should be assigned char or integer value --> " + defaultArg_1.getCode());
-        } else {
-          defaultArg_1.eval_type = 14;
-        }
-      }
-    } else {
-      if ( ((cn_2.value_type != 7) && (cn_2.value_type != 6)) && (false == cn_2.hasFlag("optional")) ) {
-        if ( cn_2.hasFlag("unwrap") ) {
-        } else {
-          cn_2.setFlag("optional");
-        }
-      }
-    }
-    if ( (node.children.length) > 2 ) {
-      if ( ((cn_2.type_name.length) == 0) && ((cn_2.array_type.length) == 0) ) {
-        cn_2.inferDefTypeFromValue(node);
-        if ( cn_2.value_type == 18 ) {
-          cn_2.eval_type = 18;
-        }
-      }
-    }
-    ctx.hadValidType(cn_2);
-    cn_2.defineNodeTypeTo(cn_2, ctx);
-    p_1.name = cn_2.vref;
-    if ( p_1.value_type == 0 ) {
-      if ( (0 == (cn_2.type_name.length)) && ((typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null ) ) ) {
-        p_1.value_type = defaultArg_1.eval_type;
-        cn_2.type_name = defaultArg_1.eval_type_name;
-        cn_2.eval_type_name = defaultArg_1.eval_type_name;
-        cn_2.value_type = defaultArg_1.eval_type;
-      }
-    } else {
-      p_1.value_type = cn_2.value_type;
-    }
-    p_1.node = node;
-    p_1.nameNode = cn_2;
-    p_1.varType = 5;
-    if ( is_immutable_1 ) {
-      p_1.is_immutable = is_immutable_1;
-    }
-    if ( cn_2.has_vref_annotation ) {
-      ctx.log(node, "ann", "At a variable -> Found has_vref_annotation annotated reference ");
-      const ann_2 = cn_2.vref_annotation;
-      if ( (ann_2.children.length) > 0 ) {
-        const fc_2 = ann_2.children[0];
-        ctx.log(node, "ann", (("value of first annotation " + fc_2.vref) + " and variable name ") + cn_2.vref);
-      }
-    }
-    if ( cn_2.has_type_annotation ) {
-      ctx.log(node, "ann", "At a variable -> Found annotated reference ");
-      const ann_3 = cn_2.type_annotation;
-      if ( (ann_3.children.length) > 0 ) {
-        const fc_3 = ann_3.children[0];
-        ctx.log(node, "ann", (("value of first annotation " + fc_3.vref) + " and variable name ") + cn_2.vref);
-      }
-    }
-    cn_2.hasParamDesc = true;
-    cn_2.ownParamDesc = p_1;
-    cn_2.paramDesc = p_1;
-    node.hasParamDesc = true;
-    node.paramDesc = p_1;
-    cn_2.eval_type = cn_2.typeNameAsType(ctx);
-    cn_2.eval_type_name = cn_2.type_name;
-    if ( (node.children.length) > 2 ) {
-      if ( (defaultArg_1.register_name.length) > 0 ) {
-        const rr_1 = ctx.getVariableDef(defaultArg_1.register_name);
-        if ( (typeof(rr_1.nameNode) !== "undefined" && rr_1.nameNode != null )  ) {
-          if ( (typeof(rr_1.nameNode.expression_value) !== "undefined" && rr_1.nameNode.expression_value != null )  ) {
-            cn_2.expression_value = rr_1.nameNode.expression_value.copy();
-          }
-        }
-      }
-      if ( defaultArg_1.eval_type == 18 ) {
-        if ( (typeof(defaultArg_1.expression_value) !== "undefined" && defaultArg_1.expression_value != null )  ) {
-          cn_2.expression_value = defaultArg_1.expression_value.copy();
-        } else {
-          if ( defaultArg_1.hasParamDesc ) {
-            if ( ((typeof(defaultArg_1.paramDesc.nameNode) !== "undefined" && defaultArg_1.paramDesc.nameNode != null ) ) && ((typeof(defaultArg_1.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg_1.paramDesc.nameNode.expression_value != null ) ) ) {
-              cn_2.eval_type = 18;
-              cn_2.expression_value = defaultArg_1.paramDesc.nameNode.expression_value.copy();
+        if ( defaultArg_1.eval_type == 20 ) {
+          if ( (typeof(defaultArg_1.expression_value) !== "undefined" && defaultArg_1.expression_value != null )  ) {
+            cn_2.expression_value = defaultArg_1.expression_value.copy();
+          } else {
+            if ( defaultArg_1.hasParamDesc ) {
+              if ( ((typeof(defaultArg_1.paramDesc.nameNode) !== "undefined" && defaultArg_1.paramDesc.nameNode != null ) ) && ((typeof(defaultArg_1.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg_1.paramDesc.nameNode.expression_value != null ) ) ) {
+                cn_2.eval_type = 20;
+                cn_2.expression_value = defaultArg_1.paramDesc.nameNode.expression_value.copy();
+              }
             }
           }
         }
-      }
-      if ( (typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null )  ) {
-        await __self.convertToUnion(cn_2.eval_type_name, defaultArg_1, ctx, wr);
-        if ( (typeof(defaultArg_1.evalTypeClass) !== "undefined" && defaultArg_1.evalTypeClass != null )  ) {
-          cn_2.evalTypeClass = defaultArg_1.evalTypeClass;
+        if ( (typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null )  ) {
+          await __self.convertToUnion(cn_2.eval_type_name, defaultArg_1, ctx, wr);
+          if ( (typeof(defaultArg_1.evalTypeClass) !== "undefined" && defaultArg_1.evalTypeClass != null )  ) {
+            cn_2.evalTypeClass = defaultArg_1.evalTypeClass;
+          }
         }
-      }
-      if ( cn_2.eval_type != defaultArg_1.eval_type ) {
-        const b1_1 = (cn_2.eval_type == 14) && (defaultArg_1.eval_type == 3);
-        const b2_1 = (cn_2.eval_type == 3) && (defaultArg_1.eval_type == 14);
-        if ( false == (b1_1 || b2_1) ) {
-          ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cn_2.eval_type) + " vs ") + defaultArg_1.eval_type);
+        if ( cn_2.eval_type != defaultArg_1.eval_type ) {
+          const b1_1 = (cn_2.eval_type == 14) && (defaultArg_1.eval_type == 3);
+          const b2_1 = (cn_2.eval_type == 3) && (defaultArg_1.eval_type == 14);
+          if ( false == (b1_1 || b2_1) ) {
+            ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cn_2.eval_type) + " vs ") + defaultArg_1.eval_type);
+          }
         }
+      } else {
+        p_1.is_optional = true;
       }
+      ctx.defineVariable(p_1.name, p_1);
+      if ( (node.children.length) > 2 ) {
+        __self.shouldBeEqualTypes(cn_2, p_1.def_value, ctx, "Variable was assigned an incompatible type.");
+      }
+      operatorsOf_21.addUsage_28(ctx, cn_2);
     } else {
-      p_1.is_optional = true;
+      const cn_3 = node.children[1];
+      cn_3.eval_type = cn_3.typeNameAsType(ctx);
+      cn_3.eval_type_name = cn_3.type_name;
+      if ( (node.children.length) > 2 ) {
+        __self.shouldBeEqualTypes(node.children[1], node.children[2], ctx, "Variable was assigned an incompatible type.");
+      }
     }
-    ctx.defineVariable(p_1.name, p_1);
-    if ( (node.children.length) > 2 ) {
-      __self.shouldBeEqualTypes(cn_2, p_1.def_value, ctx, "Variable was assigned an incompatible type.");
-    }
-    operatorsOf_21.addUsage_28(ctx, cn_2);
-  } else {
-    const cn_3 = node.children[1];
-    cn_3.eval_type = cn_3.typeNameAsType(ctx);
-    cn_3.eval_type_name = cn_3.type_name;
-    if ( (node.children.length) > 2 ) {
-      __self.shouldBeEqualTypes(node.children[1], node.children[2], ctx, "Variable was assigned an incompatible type.");
-    }
-  }
-};
-class operatorsOfstring_33  {
-  constructor() {
-  }
-}
-operatorsOfstring_33.transactionc95depth_34 = function(name, c) {
-  let t = operatorsOf_21.getActiveTransaction_22(c);
-  let d = 0;
-  while ((typeof(t) !== "undefined" && t != null ) ) {
-    if ( t.name == name ) {
-      d = d + 1;
-    }
-    t = t.parent;
   };
-  return d;
-};
-class operatorsOf_33  {
-  constructor() {
-  }
-}
-operatorsOf_33.startc95transaction_35 = function(name, desc, c) {
-  const t_1 = new ContextTransaction();
-  t_1.name = name;
-  t_1.desc = desc;
-  t_1.ctx = c;
-  const currC = operatorsOf_21.getActiveTransaction_22(c);
-  c.activeTransaction.push(t_1);
-  c.transactions.push(t_1);
-  if ( (typeof(currC) !== "undefined" && currC != null )  ) {
-    currC.children.push(t_1);
-    t_1.parent = currC;
-  }
-  return t_1;
-};
-operatorsOf_33.transactionc95depth_34 = function(name, c) {
-  let t_2 = operatorsOf_21.getActiveTransaction_22(c);
-  let d_1 = 0;
-  while ((typeof(t_2) !== "undefined" && t_2 != null ) ) {
-    if ( t_2.name == name ) {
-      d_1 = d_1 + 1;
+  class operatorsOfstring_33  {
+    constructor() {
     }
-    t_2 = t_2.parent;
+  }
+  operatorsOfstring_33.transactionc95depth_34 = function(name, c) {
+    let t = operatorsOf_21.getActiveTransaction_22(c);
+    let d = 0;
+    while ((typeof(t) !== "undefined" && t != null ) ) {
+      if ( t.name == name ) {
+        d = d + 1;
+      }
+      t = t.parent;
+    };
+    return d;
   };
-  return d_1;
-};
-class operatorsOfContextTransaction_38  {
-  constructor() {
+  class operatorsOf_33  {
+    constructor() {
+    }
   }
-}
-operatorsOfContextTransaction_38.endc95transaction_39 = function(t) {
-  const c = t.ctx;
-  const i_21 = c.activeTransaction.indexOf(t);
-  if ( i_21 >= 0 ) {
-    c.activeTransaction.splice(i_21, 1);
-  }
-  t.ended = true;
-};
-class operatorsOfCodeNode_41  {
-  constructor() {
-  }
-}
-operatorsOfCodeNode_41.rc46funcdesc_42 = function(node, ctx) {
-  const m = new RangerAppFunctionDesc();
-  const cn_4 = node.getSecond();
-  m.name = cn_4.vref;
-  m.compiledName = ctx.transformWord(cn_4.vref);
-  m.node = node;
-  m.nameNode = node.children[1];
-  if ( node.hasBooleanProperty("strong") ) {
-    m.refType = 2;
-  } else {
-    m.refType = 1;
-  }
-  return m;
-};
-class operatorsOf_41  {
-  constructor() {
-  }
-}
-operatorsOf_41.rc46func_43 = async function(node, ctx, wr) {
-  const parser = new RangerFlowParser();
-  return await parser.CreateFunctionObject(node, ctx, wr);
-};
-class operatorsOfJSONArrayObject_57  {
-  constructor() {
-  }
-}
-operatorsOfJSONArrayObject_57.forEach_58 = function(__self, cb) {
-  let cnt = __self.length;
-  let i_32 = 0;
-  while (cnt > 0) {
-    const value_8 = __self[i_32];
-    cb(value_8, i_32);
-    cnt = cnt - 1;
-    i_32 = i_32 + 1;
+  operatorsOf_33.startc95transaction_35 = function(name, desc, c) {
+    const t_1 = new ContextTransaction();
+    t_1.name = name;
+    t_1.desc = desc;
+    t_1.ctx = c;
+    const currC = operatorsOf_21.getActiveTransaction_22(c);
+    c.activeTransaction.push(t_1);
+    c.transactions.push(t_1);
+    if ( (typeof(currC) !== "undefined" && currC != null )  ) {
+      currC.children.push(t_1);
+      t_1.parent = currC;
+    }
+    return t_1;
   };
-};
-class operatorsOf_57  {
-  constructor() {
-  }
-}
-operatorsOf_57.forEach_58 = async function(__self, cb) {
-  let cnt_1 = __self.length;
-  let i_33 = 0;
-  while (cnt_1 > 0) {
-    const value_9 = __self[i_33];
-    await cb(value_9, i_33);
-    cnt_1 = cnt_1 - 1;
-    i_33 = i_33 + 1;
+  operatorsOf_33.transactionc95depth_34 = function(name, c) {
+    let t_2 = operatorsOf_21.getActiveTransaction_22(c);
+    let d_1 = 0;
+    while ((typeof(t_2) !== "undefined" && t_2 != null ) ) {
+      if ( t_2.name == name ) {
+        d_1 = d_1 + 1;
+      }
+      t_2 = t_2.parent;
+    };
+    return d_1;
   };
-};
+  class operatorsOfContextTransaction_38  {
+    constructor() {
+    }
+  }
+  operatorsOfContextTransaction_38.endc95transaction_39 = function(t) {
+    const c = t.ctx;
+    const i_21 = c.activeTransaction.indexOf(t);
+    if ( i_21 >= 0 ) {
+      c.activeTransaction.splice(i_21, 1);
+    }
+    t.ended = true;
+  };
+  class operatorsOfCodeNode_41  {
+    constructor() {
+    }
+  }
+  operatorsOfCodeNode_41.rc46funcdesc_42 = function(node, ctx) {
+    const m = new RangerAppFunctionDesc();
+    const cn_4 = node.getSecond();
+    m.name = cn_4.vref;
+    m.compiledName = ctx.transformWord(cn_4.vref);
+    m.node = node;
+    m.nameNode = node.children[1];
+    if ( node.hasBooleanProperty("strong") ) {
+      m.refType = 2;
+    } else {
+      m.refType = 1;
+    }
+    return m;
+  };
+  class operatorsOf_41  {
+    constructor() {
+    }
+  }
+  operatorsOf_41.rc46func_43 = async function(node, ctx, wr) {
+    const parser = new RangerFlowParser();
+    return await parser.CreateFunctionObject(node, ctx, wr);
+  };
+  class operatorsOfJSONArrayObject_57  {
+    constructor() {
+    }
+  }
+  operatorsOfJSONArrayObject_57.forEach_58 = function(__self, cb) {
+    let cnt = __self.length;
+    let i_32 = 0;
+    while (cnt > 0) {
+      const value_8 = __self[i_32];
+      cb(value_8, i_32);
+      cnt = cnt - 1;
+      i_32 = i_32 + 1;
+    };
+  };
+  class operatorsOf_57  {
+    constructor() {
+    }
+  }
+  operatorsOf_57.forEach_58 = async function(__self, cb) {
+    let cnt_1 = __self.length;
+    let i_33 = 0;
+    while (cnt_1 > 0) {
+      const value_9 = __self[i_33];
+      await cb(value_9, i_33);
+      cnt_1 = cnt_1 - 1;
+      i_33 = i_33 + 1;
+    };
+  };
 /* static JavaSript main routine at the end of the JS file */
 async function __js_main() {
   const env = CompilerInterface.create_env();

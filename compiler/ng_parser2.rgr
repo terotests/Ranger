@@ -217,6 +217,15 @@ class CodeNode {
       case RangerNodeType.CharBuffer {
         return "charbuffer"
       }
+      case RangerNodeType.Buffer {
+        return "buffer"
+      }
+      case RangerNodeType.IntBuffer {
+        return "int_buffer"
+      }
+      case RangerNodeType.DoubleBuffer {
+        return "double_buffer"
+      }
     }
     def s:string ""
     if (value_type == RangerNodeType.Array) {
@@ -412,6 +421,21 @@ class CodeNode {
         node.eval_type = RangerNodeType.CharBuffer
         node.eval_type_name = "charbuffer"
       }
+      case "buffer" {
+        node.value_type = RangerNodeType.Buffer
+        node.eval_type = RangerNodeType.Buffer
+        node.eval_type_name = "buffer"
+      }
+      case "int_buffer" {
+        node.value_type = RangerNodeType.IntBuffer
+        node.eval_type = RangerNodeType.IntBuffer
+        node.eval_type_name = "int_buffer"
+      }
+      case "double_buffer" {
+        node.value_type = RangerNodeType.DoubleBuffer
+        node.eval_type = RangerNodeType.DoubleBuffer
+        node.eval_type_name = "double_buffer"
+      }
       case "string" {
         node.value_type = RangerNodeType.String
         node.eval_type = RangerNodeType.String
@@ -482,6 +506,15 @@ class CodeNode {
       case "charbuffer" {
         return RangerNodeType.CharBuffer
       }
+      case "buffer" {
+        return RangerNodeType.Buffer
+      }
+      case "int_buffer" {
+        return RangerNodeType.IntBuffer
+      }
+      case "double_buffer" {
+        return RangerNodeType.DoubleBuffer
+      }
       
       default {
           if (== true expression) {
@@ -501,14 +534,14 @@ class CodeNode {
     return value_type
   }
   fn isPrimitive:boolean () {
-    if ((value_type == RangerNodeType.Double) || (value_type == RangerNodeType.String) || (value_type == RangerNodeType.Integer) || (value_type == RangerNodeType.Char) || (value_type == RangerNodeType.CharBuffer) || (value_type == RangerNodeType.Boolean)) {
+    if ((value_type == RangerNodeType.Double) || (value_type == RangerNodeType.String) || (value_type == RangerNodeType.Integer) || (value_type == RangerNodeType.Char) || (value_type == RangerNodeType.CharBuffer) || (value_type == RangerNodeType.Buffer) || (value_type == RangerNodeType.IntBuffer) || (value_type == RangerNodeType.DoubleBuffer) || (value_type == RangerNodeType.Boolean)) {
       return true
     }
     return false
   }
   fn isPrimitiveType:boolean () {
     def tn:string type_name
-    if ((tn == "double") || (tn == "string") || (tn == "int") || (tn == "char") || (tn == "charbuffer") || (tn == "boolean")) {
+    if ((tn == "double") || (tn == "string") || (tn == "int") || (tn == "char") || (tn == "charbuffer") || (tn == "buffer") || (tn == "int_buffer") || (tn == "double_buffer") || (tn == "boolean")) {
       return true
     }
     return false
@@ -518,7 +551,7 @@ class CodeNode {
     if ((value_type == RangerNodeType.Array) || (value_type == RangerNodeType.Hash)) {
       tn = array_type
     }
-    if ((tn == "double") || (tn == "string") || (tn == "int") || (tn == "char") || (tn == "charbuffer") || (tn == "boolean")) {
+    if ((tn == "double") || (tn == "string") || (tn == "int") || (tn == "char") || (tn == "charbuffer") || (tn == "buffer") || (tn == "int_buffer") || (tn == "double_buffer") || (tn == "boolean")) {
       return true
     }
     return false

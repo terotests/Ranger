@@ -3762,14 +3762,12 @@ class TSParserSimple  {
         let isMethod = false;
         let isGetter = false;
         let isSetter = false;
-        let isAsync = false;
         let currVal = this.peekValue();
         let nextType = this.peekNextType();
         let nextVal = this.peekNextValue();
         if ( currVal == "async" ) {
           if ( ((nextType == "Identifier") || (nextVal == "[")) || (nextVal == "(") ) {
             this.advance();
-            isAsync = true;
             prop.async = true;
             currVal = this.peekValue();
             nextType = this.peekNextType();
@@ -4370,7 +4368,7 @@ EVGUnit.create = function(val, uType) {
   unit.isSet = true;
   return unit;
 };
-EVGUnit.pixels = function(val) {
+EVGUnit.px = function(val) {
   return EVGUnit.create(val, 0);
 };
 EVGUnit.percent = function(val) {
@@ -5109,7 +5107,7 @@ class EVGElement  {
     this.box = newBox;
     this.backgroundColor = EVGColor.noColor();
     this.color = EVGColor.black();
-    this.fontSize = EVGUnit.pixels(14.0);
+    this.fontSize = EVGUnit.px(14.0);
     this.shadowRadius = EVGUnit.unset();
     this.shadowColor = EVGColor.noColor();
     this.shadowOffsetX = EVGUnit.unset();
@@ -5541,9 +5539,8 @@ class GrowableBuffer  {
     if ( this.currentChunk.isFull() ) {
       this.allocateNewChunk();
     }
-    const buf = this.currentChunk.data;
     const pos = this.currentChunk.used;
-    buf._view.setUint8(pos, b);
+    this.currentChunk.data._view.setUint8(pos, b);
     this.currentChunk.used = pos + 1;
     this.totalSize = this.totalSize + 1;
   };
@@ -5600,11 +5597,10 @@ class GrowableBuffer  {
     let chunk = this.firstChunk;
     let done = false;
     while (done == false) {
-      const chunkData = chunk.data;
       const chunkUsed = chunk.used;
       let i = 0;
       while (i < chunkUsed) {
-        const b = chunkData._view.getUint8(i);
+        const b = chunk.data._view.getUint8(i);
         result._view.setUint8(pos, b);
         pos = pos + 1;
         i = i + 1;
@@ -5622,11 +5618,10 @@ class GrowableBuffer  {
     let chunk = this.firstChunk;
     let done = false;
     while (done == false) {
-      const chunkData = chunk.data;
       const chunkUsed = chunk.used;
       let i = 0;
       while (i < chunkUsed) {
-        const b = chunkData._view.getUint8(i);
+        const b = chunk.data._view.getUint8(i);
         result = result + (String.fromCharCode(b));
         i = i + 1;
       };
@@ -7085,10 +7080,10 @@ class EVGLayout  {
     this.log("EVGLayout: Starting layout");
     this.currentPage = 0;
     if ( root.width.isSet == false ) {
-      root.width = EVGUnit.pixels(this.pageWidth);
+      root.width = EVGUnit.px(this.pageWidth);
     }
     if ( root.height.isSet == false ) {
-      root.height = EVGUnit.pixels(this.pageHeight);
+      root.height = EVGUnit.px(this.pageHeight);
     }
     this.layoutElement(root, 0.0, 0.0, this.pageWidth, this.pageHeight);
     this.log("EVGLayout: Layout complete");
@@ -7912,6 +7907,9 @@ class TrueTypeFont  {
       dirPath = path.substring(0, lastSlash );
       fileName = path.substring((lastSlash + 1), (path.length) );
     }
+    if ( (require("fs").existsSync(dirPath + "/" + fileName )) == false ) {
+      return false;
+    }
     this.fontData = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
     if ( (this.fontData.byteLength) == 0 ) {
       console.log("TrueTypeFont: Failed to load " + path);
@@ -8287,6 +8285,9 @@ class FontManager  {
   setFontsDirectory (path) {
     this.fontsDirectory = path;
   };
+  getFontCount () {
+    return this.fonts.length;
+  };
   addFontsDirectory (path) {
     this.fontsDirectories.push(path);
   };
@@ -8550,19 +8551,19 @@ class BitReader  {
 }
 class HuffmanTable  {
   constructor() {
-    this.bits = [];
+    this.bits = new Int32Array(16);
     this.values = [];
-    this.maxCode = [];
-    this.minCode = [];
-    this.valPtr = [];
+    this.maxCode = new Int32Array(16);
+    this.minCode = new Int32Array(16);
+    this.valPtr = new Int32Array(16);
     this.tableClass = 0;
     this.tableId = 0;
     let i = 0;
     while (i < 16) {
-      this.bits.push(0);
-      this.maxCode.push(-1);
-      this.minCode.push(0);
-      this.valPtr.push(0);
+      this.bits[i] = 0;
+      this.maxCode[i] = -1;
+      this.minCode[i] = 0;
+      this.valPtr[i] = 0;
       i = i + 1;
     };
   }
@@ -8607,6 +8608,17 @@ class HuffmanTable  {
     console.log("Huffman decode error: code not found");
     return 0;
   };
+  resetArrays () {
+    let i = 0;
+    while (i < 16) {
+      this.bits[i] = 0;
+      this.maxCode[i] = -1;
+      this.minCode[i] = 0;
+      this.valPtr[i] = 0;
+      i = i + 1;
+    };
+    this.values.length = 0;
+  };
 }
 class HuffmanDecoder  {
   constructor() {
@@ -8640,25 +8652,14 @@ class HuffmanDecoder  {
       }
       table.tableClass = tableClass;
       table.tableId = tableId;
-      table.bits.length = 0;
+      table.resetArrays();
       let totalSymbols = 0;
       let i = 0;
       while (i < 16) {
         const count = data._view.getUint8(pos);
-        table.bits.push(count);
+        table.bits[i] = count;
         totalSymbols = totalSymbols + count;
         pos = pos + 1;
-        i = i + 1;
-      };
-      table.values.length = 0;
-      table.maxCode.length = 0;
-      table.minCode.length = 0;
-      table.valPtr.length = 0;
-      i = 0;
-      while (i < 16) {
-        table.maxCode.push(-1);
-        table.minCode.push(0);
-        table.valPtr.push(0);
         i = i + 1;
       };
       i = 0;
@@ -8678,148 +8679,144 @@ class HuffmanDecoder  {
 }
 class IDCT  {
   constructor() {
-    this.cosTable = [];
-    this.zigzagMap = [];
-    this.cosTable.push(1024);
-    this.cosTable.push(1004);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(724);
-    this.cosTable.push(569);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(1024);
-    this.cosTable.push(851);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.cosTable.push(-724);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(1024);
-    this.cosTable.push(569);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(200);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(1024);
-    this.cosTable.push(200);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(724);
-    this.cosTable.push(851);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-200);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(724);
-    this.cosTable.push(-851);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-569);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(-200);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(1024);
-    this.cosTable.push(-851);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(-724);
-    this.cosTable.push(1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(1024);
-    this.cosTable.push(-1004);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(724);
-    this.cosTable.push(-569);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.zigzagMap.push(0);
-    this.zigzagMap.push(1);
-    this.zigzagMap.push(8);
-    this.zigzagMap.push(16);
-    this.zigzagMap.push(9);
-    this.zigzagMap.push(2);
-    this.zigzagMap.push(3);
-    this.zigzagMap.push(10);
-    this.zigzagMap.push(17);
-    this.zigzagMap.push(24);
-    this.zigzagMap.push(32);
-    this.zigzagMap.push(25);
-    this.zigzagMap.push(18);
-    this.zigzagMap.push(11);
-    this.zigzagMap.push(4);
-    this.zigzagMap.push(5);
-    this.zigzagMap.push(12);
-    this.zigzagMap.push(19);
-    this.zigzagMap.push(26);
-    this.zigzagMap.push(33);
-    this.zigzagMap.push(40);
-    this.zigzagMap.push(48);
-    this.zigzagMap.push(41);
-    this.zigzagMap.push(34);
-    this.zigzagMap.push(27);
-    this.zigzagMap.push(20);
-    this.zigzagMap.push(13);
-    this.zigzagMap.push(6);
-    this.zigzagMap.push(7);
-    this.zigzagMap.push(14);
-    this.zigzagMap.push(21);
-    this.zigzagMap.push(28);
-    this.zigzagMap.push(35);
-    this.zigzagMap.push(42);
-    this.zigzagMap.push(49);
-    this.zigzagMap.push(56);
-    this.zigzagMap.push(57);
-    this.zigzagMap.push(50);
-    this.zigzagMap.push(43);
-    this.zigzagMap.push(36);
-    this.zigzagMap.push(29);
-    this.zigzagMap.push(22);
-    this.zigzagMap.push(15);
-    this.zigzagMap.push(23);
-    this.zigzagMap.push(30);
-    this.zigzagMap.push(37);
-    this.zigzagMap.push(44);
-    this.zigzagMap.push(51);
-    this.zigzagMap.push(58);
-    this.zigzagMap.push(59);
-    this.zigzagMap.push(52);
-    this.zigzagMap.push(45);
-    this.zigzagMap.push(38);
-    this.zigzagMap.push(31);
-    this.zigzagMap.push(39);
-    this.zigzagMap.push(46);
-    this.zigzagMap.push(53);
-    this.zigzagMap.push(60);
-    this.zigzagMap.push(61);
-    this.zigzagMap.push(54);
-    this.zigzagMap.push(47);
-    this.zigzagMap.push(55);
-    this.zigzagMap.push(62);
-    this.zigzagMap.push(63);
+    this.cosTable = new Int32Array(64);
+    this.zigzagMap = new Int32Array(64);
+    this.cosTable[0] = 1024;
+    this.cosTable[1] = 1004;
+    this.cosTable[2] = 946;
+    this.cosTable[3] = 851;
+    this.cosTable[4] = 724;
+    this.cosTable[5] = 569;
+    this.cosTable[6] = 392;
+    this.cosTable[7] = 200;
+    this.cosTable[8] = 1024;
+    this.cosTable[9] = 851;
+    this.cosTable[10] = 392;
+    this.cosTable[11] = -200;
+    this.cosTable[12] = -724;
+    this.cosTable[13] = -1004;
+    this.cosTable[14] = -946;
+    this.cosTable[15] = -569;
+    this.cosTable[16] = 1024;
+    this.cosTable[17] = 569;
+    this.cosTable[18] = -392;
+    this.cosTable[19] = -1004;
+    this.cosTable[20] = -724;
+    this.cosTable[21] = 200;
+    this.cosTable[22] = 946;
+    this.cosTable[23] = 851;
+    this.cosTable[24] = 1024;
+    this.cosTable[25] = 200;
+    this.cosTable[26] = -946;
+    this.cosTable[27] = -569;
+    this.cosTable[28] = 724;
+    this.cosTable[29] = 851;
+    this.cosTable[30] = -392;
+    this.cosTable[31] = -1004;
+    this.cosTable[32] = 1024;
+    this.cosTable[33] = -200;
+    this.cosTable[34] = -946;
+    this.cosTable[35] = 569;
+    this.cosTable[36] = 724;
+    this.cosTable[37] = -851;
+    this.cosTable[38] = -392;
+    this.cosTable[39] = 1004;
+    this.cosTable[40] = 1024;
+    this.cosTable[41] = -569;
+    this.cosTable[42] = -392;
+    this.cosTable[43] = 1004;
+    this.cosTable[44] = -724;
+    this.cosTable[45] = -200;
+    this.cosTable[46] = 946;
+    this.cosTable[47] = -851;
+    this.cosTable[48] = 1024;
+    this.cosTable[49] = -851;
+    this.cosTable[50] = 392;
+    this.cosTable[51] = 200;
+    this.cosTable[52] = -724;
+    this.cosTable[53] = 1004;
+    this.cosTable[54] = -946;
+    this.cosTable[55] = 569;
+    this.cosTable[56] = 1024;
+    this.cosTable[57] = -1004;
+    this.cosTable[58] = 946;
+    this.cosTable[59] = -851;
+    this.cosTable[60] = 724;
+    this.cosTable[61] = -569;
+    this.cosTable[62] = 392;
+    this.cosTable[63] = -200;
+    this.zigzagMap[0] = 0;
+    this.zigzagMap[1] = 1;
+    this.zigzagMap[2] = 8;
+    this.zigzagMap[3] = 16;
+    this.zigzagMap[4] = 9;
+    this.zigzagMap[5] = 2;
+    this.zigzagMap[6] = 3;
+    this.zigzagMap[7] = 10;
+    this.zigzagMap[8] = 17;
+    this.zigzagMap[9] = 24;
+    this.zigzagMap[10] = 32;
+    this.zigzagMap[11] = 25;
+    this.zigzagMap[12] = 18;
+    this.zigzagMap[13] = 11;
+    this.zigzagMap[14] = 4;
+    this.zigzagMap[15] = 5;
+    this.zigzagMap[16] = 12;
+    this.zigzagMap[17] = 19;
+    this.zigzagMap[18] = 26;
+    this.zigzagMap[19] = 33;
+    this.zigzagMap[20] = 40;
+    this.zigzagMap[21] = 48;
+    this.zigzagMap[22] = 41;
+    this.zigzagMap[23] = 34;
+    this.zigzagMap[24] = 27;
+    this.zigzagMap[25] = 20;
+    this.zigzagMap[26] = 13;
+    this.zigzagMap[27] = 6;
+    this.zigzagMap[28] = 7;
+    this.zigzagMap[29] = 14;
+    this.zigzagMap[30] = 21;
+    this.zigzagMap[31] = 28;
+    this.zigzagMap[32] = 35;
+    this.zigzagMap[33] = 42;
+    this.zigzagMap[34] = 49;
+    this.zigzagMap[35] = 56;
+    this.zigzagMap[36] = 57;
+    this.zigzagMap[37] = 50;
+    this.zigzagMap[38] = 43;
+    this.zigzagMap[39] = 36;
+    this.zigzagMap[40] = 29;
+    this.zigzagMap[41] = 22;
+    this.zigzagMap[42] = 15;
+    this.zigzagMap[43] = 23;
+    this.zigzagMap[44] = 30;
+    this.zigzagMap[45] = 37;
+    this.zigzagMap[46] = 44;
+    this.zigzagMap[47] = 51;
+    this.zigzagMap[48] = 58;
+    this.zigzagMap[49] = 59;
+    this.zigzagMap[50] = 52;
+    this.zigzagMap[51] = 45;
+    this.zigzagMap[52] = 38;
+    this.zigzagMap[53] = 31;
+    this.zigzagMap[54] = 39;
+    this.zigzagMap[55] = 46;
+    this.zigzagMap[56] = 53;
+    this.zigzagMap[57] = 60;
+    this.zigzagMap[58] = 61;
+    this.zigzagMap[59] = 54;
+    this.zigzagMap[60] = 47;
+    this.zigzagMap[61] = 55;
+    this.zigzagMap[62] = 62;
+    this.zigzagMap[63] = 63;
   }
   dezigzag (zigzag) {
-    let block = [];
+    const block = new Int32Array(64);
     let i = 0;
     while (i < 64) {
-      block.push(0);
-      i = i + 1;
-    };
-    i = 0;
-    while (i < 64) {
       const pos = this.zigzagMap[i];
-      block[pos] = zigzag[i];
+      const val = zigzag[i];
+      block[pos] = val;
       i = i + 1;
     };
     return block;
@@ -8846,12 +8843,7 @@ class IDCT  {
     };
   };
   transform (block, output) {
-    let temp = [];
-    let i = 0;
-    while (i < 64) {
-      temp.push(0);
-      i = i + 1;
-    };
+    const temp = new Int32Array(64);
     let row = 0;
     while (row < 8) {
       const rowStart = row * 8;
@@ -8863,7 +8855,7 @@ class IDCT  {
       this.idct1d(temp, col, 8, output, col, 8);
       col = col + 1;
     };
-    i = 0;
+    let i = 0;
     while (i < 64) {
       let val = (output[i]) + 128;
       if ( val < 0 ) {
@@ -9857,12 +9849,8 @@ class JPEGDecoder  {
     return true;
   };
   decodeBlock (reader, comp, quantTable) {
-    let coeffs = [];
-    let i = 0;
-    while (i < 64) {
-      coeffs.push(0);
-      i = i + 1;
-    };
+    const coeffs = new Int32Array(64);
+    coeffs.fill(0, 0, 64);
     const dcTable = this.huffman.getDCTable(comp.dcTableId);
     const dcCategory = dcTable.decode(reader);
     const dcDiff = reader.receiveExtend(dcCategory);
@@ -9951,16 +9939,12 @@ class JPEGDecoder  {
             let blockH = 0;
             while (blockH < comp_1.hSamp) {
               const coeffs = this.decodeBlock(reader, comp_1, quantTable);
-              let blockPixels = [];
-              let bi = 0;
-              while (bi < 64) {
-                blockPixels.push(0);
-                bi = bi + 1;
-              };
+              const blockPixels = new Int32Array(64);
+              blockPixels.fill(0, 0, 64);
               const tempBlock = this.idct.dezigzag(coeffs);
               this.idct.transform(tempBlock, blockPixels);
               if ( compIdx == 0 ) {
-                bi = 0;
+                let bi = 0;
                 while (bi < 64) {
                   yBlocksData.push(blockPixels[bi]);
                   bi = bi + 1;
@@ -9969,18 +9953,18 @@ class JPEGDecoder  {
               }
               if ( compIdx == 1 ) {
                 cbBlock.length = 0;
-                bi = 0;
-                while (bi < 64) {
-                  cbBlock.push(blockPixels[bi]);
-                  bi = bi + 1;
+                let bi_1 = 0;
+                while (bi_1 < 64) {
+                  cbBlock.push(blockPixels[bi_1]);
+                  bi_1 = bi_1 + 1;
                 };
               }
               if ( compIdx == 2 ) {
                 crBlock.length = 0;
-                bi = 0;
-                while (bi < 64) {
-                  crBlock.push(blockPixels[bi]);
-                  bi = bi + 1;
+                let bi_2 = 0;
+                while (bi_2 < 64) {
+                  crBlock.push(blockPixels[bi_2]);
+                  bi_2 = bi_2 + 1;
                 };
               }
               blockH = blockH + 1;
@@ -10182,136 +10166,136 @@ class JPEGDecoder  {
 }
 class FDCT  {
   constructor() {
-    this.cosTable = [];
-    this.zigzagOrder = [];
-    this.cosTable.push(1024);
-    this.cosTable.push(1004);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(724);
-    this.cosTable.push(569);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(1024);
-    this.cosTable.push(851);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.cosTable.push(-724);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(1024);
-    this.cosTable.push(569);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(200);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(1024);
-    this.cosTable.push(200);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(724);
-    this.cosTable.push(851);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-200);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(724);
-    this.cosTable.push(-851);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-569);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(-200);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(1024);
-    this.cosTable.push(-851);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(-724);
-    this.cosTable.push(1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(1024);
-    this.cosTable.push(-1004);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(724);
-    this.cosTable.push(-569);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.zigzagOrder.push(0);
-    this.zigzagOrder.push(1);
-    this.zigzagOrder.push(8);
-    this.zigzagOrder.push(16);
-    this.zigzagOrder.push(9);
-    this.zigzagOrder.push(2);
-    this.zigzagOrder.push(3);
-    this.zigzagOrder.push(10);
-    this.zigzagOrder.push(17);
-    this.zigzagOrder.push(24);
-    this.zigzagOrder.push(32);
-    this.zigzagOrder.push(25);
-    this.zigzagOrder.push(18);
-    this.zigzagOrder.push(11);
-    this.zigzagOrder.push(4);
-    this.zigzagOrder.push(5);
-    this.zigzagOrder.push(12);
-    this.zigzagOrder.push(19);
-    this.zigzagOrder.push(26);
-    this.zigzagOrder.push(33);
-    this.zigzagOrder.push(40);
-    this.zigzagOrder.push(48);
-    this.zigzagOrder.push(41);
-    this.zigzagOrder.push(34);
-    this.zigzagOrder.push(27);
-    this.zigzagOrder.push(20);
-    this.zigzagOrder.push(13);
-    this.zigzagOrder.push(6);
-    this.zigzagOrder.push(7);
-    this.zigzagOrder.push(14);
-    this.zigzagOrder.push(21);
-    this.zigzagOrder.push(28);
-    this.zigzagOrder.push(35);
-    this.zigzagOrder.push(42);
-    this.zigzagOrder.push(49);
-    this.zigzagOrder.push(56);
-    this.zigzagOrder.push(57);
-    this.zigzagOrder.push(50);
-    this.zigzagOrder.push(43);
-    this.zigzagOrder.push(36);
-    this.zigzagOrder.push(29);
-    this.zigzagOrder.push(22);
-    this.zigzagOrder.push(15);
-    this.zigzagOrder.push(23);
-    this.zigzagOrder.push(30);
-    this.zigzagOrder.push(37);
-    this.zigzagOrder.push(44);
-    this.zigzagOrder.push(51);
-    this.zigzagOrder.push(58);
-    this.zigzagOrder.push(59);
-    this.zigzagOrder.push(52);
-    this.zigzagOrder.push(45);
-    this.zigzagOrder.push(38);
-    this.zigzagOrder.push(31);
-    this.zigzagOrder.push(39);
-    this.zigzagOrder.push(46);
-    this.zigzagOrder.push(53);
-    this.zigzagOrder.push(60);
-    this.zigzagOrder.push(61);
-    this.zigzagOrder.push(54);
-    this.zigzagOrder.push(47);
-    this.zigzagOrder.push(55);
-    this.zigzagOrder.push(62);
-    this.zigzagOrder.push(63);
+    this.cosTable = new Int32Array(64);
+    this.zigzagOrder = new Int32Array(64);
+    this.cosTable[0] = 1024;
+    this.cosTable[1] = 1004;
+    this.cosTable[2] = 946;
+    this.cosTable[3] = 851;
+    this.cosTable[4] = 724;
+    this.cosTable[5] = 569;
+    this.cosTable[6] = 392;
+    this.cosTable[7] = 200;
+    this.cosTable[8] = 1024;
+    this.cosTable[9] = 851;
+    this.cosTable[10] = 392;
+    this.cosTable[11] = -200;
+    this.cosTable[12] = -724;
+    this.cosTable[13] = -1004;
+    this.cosTable[14] = -946;
+    this.cosTable[15] = -569;
+    this.cosTable[16] = 1024;
+    this.cosTable[17] = 569;
+    this.cosTable[18] = -392;
+    this.cosTable[19] = -1004;
+    this.cosTable[20] = -724;
+    this.cosTable[21] = 200;
+    this.cosTable[22] = 946;
+    this.cosTable[23] = 851;
+    this.cosTable[24] = 1024;
+    this.cosTable[25] = 200;
+    this.cosTable[26] = -946;
+    this.cosTable[27] = -569;
+    this.cosTable[28] = 724;
+    this.cosTable[29] = 851;
+    this.cosTable[30] = -392;
+    this.cosTable[31] = -1004;
+    this.cosTable[32] = 1024;
+    this.cosTable[33] = -200;
+    this.cosTable[34] = -946;
+    this.cosTable[35] = 569;
+    this.cosTable[36] = 724;
+    this.cosTable[37] = -851;
+    this.cosTable[38] = -392;
+    this.cosTable[39] = 1004;
+    this.cosTable[40] = 1024;
+    this.cosTable[41] = -569;
+    this.cosTable[42] = -392;
+    this.cosTable[43] = 1004;
+    this.cosTable[44] = -724;
+    this.cosTable[45] = -200;
+    this.cosTable[46] = 946;
+    this.cosTable[47] = -851;
+    this.cosTable[48] = 1024;
+    this.cosTable[49] = -851;
+    this.cosTable[50] = 392;
+    this.cosTable[51] = 200;
+    this.cosTable[52] = -724;
+    this.cosTable[53] = 1004;
+    this.cosTable[54] = -946;
+    this.cosTable[55] = 569;
+    this.cosTable[56] = 1024;
+    this.cosTable[57] = -1004;
+    this.cosTable[58] = 946;
+    this.cosTable[59] = -851;
+    this.cosTable[60] = 724;
+    this.cosTable[61] = -569;
+    this.cosTable[62] = 392;
+    this.cosTable[63] = -200;
+    this.zigzagOrder[0] = 0;
+    this.zigzagOrder[1] = 1;
+    this.zigzagOrder[2] = 8;
+    this.zigzagOrder[3] = 16;
+    this.zigzagOrder[4] = 9;
+    this.zigzagOrder[5] = 2;
+    this.zigzagOrder[6] = 3;
+    this.zigzagOrder[7] = 10;
+    this.zigzagOrder[8] = 17;
+    this.zigzagOrder[9] = 24;
+    this.zigzagOrder[10] = 32;
+    this.zigzagOrder[11] = 25;
+    this.zigzagOrder[12] = 18;
+    this.zigzagOrder[13] = 11;
+    this.zigzagOrder[14] = 4;
+    this.zigzagOrder[15] = 5;
+    this.zigzagOrder[16] = 12;
+    this.zigzagOrder[17] = 19;
+    this.zigzagOrder[18] = 26;
+    this.zigzagOrder[19] = 33;
+    this.zigzagOrder[20] = 40;
+    this.zigzagOrder[21] = 48;
+    this.zigzagOrder[22] = 41;
+    this.zigzagOrder[23] = 34;
+    this.zigzagOrder[24] = 27;
+    this.zigzagOrder[25] = 20;
+    this.zigzagOrder[26] = 13;
+    this.zigzagOrder[27] = 6;
+    this.zigzagOrder[28] = 7;
+    this.zigzagOrder[29] = 14;
+    this.zigzagOrder[30] = 21;
+    this.zigzagOrder[31] = 28;
+    this.zigzagOrder[32] = 35;
+    this.zigzagOrder[33] = 42;
+    this.zigzagOrder[34] = 49;
+    this.zigzagOrder[35] = 56;
+    this.zigzagOrder[36] = 57;
+    this.zigzagOrder[37] = 50;
+    this.zigzagOrder[38] = 43;
+    this.zigzagOrder[39] = 36;
+    this.zigzagOrder[40] = 29;
+    this.zigzagOrder[41] = 22;
+    this.zigzagOrder[42] = 15;
+    this.zigzagOrder[43] = 23;
+    this.zigzagOrder[44] = 30;
+    this.zigzagOrder[45] = 37;
+    this.zigzagOrder[46] = 44;
+    this.zigzagOrder[47] = 51;
+    this.zigzagOrder[48] = 58;
+    this.zigzagOrder[49] = 59;
+    this.zigzagOrder[50] = 52;
+    this.zigzagOrder[51] = 45;
+    this.zigzagOrder[52] = 38;
+    this.zigzagOrder[53] = 31;
+    this.zigzagOrder[54] = 39;
+    this.zigzagOrder[55] = 46;
+    this.zigzagOrder[56] = 53;
+    this.zigzagOrder[57] = 60;
+    this.zigzagOrder[58] = 61;
+    this.zigzagOrder[59] = 54;
+    this.zigzagOrder[60] = 47;
+    this.zigzagOrder[61] = 55;
+    this.zigzagOrder[62] = 62;
+    this.zigzagOrder[63] = 63;
   }
   dct1d (input, startIdx, stride, output, outIdx, outStride) {
     let u = 0;
@@ -10332,30 +10316,20 @@ class FDCT  {
     };
   };
   transform (pixels) {
-    let shifted = [];
+    const shifted = new Int32Array(64);
     let i = 0;
     while (i < 64) {
-      shifted.push((pixels[i]) - 128);
+      shifted[i] = (pixels[i]) - 128;
       i = i + 1;
     };
-    let temp = [];
-    i = 0;
-    while (i < 64) {
-      temp.push(0);
-      i = i + 1;
-    };
+    const temp = new Int32Array(64);
     let row = 0;
     while (row < 8) {
       const rowStart = row * 8;
       this.dct1d(shifted, rowStart, 1, temp, rowStart, 1);
       row = row + 1;
     };
-    let coeffs = [];
-    i = 0;
-    while (i < 64) {
-      coeffs.push(0);
-      i = i + 1;
-    };
+    const coeffs = new Int32Array(64);
     let col = 0;
     while (col < 8) {
       this.dct1d(temp, col, 8, coeffs, col, 8);
@@ -10364,11 +10338,11 @@ class FDCT  {
     return coeffs;
   };
   zigzag (block) {
-    let zigzagOut = [];
+    const zigzagOut = new Int32Array(64);
     let i = 0;
     while (i < 64) {
       const pos = this.zigzagOrder[i];
-      zigzagOut.push(block[pos]);
+      zigzagOut[i] = block[pos];
       i = i + 1;
     };
     return zigzagOut;
@@ -11088,7 +11062,7 @@ class JPEGEncoder  {
     return value;
   };
   encodeBlock (writer, coeffs, quantTable, dcCodes, dcLengths, acCodes, acLengths, prevDC) {
-    let quantized = [];
+    const quantized = new Int32Array(64);
     let i = 0;
     while (i < 64) {
       const q = quantTable[i];
@@ -11099,7 +11073,7 @@ class JPEGEncoder  {
       } else {
         qVal = Math.floor( ((c - ((q >> 1))) / q));
       }
-      quantized.push(qVal);
+      quantized[i] = qVal;
       i = i + 1;
     };
     const zigzagged = this.fdct.zigzag(quantized);
@@ -11170,7 +11144,8 @@ class JPEGEncoder  {
     crOut.push(cr);
   };
   extractBlock (img, blockX, blockY, channel) {
-    let output = [];
+    const output = new Int32Array(64);
+    let idx = 0;
     let py = 0;
     while (py < 8) {
       let px = 0;
@@ -11188,14 +11163,15 @@ class JPEGEncoder  {
         const cb = (((((0 - (43 * c.r)) - (85 * c.g)) + (128 * c.b)) >> 8)) + 128;
         const cr = (((((128 * c.r) - (107 * c.g)) - (21 * c.b)) >> 8)) + 128;
         if ( channel == 0 ) {
-          output.push(y);
+          output[idx] = y;
         }
         if ( channel == 1 ) {
-          output.push(cb);
+          output[idx] = cb;
         }
         if ( channel == 2 ) {
-          output.push(cr);
+          output[idx] = cr;
         }
+        idx = idx + 1;
         px = px + 1;
       };
       py = py + 1;
@@ -11511,6 +11487,8 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.jpegQuality = 75;
     this.imageDimensionsCache = [];
     this.imageDimensionsCacheKeys = [];
+    this.foundSections = [];
+    this.foundPages = [];
     const w = new PDFWriter();
     this.writer = w;
     const lay = new EVGLayout();
@@ -11531,8 +11509,14 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.imageDimensionsCacheKeys = idck;
     let ap = [];
     this.assetPaths = ap;
-    this.layout.setImageMeasurer(this);
+    let fs = [];
+    this.foundSections = fs;
+    let fp = [];
+    this.foundPages = fp;
   }
+  init () {
+    this.layout.setImageMeasurer(this);
+  };
   setPageSize (width, height) {
     this.pageWidth = width;
     this.pageHeight = height;
@@ -11653,25 +11637,25 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.layout.layout(root);
     return this.renderToPDF(root);
   };
-  findPageElements (el, pages) {
+  findPageElementsRecursive (el) {
     if ( el.tagName == "page" ) {
-      pages.push(el);
+      this.foundPages.push(el);
     }
     let i = 0;
     const childCount = el.getChildCount();
     while (i < childCount) {
       const child = el.getChild(i);
-      this.findPageElements(child, pages);
+      this.findPageElementsRecursive(child);
       i = i + 1;
     };
   };
-  findSectionElements (el, sections) {
+  findSectionElementsRecursive (el) {
     let i = 0;
     const childCount = el.getChildCount();
     while (i < childCount) {
       const child = el.getChild(i);
       if ( child.tagName == "section" ) {
-        sections.push(child);
+        this.foundSections.push(child);
       }
       i = i + 1;
     };
@@ -11719,23 +11703,25 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     pdf.writeByte(211);
     pdf.writeByte(10);
     let objectOffsets = [];
-    let sections = [];
-    this.findSectionElements(root, sections);
+    let emptyArr = [];
+    this.foundSections = emptyArr;
+    this.findSectionElementsRecursive(root);
     let allPages = [];
     let allPageWidths = [];
     let allPageHeights = [];
     let allPageMargins = [];
     let si = 0;
-    while (si < (sections.length)) {
-      const section = sections[si];
+    while (si < (this.foundSections.length)) {
+      const section = this.foundSections[si];
       const sectionWidth = this.getSectionPageWidth(section);
       const sectionHeight = this.getSectionPageHeight(section);
       const sectionMargin = this.getSectionMargin(section);
-      let pages = [];
-      this.findPageElements(section, pages);
+      let emptyPages = [];
+      this.foundPages = emptyPages;
+      this.findPageElementsRecursive(section);
       let pi = 0;
-      while (pi < (pages.length)) {
-        const pg = pages[pi];
+      while (pi < (this.foundPages.length)) {
+        const pg = this.foundPages[pi];
         allPages.push(pg);
         allPageWidths.push(sectionWidth);
         allPageHeights.push(sectionHeight);
@@ -13171,7 +13157,18 @@ class ComponentEngine  {
     const fileContent = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fullPath); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
     const src = (function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(fileContent);
     if ( (src.length) == 0 ) {
-      console.log("Warning: Could not load module: " + fullPath);
+      console.log("");
+      console.log(("ERROR: Could not load component module: " + dirPath) + fullPath);
+      console.log("");
+      console.log("Please ensure the imported file exists. You may need to:");
+      console.log("  1. Check that the import path is correct in your TSX file");
+      console.log("  2. Make sure the component file exists in one of your asset paths:");
+      let pathIdx = 0;
+      while (pathIdx < (this.assetPaths.length)) {
+        console.log("     - " + (this.assetPaths[pathIdx]));
+        pathIdx = pathIdx + 1;
+      };
+      console.log("");
       return;
     }
     const lexer = new TSLexer(src);
@@ -14237,6 +14234,18 @@ class EVGComponentTool  {
       }
       i = i + 1;
     };
+    if ( (this.assetPaths.length) == 0 ) {
+      console.log("");
+      console.log("ERROR: Missing required --assets argument");
+      console.log("");
+      console.log("The --assets argument is required to specify where fonts and components are located.");
+      console.log("");
+      console.log("Usage: evg_component_tool <input.tsx> <output.pdf> --assets=path1;path2;...");
+      console.log("");
+      console.log("Example:");
+      console.log("  evg_component_tool test.tsx output.pdf --assets=./Fonts;./components");
+      return;
+    }
     console.log("Input:  " + this.inputPath);
     console.log("Output: " + this.outputPath);
     console.log("");
@@ -14246,6 +14255,16 @@ class EVGComponentTool  {
     console.log("File name: " + fileName);
     console.log("");
     this.initFonts();
+    if ( this.fontManager.getFontCount() == 0 ) {
+      console.log("");
+      console.log("ERROR: No fonts were loaded!");
+      console.log("");
+      console.log("Please check that your --assets path contains a fonts directory with .ttf files.");
+      console.log("Expected structure: <assets-path>/Open_Sans/OpenSans-Regular.ttf");
+      console.log("");
+      console.log("Current asset paths: " + this.assetPaths);
+      return;
+    }
     const engine = new ComponentEngine();
     engine.pageWidth = this.pageWidth;
     engine.pageHeight = this.pageHeight;
@@ -14266,6 +14285,7 @@ class EVGComponentTool  {
     console.log("");
     console.log("Rendering to PDF...");
     const renderer = new EVGPDFRenderer();
+    renderer.init();
     renderer.setPageSize(this.pageWidth, this.pageHeight);
     renderer.setFontManager(this.fontManager);
     renderer.setBaseDir(basePath);

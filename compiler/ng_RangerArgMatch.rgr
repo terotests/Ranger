@@ -592,6 +592,12 @@ class RangerArgMatch {
       case "buffer" {
         return RangerNodeType.Buffer
       }
+      case "int_buffer" {
+        return RangerNodeType.IntBuffer
+      }
+      case "double_buffer" {
+        return RangerNodeType.DoubleBuffer
+      }
       case "boolean" {
         return RangerNodeType.Boolean
       }

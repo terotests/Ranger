@@ -50,6 +50,15 @@ class RangerCSharpClassWriter {
       case "chararray" {
         return "byte[]"
       }
+      case "buffer" {
+        return "byte[]"
+      }
+      case "int_buffer" {
+        return "long[]"
+      }
+      case "double_buffer" {
+        return "double[]"
+      }
       case "char" {
         return "byte"
       }
@@ -72,6 +81,15 @@ class RangerCSharpClassWriter {
       }
       case "chararray" {
         return "byte[]"
+      }
+      case "buffer" {
+        return "byte[]"
+      }
+      case "int_buffer" {
+        return "long[]"
+      }
+      case "double_buffer" {
+        return "double[]"
       }
       case "char" {
         return "byte"
@@ -166,6 +184,15 @@ class RangerCSharpClassWriter {
       }
       case RangerNodeType.CharBuffer {
         wr.out("byte[]" false)
+      }
+      case RangerNodeType.Buffer {
+        wr.out("byte[]" false)
+      }
+      case RangerNodeType.IntBuffer {
+        wr.out("long[]" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.out("double[]" false)
       }
       case RangerNodeType.String {
         wr.out("String" false)

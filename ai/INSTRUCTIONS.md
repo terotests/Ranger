@@ -1151,3 +1151,187 @@ See `ISSUES.md` for a comprehensive list of known issues including:
 - Method naming conflicts (`toString` crash)
 - Target-specific limitations (Go integer division, Python builtins)
 - Resolved issues with their fixes
+
+---
+
+## Compiler Internals
+
+### Compilation Pipeline
+
+The Ranger compiler follows these phases:
+
+1. **Parsing** - S-expression parser creates AST (`CodeNode` tree)
+2. **Type Analysis** - Resolves types, validates, builds symbol tables
+3. **Static Analysis** - (For C++/Rust) Detects mutation patterns
+4. **Code Generation** - Language-specific writers emit target code
+
+### Static Analysis for C++/Rust
+
+The compiler includes a **static analysis pass** (`ng_StaticAnalysis.rgr`) that is critical for generating correct C++ and Rust code. It solves the fundamental semantic difference between Ranger (reference semantics for collections) and C++/Rust (value semantics by default).
+
+#### Why It's Needed
+
+In Ranger and JavaScript, arrays are passed by reference:
+
+```clojure
+fn fillArray:void (arr:[int]) {
+    push arr 42  ; Modifies caller's array
+}
+```
+
+In C++, `std::vector` is passed by value unless you add `&`:
+
+```cpp
+// WITHOUT static analysis - BROKEN
+void fillArray(std::vector<int> arr) {
+    arr.push_back(42);  // Lost when function returns!
+}
+
+// WITH static analysis - CORRECT
+void fillArray(std::vector<int>& arr) {
+    arr.push_back(42);  // Properly modifies caller's vector
+}
+```
+
+#### How It Works
+
+The `StaticAnalyzer` class in `ng_StaticAnalysis.rgr`:
+
+1. **Registers mutating operators**:
+
+   ```clojure
+   set mutatingOps "push" true
+   set mutatingOps "set" true
+   set mutatingOps "int_buffer_set" true
+   set mutatingOps "buffer_set" true
+   ; ... etc
+   ```
+
+2. **Walks function bodies** looking for mutations:
+
+   ```clojure
+   fn analyzeMutations:void (node:CodeNode fnCtx:RangerAppWriterContext) {
+       if (this.isMutatingNode(node)) {
+           def varName (this.getRootVarName(targetNode))
+           this.markVarAsMutated(varName fnCtx)
+       }
+   }
+   ```
+
+3. **Marks parameters** that need reference semantics:
+
+   ```clojure
+   if (param.varType == RangerContextVarType.FunctionParameter) {
+       if ((strlen typeNode.array_type) > 0) {
+           param.needs_cpp_reference = true
+       }
+   }
+   ```
+
+4. **Code generators check the flag**:
+   ```clojure
+   ; In ng_RangerCppClassWriter.rgr
+   if arg.needs_cpp_reference {
+       wr.out("&" false)  ; Add reference qualifier
+   }
+   ```
+
+#### Types Affected
+
+| Ranger Type      | C++ Without Analysis   | C++ With Analysis       |
+| ---------------- | ---------------------- | ----------------------- |
+| `[T]` (arrays)   | `std::vector<T>`       | `std::vector<T>&`       |
+| `[K:V]` (hashes) | `std::map<K,V>`        | `std::map<K,V>&`        |
+| `int_buffer`     | `std::vector<int64_t>` | `std::vector<int64_t>&` |
+| `double_buffer`  | `std::vector<double>`  | `std::vector<double>&`  |
+| `buffer`         | `std::vector<uint8_t>` | `std::vector<uint8_t>&` |
+
+#### Key Data Structures
+
+**RangerAppParamDesc** - Variable/parameter descriptor:
+
+```clojure
+def is_mutating:boolean false           ; Is this var mutated?
+def mutation_count:int 0                ; How many times?
+def needs_cpp_reference:boolean false   ; Needs & in C++?
+def varType:RangerContextVarType        ; FunctionParameter, LocalVariable, etc.
+```
+
+**RangerContextVarType** - Enum for variable kinds:
+
+```clojure
+Enum RangerContextVarType (
+    NoType
+    This
+    FunctionParameter    ; <-- Marks function parameters
+    LocalVariable
+    Property
+    Function
+)
+```
+
+### Code Generation Architecture
+
+Each target language has a dedicated "ClassWriter":
+
+| File                                 | Target         |
+| ------------------------------------ | -------------- |
+| `ng_RangerJavaScriptClassWriter.rgr` | JavaScript/ES6 |
+| `ng_RangerCppClassWriter.rgr`        | C++            |
+| `ng_RangerGolangClassWriter.rgr`     | Go             |
+| `ng_RangerRustClassWriter.rgr`       | Rust           |
+| `ng_RangerPythonClassWriter.rgr`     | Python         |
+| `ng_RangerJava7ClassWriter.rgr`      | Java           |
+| `ng_RangerSwiftClassWriter.rgr`      | Swift          |
+
+Each writer implements methods like:
+
+- `writeClass` - Generate class/struct definition
+- `writeMethod` - Generate function/method
+- `writeArgsDef` - Generate function parameters
+- `WriteVarDef` - Generate variable declarations
+
+### Language Definition
+
+The `Lang.rgr` file defines:
+
+- **Built-in operators** and their signatures
+- **Type mappings** between Ranger and target languages
+- **Code templates** for each operator per target
+
+Example operator definition:
+
+```clojure
+; Push to array
+push cmdPush:void ( arr:[T] value:T ) {
+    es6 ( (e 1) ".push(" (e 2) ")" )
+    go ( (e 1) " = append(" (e 1) ", " (e 2) ")" )
+    cpp ( (e 1) ".push_back( " (e 2) " )" )
+    python ( (e 1) ".append(" (e 2) ")" )
+}
+```
+
+### Performance Optimization Tips
+
+When writing Ranger code for multi-language compilation:
+
+1. **Use `int_buffer` for hot paths** - Native arrays are faster than `[int]`
+2. **Avoid unnecessary allocations** - Reuse buffers where possible
+3. **Prefer iteration over recursion** - Some targets don't optimize tail calls
+4. **Mark mutable variables** - Use `@(mutable)` annotation for loop counters
+
+### Debugging Compilation Issues
+
+If generated code doesn't behave correctly:
+
+1. **Check static analysis** - Enable debug output:
+
+   ```clojure
+   def debug:boolean true  ; In StaticAnalyzer
+   ```
+
+2. **Compare JS and C++ output** - JS is the reference implementation
+
+3. **Look for missing references** - Search generated C++ for functions that take arrays by value when they should be references
+
+4. **Verify mutation detection** - The mutating operator list may need updating for new operators

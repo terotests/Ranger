@@ -53,6 +53,20 @@ class EVGComponentTool {
             i = i + 1
         }
         
+        ; Validate that --assets was provided
+        if ((strlen assetPaths) == 0) {
+            print ""
+            print "ERROR: Missing required --assets argument"
+            print ""
+            print "The --assets argument is required to specify where fonts and components are located."
+            print ""
+            print "Usage: evg_component_tool <input.tsx> <output.pdf> --assets=path1;path2;..."
+            print ""
+            print "Example:"
+            print "  evg_component_tool test.tsx output.pdf --assets=./Fonts;./components"
+            return
+        }
+        
         print ("Input:  " + inputPath)
         print ("Output: " + outputPath)
         print ""
@@ -67,6 +81,18 @@ class EVGComponentTool {
         
         ; Initialize font manager with asset paths
         this.initFonts()
+        
+        ; Validate that at least one font was loaded
+        if ((fontManager.getFontCount()) == 0) {
+            print ""
+            print "ERROR: No fonts were loaded!"
+            print ""
+            print "Please check that your --assets path contains a fonts directory with .ttf files."
+            print "Expected structure: <assets-path>/Open_Sans/OpenSans-Regular.ttf"
+            print ""
+            print "Current asset paths: " + assetPaths
+            return
+        }
         
         ; Create the component engine
         def engine (new ComponentEngine())
@@ -99,6 +125,7 @@ class EVGComponentTool {
         ; Render to PDF
         print "Rendering to PDF..."
         def renderer (new EVGPDFRenderer())
+        renderer.init()  ; Must call init() for C++ compatibility
         renderer.setPageSize(pageWidth pageHeight)
         renderer.setFontManager(fontManager)
         renderer.setBaseDir(basePath)

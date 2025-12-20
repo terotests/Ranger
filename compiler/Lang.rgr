@@ -613,6 +613,7 @@ func r_file_exists(pathName string, fileName string) bool {
 "
 )                    
                 )
+                rust ( "std::path::Path::new(&format!(\"{}/{}\", " (e 1) ", " (e 2) ")).exists()" )
            }
         }
 
@@ -2037,6 +2038,7 @@ inline std::string  r_cpp_trim(std::string &s)
                 csharp ( (e 1) ".Trim()" (imp "System"))
                 go ("strings.TrimSpace(" (e 1) ")" (imp "strings"))
                 python ( (e 1) ".strip()" )
+                rust ( (e 1) ".trim().to_string()" )
                 * ( (e 1) ".trim()" )
             }            
         }                 
@@ -2397,6 +2399,236 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
             }
         }
 
+        ; ============================================================================
+        ; INT_BUFFER TYPE - Fixed-size integer array for performance-critical code
+        ; ============================================================================
+        ; Similar to buffer but for int64 values instead of bytes.
+        ; Use for lookup tables, IDCT coefficients, etc. where size is known at init.
+        ; Go: []int64, C++: std::vector<int64_t>, ES6: Int32Array, etc.
+        ; ============================================================================
+
+        ; Allocate a new int_buffer of specified size (zero-filled)
+        int_buffer_alloc    cmdIntBufferAlloc:int_buffer    ( size:int ) {
+            templates {
+                ranger ( "(int_buffer_alloc " (e 1) ")" )
+                es6 ( "new Int32Array(" (e 1) ")" )
+                go ( "make([]int64, " (e 1) ")" )
+                rust ( "vec![0i64; " (e 1) " as usize]" )
+                cpp ( "std::vector<int64_t>(" (e 1) ", 0)" (imp "<vector>") (imp "<cstdint>") )
+                java7 ( "new long[(int)" (e 1) "]" )
+                python ( "[0] * " (e 1) )
+                swift6 ( "[Int64](repeating: 0, count: Int(" (e 1) "))" )
+                csharp ( "new long[" (e 1) "]" )
+            }
+        }
+
+        ; Get the length of an int_buffer
+        int_buffer_length   cmdIntBufferLength:int      ( buf:int_buffer ) {
+            templates {
+                ranger ( "(int_buffer_length " (e 1) ")" )
+                es6 ( (e 1) ".length" )
+                go ( "int64(len(" (e 1) "))" )
+                rust ( (e 1) ".len() as i64" )
+                cpp ( "static_cast<int64_t>(" (e 1) ".size())" )
+                java7 ( (e 1) ".length" )
+                python ( "len(" (e 1) ")" )
+                swift6 ( "Int64(" (e 1) ".count)" )
+                csharp ( (e 1) ".Length" )
+            }
+        }
+
+        ; Read an int64 at index
+        int_buffer_get      cmdIntBufferGet:int         ( buf:int_buffer index:int ) {
+            templates {
+                ranger ( "(int_buffer_get " (e 1) " " (e 2) ")" )
+                es6 ( (e 1) "[" (e 2) "]" )
+                go ( (e 1) "[" (e 2) "]" )
+                rust ( (e 1) "[" (e 2) " as usize]" )
+                cpp ( (e 1) "[" (e 2) "]" )
+                java7 ( (e 1) "[(int)" (e 2) "]" )
+                python ( (e 1) "[" (e 2) "]" )
+                swift6 ( (e 1) "[Int(" (e 2) ")]" )
+                csharp ( (e 1) "[" (e 2) "]" )
+            }
+        }
+
+        ; Write an int64 at index
+        int_buffer_set      cmdIntBufferSet:void        ( buf:int_buffer index:int value:int ) {
+            templates {
+                ranger ( "(int_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
+                es6 ( (e 1) "[" (e 2) "] = " (e 3) )
+                go ( (e 1) "[" (e 2) "] = " (e 3) )
+                rust ( (e 1) "[" (e 2) " as usize] = " (e 3) )
+                cpp ( (e 1) "[" (e 2) "] = " (e 3) )
+                java7 ( (e 1) "[(int)" (e 2) "] = " (e 3) )
+                python ( (e 1) "[" (e 2) "] = " (e 3) )
+                swift6 ( (e 1) "[Int(" (e 2) ")] = " (e 3) )
+                csharp ( (e 1) "[" (e 2) "] = " (e 3) )
+            }
+        }
+
+        ; Fill int_buffer with a value in range [start, end)
+        int_buffer_fill     cmdIntBufferFill:void       ( buf:int_buffer value:int start:int end:int ) {
+            templates {
+                ranger ( "(int_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
+                es6 ( (e 1) ".fill(" (e 2) ", " (e 3) ", " (e 4) ")" )
+                go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = " (e 2) " }" )
+                rust ( (e 1) "[" (e 3) " as usize.." (e 4) " as usize].fill(" (e 2) ")" )
+                cpp ( "std::fill(" (e 1) ".begin()+" (e 3) ", " (e 1) ".begin()+" (e 4) ", " (e 2) ")" (imp "<algorithm>") )
+                java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", " (e 2) ")" )
+                python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
+                swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(" (e 2) ", count: Int(" (e 4) "-" (e 3) ")))" )
+                csharp ( "Array.Fill(" (e 1) ", " (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
+            }
+        }
+
+        ; Copy ints from source to destination
+        int_buffer_copy     cmdIntBufferCopy:void       ( dest:int_buffer destOffset:int src:int_buffer srcOffset:int length:int ) {
+            templates {
+                ranger ( "(int_buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
+                es6 ( (e 1) ".set(" (e 3) ".subarray(" (e 4) ", " (e 4) "+" (e 5) "), " (e 2) ")" )
+                go ( "copy(" (e 1) "[" (e 2) ":], " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "])" )
+                rust ( (e 1) "[" (e 2) " as usize..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (e 4) " as usize..(" (e 4) "+" (e 5) ") as usize])" )
+                cpp ( "std::copy(" (e 3) ".begin()+" (e 4) ", " (e 3) ".begin()+" (e 4) "+" (e 5) ", " (e 1) ".begin()+" (e 2) ")" (imp "<algorithm>") )
+                java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
+                swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+            }
+        }
+
+        ; TODO: int_buffer_from requires variadic argument support in Ranger operators
+        ; Create int_buffer from literal values - for cleaner initialization of lookup tables
+        ; Usage: def cosTable:int_buffer (int_buffer_from 1024 1004 946 851 724 569 392 200)
+        ; int_buffer_from    cmdIntBufferFrom:int_buffer    ( listOf:expression ) {
+        ;     templates {
+        ;         ranger ( "(int_buffer_from " (list 1) ")" )
+        ;         es6 ( "new Int32Array([" (comma 1) "])" )
+        ;         go ( "[]int64{" (comma 1) "}" )
+        ;         rust ( "vec![" (comma 1) "]" )
+        ;         cpp ( "std::vector<int64_t>{" (comma 1) "}" (imp "<vector>") (imp "<cstdint>") )
+        ;         java7 ( "new long[]{" (comma 1) "}" )
+        ;         python ( "[" (comma 1) "]" )
+        ;         swift6 ( "[" (comma 1) "] as [Int64]" )
+        ;         csharp ( "new long[]{" (comma 1) "}" )
+        ;     }
+        ; }
+
+        ; ============================================================================
+        ; DOUBLE_BUFFER TYPE - Fixed-size float64 array for performance-critical code
+        ; ============================================================================
+        ; Similar to int_buffer but for float64/double values.
+        ; Use for DSP, signal processing, matrix operations, etc.
+        ; Go: []float64, C++: std::vector<double>, ES6: Float64Array, etc.
+        ; ============================================================================
+
+        ; Allocate a new double_buffer of specified size (zero-filled)
+        double_buffer_alloc    cmdDoubleBufferAlloc:double_buffer    ( size:int ) {
+            templates {
+                ranger ( "(double_buffer_alloc " (e 1) ")" )
+                es6 ( "new Float64Array(" (e 1) ")" )
+                go ( "make([]float64, " (e 1) ")" )
+                rust ( "vec![0.0f64; " (e 1) " as usize]" )
+                cpp ( "std::vector<double>(" (e 1) ", 0.0)" (imp "<vector>") )
+                java7 ( "new double[(int)" (e 1) "]" )
+                python ( "[0.0] * " (e 1) )
+                swift6 ( "[Double](repeating: 0.0, count: Int(" (e 1) "))" )
+                csharp ( "new double[" (e 1) "]" )
+            }
+        }
+
+        ; Get the length of a double_buffer
+        double_buffer_length   cmdDoubleBufferLength:int      ( buf:double_buffer ) {
+            templates {
+                ranger ( "(double_buffer_length " (e 1) ")" )
+                es6 ( (e 1) ".length" )
+                go ( "int64(len(" (e 1) "))" )
+                rust ( (e 1) ".len() as i64" )
+                cpp ( "static_cast<int64_t>(" (e 1) ".size())" )
+                java7 ( (e 1) ".length" )
+                python ( "len(" (e 1) ")" )
+                swift6 ( "Int64(" (e 1) ".count)" )
+                csharp ( (e 1) ".Length" )
+            }
+        }
+
+        ; Read a double at index
+        double_buffer_get      cmdDoubleBufferGet:double         ( buf:double_buffer index:int ) {
+            templates {
+                ranger ( "(double_buffer_get " (e 1) " " (e 2) ")" )
+                es6 ( (e 1) "[" (e 2) "]" )
+                go ( (e 1) "[" (e 2) "]" )
+                rust ( (e 1) "[" (e 2) " as usize]" )
+                cpp ( (e 1) "[" (e 2) "]" )
+                java7 ( (e 1) "[(int)" (e 2) "]" )
+                python ( (e 1) "[" (e 2) "]" )
+                swift6 ( (e 1) "[Int(" (e 2) ")]" )
+                csharp ( (e 1) "[" (e 2) "]" )
+            }
+        }
+
+        ; Write a double at index
+        double_buffer_set      cmdDoubleBufferSet:void        ( buf:double_buffer index:int value:double ) {
+            templates {
+                ranger ( "(double_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
+                es6 ( (e 1) "[" (e 2) "] = " (e 3) )
+                go ( (e 1) "[" (e 2) "] = " (e 3) )
+                rust ( (e 1) "[" (e 2) " as usize] = " (e 3) )
+                cpp ( (e 1) "[" (e 2) "] = " (e 3) )
+                java7 ( (e 1) "[(int)" (e 2) "] = " (e 3) )
+                python ( (e 1) "[" (e 2) "] = " (e 3) )
+                swift6 ( (e 1) "[Int(" (e 2) ")] = " (e 3) )
+                csharp ( (e 1) "[" (e 2) "] = " (e 3) )
+            }
+        }
+
+        ; Fill double_buffer with a value in range [start, end)
+        double_buffer_fill     cmdDoubleBufferFill:void       ( buf:double_buffer value:double start:int end:int ) {
+            templates {
+                ranger ( "(double_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
+                es6 ( (e 1) ".fill(" (e 2) ", " (e 3) ", " (e 4) ")" )
+                go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = " (e 2) " }" )
+                rust ( (e 1) "[" (e 3) " as usize.." (e 4) " as usize].fill(" (e 2) ")" )
+                cpp ( "std::fill(" (e 1) ".begin()+" (e 3) ", " (e 1) ".begin()+" (e 4) ", " (e 2) ")" (imp "<algorithm>") )
+                java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", " (e 2) ")" )
+                python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
+                swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(" (e 2) ", count: Int(" (e 4) "-" (e 3) ")))" )
+                csharp ( "Array.Fill(" (e 1) ", " (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
+            }
+        }
+
+        ; Copy doubles from source to destination
+        double_buffer_copy     cmdDoubleBufferCopy:void       ( dest:double_buffer destOffset:int src:double_buffer srcOffset:int length:int ) {
+            templates {
+                ranger ( "(double_buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
+                es6 ( (e 1) ".set(" (e 3) ".subarray(" (e 4) ", " (e 4) "+" (e 5) "), " (e 2) ")" )
+                go ( "copy(" (e 1) "[" (e 2) ":], " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "])" )
+                rust ( (e 1) "[" (e 2) " as usize..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (e 4) " as usize..(" (e 4) "+" (e 5) ") as usize])" )
+                cpp ( "std::copy(" (e 3) ".begin()+" (e 4) ", " (e 3) ".begin()+" (e 4) "+" (e 5) ", " (e 1) ".begin()+" (e 2) ")" (imp "<algorithm>") )
+                java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
+                swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+            }
+        }
+
+        ; TODO: double_buffer_from requires variadic argument support in Ranger operators
+        ; Create double_buffer from literal values - for cleaner initialization of lookup tables
+        ; Usage: def table:double_buffer (double_buffer_from 1.0 2.0 3.0 4.0)
+        ; double_buffer_from    cmdDoubleBufferFrom:double_buffer    ( listOf:expression ) {
+        ;     templates {
+        ;         ranger ( "(double_buffer_from " (list 1) ")" )
+        ;         es6 ( "new Float64Array([" (comma 1) "])" )
+        ;         go ( "[]float64{" (comma 1) "}" )
+        ;         rust ( "vec![" (comma 1) "]" )
+        ;         cpp ( "std::vector<double>{" (comma 1) "}" (imp "<vector>") )
+        ;         java7 ( "new double[]{" (comma 1) "}" )
+        ;         python ( "[" (comma 1) "]" )
+        ;         swift6 ( "[" (comma 1) "] as [Double]" )
+        ;         csharp ( "new double[]{" (comma 1) "}" )
+        ;     }
+        ; }
+
         to_int      cmdToInt:int       ( value:double ) { 
             templates {
                 ranger ( "(to_int " (e 1) ")") 
@@ -2656,6 +2888,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([] byte{byte(" (e 1) ")})")      
                 cpp ( "std::string(1, char(" (e 1) "))") 
+                rust ( "(char::from_u32(" (e 1) " as u32).unwrap_or('\\0').to_string())" )
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -2663,7 +2896,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
 
         strfromcode   cmdStrFromCode:string       ( code:int ) { 
             templates {
-                ranger ( "(strfromcode " (e 1) ")"))
+                ranger ( "(strfromcode " (e 1) ")")
                 csharp ( "((char)" (e 1) ").toString()") 
                 java7 ( "(new String( Character.toChars(" (e 1) ")))") 
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " )! )))") 
@@ -2671,6 +2904,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([] byte{byte(" (e 1) ")})")        
                 cpp ( "std::string(1, char(" (e 1) "))") 
+                rust ( "(char::from_u32(" (e 1) " as u32).unwrap_or('\\0').to_string())" )
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -2719,6 +2953,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
+                rust ( (e 1) ".to_string()" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -2734,6 +2969,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
+                rust ( (e 1) ".to_string()" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -2834,9 +3070,10 @@ func r_str_2_i64(s string) *GoNullable {
                 php ( "is_numeric(" (e 1) ") ? intval(" (e 1) ") : NULL ")
                 scala ( "Try(" (e 1) ".toInt).toOption" (imp "scala.util.Try"))
                 kotlin (  (e 1) ".toInt()")
-                swift3 ("Int(" (e 1) ")")           
-                swift6 ("Int(" (e 1) ")")           
-                csharp( "Int32.Parse(" (e 1) ")" )   
+                swift3 ("Int(" (e 1) ")")
+                swift6 ("Int(" (e 1) ")")
+                csharp( "Int32.Parse(" (e 1) ")" )
+                rust ( (e 1) ".parse::<i64>().ok()" )
                 * ( "isNaN( parseInt(" (e 1) ") ) ? undefined : parseInt(" (e 1) ")")
             }
         }
@@ -2913,7 +3150,8 @@ Double _getDoubleOrNull ( String str ) {
                 php ( "floatval(" (e 1) ")")
                 scala ( "Try(" (e 1) ".toDouble).toOption" (imp "scala.util.Try"))
                 kotlin (  (e 1) ".toDouble()")
-                swift3 ("Double(" (e 1) ")")              
+                swift3 ("Double(" (e 1) ")")
+                rust ( (e 1) ".parse::<f64>().ok()" )
                 * ( "isNaN( parseFloat(" (e 1) ") ) ? undefined : parseFloat(" (e 1) ")")
             }
         }
@@ -3154,6 +3392,7 @@ int r_string_index_of( std::string str, std::string key )  {
 " )                   
                     
                 )
+                rust ( "(" (e 1) ".find(" (e 2) ").map(|i| i as i64).unwrap_or(-1))" )
             }        
         }
 
@@ -4464,6 +4703,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 java7 ("Double.valueOf(" (e 1) ")")
                 cpp ("(double)(" (e 1) ")")
                 php ( (e 1) )
+                rust ("(" (e 1) " as f64)")
             }
         }
 
@@ -4764,4 +5004,42 @@ systemclass buffer {
     csharp "byte[]"
     kotlin ByteArray
     scala "Array[Byte]"
+}
+
+; SYSTEM CLASS: int_buffer
+; ============================================================================
+; Fixed-size int64 array for performance-critical code.
+; Use for lookup tables, DCT coefficients, pixel buffers, etc.
+; ============================================================================
+
+systemclass int_buffer {
+    es6 Int32Array
+    go "[]int64"
+    rust "Vec<i64>"
+    cpp "std::vector<int64_t>"
+    java7 "long[]"
+    python list
+    swift6 "[Int64]"
+    csharp "long[]"
+    kotlin LongArray
+    scala "Array[Long]"
+}
+
+; SYSTEM CLASS: double_buffer
+; ============================================================================
+; Fixed-size float64 array for performance-critical code.
+; Use for DSP, signal processing, matrix operations, etc.
+; ============================================================================
+
+systemclass double_buffer {
+    es6 Float64Array
+    go "[]float64"
+    rust "Vec<f64>"
+    cpp "std::vector<double>"
+    java7 "double[]"
+    python list
+    swift6 "[Double]"
+    csharp "double[]"
+    kotlin DoubleArray
+    scala "Array[Double]"
 }

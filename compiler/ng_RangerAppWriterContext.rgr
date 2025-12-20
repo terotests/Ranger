@@ -994,7 +994,7 @@ class RangerAppWriterContext {
     return typeName
   }
   fn isPrimitiveType:boolean (typeName:string) {
-    if (((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "boolean")) {
+    if (((((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "int_buffer")) || (typeName == "double_buffer")) || (typeName == "boolean")) {
       return true
     }
     return false
@@ -1003,7 +1003,7 @@ class RangerAppWriterContext {
     if( typeName == "Any") {
       return true
     }
-    if (((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "boolean")) {
+    if (((((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "int_buffer")) || (typeName == "double_buffer")) || (typeName == "boolean")) {
       return true
     }
     if (this.isEnumDefined(typeName)) {

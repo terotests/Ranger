@@ -1,0 +1,41 @@
+; Test file for int_buffer and double_buffer types
+
+class BufferTest {
+    def intBuf:int_buffer
+    def doubleBuf:double_buffer
+    
+    Constructor () {
+        ; Allocate buffers
+        intBuf = (int_buffer_alloc 10)
+        doubleBuf = (double_buffer_alloc 10)
+        
+        ; Fill with values
+        def i 0
+        while (i < 10) {
+            int_buffer_set intBuf i (i * 100)
+            double_buffer_set doubleBuf i (i * 3.14)
+            i = i + 1
+        }
+    }
+    
+    fn printBuffers:void () {
+        print "Integer buffer:"
+        def i 0
+        while (i < (int_buffer_length intBuf)) {
+            def val:int (int_buffer_get intBuf i)
+            print val
+            i = i + 1
+        }
+        
+        print "Double buffer:"
+        i = 0
+        while (i < (double_buffer_length doubleBuf)) {
+            def val:double (double_buffer_get doubleBuf i)
+            print val
+            i = i + 1
+        }
+    }
+}
+
+def test:BufferTest (new BufferTest())
+test.printBuffers()

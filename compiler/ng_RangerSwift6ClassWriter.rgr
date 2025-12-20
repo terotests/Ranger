@@ -50,6 +50,15 @@ class RangerSwift6ClassWriter {
       case "charbuffer" {
         return "[UInt8]"
       }
+      case "buffer" {
+        return "[UInt8]"
+      }
+      case "int_buffer" {
+        return "[Int64]"
+      }
+      case "double_buffer" {
+        return "[Double]"
+      }
       case "char" {
         return "UInt8"
       }
@@ -73,6 +82,15 @@ class RangerSwift6ClassWriter {
       }
       case "charbuffer" {
         return "[UInt8]"
+      }
+      case "buffer" {
+        return "[UInt8]"
+      }
+      case "int_buffer" {
+        return "[Int64]"
+      }
+      case "double_buffer" {
+        return "[Double]"
       }
       case "char" {
         return "UInt8"
@@ -142,6 +160,15 @@ class RangerSwift6ClassWriter {
       }
       case RangerNodeType.CharBuffer {
         wr.out("[UInt8]" false)
+      }
+      case RangerNodeType.Buffer {
+        wr.out("[UInt8]" false)
+      }
+      case RangerNodeType.IntBuffer {
+        wr.out("[Int64]" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.out("[Double]" false)
       }
       case RangerNodeType.Boolean {
         wr.out("Bool" false)

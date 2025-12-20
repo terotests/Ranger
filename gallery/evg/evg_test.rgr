@@ -118,9 +118,9 @@ class EVGTest {
         print "--- Box Model Tests ---"
         
         def box (new EVGBox())
-        box.setMargin((EVGUnit.pixels(10.0)))
-        box.setPadding((EVGUnit.pixels(20.0)))
-        box.borderWidth = (EVGUnit.pixels(2.0))
+        box.setMargin((EVGUnit.px(10.0)))
+        box.setPadding((EVGUnit.px(20.0)))
+        box.borderWidth = (EVGUnit.px(2.0))
         
         ; Resolve units
         box.resolveUnits(400.0 300.0 14.0)
@@ -167,25 +167,25 @@ class EVGTest {
         ; Create a simple layout: root with two children
         def root (new EVGElement())
         root.id = "root"
-        root.width = (EVGUnit.pixels(400.0))
-        root.height = (EVGUnit.pixels(300.0))
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(300.0))
         root.backgroundColor = (EVGColor.parse("#f0f0f0"))
-        root.box.setPadding((EVGUnit.pixels(20.0)))
+        root.box.setPadding((EVGUnit.px(20.0)))
         
         def child1 (new EVGElement())
         child1.id = "box1"
-        child1.width = (EVGUnit.pixels(100.0))
-        child1.height = (EVGUnit.pixels(80.0))
+        child1.width = (EVGUnit.px(100.0))
+        child1.height = (EVGUnit.px(80.0))
         child1.backgroundColor = (EVGColor.parse("#3498db"))
-        child1.box.setMargin((EVGUnit.pixels(10.0)))
+        child1.box.setMargin((EVGUnit.px(10.0)))
         root.addChild(child1)
         
         def child2 (new EVGElement())
         child2.id = "box2"
-        child2.width = (EVGUnit.pixels(100.0))
-        child2.height = (EVGUnit.pixels(80.0))
+        child2.width = (EVGUnit.px(100.0))
+        child2.height = (EVGUnit.px(80.0))
         child2.backgroundColor = (EVGColor.parse("#e74c3c"))
-        child2.box.setMargin((EVGUnit.pixels(10.0)))
+        child2.box.setMargin((EVGUnit.px(10.0)))
         root.addChild(child2)
         
         ; Layout
@@ -205,16 +205,16 @@ class EVGTest {
         ; Create nested layout
         def root (new EVGElement())
         root.id = "page"
-        root.width = (EVGUnit.pixels(400.0))
-        root.height = (EVGUnit.pixels(400.0))
-        root.box.setPadding((EVGUnit.pixels(10.0)))
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(400.0))
+        root.box.setPadding((EVGUnit.px(10.0)))
         root.direction = "column"
         
         ; Header
         def header (new EVGElement())
         header.id = "header"
         header.width = (EVGUnit.parse("100%"))
-        header.height = (EVGUnit.pixels(50.0))
+        header.height = (EVGUnit.px(50.0))
         header.backgroundColor = (EVGColor.parse("#2c3e50"))
         root.addChild(header)
         
@@ -222,30 +222,30 @@ class EVGTest {
         def content (new EVGElement())
         content.id = "content"
         content.width = (EVGUnit.parse("100%"))
-        content.height = (EVGUnit.pixels(250.0))
+        content.height = (EVGUnit.px(250.0))
         content.direction = "row"
         root.addChild(content)
         
         def leftCol (new EVGElement())
         leftCol.id = "sidebar"
-        leftCol.width = (EVGUnit.pixels(100.0))
+        leftCol.width = (EVGUnit.px(100.0))
         leftCol.height = (EVGUnit.parse("100%"))
         leftCol.backgroundColor = (EVGColor.parse("#34495e"))
         content.addChild(leftCol)
         
         def rightCol (new EVGElement())
         rightCol.id = "main"
-        rightCol.width = (EVGUnit.pixels(270.0))
+        rightCol.width = (EVGUnit.px(270.0))
         rightCol.height = (EVGUnit.parse("100%"))
         rightCol.backgroundColor = (EVGColor.parse("#ecf0f1"))
-        rightCol.box.setPadding((EVGUnit.pixels(10.0)))
+        rightCol.box.setPadding((EVGUnit.px(10.0)))
         content.addChild(rightCol)
         
         ; Footer
         def footer (new EVGElement())
         footer.id = "footer"
         footer.width = (EVGUnit.parse("100%"))
-        footer.height = (EVGUnit.pixels(40.0))
+        footer.height = (EVGUnit.px(40.0))
         footer.backgroundColor = (EVGColor.parse("#2c3e50"))
         root.addChild(footer)
         
@@ -266,16 +266,16 @@ class EVGTest {
         ; Test center alignment
         def root (new EVGElement())
         root.id = "centered"
-        root.width = (EVGUnit.pixels(400.0))
-        root.height = (EVGUnit.pixels(200.0))
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(200.0))
         root.align = "center"
         root.verticalAlign = "center"
-        root.box.setPadding((EVGUnit.pixels(10.0)))
+        root.box.setPadding((EVGUnit.px(10.0)))
         
         def box (new EVGElement())
         box.id = "box"
-        box.width = (EVGUnit.pixels(100.0))
-        box.height = (EVGUnit.pixels(50.0))
+        box.width = (EVGUnit.px(100.0))
+        box.height = (EVGUnit.px(50.0))
         box.backgroundColor = (EVGColor.parse("#9b59b6"))
         root.addChild(box)
         
@@ -289,15 +289,15 @@ class EVGTest {
         ; Test right alignment
         def root2 (new EVGElement())
         root2.id = "rightAlign"
-        root2.width = (EVGUnit.pixels(400.0))
-        root2.height = (EVGUnit.pixels(100.0))
+        root2.width = (EVGUnit.px(400.0))
+        root2.height = (EVGUnit.px(100.0))
         root2.align = "right"
-        root2.box.setPadding((EVGUnit.pixels(10.0)))
+        root2.box.setPadding((EVGUnit.px(10.0)))
         
         def box2 (new EVGElement())
         box2.id = "rightBox"
-        box2.width = (EVGUnit.pixels(80.0))
-        box2.height = (EVGUnit.pixels(40.0))
+        box2.width = (EVGUnit.px(80.0))
+        box2.height = (EVGUnit.px(40.0))
         root2.addChild(box2)
         
         def layout2 (new EVGLayout())

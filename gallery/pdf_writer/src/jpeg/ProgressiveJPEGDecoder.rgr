@@ -862,26 +862,22 @@ class ProgressiveJPEGDecoder {
                     while (bh < comp0.hSamp) {
                         def blockIdx:int (mcuIdx * comp0.hSamp * comp0.vSamp + bv * comp0.hSamp + bh)
                         
-                        def blockCoeffs:[int]
+                        def blockCoeffs:int_buffer (int_buffer_alloc 64)
                         def k 0
                         while (k < 64) {
-                            push blockCoeffs (yBuf.get(blockIdx k))
+                            int_buffer_set blockCoeffs k (yBuf.get(blockIdx k))
                             k = k + 1
                         }
                         
-                        def tempBlock:[int] (idct.dezigzag(blockCoeffs))
+                        def tempBlock:int_buffer (idct.dezigzag(blockCoeffs))
                         
-                        def blockPixels:[int]
-                        k = 0
-                        while (k < 64) {
-                            push blockPixels 0
-                            k = k + 1
-                        }
+                        def blockPixels:int_buffer (int_buffer_alloc 64)
+                        int_buffer_fill blockPixels 0 0 64
                         idct.transform(tempBlock blockPixels)
                         
                         k = 0
                         while (k < 64) {
-                            push yBlocksData (at blockPixels k)
+                            push yBlocksData (int_buffer_get blockPixels k)
                             k = k + 1
                         }
                         
@@ -899,39 +895,43 @@ class ProgressiveJPEGDecoder {
                     def cbBuf:CoeffBuffer (at coeffBuffers 1)
                     def cbBlockIdx:int (mcuIdx)
                     
-                    def blockCoeffs:[int]
+                    def blockCoeffs:int_buffer (int_buffer_alloc 64)
                     def k 0
                     while (k < 64) {
-                        push blockCoeffs (cbBuf.get(cbBlockIdx k))
+                        int_buffer_set blockCoeffs k (cbBuf.get(cbBlockIdx k))
                         k = k + 1
                     }
                     
-                    def tempBlock:[int] (idct.dezigzag(blockCoeffs))
+                    def tempBlock:int_buffer (idct.dezigzag(blockCoeffs))
+                    def cbPixels:int_buffer (int_buffer_alloc 64)
+                    int_buffer_fill cbPixels 0 0 64
+                    idct.transform(tempBlock cbPixels)
                     k = 0
                     while (k < 64) {
-                        push cbBlock 0
+                        push cbBlock (int_buffer_get cbPixels k)
                         k = k + 1
                     }
-                    idct.transform(tempBlock cbBlock)
                     
                     ; Cr
                     def crBuf:CoeffBuffer (at coeffBuffers 2)
                     def crBlockIdx:int (mcuIdx)
                     
-                    clear blockCoeffs
+                    def crCoeffs:int_buffer (int_buffer_alloc 64)
                     k = 0
                     while (k < 64) {
-                        push blockCoeffs (crBuf.get(crBlockIdx k))
+                        int_buffer_set crCoeffs k (crBuf.get(crBlockIdx k))
                         k = k + 1
                     }
                     
-                    def crTempBlock:[int] (idct.dezigzag(blockCoeffs))
+                    def crTempBlock:int_buffer (idct.dezigzag(crCoeffs))
+                    def crPixels:int_buffer (int_buffer_alloc 64)
+                    int_buffer_fill crPixels 0 0 64
+                    idct.transform(crTempBlock crPixels)
                     k = 0
                     while (k < 64) {
-                        push crBlock 0
+                        push crBlock (int_buffer_get crPixels k)
                         k = k + 1
                     }
-                    idct.transform(crTempBlock crBlock)
                 }
                 
                 this.writeMCU(img baseX baseY yBlocksData cbBlock crBlock)

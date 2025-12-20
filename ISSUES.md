@@ -1096,22 +1096,45 @@ fn fillArray:[int] () {
 }
 ```
 
-### Proper Fix Options
+### Recommended Solution: Use `buffer` Type for Binary Data
 
-1. **Generate pointer parameters for arrays in Go:**
+For binary data handling (like PDF generation), use the `buffer` type which has fixed-size semantics that work correctly across all languages including Go:
 
-```go
-func fillArray(output *[]int64) {
-    *output = append(*output, 1)
-}
+```ranger
+; Pre-allocate fixed-size buffer
+def buf:buffer (buffer_alloc 1024)
+
+; Write bytes at specific positions (no size change)
+buffer_set buf 0 255
+buffer_set buf 1 128
+
+; Read bytes
+def byte1:int (buffer_get buf 0)
+
+; Copy data between buffers
+buffer_copy destBuf 0 srcBuf 0 100
 ```
 
-2. **Detect array-modifying functions and auto-return:**
+The `buffer` type uses:
 
-   - Analyze if function modifies array parameters
-   - Automatically return modified arrays
+- Go: `[]byte` with index assignment `buf[i] = byte(v)` - no `append()`
+- ES6: `ArrayBuffer` with `DataView`
+- Rust: `Vec<u8>` with index assignment
+- etc.
 
-3. **Use wrapper struct with pointer semantics**
+For growable binary data, use a wrapper class pattern like `GrowableBuffer` that:
+
+1. Pre-allocates chunks: `make([]byte, chunkSize)`
+2. Writes to positions: `buf[pos] = byte(b)`
+3. Links chunks for growth
+
+### Why Pointer Parameters Won't Work Well
+
+While Go supports `*[]T` pointer parameters, this approach has drawbacks:
+
+1. Callers must pass `&arr` explicitly
+2. Syntax becomes awkward: `*arr = append(*arr, item)`
+3. Doesn't solve the fundamental semantic mismatch
 
 ### Files Affected
 

@@ -836,3 +836,105 @@ function render() {
 ```
 
 All expressions are evaluated during PDF compilation, allowing for dynamic content generation while maintaining the performance benefits of static compilation. The evaluator supports variable scoping, function parameters, and complex expressions, making it possible to create sophisticated, data-driven PDF documents.
+
+---
+
+## Multi-Language Compilation
+
+The EVG Component Tool can be compiled from the same Ranger source code to multiple target languages. This demonstrates Ranger's cross-language compilation capabilities.
+
+### Building Different Versions
+
+```bash
+# JavaScript (Node.js)
+npm run evgcomp:compile
+
+# C++ (requires g++ with C++17)
+npm run evgcomp:build:cpp
+
+# Go
+npm run evgcomp:build:go
+
+# Rust (experimental)
+npm run evgcomp:build:rust
+```
+
+### Performance Benchmarks
+
+Benchmarks run on test_gallery.tsx (multi-page photo album with JPEG processing):
+
+| Language       | Avg Time | Speedup         | PDF Size |
+| -------------- | -------- | --------------- | -------- |
+| **JavaScript** | 3.78s    | 1.0x (baseline) | 1,323 KB |
+| **C++**        | 2.65s    | **1.4x faster** | 739 KB   |
+| **Go**         | 2.02s    | **1.9x faster** | 739 KB   |
+
+Key observations:
+
+- **Go is fastest** due to efficient goroutine scheduling and native compilation
+- **C++ is competitive** with -O3 optimization
+- **All versions produce identical output** (same PDF rendering)
+- Compiled versions produce smaller PDFs due to JPEG encoder differences
+
+### Running Compiled Versions
+
+```bash
+# JavaScript
+node bin/evg_component_tool.js input.tsx output.pdf "--assets=./assets/fonts;./components"
+
+# C++ (Windows)
+.\bin\evg_component_tool_cpp.exe input.tsx output.pdf "--assets=./assets/fonts;./components"
+
+# Go (Windows)
+.\bin\evg_component_tool.exe input.tsx output.pdf "--assets=./assets/fonts;./components"
+```
+
+---
+
+## Technical Details
+
+### Static Analysis for C++/Rust
+
+The Ranger compiler includes a **static analysis pass** that detects mutation patterns to generate proper C++ references and Rust borrows. This ensures correct behavior when compiling to languages with value semantics.
+
+#### The Problem
+
+In Ranger, arrays and buffers are passed by reference semantically. JavaScript and Go handle this naturally, but C++ passes `std::vector` by value by default:
+
+```cpp
+// Generated without analysis - WRONG
+void buildCodes(std::vector<int> codes) {
+    codes[0] = value;  // Lost when function returns!
+}
+
+// Generated with analysis - CORRECT
+void buildCodes(std::vector<int>& codes) {
+    codes[0] = value;  // Properly modifies caller's vector
+}
+```
+
+#### How It Works
+
+The static analyzer (`ng_StaticAnalysis.rgr`) scans function bodies for:
+
+1. **Mutating operators**: `set`, `push`, `int_buffer_set`, `buffer_set`, etc.
+2. **Function parameters**: Distinguishes parameters from local variables
+3. **Type detection**: Identifies arrays (`[T]`), hashes (`[K:V]`), and buffer types
+
+When a function parameter is both:
+
+- A collection type (array, hash, buffer)
+- Mutated inside the function body
+
+The analyzer marks it with `needs_cpp_reference = true`, and the C++ code generator adds `&` to make it a reference parameter.
+
+#### Affected Types
+
+| Ranger Type  | C++ Without Analysis      | C++ With Analysis       |
+| ------------ | ------------------------- | ----------------------- |
+| `[int]`      | `std::vector<int>`        | `std::vector<int>&`     |
+| `[string:T]` | `std::map<std::string,T>` | `std::map<...>&`        |
+| `int_buffer` | `std::vector<int64_t>`    | `std::vector<int64_t>&` |
+| `buffer`     | `std::vector<uint8_t>`    | `std::vector<uint8_t>&` |
+
+This analysis is critical for the JPEG encoder/decoder which heavily uses buffer parameters for DCT transforms and Huffman table building.

@@ -1,0 +1,239 @@
+; JPEGEncoder.rgr - JPEG encoder for Ranger
+; Encodes ImageBuffer to baseline JPEG format
+; Updated to use int_buffer for efficient cross-language compilation
+
+Import "../core/Buffer.rgr"
+Import "ImageBuffer.rgr"
+
+; Forward DCT class for encoding
+class FDCT {
+    ; Cosine table: cos((2*x+1) * u * pi / 16) * 1024
+    def cosTable:int_buffer
+    
+    ; Row-major to zigzag mapping
+    def zigzagOrder:int_buffer
+    
+    Constructor () {
+        ; Allocate fixed-size buffers
+        cosTable = (int_buffer_alloc 64)
+        zigzagOrder = (int_buffer_alloc 64)
+        
+        ; Same cosine values as IDCT - the table is symmetric
+        ; Row x=0: u=0,1,2,3,4,5,6,7
+        int_buffer_set cosTable 0 1024
+        int_buffer_set cosTable 1 1004
+        int_buffer_set cosTable 2 946
+        int_buffer_set cosTable 3 851
+        int_buffer_set cosTable 4 724
+        int_buffer_set cosTable 5 569
+        int_buffer_set cosTable 6 392
+        int_buffer_set cosTable 7 200
+        
+        ; Row x=1
+        int_buffer_set cosTable 8 1024
+        int_buffer_set cosTable 9 851
+        int_buffer_set cosTable 10 392
+        int_buffer_set cosTable 11 -200
+        int_buffer_set cosTable 12 -724
+        int_buffer_set cosTable 13 -1004
+        int_buffer_set cosTable 14 -946
+        int_buffer_set cosTable 15 -569
+        
+        ; Row x=2
+        int_buffer_set cosTable 16 1024
+        int_buffer_set cosTable 17 569
+        int_buffer_set cosTable 18 -392
+        int_buffer_set cosTable 19 -1004
+        int_buffer_set cosTable 20 -724
+        int_buffer_set cosTable 21 200
+        int_buffer_set cosTable 22 946
+        int_buffer_set cosTable 23 851
+        
+        ; Row x=3
+        int_buffer_set cosTable 24 1024
+        int_buffer_set cosTable 25 200
+        int_buffer_set cosTable 26 -946
+        int_buffer_set cosTable 27 -569
+        int_buffer_set cosTable 28 724
+        int_buffer_set cosTable 29 851
+        int_buffer_set cosTable 30 -392
+        int_buffer_set cosTable 31 -1004
+        
+        ; Row x=4
+        int_buffer_set cosTable 32 1024
+        int_buffer_set cosTable 33 -200
+        int_buffer_set cosTable 34 -946
+        int_buffer_set cosTable 35 569
+        int_buffer_set cosTable 36 724
+        int_buffer_set cosTable 37 -851
+        int_buffer_set cosTable 38 -392
+        int_buffer_set cosTable 39 1004
+        
+        ; Row x=5
+        int_buffer_set cosTable 40 1024
+        int_buffer_set cosTable 41 -569
+        int_buffer_set cosTable 42 -392
+        int_buffer_set cosTable 43 1004
+        int_buffer_set cosTable 44 -724
+        int_buffer_set cosTable 45 -200
+        int_buffer_set cosTable 46 946
+        int_buffer_set cosTable 47 -851
+        
+        ; Row x=6
+        int_buffer_set cosTable 48 1024
+        int_buffer_set cosTable 49 -851
+        int_buffer_set cosTable 50 392
+        int_buffer_set cosTable 51 200
+        int_buffer_set cosTable 52 -724
+        int_buffer_set cosTable 53 1004
+        int_buffer_set cosTable 54 -946
+        int_buffer_set cosTable 55 569
+        
+        ; Row x=7
+        int_buffer_set cosTable 56 1024
+        int_buffer_set cosTable 57 -1004
+        int_buffer_set cosTable 58 946
+        int_buffer_set cosTable 59 -851
+        int_buffer_set cosTable 60 724
+        int_buffer_set cosTable 61 -569
+        int_buffer_set cosTable 62 392
+        int_buffer_set cosTable 63 -200
+        
+        ; Zigzag order (row-major index for each zigzag position)
+        int_buffer_set zigzagOrder 0 0
+        int_buffer_set zigzagOrder 1 1
+        int_buffer_set zigzagOrder 2 8
+        int_buffer_set zigzagOrder 3 16
+        int_buffer_set zigzagOrder 4 9
+        int_buffer_set zigzagOrder 5 2
+        int_buffer_set zigzagOrder 6 3
+        int_buffer_set zigzagOrder 7 10
+        int_buffer_set zigzagOrder 8 17
+        int_buffer_set zigzagOrder 9 24
+        int_buffer_set zigzagOrder 10 32
+        int_buffer_set zigzagOrder 11 25
+        int_buffer_set zigzagOrder 12 18
+        int_buffer_set zigzagOrder 13 11
+        int_buffer_set zigzagOrder 14 4
+        int_buffer_set zigzagOrder 15 5
+        int_buffer_set zigzagOrder 16 12
+        int_buffer_set zigzagOrder 17 19
+        int_buffer_set zigzagOrder 18 26
+        int_buffer_set zigzagOrder 19 33
+        int_buffer_set zigzagOrder 20 40
+        int_buffer_set zigzagOrder 21 48
+        int_buffer_set zigzagOrder 22 41
+        int_buffer_set zigzagOrder 23 34
+        int_buffer_set zigzagOrder 24 27
+        int_buffer_set zigzagOrder 25 20
+        int_buffer_set zigzagOrder 26 13
+        int_buffer_set zigzagOrder 27 6
+        int_buffer_set zigzagOrder 28 7
+        int_buffer_set zigzagOrder 29 14
+        int_buffer_set zigzagOrder 30 21
+        int_buffer_set zigzagOrder 31 28
+        int_buffer_set zigzagOrder 32 35
+        int_buffer_set zigzagOrder 33 42
+        int_buffer_set zigzagOrder 34 49
+        int_buffer_set zigzagOrder 35 56
+        int_buffer_set zigzagOrder 36 57
+        int_buffer_set zigzagOrder 37 50
+        int_buffer_set zigzagOrder 38 43
+        int_buffer_set zigzagOrder 39 36
+        int_buffer_set zigzagOrder 40 29
+        int_buffer_set zigzagOrder 41 22
+        int_buffer_set zigzagOrder 42 15
+        int_buffer_set zigzagOrder 43 23
+        int_buffer_set zigzagOrder 44 30
+        int_buffer_set zigzagOrder 45 37
+        int_buffer_set zigzagOrder 46 44
+        int_buffer_set zigzagOrder 47 51
+        int_buffer_set zigzagOrder 48 58
+        int_buffer_set zigzagOrder 49 59
+        int_buffer_set zigzagOrder 50 52
+        int_buffer_set zigzagOrder 51 45
+        int_buffer_set zigzagOrder 52 38
+        int_buffer_set zigzagOrder 53 31
+        int_buffer_set zigzagOrder 54 39
+        int_buffer_set zigzagOrder 55 46
+        int_buffer_set zigzagOrder 56 53
+        int_buffer_set zigzagOrder 57 60
+        int_buffer_set zigzagOrder 58 61
+        int_buffer_set zigzagOrder 59 54
+        int_buffer_set zigzagOrder 60 47
+        int_buffer_set zigzagOrder 61 55
+        int_buffer_set zigzagOrder 62 62
+        int_buffer_set zigzagOrder 63 63
+    }
+    
+    fn dct1d:void (input:int_buffer startIdx:int stride:int output:int_buffer outIdx:int outStride:int) {
+        ; 1D DCT: F(u) = C(u)/2 * sum over x of: f(x) * cos((2x+1)*u*pi/16)
+        ; C(0) = 1/sqrt(2), C(u>0) = 1
+        
+        def u:int 0
+        while (u < 8) {
+            def sum:int 0
+            def x:int 0
+            while (x < 8) {
+                def pixel:int (int_buffer_get input (startIdx + (x * stride)))
+                def cosVal:int (int_buffer_get cosTable ((x * 8) + u))
+                sum = sum + (pixel * cosVal)
+                x = x + 1
+            }
+            ; Apply C(u) normalization: C(0) = 1/sqrt(2) ≈ 724/1024
+            if (u == 0) {
+                sum = (bit_shr (sum * 724) 10)
+            }
+            ; Scale down: cosTable is *1024, so shift right 10 bits
+            ; Then divide by 2*sqrt(2) for proper DCT normalization ≈ shift 1 more
+            int_buffer_set output (outIdx + (u * outStride)) (bit_shr sum 11)
+            u = u + 1
+        }
+    }
+    
+    fn transform:int_buffer (pixels:int_buffer) {
+        ; Perform 2D DCT on 8x8 block
+        ; Level shift first: subtract 128
+        def shifted:int_buffer (int_buffer_alloc 64)
+        def i:int 0
+        while (i < 64) {
+            int_buffer_set shifted i ((int_buffer_get pixels i) - 128)
+            i = i + 1
+        }
+        
+        ; Temporary buffer
+        def temp:int_buffer (int_buffer_alloc 64)
+        
+        ; First pass: 1D DCT on rows
+        def row:int 0
+        while (row < 8) {
+            def rowStart:int (row * 8)
+            this.dct1d(shifted rowStart 1 temp rowStart 1)
+            row = row + 1
+        }
+        
+        ; Output coefficients
+        def coeffs:int_buffer (int_buffer_alloc 64)
+        
+        ; Second pass: 1D DCT on columns
+        def col:int 0
+        while (col < 8) {
+            this.dct1d(temp col 8 coeffs col 8)
+            col = col + 1
+        }
+        
+        return coeffs
+    }
+    
+    fn zigzag:int_buffer (block:int_buffer) {
+        ; Convert from row-major to zigzag order
+        def zigzagOut:int_buffer (int_buffer_alloc 64)
+        def i:int 0
+        while (i < 64) {
+            def pos:int (int_buffer_get zigzagOrder i)
+            int_buffer_set zigzagOut i (int_buffer_get block pos)
+            i = i + 1
+        }
+        return zigzagOut
+    }
+}

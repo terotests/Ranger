@@ -29,7 +29,7 @@ class EVGUnit {
         return unit
     }
     
-    sfn pixels:EVGUnit (val:double) {
+    sfn px:EVGUnit (val:double) {
         return (EVGUnit.create(val 0))
     }
     

@@ -1,0 +1,19 @@
+; Test FDCT class with int_buffer - using local variables
+
+class Main {
+    sfn m@(main):void () {
+        ; Allocate fixed-size buffer
+        def cosTable:int_buffer (int_buffer_alloc 64)
+        
+        ; Set a few values to test
+        int_buffer_set cosTable 0 1024
+        int_buffer_set cosTable 1 1004
+        int_buffer_set cosTable 2 946
+        int_buffer_set cosTable 3 851
+        
+        def val0:int (int_buffer_get cosTable 0)
+        def val1:int (int_buffer_get cosTable 1)
+        print ("Value 0: " + (to_string val0))
+        print ("Value 1: " + (to_string val1))
+    }
+}

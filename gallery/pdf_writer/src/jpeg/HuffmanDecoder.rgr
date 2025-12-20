@@ -1,22 +1,23 @@
 ; HuffmanDecoder.rgr - Huffman table building and decoding for JPEG
+; Updated to use int_buffer for fixed-size arrays (always 16 elements for code lengths 1-16)
 
 class HuffmanTable {
-    def bits:[int]           ; Count of codes at each length (index 0-15 = lengths 1-16)
-    def values:[int]         ; Symbol values in order
-    def maxCode:[int]        ; Max code value for each length
-    def minCode:[int]        ; Min code value for each length
-    def valPtr:[int]         ; Index into values for each length
+    def bits:int_buffer (int_buffer_alloc 16)       ; Count of codes at each length (index 0-15 = lengths 1-16)
+    def values:[int]                                 ; Symbol values in order (variable size, up to 256)
+    def maxCode:int_buffer (int_buffer_alloc 16)    ; Max code value for each length
+    def minCode:int_buffer (int_buffer_alloc 16)    ; Min code value for each length
+    def valPtr:int_buffer (int_buffer_alloc 16)     ; Index into values for each length
     def tableClass:int 0     ; 0 = DC, 1 = AC
     def tableId:int 0        ; Table ID (0-3)
     
     Constructor () {
-        ; Initialize arrays
+        ; Initialize arrays to default values
         def i 0
         while (i < 16) {
-            push bits 0
-            push maxCode -1
-            push minCode 0
-            push valPtr 0
+            int_buffer_set bits i 0
+            int_buffer_set maxCode i -1
+            int_buffer_set minCode i 0
+            int_buffer_set valPtr i 0
             i = i + 1
         }
     }
@@ -30,17 +31,17 @@ class HuffmanTable {
         
         def i 0
         while (i < 16) {
-            def count:int (at bits i)
+            def count:int (int_buffer_get bits i)
             if (count > 0) {
-                set minCode i code
-                set valPtr i valueIdx
+                int_buffer_set minCode i code
+                int_buffer_set valPtr i valueIdx
                 valueIdx = valueIdx + count
                 code = code + count
-                set maxCode i (code - 1)
+                int_buffer_set maxCode i (code - 1)
             } {
-                set maxCode i -1
-                set minCode i 0
-                set valPtr i valueIdx
+                int_buffer_set maxCode i -1
+                int_buffer_set minCode i 0
+                int_buffer_set valPtr i valueIdx
             }
             code = (bit_shl code 1)
             i = i + 1
@@ -56,12 +57,12 @@ class HuffmanTable {
             def bit:int (reader.readBit())
             code = (bit_or (bit_shl code 1) bit)
             
-            def maxC:int (at maxCode length)
+            def maxC:int (int_buffer_get maxCode length)
             if (maxC >= 0) {
                 if (code <= maxC) {
                     ; Found valid code
-                    def minC:int (at minCode length)
-                    def ptr:int (at valPtr length)
+                    def minC:int (int_buffer_get minCode length)
+                    def ptr:int (int_buffer_get valPtr length)
                     def idx:int (ptr + (code - minC))
                     return (at values idx)
                 }
@@ -73,6 +74,20 @@ class HuffmanTable {
         ; Code not found - error
         print "Huffman decode error: code not found"
         return 0
+    }
+    
+    fn resetArrays:void () {
+        ; Reset fixed-size arrays (for reuse when parsing new DHT)
+        def i 0
+        while (i < 16) {
+            int_buffer_set bits i 0
+            int_buffer_set maxCode i -1
+            int_buffer_set minCode i 0
+            int_buffer_set valPtr i 0
+            i = i + 1
+        }
+        ; Clear dynamic values array
+        clear values
     }
 }
 
@@ -124,31 +139,21 @@ class HuffmanDecoder {
             table.tableClass = tableClass
             table.tableId = tableId
             
-            ; Clear and read bits array (counts for each code length)
-            clear table.bits
+            ; Reset arrays for this table
+            table.resetArrays()
+            
+            ; Read bits array (counts for each code length)
             def totalSymbols:int 0
             def i 0
             while (i < 16) {
                 def count:int (buffer_get data pos)
-                push table.bits count
+                int_buffer_set table.bits i count
                 totalSymbols = totalSymbols + count
                 pos = pos + 1
                 i = i + 1
             }
             
-            ; Read symbol values
-            clear table.values
-            clear table.maxCode
-            clear table.minCode
-            clear table.valPtr
-            i = 0
-            while (i < 16) {
-                push table.maxCode -1
-                push table.minCode 0
-                push table.valPtr 0
-                i = i + 1
-            }
-            
+            ; Read symbol values (dynamic array, size varies per table)
             i = 0
             while (i < totalSymbols) {
                 push table.values (buffer_get data pos)

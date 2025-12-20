@@ -302,7 +302,18 @@ class ComponentEngine {
         def fileContent:buffer (buffer_read_file dirPath fullPath)
         def src:string (buffer_to_string fileContent)
         if ((strlen src) == 0) {
-            print ("Warning: Could not load module: " + fullPath)
+            print ""
+            print ("ERROR: Could not load component module: " + dirPath + fullPath)
+            print ""
+            print "Please ensure the imported file exists. You may need to:"
+            print "  1. Check that the import path is correct in your TSX file"
+            print "  2. Make sure the component file exists in one of your asset paths:"
+            def pathIdx:int 0
+            while (pathIdx < (array_length assetPaths)) {
+                print ("     - " + (itemAt assetPaths pathIdx))
+                pathIdx = pathIdx + 1
+            }
+            print ""
             return
         }
         

@@ -1,0 +1,47 @@
+; Test for int_buffer and double_buffer types
+
+class Main {
+    sfn m@(main):void () {
+        print "=== int_buffer Test ==="
+        
+        ; Test int_buffer_alloc
+        print "Test 1: Allocating int_buffer of 5 elements"
+        def buf:int_buffer (int_buffer_alloc 5)
+        print ("int_buffer length: " + (to_string (int_buffer_length buf)))
+        
+        ; Test int_buffer_set / int_buffer_get
+        print "Test 2: Setting and getting int64 values"
+        int_buffer_set buf 0 100
+        int_buffer_set buf 1 200
+        int_buffer_set buf 2 300
+        
+        def val0:int (int_buffer_get buf 0)
+        def val1:int (int_buffer_get buf 1)
+        def val2:int (int_buffer_get buf 2)
+        print ("Value 0: " + (to_string val0) + " (expected 100)")
+        print ("Value 1: " + (to_string val1) + " (expected 200)")
+        print ("Value 2: " + (to_string val2) + " (expected 300)")
+        
+        print "=== double_buffer Test ==="
+        
+        ; Test double_buffer_alloc
+        print "Test 3: Allocating double_buffer of 3 elements"
+        def dbuf:double_buffer (double_buffer_alloc 3)
+        print ("double_buffer length: " + (to_string (double_buffer_length dbuf)))
+        
+        ; Test double_buffer_set / double_buffer_get
+        print "Test 4: Setting and getting float64 values"
+        double_buffer_set dbuf 0 3.14
+        double_buffer_set dbuf 1 2.71
+        double_buffer_set dbuf 2 1.41
+        
+        def d0:double (double_buffer_get dbuf 0)
+        def d1:double (double_buffer_get dbuf 1)
+        def d2:double (double_buffer_get dbuf 2)
+        print ("Double 0: " + (to_string d0))
+        print ("Double 1: " + (to_string d1))
+        print ("Double 2: " + (to_string d2))
+        
+        print "=== All tests completed ==="
+    }
+}

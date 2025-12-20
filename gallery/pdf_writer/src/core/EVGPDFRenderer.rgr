@@ -77,6 +77,9 @@ class EVGPDFRenderer {
     def jpegQuality:int 75
     def imageDimensionsCache:[EVGImageDimensions]
     def imageDimensionsCacheKeys:[string]
+    ; Temporary arrays for collecting elements (fixes Go slice parameter issue)
+    def foundSections:[EVGElement]
+    def foundPages:[EVGElement]
     
     Constructor () {
         def w (new PDFWriter())
@@ -99,7 +102,17 @@ class EVGPDFRenderer {
         imageDimensionsCacheKeys = idck
         def ap:[string]
         assetPaths = ap
-        ; Set this renderer as the image measurer for layout
+        def fs:[EVGElement]
+        foundSections = fs
+        def fp:[EVGElement]
+        foundPages = fp
+        ; NOTE: setImageMeasurer must be called after construction via init()
+        ; because C++ shared_from_this() cannot be called from constructor
+    }
+    
+    ; Initialize components that require 'this' reference
+    ; Must be called after construction for C++ compatibility
+    fn init:void () {
         layout.setImageMeasurer(this)
     }
     
@@ -274,28 +287,28 @@ class EVGPDFRenderer {
         return (this.renderToPDF(root))
     }
     
-    fn findPageElements:void (el:EVGElement pages:[EVGElement]) {
-        ; Recursively find all Page elements
+    fn findPageElementsRecursive:void (el:EVGElement) {
+        ; Recursively find all Page elements (stores in foundPages member)
         if (el.tagName == "page") {
-            push pages el
+            push foundPages el
         }
         def i:int 0
         def childCount:int (el.getChildCount())
         while (i < childCount) {
             def child:EVGElement (el.getChild(i))
-            this.findPageElements(child pages)
+            this.findPageElementsRecursive(child)
             i = i + 1
         }
     }
     
-    fn findSectionElements:void (el:EVGElement sections:[EVGElement]) {
-        ; Find all Section elements (direct children of print)
+    fn findSectionElementsRecursive:void (el:EVGElement) {
+        ; Find all Section elements (stores in foundSections member)
         def i:int 0
         def childCount:int (el.getChildCount())
         while (i < childCount) {
             def child:EVGElement (el.getChild(i))
             if (child.tagName == "section") {
-                push sections child
+                push foundSections child
             }
             i = i + 1
         }
@@ -358,9 +371,10 @@ class EVGPDFRenderer {
         
         def objectOffsets:[int]
         
-        ; Find all sections and pages
-        def sections:[EVGElement]
-        this.findSectionElements(root sections)
+        ; Find all sections (uses class member foundSections)
+        def emptyArr:[EVGElement]
+        foundSections = emptyArr
+        this.findSectionElementsRecursive(root)
         
         ; Collect all pages from all sections
         def allPages:[EVGElement]
@@ -369,19 +383,20 @@ class EVGPDFRenderer {
         def allPageMargins:[double]
         
         def si:int 0
-        while (si < (array_length sections)) {
-            def section:EVGElement (itemAt sections si)
+        while (si < (array_length foundSections)) {
+            def section:EVGElement (itemAt foundSections si)
             def sectionWidth:double (this.getSectionPageWidth(section))
             def sectionHeight:double (this.getSectionPageHeight(section))
             def sectionMargin:double (this.getSectionMargin(section))
             
-            ; Find pages within this section
-            def pages:[EVGElement]
-            this.findPageElements(section pages)
+            ; Find pages within this section (uses class member foundPages)
+            def emptyPages:[EVGElement]
+            foundPages = emptyPages
+            this.findPageElementsRecursive(section)
             
             def pi:int 0
-            while (pi < (array_length pages)) {
-                def pg:EVGElement (itemAt pages pi)
+            while (pi < (array_length foundPages)) {
+                def pg:EVGElement (itemAt foundPages pi)
                 push allPages pg
                 push allPageWidths sectionWidth
                 push allPageHeights sectionHeight

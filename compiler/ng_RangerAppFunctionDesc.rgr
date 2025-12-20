@@ -42,6 +42,13 @@ class RangerAppFunctionDesc {
 
   def myLambdas@(weak):[RangerAppFunctionDesc]
 
+  ; Static analysis fields for C++/Rust code generation
+  def returns_member_field:boolean false
+  def returned_member_name:string ""
+  def all_paths_return:boolean false
+  def mutates_self:boolean false
+  def static_analysis_done:boolean false
+
   fn addCallTo( m@(weak):RangerAppFunctionDesc) {
     if( (indexOf m.isCalledBy this) < 0 ) {
       push m.isCalledBy this

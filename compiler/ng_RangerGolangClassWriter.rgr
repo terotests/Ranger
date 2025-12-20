@@ -65,6 +65,12 @@ class RangerGolangClassWriter {
       case "buffer" {
         return "[]byte"
       }
+      case "int_buffer" {
+        return "[]int64"
+      }
+      case "double_buffer" {
+        return "[]float64"
+      }
     }
     return (ctx.transformTypeName(type_string))
   }
@@ -93,6 +99,12 @@ class RangerGolangClassWriter {
       }
       case "buffer" {
         return "[]byte"
+      }
+      case "int_buffer" {
+        return "[]int64"
+      }
+      case "double_buffer" {
+        return "[]float64"
       }
     }
 
@@ -236,6 +248,12 @@ class RangerGolangClassWriter {
       }
       case RangerNodeType.Buffer {
         wr.out("[]byte" false)
+      }
+      case RangerNodeType.IntBuffer {
+        wr.out("[]int64" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.out("[]float64" false)
       }
       case RangerNodeType.Hash {
         if write_raw_type {
@@ -795,6 +813,68 @@ class RangerGolangClassWriter {
       }
     }
   }
+
+  ; Override CreateCallExpression to handle unwrapping GoNullable objects for method calls
+  fn CreateCallExpression:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.has_call {
+      def obj:CodeNode (node.getSecond())
+      def method:CodeNode (node.getThird())
+      def args:CodeNode (itemAt node.children 3)
+      
+      ; Check if the object is an optional class member that needs unwrapping
+      def needs_unwrap:boolean false
+      def obj_type_name:string ""
+      
+      ; obj.nsp is empty in method call context, need to check differently
+      ; Check if obj has paramDesc and it's optional
+      if obj.hasParamDesc {
+        def p:RangerAppParamDesc obj.paramDesc
+        if (p.is_optional) {
+          if (!null? p.nameNode) {
+            needs_unwrap = true
+            obj_type_name = p.nameNode.type_name
+          }
+        }
+      }
+      
+      wr.out("(" false)
+      ctx.setInExpr()
+      this.WalkNode(obj ctx wr)
+      ctx.unsetInExpr()
+      
+      if needs_unwrap {
+        wr.out(").value.(*" false)
+        wr.out(obj_type_name false)
+        wr.out(")." false)
+      } {
+        wr.out(")." false)
+      }
+      
+      wr.out(method.vref false)
+      wr.out("(" false)
+      ctx.setInExpr()
+      
+      def pms (filter (args.children) {
+        if( item.hasFlag("keyword")) {
+          return false
+        }
+        return true
+      })
+      
+      for pms arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        this.WalkNode(arg ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+    }
+  }
+
   fn writeVarDef:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
@@ -900,8 +980,15 @@ class RangerGolangClassWriter {
         if( p.nameNode.eval_type_name == "char") {
           wr.out("byte(" false)
         }
+        ; Handle char to int conversion - Go requires explicit cast from byte to int64
+        if( (p.nameNode.eval_type_name == "int") && (value.eval_type_name == "char")) {
+          wr.out("int64(" false)
+        }
         this.WalkNode(value ctx wr)
         if( p.nameNode.eval_type_name == "char") {
+          wr.out(")" false)
+        }
+        if( (p.nameNode.eval_type_name == "int") && (value.eval_type_name == "char")) {
           wr.out(")" false)
         }
         ctx.unsetInExpr()

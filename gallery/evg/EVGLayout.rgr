@@ -49,10 +49,10 @@ class EVGLayout {
         
         ; Resolve root dimensions
         if (root.width.isSet == false) {
-            root.width = (EVGUnit.pixels(pageWidth))
+            root.width = (EVGUnit.px(pageWidth))
         }
         if (root.height.isSet == false) {
-            root.height = (EVGUnit.pixels(pageHeight))
+            root.height = (EVGUnit.px(pageHeight))
         }
         
         ; Layout root at (0, 0)
