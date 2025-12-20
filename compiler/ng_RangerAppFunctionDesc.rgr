@@ -48,6 +48,9 @@ class RangerAppFunctionDesc {
   def all_paths_return:boolean false
   def mutates_self:boolean false
   def static_analysis_done:boolean false
+  
+  ; Rust: Flag indicating method doesn't use 'this' and can be called as static
+  def rust_can_be_static:boolean false
 
   fn addCallTo( m@(weak):RangerAppFunctionDesc) {
     if( (indexOf m.isCalledBy this) < 0 ) {

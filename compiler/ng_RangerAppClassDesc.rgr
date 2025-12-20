@@ -58,6 +58,8 @@ class RangerAppClassDesc {
   def classNode@(weak):CodeNode
   def contr_writers:[CodeWriter]
   def is_inherited:boolean false
+  def is_extended_by_children:boolean false  ; True if other classes extend this class (for Rust trait generation)
+  def child_classes:[string]  ; List of class names that extend this class
 
   fn isClass:boolean () {
     return true

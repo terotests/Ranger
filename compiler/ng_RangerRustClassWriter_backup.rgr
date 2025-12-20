@@ -1,17 +1,3 @@
-; Helper class to hold a list of method names (for call graph)
-class MethodCallList {
-  def calls:[string]
-  
-  Constructor () {
-    def c:[string]
-    calls = c
-  }
-  
-  fn add:void (methodName:string) {
-    push calls methodName
-  }
-}
-
 class RangerRustClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -114,7 +100,7 @@ class RangerRustClassWriter {
     if (!null? typeClass) {
       def tc:RangerAppClassDesc (unwrap typeClass)
       if tc.is_extended_by_children {
-        return ("Rc<RefCell<dyn " + type_string + "Trait>>")
+        return ("Rc<dyn " + type_string + "Trait>")
       }
     }
     return type_string
@@ -217,12 +203,12 @@ class RangerRustClassWriter {
           return
         }
         ; Check if this type is a trait type (class is extended by other classes)
-        ; If so, use Rc<RefCell<dyn Trait>> for polymorphism with interior mutability
+        ; If so, use Rc<dyn Trait> for polymorphism (shared ownership)
         def typeClass@(optional):RangerAppClassDesc (ctx.findClass(node.type_name))
         if (!null? typeClass) {
           def tc:RangerAppClassDesc (unwrap typeClass)
           if tc.is_extended_by_children {
-            wr.out(("Rc<RefCell<dyn " + node.type_name + "Trait>>") false)
+            wr.out(("Rc<dyn " + node.type_name + "Trait>") false)
           } {
             wr.out((this.getTypeString(node.type_name)) false)
           }
@@ -772,8 +758,8 @@ class RangerRustClassWriter {
   }
   
   ; Build call graph and mutation info for a class
-  ; Returns two maps: methodName -> directlyMutates (boolean), methodName -> MethodCallList
-  fn buildClassMutationGraph:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean] callGraph:[string:MethodCallList]) {
+  ; Returns two maps: methodName -> directlyMutates (boolean), methodName -> [calledMethods]
+  fn buildClassMutationGraph:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean] callGraph:[string:[string]]) {
     print ("DEBUG buildClassMutationGraph: class=" + cl.name + " variants=" + (to_string (array_length cl.defined_variants)))
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
@@ -793,10 +779,10 @@ class RangerRustClassWriter {
           print ("DEBUG buildClassMutationGraph: " + variant.name + " directlyMutates=" + (to_string directlyMutates))
           set directMutations variant.name directlyMutates
           
-          ; Collect method calls into a MethodCallList
-          def callList:MethodCallList (new MethodCallList())
-          this.collectSelfMethodCalls(fnBody useCtx callList.calls)
-          set callGraph variant.name callList
+          ; Collect method calls
+          def calls:[string]
+          this.collectSelfMethodCalls(fnBody useCtx calls)
+          set callGraph variant.name calls
         }
       }
     }
@@ -804,7 +790,7 @@ class RangerRustClassWriter {
   
   ; Check if a method transitively mutates (directly or via called methods)
   ; Uses visited set to prevent infinite recursion on cycles
-  fn methodTransitivelyMutates:boolean (methodName:string directMutations:[string:boolean] callGraph:[string:MethodCallList] visited:[string]) {
+  fn methodTransitivelyMutates:boolean (methodName:string directMutations:[string:boolean] callGraph:[string:[string]] visited:[string]) {
     ; Check if already visited (cycle detection)
     for visited v:string i {
       if (v == methodName) {
@@ -823,8 +809,8 @@ class RangerRustClassWriter {
     
     ; Check called methods
     if (has callGraph methodName) {
-      def callList:MethodCallList (get callGraph methodName)
-      for callList.calls calledMethod:string i {
+      def calls:[string] (get callGraph methodName)
+      for calls calledMethod:string i {
         if (this.methodTransitivelyMutates(calledMethod directMutations callGraph visited)) {
           return true
         }
@@ -835,7 +821,7 @@ class RangerRustClassWriter {
   }
   
   ; Main entry: Check if a method mutates this (uses call graph for transitive analysis)
-  fn methodMutatesThis:boolean (methodName:string directMutations:[string:boolean] callGraph:[string:MethodCallList]) {
+  fn methodMutatesThis:boolean (methodName:string directMutations:[string:boolean] callGraph:[string:[string]]) {
     def visited:[string]
     return (this.methodTransitivelyMutates(methodName directMutations callGraph visited))
   }
@@ -928,13 +914,13 @@ class RangerRustClassWriter {
       }
 
       if obj_is_optional {
-        ; For optional objects with trait types: Rc<RefCell<dyn Trait>>
+        ; For optional objects, use as_ref() for trait types (Rc<dyn Trait>), as_mut() otherwise
         ctx.setInExpr()
         this.WalkNode(obj ctx wr)
         ctx.unsetInExpr()
         if obj_is_trait_type {
-          ; Trait types use Rc<RefCell<...>> - borrow_mut for interior mutability
-          wr.out(".as_ref().unwrap().borrow_mut()." false)
+          ; Trait types use Rc which only provides immutable access
+          wr.out(".as_ref().unwrap()." false)
         } {
           wr.out(".as_mut().unwrap()." false)
         }
@@ -944,12 +930,7 @@ class RangerRustClassWriter {
         ctx.setInExpr()
         this.WalkNode(obj ctx wr)
         ctx.unsetInExpr()
-        if obj_is_trait_type {
-          ; Trait types use Rc<RefCell<...>> - borrow_mut for interior mutability
-          wr.out(").borrow_mut()." false)
-        } {
-          wr.out(")." false)
-        }
+        wr.out(")." false)
       }
       
       wr.out(method.vref false)
@@ -1571,17 +1552,17 @@ class RangerRustClassWriter {
           this.WalkNode(nVal ctx wr)
           ctx.unsetInExpr()
         } {
-          ; Standard case - may need clone and/or Rc::new(RefCell::new()) for trait types
-          ; But if value is already Rc<RefCell<dyn Trait>>, don't wrap or clone
+          ; Standard case - may need clone and/or Rc::new for trait types
+          ; But if value is already Rc<dyn Trait>, don't wrap or clone
           if value_is_already_boxed_trait {
-            ; Already Rc<RefCell<dyn Trait>>, clone the Rc for shared ownership
+            ; Already Rc<dyn Trait>, clone the Rc for shared ownership
             ctx.setInExpr()
             this.WalkNode(nVal ctx wr)
             ctx.unsetInExpr()
             wr.out(".clone()" false)
           } {
             if arg_is_trait_type {
-              wr.out("Rc::new(RefCell::new(" false)
+              wr.out("Rc::new(" false)
             }
             ctx.setInExpr()
             this.WalkNode(nVal ctx wr)
@@ -1608,9 +1589,9 @@ class RangerRustClassWriter {
                 wr.out(".clone()" false)
               }
             }
-            ; Close the Rc::new(RefCell::new()) if we opened it
+            ; Close the Rc::new() if we opened it
             if arg_is_trait_type {
-              wr.out("))" false)
+              wr.out(")" false)
             }
           }
         }
@@ -1686,7 +1667,6 @@ class RangerRustClassWriter {
       wr.out("#![allow(dead_code)]" true)
       wr.out("" true)
       wr.out("use std::rc::Rc;" true)
-      wr.out("use std::cell::RefCell;" true)
       wr.out("" true)
       fileHeaderWritten = true
     }
@@ -1796,7 +1776,7 @@ class RangerRustClassWriter {
     
     ; Build call graph for mutation analysis (detects transitive mutations via method calls)
     def directMutations:[string:boolean]
-    def callGraph:[string:MethodCallList]
+    def callGraph:[string:[string]]
     this.buildClassMutationGraph(cl ctx directMutations callGraph)
     
     for cl.static_methods variant:RangerAppFunctionDesc i {
@@ -1887,7 +1867,7 @@ class RangerRustClassWriter {
           
           ; Build call graph for parent class (for mutation analysis)
           def parentDirectMutations:[string:boolean]
-          def parentCallGraph:[string:MethodCallList]
+          def parentCallGraph:[string:[string]]
           this.buildClassMutationGraph(pc ctx parentDirectMutations parentCallGraph)
           
           wr.out(("impl " + cl.name + " {") true)
@@ -2428,18 +2408,18 @@ class RangerRustClassWriter {
           } {
             if left_is_trait_type {
               if rhs_is_already_boxed_trait {
-                ; RHS is already Rc<RefCell<dyn Trait>>, clone the Rc for shared ownership
+                ; RHS is already Rc<dyn Trait>, clone the Rc for shared ownership
                 wr.out(" = Some(" false)
                 this.WalkNode(right ctx wr)
                 wr.out(".clone());" true)
               } {
-                ; Assignment to trait type field: needs Some(Rc::new(RefCell::new(value)))
-                wr.out(" = Some(Rc::new(RefCell::new(" false)
+                ; Assignment to trait type field: needs Some(Rc::new(value))
+                wr.out(" = Some(Rc::new(" false)
                 this.WalkNode(right ctx wr)
                 if should_clone_rhs {
                   wr.out(".clone()" false)
                 }
-                wr.out(")));" true)
+                wr.out("));" true)
               }
             } {
               ; Optional assignment: wrap with Some()
@@ -2457,16 +2437,16 @@ class RangerRustClassWriter {
         wr.out(" = " false)
         if left_is_trait_type {
           if rhs_is_already_boxed_trait {
-            ; RHS is already Rc<RefCell<dyn Trait>>, clone for shared ownership
+            ; RHS is already Rc<dyn Trait>, clone for shared ownership
             this.WalkNode(right ctx wr)
             wr.out(".clone()" false)
           } {
-            wr.out("Rc::new(RefCell::new(" false)
+            wr.out("Rc::new(" false)
             this.WalkNode(right ctx wr)
             if should_clone_rhs {
               wr.out(".clone()" false)
             }
-            wr.out("))" false)
+            wr.out(")" false)
           }
         } {
           this.WalkNode(right ctx wr)

@@ -201,6 +201,12 @@ class CodeNode {
   def has_lambda:boolean false
   def has_lambda_call:boolean false
   def has_call false
+  
+  ; Rust static analysis - for pre-evaluating method args to avoid borrow conflicts
+  def rust_needs_preevaluate:boolean false
+  def rust_preevaluated_args:[CodeNode]
+  def rust_use_tmpvar:string ""   ; If non-empty, use this temp variable instead of evaluating
+  
 ;  def method_type:RangerMethodCallType RangerMethodCallType.NoType
   def operator_pred:int 0
   def to_the_right:boolean false

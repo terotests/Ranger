@@ -4,6 +4,9 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
+use std::rc::Rc;
+use std::cell::RefCell;
+
 #[derive(Clone)]
 struct Token { 
   tokenType : String, 
@@ -76,7 +79,7 @@ impl TSLexer {
     }
     return ch.clone();
   }
-  fn isDigit(&mut self, ch : String) -> bool {
+  fn isDigit(ch : String) -> bool {
     if  ch == "0".to_string() {
       return true;
     }
@@ -133,7 +136,7 @@ impl TSLexer {
     return false;
   }
   fn isAlphaNumCh(&mut self, ch : String) -> bool {
-    if  self.isDigit(ch.clone()) {
+    if  TSLexer::isDigit(ch.clone()) {
       return true;
     }
     if  ch == "_".to_string() {
@@ -158,7 +161,7 @@ impl TSLexer {
     }
     return false;
   }
-  fn isWhitespace(&mut self, ch : String) -> bool {
+  fn isWhitespace(ch : String) -> bool {
     if  ch == " ".to_string() {
       return true;
     }
@@ -179,7 +182,7 @@ impl TSLexer {
   fn skipWhitespace(&mut self, ) -> () {
     while self.pos < self.__len {
       let ch : String = self.peek();
-      if  self.isWhitespace(ch.clone()) {
+      if  TSLexer::isWhitespace(ch.clone()) {
         self.advance();
       } else {
         return;
@@ -211,7 +214,7 @@ impl TSLexer {
       if  ch == "\r\n".to_string() {
         return self.makeToken("LineComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
       }
-      value = format!("{}{}", value, self.advance());
+      value = [&*value, &*self.advance()].concat();
     };
     return self.makeToken("LineComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
   }
@@ -231,7 +234,7 @@ impl TSLexer {
           return self.makeToken("BlockComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
         }
       }
-      value = format!("{}{}", value, self.advance());
+      value = [&*value, &*self.advance()].concat();
     };
     return self.makeToken("BlockComment".to_string(), value.clone(), startPos, startLine, startCol).clone();
   }
@@ -251,28 +254,28 @@ impl TSLexer {
         self.advance();
         let esc : String = self.advance();
         if  esc == "n".to_string() {
-          value = format!("{}{}", value, "\n".to_string());
+          value = [&*value, &*"\n".to_string()].concat();
         } else {
           if  esc == "t".to_string() {
-            value = format!("{}{}", value, "\t".to_string());
+            value = [&*value, &*"\t".to_string()].concat();
           } else {
             if  esc == "r".to_string() {
-              value = format!("{}{}", value, "\r".to_string());
+              value = [&*value, &*"\r".to_string()].concat();
             } else {
               if  esc == "\\".to_string() {
-                value = format!("{}{}", value, "\\".to_string());
+                value = [&*value, &*"\\".to_string()].concat();
               } else {
                 if  esc == quote {
-                  value = format!("{}{}", value, quote);
+                  value = [&*value, &*quote].concat();
                 } else {
-                  value = format!("{}{}", value, esc);
+                  value = [&*value, &*esc].concat();
                 }
               }
             }
           }
         }
       } else {
-        value = format!("{}{}", value, self.advance());
+        value = [&*value, &*self.advance()].concat();
       }
     };
     return self.makeToken("String".to_string(), value.clone(), startPos, startLine, startCol).clone();
@@ -293,24 +296,24 @@ impl TSLexer {
         self.advance();
         let esc : String = self.advance();
         if  esc == "n".to_string() {
-          value = format!("{}{}", value, "\n".to_string());
+          value = [&*value, &*"\n".to_string()].concat();
         } else {
           if  esc == "t".to_string() {
-            value = format!("{}{}", value, "\t".to_string());
+            value = [&*value, &*"\t".to_string()].concat();
           } else {
             if  esc == "`".to_string() {
-              value = format!("{}{}", value, "`".to_string());
+              value = [&*value, &*"`".to_string()].concat();
             } else {
               if  esc == "$".to_string() {
-                value = format!("{}{}", value, "$".to_string());
+                value = [&*value, &*"$".to_string()].concat();
               } else {
-                value = format!("{}{}", value, esc);
+                value = [&*value, &*esc].concat();
               }
             }
           }
         }
       } else {
-        value = format!("{}{}", value, self.advance());
+        value = [&*value, &*self.advance()].concat();
       }
     };
     return self.makeToken("Template".to_string(), value.clone(), startPos, startLine, startCol).clone();
@@ -322,17 +325,17 @@ impl TSLexer {
     let mut value : String = "".to_string();
     while self.pos < self.__len {
       let ch : String = self.peek();
-      if  self.isDigit(ch.clone()) {
-        value = format!("{}{}", value, self.advance());
+      if  TSLexer::isDigit(ch.clone()) {
+        value = [&*value, &*self.advance()].concat();
       } else {
         if  ch == "_".to_string() {
-          value = format!("{}{}", value, self.advance());
+          value = [&*value, &*self.advance()].concat();
         } else {
           if  ch == ".".to_string() {
-            value = format!("{}{}", value, self.advance());
+            value = [&*value, &*self.advance()].concat();
           } else {
             if  ch == "n".to_string() {
-              value = format!("{}{}", value, self.advance());
+              value = [&*value, &*self.advance()].concat();
               return self.makeToken("BigInt".to_string(), value.clone(), startPos, startLine, startCol).clone();
             }
             return self.makeToken("Number".to_string(), value.clone(), startPos, startLine, startCol).clone();
@@ -350,16 +353,16 @@ impl TSLexer {
     while self.pos < self.__len {
       let ch : String = self.peek();
       if  self.isAlphaNumCh(ch.clone()) {
-        value = format!("{}{}", value, self.advance());
+        value = [&*value, &*self.advance()].concat();
       } else {
-        let _tmp_1 = self.identType(value.clone());
+        let _tmp_1 = TSLexer::identType(value.clone());
         return self.makeToken(_tmp_1, value.clone(), startPos, startLine, startCol).clone();
       }
     };
-    let _tmp_1 = self.identType(value.clone());
+    let _tmp_1 = TSLexer::identType(value.clone());
     return self.makeToken(_tmp_1, value.clone(), startPos, startLine, startCol).clone();
   }
-  fn identType(&mut self, value : String) -> String {
+  fn identType(value : String) -> String {
     if  value == "var".to_string() {
       return "Keyword".to_string().clone();
     }
@@ -596,7 +599,7 @@ impl TSLexer {
     if  ch == "`".to_string() {
       return self.readTemplateLiteral().clone();
     }
-    if  self.isDigit(ch.clone()) {
+    if  TSLexer::isDigit(ch.clone()) {
       return self.readNumber().clone();
     }
     if  self.isAlpha(ch.clone()) {
@@ -736,10 +739,10 @@ impl TSLexer {
       let mut tok : Token = self.nextToken();
       tokens.push(tok.clone());
       if  tok.tokenType == "EOF".to_string() {
-        return tokens;
+        return tokens.clone();
       }
     };
-    return tokens;
+    return tokens.clone();
   }
 }
 #[derive(Clone)]
@@ -875,7 +878,7 @@ impl TSParserSimple {
     let mut tok : Token = self.peek();
     if  tok.tokenType != expectedType {
       if  self.quiet == false {
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "Parse error: expected ".to_string(), expectedType)), " but got ".to_string())), tok.tokenType) );
+        println!( "{}", [&*([&*([&*"Parse error: expected ".to_string(), &*expectedType].concat()), &*" but got ".to_string()].concat()), &*tok.tokenType].concat() );
       }
     }
     self.advance();
@@ -885,7 +888,7 @@ impl TSParserSimple {
     let mut tok : Token = self.peek();
     if  tok.value != expectedValue {
       if  self.quiet == false {
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "Parse error: expected '".to_string(), expectedValue)), "' but got '".to_string())), tok.value)), "'".to_string()) );
+        println!( "{}", [&*([&*([&*([&*"Parse error: expected '".to_string(), &*expectedValue].concat()), &*"' but got '".to_string()].concat()), &*tok.value].concat()), &*"'".to_string()].concat() );
       }
     }
     self.advance();
@@ -1327,7 +1330,7 @@ impl TSParserSimple {
       params.push(param.clone());
     };
     self.expectValue(">".to_string());
-    return params;
+    return params.clone();
   }
   fn parsePropertySig(&mut self, ) -> TSNode {
     let mut startTok : Token = self.peek();
@@ -1867,7 +1870,7 @@ impl TSParserSimple {
     self.expectValue("(".to_string());
     let tokVal : String = self.peekValue();
     if  ((tokVal == "let".to_string()) || (tokVal == "const".to_string())) || (tokVal == "var".to_string()) {
-      let kind : String = tokVal;
+      let kind : String = tokVal.clone();
       self.advance();
       let mut varName : Token = self.expect("Identifier".to_string());
       let nextVal : String = self.peekValue();
@@ -2666,7 +2669,7 @@ impl TSParserSimple {
       return self.parseTypeLiteral().clone();
     }
     if  self.quiet == false {
-      println!( "{}", format!("{}{}", "Unknown type: ".to_string(), tokVal) );
+      println!( "{}", [&*"Unknown type: ".to_string(), &*tokVal].concat() );
     }
     self.advance();
     let mut errNode : TSNode = TSNode::new();
@@ -3252,7 +3255,7 @@ impl TSParserSimple {
       if  tokVal == "<".to_string() {
         if  self.tsxMode == true {
           if  left.nodeType == "Identifier".to_string() {
-            if  self.startsWithLowerCase(left.name.clone()) {
+            if  TSParserSimple::startsWithLowerCase(left.name.clone()) {
               if  self.looksLikeGenericCall() {
                 return left.clone();
               }
@@ -3411,7 +3414,7 @@ impl TSParserSimple {
           }
         } else {
           if  expr.nodeType == "Identifier".to_string() {
-            if  self.startsWithLowerCase(expr.name.clone()) {
+            if  TSParserSimple::startsWithLowerCase(expr.name.clone()) {
               if  self.looksLikeGenericCall() {
                 shouldParseAsGenericCall = true;
               }
@@ -3775,7 +3778,7 @@ impl TSParserSimple {
       return thisExpr.clone();
     }
     if  self.quiet == false {
-      println!( "{}", format!("{}{}", "Unexpected token: ".to_string(), tokVal) );
+      println!( "{}", [&*"Unexpected token: ".to_string(), &*tokVal].concat() );
     }
     self.advance();
     let mut errId : TSNode = TSNode::new();
@@ -4097,7 +4100,7 @@ impl TSParserSimple {
     }
     return "".to_string().clone();
   }
-  fn startsWithLowerCase(&mut self, s : String) -> bool {
+  fn startsWithLowerCase(s : String) -> bool {
     if  (s.len() as i64) == 0 {
       return false;
     }
@@ -4230,7 +4233,7 @@ impl TSParserSimple {
     while self.matchValue(".".to_string()) {
       self.advance();
       let mut nextTok : Token = self.peek();
-      namePart = format!("{}{}", (format!("{}{}", namePart, ".".to_string())), nextTok.value);
+      namePart = [&*([&*namePart, &*".".to_string()].concat()), &*nextTok.value].concat();
       self.advance();
       node.nodeType = "JSXMemberExpression".to_string();
     };
@@ -4377,7 +4380,7 @@ impl EVGUnit {
     unit.isSet = true;
     return unit.clone();
   }
-  pub fn pixels(val : f64) -> EVGUnit {
+  pub fn px(val : f64) -> EVGUnit {
     return EVGUnit::create(val, 0).clone();
   }
   pub fn percent(val : f64) -> EVGUnit {
@@ -4527,16 +4530,16 @@ impl EVGUnit {
       return "unset".to_string().clone();
     }
     if  self.unitType == 0 {
-      return format!("{}{}", (self.value.to_string()), "px".to_string()).clone();
+      return [&*(self.value.to_string()), &*"px".to_string()].concat().clone();
     }
     if  self.unitType == 1 {
-      return format!("{}{}", (self.value.to_string()), "%".to_string()).clone();
+      return [&*(self.value.to_string()), &*"%".to_string()].concat().clone();
     }
     if  self.unitType == 2 {
-      return format!("{}{}", (self.value.to_string()), "em".to_string()).clone();
+      return [&*(self.value.to_string()), &*"em".to_string()].concat().clone();
     }
     if  self.unitType == 3 {
-      return format!("{}{}", (self.value.to_string()), "hp".to_string()).clone();
+      return [&*(self.value.to_string()), &*"hp".to_string()].concat().clone();
     }
     if  self.unitType == 4 {
       return "fill".to_string().clone();
@@ -4770,17 +4773,17 @@ impl EVGColor {
       if  (ch_2 == 44) || (ch_2 == 32) {
         let trimPart : String = current.trim().to_string();
         if  (trimPart.len() as i64) > 0 {
-          parts.push(trimPart);
+          parts.push(trimPart.clone());
         }
         current = "".to_string();
       } else {
-        current = format!("{}{}", current, ((char::from_u32(ch_2 as u32).unwrap_or('\0').to_string())));
+        current = [&*current, &*((char::from_u32(ch_2 as u32).unwrap_or('\0').to_string()))].concat();
       }
       i = i + 1;
     };
     let trimPart_1 : String = current.trim().to_string();
     if  (trimPart_1.len() as i64) > 0 {
-      parts.push(trimPart_1);
+      parts.push(trimPart_1.clone());
     }
     if  ((parts.len() as i64)) >= 3 {
       c.r = EVGColor::parseNumber((parts[0 as usize].clone()));
@@ -4817,17 +4820,17 @@ impl EVGColor {
       if  (ch_1 == 44) || (ch_1 == 32) {
         let trimPart : String = current.trim().to_string();
         if  (trimPart.len() as i64) > 0 {
-          parts.push(trimPart);
+          parts.push(trimPart.clone());
         }
         current = "".to_string();
       } else {
-        current = format!("{}{}", current, ((char::from_u32(ch_1 as u32).unwrap_or('\0').to_string())));
+        current = [&*current, &*((char::from_u32(ch_1 as u32).unwrap_or('\0').to_string()))].concat();
       }
       i = i + 1;
     };
     let trimPart_1 : String = current.trim().to_string();
     if  (trimPart_1.len() as i64) > 0 {
-      parts.push(trimPart_1);
+      parts.push(trimPart_1.clone());
     }
     if  ((parts.len() as i64)) >= 4 {
       c.r = EVGColor::parseNumber((parts[0 as usize].clone()));
@@ -4863,17 +4866,17 @@ impl EVGColor {
       if  (ch_1 == 44) || (ch_1 == 32) {
         let trimPart : String = current.trim().to_string();
         if  (trimPart.len() as i64) > 0 {
-          parts.push(trimPart);
+          parts.push(trimPart.clone());
         }
         current = "".to_string();
       } else {
-        current = format!("{}{}", current, ((char::from_u32(ch_1 as u32).unwrap_or('\0').to_string())));
+        current = [&*current, &*((char::from_u32(ch_1 as u32).unwrap_or('\0').to_string()))].concat();
       }
       i = i + 1;
     };
     let trimPart_1 : String = current.trim().to_string();
     if  (trimPart_1.len() as i64) > 0 {
-      parts.push(trimPart_1);
+      parts.push(trimPart_1.clone());
     }
     if  ((parts.len() as i64)) >= 3 {
       let h : f64 = EVGColor::parseNumber((parts[0 as usize].clone()));
@@ -4894,9 +4897,9 @@ impl EVGColor {
     while i < __len {
       let ch : i64 = name.chars().nth(i as usize).unwrap_or('\0') as i64;
       if  (ch >= 65) && (ch <= 90) {
-        lower = format!("{}{}", lower, ((char::from_u32((ch + 32) as u32).unwrap_or('\0').to_string())));
+        lower = [&*lower, &*((char::from_u32((ch + 32) as u32).unwrap_or('\0').to_string()))].concat();
       } else {
-        lower = format!("{}{}", lower, ((char::from_u32(ch as u32).unwrap_or('\0').to_string())));
+        lower = [&*lower, &*((char::from_u32(ch as u32).unwrap_or('\0').to_string()))].concat();
       }
       i = i + 1;
     };
@@ -4991,9 +4994,9 @@ impl EVGColor {
       return "none".to_string().clone();
     }
     if  self.a < 1_f64 {
-      return format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "rgba(".to_string(), (self.red().to_string()))), ",".to_string())), (self.green().to_string()))), ",".to_string())), (self.blue().to_string()))), ",".to_string())), (self.alpha().to_string()))), ")".to_string()).clone();
+      return [&*([&*([&*([&*([&*([&*([&*([&*"rgba(".to_string(), &*(self.red().to_string())].concat()), &*",".to_string()].concat()), &*(self.green().to_string())].concat()), &*",".to_string()].concat()), &*(self.blue().to_string())].concat()), &*",".to_string()].concat()), &*(self.alpha().to_string())].concat()), &*")".to_string()].concat().clone();
     }
-    return format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "rgb(".to_string(), (self.red().to_string()))), ",".to_string())), (self.green().to_string()))), ",".to_string())), (self.blue().to_string()))), ")".to_string()).clone();
+    return [&*([&*([&*([&*([&*([&*"rgb(".to_string(), &*(self.red().to_string())].concat()), &*",".to_string()].concat()), &*(self.green().to_string())].concat()), &*",".to_string()].concat()), &*(self.blue().to_string())].concat()), &*")".to_string()].concat().clone();
   }
   fn toHexString(&mut self, ) -> String {
     if  self.isSet == false {
@@ -5012,7 +5015,7 @@ impl EVGColor {
     let b1D : f64 = ((bH as f64)) / 16_f64;
     let b1 : i64 = b1D as i64 ;
     let b2 : i64 = bH % 16;
-    return format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "#".to_string(), ((char::from_u32((hexChars.chars().nth(r1 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string())))), ((char::from_u32((hexChars.chars().nth(r2 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string())))), ((char::from_u32((hexChars.chars().nth(g1 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string())))), ((char::from_u32((hexChars.chars().nth(g2 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string())))), ((char::from_u32((hexChars.chars().nth(b1 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string())))), ((char::from_u32((hexChars.chars().nth(b2 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string()))).clone();
+    return [&*([&*([&*([&*([&*([&*"#".to_string(), &*((char::from_u32((hexChars.chars().nth(r1 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string()))].concat()), &*((char::from_u32((hexChars.chars().nth(r2 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string()))].concat()), &*((char::from_u32((hexChars.chars().nth(g1 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string()))].concat()), &*((char::from_u32((hexChars.chars().nth(g2 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string()))].concat()), &*((char::from_u32((hexChars.chars().nth(b1 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string()))].concat()), &*((char::from_u32((hexChars.chars().nth(b2 as usize).unwrap_or('\0') as i64) as u32).unwrap_or('\0').to_string()))].concat().clone();
   }
   fn toPDFColorString(&mut self, ) -> String {
     if  self.isSet == false {
@@ -5021,7 +5024,7 @@ impl EVGColor {
     let rN : f64 = self.r / 255_f64;
     let gN : f64 = self.g / 255_f64;
     let bN : f64 = self.b / 255_f64;
-    return format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (rN.to_string()), " ".to_string())), (gN.to_string()))), " ".to_string())), (bN.to_string())).clone();
+    return [&*([&*([&*([&*(rN.to_string()), &*" ".to_string()].concat()), &*(gN.to_string())].concat()), &*" ".to_string()].concat()), &*(bN.to_string())].concat().clone();
   }
   fn withAlpha(&mut self, newAlpha : f64) -> EVGColor {
     return EVGColor::create(self.r, self.g, self.b, newAlpha).clone();
@@ -5127,30 +5130,30 @@ impl EVGBox {
     self.paddingLeft = Some(left.clone());
   }
   fn resolveUnits(&mut self, parentWidth : f64, parentHeight : f64, fontSize : f64) -> () {
-    self.marginTop.resolve(parentHeight, fontSize);
-    self.marginTopPx = self.marginTop.pixels;
-    self.marginRight.resolve(parentWidth, fontSize);
-    self.marginRightPx = self.marginRight.pixels;
-    self.marginBottom.resolve(parentHeight, fontSize);
-    self.marginBottomPx = self.marginBottom.pixels;
-    self.marginLeft.resolve(parentWidth, fontSize);
-    self.marginLeftPx = self.marginLeft.pixels;
-    self.paddingTop.resolve(parentHeight, fontSize);
-    self.paddingTopPx = self.paddingTop.pixels;
-    self.paddingRight.resolve(parentWidth, fontSize);
-    self.paddingRightPx = self.paddingRight.pixels;
-    self.paddingBottom.resolve(parentHeight, fontSize);
-    self.paddingBottomPx = self.paddingBottom.pixels;
-    self.paddingLeft.resolve(parentWidth, fontSize);
-    self.paddingLeftPx = self.paddingLeft.pixels;
-    self.borderWidth.resolve(parentWidth, fontSize);
-    self.borderWidthPx = self.borderWidth.pixels;
+    self.marginTop.as_mut().unwrap().resolve(parentHeight, fontSize);
+    self.marginTopPx = self.marginTop.as_mut().unwrap().pixels;
+    self.marginRight.as_mut().unwrap().resolve(parentWidth, fontSize);
+    self.marginRightPx = self.marginRight.as_mut().unwrap().pixels;
+    self.marginBottom.as_mut().unwrap().resolve(parentHeight, fontSize);
+    self.marginBottomPx = self.marginBottom.as_mut().unwrap().pixels;
+    self.marginLeft.as_mut().unwrap().resolve(parentWidth, fontSize);
+    self.marginLeftPx = self.marginLeft.as_mut().unwrap().pixels;
+    self.paddingTop.as_mut().unwrap().resolve(parentHeight, fontSize);
+    self.paddingTopPx = self.paddingTop.as_mut().unwrap().pixels;
+    self.paddingRight.as_mut().unwrap().resolve(parentWidth, fontSize);
+    self.paddingRightPx = self.paddingRight.as_mut().unwrap().pixels;
+    self.paddingBottom.as_mut().unwrap().resolve(parentHeight, fontSize);
+    self.paddingBottomPx = self.paddingBottom.as_mut().unwrap().pixels;
+    self.paddingLeft.as_mut().unwrap().resolve(parentWidth, fontSize);
+    self.paddingLeftPx = self.paddingLeft.as_mut().unwrap().pixels;
+    self.borderWidth.as_mut().unwrap().resolve(parentWidth, fontSize);
+    self.borderWidthPx = self.borderWidth.as_mut().unwrap().pixels;
     let mut smallerDim : f64 = parentWidth;
     if  parentHeight < parentWidth {
       smallerDim = parentHeight;
     }
-    self.borderRadius.resolve(smallerDim, fontSize);
-    self.borderRadiusPx = self.borderRadius.pixels;
+    self.borderRadius.as_mut().unwrap().resolve(smallerDim, fontSize);
+    self.borderRadiusPx = self.borderRadius.as_mut().unwrap().pixels;
   }
   fn getInnerWidth(&mut self, outerWidth : f64) -> f64 {
     return ((outerWidth - self.paddingLeftPx) - self.paddingRightPx) - (self.borderWidthPx * 2_f64);
@@ -5189,7 +5192,7 @@ impl EVGBox {
     return self.paddingTopPx + self.paddingBottomPx;
   }
   fn toString(&mut self, ) -> String {
-    return format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "Box[margin:".to_string(), (self.marginTopPx.to_string()))), "/".to_string())), (self.marginRightPx.to_string()))), "/".to_string())), (self.marginBottomPx.to_string()))), "/".to_string())), (self.marginLeftPx.to_string()))), " padding:".to_string())), (self.paddingTopPx.to_string()))), "/".to_string())), (self.paddingRightPx.to_string()))), "/".to_string())), (self.paddingBottomPx.to_string()))), "/".to_string())), (self.paddingLeftPx.to_string()))), " border:".to_string())), (self.borderWidthPx.to_string()))), "]".to_string()).clone();
+    return [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*"Box[margin:".to_string(), &*(self.marginTopPx.to_string())].concat()), &*"/".to_string()].concat()), &*(self.marginRightPx.to_string())].concat()), &*"/".to_string()].concat()), &*(self.marginBottomPx.to_string())].concat()), &*"/".to_string()].concat()), &*(self.marginLeftPx.to_string())].concat()), &*" padding:".to_string()].concat()), &*(self.paddingTopPx.to_string())].concat()), &*"/".to_string()].concat()), &*(self.paddingRightPx.to_string())].concat()), &*"/".to_string()].concat()), &*(self.paddingBottomPx.to_string())].concat()), &*"/".to_string()].concat()), &*(self.paddingLeftPx.to_string())].concat()), &*" border:".to_string()].concat()), &*(self.borderWidthPx.to_string())].concat()), &*"]".to_string()].concat().clone();
   }
 }
 #[derive(Clone)]
@@ -5386,7 +5389,7 @@ impl EVGElement {
     me.r#box = Some(newBox.clone());
     me.backgroundColor = Some(EVGColor::noColor());
     me.color = Some(EVGColor::black());
-    me.fontSize = Some(EVGUnit::pixels(14_f64));
+    me.fontSize = Some(EVGUnit::px(14_f64));
     me.shadowRadius = Some(EVGUnit::unset());
     me.shadowColor = Some(EVGColor::noColor());
     me.shadowOffsetX = Some(EVGUnit::unset());
@@ -5461,22 +5464,22 @@ impl EVGElement {
     return self.elementType == 3;
   }
   fn hasAbsolutePosition(&mut self, ) -> bool {
-    if  self.left.isSet {
+    if  self.left.as_mut().unwrap().isSet {
       return true;
     }
-    if  self.top.isSet {
+    if  self.top.as_mut().unwrap().isSet {
       return true;
     }
-    if  self.right.isSet {
+    if  self.right.as_mut().unwrap().isSet {
       return true;
     }
-    if  self.bottom.isSet {
+    if  self.bottom.as_mut().unwrap().isSet {
       return true;
     }
-    if  self.x.isSet {
+    if  self.x.as_mut().unwrap().isSet {
       return true;
     }
-    if  self.y.isSet {
+    if  self.y.as_mut().unwrap().isSet {
       return true;
     }
     return false;
@@ -5485,13 +5488,15 @@ impl EVGElement {
     if  self.fontFamily == "Helvetica".to_string() {
       self.fontFamily = parentEl.fontFamily.clone();
     }
-    if  self.color.isSet == false {
+    if  self.color.as_mut().unwrap().isSet == false {
       self.color = parentEl.color.clone();
     }
     self.inheritedFontSize = parentEl.inheritedFontSize;
-    if  self.fontSize.isSet {
-      self.fontSize.resolve(self.inheritedFontSize, self.inheritedFontSize);
-      self.inheritedFontSize = self.fontSize.pixels;
+    if  self.fontSize.as_mut().unwrap().isSet {
+      let __arg_0 = self.inheritedFontSize.clone();
+      let __arg_1 = self.inheritedFontSize.clone();
+      self.fontSize.as_mut().unwrap().resolve(__arg_0, __arg_1);
+      self.inheritedFontSize = self.fontSize.as_mut().unwrap().pixels;
     }
   }
   fn resolveUnits(&mut self, parentWidth : f64, parentHeight : f64) -> () {
@@ -5500,22 +5505,22 @@ impl EVGElement {
     }
     self.unitsResolved = true;
     let fs : f64 = self.inheritedFontSize;
-    self.width.resolveWithHeight(parentWidth, parentHeight, fs);
-    self.height.resolveForHeight(parentWidth, parentHeight, fs);
-    self.minWidth.resolve(parentWidth, fs);
-    self.minHeight.resolve(parentHeight, fs);
-    self.maxWidth.resolve(parentWidth, fs);
-    self.maxHeight.resolve(parentHeight, fs);
-    self.left.resolve(parentWidth, fs);
-    self.top.resolve(parentHeight, fs);
-    self.right.resolve(parentWidth, fs);
-    self.bottom.resolve(parentHeight, fs);
-    self.x.resolve(parentWidth, fs);
-    self.y.resolve(parentHeight, fs);
-    self.r#box.resolveUnits(parentWidth, parentHeight, fs);
-    self.shadowRadius.resolve(parentWidth, fs);
-    self.shadowOffsetX.resolve(parentWidth, fs);
-    self.shadowOffsetY.resolve(parentHeight, fs);
+    self.width.as_mut().unwrap().resolveWithHeight(parentWidth, parentHeight, fs);
+    self.height.as_mut().unwrap().resolveForHeight(parentWidth, parentHeight, fs);
+    self.minWidth.as_mut().unwrap().resolve(parentWidth, fs);
+    self.minHeight.as_mut().unwrap().resolve(parentHeight, fs);
+    self.maxWidth.as_mut().unwrap().resolve(parentWidth, fs);
+    self.maxHeight.as_mut().unwrap().resolve(parentHeight, fs);
+    self.left.as_mut().unwrap().resolve(parentWidth, fs);
+    self.top.as_mut().unwrap().resolve(parentHeight, fs);
+    self.right.as_mut().unwrap().resolve(parentWidth, fs);
+    self.bottom.as_mut().unwrap().resolve(parentHeight, fs);
+    self.x.as_mut().unwrap().resolve(parentWidth, fs);
+    self.y.as_mut().unwrap().resolve(parentHeight, fs);
+    self.r#box.as_mut().unwrap().resolveUnits(parentWidth, parentHeight, fs);
+    self.shadowRadius.as_mut().unwrap().resolve(parentWidth, fs);
+    self.shadowOffsetX.as_mut().unwrap().resolve(parentWidth, fs);
+    self.shadowOffsetY.as_mut().unwrap().resolve(parentHeight, fs);
     self.isAbsolute = self.hasAbsolutePosition();
   }
   fn setAttribute(&mut self, name : String, value : String) -> () {
@@ -5572,55 +5577,57 @@ impl EVGElement {
       return;
     }
     if  name == "margin".to_string() {
-      self.r#box.setMargin(EVGUnit::parse(value.clone()));
+      let __arg_0 = EVGUnit::parse(value.clone());
+      self.r#box.as_mut().unwrap().setMargin(__arg_0);
       return;
     }
     if  (name == "margin-left".to_string()) || (name == "marginLeft".to_string()) {
-      self.r#box.marginLeft = Some(EVGUnit::parse(value.clone()));
+      self.r#box.as_mut().unwrap().marginLeft = Some(EVGUnit::parse(value.clone()));
       return;
     }
     if  (name == "margin-right".to_string()) || (name == "marginRight".to_string()) {
-      self.r#box.marginRight = Some(EVGUnit::parse(value.clone()));
+      self.r#box.as_mut().unwrap().marginRight = Some(EVGUnit::parse(value.clone()));
       return;
     }
     if  (name == "margin-top".to_string()) || (name == "marginTop".to_string()) {
-      self.r#box.marginTop = Some(EVGUnit::parse(value.clone()));
+      self.r#box.as_mut().unwrap().marginTop = Some(EVGUnit::parse(value.clone()));
       return;
     }
     if  (name == "margin-bottom".to_string()) || (name == "marginBottom".to_string()) {
-      self.r#box.marginBottom = Some(EVGUnit::parse(value.clone()));
+      self.r#box.as_mut().unwrap().marginBottom = Some(EVGUnit::parse(value.clone()));
       return;
     }
     if  name == "padding".to_string() {
-      self.r#box.setPadding(EVGUnit::parse(value.clone()));
+      let __arg_0 = EVGUnit::parse(value.clone());
+      self.r#box.as_mut().unwrap().setPadding(__arg_0);
       return;
     }
     if  (name == "padding-left".to_string()) || (name == "paddingLeft".to_string()) {
-      self.r#box.paddingLeft = Some(EVGUnit::parse(value.clone()));
+      self.r#box.as_mut().unwrap().paddingLeft = Some(EVGUnit::parse(value.clone()));
       return;
     }
     if  (name == "padding-right".to_string()) || (name == "paddingRight".to_string()) {
-      self.r#box.paddingRight = Some(EVGUnit::parse(value.clone()));
+      self.r#box.as_mut().unwrap().paddingRight = Some(EVGUnit::parse(value.clone()));
       return;
     }
     if  (name == "padding-top".to_string()) || (name == "paddingTop".to_string()) {
-      self.r#box.paddingTop = Some(EVGUnit::parse(value.clone()));
+      self.r#box.as_mut().unwrap().paddingTop = Some(EVGUnit::parse(value.clone()));
       return;
     }
     if  (name == "padding-bottom".to_string()) || (name == "paddingBottom".to_string()) {
-      self.r#box.paddingBottom = Some(EVGUnit::parse(value.clone()));
+      self.r#box.as_mut().unwrap().paddingBottom = Some(EVGUnit::parse(value.clone()));
       return;
     }
     if  (name == "border-width".to_string()) || (name == "borderWidth".to_string()) {
-      self.r#box.borderWidth = Some(EVGUnit::parse(value.clone()));
+      self.r#box.as_mut().unwrap().borderWidth = Some(EVGUnit::parse(value.clone()));
       return;
     }
     if  (name == "border-color".to_string()) || (name == "borderColor".to_string()) {
-      self.r#box.borderColor = Some(EVGColor::parse(value.clone()));
+      self.r#box.as_mut().unwrap().borderColor = Some(EVGColor::parse(value.clone()));
       return;
     }
     if  (name == "border-radius".to_string()) || (name == "borderRadius".to_string()) {
-      self.r#box.borderRadius = Some(EVGUnit::parse(value.clone()));
+      self.r#box.as_mut().unwrap().borderRadius = Some(EVGUnit::parse(value.clone()));
       return;
     }
     if  (name == "background-color".to_string()) || (name == "backgroundColor".to_string()) {
@@ -5775,10 +5782,10 @@ impl EVGElement {
     }
   }
   fn getCalculatedBounds(&mut self, ) -> String {
-    return format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "(".to_string(), (self.calculatedX.to_string()))), ", ".to_string())), (self.calculatedY.to_string()))), ") ".to_string())), (self.calculatedWidth.to_string()))), "x".to_string())), (self.calculatedHeight.to_string())).clone();
+    return [&*([&*([&*([&*([&*([&*([&*"(".to_string(), &*(self.calculatedX.to_string())].concat()), &*", ".to_string()].concat()), &*(self.calculatedY.to_string())].concat()), &*") ".to_string()].concat()), &*(self.calculatedWidth.to_string())].concat()), &*"x".to_string()].concat()), &*(self.calculatedHeight.to_string())].concat().clone();
   }
   fn toString(&mut self, ) -> String {
-    return format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "<".to_string(), self.tagName)), " id=\"".to_string())), self.id)), "\" ".to_string())), self.getCalculatedBounds())), ">".to_string()).clone();
+    return [&*([&*([&*([&*([&*([&*"<".to_string(), &*self.tagName].concat()), &*" id=\"".to_string()].concat()), &*self.id].concat()), &*"\" ".to_string()].concat()), &*self.getCalculatedBounds()].concat()), &*">".to_string()].concat().clone();
   }
 }
 #[derive(Clone)]
@@ -5842,16 +5849,15 @@ impl GrowableBuffer {
     if  self.currentChunk.isFull() {
       self.allocateNewChunk();
     }
-    let mut buf : Vec<u8> = self.currentChunk.data;
     let pos : i64 = self.currentChunk.used;
-    buf[pos as usize] = b as u8;
+    self.currentChunk.data[(pos) as usize] = b as u8;
     self.currentChunk.used = pos + 1;
     self.totalSize = self.totalSize + 1;
   }
   fn writeBytes(&mut self, mut src : Vec<u8>, srcOffset : i64, length : i64) -> () {
     let mut i : i64 = 0;
     while i < length {
-      let b : i64 = src[(srcOffset + i) as usize] as i64;
+      let b : i64 = src[((srcOffset + i)) as usize] as i64;
       self.writeByte(b);
       i = i + 1;
     };
@@ -5870,20 +5876,20 @@ impl GrowableBuffer {
     };
   }
   fn writeInt16BE(&mut self, value : i64) -> () {
-    let highD : f64 = value / 256;
+    let highD : f64 = (value as f64) / (256 as f64);
     let high : i64 = highD as i64 ;
     let low : i64 = value - (high * 256);
     self.writeByte(high);
     self.writeByte(low);
   }
   fn writeInt32BE(&mut self, value : i64) -> () {
-    let b1D : f64 = value / 16777216;
+    let b1D : f64 = (value as f64) / (16777216 as f64);
     let b1 : i64 = b1D as i64 ;
     let rem1 : i64 = value - (b1 * 16777216);
-    let b2D : f64 = rem1 / 65536;
+    let b2D : f64 = (rem1 as f64) / (65536 as f64);
     let b2 : i64 = b2D as i64 ;
     let rem2 : i64 = rem1 - (b2 * 65536);
-    let b3D : f64 = rem2 / 256;
+    let b3D : f64 = (rem2 as f64) / (256 as f64);
     let b3 : i64 = b3D as i64 ;
     let b4 : i64 = rem2 - (b3 * 256);
     self.writeByte(b1);
@@ -5898,15 +5904,14 @@ impl GrowableBuffer {
     let allocSize : i64 = self.totalSize;
     let mut result : Vec<u8> = vec![0u8; allocSize as usize];
     let mut pos : i64 = 0;
-    let mut chunk : BufferChunk = self.firstChunk;
+    let mut chunk : BufferChunk = self.firstChunk.clone();
     let mut done : bool = false;
     while done == false {
-      let mut chunkData : Vec<u8> = chunk.data;
       let chunkUsed : i64 = chunk.used;
       let mut i : i64 = 0;
       while i < chunkUsed {
-        let b : i64 = chunkData[i as usize] as i64;
-        result[pos as usize] = b as u8;
+        let b : i64 = chunk.data[(i) as usize] as i64;
+        result[(pos) as usize] = b as u8;
         pos = pos + 1;
         i = i + 1;
       };
@@ -5920,15 +5925,14 @@ impl GrowableBuffer {
   }
   fn toString(&mut self, ) -> String {
     let mut result : String = "".to_string();
-    let mut chunk : BufferChunk = self.firstChunk;
+    let mut chunk : BufferChunk = self.firstChunk.clone();
     let mut done : bool = false;
     while done == false {
-      let mut chunkData : Vec<u8> = chunk.data;
       let chunkUsed : i64 = chunk.used;
       let mut i : i64 = 0;
       while i < chunkUsed {
-        let b : i64 = chunkData[i as usize] as i64;
-        result = format!("{}{}", result, ((char::from_u32(b as u32).unwrap_or('\0').to_string())));
+        let b : i64 = chunk.data[(i) as usize] as i64;
+        result = [&*result, &*((char::from_u32(b as u32).unwrap_or('\0').to_string()))].concat();
         i = i + 1;
       };
       if  chunk.next.is_none() {
@@ -5981,9 +5985,9 @@ impl JPEGReader {
     };
     return me;
   }
-  fn readUint16BE(&mut self, mut data : Vec<u8>, offset : i64) -> i64 {
-    let high : i64 = data[offset as usize] as i64;
-    let low : i64 = data[(offset + 1) as usize] as i64;
+  fn readUint16BE(mut data : Vec<u8>, offset : i64) -> i64 {
+    let high : i64 = data[(offset) as usize] as i64;
+    let low : i64 = data[((offset + 1)) as usize] as i64;
     return (high * 256) + low;
   }
   fn readJPEG(&mut self, dirPath : String, fileName : String) -> JPEGImage {
@@ -5994,8 +5998,8 @@ impl JPEGReader {
       result.errorMessage = "File too small to be a valid JPEG".to_string();
       return result.clone();
     }
-    let marker1 : i64 = data[0 as usize] as i64;
-    let marker2 : i64 = data[1 as usize] as i64;
+    let marker1 : i64 = data[(0) as usize] as i64;
+    let marker2 : i64 = data[(1) as usize] as i64;
     if  (marker1 != 255) || (marker2 != 216) {
       result.errorMessage = "Invalid JPEG signature - expected FFD8".to_string();
       return result.clone();
@@ -6003,11 +6007,11 @@ impl JPEGReader {
     let mut pos : i64 = 2;
     let mut foundSOF : bool = false;
     while (pos < (dataLen - 2)) && (foundSOF == false) {
-      let m1 : i64 = data[pos as usize] as i64;
+      let m1 : i64 = data[(pos) as usize] as i64;
       if  m1 != 255 {
         pos = pos + 1;
       } else {
-        let m2 : i64 = data[(pos + 1) as usize] as i64;
+        let m2 : i64 = data[((pos + 1)) as usize] as i64;
         if  m2 == 255 {
           pos = pos + 1;
         } else {
@@ -6016,10 +6020,10 @@ impl JPEGReader {
           } else {
             if  ((m2 == 192) || (m2 == 193)) || (m2 == 194) {
               if  (pos + 9) < dataLen {
-                result.bitsPerComponent = data[(pos + 4) as usize] as i64;
-                result.height = self.readUint16BE(data.clone(), (pos + 5));
-                result.width = self.readUint16BE(data.clone(), (pos + 7));
-                result.colorComponents = data[(pos + 9) as usize] as i64;
+                result.bitsPerComponent = data[((pos + 4)) as usize] as i64;
+                result.height = JPEGReader::readUint16BE(data.clone(), (pos + 5));
+                result.width = JPEGReader::readUint16BE(data.clone(), (pos + 7));
+                result.colorComponents = data[((pos + 9)) as usize] as i64;
                 foundSOF = true;
               }
             } else {
@@ -6030,7 +6034,7 @@ impl JPEGReader {
                   pos = dataLen;
                 } else {
                   if  (pos + 4) < dataLen {
-                    let segLen : i64 = self.readUint16BE(data.clone(), (pos + 2));
+                    let segLen : i64 = JPEGReader::readUint16BE(data.clone(), (pos + 2));
                     pos = (pos + 2) + segLen;
                   } else {
                     pos = dataLen;
@@ -6052,9 +6056,9 @@ impl JPEGReader {
   }
   fn getImageInfo(&mut self, mut img : JPEGImage) -> String {
     if  img.isValid == false {
-      return format!("{}{}", "Invalid JPEG: ".to_string(), img.errorMessage).clone();
+      return [&*"Invalid JPEG: ".to_string(), &*img.errorMessage].concat().clone();
     }
-    return format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "JPEG: ".to_string(), (img.width.to_string()))), "x".to_string())), (img.height.to_string()))), " pixels, ".to_string())), (img.colorComponents.to_string()))), " components, ".to_string())), (img.bitsPerComponent.to_string()))), " bits".to_string()).clone();
+    return [&*([&*([&*([&*([&*([&*([&*([&*"JPEG: ".to_string(), &*(img.width.to_string())].concat()), &*"x".to_string()].concat()), &*(img.height.to_string())].concat()), &*" pixels, ".to_string()].concat()), &*(img.colorComponents.to_string())].concat()), &*" components, ".to_string()].concat()), &*(img.bitsPerComponent.to_string())].concat()), &*" bits".to_string()].concat().clone();
   }
 }
 #[derive(Clone)]
@@ -6174,19 +6178,19 @@ impl JPEGMetadataParser {
     return me;
   }
   fn readUint16BE(&mut self, offset : i64) -> i64 {
-    let high : i64 = self.data[offset as usize] as i64;
-    let low : i64 = self.data[(offset + 1) as usize] as i64;
+    let high : i64 = self.data[(offset) as usize] as i64;
+    let low : i64 = self.data[((offset + 1)) as usize] as i64;
     return (high * 256) + low;
   }
   fn readUint16(&mut self, offset : i64) -> i64 {
     let mut result : i64 = 0;
     if  self.littleEndian {
-      let low : i64 = self.data[offset as usize] as i64;
-      let high : i64 = self.data[(offset + 1) as usize] as i64;
+      let low : i64 = self.data[(offset) as usize] as i64;
+      let high : i64 = self.data[((offset + 1)) as usize] as i64;
       result = (high * 256) + low;
     } else {
-      let high_1 : i64 = self.data[offset as usize] as i64;
-      let low_1 : i64 = self.data[(offset + 1) as usize] as i64;
+      let high_1 : i64 = self.data[(offset) as usize] as i64;
+      let low_1 : i64 = self.data[((offset + 1)) as usize] as i64;
       result = (high_1 * 256) + low_1;
     }
     return result;
@@ -6194,16 +6198,16 @@ impl JPEGMetadataParser {
   fn readUint32(&mut self, offset : i64) -> i64 {
     let mut result : i64 = 0;
     if  self.littleEndian {
-      let b0 : i64 = self.data[offset as usize] as i64;
-      let b1 : i64 = self.data[(offset + 1) as usize] as i64;
-      let b2 : i64 = self.data[(offset + 2) as usize] as i64;
-      let b3 : i64 = self.data[(offset + 3) as usize] as i64;
+      let b0 : i64 = self.data[(offset) as usize] as i64;
+      let b1 : i64 = self.data[((offset + 1)) as usize] as i64;
+      let b2 : i64 = self.data[((offset + 2)) as usize] as i64;
+      let b3 : i64 = self.data[((offset + 3)) as usize] as i64;
       result = (((b3 * 16777216) + (b2 * 65536)) + (b1 * 256)) + b0;
     } else {
-      let b0_1 : i64 = self.data[offset as usize] as i64;
-      let b1_1 : i64 = self.data[(offset + 1) as usize] as i64;
-      let b2_1 : i64 = self.data[(offset + 2) as usize] as i64;
-      let b3_1 : i64 = self.data[(offset + 3) as usize] as i64;
+      let b0_1 : i64 = self.data[(offset) as usize] as i64;
+      let b1_1 : i64 = self.data[((offset + 1)) as usize] as i64;
+      let b2_1 : i64 = self.data[((offset + 2)) as usize] as i64;
+      let b3_1 : i64 = self.data[((offset + 3)) as usize] as i64;
       result = (((b0_1 * 16777216) + (b1_1 * 65536)) + (b2_1 * 256)) + b3_1;
     }
     return result;
@@ -6212,16 +6216,16 @@ impl JPEGMetadataParser {
     let mut result : String = "".to_string();
     let mut i : i64 = 0;
     while i < length {
-      let b : i64 = self.data[(offset + i) as usize] as i64;
+      let b : i64 = self.data[((offset + i)) as usize] as i64;
       if  b == 0 {
         return result.clone();
       }
-      result = format!("{}{}", result, ((char::from_u32(b as u32).unwrap_or('\0').to_string())));
+      result = [&*result, &*((char::from_u32(b as u32).unwrap_or('\0').to_string()))].concat();
       i = i + 1;
     };
     return result.clone();
   }
-  fn getTagName(&mut self, tagId : i64, ifdType : i64) -> String {
+  fn getTagName(tagId : i64, ifdType : i64) -> String {
     if  ifdType == 2 {
       if  tagId == 0 {
         return "GPSVersionID".to_string().clone();
@@ -6244,7 +6248,7 @@ impl JPEGMetadataParser {
       if  tagId == 6 {
         return "GPSAltitude".to_string().clone();
       }
-      return format!("{}{}", "GPS_".to_string(), (tagId.to_string())).clone();
+      return [&*"GPS_".to_string(), &*(tagId.to_string())].concat().clone();
     }
     if  tagId == 256 {
       return "ImageWidth".to_string().clone();
@@ -6399,7 +6403,7 @@ impl JPEGMetadataParser {
     if  tagId == 34853 {
       return "GPSInfoIFDPointer".to_string().clone();
     }
-    return format!("{}{}", "Tag_".to_string(), (tagId.to_string())).clone();
+    return [&*"Tag_".to_string(), &*(tagId.to_string())].concat().clone();
   }
   fn formatRational(&mut self, offset : i64) -> String {
     let numerator : i64 = self.readUint32(offset);
@@ -6410,7 +6414,7 @@ impl JPEGMetadataParser {
     if  denominator == 1 {
       return numerator.to_string().clone();
     }
-    return format!("{}{}", (format!("{}{}", (numerator.to_string()), "/".to_string())), (denominator.to_string())).clone();
+    return [&*([&*(numerator.to_string()), &*"/".to_string()].concat()), &*(denominator.to_string())].concat().clone();
   }
   fn formatGPSCoordinate(&mut self, offset : i64, r#ref : String) -> String {
     let degNum : i64 = self.readUint32(offset);
@@ -6452,15 +6456,15 @@ impl JPEGMetadataParser {
           decPart = decPart + 1;
         };
         if  decPart < 10 {
-          seconds = format!("{}{}", (format!("{}{}", (secWhole.to_string()), ".0".to_string())), (decPart.to_string()));
+          seconds = [&*([&*(secWhole.to_string()), &*".0".to_string()].concat()), &*(decPart.to_string())].concat();
         } else {
-          seconds = format!("{}{}", (format!("{}{}", (secWhole.to_string()), ".".to_string())), (decPart.to_string()));
+          seconds = [&*([&*(secWhole.to_string()), &*".".to_string()].concat()), &*(decPart.to_string())].concat();
         }
       } else {
         seconds = secWhole.to_string();
       }
     }
-    return format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (degrees.to_string()), "° ".to_string())), (minutes.to_string()))), "' ".to_string())), seconds)), "\" ".to_string())), r#ref).clone();
+    return [&*([&*([&*([&*([&*([&*(degrees.to_string()), &*"° ".to_string()].concat()), &*(minutes.to_string())].concat()), &*"' ".to_string()].concat()), &*seconds].concat()), &*"\" ".to_string()].concat()), &*r#ref].concat().clone();
   }
   fn parseIFD(&mut self, mut info : JPEGMetadataInfo, tiffStart : i64, ifdOffset : i64, ifdType : i64) -> () {
     let mut pos : i64 = tiffStart + ifdOffset;
@@ -6506,7 +6510,7 @@ impl JPEGMetadataParser {
       if  dataSize > 4 {
         valueOffset = tiffStart + self.readUint32((pos + 8));
       }
-      let tagName : String = self.getTagName(tagId, ifdType);
+      let tagName : String = JPEGMetadataParser::getTagName(tagId, ifdType);
       let mut tagValue : String = "".to_string();
       if  dataType == 2 {
         tagValue = self.readString(valueOffset, numValues);
@@ -6621,12 +6625,12 @@ impl JPEGMetadataParser {
                 altDecTemp = altDecTemp - altDen;
                 altDec = altDec + 1;
               };
-              info.gpsAltitude = format!("{}{}", (format!("{}{}", (format!("{}{}", (altWhole.to_string()), ".".to_string())), (altDec.to_string()))), " m".to_string());
+              info.gpsAltitude = [&*([&*([&*(altWhole.to_string()), &*".".to_string()].concat()), &*(altDec.to_string())].concat()), &*" m".to_string()].concat();
             } else {
-              info.gpsAltitude = format!("{}{}", (altWhole.to_string()), " m".to_string());
+              info.gpsAltitude = [&*(altWhole.to_string()), &*" m".to_string()].concat();
             }
           } else {
-            info.gpsAltitude = format!("{}{}", (altNum.to_string()), " m".to_string());
+            info.gpsAltitude = [&*(altNum.to_string()), &*" m".to_string()].concat();
           }
         }
       }
@@ -6641,8 +6645,8 @@ impl JPEGMetadataParser {
     }
     info.hasExif = true;
     let tiffStart : i64 = appStart + 6;
-    let byteOrder0 : i64 = self.data[tiffStart as usize] as i64;
-    let byteOrder1 : i64 = self.data[(tiffStart + 1) as usize] as i64;
+    let byteOrder0 : i64 = self.data[(tiffStart) as usize] as i64;
+    let byteOrder1 : i64 = self.data[((tiffStart + 1)) as usize] as i64;
     if  (byteOrder0 == 73) && (byteOrder1 == 73) {
       self.littleEndian = true;
     } else {
@@ -6665,10 +6669,10 @@ impl JPEGMetadataParser {
       return;
     }
     info.hasJFIF = true;
-    let verMajor : i64 = self.data[(appStart + 5) as usize] as i64;
-    let verMinor : i64 = self.data[(appStart + 6) as usize] as i64;
-    info.jfifVersion = format!("{}{}", (format!("{}{}", (verMajor.to_string()), ".".to_string())), (verMinor.to_string()));
-    info.densityUnits = self.data[(appStart + 7) as usize] as i64;
+    let verMajor : i64 = self.data[((appStart + 5)) as usize] as i64;
+    let verMinor : i64 = self.data[((appStart + 6)) as usize] as i64;
+    info.jfifVersion = [&*([&*(verMajor.to_string()), &*".".to_string()].concat()), &*(verMinor.to_string())].concat();
+    info.densityUnits = self.data[((appStart + 7)) as usize] as i64;
     info.xDensity = self.readUint16BE((appStart + 8));
     info.yDensity = self.readUint16BE((appStart + 10));
   }
@@ -6684,8 +6688,8 @@ impl JPEGMetadataParser {
       info.errorMessage = "File too small".to_string();
       return info.clone();
     }
-    let m1 : i64 = self.data[0 as usize] as i64;
-    let m2 : i64 = self.data[1 as usize] as i64;
+    let m1 : i64 = self.data[(0) as usize] as i64;
+    let m2 : i64 = self.data[(1) as usize] as i64;
     if  (m1 != 255) || (m2 != 216) {
       info.errorMessage = "Not a valid JPEG file".to_string();
       return info.clone();
@@ -6693,12 +6697,12 @@ impl JPEGMetadataParser {
     info.isValid = true;
     let mut pos : i64 = 2;
     while pos < self.dataLen {
-      let marker1 : i64 = self.data[pos as usize] as i64;
+      let marker1 : i64 = self.data[(pos) as usize] as i64;
       if  marker1 != 255 {
         pos = pos + 1;
         continue;
       }
-      let marker2 : i64 = self.data[(pos + 1) as usize] as i64;
+      let marker2 : i64 = self.data[((pos + 1)) as usize] as i64;
       if  marker2 == 255 {
         pos = pos + 1;
         continue;
@@ -6727,10 +6731,10 @@ impl JPEGMetadataParser {
       }
       if  (marker2 == 192) || (marker2 == 194) {
         if  (pos + 9) < self.dataLen {
-          info.bitsPerComponent = self.data[(pos + 4) as usize] as i64;
+          info.bitsPerComponent = self.data[((pos + 4)) as usize] as i64;
           info.height = self.readUint16BE((pos + 5));
           info.width = self.readUint16BE((pos + 7));
-          info.colorComponents = self.data[(pos + 9) as usize] as i64;
+          info.colorComponents = self.data[((pos + 9)) as usize] as i64;
         }
       }
       if  marker2 == 218 {
@@ -6747,16 +6751,16 @@ impl JPEGMetadataParser {
     let mut out : GrowableBuffer = GrowableBuffer::new();
     out.writeString("=== JPEG Metadata ===\n\n".to_string());
     if  info.isValid == false {
-      out.writeString(format!("{}{}", (format!("{}{}", "Error: ".to_string(), info.errorMessage)), "\n".to_string()));
+      out.writeString([&*([&*"Error: ".to_string(), &*info.errorMessage].concat()), &*"\n".to_string()].concat());
       return (out).toString().clone();
     }
     out.writeString("--- Image Info ---\n".to_string());
-    out.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  Dimensions: ".to_string(), (info.width.to_string()))), " x ".to_string())), (info.height.to_string()))), "\n".to_string()));
-    out.writeString(format!("{}{}", (format!("{}{}", "  Color Components: ".to_string(), (info.colorComponents.to_string()))), "\n".to_string()));
-    out.writeString(format!("{}{}", (format!("{}{}", "  Bits per Component: ".to_string(), (info.bitsPerComponent.to_string()))), "\n".to_string()));
+    out.writeString([&*([&*([&*([&*"  Dimensions: ".to_string(), &*(info.width.to_string())].concat()), &*" x ".to_string()].concat()), &*(info.height.to_string())].concat()), &*"\n".to_string()].concat());
+    out.writeString([&*([&*"  Color Components: ".to_string(), &*(info.colorComponents.to_string())].concat()), &*"\n".to_string()].concat());
+    out.writeString([&*([&*"  Bits per Component: ".to_string(), &*(info.bitsPerComponent.to_string())].concat()), &*"\n".to_string()].concat());
     if  info.hasJFIF {
       out.writeString("\n--- JFIF Info ---\n".to_string());
-      out.writeString(format!("{}{}", (format!("{}{}", "  Version: ".to_string(), info.jfifVersion)), "\n".to_string()));
+      out.writeString([&*([&*"  Version: ".to_string(), &*info.jfifVersion].concat()), &*"\n".to_string()].concat());
       let mut densityStr : String = "No units (aspect ratio)".to_string();
       if  info.densityUnits == 1 {
         densityStr = "pixels/inch".to_string();
@@ -6764,40 +6768,40 @@ impl JPEGMetadataParser {
       if  info.densityUnits == 2 {
         densityStr = "pixels/cm".to_string();
       }
-      out.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  Density: ".to_string(), (info.xDensity.to_string()))), " x ".to_string())), (info.yDensity.to_string()))), " ".to_string())), densityStr)), "\n".to_string()));
+      out.writeString([&*([&*([&*([&*([&*([&*"  Density: ".to_string(), &*(info.xDensity.to_string())].concat()), &*" x ".to_string()].concat()), &*(info.yDensity.to_string())].concat()), &*" ".to_string()].concat()), &*densityStr].concat()), &*"\n".to_string()].concat());
     }
     if  info.hasExif {
       out.writeString("\n--- EXIF Info ---\n".to_string());
       if  (info.cameraMake.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  Camera Make: ".to_string(), info.cameraMake)), "\n".to_string()));
+        out.writeString([&*([&*"  Camera Make: ".to_string(), &*info.cameraMake].concat()), &*"\n".to_string()].concat());
       }
       if  (info.cameraModel.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  Camera Model: ".to_string(), info.cameraModel)), "\n".to_string()));
+        out.writeString([&*([&*"  Camera Model: ".to_string(), &*info.cameraModel].concat()), &*"\n".to_string()].concat());
       }
       if  (info.software.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  Software: ".to_string(), info.software)), "\n".to_string()));
+        out.writeString([&*([&*"  Software: ".to_string(), &*info.software].concat()), &*"\n".to_string()].concat());
       }
       if  (info.dateTimeOriginal.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  Date/Time Original: ".to_string(), info.dateTimeOriginal)), "\n".to_string()));
+        out.writeString([&*([&*"  Date/Time Original: ".to_string(), &*info.dateTimeOriginal].concat()), &*"\n".to_string()].concat());
       } else {
         if  (info.dateTime.len() as i64) > 0 {
-          out.writeString(format!("{}{}", (format!("{}{}", "  Date/Time: ".to_string(), info.dateTime)), "\n".to_string()));
+          out.writeString([&*([&*"  Date/Time: ".to_string(), &*info.dateTime].concat()), &*"\n".to_string()].concat());
         }
       }
       if  (info.exposureTime.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  Exposure Time: ".to_string(), info.exposureTime)), " sec\n".to_string()));
+        out.writeString([&*([&*"  Exposure Time: ".to_string(), &*info.exposureTime].concat()), &*" sec\n".to_string()].concat());
       }
       if  (info.fNumber.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  F-Number: f/".to_string(), info.fNumber)), "\n".to_string()));
+        out.writeString([&*([&*"  F-Number: f/".to_string(), &*info.fNumber].concat()), &*"\n".to_string()].concat());
       }
       if  (info.isoSpeed.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  ISO Speed: ".to_string(), info.isoSpeed)), "\n".to_string()));
+        out.writeString([&*([&*"  ISO Speed: ".to_string(), &*info.isoSpeed].concat()), &*"\n".to_string()].concat());
       }
       if  (info.focalLength.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  Focal Length: ".to_string(), info.focalLength)), " mm\n".to_string()));
+        out.writeString([&*([&*"  Focal Length: ".to_string(), &*info.focalLength].concat()), &*" mm\n".to_string()].concat());
       }
       if  (info.flash.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  Flash: ".to_string(), info.flash)), "\n".to_string()));
+        out.writeString([&*([&*"  Flash: ".to_string(), &*info.flash].concat()), &*"\n".to_string()].concat());
       }
       let mut orientStr : String = "Normal".to_string();
       if  info.orientation == 2 {
@@ -6821,44 +6825,44 @@ impl JPEGMetadataParser {
       if  info.orientation == 8 {
         orientStr = "Rotate 270 CW".to_string();
       }
-      out.writeString(format!("{}{}", (format!("{}{}", "  Orientation: ".to_string(), orientStr)), "\n".to_string()));
+      out.writeString([&*([&*"  Orientation: ".to_string(), &*orientStr].concat()), &*"\n".to_string()].concat());
     }
     if  info.hasGPS {
       out.writeString("\n--- GPS Info ---\n".to_string());
       if  (info.gpsLatitude.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  Latitude: ".to_string(), info.gpsLatitude)), "\n".to_string()));
+        out.writeString([&*([&*"  Latitude: ".to_string(), &*info.gpsLatitude].concat()), &*"\n".to_string()].concat());
       }
       if  (info.gpsLongitude.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  Longitude: ".to_string(), info.gpsLongitude)), "\n".to_string()));
+        out.writeString([&*([&*"  Longitude: ".to_string(), &*info.gpsLongitude].concat()), &*"\n".to_string()].concat());
       }
       if  (info.gpsAltitude.len() as i64) > 0 {
-        out.writeString(format!("{}{}", (format!("{}{}", "  Altitude: ".to_string(), info.gpsAltitude)), "\n".to_string()));
+        out.writeString([&*([&*"  Altitude: ".to_string(), &*info.gpsAltitude].concat()), &*"\n".to_string()].concat());
       }
     }
     if  info.hasComment {
       out.writeString("\n--- Comment ---\n".to_string());
-      out.writeString(format!("{}{}", (format!("{}{}", "  ".to_string(), info.comment)), "\n".to_string()));
+      out.writeString([&*([&*"  ".to_string(), &*info.comment].concat()), &*"\n".to_string()].concat());
     }
     let tagCount : i64 = (info.exifTags.len() as i64);
     if  tagCount > 0 {
-      out.writeString(format!("{}{}", (format!("{}{}", "\n--- All EXIF Tags (".to_string(), (tagCount.to_string()))), ") ---\n".to_string()));
+      out.writeString([&*([&*"\n--- All EXIF Tags (".to_string(), &*(tagCount.to_string())].concat()), &*") ---\n".to_string()].concat());
       for idx in 0..info.exifTags.len() {
         let mut tag = info.exifTags[idx as usize].clone();
-        out.writeString(format!("{}{}", (format!("{}{}", "  ".to_string(), tag.tagName)), " (0x".to_string()));
+        out.writeString([&*([&*"  ".to_string(), &*tag.tagName].concat()), &*" (0x".to_string()].concat());
         let mut tagHex : String = "".to_string();
         let tid : i64 = tag.tagId;
         let hexChars : String = "0123456789ABCDEF".to_string();
-        let h3D : f64 = tid / 4096;
+        let h3D : f64 = (tid as f64) / (4096 as f64);
         let h3 : i64 = h3D as i64 ;
         let r3 : i64 = tid - (h3 * 4096);
-        let h2D : f64 = r3 / 256;
+        let h2D : f64 = (r3 as f64) / (256 as f64);
         let h2 : i64 = h2D as i64 ;
         let r2 : i64 = r3 - (h2 * 256);
-        let h1D : f64 = r2 / 16;
+        let h1D : f64 = (r2 as f64) / (16 as f64);
         let h1 : i64 = h1D as i64 ;
         let h0 : i64 = r2 - (h1 * 16);
-        tagHex = format!("{}{}", (format!("{}{}", (format!("{}{}", (hexChars.chars().skip(h3 as usize).take(((h3 + 1) - h3) as usize).collect::<String>()), (hexChars.chars().skip(h2 as usize).take(((h2 + 1) - h2) as usize).collect::<String>()))), (hexChars.chars().skip(h1 as usize).take(((h1 + 1) - h1) as usize).collect::<String>()))), (hexChars.chars().skip(h0 as usize).take(((h0 + 1) - h0) as usize).collect::<String>()));
-        out.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", tagHex, "): ".to_string())), tag.tagValue)), "\n".to_string()));
+        tagHex = [&*([&*([&*(hexChars.chars().skip(h3 as usize).take(((h3 + 1) - h3) as usize).collect::<String>()), &*(hexChars.chars().skip(h2 as usize).take(((h2 + 1) - h2) as usize).collect::<String>())].concat()), &*(hexChars.chars().skip(h1 as usize).take(((h1 + 1) - h1) as usize).collect::<String>())].concat()), &*(hexChars.chars().skip(h0 as usize).take(((h0 + 1) - h0) as usize).collect::<String>())].concat();
+        out.writeString([&*([&*([&*tagHex, &*"): ".to_string()].concat()), &*tag.tagValue].concat()), &*"\n".to_string()].concat());
       };
     }
     return (out).toString().clone();
@@ -6908,7 +6912,7 @@ impl PDFWriter {
   fn writeObject(&mut self, content : String) -> () {
     let mut buf : GrowableBuffer = self.pdfBuffer.clone().unwrap();
     self.objectOffsets.push((buf).size());
-    buf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+    buf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
     buf.writeString(content.clone());
     buf.writeString("\nendobj\n\n".to_string());
     self.nextObjNum = self.nextObjNum + 1;
@@ -6921,7 +6925,7 @@ impl PDFWriter {
   fn writeImageObject(&mut self, header : String, mut imageData : Vec<u8>, footer : String) -> i64 {
     let mut buf : GrowableBuffer = self.pdfBuffer.clone().unwrap();
     self.objectOffsets.push((buf).size());
-    buf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+    buf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
     buf.writeString(header.clone());
     buf.writeBuffer(imageData.clone());
     buf.writeString(footer.clone());
@@ -6934,7 +6938,7 @@ impl PDFWriter {
     let mut reader : JPEGReader = self.jpegReader.clone().unwrap();
     let mut img : JPEGImage = reader.readJPEG(dirPath.clone(), fileName.clone());
     if  img.isValid == false {
-      println!( "{}", format!("{}{}", "Error loading image: ".to_string(), img.errorMessage) );
+      println!( "{}", [&*"Error loading image: ".to_string(), &*img.errorMessage].concat() );
       return 0;
     }
     println!( "{}", reader.getImageInfo(img.clone()) );
@@ -6951,33 +6955,33 @@ impl PDFWriter {
     let mut imgData : Vec<u8> = img.imageData.clone().unwrap();
     let dataLen : i64 = imgData.len() as i64;
     let mut imgHeader : String = "<< /Type /XObject /Subtype /Image".to_string();
-    imgHeader = format!("{}{}", (format!("{}{}", imgHeader, " /Width ".to_string())), (img.width.to_string()));
-    imgHeader = format!("{}{}", (format!("{}{}", imgHeader, " /Height ".to_string())), (img.height.to_string()));
-    imgHeader = format!("{}{}", (format!("{}{}", imgHeader, " /ColorSpace ".to_string())), colorSpace);
-    imgHeader = format!("{}{}", (format!("{}{}", imgHeader, " /BitsPerComponent ".to_string())), (img.bitsPerComponent.to_string()));
-    imgHeader = format!("{}{}", imgHeader, " /Filter /DCTDecode".to_string());
-    imgHeader = format!("{}{}", (format!("{}{}", imgHeader, " /Length ".to_string())), (dataLen.to_string()));
-    imgHeader = format!("{}{}", imgHeader, " >>\nstream\n".to_string());
+    imgHeader = [&*([&*imgHeader, &*" /Width ".to_string()].concat()), &*(img.width.to_string())].concat();
+    imgHeader = [&*([&*imgHeader, &*" /Height ".to_string()].concat()), &*(img.height.to_string())].concat();
+    imgHeader = [&*([&*imgHeader, &*" /ColorSpace ".to_string()].concat()), &*colorSpace].concat();
+    imgHeader = [&*([&*imgHeader, &*" /BitsPerComponent ".to_string()].concat()), &*(img.bitsPerComponent.to_string())].concat();
+    imgHeader = [&*imgHeader, &*" /Filter /DCTDecode".to_string()].concat();
+    imgHeader = [&*([&*imgHeader, &*" /Length ".to_string()].concat()), &*(dataLen.to_string())].concat();
+    imgHeader = [&*imgHeader, &*" >>\nstream\n".to_string()].concat();
     let imgFooter : String = "\nendstream".to_string();
     self.imageObjNum = self.writeImageObject(imgHeader.clone(), imgData.clone(), imgFooter.clone());
     return self.imageObjNum;
   }
-  fn escapeText(&mut self, text : String) -> String {
+  fn escapeText(text : String) -> String {
     let mut result : String = "".to_string();
     let __len : i64 = text.len() as i64;
     let mut i : i64 = 0;
     while i < __len {
       let ch : i64 = text.chars().nth(i as usize).unwrap_or('\0') as i64;
       if  ch == 40 {
-        result = format!("{}{}", result, "\\(".to_string());
+        result = [&*result, &*"\\(".to_string()].concat();
       } else {
         if  ch == 41 {
-          result = format!("{}{}", result, "\\)".to_string());
+          result = [&*result, &*"\\)".to_string()].concat();
         } else {
           if  ch == 92 {
-            result = format!("{}{}", result, "\\\\".to_string());
+            result = [&*result, &*"\\\\".to_string()].concat();
           } else {
-            result = format!("{}{}", result, ((char::from_u32(ch as u32).unwrap_or('\0').to_string())));
+            result = [&*result, &*((char::from_u32(ch as u32).unwrap_or('\0').to_string()))].concat();
           }
         }
       }
@@ -6993,7 +6997,6 @@ impl PDFWriter {
     let mut buf : GrowableBuffer = self.pdfBuffer.clone().unwrap();
     (buf).clear();
     self.imageObjNum = 0;
-    self.objectOffsets.length = 0;
     buf.writeString("%PDF-1.4\n".to_string());
     buf.writeByte(37);
     buf.writeByte(226);
@@ -7010,17 +7013,17 @@ impl PDFWriter {
     }
     // unused:  let catalogObjNum : i64 = self.nextObjNum;
     let pagesObjNum : i64 = self.nextObjNum + 1;
-    self.writeObject(format!("{}{}", (format!("{}{}", "<< /Type /Catalog /Pages ".to_string(), (pagesObjNum.to_string()))), " 0 R >>".to_string()));
+    self.writeObject([&*([&*"<< /Type /Catalog /Pages ".to_string(), &*(pagesObjNum.to_string())].concat()), &*" 0 R >>".to_string()].concat());
     let pageObjNum : i64 = self.nextObjNum + 1;
-    self.writeObject(format!("{}{}", (format!("{}{}", "<< /Type /Pages /Kids [".to_string(), (pageObjNum.to_string()))), " 0 R] /Count 1 >>".to_string()));
+    self.writeObject([&*([&*"<< /Type /Pages /Kids [".to_string(), &*(pageObjNum.to_string())].concat()), &*" 0 R] /Count 1 >>".to_string()].concat());
     let contentObjNum : i64 = self.nextObjNum + 1;
     let fontObjNum : i64 = self.nextObjNum + 2;
-    let mut resourcesStr : String = format!("{}{}", (format!("{}{}", "<< /Font << /F1 ".to_string(), (fontObjNum.to_string()))), " 0 R >>".to_string());
+    let mut resourcesStr : String = [&*([&*"<< /Font << /F1 ".to_string(), &*(fontObjNum.to_string())].concat()), &*" 0 R >>".to_string()].concat();
     if  hasImage {
-      resourcesStr = format!("{}{}", (format!("{}{}", (format!("{}{}", resourcesStr, " /XObject << /Img1 ".to_string())), (self.imageObjNum.to_string()))), " 0 R >>".to_string());
+      resourcesStr = [&*([&*([&*resourcesStr, &*" /XObject << /Img1 ".to_string()].concat()), &*(self.imageObjNum.to_string())].concat()), &*" 0 R >>".to_string()].concat();
     }
-    resourcesStr = format!("{}{}", resourcesStr, " >>".to_string());
-    self.writeObject(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "<< /Type /Page /Parent ".to_string(), (pagesObjNum.to_string()))), " 0 R /MediaBox [0 0 612 792] /Contents ".to_string())), (contentObjNum.to_string()))), " 0 R /Resources ".to_string())), resourcesStr)), " >>".to_string()));
+    resourcesStr = [&*resourcesStr, &*" >>".to_string()].concat();
+    self.writeObject([&*([&*([&*([&*([&*([&*"<< /Type /Page /Parent ".to_string(), &*(pagesObjNum.to_string())].concat()), &*" 0 R /MediaBox [0 0 612 792] /Contents ".to_string()].concat()), &*(contentObjNum.to_string())].concat()), &*" 0 R /Resources ".to_string()].concat()), &*resourcesStr].concat()), &*" >>".to_string()].concat());
     let mut streamBuf : GrowableBuffer = GrowableBuffer::new();
     if  hasImage {
       streamBuf.writeString("q\n".to_string());
@@ -7053,11 +7056,11 @@ impl PDFWriter {
     let cy : i64 = 680;
     let r : i64 = 30;
     let k : i64 = 17;
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", ((cx + r).to_string()), " ".to_string())), (cy.to_string()))), " m\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", ((cx + r).to_string()), " ".to_string())), ((cy + k).to_string()))), " ".to_string())), ((cx + k).to_string()))), " ".to_string())), ((cy + r).to_string()))), " ".to_string())), (cx.to_string()))), " ".to_string())), ((cy + r).to_string()))), " c\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", ((cx - k).to_string()), " ".to_string())), ((cy + r).to_string()))), " ".to_string())), ((cx - r).to_string()))), " ".to_string())), ((cy + k).to_string()))), " ".to_string())), ((cx - r).to_string()))), " ".to_string())), (cy.to_string()))), " c\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", ((cx - r).to_string()), " ".to_string())), ((cy - k).to_string()))), " ".to_string())), ((cx - k).to_string()))), " ".to_string())), ((cy - r).to_string()))), " ".to_string())), (cx.to_string()))), " ".to_string())), ((cy - r).to_string()))), " c\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", ((cx + k).to_string()), " ".to_string())), ((cy - r).to_string()))), " ".to_string())), ((cx + r).to_string()))), " ".to_string())), ((cy - k).to_string()))), " ".to_string())), ((cx + r).to_string()))), " ".to_string())), (cy.to_string()))), " c\n".to_string()));
+    streamBuf.writeString([&*([&*([&*((cx + r).to_string()), &*" ".to_string()].concat()), &*(cy.to_string())].concat()), &*" m\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*((cx + r).to_string()), &*" ".to_string()].concat()), &*((cy + k).to_string())].concat()), &*" ".to_string()].concat()), &*((cx + k).to_string())].concat()), &*" ".to_string()].concat()), &*((cy + r).to_string())].concat()), &*" ".to_string()].concat()), &*(cx.to_string())].concat()), &*" ".to_string()].concat()), &*((cy + r).to_string())].concat()), &*" c\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*((cx - k).to_string()), &*" ".to_string()].concat()), &*((cy + r).to_string())].concat()), &*" ".to_string()].concat()), &*((cx - r).to_string())].concat()), &*" ".to_string()].concat()), &*((cy + k).to_string())].concat()), &*" ".to_string()].concat()), &*((cx - r).to_string())].concat()), &*" ".to_string()].concat()), &*(cy.to_string())].concat()), &*" c\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*((cx - r).to_string()), &*" ".to_string()].concat()), &*((cy - k).to_string())].concat()), &*" ".to_string()].concat()), &*((cx - k).to_string())].concat()), &*" ".to_string()].concat()), &*((cy - r).to_string())].concat()), &*" ".to_string()].concat()), &*(cx.to_string())].concat()), &*" ".to_string()].concat()), &*((cy - r).to_string())].concat()), &*" c\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*((cx + k).to_string()), &*" ".to_string()].concat()), &*((cy - r).to_string())].concat()), &*" ".to_string()].concat()), &*((cx + r).to_string())].concat()), &*" ".to_string()].concat()), &*((cy - k).to_string())].concat()), &*" ".to_string()].concat()), &*((cx + r).to_string())].concat()), &*" ".to_string()].concat()), &*(cy.to_string())].concat()), &*" c\n".to_string()].concat());
     streamBuf.writeString("B\n".to_string());
     streamBuf.writeString("Q\n".to_string());
     streamBuf.writeString("q\n".to_string());
@@ -7078,24 +7081,24 @@ impl PDFWriter {
     let sx : i64 = 300;
     let sy : i64 = 530;
     let arm : i64 = 50;
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (sx.to_string()), " ".to_string())), (sy.to_string()))), " m\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (sx.to_string()), " ".to_string())), ((sy + arm).to_string()))), " l\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (sx.to_string()), " ".to_string())), (sy.to_string()))), " m\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", ((sx + 43).to_string()), " ".to_string())), ((sy + 25).to_string()))), " l\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (sx.to_string()), " ".to_string())), (sy.to_string()))), " m\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", ((sx + 43).to_string()), " ".to_string())), ((sy - 25).to_string()))), " l\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (sx.to_string()), " ".to_string())), (sy.to_string()))), " m\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (sx.to_string()), " ".to_string())), ((sy - arm).to_string()))), " l\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (sx.to_string()), " ".to_string())), (sy.to_string()))), " m\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", ((sx - 43).to_string()), " ".to_string())), ((sy - 25).to_string()))), " l\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (sx.to_string()), " ".to_string())), (sy.to_string()))), " m\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", ((sx - 43).to_string()), " ".to_string())), ((sy + 25).to_string()))), " l\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", ((sx - 10).to_string()), " ".to_string())), (((sy + arm) - 10).to_string()))), " m\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (sx.to_string()), " ".to_string())), ((sy + arm).to_string()))), " l\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", ((sx + 10).to_string()), " ".to_string())), (((sy + arm) - 10).to_string()))), " l\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", ((sx - 10).to_string()), " ".to_string())), (((sy - arm) + 10).to_string()))), " m\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (sx.to_string()), " ".to_string())), ((sy - arm).to_string()))), " l\n".to_string()));
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", ((sx + 10).to_string()), " ".to_string())), (((sy - arm) + 10).to_string()))), " l\n".to_string()));
+    streamBuf.writeString([&*([&*([&*(sx.to_string()), &*" ".to_string()].concat()), &*(sy.to_string())].concat()), &*" m\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*(sx.to_string()), &*" ".to_string()].concat()), &*((sy + arm).to_string())].concat()), &*" l\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*(sx.to_string()), &*" ".to_string()].concat()), &*(sy.to_string())].concat()), &*" m\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*((sx + 43).to_string()), &*" ".to_string()].concat()), &*((sy + 25).to_string())].concat()), &*" l\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*(sx.to_string()), &*" ".to_string()].concat()), &*(sy.to_string())].concat()), &*" m\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*((sx + 43).to_string()), &*" ".to_string()].concat()), &*((sy - 25).to_string())].concat()), &*" l\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*(sx.to_string()), &*" ".to_string()].concat()), &*(sy.to_string())].concat()), &*" m\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*(sx.to_string()), &*" ".to_string()].concat()), &*((sy - arm).to_string())].concat()), &*" l\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*(sx.to_string()), &*" ".to_string()].concat()), &*(sy.to_string())].concat()), &*" m\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*((sx - 43).to_string()), &*" ".to_string()].concat()), &*((sy - 25).to_string())].concat()), &*" l\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*(sx.to_string()), &*" ".to_string()].concat()), &*(sy.to_string())].concat()), &*" m\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*((sx - 43).to_string()), &*" ".to_string()].concat()), &*((sy + 25).to_string())].concat()), &*" l\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*((sx - 10).to_string()), &*" ".to_string()].concat()), &*(((sy + arm) - 10).to_string())].concat()), &*" m\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*(sx.to_string()), &*" ".to_string()].concat()), &*((sy + arm).to_string())].concat()), &*" l\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*((sx + 10).to_string()), &*" ".to_string()].concat()), &*(((sy + arm) - 10).to_string())].concat()), &*" l\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*((sx - 10).to_string()), &*" ".to_string()].concat()), &*(((sy - arm) + 10).to_string())].concat()), &*" m\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*(sx.to_string()), &*" ".to_string()].concat()), &*((sy - arm).to_string())].concat()), &*" l\n".to_string()].concat());
+    streamBuf.writeString([&*([&*([&*((sx + 10).to_string()), &*" ".to_string()].concat()), &*(((sy - arm) + 10).to_string())].concat()), &*" l\n".to_string()].concat());
     streamBuf.writeString("S\n".to_string());
     streamBuf.writeString("Q\n".to_string());
     streamBuf.writeString("q\n".to_string());
@@ -7133,7 +7136,7 @@ impl PDFWriter {
     streamBuf.writeString("BT\n".to_string());
     streamBuf.writeString("/F1 36 Tf\n".to_string());
     streamBuf.writeString("100 320 Td\n".to_string());
-    streamBuf.writeString(format!("{}{}", (format!("{}{}", "(".to_string(), self.escapeText(message.clone()))), ") Tj\n".to_string()));
+    streamBuf.writeString([&*([&*"(".to_string(), &*PDFWriter::escapeText(message.clone())].concat()), &*") Tj\n".to_string()].concat());
     streamBuf.writeString("ET\n".to_string());
     streamBuf.writeString("BT\n".to_string());
     streamBuf.writeString("/F1 14 Tf\n".to_string());
@@ -7151,57 +7154,57 @@ impl PDFWriter {
       if  self.lastImageMetadata.is_some() {
         let mut meta : JPEGMetadataInfo = self.lastImageMetadata.clone().unwrap();
         let mut metaY : i64 = 240;
-        streamBuf.writeString(format!("{}{}", (format!("{}{}", "BT\n/F1 12 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Image Metadata:) Tj\nET\n".to_string()));
+        streamBuf.writeString([&*([&*"BT\n/F1 12 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Image Metadata:) Tj\nET\n".to_string()].concat());
         metaY = metaY - 14;
-        streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Size: ".to_string())), (meta.width.to_string()))), " x ".to_string())), (meta.height.to_string()))), ") Tj\nET\n".to_string()));
+        streamBuf.writeString([&*([&*([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Size: ".to_string()].concat()), &*(meta.width.to_string())].concat()), &*" x ".to_string()].concat()), &*(meta.height.to_string())].concat()), &*") Tj\nET\n".to_string()].concat());
         metaY = metaY - 12;
         if  meta.hasExif {
           if  (meta.cameraMake.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Make: ".to_string())), self.escapeText(meta.cameraMake.clone()))), ") Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Make: ".to_string()].concat()), &*PDFWriter::escapeText(meta.cameraMake.clone())].concat()), &*") Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
           if  (meta.cameraModel.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Model: ".to_string())), self.escapeText(meta.cameraModel.clone()))), ") Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Model: ".to_string()].concat()), &*PDFWriter::escapeText(meta.cameraModel.clone())].concat()), &*") Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
           if  (meta.dateTimeOriginal.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Date: ".to_string())), self.escapeText(meta.dateTimeOriginal.clone()))), ") Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Date: ".to_string()].concat()), &*PDFWriter::escapeText(meta.dateTimeOriginal.clone())].concat()), &*") Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
           if  (meta.exposureTime.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Exposure: ".to_string())), meta.exposureTime)), " sec) Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Exposure: ".to_string()].concat()), &*meta.exposureTime].concat()), &*" sec) Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
           if  (meta.fNumber.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Aperture: f/".to_string())), meta.fNumber)), ") Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Aperture: f/".to_string()].concat()), &*meta.fNumber].concat()), &*") Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
           if  (meta.isoSpeed.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(ISO: ".to_string())), meta.isoSpeed)), ") Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(ISO: ".to_string()].concat()), &*meta.isoSpeed].concat()), &*") Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
           if  (meta.focalLength.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Focal Length: ".to_string())), meta.focalLength)), " mm) Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Focal Length: ".to_string()].concat()), &*meta.focalLength].concat()), &*" mm) Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
           if  (meta.flash.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Flash: ".to_string())), meta.flash)), ") Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Flash: ".to_string()].concat()), &*meta.flash].concat()), &*") Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
         }
         if  meta.hasGPS {
-          streamBuf.writeString(format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(--- GPS Data ---) Tj\nET\n".to_string()));
+          streamBuf.writeString([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(--- GPS Data ---) Tj\nET\n".to_string()].concat());
           metaY = metaY - 12;
           if  (meta.gpsLatitude.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Latitude: ".to_string())), meta.gpsLatitude)), ") Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Latitude: ".to_string()].concat()), &*meta.gpsLatitude].concat()), &*") Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
           if  (meta.gpsLongitude.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Longitude: ".to_string())), meta.gpsLongitude)), ") Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Longitude: ".to_string()].concat()), &*meta.gpsLongitude].concat()), &*") Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
           if  (meta.gpsAltitude.len() as i64) > 0 {
-            streamBuf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "BT\n/F1 9 Tf\n400 ".to_string(), (metaY.to_string()))), " Td\n(Altitude: ".to_string())), meta.gpsAltitude)), ") Tj\nET\n".to_string()));
+            streamBuf.writeString([&*([&*([&*([&*"BT\n/F1 9 Tf\n400 ".to_string(), &*(metaY.to_string())].concat()), &*" Td\n(Altitude: ".to_string()].concat()), &*meta.gpsAltitude].concat()), &*") Tj\nET\n".to_string()].concat());
             metaY = metaY - 12;
           }
         }
@@ -7209,7 +7212,7 @@ impl PDFWriter {
     }
     let streamLen : i64 = (streamBuf).size();
     let streamContent : String = (streamBuf).toString();
-    self.writeObject(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "<< /Length ".to_string(), (streamLen.to_string()))), " >>\nstream\n".to_string())), streamContent)), "endstream".to_string()));
+    self.writeObject([&*([&*([&*([&*"<< /Length ".to_string(), &*(streamLen.to_string())].concat()), &*" >>\nstream\n".to_string()].concat()), &*streamContent].concat()), &*"endstream".to_string()].concat());
     self.writeObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string());
     let mut rootObjNum : i64 = 1;
     if  hasImage {
@@ -7217,32 +7220,32 @@ impl PDFWriter {
     }
     let xrefOffset : i64 = (buf).size();
     buf.writeString("xref\n".to_string());
-    buf.writeString(format!("{}{}", (format!("{}{}", "0 ".to_string(), (self.nextObjNum.to_string()))), "\n".to_string()));
+    buf.writeString([&*([&*"0 ".to_string(), &*(self.nextObjNum.to_string())].concat()), &*"\n".to_string()].concat());
     buf.writeString("0000000000 65535 f \n".to_string());
     for i in 0..self.objectOffsets.len() {
       let mut offset = self.objectOffsets[i as usize].clone();
       let mut offsetStr : String = offset.to_string();
       while (offsetStr.len() as i64) < 10 {
-        offsetStr = format!("{}{}", "0".to_string(), offsetStr);
+        offsetStr = [&*"0".to_string(), &*offsetStr].concat();
       };
-      buf.writeString(format!("{}{}", offsetStr, " 00000 n \n".to_string()));
+      buf.writeString([&*offsetStr, &*" 00000 n \n".to_string()].concat());
     };
     buf.writeString("trailer\n".to_string());
-    buf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "<< /Size ".to_string(), (self.nextObjNum.to_string()))), " /Root ".to_string())), (rootObjNum.to_string()))), " 0 R >>\n".to_string()));
+    buf.writeString([&*([&*([&*([&*"<< /Size ".to_string(), &*(self.nextObjNum.to_string())].concat()), &*" /Root ".to_string()].concat()), &*(rootObjNum.to_string())].concat()), &*" 0 R >>\n".to_string()].concat());
     buf.writeString("startxref\n".to_string());
-    buf.writeString(format!("{}{}", (xrefOffset.to_string()), "\n".to_string()));
+    buf.writeString([&*(xrefOffset.to_string()), &*"\n".to_string()].concat());
     buf.writeString("%%EOF\n".to_string());
     return buf.toBuffer();
   }
   fn savePDF(&mut self, path : String, filename : String, message : String) -> () {
     let mut pdfContent : Vec<u8> = self.createHelloWorldPDF(message.clone());
     std::fs::write(format!("{}/{}", path, filename), &pdfContent).unwrap();
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "PDF saved to ".to_string(), path)), "/".to_string())), filename) );
+    println!( "{}", [&*([&*([&*"PDF saved to ".to_string(), &*path].concat()), &*"/".to_string()].concat()), &*filename].concat() );
   }
   fn savePDFWithImage(&mut self, path : String, filename : String, message : String, imageDirPath : String, imageFileName : String) -> () {
     let mut pdfContent : Vec<u8> = self.createPDFWithImage(message.clone(), imageDirPath.clone(), imageFileName.clone());
     std::fs::write(format!("{}/{}", path, filename), &pdfContent).unwrap();
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "PDF saved to ".to_string(), path)), "/".to_string())), filename) );
+    println!( "{}", [&*([&*([&*"PDF saved to ".to_string(), &*path].concat()), &*"/".to_string()].concat()), &*filename].concat() );
   }
 }
 #[derive(Clone)]
@@ -7315,10 +7318,10 @@ impl EVGTextMeasurer {
     let mut metrics : EVGTextMetrics = self.measureText(text.clone(), fontFamily.clone(), fontSize);
     return metrics.width;
   }
-  fn getLineHeight(&mut self, fontFamily : String, fontSize : f64) -> f64 {
+  fn getLineHeight(fontFamily : String, fontSize : f64) -> f64 {
     return fontSize * 1.2_f64;
   }
-  fn measureChar(&mut self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureChar(ch : i64, fontFamily : String, fontSize : f64) -> f64 {
     if  ch == 32 {
       return fontSize * 0.3_f64;
     }
@@ -7371,20 +7374,20 @@ impl EVGTextMeasurer {
         }
         if  ((currentWidth + spaceWidth) + wordWidth) <= maxWidth {
           if  (currentLine.len() as i64) > 0 {
-            currentLine = format!("{}{}", currentLine, " ".to_string());
+            currentLine = [&*currentLine, &*" ".to_string()].concat();
             currentWidth = currentWidth + spaceWidth;
           }
-          currentLine = format!("{}{}", currentLine, word);
+          currentLine = [&*currentLine, &*word].concat();
           currentWidth = currentWidth + wordWidth;
         } else {
           if  (currentLine.len() as i64) > 0 {
-            lines.push(currentLine);
+            lines.push(currentLine.clone());
           }
           currentLine = word.clone();
           currentWidth = wordWidth;
         }
         if  ch == 10 {
-          lines.push(currentLine);
+          lines.push(currentLine.clone());
           currentLine = "".to_string();
           currentWidth = 0_f64;
         }
@@ -7393,9 +7396,34 @@ impl EVGTextMeasurer {
       i = i + 1;
     };
     if  (currentLine.len() as i64) > 0 {
-      lines.push(currentLine);
+      lines.push(currentLine.clone());
     }
-    return lines;
+    return lines.clone();
+  }
+}
+
+pub trait EVGTextMeasurerTrait {
+  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics;
+  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64;
+  fn getLineHeight(&self, fontFamily : String, fontSize : f64) -> f64;
+  fn measureChar(&self, ch : i64, fontFamily : String, fontSize : f64) -> f64;
+  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String>;
+}
+impl EVGTextMeasurerTrait for EVGTextMeasurer {
+  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
+    EVGTextMeasurer::measureText(self, text, fontFamily, fontSize)
+  }
+  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64 {
+    EVGTextMeasurer::measureTextWidth(self, text, fontFamily, fontSize)
+  }
+  fn getLineHeight(&self, fontFamily : String, fontSize : f64) -> f64 {
+    EVGTextMeasurer::getLineHeight(fontFamily, fontSize)
+  }
+  fn measureChar(&self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
+    EVGTextMeasurer::measureChar(ch, fontFamily, fontSize)
+  }
+  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+    EVGTextMeasurer::wrapText(self, text, fontFamily, fontSize, maxWidth)
   }
 }
 #[derive(Clone)]
@@ -7419,7 +7447,7 @@ impl SimpleTextMeasurer {
     let mut i : i64 = 0;
     while i < textLen {
       let ch : i64 = text.chars().nth(i as usize).unwrap_or('\0') as i64;
-      width = width + self.measureChar(ch, fontFamily.clone(), fontSize);
+      width = width + EVGTextMeasurer::measureChar(ch, fontFamily.clone(), fontSize);
       i = i + 1;
     };
     let lineHeight : f64 = fontSize * 1.2_f64;
@@ -7430,6 +7458,112 @@ impl SimpleTextMeasurer {
     metrics.descent = fontSize * 0.2_f64;
     metrics.lineHeight = lineHeight;
     return metrics.clone();
+  }
+}
+impl SimpleTextMeasurer {
+  // Inherited methods from parent class EVGTextMeasurer
+  fn measureTextWidth(&mut self, text : String, fontFamily : String, fontSize : f64) -> f64 {
+    let mut metrics : EVGTextMetrics = self.measureText(text.clone(), fontFamily.clone(), fontSize);
+    return metrics.width;
+  }
+  fn getLineHeight(fontFamily : String, fontSize : f64) -> f64 {
+    return fontSize * 1.2_f64;
+  }
+  fn measureChar(ch : i64, fontFamily : String, fontSize : f64) -> f64 {
+    if  ch == 32 {
+      return fontSize * 0.3_f64;
+    }
+    if  ((((ch == 105) || (ch == 108)) || (ch == 106)) || (ch == 116)) || (ch == 102) {
+      return fontSize * 0.3_f64;
+    }
+    if  (ch == 109) || (ch == 119) {
+      return fontSize * 0.8_f64;
+    }
+    if  (ch == 77) || (ch == 87) {
+      return fontSize * 0.9_f64;
+    }
+    if  ch == 73 {
+      return fontSize * 0.35_f64;
+    }
+    return fontSize * 0.55_f64;
+  }
+  fn wrapText(&mut self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+    let mut lines : Vec<String> = Vec::new();
+    let mut currentLine : String = "".to_string();
+    let mut currentWidth : f64 = 0_f64;
+    let mut wordStart : i64 = 0;
+    let textLen : i64 = text.len() as i64;
+    let mut i : i64 = 0;
+    while i <= textLen {
+      let mut ch : i64 = 0;
+      let isEnd : bool = i == textLen;
+      if  isEnd == false {
+        ch = text.chars().nth(i as usize).unwrap_or('\0') as i64;
+      }
+      let mut isWordEnd : bool = false;
+      if  isEnd {
+        isWordEnd = true;
+      }
+      if  ch == 32 {
+        isWordEnd = true;
+      }
+      if  ch == 10 {
+        isWordEnd = true;
+      }
+      if  isWordEnd {
+        let mut word : String = "".to_string();
+        if  i > wordStart {
+          word = text.chars().skip(wordStart as usize).take((i - wordStart) as usize).collect::<String>();
+        }
+        let wordWidth : f64 = self.measureTextWidth(word.clone(), fontFamily.clone(), fontSize);
+        let mut spaceWidth : f64 = 0_f64;
+        if  (currentLine.len() as i64) > 0 {
+          spaceWidth = self.measureTextWidth(" ".to_string(), fontFamily.clone(), fontSize);
+        }
+        if  ((currentWidth + spaceWidth) + wordWidth) <= maxWidth {
+          if  (currentLine.len() as i64) > 0 {
+            currentLine = [&*currentLine, &*" ".to_string()].concat();
+            currentWidth = currentWidth + spaceWidth;
+          }
+          currentLine = [&*currentLine, &*word].concat();
+          currentWidth = currentWidth + wordWidth;
+        } else {
+          if  (currentLine.len() as i64) > 0 {
+            lines.push(currentLine.clone());
+          }
+          currentLine = word.clone();
+          currentWidth = wordWidth;
+        }
+        if  ch == 10 {
+          lines.push(currentLine.clone());
+          currentLine = "".to_string();
+          currentWidth = 0_f64;
+        }
+        wordStart = i + 1;
+      }
+      i = i + 1;
+    };
+    if  (currentLine.len() as i64) > 0 {
+      lines.push(currentLine.clone());
+    }
+    return lines.clone();
+  }
+}
+impl EVGTextMeasurerTrait for SimpleTextMeasurer {
+  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
+    SimpleTextMeasurer::measureText(self, text, fontFamily, fontSize)
+  }
+  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64 {
+    SimpleTextMeasurer::measureTextWidth(self, text, fontFamily, fontSize)
+  }
+  fn getLineHeight(&self, fontFamily : String, fontSize : f64) -> f64 {
+    SimpleTextMeasurer::getLineHeight(fontFamily, fontSize)
+  }
+  fn measureChar(&self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
+    SimpleTextMeasurer::measureChar(ch, fontFamily, fontSize)
+  }
+  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+    SimpleTextMeasurer::wrapText(self, text, fontFamily, fontSize, maxWidth)
   }
 }
 #[derive(Clone)]
@@ -7475,26 +7609,26 @@ impl EVGImageMeasurer {
     };
     return me;
   }
-  fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions {
+  fn getImageDimensions(src : String) -> EVGImageDimensions {
     let mut dims : EVGImageDimensions = EVGImageDimensions::new();
     return dims.clone();
   }
   fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
-    let mut dims : EVGImageDimensions = self.getImageDimensions(src.clone());
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid {
       return targetWidth / dims.aspectRatio;
     }
     return targetWidth;
   }
   fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
-    let mut dims : EVGImageDimensions = self.getImageDimensions(src.clone());
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid {
       return targetHeight * dims.aspectRatio;
     }
     return targetHeight;
   }
   fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
-    let mut dims : EVGImageDimensions = self.getImageDimensions(src.clone());
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid == false {
       return EVGImageDimensions::create((maxWidth as i64 ), (maxHeight as i64 )).clone();
     }
@@ -7509,6 +7643,27 @@ impl EVGImageMeasurer {
     return EVGImageDimensions::create(newW, newH).clone();
   }
 }
+
+pub trait EVGImageMeasurerTrait {
+  fn getImageDimensions(&self, src : String) -> EVGImageDimensions;
+  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64;
+  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64;
+  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions;
+}
+impl EVGImageMeasurerTrait for EVGImageMeasurer {
+  fn getImageDimensions(&self, src : String) -> EVGImageDimensions {
+    EVGImageMeasurer::getImageDimensions(src)
+  }
+  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64 {
+    EVGImageMeasurer::calculateHeightForWidth(self, src, targetWidth)
+  }
+  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64 {
+    EVGImageMeasurer::calculateWidthForHeight(self, src, targetHeight)
+  }
+  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+    EVGImageMeasurer::calculateFitDimensions(self, src, maxWidth, maxHeight)
+  }
+}
 #[derive(Clone)]
 struct SimpleImageMeasurer { 
 }
@@ -7520,10 +7675,60 @@ impl SimpleImageMeasurer {
     return me;
   }
 }
-#[derive(Clone)]
+impl SimpleImageMeasurer {
+  // Inherited methods from parent class EVGImageMeasurer
+  fn getImageDimensions(src : String) -> EVGImageDimensions {
+    let mut dims : EVGImageDimensions = EVGImageDimensions::new();
+    return dims.clone();
+  }
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
+    if  dims.isValid {
+      return targetWidth / dims.aspectRatio;
+    }
+    return targetWidth;
+  }
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
+    if  dims.isValid {
+      return targetHeight * dims.aspectRatio;
+    }
+    return targetHeight;
+  }
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
+    if  dims.isValid == false {
+      return EVGImageDimensions::create((maxWidth as i64 ), (maxHeight as i64 )).clone();
+    }
+    let scaleW : f64 = maxWidth / ((dims.width as f64));
+    let scaleH : f64 = maxHeight / ((dims.height as f64));
+    let mut scale : f64 = scaleW;
+    if  scaleH < scaleW {
+      scale = scaleH;
+    }
+    let newW : i64 = (((dims.width as f64)) * scale) as i64 ;
+    let newH : i64 = (((dims.height as f64)) * scale) as i64 ;
+    return EVGImageDimensions::create(newW, newH).clone();
+  }
+}
+impl EVGImageMeasurerTrait for SimpleImageMeasurer {
+  fn getImageDimensions(&self, src : String) -> EVGImageDimensions {
+    SimpleImageMeasurer::getImageDimensions(src)
+  }
+  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64 {
+    SimpleImageMeasurer::calculateHeightForWidth(self, src, targetWidth)
+  }
+  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64 {
+    SimpleImageMeasurer::calculateWidthForHeight(self, src, targetHeight)
+  }
+  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+    SimpleImageMeasurer::calculateFitDimensions(self, src, maxWidth, maxHeight)
+  }
+}
+// Cannot derive Clone due to trait object fields
 struct EVGLayout { 
-  measurer : Option<EVGTextMeasurer>, 
-  imageMeasurer : Option<EVGImageMeasurer>, 
+  measurer : Option<Rc<RefCell<dyn EVGTextMeasurerTrait>>>, 
+  imageMeasurer : Option<Rc<RefCell<dyn EVGImageMeasurerTrait>>>, 
   pageWidth : f64, 
   pageHeight : f64, 
   currentPage : i64, 
@@ -7541,15 +7746,15 @@ impl EVGLayout {
       debug:false, 
     };
     let mut m : SimpleTextMeasurer = SimpleTextMeasurer::new();
-    me.measurer = Some(m.clone());
+    me.measurer = Some(Rc::new(RefCell::new(m.clone())));
     let mut im : SimpleImageMeasurer = SimpleImageMeasurer::new();
-    me.imageMeasurer = Some(im.clone());
+    me.imageMeasurer = Some(Rc::new(RefCell::new(im.clone())));
     return me;
   }
-  fn setMeasurer(&mut self, mut m : EVGTextMeasurer) -> () {
+  fn setMeasurer(&mut self, mut m : Rc<RefCell<dyn EVGTextMeasurerTrait>>) -> () {
     self.measurer = Some(m.clone());
   }
-  fn setImageMeasurer(&mut self, mut m : EVGImageMeasurer) -> () {
+  fn setImageMeasurer(&mut self, mut m : Rc<RefCell<dyn EVGImageMeasurerTrait>>) -> () {
     self.imageMeasurer = Some(m.clone());
   }
   fn setPageSize(&mut self, w : f64, h : f64) -> () {
@@ -7567,11 +7772,11 @@ impl EVGLayout {
   fn layout(&mut self, mut root : EVGElement) -> () {
     self.log("EVGLayout: Starting layout".to_string());
     self.currentPage = 0;
-    if  root.width.isSet == false {
-      root.width = Some(EVGUnit::pixels(self.pageWidth));
+    if  root.width.as_mut().unwrap().isSet == false {
+      root.width = Some(EVGUnit::px(self.pageWidth));
     }
-    if  root.height.isSet == false {
-      root.height = Some(EVGUnit::pixels(self.pageHeight));
+    if  root.height.as_mut().unwrap().isSet == false {
+      root.height = Some(EVGUnit::px(self.pageHeight));
     }
     self.layoutElement(root.clone(), 0_f64, 0_f64, self.pageWidth, self.pageHeight);
     self.log("EVGLayout: Layout complete".to_string());
@@ -7579,30 +7784,30 @@ impl EVGLayout {
   fn layoutElement(&mut self, mut element : EVGElement, parentX : f64, parentY : f64, parentWidth : f64, parentHeight : f64) -> () {
     element.resolveUnits(parentWidth, parentHeight);
     let mut width : f64 = parentWidth;
-    if  element.width.isSet {
-      width = element.width.pixels;
+    if  element.width.as_mut().unwrap().isSet {
+      width = element.width.as_mut().unwrap().pixels;
     }
     let mut height : f64 = 0_f64;
     let mut autoHeight : bool = true;
-    if  element.height.isSet {
-      height = element.height.pixels;
+    if  element.height.as_mut().unwrap().isSet {
+      height = element.height.as_mut().unwrap().pixels;
       autoHeight = false;
     }
     if  element.tagName == "image".to_string() {
       let imgSrc : String = element.src.clone();
       if  (imgSrc.len() as i64) > 0 {
-        let mut dims : EVGImageDimensions = self.imageMeasurer.getImageDimensions(imgSrc.clone());
+        let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(imgSrc.clone());
         if  dims.isValid {
-          if  element.width.isSet && (element.height.isSet == false) {
+          if  element.width.as_mut().unwrap().isSet && (element.height.as_mut().unwrap().isSet == false) {
             height = width / dims.aspectRatio;
             autoHeight = false;
-            self.log(format!("{}{}", (format!("{}{}", (format!("{}{}", "  Image aspect ratio: ".to_string(), (dims.aspectRatio.to_string()))), " -> height=".to_string())), (height.to_string())));
+            self.log([&*([&*([&*"  Image aspect ratio: ".to_string(), &*(dims.aspectRatio.to_string())].concat()), &*" -> height=".to_string()].concat()), &*(height.to_string())].concat());
           }
-          if  (element.width.isSet == false) && element.height.isSet {
+          if  (element.width.as_mut().unwrap().isSet == false) && element.height.as_mut().unwrap().isSet {
             width = height * dims.aspectRatio;
-            self.log(format!("{}{}", (format!("{}{}", (format!("{}{}", "  Image aspect ratio: ".to_string(), (dims.aspectRatio.to_string()))), " -> width=".to_string())), (width.to_string())));
+            self.log([&*([&*([&*"  Image aspect ratio: ".to_string(), &*(dims.aspectRatio.to_string())].concat()), &*" -> width=".to_string()].concat()), &*(width.to_string())].concat());
           }
-          if  (element.width.isSet == false) && (element.height.isSet == false) {
+          if  (element.width.as_mut().unwrap().isSet == false) && (element.height.as_mut().unwrap().isSet == false) {
             width = (dims.width as f64);
             height = (dims.height as f64);
             if  width > parentWidth {
@@ -7611,26 +7816,26 @@ impl EVGLayout {
               height = height * scale;
             }
             autoHeight = false;
-            self.log(format!("{}{}", (format!("{}{}", (format!("{}{}", "  Image natural size: ".to_string(), (width.to_string()))), "x".to_string())), (height.to_string())));
+            self.log([&*([&*([&*"  Image natural size: ".to_string(), &*(width.to_string())].concat()), &*"x".to_string()].concat()), &*(height.to_string())].concat());
           }
         }
       }
     }
-    if  element.minWidth.isSet {
-      if  width < element.minWidth.pixels {
-        width = element.minWidth.pixels;
+    if  element.minWidth.as_mut().unwrap().isSet {
+      if  width < element.minWidth.as_mut().unwrap().pixels {
+        width = element.minWidth.as_mut().unwrap().pixels;
       }
     }
-    if  element.maxWidth.isSet {
-      if  width > element.maxWidth.pixels {
-        width = element.maxWidth.pixels;
+    if  element.maxWidth.as_mut().unwrap().isSet {
+      if  width > element.maxWidth.as_mut().unwrap().pixels {
+        width = element.maxWidth.as_mut().unwrap().pixels;
       }
     }
     element.calculatedWidth = width;
-    element.calculatedInnerWidth = element.r#box.getInnerWidth(width);
+    element.calculatedInnerWidth = element.r#box.as_mut().unwrap().getInnerWidth(width);
     if  autoHeight == false {
       element.calculatedHeight = height;
-      element.calculatedInnerHeight = element.r#box.getInnerHeight(height);
+      element.calculatedInnerHeight = element.r#box.as_mut().unwrap().getInnerHeight(height);
     }
     if  element.isAbsolute {
       self.layoutAbsolute(element.clone(), parentWidth, parentHeight);
@@ -7642,8 +7847,8 @@ impl EVGLayout {
     } else {
       if  (element.tagName == "text".to_string()) || (element.tagName == "span".to_string()) {
         let mut fontSize : f64 = element.inheritedFontSize;
-        if  element.fontSize.isSet {
-          fontSize = element.fontSize.pixels;
+        if  element.fontSize.as_mut().unwrap().isSet {
+          fontSize = element.fontSize.as_mut().unwrap().pixels;
         }
         if  fontSize <= 0_f64 {
           fontSize = 14_f64;
@@ -7654,29 +7859,29 @@ impl EVGLayout {
         }
         let lineSpacing : f64 = fontSize * lineHeightFactor;
         let textContent : String = element.textContent.clone();
-        let availableWidth : f64 = (width - element.r#box.paddingLeftPx) - element.r#box.paddingRightPx;
+        let availableWidth : f64 = (width - element.r#box.as_mut().unwrap().paddingLeftPx) - element.r#box.as_mut().unwrap().paddingRightPx;
         let lineCount : i64 = self.estimateLineCount(textContent.clone(), availableWidth, fontSize);
         contentHeight = lineSpacing * ((lineCount as f64));
       }
     }
     if  autoHeight {
-      height = ((contentHeight + element.r#box.paddingTopPx) + element.r#box.paddingBottomPx) + (element.r#box.borderWidthPx * 2_f64);
+      height = ((contentHeight + element.r#box.as_mut().unwrap().paddingTopPx) + element.r#box.as_mut().unwrap().paddingBottomPx) + (element.r#box.as_mut().unwrap().borderWidthPx * 2_f64);
     }
-    if  element.minHeight.isSet {
-      if  height < element.minHeight.pixels {
-        height = element.minHeight.pixels;
+    if  element.minHeight.as_mut().unwrap().isSet {
+      if  height < element.minHeight.as_mut().unwrap().pixels {
+        height = element.minHeight.as_mut().unwrap().pixels;
       }
     }
-    if  element.maxHeight.isSet {
-      if  height > element.maxHeight.pixels {
-        height = element.maxHeight.pixels;
+    if  element.maxHeight.as_mut().unwrap().isSet {
+      if  height > element.maxHeight.as_mut().unwrap().pixels {
+        height = element.maxHeight.as_mut().unwrap().pixels;
       }
     }
     element.calculatedHeight = height;
-    element.calculatedInnerHeight = element.r#box.getInnerHeight(height);
+    element.calculatedInnerHeight = element.r#box.as_mut().unwrap().getInnerHeight(height);
     element.calculatedPage = self.currentPage;
     element.isLayoutComplete = true;
-    self.log(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  Laid out ".to_string(), element.tagName)), " id=".to_string())), element.id)), " at (".to_string())), (element.calculatedX.to_string()))), ",".to_string())), (element.calculatedY.to_string()))), ") size=".to_string())), (width.to_string()))), "x".to_string())), (height.to_string())));
+    self.log([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*"  Laid out ".to_string(), &*element.tagName].concat()), &*" id=".to_string()].concat()), &*element.id].concat()), &*" at (".to_string()].concat()), &*(element.calculatedX.to_string())].concat()), &*",".to_string()].concat()), &*(element.calculatedY.to_string())].concat()), &*") size=".to_string()].concat()), &*(width.to_string())].concat()), &*"x".to_string()].concat()), &*(height.to_string())].concat());
   }
   fn layoutChildren(&mut self, mut parent : EVGElement) -> f64 {
     let childCount : i64 = parent.getChildCount();
@@ -7685,8 +7890,8 @@ impl EVGLayout {
     }
     let innerWidth : f64 = parent.calculatedInnerWidth;
     let innerHeight : f64 = parent.calculatedInnerHeight;
-    let startX : f64 = ((parent.calculatedX + parent.r#box.marginLeftPx) + parent.r#box.borderWidthPx) + parent.r#box.paddingLeftPx;
-    let startY : f64 = ((parent.calculatedY + parent.r#box.marginTopPx) + parent.r#box.borderWidthPx) + parent.r#box.paddingTopPx;
+    let startX : f64 = ((parent.calculatedX + parent.r#box.as_mut().unwrap().marginLeftPx) + parent.r#box.as_mut().unwrap().borderWidthPx) + parent.r#box.as_mut().unwrap().paddingLeftPx;
+    let startY : f64 = ((parent.calculatedY + parent.r#box.as_mut().unwrap().marginTopPx) + parent.r#box.as_mut().unwrap().borderWidthPx) + parent.r#box.as_mut().unwrap().paddingTopPx;
     let mut currentX : f64 = startX;
     let mut currentY : f64 = startY;
     let mut rowHeight : f64 = 0_f64;
@@ -7700,14 +7905,14 @@ impl EVGLayout {
       while j < childCount {
         let mut c : EVGElement = parent.getChild(j);
         c.resolveUnits(innerWidth, innerHeight);
-        if  c.width.isSet {
-          fixedWidth = ((fixedWidth + c.width.pixels) + c.r#box.marginLeftPx) + c.r#box.marginRightPx;
+        if  c.width.as_mut().unwrap().isSet {
+          fixedWidth = ((fixedWidth + c.width.as_mut().unwrap().pixels) + c.r#box.as_mut().unwrap().marginLeftPx) + c.r#box.as_mut().unwrap().marginRightPx;
         } else {
           if  c.flex > 0_f64 {
             totalFlex = totalFlex + c.flex;
-            fixedWidth = (fixedWidth + c.r#box.marginLeftPx) + c.r#box.marginRightPx;
+            fixedWidth = (fixedWidth + c.r#box.as_mut().unwrap().marginLeftPx) + c.r#box.as_mut().unwrap().marginRightPx;
           } else {
-            fixedWidth = ((fixedWidth + innerWidth) + c.r#box.marginLeftPx) + c.r#box.marginRightPx;
+            fixedWidth = ((fixedWidth + innerWidth) + c.r#box.as_mut().unwrap().marginLeftPx) + c.r#box.as_mut().unwrap().marginRightPx;
           }
         }
         j = j + 1;
@@ -7720,7 +7925,7 @@ impl EVGLayout {
         j = 0;
         while j < childCount {
           let mut c_1 : EVGElement = parent.getChild(j);
-          if  (c_1.width.isSet == false) && (c_1.flex > 0_f64) {
+          if  (c_1.width.as_mut().unwrap().isSet == false) && (c_1.flex > 0_f64) {
             let flexWidth : f64 = (availableForFlex * c_1.flex) / totalFlex;
             c_1.calculatedFlexWidth = flexWidth;
           }
@@ -7744,14 +7949,14 @@ impl EVGLayout {
         continue;
       }
       let mut childWidth : f64 = innerWidth;
-      if  child.width.isSet {
-        childWidth = child.width.pixels;
+      if  child.width.as_mut().unwrap().isSet {
+        childWidth = child.width.as_mut().unwrap().pixels;
       } else {
         if  child.calculatedFlexWidth > 0_f64 {
           childWidth = child.calculatedFlexWidth;
         }
       }
-      let childTotalWidth : f64 = (childWidth + child.r#box.marginLeftPx) + child.r#box.marginRightPx;
+      let childTotalWidth : f64 = (childWidth + child.r#box.as_mut().unwrap().marginLeftPx) + child.r#box.as_mut().unwrap().marginRightPx;
       if  isColumn == false {
         let availableWidth : f64 = (startX + innerWidth) - currentX;
         if  (childTotalWidth > availableWidth) && (((rowElements.len() as i64)) > 0) {
@@ -7760,14 +7965,13 @@ impl EVGLayout {
           totalHeight = totalHeight + rowHeight;
           currentX = startX;
           rowHeight = 0_f64;
-          rowElements.length = 0;
         }
       }
-      child.calculatedX = currentX + child.r#box.marginLeftPx;
-      child.calculatedY = currentY + child.r#box.marginTopPx;
+      child.calculatedX = currentX + child.r#box.as_mut().unwrap().marginLeftPx;
+      child.calculatedY = currentY + child.r#box.as_mut().unwrap().marginTopPx;
       self.layoutElement(child.clone(), child.calculatedX, child.calculatedY, childWidth, innerHeight);
       let childHeight : f64 = child.calculatedHeight;
-      let childTotalHeight : f64 = (childHeight + child.r#box.marginTopPx) + child.r#box.marginBottomPx;
+      let childTotalHeight : f64 = (childHeight + child.r#box.as_mut().unwrap().marginTopPx) + child.r#box.as_mut().unwrap().marginBottomPx;
       if  isColumn {
         currentY = currentY + childTotalHeight;
         totalHeight = totalHeight + childTotalHeight;
@@ -7785,7 +7989,6 @@ impl EVGLayout {
           totalHeight = totalHeight + rowHeight;
           currentX = startX;
           rowHeight = 0_f64;
-          rowElements.length = 0;
         }
       }
       i = i + 1;
@@ -7805,7 +8008,7 @@ impl EVGLayout {
     let mut i : i64 = 0;
     while i < elementCount {
       let mut el : EVGElement = rowElements[i as usize].clone();
-      rowWidth = ((rowWidth + el.calculatedWidth) + el.r#box.marginLeftPx) + el.r#box.marginRightPx;
+      rowWidth = ((rowWidth + el.calculatedWidth) + el.r#box.as_mut().unwrap().marginLeftPx) + el.r#box.as_mut().unwrap().marginRightPx;
       i = i + 1;
     };
     let mut offsetX : f64 = 0_f64;
@@ -7816,7 +8019,7 @@ impl EVGLayout {
       offsetX = innerWidth - rowWidth;
     }
     let mut effectiveRowHeight : f64 = rowHeight;
-    if  parent.height.isSet {
+    if  parent.height.as_mut().unwrap().isSet {
       let parentInnerHeight : f64 = parent.calculatedInnerHeight;
       if  parentInnerHeight > rowHeight {
         effectiveRowHeight = parentInnerHeight;
@@ -7828,7 +8031,7 @@ impl EVGLayout {
       if  offsetX != 0_f64 {
         el_1.calculatedX = el_1.calculatedX + offsetX;
       }
-      let childTotalHeight : f64 = (el_1.calculatedHeight + el_1.r#box.marginTopPx) + el_1.r#box.marginBottomPx;
+      let childTotalHeight : f64 = (el_1.calculatedHeight + el_1.r#box.as_mut().unwrap().marginTopPx) + el_1.r#box.as_mut().unwrap().marginBottomPx;
       let mut offsetY : f64 = 0_f64;
       if  parent.verticalAlign == "center".to_string() {
         offsetY = (effectiveRowHeight - childTotalHeight) / 2_f64;
@@ -7843,37 +8046,37 @@ impl EVGLayout {
     };
   }
   fn layoutAbsolute(&mut self, mut element : EVGElement, parentWidth : f64, parentHeight : f64) -> () {
-    if  element.left.isSet {
-      element.calculatedX = element.left.pixels + element.r#box.marginLeftPx;
+    if  element.left.as_mut().unwrap().isSet {
+      element.calculatedX = element.left.as_mut().unwrap().pixels + element.r#box.as_mut().unwrap().marginLeftPx;
     } else {
-      if  element.x.isSet {
-        element.calculatedX = element.x.pixels + element.r#box.marginLeftPx;
+      if  element.x.as_mut().unwrap().isSet {
+        element.calculatedX = element.x.as_mut().unwrap().pixels + element.r#box.as_mut().unwrap().marginLeftPx;
       } else {
-        if  element.right.isSet {
+        if  element.right.as_mut().unwrap().isSet {
           let mut width : f64 = element.calculatedWidth;
           if  width == 0_f64 {
-            if  element.width.isSet {
-              width = element.width.pixels;
+            if  element.width.as_mut().unwrap().isSet {
+              width = element.width.as_mut().unwrap().pixels;
             }
           }
-          element.calculatedX = ((parentWidth - element.right.pixels) - width) - element.r#box.marginRightPx;
+          element.calculatedX = ((parentWidth - element.right.as_mut().unwrap().pixels) - width) - element.r#box.as_mut().unwrap().marginRightPx;
         }
       }
     }
-    if  element.top.isSet {
-      element.calculatedY = element.top.pixels + element.r#box.marginTopPx;
+    if  element.top.as_mut().unwrap().isSet {
+      element.calculatedY = element.top.as_mut().unwrap().pixels + element.r#box.as_mut().unwrap().marginTopPx;
     } else {
-      if  element.y.isSet {
-        element.calculatedY = element.y.pixels + element.r#box.marginTopPx;
+      if  element.y.as_mut().unwrap().isSet {
+        element.calculatedY = element.y.as_mut().unwrap().pixels + element.r#box.as_mut().unwrap().marginTopPx;
       } else {
-        if  element.bottom.isSet {
+        if  element.bottom.as_mut().unwrap().isSet {
           let mut height : f64 = element.calculatedHeight;
           if  height == 0_f64 {
-            if  element.height.isSet {
-              height = element.height.pixels;
+            if  element.height.as_mut().unwrap().isSet {
+              height = element.height.as_mut().unwrap().pixels;
             }
           }
-          element.calculatedY = ((parentHeight - element.bottom.pixels) - height) - element.r#box.marginBottomPx;
+          element.calculatedY = ((parentHeight - element.bottom.as_mut().unwrap().pixels) - height) - element.r#box.as_mut().unwrap().marginBottomPx;
         }
       }
     }
@@ -7882,10 +8085,10 @@ impl EVGLayout {
     let mut indentStr : String = "".to_string();
     let mut i : i64 = 0;
     while i < indent {
-      indentStr = format!("{}{}", indentStr, "  ".to_string());
+      indentStr = [&*indentStr, &*"  ".to_string()].concat();
       i = i + 1;
     };
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", indentStr, element.tagName)), " id=\"".to_string())), element.id)), "\" (".to_string())), (element.calculatedX.to_string()))), ", ".to_string())), (element.calculatedY.to_string()))), ") ".to_string())), (element.calculatedWidth.to_string()))), "x".to_string())), (element.calculatedHeight.to_string())) );
+    println!( "{}", [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*indentStr, &*element.tagName].concat()), &*" id=\"".to_string()].concat()), &*element.id].concat()), &*"\" (".to_string()].concat()), &*(element.calculatedX.to_string())].concat()), &*", ".to_string()].concat()), &*(element.calculatedY.to_string())].concat()), &*") ".to_string()].concat()), &*(element.calculatedWidth.to_string())].concat()), &*"x".to_string()].concat()), &*(element.calculatedHeight.to_string())].concat() );
     let childCount : i64 = element.getChildCount();
     i = 0;
     while i < childCount {
@@ -7901,14 +8104,14 @@ impl EVGLayout {
     if  maxWidth <= 0_f64 {
       return 1;
     }
-    let mut words : Vec<String> = text.split(" ".to_string());
+    let mut words : Vec<String> = text.split(&*" ".to_string()).map(|s| s.to_string()).collect::<Vec<String>>();
     let mut lineCount : i64 = 1;
     let mut currentLineWidth : f64 = 0_f64;
     let spaceWidth : f64 = fontSize * 0.3_f64;
     let mut i : i64 = 0;
     while i < ((words.len() as i64)) {
       let word : String = words[i as usize].clone();
-      let wordWidth : f64 = self.measurer.measureTextWidth(word.clone(), "Helvetica".to_string(), fontSize);
+      let wordWidth : f64 = self.measurer.as_mut().unwrap().measureTextWidth(word.clone(), "Helvetica".to_string(), fontSize);
       if  currentLineWidth == 0_f64 {
         currentLineWidth = wordWidth;
       } else {
@@ -8029,7 +8232,7 @@ impl SVGPathParser {
       if  self.i >= self.__len {
         break;
       }
-      let ch : u8 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
+      let ch : i64 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
       let chInt : i64 = ch;
       if  ((chInt >= 65) && (chInt <= 90)) || ((chInt >= 97) && (chInt <= 122)) {
         self.parseCommand(ch);
@@ -8041,7 +8244,7 @@ impl SVGPathParser {
   }
   fn skipWhitespace(&mut self, ) -> () {
     while self.i < self.__len {
-      let ch : u8 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
+      let ch : i64 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
       let chInt : i64 = ch;
       if  ((((chInt == 32) || (chInt == 9)) || (chInt == 10)) || (chInt == 13)) || (chInt == 44) {
         self.i = self.i + 1;
@@ -8053,13 +8256,13 @@ impl SVGPathParser {
   fn parseNumber(&mut self, ) -> f64 {
     self.skipWhitespace();
     let start : i64 = self.i;
-    let ch : u8 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
+    let ch : i64 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
     let chInt : i64 = ch;
     if  (chInt == 45) || (chInt == 43) {
       self.i = self.i + 1;
     }
     while self.i < self.__len {
-      let ch2 : u8 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
+      let ch2 : i64 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
       let chInt2 : i64 = ch2;
       if  (chInt2 >= 48) && (chInt2 <= 57) {
         self.i = self.i + 1;
@@ -8068,12 +8271,12 @@ impl SVGPathParser {
       }
     };
     if  self.i < self.__len {
-      let ch3 : u8 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
+      let ch3 : i64 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
       let chInt3 : i64 = ch3;
       if  chInt3 == 46 {
         self.i = self.i + 1;
         while self.i < self.__len {
-          let ch4 : u8 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
+          let ch4 : i64 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
           let chInt4 : i64 = ch4;
           if  (chInt4 >= 48) && (chInt4 <= 57) {
             self.i = self.i + 1;
@@ -8084,19 +8287,19 @@ impl SVGPathParser {
       }
     }
     if  self.i < self.__len {
-      let ch5 : u8 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
+      let ch5 : i64 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
       let chInt5 : i64 = ch5;
       if  (chInt5 == 101) || (chInt5 == 69) {
         self.i = self.i + 1;
         if  self.i < self.__len {
-          let ch6 : u8 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
+          let ch6 : i64 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
           let chInt6 : i64 = ch6;
           if  (chInt6 == 45) || (chInt6 == 43) {
             self.i = self.i + 1;
           }
         }
         while self.i < self.__len {
-          let ch7 : u8 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
+          let ch7 : i64 = self.pathData.chars().nth(self.i as usize).unwrap_or('\0') as i64;
           let chInt7 : i64 = ch7;
           if  (chInt7 >= 48) && (chInt7 <= 57) {
             self.i = self.i + 1;
@@ -8110,7 +8313,7 @@ impl SVGPathParser {
     let result : f64 = (numStr.parse::<f64>().ok()).unwrap();
     return result;
   }
-  fn parseCommand(&mut self, cmd : u8) -> () {
+  fn parseCommand(&mut self, cmd : i64) -> () {
     let cmdInt : i64 = cmd;
     // unused:  let cmdStr : String = (char::from_u32(cmdInt as u32).unwrap_or('\0').to_string());
     self.i = self.i + 1;
@@ -8324,28 +8527,28 @@ impl SVGPathParser {
       }
       i_1 = i_1 + 1;
     };
-    self.bounds.minX = minX;
-    self.bounds.minY = minY;
-    self.bounds.maxX = maxX;
-    self.bounds.maxY = maxY;
-    self.bounds.width = maxX - minX;
-    self.bounds.height = maxY - minY;
+    self.bounds.as_mut().unwrap().minX = minX;
+    self.bounds.as_mut().unwrap().minY = minY;
+    self.bounds.as_mut().unwrap().maxX = maxX;
+    self.bounds.as_mut().unwrap().maxY = maxY;
+    self.bounds.as_mut().unwrap().width = maxX - minX;
+    self.bounds.as_mut().unwrap().height = maxY - minY;
   }
   fn getBounds(&mut self, ) -> PathBounds {
     let mut result : PathBounds = self.bounds.clone().unwrap();
     return result.clone();
   }
   fn getCommands(&mut self, ) -> Vec<PathCommand> {
-    return self.commands;
+    return self.commands.clone();
   }
   fn getScaledCommands(&mut self, targetWidth : f64, targetHeight : f64) -> Vec<PathCommand> {
     let mut scaleX : f64 = 1_f64;
     let mut scaleY : f64 = 1_f64;
-    if  self.bounds.width > 0_f64 {
-      scaleX = targetWidth / self.bounds.width;
+    if  self.bounds.as_mut().unwrap().width > 0_f64 {
+      scaleX = targetWidth / self.bounds.as_mut().unwrap().width;
     }
-    if  self.bounds.height > 0_f64 {
-      scaleY = targetHeight / self.bounds.height;
+    if  self.bounds.as_mut().unwrap().height > 0_f64 {
+      scaleY = targetHeight / self.bounds.as_mut().unwrap().height;
     }
     let mut scaled : Vec<PathCommand> = Vec::new();
     let mut i_1 : i64 = 0;
@@ -8354,27 +8557,27 @@ impl SVGPathParser {
       let mut newCmd : PathCommand = PathCommand::new();
       newCmd.r#type = cmd.r#type.clone();
       if  (cmd.r#type == "M".to_string()) || (cmd.r#type == "L".to_string()) {
-        newCmd.x = (cmd.x - self.bounds.minX) * scaleX;
-        newCmd.y = (cmd.y - self.bounds.minY) * scaleY;
+        newCmd.x = (cmd.x - self.bounds.as_mut().unwrap().minX) * scaleX;
+        newCmd.y = (cmd.y - self.bounds.as_mut().unwrap().minY) * scaleY;
       }
       if  cmd.r#type == "C".to_string() {
-        newCmd.x1 = (cmd.x1 - self.bounds.minX) * scaleX;
-        newCmd.y1 = (cmd.y1 - self.bounds.minY) * scaleY;
-        newCmd.x2 = (cmd.x2 - self.bounds.minX) * scaleX;
-        newCmd.y2 = (cmd.y2 - self.bounds.minY) * scaleY;
-        newCmd.x = (cmd.x - self.bounds.minX) * scaleX;
-        newCmd.y = (cmd.y - self.bounds.minY) * scaleY;
+        newCmd.x1 = (cmd.x1 - self.bounds.as_mut().unwrap().minX) * scaleX;
+        newCmd.y1 = (cmd.y1 - self.bounds.as_mut().unwrap().minY) * scaleY;
+        newCmd.x2 = (cmd.x2 - self.bounds.as_mut().unwrap().minX) * scaleX;
+        newCmd.y2 = (cmd.y2 - self.bounds.as_mut().unwrap().minY) * scaleY;
+        newCmd.x = (cmd.x - self.bounds.as_mut().unwrap().minX) * scaleX;
+        newCmd.y = (cmd.y - self.bounds.as_mut().unwrap().minY) * scaleY;
       }
       if  cmd.r#type == "Q".to_string() {
-        newCmd.x1 = (cmd.x1 - self.bounds.minX) * scaleX;
-        newCmd.y1 = (cmd.y1 - self.bounds.minY) * scaleY;
-        newCmd.x = (cmd.x - self.bounds.minX) * scaleX;
-        newCmd.y = (cmd.y - self.bounds.minY) * scaleY;
+        newCmd.x1 = (cmd.x1 - self.bounds.as_mut().unwrap().minX) * scaleX;
+        newCmd.y1 = (cmd.y1 - self.bounds.as_mut().unwrap().minY) * scaleY;
+        newCmd.x = (cmd.x - self.bounds.as_mut().unwrap().minX) * scaleX;
+        newCmd.y = (cmd.y - self.bounds.as_mut().unwrap().minY) * scaleY;
       }
       scaled.push(newCmd.clone());
       i_1 = i_1 + 1;
     };
-    return scaled;
+    return scaled.clone();
   }
 }
 #[derive(Clone)]
@@ -8493,7 +8696,7 @@ impl TrueTypeFont {
       i = i + 1;
     };
     let mut dirPath : String = ".".to_string();
-    let mut fileName : String = path;
+    let mut fileName : String = path.clone();
     if  lastSlash >= 0 {
       dirPath = path.chars().skip(0 as usize).take((lastSlash - 0) as usize).collect::<String>();
       fileName = path.chars().skip((lastSlash + 1) as usize).take(((path.len() as i64) - (lastSlash + 1)) as usize).collect::<String>();
@@ -8503,7 +8706,7 @@ impl TrueTypeFont {
     }
     self.fontData = std::fs::read(format!("{}/{}", dirPath, fileName)).unwrap_or_default();
     if  (self.fontData.len() as i64) == 0 {
-      println!( "{}", format!("{}{}", "TrueTypeFont: Failed to load ".to_string(), path) );
+      println!( "{}", [&*"TrueTypeFont: Failed to load ".to_string(), &*path].concat() );
       return false;
     }
     if  self.parseOffsetTable() == false {
@@ -8772,16 +8975,16 @@ impl TrueTypeFont {
     return (asc - desc) + gap;
   }
   fn getFontData(&mut self, ) -> Vec<u8> {
-    return self.fontData;
+    return self.fontData.clone();
   }
   fn getPostScriptName(&mut self, ) -> String {
-    let name : String = self.fontFamily;
+    let name : String = self.fontFamily.clone();
     let mut result : String = "".to_string();
     let mut i : i64 = 0;
     while i < (name.len() as i64) {
       let ch : i64 = name.chars().nth(i as usize).unwrap_or('\0') as i64;
       if  ch != 32 {
-        result = format!("{}{}", result, ((char::from_u32(ch as u32).unwrap_or('\0').to_string())));
+        result = [&*result, &*((char::from_u32(ch as u32).unwrap_or('\0').to_string()))].concat();
       }
       i = i + 1;
     };
@@ -8791,11 +8994,11 @@ impl TrueTypeFont {
     return result.clone();
   }
   fn readUInt8(&mut self, offset : i64) -> i64 {
-    return self.fontData[offset as usize] as i64;
+    return self.fontData[(offset) as usize] as i64;
   }
   fn readUInt16(&mut self, offset : i64) -> i64 {
-    let b1 : i64 = self.fontData[offset as usize] as i64;
-    let b2 : i64 = self.fontData[(offset + 1) as usize] as i64;
+    let b1 : i64 = self.fontData[(offset) as usize] as i64;
+    let b2 : i64 = self.fontData[((offset + 1)) as usize] as i64;
     return (b1 * 256) + b2;
   }
   fn readInt16(&mut self, offset : i64) -> i64 {
@@ -8806,10 +9009,10 @@ impl TrueTypeFont {
     return val;
   }
   fn readUInt32(&mut self, offset : i64) -> i64 {
-    let b1 : i64 = self.fontData[offset as usize] as i64;
-    let b2 : i64 = self.fontData[(offset + 1) as usize] as i64;
-    let b3 : i64 = self.fontData[(offset + 2) as usize] as i64;
-    let b4 : i64 = self.fontData[(offset + 3) as usize] as i64;
+    let b1 : i64 = self.fontData[(offset) as usize] as i64;
+    let b2 : i64 = self.fontData[((offset + 1)) as usize] as i64;
+    let b3 : i64 = self.fontData[((offset + 2)) as usize] as i64;
+    let b4 : i64 = self.fontData[((offset + 3)) as usize] as i64;
     let result : i64 = (((((b1 * 256) + b2) * 256) + b3) * 256) + b4;
     return result;
   }
@@ -8817,8 +9020,8 @@ impl TrueTypeFont {
     let mut result : String = "".to_string();
     let mut i : i64 = 0;
     while i < 4 {
-      let ch : i64 = self.fontData[(offset + i) as usize] as i64;
-      result = format!("{}{}", result, ((char::from_u32(ch as u32).unwrap_or('\0').to_string())));
+      let ch : i64 = self.fontData[((offset + i)) as usize] as i64;
+      result = [&*result, &*((char::from_u32(ch as u32).unwrap_or('\0').to_string()))].concat();
       i = i + 1;
     };
     return result.clone();
@@ -8827,9 +9030,9 @@ impl TrueTypeFont {
     let mut result : String = "".to_string();
     let mut i : i64 = 0;
     while i < length {
-      let ch : i64 = self.fontData[(offset + i) as usize] as i64;
+      let ch : i64 = self.fontData[((offset + i)) as usize] as i64;
       if  ch > 0 {
-        result = format!("{}{}", result, ((char::from_u32(ch as u32).unwrap_or('\0').to_string())));
+        result = [&*result, &*((char::from_u32(ch as u32).unwrap_or('\0').to_string()))].concat();
       }
       i = i + 1;
     };
@@ -8841,21 +9044,21 @@ impl TrueTypeFont {
     while i < length {
       let ch : i64 = self.readUInt16((offset + i));
       if  (ch > 0) && (ch < 128) {
-        result = format!("{}{}", result, ((char::from_u32(ch as u32).unwrap_or('\0').to_string())));
+        result = [&*result, &*((char::from_u32(ch as u32).unwrap_or('\0').to_string()))].concat();
       }
       i = i + 2;
     };
     return result.clone();
   }
   fn printInfo(&mut self, ) -> () {
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "Font: ".to_string(), self.fontFamily)), " ".to_string())), self.fontStyle) );
-    println!( "{}", format!("{}{}", "  Units per EM: ".to_string(), (self.unitsPerEm.to_string())) );
-    println!( "{}", format!("{}{}", "  Ascender: ".to_string(), (self.ascender.to_string())) );
-    println!( "{}", format!("{}{}", "  Descender: ".to_string(), (self.descender.to_string())) );
-    println!( "{}", format!("{}{}", "  Line gap: ".to_string(), (self.lineGap.to_string())) );
-    println!( "{}", format!("{}{}", "  Num glyphs: ".to_string(), (self.numGlyphs.to_string())) );
-    println!( "{}", format!("{}{}", "  Num hMetrics: ".to_string(), (self.numberOfHMetrics.to_string())) );
-    println!( "{}", format!("{}{}", "  Tables: ".to_string(), (((self.tables.len() as i64)).to_string())) );
+    println!( "{}", [&*([&*([&*"Font: ".to_string(), &*self.fontFamily].concat()), &*" ".to_string()].concat()), &*self.fontStyle].concat() );
+    println!( "{}", [&*"  Units per EM: ".to_string(), &*(self.unitsPerEm.to_string())].concat() );
+    println!( "{}", [&*"  Ascender: ".to_string(), &*(self.ascender.to_string())].concat() );
+    println!( "{}", [&*"  Descender: ".to_string(), &*(self.descender.to_string())].concat() );
+    println!( "{}", [&*"  Line gap: ".to_string(), &*(self.lineGap.to_string())].concat() );
+    println!( "{}", [&*"  Num glyphs: ".to_string(), &*(self.numGlyphs.to_string())].concat() );
+    println!( "{}", [&*"  Num hMetrics: ".to_string(), &*(self.numberOfHMetrics.to_string())].concat() );
+    println!( "{}", [&*"  Tables: ".to_string(), &*(((self.tables.len() as i64)).to_string())].concat() );
   }
 }
 #[derive(Clone)]
@@ -8893,7 +9096,7 @@ impl FontManager {
     return (self.fonts.len() as i64);
   }
   fn addFontsDirectory(&mut self, path : String) -> () {
-    self.fontsDirectories.push(path);
+    self.fontsDirectories.push(path.clone());
   }
   fn setFontsDirectories(&mut self, paths : String) -> () {
     let mut start : i64 = 0;
@@ -8907,8 +9110,8 @@ impl FontManager {
       if  (ch == ";".to_string()) || (i == __len) {
         if  i > start {
           let part : String = paths.chars().skip(start as usize).take((i - start) as usize).collect::<String>();
-          self.fontsDirectories.push(part);
-          println!( "{}", format!("{}{}", "FontManager: Added fonts directory: ".to_string(), part) );
+          self.fontsDirectories.push(part.clone());
+          println!( "{}", [&*"FontManager: Added fonts directory: ".to_string(), &*part].concat() );
         }
         start = i + 1;
       }
@@ -8922,37 +9125,37 @@ impl FontManager {
     let mut i : i64 = 0;
     while i < ((self.fontsDirectories.len() as i64)) {
       let dir : String = self.fontsDirectories[i as usize].clone();
-      let fullPath : String = format!("{}{}", (format!("{}{}", dir, "/".to_string())), relativePath);
+      let fullPath : String = [&*([&*dir, &*"/".to_string()].concat()), &*relativePath].concat();
       let mut font : TrueTypeFont = TrueTypeFont::new();
       if  font.loadFromFile(fullPath.clone()) == true {
         self.fonts.push(font.clone());
-        self.fontNames.push(font.fontFamily);
+        self.fontNames.push(font.fontFamily.clone());
         if  self.hasDefaultFont == false {
           self.defaultFont = font.clone();
           self.hasDefaultFont = true;
         }
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "FontManager: Loaded font '".to_string(), font.fontFamily)), "' (".to_string())), font.fontStyle)), ") from ".to_string())), fullPath) );
+        println!( "{}", [&*([&*([&*([&*([&*"FontManager: Loaded font '".to_string(), &*font.fontFamily].concat()), &*"' (".to_string()].concat()), &*font.fontStyle].concat()), &*") from ".to_string()].concat()), &*fullPath].concat() );
         return true;
       }
       i = i + 1;
     };
-    let fullPath_1 : String = format!("{}{}", (format!("{}{}", self.fontsDirectory, "/".to_string())), relativePath);
+    let fullPath_1 : String = [&*([&*self.fontsDirectory, &*"/".to_string()].concat()), &*relativePath].concat();
     let mut font_1 : TrueTypeFont = TrueTypeFont::new();
     if  font_1.loadFromFile(fullPath_1.clone()) == false {
-      println!( "{}", format!("{}{}", "FontManager: Failed to load font: ".to_string(), relativePath) );
+      println!( "{}", [&*"FontManager: Failed to load font: ".to_string(), &*relativePath].concat() );
       return false;
     }
     self.fonts.push(font_1.clone());
-    self.fontNames.push(font_1.fontFamily);
+    self.fontNames.push(font_1.fontFamily.clone());
     if  self.hasDefaultFont == false {
       self.defaultFont = font_1.clone();
       self.hasDefaultFont = true;
     }
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "FontManager: Loaded font '".to_string(), font_1.fontFamily)), "' (".to_string())), font_1.fontStyle)), ")".to_string()) );
+    println!( "{}", [&*([&*([&*([&*"FontManager: Loaded font '".to_string(), &*font_1.fontFamily].concat()), &*"' (".to_string()].concat()), &*font_1.fontStyle].concat()), &*")".to_string()].concat() );
     return true;
   }
   fn loadFontFamily(&mut self, familyDir : String) -> () {
-    self.loadFont(format!("{}{}", (format!("{}{}", (format!("{}{}", familyDir, "/".to_string())), familyDir)), "-Regular.ttf".to_string()));
+    self.loadFont([&*([&*([&*familyDir, &*"/".to_string()].concat()), &*familyDir].concat()), &*"-Regular.ttf".to_string()].concat());
   }
   fn getFont(&mut self, fontFamily : String) -> TrueTypeFont {
     let mut i : i64 = 0;
@@ -8966,7 +9169,7 @@ impl FontManager {
     i = 0;
     while i < ((self.fonts.len() as i64)) {
       let mut f_1 : TrueTypeFont = self.fonts[i as usize].clone();
-      if  ((f_1.fontFamily.find(fontFamily).map(|i| i as i64).unwrap_or(-1))) >= 0 {
+      if  ((f_1.fontFamily.find(&*fontFamily).map(|i| i as i64).unwrap_or(-1))) >= 0 {
         return f_1.clone();
       }
       i = i + 1;
@@ -9010,11 +9213,11 @@ impl FontManager {
     return font.getPostScriptName().clone();
   }
   fn printLoadedFonts(&mut self, ) -> () {
-    println!( "{}", format!("{}{}", (format!("{}{}", "FontManager: ".to_string(), (((self.fonts.len() as i64)).to_string()))), " fonts loaded:".to_string()) );
+    println!( "{}", [&*([&*"FontManager: ".to_string(), &*(((self.fonts.len() as i64)).to_string())].concat()), &*" fonts loaded:".to_string()].concat() );
     let mut i : i64 = 0;
     while i < ((self.fonts.len() as i64)) {
       let mut f : TrueTypeFont = self.fonts[i as usize].clone();
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  - ".to_string(), f.fontFamily)), " (".to_string())), f.fontStyle)), ")".to_string()) );
+      println!( "{}", [&*([&*([&*([&*"  - ".to_string(), &*f.fontFamily].concat()), &*" (".to_string()].concat()), &*f.fontStyle].concat()), &*")".to_string()].concat() );
       i = i + 1;
     };
   }
@@ -9033,10 +9236,10 @@ impl TTFTextMeasurer {
     return me;
   }
   fn measureText(&mut self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
-    let width : f64 = self.fontManager.measureText(text.clone(), fontFamily.clone(), fontSize);
-    let lineHeight : f64 = self.fontManager.getLineHeight(fontFamily.clone(), fontSize);
-    let ascent : f64 = self.fontManager.getAscender(fontFamily.clone(), fontSize);
-    let descent : f64 = self.fontManager.getDescender(fontFamily.clone(), fontSize);
+    let width : f64 = self.fontManager.as_mut().unwrap().measureText(text.clone(), fontFamily.clone(), fontSize);
+    let lineHeight : f64 = self.fontManager.as_mut().unwrap().getLineHeight(fontFamily.clone(), fontSize);
+    let ascent : f64 = self.fontManager.as_mut().unwrap().getAscender(fontFamily.clone(), fontSize);
+    let descent : f64 = self.fontManager.as_mut().unwrap().getDescender(fontFamily.clone(), fontSize);
     let mut metrics : EVGTextMetrics = EVGTextMetrics::new();
     metrics.width = width;
     metrics.height = lineHeight;
@@ -9046,17 +9249,98 @@ impl TTFTextMeasurer {
     return metrics.clone();
   }
   fn measureTextWidth(&mut self, text : String, fontFamily : String, fontSize : f64) -> f64 {
-    return self.fontManager.measureText(text.clone(), fontFamily.clone(), fontSize);
+    return self.fontManager.as_mut().unwrap().measureText(text.clone(), fontFamily.clone(), fontSize);
   }
   fn getLineHeight(&mut self, fontFamily : String, fontSize : f64) -> f64 {
-    return self.fontManager.getLineHeight(fontFamily.clone(), fontSize);
+    return self.fontManager.as_mut().unwrap().getLineHeight(fontFamily.clone(), fontSize);
   }
   fn measureChar(&mut self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
-    let mut font : TrueTypeFont = self.fontManager.getFont(fontFamily.clone());
+    let mut font : TrueTypeFont = self.fontManager.as_mut().unwrap().getFont(fontFamily.clone());
     if  font.unitsPerEm > 0 {
       return font.getCharWidthPoints(ch, fontSize);
     }
     return fontSize * 0.5_f64;
+  }
+}
+impl TTFTextMeasurer {
+  // Inherited methods from parent class EVGTextMeasurer
+  fn wrapText(&mut self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+    let mut lines : Vec<String> = Vec::new();
+    let mut currentLine : String = "".to_string();
+    let mut currentWidth : f64 = 0_f64;
+    let mut wordStart : i64 = 0;
+    let textLen : i64 = text.len() as i64;
+    let mut i : i64 = 0;
+    while i <= textLen {
+      let mut ch : i64 = 0;
+      let isEnd : bool = i == textLen;
+      if  isEnd == false {
+        ch = text.chars().nth(i as usize).unwrap_or('\0') as i64;
+      }
+      let mut isWordEnd : bool = false;
+      if  isEnd {
+        isWordEnd = true;
+      }
+      if  ch == 32 {
+        isWordEnd = true;
+      }
+      if  ch == 10 {
+        isWordEnd = true;
+      }
+      if  isWordEnd {
+        let mut word : String = "".to_string();
+        if  i > wordStart {
+          word = text.chars().skip(wordStart as usize).take((i - wordStart) as usize).collect::<String>();
+        }
+        let wordWidth : f64 = self.measureTextWidth(word.clone(), fontFamily.clone(), fontSize);
+        let mut spaceWidth : f64 = 0_f64;
+        if  (currentLine.len() as i64) > 0 {
+          spaceWidth = self.measureTextWidth(" ".to_string(), fontFamily.clone(), fontSize);
+        }
+        if  ((currentWidth + spaceWidth) + wordWidth) <= maxWidth {
+          if  (currentLine.len() as i64) > 0 {
+            currentLine = [&*currentLine, &*" ".to_string()].concat();
+            currentWidth = currentWidth + spaceWidth;
+          }
+          currentLine = [&*currentLine, &*word].concat();
+          currentWidth = currentWidth + wordWidth;
+        } else {
+          if  (currentLine.len() as i64) > 0 {
+            lines.push(currentLine.clone());
+          }
+          currentLine = word.clone();
+          currentWidth = wordWidth;
+        }
+        if  ch == 10 {
+          lines.push(currentLine.clone());
+          currentLine = "".to_string();
+          currentWidth = 0_f64;
+        }
+        wordStart = i + 1;
+      }
+      i = i + 1;
+    };
+    if  (currentLine.len() as i64) > 0 {
+      lines.push(currentLine.clone());
+    }
+    return lines.clone();
+  }
+}
+impl EVGTextMeasurerTrait for TTFTextMeasurer {
+  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
+    TTFTextMeasurer::measureText(self, text, fontFamily, fontSize)
+  }
+  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64 {
+    TTFTextMeasurer::measureTextWidth(self, text, fontFamily, fontSize)
+  }
+  fn getLineHeight(&self, fontFamily : String, fontSize : f64) -> f64 {
+    TTFTextMeasurer::getLineHeight(self, fontFamily, fontSize)
+  }
+  fn measureChar(&self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
+    TTFTextMeasurer::measureChar(self, ch, fontFamily, fontSize)
+  }
+  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+    TTFTextMeasurer::wrapText(self, text, fontFamily, fontSize, maxWidth)
   }
 }
 #[derive(Clone)]
@@ -9099,11 +9383,11 @@ impl BitReader {
       self.bitPos = 8;
       return;
     }
-    self.currentByte = self.data[self.bytePos as usize] as i64;
+    self.currentByte = self.data[(self.bytePos) as usize] as i64;
     self.bytePos = self.bytePos + 1;
     if  self.currentByte == 255 {
       if  self.bytePos < self.dataEnd {
-        let nextByte : i64 = self.data[self.bytePos as usize] as i64;
+        let nextByte : i64 = self.data[(self.bytePos) as usize] as i64;
         if  nextByte == 0 {
           self.bytePos = self.bytePos + 1;
         } else {
@@ -9199,10 +9483,10 @@ impl HuffmanTable {
     };
     let mut i : i64 = 0;
     while i < 16 {
-      me.bits[i as usize] = 0;
-      me.maxCode[i as usize] = -1;
-      me.minCode[i as usize] = 0;
-      me.valPtr[i as usize] = 0;
+      me.bits[(i) as usize] = 0;
+      me.maxCode[(i) as usize] = -1;
+      me.minCode[(i) as usize] = 0;
+      me.valPtr[(i) as usize] = 0;
       i = i + 1;
     };
     return me;
@@ -9212,17 +9496,17 @@ impl HuffmanTable {
     let mut valueIdx : i64 = 0;
     let mut i : i64 = 0;
     while i < 16 {
-      let count : i64 = self.bits[i as usize];
+      let count : i64 = self.bits[(i) as usize];
       if  count > 0 {
-        self.minCode[i as usize] = code;
-        self.valPtr[i as usize] = valueIdx;
+        self.minCode[(i) as usize] = code;
+        self.valPtr[(i) as usize] = valueIdx;
         valueIdx = valueIdx + count;
         code = code + count;
-        self.maxCode[i as usize] = code - 1;
+        self.maxCode[(i) as usize] = code - 1;
       } else {
-        self.maxCode[i as usize] = -1;
-        self.minCode[i as usize] = 0;
-        self.valPtr[i as usize] = valueIdx;
+        self.maxCode[(i) as usize] = -1;
+        self.minCode[(i) as usize] = 0;
+        self.valPtr[(i) as usize] = valueIdx;
       }
       code = ((code) << (1));
       i = i + 1;
@@ -9234,11 +9518,11 @@ impl HuffmanTable {
     while length < 16 {
       let bit : i64 = reader.readBit();
       code = (((((code) << (1)))) | (bit));
-      let maxC : i64 = self.maxCode[length as usize];
+      let maxC : i64 = self.maxCode[(length) as usize];
       if  maxC >= 0 {
         if  code <= maxC {
-          let minC : i64 = self.minCode[length as usize];
-          let ptr : i64 = self.valPtr[length as usize];
+          let minC : i64 = self.minCode[(length) as usize];
+          let ptr : i64 = self.valPtr[(length) as usize];
           let idx : i64 = ptr + (code - minC);
           return self.values[idx as usize].clone();
         }
@@ -9251,13 +9535,12 @@ impl HuffmanTable {
   fn resetArrays(&mut self, ) -> () {
     let mut i : i64 = 0;
     while i < 16 {
-      self.bits[i as usize] = 0;
-      self.maxCode[i as usize] = -1;
-      self.minCode[i as usize] = 0;
-      self.valPtr[i as usize] = 0;
+      self.bits[(i) as usize] = 0;
+      self.maxCode[(i) as usize] = -1;
+      self.minCode[(i) as usize] = 0;
+      self.valPtr[(i) as usize] = 0;
       i = i + 1;
     };
-    self.values.length = 0;
   }
 }
 #[derive(Clone)]
@@ -9293,7 +9576,7 @@ impl HuffmanDecoder {
   fn parseDHT(&mut self, mut data : Vec<u8>, mut pos : i64, length : i64) -> () {
     let endPos : i64 = pos + length;
     while pos < endPos {
-      let tableInfo : i64 = data[pos as usize] as i64;
+      let tableInfo : i64 = data[(pos) as usize] as i64;
       pos = pos + 1;
       let tableClass : i64 = ((tableInfo) >> (4));
       let tableId : i64 = ((tableInfo) & (15));
@@ -9307,15 +9590,15 @@ impl HuffmanDecoder {
       let mut totalSymbols : i64 = 0;
       let mut i : i64 = 0;
       while i < 16 {
-        let count : i64 = data[pos as usize] as i64;
-        table.bits[i as usize] = count;
+        let count : i64 = data[(pos) as usize] as i64;
+        table.bits[(i) as usize] = count;
         totalSymbols = totalSymbols + count;
         pos = pos + 1;
         i = i + 1;
       };
       i = 0;
       while i < totalSymbols {
-        table.values.push(data[pos as usize] as i64);
+        table.values.push(data[(pos) as usize] as i64);
         pos = pos + 1;
         i = i + 1;
       };
@@ -9324,7 +9607,7 @@ impl HuffmanDecoder {
       if  tableClass == 1 {
         classStr = "AC".to_string();
       }
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  Huffman table ".to_string(), classStr)), (tableId.to_string()))), ": ".to_string())), (totalSymbols.to_string()))), " symbols".to_string()) );
+      println!( "{}", [&*([&*([&*([&*([&*"  Huffman table ".to_string(), &*classStr].concat()), &*(tableId.to_string())].concat()), &*": ".to_string()].concat()), &*(totalSymbols.to_string())].concat()), &*" symbols".to_string()].concat() );
     };
   }
 }
@@ -9340,156 +9623,156 @@ impl IDCT {
       cosTable:vec![0i64; 64 as usize], 
       zigzagMap:vec![0i64; 64 as usize], 
     };
-    me.cosTable[0 as usize] = 1024;
-    me.cosTable[1 as usize] = 1004;
-    me.cosTable[2 as usize] = 946;
-    me.cosTable[3 as usize] = 851;
-    me.cosTable[4 as usize] = 724;
-    me.cosTable[5 as usize] = 569;
-    me.cosTable[6 as usize] = 392;
-    me.cosTable[7 as usize] = 200;
-    me.cosTable[8 as usize] = 1024;
-    me.cosTable[9 as usize] = 851;
-    me.cosTable[10 as usize] = 392;
-    me.cosTable[11 as usize] = -200;
-    me.cosTable[12 as usize] = -724;
-    me.cosTable[13 as usize] = -1004;
-    me.cosTable[14 as usize] = -946;
-    me.cosTable[15 as usize] = -569;
-    me.cosTable[16 as usize] = 1024;
-    me.cosTable[17 as usize] = 569;
-    me.cosTable[18 as usize] = -392;
-    me.cosTable[19 as usize] = -1004;
-    me.cosTable[20 as usize] = -724;
-    me.cosTable[21 as usize] = 200;
-    me.cosTable[22 as usize] = 946;
-    me.cosTable[23 as usize] = 851;
-    me.cosTable[24 as usize] = 1024;
-    me.cosTable[25 as usize] = 200;
-    me.cosTable[26 as usize] = -946;
-    me.cosTable[27 as usize] = -569;
-    me.cosTable[28 as usize] = 724;
-    me.cosTable[29 as usize] = 851;
-    me.cosTable[30 as usize] = -392;
-    me.cosTable[31 as usize] = -1004;
-    me.cosTable[32 as usize] = 1024;
-    me.cosTable[33 as usize] = -200;
-    me.cosTable[34 as usize] = -946;
-    me.cosTable[35 as usize] = 569;
-    me.cosTable[36 as usize] = 724;
-    me.cosTable[37 as usize] = -851;
-    me.cosTable[38 as usize] = -392;
-    me.cosTable[39 as usize] = 1004;
-    me.cosTable[40 as usize] = 1024;
-    me.cosTable[41 as usize] = -569;
-    me.cosTable[42 as usize] = -392;
-    me.cosTable[43 as usize] = 1004;
-    me.cosTable[44 as usize] = -724;
-    me.cosTable[45 as usize] = -200;
-    me.cosTable[46 as usize] = 946;
-    me.cosTable[47 as usize] = -851;
-    me.cosTable[48 as usize] = 1024;
-    me.cosTable[49 as usize] = -851;
-    me.cosTable[50 as usize] = 392;
-    me.cosTable[51 as usize] = 200;
-    me.cosTable[52 as usize] = -724;
-    me.cosTable[53 as usize] = 1004;
-    me.cosTable[54 as usize] = -946;
-    me.cosTable[55 as usize] = 569;
-    me.cosTable[56 as usize] = 1024;
-    me.cosTable[57 as usize] = -1004;
-    me.cosTable[58 as usize] = 946;
-    me.cosTable[59 as usize] = -851;
-    me.cosTable[60 as usize] = 724;
-    me.cosTable[61 as usize] = -569;
-    me.cosTable[62 as usize] = 392;
-    me.cosTable[63 as usize] = -200;
-    me.zigzagMap[0 as usize] = 0;
-    me.zigzagMap[1 as usize] = 1;
-    me.zigzagMap[2 as usize] = 8;
-    me.zigzagMap[3 as usize] = 16;
-    me.zigzagMap[4 as usize] = 9;
-    me.zigzagMap[5 as usize] = 2;
-    me.zigzagMap[6 as usize] = 3;
-    me.zigzagMap[7 as usize] = 10;
-    me.zigzagMap[8 as usize] = 17;
-    me.zigzagMap[9 as usize] = 24;
-    me.zigzagMap[10 as usize] = 32;
-    me.zigzagMap[11 as usize] = 25;
-    me.zigzagMap[12 as usize] = 18;
-    me.zigzagMap[13 as usize] = 11;
-    me.zigzagMap[14 as usize] = 4;
-    me.zigzagMap[15 as usize] = 5;
-    me.zigzagMap[16 as usize] = 12;
-    me.zigzagMap[17 as usize] = 19;
-    me.zigzagMap[18 as usize] = 26;
-    me.zigzagMap[19 as usize] = 33;
-    me.zigzagMap[20 as usize] = 40;
-    me.zigzagMap[21 as usize] = 48;
-    me.zigzagMap[22 as usize] = 41;
-    me.zigzagMap[23 as usize] = 34;
-    me.zigzagMap[24 as usize] = 27;
-    me.zigzagMap[25 as usize] = 20;
-    me.zigzagMap[26 as usize] = 13;
-    me.zigzagMap[27 as usize] = 6;
-    me.zigzagMap[28 as usize] = 7;
-    me.zigzagMap[29 as usize] = 14;
-    me.zigzagMap[30 as usize] = 21;
-    me.zigzagMap[31 as usize] = 28;
-    me.zigzagMap[32 as usize] = 35;
-    me.zigzagMap[33 as usize] = 42;
-    me.zigzagMap[34 as usize] = 49;
-    me.zigzagMap[35 as usize] = 56;
-    me.zigzagMap[36 as usize] = 57;
-    me.zigzagMap[37 as usize] = 50;
-    me.zigzagMap[38 as usize] = 43;
-    me.zigzagMap[39 as usize] = 36;
-    me.zigzagMap[40 as usize] = 29;
-    me.zigzagMap[41 as usize] = 22;
-    me.zigzagMap[42 as usize] = 15;
-    me.zigzagMap[43 as usize] = 23;
-    me.zigzagMap[44 as usize] = 30;
-    me.zigzagMap[45 as usize] = 37;
-    me.zigzagMap[46 as usize] = 44;
-    me.zigzagMap[47 as usize] = 51;
-    me.zigzagMap[48 as usize] = 58;
-    me.zigzagMap[49 as usize] = 59;
-    me.zigzagMap[50 as usize] = 52;
-    me.zigzagMap[51 as usize] = 45;
-    me.zigzagMap[52 as usize] = 38;
-    me.zigzagMap[53 as usize] = 31;
-    me.zigzagMap[54 as usize] = 39;
-    me.zigzagMap[55 as usize] = 46;
-    me.zigzagMap[56 as usize] = 53;
-    me.zigzagMap[57 as usize] = 60;
-    me.zigzagMap[58 as usize] = 61;
-    me.zigzagMap[59 as usize] = 54;
-    me.zigzagMap[60 as usize] = 47;
-    me.zigzagMap[61 as usize] = 55;
-    me.zigzagMap[62 as usize] = 62;
-    me.zigzagMap[63 as usize] = 63;
+    me.cosTable[(0) as usize] = 1024;
+    me.cosTable[(1) as usize] = 1004;
+    me.cosTable[(2) as usize] = 946;
+    me.cosTable[(3) as usize] = 851;
+    me.cosTable[(4) as usize] = 724;
+    me.cosTable[(5) as usize] = 569;
+    me.cosTable[(6) as usize] = 392;
+    me.cosTable[(7) as usize] = 200;
+    me.cosTable[(8) as usize] = 1024;
+    me.cosTable[(9) as usize] = 851;
+    me.cosTable[(10) as usize] = 392;
+    me.cosTable[(11) as usize] = -200;
+    me.cosTable[(12) as usize] = -724;
+    me.cosTable[(13) as usize] = -1004;
+    me.cosTable[(14) as usize] = -946;
+    me.cosTable[(15) as usize] = -569;
+    me.cosTable[(16) as usize] = 1024;
+    me.cosTable[(17) as usize] = 569;
+    me.cosTable[(18) as usize] = -392;
+    me.cosTable[(19) as usize] = -1004;
+    me.cosTable[(20) as usize] = -724;
+    me.cosTable[(21) as usize] = 200;
+    me.cosTable[(22) as usize] = 946;
+    me.cosTable[(23) as usize] = 851;
+    me.cosTable[(24) as usize] = 1024;
+    me.cosTable[(25) as usize] = 200;
+    me.cosTable[(26) as usize] = -946;
+    me.cosTable[(27) as usize] = -569;
+    me.cosTable[(28) as usize] = 724;
+    me.cosTable[(29) as usize] = 851;
+    me.cosTable[(30) as usize] = -392;
+    me.cosTable[(31) as usize] = -1004;
+    me.cosTable[(32) as usize] = 1024;
+    me.cosTable[(33) as usize] = -200;
+    me.cosTable[(34) as usize] = -946;
+    me.cosTable[(35) as usize] = 569;
+    me.cosTable[(36) as usize] = 724;
+    me.cosTable[(37) as usize] = -851;
+    me.cosTable[(38) as usize] = -392;
+    me.cosTable[(39) as usize] = 1004;
+    me.cosTable[(40) as usize] = 1024;
+    me.cosTable[(41) as usize] = -569;
+    me.cosTable[(42) as usize] = -392;
+    me.cosTable[(43) as usize] = 1004;
+    me.cosTable[(44) as usize] = -724;
+    me.cosTable[(45) as usize] = -200;
+    me.cosTable[(46) as usize] = 946;
+    me.cosTable[(47) as usize] = -851;
+    me.cosTable[(48) as usize] = 1024;
+    me.cosTable[(49) as usize] = -851;
+    me.cosTable[(50) as usize] = 392;
+    me.cosTable[(51) as usize] = 200;
+    me.cosTable[(52) as usize] = -724;
+    me.cosTable[(53) as usize] = 1004;
+    me.cosTable[(54) as usize] = -946;
+    me.cosTable[(55) as usize] = 569;
+    me.cosTable[(56) as usize] = 1024;
+    me.cosTable[(57) as usize] = -1004;
+    me.cosTable[(58) as usize] = 946;
+    me.cosTable[(59) as usize] = -851;
+    me.cosTable[(60) as usize] = 724;
+    me.cosTable[(61) as usize] = -569;
+    me.cosTable[(62) as usize] = 392;
+    me.cosTable[(63) as usize] = -200;
+    me.zigzagMap[(0) as usize] = 0;
+    me.zigzagMap[(1) as usize] = 1;
+    me.zigzagMap[(2) as usize] = 8;
+    me.zigzagMap[(3) as usize] = 16;
+    me.zigzagMap[(4) as usize] = 9;
+    me.zigzagMap[(5) as usize] = 2;
+    me.zigzagMap[(6) as usize] = 3;
+    me.zigzagMap[(7) as usize] = 10;
+    me.zigzagMap[(8) as usize] = 17;
+    me.zigzagMap[(9) as usize] = 24;
+    me.zigzagMap[(10) as usize] = 32;
+    me.zigzagMap[(11) as usize] = 25;
+    me.zigzagMap[(12) as usize] = 18;
+    me.zigzagMap[(13) as usize] = 11;
+    me.zigzagMap[(14) as usize] = 4;
+    me.zigzagMap[(15) as usize] = 5;
+    me.zigzagMap[(16) as usize] = 12;
+    me.zigzagMap[(17) as usize] = 19;
+    me.zigzagMap[(18) as usize] = 26;
+    me.zigzagMap[(19) as usize] = 33;
+    me.zigzagMap[(20) as usize] = 40;
+    me.zigzagMap[(21) as usize] = 48;
+    me.zigzagMap[(22) as usize] = 41;
+    me.zigzagMap[(23) as usize] = 34;
+    me.zigzagMap[(24) as usize] = 27;
+    me.zigzagMap[(25) as usize] = 20;
+    me.zigzagMap[(26) as usize] = 13;
+    me.zigzagMap[(27) as usize] = 6;
+    me.zigzagMap[(28) as usize] = 7;
+    me.zigzagMap[(29) as usize] = 14;
+    me.zigzagMap[(30) as usize] = 21;
+    me.zigzagMap[(31) as usize] = 28;
+    me.zigzagMap[(32) as usize] = 35;
+    me.zigzagMap[(33) as usize] = 42;
+    me.zigzagMap[(34) as usize] = 49;
+    me.zigzagMap[(35) as usize] = 56;
+    me.zigzagMap[(36) as usize] = 57;
+    me.zigzagMap[(37) as usize] = 50;
+    me.zigzagMap[(38) as usize] = 43;
+    me.zigzagMap[(39) as usize] = 36;
+    me.zigzagMap[(40) as usize] = 29;
+    me.zigzagMap[(41) as usize] = 22;
+    me.zigzagMap[(42) as usize] = 15;
+    me.zigzagMap[(43) as usize] = 23;
+    me.zigzagMap[(44) as usize] = 30;
+    me.zigzagMap[(45) as usize] = 37;
+    me.zigzagMap[(46) as usize] = 44;
+    me.zigzagMap[(47) as usize] = 51;
+    me.zigzagMap[(48) as usize] = 58;
+    me.zigzagMap[(49) as usize] = 59;
+    me.zigzagMap[(50) as usize] = 52;
+    me.zigzagMap[(51) as usize] = 45;
+    me.zigzagMap[(52) as usize] = 38;
+    me.zigzagMap[(53) as usize] = 31;
+    me.zigzagMap[(54) as usize] = 39;
+    me.zigzagMap[(55) as usize] = 46;
+    me.zigzagMap[(56) as usize] = 53;
+    me.zigzagMap[(57) as usize] = 60;
+    me.zigzagMap[(58) as usize] = 61;
+    me.zigzagMap[(59) as usize] = 54;
+    me.zigzagMap[(60) as usize] = 47;
+    me.zigzagMap[(61) as usize] = 55;
+    me.zigzagMap[(62) as usize] = 62;
+    me.zigzagMap[(63) as usize] = 63;
     return me;
   }
   fn dezigzag(&mut self, mut zigzag : Vec<i64>) -> Vec<i64> {
     let mut block : Vec<i64> = vec![0i64; 64 as usize];
     let mut i : i64 = 0;
     while i < 64 {
-      let pos : i64 = self.zigzagMap[i as usize];
-      let val : i64 = zigzag[i as usize];
-      block[pos as usize] = val;
+      let pos : i64 = self.zigzagMap[(i) as usize];
+      let val : i64 = zigzag[(i) as usize];
+      block[(pos) as usize] = val;
       i = i + 1;
     };
     return block;
   }
-  fn idct1d(&mut self, mut input : Vec<i64>, startIdx : i64, stride : i64, mut output : Vec<i64>, outIdx : i64, outStride : i64) -> () {
+  fn idct1d(&mut self, mut input : Vec<i64>, startIdx : i64, stride : i64, mut output : &mut Vec<i64>, outIdx : i64, outStride : i64) -> () {
     let mut x : i64 = 0;
     while x < 8 {
       let mut sum : i64 = 0;
       let mut u : i64 = 0;
       while u < 8 {
-        let coeff : i64 = input[(startIdx + (u * stride)) as usize];
+        let coeff : i64 = input[((startIdx + (u * stride))) as usize];
         if  coeff != 0 {
-          let cosVal : i64 = self.cosTable[((x * 8) + u) as usize];
+          let cosVal : i64 = self.cosTable[(((x * 8) + u)) as usize];
           let mut contrib : i64 = coeff * cosVal;
           if  u == 0 {
             contrib = (((contrib * 724)) >> (10));
@@ -9498,38 +9781,38 @@ impl IDCT {
         }
         u = u + 1;
       };
-      output[outIdx + (x * outStride) as usize] = ((sum) >> (11));
+      output[(outIdx + (x * outStride)) as usize] = ((sum) >> (11));
       x = x + 1;
     };
   }
-  fn transform(&mut self, mut block : Vec<i64>, mut output : Vec<i64>) -> () {
+  fn transform(&mut self, mut block : Vec<i64>, mut output : &mut Vec<i64>) -> () {
     let mut temp : Vec<i64> = vec![0i64; 64 as usize];
     let mut row : i64 = 0;
     while row < 8 {
       let rowStart : i64 = row * 8;
-      self.idct1d(block.clone(), rowStart, 1, temp.clone(), rowStart, 1);
+      self.idct1d(block.clone(), rowStart, 1, &mut temp, rowStart, 1);
       row = row + 1;
     };
     let mut col : i64 = 0;
     while col < 8 {
-      self.idct1d(temp.clone(), col, 8, output.clone(), col, 8);
+      self.idct1d(temp.clone(), col, 8, &mut output, col, 8);
       col = col + 1;
     };
     let mut i : i64 = 0;
     while i < 64 {
-      let mut val : i64 = (output[i as usize]) + 128;
+      let mut val : i64 = (output[(i) as usize]) + 128;
       if  val < 0 {
         val = 0;
       }
       if  val > 255 {
         val = 255;
       }
-      output[i as usize] = val;
+      output[(i) as usize] = val;
       i = i + 1;
     };
   }
   fn transformFast(&mut self, mut coeffs : Vec<i64>, mut output : Vec<i64>) -> () {
-    self.transform(coeffs.clone(), output.clone());
+    self.transform(coeffs.clone(), &mut output);
   }
 }
 #[derive(Clone)]
@@ -9562,7 +9845,7 @@ impl Color {
     self.b = blue;
     self.a = alpha;
   }
-  fn clamp(&mut self, val : i64) -> i64 {
+  fn clamp(val : i64) -> i64 {
     if  val < 0 {
       return 0;
     }
@@ -9572,9 +9855,9 @@ impl Color {
     return val;
   }
   fn set(&mut self, red : i64, green : i64, blue : i64) -> () {
-    self.r = self.clamp(red);
-    self.g = self.clamp(green);
-    self.b = self.clamp(blue);
+    self.r = Color::clamp(red);
+    self.g = Color::clamp(green);
+    self.b = Color::clamp(blue);
   }
   fn grayscale(&mut self, ) -> i64 {
     return (((((self.r * 77) + (self.g * 150)) + (self.b * 29))) >> (8));
@@ -9591,9 +9874,9 @@ impl Color {
     self.b = 255 - self.b;
   }
   fn adjustBrightness(&mut self, amount : i64) -> () {
-    self.r = self.clamp((self.r + amount));
-    self.g = self.clamp((self.g + amount));
-    self.b = self.clamp((self.b + amount));
+    self.r = Color::clamp((self.r + amount));
+    self.g = Color::clamp((self.g + amount));
+    self.b = Color::clamp((self.b + amount));
   }
 }
 #[derive(Clone)]
@@ -9641,39 +9924,39 @@ impl ImageBuffer {
     let mut c : Color = Color::new();
     if  self.isValidCoord(x, y) {
       let off : i64 = self.getPixelOffset(x, y);
-      c.r = self.pixels[off as usize] as i64;
-      c.g = self.pixels[(off + 1) as usize] as i64;
-      c.b = self.pixels[(off + 2) as usize] as i64;
-      c.a = self.pixels[(off + 3) as usize] as i64;
+      c.r = self.pixels[(off) as usize] as i64;
+      c.g = self.pixels[((off + 1)) as usize] as i64;
+      c.b = self.pixels[((off + 2)) as usize] as i64;
+      c.a = self.pixels[((off + 3)) as usize] as i64;
     }
     return c.clone();
   }
   fn setPixel(&mut self, x : i64, y : i64, mut c : Color) -> () {
     if  self.isValidCoord(x, y) {
       let off : i64 = self.getPixelOffset(x, y);
-      self.pixels[off as usize] = c.r as u8;
-      self.pixels[off + 1 as usize] = c.g as u8;
-      self.pixels[off + 2 as usize] = c.b as u8;
-      self.pixels[off + 3 as usize] = c.a as u8;
+      self.pixels[(off) as usize] = c.r as u8;
+      self.pixels[(off + 1) as usize] = c.g as u8;
+      self.pixels[(off + 2) as usize] = c.b as u8;
+      self.pixels[(off + 3) as usize] = c.a as u8;
     }
   }
   fn setPixelRGB(&mut self, x : i64, y : i64, r : i64, g : i64, b : i64) -> () {
     if  self.isValidCoord(x, y) {
       let off : i64 = self.getPixelOffset(x, y);
-      self.pixels[off as usize] = r as u8;
-      self.pixels[off + 1 as usize] = g as u8;
-      self.pixels[off + 2 as usize] = b as u8;
-      self.pixels[off + 3 as usize] = 255 as u8;
+      self.pixels[(off) as usize] = r as u8;
+      self.pixels[(off + 1) as usize] = g as u8;
+      self.pixels[(off + 2) as usize] = b as u8;
+      self.pixels[(off + 3) as usize] = 255 as u8;
     }
   }
   fn fill(&mut self, r : i64, g : i64, b : i64, a : i64) -> () {
     let size : i64 = (self.width * self.height) * 4;
     let mut i : i64 = 0;
     while i < size {
-      self.pixels[i as usize] = r as u8;
-      self.pixels[i + 1 as usize] = g as u8;
-      self.pixels[i + 2 as usize] = b as u8;
-      self.pixels[i + 3 as usize] = a as u8;
+      self.pixels[(i) as usize] = r as u8;
+      self.pixels[(i + 1) as usize] = g as u8;
+      self.pixels[(i + 2) as usize] = b as u8;
+      self.pixels[(i + 3) as usize] = a as u8;
       i = i + 4;
     };
   }
@@ -9695,12 +9978,12 @@ impl ImageBuffer {
     let mut i : i64 = 0;
     while i < size {
       let off : i64 = i * 4;
-      let r : i64 = self.pixels[off as usize] as i64;
-      let g : i64 = self.pixels[(off + 1) as usize] as i64;
-      let b : i64 = self.pixels[(off + 2) as usize] as i64;
-      self.pixels[off as usize] = 255 - r as u8;
-      self.pixels[off + 1 as usize] = 255 - g as u8;
-      self.pixels[off + 2 as usize] = 255 - b as u8;
+      let r : i64 = self.pixels[(off) as usize] as i64;
+      let g : i64 = self.pixels[((off + 1)) as usize] as i64;
+      let b : i64 = self.pixels[((off + 2)) as usize] as i64;
+      self.pixels[(off) as usize] = 255 - r as u8;
+      self.pixels[(off + 1) as usize] = 255 - g as u8;
+      self.pixels[(off + 2) as usize] = 255 - b as u8;
       i = i + 1;
     };
   }
@@ -9709,13 +9992,13 @@ impl ImageBuffer {
     let mut i : i64 = 0;
     while i < size {
       let off : i64 = i * 4;
-      let r : i64 = self.pixels[off as usize] as i64;
-      let g : i64 = self.pixels[(off + 1) as usize] as i64;
-      let b : i64 = self.pixels[(off + 2) as usize] as i64;
+      let r : i64 = self.pixels[(off) as usize] as i64;
+      let g : i64 = self.pixels[((off + 1)) as usize] as i64;
+      let b : i64 = self.pixels[((off + 2)) as usize] as i64;
       let gray : i64 = (((((r * 77) + (g * 150)) + (b * 29))) >> (8));
-      self.pixels[off as usize] = gray as u8;
-      self.pixels[off + 1 as usize] = gray as u8;
-      self.pixels[off + 2 as usize] = gray as u8;
+      self.pixels[(off) as usize] = gray as u8;
+      self.pixels[(off + 1) as usize] = gray as u8;
+      self.pixels[(off + 2) as usize] = gray as u8;
       i = i + 1;
     };
   }
@@ -9724,9 +10007,9 @@ impl ImageBuffer {
     let mut i : i64 = 0;
     while i < size {
       let off : i64 = i * 4;
-      let mut r : i64 = self.pixels[off as usize] as i64;
-      let mut g : i64 = self.pixels[(off + 1) as usize] as i64;
-      let mut b : i64 = self.pixels[(off + 2) as usize] as i64;
+      let mut r : i64 = self.pixels[(off) as usize] as i64;
+      let mut g : i64 = self.pixels[((off + 1)) as usize] as i64;
+      let mut b : i64 = self.pixels[((off + 2)) as usize] as i64;
       r = r + amount;
       g = g + amount;
       b = b + amount;
@@ -9748,9 +10031,9 @@ impl ImageBuffer {
       if  b > 255 {
         b = 255;
       }
-      self.pixels[off as usize] = r as u8;
-      self.pixels[off + 1 as usize] = g as u8;
-      self.pixels[off + 2 as usize] = b as u8;
+      self.pixels[(off) as usize] = r as u8;
+      self.pixels[(off + 1) as usize] = g as u8;
+      self.pixels[(off + 2) as usize] = b as u8;
       i = i + 1;
     };
   }
@@ -9759,17 +10042,17 @@ impl ImageBuffer {
     let mut i : i64 = 0;
     while i < size {
       let off : i64 = i * 4;
-      let r : i64 = self.pixels[off as usize] as i64;
-      let g : i64 = self.pixels[(off + 1) as usize] as i64;
-      let b : i64 = self.pixels[(off + 2) as usize] as i64;
+      let r : i64 = self.pixels[(off) as usize] as i64;
+      let g : i64 = self.pixels[((off + 1)) as usize] as i64;
+      let b : i64 = self.pixels[((off + 2)) as usize] as i64;
       let gray : i64 = (((((r * 77) + (g * 150)) + (b * 29))) >> (8));
       let mut val : i64 = 0;
       if  gray >= level {
         val = 255;
       }
-      self.pixels[off as usize] = val as u8;
-      self.pixels[off + 1 as usize] = val as u8;
-      self.pixels[off + 2 as usize] = val as u8;
+      self.pixels[(off) as usize] = val as u8;
+      self.pixels[(off + 1) as usize] = val as u8;
+      self.pixels[(off + 2) as usize] = val as u8;
       i = i + 1;
     };
   }
@@ -9778,9 +10061,9 @@ impl ImageBuffer {
     let mut i : i64 = 0;
     while i < size {
       let off : i64 = i * 4;
-      let r : i64 = self.pixels[off as usize] as i64;
-      let g : i64 = self.pixels[(off + 1) as usize] as i64;
-      let b : i64 = self.pixels[(off + 2) as usize] as i64;
+      let r : i64 = self.pixels[(off) as usize] as i64;
+      let g : i64 = self.pixels[((off + 1)) as usize] as i64;
+      let b : i64 = self.pixels[((off + 2)) as usize] as i64;
       let mut newR : i64 = (((((r * 101) + (g * 197)) + (b * 48))) >> (8));
       let mut newG : i64 = (((((r * 89) + (g * 175)) + (b * 43))) >> (8));
       let mut newB : i64 = (((((r * 70) + (g * 137)) + (b * 33))) >> (8));
@@ -9793,9 +10076,9 @@ impl ImageBuffer {
       if  newB > 255 {
         newB = 255;
       }
-      self.pixels[off as usize] = newR as u8;
-      self.pixels[off + 1 as usize] = newG as u8;
-      self.pixels[off + 2 as usize] = newB as u8;
+      self.pixels[(off) as usize] = newR as u8;
+      self.pixels[(off + 1) as usize] = newG as u8;
+      self.pixels[(off + 2) as usize] = newB as u8;
       i = i + 1;
     };
   }
@@ -9808,22 +10091,22 @@ impl ImageBuffer {
         let x2 : i64 = (self.width - 1) - x;
         let off1 : i64 = self.getPixelOffset(x, y);
         let off2 : i64 = self.getPixelOffset(x2, y);
-        let r1 : i64 = self.pixels[off1 as usize] as i64;
-        let g1 : i64 = self.pixels[(off1 + 1) as usize] as i64;
-        let b1 : i64 = self.pixels[(off1 + 2) as usize] as i64;
-        let a1 : i64 = self.pixels[(off1 + 3) as usize] as i64;
-        let r2 : i64 = self.pixels[off2 as usize] as i64;
-        let g2 : i64 = self.pixels[(off2 + 1) as usize] as i64;
-        let b2 : i64 = self.pixels[(off2 + 2) as usize] as i64;
-        let a2 : i64 = self.pixels[(off2 + 3) as usize] as i64;
-        self.pixels[off1 as usize] = r2 as u8;
-        self.pixels[off1 + 1 as usize] = g2 as u8;
-        self.pixels[off1 + 2 as usize] = b2 as u8;
-        self.pixels[off1 + 3 as usize] = a2 as u8;
-        self.pixels[off2 as usize] = r1 as u8;
-        self.pixels[off2 + 1 as usize] = g1 as u8;
-        self.pixels[off2 + 2 as usize] = b1 as u8;
-        self.pixels[off2 + 3 as usize] = a1 as u8;
+        let r1 : i64 = self.pixels[(off1) as usize] as i64;
+        let g1 : i64 = self.pixels[((off1 + 1)) as usize] as i64;
+        let b1 : i64 = self.pixels[((off1 + 2)) as usize] as i64;
+        let a1 : i64 = self.pixels[((off1 + 3)) as usize] as i64;
+        let r2 : i64 = self.pixels[(off2) as usize] as i64;
+        let g2 : i64 = self.pixels[((off2 + 1)) as usize] as i64;
+        let b2 : i64 = self.pixels[((off2 + 2)) as usize] as i64;
+        let a2 : i64 = self.pixels[((off2 + 3)) as usize] as i64;
+        self.pixels[(off1) as usize] = r2 as u8;
+        self.pixels[(off1 + 1) as usize] = g2 as u8;
+        self.pixels[(off1 + 2) as usize] = b2 as u8;
+        self.pixels[(off1 + 3) as usize] = a2 as u8;
+        self.pixels[(off2) as usize] = r1 as u8;
+        self.pixels[(off2 + 1) as usize] = g1 as u8;
+        self.pixels[(off2 + 2) as usize] = b1 as u8;
+        self.pixels[(off2 + 3) as usize] = a1 as u8;
         x = x + 1;
       };
       y = y + 1;
@@ -9838,22 +10121,22 @@ impl ImageBuffer {
       while x < self.width {
         let off1 : i64 = self.getPixelOffset(x, y);
         let off2 : i64 = self.getPixelOffset(x, y2);
-        let r1 : i64 = self.pixels[off1 as usize] as i64;
-        let g1 : i64 = self.pixels[(off1 + 1) as usize] as i64;
-        let b1 : i64 = self.pixels[(off1 + 2) as usize] as i64;
-        let a1 : i64 = self.pixels[(off1 + 3) as usize] as i64;
-        let r2 : i64 = self.pixels[off2 as usize] as i64;
-        let g2 : i64 = self.pixels[(off2 + 1) as usize] as i64;
-        let b2 : i64 = self.pixels[(off2 + 2) as usize] as i64;
-        let a2 : i64 = self.pixels[(off2 + 3) as usize] as i64;
-        self.pixels[off1 as usize] = r2 as u8;
-        self.pixels[off1 + 1 as usize] = g2 as u8;
-        self.pixels[off1 + 2 as usize] = b2 as u8;
-        self.pixels[off1 + 3 as usize] = a2 as u8;
-        self.pixels[off2 as usize] = r1 as u8;
-        self.pixels[off2 + 1 as usize] = g1 as u8;
-        self.pixels[off2 + 2 as usize] = b1 as u8;
-        self.pixels[off2 + 3 as usize] = a1 as u8;
+        let r1 : i64 = self.pixels[(off1) as usize] as i64;
+        let g1 : i64 = self.pixels[((off1 + 1)) as usize] as i64;
+        let b1 : i64 = self.pixels[((off1 + 2)) as usize] as i64;
+        let a1 : i64 = self.pixels[((off1 + 3)) as usize] as i64;
+        let r2 : i64 = self.pixels[(off2) as usize] as i64;
+        let g2 : i64 = self.pixels[((off2 + 1)) as usize] as i64;
+        let b2 : i64 = self.pixels[((off2 + 2)) as usize] as i64;
+        let a2 : i64 = self.pixels[((off2 + 3)) as usize] as i64;
+        self.pixels[(off1) as usize] = r2 as u8;
+        self.pixels[(off1 + 1) as usize] = g2 as u8;
+        self.pixels[(off1 + 2) as usize] = b2 as u8;
+        self.pixels[(off1 + 3) as usize] = a2 as u8;
+        self.pixels[(off2) as usize] = r1 as u8;
+        self.pixels[(off2 + 1) as usize] = g1 as u8;
+        self.pixels[(off2 + 2) as usize] = b1 as u8;
+        self.pixels[(off2 + 3) as usize] = a1 as u8;
         x = x + 1;
       };
       y = y + 1;
@@ -9935,22 +10218,22 @@ impl ImageBuffer {
         let off01 : i64 = ((srcY0 * self.width) + srcX1) * 4;
         let off10 : i64 = ((srcY1 * self.width) + srcX0) * 4;
         let off11 : i64 = ((srcY1 * self.width) + srcX1) * 4;
-        let r : i64 = self.bilinear((self.pixels[off00 as usize] as i64), (self.pixels[off01 as usize] as i64), (self.pixels[off10 as usize] as i64), (self.pixels[off11 as usize] as i64), fx, fy);
-        let g : i64 = self.bilinear((self.pixels[(off00 + 1) as usize] as i64), (self.pixels[(off01 + 1) as usize] as i64), (self.pixels[(off10 + 1) as usize] as i64), (self.pixels[(off11 + 1) as usize] as i64), fx, fy);
-        let b : i64 = self.bilinear((self.pixels[(off00 + 2) as usize] as i64), (self.pixels[(off01 + 2) as usize] as i64), (self.pixels[(off10 + 2) as usize] as i64), (self.pixels[(off11 + 2) as usize] as i64), fx, fy);
-        let a : i64 = self.bilinear((self.pixels[(off00 + 3) as usize] as i64), (self.pixels[(off01 + 3) as usize] as i64), (self.pixels[(off10 + 3) as usize] as i64), (self.pixels[(off11 + 3) as usize] as i64), fx, fy);
+        let r : i64 = ImageBuffer::bilinear((self.pixels[(off00) as usize] as i64), (self.pixels[(off01) as usize] as i64), (self.pixels[(off10) as usize] as i64), (self.pixels[(off11) as usize] as i64), fx, fy);
+        let g : i64 = ImageBuffer::bilinear((self.pixels[((off00 + 1)) as usize] as i64), (self.pixels[((off01 + 1)) as usize] as i64), (self.pixels[((off10 + 1)) as usize] as i64), (self.pixels[((off11 + 1)) as usize] as i64), fx, fy);
+        let b : i64 = ImageBuffer::bilinear((self.pixels[((off00 + 2)) as usize] as i64), (self.pixels[((off01 + 2)) as usize] as i64), (self.pixels[((off10 + 2)) as usize] as i64), (self.pixels[((off11 + 2)) as usize] as i64), fx, fy);
+        let a : i64 = ImageBuffer::bilinear((self.pixels[((off00 + 3)) as usize] as i64), (self.pixels[((off01 + 3)) as usize] as i64), (self.pixels[((off10 + 3)) as usize] as i64), (self.pixels[((off11 + 3)) as usize] as i64), fx, fy);
         let destOff : i64 = ((destY * newW) + destX) * 4;
-        result.pixels[destOff as usize] = r as u8;
-        result.pixels[destOff + 1 as usize] = g as u8;
-        result.pixels[destOff + 2 as usize] = b as u8;
-        result.pixels[destOff + 3 as usize] = a as u8;
+        result.pixels[(destOff) as usize] = r as u8;
+        result.pixels[(destOff + 1) as usize] = g as u8;
+        result.pixels[(destOff + 2) as usize] = b as u8;
+        result.pixels[(destOff + 3) as usize] = a as u8;
         destX = destX + 1;
       };
       destY = destY + 1;
     };
     return result.clone();
   }
-  fn bilinear(&mut self, v00 : i64, v01 : i64, v10 : i64, v11 : i64, fx : f64, fy : f64) -> i64 {
+  fn bilinear(v00 : i64, v01 : i64, v10 : i64, v11 : i64, fx : f64, fy : f64) -> i64 {
     let top : f64 = (((v00 as f64)) * (1_f64 - fx)) + (((v01 as f64)) * fx);
     let bottom : f64 = (((v10 as f64)) * (1_f64 - fx)) + (((v11 as f64)) * fx);
     let result : f64 = (top * (1_f64 - fy)) + (bottom * fy);
@@ -9967,10 +10250,10 @@ impl ImageBuffer {
         let newY : i64 = x;
         let srcOff : i64 = ((y * self.width) + x) * 4;
         let destOff : i64 = ((newY * self.height) + newX) * 4;
-        result.pixels[destOff as usize] = self.pixels[srcOff as usize] as i64 as u8;
-        result.pixels[destOff + 1 as usize] = self.pixels[(srcOff + 1) as usize] as i64 as u8;
-        result.pixels[destOff + 2 as usize] = self.pixels[(srcOff + 2) as usize] as i64 as u8;
-        result.pixels[destOff + 3 as usize] = self.pixels[(srcOff + 3) as usize] as i64 as u8;
+        result.pixels[(destOff) as usize] = self.pixels[(srcOff) as usize] as i64 as u8;
+        result.pixels[(destOff + 1) as usize] = self.pixels[((srcOff + 1)) as usize] as i64 as u8;
+        result.pixels[(destOff + 2) as usize] = self.pixels[((srcOff + 2)) as usize] as i64 as u8;
+        result.pixels[(destOff + 3) as usize] = self.pixels[((srcOff + 3)) as usize] as i64 as u8;
         x = x + 1;
       };
       y = y + 1;
@@ -9988,10 +10271,10 @@ impl ImageBuffer {
         let newY : i64 = (self.height - 1) - y;
         let srcOff : i64 = ((y * self.width) + x) * 4;
         let destOff : i64 = ((newY * self.width) + newX) * 4;
-        result.pixels[destOff as usize] = self.pixels[srcOff as usize] as i64 as u8;
-        result.pixels[destOff + 1 as usize] = self.pixels[(srcOff + 1) as usize] as i64 as u8;
-        result.pixels[destOff + 2 as usize] = self.pixels[(srcOff + 2) as usize] as i64 as u8;
-        result.pixels[destOff + 3 as usize] = self.pixels[(srcOff + 3) as usize] as i64 as u8;
+        result.pixels[(destOff) as usize] = self.pixels[(srcOff) as usize] as i64 as u8;
+        result.pixels[(destOff + 1) as usize] = self.pixels[((srcOff + 1)) as usize] as i64 as u8;
+        result.pixels[(destOff + 2) as usize] = self.pixels[((srcOff + 2)) as usize] as i64 as u8;
+        result.pixels[(destOff + 3) as usize] = self.pixels[((srcOff + 3)) as usize] as i64 as u8;
         x = x + 1;
       };
       y = y + 1;
@@ -10009,10 +10292,10 @@ impl ImageBuffer {
         let newY : i64 = (self.width - 1) - x;
         let srcOff : i64 = ((y * self.width) + x) * 4;
         let destOff : i64 = ((newY * self.height) + newX) * 4;
-        result.pixels[destOff as usize] = self.pixels[srcOff as usize] as i64 as u8;
-        result.pixels[destOff + 1 as usize] = self.pixels[(srcOff + 1) as usize] as i64 as u8;
-        result.pixels[destOff + 2 as usize] = self.pixels[(srcOff + 2) as usize] as i64 as u8;
-        result.pixels[destOff + 3 as usize] = self.pixels[(srcOff + 3) as usize] as i64 as u8;
+        result.pixels[(destOff) as usize] = self.pixels[(srcOff) as usize] as i64 as u8;
+        result.pixels[(destOff + 1) as usize] = self.pixels[((srcOff + 1)) as usize] as i64 as u8;
+        result.pixels[(destOff + 2) as usize] = self.pixels[((srcOff + 2)) as usize] as i64 as u8;
+        result.pixels[(destOff + 3) as usize] = self.pixels[((srcOff + 3)) as usize] as i64 as u8;
         x = x + 1;
       };
       y = y + 1;
@@ -10028,10 +10311,10 @@ impl ImageBuffer {
       while x < self.width {
         let srcOff : i64 = ((y * self.width) + x) * 4;
         let destOff : i64 = ((x * self.height) + y) * 4;
-        result.pixels[destOff as usize] = self.pixels[srcOff as usize] as i64 as u8;
-        result.pixels[destOff + 1 as usize] = self.pixels[(srcOff + 1) as usize] as i64 as u8;
-        result.pixels[destOff + 2 as usize] = self.pixels[(srcOff + 2) as usize] as i64 as u8;
-        result.pixels[destOff + 3 as usize] = self.pixels[(srcOff + 3) as usize] as i64 as u8;
+        result.pixels[(destOff) as usize] = self.pixels[(srcOff) as usize] as i64 as u8;
+        result.pixels[(destOff + 1) as usize] = self.pixels[((srcOff + 1)) as usize] as i64 as u8;
+        result.pixels[(destOff + 2) as usize] = self.pixels[((srcOff + 2)) as usize] as i64 as u8;
+        result.pixels[(destOff + 3) as usize] = self.pixels[((srcOff + 3)) as usize] as i64 as u8;
         x = x + 1;
       };
       y = y + 1;
@@ -10049,10 +10332,10 @@ impl ImageBuffer {
         let newY : i64 = (self.width - 1) - x;
         let srcOff : i64 = ((y * self.width) + x) * 4;
         let destOff : i64 = ((newY * self.height) + newX) * 4;
-        result.pixels[destOff as usize] = self.pixels[srcOff as usize] as i64 as u8;
-        result.pixels[destOff + 1 as usize] = self.pixels[(srcOff + 1) as usize] as i64 as u8;
-        result.pixels[destOff + 2 as usize] = self.pixels[(srcOff + 2) as usize] as i64 as u8;
-        result.pixels[destOff + 3 as usize] = self.pixels[(srcOff + 3) as usize] as i64 as u8;
+        result.pixels[(destOff) as usize] = self.pixels[(srcOff) as usize] as i64 as u8;
+        result.pixels[(destOff + 1) as usize] = self.pixels[((srcOff + 1)) as usize] as i64 as u8;
+        result.pixels[(destOff + 2) as usize] = self.pixels[((srcOff + 2)) as usize] as i64 as u8;
+        result.pixels[(destOff + 3) as usize] = self.pixels[((srcOff + 3)) as usize] as i64 as u8;
         x = x + 1;
       };
       y = y + 1;
@@ -10072,10 +10355,10 @@ impl ImageBuffer {
         while x < self.width {
           let srcOff : i64 = ((y * self.width) + x) * 4;
           let destOff : i64 = ((y * self.width) + ((self.width - 1) - x)) * 4;
-          result.pixels[destOff as usize] = self.pixels[srcOff as usize] as i64 as u8;
-          result.pixels[destOff + 1 as usize] = self.pixels[(srcOff + 1) as usize] as i64 as u8;
-          result.pixels[destOff + 2 as usize] = self.pixels[(srcOff + 2) as usize] as i64 as u8;
-          result.pixels[destOff + 3 as usize] = self.pixels[(srcOff + 3) as usize] as i64 as u8;
+          result.pixels[(destOff) as usize] = self.pixels[(srcOff) as usize] as i64 as u8;
+          result.pixels[(destOff + 1) as usize] = self.pixels[((srcOff + 1)) as usize] as i64 as u8;
+          result.pixels[(destOff + 2) as usize] = self.pixels[((srcOff + 2)) as usize] as i64 as u8;
+          result.pixels[(destOff + 3) as usize] = self.pixels[((srcOff + 3)) as usize] as i64 as u8;
           x = x + 1;
         };
         y = y + 1;
@@ -10094,10 +10377,10 @@ impl ImageBuffer {
         while x_1 < self.width {
           let srcOff_1 : i64 = ((y_1 * self.width) + x_1) * 4;
           let destOff_1 : i64 = ((((self.height - 1) - y_1) * self.width) + x_1) * 4;
-          result_1.pixels[destOff_1 as usize] = self.pixels[srcOff_1 as usize] as i64 as u8;
-          result_1.pixels[destOff_1 + 1 as usize] = self.pixels[(srcOff_1 + 1) as usize] as i64 as u8;
-          result_1.pixels[destOff_1 + 2 as usize] = self.pixels[(srcOff_1 + 2) as usize] as i64 as u8;
-          result_1.pixels[destOff_1 + 3 as usize] = self.pixels[(srcOff_1 + 3) as usize] as i64 as u8;
+          result_1.pixels[(destOff_1) as usize] = self.pixels[(srcOff_1) as usize] as i64 as u8;
+          result_1.pixels[(destOff_1 + 1) as usize] = self.pixels[((srcOff_1 + 1)) as usize] as i64 as u8;
+          result_1.pixels[(destOff_1 + 2) as usize] = self.pixels[((srcOff_1 + 2)) as usize] as i64 as u8;
+          result_1.pixels[(destOff_1 + 3) as usize] = self.pixels[((srcOff_1 + 3)) as usize] as i64 as u8;
           x_1 = x_1 + 1;
         };
         y_1 = y_1 + 1;
@@ -10129,12 +10412,12 @@ impl PPMImage {
     };
     return me;
   }
-  fn parseNumber(&mut self, mut data : Vec<u8>, startPos : i64, mut endPos : Vec<i64>) -> i64 {
+  fn parseNumber(mut data : Vec<u8>, startPos : i64, mut endPos : &mut Vec<i64>) -> i64 {
     let __len : i64 = data.len() as i64;
     let mut pos : i64 = startPos;
     let mut skipping : bool = true;
     while skipping && (pos < __len) {
-      let ch : i64 = data[pos as usize] as i64;
+      let ch : i64 = data[(pos) as usize] as i64;
       if  (((ch == 32) || (ch == 10)) || (ch == 13)) || (ch == 9) {
         pos = pos + 1;
       } else {
@@ -10144,7 +10427,7 @@ impl PPMImage {
     let mut value : i64 = 0;
     let mut parsing : bool = true;
     while parsing && (pos < __len) {
-      let ch_1 : i64 = data[pos as usize] as i64;
+      let ch_1 : i64 = data[(pos) as usize] as i64;
       if  (ch_1 >= 48) && (ch_1 <= 57) {
         value = (value * 10) + (ch_1 - 48);
         pos = pos + 1;
@@ -10155,10 +10438,10 @@ impl PPMImage {
     endPos[0 as usize] = pos;
     return value;
   }
-  fn skipToNextLine(&mut self, mut data : Vec<u8>, mut pos : i64) -> i64 {
+  fn skipToNextLine(mut data : Vec<u8>, mut pos : i64) -> i64 {
     let __len : i64 = data.len() as i64;
     while pos < __len {
-      let ch : i64 = data[pos as usize] as i64;
+      let ch : i64 = data[(pos) as usize] as i64;
       pos = pos + 1;
       if  ch == 10 {
         return pos;
@@ -10170,15 +10453,15 @@ impl PPMImage {
     let mut data : Vec<u8> = std::fs::read(format!("{}/{}", dirPath, fileName)).unwrap_or_default();
     let __len : i64 = data.len() as i64;
     if  __len < 10 {
-      println!( "{}", format!("{}{}", "Error: File too small: ".to_string(), fileName) );
+      println!( "{}", [&*"Error: File too small: ".to_string(), &*fileName].concat() );
       let mut errImg : ImageBuffer = ImageBuffer::new();
       errImg.init(1, 1);
       return errImg.clone();
     }
-    let m1 : i64 = data[0 as usize] as i64;
-    let m2 : i64 = data[1 as usize] as i64;
+    let m1 : i64 = data[(0) as usize] as i64;
+    let m2 : i64 = data[(1) as usize] as i64;
     if  (m1 != 80) || ((m2 != 54) && (m2 != 51)) {
-      println!( "{}", format!("{}{}", "Error: Not a PPM file (P3 or P6): ".to_string(), fileName) );
+      println!( "{}", [&*"Error: Not a PPM file (P3 or P6): ".to_string(), &*fileName].concat() );
       let mut errImg_1 : ImageBuffer = ImageBuffer::new();
       errImg_1.init(1, 1);
       return errImg_1.clone();
@@ -10189,27 +10472,27 @@ impl PPMImage {
     endPos.push(0);
     let mut skippingComments : bool = true;
     while skippingComments && (pos < __len) {
-      let ch : i64 = data[pos as usize] as i64;
+      let ch : i64 = data[(pos) as usize] as i64;
       if  (((ch == 32) || (ch == 10)) || (ch == 13)) || (ch == 9) {
         pos = pos + 1;
       } else {
         if  ch == 35 {
-          pos = self.skipToNextLine(data.clone(), pos);
+          pos = PPMImage::skipToNextLine(data.clone(), pos);
         } else {
           skippingComments = false;
         }
       }
     };
-    let width : i64 = self.parseNumber(data.clone(), pos, endPos.clone());
+    let width : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
     pos = endPos[0 as usize].clone();
-    let height : i64 = self.parseNumber(data.clone(), pos, endPos.clone());
+    let height : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
     pos = endPos[0 as usize].clone();
-    let maxVal : i64 = self.parseNumber(data.clone(), pos, endPos.clone());
+    let maxVal : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
     pos = endPos[0 as usize].clone();
     if  pos < __len {
       pos = pos + 1;
     }
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "Loading PPM: ".to_string(), (width.to_string()))), "x".to_string())), (height.to_string()))), ", maxval=".to_string())), (maxVal.to_string())) );
+    println!( "{}", [&*([&*([&*([&*([&*"Loading PPM: ".to_string(), &*(width.to_string())].concat()), &*"x".to_string()].concat()), &*(height.to_string())].concat()), &*", maxval=".to_string()].concat()), &*(maxVal.to_string())].concat() );
     let mut img : ImageBuffer = ImageBuffer::new();
     img.init(width, height);
     if  isBinary {
@@ -10218,9 +10501,9 @@ impl PPMImage {
         let mut x : i64 = 0;
         while x < width {
           if  (pos + 2) < __len {
-            let r : i64 = data[pos as usize] as i64;
-            let g : i64 = data[(pos + 1) as usize] as i64;
-            let b : i64 = data[(pos + 2) as usize] as i64;
+            let r : i64 = data[(pos) as usize] as i64;
+            let g : i64 = data[((pos + 1)) as usize] as i64;
+            let b : i64 = data[((pos + 2)) as usize] as i64;
             img.setPixelRGB(x, y, r, g, b);
             pos = pos + 3;
           }
@@ -10233,11 +10516,11 @@ impl PPMImage {
       while y_1 < height {
         let mut x_1 : i64 = 0;
         while x_1 < width {
-          let r_1 : i64 = self.parseNumber(data.clone(), pos, endPos.clone());
+          let r_1 : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
           pos = endPos[0 as usize].clone();
-          let g_1 : i64 = self.parseNumber(data.clone(), pos, endPos.clone());
+          let g_1 : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
           pos = endPos[0 as usize].clone();
-          let b_1 : i64 = self.parseNumber(data.clone(), pos, endPos.clone());
+          let b_1 : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
           pos = endPos[0 as usize].clone();
           img.setPixelRGB(x_1, y_1, r_1, g_1, b_1);
           x_1 = x_1 + 1;
@@ -10250,7 +10533,7 @@ impl PPMImage {
   fn save(&mut self, mut img : ImageBuffer, dirPath : String, fileName : String) -> () {
     let mut buf : GrowableBuffer = GrowableBuffer::new();
     buf.writeString("P6\n".to_string());
-    buf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (img.width.to_string()), " ".to_string())), (img.height.to_string()))), "\n".to_string()));
+    buf.writeString([&*([&*([&*(img.width.to_string()), &*" ".to_string()].concat()), &*(img.height.to_string())].concat()), &*"\n".to_string()].concat());
     buf.writeString("255\n".to_string());
     let mut y : i64 = 0;
     while y < img.height {
@@ -10266,20 +10549,20 @@ impl PPMImage {
     };
     let mut data : Vec<u8> = buf.toBuffer();
     std::fs::write(format!("{}/{}", dirPath, fileName), &data).unwrap();
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "Saved PPM: ".to_string(), dirPath)), "/".to_string())), fileName) );
+    println!( "{}", [&*([&*([&*"Saved PPM: ".to_string(), &*dirPath].concat()), &*"/".to_string()].concat()), &*fileName].concat() );
   }
   fn saveP3(&mut self, mut img : ImageBuffer, dirPath : String, fileName : String) -> () {
     let mut buf : GrowableBuffer = GrowableBuffer::new();
     buf.writeString("P3\n".to_string());
     buf.writeString("# Created by Ranger ImageEditor\n".to_string());
-    buf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (img.width.to_string()), " ".to_string())), (img.height.to_string()))), "\n".to_string()));
+    buf.writeString([&*([&*([&*(img.width.to_string()), &*" ".to_string()].concat()), &*(img.height.to_string())].concat()), &*"\n".to_string()].concat());
     buf.writeString("255\n".to_string());
     let mut y : i64 = 0;
     while y < img.height {
       let mut x : i64 = 0;
       while x < img.width {
         let mut c : Color = img.getPixel(x, y);
-        buf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (c.r.to_string()), " ".to_string())), (c.g.to_string()))), " ".to_string())), (c.b.to_string())));
+        buf.writeString([&*([&*([&*([&*(c.r.to_string()), &*" ".to_string()].concat()), &*(c.g.to_string())].concat()), &*" ".to_string()].concat()), &*(c.b.to_string())].concat());
         if  x < (img.width - 1) {
           buf.writeString("  ".to_string());
         }
@@ -10290,7 +10573,7 @@ impl PPMImage {
     };
     let mut data : Vec<u8> = buf.toBuffer();
     std::fs::write(format!("{}/{}", dirPath, fileName), &data).unwrap();
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "Saved PPM (ASCII): ".to_string(), dirPath)), "/".to_string())), fileName) );
+    println!( "{}", [&*([&*([&*"Saved PPM (ASCII): ".to_string(), &*dirPath].concat()), &*"/".to_string()].concat()), &*fileName].concat() );
   }
 }
 #[derive(Clone)]
@@ -10394,28 +10677,27 @@ impl JPEGDecoder {
     return me;
   }
   fn readUint16BE(&mut self, pos : i64) -> i64 {
-    let high : i64 = self.data[pos as usize] as i64;
-    let low : i64 = self.data[(pos + 1) as usize] as i64;
+    let high : i64 = self.data[(pos) as usize] as i64;
+    let low : i64 = self.data[((pos + 1)) as usize] as i64;
     return (high * 256) + low;
   }
   fn parseSOF(&mut self, pos : i64, length : i64) -> () {
-    self.precision = self.data[pos as usize] as i64;
+    self.precision = self.data[(pos) as usize] as i64;
     self.height = self.readUint16BE((pos + 1));
     self.width = self.readUint16BE((pos + 3));
-    self.numComponents = self.data[(pos + 5) as usize] as i64;
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  Image: ".to_string(), (self.width.to_string()))), "x".to_string())), (self.height.to_string()))), ", ".to_string())), (self.numComponents.to_string()))), " components".to_string()) );
-    self.components.length = 0;
+    self.numComponents = self.data[((pos + 5)) as usize] as i64;
+    println!( "{}", [&*([&*([&*([&*([&*([&*"  Image: ".to_string(), &*(self.width.to_string())].concat()), &*"x".to_string()].concat()), &*(self.height.to_string())].concat()), &*", ".to_string()].concat()), &*(self.numComponents.to_string())].concat()), &*" components".to_string()].concat() );
     self.maxHSamp = 1;
     self.maxVSamp = 1;
     let mut i : i64 = 0;
     let mut offset : i64 = pos + 6;
     while i < self.numComponents {
       let mut comp : JPEGComponent = JPEGComponent::new();
-      comp.id = self.data[offset as usize] as i64;
-      let sampling : i64 = self.data[(offset + 1) as usize] as i64;
+      comp.id = self.data[(offset) as usize] as i64;
+      let sampling : i64 = self.data[((offset + 1)) as usize] as i64;
       comp.hSamp = ((sampling) >> (4));
       comp.vSamp = ((sampling) & (15));
-      comp.quantTableId = self.data[(offset + 2) as usize] as i64;
+      comp.quantTableId = self.data[((offset + 2)) as usize] as i64;
       if  comp.hSamp > self.maxHSamp {
         self.maxHSamp = comp.hSamp;
       }
@@ -10423,30 +10705,29 @@ impl JPEGDecoder {
         self.maxVSamp = comp.vSamp;
       }
       self.components.push(comp.clone());
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "    Component ".to_string(), (comp.id.to_string()))), ": ".to_string())), (comp.hSamp.to_string()))), "x".to_string())), (comp.vSamp.to_string()))), " sampling, quant table ".to_string())), (comp.quantTableId.to_string())) );
+      println!( "{}", [&*([&*([&*([&*([&*([&*([&*"    Component ".to_string(), &*(comp.id.to_string())].concat()), &*": ".to_string()].concat()), &*(comp.hSamp.to_string())].concat()), &*"x".to_string()].concat()), &*(comp.vSamp.to_string())].concat()), &*" sampling, quant table ".to_string()].concat()), &*(comp.quantTableId.to_string())].concat() );
       offset = offset + 3;
       i = i + 1;
     };
     self.mcuWidth = self.maxHSamp * 8;
     self.mcuHeight = self.maxVSamp * 8;
-    self.mcusPerRow = (((self.width + self.mcuWidth) - 1) / self.mcuWidth) as i64 ;
-    self.mcusPerCol = (((self.height + self.mcuHeight) - 1) / self.mcuHeight) as i64 ;
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  MCU size: ".to_string(), (self.mcuWidth.to_string()))), "x".to_string())), (self.mcuHeight.to_string()))), ", grid: ".to_string())), (self.mcusPerRow.to_string()))), "x".to_string())), (self.mcusPerCol.to_string())) );
+    self.mcusPerRow = ((((self.width + self.mcuWidth) - 1) as f64) / (self.mcuWidth as f64)) as i64 ;
+    self.mcusPerCol = ((((self.height + self.mcuHeight) - 1) as f64) / (self.mcuHeight as f64)) as i64 ;
+    println!( "{}", [&*([&*([&*([&*([&*([&*([&*"  MCU size: ".to_string(), &*(self.mcuWidth.to_string())].concat()), &*"x".to_string()].concat()), &*(self.mcuHeight.to_string())].concat()), &*", grid: ".to_string()].concat()), &*(self.mcusPerRow.to_string())].concat()), &*"x".to_string()].concat()), &*(self.mcusPerCol.to_string())].concat() );
   }
   fn parseDQT(&mut self, mut pos : i64, length : i64) -> () {
     let endPos : i64 = pos + length;
     while pos < endPos {
-      let info : i64 = self.data[pos as usize] as i64;
+      let info : i64 = self.data[(pos) as usize] as i64;
       pos = pos + 1;
       let precision_1 : i64 = ((info) >> (4));
       let tableId : i64 = ((info) & (15));
       let mut table : QuantizationTable = self.quantTables[tableId as usize].clone();
       table.id = tableId;
-      table.values.length = 0;
       let mut i : i64 = 0;
       while i < 64 {
         if  precision_1 == 0 {
-          table.values.push(self.data[pos as usize] as i64);
+          table.values.push(self.data[(pos) as usize] as i64);
           pos = pos + 1;
         } else {
           table.values.push(self.readUint16BE(pos));
@@ -10454,16 +10735,16 @@ impl JPEGDecoder {
         }
         i = i + 1;
       };
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  Quantization table ".to_string(), (tableId.to_string()))), " (".to_string())), ((precision_1 + 1).to_string()))), "-byte values)".to_string()) );
+      println!( "{}", [&*([&*([&*([&*"  Quantization table ".to_string(), &*(tableId.to_string())].concat()), &*" (".to_string()].concat()), &*((precision_1 + 1).to_string())].concat()), &*"-byte values)".to_string()].concat() );
     };
   }
   fn parseSOS(&mut self, mut pos : i64, length : i64) -> () {
-    let numScanComponents : i64 = self.data[pos as usize] as i64;
+    let numScanComponents : i64 = self.data[(pos) as usize] as i64;
     pos = pos + 1;
     let mut i : i64 = 0;
     while i < numScanComponents {
-      let compId : i64 = self.data[pos as usize] as i64;
-      let tableSelect : i64 = self.data[(pos + 1) as usize] as i64;
+      let compId : i64 = self.data[(pos) as usize] as i64;
+      let tableSelect : i64 = self.data[((pos + 1)) as usize] as i64;
       pos = pos + 2;
       let mut j : i64 = 0;
       while j < self.numComponents {
@@ -10471,7 +10752,7 @@ impl JPEGDecoder {
         if  comp.id == compId {
           comp.dcTableId = ((tableSelect) >> (4));
           comp.acTableId = ((tableSelect) & (15));
-          println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "    Component ".to_string(), (compId.to_string()))), ": DC table ".to_string())), (comp.dcTableId.to_string()))), ", AC table ".to_string())), (comp.acTableId.to_string())) );
+          println!( "{}", [&*([&*([&*([&*([&*"    Component ".to_string(), &*(compId.to_string())].concat()), &*": DC table ".to_string()].concat()), &*(comp.dcTableId.to_string())].concat()), &*", AC table ".to_string()].concat()), &*(comp.acTableId.to_string())].concat() );
         }
         j = j + 1;
       };
@@ -10481,9 +10762,9 @@ impl JPEGDecoder {
     self.scanDataStart = pos;
     let mut searchPos : i64 = pos;
     while searchPos < (self.dataLen - 1) {
-      let b : i64 = self.data[searchPos as usize] as i64;
+      let b : i64 = self.data[(searchPos) as usize] as i64;
       if  b == 255 {
-        let nextB : i64 = self.data[(searchPos + 1) as usize] as i64;
+        let nextB : i64 = self.data[((searchPos + 1)) as usize] as i64;
         if  (nextB != 0) && (nextB != 255) {
           if  (nextB >= 208) && (nextB <= 215) {
             searchPos = searchPos + 2;
@@ -10503,8 +10784,8 @@ impl JPEGDecoder {
       println!( "{}", "Error: File too small".to_string() );
       return false;
     }
-    let m1 : i64 = self.data[0 as usize] as i64;
-    let m2 : i64 = self.data[1 as usize] as i64;
+    let m1 : i64 = self.data[(0) as usize] as i64;
+    let m2 : i64 = self.data[(1) as usize] as i64;
     if  (m1 != 255) || (m2 != 216) {
       println!( "{}", "Error: Not a JPEG file (missing SOI)".to_string() );
       return false;
@@ -10512,12 +10793,12 @@ impl JPEGDecoder {
     pos = 2;
     println!( "{}", "Parsing JPEG markers...".to_string() );
     while pos < (self.dataLen - 1) {
-      let marker1 : i64 = self.data[pos as usize] as i64;
+      let marker1 : i64 = self.data[(pos) as usize] as i64;
       if  marker1 != 255 {
         pos = pos + 1;
         continue;
       }
-      let marker2 : i64 = self.data[(pos + 1) as usize] as i64;
+      let marker2 : i64 = self.data[((pos + 1)) as usize] as i64;
       if  marker2 == 255 {
         pos = pos + 1;
         continue;
@@ -10558,7 +10839,10 @@ impl JPEGDecoder {
       }
       if  marker2 == 196 {
         println!( "{}", "  DHT (Huffman Tables)".to_string() );
-        self.huffman.parseDHT(self.data.clone(), dataStart, markerDataLen);
+        let __arg_0 = self.data.clone();
+        let __arg_1 = dataStart.clone();
+        let __arg_2 = markerDataLen.clone();
+        self.huffman.as_mut().unwrap().parseDHT(__arg_0, __arg_1, __arg_2);
       }
       if  marker2 == 219 {
         println!( "{}", "  DQT (Quantization Tables)".to_string() );
@@ -10566,7 +10850,7 @@ impl JPEGDecoder {
       }
       if  marker2 == 221 {
         self.restartInterval = self.readUint16BE(dataStart);
-        println!( "{}", format!("{}{}", (format!("{}{}", "  DRI (Restart Interval: ".to_string(), (self.restartInterval.to_string()))), ")".to_string()) );
+        println!( "{}", [&*([&*"  DRI (Restart Interval: ".to_string(), &*(self.restartInterval.to_string())].concat()), &*")".to_string()].concat() );
       }
       if  marker2 == 218 {
         println!( "{}", "  SOS (Start of Scan)".to_string() );
@@ -10588,20 +10872,16 @@ impl JPEGDecoder {
     return true;
   }
   fn decodeBlock(&mut self, mut reader : BitReader, mut comp : JPEGComponent, mut quantTable : QuantizationTable) -> Vec<i64> {
-    let mut coeffs : Vec<i64> = Vec::new();
-    let mut i : i64 = 0;
-    while i < 64 {
-      coeffs.push(0);
-      i = i + 1;
-    };
-    let mut dcTable : HuffmanTable = self.huffman.getDCTable(comp.dcTableId);
+    let mut coeffs : Vec<i64> = vec![0i64; 64 as usize];
+    coeffs[0 as usize..64 as usize].fill(0);
+    let mut dcTable : HuffmanTable = self.huffman.as_mut().unwrap().getDCTable(comp.dcTableId);
     let dcCategory : i64 = dcTable.decode(reader.clone());
     let dcDiff : i64 = reader.receiveExtend(dcCategory);
     let dcValue : i64 = comp.prevDC + dcDiff;
     comp.prevDC = dcValue;
     let dcQuant : i64 = quantTable.values[0 as usize].clone();
-    coeffs[0 as usize] = dcValue * dcQuant;
-    let mut acTable : HuffmanTable = self.huffman.getACTable(comp.acTableId);
+    coeffs[(0) as usize] = dcValue * dcQuant;
+    let mut acTable : HuffmanTable = self.huffman.as_mut().unwrap().getACTable(comp.acTableId);
     let mut k : i64 = 1;
     while k < 64 {
       let acSymbol : i64 = acTable.decode(reader.clone());
@@ -10617,7 +10897,7 @@ impl JPEGDecoder {
           if  k < 64 {
             let acValue : i64 = reader.receiveExtend(acCategory);
             let acQuant : i64 = quantTable.values[k as usize].clone();
-            coeffs[k as usize] = acValue * acQuant;
+            coeffs[(k) as usize] = acValue * acQuant;
             k = k + 1;
           }
         }
@@ -10628,7 +10908,7 @@ impl JPEGDecoder {
   fn decode(&mut self, dirPath : String, fileName : String) -> ImageBuffer {
     self.data = std::fs::read(format!("{}/{}", dirPath, fileName)).unwrap_or_default();
     self.dataLen = self.data.len() as i64;
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "Decoding JPEG: ".to_string(), fileName)), " (".to_string())), (self.dataLen.to_string()))), " bytes)".to_string()) );
+    println!( "{}", [&*([&*([&*([&*"Decoding JPEG: ".to_string(), &*fileName].concat()), &*" (".to_string()].concat()), &*(self.dataLen.to_string())].concat()), &*" bytes)".to_string()].concat() );
     let ok : bool = self.parseMarkers();
     if  ok == false {
       println!( "{}", "Error parsing JPEG markers".to_string() );
@@ -10642,7 +10922,7 @@ impl JPEGDecoder {
       errImg_1.init(1, 1);
       return errImg_1.clone();
     }
-    println!( "{}", format!("{}{}", (format!("{}{}", "Decoding ".to_string(), (self.scanDataLen.to_string()))), " bytes of scan data...".to_string()) );
+    println!( "{}", [&*([&*"Decoding ".to_string(), &*(self.scanDataLen.to_string())].concat()), &*" bytes of scan data...".to_string()].concat() );
     let mut img : ImageBuffer = ImageBuffer::new();
     img.init(self.width, self.height);
     let mut reader : BitReader = BitReader::new();
@@ -10671,7 +10951,6 @@ impl JPEGDecoder {
           };
           reader.alignToByte();
         }
-        yBlocksData.length = 0;
         yBlockCount = 0;
         let mut compIdx : i64 = 0;
         while compIdx < self.numComponents {
@@ -10682,36 +10961,30 @@ impl JPEGDecoder {
             let mut blockH : i64 = 0;
             while blockH < comp_1.hSamp {
               let mut coeffs : Vec<i64> = self.decodeBlock(reader.clone(), comp_1.clone(), quantTable.clone());
-              let mut blockPixels : Vec<i64> = Vec::new();
-              let mut bi : i64 = 0;
-              while bi < 64 {
-                blockPixels.push(0);
-                bi = bi + 1;
-              };
-              let mut tempBlock : Vec<i64> = self.idct.dezigzag(coeffs.clone());
-              self.idct.transform(tempBlock.clone(), blockPixels.clone());
+              let mut blockPixels : Vec<i64> = vec![0i64; 64 as usize];
+              blockPixels[0 as usize..64 as usize].fill(0);
+              let mut tempBlock : Vec<i64> = self.idct.as_mut().unwrap().dezigzag(coeffs.clone());
+              self.idct.as_mut().unwrap().transform(tempBlock.clone(), &mut blockPixels);
               if  compIdx == 0 {
-                bi = 0;
+                let mut bi : i64 = 0;
                 while bi < 64 {
-                  yBlocksData.push(blockPixels[bi as usize].clone());
+                  yBlocksData.push(blockPixels[(bi) as usize]);
                   bi = bi + 1;
                 };
                 yBlockCount = yBlockCount + 1;
               }
               if  compIdx == 1 {
-                cbBlock.length = 0;
-                bi = 0;
-                while bi < 64 {
-                  cbBlock.push(blockPixels[bi as usize].clone());
-                  bi = bi + 1;
+                let mut bi_1 : i64 = 0;
+                while bi_1 < 64 {
+                  cbBlock.push(blockPixels[(bi_1) as usize]);
+                  bi_1 = bi_1 + 1;
                 };
               }
               if  compIdx == 2 {
-                crBlock.length = 0;
-                bi = 0;
-                while bi < 64 {
-                  crBlock.push(blockPixels[bi as usize].clone());
-                  bi = bi + 1;
+                let mut bi_2 : i64 = 0;
+                while bi_2 < 64 {
+                  crBlock.push(blockPixels[(bi_2) as usize]);
+                  bi_2 = bi_2 + 1;
                 };
               }
               blockH = blockH + 1;
@@ -10726,7 +10999,7 @@ impl JPEGDecoder {
       };
       mcuY = mcuY + 1;
       if  (mcuY % 10) == 0 {
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "  Row ".to_string(), (mcuY.to_string()))), "/".to_string())), (self.mcusPerCol.to_string())) );
+        println!( "{}", [&*([&*([&*"  Row ".to_string(), &*(mcuY.to_string())].concat()), &*"/".to_string()].concat()), &*(self.mcusPerCol.to_string())].concat() );
       }
     };
     println!( "{}", "Decode complete!".to_string() );
@@ -10923,151 +11196,151 @@ impl FDCT {
       cosTable:vec![0i64; 64 as usize], 
       zigzagOrder:vec![0i64; 64 as usize], 
     };
-    me.cosTable[0 as usize] = 1024;
-    me.cosTable[1 as usize] = 1004;
-    me.cosTable[2 as usize] = 946;
-    me.cosTable[3 as usize] = 851;
-    me.cosTable[4 as usize] = 724;
-    me.cosTable[5 as usize] = 569;
-    me.cosTable[6 as usize] = 392;
-    me.cosTable[7 as usize] = 200;
-    me.cosTable[8 as usize] = 1024;
-    me.cosTable[9 as usize] = 851;
-    me.cosTable[10 as usize] = 392;
-    me.cosTable[11 as usize] = -200;
-    me.cosTable[12 as usize] = -724;
-    me.cosTable[13 as usize] = -1004;
-    me.cosTable[14 as usize] = -946;
-    me.cosTable[15 as usize] = -569;
-    me.cosTable[16 as usize] = 1024;
-    me.cosTable[17 as usize] = 569;
-    me.cosTable[18 as usize] = -392;
-    me.cosTable[19 as usize] = -1004;
-    me.cosTable[20 as usize] = -724;
-    me.cosTable[21 as usize] = 200;
-    me.cosTable[22 as usize] = 946;
-    me.cosTable[23 as usize] = 851;
-    me.cosTable[24 as usize] = 1024;
-    me.cosTable[25 as usize] = 200;
-    me.cosTable[26 as usize] = -946;
-    me.cosTable[27 as usize] = -569;
-    me.cosTable[28 as usize] = 724;
-    me.cosTable[29 as usize] = 851;
-    me.cosTable[30 as usize] = -392;
-    me.cosTable[31 as usize] = -1004;
-    me.cosTable[32 as usize] = 1024;
-    me.cosTable[33 as usize] = -200;
-    me.cosTable[34 as usize] = -946;
-    me.cosTable[35 as usize] = 569;
-    me.cosTable[36 as usize] = 724;
-    me.cosTable[37 as usize] = -851;
-    me.cosTable[38 as usize] = -392;
-    me.cosTable[39 as usize] = 1004;
-    me.cosTable[40 as usize] = 1024;
-    me.cosTable[41 as usize] = -569;
-    me.cosTable[42 as usize] = -392;
-    me.cosTable[43 as usize] = 1004;
-    me.cosTable[44 as usize] = -724;
-    me.cosTable[45 as usize] = -200;
-    me.cosTable[46 as usize] = 946;
-    me.cosTable[47 as usize] = -851;
-    me.cosTable[48 as usize] = 1024;
-    me.cosTable[49 as usize] = -851;
-    me.cosTable[50 as usize] = 392;
-    me.cosTable[51 as usize] = 200;
-    me.cosTable[52 as usize] = -724;
-    me.cosTable[53 as usize] = 1004;
-    me.cosTable[54 as usize] = -946;
-    me.cosTable[55 as usize] = 569;
-    me.cosTable[56 as usize] = 1024;
-    me.cosTable[57 as usize] = -1004;
-    me.cosTable[58 as usize] = 946;
-    me.cosTable[59 as usize] = -851;
-    me.cosTable[60 as usize] = 724;
-    me.cosTable[61 as usize] = -569;
-    me.cosTable[62 as usize] = 392;
-    me.cosTable[63 as usize] = -200;
-    me.zigzagOrder[0 as usize] = 0;
-    me.zigzagOrder[1 as usize] = 1;
-    me.zigzagOrder[2 as usize] = 8;
-    me.zigzagOrder[3 as usize] = 16;
-    me.zigzagOrder[4 as usize] = 9;
-    me.zigzagOrder[5 as usize] = 2;
-    me.zigzagOrder[6 as usize] = 3;
-    me.zigzagOrder[7 as usize] = 10;
-    me.zigzagOrder[8 as usize] = 17;
-    me.zigzagOrder[9 as usize] = 24;
-    me.zigzagOrder[10 as usize] = 32;
-    me.zigzagOrder[11 as usize] = 25;
-    me.zigzagOrder[12 as usize] = 18;
-    me.zigzagOrder[13 as usize] = 11;
-    me.zigzagOrder[14 as usize] = 4;
-    me.zigzagOrder[15 as usize] = 5;
-    me.zigzagOrder[16 as usize] = 12;
-    me.zigzagOrder[17 as usize] = 19;
-    me.zigzagOrder[18 as usize] = 26;
-    me.zigzagOrder[19 as usize] = 33;
-    me.zigzagOrder[20 as usize] = 40;
-    me.zigzagOrder[21 as usize] = 48;
-    me.zigzagOrder[22 as usize] = 41;
-    me.zigzagOrder[23 as usize] = 34;
-    me.zigzagOrder[24 as usize] = 27;
-    me.zigzagOrder[25 as usize] = 20;
-    me.zigzagOrder[26 as usize] = 13;
-    me.zigzagOrder[27 as usize] = 6;
-    me.zigzagOrder[28 as usize] = 7;
-    me.zigzagOrder[29 as usize] = 14;
-    me.zigzagOrder[30 as usize] = 21;
-    me.zigzagOrder[31 as usize] = 28;
-    me.zigzagOrder[32 as usize] = 35;
-    me.zigzagOrder[33 as usize] = 42;
-    me.zigzagOrder[34 as usize] = 49;
-    me.zigzagOrder[35 as usize] = 56;
-    me.zigzagOrder[36 as usize] = 57;
-    me.zigzagOrder[37 as usize] = 50;
-    me.zigzagOrder[38 as usize] = 43;
-    me.zigzagOrder[39 as usize] = 36;
-    me.zigzagOrder[40 as usize] = 29;
-    me.zigzagOrder[41 as usize] = 22;
-    me.zigzagOrder[42 as usize] = 15;
-    me.zigzagOrder[43 as usize] = 23;
-    me.zigzagOrder[44 as usize] = 30;
-    me.zigzagOrder[45 as usize] = 37;
-    me.zigzagOrder[46 as usize] = 44;
-    me.zigzagOrder[47 as usize] = 51;
-    me.zigzagOrder[48 as usize] = 58;
-    me.zigzagOrder[49 as usize] = 59;
-    me.zigzagOrder[50 as usize] = 52;
-    me.zigzagOrder[51 as usize] = 45;
-    me.zigzagOrder[52 as usize] = 38;
-    me.zigzagOrder[53 as usize] = 31;
-    me.zigzagOrder[54 as usize] = 39;
-    me.zigzagOrder[55 as usize] = 46;
-    me.zigzagOrder[56 as usize] = 53;
-    me.zigzagOrder[57 as usize] = 60;
-    me.zigzagOrder[58 as usize] = 61;
-    me.zigzagOrder[59 as usize] = 54;
-    me.zigzagOrder[60 as usize] = 47;
-    me.zigzagOrder[61 as usize] = 55;
-    me.zigzagOrder[62 as usize] = 62;
-    me.zigzagOrder[63 as usize] = 63;
+    me.cosTable[(0) as usize] = 1024;
+    me.cosTable[(1) as usize] = 1004;
+    me.cosTable[(2) as usize] = 946;
+    me.cosTable[(3) as usize] = 851;
+    me.cosTable[(4) as usize] = 724;
+    me.cosTable[(5) as usize] = 569;
+    me.cosTable[(6) as usize] = 392;
+    me.cosTable[(7) as usize] = 200;
+    me.cosTable[(8) as usize] = 1024;
+    me.cosTable[(9) as usize] = 851;
+    me.cosTable[(10) as usize] = 392;
+    me.cosTable[(11) as usize] = -200;
+    me.cosTable[(12) as usize] = -724;
+    me.cosTable[(13) as usize] = -1004;
+    me.cosTable[(14) as usize] = -946;
+    me.cosTable[(15) as usize] = -569;
+    me.cosTable[(16) as usize] = 1024;
+    me.cosTable[(17) as usize] = 569;
+    me.cosTable[(18) as usize] = -392;
+    me.cosTable[(19) as usize] = -1004;
+    me.cosTable[(20) as usize] = -724;
+    me.cosTable[(21) as usize] = 200;
+    me.cosTable[(22) as usize] = 946;
+    me.cosTable[(23) as usize] = 851;
+    me.cosTable[(24) as usize] = 1024;
+    me.cosTable[(25) as usize] = 200;
+    me.cosTable[(26) as usize] = -946;
+    me.cosTable[(27) as usize] = -569;
+    me.cosTable[(28) as usize] = 724;
+    me.cosTable[(29) as usize] = 851;
+    me.cosTable[(30) as usize] = -392;
+    me.cosTable[(31) as usize] = -1004;
+    me.cosTable[(32) as usize] = 1024;
+    me.cosTable[(33) as usize] = -200;
+    me.cosTable[(34) as usize] = -946;
+    me.cosTable[(35) as usize] = 569;
+    me.cosTable[(36) as usize] = 724;
+    me.cosTable[(37) as usize] = -851;
+    me.cosTable[(38) as usize] = -392;
+    me.cosTable[(39) as usize] = 1004;
+    me.cosTable[(40) as usize] = 1024;
+    me.cosTable[(41) as usize] = -569;
+    me.cosTable[(42) as usize] = -392;
+    me.cosTable[(43) as usize] = 1004;
+    me.cosTable[(44) as usize] = -724;
+    me.cosTable[(45) as usize] = -200;
+    me.cosTable[(46) as usize] = 946;
+    me.cosTable[(47) as usize] = -851;
+    me.cosTable[(48) as usize] = 1024;
+    me.cosTable[(49) as usize] = -851;
+    me.cosTable[(50) as usize] = 392;
+    me.cosTable[(51) as usize] = 200;
+    me.cosTable[(52) as usize] = -724;
+    me.cosTable[(53) as usize] = 1004;
+    me.cosTable[(54) as usize] = -946;
+    me.cosTable[(55) as usize] = 569;
+    me.cosTable[(56) as usize] = 1024;
+    me.cosTable[(57) as usize] = -1004;
+    me.cosTable[(58) as usize] = 946;
+    me.cosTable[(59) as usize] = -851;
+    me.cosTable[(60) as usize] = 724;
+    me.cosTable[(61) as usize] = -569;
+    me.cosTable[(62) as usize] = 392;
+    me.cosTable[(63) as usize] = -200;
+    me.zigzagOrder[(0) as usize] = 0;
+    me.zigzagOrder[(1) as usize] = 1;
+    me.zigzagOrder[(2) as usize] = 8;
+    me.zigzagOrder[(3) as usize] = 16;
+    me.zigzagOrder[(4) as usize] = 9;
+    me.zigzagOrder[(5) as usize] = 2;
+    me.zigzagOrder[(6) as usize] = 3;
+    me.zigzagOrder[(7) as usize] = 10;
+    me.zigzagOrder[(8) as usize] = 17;
+    me.zigzagOrder[(9) as usize] = 24;
+    me.zigzagOrder[(10) as usize] = 32;
+    me.zigzagOrder[(11) as usize] = 25;
+    me.zigzagOrder[(12) as usize] = 18;
+    me.zigzagOrder[(13) as usize] = 11;
+    me.zigzagOrder[(14) as usize] = 4;
+    me.zigzagOrder[(15) as usize] = 5;
+    me.zigzagOrder[(16) as usize] = 12;
+    me.zigzagOrder[(17) as usize] = 19;
+    me.zigzagOrder[(18) as usize] = 26;
+    me.zigzagOrder[(19) as usize] = 33;
+    me.zigzagOrder[(20) as usize] = 40;
+    me.zigzagOrder[(21) as usize] = 48;
+    me.zigzagOrder[(22) as usize] = 41;
+    me.zigzagOrder[(23) as usize] = 34;
+    me.zigzagOrder[(24) as usize] = 27;
+    me.zigzagOrder[(25) as usize] = 20;
+    me.zigzagOrder[(26) as usize] = 13;
+    me.zigzagOrder[(27) as usize] = 6;
+    me.zigzagOrder[(28) as usize] = 7;
+    me.zigzagOrder[(29) as usize] = 14;
+    me.zigzagOrder[(30) as usize] = 21;
+    me.zigzagOrder[(31) as usize] = 28;
+    me.zigzagOrder[(32) as usize] = 35;
+    me.zigzagOrder[(33) as usize] = 42;
+    me.zigzagOrder[(34) as usize] = 49;
+    me.zigzagOrder[(35) as usize] = 56;
+    me.zigzagOrder[(36) as usize] = 57;
+    me.zigzagOrder[(37) as usize] = 50;
+    me.zigzagOrder[(38) as usize] = 43;
+    me.zigzagOrder[(39) as usize] = 36;
+    me.zigzagOrder[(40) as usize] = 29;
+    me.zigzagOrder[(41) as usize] = 22;
+    me.zigzagOrder[(42) as usize] = 15;
+    me.zigzagOrder[(43) as usize] = 23;
+    me.zigzagOrder[(44) as usize] = 30;
+    me.zigzagOrder[(45) as usize] = 37;
+    me.zigzagOrder[(46) as usize] = 44;
+    me.zigzagOrder[(47) as usize] = 51;
+    me.zigzagOrder[(48) as usize] = 58;
+    me.zigzagOrder[(49) as usize] = 59;
+    me.zigzagOrder[(50) as usize] = 52;
+    me.zigzagOrder[(51) as usize] = 45;
+    me.zigzagOrder[(52) as usize] = 38;
+    me.zigzagOrder[(53) as usize] = 31;
+    me.zigzagOrder[(54) as usize] = 39;
+    me.zigzagOrder[(55) as usize] = 46;
+    me.zigzagOrder[(56) as usize] = 53;
+    me.zigzagOrder[(57) as usize] = 60;
+    me.zigzagOrder[(58) as usize] = 61;
+    me.zigzagOrder[(59) as usize] = 54;
+    me.zigzagOrder[(60) as usize] = 47;
+    me.zigzagOrder[(61) as usize] = 55;
+    me.zigzagOrder[(62) as usize] = 62;
+    me.zigzagOrder[(63) as usize] = 63;
     return me;
   }
-  fn dct1d(&mut self, mut input : Vec<i64>, startIdx : i64, stride : i64, mut output : Vec<i64>, outIdx : i64, outStride : i64) -> () {
+  fn dct1d(&mut self, mut input : Vec<i64>, startIdx : i64, stride : i64, mut output : &mut Vec<i64>, outIdx : i64, outStride : i64) -> () {
     let mut u : i64 = 0;
     while u < 8 {
       let mut sum : i64 = 0;
       let mut x : i64 = 0;
       while x < 8 {
-        let pixel : i64 = input[(startIdx + (x * stride)) as usize];
-        let cosVal : i64 = self.cosTable[((x * 8) + u) as usize];
+        let pixel : i64 = input[((startIdx + (x * stride))) as usize];
+        let cosVal : i64 = self.cosTable[(((x * 8) + u)) as usize];
         sum = sum + (pixel * cosVal);
         x = x + 1;
       };
       if  u == 0 {
         sum = (((sum * 724)) >> (10));
       }
-      output[outIdx + (u * outStride) as usize] = ((sum) >> (11));
+      output[(outIdx + (u * outStride)) as usize] = ((sum) >> (11));
       u = u + 1;
     };
   }
@@ -11075,20 +11348,20 @@ impl FDCT {
     let mut shifted : Vec<i64> = vec![0i64; 64 as usize];
     let mut i : i64 = 0;
     while i < 64 {
-      shifted[i as usize] = (pixels[i as usize]) - 128;
+      shifted[(i) as usize] = (pixels[(i) as usize]) - 128;
       i = i + 1;
     };
     let mut temp : Vec<i64> = vec![0i64; 64 as usize];
     let mut row : i64 = 0;
     while row < 8 {
       let rowStart : i64 = row * 8;
-      self.dct1d(shifted.clone(), rowStart, 1, temp.clone(), rowStart, 1);
+      self.dct1d(shifted.clone(), rowStart, 1, &mut temp, rowStart, 1);
       row = row + 1;
     };
     let mut coeffs : Vec<i64> = vec![0i64; 64 as usize];
     let mut col : i64 = 0;
     while col < 8 {
-      self.dct1d(temp.clone(), col, 8, coeffs.clone(), col, 8);
+      self.dct1d(temp.clone(), col, 8, &mut coeffs, col, 8);
       col = col + 1;
     };
     return coeffs;
@@ -11097,8 +11370,8 @@ impl FDCT {
     let mut zigzagOut : Vec<i64> = vec![0i64; 64 as usize];
     let mut i : i64 = 0;
     while i < 64 {
-      let pos : i64 = self.zigzagOrder[i as usize];
-      zigzagOut[i as usize] = block[pos as usize];
+      let pos : i64 = self.zigzagOrder[(i) as usize];
+      zigzagOut[(i) as usize] = block[(pos) as usize];
       i = i + 1;
     };
     return zigzagOut;
@@ -11364,30 +11637,28 @@ impl JPEGEncoder {
   fn scaleQuantTables(&mut self, q : i64) -> () {
     let mut scale : i64 = 0;
     if  q < 50 {
-      scale = (5000 / q) as i64 ;
+      scale = ((5000 as f64) / (q as f64)) as i64 ;
     } else {
       scale = 200 - (q * 2);
     }
-    self.yQuantTable.length = 0;
-    self.cQuantTable.length = 0;
     let mut i : i64 = 0;
     while i < 64 {
-      let mut yVal : i64 = ((((self.stdYQuant[i as usize].clone()) * scale) + 50) / 100) as i64 ;
+      let mut yVal : i64 = (((((self.stdYQuant[i as usize].clone()) * scale) + 50) as f64) / (100 as f64)) as i64 ;
       if  yVal < 1 {
         yVal = 1;
       }
       if  yVal > 255 {
         yVal = 255;
       }
-      self.yQuantTable.push(yVal);
-      let mut cVal : i64 = ((((self.stdCQuant[i as usize].clone()) * scale) + 50) / 100) as i64 ;
+      self.yQuantTable.push(yVal.clone());
+      let mut cVal : i64 = (((((self.stdCQuant[i as usize].clone()) * scale) + 50) as f64) / (100 as f64)) as i64 ;
       if  cVal < 1 {
         cVal = 1;
       }
       if  cVal > 255 {
         cVal = 255;
       }
-      self.cQuantTable.push(cVal);
+      self.cQuantTable.push(cVal.clone());
       i = i + 1;
     };
   }
@@ -11816,12 +12087,12 @@ impl JPEGEncoder {
       self.acCLengths.push(0);
       i = i + 1;
     };
-    self.buildHuffmanCodes(self.dcYBits.clone(), self.dcYValues.clone(), self.dcYCodes.clone(), self.dcYLengths.clone());
-    self.buildHuffmanCodes(self.acYBits.clone(), self.acYValues.clone(), self.acYCodes.clone(), self.acYLengths.clone());
-    self.buildHuffmanCodes(self.dcCBits.clone(), self.dcCValues.clone(), self.dcCCodes.clone(), self.dcCLengths.clone());
-    self.buildHuffmanCodes(self.acCBits.clone(), self.acCValues.clone(), self.acCCodes.clone(), self.acCLengths.clone());
+    JPEGEncoder::buildHuffmanCodes(self.dcYBits.clone(), self.dcYValues.clone(), &mut self.dcYCodes, &mut self.dcYLengths);
+    JPEGEncoder::buildHuffmanCodes(self.acYBits.clone(), self.acYValues.clone(), &mut self.acYCodes, &mut self.acYLengths);
+    JPEGEncoder::buildHuffmanCodes(self.dcCBits.clone(), self.dcCValues.clone(), &mut self.dcCCodes, &mut self.dcCLengths);
+    JPEGEncoder::buildHuffmanCodes(self.acCBits.clone(), self.acCValues.clone(), &mut self.acCCodes, &mut self.acCLengths);
   }
-  fn buildHuffmanCodes(&mut self, mut bits : Vec<i64>, mut values : Vec<i64>, mut codes : Vec<i64>, mut lengths : Vec<i64>) -> () {
+  fn buildHuffmanCodes(mut bits : Vec<i64>, mut values : Vec<i64>, mut codes : &mut Vec<i64>, mut lengths : &mut Vec<i64>) -> () {
     let mut code : i64 = 0;
     let mut valueIdx : i64 = 0;
     let mut bitLen : i64 = 1;
@@ -11840,7 +12111,7 @@ impl JPEGEncoder {
       bitLen = bitLen + 1;
     };
   }
-  fn getCategory(&mut self, mut value : i64) -> i64 {
+  fn getCategory(mut value : i64) -> i64 {
     if  value < 0 {
       value = 0 - value;
     }
@@ -11854,7 +12125,7 @@ impl JPEGEncoder {
     };
     return cat;
   }
-  fn encodeNumber(&mut self, value : i64, category : i64) -> i64 {
+  fn encodeNumber(value : i64, category : i64) -> i64 {
     if  value < 0 {
       return value + ((((1) << (category))) - 1);
     }
@@ -11865,31 +12136,31 @@ impl JPEGEncoder {
     let mut i : i64 = 0;
     while i < 64 {
       let q : i64 = quantTable[i as usize].clone();
-      let c : i64 = coeffs[i as usize];
+      let c : i64 = coeffs[(i) as usize];
       let mut qVal : i64 = 0;
       if  c >= 0 {
-        qVal = ((c + (((q) >> (1)))) / q) as i64 ;
+        qVal = (((c + (((q) >> (1)))) as f64) / (q as f64)) as i64 ;
       } else {
-        qVal = ((c - (((q) >> (1)))) / q) as i64 ;
+        qVal = (((c - (((q) >> (1)))) as f64) / (q as f64)) as i64 ;
       }
-      quantized[i as usize] = qVal;
+      quantized[(i) as usize] = qVal;
       i = i + 1;
     };
-    let mut zigzagged : Vec<i64> = self.fdct.zigzag(quantized.clone());
-    let dc : i64 = zigzagged[0 as usize];
+    let mut zigzagged : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(quantized.clone());
+    let dc : i64 = zigzagged[(0) as usize];
     let dcDiff : i64 = dc - prevDC;
-    let dcCat : i64 = self.getCategory(dcDiff);
+    let dcCat : i64 = JPEGEncoder::getCategory(dcDiff);
     let dcCode : i64 = dcCodes[dcCat as usize].clone();
     let dcLen : i64 = dcLengths[dcCat as usize].clone();
     writer.writeBits(dcCode, dcLen);
     if  dcCat > 0 {
-      let dcVal : i64 = self.encodeNumber(dcDiff, dcCat);
+      let dcVal : i64 = JPEGEncoder::encodeNumber(dcDiff, dcCat);
       writer.writeBits(dcVal, dcCat);
     }
     let mut zeroRun : i64 = 0;
     let mut k : i64 = 1;
     while k < 64 {
-      let ac : i64 = zigzagged[k as usize];
+      let ac : i64 = zigzagged[(k) as usize];
       if  ac == 0 {
         zeroRun = zeroRun + 1;
       } else {
@@ -11899,12 +12170,12 @@ impl JPEGEncoder {
           writer.writeBits(zrlCode, zrlLen);
           zeroRun = zeroRun - 16;
         };
-        let acCat : i64 = self.getCategory(ac);
+        let acCat : i64 = JPEGEncoder::getCategory(ac);
         let runCat : i64 = (((((zeroRun) << (4)))) | (acCat));
         let acHuffCode : i64 = acCodes[runCat as usize].clone();
         let acHuffLen : i64 = acLengths[runCat as usize].clone();
         writer.writeBits(acHuffCode, acHuffLen);
-        let acVal : i64 = self.encodeNumber(ac, acCat);
+        let acVal : i64 = JPEGEncoder::encodeNumber(ac, acCat);
         writer.writeBits(acVal, acCat);
         zeroRun = 0;
       }
@@ -11916,7 +12187,7 @@ impl JPEGEncoder {
       writer.writeBits(eobCode, eobLen);
     }
   }
-  fn rgbToYCbCr(&mut self, r : i64, g : i64, b : i64, mut yOut : Vec<i64>, mut cbOut : Vec<i64>, mut crOut : Vec<i64>) -> () {
+  fn rgbToYCbCr(r : i64, g : i64, b : i64, mut yOut : &mut Vec<i64>, mut cbOut : &mut Vec<i64>, mut crOut : &mut Vec<i64>) -> () {
     let mut y : i64 = (((((77 * r) + (150 * g)) + (29 * b))) >> (8));
     let mut cb : i64 = ((((((0 - (43 * r)) - (85 * g)) + (128 * b))) >> (8))) + 128;
     let mut cr : i64 = ((((((128 * r) - (107 * g)) - (21 * b))) >> (8))) + 128;
@@ -11938,9 +12209,9 @@ impl JPEGEncoder {
     if  cr > 255 {
       cr = 255;
     }
-    yOut.push(y);
-    cbOut.push(cb);
-    crOut.push(cr);
+    yOut.push(y.clone());
+    cbOut.push(cb.clone());
+    crOut.push(cr.clone());
   }
   fn extractBlock(&mut self, mut img : ImageBuffer, blockX : i64, blockY : i64, channel : i64) -> Vec<i64> {
     let mut output : Vec<i64> = vec![0i64; 64 as usize];
@@ -11962,13 +12233,13 @@ impl JPEGEncoder {
         let cb : i64 = ((((((0 - (43 * c.r)) - (85 * c.g)) + (128 * c.b))) >> (8))) + 128;
         let cr : i64 = ((((((128 * c.r) - (107 * c.g)) - (21 * c.b))) >> (8))) + 128;
         if  channel == 0 {
-          output[idx as usize] = y;
+          output[(idx) as usize] = y;
         }
         if  channel == 1 {
-          output[idx as usize] = cb;
+          output[(idx) as usize] = cb;
         }
         if  channel == 2 {
-          output[idx as usize] = cr;
+          output[(idx) as usize] = cr;
         }
         idx = idx + 1;
         px = px + 1;
@@ -12001,7 +12272,7 @@ impl JPEGEncoder {
     writer.writeByte(0);
     let mut i : i64 = 0;
     while i < 64 {
-      writer.writeByte(self.yQuantTable[(self.fdct.zigzagOrder[i as usize]) as usize].clone());
+      writer.writeByte(self.yQuantTable[(self.fdct.as_mut().unwrap().zigzagOrder[(i) as usize]) as usize].clone());
       i = i + 1;
     };
     writer.writeByte(255);
@@ -12010,7 +12281,7 @@ impl JPEGEncoder {
     writer.writeByte(1);
     i = 0;
     while i < 64 {
-      writer.writeByte(self.cQuantTable[(self.fdct.zigzagOrder[i as usize]) as usize].clone());
+      writer.writeByte(self.cQuantTable[(self.fdct.as_mut().unwrap().zigzagOrder[(i) as usize]) as usize].clone());
       i = i + 1;
     };
     writer.writeByte(255);
@@ -12102,8 +12373,8 @@ impl JPEGEncoder {
   fn encodeToBuffer(&mut self, mut img : ImageBuffer) -> Vec<u8> {
     let mut writer : BitWriter = BitWriter::new();
     self.writeMarkers(writer.clone(), img.width, img.height);
-    let mcuWidth : i64 = ((img.width + 7) / 8) as i64 ;
-    let mcuHeight : i64 = ((img.height + 7) / 8) as i64 ;
+    let mcuWidth : i64 = (((img.width + 7) as f64) / (8 as f64)) as i64 ;
+    let mcuHeight : i64 = (((img.height + 7) as f64) / (8 as f64)) as i64 ;
     self.prevDCY = 0;
     self.prevDCCb = 0;
     self.prevDCCr = 0;
@@ -12114,37 +12385,37 @@ impl JPEGEncoder {
         let blockX : i64 = mcuX * 8;
         let blockY : i64 = mcuY * 8;
         let mut yBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 0);
-        let mut yCoeffs : Vec<i64> = self.fdct.transform(yBlock.clone());
+        let mut yCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(yBlock.clone());
         self.encodeBlock(writer.clone(), yCoeffs.clone(), self.yQuantTable.clone(), self.dcYCodes.clone(), self.dcYLengths.clone(), self.acYCodes.clone(), self.acYLengths.clone(), self.prevDCY);
-        let mut yZig : Vec<i64> = self.fdct.zigzag(yCoeffs.clone());
+        let mut yZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(yCoeffs.clone());
         let yQ : i64 = self.yQuantTable[0 as usize].clone();
-        let yDC : i64 = yZig[0 as usize];
+        let yDC : i64 = yZig[(0) as usize];
         if  yDC >= 0 {
-          self.prevDCY = ((yDC + (((yQ) >> (1)))) / yQ) as i64 ;
+          self.prevDCY = (((yDC + (((yQ) >> (1)))) as f64) / (yQ as f64)) as i64 ;
         } else {
-          self.prevDCY = ((yDC - (((yQ) >> (1)))) / yQ) as i64 ;
+          self.prevDCY = (((yDC - (((yQ) >> (1)))) as f64) / (yQ as f64)) as i64 ;
         }
         let mut cbBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 1);
-        let mut cbCoeffs : Vec<i64> = self.fdct.transform(cbBlock.clone());
+        let mut cbCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(cbBlock.clone());
         self.encodeBlock(writer.clone(), cbCoeffs.clone(), self.cQuantTable.clone(), self.dcCCodes.clone(), self.dcCLengths.clone(), self.acCCodes.clone(), self.acCLengths.clone(), self.prevDCCb);
-        let mut cbZig : Vec<i64> = self.fdct.zigzag(cbCoeffs.clone());
+        let mut cbZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(cbCoeffs.clone());
         let cbQ : i64 = self.cQuantTable[0 as usize].clone();
-        let cbDC : i64 = cbZig[0 as usize];
+        let cbDC : i64 = cbZig[(0) as usize];
         if  cbDC >= 0 {
-          self.prevDCCb = ((cbDC + (((cbQ) >> (1)))) / cbQ) as i64 ;
+          self.prevDCCb = (((cbDC + (((cbQ) >> (1)))) as f64) / (cbQ as f64)) as i64 ;
         } else {
-          self.prevDCCb = ((cbDC - (((cbQ) >> (1)))) / cbQ) as i64 ;
+          self.prevDCCb = (((cbDC - (((cbQ) >> (1)))) as f64) / (cbQ as f64)) as i64 ;
         }
         let mut crBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 2);
-        let mut crCoeffs : Vec<i64> = self.fdct.transform(crBlock.clone());
+        let mut crCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(crBlock.clone());
         self.encodeBlock(writer.clone(), crCoeffs.clone(), self.cQuantTable.clone(), self.dcCCodes.clone(), self.dcCLengths.clone(), self.acCCodes.clone(), self.acCLengths.clone(), self.prevDCCr);
-        let mut crZig : Vec<i64> = self.fdct.zigzag(crCoeffs.clone());
+        let mut crZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(crCoeffs.clone());
         let crQ : i64 = self.cQuantTable[0 as usize].clone();
-        let crDC : i64 = crZig[0 as usize];
+        let crDC : i64 = crZig[(0) as usize];
         if  crDC >= 0 {
-          self.prevDCCr = ((crDC + (((crQ) >> (1)))) / crQ) as i64 ;
+          self.prevDCCr = (((crDC + (((crQ) >> (1)))) as f64) / (crQ as f64)) as i64 ;
         } else {
-          self.prevDCCr = ((crDC - (((crQ) >> (1)))) / crQ) as i64 ;
+          self.prevDCCr = (((crDC - (((crQ) >> (1)))) as f64) / (crQ as f64)) as i64 ;
         }
         mcuX = mcuX + 1;
       };
@@ -12156,21 +12427,21 @@ impl JPEGEncoder {
     let mut finalBuf : Vec<u8> = vec![0u8; (outLen + 2) as usize];
     let mut i : i64 = 0;
     while i < outLen {
-      finalBuf[i as usize] = outBuf[i as usize] as i64 as u8;
+      finalBuf[(i) as usize] = outBuf[(i) as usize] as i64 as u8;
       i = i + 1;
     };
-    finalBuf[outLen as usize] = 255 as u8;
-    finalBuf[outLen + 1 as usize] = 217 as u8;
+    finalBuf[(outLen) as usize] = 255 as u8;
+    finalBuf[(outLen + 1) as usize] = 217 as u8;
     return finalBuf;
   }
   fn encode(&mut self, mut img : ImageBuffer, dirPath : String, fileName : String) -> () {
-    println!( "{}", format!("{}{}", "Encoding JPEG: ".to_string(), fileName) );
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "  Image size: ".to_string(), (img.width.to_string()))), "x".to_string())), (img.height.to_string())) );
+    println!( "{}", [&*"Encoding JPEG: ".to_string(), &*fileName].concat() );
+    println!( "{}", [&*([&*([&*"  Image size: ".to_string(), &*(img.width.to_string())].concat()), &*"x".to_string()].concat()), &*(img.height.to_string())].concat() );
     let mut writer : BitWriter = BitWriter::new();
     self.writeMarkers(writer.clone(), img.width, img.height);
-    let mcuWidth : i64 = ((img.width + 7) / 8) as i64 ;
-    let mcuHeight : i64 = ((img.height + 7) / 8) as i64 ;
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "  MCU grid: ".to_string(), (mcuWidth.to_string()))), "x".to_string())), (mcuHeight.to_string())) );
+    let mcuWidth : i64 = (((img.width + 7) as f64) / (8 as f64)) as i64 ;
+    let mcuHeight : i64 = (((img.height + 7) as f64) / (8 as f64)) as i64 ;
+    println!( "{}", [&*([&*([&*"  MCU grid: ".to_string(), &*(mcuWidth.to_string())].concat()), &*"x".to_string()].concat()), &*(mcuHeight.to_string())].concat() );
     self.prevDCY = 0;
     self.prevDCCb = 0;
     self.prevDCCr = 0;
@@ -12181,37 +12452,37 @@ impl JPEGEncoder {
         let blockX : i64 = mcuX * 8;
         let blockY : i64 = mcuY * 8;
         let mut yBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 0);
-        let mut yCoeffs : Vec<i64> = self.fdct.transform(yBlock.clone());
+        let mut yCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(yBlock.clone());
         self.encodeBlock(writer.clone(), yCoeffs.clone(), self.yQuantTable.clone(), self.dcYCodes.clone(), self.dcYLengths.clone(), self.acYCodes.clone(), self.acYLengths.clone(), self.prevDCY);
-        let mut yZig : Vec<i64> = self.fdct.zigzag(yCoeffs.clone());
+        let mut yZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(yCoeffs.clone());
         let yQ : i64 = self.yQuantTable[0 as usize].clone();
-        let yDC : i64 = yZig[0 as usize];
+        let yDC : i64 = yZig[(0) as usize];
         if  yDC >= 0 {
-          self.prevDCY = ((yDC + (((yQ) >> (1)))) / yQ) as i64 ;
+          self.prevDCY = (((yDC + (((yQ) >> (1)))) as f64) / (yQ as f64)) as i64 ;
         } else {
-          self.prevDCY = ((yDC - (((yQ) >> (1)))) / yQ) as i64 ;
+          self.prevDCY = (((yDC - (((yQ) >> (1)))) as f64) / (yQ as f64)) as i64 ;
         }
         let mut cbBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 1);
-        let mut cbCoeffs : Vec<i64> = self.fdct.transform(cbBlock.clone());
+        let mut cbCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(cbBlock.clone());
         self.encodeBlock(writer.clone(), cbCoeffs.clone(), self.cQuantTable.clone(), self.dcCCodes.clone(), self.dcCLengths.clone(), self.acCCodes.clone(), self.acCLengths.clone(), self.prevDCCb);
-        let mut cbZig : Vec<i64> = self.fdct.zigzag(cbCoeffs.clone());
+        let mut cbZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(cbCoeffs.clone());
         let cbQ : i64 = self.cQuantTable[0 as usize].clone();
-        let cbDC : i64 = cbZig[0 as usize];
+        let cbDC : i64 = cbZig[(0) as usize];
         if  cbDC >= 0 {
-          self.prevDCCb = ((cbDC + (((cbQ) >> (1)))) / cbQ) as i64 ;
+          self.prevDCCb = (((cbDC + (((cbQ) >> (1)))) as f64) / (cbQ as f64)) as i64 ;
         } else {
-          self.prevDCCb = ((cbDC - (((cbQ) >> (1)))) / cbQ) as i64 ;
+          self.prevDCCb = (((cbDC - (((cbQ) >> (1)))) as f64) / (cbQ as f64)) as i64 ;
         }
         let mut crBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 2);
-        let mut crCoeffs : Vec<i64> = self.fdct.transform(crBlock.clone());
+        let mut crCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(crBlock.clone());
         self.encodeBlock(writer.clone(), crCoeffs.clone(), self.cQuantTable.clone(), self.dcCCodes.clone(), self.dcCLengths.clone(), self.acCCodes.clone(), self.acCLengths.clone(), self.prevDCCr);
-        let mut crZig : Vec<i64> = self.fdct.zigzag(crCoeffs.clone());
+        let mut crZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(crCoeffs.clone());
         let crQ : i64 = self.cQuantTable[0 as usize].clone();
-        let crDC : i64 = crZig[0 as usize];
+        let crDC : i64 = crZig[(0) as usize];
         if  crDC >= 0 {
-          self.prevDCCr = ((crDC + (((crQ) >> (1)))) / crQ) as i64 ;
+          self.prevDCCr = (((crDC + (((crQ) >> (1)))) as f64) / (crQ as f64)) as i64 ;
         } else {
-          self.prevDCCr = ((crDC - (((crQ) >> (1)))) / crQ) as i64 ;
+          self.prevDCCr = (((crDC - (((crQ) >> (1)))) as f64) / (crQ as f64)) as i64 ;
         }
         mcuX = mcuX + 1;
       };
@@ -12223,14 +12494,14 @@ impl JPEGEncoder {
     let mut finalBuf : Vec<u8> = vec![0u8; (outLen + 2) as usize];
     let mut i : i64 = 0;
     while i < outLen {
-      finalBuf[i as usize] = outBuf[i as usize] as i64 as u8;
+      finalBuf[(i) as usize] = outBuf[(i) as usize] as i64 as u8;
       i = i + 1;
     };
-    finalBuf[outLen as usize] = 255 as u8;
-    finalBuf[outLen + 1 as usize] = 217 as u8;
+    finalBuf[(outLen) as usize] = 255 as u8;
+    finalBuf[(outLen + 1) as usize] = 217 as u8;
     std::fs::write(format!("{}/{}", dirPath, fileName), &finalBuf).unwrap();
-    println!( "{}", format!("{}{}", (format!("{}{}", "  Encoded size: ".to_string(), ((outLen + 2).to_string()))), " bytes".to_string()) );
-    println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "  Saved: ".to_string(), dirPath)), "/".to_string())), fileName) );
+    println!( "{}", [&*([&*"  Encoded size: ".to_string(), &*((outLen + 2).to_string())].concat()), &*" bytes".to_string()].concat() );
+    println!( "{}", [&*([&*([&*"  Saved: ".to_string(), &*dirPath].concat()), &*"/".to_string()].concat()), &*fileName].concat() );
   }
   fn setQuality(&mut self, q : i64) -> () {
     self.quality = q;
@@ -12287,11 +12558,11 @@ impl EmbeddedImage {
     return me;
   }
 }
-#[derive(Clone)]
+// Cannot derive Clone due to trait object fields
 struct EVGPDFRenderer { 
   writer : Option<PDFWriter>, 
   layout : Option<EVGLayout>, 
-  measurer : Option<EVGTextMeasurer>, 
+  measurer : Option<Rc<RefCell<dyn EVGTextMeasurerTrait>>>, 
   streamBuffer : Option<GrowableBuffer>, 
   pageWidth : f64, 
   pageHeight : f64, 
@@ -12356,9 +12627,9 @@ impl EVGPDFRenderer {
     let mut w : PDFWriter = PDFWriter::new();
     me.writer = Some(w.clone());
     let mut lay : EVGLayout = EVGLayout::new();
-    me.layout = Some(lay.clone());
+    me.layout = Some(lay);
     let mut m_1 : SimpleTextMeasurer = SimpleTextMeasurer::new();
-    me.measurer = Some(m_1.clone());
+    me.measurer = Some(Rc::new(RefCell::new(m_1.clone())));
     let mut buf_1 : GrowableBuffer = GrowableBuffer::new();
     me.streamBuffer = Some(buf_1.clone());
     let mut ef : Vec<EmbeddedFont> = Vec::new();
@@ -12377,13 +12648,15 @@ impl EVGPDFRenderer {
     me.foundSections = fs.clone();
     let mut fp : Vec<EVGElement> = Vec::new();
     me.foundPages = fp.clone();
-    me.layout.setImageMeasurer(me.clone());
     return me;
+  }
+  fn init(&mut self, ) -> () {
+    self.layout.as_mut().unwrap().setImageMeasurer(Rc::new(RefCell::new(self.clone())));
   }
   fn setPageSize(&mut self, width : f64, height : f64) -> () {
     self.pageWidth = width;
     self.pageHeight = height;
-    self.layout.setPageSize(width, height);
+    self.layout.as_mut().unwrap().setPageSize(width, height);
   }
   fn setBaseDir(&mut self, dir : String) -> () {
     self.baseDir = dir.clone();
@@ -12400,8 +12673,8 @@ impl EVGPDFRenderer {
       if  (ch == ";".to_string()) || (i == __len) {
         if  i > start {
           let part : String = paths.chars().skip(start as usize).take((i - start) as usize).collect::<String>();
-          self.assetPaths.push(part);
-          println!( "{}", format!("{}{}", "EVGPDFRenderer: Added asset path: ".to_string(), part) );
+          self.assetPaths.push(part.clone());
+          println!( "{}", [&*"EVGPDFRenderer: Added asset path: ".to_string(), &*part].concat() );
         }
         start = i + 1;
       }
@@ -12409,25 +12682,25 @@ impl EVGPDFRenderer {
     };
   }
   fn resolveImagePath(&mut self, src : String) -> String {
-    let mut imgSrc : String = src;
+    let mut imgSrc : String = src.clone();
     if  (src.len() as i64) > 2 {
       let prefix : String = src.chars().skip(0 as usize).take((2 - 0) as usize).collect::<String>();
       if  prefix == "./".to_string() {
         imgSrc = src.chars().skip(2 as usize).take(((src.len() as i64) - 2) as usize).collect::<String>();
       }
     }
-    let fullPath : String = format!("{}{}", self.baseDir, imgSrc);
+    let fullPath : String = [&*self.baseDir, &*imgSrc].concat();
     return fullPath.clone();
   }
-  fn setMeasurer(&mut self, mut m : EVGTextMeasurer) -> () {
+  fn setMeasurer(&mut self, mut m : Rc<RefCell<dyn EVGTextMeasurerTrait>>) -> () {
     self.measurer = Some(m.clone());
-    self.layout.setMeasurer(m.clone());
+    self.layout.as_mut().unwrap().setMeasurer(m.clone());
   }
   fn setFontManager(&mut self, mut fm : FontManager) -> () {
     self.fontManager = fm.clone();
   }
   fn setDebug(&mut self, enabled : bool) -> () {
-    self.layout.debug = enabled;
+    self.layout.as_mut().unwrap().debug = enabled;
     self.debug = enabled;
   }
   fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions {
@@ -12442,21 +12715,21 @@ impl EVGPDFRenderer {
     let mut dims : EVGImageDimensions = EVGImageDimensions::new();
     let mut imgDir : String = "".to_string();
     let mut imgFile : String = "".to_string();
-    let mut imgSrc : String = src;
+    let mut imgSrc : String = src.clone();
     if  (src.len() as i64) > 2 {
       let prefix : String = src.chars().skip(0 as usize).take((2 - 0) as usize).collect::<String>();
       if  prefix == "./".to_string() {
         imgSrc = src.chars().skip(2 as usize).take(((src.len() as i64) - 2) as usize).collect::<String>();
       }
     }
-    let lastSlash : i64 = (imgSrc.rfind("/".to_string()).map(|i| i as i64).unwrap_or(-1));
-    let lastBackslash : i64 = (imgSrc.rfind("\\".to_string()).map(|i| i as i64).unwrap_or(-1));
+    let lastSlash : i64 = (imgSrc.rfind(&*"/".to_string()).map(|i| i as i64).unwrap_or(-1));
+    let lastBackslash : i64 = (imgSrc.rfind(&*"\\".to_string()).map(|i| i as i64).unwrap_or(-1));
     let mut lastSep : i64 = lastSlash;
     if  lastBackslash > lastSep {
       lastSep = lastBackslash;
     }
     if  lastSep >= 0 {
-      imgDir = format!("{}{}", self.baseDir, (imgSrc.chars().skip(0 as usize).take(((lastSep + 1) - 0) as usize).collect::<String>()));
+      imgDir = [&*self.baseDir, &*(imgSrc.chars().skip(0 as usize).take(((lastSep + 1) - 0) as usize).collect::<String>())].concat();
       imgFile = imgSrc.chars().skip((lastSep + 1) as usize).take(((imgSrc.len() as i64) - (lastSep + 1)) as usize).collect::<String>();
     } else {
       imgDir = self.baseDir.clone();
@@ -12475,9 +12748,9 @@ impl EVGPDFRenderer {
         imgH = tmp;
       }
       dims = EVGImageDimensions::create(imgW, imgH);
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "Image dimensions: ".to_string(), src)), " = ".to_string())), (imgW.to_string()))), "x".to_string())), (imgH.to_string()))), " (orientation=".to_string())), (orientation.to_string()))), ")".to_string()) );
+      println!( "{}", [&*([&*([&*([&*([&*([&*([&*([&*"Image dimensions: ".to_string(), &*src].concat()), &*" = ".to_string()].concat()), &*(imgW.to_string())].concat()), &*"x".to_string()].concat()), &*(imgH.to_string())].concat()), &*" (orientation=".to_string()].concat()), &*(orientation.to_string())].concat()), &*")".to_string()].concat() );
     }
-    self.imageDimensionsCacheKeys.push(src);
+    self.imageDimensionsCacheKeys.push(src.clone());
     self.imageDimensionsCache.push(dims.clone());
     return dims.clone();
   }
@@ -12486,18 +12759,18 @@ impl EVGPDFRenderer {
     while i < ((self.usedFontNames.len() as i64)) {
       let name : String = self.usedFontNames[i as usize].clone();
       if  name == fontFamily {
-        return format!("{}{}", "/F".to_string(), ((i + 1).to_string())).clone();
+        return [&*"/F".to_string(), &*((i + 1).to_string())].concat().clone();
       }
       i = i + 1;
     };
-    self.usedFontNames.push(fontFamily);
-    return format!("{}{}", "/F".to_string(), (((self.usedFontNames.len() as i64)).to_string())).clone();
+    self.usedFontNames.push(fontFamily.clone());
+    return [&*"/F".to_string(), &*(((self.usedFontNames.len() as i64)).to_string())].concat().clone();
   }
   fn render(&mut self, mut root : EVGElement) -> Vec<u8> {
     if  root.tagName == "print".to_string() {
       return self.renderMultiPageToPDF(root.clone());
     }
-    self.layout.layout(root.clone());
+    self.layout.as_mut().unwrap().layout(root.clone());
     return self.renderToPDF(root.clone());
   }
   fn findPageElementsRecursive(&mut self, mut el : EVGElement) -> () {
@@ -12524,19 +12797,19 @@ impl EVGPDFRenderer {
     };
   }
   fn getSectionPageWidth(&mut self, mut section : EVGElement) -> f64 {
-    if  section.width.isSet {
-      return section.width.pixels;
+    if  section.width.as_mut().unwrap().isSet {
+      return section.width.as_mut().unwrap().pixels;
     }
     return 595_f64;
   }
   fn getSectionPageHeight(&mut self, mut section : EVGElement) -> f64 {
-    if  section.height.isSet {
-      return section.height.pixels;
+    if  section.height.as_mut().unwrap().isSet {
+      return section.height.as_mut().unwrap().pixels;
     }
     return 842_f64;
   }
   fn getSectionMargin(&mut self, mut section : EVGElement) -> f64 {
-    let mut m : Option<EVGUnit> = section.r#box.marginTop;
+    let mut m : EVGUnit = section.r#box.as_mut().unwrap().marginTop.clone().unwrap().clone();
     if  m.isSet {
       return m.pixels;
     }
@@ -12545,18 +12818,14 @@ impl EVGPDFRenderer {
   fn renderMultiPageToPDF(&mut self, mut root : EVGElement) -> Vec<u8> {
     let mut pdf : GrowableBuffer = GrowableBuffer::new();
     self.nextObjNum = 1;
-    self.contentObjNums.length = 0;
-    self.usedFontNames.length = 0;
-    self.embeddedFonts.length = 0;
-    self.embeddedImages.length = 0;
     if  root.imageQuality > 0 {
       self.jpegQuality = root.imageQuality;
-      println!( "{}", format!("{}{}", "Image quality: ".to_string(), (self.jpegQuality.to_string())) );
+      println!( "{}", [&*"Image quality: ".to_string(), &*(self.jpegQuality.to_string())].concat() );
     }
     if  root.maxImageSize > 0 {
       self.maxImageWidth = root.maxImageSize;
       self.maxImageHeight = root.maxImageSize;
-      println!( "{}", format!("{}{}", (format!("{}{}", "Max image size: ".to_string(), (self.maxImageWidth.to_string()))), "px".to_string()) );
+      println!( "{}", [&*([&*"Max image size: ".to_string(), &*(self.maxImageWidth.to_string())].concat()), &*"px".to_string()].concat() );
     }
     pdf.writeString("%PDF-1.5\n".to_string());
     pdf.writeByte(37);
@@ -12586,42 +12855,42 @@ impl EVGPDFRenderer {
       while pi < ((self.foundPages.len() as i64)) {
         let mut pg : EVGElement = self.foundPages[pi as usize].clone();
         allPages.push(pg.clone());
-        allPageWidths.push(sectionWidth);
-        allPageHeights.push(sectionHeight);
-        allPageMargins.push(sectionMargin);
+        allPageWidths.push(sectionWidth.clone());
+        allPageHeights.push(sectionHeight.clone());
+        allPageMargins.push(sectionMargin.clone());
         let contentWidth : f64 = sectionWidth - (sectionMargin * 2_f64);
         let contentHeight : f64 = sectionHeight - (sectionMargin * 2_f64);
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "Page ".to_string(), ((pi + 1).to_string()))), " content size: ".to_string())), (contentWidth.to_string()))), " x ".to_string())), (contentHeight.to_string())) );
-        self.layout.pageWidth = contentWidth;
-        self.layout.pageHeight = contentHeight;
+        println!( "{}", [&*([&*([&*([&*([&*"Page ".to_string(), &*((pi + 1).to_string())].concat()), &*" content size: ".to_string()].concat()), &*(contentWidth.to_string())].concat()), &*" x ".to_string()].concat()), &*(contentHeight.to_string())].concat() );
+        self.layout.as_mut().unwrap().pageWidth = contentWidth;
+        self.layout.as_mut().unwrap().pageHeight = contentHeight;
         pg.resetLayoutState();
-        pg.width.pixels = contentWidth;
-        pg.width.value = contentWidth;
-        pg.width.unitType = 0;
-        pg.width.isSet = true;
-        pg.height.pixels = contentHeight;
-        pg.height.value = contentHeight;
-        pg.height.unitType = 0;
-        pg.height.isSet = true;
-        self.layout.layout(pg.clone());
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "  After layout: pg.calculatedWidth=".to_string(), (pg.calculatedWidth.to_string()))), " pg.calculatedHeight=".to_string())), (pg.calculatedHeight.to_string())) );
+        pg.width.as_mut().unwrap().pixels = contentWidth;
+        pg.width.as_mut().unwrap().value = contentWidth;
+        pg.width.as_mut().unwrap().unitType = 0;
+        pg.width.as_mut().unwrap().isSet = true;
+        pg.height.as_mut().unwrap().pixels = contentHeight;
+        pg.height.as_mut().unwrap().value = contentHeight;
+        pg.height.as_mut().unwrap().unitType = 0;
+        pg.height.as_mut().unwrap().isSet = true;
+        self.layout.as_mut().unwrap().layout(pg.clone());
+        println!( "{}", [&*([&*([&*"  After layout: pg.calculatedWidth=".to_string(), &*(pg.calculatedWidth.to_string())].concat()), &*" pg.calculatedHeight=".to_string()].concat()), &*(pg.calculatedHeight.to_string())].concat() );
         if  pg.getChildCount() > 0 {
           let mut firstChild : EVGElement = pg.getChild(0);
-          println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "  First child: w=".to_string(), (firstChild.calculatedWidth.to_string()))), " h=".to_string())), (firstChild.calculatedHeight.to_string())) );
+          println!( "{}", [&*([&*([&*"  First child: w=".to_string(), &*(firstChild.calculatedWidth.to_string())].concat()), &*" h=".to_string()].concat()), &*(firstChild.calculatedHeight.to_string())].concat() );
         }
         pi = pi + 1;
       };
       si = si + 1;
     };
     if  ((allPages.len() as i64)) == 0 {
-      self.layout.layout(root.clone());
+      self.layout.as_mut().unwrap().layout(root.clone());
       allPages.push(root.clone());
-      allPageWidths.push(self.pageWidth);
-      allPageHeights.push(self.pageHeight);
+      allPageWidths.push(self.pageWidth.clone());
+      allPageHeights.push(self.pageHeight.clone());
       allPageMargins.push(0_f64);
     }
     let numPages : i64 = (allPages.len() as i64);
-    println!( "{}", format!("{}{}", (format!("{}{}", "Rendering ".to_string(), (numPages.to_string()))), " pages".to_string()) );
+    println!( "{}", [&*([&*"Rendering ".to_string(), &*(numPages.to_string())].concat()), &*" pages".to_string()].concat() );
     let mut contentDataList : Vec<Vec<u8>> = Vec::new();
     let mut pgi : i64 = 0;
     while pgi < numPages {
@@ -12630,11 +12899,11 @@ impl EVGPDFRenderer {
       let pgHeight : f64 = allPageHeights[pgi as usize].clone();
       let pgMargin : f64 = allPageMargins[pgi as usize].clone();
       self.pageHeight = pgHeight;
-      (self.streamBuffer).clear();
+      self.streamBuffer.as_mut().unwrap().clear();
       self.renderElement(pg_1.clone(), pgMargin, pgMargin);
-      let mut contentData : Vec<u8> = self.streamBuffer.toBuffer();
+      let mut contentData : Vec<u8> = self.streamBuffer.as_mut().unwrap().toBuffer();
       contentDataList.push(contentData.clone());
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  Page ".to_string(), ((pgi + 1).to_string()))), ": ".to_string())), ((contentData.len() as i64).to_string()))), " bytes".to_string()) );
+      println!( "{}", [&*([&*([&*([&*"  Page ".to_string(), &*((pgi + 1).to_string())].concat()), &*": ".to_string()].concat()), &*((contentData.len() as i64).to_string())].concat()), &*" bytes".to_string()].concat() );
       pgi = pgi + 1;
     };
     let mut fontObjNums : Vec<i64> = Vec::new();
@@ -12646,8 +12915,8 @@ impl EVGPDFRenderer {
         let mut fontFileData : Vec<u8> = ttfFont.getFontData();
         let fontFileLen : i64 = fontFileData.len() as i64;
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
-        pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "<< /Length ".to_string(), (fontFileLen.to_string()))), " /Length1 ".to_string())), (fontFileLen.to_string()))), " >>\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
+        pdf.writeString([&*([&*([&*([&*"<< /Length ".to_string(), &*(fontFileLen.to_string())].concat()), &*" /Length1 ".to_string()].concat()), &*(fontFileLen.to_string())].concat()), &*" >>\n".to_string()].concat());
         pdf.writeString("stream\n".to_string());
         pdf.writeBuffer(fontFileData.clone());
         pdf.writeString("\nendstream\n".to_string());
@@ -12655,28 +12924,28 @@ impl EVGPDFRenderer {
         let fontFileObjNum : i64 = self.nextObjNum;
         self.nextObjNum = self.nextObjNum + 1;
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         pdf.writeString("<< /Type /FontDescriptor".to_string());
-        pdf.writeString(format!("{}{}", " /FontName /".to_string(), self.sanitizeFontName(ttfFont.fontFamily.clone())));
+        pdf.writeString([&*" /FontName /".to_string(), &*EVGPDFRenderer::sanitizeFontName(ttfFont.fontFamily.clone())].concat());
         pdf.writeString(" /Flags 32".to_string());
-        pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", " /FontBBox [0 ".to_string(), (ttfFont.descender.to_string()))), " 1000 ".to_string())), (ttfFont.ascender.to_string()))), "]".to_string()));
+        pdf.writeString([&*([&*([&*([&*" /FontBBox [0 ".to_string(), &*(ttfFont.descender.to_string())].concat()), &*" 1000 ".to_string()].concat()), &*(ttfFont.ascender.to_string())].concat()), &*"]".to_string()].concat());
         pdf.writeString(" /ItalicAngle 0".to_string());
-        pdf.writeString(format!("{}{}", " /Ascent ".to_string(), (ttfFont.ascender.to_string())));
-        pdf.writeString(format!("{}{}", " /Descent ".to_string(), (ttfFont.descender.to_string())));
-        pdf.writeString(format!("{}{}", " /CapHeight ".to_string(), (ttfFont.ascender.to_string())));
+        pdf.writeString([&*" /Ascent ".to_string(), &*(ttfFont.ascender.to_string())].concat());
+        pdf.writeString([&*" /Descent ".to_string(), &*(ttfFont.descender.to_string())].concat());
+        pdf.writeString([&*" /CapHeight ".to_string(), &*(ttfFont.ascender.to_string())].concat());
         pdf.writeString(" /StemV 80".to_string());
-        pdf.writeString(format!("{}{}", (format!("{}{}", " /FontFile2 ".to_string(), (fontFileObjNum.to_string()))), " 0 R".to_string()));
+        pdf.writeString([&*([&*" /FontFile2 ".to_string(), &*(fontFileObjNum.to_string())].concat()), &*" 0 R".to_string()].concat());
         pdf.writeString(" >>\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
         let fontDescObjNum : i64 = self.nextObjNum;
         self.nextObjNum = self.nextObjNum + 1;
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         let mut toUnicodeStream : String = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n".to_string();
-        toUnicodeStream = format!("{}{}", toUnicodeStream, "2 beginbfrange\n<20> <7E> <0020>\n<A0> <FF> <00A0>\nendbfrange\n".to_string());
-        toUnicodeStream = format!("{}{}", toUnicodeStream, "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend".to_string());
+        toUnicodeStream = [&*toUnicodeStream, &*"2 beginbfrange\n<20> <7E> <0020>\n<A0> <FF> <00A0>\nendbfrange\n".to_string()].concat();
+        toUnicodeStream = [&*toUnicodeStream, &*"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend".to_string()].concat();
         let toUnicodeLen : i64 = toUnicodeStream.len() as i64;
-        pdf.writeString(format!("{}{}", (format!("{}{}", "<< /Length ".to_string(), (toUnicodeLen.to_string()))), " >>\n".to_string()));
+        pdf.writeString([&*([&*"<< /Length ".to_string(), &*(toUnicodeLen.to_string())].concat()), &*" >>\n".to_string()].concat());
         pdf.writeString("stream\n".to_string());
         pdf.writeString(toUnicodeStream.clone());
         pdf.writeString("\nendstream\n".to_string());
@@ -12684,10 +12953,10 @@ impl EVGPDFRenderer {
         let toUnicodeObjNum : i64 = self.nextObjNum;
         self.nextObjNum = self.nextObjNum + 1;
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         pdf.writeString("<< /Type /Font".to_string());
         pdf.writeString(" /Subtype /TrueType".to_string());
-        pdf.writeString(format!("{}{}", " /BaseFont /".to_string(), self.sanitizeFontName(ttfFont.fontFamily.clone())));
+        pdf.writeString([&*" /BaseFont /".to_string(), &*EVGPDFRenderer::sanitizeFontName(ttfFont.fontFamily.clone())].concat());
         pdf.writeString(" /FirstChar 32".to_string());
         pdf.writeString(" /LastChar 255".to_string());
         pdf.writeString(" /Widths [".to_string());
@@ -12703,63 +12972,63 @@ impl EVGPDFRenderer {
           ch = ch + 1;
         };
         pdf.writeString("]".to_string());
-        pdf.writeString(format!("{}{}", (format!("{}{}", " /FontDescriptor ".to_string(), (fontDescObjNum.to_string()))), " 0 R".to_string()));
+        pdf.writeString([&*([&*" /FontDescriptor ".to_string(), &*(fontDescObjNum.to_string())].concat()), &*" 0 R".to_string()].concat());
         pdf.writeString(" /Encoding /WinAnsiEncoding".to_string());
-        pdf.writeString(format!("{}{}", (format!("{}{}", " /ToUnicode ".to_string(), (toUnicodeObjNum.to_string()))), " 0 R".to_string()));
+        pdf.writeString([&*([&*" /ToUnicode ".to_string(), &*(toUnicodeObjNum.to_string())].concat()), &*" 0 R".to_string()].concat());
         pdf.writeString(" >>\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
-        fontObjNums.push(self.nextObjNum);
+        fontObjNums.push(self.nextObjNum.clone());
         self.nextObjNum = self.nextObjNum + 1;
       } else {
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
-        fontObjNums.push(self.nextObjNum);
+        fontObjNums.push(self.nextObjNum.clone());
         self.nextObjNum = self.nextObjNum + 1;
       }
       fi = fi + 1;
     };
     if  ((fontObjNums.len() as i64)) == 0 {
       objectOffsets.push((pdf).size());
-      pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+      pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
       pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n".to_string());
       pdf.writeString("endobj\n\n".to_string());
-      fontObjNums.push(self.nextObjNum);
+      fontObjNums.push(self.nextObjNum.clone());
       self.nextObjNum = self.nextObjNum + 1;
     }
     let mut imgIdx : i64 = 0;
     while imgIdx < ((self.embeddedImages.len() as i64)) {
       let mut embImg : EmbeddedImage = self.embeddedImages[imgIdx as usize].clone();
       let mut imgSrc : String = embImg.src.clone();
-      let mut imgDir : String = self.baseDir;
-      let mut imgFile : String = imgSrc;
+      let mut imgDir : String = self.baseDir.clone();
+      let mut imgFile : String = imgSrc.clone();
       if  (imgSrc.len() as i64) > 2 {
         let prefix : String = imgSrc.chars().skip(0 as usize).take((2 - 0) as usize).collect::<String>();
         if  prefix == "./".to_string() {
           imgSrc = imgSrc.chars().skip(2 as usize).take(((imgSrc.len() as i64) - 2) as usize).collect::<String>();
         }
       }
-      let lastSlash : i64 = (imgSrc.rfind("/".to_string()).map(|i| i as i64).unwrap_or(-1));
-      let lastBackslash : i64 = (imgSrc.rfind("\\".to_string()).map(|i| i as i64).unwrap_or(-1));
+      let lastSlash : i64 = (imgSrc.rfind(&*"/".to_string()).map(|i| i as i64).unwrap_or(-1));
+      let lastBackslash : i64 = (imgSrc.rfind(&*"\\".to_string()).map(|i| i as i64).unwrap_or(-1));
       let mut lastSep : i64 = lastSlash;
       if  lastBackslash > lastSep {
         lastSep = lastBackslash;
       }
       if  lastSep >= 0 {
-        imgDir = format!("{}{}", self.baseDir, (imgSrc.chars().skip(0 as usize).take(((lastSep + 1) - 0) as usize).collect::<String>()));
+        imgDir = [&*self.baseDir, &*(imgSrc.chars().skip(0 as usize).take(((lastSep + 1) - 0) as usize).collect::<String>())].concat();
         imgFile = imgSrc.chars().skip((lastSep + 1) as usize).take(((imgSrc.len() as i64) - (lastSep + 1)) as usize).collect::<String>();
       } else {
         imgDir = self.baseDir.clone();
         imgFile = imgSrc.clone();
       }
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "Loading image: dir=".to_string(), imgDir)), " file=".to_string())), imgFile) );
+      println!( "{}", [&*([&*([&*"Loading image: dir=".to_string(), &*imgDir].concat()), &*" file=".to_string()].concat()), &*imgFile].concat() );
       let mut metaInfo : JPEGMetadataInfo = self.metadataParser.parseMetadata(imgDir.clone(), imgFile.clone());
       embImg.orientation = metaInfo.orientation;
       let mut imgBuffer : ImageBuffer = self.jpegDecoder.decode(imgDir.clone(), imgFile.clone());
       if  (imgBuffer.width > 1) && (imgBuffer.height > 1) {
         if  metaInfo.orientation > 1 {
-          println!( "{}", format!("{}{}", "  Applying EXIF orientation: ".to_string(), (metaInfo.orientation.to_string())) );
+          println!( "{}", [&*"  Applying EXIF orientation: ".to_string(), &*(metaInfo.orientation.to_string())].concat() );
           imgBuffer = imgBuffer.applyExifOrientation(metaInfo.orientation);
         }
         let origW : i64 = imgBuffer.width;
@@ -12775,7 +13044,7 @@ impl EVGPDFRenderer {
           }
           newW = (((origW as f64)) * scale) as i64 ;
           newH = (((origH as f64)) * scale) as i64 ;
-          println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  Resizing from ".to_string(), (origW.to_string()))), "x".to_string())), (origH.to_string()))), " to ".to_string())), (newW.to_string()))), "x".to_string())), (newH.to_string())) );
+          println!( "{}", [&*([&*([&*([&*([&*([&*([&*"  Resizing from ".to_string(), &*(origW.to_string())].concat()), &*"x".to_string()].concat()), &*(origH.to_string())].concat()), &*" to ".to_string()].concat()), &*(newW.to_string())].concat()), &*"x".to_string()].concat()), &*(newH.to_string())].concat() );
           imgBuffer = imgBuffer.scaleToSize(newW, newH);
         }
         self.jpegEncoder.setQuality(self.jpegQuality);
@@ -12784,26 +13053,26 @@ impl EVGPDFRenderer {
         embImg.width = newW;
         embImg.height = newH;
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         pdf.writeString("<< /Type /XObject".to_string());
         pdf.writeString(" /Subtype /Image".to_string());
-        pdf.writeString(format!("{}{}", " /Width ".to_string(), (newW.to_string())));
-        pdf.writeString(format!("{}{}", " /Height ".to_string(), (newH.to_string())));
+        pdf.writeString([&*" /Width ".to_string(), &*(newW.to_string())].concat());
+        pdf.writeString([&*" /Height ".to_string(), &*(newH.to_string())].concat());
         pdf.writeString(" /ColorSpace /DeviceRGB".to_string());
         pdf.writeString(" /BitsPerComponent 8".to_string());
         pdf.writeString(" /Filter /DCTDecode".to_string());
-        pdf.writeString(format!("{}{}", " /Length ".to_string(), (encodedLen.to_string())));
+        pdf.writeString([&*" /Length ".to_string(), &*(encodedLen.to_string())].concat());
         pdf.writeString(" >>\n".to_string());
         pdf.writeString("stream\n".to_string());
         pdf.writeBuffer(encodedData.clone());
         pdf.writeString("\nendstream\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
         embImg.objNum = self.nextObjNum;
-        embImg.pdfName = format!("{}{}", "/Im".to_string(), ((imgIdx + 1).to_string()));
+        embImg.pdfName = [&*"/Im".to_string(), &*((imgIdx + 1).to_string())].concat();
         self.nextObjNum = self.nextObjNum + 1;
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "Embedded image: ".to_string(), embImg.src)), " (".to_string())), (newW.to_string()))), "x".to_string())), (newH.to_string()))), ")".to_string()) );
+        println!( "{}", [&*([&*([&*([&*([&*([&*"Embedded image: ".to_string(), &*embImg.src].concat()), &*" (".to_string()].concat()), &*(newW.to_string())].concat()), &*"x".to_string()].concat()), &*(newH.to_string())].concat()), &*")".to_string()].concat() );
       } else {
-        println!( "{}", format!("{}{}", "Failed to decode image: ".to_string(), embImg.src) );
+        println!( "{}", [&*"Failed to decode image: ".to_string(), &*embImg.src].concat() );
       }
       imgIdx = imgIdx + 1;
     };
@@ -12813,13 +13082,13 @@ impl EVGPDFRenderer {
       let mut contentData_1 : Vec<u8> = contentDataList[ci as usize].clone();
       let contentLen : i64 = contentData_1.len() as i64;
       objectOffsets.push((pdf).size());
-      pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
-      pdf.writeString(format!("{}{}", (format!("{}{}", "<< /Length ".to_string(), (contentLen.to_string()))), " >>\n".to_string()));
+      pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
+      pdf.writeString([&*([&*"<< /Length ".to_string(), &*(contentLen.to_string())].concat()), &*" >>\n".to_string()].concat());
       pdf.writeString("stream\n".to_string());
       pdf.writeBuffer(contentData_1.clone());
       pdf.writeString("\nendstream\n".to_string());
       pdf.writeString("endobj\n\n".to_string());
-      contentObjNumList.push(self.nextObjNum);
+      contentObjNumList.push(self.nextObjNum.clone());
       self.nextObjNum = self.nextObjNum + 1;
       ci = ci + 1;
     };
@@ -12831,16 +13100,16 @@ impl EVGPDFRenderer {
       let pgHeight_1 : f64 = allPageHeights[pi2 as usize].clone();
       let contentObjN : i64 = contentObjNumList[pi2 as usize].clone();
       objectOffsets.push((pdf).size());
-      pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
-      pdf.writeString(format!("{}{}", (format!("{}{}", "<< /Type /Page /Parent ".to_string(), (pagesRefNum.to_string()))), " 0 R".to_string()));
-      pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", " /MediaBox [0 0 ".to_string(), self.formatNum(pgWidth_1))), " ".to_string())), self.formatNum(pgHeight_1))), "]".to_string()));
-      pdf.writeString(format!("{}{}", (format!("{}{}", " /Contents ".to_string(), (contentObjN.to_string()))), " 0 R".to_string()));
+      pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
+      pdf.writeString([&*([&*"<< /Type /Page /Parent ".to_string(), &*(pagesRefNum.to_string())].concat()), &*" 0 R".to_string()].concat());
+      pdf.writeString([&*([&*([&*([&*" /MediaBox [0 0 ".to_string(), &*EVGPDFRenderer::formatNum(pgWidth_1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(pgHeight_1)].concat()), &*"]".to_string()].concat());
+      pdf.writeString([&*([&*" /Contents ".to_string(), &*(contentObjN.to_string())].concat()), &*" 0 R".to_string()].concat());
       pdf.writeString(" /Resources <<".to_string());
       pdf.writeString(" /Font <<".to_string());
       let mut ffi : i64 = 0;
       while ffi < ((fontObjNums.len() as i64)) {
         let fontObjN : i64 = fontObjNums[ffi as usize].clone();
-        pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", " /F".to_string(), ((ffi + 1).to_string()))), " ".to_string())), (fontObjN.to_string()))), " 0 R".to_string()));
+        pdf.writeString([&*([&*([&*([&*" /F".to_string(), &*((ffi + 1).to_string())].concat()), &*" ".to_string()].concat()), &*(fontObjN.to_string())].concat()), &*" 0 R".to_string()].concat());
         ffi = ffi + 1;
       };
       pdf.writeString(" >>".to_string());
@@ -12850,7 +13119,7 @@ impl EVGPDFRenderer {
         while ii < ((self.embeddedImages.len() as i64)) {
           let mut embImg_1 : EmbeddedImage = self.embeddedImages[ii as usize].clone();
           if  embImg_1.objNum > 0 {
-            pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", " /Im".to_string(), ((ii + 1).to_string()))), " ".to_string())), (embImg_1.objNum.to_string()))), " 0 R".to_string()));
+            pdf.writeString([&*([&*([&*([&*" /Im".to_string(), &*((ii + 1).to_string())].concat()), &*" ".to_string()].concat()), &*(embImg_1.objNum.to_string())].concat()), &*" 0 R".to_string()].concat());
           }
           ii = ii + 1;
         };
@@ -12858,56 +13127,52 @@ impl EVGPDFRenderer {
       }
       pdf.writeString(" >> >>\n".to_string());
       pdf.writeString("endobj\n\n".to_string());
-      pageObjNumList.push(self.nextObjNum);
+      pageObjNumList.push(self.nextObjNum.clone());
       self.nextObjNum = self.nextObjNum + 1;
       pi2 = pi2 + 1;
     };
     objectOffsets.push((pdf).size());
-    pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+    pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
     pdf.writeString("<< /Type /Pages /Kids [".to_string());
     let mut ki : i64 = 0;
     while ki < numPages {
       let pageObjN : i64 = pageObjNumList[ki as usize].clone();
-      pdf.writeString(format!("{}{}", (pageObjN.to_string()), " 0 R".to_string()));
+      pdf.writeString([&*(pageObjN.to_string()), &*" 0 R".to_string()].concat());
       if  ki < (numPages - 1) {
         pdf.writeString(" ".to_string());
       }
       ki = ki + 1;
     };
-    pdf.writeString(format!("{}{}", (format!("{}{}", "] /Count ".to_string(), (numPages.to_string()))), " >>\n".to_string()));
+    pdf.writeString([&*([&*"] /Count ".to_string(), &*(numPages.to_string())].concat()), &*" >>\n".to_string()].concat());
     pdf.writeString("endobj\n\n".to_string());
     self.pagesObjNum = self.nextObjNum;
     self.nextObjNum = self.nextObjNum + 1;
     objectOffsets.push((pdf).size());
-    pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
-    pdf.writeString(format!("{}{}", (format!("{}{}", "<< /Type /Catalog /Pages ".to_string(), (self.pagesObjNum.to_string()))), " 0 R >>\n".to_string()));
+    pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
+    pdf.writeString([&*([&*"<< /Type /Catalog /Pages ".to_string(), &*(self.pagesObjNum.to_string())].concat()), &*" 0 R >>\n".to_string()].concat());
     pdf.writeString("endobj\n\n".to_string());
     let catalogObjNum : i64 = self.nextObjNum;
     self.nextObjNum = self.nextObjNum + 1;
     let xrefOffset : i64 = (pdf).size();
     pdf.writeString("xref\n".to_string());
-    pdf.writeString(format!("{}{}", (format!("{}{}", "0 ".to_string(), (self.nextObjNum.to_string()))), "\n".to_string()));
+    pdf.writeString([&*([&*"0 ".to_string(), &*(self.nextObjNum.to_string())].concat()), &*"\n".to_string()].concat());
     pdf.writeString("0000000000 65535 f \n".to_string());
     let mut xi : i64 = 0;
     while xi < ((objectOffsets.len() as i64)) {
       let offset : i64 = objectOffsets[xi as usize].clone();
-      pdf.writeString(format!("{}{}", self.padLeft((offset.to_string()), 10, "0".to_string()), " 00000 n \n".to_string()));
+      pdf.writeString([&*EVGPDFRenderer::padLeft((offset.to_string()), 10, "0".to_string()), &*" 00000 n \n".to_string()].concat());
       xi = xi + 1;
     };
     pdf.writeString("trailer\n".to_string());
-    pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "<< /Size ".to_string(), (self.nextObjNum.to_string()))), " /Root ".to_string())), (catalogObjNum.to_string()))), " 0 R >>\n".to_string()));
+    pdf.writeString([&*([&*([&*([&*"<< /Size ".to_string(), &*(self.nextObjNum.to_string())].concat()), &*" /Root ".to_string()].concat()), &*(catalogObjNum.to_string())].concat()), &*" 0 R >>\n".to_string()].concat());
     pdf.writeString("startxref\n".to_string());
-    pdf.writeString(format!("{}{}", (xrefOffset.to_string()), "\n".to_string()));
+    pdf.writeString([&*(xrefOffset.to_string()), &*"\n".to_string()].concat());
     pdf.writeString("%%EOF\n".to_string());
     return pdf.toBuffer();
   }
   fn renderToPDF(&mut self, mut root : EVGElement) -> Vec<u8> {
     let mut pdf : GrowableBuffer = GrowableBuffer::new();
     self.nextObjNum = 1;
-    self.contentObjNums.length = 0;
-    self.usedFontNames.length = 0;
-    self.embeddedFonts.length = 0;
-    self.embeddedImages.length = 0;
     pdf.writeString("%PDF-1.5\n".to_string());
     pdf.writeByte(37);
     pdf.writeByte(226);
@@ -12916,9 +13181,9 @@ impl EVGPDFRenderer {
     pdf.writeByte(211);
     pdf.writeByte(10);
     let mut objectOffsets : Vec<i64> = Vec::new();
-    (self.streamBuffer).clear();
+    self.streamBuffer.as_mut().unwrap().clear();
     self.renderElement(root.clone(), 0_f64, 0_f64);
-    let mut contentData : Vec<u8> = self.streamBuffer.toBuffer();
+    let mut contentData : Vec<u8> = self.streamBuffer.as_mut().unwrap().toBuffer();
     let contentLen : i64 = contentData.len() as i64;
     let mut fontObjNums : Vec<i64> = Vec::new();
     let mut i : i64 = 0;
@@ -12929,8 +13194,8 @@ impl EVGPDFRenderer {
         let mut fontFileData : Vec<u8> = ttfFont.getFontData();
         let fontFileLen : i64 = fontFileData.len() as i64;
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
-        pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "<< /Length ".to_string(), (fontFileLen.to_string()))), " /Length1 ".to_string())), (fontFileLen.to_string()))), " >>\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
+        pdf.writeString([&*([&*([&*([&*"<< /Length ".to_string(), &*(fontFileLen.to_string())].concat()), &*" /Length1 ".to_string()].concat()), &*(fontFileLen.to_string())].concat()), &*" >>\n".to_string()].concat());
         pdf.writeString("stream\n".to_string());
         pdf.writeBuffer(fontFileData.clone());
         pdf.writeString("\nendstream\n".to_string());
@@ -12938,28 +13203,28 @@ impl EVGPDFRenderer {
         let fontFileObjNum : i64 = self.nextObjNum;
         self.nextObjNum = self.nextObjNum + 1;
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         pdf.writeString("<< /Type /FontDescriptor".to_string());
-        pdf.writeString(format!("{}{}", " /FontName /".to_string(), self.sanitizeFontName(ttfFont.fontFamily.clone())));
+        pdf.writeString([&*" /FontName /".to_string(), &*EVGPDFRenderer::sanitizeFontName(ttfFont.fontFamily.clone())].concat());
         pdf.writeString(" /Flags 32".to_string());
-        pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", " /FontBBox [0 ".to_string(), (ttfFont.descender.to_string()))), " 1000 ".to_string())), (ttfFont.ascender.to_string()))), "]".to_string()));
+        pdf.writeString([&*([&*([&*([&*" /FontBBox [0 ".to_string(), &*(ttfFont.descender.to_string())].concat()), &*" 1000 ".to_string()].concat()), &*(ttfFont.ascender.to_string())].concat()), &*"]".to_string()].concat());
         pdf.writeString(" /ItalicAngle 0".to_string());
-        pdf.writeString(format!("{}{}", " /Ascent ".to_string(), (ttfFont.ascender.to_string())));
-        pdf.writeString(format!("{}{}", " /Descent ".to_string(), (ttfFont.descender.to_string())));
-        pdf.writeString(format!("{}{}", " /CapHeight ".to_string(), (ttfFont.ascender.to_string())));
+        pdf.writeString([&*" /Ascent ".to_string(), &*(ttfFont.ascender.to_string())].concat());
+        pdf.writeString([&*" /Descent ".to_string(), &*(ttfFont.descender.to_string())].concat());
+        pdf.writeString([&*" /CapHeight ".to_string(), &*(ttfFont.ascender.to_string())].concat());
         pdf.writeString(" /StemV 80".to_string());
-        pdf.writeString(format!("{}{}", (format!("{}{}", " /FontFile2 ".to_string(), (fontFileObjNum.to_string()))), " 0 R".to_string()));
+        pdf.writeString([&*([&*" /FontFile2 ".to_string(), &*(fontFileObjNum.to_string())].concat()), &*" 0 R".to_string()].concat());
         pdf.writeString(" >>\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
         let fontDescObjNum : i64 = self.nextObjNum;
         self.nextObjNum = self.nextObjNum + 1;
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         let mut toUnicodeStream : String = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n".to_string();
-        toUnicodeStream = format!("{}{}", toUnicodeStream, "2 beginbfrange\n<20> <7E> <0020>\n<A0> <FF> <00A0>\nendbfrange\n".to_string());
-        toUnicodeStream = format!("{}{}", toUnicodeStream, "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend".to_string());
+        toUnicodeStream = [&*toUnicodeStream, &*"2 beginbfrange\n<20> <7E> <0020>\n<A0> <FF> <00A0>\nendbfrange\n".to_string()].concat();
+        toUnicodeStream = [&*toUnicodeStream, &*"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend".to_string()].concat();
         let toUnicodeLen : i64 = toUnicodeStream.len() as i64;
-        pdf.writeString(format!("{}{}", (format!("{}{}", "<< /Length ".to_string(), (toUnicodeLen.to_string()))), " >>\n".to_string()));
+        pdf.writeString([&*([&*"<< /Length ".to_string(), &*(toUnicodeLen.to_string())].concat()), &*" >>\n".to_string()].concat());
         pdf.writeString("stream\n".to_string());
         pdf.writeString(toUnicodeStream.clone());
         pdf.writeString("\nendstream\n".to_string());
@@ -12967,10 +13232,10 @@ impl EVGPDFRenderer {
         let toUnicodeObjNum : i64 = self.nextObjNum;
         self.nextObjNum = self.nextObjNum + 1;
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         pdf.writeString("<< /Type /Font".to_string());
         pdf.writeString(" /Subtype /TrueType".to_string());
-        pdf.writeString(format!("{}{}", " /BaseFont /".to_string(), self.sanitizeFontName(ttfFont.fontFamily.clone())));
+        pdf.writeString([&*" /BaseFont /".to_string(), &*EVGPDFRenderer::sanitizeFontName(ttfFont.fontFamily.clone())].concat());
         pdf.writeString(" /FirstChar 32".to_string());
         pdf.writeString(" /LastChar 255".to_string());
         pdf.writeString(" /Widths [".to_string());
@@ -12986,63 +13251,63 @@ impl EVGPDFRenderer {
           ch = ch + 1;
         };
         pdf.writeString("]".to_string());
-        pdf.writeString(format!("{}{}", (format!("{}{}", " /FontDescriptor ".to_string(), (fontDescObjNum.to_string()))), " 0 R".to_string()));
+        pdf.writeString([&*([&*" /FontDescriptor ".to_string(), &*(fontDescObjNum.to_string())].concat()), &*" 0 R".to_string()].concat());
         pdf.writeString(" /Encoding /WinAnsiEncoding".to_string());
-        pdf.writeString(format!("{}{}", (format!("{}{}", " /ToUnicode ".to_string(), (toUnicodeObjNum.to_string()))), " 0 R".to_string()));
+        pdf.writeString([&*([&*" /ToUnicode ".to_string(), &*(toUnicodeObjNum.to_string())].concat()), &*" 0 R".to_string()].concat());
         pdf.writeString(" >>\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
-        fontObjNums.push(self.nextObjNum);
+        fontObjNums.push(self.nextObjNum.clone());
         self.nextObjNum = self.nextObjNum + 1;
       } else {
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
-        fontObjNums.push(self.nextObjNum);
+        fontObjNums.push(self.nextObjNum.clone());
         self.nextObjNum = self.nextObjNum + 1;
       }
       i = i + 1;
     };
     if  ((fontObjNums.len() as i64)) == 0 {
       objectOffsets.push((pdf).size());
-      pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+      pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
       pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n".to_string());
       pdf.writeString("endobj\n\n".to_string());
-      fontObjNums.push(self.nextObjNum);
+      fontObjNums.push(self.nextObjNum.clone());
       self.nextObjNum = self.nextObjNum + 1;
     }
     let mut imgIdx : i64 = 0;
     while imgIdx < ((self.embeddedImages.len() as i64)) {
       let mut embImg : EmbeddedImage = self.embeddedImages[imgIdx as usize].clone();
       let mut imgSrc : String = embImg.src.clone();
-      let mut imgDir : String = self.baseDir;
-      let mut imgFile : String = imgSrc;
+      let mut imgDir : String = self.baseDir.clone();
+      let mut imgFile : String = imgSrc.clone();
       if  (imgSrc.len() as i64) > 2 {
         let prefix : String = imgSrc.chars().skip(0 as usize).take((2 - 0) as usize).collect::<String>();
         if  prefix == "./".to_string() {
           imgSrc = imgSrc.chars().skip(2 as usize).take(((imgSrc.len() as i64) - 2) as usize).collect::<String>();
         }
       }
-      let lastSlash : i64 = (imgSrc.rfind("/".to_string()).map(|i| i as i64).unwrap_or(-1));
-      let lastBackslash : i64 = (imgSrc.rfind("\\".to_string()).map(|i| i as i64).unwrap_or(-1));
+      let lastSlash : i64 = (imgSrc.rfind(&*"/".to_string()).map(|i| i as i64).unwrap_or(-1));
+      let lastBackslash : i64 = (imgSrc.rfind(&*"\\".to_string()).map(|i| i as i64).unwrap_or(-1));
       let mut lastSep : i64 = lastSlash;
       if  lastBackslash > lastSep {
         lastSep = lastBackslash;
       }
       if  lastSep >= 0 {
-        imgDir = format!("{}{}", self.baseDir, (imgSrc.chars().skip(0 as usize).take(((lastSep + 1) - 0) as usize).collect::<String>()));
+        imgDir = [&*self.baseDir, &*(imgSrc.chars().skip(0 as usize).take(((lastSep + 1) - 0) as usize).collect::<String>())].concat();
         imgFile = imgSrc.chars().skip((lastSep + 1) as usize).take(((imgSrc.len() as i64) - (lastSep + 1)) as usize).collect::<String>();
       } else {
         imgDir = self.baseDir.clone();
         imgFile = imgSrc.clone();
       }
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "Loading image: dir=".to_string(), imgDir)), " file=".to_string())), imgFile) );
+      println!( "{}", [&*([&*([&*"Loading image: dir=".to_string(), &*imgDir].concat()), &*" file=".to_string()].concat()), &*imgFile].concat() );
       let mut metaInfo : JPEGMetadataInfo = self.metadataParser.parseMetadata(imgDir.clone(), imgFile.clone());
       embImg.orientation = metaInfo.orientation;
       let mut imgBuffer : ImageBuffer = self.jpegDecoder.decode(imgDir.clone(), imgFile.clone());
       if  (imgBuffer.width > 1) && (imgBuffer.height > 1) {
         if  metaInfo.orientation > 1 {
-          println!( "{}", format!("{}{}", "  Applying EXIF orientation: ".to_string(), (metaInfo.orientation.to_string())) );
+          println!( "{}", [&*"  Applying EXIF orientation: ".to_string(), &*(metaInfo.orientation.to_string())].concat() );
           imgBuffer = imgBuffer.applyExifOrientation(metaInfo.orientation);
         }
         let origW : i64 = imgBuffer.width;
@@ -13058,7 +13323,7 @@ impl EVGPDFRenderer {
           }
           newW = (((origW as f64)) * scale) as i64 ;
           newH = (((origH as f64)) * scale) as i64 ;
-          println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  Resizing from ".to_string(), (origW.to_string()))), "x".to_string())), (origH.to_string()))), " to ".to_string())), (newW.to_string()))), "x".to_string())), (newH.to_string())) );
+          println!( "{}", [&*([&*([&*([&*([&*([&*([&*"  Resizing from ".to_string(), &*(origW.to_string())].concat()), &*"x".to_string()].concat()), &*(origH.to_string())].concat()), &*" to ".to_string()].concat()), &*(newW.to_string())].concat()), &*"x".to_string()].concat()), &*(newH.to_string())].concat() );
           imgBuffer = imgBuffer.scaleToSize(newW, newH);
         }
         self.jpegEncoder.setQuality(self.jpegQuality);
@@ -13067,32 +13332,32 @@ impl EVGPDFRenderer {
         embImg.width = newW;
         embImg.height = newH;
         objectOffsets.push((pdf).size());
-        pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+        pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         pdf.writeString("<< /Type /XObject".to_string());
         pdf.writeString(" /Subtype /Image".to_string());
-        pdf.writeString(format!("{}{}", " /Width ".to_string(), (newW.to_string())));
-        pdf.writeString(format!("{}{}", " /Height ".to_string(), (newH.to_string())));
+        pdf.writeString([&*" /Width ".to_string(), &*(newW.to_string())].concat());
+        pdf.writeString([&*" /Height ".to_string(), &*(newH.to_string())].concat());
         pdf.writeString(" /ColorSpace /DeviceRGB".to_string());
         pdf.writeString(" /BitsPerComponent 8".to_string());
         pdf.writeString(" /Filter /DCTDecode".to_string());
-        pdf.writeString(format!("{}{}", " /Length ".to_string(), (encodedLen.to_string())));
+        pdf.writeString([&*" /Length ".to_string(), &*(encodedLen.to_string())].concat());
         pdf.writeString(" >>\n".to_string());
         pdf.writeString("stream\n".to_string());
         pdf.writeBuffer(encodedData.clone());
         pdf.writeString("\nendstream\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
         embImg.objNum = self.nextObjNum;
-        embImg.pdfName = format!("{}{}", "/Im".to_string(), ((imgIdx + 1).to_string()));
+        embImg.pdfName = [&*"/Im".to_string(), &*((imgIdx + 1).to_string())].concat();
         self.nextObjNum = self.nextObjNum + 1;
-        println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "Embedded image: ".to_string(), imgSrc)), " (resized to ".to_string())), (newW.to_string()))), "x".to_string())), (newH.to_string()))), ", ".to_string())), (encodedLen.to_string()))), " bytes)".to_string()) );
+        println!( "{}", [&*([&*([&*([&*([&*([&*([&*([&*"Embedded image: ".to_string(), &*imgSrc].concat()), &*" (resized to ".to_string()].concat()), &*(newW.to_string())].concat()), &*"x".to_string()].concat()), &*(newH.to_string())].concat()), &*", ".to_string()].concat()), &*(encodedLen.to_string())].concat()), &*" bytes)".to_string()].concat() );
       } else {
-        println!( "{}", format!("{}{}", "Failed to decode image: ".to_string(), imgSrc) );
+        println!( "{}", [&*"Failed to decode image: ".to_string(), &*imgSrc].concat() );
       }
       imgIdx = imgIdx + 1;
     };
     objectOffsets.push((pdf).size());
-    pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
-    pdf.writeString(format!("{}{}", (format!("{}{}", "<< /Length ".to_string(), (contentLen.to_string()))), " >>\n".to_string()));
+    pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
+    pdf.writeString([&*([&*"<< /Length ".to_string(), &*(contentLen.to_string())].concat()), &*" >>\n".to_string()].concat());
     pdf.writeString("stream\n".to_string());
     pdf.writeBuffer(contentData.clone());
     pdf.writeString("\nendstream\n".to_string());
@@ -13100,17 +13365,17 @@ impl EVGPDFRenderer {
     let contentObjNum : i64 = self.nextObjNum;
     self.nextObjNum = self.nextObjNum + 1;
     objectOffsets.push((pdf).size());
-    pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
+    pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
     let pagesRef : i64 = self.nextObjNum + 1;
-    pdf.writeString(format!("{}{}", (format!("{}{}", "<< /Type /Page /Parent ".to_string(), (pagesRef.to_string()))), " 0 R".to_string()));
-    pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", " /MediaBox [0 0 ".to_string(), self.formatNum(self.pageWidth))), " ".to_string())), self.formatNum(self.pageHeight))), "]".to_string()));
-    pdf.writeString(format!("{}{}", (format!("{}{}", " /Contents ".to_string(), (contentObjNum.to_string()))), " 0 R".to_string()));
+    pdf.writeString([&*([&*"<< /Type /Page /Parent ".to_string(), &*(pagesRef.to_string())].concat()), &*" 0 R".to_string()].concat());
+    pdf.writeString([&*([&*([&*([&*" /MediaBox [0 0 ".to_string(), &*EVGPDFRenderer::formatNum(self.pageWidth)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(self.pageHeight)].concat()), &*"]".to_string()].concat());
+    pdf.writeString([&*([&*" /Contents ".to_string(), &*(contentObjNum.to_string())].concat()), &*" 0 R".to_string()].concat());
     pdf.writeString(" /Resources <<".to_string());
     pdf.writeString(" /Font <<".to_string());
     let mut fi : i64 = 0;
     while fi < ((fontObjNums.len() as i64)) {
       let fontObjN : i64 = fontObjNums[fi as usize].clone();
-      pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", " /F".to_string(), ((fi + 1).to_string()))), " ".to_string())), (fontObjN.to_string()))), " 0 R".to_string()));
+      pdf.writeString([&*([&*([&*([&*" /F".to_string(), &*((fi + 1).to_string())].concat()), &*" ".to_string()].concat()), &*(fontObjN.to_string())].concat()), &*" 0 R".to_string()].concat());
       fi = fi + 1;
     };
     pdf.writeString(" >>".to_string());
@@ -13120,7 +13385,7 @@ impl EVGPDFRenderer {
       while ii < ((self.embeddedImages.len() as i64)) {
         let mut embImg_1 : EmbeddedImage = self.embeddedImages[ii as usize].clone();
         if  embImg_1.objNum > 0 {
-          pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", " /Im".to_string(), ((ii + 1).to_string()))), " ".to_string())), (embImg_1.objNum.to_string()))), " 0 R".to_string()));
+          pdf.writeString([&*([&*([&*([&*" /Im".to_string(), &*((ii + 1).to_string())].concat()), &*" ".to_string()].concat()), &*(embImg_1.objNum.to_string())].concat()), &*" 0 R".to_string()].concat());
         }
         ii = ii + 1;
       };
@@ -13131,31 +13396,31 @@ impl EVGPDFRenderer {
     let pageObjNum : i64 = self.nextObjNum;
     self.nextObjNum = self.nextObjNum + 1;
     objectOffsets.push((pdf).size());
-    pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
-    pdf.writeString(format!("{}{}", (format!("{}{}", "<< /Type /Pages /Kids [".to_string(), (pageObjNum.to_string()))), " 0 R] /Count 1 >>\n".to_string()));
+    pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
+    pdf.writeString([&*([&*"<< /Type /Pages /Kids [".to_string(), &*(pageObjNum.to_string())].concat()), &*" 0 R] /Count 1 >>\n".to_string()].concat());
     pdf.writeString("endobj\n\n".to_string());
     self.pagesObjNum = self.nextObjNum;
     self.nextObjNum = self.nextObjNum + 1;
     objectOffsets.push((pdf).size());
-    pdf.writeString(format!("{}{}", (self.nextObjNum.to_string()), " 0 obj\n".to_string()));
-    pdf.writeString(format!("{}{}", (format!("{}{}", "<< /Type /Catalog /Pages ".to_string(), (self.pagesObjNum.to_string()))), " 0 R >>\n".to_string()));
+    pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
+    pdf.writeString([&*([&*"<< /Type /Catalog /Pages ".to_string(), &*(self.pagesObjNum.to_string())].concat()), &*" 0 R >>\n".to_string()].concat());
     pdf.writeString("endobj\n\n".to_string());
     let catalogObjNum : i64 = self.nextObjNum;
     self.nextObjNum = self.nextObjNum + 1;
     let xrefOffset : i64 = (pdf).size();
     pdf.writeString("xref\n".to_string());
-    pdf.writeString(format!("{}{}", (format!("{}{}", "0 ".to_string(), (self.nextObjNum.to_string()))), "\n".to_string()));
+    pdf.writeString([&*([&*"0 ".to_string(), &*(self.nextObjNum.to_string())].concat()), &*"\n".to_string()].concat());
     pdf.writeString("0000000000 65535 f \n".to_string());
     let mut i_2 : i64 = 0;
     while i_2 < ((objectOffsets.len() as i64)) {
       let offset : i64 = objectOffsets[i_2 as usize].clone();
-      pdf.writeString(format!("{}{}", self.padLeft((offset.to_string()), 10, "0".to_string()), " 00000 n \n".to_string()));
+      pdf.writeString([&*EVGPDFRenderer::padLeft((offset.to_string()), 10, "0".to_string()), &*" 00000 n \n".to_string()].concat());
       i_2 = i_2 + 1;
     };
     pdf.writeString("trailer\n".to_string());
-    pdf.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "<< /Size ".to_string(), (self.nextObjNum.to_string()))), " /Root ".to_string())), (catalogObjNum.to_string()))), " 0 R >>\n".to_string()));
+    pdf.writeString([&*([&*([&*([&*"<< /Size ".to_string(), &*(self.nextObjNum.to_string())].concat()), &*" /Root ".to_string()].concat()), &*(catalogObjNum.to_string())].concat()), &*" 0 R >>\n".to_string()].concat());
     pdf.writeString("startxref\n".to_string());
-    pdf.writeString(format!("{}{}", (xrefOffset.to_string()), "\n".to_string()));
+    pdf.writeString([&*(xrefOffset.to_string()), &*"\n".to_string()].concat());
     pdf.writeString("%%EOF\n".to_string());
     return pdf.toBuffer();
   }
@@ -13168,12 +13433,12 @@ impl EVGPDFRenderer {
     let mut hasClipPath : bool = false;
     if  (el.clipPath.len() as i64) > 0 {
       hasClipPath = true;
-      self.streamBuffer.writeString("q\n".to_string());
+      self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
       self.applyClipPath(el.clipPath.clone(), x, pdfY, w, h);
     }
     let mut bgColor : EVGColor = el.backgroundColor.clone().unwrap();
     if  self.debug {
-      println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "  bg check: ".to_string(), el.tagName)), " isSet=".to_string())), ((bgColor.isSet.to_string())))), " r=".to_string())), (bgColor.r.to_string())) );
+      println!( "{}", [&*([&*([&*([&*([&*"  bg check: ".to_string(), &*el.tagName].concat()), &*" isSet=".to_string()].concat()), &*((bgColor.isSet.to_string()))].concat()), &*" r=".to_string()].concat()), &*(bgColor.r.to_string())].concat() );
     }
     if  bgColor.isSet {
       self.renderBackground(x, pdfY, w, h, bgColor.clone());
@@ -13199,7 +13464,7 @@ impl EVGPDFRenderer {
       i = i + 1;
     };
     if  hasClipPath {
-      self.streamBuffer.writeString("Q\n".to_string());
+      self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
     }
   }
   fn getImagePdfName(&mut self, src : String) -> String {
@@ -13207,13 +13472,13 @@ impl EVGPDFRenderer {
     while i < ((self.embeddedImages.len() as i64)) {
       let mut embImg : EmbeddedImage = self.embeddedImages[i as usize].clone();
       if  embImg.src == src {
-        return format!("{}{}", "/Im".to_string(), ((i + 1).to_string())).clone();
+        return [&*"/Im".to_string(), &*((i + 1).to_string())].concat().clone();
       }
       i = i + 1;
     };
     let mut newImg : EmbeddedImage = EmbeddedImage::new(src.clone());
     self.embeddedImages.push(newImg.clone());
-    return format!("{}{}", "/Im".to_string(), (((self.embeddedImages.len() as i64)).to_string())).clone();
+    return [&*"/Im".to_string(), &*(((self.embeddedImages.len() as i64)).to_string())].concat().clone();
   }
   fn renderImage(&mut self, mut el : EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
     let src : String = el.src.clone();
@@ -13221,10 +13486,11 @@ impl EVGPDFRenderer {
       return;
     }
     let imgName : String = self.getImagePdfName(src.clone());
-    self.streamBuffer.writeString("q\n".to_string());
-    self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(w), " 0 0 ".to_string())), self.formatNum(h))), " ".to_string())), self.formatNum(x))), " ".to_string())), self.formatNum(y))), " cm\n".to_string()));
-    self.streamBuffer.writeString(format!("{}{}", imgName, " Do\n".to_string()));
-    self.streamBuffer.writeString("Q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
+    let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(w), &*" 0 0 ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" cm\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString([&*imgName, &*" Do\n".to_string()].concat());
+    self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn renderPath(&mut self, mut el : EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
     let pathData : String = el.svgPath.clone();
@@ -13234,31 +13500,37 @@ impl EVGPDFRenderer {
     let mut parser : SVGPathParser = SVGPathParser::new();
     parser.parse(pathData.clone());
     let mut commands : Vec<PathCommand> = parser.getScaledCommands(w, h);
-    let mut fillColor : Option<EVGColor> = el.fillColor;
-    let mut strokeColor : Option<EVGColor> = el.strokeColor;
+    let mut fillColor : EVGColor = el.fillColor.clone().unwrap().clone();
+    let mut strokeColor : EVGColor = el.strokeColor.clone().unwrap().clone();
     if  fillColor.isSet == false {
-      fillColor = el.backgroundColor.clone();
+      fillColor = el.backgroundColor.clone().unwrap();
     }
-    self.streamBuffer.writeString("q\n".to_string());
-    self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", "1 0 0 1 ".to_string(), self.formatNum(x))), " ".to_string())), self.formatNum(y))), " cm\n".to_string()));
-    self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", "1 0 0 -1 0 ".to_string(), self.formatNum(h))), " cm\n".to_string()));
+    self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
+    let __arg_0 = [&*([&*([&*([&*"1 0 0 1 ".to_string(), &*EVGPDFRenderer::formatNum(x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" cm\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    let __arg_0 = [&*([&*"1 0 0 -1 0 ".to_string(), &*EVGPDFRenderer::formatNum(h)].concat()), &*" cm\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     let mut i : i64 = 0;
     while i < ((commands.len() as i64)) {
       let mut cmd : PathCommand = commands[i as usize].clone();
       if  cmd.r#type == "M".to_string() {
-        self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(cmd.x), " ".to_string())), self.formatNum(cmd.y))), " m\n".to_string()));
+        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(cmd.x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" m\n".to_string()].concat();
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "L".to_string() {
-        self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(cmd.x), " ".to_string())), self.formatNum(cmd.y))), " l\n".to_string()));
+        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(cmd.x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" l\n".to_string()].concat();
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "C".to_string() {
-        self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(cmd.x1), " ".to_string())), self.formatNum(cmd.y1))), " ".to_string())), self.formatNum(cmd.x2))), " ".to_string())), self.formatNum(cmd.y2))), " ".to_string())), self.formatNum(cmd.x))), " ".to_string())), self.formatNum(cmd.y))), " c\n".to_string()));
+        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(cmd.x1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" c\n".to_string()].concat();
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Q".to_string() {
-        self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(cmd.x1), " ".to_string())), self.formatNum(cmd.y1))), " ".to_string())), self.formatNum(cmd.x1))), " ".to_string())), self.formatNum(cmd.y1))), " ".to_string())), self.formatNum(cmd.x))), " ".to_string())), self.formatNum(cmd.y))), " c\n".to_string()));
+        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(cmd.x1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" c\n".to_string()].concat();
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Z".to_string() {
-        self.streamBuffer.writeString("h\n".to_string());
+        self.streamBuffer.as_mut().unwrap().writeString("h\n".to_string());
       }
       i = i + 1;
     };
@@ -13266,36 +13538,42 @@ impl EVGPDFRenderer {
       let r : f64 = fillColor.r / 255_f64;
       let g : f64 = fillColor.g / 255_f64;
       let b : f64 = fillColor.b / 255_f64;
-      self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(r), " ".to_string())), self.formatNum(g))), " ".to_string())), self.formatNum(b))), " rg\n".to_string()));
+      let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat();
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       let sr : f64 = strokeColor.r / 255_f64;
       let sg : f64 = strokeColor.g / 255_f64;
       let sb : f64 = strokeColor.b / 255_f64;
-      self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(sr), " ".to_string())), self.formatNum(sg))), " ".to_string())), self.formatNum(sb))), " RG\n".to_string()));
+      let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(sr), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sg)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sb)].concat()), &*" RG\n".to_string()].concat();
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       if  el.strokeWidth > 0_f64 {
-        self.streamBuffer.writeString(format!("{}{}", self.formatNum(el.strokeWidth), " w\n".to_string()));
+        let __arg_0 = [&*EVGPDFRenderer::formatNum(el.strokeWidth), &*" w\n".to_string()].concat();
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
-      self.streamBuffer.writeString("B\n".to_string());
+      self.streamBuffer.as_mut().unwrap().writeString("B\n".to_string());
     } else {
       if  fillColor.isSet {
         let r_1 : f64 = fillColor.r / 255_f64;
         let g_1 : f64 = fillColor.g / 255_f64;
         let b_1 : f64 = fillColor.b / 255_f64;
-        self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(r_1), " ".to_string())), self.formatNum(g_1))), " ".to_string())), self.formatNum(b_1))), " rg\n".to_string()));
-        self.streamBuffer.writeString("f\n".to_string());
+        let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r_1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g_1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b_1)].concat()), &*" rg\n".to_string()].concat();
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString("f\n".to_string());
       } else {
         if  strokeColor.isSet {
           let sr_1 : f64 = strokeColor.r / 255_f64;
           let sg_1 : f64 = strokeColor.g / 255_f64;
           let sb_1 : f64 = strokeColor.b / 255_f64;
-          self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(sr_1), " ".to_string())), self.formatNum(sg_1))), " ".to_string())), self.formatNum(sb_1))), " RG\n".to_string()));
+          let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(sr_1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sg_1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sb_1)].concat()), &*" RG\n".to_string()].concat();
+          self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
           if  el.strokeWidth > 0_f64 {
-            self.streamBuffer.writeString(format!("{}{}", self.formatNum(el.strokeWidth), " w\n".to_string()));
+            let __arg_0 = [&*EVGPDFRenderer::formatNum(el.strokeWidth), &*" w\n".to_string()].concat();
+            self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
           }
-          self.streamBuffer.writeString("S\n".to_string());
+          self.streamBuffer.as_mut().unwrap().writeString("S\n".to_string());
         }
       }
     }
-    self.streamBuffer.writeString("Q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn applyClipPath(&mut self, pathData : String, x : f64, y : f64, w : f64, h : f64) -> () {
     let mut parser : SVGPathParser = SVGPathParser::new();
@@ -13311,52 +13589,61 @@ impl EVGPDFRenderer {
       let px2 : f64 = x + cmd.x2;
       let py2 : f64 = (y + h) - cmd.y2;
       if  cmd.r#type == "M".to_string() {
-        self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(px), " ".to_string())), self.formatNum(py))), " m\n".to_string()));
+        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(px), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" m\n".to_string()].concat();
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "L".to_string() {
-        self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(px), " ".to_string())), self.formatNum(py))), " l\n".to_string()));
+        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(px), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" l\n".to_string()].concat();
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "C".to_string() {
-        self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(px1), " ".to_string())), self.formatNum(py1))), " ".to_string())), self.formatNum(px2))), " ".to_string())), self.formatNum(py2))), " ".to_string())), self.formatNum(px))), " ".to_string())), self.formatNum(py))), " c\n".to_string()));
+        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(px1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" c\n".to_string()].concat();
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Q".to_string() {
-        self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(px1), " ".to_string())), self.formatNum(py1))), " ".to_string())), self.formatNum(px1))), " ".to_string())), self.formatNum(py1))), " ".to_string())), self.formatNum(px))), " ".to_string())), self.formatNum(py))), " c\n".to_string()));
+        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(px1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" c\n".to_string()].concat();
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Z".to_string() {
-        self.streamBuffer.writeString("h\n".to_string());
+        self.streamBuffer.as_mut().unwrap().writeString("h\n".to_string());
       }
       i = i + 1;
     };
-    self.streamBuffer.writeString("W n\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("W n\n".to_string());
   }
   fn renderBackground(&mut self, x : f64, y : f64, w : f64, h : f64, mut color : EVGColor) -> () {
-    self.streamBuffer.writeString("q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
     let r : f64 = color.r / 255_f64;
     let g : f64 = color.g / 255_f64;
     let b : f64 = color.b / 255_f64;
-    self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(r), " ".to_string())), self.formatNum(g))), " ".to_string())), self.formatNum(b))), " rg\n".to_string()));
-    self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(x), " ".to_string())), self.formatNum(y))), " ".to_string())), self.formatNum(w))), " ".to_string())), self.formatNum(h))), " re\n".to_string()));
-    self.streamBuffer.writeString("f\n".to_string());
-    self.streamBuffer.writeString("Q\n".to_string());
+    let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(w)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" re\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString("f\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn renderBorder(&mut self, mut el : EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
-    let borderWidth : f64 = el.r#box.borderWidth.pixels;
+    let borderWidth : f64 = el.r#box.as_mut().unwrap().borderWidth.as_mut().unwrap().pixels;
     if  borderWidth <= 0_f64 {
       return;
     }
-    let mut borderColor : EVGColor = el.r#box.borderColor.clone().unwrap();
+    let mut borderColor : EVGColor = el.r#box.as_mut().unwrap().borderColor.clone().unwrap();
     if  borderColor.isSet == false {
       borderColor = EVGColor::black();
     }
-    self.streamBuffer.writeString("q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
     let r : f64 = borderColor.r / 255_f64;
     let g : f64 = borderColor.g / 255_f64;
     let b : f64 = borderColor.b / 255_f64;
-    self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(r), " ".to_string())), self.formatNum(g))), " ".to_string())), self.formatNum(b))), " RG\n".to_string()));
-    self.streamBuffer.writeString(format!("{}{}", self.formatNum(borderWidth), " w\n".to_string()));
-    self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(x), " ".to_string())), self.formatNum(y))), " ".to_string())), self.formatNum(w))), " ".to_string())), self.formatNum(h))), " re\n".to_string()));
-    self.streamBuffer.writeString("S\n".to_string());
-    self.streamBuffer.writeString("Q\n".to_string());
+    let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" RG\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    let __arg_0 = [&*EVGPDFRenderer::formatNum(borderWidth), &*" w\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(w)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" re\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString("S\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn renderText(&mut self, mut el : EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
     let text : String = self.getTextContent(el.clone());
@@ -13364,10 +13651,10 @@ impl EVGPDFRenderer {
       return;
     }
     let mut fontSize : f64 = 14_f64;
-    if  el.fontSize.isSet {
-      fontSize = el.fontSize.pixels;
+    if  el.fontSize.as_mut().unwrap().isSet {
+      fontSize = el.fontSize.as_mut().unwrap().pixels;
     }
-    let mut color : Option<EVGColor> = el.color;
+    let mut color : EVGColor = el.color.clone().unwrap().clone();
     if  color.isSet == false {
       color = EVGColor::black();
     }
@@ -13386,31 +13673,35 @@ impl EVGPDFRenderer {
     let mut i : i64 = 0;
     while i < ((lines.len() as i64)) {
       let line : String = lines[i as usize].clone();
-      self.streamBuffer.writeString("BT\n".to_string());
-      self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", fontName, " ".to_string())), self.formatNum(fontSize))), " Tf\n".to_string()));
+      self.streamBuffer.as_mut().unwrap().writeString("BT\n".to_string());
+      let __arg_0 = [&*([&*([&*fontName, &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(fontSize)].concat()), &*" Tf\n".to_string()].concat();
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       let r : f64 = color.r / 255_f64;
       let g : f64 = color.g / 255_f64;
       let b : f64 = color.b / 255_f64;
-      self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(r), " ".to_string())), self.formatNum(g))), " ".to_string())), self.formatNum(b))), " rg\n".to_string()));
+      let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat();
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       let mut textX : f64 = x;
       if  el.textAlign == "center".to_string() {
-        let textWidth : f64 = self.measurer.measureTextWidth(line.clone(), fontFamily.clone(), fontSize);
+        let textWidth : f64 = self.measurer.as_mut().unwrap().measureTextWidth(line.clone(), fontFamily.clone(), fontSize);
         textX = x + ((w - textWidth) / 2_f64);
       }
       if  el.textAlign == "right".to_string() {
-        let textWidth_1 : f64 = self.measurer.measureTextWidth(line.clone(), fontFamily.clone(), fontSize);
+        let textWidth_1 : f64 = self.measurer.as_mut().unwrap().measureTextWidth(line.clone(), fontFamily.clone(), fontSize);
         textX = (x + w) - textWidth_1;
       }
-      self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(textX), " ".to_string())), self.formatNum(lineY))), " Td\n".to_string()));
-      self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", "(".to_string(), self.escapeText(line.clone()))), ") Tj\n".to_string()));
-      self.streamBuffer.writeString("ET\n".to_string());
+      let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(textX), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" Td\n".to_string()].concat();
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+      let __arg_0 = [&*([&*"(".to_string(), &*EVGPDFRenderer::escapeText(line.clone())].concat()), &*") Tj\n".to_string()].concat();
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+      self.streamBuffer.as_mut().unwrap().writeString("ET\n".to_string());
       lineY = lineY - lineSpacing;
       i = i + 1;
     };
   }
   fn wrapText(&mut self, text : String, maxWidth : f64, fontSize : f64, fontFamily : String) -> Vec<String> {
     let mut lines : Vec<String> = Vec::new();
-    let mut words : Vec<String> = text.split(" ".to_string());
+    let mut words : Vec<String> = text.split(&*" ".to_string()).map(|s| s.to_string()).collect::<Vec<String>>();
     let mut currentLine : String = "".to_string();
     let mut i : i64 = 0;
     while i < ((words.len() as i64)) {
@@ -13419,11 +13710,11 @@ impl EVGPDFRenderer {
       if  (currentLine.len() as i64) == 0 {
         testLine = word.clone();
       } else {
-        testLine = format!("{}{}", (format!("{}{}", currentLine, " ".to_string())), word);
+        testLine = [&*([&*currentLine, &*" ".to_string()].concat()), &*word].concat();
       }
-      let testWidth : f64 = self.measurer.measureTextWidth(testLine.clone(), fontFamily.clone(), fontSize);
+      let testWidth : f64 = self.measurer.as_mut().unwrap().measureTextWidth(testLine.clone(), fontFamily.clone(), fontSize);
       if  (testWidth > maxWidth) && ((currentLine.len() as i64) > 0) {
-        lines.push(currentLine);
+        lines.push(currentLine.clone());
         currentLine = word.clone();
       } else {
         currentLine = testLine.clone();
@@ -13431,26 +13722,29 @@ impl EVGPDFRenderer {
       i = i + 1;
     };
     if  (currentLine.len() as i64) > 0 {
-      lines.push(currentLine);
+      lines.push(currentLine.clone());
     }
-    return lines;
+    return lines.clone();
   }
   fn renderDivider(&mut self, mut el : EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
-    let mut color : Option<EVGColor> = el.color;
+    let mut color : EVGColor = el.color.clone().unwrap().clone();
     if  color.isSet == false {
       color = EVGColor::rgb(200, 200, 200);
     }
     let lineY : f64 = y + (h / 2_f64);
-    self.streamBuffer.writeString("q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
     let r : f64 = color.r / 255_f64;
     let g : f64 = color.g / 255_f64;
     let b : f64 = color.b / 255_f64;
-    self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(r), " ".to_string())), self.formatNum(g))), " ".to_string())), self.formatNum(b))), " RG\n".to_string()));
-    self.streamBuffer.writeString("1 w\n".to_string());
-    self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum(x), " ".to_string())), self.formatNum(lineY))), " m\n".to_string()));
-    self.streamBuffer.writeString(format!("{}{}", (format!("{}{}", (format!("{}{}", self.formatNum((x + w)), " ".to_string())), self.formatNum(lineY))), " l\n".to_string()));
-    self.streamBuffer.writeString("S\n".to_string());
-    self.streamBuffer.writeString("Q\n".to_string());
+    let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" RG\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString("1 w\n".to_string());
+    let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" m\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum((x + w)), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" l\n".to_string()].concat();
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString("S\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn getTextContent(&mut self, mut el : EVGElement) -> String {
     if  (el.textContent.len() as i64) > 0 {
@@ -13468,10 +13762,10 @@ impl EVGPDFRenderer {
             let lastChar : i64 = result.chars().nth(((result.len() as i64) - 1) as usize).unwrap_or('\0') as i64;
             let firstChar : i64 = childText.chars().nth(0 as usize).unwrap_or('\0') as i64;
             if  (lastChar != 32) && (firstChar != 32) {
-              result = format!("{}{}", result, " ".to_string());
+              result = [&*result, &*" ".to_string()].concat();
             }
           }
-          result = format!("{}{}", result, childText);
+          result = [&*result, &*childText].concat();
         }
       }
       i = i + 1;
@@ -13479,57 +13773,57 @@ impl EVGPDFRenderer {
     return result.clone();
   }
   fn estimateTextWidth(&mut self, text : String, fontSize : f64) -> f64 {
-    return self.measurer.measureTextWidth(text.clone(), "Helvetica".to_string(), fontSize);
+    return self.measurer.as_mut().unwrap().measureTextWidth(text.clone(), "Helvetica".to_string(), fontSize);
   }
-  fn escapeText(&mut self, text : String) -> String {
+  fn escapeText(text : String) -> String {
     let mut result : String = "".to_string();
     let __len : i64 = text.len() as i64;
     let mut i : i64 = 0;
     while i < __len {
       let ch : i64 = text.chars().nth(i as usize).unwrap_or('\0') as i64;
       if  ch == 40 {
-        result = format!("{}{}", result, "\\(".to_string());
+        result = [&*result, &*"\\(".to_string()].concat();
       } else {
         if  ch == 41 {
-          result = format!("{}{}", result, "\\)".to_string());
+          result = [&*result, &*"\\)".to_string()].concat();
         } else {
           if  ch == 92 {
-            result = format!("{}{}", result, "\\\\".to_string());
+            result = [&*result, &*"\\\\".to_string()].concat();
           } else {
             if  ch < 32 {
-              result = format!("{}{}", result, " ".to_string());
+              result = [&*result, &*" ".to_string()].concat();
             } else {
               if  ch <= 255 {
-                result = format!("{}{}", result, ((char::from_u32(ch as u32).unwrap_or('\0').to_string())));
+                result = [&*result, &*((char::from_u32(ch as u32).unwrap_or('\0').to_string()))].concat();
               } else {
                 if  ch == 9733 {
-                  result = format!("{}{}", result, "*".to_string());
+                  result = [&*result, &*"*".to_string()].concat();
                 } else {
                   if  ch == 9734 {
-                    result = format!("{}{}", result, "*".to_string());
+                    result = [&*result, &*"*".to_string()].concat();
                   } else {
                     if  ch == 9829 {
-                      result = format!("{}{}", result, ((char::from_u32(183 as u32).unwrap_or('\0').to_string())));
+                      result = [&*result, &*((char::from_u32(183 as u32).unwrap_or('\0').to_string()))].concat();
                     } else {
                       if  ch == 9825 {
-                        result = format!("{}{}", result, ((char::from_u32(183 as u32).unwrap_or('\0').to_string())));
+                        result = [&*result, &*((char::from_u32(183 as u32).unwrap_or('\0').to_string()))].concat();
                       } else {
                         if  ch == 10003 {
-                          result = format!("{}{}", result, "v".to_string());
+                          result = [&*result, &*"v".to_string()].concat();
                         } else {
                           if  ch == 10007 {
-                            result = format!("{}{}", result, "x".to_string());
+                            result = [&*result, &*"x".to_string()].concat();
                           } else {
                             if  ch == 8226 {
-                              result = format!("{}{}", result, ((char::from_u32(149 as u32).unwrap_or('\0').to_string())));
+                              result = [&*result, &*((char::from_u32(149 as u32).unwrap_or('\0').to_string()))].concat();
                             } else {
                               if  ch == 8594 {
-                                result = format!("{}{}", result, "->".to_string());
+                                result = [&*result, &*"->".to_string()].concat();
                               } else {
                                 if  ch == 8592 {
-                                  result = format!("{}{}", result, "<-".to_string());
+                                  result = [&*result, &*"<-".to_string()].concat();
                                 } else {
-                                  result = format!("{}{}", result, "?".to_string());
+                                  result = [&*result, &*"?".to_string()].concat();
                                 }
                               }
                             }
@@ -13548,29 +13842,75 @@ impl EVGPDFRenderer {
     };
     return result.clone();
   }
-  fn formatNum(&mut self, n : f64) -> String {
+  fn formatNum(n : f64) -> String {
     let result : String = n.to_string();
     return result.clone();
   }
-  fn padLeft(&mut self, s : String, __len : i64, padChar : String) -> String {
+  fn padLeft(s : String, __len : i64, padChar : String) -> String {
     let mut result : String = s;
     while (result.len() as i64) < __len {
-      result = format!("{}{}", padChar, result);
+      result = [&*padChar, &*result].concat();
     };
     return result.clone();
   }
-  fn sanitizeFontName(&mut self, name : String) -> String {
+  fn sanitizeFontName(name : String) -> String {
     let mut result : String = "".to_string();
     let __len : i64 = name.len() as i64;
     let mut i : i64 = 0;
     while i < __len {
       let ch : i64 = name.chars().nth(i as usize).unwrap_or('\0') as i64;
       if  (((ch >= 65) && (ch <= 90)) || ((ch >= 97) && (ch <= 122))) || ((ch >= 48) && (ch <= 57)) {
-        result = format!("{}{}", result, ((char::from_u32(ch as u32).unwrap_or('\0').to_string())));
+        result = [&*result, &*((char::from_u32(ch as u32).unwrap_or('\0').to_string()))].concat();
       }
       i = i + 1;
     };
     return result.clone();
+  }
+}
+impl EVGPDFRenderer {
+  // Inherited methods from parent class EVGImageMeasurer
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
+    if  dims.isValid {
+      return targetWidth / dims.aspectRatio;
+    }
+    return targetWidth;
+  }
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
+    if  dims.isValid {
+      return targetHeight * dims.aspectRatio;
+    }
+    return targetHeight;
+  }
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
+    if  dims.isValid == false {
+      return EVGImageDimensions::create((maxWidth as i64 ), (maxHeight as i64 )).clone();
+    }
+    let scaleW : f64 = maxWidth / ((dims.width as f64));
+    let scaleH : f64 = maxHeight / ((dims.height as f64));
+    let mut scale : f64 = scaleW;
+    if  scaleH < scaleW {
+      scale = scaleH;
+    }
+    let newW : i64 = (((dims.width as f64)) * scale) as i64 ;
+    let newH : i64 = (((dims.height as f64)) * scale) as i64 ;
+    return EVGImageDimensions::create(newW, newH).clone();
+  }
+}
+impl EVGImageMeasurerTrait for EVGPDFRenderer {
+  fn getImageDimensions(&self, src : String) -> EVGImageDimensions {
+    EVGPDFRenderer::getImageDimensions(self, src)
+  }
+  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64 {
+    EVGPDFRenderer::calculateHeightForWidth(self, src, targetWidth)
+  }
+  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64 {
+    EVGPDFRenderer::calculateWidthForHeight(self, src, targetHeight)
+  }
+  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+    EVGPDFRenderer::calculateFitDimensions(self, src, maxWidth, maxHeight)
   }
 }
 #[derive(Clone)]
@@ -13717,37 +14057,37 @@ impl EvalValue {
       let mut i : i64 = 0;
       while i < ((self.arrayValue.len() as i64)) {
         if  i > 0 {
-          result = format!("{}{}", result, ", ".to_string());
+          result = [&*result, &*", ".to_string()].concat();
         }
         let mut item : EvalValue = self.arrayValue[i as usize].clone();
         let itemStr : String = (item).toString();
-        result = format!("{}{}", result, itemStr);
+        result = [&*result, &*itemStr].concat();
         i = i + 1;
       };
-      return format!("{}{}", result, "]".to_string()).clone();
+      return [&*result, &*"]".to_string()].concat().clone();
     }
     if  self.valueType == 5 {
       let mut result_1 : String = "{".to_string();
       let mut i_1 : i64 = 0;
       while i_1 < ((self.objectKeys.len() as i64)) {
         if  i_1 > 0 {
-          result_1 = format!("{}{}", result_1, ", ".to_string());
+          result_1 = [&*result_1, &*", ".to_string()].concat();
         }
         let key : String = self.objectKeys[i_1 as usize].clone();
         let mut val : EvalValue = self.objectValues[i_1 as usize].clone();
         let valStr : String = (val).toString();
-        result_1 = format!("{}{}", (format!("{}{}", (format!("{}{}", result_1, key)), ": ".to_string())), valStr);
+        result_1 = [&*([&*([&*result_1, &*key].concat()), &*": ".to_string()].concat()), &*valStr].concat();
         i_1 = i_1 + 1;
       };
-      return format!("{}{}", result_1, "}".to_string()).clone();
+      return [&*result_1, &*"}".to_string()].concat().clone();
     }
     if  self.valueType == 6 {
-      return format!("{}{}", (format!("{}{}", "[Function: ".to_string(), self.functionName)), "]".to_string()).clone();
+      return [&*([&*"[Function: ".to_string(), &*self.functionName].concat()), &*"]".to_string()].concat().clone();
     }
     if  self.valueType == 7 {
       if self.evgElement.is_some() {
         let mut el : EVGElement = self.evgElement.clone().unwrap();
-        return format!("{}{}", (format!("{}{}", "[EVGElement: ".to_string(), el.tagName)), "]".to_string()).clone();
+        return [&*([&*"[EVGElement: ".to_string(), &*el.tagName].concat()), &*"]".to_string()].concat().clone();
       }
       return "[EVGElement: null]".to_string().clone();
     }
@@ -13885,7 +14225,7 @@ impl EvalContext {
       }
       i = i + 1;
     };
-    self.variables.push(name);
+    self.variables.push(name.clone());
     self.values.push(value.clone());
   }
   fn lookup(&mut self, name : String) -> EvalValue {
@@ -13952,7 +14292,7 @@ impl ComponentEngine {
     };
     let mut p : TSParserSimple = TSParserSimple::new();
     me.parser = Some(p.clone());
-    me.parser.tsxMode = true;
+    me.parser.as_mut().unwrap().tsxMode = true;
     let mut imp : Vec<ImportedSymbol> = Vec::new();
     me.imports = imp.clone();
     let mut loc : Vec<ImportedSymbol> = Vec::new();
@@ -13994,8 +14334,8 @@ impl ComponentEngine {
       if  (ch == ";".to_string()) || (i == __len) {
         if  i > start {
           let part : String = paths.chars().skip(start as usize).take((i - start) as usize).collect::<String>();
-          self.assetPaths.push(part);
-          println!( "{}", format!("{}{}", "ComponentEngine: Added asset path: ".to_string(), part) );
+          self.assetPaths.push(part.clone());
+          println!( "{}", [&*"ComponentEngine: Added asset path: ".to_string(), &*part].concat() );
         }
         start = i + 1;
       }
@@ -14003,7 +14343,7 @@ impl ComponentEngine {
     };
   }
   fn resolveComponentPath(&mut self, relativePath : String) -> String {
-    let fullPath : String = format!("{}{}", self.basePath, relativePath);
+    let fullPath : String = [&*self.basePath, &*relativePath].concat();
     let mut i : i64 = 0;
     while i < ((self.assetPaths.len() as i64)) {
       // unused:  let assetDir : String = self.assetPaths[i as usize].clone();
@@ -14021,9 +14361,9 @@ impl ComponentEngine {
     self.source = src.clone();
     let mut lexer : TSLexer = TSLexer::new(src.clone());
     let mut tokens : Vec<Token> = lexer.tokenize();
-    self.parser.initParser(tokens.clone());
-    self.parser.tsxMode = true;
-    let mut ast : TSNode = self.parser.parseProgram();
+    self.parser.as_mut().unwrap().initParser(tokens.clone());
+    self.parser.as_mut().unwrap().tsxMode = true;
+    let mut ast : TSNode = self.parser.as_mut().unwrap().parseProgram();
     self.processImports(ast.clone());
     self.registerComponents(ast.clone());
     self.processVariables(ast.clone());
@@ -14049,15 +14389,15 @@ impl ComponentEngine {
     let mut modulePath : String = "".to_string();
     if node.left.is_some() {
       let mut srcNode : TSNode = (*node.left.clone().unwrap());
-      modulePath = self.unquote(srcNode.value.clone());
+      modulePath = ComponentEngine::unquote(srcNode.value.clone());
     }
     if  (modulePath.len() as i64) == 0 {
       return;
     }
-    if  ((modulePath.find("evg_types".to_string()).map(|i| i as i64).unwrap_or(-1))) >= 0 {
+    if  ((modulePath.find(&*"evg_types".to_string()).map(|i| i as i64).unwrap_or(-1))) >= 0 {
       return;
     }
-    if  ((modulePath.find("evg_".to_string()).map(|i| i as i64).unwrap_or(-1))) >= 0 {
+    if  ((modulePath.find(&*"evg_".to_string()).map(|i| i as i64).unwrap_or(-1))) >= 0 {
       return;
     }
     let mut importedNames : Vec<String> = Vec::new();
@@ -14065,31 +14405,31 @@ impl ComponentEngine {
     while j < ((node.children.len() as i64)) {
       let mut spec : TSNode = node.children[j as usize].clone();
       if  spec.nodeType == "ImportSpecifier".to_string() {
-        importedNames.push(spec.name);
+        importedNames.push(spec.name.clone());
       }
       if  spec.nodeType == "ImportDefaultSpecifier".to_string() {
-        importedNames.push(spec.name);
+        importedNames.push(spec.name.clone());
       }
       j = j + 1;
     };
-    let fullPath : String = self.resolveModulePath(modulePath.clone());
+    let fullPath : String = ComponentEngine::resolveModulePath(modulePath.clone());
     if  (fullPath.len() as i64) == 0 {
       return;
     }
-    let dirPath : String = self.basePath;
-    println!( "{}", format!("{}{}", (format!("{}{}", "Loading import: ".to_string(), dirPath)), fullPath) );
+    let dirPath : String = self.basePath.clone();
+    println!( "{}", [&*([&*"Loading import: ".to_string(), &*dirPath].concat()), &*fullPath].concat() );
     let mut fileContent : Vec<u8> = std::fs::read(format!("{}/{}", dirPath, fullPath)).unwrap_or_default();
     let src : String = String::from_utf8_lossy(&fileContent).to_string();
     if  (src.len() as i64) == 0 {
       println!( "{}", "".to_string() );
-      println!( "{}", format!("{}{}", (format!("{}{}", "ERROR: Could not load component module: ".to_string(), dirPath)), fullPath) );
+      println!( "{}", [&*([&*"ERROR: Could not load component module: ".to_string(), &*dirPath].concat()), &*fullPath].concat() );
       println!( "{}", "".to_string() );
       println!( "{}", "Please ensure the imported file exists. You may need to:".to_string() );
       println!( "{}", "  1. Check that the import path is correct in your TSX file".to_string() );
       println!( "{}", "  2. Make sure the component file exists in one of your asset paths:".to_string() );
       let mut pathIdx : i64 = 0;
       while pathIdx < ((self.assetPaths.len() as i64)) {
-        println!( "{}", format!("{}{}", "     - ".to_string(), (self.assetPaths[pathIdx as usize].clone())) );
+        println!( "{}", [&*"     - ".to_string(), &*(self.assetPaths[pathIdx as usize].clone())].concat() );
         pathIdx = pathIdx + 1;
       };
       println!( "{}", "".to_string() );
@@ -14109,7 +14449,7 @@ impl ComponentEngine {
           let mut declNode : TSNode = (*stmt.left.clone().unwrap());
           if  declNode.nodeType == "FunctionDeclaration".to_string() {
             let fnName : String = declNode.name.clone();
-            if  self.isInList(fnName.clone(), importedNames.clone()) {
+            if  ComponentEngine::isInList(fnName.clone(), importedNames.clone()) {
               let mut sym : ImportedSymbol = ImportedSymbol::new();
               sym.name = fnName.clone();
               sym.originalName = fnName.clone();
@@ -14117,14 +14457,14 @@ impl ComponentEngine {
               sym.symbolType = "component".to_string();
               sym.functionNode = Some(declNode.clone());
               self.localComponents.push(sym.clone());
-              println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "Imported component: ".to_string(), fnName)), " from ".to_string())), fullPath) );
+              println!( "{}", [&*([&*([&*"Imported component: ".to_string(), &*fnName].concat()), &*" from ".to_string()].concat()), &*fullPath].concat() );
             }
           }
         }
       }
       if  stmt.nodeType == "FunctionDeclaration".to_string() {
         let fnName_1 : String = stmt.name.clone();
-        if  self.isInList(fnName_1.clone(), importedNames.clone()) {
+        if  ComponentEngine::isInList(fnName_1.clone(), importedNames.clone()) {
           let mut sym_1 : ImportedSymbol = ImportedSymbol::new();
           sym_1.name = fnName_1.clone();
           sym_1.originalName = fnName_1.clone();
@@ -14132,33 +14472,33 @@ impl ComponentEngine {
           sym_1.symbolType = "component".to_string();
           sym_1.functionNode = Some(stmt.clone());
           self.localComponents.push(sym_1.clone());
-          println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "Imported component: ".to_string(), fnName_1)), " from ".to_string())), fullPath) );
+          println!( "{}", [&*([&*([&*"Imported component: ".to_string(), &*fnName_1].concat()), &*" from ".to_string()].concat()), &*fullPath].concat() );
         }
       }
       k = k + 1;
     };
   }
-  fn resolveModulePath(&mut self, modulePath : String) -> String {
-    if  ((modulePath.find("./".to_string()).map(|i| i as i64).unwrap_or(-1))) == 0 {
+  fn resolveModulePath(modulePath : String) -> String {
+    if  ((modulePath.find(&*"./".to_string()).map(|i| i as i64).unwrap_or(-1))) == 0 {
       let mut path : String = modulePath.chars().skip(2 as usize).take(((modulePath.len() as i64) - 2) as usize).collect::<String>();
       if  (path.len() as i64) == 0 {
         return "".to_string().clone();
       }
-      if  ((path.find(".tsx".to_string()).map(|i| i as i64).unwrap_or(-1))) < 0 {
-        if  ((path.find(".ts".to_string()).map(|i| i as i64).unwrap_or(-1))) < 0 {
-          path = format!("{}{}", path, ".tsx".to_string());
+      if  ((path.find(&*".tsx".to_string()).map(|i| i as i64).unwrap_or(-1))) < 0 {
+        if  ((path.find(&*".ts".to_string()).map(|i| i as i64).unwrap_or(-1))) < 0 {
+          path = [&*path, &*".tsx".to_string()].concat();
         }
       }
       return path.clone();
     }
-    if  ((modulePath.find(".tsx".to_string()).map(|i| i as i64).unwrap_or(-1))) < 0 {
-      if  ((modulePath.find(".ts".to_string()).map(|i| i as i64).unwrap_or(-1))) < 0 {
-        return format!("{}{}", modulePath, ".tsx".to_string()).clone();
+    if  ((modulePath.find(&*".tsx".to_string()).map(|i| i as i64).unwrap_or(-1))) < 0 {
+      if  ((modulePath.find(&*".ts".to_string()).map(|i| i as i64).unwrap_or(-1))) < 0 {
+        return [&*modulePath, &*".tsx".to_string()].concat().clone();
       }
     }
     return modulePath.clone();
   }
-  fn isInList(&mut self, name : String, mut list : Vec<String>) -> bool {
+  fn isInList(name : String, mut list : Vec<String>) -> bool {
     let mut i : i64 = 0;
     while i < ((list.len() as i64)) {
       if  (list[i as usize].clone()) == name {
@@ -14180,7 +14520,7 @@ impl ComponentEngine {
           sym.symbolType = "component".to_string();
           sym.functionNode = Some(node.clone());
           self.localComponents.push(sym.clone());
-          println!( "{}", format!("{}{}", "Registered local component: ".to_string(), node.name) );
+          println!( "{}", [&*"Registered local component: ".to_string(), &*node.name].concat() );
         }
       }
       i = i + 1;
@@ -14219,24 +14559,24 @@ impl ComponentEngine {
         if decl.init.is_some() {
           let mut initNode : TSNode = (*decl.init.clone().unwrap());
           let mut value : EvalValue = self.evaluateExpr(initNode.clone());
-          self.context.define(varName.clone(), value.clone());
-          println!( "{}", format!("{}{}", (format!("{}{}", (format!("{}{}", "Defined variable: ".to_string(), varName)), " = ".to_string())), (value).toString()) );
+          self.context.as_mut().unwrap().define(varName.clone(), value.clone());
+          println!( "{}", [&*([&*([&*"Defined variable: ".to_string(), &*varName].concat()), &*" = ".to_string()].concat()), &*(value).toString()].concat() );
         }
       }
       i = i + 1;
     };
   }
   fn evaluateFunction(&mut self, mut fnNode : TSNode) -> EVGElement {
-    let mut savedContext : Option<EvalContext> = self.context;
-    self.context = Some(self.context.createChild());
+    let mut savedContext : EvalContext = self.context.clone().unwrap().clone();
+    self.context = Some(self.context.as_mut().unwrap().createChild());
     let mut body : TSNode = self.getFunctionBody(fnNode.clone());
     let mut result : EVGElement = self.evaluateFunctionBody(body.clone());
     self.context = Some(savedContext.clone());
     return result.clone();
   }
   fn evaluateFunctionWithProps(&mut self, mut fnNode : TSNode, mut props : EvalValue) -> EVGElement {
-    let mut savedContext : Option<EvalContext> = self.context;
-    self.context = Some(self.context.createChild());
+    let mut savedContext : EvalContext = self.context.clone().unwrap().clone();
+    self.context = Some(self.context.as_mut().unwrap().createChild());
     self.bindFunctionParams(fnNode.clone(), props.clone());
     let mut body : TSNode = self.getFunctionBody(fnNode.clone());
     let mut result : EVGElement = self.evaluateFunctionBody(body.clone());
@@ -14251,10 +14591,14 @@ impl ComponentEngine {
         self.bindObjectPattern(param.clone(), props.clone());
       }
       if  param.nodeType == "Parameter".to_string() {
-        self.context.define(param.name.clone(), props.clone());
+        let __arg_0 = param.name.clone();
+        let __arg_1 = props.clone();
+        self.context.as_mut().unwrap().define(__arg_0, __arg_1);
       }
       if  param.nodeType == "Identifier".to_string() {
-        self.context.define(param.name.clone(), props.clone());
+        let __arg_0 = param.name.clone();
+        let __arg_1 = props.clone();
+        self.context.as_mut().unwrap().define(__arg_0, __arg_1);
       }
       i = i + 1;
     };
@@ -14272,7 +14616,7 @@ impl ComponentEngine {
             propValue = self.evaluateExpr(initNode.clone());
           }
         }
-        self.context.define(propName.clone(), propValue.clone());
+        self.context.as_mut().unwrap().define(propName.clone(), propValue.clone());
       }
       i = i + 1;
     };
@@ -14333,7 +14677,7 @@ impl ComponentEngine {
       return self.expandComponent(tagName.clone(), jsxNode.clone()).clone();
     }
     let mut element : EVGElement = EVGElement::new();
-    element.tagName = self.mapTagName(tagName.clone());
+    element.tagName = ComponentEngine::mapTagName(tagName.clone());
     if jsxNode.left.is_some() {
       let mut openingEl_1 : TSNode = (*jsxNode.left.clone().unwrap());
       self.evaluateAttributes(element.clone(), openingEl_1.clone());
@@ -14375,7 +14719,7 @@ impl ComponentEngine {
       }
       i = i + 1;
     };
-    println!( "{}", format!("{}{}", "Warning: Unknown component: ".to_string(), name) );
+    println!( "{}", [&*"Warning: Unknown component: ".to_string(), &*name].concat() );
     let mut empty : EVGElement = EVGElement::new();
     empty.tagName = "div".to_string();
     return empty.clone();
@@ -14391,7 +14735,7 @@ impl ComponentEngine {
         if  attr.nodeType == "JSXAttribute".to_string() {
           let attrName : String = attr.name.clone();
           let mut attrValue : EvalValue = self.evaluateAttributeValue(attr.clone());
-          keys.push(attrName);
+          keys.push(attrName.clone());
           values.push(attrValue.clone());
         }
         i = i + 1;
@@ -14430,7 +14774,7 @@ impl ComponentEngine {
         }
       }
       if  child.nodeType == "JSXText".to_string() {
-        let text : String = self.trimText(child.value.clone());
+        let text : String = ComponentEngine::trimText(child.value.clone());
         if  (text.len() as i64) > 0 {
           let mut textEl : EVGElement = EVGElement::new();
           textEl.tagName = "text".to_string();
@@ -14459,13 +14803,13 @@ impl ComponentEngine {
       }
       i = i + 1;
     };
-    return results;
+    return results.clone();
   }
   fn evaluateAttributeValue(&mut self, mut attr : TSNode) -> EvalValue {
     if attr.right.is_some() {
       let mut rightNode : TSNode = (*attr.right.clone().unwrap());
       if  rightNode.nodeType == "StringLiteral".to_string() {
-        return EvalValue::string(self.unquote(rightNode.value.clone())).clone();
+        return EvalValue::string(ComponentEngine::unquote(rightNode.value.clone())).clone();
       }
       if  rightNode.nodeType == "JSXExpressionContainer".to_string() {
         if rightNode.left.is_some() {
@@ -14525,8 +14869,8 @@ impl ComponentEngine {
       }
       i = i + 1;
     };
-    let normalizedText : String = self.normalizeWhitespace(result.clone());
-    let trimmedText : String = self.trimText(normalizedText.clone());
+    let normalizedText : String = ComponentEngine::normalizeWhitespace(result.clone());
+    let trimmedText : String = ComponentEngine::trimText(normalizedText.clone());
     return trimmedText.clone();
   }
   fn evaluateChildren(&mut self, mut element : EVGElement, mut jsxNode : TSNode) -> () {
@@ -14540,8 +14884,8 @@ impl ComponentEngine {
         continue;
       }
       if  (accumulatedText.len() as i64) > 0 {
-        let normalizedText : String = self.normalizeWhitespace(accumulatedText.clone());
-        let text : String = self.trimText(normalizedText.clone());
+        let normalizedText : String = ComponentEngine::normalizeWhitespace(accumulatedText.clone());
+        let text : String = ComponentEngine::trimText(normalizedText.clone());
         if  (text.len() as i64) > 0 {
           let mut textEl : EVGElement = EVGElement::new();
           textEl.tagName = "text".to_string();
@@ -14565,8 +14909,8 @@ impl ComponentEngine {
       i = i + 1;
     };
     if  (accumulatedText.len() as i64) > 0 {
-      let normalizedText_1 : String = self.normalizeWhitespace(accumulatedText.clone());
-      let text_1 : String = self.trimText(normalizedText_1.clone());
+      let normalizedText_1 : String = ComponentEngine::normalizeWhitespace(accumulatedText.clone());
+      let text_1 : String = ComponentEngine::trimText(normalizedText_1.clone());
       if  (text_1.len() as i64) > 0 {
         let mut textEl_1 : EVGElement = EVGElement::new();
         textEl_1.tagName = "text".to_string();
@@ -14643,8 +14987,8 @@ impl ComponentEngine {
                 let mut i : i64 = 0;
                 while i < ((arrayValue.arrayValue.len() as i64)) {
                   let mut item : EvalValue = arrayValue.arrayValue[i as usize].clone();
-                  let mut savedContext : Option<EvalContext> = self.context;
-                  self.context = Some(self.context.createChild());
+                  let mut savedContext : EvalContext = self.context.clone().unwrap().clone();
+                  self.context = Some(self.context.as_mut().unwrap().createChild());
                   self.bindMapCallback(callback.clone(), item.clone(), i);
                   let mut resultEl : EVGElement = self.evaluateMapCallbackBody(callback.clone());
                   if  (resultEl.tagName.len() as i64) > 0 {
@@ -14665,11 +15009,13 @@ impl ComponentEngine {
       if  ((callback.params.len() as i64)) > 0 {
         let mut param : TSNode = callback.params[0 as usize].clone();
         let paramName : String = param.name.clone();
-        self.context.define(paramName.clone(), item.clone());
+        self.context.as_mut().unwrap().define(paramName.clone(), item.clone());
       }
       if  ((callback.params.len() as i64)) > 1 {
         let mut indexParam : TSNode = callback.params[1 as usize].clone();
-        self.context.define(indexParam.name.clone(), EvalValue::fromInt(index));
+        let __arg_0 = indexParam.name.clone();
+        let __arg_1 = EvalValue::fromInt(index);
+        self.context.as_mut().unwrap().define(__arg_0, __arg_1);
       }
     }
   }
@@ -14741,7 +15087,7 @@ impl ComponentEngine {
       return EvalValue::number(0_f64).clone();
     }
     if  node.nodeType == "StringLiteral".to_string() {
-      return EvalValue::string(self.unquote(node.value.clone())).clone();
+      return EvalValue::string(ComponentEngine::unquote(node.value.clone())).clone();
     }
     if  node.nodeType == "TemplateLiteral".to_string() {
       let mut templateText : String = "".to_string();
@@ -14749,7 +15095,7 @@ impl ComponentEngine {
       while ti < ((node.children.len() as i64)) {
         let mut templateChild : TSNode = node.children[ti as usize].clone();
         if  templateChild.nodeType == "TemplateElement".to_string() {
-          templateText = format!("{}{}", templateText, templateChild.value);
+          templateText = [&*templateText, &*templateChild.value].concat();
         }
         ti = ti + 1;
       };
@@ -14762,7 +15108,7 @@ impl ComponentEngine {
       return EvalValue::null().clone();
     }
     if  node.nodeType == "Identifier".to_string() {
-      return self.context.lookup(node.name.clone()).clone();
+      return self.context.as_mut().unwrap().lookup(node.name.clone()).clone();
     }
     if  node.nodeType == "BinaryExpression".to_string() {
       return self.evaluateBinaryExpr(node.clone()).clone();
@@ -14842,7 +15188,7 @@ impl ComponentEngine {
       let isLeftStr : bool = left_2.isString();
       let isRightStr : bool = right.isString();
       if  isLeftStr || isRightStr {
-        return EvalValue::string((format!("{}{}", (left_2).toString(), (right).toString()))).clone();
+        return EvalValue::string(([&*(left_2).toString(), &*(right).toString()].concat())).clone();
       }
       return EvalValue::number((left_2.toNumber() + right.toNumber())).clone();
     }
@@ -14963,7 +15309,7 @@ impl ComponentEngine {
       let mut prop : TSNode = node.children[i as usize].clone();
       if  prop.nodeType == "Property".to_string() {
         let key : String = prop.name.clone();
-        keys.push(key);
+        keys.push(key.clone());
         if prop.left.is_some() {
           let mut valueNode : TSNode = (*prop.left.clone().unwrap());
           values.push(self.evaluateExpr(valueNode.clone()));
@@ -14975,7 +15321,7 @@ impl ComponentEngine {
     };
     return EvalValue::object(keys.clone(), values.clone()).clone();
   }
-  fn mapTagName(&mut self, jsxTag : String) -> String {
+  fn mapTagName(jsxTag : String) -> String {
     if  jsxTag == "Print".to_string() {
       return "print".to_string().clone();
     }
@@ -15017,7 +15363,7 @@ impl ComponentEngine {
     }
     return "div".to_string().clone();
   }
-  fn trimText(&mut self, text : String) -> String {
+  fn trimText(text : String) -> String {
     let mut result : String = "".to_string();
     let mut started : bool = false;
     let mut i : i64 = 0;
@@ -15026,7 +15372,7 @@ impl ComponentEngine {
       let c : i64 = text.chars().nth(i as usize).unwrap_or('\0') as i64;
       let isWhitespace : bool = (((c == 32) || (c == 9)) || (c == 10)) || (c == 13);
       if  started {
-        result = format!("{}{}", result, ((char::from_u32(c as u32).unwrap_or('\0').to_string())));
+        result = [&*result, &*((char::from_u32(c as u32).unwrap_or('\0').to_string()))].concat();
       } else {
         if  isWhitespace == false {
           started = true;
@@ -15047,7 +15393,7 @@ impl ComponentEngine {
     };
     return result.clone();
   }
-  fn normalizeWhitespace(&mut self, text : String) -> String {
+  fn normalizeWhitespace(text : String) -> String {
     let mut result : String = "".to_string();
     let mut lastWasSpace : bool = false;
     let mut i : i64 = 0;
@@ -15057,18 +15403,18 @@ impl ComponentEngine {
       let isWhitespace : bool = (((c == 32) || (c == 9)) || (c == 10)) || (c == 13);
       if  isWhitespace {
         if  lastWasSpace == false {
-          result = format!("{}{}", result, " ".to_string());
+          result = [&*result, &*" ".to_string()].concat();
           lastWasSpace = true;
         }
       } else {
-        result = format!("{}{}", result, ((char::from_u32(c as u32).unwrap_or('\0').to_string())));
+        result = [&*result, &*((char::from_u32(c as u32).unwrap_or('\0').to_string()))].concat();
         lastWasSpace = false;
       }
       i = i + 1;
     };
     return result.clone();
   }
-  fn startsWithPunctuation(&mut self, s : String) -> bool {
+  fn startsWithPunctuation(s : String) -> bool {
     if  (s.len() as i64) == 0 {
       return false;
     }
@@ -15084,7 +15430,7 @@ impl ComponentEngine {
     }
     return false;
   }
-  fn endsWithOpenPunctuation(&mut self, s : String) -> bool {
+  fn endsWithOpenPunctuation(s : String) -> bool {
     let __len : i64 = s.len() as i64;
     if  __len == 0 {
       return false;
@@ -15102,15 +15448,15 @@ impl ComponentEngine {
     if  (newText.len() as i64) == 0 {
       return existing.clone();
     }
-    if  self.startsWithPunctuation(newText.clone()) {
-      return format!("{}{}", existing, newText).clone();
+    if  ComponentEngine::startsWithPunctuation(newText.clone()) {
+      return [&*existing, &*newText].concat().clone();
     }
-    if  self.endsWithOpenPunctuation(existing.clone()) {
-      return format!("{}{}", existing, newText).clone();
+    if  ComponentEngine::endsWithOpenPunctuation(existing.clone()) {
+      return [&*existing, &*newText].concat().clone();
     }
-    return format!("{}{}", (format!("{}{}", existing, " ".to_string())), newText).clone();
+    return [&*([&*existing, &*" ".to_string()].concat()), &*newText].concat().clone();
   }
-  fn unquote(&mut self, s : String) -> String {
+  fn unquote(s : String) -> String {
     let __len : i64 = s.len() as i64;
     if  __len < 2 {
       return s.clone();
@@ -15166,9 +15512,9 @@ impl EVGComponentTool {
     let mut i : i64 = 3;
     while i < ((args.len() as i64)) {
       let arg : String = args[i as usize].clone();
-      if  ((arg.find("--assets=".to_string()).map(|i| i as i64).unwrap_or(-1))) == 0 {
+      if  ((arg.find(&*"--assets=".to_string()).map(|i| i as i64).unwrap_or(-1))) == 0 {
         self.assetPaths = arg.chars().skip(9 as usize).take(((arg.len() as i64) - 9) as usize).collect::<String>();
-        println!( "{}", format!("{}{}", "Asset paths: ".to_string(), self.assetPaths) );
+        println!( "{}", [&*"Asset paths: ".to_string(), &*self.assetPaths].concat() );
       }
       i = i + 1;
     };
@@ -15184,13 +15530,13 @@ impl EVGComponentTool {
       println!( "{}", "  evg_component_tool test.tsx output.pdf --assets=./Fonts;./components".to_string() );
       return;
     }
-    println!( "{}", format!("{}{}", "Input:  ".to_string(), self.inputPath) );
-    println!( "{}", format!("{}{}", "Output: ".to_string(), self.outputPath) );
+    println!( "{}", [&*"Input:  ".to_string(), &*self.inputPath].concat() );
+    println!( "{}", [&*"Output: ".to_string(), &*self.outputPath].concat() );
     println!( "{}", "".to_string() );
-    let basePath : String = self.getDirectory(self.inputPath.clone());
-    let fileName : String = self.getFileName(self.inputPath.clone());
-    println!( "{}", format!("{}{}", "Base path: ".to_string(), basePath) );
-    println!( "{}", format!("{}{}", "File name: ".to_string(), fileName) );
+    let basePath : String = EVGComponentTool::getDirectory(self.inputPath.clone());
+    let fileName : String = EVGComponentTool::getFileName(self.inputPath.clone());
+    println!( "{}", [&*"Base path: ".to_string(), &*basePath].concat() );
+    println!( "{}", [&*"File name: ".to_string(), &*fileName].concat() );
     println!( "{}", "".to_string() );
     self.initFonts();
     if  self.fontManager.getFontCount() == 0 {
@@ -15200,7 +15546,7 @@ impl EVGComponentTool {
       println!( "{}", "Please check that your --assets path contains a fonts directory with .ttf files.".to_string() );
       println!( "{}", "Expected structure: <assets-path>/Open_Sans/OpenSans-Regular.ttf".to_string() );
       println!( "{}", "".to_string() );
-      println!( "{}", format!("{}{}", "Current asset paths: ".to_string(), self.assetPaths) );
+      println!( "{}", [&*"Current asset paths: ".to_string(), &*self.assetPaths].concat() );
       return;
     }
     let mut engine : ComponentEngine = ComponentEngine::new();
@@ -15223,6 +15569,7 @@ impl EVGComponentTool {
     println!( "{}", "".to_string() );
     println!( "{}", "Rendering to PDF...".to_string() );
     let mut renderer : EVGPDFRenderer = EVGPDFRenderer::new();
+    renderer.init();
     renderer.setPageSize(self.pageWidth, self.pageHeight);
     renderer.setFontManager(self.fontManager.clone());
     renderer.setBaseDir(basePath.clone());
@@ -15230,32 +15577,32 @@ impl EVGComponentTool {
       renderer.setAssetPaths(self.assetPaths.clone());
     }
     let mut ttfMeasurer : TTFTextMeasurer = TTFTextMeasurer::new(self.fontManager.clone());
-    renderer.setMeasurer(ttfMeasurer.clone());
+    renderer.setMeasurer(Rc::new(RefCell::new(ttfMeasurer.clone())));
     let mut pdfBuffer : Vec<u8> = renderer.render(evgRoot.clone());
-    let outputDir : String = self.getDirectory(self.outputPath.clone());
-    let outputFileName : String = self.getFileName(self.outputPath.clone());
+    let outputDir : String = EVGComponentTool::getDirectory(self.outputPath.clone());
+    let outputFileName : String = EVGComponentTool::getFileName(self.outputPath.clone());
     std::fs::write(format!("{}/{}", outputDir, outputFileName), &pdfBuffer).unwrap();
-    println!( "{}", format!("{}{}", "PDF generated successfully: ".to_string(), self.outputPath) );
+    println!( "{}", [&*"PDF generated successfully: ".to_string(), &*self.outputPath].concat() );
   }
   fn printEVGTree(&mut self, mut el : EVGElement, depth : i64) -> () {
     let mut indent : String = "".to_string();
     let mut i : i64 = 0;
     while i < depth {
-      indent = format!("{}{}", indent, "  ".to_string());
+      indent = [&*indent, &*"  ".to_string()].concat();
       i = i + 1;
     };
-    let mut info : String = format!("{}{}", (format!("{}{}", indent, "<".to_string())), el.tagName);
+    let mut info : String = [&*([&*indent, &*"<".to_string()].concat()), &*el.tagName].concat();
     if  (el.id.len() as i64) > 0 {
-      info = format!("{}{}", (format!("{}{}", (format!("{}{}", info, " id=\"".to_string())), el.id)), "\"".to_string());
+      info = [&*([&*([&*info, &*" id=\"".to_string()].concat()), &*el.id].concat()), &*"\"".to_string()].concat();
     }
     if  (el.textContent.len() as i64) > 0 {
       if  (el.textContent.len() as i64) > 30 {
-        info = format!("{}{}", (format!("{}{}", (format!("{}{}", info, " text=\"".to_string())), (el.textContent.chars().skip(0 as usize).take((30 - 0) as usize).collect::<String>()))), "...\"".to_string());
+        info = [&*([&*([&*info, &*" text=\"".to_string()].concat()), &*(el.textContent.chars().skip(0 as usize).take((30 - 0) as usize).collect::<String>())].concat()), &*"...\"".to_string()].concat();
       } else {
-        info = format!("{}{}", (format!("{}{}", (format!("{}{}", info, " text=\"".to_string())), el.textContent)), "\"".to_string());
+        info = [&*([&*([&*info, &*" text=\"".to_string()].concat()), &*el.textContent].concat()), &*"\"".to_string()].concat();
       }
     }
-    info = format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", (format!("{}{}", info, "> pos=(".to_string())), (el.calculatedX.to_string()))), ",".to_string())), (el.calculatedY.to_string()))), ") size=".to_string())), (el.calculatedWidth.to_string()))), "x".to_string())), (el.calculatedHeight.to_string()));
+    info = [&*([&*([&*([&*([&*([&*([&*([&*info, &*"> pos=(".to_string()].concat()), &*(el.calculatedX.to_string())].concat()), &*",".to_string()].concat()), &*(el.calculatedY.to_string())].concat()), &*") size=".to_string()].concat()), &*(el.calculatedWidth.to_string())].concat()), &*"x".to_string()].concat()), &*(el.calculatedHeight.to_string())].concat();
     println!( "{}", info );
     i = 0;
     while i < ((el.children.len() as i64)) {
@@ -15282,7 +15629,7 @@ impl EVGComponentTool {
     self.fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf".to_string());
     self.fontManager.loadFont("Kaushan_Script/KaushanScript-Regular.ttf".to_string());
   }
-  fn getDirectory(&mut self, path : String) -> String {
+  fn getDirectory(path : String) -> String {
     let mut lastSlash : i64 = -1;
     let mut i : i64 = 0;
     let __len : i64 = path.len() as i64;
@@ -15298,7 +15645,7 @@ impl EVGComponentTool {
     }
     return "./".to_string().clone();
   }
-  fn getFileName(&mut self, path : String) -> String {
+  fn getFileName(path : String) -> String {
     let mut lastSlash : i64 = -1;
     let mut i : i64 = 0;
     let __len : i64 = path.len() as i64;

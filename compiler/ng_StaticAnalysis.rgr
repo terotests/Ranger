@@ -308,6 +308,124 @@ class StaticAnalyzer {
     }
   }
   
+  ; ============================================================================
+  ; RUST BORROW CONFLICT DETECTION
+  ; ============================================================================
+  ; Detects patterns like: self.member.method(self.otherMethod())
+  ; where both calls try to borrow self mutably
+  
+  ; Check if a node contains a self method call (this.method() pattern)
+  fn containsSelfMethodCall:boolean (node:CodeNode) {
+    ; Check if this node is a call on self
+    if node.has_call {
+      if ((array_length node.ns) > 0) {
+        def firstPart:string (itemAt node.ns 0)
+        if (firstPart == "this") {
+          return true
+        }
+      }
+    }
+    
+    ; Check vref for "this" pattern
+    if ((strlen node.vref) > 0) {
+      if (node.vref == "this") {
+        return true
+      }
+    }
+    
+    ; Check namespace for "this" as first part
+    if ((array_length node.ns) > 0) {
+      def firstPart:string (itemAt node.ns 0)
+      if (firstPart == "this") {
+        ; And if this is used as a method call
+        if node.expression {
+          return true
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      if (this.containsSelfMethodCall(child)) {
+        return true
+      }
+    }
+    return false
+  }
+  
+  ; Collect all argument nodes that contain self method calls
+  fn collectSelfMethodCallArgs:void (node:CodeNode results:[CodeNode]) {
+    ; Check if this node is a call with self reference
+    if node.has_call {
+      if (this.containsSelfMethodCall(node)) {
+        push results node
+        return  ; Don't recurse into children of collected node
+      }
+    }
+    
+    ; Check if this is a self-referencing expression
+    if node.expression {
+      if ((array_length node.ns) > 0) {
+        def firstPart:string (itemAt node.ns 0)
+        if (firstPart == "this") {
+          ; This is a this.something expression that might need pre-evaluation
+          if (this.containsSelfMethodCall(node)) {
+            push results node
+            return
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.collectSelfMethodCallArgs(child results)
+    }
+  }
+  
+  ; Walk AST to detect and mark Rust borrow conflicts
+  fn walkForRustBorrowConflicts:void (node:CodeNode) {
+    ; Look for method calls: node.has_call indicates a call expression
+    ; Pattern: (call obj method args)
+    if node.has_call {
+      ; Check if this is a call on self.member
+      if ((array_length node.children) >= 4) {
+        def objNode:CodeNode (node.getSecond())
+        def argsNode:CodeNode (itemAt node.children 3)
+        
+        ; Check if obj is self.something
+        def objIsSelfMember:boolean false
+        if ((array_length objNode.ns) > 0) {
+          def firstPart:string (itemAt objNode.ns 0)
+          if (firstPart == "this") {
+            objIsSelfMember = true
+          }
+        }
+        
+        if objIsSelfMember {
+          ; Now check if any arguments contain self method calls
+          def argsWithSelfCalls:[CodeNode]
+          this.collectSelfMethodCallArgs(argsNode argsWithSelfCalls)
+          
+          if ((array_length argsWithSelfCalls) > 0) {
+            ; Mark this node as needing pre-evaluation of args
+            node.rust_needs_preevaluate = true
+            node.rust_preevaluated_args = argsWithSelfCalls
+            
+            if debug {
+              print "StaticAnalysis: Rust borrow conflict detected, marking for pre-evaluation"
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForRustBorrowConflicts(child)
+    }
+  }
+  
   ; Analyze a single function
   fn analyzeFunction:void (fn:RangerAppFunctionDesc) {
     if (fn.static_analysis_done) {
@@ -324,6 +442,9 @@ class StaticAnalyzer {
       
       ; Analyze return patterns
       this.walkForReturns((unwrap fn.fnBody))
+      
+      ; Analyze for Rust borrow conflicts
+      this.walkForRustBorrowConflicts((unwrap fn.fnBody))
     }
     
     fn.static_analysis_done = true

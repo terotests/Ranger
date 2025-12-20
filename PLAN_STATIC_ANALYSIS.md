@@ -1,5 +1,51 @@
 # Static Analysis Plan for Rust and C++ Targets
 
+## Status: Phase 1 COMPLETED ✅
+
+The core static analysis infrastructure is now implemented and working for both C++ and Rust targets.
+
+### What's Been Implemented
+
+1. **StaticAnalyzer class** (`ng_StaticAnalysis.rgr`) - Complete
+
+   - Mutation detection for all buffer/array operators
+   - Function parameter analysis
+   - Member assignment tracking
+   - Return statement analysis
+
+2. **C++ Integration** - Complete ✅
+
+   - `needs_cpp_reference` flag on parameters
+   - Reference (`&`) added to mutated function parameters
+   - Reference added to local variables assigned from members and mutated
+
+3. **Rust Integration** - Complete ✅
+
+   - `rust_borrow_type` flag (0=owned, 1=borrow, 2=mut_borrow)
+   - `&mut` added to mutated function parameters
+   - Static analysis runs automatically for Rust target
+
+4. **Compiler Integration** - Complete ✅
+   - Analysis runs after parsing, before code generation
+   - Only runs for C++ and Rust targets
+   - Results stored in `RangerAppParamDesc` fields
+
+### Performance Results
+
+After implementing the static analysis:
+
+- **Go**: 2.29s (1.7x faster than JS)
+- **C++ Release**: 2.66s (1.5x faster than JS)
+- **JavaScript**: 3.96s (baseline)
+
+Binary sizes:
+
+- **C++ Release (stripped)**: 1.82 MB (smallest)
+- **Go**: 3.31 MB
+- **C++ Debug**: 3.88 MB
+
+---
+
 ## Overview
 
 The Ranger compiler currently generates code that works well for garbage-collected languages (JavaScript, Go, Java, Python) but produces suboptimal or incorrect code for languages with explicit ownership semantics (Rust, C++). This plan outlines a static analysis phase to be run **before** code generation for these targets, enabling the compiler to:
@@ -64,6 +110,62 @@ fn process(&mut self) {
 - A reference (borrowed return)
 
 **Current approach:** Clone everything in Rust, copy everything in C++.
+
+### Problem 4: Rust Optional Type Unwrapping (NEW - Critical)
+
+**Issue:** Rust's `Option<T>` type requires explicit unwrapping before accessing methods or fields. Unlike JavaScript/Go where you can call methods on nullable types (with potential runtime errors), Rust requires compile-time handling of the None case.
+
+**Current Generated Code (FAILS TO COMPILE):**
+
+```rust
+// In evg_component_tool.rs - 50+ errors like this:
+self.marginTop.resolve(parentHeight, fontSize);     // ERROR: no method `resolve` on Option<EVGUnit>
+self.marginTopPx = self.marginTop.pixels;           // ERROR: no field `pixels` on Option<EVGUnit>
+```
+
+**Rust Compilation Errors:**
+
+```
+error[E0599]: no method named `resolve` found for enum `Option<T>` in the current scope
+    --> evg_component_tool.rs:5130:20
+     |
+5130 |     self.marginTop.resolve(parentHeight, fontSize);
+     |                    ^^^^^^^ method not found in `Option<EVGUnit>`
+
+error[E0609]: no field `pixels` on type `Option<EVGUnit>`
+    --> evg_component_tool.rs:5131:39
+     |
+5131 |     self.marginTopPx = self.marginTop.pixels;
+     |                                       ^^^^^^ unknown field
+```
+
+**Root Cause:** The Rust code generator (`ng_RangerRustClassWriter.rgr`) wraps optional types in `Option<T>` but doesn't unwrap them when accessing methods/fields.
+
+**Required Analysis:**
+
+1. Track which variables/fields are optional (`@(optional)` annotation)
+2. Detect when a method is called on an optional type → emit `.as_ref().unwrap()` or `.as_mut().unwrap()`
+3. Detect when a field is accessed on an optional type → emit unwrap first
+4. Determine if access is mutable (needs `as_mut()`) or read-only (needs `as_ref()`)
+5. Handle null checks - if preceded by `if (x != null)`, the unwrap is safe
+
+**Correct Rust Patterns:**
+
+```rust
+// Read-only method call on optional
+self.marginTop.as_ref().unwrap().get_value()
+
+// Mutating method call on optional
+self.marginTop.as_mut().unwrap().resolve(parentHeight, fontSize);
+
+// Field read on optional
+self.marginTopPx = self.marginTop.as_ref().unwrap().pixels;
+
+// Safe pattern with null check
+if let Some(ref margin) = self.marginTop {
+    margin.resolve(parentHeight, fontSize);
+}
+```
 
 ## Proposed Static Analysis Phases
 
@@ -490,19 +592,19 @@ The static analysis adds compilation time but:
 
 ## Phases of Implementation
 
-### Phase 1: Critical C++ Fixes (1-2 days)
+### Phase 1: Critical C++ Fixes ✅ COMPLETED
 
-- Implement basic mutation detection for `buffer_set`, `int_buffer_set`, `push`, `set`
-- Add `needs_cpp_reference` flag
-- Modify C++ writer to emit references when needed
-- Test with `GrowableBuffer.rgr`
+- ✅ Implement basic mutation detection for `buffer_set`, `int_buffer_set`, `push`, `set`
+- ✅ Add `needs_cpp_reference` flag
+- ✅ Modify C++ writer to emit references when needed
+- ✅ Test with `GrowableBuffer.rgr` - PDF generation works correctly
 
-### Phase 2: Rust Borrow Improvements (2-3 days)
+### Phase 2: Rust Borrow Improvements ✅ COMPLETED
 
-- Implement parameter mutation analysis
-- Add `rust_borrow_type` flag
-- Modify Rust writer to use `&T` vs `&mut T` appropriately
-- Remove unnecessary `.clone()` calls
+- ✅ Implement parameter mutation analysis (uses same StaticAnalyzer as C++)
+- ✅ Add `rust_borrow_type` flag (0=owned, 1=borrow, 2=mut_borrow)
+- ✅ Modify Rust writer to use `&T` vs `&mut T` appropriately
+- ⏳ Remove unnecessary `.clone()` calls (future optimization)
 
 ### Phase 3: Return Value Analysis (1-2 days)
 
@@ -510,7 +612,117 @@ The static analysis adds compilation time but:
 - Track member field returns vs computed returns
 - Generate `&T` returns in Rust where possible
 
-### Phase 4: Advanced Analysis (future)
+### Phase 4: Rust Optional Unwrapping ⏳ IN PROGRESS
+
+**Problem Discovered:** Rust's `Option<T>` requires explicit unwrapping before method calls or field access.
+
+**Partial Implementation Completed (Dec 2024):**
+
+Two fixes were added to `ng_RangerRustClassWriter.rgr`:
+
+1. **Chained field access through optionals** (in `WriteVRef`):
+
+   - When accessing `self.marginTop.pixels`, automatically insert `.as_ref().unwrap()` after optional fields
+   - **Before:** `self.marginTop.pixels` → Error: no field `pixels` on `Option<EVGUnit>`
+   - **After:** `self.marginTop.as_ref().unwrap().pixels` → Works
+
+2. **Local variable assignment from optional fields** (in `writeVarDef`):
+   - When `def m:EVGUnit section.box.marginTop`, unwrap the RHS and use non-optional type
+   - **Before:** `let mut m : Option<EVGUnit> = section.box.marginTop;` → Error on `m.isSet`
+   - **After:** `let mut m : EVGUnit = section.box.marginTop.clone().unwrap();` → Works
+
+**Results:**
+
+- Option-related errors reduced from ~50 to ~19
+- Many field access patterns now work correctly
+
+**Remaining Issues (need additional fixes):**
+
+1. Method calls on optional class members: `self.buffer.clear()` where buffer is optional
+2. Passing optional values as non-optional function arguments
+3. Complex optional chains in expressions
+
+**What We Need:**
+
+```rust
+// Correct Rust code
+if let Some(ref mut margin) = self.marginTop {
+    margin.resolve(parentHeight, fontSize);
+}
+self.marginTopPx = self.marginTop.as_ref().map(|m| m.pixels).unwrap_or(0.0);
+// OR for mutable access:
+self.marginTop.as_mut().unwrap().resolve(parentHeight, fontSize);
+```
+
+**Analysis Required:**
+
+1. **Track Optional Types** - When a variable/field is declared with `@(optional)` annotation
+2. **Detect Optional Method Calls** - When calling a method on an optional variable
+3. **Detect Optional Field Access** - When accessing a field on an optional variable
+4. **Mutation Detection on Optionals** - Determine if we need `as_ref()` vs `as_mut()`
+
+**Implementation Approach:**
+
+```ranger
+; In WriteVRef or writeFnCall, check if the variable is optional
+fn isOptionalAccess:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    ; Check if we're accessing through an optional
+    if ((array_length node.nsp) > 0) {
+        for node.nsp p:RangerAppParamDesc i {
+            if (!null? p.nameNode) {
+                def nameN:CodeNode (unwrap p.nameNode)
+                if (nameN.hasFlag("optional")) {
+                    return true
+                }
+            }
+        }
+    }
+    return false
+}
+
+; When generating method call on optional:
+fn writeOptionalMethodCall (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter needsMut:boolean) {
+    ; Write base variable
+    this.WriteVRef(node.getFirst() ctx wr)
+
+    if needsMut {
+        wr.out(".as_mut().unwrap()." false)
+    } {
+        wr.out(".as_ref().unwrap()." false)
+    }
+
+    ; Write method name and args
+    ; ...
+}
+```
+
+**New Flags Needed on RangerAppParamDesc:**
+
+```ranger
+def rust_optional_accessed:boolean false     ; Was this optional accessed?
+def rust_optional_mutated:boolean false      ; Was this optional mutated through?
+def rust_optional_checked:boolean false      ; Was null check done before access?
+```
+
+**Integration Points in ng_RangerRustClassWriter.rgr:**
+
+1. `WriteVRef` - Check if path goes through optional, add `.as_ref().unwrap()` or `.as_mut().unwrap()`
+2. `writeFnCall` - Check if method is called on optional type
+3. `writeExpression` - Check if field is accessed on optional type
+
+**Patterns to Handle:**
+
+| Pattern                   | Current Output   | Correct Output                    |
+| ------------------------- | ---------------- | --------------------------------- |
+| `opt.method()`            | `opt.method()`   | `opt.as_ref().unwrap().method()`  |
+| `opt.method()` (mutating) | `opt.method()`   | `opt.as_mut().unwrap().method()`  |
+| `opt.field`               | `opt.field`      | `opt.as_ref().unwrap().field`     |
+| `opt.field = x`           | `opt.field = x`  | `opt.as_mut().unwrap().field = x` |
+| `if (opt != null)`        | `if opt != None` | `if let Some(v) = &opt`           |
+
+**Priority:** HIGH - This blocks Rust compilation of most real-world code
+
+### Phase 5: Advanced Analysis (future)
 
 - Escape analysis for closures
 - Lifetime analysis for complex borrowing
