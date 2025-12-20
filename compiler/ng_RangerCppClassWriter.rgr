@@ -2,6 +2,11 @@ class RangerCppClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def header_created:boolean false
+
+  fn lineEnding:string () {
+    return ";"
+  }
+
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "this"
@@ -333,6 +338,10 @@ class RangerCppClassWriter {
         wr.out("" false)
       }
       this.writeTypeDef((unwrap p.nameNode) ctx wr)
+      ; Add reference if static analysis determined this variable needs it
+      if p.needs_cpp_reference {
+        wr.out("&" false)
+      }
       wr.out(" " false)
       wr.out(p.compiledName false)
       if ((array_length node.children) > 2) {

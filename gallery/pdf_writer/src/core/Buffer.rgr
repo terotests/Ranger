@@ -49,9 +49,8 @@ class GrowableBuffer {
         if (currentChunk.isFull()) {
             this.allocateNewChunk()
         }
-        def buf:buffer currentChunk.data
         def pos:int currentChunk.used
-        buffer_set buf pos b
+        buffer_set currentChunk.data pos b
         currentChunk.used = pos + 1
         totalSize = totalSize + 1
     }
@@ -120,11 +119,10 @@ class GrowableBuffer {
         def done:boolean false
         
         while (done == false) {
-            def chunkData:buffer chunk.data
             def chunkUsed:int chunk.used
             def i 0
             while (i < chunkUsed) {
-                def b:int (buffer_get chunkData i)
+                def b:int (buffer_get chunk.data i)
                 buffer_set result pos b
                 pos = pos + 1
                 i = i + 1
@@ -146,11 +144,10 @@ class GrowableBuffer {
         def done:boolean false
         
         while (done == false) {
-            def chunkData:buffer chunk.data
             def chunkUsed:int chunk.used
             def i 0
             while (i < chunkUsed) {
-                def b:int (buffer_get chunkData i)
+                def b:int (buffer_get chunk.data i)
                 result = result + (strfromcode b)
                 i = i + 1
             }

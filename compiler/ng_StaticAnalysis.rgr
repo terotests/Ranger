@@ -1,0 +1,320 @@
+; ng_StaticAnalysis.rgr
+; Static analysis pass for C++ and Rust code generation
+; Detects mutation patterns to generate proper references and borrows
+
+Import "ng_RangerAppParamDesc.rgr"
+Import "ng_RangerAppFunctionDesc.rgr"
+Import "ng_RangerAppClassDesc.rgr"
+Import "ng_CodeNode.rgr"
+Import "ng_RangerAppWriterContext.rgr"
+
+class StaticAnalyzer {
+  def ctx@(optional):RangerAppWriterContext
+  def currentFunction@(weak optional):RangerAppFunctionDesc
+  def currentClass@(weak optional):RangerAppClassDesc
+  def debug:boolean false
+  
+  ; Registry of operators that mutate their first argument
+  def mutatingOps:[string:boolean]
+  
+  Constructor () {
+    ; Initialize empty - will be set up when analyzeAll is called
+  }
+  
+  fn initMutatingOps:void () {
+    ; Buffer/array mutation operators - these modify data IN-PLACE
+    set mutatingOps "buffer_set" true
+    set mutatingOps "int_buffer_set" true
+    set mutatingOps "double_buffer_set" true
+    set mutatingOps "int_buffer_fill" true
+    set mutatingOps "double_buffer_fill" true
+    
+    ; Array mutation operators - these modify the array IN-PLACE
+    set mutatingOps "push" true
+    set mutatingOps "set" true
+    set mutatingOps "clear" true
+    set mutatingOps "remove" true
+    set mutatingOps "removeIndex" true
+    set mutatingOps "removeLast" true
+    set mutatingOps "removeFirst" true
+    
+    ; Dictionary mutation operators
+    set mutatingOps "put" true
+    
+    ; NOTE: "=" is NOT a mutating operator - it reassigns the variable,
+    ; it doesn't modify the object in-place
+  }
+  
+  ; Check if an operator mutates its first argument
+  fn isMutatingOperator:boolean (opName:string) {
+    if (has mutatingOps opName) {
+      return (unwrap (get mutatingOps opName))
+    }
+    return false
+  }
+  
+  ; Check if a node represents a mutating operation
+  fn isMutatingNode:boolean (node:CodeNode) {
+    if (node.expression == false) { 
+      return false 
+    }
+    if ((array_length node.children) == 0) {
+      return false
+    }
+    def first:CodeNode (node.getFirst())
+    if ((strlen first.vref) > 0) {
+      return (this.isMutatingOperator(first.vref))
+    }
+    return false
+  }
+  
+  ; Get the root variable name from a node
+  fn getRootVarName:string (node:CodeNode) {
+    if ((strlen node.vref) > 0) {
+      return node.vref
+    }
+    ; For expressions with children, check first child
+    if ((array_length node.children) > 0) {
+      def first:CodeNode (node.getFirst())
+      if ((strlen first.vref) > 0) {
+        return first.vref
+      }
+    }
+    return ""
+  }
+  
+  ; Check if a node looks like a member access (obj.field pattern)
+  fn isMemberAccess:boolean (node:CodeNode) {
+    ; Check namespace array - this is how member access is represented in the AST
+    ; e.g., currentChunk.data would have ns = ["currentChunk", "data"]
+    if ((array_length node.ns) >= 2) {
+      return true
+    }
+    ; Member access in Ranger: vref contains a dot like "obj.field"
+    if ((strlen node.vref) > 0) {
+      def idx:int (indexOf node.vref ".")
+      if (idx > 0) {
+        return true
+      }
+    }
+    ; Or it could be an expression with children for chained access
+    if node.expression {
+      if ((array_length node.children) >= 2) {
+        def first:CodeNode (node.getFirst())
+        ; If first child looks like a variable or "this", it might be member access
+        if ((strlen first.vref) > 0) {
+          def second:CodeNode (node.getSecond())
+          if ((strlen second.vref) > 0) {
+            ; This looks like (obj field) pattern
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+  
+  ; Get the member path from a member access expression
+  fn getMemberPath:string (node:CodeNode) {
+    ; Check namespace array first - this is the primary representation
+    if ((array_length node.ns) >= 2) {
+      def path:string ""
+      for node.ns part:string i {
+        if (i > 0) {
+          path = path + "."
+        }
+        path = path + part
+      }
+      return path
+    }
+    ; Simple case: vref contains dot
+    if ((strlen node.vref) > 0) {
+      def idx:int (indexOf node.vref ".")
+      if (idx > 0) {
+        return node.vref
+      }
+    }
+    ; Expression case
+    if node.expression {
+      if ((array_length node.children) >= 2) {
+        def first:CodeNode (node.getFirst())
+        def second:CodeNode (node.getSecond())
+        if (((strlen first.vref) > 0) && ((strlen second.vref) > 0)) {
+          return (first.vref + "." + second.vref)
+        }
+      }
+    }
+    return ""
+  }
+  
+  ; Mark a variable as mutated by walking from localVariables
+  fn markVarAsMutated:void (varName:string fnCtx:RangerAppWriterContext) {
+    if ((strlen varName) == 0) {
+      return
+    }
+    
+    ; Try to find the variable in the context
+    def param:RangerAppParamDesc (fnCtx.getVariableDef(varName))
+    if ((strlen param.name) > 0) {
+      param.is_mutating = true
+      param.mutation_count = param.mutation_count + 1
+      
+      ; If this variable was assigned from a member field, it needs a C++ reference
+      if (param.is_assigned_from_member) {
+        param.needs_cpp_reference = true
+        param.rust_borrow_type = 2  ; mut_borrow
+        if debug {
+          print ("StaticAnalysis: " + varName + " needs C++ reference (mutated, assigned from member)")
+        }
+      }
+    }
+  }
+  
+  ; Analyze a variable definition for member assignment
+  fn analyzeVarDef:void (node:CodeNode) {
+    ; Variable definitions look like: (def varname:type value)
+    if ((array_length node.children) < 2) {
+      return
+    }
+    
+    def nameNode:CodeNode (node.getSecond())
+    def varName:string nameNode.vref
+    if ((strlen varName) == 0) {
+      return
+    }
+    
+    ; Check if there's a paramDesc and an initializer value
+    if (!null? nameNode.paramDesc) {
+      ; Check if there's an initializer value
+      if ((array_length node.children) >= 3) {
+        def valueNode:CodeNode (itemAt node.children 2)
+        
+        ; Check if the value is a member access (obj.field)
+        if (this.isMemberAccess(valueNode)) {
+          def param:RangerAppParamDesc (unwrap nameNode.paramDesc)
+          param.is_assigned_from_member = true
+          param.source_member_name = (this.getMemberPath(valueNode))
+          if debug {
+            print ("StaticAnalysis: " + varName + " assigned from member " + param.source_member_name)
+          }
+        }
+      }
+    }
+  }
+  
+  ; Walk the AST to collect variable definitions and detect mutations
+  fn walkForMutations:void (node:CodeNode fnCtx:RangerAppWriterContext) {
+    ; Check if this is a variable definition
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "def") {
+          this.analyzeVarDef(node)
+        }
+      }
+    }
+    
+    ; Check if this is a mutating operation
+    if (this.isMutatingNode(node)) {
+      ; Get the target (second child for most ops)
+      if ((array_length node.children) >= 2) {
+        def target:CodeNode (node.getSecond())
+        def varName:string (this.getRootVarName(target))
+        this.markVarAsMutated(varName fnCtx)
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForMutations(child fnCtx)
+    }
+  }
+  
+  ; Analyze return statements in a function
+  fn walkForReturns:void (node:CodeNode) {
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "return") {
+          if ((array_length node.children) >= 2) {
+            def retValue:CodeNode (node.getSecond())
+            ; Check if returning a member field (this.field pattern)
+            def path:string (this.getMemberPath(retValue))
+            if ((strlen path) > 0) {
+              def idx:int (indexOf path "this.")
+              if (idx == 0) {
+                if (!null? currentFunction) {
+                  def fn:RangerAppFunctionDesc (unwrap currentFunction)
+                  fn.returns_member_field = true
+                  ; Extract member name from "this.fieldname"
+                  def memberName:string (substring path 5 (strlen path))
+                  fn.returned_member_name = memberName
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForReturns(child)
+    }
+  }
+  
+  ; Analyze a single function
+  fn analyzeFunction:void (fn:RangerAppFunctionDesc) {
+    if (fn.static_analysis_done) {
+      return
+    }
+    
+    currentFunction = fn
+    
+    if (!null? fn.fnBody) {
+      if (!null? fn.fnCtx) {
+        ; Walk for mutations using the function context
+        this.walkForMutations((unwrap fn.fnBody) (unwrap fn.fnCtx))
+      }
+      
+      ; Analyze return patterns
+      this.walkForReturns((unwrap fn.fnBody))
+    }
+    
+    fn.static_analysis_done = true
+  }
+  
+  ; Analyze all methods in a class
+  fn analyzeClass:void (cl:RangerAppClassDesc) {
+    currentClass = cl
+    
+    for cl.methods m:RangerAppFunctionDesc i {
+      this.analyzeFunction(m)
+    }
+    
+    ; Also analyze the constructor
+    if (!null? cl.constructor_fn) {
+      this.analyzeFunction((unwrap cl.constructor_fn))
+    }
+  }
+  
+  ; Run analysis on all classes in the context
+  fn analyzeAll:void () {
+    if (null? ctx) {
+      return
+    }
+    
+    ; Initialize the mutating operators map
+    this.initMutatingOps()
+    
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    
+    for root.definedClasses cl:RangerAppClassDesc i {
+      this.analyzeClass(cl)
+    }
+    
+    if debug {
+      print "StaticAnalysis: completed analysis of all classes"
+    }
+  }
+}

@@ -106,7 +106,13 @@ class EVGPDFRenderer {
         foundSections = fs
         def fp:[EVGElement]
         foundPages = fp
-        ; Set this renderer as the image measurer for layout
+        ; NOTE: setImageMeasurer must be called after construction via init()
+        ; because C++ shared_from_this() cannot be called from constructor
+    }
+    
+    ; Initialize components that require 'this' reference
+    ; Must be called after construction for C++ compatibility
+    fn init:void () {
         layout.setImageMeasurer(this)
     }
     

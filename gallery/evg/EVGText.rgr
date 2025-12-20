@@ -38,7 +38,7 @@ class EVGText {
     }
     
     fn setFontSize:void (size:double) {
-        element.fontSize = (EVGUnit.pixels(size))
+        element.fontSize = (EVGUnit.px(size))
         element.inheritedFontSize = size
     }
     

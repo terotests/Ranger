@@ -285,7 +285,7 @@ class RangerRustClassWriter {
         }
       }
       def p:RangerAppParamDesc node.paramDesc
-      wr.out(p.compiledName false)
+      wr.out((this.adjustType(p.compiledName)) false)
       return
     }
 
@@ -331,7 +331,7 @@ class RangerRustClassWriter {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/** unused:  " false)
+        wr.out("// unused:  " false)
       }
       def map_or_hash:boolean ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash))
       ; Buffer type needs mut since buffer_set/buffer_fill/buffer_copy modify in place
@@ -376,10 +376,10 @@ class RangerRustClassWriter {
       }
       wr.out(";" false)
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     // note: unused" false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("   **/ " true)
+        wr.newline()
       } {
         wr.newline()
       }
@@ -392,16 +392,22 @@ class RangerRustClassWriter {
       }
       def nameN:CodeNode (unwrap arg.nameNode)
       ; In Rust, object parameters that might have fields modified need 'mut'
-      ; For now, make all non-primitive parameters mut
       def v_type:RangerNodeType nameN.value_type
       if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
         v_type = (nameN.typeNameAsType(ctx))
       }
-      def is_object:boolean ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.Array) || (v_type == RangerNodeType.Hash))
+      def is_object:boolean ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.Array) || (v_type == RangerNodeType.Hash) || (v_type == RangerNodeType.IntBuffer) || (v_type == RangerNodeType.DoubleBuffer) || (v_type == RangerNodeType.CharBuffer) || (v_type == RangerNodeType.Buffer))
+      ; Use compiledName to include any name transformations (e.g. len -> __len)
+      def paramName:string (this.adjustType(arg.compiledName))
+      ; Check if parameter is assigned - if so, make it mut
       if is_object {
-        wr.out(("mut " + arg.name + " : ") false)
+        wr.out(("mut " + paramName + " : ") false)
       } {
-        wr.out((arg.name + " : ") false)
+        if (arg.set_cnt > 0) {
+          wr.out(("mut " + paramName + " : ") false)
+        } {
+          wr.out((paramName + " : ") false)
+        }
       }
       this.writeTypeDef(nameN ctx wr)
     }
@@ -467,18 +473,7 @@ class RangerRustClassWriter {
         }
         
         ; Now write the actual function call with temp vars substituted
-        if ((part != "this") && (ctx.isMemberVariable(part))) {
-          def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
-          if (!null? uc) {
-            def currC:RangerAppClassDesc (unwrap uc)
-            def up@(optional):RangerAppParamDesc (currC.findVariable(part))
-            if (!null? up) {
-              if( false == (ctx.isInStatic()) ) {
-                wr.out((thisName + ".") false)
-              }
-            }
-          }
-        }
+        ; Note: Don't add self. here as WriteVRef already handles member variables
         this.WriteVRef(fc ctx wr)
         wr.out("(" false)
         for node.fnDesc.params arg:RangerAppParamDesc i {
@@ -522,6 +517,10 @@ class RangerRustClassWriter {
             if (arg_type == RangerNodeType.Object) {
               needs_clone = true
             }
+            ; In Rust, arrays and hashes need cloning to avoid move errors
+            if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
+              needs_clone = true
+            }
             if needs_clone {
               if (nVal.value_type == RangerNodeType.VRef) {
                 wr.out(".clone()" false)
@@ -537,18 +536,7 @@ class RangerRustClassWriter {
       }
 
       ; Standard path - no double borrow issue
-      if ((part != "this") && (ctx.isMemberVariable(part))) {
-        def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
-        if (!null? uc) {
-          def currC:RangerAppClassDesc (unwrap uc)
-          def up@(optional):RangerAppParamDesc (currC.findVariable(part))
-          if (!null? up) {
-            if( false == (ctx.isInStatic()) ) {
-              wr.out((thisName + ".") false)
-            }
-          }
-        }
-      }
+      ; Note: Don't add self. here as WriteVRef already handles member variables
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       for node.fnDesc.params arg:RangerAppParamDesc i {
@@ -586,6 +574,10 @@ class RangerRustClassWriter {
           needs_clone = true
         }
         if (arg_type == RangerNodeType.Object) {
+          needs_clone = true
+        }
+        ; In Rust, arrays and hashes need cloning to avoid move errors
+        if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
           needs_clone = true
         }
         if needs_clone {
@@ -627,6 +619,10 @@ class RangerRustClassWriter {
             needs_clone = true
           }
           if (arg_type == RangerNodeType.Object) {
+            needs_clone = true
+          }
+          ; In Rust, arrays and hashes need cloning to avoid move errors
+          if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
             needs_clone = true
           }
           if needs_clone {
@@ -703,7 +699,9 @@ class RangerRustClassWriter {
         if ((array_length node.children) > 2) {
           def valueNode:CodeNode (itemAt node.children 2)
           wr.out(((this.adjustType(pvar.compiledName)) + ":") false)
+          ctx.setInExpr()
           this.WalkNode(valueNode ctx wr)
+          ctx.unsetInExpr()
           wr.out(", " true)
         } {
           ; Initialize array fields with Vec::new()
@@ -789,7 +787,7 @@ class RangerRustClassWriter {
     wr.out("}" true)
     for cl.static_methods variant:RangerAppFunctionDesc i {
       def nn:CodeNode (unwrap variant.nameNode)
-      if (nn.hasFlag("main")) {
+      if ((nn.hasFlag("main")) && (nn.code.filename == (ctx.getRootFile()))) {
         wr.out("fn main() {" true)
         wr.indent(1)
         wr.newline()

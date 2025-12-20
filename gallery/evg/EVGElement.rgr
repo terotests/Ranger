@@ -158,7 +158,7 @@ class EVGElement {
         backgroundColor = (EVGColor.noColor())
         color = (EVGColor.black())
         
-        fontSize = (EVGUnit.pixels(14.0))
+        fontSize = (EVGUnit.px(14.0))
         
         shadowRadius = (EVGUnit.unset())
         shadowColor = (EVGColor.noColor())

@@ -125,6 +125,7 @@ class EVGComponentTool {
         ; Render to PDF
         print "Rendering to PDF..."
         def renderer (new EVGPDFRenderer())
+        renderer.init()  ; Must call init() for C++ compatibility
         renderer.setPageSize(pageWidth pageHeight)
         renderer.setFontManager(fontManager)
         renderer.setBaseDir(basePath)

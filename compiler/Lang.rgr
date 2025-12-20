@@ -613,6 +613,7 @@ func r_file_exists(pathName string, fileName string) bool {
 "
 )                    
                 )
+                rust ( "std::path::Path::new(&format!(\"{}/{}\", " (e 1) ", " (e 2) ")).exists()" )
            }
         }
 
@@ -2037,6 +2038,7 @@ inline std::string  r_cpp_trim(std::string &s)
                 csharp ( (e 1) ".Trim()" (imp "System"))
                 go ("strings.TrimSpace(" (e 1) ")" (imp "strings"))
                 python ( (e 1) ".strip()" )
+                rust ( (e 1) ".trim().to_string()" )
                 * ( (e 1) ".trim()" )
             }            
         }                 
@@ -2886,6 +2888,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([] byte{byte(" (e 1) ")})")      
                 cpp ( "std::string(1, char(" (e 1) "))") 
+                rust ( "(char::from_u32(" (e 1) " as u32).unwrap_or('\\0').to_string())" )
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -2893,7 +2896,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
 
         strfromcode   cmdStrFromCode:string       ( code:int ) { 
             templates {
-                ranger ( "(strfromcode " (e 1) ")"))
+                ranger ( "(strfromcode " (e 1) ")")
                 csharp ( "((char)" (e 1) ").toString()") 
                 java7 ( "(new String( Character.toChars(" (e 1) ")))") 
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " )! )))") 
@@ -2901,6 +2904,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([] byte{byte(" (e 1) ")})")        
                 cpp ( "std::string(1, char(" (e 1) "))") 
+                rust ( "(char::from_u32(" (e 1) " as u32).unwrap_or('\\0').to_string())" )
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -2949,6 +2953,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
+                rust ( (e 1) ".to_string()" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -2964,6 +2969,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
+                rust ( (e 1) ".to_string()" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -3064,9 +3070,10 @@ func r_str_2_i64(s string) *GoNullable {
                 php ( "is_numeric(" (e 1) ") ? intval(" (e 1) ") : NULL ")
                 scala ( "Try(" (e 1) ".toInt).toOption" (imp "scala.util.Try"))
                 kotlin (  (e 1) ".toInt()")
-                swift3 ("Int(" (e 1) ")")           
-                swift6 ("Int(" (e 1) ")")           
-                csharp( "Int32.Parse(" (e 1) ")" )   
+                swift3 ("Int(" (e 1) ")")
+                swift6 ("Int(" (e 1) ")")
+                csharp( "Int32.Parse(" (e 1) ")" )
+                rust ( (e 1) ".parse::<i64>().ok()" )
                 * ( "isNaN( parseInt(" (e 1) ") ) ? undefined : parseInt(" (e 1) ")")
             }
         }
@@ -3143,7 +3150,8 @@ Double _getDoubleOrNull ( String str ) {
                 php ( "floatval(" (e 1) ")")
                 scala ( "Try(" (e 1) ".toDouble).toOption" (imp "scala.util.Try"))
                 kotlin (  (e 1) ".toDouble()")
-                swift3 ("Double(" (e 1) ")")              
+                swift3 ("Double(" (e 1) ")")
+                rust ( (e 1) ".parse::<f64>().ok()" )
                 * ( "isNaN( parseFloat(" (e 1) ") ) ? undefined : parseFloat(" (e 1) ")")
             }
         }
@@ -3384,6 +3392,7 @@ int r_string_index_of( std::string str, std::string key )  {
 " )                   
                     
                 )
+                rust ( "(" (e 1) ".find(" (e 2) ").map(|i| i as i64).unwrap_or(-1))" )
             }        
         }
 
@@ -4694,6 +4703,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 java7 ("Double.valueOf(" (e 1) ")")
                 cpp ("(double)(" (e 1) ")")
                 php ( (e 1) )
+                rust ("(" (e 1) " as f64)")
             }
         }
 

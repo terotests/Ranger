@@ -98,6 +98,51 @@ node bin/output.js myfile.rgr -l=rust -o=myfile.rs
 rustc myfile.rs -o myfile
 ```
 
+### C++ Static Analysis Optimizer (New)
+
+The C++ target (`-l=cpp`) now includes a static analysis pass that automatically detects mutation patterns and generates proper C++ references. This solves a common issue where local variables assigned from member fields were incorrectly copied instead of referenced.
+
+**The Problem:**
+
+```ranger
+fn writeByte:void (b:int) {
+    def buf:buffer currentChunk.data   ; Assigned from member field
+    buffer_set buf 0 b                  ; Mutates the buffer
+}
+```
+
+Without static analysis, this would generate:
+```cpp
+void writeByte(int b) {
+    std::vector<uint8_t> buf = currentChunk->data;  // COPY!
+    buf[0] = static_cast<uint8_t>(b);               // Modifies copy, not original!
+}
+```
+
+**The Solution:**
+
+The static analyzer detects when:
+1. A local variable is assigned from a member field (e.g., `obj.field`)
+2. That variable is later mutated with in-place operations (`buffer_set`, `push`, `set`, etc.)
+
+When both conditions are met, it generates a C++ reference:
+```cpp
+void writeByte(int b) {
+    std::vector<uint8_t>& buf = currentChunk->data;  // REFERENCE!
+    buf[0] = static_cast<uint8_t>(b);                // Modifies original
+}
+```
+
+**Mutating Operations Detected:**
+
+| Category   | Operators                                                      |
+|------------|---------------------------------------------------------------|
+| Buffer     | `buffer_set`, `int_buffer_set`, `double_buffer_set`, `*_fill` |
+| Array      | `push`, `set`, `clear`, `remove`, `removeIndex`               |
+| Dictionary | `put`                                                          |
+
+This optimization is automatically applied when compiling to C++ - no source code changes required.
+
 ### Space Invaders Demo Game
 
 A complete terminal-based Space Invaders game demonstrating Ranger's cross-language capabilities. The same source code compiles to **4 different targets**:

@@ -6,6 +6,7 @@ Import "ng_DictNode.rgr"
 Import "ng_RangerSerializeClass.rgr"
 Import "CmdParams.rgr"
 Import "ng_RangerDocGenerator.rgr"
+Import "ng_StaticAnalysis.rgr"
 
 Import "ng_RangerPlugin.rgr"
 Import "viewbuilder_Android.rgr"
@@ -589,6 +590,14 @@ class tester {
 
       flowParser.StartWalk (node appCtx (unwrap wr))
       flowParser.SolveAsyncFuncs( root appCtx (unwrap wr))
+
+      ; Run static analysis for C++ and Rust targets
+      if ((appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust")) {
+        print "2b. Running static analysis for " + appCtx.targetLangName
+        def staticAnalyzer:StaticAnalyzer (new StaticAnalyzer())
+        staticAnalyzer.ctx = appCtx
+        staticAnalyzer.analyzeAll()
+      }
 
       print "3. Compiling the source code."
       switch appCtx.targetLangName {
