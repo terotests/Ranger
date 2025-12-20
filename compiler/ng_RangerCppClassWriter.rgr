@@ -671,6 +671,10 @@ class RangerCppClassWriter {
       }
       wr.out(" " false)
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
+      ; Add reference if static analysis determined this parameter needs it
+      if arg.needs_cpp_reference {
+        wr.out("&" false)
+      }
       wr.out(((" " + arg.compiledName) + " ") false)
     }
   }

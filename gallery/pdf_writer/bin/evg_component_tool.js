@@ -9850,7 +9850,7 @@ class JPEGDecoder  {
   };
   decodeBlock (reader, comp, quantTable) {
     const coeffs = new Int32Array(64);
-    coeffs.fill(0, 64, 0);
+    coeffs.fill(0, 0, 64);
     const dcTable = this.huffman.getDCTable(comp.dcTableId);
     const dcCategory = dcTable.decode(reader);
     const dcDiff = reader.receiveExtend(dcCategory);
@@ -9940,7 +9940,7 @@ class JPEGDecoder  {
             while (blockH < comp_1.hSamp) {
               const coeffs = this.decodeBlock(reader, comp_1, quantTable);
               const blockPixels = new Int32Array(64);
-              blockPixels.fill(0, 64, 0);
+              blockPixels.fill(0, 0, 64);
               const tempBlock = this.idct.dezigzag(coeffs);
               this.idct.transform(tempBlock, blockPixels);
               if ( compIdx == 0 ) {

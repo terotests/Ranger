@@ -241,3 +241,52 @@ Common error patterns to handle:
 - Type mismatches
 - Missing methods/properties
 - Invalid syntax
+
+## Static Analysis Integration
+
+For C++ and Rust targets, the compiler runs an additional static analysis pass that can be queried:
+
+### Checking Parameter Mutation
+
+```typescript
+// Check if a parameter is marked as needing a reference
+const paramDesc = getParameterDescriptor(
+  result,
+  "MyClass",
+  "myMethod",
+  "arrayParam"
+);
+if (paramDesc.needs_cpp_reference) {
+  // This parameter will have & in C++ output
+}
+if (paramDesc.is_mutating) {
+  // This parameter is modified inside the function
+}
+```
+
+### Understanding Reference Requirements
+
+The static analyzer marks parameters with `needs_cpp_reference = true` when:
+
+1. The parameter is a function parameter (not local variable)
+2. The parameter is an array, hash, or buffer type
+3. The parameter is mutated via `set`, `push`, `int_buffer_set`, etc.
+
+This information is useful for:
+
+- Understanding why generated C++ differs from JS
+- Debugging issues where C++ output doesn't match JS behavior
+- Validating that the analyzer correctly detected mutations
+
+### RangerAppParamDesc Fields for Analysis
+
+Key fields on parameter descriptors:
+
+| Field                     | Type    | Description                                      |
+| ------------------------- | ------- | ------------------------------------------------ |
+| `is_mutating`             | boolean | Parameter is modified in function body           |
+| `mutation_count`          | int     | Number of mutation operations                    |
+| `needs_cpp_reference`     | boolean | Requires `&` in C++                              |
+| `rust_borrow_type`        | int     | 0=owned, 1=borrow, 2=mut_borrow                  |
+| `varType`                 | enum    | FunctionParameter, LocalVariable, Property, etc. |
+| `is_assigned_from_member` | boolean | Assigned from class member (needs reference)     |

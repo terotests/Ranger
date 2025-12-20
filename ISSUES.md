@@ -1116,12 +1116,14 @@ buffer_copy destBuf 0 srcBuf 0 100
 ```
 
 The `buffer` type uses:
+
 - Go: `[]byte` with index assignment `buf[i] = byte(v)` - no `append()`
 - ES6: `ArrayBuffer` with `DataView`
 - Rust: `Vec<u8>` with index assignment
 - etc.
 
 For growable binary data, use a wrapper class pattern like `GrowableBuffer` that:
+
 1. Pre-allocates chunks: `make([]byte, chunkSize)`
 2. Writes to positions: `buf[pos] = byte(b)`
 3. Links chunks for growth
@@ -1129,6 +1131,7 @@ For growable binary data, use a wrapper class pattern like `GrowableBuffer` that
 ### Why Pointer Parameters Won't Work Well
 
 While Go supports `*[]T` pointer parameters, this approach has drawbacks:
+
 1. Callers must pass `&arr` explicitly
 2. Syntax becomes awkward: `*arr = append(*arr, item)`
 3. Doesn't solve the fundamental semantic mismatch

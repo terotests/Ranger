@@ -1098,8 +1098,8 @@ class IDCT : public std::enable_shared_from_this<IDCT>  {
     IDCT( );
     /* instance methods */ 
     std::vector<int64_t> dezigzag( std::vector<int64_t> zigzag );
-    void idct1d( std::vector<int64_t> input , int startIdx , int stride , std::vector<int64_t> output , int outIdx , int outStride );
-    void transform( std::vector<int64_t> block , std::vector<int64_t> output );
+    void idct1d( std::vector<int64_t> input , int startIdx , int stride , std::vector<int64_t>& output , int outIdx , int outStride );
+    void transform( std::vector<int64_t> block , std::vector<int64_t>& output );
     void transformFast( std::vector<int64_t> coeffs , std::vector<int64_t> output );
 };
 class Color : public std::enable_shared_from_this<Color>  { 
@@ -1160,7 +1160,7 @@ class PPMImage : public std::enable_shared_from_this<PPMImage>  {
     /* class constructor */ 
     PPMImage( );
     /* instance methods */ 
-    int parseNumber( std::vector<uint8_t> data , int startPos , std::vector<int> endPos );
+    int parseNumber( std::vector<uint8_t> data , int startPos , std::vector<int>& endPos );
     int skipToNextLine( std::vector<uint8_t> data , int pos );
     std::shared_ptr<ImageBuffer> load( std::string dirPath , std::string fileName );
     void save( std::shared_ptr<ImageBuffer> img , std::string dirPath , std::string fileName );
@@ -1225,7 +1225,7 @@ class FDCT : public std::enable_shared_from_this<FDCT>  {
     /* class constructor */ 
     FDCT( );
     /* instance methods */ 
-    void dct1d( std::vector<int64_t> input , int startIdx , int stride , std::vector<int64_t> output , int outIdx , int outStride );
+    void dct1d( std::vector<int64_t> input , int startIdx , int stride , std::vector<int64_t>& output , int outIdx , int outStride );
     std::vector<int64_t> transform( std::vector<int64_t> pixels );
     std::vector<int64_t> zigzag( std::vector<int64_t> block );
 };
@@ -1278,11 +1278,11 @@ class JPEGEncoder : public std::enable_shared_from_this<JPEGEncoder>  {
     void initQuantTables();
     void scaleQuantTables( int q );
     void initHuffmanTables();
-    void buildHuffmanCodes( std::vector<int> bits , std::vector<int> values , std::vector<int> codes , std::vector<int> lengths );
+    void buildHuffmanCodes( std::vector<int> bits , std::vector<int> values , std::vector<int>& codes , std::vector<int>& lengths );
     int getCategory( int value );
     int encodeNumber( int value , int category );
     void encodeBlock( std::shared_ptr<BitWriter> writer , std::vector<int64_t> coeffs , std::vector<int> quantTable , std::vector<int> dcCodes , std::vector<int> dcLengths , std::vector<int> acCodes , std::vector<int> acLengths , int prevDC );
-    void rgbToYCbCr( int r , int g , int b , std::vector<int> yOut , std::vector<int> cbOut , std::vector<int> crOut );
+    void rgbToYCbCr( int r , int g , int b , std::vector<int>& yOut , std::vector<int>& cbOut , std::vector<int>& crOut );
     std::vector<int64_t> extractBlock( std::shared_ptr<ImageBuffer> img , int blockX , int blockY , int channel );
     void writeMarkers( std::shared_ptr<BitWriter> writer , int width , int height );
     std::vector<uint8_t> encodeToBuffer( std::shared_ptr<ImageBuffer> img );
@@ -10281,7 +10281,7 @@ std::vector<int64_t>  IDCT::dezigzag( std::vector<int64_t> zigzag ) {
   };
   return block;
 }
-void  IDCT::idct1d( std::vector<int64_t> input , int startIdx , int stride , std::vector<int64_t> output , int outIdx , int outStride ) {
+void  IDCT::idct1d( std::vector<int64_t> input , int startIdx , int stride , std::vector<int64_t>& output , int outIdx , int outStride ) {
   int x = 0;
   while (x < 8) {
     int sum = 0;
@@ -10302,7 +10302,7 @@ void  IDCT::idct1d( std::vector<int64_t> input , int startIdx , int stride , std
     x = x + 1;
   };
 }
-void  IDCT::transform( std::vector<int64_t> block , std::vector<int64_t> output ) {
+void  IDCT::transform( std::vector<int64_t> block , std::vector<int64_t>& output ) {
   std::vector<int64_t> temp = std::vector<int64_t>(64, 0);
   int row = 0;
   while (row < 8) {
@@ -10897,7 +10897,7 @@ std::shared_ptr<ImageBuffer>  ImageBuffer::applyExifOrientation( int orientation
 }
 PPMImage::PPMImage( ) {
 }
-int  PPMImage::parseNumber( std::vector<uint8_t> data , int startPos , std::vector<int> endPos ) {
+int  PPMImage::parseNumber( std::vector<uint8_t> data , int startPos , std::vector<int>& endPos ) {
   int __len = static_cast<int64_t>(data.size());
   int pos = startPos;
   bool skipping = true;
@@ -11299,7 +11299,7 @@ bool  JPEGDecoder::parseMarkers() {
 }
 std::vector<int64_t>  JPEGDecoder::decodeBlock( std::shared_ptr<BitReader> reader , std::shared_ptr<JPEGComponent> comp , std::shared_ptr<QuantizationTable> quantTable ) {
   std::vector<int64_t> coeffs = std::vector<int64_t>(64, 0);
-  std::fill(coeffs.begin()+64, coeffs.begin()+0, 0);
+  std::fill(coeffs.begin()+0, coeffs.begin()+64, 0);
   std::shared_ptr<HuffmanTable> dcTable = huffman->getDCTable(comp->dcTableId);
   int dcCategory = dcTable->decode(reader);
   int dcDiff = reader->receiveExtend(dcCategory);
@@ -11389,7 +11389,7 @@ std::shared_ptr<ImageBuffer>  JPEGDecoder::decode( std::string dirPath , std::st
           while (blockH < comp_1->hSamp) {
             std::vector<int64_t> coeffs = this->decodeBlock(reader, comp_1, quantTable);
             std::vector<int64_t> blockPixels = std::vector<int64_t>(64, 0);
-            std::fill(blockPixels.begin()+64, blockPixels.begin()+0, 0);
+            std::fill(blockPixels.begin()+0, blockPixels.begin()+64, 0);
             std::vector<int64_t> tempBlock = idct->dezigzag(coeffs);
             idct->transform(tempBlock, blockPixels);
             if ( compIdx == 0 ) {
@@ -11748,7 +11748,7 @@ FDCT::FDCT( ) {
   zigzagOrder[62] = 62;
   zigzagOrder[63] = 63;
 }
-void  FDCT::dct1d( std::vector<int64_t> input , int startIdx , int stride , std::vector<int64_t> output , int outIdx , int outStride ) {
+void  FDCT::dct1d( std::vector<int64_t> input , int startIdx , int stride , std::vector<int64_t>& output , int outIdx , int outStride ) {
   int u = 0;
   while (u < 8) {
     int sum = 0;
@@ -12449,7 +12449,7 @@ void  JPEGEncoder::initHuffmanTables() {
   this->buildHuffmanCodes(dcCBits, dcCValues, dcCCodes, dcCLengths);
   this->buildHuffmanCodes(acCBits, acCValues, acCCodes, acCLengths);
 }
-void  JPEGEncoder::buildHuffmanCodes( std::vector<int> bits , std::vector<int> values , std::vector<int> codes , std::vector<int> lengths ) {
+void  JPEGEncoder::buildHuffmanCodes( std::vector<int> bits , std::vector<int> values , std::vector<int>& codes , std::vector<int>& lengths ) {
   int code = 0;
   int valueIdx = 0;
   int bitLen = 1;
@@ -12544,7 +12544,7 @@ void  JPEGEncoder::encodeBlock( std::shared_ptr<BitWriter> writer , std::vector<
     writer->writeBits(eobCode, eobLen);
   }
 }
-void  JPEGEncoder::rgbToYCbCr( int r , int g , int b , std::vector<int> yOut , std::vector<int> cbOut , std::vector<int> crOut ) {
+void  JPEGEncoder::rgbToYCbCr( int r , int g , int b , std::vector<int>& yOut , std::vector<int>& cbOut , std::vector<int>& crOut ) {
   int y = (((((77 * r) + (150 * g)) + (29 * b))) >> (8));
   int cb = ((((((0 - (43 * r)) - (85 * g)) + (128 * b))) >> (8))) + 128;
   int cr = ((((((128 * r) - (107 * g)) - (21 * b))) >> (8))) + 128;

@@ -5,6 +5,7 @@
 Import "ng_RangerAppParamDesc.rgr"
 Import "ng_RangerAppFunctionDesc.rgr"
 Import "ng_RangerAppClassDesc.rgr"
+Import "ng_RangerAppEnums.rgr"
 Import "ng_CodeNode.rgr"
 Import "ng_RangerAppWriterContext.rgr"
 
@@ -165,6 +166,50 @@ class StaticAnalyzer {
         param.rust_borrow_type = 2  ; mut_borrow
         if debug {
           print ("StaticAnalysis: " + varName + " needs C++ reference (mutated, assigned from member)")
+        }
+      }
+      
+      ; If this is a FUNCTION PARAMETER (not local var) with array/hash type and is mutated, needs reference
+      ; This is needed because in Ranger, array/hash parameters are passed by reference semantically
+      ; but C++ passes std::vector/map by value unless we add &
+      ; We check varType == FunctionParameter to distinguish function params from local vars
+      if (param.varType == RangerContextVarType.FunctionParameter) {
+        if (!null? param.nameNode) {
+          def typeNode:CodeNode (unwrap param.nameNode)
+          ; Check if it's an array type by looking at array_type field
+          if ((strlen typeNode.array_type) > 0) {
+            param.needs_cpp_reference = true
+            if debug {
+              print ("StaticAnalysis: " + varName + " needs C++ reference (mutated array function parameter)")
+            }
+          }
+          ; Check if it's a hash type by looking at key_type field
+          if ((strlen typeNode.key_type) > 0) {
+            param.needs_cpp_reference = true
+            if debug {
+              print ("StaticAnalysis: " + varName + " needs C++ reference (mutated hash function parameter)")
+            }
+          }
+          ; Check if it's a buffer type (int_buffer, double_buffer, buffer)
+          ; These are translated to std::vector in C++ and need reference for mutation
+          if (typeNode.type_name == "int_buffer") {
+            param.needs_cpp_reference = true
+            if debug {
+              print ("StaticAnalysis: " + varName + " needs C++ reference (mutated int_buffer function parameter)")
+            }
+          }
+          if (typeNode.type_name == "double_buffer") {
+            param.needs_cpp_reference = true
+            if debug {
+              print ("StaticAnalysis: " + varName + " needs C++ reference (mutated double_buffer function parameter)")
+            }
+          }
+          if (typeNode.type_name == "buffer") {
+            param.needs_cpp_reference = true
+            if debug {
+              print ("StaticAnalysis: " + varName + " needs C++ reference (mutated buffer function parameter)")
+            }
+          }
         }
       }
     }

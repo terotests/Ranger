@@ -872,7 +872,7 @@ class ProgressiveJPEGDecoder {
                         def tempBlock:int_buffer (idct.dezigzag(blockCoeffs))
                         
                         def blockPixels:int_buffer (int_buffer_alloc 64)
-                        int_buffer_fill blockPixels 0 64 0
+                        int_buffer_fill blockPixels 0 0 64
                         idct.transform(tempBlock blockPixels)
                         
                         k = 0
@@ -904,7 +904,7 @@ class ProgressiveJPEGDecoder {
                     
                     def tempBlock:int_buffer (idct.dezigzag(blockCoeffs))
                     def cbPixels:int_buffer (int_buffer_alloc 64)
-                    int_buffer_fill cbPixels 0 64 0
+                    int_buffer_fill cbPixels 0 0 64
                     idct.transform(tempBlock cbPixels)
                     k = 0
                     while (k < 64) {
@@ -925,7 +925,7 @@ class ProgressiveJPEGDecoder {
                     
                     def crTempBlock:int_buffer (idct.dezigzag(crCoeffs))
                     def crPixels:int_buffer (int_buffer_alloc 64)
-                    int_buffer_fill crPixels 0 64 0
+                    int_buffer_fill crPixels 0 0 64
                     idct.transform(crTempBlock crPixels)
                     k = 0
                     while (k < 64) {

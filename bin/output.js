@@ -16172,6 +16172,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(" ", false);
       await this.writeTypeDef(arg.nameNode, ctx, wr);
+      if ( arg.needs_cpp_reference ) {
+        wr.out("&", false);
+      }
       wr.out((" " + arg.compiledName) + " ", false);
     };
   };
@@ -24851,6 +24854,41 @@ class StaticAnalyzer  {
         param.rust_borrow_type = 2;
         if ( this.debug ) {
           console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated, assigned from member)");
+        }
+      }
+      if ( param.varType == 4 ) {
+        if ( (typeof(param.nameNode) !== "undefined" && param.nameNode != null )  ) {
+          const typeNode = param.nameNode;
+          if ( (typeNode.array_type.length) > 0 ) {
+            param.needs_cpp_reference = true;
+            if ( this.debug ) {
+              console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated array function parameter)");
+            }
+          }
+          if ( (typeNode.key_type.length) > 0 ) {
+            param.needs_cpp_reference = true;
+            if ( this.debug ) {
+              console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated hash function parameter)");
+            }
+          }
+          if ( typeNode.type_name == "int_buffer" ) {
+            param.needs_cpp_reference = true;
+            if ( this.debug ) {
+              console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated int_buffer function parameter)");
+            }
+          }
+          if ( typeNode.type_name == "double_buffer" ) {
+            param.needs_cpp_reference = true;
+            if ( this.debug ) {
+              console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated double_buffer function parameter)");
+            }
+          }
+          if ( typeNode.type_name == "buffer" ) {
+            param.needs_cpp_reference = true;
+            if ( this.debug ) {
+              console.log(("StaticAnalysis: " + varName) + " needs C++ reference (mutated buffer function parameter)");
+            }
+          }
         }
       }
     }

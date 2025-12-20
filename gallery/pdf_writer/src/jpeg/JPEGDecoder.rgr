@@ -341,7 +341,7 @@ class JPEGDecoder {
         ; Returns 64 dequantized DCT coefficients in zigzag order
         
         def coeffs:int_buffer (int_buffer_alloc 64)
-        int_buffer_fill coeffs 0 64 0
+        int_buffer_fill coeffs 0 0 64
         
         ; Decode DC coefficient
         def dcTable:HuffmanTable (huffman.getDCTable(comp.dcTableId))
@@ -480,7 +480,7 @@ class JPEGDecoder {
                             
                             ; IDCT to get pixels
                             def blockPixels:int_buffer (int_buffer_alloc 64)
-                            int_buffer_fill blockPixels 0 64 0
+                            int_buffer_fill blockPixels 0 0 64
                             
                             ; Dezigzag and transform
                             def tempBlock:int_buffer (idct.dezigzag(coeffs))

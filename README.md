@@ -112,6 +112,7 @@ fn writeByte:void (b:int) {
 ```
 
 Without static analysis, this would generate:
+
 ```cpp
 void writeByte(int b) {
     std::vector<uint8_t> buf = currentChunk->data;  // COPY!
@@ -122,10 +123,12 @@ void writeByte(int b) {
 **The Solution:**
 
 The static analyzer detects when:
+
 1. A local variable is assigned from a member field (e.g., `obj.field`)
 2. That variable is later mutated with in-place operations (`buffer_set`, `push`, `set`, etc.)
 
 When both conditions are met, it generates a C++ reference:
+
 ```cpp
 void writeByte(int b) {
     std::vector<uint8_t>& buf = currentChunk->data;  // REFERENCE!
@@ -135,11 +138,11 @@ void writeByte(int b) {
 
 **Mutating Operations Detected:**
 
-| Category   | Operators                                                      |
-|------------|---------------------------------------------------------------|
+| Category   | Operators                                                     |
+| ---------- | ------------------------------------------------------------- |
 | Buffer     | `buffer_set`, `int_buffer_set`, `double_buffer_set`, `*_fill` |
 | Array      | `push`, `set`, `clear`, `remove`, `removeIndex`               |
-| Dictionary | `put`                                                          |
+| Dictionary | `put`                                                         |
 
 This optimization is automatically applied when compiling to C++ - no source code changes required.
 
