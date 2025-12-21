@@ -269,6 +269,63 @@ class StaticAnalyzer {
     }
   }
   
+  ; ============================================================================
+  ; PARAMETER-TO-FIELD ASSIGNMENT DETECTION (Rust-specific)
+  ; ============================================================================
+  ; Detects when a function parameter is assigned to a class field
+  ; e.g., this.data = buf  ; buf needs to be owned, not borrowed
+  
+  fn walkForFieldAssignments:void (node:CodeNode fnCtx:RangerAppWriterContext) {
+    ; Check for assignment: (= lhs rhs)
+    if node.expression {
+      if ((array_length node.children) >= 3) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "=") {
+          def lhs:CodeNode (node.getSecond())
+          def rhs:CodeNode (itemAt node.children 2)
+          
+          ; Check if LHS is a class field (this.field or just field where field is class var)
+          def is_field_assignment:boolean false
+          if ((array_length lhs.ns) >= 1) {
+            def firstPart:string (itemAt lhs.ns 0)
+            if (firstPart == "this") {
+              is_field_assignment = true
+            }
+          }
+          if (is_field_assignment == false) {
+            if lhs.hasParamDesc {
+              def lhsPd:RangerAppParamDesc lhs.paramDesc
+              if lhsPd.is_class_variable {
+                is_field_assignment = true
+              }
+            }
+          }
+          
+          ; If assigning to a field, check if RHS is a function parameter
+          if is_field_assignment {
+            def rhsVarName:string rhs.vref
+            if ((strlen rhsVarName) > 0) {
+              def rhsParam:RangerAppParamDesc (fnCtx.getVariableDef(rhsVarName))
+              if ((strlen rhsParam.name) > 0) {
+                if (rhsParam.varType == RangerContextVarType.FunctionParameter) {
+                  rhsParam.rust_assigned_to_field = true
+                  if debug {
+                    print ("StaticAnalysis: parameter " + rhsVarName + " assigned to field - requires owned value")
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForFieldAssignments(child fnCtx)
+    }
+  }
+  
   ; Walk the AST to collect variable definitions and detect mutations
   fn walkForMutations:void (node:CodeNode fnCtx:RangerAppWriterContext) {
     ; Check if this is a variable definition
@@ -806,6 +863,9 @@ class StaticAnalyzer {
         
         ; Walk for weak field assignments (Rust Rc<RefCell<T>> detection)
         this.walkForWeakAssignments((unwrap fn.fnBody) (unwrap fn.fnCtx))
+        
+        ; Walk for parameter-to-field assignments (requires owned value, not borrow)
+        this.walkForFieldAssignments((unwrap fn.fnBody) (unwrap fn.fnCtx))
       }
       
       ; Analyze return patterns
@@ -822,33 +882,37 @@ class StaticAnalyzer {
       ; NOTE: We do NOT mark object-type parameters as immutable because:
       ; 1. They may have optional fields accessed with .as_mut().unwrap()
       ; 2. Method calls on those fields require the parent to be &mut
+      ; NOTE: We also skip parameters that are assigned to fields (requires owned)
       for fn.params param:RangerAppParamDesc i {
         if (param.varType == RangerContextVarType.FunctionParameter) {
           ; Skip if already marked for mutable borrow or Rc wrap
           if ((param.rust_borrow_type != 2) && (param.rust_needs_rc_wrap == false)) {
             ; Skip if already marked for cpp reference (mutable)
             if (param.needs_cpp_reference == false) {
-              ; Check if parameter is buffer/array type (NOT object types)
-              if (!null? param.nameNode) {
-                def typeNode:CodeNode (unwrap param.nameNode)
-                def typeName:string typeNode.type_name
-                def isBufferOrArray:boolean false
-                ; Buffer types - these are safe for immutable borrow
-                if ((typeName == "int_buffer") || (typeName == "double_buffer") || (typeName == "buffer")) {
-                  isBufferOrArray = true
-                }
-                ; Array types (has array_type set) - safe for immutable borrow if not mutated
-                if ((strlen typeNode.array_type) > 0) {
-                  isBufferOrArray = true
-                }
-                ; NOTE: We intentionally do NOT include Object/VRef types here
-                ; because they may have optional fields that need as_mut().unwrap()
-                
-                ; If it's a buffer/array and NOT mutated, use immutable borrow
-                if isBufferOrArray {
-                  param.rust_borrow_type = 1  ; immutable borrow
-                  if debug {
-                    print ("StaticAnalysis: " + param.name + " set to immutable borrow (non-mutated " + typeName + " parameter)")
+              ; Skip if parameter is assigned to a field (needs owned value)
+              if (param.rust_assigned_to_field == false) {
+                ; Check if parameter is buffer/array type (NOT object types)
+                if (!null? param.nameNode) {
+                  def typeNode:CodeNode (unwrap param.nameNode)
+                  def typeName:string typeNode.type_name
+                  def isBufferOrArray:boolean false
+                  ; Buffer types - these are safe for immutable borrow
+                  if ((typeName == "int_buffer") || (typeName == "double_buffer") || (typeName == "buffer")) {
+                    isBufferOrArray = true
+                  }
+                  ; Array types (has array_type set) - safe for immutable borrow if not mutated
+                  if ((strlen typeNode.array_type) > 0) {
+                    isBufferOrArray = true
+                  }
+                  ; NOTE: We intentionally do NOT include Object/VRef types here
+                  ; because they may have optional fields that need as_mut().unwrap()
+                  
+                  ; If it's a buffer/array and NOT mutated, use immutable borrow
+                  if isBufferOrArray {
+                    param.rust_borrow_type = 1  ; immutable borrow
+                    if debug {
+                      print ("StaticAnalysis: " + param.name + " set to immutable borrow (non-mutated " + typeName + " parameter)")
+                    }
                   }
                 }
               }

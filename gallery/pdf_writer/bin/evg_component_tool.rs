@@ -833,7 +833,7 @@ impl TSParserSimple {
     };
     return me;
   }
-  fn initParser(&mut self, toks : &Vec<Token>) -> () {
+  fn initParser(&mut self, mut toks : Vec<Token>) -> () {
     self.tokens = toks.clone();
     self.pos = 0;
     self.quiet = false;
@@ -9375,7 +9375,7 @@ impl BitReader {
     };
     return me;
   }
-  fn init(&mut self, buf : &Vec<u8>, startPos : i64, length : i64) -> () {
+  fn init(&mut self, mut buf : Vec<u8>, startPos : i64, length : i64) -> () {
     self.data = buf;
     self.dataStart = startPos;
     self.dataEnd = startPos + length;
@@ -10932,7 +10932,7 @@ impl JPEGDecoder {
     let mut img : ImageBuffer = ImageBuffer::new();
     img.init(self.width, self.height);
     let mut reader : BitReader = BitReader::new();
-    reader.init(&self.data, self.scanDataStart, self.scanDataLen);
+    reader.init(self.data.clone(), self.scanDataStart, self.scanDataLen);
     let mut c : i64 = 0;
     while c < self.numComponents {
       let mut comp : JPEGComponent = self.components[c as usize].clone();
@@ -14457,7 +14457,7 @@ impl ComponentEngine {
     self.source = src.clone();
     let mut lexer : TSLexer = TSLexer::new(src.clone());
     let mut tokens : Vec<Token> = lexer.tokenize();
-    self.parser.as_mut().unwrap().initParser(&tokens);
+    self.parser.as_mut().unwrap().initParser(tokens.clone());
     self.parser.as_mut().unwrap().tsxMode = true;
     let mut ast : TSNode = self.parser.as_mut().unwrap().parseProgram();
     self.processImports(ast.clone());
@@ -14534,7 +14534,7 @@ impl ComponentEngine {
     let mut lexer : TSLexer = TSLexer::new(src.clone());
     let mut tokens : Vec<Token> = lexer.tokenize();
     let mut importParser : TSParserSimple = TSParserSimple::new();
-    importParser.initParser(&tokens);
+    importParser.initParser(tokens.clone());
     importParser.tsxMode = true;
     let mut importAst : TSNode = importParser.parseProgram();
     let mut k : i64 = 0;

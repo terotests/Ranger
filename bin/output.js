@@ -445,6 +445,7 @@ class RangerAppParamDesc  {
     this.rust_borrow_type = 0;
     this.rust_assigned_to_weak = false;
     this.rust_needs_rc_wrap = false;
+    this.rust_assigned_to_field = false;
     this.params = [];     /** note: unused */
     this.description = "";     /** note: unused */
     this.git_doc = "";
@@ -17522,10 +17523,6 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       const obj = node.getSecond();
       const method = node.getThird();
       const args = node.children[3];
-      console.log((("DEBUG CreateCallExpression: method=" + method.vref) + " obj=") + obj.vref);
-      if ( method.vref == "parseDHT" ) {
-        console.log((("DEBUG CreateCallExpression: FOUND parseDHT! obj=" + obj.vref) + " obj_is_class_var=") + ((obj.hasParamDesc.toString())));
-      }
       let obj_is_optional = false;
       let obj_is_trait_type = false;
       let owning_class_is_trait_related = false;
@@ -18076,7 +18073,6 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               needsMutRef2 = true;
             }
             const needsImmutableRef2 = arg_1.rust_borrow_type == 1;
-            console.log((((("DEBUG selfCallPath: arg=" + arg_1.name) + " borrow_type=") + ((arg_1.rust_borrow_type.toString()))) + " needsImmutable=") + ((needsImmutableRef2.toString())));
             if ( needsMutRef2 ) {
               wr.out("&mut ", false);
               ctx.setInExpr();
@@ -26972,6 +26968,50 @@ class StaticAnalyzer  {
       }
     }
   };
+  walkForFieldAssignments (node, fnCtx) {
+    if ( node.expression ) {
+      if ( (node.children.length) >= 3 ) {
+        const first = node.getFirst();
+        if ( first.vref == "=" ) {
+          const lhs = node.getSecond();
+          const rhs = node.children[2];
+          let is_field_assignment = false;
+          if ( (lhs.ns.length) >= 1 ) {
+            const firstPart = lhs.ns[0];
+            if ( firstPart == "this" ) {
+              is_field_assignment = true;
+            }
+          }
+          if ( is_field_assignment == false ) {
+            if ( lhs.hasParamDesc ) {
+              const lhsPd = lhs.paramDesc;
+              if ( lhsPd.is_class_variable ) {
+                is_field_assignment = true;
+              }
+            }
+          }
+          if ( is_field_assignment ) {
+            const rhsVarName = rhs.vref;
+            if ( (rhsVarName.length) > 0 ) {
+              const rhsParam = fnCtx.getVariableDef(rhsVarName);
+              if ( (rhsParam.name.length) > 0 ) {
+                if ( rhsParam.varType == 4 ) {
+                  rhsParam.rust_assigned_to_field = true;
+                  if ( this.debug ) {
+                    console.log(("StaticAnalysis: parameter " + rhsVarName) + " assigned to field - requires owned value");
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    for ( let i = 0; i < node.children.length; i++) {
+      var child = node.children[i];
+      this.walkForFieldAssignments(child, fnCtx);
+    };
+  };
   walkForMutations (node, fnCtx) {
     if ( node.expression ) {
       if ( (node.children.length) > 0 ) {
@@ -27361,6 +27401,7 @@ class StaticAnalyzer  {
       if ( (typeof(fn.fnCtx) !== "undefined" && fn.fnCtx != null )  ) {
         this.walkForMutations(fn.fnBody, fn.fnCtx);
         this.walkForWeakAssignments(fn.fnBody, fn.fnCtx);
+        this.walkForFieldAssignments(fn.fnBody, fn.fnCtx);
       }
       this.walkForReturns(fn.fnBody);
       this.walkForSelfAnalysis(fn.fnBody);
@@ -27370,20 +27411,22 @@ class StaticAnalyzer  {
         if ( param.varType == 4 ) {
           if ( (param.rust_borrow_type != 2) && (param.rust_needs_rc_wrap == false) ) {
             if ( param.needs_cpp_reference == false ) {
-              if ( (typeof(param.nameNode) !== "undefined" && param.nameNode != null )  ) {
-                const typeNode = param.nameNode;
-                const typeName = typeNode.type_name;
-                let isBufferOrArray = false;
-                if ( ((typeName == "int_buffer") || (typeName == "double_buffer")) || (typeName == "buffer") ) {
-                  isBufferOrArray = true;
-                }
-                if ( (typeNode.array_type.length) > 0 ) {
-                  isBufferOrArray = true;
-                }
-                if ( isBufferOrArray ) {
-                  param.rust_borrow_type = 1;
-                  if ( this.debug ) {
-                    console.log(((("StaticAnalysis: " + param.name) + " set to immutable borrow (non-mutated ") + typeName) + " parameter)");
+              if ( param.rust_assigned_to_field == false ) {
+                if ( (typeof(param.nameNode) !== "undefined" && param.nameNode != null )  ) {
+                  const typeNode = param.nameNode;
+                  const typeName = typeNode.type_name;
+                  let isBufferOrArray = false;
+                  if ( ((typeName == "int_buffer") || (typeName == "double_buffer")) || (typeName == "buffer") ) {
+                    isBufferOrArray = true;
+                  }
+                  if ( (typeNode.array_type.length) > 0 ) {
+                    isBufferOrArray = true;
+                  }
+                  if ( isBufferOrArray ) {
+                    param.rust_borrow_type = 1;
+                    if ( this.debug ) {
+                      console.log(((("StaticAnalysis: " + param.name) + " set to immutable borrow (non-mutated ") + typeName) + " parameter)");
+                    }
                   }
                 }
               }

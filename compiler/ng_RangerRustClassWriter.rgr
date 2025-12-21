@@ -1154,14 +1154,6 @@ class RangerRustClassWriter {
       def obj:CodeNode (node.getSecond())
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
-      
-      ; DEBUG: Always print method call info
-      print ("DEBUG CreateCallExpression: method=" + method.vref + " obj=" + obj.vref)
-      
-      ; DEBUG: Check if this is the parseDHT call
-      if (method.vref == "parseDHT") {
-        print ("DEBUG CreateCallExpression: FOUND parseDHT! obj=" + obj.vref + " obj_is_class_var=" + (to_string obj.hasParamDesc))
-      }
 
       ; Check if the object is an optional type (which needs .as_ref().unwrap() or .as_mut().unwrap())
       def obj_is_optional:boolean false
@@ -1838,9 +1830,6 @@ class RangerRustClassWriter {
               needsMutRef2 = true
             }
             def needsImmutableRef2:boolean (arg.rust_borrow_type == 1)
-            
-            ; DEBUG: Print borrow type info
-            print ("DEBUG selfCallPath: arg=" + arg.name + " borrow_type=" + (to_string arg.rust_borrow_type) + " needsImmutable=" + (to_string needsImmutableRef2))
             
             if needsMutRef2 {
               ; Parameter needs &mut - output &mut prefix
