@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 class BufferChunk  {
   constructor(size) {
     this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();

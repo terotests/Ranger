@@ -1542,3 +1542,175 @@ function Component({ src1, src2 }) {
 
 - This affects HOC (Higher-Order Component) patterns in photo album layouts
 - Components must be designed without conditional rendering for EVG compatibility
+
+
+---
+
+## Issue #57: UTF-8/Unicode Support Issues in Go Target
+
+**Status:** Partially Fixed  
+**Severity:** High  
+**Found:** December 21, 2025  
+**Branch:** topic/fix-utf8-issue
+
+### Description
+
+Multiple UTF-8/Unicode handling issues were discovered when compiling Ranger code to Go, particularly affecting:
+
+1. **TSX/JS Lexer** - Non-ASCII characters (Ä, Ö, Å, ä, ö, å) not recognized as valid identifier/text characters
+2. **PDF Writer** - Scandinavian characters rendered incorrectly in generated PDFs
+
+### Root Causes and Fixes Applied
+
+#### 1. String Operations Using Byte Index Instead of Rune Index
+
+Go strings are UTF-8 encoded, but many string operations in the generated Go code used byte indexing instead of rune indexing.
+
+**Affected operators in `Lang.rgr`:**
+
+| Operator | Old (Broken) | New (Fixed) |
+|----------|--------------|-------------|
+| `strlen` | `len(str)` | `len([]rune(str))` |
+| `at` | `string(str[i])` | `string([]rune(str)[i])` |
+| `charAt` | `int64(str[i])` | `int64([]rune(str)[i])` |
+| `substring` | `str[start:end]` | `string([]rune(str)[start:end])` |
+| `strfromcode` | `string([]byte{byte(ch)})` | `string([]rune{rune(ch)})` |
+
+#### 2. Lexer `isAlpha` Function Missing High-Byte Check
+
+The TSX lexer's `isAlpha` function did not recognize Unicode characters (code > 127) as valid alphabetic characters.
+
+**Fixed in `ts_lexer.rgr`:**
+```ranger
+fn isAlpha:boolean (ch:string) {
+    def code:int (charAt ch 0)
+    if (code > 127) { return true }  ; <-- Added this check
+    ; ... rest of function
+}
+```
+
+#### 3. PDF Text Encoding Issue
+
+PDF WinAnsiEncoding requires raw bytes, but Go strings are UTF-8. Writing `string([]rune{196})` produces UTF-8 bytes `[195, 132]` instead of single byte `[196]`.
+
+**Solution:** Use PDF octal escapes for characters 128-255:
+- `Ä` (196) → `\304` (octal)
+- `ä` (228) → `\344` (octal)
+
+**Added `toOctalEscape` function and modified `escapeText` in:**
+- `EVGPDFRenderer.rgr`
+- `PDFWriter.rgr`
+
+#### 4. `floor` Operator Return Type Issue
+
+The `floor` operator was declared to return `int` but Go's `math.Floor` returns `float64`.
+
+**Fixed in `Lang.rgr`:**
+```ranger
+go ( "int64(math.Floor(" (e 1) "))" (imp "math"))
+```
+
+### Remaining Issues
+
+1. **Text alignment with TrueType fonts** - Layout calculation may not work correctly with custom TrueType fonts (works with built-in Helvetica)
+
+2. **Other language targets** - The following targets may need similar UTF-8 fixes:
+   - Swift (`swift3`, `swift6`)
+   - C++ (`cpp`)
+   - Rust (`rust`)
+   - Java (`java7`)
+   - Kotlin (`kotlin`)
+   - Python (`python`)
+
+### New Operator Added
+
+**`rawbytechar`** - Creates a string from a raw byte value (not UTF-8 encoded):
+```ranger
+rawbytechar   cmdRawByteChar:string   ( code:int ) {
+    templates {
+        go ("string([]byte{byte(" (e 1) ")})")
+        cpp ( "std::string(1, char(" (e 1) "))")
+        * ( "String.fromCharCode(" (e 1) ")")
+    }
+}
+```
+
+### Files Changed
+
+- `compiler/Lang.rgr` - Fixed Go templates for string operators, added `rawbytechar`
+- `gallery/ts_parser/src/ts_lexer.rgr` - Added Unicode support to `isAlpha`
+- `gallery/pdf_writer/src/core/EVGPDFRenderer.rgr` - Added `toOctalEscape`, fixed `escapeText`
+- `gallery/pdf_writer/src/core/PDFWriter.rgr` - Added `toOctalEscape`, fixed `escapeText`
+
+### Testing
+
+```bash
+# Compile evg_component_tool to Go
+npm run evgcomp:compile:go
+npm run evgcomp:build:go
+
+# Test with scandinavian characters
+cd gallery/pdf_writer
+./bin/evg_component_tool.exe examples/test_scandinavian.tsx output/pdfs/test.pdf --fonts=assets/fonts --assets=assets/fonts
+```
+
+### Related Issues
+
+- Affects all Go-compiled programs that process non-ASCII text
+- PDF generation with embedded TrueType fonts and Unicode text
+
+---
+
+## Issue #58: Missing UTF-8 Support for Other Language Targets
+
+**Status:** Open  
+**Severity:** Medium  
+**Found:** December 21, 2025
+
+### Description
+
+The UTF-8 fixes applied for Go target in Issue #57 need to be verified and potentially applied to other compilation targets.
+
+### Affected Operators
+
+The following operators use string indexing and may need UTF-8 fixes for non-Go targets:
+
+| Operator | Description |
+|----------|-------------|
+| `strlen` | String length |
+| `at` | Character at index |
+| `charAt` | Character code at index |
+| `substring` | Substring extraction |
+| `strfromcode` | String from character code |
+| `indexOf` | Find substring index |
+
+### Targets to Verify
+
+| Target | Status | Notes |
+|--------|--------|-------|
+| `es6` (JavaScript) | ✅ OK | JS handles Unicode natively |
+| `go` | ✅ Fixed | Issue #57 |
+| `swift3` | ❓ Unknown | Swift strings are Unicode-aware but syntax may differ |
+| `swift6` | ❓ Unknown | Same as swift3 |
+| `cpp` | ❓ Unknown | C++ std::string is byte-based, may need fixes |
+| `rust` | ❓ Unknown | Rust strings are UTF-8, but indexing is byte-based |
+| `java7` | ❓ Unknown | Java String is UTF-16, charAt works on code units |
+| `kotlin` | ❓ Unknown | Similar to Java |
+| `python` | ✅ OK | Python 3 strings are Unicode |
+| `php` | ❓ Unknown | PHP strings are byte-based by default |
+
+### Recommended Actions
+
+1. Create test cases with Unicode strings for each target
+2. Verify string operations work correctly with multi-byte characters
+3. Update `Lang.rgr` templates as needed
+
+### Test String
+
+Use this test string containing various Unicode characters:
+```
+"Äiti ja Isä - Öljy - Åland - 日本語 - 中文 - €100"
+```
+
+---
+

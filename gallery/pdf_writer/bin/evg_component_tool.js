@@ -100,6 +100,9 @@ class TSLexer  {
     if ( ch == "$" ) {
       return true;
     }
+    if ( code > 127 ) {
+      return true;
+    }
     return false;
   };
   isAlphaNumCh (ch) {
@@ -125,6 +128,9 @@ class TSLexer  {
       if ( code <= 90 ) {
         return true;
       }
+    }
+    if ( code > 127 ) {
+      return true;
     }
     return false;
   };
@@ -6546,6 +6552,13 @@ class PDFWriter  {
     this.imageObjNum = this.writeImageObject(imgHeader, imgData, imgFooter);
     return this.imageObjNum;
   };
+  toOctalEscape (ch) {
+    const d0 = ch % 8;
+    const t1 = Math.floor((ch / 8));
+    const d1 = t1 % 8;
+    const d2 = Math.floor((t1 / 8));
+    return (("\\" + ((d2.toString()))) + ((d1.toString()))) + ((d0.toString()));
+  };
   escapeText (text) {
     let result = "";
     const __len = text.length;
@@ -6561,7 +6574,15 @@ class PDFWriter  {
           if ( ch == 92 ) {
             result = result + "\\\\";
           } else {
-            result = result + (String.fromCharCode(ch));
+            if ( ch < 128 ) {
+              result = result + (String.fromCharCode(ch));
+            } else {
+              if ( ch <= 255 ) {
+                result = result + this.toOctalEscape(ch);
+              } else {
+                result = result + "?";
+              }
+            }
           }
         }
       }
@@ -12636,6 +12657,13 @@ class EVGPDFRenderer  {
   estimateTextWidth (text, fontSize) {
     return this.measurer.measureTextWidth(text, "Helvetica", fontSize);
   };
+  toOctalEscape (ch) {
+    const d0 = ch % 8;
+    const t1 = Math.floor((ch / 8));
+    const d1 = t1 % 8;
+    const d2 = Math.floor((t1 / 8));
+    return (("\\" + ((d2.toString()))) + ((d1.toString()))) + ((d0.toString()));
+  };
   escapeText (text) {
     let result = "";
     const __len = text.length;
@@ -12654,45 +12682,13 @@ class EVGPDFRenderer  {
             if ( ch < 32 ) {
               result = result + " ";
             } else {
-              if ( ch <= 255 ) {
+              if ( ch < 128 ) {
                 result = result + (String.fromCharCode(ch));
               } else {
-                if ( ch == 9733 ) {
-                  result = result + "*";
+                if ( ch <= 255 ) {
+                  result = result + this.toOctalEscape(ch);
                 } else {
-                  if ( ch == 9734 ) {
-                    result = result + "*";
-                  } else {
-                    if ( ch == 9829 ) {
-                      result = result + (String.fromCharCode(183));
-                    } else {
-                      if ( ch == 9825 ) {
-                        result = result + (String.fromCharCode(183));
-                      } else {
-                        if ( ch == 10003 ) {
-                          result = result + "v";
-                        } else {
-                          if ( ch == 10007 ) {
-                            result = result + "x";
-                          } else {
-                            if ( ch == 8226 ) {
-                              result = result + (String.fromCharCode(149));
-                            } else {
-                              if ( ch == 8594 ) {
-                                result = result + "->";
-                              } else {
-                                if ( ch == 8592 ) {
-                                  result = result + "<-";
-                                } else {
-                                  result = result + "?";
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
+                  result = result + "?";
                 }
               }
             }
