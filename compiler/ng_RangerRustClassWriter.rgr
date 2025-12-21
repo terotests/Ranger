@@ -1155,6 +1155,9 @@ class RangerRustClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
       
+      ; DEBUG: Always print method call info
+      print ("DEBUG CreateCallExpression: method=" + method.vref + " obj=" + obj.vref)
+      
       ; DEBUG: Check if this is the parseDHT call
       if (method.vref == "parseDHT") {
         print ("DEBUG CreateCallExpression: FOUND parseDHT! obj=" + obj.vref + " obj_is_class_var=" + (to_string obj.hasParamDesc))
@@ -1298,6 +1301,9 @@ class RangerRustClassWriter {
         return true
       })
       
+      ; Get the called function's descriptor if available
+      def calledFnDesc@(optional):RangerAppFunctionDesc node.fnDesc
+      
       for pms arg:CodeNode i {
         if (i > 0) {
           wr.out(", " false)
@@ -1308,7 +1314,61 @@ class RangerRustClassWriter {
           ; Clear the flag after use
           arg.rust_use_tmpvar = ""
         } {
+          ; Check if we need to handle borrow type conversion
+          def source_is_reference:boolean false
+          def target_expects_owned:boolean true  ; Default to expecting owned
+          
+          ; Check if source argument is a reference parameter
+          if (arg.value_type == RangerNodeType.VRef) {
+            if arg.hasParamDesc {
+              def srcParam:RangerAppParamDesc arg.paramDesc
+              if (srcParam.rust_borrow_type > 0) {
+                source_is_reference = true
+              }
+            }
+          }
+          
+          ; Try to get the called function's parameter info
+          ; First from node.fnDesc if available
+          if (!null? calledFnDesc) {
+            def cfn:RangerAppFunctionDesc (unwrap calledFnDesc)
+            if (i < (array_length cfn.params)) {
+              def targetParam:RangerAppParamDesc (itemAt cfn.params i)
+              if (targetParam.rust_borrow_type > 0) {
+                target_expects_owned = false
+              }
+            }
+          } {
+            ; If node.fnDesc is not available, try to look up the method from obj's type
+            if obj.hasParamDesc {
+              def objPd:RangerAppParamDesc obj.paramDesc
+              if (!null? objPd.nameNode) {
+                def objNN:CodeNode (unwrap objPd.nameNode)
+                def objTypeName:string objNN.type_name
+                def objClass@(optional):RangerAppClassDesc (ctx.findClass(objTypeName))
+                if (!null? objClass) {
+                  def oc:RangerAppClassDesc (unwrap objClass)
+                  def calledMethod@(optional):RangerAppFunctionDesc (oc.findMethod(method.vref))
+                  if (!null? calledMethod) {
+                    def cm:RangerAppFunctionDesc (unwrap calledMethod)
+                    if (i < (array_length cm.params)) {
+                      def targetParam2:RangerAppParamDesc (itemAt cm.params i)
+                      if (targetParam2.rust_borrow_type > 0) {
+                        target_expects_owned = false
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
           this.WalkNode(arg ctx wr)
+          
+          ; If source is reference and target expects owned, add .clone()
+          if (source_is_reference && target_expects_owned) {
+            wr.out(".clone()" false)
+          }
         }
       }
       ctx.unsetInExpr()
@@ -1667,6 +1727,21 @@ class RangerRustClassWriter {
                 ctx.setInExpr()
                 this.WalkNode(nVal ctx wr)
                 ctx.unsetInExpr()
+                
+                ; Check if source is reference and target expects owned - add clone
+                def src_is_ref:boolean false
+                if (nVal.value_type == RangerNodeType.VRef) {
+                  if nVal.hasParamDesc {
+                    def srcP:RangerAppParamDesc nVal.paramDesc
+                    if (srcP.rust_borrow_type > 0) {
+                      src_is_ref = true
+                    }
+                  }
+                }
+                def tgt_expects_owned:boolean (arg.rust_borrow_type == 0)
+                if (src_is_ref && tgt_expects_owned && (needsMutRef == false)) {
+                  wr.out(".clone()" false)
+                }
               }
             }
           }
@@ -2103,6 +2178,19 @@ class RangerRustClassWriter {
             this.WalkNode(nVal ctx wr)
             ctx.unsetInExpr()
           } {
+          ; Standard case - target expects owned value
+          ; Check if the SOURCE is a reference that needs to be cloned to convert to owned
+          def source_is_reference:boolean false
+          if (nVal.value_type == RangerNodeType.VRef) {
+            if nVal.hasParamDesc {
+              def srcParam:RangerAppParamDesc nVal.paramDesc
+              ; If source parameter has rust_borrow_type > 0, it's a reference
+              if (srcParam.rust_borrow_type > 0) {
+                source_is_reference = true
+              }
+            }
+          }
+          
           ; Standard case - may need clone and/or Rc::new(RefCell::new()) for trait types
           ; But if value is already Rc<RefCell<dyn Trait>>, don't wrap or clone
           if value_is_already_boxed_trait {
@@ -2168,6 +2256,10 @@ class RangerRustClassWriter {
               }
               ; In Rust, arrays and hashes need cloning to avoid move errors
               if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
+                needs_clone = true
+              }
+              ; If source is a reference (&T or &mut T) but target expects owned T, must clone
+              if source_is_reference {
                 needs_clone = true
               }
               ; If value is already Rc<RefCell<...>>, clone it (for shared ownership)

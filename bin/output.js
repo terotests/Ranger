@@ -17522,6 +17522,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       const obj = node.getSecond();
       const method = node.getThird();
       const args = node.children[3];
+      console.log((("DEBUG CreateCallExpression: method=" + method.vref) + " obj=") + obj.vref);
       if ( method.vref == "parseDHT" ) {
         console.log((("DEBUG CreateCallExpression: FOUND parseDHT! obj=" + obj.vref) + " obj_is_class_var=") + ((obj.hasParamDesc.toString())));
       }
@@ -17635,6 +17636,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         }
         return true;
       }));
+      const calledFnDesc = node.fnDesc;
       for ( let i_1 = 0; i_1 < pms_1.length; i_1++) {
         var arg_1 = pms_1[i_1];
         if ( i_1 > 0 ) {
@@ -17644,7 +17646,51 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           wr.out(arg_1.rust_use_tmpvar, false);
           arg_1.rust_use_tmpvar = "";
         } else {
+          let source_is_reference = false;
+          let target_expects_owned = true;
+          if ( arg_1.value_type == 11 ) {
+            if ( arg_1.hasParamDesc ) {
+              const srcParam = arg_1.paramDesc;
+              if ( srcParam.rust_borrow_type > 0 ) {
+                source_is_reference = true;
+              }
+            }
+          }
+          if ( (typeof(calledFnDesc) !== "undefined" && calledFnDesc != null )  ) {
+            const cfn = calledFnDesc;
+            if ( i_1 < (cfn.params.length) ) {
+              const targetParam = cfn.params[i_1];
+              if ( targetParam.rust_borrow_type > 0 ) {
+                target_expects_owned = false;
+              }
+            }
+          } else {
+            if ( obj.hasParamDesc ) {
+              const objPd = obj.paramDesc;
+              if ( (typeof(objPd.nameNode) !== "undefined" && objPd.nameNode != null )  ) {
+                const objNN_1 = objPd.nameNode;
+                const objTypeName_1 = objNN_1.type_name;
+                const objClass = ctx.findClass(objTypeName_1);
+                if ( (typeof(objClass) !== "undefined" && objClass != null )  ) {
+                  const oc = objClass;
+                  const calledMethod = oc.findMethod(method.vref);
+                  if ( (typeof(calledMethod) !== "undefined" && calledMethod != null )  ) {
+                    const cm = calledMethod;
+                    if ( i_1 < (cm.params.length) ) {
+                      const targetParam2 = cm.params[i_1];
+                      if ( targetParam2.rust_borrow_type > 0 ) {
+                        target_expects_owned = false;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
           await this.WalkNode(arg_1, ctx, wr);
+          if ( source_is_reference && target_expects_owned ) {
+            wr.out(".clone()", false);
+          }
         }
       };
       ctx.unsetInExpr();
@@ -17934,6 +17980,19 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                 ctx.setInExpr();
                 await this.WalkNode(nVal, ctx, wr);
                 ctx.unsetInExpr();
+                let src_is_ref = false;
+                if ( nVal.value_type == 11 ) {
+                  if ( nVal.hasParamDesc ) {
+                    const srcP = nVal.paramDesc;
+                    if ( srcP.rust_borrow_type > 0 ) {
+                      src_is_ref = true;
+                    }
+                  }
+                }
+                const tgt_expects_owned = arg.rust_borrow_type == 0;
+                if ( (src_is_ref && tgt_expects_owned) && (needsMutRef == false) ) {
+                  wr.out(".clone()", false);
+                }
               }
             }
           };
@@ -18329,6 +18388,15 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             await this.WalkNode(nVal_4, ctx, wr);
             ctx.unsetInExpr();
           } else {
+            let source_is_reference = false;
+            if ( nVal_4.value_type == 11 ) {
+              if ( nVal_4.hasParamDesc ) {
+                const srcParam = nVal_4.paramDesc;
+                if ( srcParam.rust_borrow_type > 0 ) {
+                  source_is_reference = true;
+                }
+              }
+            }
             if ( value_is_already_boxed_trait ) {
               ctx.setInExpr();
               await this.WalkNode(nVal_4, ctx, wr);
@@ -18378,6 +18446,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   needs_clone_3 = true;
                 }
                 if ( (((((arg_type_3 == 6) || (arg_type_3 == 7)) || (arg_type_3 == 17)) || (arg_type_3 == 18)) || (arg_type_3 == 15)) || (arg_type_3 == 16) ) {
+                  needs_clone_3 = true;
+                }
+                if ( source_is_reference ) {
                   needs_clone_3 = true;
                 }
                 if ( value_already_rc_wrapped ) {

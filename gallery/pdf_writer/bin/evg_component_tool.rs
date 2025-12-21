@@ -14688,11 +14688,11 @@ impl ComponentEngine {
       }
       if  param.nodeType == "Parameter".to_string() {
         let __arg_0 = param.name.clone();
-        self.context.as_mut().unwrap().define(__arg_0, props);
+        self.context.as_mut().unwrap().define(__arg_0, props.clone());
       }
       if  param.nodeType == "Identifier".to_string() {
         let __arg_0 = param.name.clone();
-        self.context.as_mut().unwrap().define(__arg_0, props);
+        self.context.as_mut().unwrap().define(__arg_0, props.clone());
       }
       i = i + 1;
     };
