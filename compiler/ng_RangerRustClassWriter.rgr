@@ -151,11 +151,60 @@ class RangerRustClassWriter {
     
     ; Check if this is a self-referential type (field type == current class)
     def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    
+    ; Check if current class is trait-related (is a trait parent or extends one)
+    def class_is_trait_related:boolean false
     if (!null? uc) {
       def currClass:RangerAppClassDesc (unwrap uc)
       if (node.type_name == currClass.name) {
         is_self_referential = true
       }
+      ; Check if class is a trait parent
+      if currClass.is_extended_by_children {
+        class_is_trait_related = true
+      }
+      ; Check if class extends a trait parent
+      if (class_is_trait_related == false) {
+        for currClass.extends_classes extParentName:string epi {
+          def extParentClass@(optional):RangerAppClassDesc (ctx.findClass(extParentName))
+          if (!null? extParentClass) {
+            def epc:RangerAppClassDesc (unwrap extParentClass)
+            if epc.is_extended_by_children {
+              class_is_trait_related = true
+            }
+          }
+        }
+      }
+    }
+    
+    ; Check if the field type is a trait type (will be wrapped in Rc<RefCell<dyn Trait>>)
+    def field_type_is_trait:boolean false
+    def typeClass@(optional):RangerAppClassDesc (ctx.findClass(node.type_name))
+    if (!null? typeClass) {
+      def tc:RangerAppClassDesc (unwrap typeClass)
+      if tc.is_extended_by_children {
+        field_type_is_trait = true
+      }
+    }
+    
+    ; Determine if we need to wrap in RefCell for interior mutability
+    ; This is needed when: class is trait-related, field is optional, field is NOT a trait type
+    def needs_refcell_wrap:boolean ((class_is_trait_related && is_optional) && (field_type_is_trait == false))
+    ; Only wrap object types in RefCell (not primitives, arrays, etc.)
+    def is_object_type:boolean false
+    def v_type_check:RangerNodeType node.value_type
+    if ((v_type_check == RangerNodeType.Object) || (v_type_check == RangerNodeType.VRef) || (v_type_check == RangerNodeType.NoType)) {
+      v_type_check = (node.typeNameAsType(ctx))
+    }
+    if (node.eval_type != RangerNodeType.NoType) {
+      v_type_check = node.eval_type
+    }
+    ; Check if it's an object type (not primitive, array, hash, etc.)
+    if ((((((((v_type_check != RangerNodeType.Integer) && (v_type_check != RangerNodeType.Double)) && (v_type_check != RangerNodeType.String)) && (v_type_check != RangerNodeType.Boolean)) && (v_type_check != RangerNodeType.Char)) && (v_type_check != RangerNodeType.Array)) && (v_type_check != RangerNodeType.Hash)) && (v_type_check != RangerNodeType.Buffer)) {
+      is_object_type = true
+    }
+    if (is_object_type == false) {
+      needs_refcell_wrap = false
     }
     
     if is_optional {
@@ -163,7 +212,12 @@ class RangerRustClassWriter {
         ; Self-referential optional fields need Box to break infinite recursion
         wr.out("Option<Box<" false)
       } {
-        wr.out("Option<" false)
+        if needs_refcell_wrap {
+          ; Wrap in RefCell for interior mutability in trait-related classes
+          wr.out("Option<RefCell<" false)
+        } {
+          wr.out("Option<" false)
+        }
       }
     }
     def v_type:RangerNodeType node.value_type
@@ -235,7 +289,12 @@ class RangerRustClassWriter {
       if is_self_referential {
         wr.out(">>" false)
       } {
-        wr.out(">" false)
+        if needs_refcell_wrap {
+          ; Close both RefCell and Option: Option<RefCell<T>>
+          wr.out(">>" false)
+        } {
+          wr.out(">" false)
+        }
       }
     }
   }
@@ -304,8 +363,62 @@ class RangerRustClassWriter {
         if p.is_optional {
           if (i < (nsp_len - 1)) {
             ; More parts coming - need to unwrap the Option
-            ; Use as_mut().unwrap() to allow both read and write access
-            wr.out(".as_mut().unwrap()" false)
+            ; Check if this is a trait type (Rc<RefCell<dyn Trait>>)
+            def field_is_trait_type:boolean false
+            def pNameN@(optional):CodeNode p.nameNode
+            if (!null? pNameN) {
+              def pNN:CodeNode (unwrap pNameN)
+              def pTypeName:string pNN.type_name
+              def pTypeClass@(optional):RangerAppClassDesc (ctx.findClass(pTypeName))
+              if (!null? pTypeClass) {
+                def ptc:RangerAppClassDesc (unwrap pTypeClass)
+                if ptc.is_extended_by_children {
+                  field_is_trait_type = true
+                }
+              }
+            }
+            ; Check if the class that OWNS this field is trait-related
+            ; (Fields in trait-related classes have Option<RefCell<T>> type)
+            def owning_class_is_trait_related:boolean false
+            def pOwnerClass@(optional):RangerAppClassDesc p.propertyClass
+            ; If propertyClass is null, fall back to current class (self field)
+            if (null? pOwnerClass) {
+              if p.is_class_variable {
+                pOwnerClass = (ctx.getCurrentClass())
+              }
+            }
+            if (!null? pOwnerClass) {
+              def ownerC:RangerAppClassDesc (unwrap pOwnerClass)
+              if ownerC.is_extended_by_children {
+                owning_class_is_trait_related = true
+              }
+              if (owning_class_is_trait_related == false) {
+                for ownerC.extends_classes extParentName2:string epi2 {
+                  def extParentClass2@(optional):RangerAppClassDesc (ctx.findClass(extParentName2))
+                  if (!null? extParentClass2) {
+                    def epc2:RangerAppClassDesc (unwrap extParentClass2)
+                    if epc2.is_extended_by_children {
+                      owning_class_is_trait_related = true
+                    }
+                  }
+                }
+              }
+            }
+            ; Use borrow_mut for:
+            ; 1. Trait types (Rc<RefCell<dyn Trait>>)
+            ; 2. Non-trait optional object fields in trait-related classes (Option<RefCell<T>>)
+            if field_is_trait_type {
+              ; Trait types use Rc<RefCell<dyn Trait>> - use borrow_mut for interior mutability
+              wr.out(".as_ref().unwrap().borrow_mut()" false)
+            } {
+              if owning_class_is_trait_related {
+                ; Non-trait optional object fields in trait-related classes use Option<RefCell<T>>
+                wr.out(".as_ref().unwrap().borrow_mut()" false)
+              } {
+                ; Use as_mut().unwrap() to allow both read and write access
+                wr.out(".as_mut().unwrap()" false)
+              }
+            }
           }
         }
         if (p.isClass()) {
@@ -856,6 +969,7 @@ class RangerRustClassWriter {
       ; Check if the object is an optional type (which needs .as_ref().unwrap() or .as_mut().unwrap())
       def obj_is_optional:boolean false
       def obj_is_trait_type:boolean false  ; True if obj's type is Rc<dyn Trait>
+      def owning_class_is_trait_related:boolean false ; True if owning class extends a trait or is extended
       if obj.hasParamDesc {
         def pp:RangerAppParamDesc obj.paramDesc
         if pp.is_optional {
@@ -871,6 +985,31 @@ class RangerRustClassWriter {
             def otc:RangerAppClassDesc (unwrap objTypeClass)
             if otc.is_extended_by_children {
               obj_is_trait_type = true
+            }
+          }
+        }
+        
+        ; Check if owning class is trait-related
+        def objOwnerClass@(optional):RangerAppClassDesc pp.propertyClass
+        if (null? objOwnerClass) {
+          if pp.is_class_variable {
+            objOwnerClass = (ctx.getCurrentClass())
+          }
+        }
+        if (!null? objOwnerClass) {
+          def objOC:RangerAppClassDesc (unwrap objOwnerClass)
+          if objOC.is_extended_by_children {
+            owning_class_is_trait_related = true
+          }
+          if (owning_class_is_trait_related == false) {
+            for objOC.extends_classes objExtParent:string objEpi {
+              def objExtParentClass@(optional):RangerAppClassDesc (ctx.findClass(objExtParent))
+              if (!null? objExtParentClass) {
+                def objEpc:RangerAppClassDesc (unwrap objExtParentClass)
+                if objEpc.is_extended_by_children {
+                  owning_class_is_trait_related = true
+                }
+              }
             }
           }
         }
@@ -929,11 +1068,13 @@ class RangerRustClassWriter {
 
       if obj_is_optional {
         ; For optional objects with trait types: Rc<RefCell<dyn Trait>>
+        ; Or for optional objects in trait-related classes: Option<RefCell<T>>
         ctx.setInExpr()
         this.WalkNode(obj ctx wr)
         ctx.unsetInExpr()
-        if obj_is_trait_type {
+        if (obj_is_trait_type || owning_class_is_trait_related) {
           ; Trait types use Rc<RefCell<...>> - borrow_mut for interior mutability
+          ; Fields in trait-related classes use Option<RefCell<T>>
           wr.out(".as_ref().unwrap().borrow_mut()." false)
         } {
           wr.out(".as_mut().unwrap()." false)
@@ -1850,10 +1991,36 @@ class RangerRustClassWriter {
         
         wr.out((("fn " + variant.name) + "(") false)
         if method_uses_this {
-          if method_mutates_this {
-            wr.out("&mut self, " false)
+          ; For trait parent classes (is_extended_by_children), use &self for trait methods
+          ; because mutation happens through RefCell when called via the trait
+          ; Only apply to methods that are part of the trait interface
+          def method_is_in_trait:boolean false
+          if cl.is_extended_by_children {
+            ; This is a trait parent class - its own methods are the trait interface
+            method_is_in_trait = true
           } {
+            ; Check if this class extends a trait parent and if this method is in the trait
+            for cl.extends_classes extParentName:string epi {
+              def extParentClass@(optional):RangerAppClassDesc (ctx.findClass(extParentName))
+              if (!null? extParentClass) {
+                def epc:RangerAppClassDesc (unwrap extParentClass)
+                if epc.is_extended_by_children {
+                  ; Check if this method is defined in the parent's trait interface
+                  if (has epc.defined_methods variant.name) {
+                    method_is_in_trait = true
+                  }
+                }
+              }
+            }
+          }
+          if method_is_in_trait {
             wr.out("&self, " false)
+          } {
+            if method_mutates_this {
+              wr.out("&mut self, " false)
+            } {
+              wr.out("&self, " false)
+            }
           }
         }
         this.writeArgsDef(variant ctx wr)
@@ -1922,10 +2089,16 @@ class RangerRustClassWriter {
               
               wr.out((("fn " + variant.name) + "(") false)
               if method_uses_this {
-                if method_mutates_this {
-                  wr.out("&mut self, " false)
-                } {
+                ; For trait parent classes (is_extended_by_children), always use &self
+                ; because mutation happens through RefCell when called via the trait
+                if pc.is_extended_by_children {
                   wr.out("&self, " false)
+                } {
+                  if method_mutates_this {
+                    wr.out("&mut self, " false)
+                  } {
+                    wr.out("&self, " false)
+                  }
                 }
               }
               this.writeArgsDef(variant ctx wr)
@@ -2161,6 +2334,27 @@ class RangerRustClassWriter {
       def left_is_self_field:boolean false
       def left_is_array:boolean false
       def left_is_trait_type:boolean false  ; True if LHS field type is a trait (parent class)
+      def curr_class_is_trait_related:boolean false  ; True if current class is trait parent or extends one
+      
+      ; Check if current class is trait-related
+      def ucAssign@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      if (!null? ucAssign) {
+        def currCAssign:RangerAppClassDesc (unwrap ucAssign)
+        if currCAssign.is_extended_by_children {
+          curr_class_is_trait_related = true
+        }
+        if (curr_class_is_trait_related == false) {
+          for currCAssign.extends_classes extParentNameA:string epiA {
+            def extParentClassA@(optional):RangerAppClassDesc (ctx.findClass(extParentNameA))
+            if (!null? extParentClassA) {
+              def epcA:RangerAppClassDesc (unwrap extParentClassA)
+              if epcA.is_extended_by_children {
+                curr_class_is_trait_related = true
+              }
+            }
+          }
+        }
+      }
       
       if left.hasParamDesc {
         def pp:RangerAppParamDesc left.paramDesc
@@ -2442,13 +2636,33 @@ class RangerRustClassWriter {
                 wr.out(")));" true)
               }
             } {
-              ; Optional assignment: wrap with Some()
-              wr.out(" = Some(" false)
-              this.WalkNode(right ctx wr)
-              if should_clone_rhs {
-                wr.out(".clone()" false)
+              ; Check if this is a non-trait optional object field in a trait-related class
+              ; Such fields are wrapped in Option<RefCell<T>>
+              def needs_refcell_wrap_assign:boolean false
+              if curr_class_is_trait_related {
+                ; Check if field type is an object type (not primitive)
+                def fieldTypeClassAssign@(optional):RangerAppClassDesc (ctx.findClass(field_type_name))
+                if (!null? fieldTypeClassAssign) {
+                  needs_refcell_wrap_assign = true
+                }
               }
-              wr.out(");" true)
+              if needs_refcell_wrap_assign {
+                ; Optional assignment to RefCell-wrapped field: Some(RefCell::new(value))
+                wr.out(" = Some(RefCell::new(" false)
+                this.WalkNode(right ctx wr)
+                if should_clone_rhs {
+                  wr.out(".clone()" false)
+                }
+                wr.out("));" true)
+              } {
+                ; Standard optional assignment: wrap with Some()
+                wr.out(" = Some(" false)
+                this.WalkNode(right ctx wr)
+                if should_clone_rhs {
+                  wr.out(".clone()" false)
+                }
+                wr.out(");" true)
+              }
             }
           }
         }
@@ -2641,9 +2855,42 @@ class RangerRustClassWriter {
       
       if is_optional_target {
         ; For optional objects, unwrap then call clear
+        ; Check if the owning class is trait-related (uses Option<RefCell<T>>)
+        def clear_needs_borrow_mut:boolean false
+        if target.hasParamDesc {
+          def clearPp:RangerAppParamDesc target.paramDesc
+          def clearOwnerClass@(optional):RangerAppClassDesc clearPp.propertyClass
+          ; If propertyClass is null, fall back to current class (self field)
+          if (null? clearOwnerClass) {
+            if clearPp.is_class_variable {
+              clearOwnerClass = (ctx.getCurrentClass())
+            }
+          }
+          if (!null? clearOwnerClass) {
+            def clearOwnerC:RangerAppClassDesc (unwrap clearOwnerClass)
+            if clearOwnerC.is_extended_by_children {
+              clear_needs_borrow_mut = true
+            }
+            if (clear_needs_borrow_mut == false) {
+              for clearOwnerC.extends_classes clearExtParent:string clearEpi {
+                def clearExtParentClass@(optional):RangerAppClassDesc (ctx.findClass(clearExtParent))
+                if (!null? clearExtParentClass) {
+                  def clearEpc:RangerAppClassDesc (unwrap clearExtParentClass)
+                  if clearEpc.is_extended_by_children {
+                    clear_needs_borrow_mut = true
+                  }
+                }
+              }
+            }
+          }
+        }
         ctx.setInExpr()
         this.WalkNode(target ctx wr)
-        wr.out(".as_mut().unwrap().clear();" true)
+        if clear_needs_borrow_mut {
+          wr.out(".as_ref().unwrap().borrow_mut().clear();" true)
+        } {
+          wr.out(".as_mut().unwrap().clear();" true)
+        }
         ctx.unsetInExpr()
       } {
         ; For non-optional arrays, use the standard .length = 0 pattern

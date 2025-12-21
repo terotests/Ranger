@@ -16672,17 +16672,60 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     const is_optional = node.hasFlag("optional");
     let is_self_referential = false;
     const uc = ctx.getCurrentClass();
+    let class_is_trait_related = false;
     if ( (typeof(uc) !== "undefined" && uc != null )  ) {
       const currClass = uc;
       if ( node.type_name == currClass.name ) {
         is_self_referential = true;
       }
+      if ( currClass.is_extended_by_children ) {
+        class_is_trait_related = true;
+      }
+      if ( class_is_trait_related == false ) {
+        for ( let epi = 0; epi < currClass.extends_classes.length; epi++) {
+          var extParentName = currClass.extends_classes[epi];
+          const extParentClass = ctx.findClass(extParentName);
+          if ( (typeof(extParentClass) !== "undefined" && extParentClass != null )  ) {
+            const epc = extParentClass;
+            if ( epc.is_extended_by_children ) {
+              class_is_trait_related = true;
+            }
+          }
+        };
+      }
+    }
+    let field_type_is_trait = false;
+    const typeClass = ctx.findClass(node.type_name);
+    if ( (typeof(typeClass) !== "undefined" && typeClass != null )  ) {
+      const tc = typeClass;
+      if ( tc.is_extended_by_children ) {
+        field_type_is_trait = true;
+      }
+    }
+    let needs_refcell_wrap = (class_is_trait_related && is_optional) && (field_type_is_trait == false);
+    let is_object_type = false;
+    let v_type_check = node.value_type;
+    if ( ((v_type_check == 10) || (v_type_check == 11)) || (v_type_check == 0) ) {
+      v_type_check = node.typeNameAsType(ctx);
+    }
+    if ( node.eval_type != 0 ) {
+      v_type_check = node.eval_type;
+    }
+    if ( (((((((v_type_check != 3) && (v_type_check != 2)) && (v_type_check != 4)) && (v_type_check != 5)) && (v_type_check != 14)) && (v_type_check != 6)) && (v_type_check != 7)) && (v_type_check != 16) ) {
+      is_object_type = true;
+    }
+    if ( is_object_type == false ) {
+      needs_refcell_wrap = false;
     }
     if ( is_optional ) {
       if ( is_self_referential ) {
         wr.out("Option<Box<", false);
       } else {
-        wr.out("Option<", false);
+        if ( needs_refcell_wrap ) {
+          wr.out("Option<RefCell<", false);
+        } else {
+          wr.out("Option<", false);
+        }
       }
     }
     let v_type = node.value_type;
@@ -16735,10 +16778,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           wr.out("()", false);
           return;
         }
-        const typeClass = ctx.findClass(node.type_name);
-        if ( (typeof(typeClass) !== "undefined" && typeClass != null )  ) {
-          const tc = typeClass;
-          if ( tc.is_extended_by_children ) {
+        const typeClass_2 = ctx.findClass(node.type_name);
+        if ( (typeof(typeClass_2) !== "undefined" && typeClass_2 != null )  ) {
+          const tc_1 = typeClass_2;
+          if ( tc_1.is_extended_by_children ) {
             wr.out(("Rc<RefCell<dyn " + node.type_name) + "Trait>>", false);
           } else {
             wr.out(this.getTypeString(node.type_name), false);
@@ -16752,7 +16795,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       if ( is_self_referential ) {
         wr.out(">>", false);
       } else {
-        wr.out(">", false);
+        if ( needs_refcell_wrap ) {
+          wr.out(">>", false);
+        } else {
+          wr.out(">", false);
+        }
       }
     }
   };
@@ -16815,7 +16862,53 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         }
         if ( p.is_optional ) {
           if ( i < (nsp_len - 1) ) {
-            wr.out(".as_mut().unwrap()", false);
+            let field_is_trait_type = false;
+            const pNameN = p.nameNode;
+            if ( (typeof(pNameN) !== "undefined" && pNameN != null )  ) {
+              const pNN = pNameN;
+              const pTypeName = pNN.type_name;
+              const pTypeClass = ctx.findClass(pTypeName);
+              if ( (typeof(pTypeClass) !== "undefined" && pTypeClass != null )  ) {
+                const ptc = pTypeClass;
+                if ( ptc.is_extended_by_children ) {
+                  field_is_trait_type = true;
+                }
+              }
+            }
+            let owning_class_is_trait_related = false;
+            let pOwnerClass = p.propertyClass;
+            if ( typeof(pOwnerClass) === "undefined" ) {
+              if ( p.is_class_variable ) {
+                pOwnerClass = ctx.getCurrentClass();
+              }
+            }
+            if ( (typeof(pOwnerClass) !== "undefined" && pOwnerClass != null )  ) {
+              const ownerC = pOwnerClass;
+              if ( ownerC.is_extended_by_children ) {
+                owning_class_is_trait_related = true;
+              }
+              if ( owning_class_is_trait_related == false ) {
+                for ( let epi2 = 0; epi2 < ownerC.extends_classes.length; epi2++) {
+                  var extParentName2 = ownerC.extends_classes[epi2];
+                  const extParentClass2 = ctx.findClass(extParentName2);
+                  if ( (typeof(extParentClass2) !== "undefined" && extParentClass2 != null )  ) {
+                    const epc2 = extParentClass2;
+                    if ( epc2.is_extended_by_children ) {
+                      owning_class_is_trait_related = true;
+                    }
+                  }
+                };
+              }
+            }
+            if ( field_is_trait_type ) {
+              wr.out(".as_ref().unwrap().borrow_mut()", false);
+            } else {
+              if ( owning_class_is_trait_related ) {
+                wr.out(".as_ref().unwrap().borrow_mut()", false);
+              } else {
+                wr.out(".as_mut().unwrap()", false);
+              }
+            }
           }
         }
         if ( p.isClass() ) {
@@ -17266,6 +17359,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       const args = node.children[3];
       let obj_is_optional = false;
       let obj_is_trait_type = false;
+      let owning_class_is_trait_related = false;
       if ( obj.hasParamDesc ) {
         const pp = obj.paramDesc;
         if ( pp.is_optional ) {
@@ -17281,6 +17375,30 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             if ( otc.is_extended_by_children ) {
               obj_is_trait_type = true;
             }
+          }
+        }
+        let objOwnerClass = pp.propertyClass;
+        if ( typeof(objOwnerClass) === "undefined" ) {
+          if ( pp.is_class_variable ) {
+            objOwnerClass = ctx.getCurrentClass();
+          }
+        }
+        if ( (typeof(objOwnerClass) !== "undefined" && objOwnerClass != null )  ) {
+          const objOC = objOwnerClass;
+          if ( objOC.is_extended_by_children ) {
+            owning_class_is_trait_related = true;
+          }
+          if ( owning_class_is_trait_related == false ) {
+            for ( let objEpi = 0; objEpi < objOC.extends_classes.length; objEpi++) {
+              var objExtParent = objOC.extends_classes[objEpi];
+              const objExtParentClass = ctx.findClass(objExtParent);
+              if ( (typeof(objExtParentClass) !== "undefined" && objExtParentClass != null )  ) {
+                const objEpc = objExtParentClass;
+                if ( objEpc.is_extended_by_children ) {
+                  owning_class_is_trait_related = true;
+                }
+              }
+            };
           }
         }
       }
@@ -17324,7 +17442,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         ctx.setInExpr();
         await this.WalkNode(obj, ctx, wr);
         ctx.unsetInExpr();
-        if ( obj_is_trait_type ) {
+        if ( obj_is_trait_type || owning_class_is_trait_related ) {
           wr.out(".as_ref().unwrap().borrow_mut().", false);
         } else {
           wr.out(".as_mut().unwrap().", false);
@@ -18134,10 +18252,31 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         variant_1.rust_can_be_static = method_uses_this == false;
         wr.out(("fn " + variant_1.name) + "(", false);
         if ( method_uses_this ) {
-          if ( method_mutates_this ) {
-            wr.out("&mut self, ", false);
+          let method_is_in_trait = false;
+          if ( cl.is_extended_by_children ) {
+            method_is_in_trait = true;
           } else {
+            for ( let epi = 0; epi < cl.extends_classes.length; epi++) {
+              var extParentName = cl.extends_classes[epi];
+              const extParentClass = ctx.findClass(extParentName);
+              if ( (typeof(extParentClass) !== "undefined" && extParentClass != null )  ) {
+                const epc = extParentClass;
+                if ( epc.is_extended_by_children ) {
+                  if ( ( typeof(epc.defined_methods[variant_1.name] ) != "undefined" && epc.defined_methods.hasOwnProperty(variant_1.name) ) ) {
+                    method_is_in_trait = true;
+                  }
+                }
+              }
+            };
+          }
+          if ( method_is_in_trait ) {
             wr.out("&self, ", false);
+          } else {
+            if ( method_mutates_this ) {
+              wr.out("&mut self, ", false);
+            } else {
+              wr.out("&self, ", false);
+            }
           }
         }
         await this.writeArgsDef(variant_1, ctx, wr);
@@ -18198,10 +18337,14 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               variant_2.rust_can_be_static = method_uses_this_1 == false;
               wr.out(("fn " + variant_2.name) + "(", false);
               if ( method_uses_this_1 ) {
-                if ( method_mutates_this_1 ) {
-                  wr.out("&mut self, ", false);
-                } else {
+                if ( pc.is_extended_by_children ) {
                   wr.out("&self, ", false);
+                } else {
+                  if ( method_mutates_this_1 ) {
+                    wr.out("&mut self, ", false);
+                  } else {
+                    wr.out("&self, ", false);
+                  }
                 }
               }
               await this.writeArgsDef(variant_2, ctx, wr);
@@ -18418,6 +18561,26 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       let left_is_self_field = false;
       let left_is_array = false;
       let left_is_trait_type = false;
+      let curr_class_is_trait_related = false;
+      const ucAssign = ctx.getCurrentClass();
+      if ( (typeof(ucAssign) !== "undefined" && ucAssign != null )  ) {
+        const currCAssign = ucAssign;
+        if ( currCAssign.is_extended_by_children ) {
+          curr_class_is_trait_related = true;
+        }
+        if ( curr_class_is_trait_related == false ) {
+          for ( let epiA = 0; epiA < currCAssign.extends_classes.length; epiA++) {
+            var extParentNameA = currCAssign.extends_classes[epiA];
+            const extParentClassA = ctx.findClass(extParentNameA);
+            if ( (typeof(extParentClassA) !== "undefined" && extParentClassA != null )  ) {
+              const epcA = extParentClassA;
+              if ( epcA.is_extended_by_children ) {
+                curr_class_is_trait_related = true;
+              }
+            }
+          };
+        }
+      }
       if ( left.hasParamDesc ) {
         const pp = left.paramDesc;
         is_optional = pp.is_optional;
@@ -18647,12 +18810,28 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                 wr.out(")));", true);
               }
             } else {
-              wr.out(" = Some(", false);
-              await this.WalkNode(right, ctx, wr);
-              if ( should_clone_rhs ) {
-                wr.out(".clone()", false);
+              let needs_refcell_wrap_assign = false;
+              if ( curr_class_is_trait_related ) {
+                const fieldTypeClassAssign = ctx.findClass(field_type_name);
+                if ( (typeof(fieldTypeClassAssign) !== "undefined" && fieldTypeClassAssign != null )  ) {
+                  needs_refcell_wrap_assign = true;
+                }
               }
-              wr.out(");", true);
+              if ( needs_refcell_wrap_assign ) {
+                wr.out(" = Some(RefCell::new(", false);
+                await this.WalkNode(right, ctx, wr);
+                if ( should_clone_rhs ) {
+                  wr.out(".clone()", false);
+                }
+                wr.out("));", true);
+              } else {
+                wr.out(" = Some(", false);
+                await this.WalkNode(right, ctx, wr);
+                if ( should_clone_rhs ) {
+                  wr.out(".clone()", false);
+                }
+                wr.out(");", true);
+              }
             }
           }
         }
@@ -18817,9 +18996,41 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         }
       }
       if ( is_optional_target ) {
+        let clear_needs_borrow_mut = false;
+        if ( target.hasParamDesc ) {
+          const clearPp = target.paramDesc;
+          let clearOwnerClass = clearPp.propertyClass;
+          if ( typeof(clearOwnerClass) === "undefined" ) {
+            if ( clearPp.is_class_variable ) {
+              clearOwnerClass = ctx.getCurrentClass();
+            }
+          }
+          if ( (typeof(clearOwnerClass) !== "undefined" && clearOwnerClass != null )  ) {
+            const clearOwnerC = clearOwnerClass;
+            if ( clearOwnerC.is_extended_by_children ) {
+              clear_needs_borrow_mut = true;
+            }
+            if ( clear_needs_borrow_mut == false ) {
+              for ( let clearEpi = 0; clearEpi < clearOwnerC.extends_classes.length; clearEpi++) {
+                var clearExtParent = clearOwnerC.extends_classes[clearEpi];
+                const clearExtParentClass = ctx.findClass(clearExtParent);
+                if ( (typeof(clearExtParentClass) !== "undefined" && clearExtParentClass != null )  ) {
+                  const clearEpc = clearExtParentClass;
+                  if ( clearEpc.is_extended_by_children ) {
+                    clear_needs_borrow_mut = true;
+                  }
+                }
+              };
+            }
+          }
+        }
         ctx.setInExpr();
         await this.WalkNode(target, ctx, wr);
-        wr.out(".as_mut().unwrap().clear();", true);
+        if ( clear_needs_borrow_mut ) {
+          wr.out(".as_ref().unwrap().borrow_mut().clear();", true);
+        } else {
+          wr.out(".as_mut().unwrap().clear();", true);
+        }
         ctx.unsetInExpr();
       } else {
         ctx.setInExpr();
