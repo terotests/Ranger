@@ -7301,7 +7301,7 @@ impl EVGTextMeasurer {
     };
     return me;
   }
-  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
+  fn measureText(&mut self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
     let avgCharWidth : f64 = fontSize * 0.55_f64;
     let textLen : i64 = text.len() as i64;
     let width : f64 = ((textLen as f64)) * avgCharWidth;
@@ -7314,7 +7314,7 @@ impl EVGTextMeasurer {
     metrics.lineHeight = lineHeight;
     return metrics.clone();
   }
-  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureTextWidth(&mut self, text : String, fontFamily : String, fontSize : f64) -> f64 {
     let mut metrics : EVGTextMetrics = self.measureText(text.clone(), fontFamily.clone(), fontSize);
     return metrics.width;
   }
@@ -7339,7 +7339,7 @@ impl EVGTextMeasurer {
     }
     return fontSize * 0.55_f64;
   }
-  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+  fn wrapText(&mut self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
     let mut lines : Vec<String> = Vec::new();
     let mut currentLine : String = "".to_string();
     let mut currentWidth : f64 = 0_f64;
@@ -7403,26 +7403,26 @@ impl EVGTextMeasurer {
 }
 
 pub trait EVGTextMeasurerTrait {
-  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics;
-  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64;
-  fn getLineHeight(&self, fontFamily : String, fontSize : f64) -> f64;
-  fn measureChar(&self, ch : i64, fontFamily : String, fontSize : f64) -> f64;
-  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String>;
+  fn measureText(&mut self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics;
+  fn measureTextWidth(&mut self, text : String, fontFamily : String, fontSize : f64) -> f64;
+  fn getLineHeight(&mut self, fontFamily : String, fontSize : f64) -> f64;
+  fn measureChar(&mut self, ch : i64, fontFamily : String, fontSize : f64) -> f64;
+  fn wrapText(&mut self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String>;
 }
 impl EVGTextMeasurerTrait for EVGTextMeasurer {
-  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
+  fn measureText(&mut self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
     EVGTextMeasurer::measureText(self, text, fontFamily, fontSize)
   }
-  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureTextWidth(&mut self, text : String, fontFamily : String, fontSize : f64) -> f64 {
     EVGTextMeasurer::measureTextWidth(self, text, fontFamily, fontSize)
   }
-  fn getLineHeight(&self, fontFamily : String, fontSize : f64) -> f64 {
+  fn getLineHeight(&mut self, fontFamily : String, fontSize : f64) -> f64 {
     EVGTextMeasurer::getLineHeight(fontFamily, fontSize)
   }
-  fn measureChar(&self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureChar(&mut self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
     EVGTextMeasurer::measureChar(ch, fontFamily, fontSize)
   }
-  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+  fn wrapText(&mut self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
     EVGTextMeasurer::wrapText(self, text, fontFamily, fontSize, maxWidth)
   }
 }
@@ -7441,7 +7441,7 @@ impl SimpleTextMeasurer {
   fn setCharWidthRatio(&mut self, ratio : f64) -> () {
     self.charWidthRatio = ratio;
   }
-  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
+  fn measureText(&mut self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
     let textLen : i64 = text.len() as i64;
     let mut width : f64 = 0_f64;
     let mut i : i64 = 0;
@@ -7462,7 +7462,7 @@ impl SimpleTextMeasurer {
 }
 impl SimpleTextMeasurer {
   // Inherited methods from parent class EVGTextMeasurer
-  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureTextWidth(&mut self, text : String, fontFamily : String, fontSize : f64) -> f64 {
     let mut metrics : EVGTextMetrics = self.measureText(text.clone(), fontFamily.clone(), fontSize);
     return metrics.width;
   }
@@ -7487,7 +7487,7 @@ impl SimpleTextMeasurer {
     }
     return fontSize * 0.55_f64;
   }
-  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+  fn wrapText(&mut self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
     let mut lines : Vec<String> = Vec::new();
     let mut currentLine : String = "".to_string();
     let mut currentWidth : f64 = 0_f64;
@@ -7550,19 +7550,19 @@ impl SimpleTextMeasurer {
   }
 }
 impl EVGTextMeasurerTrait for SimpleTextMeasurer {
-  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
+  fn measureText(&mut self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
     SimpleTextMeasurer::measureText(self, text, fontFamily, fontSize)
   }
-  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureTextWidth(&mut self, text : String, fontFamily : String, fontSize : f64) -> f64 {
     SimpleTextMeasurer::measureTextWidth(self, text, fontFamily, fontSize)
   }
-  fn getLineHeight(&self, fontFamily : String, fontSize : f64) -> f64 {
+  fn getLineHeight(&mut self, fontFamily : String, fontSize : f64) -> f64 {
     SimpleTextMeasurer::getLineHeight(fontFamily, fontSize)
   }
-  fn measureChar(&self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureChar(&mut self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
     SimpleTextMeasurer::measureChar(ch, fontFamily, fontSize)
   }
-  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+  fn wrapText(&mut self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
     SimpleTextMeasurer::wrapText(self, text, fontFamily, fontSize, maxWidth)
   }
 }
@@ -7613,21 +7613,21 @@ impl EVGImageMeasurer {
     let mut dims : EVGImageDimensions = EVGImageDimensions::new();
     return dims.clone();
   }
-  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64 {
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
     let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid {
       return targetWidth / dims.aspectRatio;
     }
     return targetWidth;
   }
-  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64 {
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
     let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid {
       return targetHeight * dims.aspectRatio;
     }
     return targetHeight;
   }
-  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
     let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid == false {
       return EVGImageDimensions::create((maxWidth as i64 ), (maxHeight as i64 )).clone();
@@ -7645,22 +7645,22 @@ impl EVGImageMeasurer {
 }
 
 pub trait EVGImageMeasurerTrait {
-  fn getImageDimensions(&self, src : String) -> EVGImageDimensions;
-  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64;
-  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64;
-  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions;
+  fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions;
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64;
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64;
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions;
 }
 impl EVGImageMeasurerTrait for EVGImageMeasurer {
-  fn getImageDimensions(&self, src : String) -> EVGImageDimensions {
+  fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions {
     EVGImageMeasurer::getImageDimensions(src)
   }
-  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64 {
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
     EVGImageMeasurer::calculateHeightForWidth(self, src, targetWidth)
   }
-  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64 {
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
     EVGImageMeasurer::calculateWidthForHeight(self, src, targetHeight)
   }
-  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
     EVGImageMeasurer::calculateFitDimensions(self, src, maxWidth, maxHeight)
   }
 }
@@ -7681,21 +7681,21 @@ impl SimpleImageMeasurer {
     let mut dims : EVGImageDimensions = EVGImageDimensions::new();
     return dims.clone();
   }
-  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64 {
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
     let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid {
       return targetWidth / dims.aspectRatio;
     }
     return targetWidth;
   }
-  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64 {
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
     let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid {
       return targetHeight * dims.aspectRatio;
     }
     return targetHeight;
   }
-  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
     let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid == false {
       return EVGImageDimensions::create((maxWidth as i64 ), (maxHeight as i64 )).clone();
@@ -7712,16 +7712,16 @@ impl SimpleImageMeasurer {
   }
 }
 impl EVGImageMeasurerTrait for SimpleImageMeasurer {
-  fn getImageDimensions(&self, src : String) -> EVGImageDimensions {
+  fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions {
     SimpleImageMeasurer::getImageDimensions(src)
   }
-  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64 {
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
     SimpleImageMeasurer::calculateHeightForWidth(self, src, targetWidth)
   }
-  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64 {
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
     SimpleImageMeasurer::calculateWidthForHeight(self, src, targetHeight)
   }
-  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
     SimpleImageMeasurer::calculateFitDimensions(self, src, maxWidth, maxHeight)
   }
 }
@@ -9235,7 +9235,7 @@ impl TTFTextMeasurer {
     me.fontManager = Some(RefCell::new(fm.clone()));
     return me;
   }
-  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
+  fn measureText(&mut self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
     let width : f64 = self.fontManager.as_ref().unwrap().borrow_mut().measureText(text.clone(), fontFamily.clone(), fontSize);
     let lineHeight : f64 = self.fontManager.as_ref().unwrap().borrow_mut().getLineHeight(fontFamily.clone(), fontSize);
     let ascent : f64 = self.fontManager.as_ref().unwrap().borrow_mut().getAscender(fontFamily.clone(), fontSize);
@@ -9248,13 +9248,13 @@ impl TTFTextMeasurer {
     metrics.lineHeight = lineHeight;
     return metrics.clone();
   }
-  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureTextWidth(&mut self, text : String, fontFamily : String, fontSize : f64) -> f64 {
     return self.fontManager.as_ref().unwrap().borrow_mut().measureText(text.clone(), fontFamily.clone(), fontSize);
   }
-  fn getLineHeight(&self, fontFamily : String, fontSize : f64) -> f64 {
+  fn getLineHeight(&mut self, fontFamily : String, fontSize : f64) -> f64 {
     return self.fontManager.as_ref().unwrap().borrow_mut().getLineHeight(fontFamily.clone(), fontSize);
   }
-  fn measureChar(&self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureChar(&mut self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
     let mut font : TrueTypeFont = self.fontManager.as_ref().unwrap().borrow_mut().getFont(fontFamily.clone());
     if  font.unitsPerEm > 0 {
       return font.getCharWidthPoints(ch, fontSize);
@@ -9264,7 +9264,7 @@ impl TTFTextMeasurer {
 }
 impl TTFTextMeasurer {
   // Inherited methods from parent class EVGTextMeasurer
-  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+  fn wrapText(&mut self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
     let mut lines : Vec<String> = Vec::new();
     let mut currentLine : String = "".to_string();
     let mut currentWidth : f64 = 0_f64;
@@ -9327,19 +9327,19 @@ impl TTFTextMeasurer {
   }
 }
 impl EVGTextMeasurerTrait for TTFTextMeasurer {
-  fn measureText(&self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
+  fn measureText(&mut self, text : String, fontFamily : String, fontSize : f64) -> EVGTextMetrics {
     TTFTextMeasurer::measureText(self, text, fontFamily, fontSize)
   }
-  fn measureTextWidth(&self, text : String, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureTextWidth(&mut self, text : String, fontFamily : String, fontSize : f64) -> f64 {
     TTFTextMeasurer::measureTextWidth(self, text, fontFamily, fontSize)
   }
-  fn getLineHeight(&self, fontFamily : String, fontSize : f64) -> f64 {
+  fn getLineHeight(&mut self, fontFamily : String, fontSize : f64) -> f64 {
     TTFTextMeasurer::getLineHeight(self, fontFamily, fontSize)
   }
-  fn measureChar(&self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
+  fn measureChar(&mut self, ch : i64, fontFamily : String, fontSize : f64) -> f64 {
     TTFTextMeasurer::measureChar(self, ch, fontFamily, fontSize)
   }
-  fn wrapText(&self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
+  fn wrapText(&mut self, text : String, fontFamily : String, fontSize : f64, maxWidth : f64) -> Vec<String> {
     TTFTextMeasurer::wrapText(self, text, fontFamily, fontSize, maxWidth)
   }
 }
@@ -12651,7 +12651,7 @@ impl EVGPDFRenderer {
     return me;
   }
   fn init(&mut self, ) -> () {
-    self.layout.as_ref().unwrap().borrow_mut().setImageMeasurer(Rc::new(RefCell::new(self.clone())));
+    self.layout.as_ref().unwrap().borrow_mut().setImageMeasurer(panic!("Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>"));
   }
   fn setPageSize(&mut self, width : f64, height : f64) -> () {
     self.pageWidth = width;
@@ -12703,7 +12703,7 @@ impl EVGPDFRenderer {
     self.layout.as_ref().unwrap().borrow_mut().debug = enabled;
     self.debug = enabled;
   }
-  fn getImageDimensions(&self, src : String) -> EVGImageDimensions {
+  fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions {
     let mut i : i64 = 0;
     while i < ((self.imageDimensionsCacheKeys.len() as i64)) {
       let key : String = self.imageDimensionsCacheKeys[i as usize].clone();
@@ -13869,21 +13869,21 @@ impl EVGPDFRenderer {
 }
 impl EVGPDFRenderer {
   // Inherited methods from parent class EVGImageMeasurer
-  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64 {
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
     let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid {
       return targetWidth / dims.aspectRatio;
     }
     return targetWidth;
   }
-  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64 {
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
     let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid {
       return targetHeight * dims.aspectRatio;
     }
     return targetHeight;
   }
-  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
     let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
     if  dims.isValid == false {
       return EVGImageDimensions::create((maxWidth as i64 ), (maxHeight as i64 )).clone();
@@ -13900,16 +13900,16 @@ impl EVGPDFRenderer {
   }
 }
 impl EVGImageMeasurerTrait for EVGPDFRenderer {
-  fn getImageDimensions(&self, src : String) -> EVGImageDimensions {
+  fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions {
     EVGPDFRenderer::getImageDimensions(self, src)
   }
-  fn calculateHeightForWidth(&self, src : String, targetWidth : f64) -> f64 {
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
     EVGPDFRenderer::calculateHeightForWidth(self, src, targetWidth)
   }
-  fn calculateWidthForHeight(&self, src : String, targetHeight : f64) -> f64 {
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
     EVGPDFRenderer::calculateWidthForHeight(self, src, targetHeight)
   }
-  fn calculateFitDimensions(&self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
     EVGPDFRenderer::calculateFitDimensions(self, src, maxWidth, maxHeight)
   }
 }

@@ -1721,37 +1721,51 @@ class RangerRustClassWriter {
             ctx.unsetInExpr()
             wr.out(".clone()" false)
           } {
+            ; Check if passing `this` to a trait-type parameter - this isn't supported
+            ; because we can't create Rc<RefCell<Self>> from &mut self
+            def is_passing_this_to_trait:boolean false
             if arg_is_trait_type {
-              wr.out("Rc::new(RefCell::new(" false)
-            }
-            ctx.setInExpr()
-            this.WalkNode(nVal ctx wr)
-            ctx.unsetInExpr()
-            ; In Rust, values are moved when passed, so clone when passing a variable
-            ; This applies to strings and objects (non-primitives)
-            def arg_type:RangerNodeType argNameN.value_type
-            if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
-              arg_type = (argNameN.typeNameAsType(ctx))
-            }
-            def needs_clone:boolean false
-            if (argNameN.type_name == "string") {
-              needs_clone = true
-            }
-            if (arg_type == RangerNodeType.Object) {
-              needs_clone = true
-            }
-            ; In Rust, arrays and hashes need cloning to avoid move errors
-            if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
-              needs_clone = true
-            }
-            if needs_clone {
-              if (nVal.value_type == RangerNodeType.VRef) {
-                wr.out(".clone()" false)
+              if (nVal.vref == "this") {
+                is_passing_this_to_trait = true
               }
             }
-            ; Close the Rc::new(RefCell::new()) if we opened it
-            if arg_is_trait_type {
-              wr.out("))" false)
+            if is_passing_this_to_trait {
+              ; Cannot pass `this` to a trait-type parameter in Rust
+              ; The object would need to be wrapped in Rc at construction time
+              wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")" false)
+            } {
+              if arg_is_trait_type {
+                wr.out("Rc::new(RefCell::new(" false)
+              }
+              ctx.setInExpr()
+              this.WalkNode(nVal ctx wr)
+              ctx.unsetInExpr()
+              ; In Rust, values are moved when passed, so clone when passing a variable
+              ; This applies to strings and objects (non-primitives)
+              def arg_type:RangerNodeType argNameN.value_type
+              if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+                arg_type = (argNameN.typeNameAsType(ctx))
+              }
+              def needs_clone:boolean false
+              if (argNameN.type_name == "string") {
+                needs_clone = true
+              }
+              if (arg_type == RangerNodeType.Object) {
+                needs_clone = true
+              }
+              ; In Rust, arrays and hashes need cloning to avoid move errors
+              if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
+                needs_clone = true
+              }
+              if needs_clone {
+                if (nVal.value_type == RangerNodeType.VRef) {
+                  wr.out(".clone()" false)
+                }
+              }
+              ; Close the Rc::new(RefCell::new()) if we opened it
+              if arg_is_trait_type {
+                wr.out("))" false)
+              }
             }
           }
         }
@@ -2014,7 +2028,9 @@ class RangerRustClassWriter {
             }
           }
           if method_is_in_trait {
-            wr.out("&self, " false)
+            ; Use &mut self for trait methods to allow mutation
+            ; This is necessary because Ranger methods can always mutate state
+            wr.out("&mut self, " false)
           } {
             if method_mutates_this {
               wr.out("&mut self, " false)
@@ -2089,10 +2105,10 @@ class RangerRustClassWriter {
               
               wr.out((("fn " + variant.name) + "(") false)
               if method_uses_this {
-                ; For trait parent classes (is_extended_by_children), always use &self
-                ; because mutation happens through RefCell when called via the trait
+                ; For trait parent classes (is_extended_by_children), use &mut self
+                ; to allow mutation in the method body
                 if pc.is_extended_by_children {
-                  wr.out("&self, " false)
+                  wr.out("&mut self, " false)
                 } {
                   if method_mutates_this {
                     wr.out("&mut self, " false)
@@ -2132,13 +2148,13 @@ class RangerRustClassWriter {
       wr.out(("pub trait " + cl.name + "Trait {") true)
       wr.indent(1)
       ; Add method signatures only (no default implementations)
-      ; Traits use &self to allow calling through Rc<dyn Trait>
-      ; Methods that truly need mutation should use interior mutability (RefCell)
+      ; Traits use &mut self to allow mutation through the trait interface
+      ; This is necessary because Ranger methods can always mutate state
       for cl.defined_variants fnVar:string i {
         def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
         for mVs.variants variant:RangerAppFunctionDesc i {
-          ; Use &self for trait methods to allow Rc<dyn Trait> access
-          wr.out(("fn " + variant.name + "(&self") false)
+          ; Use &mut self for trait methods to allow mutation
+          wr.out(("fn " + variant.name + "(&mut self") false)
           for variant.params arg:RangerAppParamDesc pi {
             wr.out(", " false)
             def nameN:CodeNode (unwrap arg.nameNode)
@@ -2160,8 +2176,8 @@ class RangerRustClassWriter {
       for cl.defined_variants fnVar:string i {
         def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
         for mVs.variants variant:RangerAppFunctionDesc i {
-          ; Use &self for trait methods to match trait definition
-          wr.out(("fn " + variant.name + "(&self") false)
+          ; Use &mut self for trait methods to match trait definition
+          wr.out(("fn " + variant.name + "(&mut self") false)
           for variant.params arg:RangerAppParamDesc pi {
             wr.out(", " false)
             def nameN:CodeNode (unwrap arg.nameNode)
@@ -2213,8 +2229,8 @@ class RangerRustClassWriter {
             for pc.defined_variants fnVar:string i {
               def mVs:RangerAppMethodVariants (get pc.method_variants fnVar)
               for mVs.variants variant:RangerAppFunctionDesc i {
-                ; Use &self for trait methods to match trait definition
-                wr.out(("fn " + variant.name + "(&self") false)
+                ; Use &mut self for trait methods to match trait definition
+                wr.out(("fn " + variant.name + "(&mut self") false)
                 for variant.params arg:RangerAppParamDesc pi {
                   wr.out(", " false)
                   def nameN:CodeNode (unwrap arg.nameNode)

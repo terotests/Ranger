@@ -18002,33 +18002,43 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             ctx.unsetInExpr();
             wr.out(".clone()", false);
           } else {
+            let is_passing_this_to_trait = false;
             if ( arg_is_trait_type ) {
-              wr.out("Rc::new(RefCell::new(", false);
-            }
-            ctx.setInExpr();
-            await this.WalkNode(nVal_3, ctx, wr);
-            ctx.unsetInExpr();
-            let arg_type_3 = argNameN_3.value_type;
-            if ( ((arg_type_3 == 10) || (arg_type_3 == 11)) || (arg_type_3 == 0) ) {
-              arg_type_3 = argNameN_3.typeNameAsType(ctx);
-            }
-            let needs_clone_3 = false;
-            if ( argNameN_3.type_name == "string" ) {
-              needs_clone_3 = true;
-            }
-            if ( arg_type_3 == 10 ) {
-              needs_clone_3 = true;
-            }
-            if ( (((((arg_type_3 == 6) || (arg_type_3 == 7)) || (arg_type_3 == 17)) || (arg_type_3 == 18)) || (arg_type_3 == 15)) || (arg_type_3 == 16) ) {
-              needs_clone_3 = true;
-            }
-            if ( needs_clone_3 ) {
-              if ( nVal_3.value_type == 11 ) {
-                wr.out(".clone()", false);
+              if ( nVal_3.vref == "this" ) {
+                is_passing_this_to_trait = true;
               }
             }
-            if ( arg_is_trait_type ) {
-              wr.out("))", false);
+            if ( is_passing_this_to_trait ) {
+              wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")", false);
+            } else {
+              if ( arg_is_trait_type ) {
+                wr.out("Rc::new(RefCell::new(", false);
+              }
+              ctx.setInExpr();
+              await this.WalkNode(nVal_3, ctx, wr);
+              ctx.unsetInExpr();
+              let arg_type_3 = argNameN_3.value_type;
+              if ( ((arg_type_3 == 10) || (arg_type_3 == 11)) || (arg_type_3 == 0) ) {
+                arg_type_3 = argNameN_3.typeNameAsType(ctx);
+              }
+              let needs_clone_3 = false;
+              if ( argNameN_3.type_name == "string" ) {
+                needs_clone_3 = true;
+              }
+              if ( arg_type_3 == 10 ) {
+                needs_clone_3 = true;
+              }
+              if ( (((((arg_type_3 == 6) || (arg_type_3 == 7)) || (arg_type_3 == 17)) || (arg_type_3 == 18)) || (arg_type_3 == 15)) || (arg_type_3 == 16) ) {
+                needs_clone_3 = true;
+              }
+              if ( needs_clone_3 ) {
+                if ( nVal_3.value_type == 11 ) {
+                  wr.out(".clone()", false);
+                }
+              }
+              if ( arg_is_trait_type ) {
+                wr.out("))", false);
+              }
             }
           }
         }
@@ -18270,7 +18280,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             };
           }
           if ( method_is_in_trait ) {
-            wr.out("&self, ", false);
+            wr.out("&mut self, ", false);
           } else {
             if ( method_mutates_this ) {
               wr.out("&mut self, ", false);
@@ -18338,7 +18348,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               wr.out(("fn " + variant_2.name) + "(", false);
               if ( method_uses_this_1 ) {
                 if ( pc.is_extended_by_children ) {
-                  wr.out("&self, ", false);
+                  wr.out("&mut self, ", false);
                 } else {
                   if ( method_mutates_this_1 ) {
                     wr.out("&mut self, ", false);
@@ -18380,7 +18390,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         const mVs_2 = ( cl.method_variants.hasOwnProperty(fnVar_2) ? cl.method_variants[fnVar_2] : undefined );
         for ( let i_10 = 0; i_10 < mVs_2.variants.length; i_10++) {
           var variant_3 = mVs_2.variants[i_10];
-          wr.out(("fn " + variant_3.name) + "(&self", false);
+          wr.out(("fn " + variant_3.name) + "(&mut self", false);
           for ( let pi_1 = 0; pi_1 < variant_3.params.length; pi_1++) {
             var arg_1 = variant_3.params[pi_1];
             wr.out(", ", false);
@@ -18403,7 +18413,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         const mVs_3 = ( cl.method_variants.hasOwnProperty(fnVar_3) ? cl.method_variants[fnVar_3] : undefined );
         for ( let i_12 = 0; i_12 < mVs_3.variants.length; i_12++) {
           var variant_4 = mVs_3.variants[i_12];
-          wr.out(("fn " + variant_4.name) + "(&self", false);
+          wr.out(("fn " + variant_4.name) + "(&mut self", false);
           for ( let pi_2 = 0; pi_2 < variant_4.params.length; pi_2++) {
             var arg_2 = variant_4.params[pi_2];
             wr.out(", ", false);
@@ -18457,7 +18467,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               const mVs_4 = ( pc_1.method_variants.hasOwnProperty(fnVar_4) ? pc_1.method_variants[fnVar_4] : undefined );
               for ( let i_14 = 0; i_14 < mVs_4.variants.length; i_14++) {
                 var variant_5 = mVs_4.variants[i_14];
-                wr.out(("fn " + variant_5.name) + "(&self", false);
+                wr.out(("fn " + variant_5.name) + "(&mut self", false);
                 for ( let pi_6 = 0; pi_6 < variant_5.params.length; pi_6++) {
                   var arg_5 = variant_5.params[pi_6];
                   wr.out(", ", false);
