@@ -48,8 +48,37 @@ class EmbeddedImage {
     }
 }
 
-class EVGPDFRenderer {
+; Forward declaration for PDFImageMeasurer
+class EVGPDFRenderer
+
+; Separate image measurer class that delegates to EVGPDFRenderer
+; This allows us to pass imageMeasurer (not 'this') to layout.setImageMeasurer
+; which avoids Rust's self-referential Rc<RefCell<>> issue
+class PDFImageMeasurer {
     Extends(EVGImageMeasurer)
+    def renderer@(optional):EVGPDFRenderer
+    
+    Constructor () {
+    }
+    
+    fn setRenderer:void (r:EVGPDFRenderer) {
+        renderer = r
+    }
+    
+    fn getImageDimensions:EVGImageDimensions (src:string) {
+        if (!null? renderer) {
+            return ((unwrap renderer).loadImageDimensions(src))
+        }
+        ; Fallback - return invalid dimensions
+        def dims (new EVGImageDimensions())
+        return dims
+    }
+}
+
+class EVGPDFRenderer {
+    ; NOTE: No longer extends EVGImageMeasurer - uses composition instead
+    ; This allows Rust compilation without self-referential Rc issues
+    def imageMeasurer:PDFImageMeasurer
     def writer:PDFWriter
     def layout:EVGLayout
     def measurer:EVGTextMeasurer
@@ -99,10 +128,12 @@ class EVGPDFRenderer {
         imageDimensionsCacheKeys = idck
         def ap:[string]
         assetPaths = ap
-        ; NOTE: Image measurer disabled for Rust compatibility
-        ; In Rust, we can't pass `this` to setImageMeasurer in constructor
-        ; because self isn't yet wrapped in Rc<RefCell<>>
-        ; layout.setImageMeasurer(this)
+        ; Create separate image measurer that delegates to this renderer
+        ; This avoids passing 'this' to setImageMeasurer (Rust compatibility)
+        def imgMeasurer (new PDFImageMeasurer())
+        imageMeasurer = imgMeasurer
+        imgMeasurer.setRenderer(this)
+        layout.setImageMeasurer(imgMeasurer)
     }
     
     fn setPageSize:void (width:double height:double) {
@@ -173,7 +204,9 @@ class EVGPDFRenderer {
         this.debug = enabled
     }
     
-    fn getImageDimensions:EVGImageDimensions (src:string) {
+    ; Load image dimensions - called by PDFImageMeasurer delegate
+    ; This is no longer a trait method, so caching can work normally
+    fn loadImageDimensions:EVGImageDimensions (src:string) {
         ; Check cache first
         def i:int 0
         while (i < (array_length imageDimensionsCacheKeys)) {
@@ -224,9 +257,7 @@ class EVGPDFRenderer {
         
         if jpegImage.isValid {
             ; Get EXIF orientation to determine final dimensions
-            ; Use local parser instance to avoid mutation of self
-            def localParser:JPEGMetadataParser (new JPEGMetadataParser())
-            def metaInfo:JPEGMetadataInfo (localParser.parseMetadata(imgDir imgFile))
+            def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
             def orientation:int metaInfo.orientation
             
             def imgW:int jpegImage.width
@@ -243,9 +274,9 @@ class EVGPDFRenderer {
             print (("Image dimensions: " + src + " = " + (to_string imgW) + "x" + (to_string imgH) + " (orientation=" + (to_string orientation) + ")"))
         }
         
-        ; NOTE: Caching disabled for Rust trait compatibility
-        ; push imageDimensionsCacheKeys src
-        ; push imageDimensionsCache dims
+        ; Cache the result - now works since this is not a trait method
+        push imageDimensionsCacheKeys src
+        push imageDimensionsCache dims
         
         return dims
     }

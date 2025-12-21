@@ -48,8 +48,36 @@ class EmbeddedImage {
     }
 }
 
-class EVGPDFRenderer {
+; PDFImageMeasurer - Composition pattern to avoid passing 'this' to trait parameters
+; This allows us to pass imageMeasurer (not 'this') to layout.setImageMeasurer
+; Uses @(optional weak) to break the reference cycle with EVGPDFRenderer
+class PDFImageMeasurer {
     Extends(EVGImageMeasurer)
+    ; Use @(optional weak) - the renderer is set after construction
+    ; weak reference prevents circular ownership in Rust
+    def renderer@(optional weak):EVGPDFRenderer
+    
+    Constructor () {
+    }
+    
+    fn setRenderer:void (r:EVGPDFRenderer) {
+        renderer = r
+    }
+    
+    fn getImageDimensions:EVGImageDimensions (src:string) {
+        ; Delegate to renderer's loadImageDimensions method
+        if (!null? renderer) {
+            return ((unwrap renderer).loadImageDimensions(src))
+        }
+        ; Return empty dimensions if no renderer set
+        def dims (new EVGImageDimensions())
+        return dims
+    }
+}
+
+class EVGPDFRenderer {
+    ; Note: No longer extends EVGImageMeasurer - uses composition instead
+    def imageMeasurer@(optional):PDFImageMeasurer
     def writer:PDFWriter
     def layout:EVGLayout
     def measurer:EVGTextMeasurer
@@ -106,14 +134,20 @@ class EVGPDFRenderer {
         foundSections = fs
         def fp:[EVGElement]
         foundPages = fp
-        ; NOTE: setImageMeasurer must be called after construction via init()
-        ; because C++ shared_from_this() cannot be called from constructor
+        ; Create the image measurer delegate
+        def imgMeasurer (new PDFImageMeasurer())
+        imageMeasurer = imgMeasurer
     }
     
     ; Initialize components that require 'this' reference
     ; Must be called after construction for C++ compatibility
-    fn init:void () {
-        layout.setImageMeasurer(this)
+    ; For Rust: selfRc must be the Rc<RefCell<Self>> that wraps this object
+    fn init:void (selfRc:EVGPDFRenderer) {
+        ; Set up the image measurer with reference to this renderer
+        ; selfRc is passed in - in C++/JS/Go it's just 'this', in Rust it's the Rc
+        def imgM:PDFImageMeasurer (unwrap imageMeasurer)
+        imgM.setRenderer(selfRc)
+        layout.setImageMeasurer(imgM)
     }
     
     fn setPageSize:void (width:double height:double) {
@@ -184,7 +218,8 @@ class EVGPDFRenderer {
         this.debug = enabled
     }
     
-    fn getImageDimensions:EVGImageDimensions (src:string) {
+    ; Load image dimensions from file (not a trait method - uses caching)
+    fn loadImageDimensions:EVGImageDimensions (src:string) {
         ; Check cache first
         def i:int 0
         while (i < (array_length imageDimensionsCacheKeys)) {

@@ -48,6 +48,8 @@ class RangerAppFunctionDesc {
   def all_paths_return:boolean false
   def mutates_self:boolean false
   def static_analysis_done:boolean false
+  def rust_uses_self:boolean false      ; Method accesses this.field or calls this.method()
+  def rust_passes_self_to_weak:boolean false  ; Method passes 'this' to a function that assigns to weak field
   
   ; Rust: Flag indicating method doesn't use 'this' and can be called as static
   def rust_can_be_static:boolean false

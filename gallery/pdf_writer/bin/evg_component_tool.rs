@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use std::rc::Rc;
+use std::rc::Weak;
 use std::cell::RefCell;
 
 #[derive(Clone)]
@@ -12558,12 +12559,82 @@ impl EmbeddedImage {
     return me;
   }
 }
+#[derive(Clone)]
+struct PDFImageMeasurer { 
+  renderer : Option<Weak<RefCell<EVGPDFRenderer>>>, 
+}
+impl PDFImageMeasurer { 
+  
+  pub fn new() ->  PDFImageMeasurer {
+    let mut me = PDFImageMeasurer { 
+      renderer: None, 
+    };
+    return me;
+  }
+  fn setRenderer(&mut self, mut r : Rc<RefCell<EVGPDFRenderer>>) -> () {
+    self.renderer = Some(Rc::downgrade(&r));
+  }
+  fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions {
+    if  self.renderer.is_some() {
+      return ((self.renderer.clone().unwrap().upgrade().unwrap().borrow_mut())).loadImageDimensions(src).clone();
+    }
+    let mut dims : EVGImageDimensions = EVGImageDimensions::new();
+    return dims.clone();
+  }
+}
+impl PDFImageMeasurer {
+  // Inherited methods from parent class EVGImageMeasurer
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
+    if  dims.isValid {
+      return targetWidth / dims.aspectRatio;
+    }
+    return targetWidth;
+  }
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
+    if  dims.isValid {
+      return targetHeight * dims.aspectRatio;
+    }
+    return targetHeight;
+  }
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
+    if  dims.isValid == false {
+      return EVGImageDimensions::create((maxWidth as i64 ), (maxHeight as i64 )).clone();
+    }
+    let scaleW : f64 = maxWidth / ((dims.width as f64));
+    let scaleH : f64 = maxHeight / ((dims.height as f64));
+    let mut scale : f64 = scaleW;
+    if  scaleH < scaleW {
+      scale = scaleH;
+    }
+    let newW : i64 = (((dims.width as f64)) * scale) as i64 ;
+    let newH : i64 = (((dims.height as f64)) * scale) as i64 ;
+    return EVGImageDimensions::create(newW, newH).clone();
+  }
+}
+impl EVGImageMeasurerTrait for PDFImageMeasurer {
+  fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions {
+    PDFImageMeasurer::getImageDimensions(self, src)
+  }
+  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
+    PDFImageMeasurer::calculateHeightForWidth(self, src, targetWidth)
+  }
+  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
+    PDFImageMeasurer::calculateWidthForHeight(self, src, targetHeight)
+  }
+  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
+    PDFImageMeasurer::calculateFitDimensions(self, src, maxWidth, maxHeight)
+  }
+}
 // Cannot derive Clone due to trait object fields
 struct EVGPDFRenderer { 
-  writer : Option<RefCell<PDFWriter>>, 
-  layout : Option<RefCell<EVGLayout>>, 
+  imageMeasurer : Option<PDFImageMeasurer>, 
+  writer : Option<PDFWriter>, 
+  layout : Option<EVGLayout>, 
   measurer : Option<Rc<RefCell<dyn EVGTextMeasurerTrait>>>, 
-  streamBuffer : Option<RefCell<GrowableBuffer>>, 
+  streamBuffer : Option<GrowableBuffer>, 
   pageWidth : f64, 
   pageHeight : f64, 
   nextObjNum : i64, 
@@ -12594,6 +12665,7 @@ impl EVGPDFRenderer {
   
   pub fn new() ->  EVGPDFRenderer {
     let mut me = EVGPDFRenderer { 
+      imageMeasurer: None, 
       writer: None, 
       layout: None, 
       measurer: None, 
@@ -12625,13 +12697,13 @@ impl EVGPDFRenderer {
       foundPages: Vec::new(), 
     };
     let mut w : PDFWriter = PDFWriter::new();
-    me.writer = Some(RefCell::new(w.clone()));
+    me.writer = Some(w.clone());
     let mut lay : EVGLayout = EVGLayout::new();
-    me.layout = Some(RefCell::new(lay));
+    me.layout = Some(lay);
     let mut m_1 : SimpleTextMeasurer = SimpleTextMeasurer::new();
     me.measurer = Some(Rc::new(RefCell::new(m_1.clone())));
     let mut buf_1 : GrowableBuffer = GrowableBuffer::new();
-    me.streamBuffer = Some(RefCell::new(buf_1.clone()));
+    me.streamBuffer = Some(buf_1.clone());
     let mut ef : Vec<EmbeddedFont> = Vec::new();
     me.embeddedFonts = ef.clone();
     let mut uf : Vec<String> = Vec::new();
@@ -12648,15 +12720,19 @@ impl EVGPDFRenderer {
     me.foundSections = fs.clone();
     let mut fp : Vec<EVGElement> = Vec::new();
     me.foundPages = fp.clone();
+    let mut imgMeasurer : PDFImageMeasurer = PDFImageMeasurer::new();
+    me.imageMeasurer = Some(imgMeasurer.clone());
     return me;
   }
-  fn init(&mut self, ) -> () {
-    self.layout.as_ref().unwrap().borrow_mut().setImageMeasurer(panic!("Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>"));
+  fn init(&mut self, mut selfRc : Rc<RefCell<EVGPDFRenderer>>) -> () {
+    let mut imgM : PDFImageMeasurer = self.imageMeasurer.clone().unwrap();
+    imgM.setRenderer(selfRc.clone());
+    self.layout.as_mut().unwrap().setImageMeasurer(Rc::new(RefCell::new(imgM.clone())));
   }
   fn setPageSize(&mut self, width : f64, height : f64) -> () {
     self.pageWidth = width;
     self.pageHeight = height;
-    self.layout.as_ref().unwrap().borrow_mut().setPageSize(width, height);
+    self.layout.as_mut().unwrap().setPageSize(width, height);
   }
   fn setBaseDir(&mut self, dir : String) -> () {
     self.baseDir = dir.clone();
@@ -12694,16 +12770,16 @@ impl EVGPDFRenderer {
   }
   fn setMeasurer(&mut self, mut m : Rc<RefCell<dyn EVGTextMeasurerTrait>>) -> () {
     self.measurer = Some(m.clone());
-    self.layout.as_ref().unwrap().borrow_mut().setMeasurer(m.clone());
+    self.layout.as_mut().unwrap().setMeasurer(m.clone());
   }
   fn setFontManager(&mut self, mut fm : FontManager) -> () {
     self.fontManager = fm.clone();
   }
   fn setDebug(&mut self, enabled : bool) -> () {
-    self.layout.as_ref().unwrap().borrow_mut().debug = enabled;
+    self.layout.as_mut().unwrap().debug = enabled;
     self.debug = enabled;
   }
-  fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions {
+  fn loadImageDimensions(&mut self, src : String) -> EVGImageDimensions {
     let mut i : i64 = 0;
     while i < ((self.imageDimensionsCacheKeys.len() as i64)) {
       let key : String = self.imageDimensionsCacheKeys[i as usize].clone();
@@ -12770,7 +12846,7 @@ impl EVGPDFRenderer {
     if  root.tagName == "print".to_string() {
       return self.renderMultiPageToPDF(root.clone());
     }
-    self.layout.as_ref().unwrap().borrow_mut().layout(root.clone());
+    self.layout.as_mut().unwrap().layout(root.clone());
     return self.renderToPDF(root.clone());
   }
   fn findPageElementsRecursive(&mut self, mut el : EVGElement) -> () {
@@ -12861,8 +12937,8 @@ impl EVGPDFRenderer {
         let contentWidth : f64 = sectionWidth - (sectionMargin * 2_f64);
         let contentHeight : f64 = sectionHeight - (sectionMargin * 2_f64);
         println!( "{}", [&*([&*([&*([&*([&*"Page ".to_string(), &*((pi + 1).to_string())].concat()), &*" content size: ".to_string()].concat()), &*(contentWidth.to_string())].concat()), &*" x ".to_string()].concat()), &*(contentHeight.to_string())].concat() );
-        self.layout.as_ref().unwrap().borrow_mut().pageWidth = contentWidth;
-        self.layout.as_ref().unwrap().borrow_mut().pageHeight = contentHeight;
+        self.layout.as_mut().unwrap().pageWidth = contentWidth;
+        self.layout.as_mut().unwrap().pageHeight = contentHeight;
         pg.resetLayoutState();
         pg.width.as_mut().unwrap().pixels = contentWidth;
         pg.width.as_mut().unwrap().value = contentWidth;
@@ -12872,7 +12948,7 @@ impl EVGPDFRenderer {
         pg.height.as_mut().unwrap().value = contentHeight;
         pg.height.as_mut().unwrap().unitType = 0;
         pg.height.as_mut().unwrap().isSet = true;
-        self.layout.as_ref().unwrap().borrow_mut().layout(pg.clone());
+        self.layout.as_mut().unwrap().layout(pg.clone());
         println!( "{}", [&*([&*([&*"  After layout: pg.calculatedWidth=".to_string(), &*(pg.calculatedWidth.to_string())].concat()), &*" pg.calculatedHeight=".to_string()].concat()), &*(pg.calculatedHeight.to_string())].concat() );
         if  pg.getChildCount() > 0 {
           let mut firstChild : EVGElement = pg.getChild(0);
@@ -12883,7 +12959,7 @@ impl EVGPDFRenderer {
       si = si + 1;
     };
     if  ((allPages.len() as i64)) == 0 {
-      self.layout.as_ref().unwrap().borrow_mut().layout(root.clone());
+      self.layout.as_mut().unwrap().layout(root.clone());
       allPages.push(root.clone());
       allPageWidths.push(self.pageWidth.clone());
       allPageHeights.push(self.pageHeight.clone());
@@ -12899,9 +12975,9 @@ impl EVGPDFRenderer {
       let pgHeight : f64 = allPageHeights[pgi as usize].clone();
       let pgMargin : f64 = allPageMargins[pgi as usize].clone();
       self.pageHeight = pgHeight;
-      self.streamBuffer.as_ref().unwrap().borrow_mut().clear();
+      self.streamBuffer.as_mut().unwrap().clear();
       self.renderElement(pg_1.clone(), pgMargin, pgMargin);
-      let mut contentData : Vec<u8> = self.streamBuffer.as_ref().unwrap().borrow_mut().toBuffer();
+      let mut contentData : Vec<u8> = self.streamBuffer.as_mut().unwrap().toBuffer();
       contentDataList.push(contentData.clone());
       println!( "{}", [&*([&*([&*([&*"  Page ".to_string(), &*((pgi + 1).to_string())].concat()), &*": ".to_string()].concat()), &*((contentData.len() as i64).to_string())].concat()), &*" bytes".to_string()].concat() );
       pgi = pgi + 1;
@@ -13181,9 +13257,9 @@ impl EVGPDFRenderer {
     pdf.writeByte(211);
     pdf.writeByte(10);
     let mut objectOffsets : Vec<i64> = Vec::new();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().clear();
+    self.streamBuffer.as_mut().unwrap().clear();
     self.renderElement(root.clone(), 0_f64, 0_f64);
-    let mut contentData : Vec<u8> = self.streamBuffer.as_ref().unwrap().borrow_mut().toBuffer();
+    let mut contentData : Vec<u8> = self.streamBuffer.as_mut().unwrap().toBuffer();
     let contentLen : i64 = contentData.len() as i64;
     let mut fontObjNums : Vec<i64> = Vec::new();
     let mut i : i64 = 0;
@@ -13433,7 +13509,7 @@ impl EVGPDFRenderer {
     let mut hasClipPath : bool = false;
     if  (el.clipPath.len() as i64) > 0 {
       hasClipPath = true;
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("q\n".to_string());
+      self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
       self.applyClipPath(el.clipPath.clone(), x, pdfY, w, h);
     }
     let mut bgColor : EVGColor = el.backgroundColor.clone().unwrap();
@@ -13464,7 +13540,7 @@ impl EVGPDFRenderer {
       i = i + 1;
     };
     if  hasClipPath {
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("Q\n".to_string());
+      self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
     }
   }
   fn getImagePdfName(&mut self, src : String) -> String {
@@ -13486,11 +13562,11 @@ impl EVGPDFRenderer {
       return;
     }
     let imgName : String = self.getImagePdfName(src.clone());
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
     let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(w), &*" 0 0 ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" cm\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString([&*imgName, &*" Do\n".to_string()].concat());
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("Q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString([&*imgName, &*" Do\n".to_string()].concat());
+    self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn renderPath(&mut self, mut el : EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
     let pathData : String = el.svgPath.clone();
@@ -13505,32 +13581,32 @@ impl EVGPDFRenderer {
     if  fillColor.isSet == false {
       fillColor = el.backgroundColor.clone().unwrap();
     }
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
     let __arg_0 = [&*([&*([&*([&*"1 0 0 1 ".to_string(), &*EVGPDFRenderer::formatNum(x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" cm\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     let __arg_0 = [&*([&*"1 0 0 -1 0 ".to_string(), &*EVGPDFRenderer::formatNum(h)].concat()), &*" cm\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     let mut i : i64 = 0;
     while i < ((commands.len() as i64)) {
       let mut cmd : PathCommand = commands[i as usize].clone();
       if  cmd.r#type == "M".to_string() {
         let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(cmd.x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" m\n".to_string()].concat();
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "L".to_string() {
         let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(cmd.x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" l\n".to_string()].concat();
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "C".to_string() {
         let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(cmd.x1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" c\n".to_string()].concat();
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Q".to_string() {
         let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(cmd.x1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" c\n".to_string()].concat();
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Z".to_string() {
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("h\n".to_string());
+        self.streamBuffer.as_mut().unwrap().writeString("h\n".to_string());
       }
       i = i + 1;
     };
@@ -13539,41 +13615,41 @@ impl EVGPDFRenderer {
       let g : f64 = fillColor.g / 255_f64;
       let b : f64 = fillColor.b / 255_f64;
       let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat();
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       let sr : f64 = strokeColor.r / 255_f64;
       let sg : f64 = strokeColor.g / 255_f64;
       let sb : f64 = strokeColor.b / 255_f64;
       let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(sr), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sg)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sb)].concat()), &*" RG\n".to_string()].concat();
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       if  el.strokeWidth > 0_f64 {
         let __arg_0 = [&*EVGPDFRenderer::formatNum(el.strokeWidth), &*" w\n".to_string()].concat();
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("B\n".to_string());
+      self.streamBuffer.as_mut().unwrap().writeString("B\n".to_string());
     } else {
       if  fillColor.isSet {
         let r_1 : f64 = fillColor.r / 255_f64;
         let g_1 : f64 = fillColor.g / 255_f64;
         let b_1 : f64 = fillColor.b / 255_f64;
         let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r_1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g_1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b_1)].concat()), &*" rg\n".to_string()].concat();
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("f\n".to_string());
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString("f\n".to_string());
       } else {
         if  strokeColor.isSet {
           let sr_1 : f64 = strokeColor.r / 255_f64;
           let sg_1 : f64 = strokeColor.g / 255_f64;
           let sb_1 : f64 = strokeColor.b / 255_f64;
           let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(sr_1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sg_1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sb_1)].concat()), &*" RG\n".to_string()].concat();
-          self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+          self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
           if  el.strokeWidth > 0_f64 {
             let __arg_0 = [&*EVGPDFRenderer::formatNum(el.strokeWidth), &*" w\n".to_string()].concat();
-            self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+            self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
           }
-          self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("S\n".to_string());
+          self.streamBuffer.as_mut().unwrap().writeString("S\n".to_string());
         }
       }
     }
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("Q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn applyClipPath(&mut self, pathData : String, x : f64, y : f64, w : f64, h : f64) -> () {
     let mut parser : SVGPathParser = SVGPathParser::new();
@@ -13590,38 +13666,38 @@ impl EVGPDFRenderer {
       let py2 : f64 = (y + h) - cmd.y2;
       if  cmd.r#type == "M".to_string() {
         let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(px), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" m\n".to_string()].concat();
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "L".to_string() {
         let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(px), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" l\n".to_string()].concat();
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "C".to_string() {
         let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(px1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" c\n".to_string()].concat();
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Q".to_string() {
         let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(px1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" c\n".to_string()].concat();
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+        self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Z".to_string() {
-        self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("h\n".to_string());
+        self.streamBuffer.as_mut().unwrap().writeString("h\n".to_string());
       }
       i = i + 1;
     };
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("W n\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("W n\n".to_string());
   }
   fn renderBackground(&mut self, x : f64, y : f64, w : f64, h : f64, mut color : EVGColor) -> () {
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
     let r : f64 = color.r / 255_f64;
     let g : f64 = color.g / 255_f64;
     let b : f64 = color.b / 255_f64;
     let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(w)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" re\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("f\n".to_string());
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("Q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString("f\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn renderBorder(&mut self, mut el : EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
     let borderWidth : f64 = el.r#box.as_mut().unwrap().borderWidth.as_mut().unwrap().pixels;
@@ -13632,18 +13708,18 @@ impl EVGPDFRenderer {
     if  borderColor.isSet == false {
       borderColor = EVGColor::black();
     }
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
     let r : f64 = borderColor.r / 255_f64;
     let g : f64 = borderColor.g / 255_f64;
     let b : f64 = borderColor.b / 255_f64;
     let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" RG\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     let __arg_0 = [&*EVGPDFRenderer::formatNum(borderWidth), &*" w\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(w)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" re\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("S\n".to_string());
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("Q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString("S\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn renderText(&mut self, mut el : EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
     let text : String = self.getTextContent(el.clone());
@@ -13673,14 +13749,14 @@ impl EVGPDFRenderer {
     let mut i : i64 = 0;
     while i < ((lines.len() as i64)) {
       let line : String = lines[i as usize].clone();
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("BT\n".to_string());
+      self.streamBuffer.as_mut().unwrap().writeString("BT\n".to_string());
       let __arg_0 = [&*([&*([&*fontName, &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(fontSize)].concat()), &*" Tf\n".to_string()].concat();
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       let r : f64 = color.r / 255_f64;
       let g : f64 = color.g / 255_f64;
       let b : f64 = color.b / 255_f64;
       let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat();
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       let mut textX : f64 = x;
       if  el.textAlign == "center".to_string() {
         let textWidth : f64 = self.measurer.as_ref().unwrap().borrow_mut().measureTextWidth(line.clone(), fontFamily.clone(), fontSize);
@@ -13691,10 +13767,10 @@ impl EVGPDFRenderer {
         textX = (x + w) - textWidth_1;
       }
       let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(textX), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" Td\n".to_string()].concat();
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       let __arg_0 = [&*([&*"(".to_string(), &*EVGPDFRenderer::escapeText(line.clone())].concat()), &*") Tj\n".to_string()].concat();
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
-      self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("ET\n".to_string());
+      self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+      self.streamBuffer.as_mut().unwrap().writeString("ET\n".to_string());
       lineY = lineY - lineSpacing;
       i = i + 1;
     };
@@ -13732,19 +13808,19 @@ impl EVGPDFRenderer {
       color = EVGColor::rgb(200, 200, 200);
     }
     let lineY : f64 = y + (h / 2_f64);
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
     let r : f64 = color.r / 255_f64;
     let g : f64 = color.g / 255_f64;
     let b : f64 = color.b / 255_f64;
     let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" RG\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("1 w\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString("1 w\n".to_string());
     let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" m\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum((x + w)), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" l\n".to_string()].concat();
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString(__arg_0);
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("S\n".to_string());
-    self.streamBuffer.as_ref().unwrap().borrow_mut().writeString("Q\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
+    self.streamBuffer.as_mut().unwrap().writeString("S\n".to_string());
+    self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn getTextContent(&mut self, mut el : EVGElement) -> String {
     if  (el.textContent.len() as i64) > 0 {
@@ -13865,52 +13941,6 @@ impl EVGPDFRenderer {
       i = i + 1;
     };
     return result.clone();
-  }
-}
-impl EVGPDFRenderer {
-  // Inherited methods from parent class EVGImageMeasurer
-  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
-    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
-    if  dims.isValid {
-      return targetWidth / dims.aspectRatio;
-    }
-    return targetWidth;
-  }
-  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
-    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
-    if  dims.isValid {
-      return targetHeight * dims.aspectRatio;
-    }
-    return targetHeight;
-  }
-  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
-    let mut dims : EVGImageDimensions = EVGImageMeasurer::getImageDimensions(src.clone());
-    if  dims.isValid == false {
-      return EVGImageDimensions::create((maxWidth as i64 ), (maxHeight as i64 )).clone();
-    }
-    let scaleW : f64 = maxWidth / ((dims.width as f64));
-    let scaleH : f64 = maxHeight / ((dims.height as f64));
-    let mut scale : f64 = scaleW;
-    if  scaleH < scaleW {
-      scale = scaleH;
-    }
-    let newW : i64 = (((dims.width as f64)) * scale) as i64 ;
-    let newH : i64 = (((dims.height as f64)) * scale) as i64 ;
-    return EVGImageDimensions::create(newW, newH).clone();
-  }
-}
-impl EVGImageMeasurerTrait for EVGPDFRenderer {
-  fn getImageDimensions(&mut self, src : String) -> EVGImageDimensions {
-    EVGPDFRenderer::getImageDimensions(self, src)
-  }
-  fn calculateHeightForWidth(&mut self, src : String, targetWidth : f64) -> f64 {
-    EVGPDFRenderer::calculateHeightForWidth(self, src, targetWidth)
-  }
-  fn calculateWidthForHeight(&mut self, src : String, targetHeight : f64) -> f64 {
-    EVGPDFRenderer::calculateWidthForHeight(self, src, targetHeight)
-  }
-  fn calculateFitDimensions(&mut self, src : String, maxWidth : f64, maxHeight : f64) -> EVGImageDimensions {
-    EVGPDFRenderer::calculateFitDimensions(self, src, maxWidth, maxHeight)
   }
 }
 #[derive(Clone)]
@@ -15568,17 +15598,17 @@ impl EVGComponentTool {
     self.printEVGTree(evgRoot.clone(), 0);
     println!( "{}", "".to_string() );
     println!( "{}", "Rendering to PDF...".to_string() );
-    let mut renderer : EVGPDFRenderer = EVGPDFRenderer::new();
-    renderer.init();
-    renderer.setPageSize(self.pageWidth, self.pageHeight);
-    renderer.setFontManager(self.fontManager.clone());
-    renderer.setBaseDir(basePath.clone());
+    let mut renderer : Rc<RefCell<EVGPDFRenderer>> = Rc::new(RefCell::new(EVGPDFRenderer::new()));
+    renderer.borrow_mut().init(renderer.clone());
+    renderer.borrow_mut().setPageSize(self.pageWidth, self.pageHeight);
+    renderer.borrow_mut().setFontManager(self.fontManager.clone());
+    renderer.borrow_mut().setBaseDir(basePath.clone());
     if  (self.assetPaths.len() as i64) > 0 {
-      renderer.setAssetPaths(self.assetPaths.clone());
+      renderer.borrow_mut().setAssetPaths(self.assetPaths.clone());
     }
     let mut ttfMeasurer : TTFTextMeasurer = TTFTextMeasurer::new(self.fontManager.clone());
-    renderer.setMeasurer(Rc::new(RefCell::new(ttfMeasurer.clone())));
-    let mut pdfBuffer : Vec<u8> = renderer.render(evgRoot.clone());
+    renderer.borrow_mut().setMeasurer(Rc::new(RefCell::new(ttfMeasurer.clone())));
+    let mut pdfBuffer : Vec<u8> = renderer.borrow_mut().render(evgRoot.clone());
     let outputDir : String = EVGComponentTool::getDirectory(self.outputPath.clone());
     let outputFileName : String = EVGComponentTool::getFileName(self.outputPath.clone());
     std::fs::write(format!("{}/{}", outputDir, outputFileName), &pdfBuffer).unwrap();

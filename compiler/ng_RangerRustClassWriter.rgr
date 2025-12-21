@@ -147,6 +147,7 @@ class RangerRustClassWriter {
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def is_optional:boolean (node.hasFlag("optional"))
+    def is_weak:boolean (node.hasFlag("weak"))
     def is_self_referential:boolean false
     
     ; Check if this is a self-referential type (field type == current class)
@@ -207,16 +208,25 @@ class RangerRustClassWriter {
       needs_refcell_wrap = false
     }
     
-    if is_optional {
-      if is_self_referential {
-        ; Self-referential optional fields need Box to break infinite recursion
-        wr.out("Option<Box<" false)
+    ; Handle weak references - uses Weak<RefCell<T>> to break reference cycles
+    if is_weak {
+      if is_optional {
+        wr.out("Option<Weak<RefCell<" false)
       } {
-        if needs_refcell_wrap {
-          ; Wrap in RefCell for interior mutability in trait-related classes
-          wr.out("Option<RefCell<" false)
+        wr.out("Weak<RefCell<" false)
+      }
+    } {
+      if is_optional {
+        if is_self_referential {
+          ; Self-referential optional fields need Box to break infinite recursion
+          wr.out("Option<Box<" false)
         } {
-          wr.out("Option<" false)
+          if needs_refcell_wrap {
+            ; Wrap in RefCell for interior mutability in trait-related classes
+            wr.out("Option<RefCell<" false)
+          } {
+            wr.out("Option<" false)
+          }
         }
       }
     }
@@ -285,15 +295,26 @@ class RangerRustClassWriter {
         }
       }
     }
-    if is_optional {
-      if is_self_referential {
-        wr.out(">>" false)
+    ; Close wrapper types
+    if is_weak {
+      if is_optional {
+        ; Close Option<Weak<RefCell<T>>>
+        wr.out(">>>" false)
       } {
-        if needs_refcell_wrap {
-          ; Close both RefCell and Option: Option<RefCell<T>>
+        ; Close Weak<RefCell<T>>
+        wr.out(">>" false)
+      }
+    } {
+      if is_optional {
+        if is_self_referential {
           wr.out(">>" false)
         } {
-          wr.out(">" false)
+          if needs_refcell_wrap {
+            ; Close both RefCell and Option: Option<RefCell<T>>
+            wr.out(">>" false)
+          } {
+            wr.out(">" false)
+          }
         }
       }
     }
@@ -359,17 +380,46 @@ class RangerRustClassWriter {
             wr.out((this.adjustType( (itemAt node.ns i))) false)
           }
         }
-        ; Rust: If this field is optional and there are more parts after it, unwrap it
-        if p.is_optional {
+        ; Check if this is a local variable with rust_needs_rc_wrap (Rc<RefCell<T>>)
+        ; If so and there are more parts (method call), add .borrow_mut()
+        if (i == 0) {
+          if ((nsp_len > 1) && p.rust_needs_rc_wrap) {
+            wr.out(".borrow_mut()" false)
+          }
+        }
+        ; Check if this field has weak annotation
+        def field_is_weak:boolean false
+        def pNameNWeak@(optional):CodeNode p.nameNode
+        if (!null? pNameNWeak) {
+          def pNNWeak:CodeNode (unwrap pNameNWeak)
+          if (pNNWeak.hasFlag("weak")) {
+            field_is_weak = true
+          }
+        }
+        ; Handle weak references - need to upgrade() to get strong reference
+        if field_is_weak {
           if (i < (nsp_len - 1)) {
-            ; More parts coming - need to unwrap the Option
-            ; Check if this is a trait type (Rc<RefCell<dyn Trait>>)
-            def field_is_trait_type:boolean false
-            def pNameN@(optional):CodeNode p.nameNode
-            if (!null? pNameN) {
-              def pNN:CodeNode (unwrap pNameN)
-              def pTypeName:string pNN.type_name
-              def pTypeClass@(optional):RangerAppClassDesc (ctx.findClass(pTypeName))
+            ; More parts coming - upgrade weak ref and access the inner value
+            if p.is_optional {
+              ; Optional weak: .as_ref().unwrap().upgrade().unwrap().borrow_mut()
+              wr.out(".as_ref().unwrap().upgrade().unwrap().borrow_mut()" false)
+            } {
+              ; Non-optional weak: .upgrade().unwrap().borrow_mut()
+              wr.out(".upgrade().unwrap().borrow_mut()" false)
+            }
+          }
+        } {
+          ; Rust: If this field is optional and there are more parts after it, unwrap it
+          if p.is_optional {
+            if (i < (nsp_len - 1)) {
+              ; More parts coming - need to unwrap the Option
+              ; Check if this is a trait type (Rc<RefCell<dyn Trait>>)
+              def field_is_trait_type:boolean false
+              def pNameN@(optional):CodeNode p.nameNode
+              if (!null? pNameN) {
+                def pNN:CodeNode (unwrap pNameN)
+                def pTypeName:string pNN.type_name
+                def pTypeClass@(optional):RangerAppClassDesc (ctx.findClass(pTypeName))
               if (!null? pTypeClass) {
                 def ptc:RangerAppClassDesc (unwrap pTypeClass)
                 if ptc.is_extended_by_children {
@@ -420,6 +470,7 @@ class RangerRustClassWriter {
               }
             }
           }
+        }
         }
         if (p.isClass()) {
           had_static = true
@@ -496,6 +547,12 @@ class RangerRustClassWriter {
       ; For now, always use mut for objects and arrays to avoid borrow issues
       def needs_mut:boolean ((((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer)
       def is_object:boolean (nn.value_type == RangerNodeType.Object)
+      
+      ; Check if this local variable needs Rc<RefCell<T>> wrapping (for weak ref pattern)
+      ; This is detected by static analysis when the variable is passed to a method 
+      ; whose parameter is assigned to a @(weak) field
+      def local_needs_rc_wrap:boolean p.rust_needs_rc_wrap
+      
       if (needs_mut || is_object) {
         wr.out((("let mut " + p.compiledName) + " : ") false)
       } {
@@ -526,27 +583,45 @@ class RangerRustClassWriter {
         }
       }
       
-      ; Write type - skip Option wrapper if RHS is optional field (we'll unwrap it)
-      if rhs_is_optional_field {
-        ; Write the underlying type without Option wrapper
-        def v_type:RangerNodeType nameN.value_type
-        if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
-          v_type = (nameN.typeNameAsType(ctx))
-        }
-        if (nameN.eval_type != RangerNodeType.NoType) {
-          v_type = nameN.eval_type
-        }
-        wr.out((this.getTypeString(nameN.type_name)) false)
-      } {
+      ; Write type - with Rc<RefCell<>> wrapper if needed for weak ref pattern
+      if local_needs_rc_wrap {
+        ; Variable needs Rc<RefCell<T>> type
+        wr.out("Rc<RefCell<" false)
         this.writeTypeDef(nameN ctx wr)
+        wr.out(">>" false)
+      } {
+        if rhs_is_optional_field {
+          ; Write the underlying type without Option wrapper
+          def v_type:RangerNodeType nameN.value_type
+          if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+            v_type = (nameN.typeNameAsType(ctx))
+          }
+          if (nameN.eval_type != RangerNodeType.NoType) {
+            v_type = nameN.eval_type
+          }
+          wr.out((this.getTypeString(nameN.type_name)) false)
+        } {
+          this.writeTypeDef(nameN ctx wr)
+        }
       }
       
       if ((array_length node.children) > 2) {
         wr.out(" = " false)
+        
+        ; Wrap initialization in Rc::new(RefCell::new(...)) if needed
+        if local_needs_rc_wrap {
+          wr.out("Rc::new(RefCell::new(" false)
+        }
+        
         ctx.setInExpr()
         def value:CodeNode (node.getThird())
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
+        
+        ; Close Rc::new(RefCell::new(...)) if we opened it
+        if local_needs_rc_wrap {
+          wr.out("))" false)
+        }
         
         ; If RHS was optional field, unwrap it
         if rhs_is_optional_field {
@@ -644,6 +719,16 @@ class RangerRustClassWriter {
       }
       if (arg.rust_borrow_type == 2) {
         needsMutRef = true
+      }
+      
+      ; Check if parameter is assigned to a weak field - needs Rc<RefCell<T>> type
+      ; This is detected by static analysis when we see: this.weakField = param
+      if arg.rust_needs_rc_wrap {
+        ; Parameter is assigned to weak field - needs Rc<RefCell<T>> type
+        wr.out(("mut " + paramName + " : Rc<RefCell<") false)
+        this.writeTypeDef(nameN ctx wr)
+        wr.out(">>" false)
+        continue
       }
       
       ; Check if parameter is assigned - if so, make it mut
@@ -1734,8 +1819,30 @@ class RangerRustClassWriter {
               ; The object would need to be wrapped in Rc at construction time
               wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")" false)
             } {
+              ; Check if parameter needs Rc<RefCell<T>> wrap (for weak ref pattern)
+              def needs_rc_wrap:boolean arg.rust_needs_rc_wrap
+              
+              ; BUT if the value being passed is already Rc<RefCell<...>> (has rust_needs_rc_wrap), don't double wrap
+              def value_already_rc_wrapped:boolean false
+              if needs_rc_wrap {
+                if (nVal.value_type == RangerNodeType.VRef) {
+                  if nVal.hasParamDesc {
+                    def valParam:RangerAppParamDesc nVal.paramDesc
+                    if valParam.rust_needs_rc_wrap {
+                      value_already_rc_wrapped = true
+                    }
+                  }
+                }
+              }
+              
               if arg_is_trait_type {
                 wr.out("Rc::new(RefCell::new(" false)
+              } {
+                if (needs_rc_wrap && (value_already_rc_wrapped == false)) {
+                  ; Parameter is passed to a method that assigns to weak field
+                  ; Wrap the argument in Rc::new(RefCell::new(...))
+                  wr.out("Rc::new(RefCell::new(" false)
+                }
               }
               ctx.setInExpr()
               this.WalkNode(nVal ctx wr)
@@ -1757,14 +1864,23 @@ class RangerRustClassWriter {
               if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
                 needs_clone = true
               }
-              if needs_clone {
-                if (nVal.value_type == RangerNodeType.VRef) {
-                  wr.out(".clone()" false)
+              ; If value is already Rc<RefCell<...>>, clone it (for shared ownership)
+              if value_already_rc_wrapped {
+                wr.out(".clone()" false)
+              } {
+                if needs_clone {
+                  if (nVal.value_type == RangerNodeType.VRef) {
+                    wr.out(".clone()" false)
+                  }
                 }
               }
               ; Close the Rc::new(RefCell::new()) if we opened it
               if arg_is_trait_type {
                 wr.out("))" false)
+              } {
+                if (needs_rc_wrap && (value_already_rc_wrapped == false)) {
+                  wr.out("))" false)
+                }
               }
             }
           }
@@ -1841,6 +1957,7 @@ class RangerRustClassWriter {
       wr.out("#![allow(dead_code)]" true)
       wr.out("" true)
       wr.out("use std::rc::Rc;" true)
+      wr.out("use std::rc::Weak;" true)
       wr.out("use std::cell::RefCell;" true)
       wr.out("" true)
       fileHeaderWritten = true
@@ -2346,6 +2463,7 @@ class RangerRustClassWriter {
       ; Check if left side is an optional field with self-referential type
       def is_optional:boolean false
       def is_self_ref:boolean false
+      def is_weak:boolean false  ; True if LHS field has @(weak) annotation
       def field_type_name:string ""
       def left_is_self_field:boolean false
       def left_is_array:boolean false
@@ -2380,6 +2498,10 @@ class RangerRustClassWriter {
         if (!null? nameN) {
           def nn:CodeNode (unwrap nameN)
           field_type_name = nn.type_name
+          ; Check if field has weak annotation
+          if (nn.hasFlag("weak")) {
+            is_weak = true
+          }
           ; Check if field is an array type 
           if (nn.value_type == RangerNodeType.Array) {
             left_is_array = true
@@ -2622,6 +2744,53 @@ class RangerRustClassWriter {
       
       ctx.setInExpr()
       this.WalkNode(left ctx wr)
+      
+      ; Handle weak reference assignments - use Rc::downgrade() to create Weak pointer
+      if is_weak {
+        ; Check if RHS is a parameter that's already Rc<RefCell<T>> (rust_needs_rc_wrap)
+        def rhs_is_rc_wrapped:boolean false
+        if right.hasParamDesc {
+          def rhsParam:RangerAppParamDesc right.paramDesc
+          if rhsParam.rust_needs_rc_wrap {
+            rhs_is_rc_wrapped = true
+          }
+        }
+        
+        if rhs_is_rc_wrapped {
+          ; RHS is already Rc<RefCell<T>>, just downgrade it directly
+          if is_optional {
+            wr.out(" = Some(Rc::downgrade(&" false)
+            this.WalkNode(right ctx wr)
+            wr.out("));" true)
+          } {
+            wr.out(" = Rc::downgrade(&" false)
+            this.WalkNode(right ctx wr)
+            wr.out(");" true)
+          }
+        } {
+          ; RHS is a raw value, need to wrap in Rc::new(RefCell::new(...)) first
+          ; WARNING: This creates a temporary Rc that goes out of scope immediately,
+          ; making the Weak reference invalid! This pattern should be avoided.
+          ; The proper fix is to ensure the caller passes an Rc<RefCell<T>>.
+          if is_optional {
+            wr.out(" = Some(Rc::downgrade(&Rc::new(RefCell::new(" false)
+            this.WalkNode(right ctx wr)
+            if should_clone_rhs {
+              wr.out(".clone()" false)
+            }
+            wr.out("))));" true)
+          } {
+            wr.out(" = Rc::downgrade(&Rc::new(RefCell::new(" false)
+            this.WalkNode(right ctx wr)
+            if should_clone_rhs {
+              wr.out(".clone()" false)
+            }
+            wr.out(")));" true)
+          }
+        }
+        ctx.unsetInExpr()
+        return
+      }
       
       if is_optional {
         if rhs_is_optional {
@@ -2980,12 +3149,14 @@ class RangerRustClassWriter {
     }
 
     ; Handle unwrap for optional types - need to dereference Box for self-referential types
+    ; and handle Weak references with upgrade()
     if (cmd == "unwrap") {
       def arg:CodeNode (node.getSecond())
       
       ; Check if the inner type is a self-referential Box
       def needs_deref:boolean false
       def is_self_field:boolean false
+      def is_weak_ref:boolean false
       def inner_type:string ""
       
       if arg.hasParamDesc {
@@ -2996,6 +3167,10 @@ class RangerRustClassWriter {
         if (!null? nameN) {
           def nn:CodeNode (unwrap nameN)
           inner_type = nn.type_name
+          ; Check if this is a weak reference
+          if (nn.hasFlag("weak")) {
+            is_weak_ref = true
+          }
           ; Check if field type equals the class that owns this property (self-referential)
           def oc@(optional):RangerAppClassDesc pp.propertyClass
           if (!null? oc) {
@@ -3008,6 +3183,20 @@ class RangerRustClassWriter {
       }
       
       ctx.setInExpr()
+      
+      ; Handle weak references - need to upgrade() to get Rc, then borrow_mut() to access value
+      if is_weak_ref {
+        this.WalkNode(arg ctx wr)
+        if is_self_field {
+          ; Clone the Option<Weak<...>> first, then upgrade and borrow
+          wr.out(".clone().unwrap().upgrade().unwrap().borrow_mut()" false)
+        } {
+          wr.out(".unwrap().upgrade().unwrap().borrow_mut()" false)
+        }
+        ctx.unsetInExpr()
+        return
+      }
+      
       if needs_deref {
         wr.out("(*" false)
         this.WalkNode(arg ctx wr)
@@ -3031,4 +3220,3 @@ class RangerRustClassWriter {
     }
   }
 }
-
