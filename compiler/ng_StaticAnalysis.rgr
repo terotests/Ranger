@@ -899,6 +899,132 @@ class StaticAnalyzer {
   }
   
   ; ============================================================================
+  ; TRANSITIVE MUTABLE BORROW ANALYSIS (Rust-specific)
+  ; ============================================================================
+  ; Detects when a function parameter is passed to another function that requires
+  ; &mut for that parameter. If so, the outer function's parameter also needs &mut.
+  ; Example:
+  ;   fn transform(input, output) { set output 0 ... }  ; output is &mut
+  ;   fn transformWrapper(input, output) { transform(input, output) }
+  ;   ; output here ALSO needs &mut because it's passed to transform's &mut param
+  
+  ; Walk function body to find calls where our parameters are passed to &mut params
+  fn walkForTransitiveMutBorrow:void (node:CodeNode fnCtx:RangerAppWriterContext fn:RangerAppFunctionDesc changedParams:[string]) {
+    ; Check for function/method calls
+    if node.hasFnCall {
+      ; hasFnCall style: children[0] = fnRef (obj.method), children[1] = callParams
+      if ((array_length node.children) >= 2) {
+        def fnRef:CodeNode (node.getFirst())
+        def callParams:CodeNode (node.getSecond())
+        
+        ; Get the called function's descriptor
+        if (!null? node.fnDesc) {
+          def calledFn:RangerAppFunctionDesc node.fnDesc
+          def paramCnt:int (array_length calledFn.params)
+          
+          ; Check each argument
+          for callParams.children arg:CodeNode i {
+            if (i < paramCnt) {
+              ; Get the called function's parameter at this position
+              def calledParam:RangerAppParamDesc (itemAt calledFn.params i)
+              
+              ; Check if the called param requires &mut (borrow_type == 2)
+              if (calledParam.rust_borrow_type == 2) {
+                ; The called function wants &mut for this parameter
+                ; Check if our argument is one of our function's parameters
+                def argVarName:string arg.vref
+                if ((strlen argVarName) > 0) {
+                  ; Look up the argument in our function context
+                  def argParam:RangerAppParamDesc (fnCtx.getVariableDef(argVarName))
+                  if ((strlen argParam.name) > 0) {
+                    if (argParam.varType == RangerContextVarType.FunctionParameter) {
+                      ; Our parameter is passed to a &mut param
+                      ; Check if it's currently marked as immutable borrow or owned
+                      if (argParam.rust_borrow_type != 2) {
+                        ; Upgrade to &mut
+                        argParam.rust_borrow_type = 2
+                        argParam.needs_cpp_reference = true
+                        push changedParams argParam.name
+                        if debug {
+                          print ("StaticAnalysis: " + argParam.name + " upgraded to &mut (passed to " + calledFn.name + " param " + calledParam.name + " which requires &mut)")
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Also check has_call style: (call obj method args)
+    if node.has_call {
+      if ((array_length node.children) > 3) {
+        def argsNode:CodeNode (itemAt node.children 3)
+        
+        if (!null? node.fnDesc) {
+          def calledFn:RangerAppFunctionDesc node.fnDesc
+          def paramCnt:int (array_length calledFn.params)
+          
+          for argsNode.children arg:CodeNode i {
+            if (i < paramCnt) {
+              def calledParam:RangerAppParamDesc (itemAt calledFn.params i)
+              
+              if (calledParam.rust_borrow_type == 2) {
+                def argVarName:string arg.vref
+                if ((strlen argVarName) > 0) {
+                  def argParam:RangerAppParamDesc (fnCtx.getVariableDef(argVarName))
+                  if ((strlen argParam.name) > 0) {
+                    if (argParam.varType == RangerContextVarType.FunctionParameter) {
+                      if (argParam.rust_borrow_type != 2) {
+                        argParam.rust_borrow_type = 2
+                        argParam.needs_cpp_reference = true
+                        push changedParams argParam.name
+                        if debug {
+                          print ("StaticAnalysis: " + argParam.name + " upgraded to &mut (passed to " + calledFn.name + " param " + calledParam.name + " which requires &mut)")
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForTransitiveMutBorrow(child fnCtx fn changedParams)
+    }
+  }
+  
+  ; Analyze transitive mutable borrow for a single function
+  fn analyzeTransitiveMutBorrow:void (fn:RangerAppFunctionDesc changedParams:[string]) {
+    if (!null? fn.fnBody) {
+      if (!null? fn.fnCtx) {
+        this.walkForTransitiveMutBorrow((unwrap fn.fnBody) (unwrap fn.fnCtx) fn changedParams)
+      }
+    }
+  }
+  
+  ; Analyze transitive mutable borrow for all methods in a class
+  fn analyzeClassTransitiveMutBorrow:void (cl:RangerAppClassDesc changedParams:[string]) {
+    currentClass = cl
+    
+    for cl.methods m:RangerAppFunctionDesc i {
+      this.analyzeTransitiveMutBorrow(m changedParams)
+    }
+    
+    if (!null? cl.constructor_fn) {
+      this.analyzeTransitiveMutBorrow((unwrap cl.constructor_fn) changedParams)
+    }
+  }
+  
+  ; ============================================================================
   ; RECURSIVE MUTATION ANALYSIS
   ; ============================================================================
   ; This analysis determines if methods truly mutate self/parameters by walking
@@ -1175,8 +1301,24 @@ class StaticAnalyzer {
       this.analyzeClassParamMutations(cl)
     }
     
-    if debug {
-      print "StaticAnalysis: completed analysis of all classes"
+    ; Pass 5: Transitive mutable borrow analysis (Rust-specific)
+    ; If a parameter is passed to a function that requires &mut for that param position,
+    ; then our parameter also needs &mut. Run until fixed point (no more changes).
+    def maxIterations:int 10
+    def iteration:int 0
+    def changed:boolean true
+    while ((changed == true) && (iteration < maxIterations)) {
+      changed = false
+      def changedParams:[string]
+      for root.definedClasses cl:RangerAppClassDesc i {
+        this.analyzeClassTransitiveMutBorrow(cl changedParams)
+      }
+      if ((array_length changedParams) > 0) {
+        changed = true
+        if debug {
+          print ("StaticAnalysis: transitive &mut pass " + (to_string iteration) + " - upgraded " + (to_string (array_length changedParams)) + " params")
+        }
+      }
+      iteration = iteration + 1
     }
-  }
-}
+    

@@ -9819,7 +9819,7 @@ impl IDCT {
       i = i + 1;
     };
   }
-  fn transformFast(&mut self, coeffs : &Vec<i64>, output : &Vec<i64>) -> () {
+  fn transformFast(&mut self, coeffs : &Vec<i64>, mut output : &mut Vec<i64>) -> () {
     self.transform(&coeffs, &mut output);
   }
 }
@@ -12394,7 +12394,7 @@ impl JPEGEncoder {
     writer.writeByte(63);
     writer.writeByte(0);
   }
-  fn encodeToBuffer(&mut self, mut img : ImageBuffer) -> Vec<u8> {
+  fn encodeToBuffer(&mut self, mut img : &mut ImageBuffer) -> Vec<u8> {
     let mut writer : BitWriter = BitWriter::new();
     let __arg_0 = img.width.clone();
     let __arg_1 = img.height.clone();
@@ -12478,7 +12478,7 @@ impl JPEGEncoder {
     finalBuf[(outLen + 1) as usize] = 217 as u8;
     return finalBuf;
   }
-  fn encode(&mut self, mut img : ImageBuffer, dirPath : String, fileName : String) -> () {
+  fn encode(&mut self, mut img : &mut ImageBuffer, dirPath : String, fileName : String) -> () {
     println!( "{}", [&*"Encoding JPEG: ".to_string(), &*fileName].concat() );
     println!( "{}", [&*([&*([&*"  Image size: ".to_string(), &*(img.width.to_string())].concat()), &*"x".to_string()].concat()), &*(img.height.to_string())].concat() );
     let mut writer : BitWriter = BitWriter::new();
@@ -12905,12 +12905,12 @@ impl EVGPDFRenderer {
     self.usedFontNames.push(fontFamily.clone());
     return [&*"/F".to_string(), &*(((self.usedFontNames.len() as i64)).to_string())].concat().clone();
   }
-  fn render(&mut self, mut root : EVGElement) -> Vec<u8> {
+  fn render(&mut self, mut root : &mut EVGElement) -> Vec<u8> {
     if  root.tagName == "print".to_string() {
-      return self.renderMultiPageToPDF(root.clone());
+      return self.renderMultiPageToPDF(&mut root);
     }
     self.layout.as_mut().unwrap().layout(&mut root);
-    return self.renderToPDF(root.clone());
+    return self.renderToPDF(&mut root);
   }
   fn findPageElementsRecursive(&mut self, mut el : &mut EVGElement) -> () {
     if  el.tagName == "page".to_string() {
@@ -12954,7 +12954,7 @@ impl EVGPDFRenderer {
     }
     return 40_f64;
   }
-  fn renderMultiPageToPDF(&mut self, mut root : EVGElement) -> Vec<u8> {
+  fn renderMultiPageToPDF(&mut self, mut root : &mut EVGElement) -> Vec<u8> {
     let mut pdf : GrowableBuffer = GrowableBuffer::new();
     self.nextObjNum = 1;
     if  root.imageQuality > 0 {
@@ -13188,7 +13188,7 @@ impl EVGPDFRenderer {
         }
         let __arg_0 = self.jpegQuality.clone();
         self.jpegEncoder.setQuality(__arg_0);
-        let mut encodedData : Vec<u8> = self.jpegEncoder.encodeToBuffer(imgBuffer.clone());
+        let mut encodedData : Vec<u8> = self.jpegEncoder.encodeToBuffer(&mut imgBuffer);
         let encodedLen : i64 = encodedData.len() as i64;
         embImg.width = newW;
         embImg.height = newH;
@@ -13310,7 +13310,7 @@ impl EVGPDFRenderer {
     pdf.writeString("%%EOF\n".to_string());
     return pdf.toBuffer();
   }
-  fn renderToPDF(&mut self, mut root : EVGElement) -> Vec<u8> {
+  fn renderToPDF(&mut self, mut root : &mut EVGElement) -> Vec<u8> {
     let mut pdf : GrowableBuffer = GrowableBuffer::new();
     self.nextObjNum = 1;
     pdf.writeString("%PDF-1.5\n".to_string());
@@ -13468,7 +13468,7 @@ impl EVGPDFRenderer {
         }
         let __arg_0 = self.jpegQuality.clone();
         self.jpegEncoder.setQuality(__arg_0);
-        let mut encodedData : Vec<u8> = self.jpegEncoder.encodeToBuffer(imgBuffer.clone());
+        let mut encodedData : Vec<u8> = self.jpegEncoder.encodeToBuffer(&mut imgBuffer);
         let encodedLen : i64 = encodedData.len() as i64;
         embImg.width = newW;
         embImg.height = newH;
@@ -13587,7 +13587,7 @@ impl EVGPDFRenderer {
     }
     self.renderBorder(el.clone(), x, pdfY, w, h);
     if  el.tagName == "text".to_string() {
-      self.renderText(el.clone(), x, pdfY, w, h);
+      self.renderText(&mut el, x, pdfY, w, h);
     }
     if  el.tagName == "divider".to_string() {
       self.renderDivider(el.clone(), x, pdfY, w, h);
@@ -13787,7 +13787,7 @@ impl EVGPDFRenderer {
     self.streamBuffer.as_mut().unwrap().writeString("S\n".to_string());
     self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
-  fn renderText(&mut self, mut el : EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
+  fn renderText(&mut self, mut el : &mut EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
     let text : String = self.getTextContent(&mut el);
     if  (text.len() as i64) == 0 {
       return;
@@ -14670,16 +14670,16 @@ impl ComponentEngine {
     self.context = Some(savedContext.clone());
     return result.clone();
   }
-  fn evaluateFunctionWithProps(&mut self, mut fnNode : TSNode, mut props : EvalValue) -> EVGElement {
+  fn evaluateFunctionWithProps(&mut self, mut fnNode : TSNode, mut props : &mut EvalValue) -> EVGElement {
     let mut savedContext : EvalContext = self.context.clone().unwrap().clone();
     self.context = Some(self.context.as_mut().unwrap().createChild());
-    self.bindFunctionParams(fnNode.clone(), props.clone());
+    self.bindFunctionParams(fnNode.clone(), &mut props);
     let mut body : TSNode = self.getFunctionBody(fnNode.clone());
     let mut result : EVGElement = self.evaluateFunctionBody(body.clone());
     self.context = Some(savedContext.clone());
     return result.clone();
   }
-  fn bindFunctionParams(&mut self, mut fnNode : TSNode, mut props : EvalValue) -> () {
+  fn bindFunctionParams(&mut self, mut fnNode : TSNode, mut props : &mut EvalValue) -> () {
     let mut i : i64 = 0;
     while i < ((fnNode.params.len() as i64)) {
       let mut param : TSNode = fnNode.params[i as usize].clone();
@@ -14774,7 +14774,7 @@ impl ComponentEngine {
     element.tagName = ComponentEngine::mapTagName(tagName.clone());
     if jsxNode.left.is_some() {
       let mut openingEl_1 : TSNode = (*jsxNode.left.clone().unwrap());
-      self.evaluateAttributes(element.clone(), openingEl_1.clone());
+      self.evaluateAttributes(&mut element, openingEl_1.clone());
     }
     if  ((tagName == "Label".to_string()) || (tagName == "span".to_string())) || (tagName == "text".to_string()) {
       element.textContent = self.evaluateTextContent(jsxNode.clone());
@@ -14808,7 +14808,7 @@ impl ComponentEngine {
         let mut props : EvalValue = self.evaluateProps(jsxNode.clone());
         if sym.functionNode.is_some() {
           let mut fnNode : TSNode = sym.functionNode.clone().unwrap();
-          return self.evaluateFunctionWithProps(fnNode.clone(), props.clone()).clone();
+          return self.evaluateFunctionWithProps(fnNode.clone(), &mut props).clone();
         }
       }
       i = i + 1;
@@ -14914,7 +14914,7 @@ impl ComponentEngine {
     }
     return EvalValue::boolean(true).clone();
   }
-  fn evaluateAttributes(&mut self, mut element : EVGElement, mut openingNode : TSNode) -> () {
+  fn evaluateAttributes(&mut self, mut element : &mut EVGElement, mut openingNode : TSNode) -> () {
     let mut i : i64 = 0;
     while i < ((openingNode.children.len() as i64)) {
       let mut attr : TSNode = openingNode.children[i as usize].clone();
@@ -15672,7 +15672,7 @@ impl EVGComponentTool {
     }
     let mut ttfMeasurer : TTFTextMeasurer = TTFTextMeasurer::new(self.fontManager.clone());
     renderer.borrow_mut().setMeasurer(Rc::new(RefCell::new(ttfMeasurer.clone())));
-    let mut pdfBuffer : Vec<u8> = renderer.borrow_mut().render(evgRoot.clone());
+    let mut pdfBuffer : Vec<u8> = renderer.borrow_mut().render(&mut evgRoot);
     let outputDir : String = EVGComponentTool::getDirectory(self.outputPath.clone());
     let outputFileName : String = EVGComponentTool::getFileName(self.outputPath.clone());
     std::fs::write(format!("{}/{}", outputDir, outputFileName), &pdfBuffer).unwrap();
