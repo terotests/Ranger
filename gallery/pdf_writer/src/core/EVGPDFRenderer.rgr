@@ -1625,9 +1625,21 @@ class EVGPDFRenderer {
         return (measurer.measureTextWidth(text "Helvetica" fontSize))
     }
     
+    fn toOctalEscape:string (ch:int) {
+        ; Convert a byte value (0-255) to PDF octal escape format \NNN
+        ; e.g., 196 (Ä) becomes \304
+        def d0:int (ch % 8)
+        def t1:int (floor (ch / 8))
+        def d1:int (t1 % 8)
+        def d2:int (floor (t1 / 8))
+        return ("\\" + (to_string d2) + (to_string d1) + (to_string d0))
+    }
+    
     fn escapeText:string (text:string) {
         ; Escape parentheses and backslashes for PDF
         ; Also handle Unicode characters outside WinAnsi range
+        ; For high-byte characters (128-255), use PDF octal escape \NNN
+        ; because Go strings are UTF-8 and can't represent raw bytes 128-255 directly
         def result:string ""
         def len:int (strlen text)
         def i 0
@@ -1646,58 +1658,17 @@ class EVGPDFRenderer {
                             ; Control characters - skip or use octal
                             result = result + " "
                         } {
-                            if (ch <= 255) {
-                                ; Standard WinAnsi range
+                            if (ch < 128) {
+                                ; ASCII range - safe to use directly
                                 result = result + (strfromcode ch)
                             } {
-                                ; Unicode character outside WinAnsi
-                                ; Map common symbols to available characters
-                                if (ch == 9733) {
-                                    ; ★ Black Star - use asterisk
-                                    result = result + "*"
+                                if (ch <= 255) {
+                                    ; High-byte WinAnsi characters (128-255)
+                                    ; Must use PDF octal escape \NNN
+                                    result = result + (this.toOctalEscape(ch))
                                 } {
-                                    if (ch == 9734) {
-                                        ; ☆ White Star - use asterisk
-                                        result = result + "*"
-                                    } {
-                                        if (ch == 9829) {
-                                            ; ♥ Black Heart - use bullet
-                                            result = result + (strfromcode 183)
-                                        } {
-                                            if (ch == 9825) {
-                                                ; ♡ White Heart - use bullet
-                                                result = result + (strfromcode 183)
-                                            } {
-                                                if (ch == 10003) {
-                                                    ; ✓ Check mark
-                                                    result = result + "v"
-                                                } {
-                                                    if (ch == 10007) {
-                                                        ; ✗ X mark
-                                                        result = result + "x"
-                                                    } {
-                                                        if (ch == 8226) {
-                                                            ; • Bullet - WinAnsi 149
-                                                            result = result + (strfromcode 149)
-                                                        } {
-                                                            if (ch == 8594) {
-                                                                ; → Right arrow
-                                                                result = result + "->"
-                                                            } {
-                                                                if (ch == 8592) {
-                                                                    ; ← Left arrow
-                                                                    result = result + "<-"
-                                                                } {
-                                                                    ; Unknown Unicode - use placeholder
-                                                                    result = result + "?"
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                    ; Unicode character outside WinAnsi - use placeholder
+                                    result = result + "?"
                                 }
                             }
                         }

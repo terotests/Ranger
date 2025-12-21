@@ -1449,14 +1449,14 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         floor        _:int          (  value:double )  {
             templates {
                 ranger ( "(floor " (e 1) ")" ) 
-                swift3 ( "floor(" (e 1) ")" (imp "Foundation"))               
-                cpp ( "floor(" (e 1) ")" (imp "<cmath>"))
-                csharp ( "Math.Floor(" (e 1) ")" (imp "System"))    
-                go ( "math.Floor(" (e 1) ")" (imp "math"))                                
+                swift3 ( "Int(floor(" (e 1) "))" (imp "Foundation"))               
+                cpp ( "(int)floor(" (e 1) ")" (imp "<cmath>"))
+                csharp ( "(int)Math.Floor(" (e 1) ")" (imp "System"))    
+                go ( "int64(math.Floor(" (e 1) "))" (imp "math"))                                
                 php ( "floor(" (e 1) ")" )    
-                rust ( "" (e 1) ".floor()" )                
-                scala ( "math.floor(" (e 1) ")" (imp "scala.math"))                
-                java7 ( "Math.floor(" (e 1) ")" (imp "java.lang.Math"))
+                rust ( "" (e 1) ".floor() as i64" )                
+                scala ( "math.floor(" (e 1) ").toInt" (imp "scala.math"))                
+                java7 ( "(int)Math.floor(" (e 1) ")" (imp "java.lang.Math"))
                 * ( "Math.floor(" (e 1) ")")
             }
         }
@@ -2144,9 +2144,9 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 swift6 ( (e 1) ".count")  
                 csharp ( (e 1) ".Length")
                 php ( "strlen(" (e 1) ")") 
-                go ( "int64(len(" (e 1) "))")
+                go ( "int64(len([]rune(" (e 1) ")))")
                 python ( "len(" (e 1) ")")
-                rust ( (e 1) ".len() as i64")
+                rust ( (e 1) ".chars().count() as i64")
                 * ( (e 1) ".length")
             }
         }
@@ -2735,7 +2735,7 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 java7 ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")  
                 kotlin ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")  
                 scala ( (e 1) "(" (e 2) ")")    
-                go ( (e 1) "[" (e 2) ": (" (e 2) " + 1)]")  
+                go ( "string([]rune(" (e 1) ")[" (e 2) "])")  
 
                 swift3 ( (imp 'Foundation') (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) " + 1)]" )
                 swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")])" )
@@ -2756,7 +2756,7 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 java7 ( "(int)" (e 1) ".charAt(" (e 2) ")")  
                 kotlin ( (e 1) "[" (e 2) "]")    
                 scala ( (e 1) "(" (e 2) ")")    
-                go ( "int64(" (e 1) "[" (e 2) "])")  
+                go ( "int64([]rune(" (e 1) ")[" (e 2) "])")  
                 swift3 ( "Int( ( NSString(string: " (e 1) " ) ).character( at: " (e 2) " ) )")
                 swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")
                 swift6 ( "Int(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")].asciiValue ?? 0)")
@@ -2851,7 +2851,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 )    
                 csharp ( (e 1) ".Substring(" (e 2) ", " (e 3) " - " (e 2) " )")
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
-                go (  (e 1) "[" (e 2) ":" (e 3) "]")               
+                go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])")               
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
                 swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
                 python ( (e 1) "[" (e 2) ":" (e 3) "]" )
@@ -2888,7 +2888,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
-                go ("string([] byte{byte(" (e 1) ")})")      
+                go ("string([]rune{rune(" (e 1) ")})")      
                 cpp ( "std::string(1, char(" (e 1) "))") 
                 rust ( "(char::from_u32(" (e 1) " as u32).unwrap_or('\\0').to_string())" )
                 * ( "String.fromCharCode(" (e 1) ")")
@@ -2904,9 +2904,21 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " )! )))") 
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
-                go ("string([] byte{byte(" (e 1) ")})")        
+                go ("string([]rune{rune(" (e 1) ")})")        
                 cpp ( "std::string(1, char(" (e 1) "))") 
                 rust ( "(char::from_u32(" (e 1) " as u32).unwrap_or('\\0').to_string())" )
+                * ( "String.fromCharCode(" (e 1) ")")
+            }
+        }
+
+        ; Raw byte to string - for binary protocols like PDF WinAnsiEncoding
+        ; Unlike strfromcode, this produces a single raw byte, not UTF-8 encoded
+        rawbytechar   cmdRawByteChar:string       ( code:int ) { 
+            templates {
+                ranger ( "(rawbytechar " (e 1) ")")
+                go ("string([]byte{byte(" (e 1) ")})")
+                cpp ( "std::string(1, char(" (e 1) "))") 
+                rust ( "String::from_utf8_lossy(&[" (e 1) " as u8]).to_string()" )
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
