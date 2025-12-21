@@ -17974,8 +17974,13 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                 if ( arg.rust_borrow_type == 2 ) {
                   needsMutRef = true;
                 }
+                const needsImmutableRef = arg.rust_borrow_type == 1;
                 if ( needsMutRef ) {
                   wr.out("&mut ", false);
+                } else {
+                  if ( needsImmutableRef ) {
+                    wr.out("&", false);
+                  }
                 }
                 ctx.setInExpr();
                 await this.WalkNode(nVal, ctx, wr);
@@ -18071,6 +18076,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               needsMutRef2 = true;
             }
             const needsImmutableRef2 = arg_1.rust_borrow_type == 1;
+            console.log((((("DEBUG selfCallPath: arg=" + arg_1.name) + " borrow_type=") + ((arg_1.rust_borrow_type.toString()))) + " needsImmutable=") + ((needsImmutableRef2.toString())));
             if ( needsMutRef2 ) {
               wr.out("&mut ", false);
               ctx.setInExpr();

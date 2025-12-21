@@ -1721,8 +1721,15 @@ class RangerRustClassWriter {
                 if (arg.rust_borrow_type == 2) {
                   needsMutRef = true
                 }
+                ; Check if parameter needs immutable reference
+                def needsImmutableRef:boolean (arg.rust_borrow_type == 1)
+                
                 if needsMutRef {
                   wr.out("&mut " false)
+                } {
+                  if needsImmutableRef {
+                    wr.out("&" false)
+                  }
                 }
                 ctx.setInExpr()
                 this.WalkNode(nVal ctx wr)
@@ -1831,6 +1838,9 @@ class RangerRustClassWriter {
               needsMutRef2 = true
             }
             def needsImmutableRef2:boolean (arg.rust_borrow_type == 1)
+            
+            ; DEBUG: Print borrow type info
+            print ("DEBUG selfCallPath: arg=" + arg.name + " borrow_type=" + (to_string arg.rust_borrow_type) + " needsImmutable=" + (to_string needsImmutableRef2))
             
             if needsMutRef2 {
               ; Parameter needs &mut - output &mut prefix

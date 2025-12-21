@@ -12418,7 +12418,7 @@ impl JPEGEncoder {
         let __arg_3 = self.acYCodes.clone();
         let __arg_4 = self.acYLengths.clone();
         let __arg_5 = self.prevDCY.clone();
-        self.encodeBlock(&mut writer, yCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        self.encodeBlock(&mut writer, &yCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
         let mut yZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&yCoeffs);
         let yQ : i64 = self.yQuantTable[0 as usize].clone();
         let yDC : i64 = yZig[(0) as usize];
@@ -12435,7 +12435,7 @@ impl JPEGEncoder {
         let __arg_3 = self.acCCodes.clone();
         let __arg_4 = self.acCLengths.clone();
         let __arg_5 = self.prevDCCb.clone();
-        self.encodeBlock(&mut writer, cbCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        self.encodeBlock(&mut writer, &cbCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
         let mut cbZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&cbCoeffs);
         let cbQ : i64 = self.cQuantTable[0 as usize].clone();
         let cbDC : i64 = cbZig[(0) as usize];
@@ -12452,7 +12452,7 @@ impl JPEGEncoder {
         let __arg_3 = self.acCCodes.clone();
         let __arg_4 = self.acCLengths.clone();
         let __arg_5 = self.prevDCCr.clone();
-        self.encodeBlock(&mut writer, crCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        self.encodeBlock(&mut writer, &crCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
         let mut crZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&crCoeffs);
         let crQ : i64 = self.cQuantTable[0 as usize].clone();
         let crDC : i64 = crZig[(0) as usize];
@@ -12505,7 +12505,7 @@ impl JPEGEncoder {
         let __arg_3 = self.acYCodes.clone();
         let __arg_4 = self.acYLengths.clone();
         let __arg_5 = self.prevDCY.clone();
-        self.encodeBlock(&mut writer, yCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        self.encodeBlock(&mut writer, &yCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
         let mut yZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&yCoeffs);
         let yQ : i64 = self.yQuantTable[0 as usize].clone();
         let yDC : i64 = yZig[(0) as usize];
@@ -12522,7 +12522,7 @@ impl JPEGEncoder {
         let __arg_3 = self.acCCodes.clone();
         let __arg_4 = self.acCLengths.clone();
         let __arg_5 = self.prevDCCb.clone();
-        self.encodeBlock(&mut writer, cbCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        self.encodeBlock(&mut writer, &cbCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
         let mut cbZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&cbCoeffs);
         let cbQ : i64 = self.cQuantTable[0 as usize].clone();
         let cbDC : i64 = cbZig[(0) as usize];
@@ -12539,7 +12539,7 @@ impl JPEGEncoder {
         let __arg_3 = self.acCCodes.clone();
         let __arg_4 = self.acCLengths.clone();
         let __arg_5 = self.prevDCCr.clone();
-        self.encodeBlock(&mut writer, crCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        self.encodeBlock(&mut writer, &crCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
         let mut crZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&crCoeffs);
         let crQ : i64 = self.cQuantTable[0 as usize].clone();
         let crDC : i64 = crZig[(0) as usize];
