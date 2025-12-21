@@ -103,6 +103,9 @@ class RangerAppParamDesc {
   def escapes_function:boolean false
   def needs_cpp_reference:boolean false
   def rust_borrow_type:int 0  ; 0=owned, 1=borrow, 2=mut_borrow
+  def rust_assigned_to_weak:boolean false  ; Parameter is assigned to @(weak) field
+  def rust_needs_rc_wrap:boolean false      ; Parameter needs Rc<RefCell<T>> type in Rust
+  def rust_assigned_to_field:boolean false  ; Parameter is assigned to a class field (requires owned)
   
   def node@(weak):CodeNode
   def nameNode@(weak):CodeNode

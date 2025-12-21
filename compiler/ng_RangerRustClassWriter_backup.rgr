@@ -1,17 +1,3 @@
-; Helper class to hold a list of method names (for call graph)
-class MethodCallList {
-  def calls:[string]
-  
-  Constructor () {
-    def c:[string]
-    calls = c
-  }
-  
-  fn add:void (methodName:string) {
-    push calls methodName
-  }
-}
-
 class RangerRustClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -114,7 +100,7 @@ class RangerRustClassWriter {
     if (!null? typeClass) {
       def tc:RangerAppClassDesc (unwrap typeClass)
       if tc.is_extended_by_children {
-        return ("Rc<RefCell<dyn " + type_string + "Trait>>")
+        return ("Rc<dyn " + type_string + "Trait>")
       }
     }
     return type_string
@@ -147,87 +133,23 @@ class RangerRustClassWriter {
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def is_optional:boolean (node.hasFlag("optional"))
-    def is_weak:boolean (node.hasFlag("weak"))
     def is_self_referential:boolean false
     
     ; Check if this is a self-referential type (field type == current class)
     def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
-    
-    ; Check if current class is trait-related (is a trait parent or extends one)
-    def class_is_trait_related:boolean false
     if (!null? uc) {
       def currClass:RangerAppClassDesc (unwrap uc)
       if (node.type_name == currClass.name) {
         is_self_referential = true
       }
-      ; Check if class is a trait parent
-      if currClass.is_extended_by_children {
-        class_is_trait_related = true
-      }
-      ; Check if class extends a trait parent
-      if (class_is_trait_related == false) {
-        for currClass.extends_classes extParentName:string epi {
-          def extParentClass@(optional):RangerAppClassDesc (ctx.findClass(extParentName))
-          if (!null? extParentClass) {
-            def epc:RangerAppClassDesc (unwrap extParentClass)
-            if epc.is_extended_by_children {
-              class_is_trait_related = true
-            }
-          }
-        }
-      }
     }
     
-    ; Check if the field type is a trait type (will be wrapped in Rc<RefCell<dyn Trait>>)
-    def field_type_is_trait:boolean false
-    def typeClass@(optional):RangerAppClassDesc (ctx.findClass(node.type_name))
-    if (!null? typeClass) {
-      def tc:RangerAppClassDesc (unwrap typeClass)
-      if tc.is_extended_by_children {
-        field_type_is_trait = true
-      }
-    }
-    
-    ; Determine if we need to wrap in RefCell for interior mutability
-    ; This is needed when: class is trait-related, field is optional, field is NOT a trait type
-    def needs_refcell_wrap:boolean ((class_is_trait_related && is_optional) && (field_type_is_trait == false))
-    ; Only wrap object types in RefCell (not primitives, arrays, etc.)
-    def is_object_type:boolean false
-    def v_type_check:RangerNodeType node.value_type
-    if ((v_type_check == RangerNodeType.Object) || (v_type_check == RangerNodeType.VRef) || (v_type_check == RangerNodeType.NoType)) {
-      v_type_check = (node.typeNameAsType(ctx))
-    }
-    if (node.eval_type != RangerNodeType.NoType) {
-      v_type_check = node.eval_type
-    }
-    ; Check if it's an object type (not primitive, array, hash, etc.)
-    if ((((((((v_type_check != RangerNodeType.Integer) && (v_type_check != RangerNodeType.Double)) && (v_type_check != RangerNodeType.String)) && (v_type_check != RangerNodeType.Boolean)) && (v_type_check != RangerNodeType.Char)) && (v_type_check != RangerNodeType.Array)) && (v_type_check != RangerNodeType.Hash)) && (v_type_check != RangerNodeType.Buffer)) {
-      is_object_type = true
-    }
-    if (is_object_type == false) {
-      needs_refcell_wrap = false
-    }
-    
-    ; Handle weak references - uses Weak<RefCell<T>> to break reference cycles
-    if is_weak {
-      if is_optional {
-        wr.out("Option<Weak<RefCell<" false)
+    if is_optional {
+      if is_self_referential {
+        ; Self-referential optional fields need Box to break infinite recursion
+        wr.out("Option<Box<" false)
       } {
-        wr.out("Weak<RefCell<" false)
-      }
-    } {
-      if is_optional {
-        if is_self_referential {
-          ; Self-referential optional fields need Box to break infinite recursion
-          wr.out("Option<Box<" false)
-        } {
-          if needs_refcell_wrap {
-            ; Wrap in RefCell for interior mutability in trait-related classes
-            wr.out("Option<RefCell<" false)
-          } {
-            wr.out("Option<" false)
-          }
-        }
+        wr.out("Option<" false)
       }
     }
     def v_type:RangerNodeType node.value_type
@@ -281,12 +203,12 @@ class RangerRustClassWriter {
           return
         }
         ; Check if this type is a trait type (class is extended by other classes)
-        ; If so, use Rc<RefCell<dyn Trait>> for polymorphism with interior mutability
+        ; If so, use Rc<dyn Trait> for polymorphism (shared ownership)
         def typeClass@(optional):RangerAppClassDesc (ctx.findClass(node.type_name))
         if (!null? typeClass) {
           def tc:RangerAppClassDesc (unwrap typeClass)
           if tc.is_extended_by_children {
-            wr.out(("Rc<RefCell<dyn " + node.type_name + "Trait>>") false)
+            wr.out(("Rc<dyn " + node.type_name + "Trait>") false)
           } {
             wr.out((this.getTypeString(node.type_name)) false)
           }
@@ -295,27 +217,11 @@ class RangerRustClassWriter {
         }
       }
     }
-    ; Close wrapper types
-    if is_weak {
-      if is_optional {
-        ; Close Option<Weak<RefCell<T>>>
-        wr.out(">>>" false)
-      } {
-        ; Close Weak<RefCell<T>>
+    if is_optional {
+      if is_self_referential {
         wr.out(">>" false)
-      }
-    } {
-      if is_optional {
-        if is_self_referential {
-          wr.out(">>" false)
-        } {
-          if needs_refcell_wrap {
-            ; Close both RefCell and Option: Option<RefCell<T>>
-            wr.out(">>" false)
-          } {
-            wr.out(">" false)
-          }
-        }
+      } {
+        wr.out(">" false)
       }
     }
   }
@@ -380,117 +286,13 @@ class RangerRustClassWriter {
             wr.out((this.adjustType( (itemAt node.ns i))) false)
           }
         }
-        ; Check if this is a local variable with rust_needs_rc_wrap (Rc<RefCell<T>>)
-        ; If so and there are more parts (method call), add .borrow_mut()
-        if (i == 0) {
-          if ((nsp_len > 1) && p.rust_needs_rc_wrap) {
-            wr.out(".borrow_mut()" false)
-          }
-        }
-        ; Check if this field has weak annotation
-        def field_is_weak:boolean false
-        def pNameNWeak@(optional):CodeNode p.nameNode
-        if (!null? pNameNWeak) {
-          def pNNWeak:CodeNode (unwrap pNameNWeak)
-          if (pNNWeak.hasFlag("weak")) {
-            field_is_weak = true
-          }
-        }
-        ; Handle weak references - need to upgrade() to get strong reference
-        if field_is_weak {
+        ; Rust: If this field is optional and there are more parts after it, unwrap it
+        if p.is_optional {
           if (i < (nsp_len - 1)) {
-            ; More parts coming - upgrade weak ref and access the inner value
-            if p.is_optional {
-              ; Optional weak: .as_ref().unwrap().upgrade().unwrap().borrow_mut()
-              wr.out(".as_ref().unwrap().upgrade().unwrap().borrow_mut()" false)
-            } {
-              ; Non-optional weak: .upgrade().unwrap().borrow_mut()
-              wr.out(".upgrade().unwrap().borrow_mut()" false)
-            }
+            ; More parts coming - need to unwrap the Option
+            ; Use as_mut().unwrap() to allow both read and write access
+            wr.out(".as_mut().unwrap()" false)
           }
-        } {
-          ; Rust: If this field is optional and there are more parts after it, unwrap it
-          if p.is_optional {
-            if (i < (nsp_len - 1)) {
-              ; More parts coming - need to unwrap the Option
-              ; Check if this is a trait type (Rc<RefCell<dyn Trait>>)
-              def field_is_trait_type:boolean false
-              def pNameN@(optional):CodeNode p.nameNode
-              if (!null? pNameN) {
-                def pNN:CodeNode (unwrap pNameN)
-                def pTypeName:string pNN.type_name
-                def pTypeClass@(optional):RangerAppClassDesc (ctx.findClass(pTypeName))
-              if (!null? pTypeClass) {
-                def ptc:RangerAppClassDesc (unwrap pTypeClass)
-                if ptc.is_extended_by_children {
-                  field_is_trait_type = true
-                }
-              }
-            }
-            ; Check if the class that OWNS this field is trait-related
-            ; (Fields in trait-related classes have Option<RefCell<T>> type)
-            def owning_class_is_trait_related:boolean false
-            def pOwnerClass@(optional):RangerAppClassDesc p.propertyClass
-            ; If propertyClass is null, fall back to current class (self field)
-            if (null? pOwnerClass) {
-              if p.is_class_variable {
-                pOwnerClass = (ctx.getCurrentClass())
-              }
-            }
-            if (!null? pOwnerClass) {
-              def ownerC:RangerAppClassDesc (unwrap pOwnerClass)
-              if ownerC.is_extended_by_children {
-                owning_class_is_trait_related = true
-              }
-              if (owning_class_is_trait_related == false) {
-                for ownerC.extends_classes extParentName2:string epi2 {
-                  def extParentClass2@(optional):RangerAppClassDesc (ctx.findClass(extParentName2))
-                  if (!null? extParentClass2) {
-                    def epc2:RangerAppClassDesc (unwrap extParentClass2)
-                    if epc2.is_extended_by_children {
-                      owning_class_is_trait_related = true
-                    }
-                  }
-                }
-              }
-            }
-            ; Use borrow_mut for:
-            ; 1. Trait types (Rc<RefCell<dyn Trait>>)
-            ; 2. Non-trait optional object fields in trait-related classes (Option<RefCell<T>>)
-            if field_is_trait_type {
-              ; Trait types use Rc<RefCell<dyn Trait>> - use borrow_mut for interior mutability
-              wr.out(".as_ref().unwrap().borrow_mut()" false)
-            } {
-              if owning_class_is_trait_related {
-                ; Non-trait optional object fields in trait-related classes use Option<RefCell<T>>
-                wr.out(".as_ref().unwrap().borrow_mut()" false)
-              } {
-                ; Check if the root object (parameter) is an immutable borrow
-                ; If so, we MUST use as_ref() because we can't get &mut from &T
-                def root_is_immutable_borrow:boolean false
-                if (nsp_len > 0) {
-                  def rootParam:RangerAppParamDesc (itemAt node.nsp 0)
-                  if (rootParam.rust_borrow_type == 1) {
-                    root_is_immutable_borrow = true
-                  }
-                }
-                
-                if root_is_immutable_borrow {
-                  ; Root parameter is immutable borrow - must use as_ref()
-                  wr.out(".as_ref().unwrap()" false)
-                } {
-                  ; Check if we're on LHS of assignment - need as_mut
-                  if (ctx.isInLhs()) {
-                    wr.out(".as_mut().unwrap()" false)
-                  } {
-                    ; Default to as_mut for safety (methods might mutate)
-                    wr.out(".as_mut().unwrap()" false)
-                  }
-                }
-              }
-            }
-          }
-        }
         }
         if (p.isClass()) {
           had_static = true
@@ -567,12 +369,6 @@ class RangerRustClassWriter {
       ; For now, always use mut for objects and arrays to avoid borrow issues
       def needs_mut:boolean ((((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer)
       def is_object:boolean (nn.value_type == RangerNodeType.Object)
-      
-      ; Check if this local variable needs Rc<RefCell<T>> wrapping (for weak ref pattern)
-      ; This is detected by static analysis when the variable is passed to a method 
-      ; whose parameter is assigned to a @(weak) field
-      def local_needs_rc_wrap:boolean p.rust_needs_rc_wrap
-      
       if (needs_mut || is_object) {
         wr.out((("let mut " + p.compiledName) + " : ") false)
       } {
@@ -603,45 +399,27 @@ class RangerRustClassWriter {
         }
       }
       
-      ; Write type - with Rc<RefCell<>> wrapper if needed for weak ref pattern
-      if local_needs_rc_wrap {
-        ; Variable needs Rc<RefCell<T>> type
-        wr.out("Rc<RefCell<" false)
-        this.writeTypeDef(nameN ctx wr)
-        wr.out(">>" false)
-      } {
-        if rhs_is_optional_field {
-          ; Write the underlying type without Option wrapper
-          def v_type:RangerNodeType nameN.value_type
-          if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
-            v_type = (nameN.typeNameAsType(ctx))
-          }
-          if (nameN.eval_type != RangerNodeType.NoType) {
-            v_type = nameN.eval_type
-          }
-          wr.out((this.getTypeString(nameN.type_name)) false)
-        } {
-          this.writeTypeDef(nameN ctx wr)
+      ; Write type - skip Option wrapper if RHS is optional field (we'll unwrap it)
+      if rhs_is_optional_field {
+        ; Write the underlying type without Option wrapper
+        def v_type:RangerNodeType nameN.value_type
+        if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+          v_type = (nameN.typeNameAsType(ctx))
         }
+        if (nameN.eval_type != RangerNodeType.NoType) {
+          v_type = nameN.eval_type
+        }
+        wr.out((this.getTypeString(nameN.type_name)) false)
+      } {
+        this.writeTypeDef(nameN ctx wr)
       }
       
       if ((array_length node.children) > 2) {
         wr.out(" = " false)
-        
-        ; Wrap initialization in Rc::new(RefCell::new(...)) if needed
-        if local_needs_rc_wrap {
-          wr.out("Rc::new(RefCell::new(" false)
-        }
-        
         ctx.setInExpr()
         def value:CodeNode (node.getThird())
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
-        
-        ; Close Rc::new(RefCell::new(...)) if we opened it
-        if local_needs_rc_wrap {
-          wr.out("))" false)
-        }
         
         ; If RHS was optional field, unwrap it
         if rhs_is_optional_field {
@@ -741,42 +519,22 @@ class RangerRustClassWriter {
         needsMutRef = true
       }
       
-      ; Check if parameter is assigned to a weak field - needs Rc<RefCell<T>> type
-      ; This is detected by static analysis when we see: this.weakField = param
-      if arg.rust_needs_rc_wrap {
-        ; Parameter is assigned to weak field - needs Rc<RefCell<T>> type
-        wr.out(("mut " + paramName + " : Rc<RefCell<") false)
-        this.writeTypeDef(nameN ctx wr)
-        wr.out(">>" false)
-        continue
-      }
-      
-      ; Check for immutable borrow (rust_borrow_type = 1)
-      ; This is for buffer/array/object params that are not mutated
-      def needsImmutableBorrow:boolean (arg.rust_borrow_type == 1)
-      
       ; Check if parameter is assigned - if so, make it mut
       if needsMutRef {
         ; Parameter is mutated - needs mut
         wr.out(("mut " + paramName + " : &mut ") false)
         this.writeTypeDef(nameN ctx wr)
       } {
-        if needsImmutableBorrow {
-          ; Parameter is borrowed but not mutated - immutable reference
-          wr.out((paramName + " : &") false)
+        if is_object {
+          wr.out(("mut " + paramName + " : ") false)
           this.writeTypeDef(nameN ctx wr)
         } {
-          if is_object {
+          if (arg.set_cnt > 0) {
             wr.out(("mut " + paramName + " : ") false)
-            this.writeTypeDef(nameN ctx wr)
           } {
-            if (arg.set_cnt > 0) {
-              wr.out(("mut " + paramName + " : ") false)
-            } {
-              wr.out((paramName + " : ") false)
-            }
-            this.writeTypeDef(nameN ctx wr)
+            wr.out((paramName + " : ") false)
           }
+          this.writeTypeDef(nameN ctx wr)
         }
       }
     }
@@ -845,80 +603,6 @@ class RangerRustClassWriter {
     for node.children child:CodeNode i {
       if (this.fnBodyUsesThis(child ctx)) {
         return true
-      }
-    }
-    return false
-  }
-
-  ; Helper: Check if a node accesses a field of the given variable
-  ; Returns true if node is like varName.field or varName.field.subfield
-  fn accessesFieldOf:boolean (node:CodeNode varName:string) {
-    if ((array_length node.ns) > 0) {
-      def firstPart:string (itemAt node.ns 0)
-      if (firstPart == varName) {
-        ; This accesses varName.something
-        if ((array_length node.ns) > 1) {
-          return true
-        }
-      }
-    }
-    ; Check children recursively
-    for node.children child:CodeNode i {
-      if (this.accessesFieldOf(child varName)) {
-        return true
-      }
-    }
-    return false
-  }
-
-  ; Helper: Get root variable name from an argument node
-  ; For a simple var reference like "child", returns "child"
-  fn getArgRootVar:string (node:CodeNode) {
-    ; If node has ns, use first part
-    if ((array_length node.ns) > 0) {
-      return (itemAt node.ns 0)
-    }
-    ; If node is a simple vref
-    if ((strlen node.vref) > 0) {
-      return node.vref
-    }
-    return ""
-  }
-
-  ; Helper: Detect when we have a &mut ref conflict in function call arguments
-  ; Returns true if argIdx gets &mut and other args access fields of that same variable
-  fn hasMutRefConflict:boolean (node:CodeNode fnDesc:RangerAppFunctionDesc argIdx:int givenArgs:CodeNode) {
-    def paramCnt:int (array_length fnDesc.params)
-    if (argIdx >= paramCnt) {
-      return false
-    }
-    def param:RangerAppParamDesc (itemAt fnDesc.params argIdx)
-    ; Check if this parameter needs &mut
-    def needsMut:boolean false
-    if param.needs_cpp_reference {
-      needsMut = true
-    }
-    if (param.rust_borrow_type == 2) {
-      needsMut = true
-    }
-    if (needsMut == false) {
-      return false
-    }
-    ; Get the variable name being passed
-    def argNode@(optional):CodeNode (itemAt givenArgs.children argIdx)
-    if (null? argNode) {
-      return false
-    }
-    def varName:string (this.getArgRootVar((unwrap argNode)))
-    if ((strlen varName) == 0) {
-      return false
-    }
-    ; Check if other args access fields of this variable
-    for givenArgs.children otherArg:CodeNode otherIdx {
-      if (otherIdx != argIdx) {
-        if (this.accessesFieldOf(otherArg varName)) {
-          return true
-        }
       }
     }
     return false
@@ -1074,8 +758,8 @@ class RangerRustClassWriter {
   }
   
   ; Build call graph and mutation info for a class
-  ; Returns two maps: methodName -> directlyMutates (boolean), methodName -> MethodCallList
-  fn buildClassMutationGraph:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean] callGraph:[string:MethodCallList]) {
+  ; Returns two maps: methodName -> directlyMutates (boolean), methodName -> [calledMethods]
+  fn buildClassMutationGraph:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean] callGraph:[string:[string]]) {
     print ("DEBUG buildClassMutationGraph: class=" + cl.name + " variants=" + (to_string (array_length cl.defined_variants)))
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
@@ -1095,10 +779,10 @@ class RangerRustClassWriter {
           print ("DEBUG buildClassMutationGraph: " + variant.name + " directlyMutates=" + (to_string directlyMutates))
           set directMutations variant.name directlyMutates
           
-          ; Collect method calls into a MethodCallList
-          def callList:MethodCallList (new MethodCallList())
-          this.collectSelfMethodCalls(fnBody useCtx callList.calls)
-          set callGraph variant.name callList
+          ; Collect method calls
+          def calls:[string]
+          this.collectSelfMethodCalls(fnBody useCtx calls)
+          set callGraph variant.name calls
         }
       }
     }
@@ -1106,7 +790,7 @@ class RangerRustClassWriter {
   
   ; Check if a method transitively mutates (directly or via called methods)
   ; Uses visited set to prevent infinite recursion on cycles
-  fn methodTransitivelyMutates:boolean (methodName:string directMutations:[string:boolean] callGraph:[string:MethodCallList] visited:[string]) {
+  fn methodTransitivelyMutates:boolean (methodName:string directMutations:[string:boolean] callGraph:[string:[string]] visited:[string]) {
     ; Check if already visited (cycle detection)
     for visited v:string i {
       if (v == methodName) {
@@ -1125,8 +809,8 @@ class RangerRustClassWriter {
     
     ; Check called methods
     if (has callGraph methodName) {
-      def callList:MethodCallList (get callGraph methodName)
-      for callList.calls calledMethod:string i {
+      def calls:[string] (get callGraph methodName)
+      for calls calledMethod:string i {
         if (this.methodTransitivelyMutates(calledMethod directMutations callGraph visited)) {
           return true
         }
@@ -1137,7 +821,7 @@ class RangerRustClassWriter {
   }
   
   ; Main entry: Check if a method mutates this (uses call graph for transitive analysis)
-  fn methodMutatesThis:boolean (methodName:string directMutations:[string:boolean] callGraph:[string:MethodCallList]) {
+  fn methodMutatesThis:boolean (methodName:string directMutations:[string:boolean] callGraph:[string:[string]]) {
     def visited:[string]
     return (this.methodTransitivelyMutates(methodName directMutations callGraph visited))
   }
@@ -1158,7 +842,6 @@ class RangerRustClassWriter {
       ; Check if the object is an optional type (which needs .as_ref().unwrap() or .as_mut().unwrap())
       def obj_is_optional:boolean false
       def obj_is_trait_type:boolean false  ; True if obj's type is Rc<dyn Trait>
-      def owning_class_is_trait_related:boolean false ; True if owning class extends a trait or is extended
       if obj.hasParamDesc {
         def pp:RangerAppParamDesc obj.paramDesc
         if pp.is_optional {
@@ -1174,31 +857,6 @@ class RangerRustClassWriter {
             def otc:RangerAppClassDesc (unwrap objTypeClass)
             if otc.is_extended_by_children {
               obj_is_trait_type = true
-            }
-          }
-        }
-        
-        ; Check if owning class is trait-related
-        def objOwnerClass@(optional):RangerAppClassDesc pp.propertyClass
-        if (null? objOwnerClass) {
-          if pp.is_class_variable {
-            objOwnerClass = (ctx.getCurrentClass())
-          }
-        }
-        if (!null? objOwnerClass) {
-          def objOC:RangerAppClassDesc (unwrap objOwnerClass)
-          if objOC.is_extended_by_children {
-            owning_class_is_trait_related = true
-          }
-          if (owning_class_is_trait_related == false) {
-            for objOC.extends_classes objExtParent:string objEpi {
-              def objExtParentClass@(optional):RangerAppClassDesc (ctx.findClass(objExtParent))
-              if (!null? objExtParentClass) {
-                def objEpc:RangerAppClassDesc (unwrap objExtParentClass)
-                if objEpc.is_extended_by_children {
-                  owning_class_is_trait_related = true
-                }
-              }
             }
           }
         }
@@ -1256,15 +914,13 @@ class RangerRustClassWriter {
       }
 
       if obj_is_optional {
-        ; For optional objects with trait types: Rc<RefCell<dyn Trait>>
-        ; Or for optional objects in trait-related classes: Option<RefCell<T>>
+        ; For optional objects, use as_ref() for trait types (Rc<dyn Trait>), as_mut() otherwise
         ctx.setInExpr()
         this.WalkNode(obj ctx wr)
         ctx.unsetInExpr()
-        if (obj_is_trait_type || owning_class_is_trait_related) {
-          ; Trait types use Rc<RefCell<...>> - borrow_mut for interior mutability
-          ; Fields in trait-related classes use Option<RefCell<T>>
-          wr.out(".as_ref().unwrap().borrow_mut()." false)
+        if obj_is_trait_type {
+          ; Trait types use Rc which only provides immutable access
+          wr.out(".as_ref().unwrap()." false)
         } {
           wr.out(".as_mut().unwrap()." false)
         }
@@ -1274,12 +930,7 @@ class RangerRustClassWriter {
         ctx.setInExpr()
         this.WalkNode(obj ctx wr)
         ctx.unsetInExpr()
-        if obj_is_trait_type {
-          ; Trait types use Rc<RefCell<...>> - borrow_mut for interior mutability
-          wr.out(").borrow_mut()." false)
-        } {
-          wr.out(")." false)
-        }
+        wr.out(")." false)
       }
       
       wr.out(method.vref false)
@@ -1293,9 +944,6 @@ class RangerRustClassWriter {
         return true
       })
       
-      ; Get the called function's descriptor if available
-      def calledFnDesc@(optional):RangerAppFunctionDesc node.fnDesc
-      
       for pms arg:CodeNode i {
         if (i > 0) {
           wr.out(", " false)
@@ -1306,61 +954,7 @@ class RangerRustClassWriter {
           ; Clear the flag after use
           arg.rust_use_tmpvar = ""
         } {
-          ; Check if we need to handle borrow type conversion
-          def source_is_reference:boolean false
-          def target_expects_owned:boolean true  ; Default to expecting owned
-          
-          ; Check if source argument is a reference parameter
-          if (arg.value_type == RangerNodeType.VRef) {
-            if arg.hasParamDesc {
-              def srcParam:RangerAppParamDesc arg.paramDesc
-              if (srcParam.rust_borrow_type > 0) {
-                source_is_reference = true
-              }
-            }
-          }
-          
-          ; Try to get the called function's parameter info
-          ; First from node.fnDesc if available
-          if (!null? calledFnDesc) {
-            def cfn:RangerAppFunctionDesc (unwrap calledFnDesc)
-            if (i < (array_length cfn.params)) {
-              def targetParam:RangerAppParamDesc (itemAt cfn.params i)
-              if (targetParam.rust_borrow_type > 0) {
-                target_expects_owned = false
-              }
-            }
-          } {
-            ; If node.fnDesc is not available, try to look up the method from obj's type
-            if obj.hasParamDesc {
-              def objPd:RangerAppParamDesc obj.paramDesc
-              if (!null? objPd.nameNode) {
-                def objNN:CodeNode (unwrap objPd.nameNode)
-                def objTypeName:string objNN.type_name
-                def objClass@(optional):RangerAppClassDesc (ctx.findClass(objTypeName))
-                if (!null? objClass) {
-                  def oc:RangerAppClassDesc (unwrap objClass)
-                  def calledMethod@(optional):RangerAppFunctionDesc (oc.findMethod(method.vref))
-                  if (!null? calledMethod) {
-                    def cm:RangerAppFunctionDesc (unwrap calledMethod)
-                    if (i < (array_length cm.params)) {
-                      def targetParam2:RangerAppParamDesc (itemAt cm.params i)
-                      if (targetParam2.rust_borrow_type > 0) {
-                        target_expects_owned = false
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-          
           this.WalkNode(arg ctx wr)
-          
-          ; If source is reference and target expects owned, add .clone()
-          if (source_is_reference && target_expects_owned) {
-            wr.out(".clone()" false)
-          }
         }
       }
       ctx.unsetInExpr()
@@ -1374,14 +968,8 @@ class RangerRustClassWriter {
   ; Override CreateMethodCall for Rust to handle borrow conflicts with optional self members
   ; This is used for is_direct_method_call nodes (e.g., streamBuffer.writeString(...))
   fn CreateMethodCall(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    ; DEBUG: Always print to confirm this is called
-    print "DEBUG CreateMethodCall ALWAYS CALLED"
-    
     def obj:CodeNode (node.getFirst())
     def args:CodeNode (node.getSecond())
-    
-    ; DEBUG: Always print to confirm this function is being called
-    print ("DEBUG CreateMethodCall ALWAYS: obj.vref=" + obj.vref)
     
     ; Check if the object is an optional class variable (self member)
     def obj_is_optional:boolean false
@@ -1409,10 +997,8 @@ class RangerRustClassWriter {
     }
     
     ; Check if we need to pre-evaluate arguments to avoid borrow conflicts
-    ; When calling a method on a self member, if args contain self references,
-    ; we need to pre-evaluate to avoid borrowing self twice
     def needs_arg_preevaluation:boolean false
-    if obj_is_self_member {
+    if (obj_is_optional && obj_is_self_member) {
       if (this.containsSelfReference(args)) {
         needs_arg_preevaluation = true
       }
@@ -1512,24 +1098,10 @@ class RangerRustClassWriter {
     return (-1)
   }
 
-  fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    ; DEBUG: Unconditional entry debug
-    print "DEBUG writeFnCall ENTRY"
-    
+  fn writeFnCall (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
       def part:string (itemAt fc.ns 0)
-      
-      ; DEBUG: Print all method calls to trace huffman.parseDHT
-      if ((strlen part) > 0) {
-        def methodName:string ""
-        if ((array_length fc.ns) >= 2) {
-          methodName = (itemAt fc.ns 1)
-        }
-        if ((methodName == "parseDHT") || (part == "huffman")) {
-          print ("DEBUG writeFnCall: FOUND! part=" + part + " method=" + methodName + " isMemberVar=" + (to_string (ctx.isMemberVariable(part))))
-        }
-      }
       
       ; Check if the target is a class variable (self member) and if it's optional
       def target_is_self_member:boolean false
@@ -1559,29 +1131,12 @@ class RangerRustClassWriter {
       
       def givenArgs:CodeNode (node.getSecond())
       
-      ; If calling method on a self member and args contain self references,
-      ; we need to pre-evaluate all arguments to avoid borrow conflicts
-      ; e.g., self.huffman.parseDHT(self.data, ...) requires pre-evaluating self.data
+      ; If calling method on optional self member and args contain self references,
+      ; we need to pre-evaluate all arguments
       def needs_arg_preevaluation:boolean false
-      if target_is_self_member {
+      if (target_is_self_member && target_is_optional) {
         if (this.containsSelfReference(givenArgs)) {
           needs_arg_preevaluation = true
-        }
-      }
-      
-      ; Also check for &mut ref conflict: when an arg gets &mut and other args access its fields
-      ; e.g., fn(&mut child, child.field) - we can't read child.field while borrowing &mut child
-      if (needs_arg_preevaluation == false) {
-        if node.hasFnCall {
-          if (!null? node.fnDesc) {
-            def fnD:RangerAppFunctionDesc (unwrap node.fnDesc)
-            for fnD.params param:RangerAppParamDesc paramIdx {
-              if (this.hasMutRefConflict(node fnD paramIdx givenArgs)) {
-                needs_arg_preevaluation = true
-                break
-              }
-            }
-          }
         }
       }
       
@@ -1590,160 +1145,36 @@ class RangerRustClassWriter {
         print ("DEBUG writeFnCall: part=" + part + " target_is_optional=" + (to_string target_is_optional) + " containsSelf=" + (to_string (this.containsSelfReference(givenArgs))) + " needs_preeval=" + (to_string needs_arg_preevaluation))
       }
       
-      ; Pre-evaluate arguments if needed to avoid borrow conflicts
+      ; Pre-evaluate all arguments if needed to avoid borrow conflicts
       ; BUT only do this if we're not inside an expression (can't emit let in expr)
       if (needs_arg_preevaluation && ((ctx.expressionLevel()) == 0)) {
-        ; When calling method on self.member and args contain self refs,
-        ; we need to pre-evaluate ALL args that reference self to avoid borrow conflicts
-        
         def tempVars:[string]
         def tmpIdx:int 0
-        def fnD3@(optional):RangerAppFunctionDesc node.fnDesc
         for givenArgs.children argNode:CodeNode argIdx {
-          ; Check if this arg contains a self reference (class variable)
-          def argHasSelfRef:boolean (this.containsSelfReference(argNode))
-          
-          if argHasSelfRef {
-            ; Pre-evaluate this argument
-            def tmpName:string ("__arg_" + (to_string tmpIdx))
-            tmpIdx = tmpIdx + 1
-            push tempVars tmpName
-            ; Check if parameter needs &mut - if so, declare temp as mut
-            def needsMutDecl:boolean false
-            if (!null? fnD3) {
-              def fnD:RangerAppFunctionDesc (unwrap fnD3)
-              if (argIdx < (array_length fnD.params)) {
-                def argP:RangerAppParamDesc (itemAt fnD.params argIdx)
-                if argP.needs_cpp_reference {
-                  needsMutDecl = true
-                }
-                if (argP.rust_borrow_type == 2) {
-                  needsMutDecl = true
-                }
-              }
-            }
-            if needsMutDecl {
-              wr.out(("let mut " + tmpName + " = ") false)
-            } {
-              wr.out(("let " + tmpName + " = ") false)
-            }
-            ctx.setInExpr()
-            this.WalkNode(argNode ctx wr)
-            ctx.unsetInExpr()
-            wr.out(".clone();" true)
-          } {
-            ; Don't pre-eval, use empty marker
-            push tempVars ""
+          def tmpName:string ("__arg_" + (to_string tmpIdx))
+          tmpIdx = tmpIdx + 1
+          push tempVars tmpName
+          ; Write temp variable assignment - clone to avoid move issues in loops
+          wr.out(("let " + tmpName + " = ") false)
+          ctx.setInExpr()
+          this.WalkNode(argNode ctx wr)
+          ctx.unsetInExpr()
+          ; Clone non-primitive types to avoid moving
+          if (argNode.value_type == RangerNodeType.VRef) {
+            wr.out(".clone()" false)
           }
+          wr.out(";" true)
         }
         
-        ; Now write the actual function call with temp vars for pre-evaled args
-        ; First check if this is a static method call (method doesn't use 'this')
-        def call_as_static_preeval:boolean false
-        if (part == "this") {
-          if node.hasFnCall {
-            def fnD:RangerAppFunctionDesc node.fnDesc
-            def fnB@(optional):CodeNode fnD.fnBody
-            if (!null? fnB) {
-              def fnCtx@(optional):RangerAppWriterContext fnD.fnCtx
-              def useCtx:RangerAppWriterContext ctx
-              if (!null? fnCtx) {
-                useCtx = (unwrap fnCtx)
-              }
-              def uses_this:boolean (this.fnBodyUsesThis((unwrap fnB) useCtx))
-              if (uses_this == false) {
-                call_as_static_preeval = true
-              }
-            }
-          }
-        }
-        
-        if call_as_static_preeval {
-          ; Use ClassName::method() syntax for static call
-          def fnD:RangerAppFunctionDesc node.fnDesc
-          def fnContainerClass@(optional):RangerAppClassDesc fnD.container_class
-          if (!null? fnContainerClass) {
-            def containerClass:RangerAppClassDesc (unwrap fnContainerClass)
-            def methodName:string (itemAt fc.ns 1)
-            wr.out(((containerClass.name + "::") + methodName) false)
-          } {
-            ; Fallback to WriteVRef
-            this.WriteVRef(fc ctx wr)
-          }
-        } {
-          this.WriteVRef(fc ctx wr)
-        }
+        ; Now write the actual function call with temp vars
+        this.WriteVRef(fc ctx wr)
         wr.out("(" false)
-        def fnD2@(optional):RangerAppFunctionDesc node.fnDesc
-        if (!null? fnD2) {
-          def fnDesc:RangerAppFunctionDesc (unwrap fnD2)
-          for fnDesc.params arg:RangerAppParamDesc i {
-            def n@(optional):CodeNode (itemAt givenArgs.children i)
-            if (i > 0) {
-              wr.out(", " false)
-            }
-            def tmpVar:string (itemAt tempVars i)
-            if ((strlen tmpVar) > 0) {
-              ; Use pre-evaluated temp var - check if needs &mut or &
-              def needsMutRefTmp:boolean false
-              if arg.needs_cpp_reference {
-                needsMutRefTmp = true
-              }
-              if (arg.rust_borrow_type == 2) {
-                needsMutRefTmp = true
-              }
-              def needsImmutableRefTmp:boolean (arg.rust_borrow_type == 1)
-              if needsMutRefTmp {
-                wr.out("&mut " false)
-              } {
-                if needsImmutableRefTmp {
-                  wr.out("&" false)
-                }
-              }
-              wr.out(tmpVar false)
-            } {
-              ; Output argument directly
-              if (!null? n) {
-                def nVal:CodeNode (unwrap n)
-                ; Check if parameter needs mutable reference
-                def needsMutRef:boolean false
-                if arg.needs_cpp_reference {
-                  needsMutRef = true
-                }
-                if (arg.rust_borrow_type == 2) {
-                  needsMutRef = true
-                }
-                ; Check if parameter needs immutable reference
-                def needsImmutableRef:boolean (arg.rust_borrow_type == 1)
-                
-                if needsMutRef {
-                  wr.out("&mut " false)
-                } {
-                  if needsImmutableRef {
-                    wr.out("&" false)
-                  }
-                }
-                ctx.setInExpr()
-                this.WalkNode(nVal ctx wr)
-                ctx.unsetInExpr()
-                
-                ; Check if source is reference and target expects owned - add clone
-                def src_is_ref:boolean false
-                if (nVal.value_type == RangerNodeType.VRef) {
-                  if nVal.hasParamDesc {
-                    def srcP:RangerAppParamDesc nVal.paramDesc
-                    if (srcP.rust_borrow_type > 0) {
-                      src_is_ref = true
-                    }
-                  }
-                }
-                def tgt_expects_owned:boolean (arg.rust_borrow_type == 0)
-                if (src_is_ref && tgt_expects_owned && (needsMutRef == false)) {
-                  wr.out(".clone()" false)
-                }
-              }
-            }
+        for node.fnDesc.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(", " false)
           }
+          def tmpVar:string (itemAt tempVars i)
+          wr.out(tmpVar false)
         }
         wr.out(")" false)
         if ((ctx.expressionLevel()) == 0) {
@@ -1802,7 +1233,7 @@ class RangerRustClassWriter {
           ; Check if we have a temp var for this arg
           def tempVar:string (itemAt tempVars i)
           if ((strlen tempVar) > 0) {
-            ; Check if parameter needs mutable or immutable reference
+            ; Check if parameter needs mutable reference - add &mut prefix
             def needsMutRefTmp:boolean false
             if arg.needs_cpp_reference {
               needsMutRefTmp = true
@@ -1810,13 +1241,8 @@ class RangerRustClassWriter {
             if (arg.rust_borrow_type == 2) {
               needsMutRefTmp = true
             }
-            def needsImmutableRefTmp2:boolean (arg.rust_borrow_type == 1)
             if needsMutRefTmp {
               wr.out("&mut " false)
-            } {
-              if needsImmutableRefTmp2 {
-                wr.out("&" false)
-              }
             }
             wr.out(tempVar false)
           } {
@@ -1829,7 +1255,6 @@ class RangerRustClassWriter {
             if (arg.rust_borrow_type == 2) {
               needsMutRef2 = true
             }
-            def needsImmutableRef2:boolean (arg.rust_borrow_type == 1)
             
             if needsMutRef2 {
               ; Parameter needs &mut - output &mut prefix
@@ -1838,37 +1263,29 @@ class RangerRustClassWriter {
               this.WalkNode(nVal ctx wr)
               ctx.unsetInExpr()
             } {
-              if needsImmutableRef2 {
-                ; Parameter needs & - output & prefix without clone
-                wr.out("&" false)
-                ctx.setInExpr()
-                this.WalkNode(nVal ctx wr)
-                ctx.unsetInExpr()
-              } {
-                ctx.setInExpr()
-                this.WalkNode(nVal ctx wr)
-                ctx.unsetInExpr()
-                ; In Rust, values are moved when passed, so clone when passing a variable
-                def argNameN:CodeNode (unwrap arg.nameNode)
-                def arg_type:RangerNodeType argNameN.value_type
-                if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
-                  arg_type = (argNameN.typeNameAsType(ctx))
-                }
-                def needs_clone:boolean false
-                if (argNameN.type_name == "string") {
-                  needs_clone = true
-                }
-                if (arg_type == RangerNodeType.Object) {
-                  needs_clone = true
-                }
-                ; In Rust, arrays and hashes need cloning to avoid move errors
-                if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
-                  needs_clone = true
-                }
-                if needs_clone {
-                  if (nVal.value_type == RangerNodeType.VRef) {
-                    wr.out(".clone()" false)
-                  }
+              ctx.setInExpr()
+              this.WalkNode(nVal ctx wr)
+              ctx.unsetInExpr()
+              ; In Rust, values are moved when passed, so clone when passing a variable
+              def argNameN:CodeNode (unwrap arg.nameNode)
+              def arg_type:RangerNodeType argNameN.value_type
+              if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+                arg_type = (argNameN.typeNameAsType(ctx))
+              }
+              def needs_clone:boolean false
+              if (argNameN.type_name == "string") {
+                needs_clone = true
+              }
+              if (arg_type == RangerNodeType.Object) {
+                needs_clone = true
+              }
+              ; In Rust, arrays and hashes need cloning to avoid move errors
+              if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
+                needs_clone = true
+              }
+              if needs_clone {
+                if (nVal.value_type == RangerNodeType.VRef) {
+                  wr.out(".clone()" false)
                 }
               }
             }
@@ -1950,34 +1367,24 @@ class RangerRustClassWriter {
               this.WalkNode(nVal ctx wr)
               ctx.unsetInExpr()
             } {
-              ; Check for immutable borrow parameter
-              def needsImmutableBorrow2:boolean (arg.rust_borrow_type == 1)
-              if needsImmutableBorrow2 {
-                ; Immutable reference - pass & without clone
-                wr.out("&" false)
-                ctx.setInExpr()
-                this.WalkNode(nVal ctx wr)
-                ctx.unsetInExpr()
-              } {
-                ctx.setInExpr()
-                this.WalkNode(nVal ctx wr)
-                ctx.unsetInExpr()
-                ; Clone non-primitives when passing by value
-                def argNameN:CodeNode (unwrap arg.nameNode)
-                def arg_type:RangerNodeType argNameN.value_type
-                if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
-                  arg_type = (argNameN.typeNameAsType(ctx))
-                }
-                def needs_clone:boolean false
-                if (argNameN.type_name == "string") { needs_clone = true }
-                if (arg_type == RangerNodeType.Object) { needs_clone = true }
-                if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
-                  needs_clone = true
-                }
-                if needs_clone {
-                  if (nVal.value_type == RangerNodeType.VRef) {
-                    wr.out(".clone()" false)
-                  }
+              ctx.setInExpr()
+              this.WalkNode(nVal ctx wr)
+              ctx.unsetInExpr()
+              ; Clone non-primitives when passing by value
+              def argNameN:CodeNode (unwrap arg.nameNode)
+              def arg_type:RangerNodeType argNameN.value_type
+              if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+                arg_type = (argNameN.typeNameAsType(ctx))
+              }
+              def needs_clone:boolean false
+              if (argNameN.type_name == "string") { needs_clone = true }
+              if (arg_type == RangerNodeType.Object) { needs_clone = true }
+              if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
+                needs_clone = true
+              }
+              if needs_clone {
+                if (nVal.value_type == RangerNodeType.VRef) {
+                  wr.out(".clone()" false)
                 }
               }
             }
@@ -2042,45 +1449,24 @@ class RangerRustClassWriter {
               continue _
             }
             def nVal:CodeNode (unwrap n)
-            ; Check for mutable or immutable borrow
-            def needsMutRef3:boolean false
-            if arg.needs_cpp_reference { needsMutRef3 = true }
-            if (arg.rust_borrow_type == 2) { needsMutRef3 = true }
-            def needsImmutableBorrow3:boolean (arg.rust_borrow_type == 1)
-            
-            if needsMutRef3 {
-              wr.out("&mut " false)
-              ctx.setInExpr()
-              this.WalkNode(nVal ctx wr)
-              ctx.unsetInExpr()
-            } {
-              if needsImmutableBorrow3 {
-                ; Immutable reference - pass & without clone
-                wr.out("&" false)
-                ctx.setInExpr()
-                this.WalkNode(nVal ctx wr)
-                ctx.unsetInExpr()
-              } {
-                ctx.setInExpr()
-                this.WalkNode(nVal ctx wr)
-                ctx.unsetInExpr()
-                ; Clone non-primitives
-                def argNameN:CodeNode (unwrap arg.nameNode)
-                def arg_type:RangerNodeType argNameN.value_type
-                if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
-                  arg_type = (argNameN.typeNameAsType(ctx))
-                }
-                def needs_clone:boolean false
-                if (argNameN.type_name == "string") { needs_clone = true }
-                if (arg_type == RangerNodeType.Object) { needs_clone = true }
-                if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash)) {
-                  needs_clone = true
-                }
-                if needs_clone {
-                  if (nVal.value_type == RangerNodeType.VRef) {
-                    wr.out(".clone()" false)
-                  }
-                }
+            ctx.setInExpr()
+            this.WalkNode(nVal ctx wr)
+            ctx.unsetInExpr()
+            ; Clone non-primitives
+            def argNameN:CodeNode (unwrap arg.nameNode)
+            def arg_type:RangerNodeType argNameN.value_type
+            if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+              arg_type = (argNameN.typeNameAsType(ctx))
+            }
+            def needs_clone:boolean false
+            if (argNameN.type_name == "string") { needs_clone = true }
+            if (arg_type == RangerNodeType.Object) { needs_clone = true }
+            if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash)) {
+              needs_clone = true
+            }
+            if needs_clone {
+              if (nVal.value_type == RangerNodeType.VRef) {
+                wr.out(".clone()" false)
               }
             }
           }
@@ -2125,9 +1511,6 @@ class RangerRustClassWriter {
           needsMutRef = true
         }
         
-        ; Check for immutable borrow (rust_borrow_type = 1)
-        def needsImmutableBorrow:boolean (arg.rust_borrow_type == 1)
-        
         ; Check if parameter type is a trait type - if so, wrap in Box::new()
         def arg_is_trait_type:boolean false
         def argNameN:CodeNode (unwrap arg.nameNode)
@@ -2169,119 +1552,48 @@ class RangerRustClassWriter {
           this.WalkNode(nVal ctx wr)
           ctx.unsetInExpr()
         } {
-          ; Check for immutable borrow
-          if needsImmutableBorrow {
-            ; Parameter takes immutable reference - output & prefix
-            wr.out("&" false)
-            ctx.setInExpr()
-            this.WalkNode(nVal ctx wr)
-            ctx.unsetInExpr()
-          } {
-          ; Standard case - target expects owned value
-          ; Check if the SOURCE is a reference that needs to be cloned to convert to owned
-          def source_is_reference:boolean false
-          if (nVal.value_type == RangerNodeType.VRef) {
-            if nVal.hasParamDesc {
-              def srcParam:RangerAppParamDesc nVal.paramDesc
-              ; If source parameter has rust_borrow_type > 0, it's a reference
-              if (srcParam.rust_borrow_type > 0) {
-                source_is_reference = true
-              }
-            }
-          }
-          
-          ; Standard case - may need clone and/or Rc::new(RefCell::new()) for trait types
-          ; But if value is already Rc<RefCell<dyn Trait>>, don't wrap or clone
+          ; Standard case - may need clone and/or Rc::new for trait types
+          ; But if value is already Rc<dyn Trait>, don't wrap or clone
           if value_is_already_boxed_trait {
-            ; Already Rc<RefCell<dyn Trait>>, clone the Rc for shared ownership
+            ; Already Rc<dyn Trait>, clone the Rc for shared ownership
             ctx.setInExpr()
             this.WalkNode(nVal ctx wr)
             ctx.unsetInExpr()
             wr.out(".clone()" false)
           } {
-            ; Check if passing `this` to a trait-type parameter - this isn't supported
-            ; because we can't create Rc<RefCell<Self>> from &mut self
-            def is_passing_this_to_trait:boolean false
             if arg_is_trait_type {
-              if (nVal.vref == "this") {
-                is_passing_this_to_trait = true
+              wr.out("Rc::new(" false)
+            }
+            ctx.setInExpr()
+            this.WalkNode(nVal ctx wr)
+            ctx.unsetInExpr()
+            ; In Rust, values are moved when passed, so clone when passing a variable
+            ; This applies to strings and objects (non-primitives)
+            def arg_type:RangerNodeType argNameN.value_type
+            if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+              arg_type = (argNameN.typeNameAsType(ctx))
+            }
+            def needs_clone:boolean false
+            if (argNameN.type_name == "string") {
+              needs_clone = true
+            }
+            if (arg_type == RangerNodeType.Object) {
+              needs_clone = true
+            }
+            ; In Rust, arrays and hashes need cloning to avoid move errors
+            if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
+              needs_clone = true
+            }
+            if needs_clone {
+              if (nVal.value_type == RangerNodeType.VRef) {
+                wr.out(".clone()" false)
               }
             }
-            if is_passing_this_to_trait {
-              ; Cannot pass `this` to a trait-type parameter in Rust
-              ; The object would need to be wrapped in Rc at construction time
-              wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")" false)
-            } {
-              ; Check if parameter needs Rc<RefCell<T>> wrap (for weak ref pattern)
-              def needs_rc_wrap:boolean arg.rust_needs_rc_wrap
-              
-              ; BUT if the value being passed is already Rc<RefCell<...>> (has rust_needs_rc_wrap), don't double wrap
-              def value_already_rc_wrapped:boolean false
-              if needs_rc_wrap {
-                if (nVal.value_type == RangerNodeType.VRef) {
-                  if nVal.hasParamDesc {
-                    def valParam:RangerAppParamDesc nVal.paramDesc
-                    if valParam.rust_needs_rc_wrap {
-                      value_already_rc_wrapped = true
-                    }
-                  }
-                }
-              }
-              
-              if arg_is_trait_type {
-                wr.out("Rc::new(RefCell::new(" false)
-              } {
-                if (needs_rc_wrap && (value_already_rc_wrapped == false)) {
-                  ; Parameter is passed to a method that assigns to weak field
-                  ; Wrap the argument in Rc::new(RefCell::new(...))
-                  wr.out("Rc::new(RefCell::new(" false)
-                }
-              }
-              ctx.setInExpr()
-              this.WalkNode(nVal ctx wr)
-              ctx.unsetInExpr()
-              ; In Rust, values are moved when passed, so clone when passing a variable
-              ; This applies to strings and objects (non-primitives)
-              def arg_type:RangerNodeType argNameN.value_type
-              if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
-                arg_type = (argNameN.typeNameAsType(ctx))
-              }
-              def needs_clone:boolean false
-              if (argNameN.type_name == "string") {
-                needs_clone = true
-              }
-              if (arg_type == RangerNodeType.Object) {
-                needs_clone = true
-              }
-              ; In Rust, arrays and hashes need cloning to avoid move errors
-              if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
-                needs_clone = true
-              }
-              ; If source is a reference (&T or &mut T) but target expects owned T, must clone
-              if source_is_reference {
-                needs_clone = true
-              }
-              ; If value is already Rc<RefCell<...>>, clone it (for shared ownership)
-              if value_already_rc_wrapped {
-                wr.out(".clone()" false)
-              } {
-                if needs_clone {
-                  if (nVal.value_type == RangerNodeType.VRef) {
-                    wr.out(".clone()" false)
-                  }
-                }
-              }
-              ; Close the Rc::new(RefCell::new()) if we opened it
-              if arg_is_trait_type {
-                wr.out("))" false)
-              } {
-                if (needs_rc_wrap && (value_already_rc_wrapped == false)) {
-                  wr.out("))" false)
-                }
-              }
+            ; Close the Rc::new() if we opened it
+            if arg_is_trait_type {
+              wr.out(")" false)
             }
           }
-        }
         }
       }
       wr.out(")" false)
@@ -2355,8 +1667,6 @@ class RangerRustClassWriter {
       wr.out("#![allow(dead_code)]" true)
       wr.out("" true)
       wr.out("use std::rc::Rc;" true)
-      wr.out("use std::rc::Weak;" true)
-      wr.out("use std::cell::RefCell;" true)
       wr.out("" true)
       fileHeaderWritten = true
     }
@@ -2466,7 +1776,7 @@ class RangerRustClassWriter {
     
     ; Build call graph for mutation analysis (detects transitive mutations via method calls)
     def directMutations:[string:boolean]
-    def callGraph:[string:MethodCallList]
+    def callGraph:[string:[string]]
     this.buildClassMutationGraph(cl ctx directMutations callGraph)
     
     for cl.static_methods variant:RangerAppFunctionDesc i {
@@ -2520,38 +1830,10 @@ class RangerRustClassWriter {
         
         wr.out((("fn " + variant.name) + "(") false)
         if method_uses_this {
-          ; For trait parent classes (is_extended_by_children), use &self for trait methods
-          ; because mutation happens through RefCell when called via the trait
-          ; Only apply to methods that are part of the trait interface
-          def method_is_in_trait:boolean false
-          if cl.is_extended_by_children {
-            ; This is a trait parent class - its own methods are the trait interface
-            method_is_in_trait = true
-          } {
-            ; Check if this class extends a trait parent and if this method is in the trait
-            for cl.extends_classes extParentName:string epi {
-              def extParentClass@(optional):RangerAppClassDesc (ctx.findClass(extParentName))
-              if (!null? extParentClass) {
-                def epc:RangerAppClassDesc (unwrap extParentClass)
-                if epc.is_extended_by_children {
-                  ; Check if this method is defined in the parent's trait interface
-                  if (has epc.defined_methods variant.name) {
-                    method_is_in_trait = true
-                  }
-                }
-              }
-            }
-          }
-          if method_is_in_trait {
-            ; Use &mut self for trait methods to allow mutation
-            ; This is necessary because Ranger methods can always mutate state
+          if method_mutates_this {
             wr.out("&mut self, " false)
           } {
-            if method_mutates_this {
-              wr.out("&mut self, " false)
-            } {
-              wr.out("&self, " false)
-            }
+            wr.out("&self, " false)
           }
         }
         this.writeArgsDef(variant ctx wr)
@@ -2585,7 +1867,7 @@ class RangerRustClassWriter {
           
           ; Build call graph for parent class (for mutation analysis)
           def parentDirectMutations:[string:boolean]
-          def parentCallGraph:[string:MethodCallList]
+          def parentCallGraph:[string:[string]]
           this.buildClassMutationGraph(pc ctx parentDirectMutations parentCallGraph)
           
           wr.out(("impl " + cl.name + " {") true)
@@ -2620,16 +1902,10 @@ class RangerRustClassWriter {
               
               wr.out((("fn " + variant.name) + "(") false)
               if method_uses_this {
-                ; For trait parent classes (is_extended_by_children), use &mut self
-                ; to allow mutation in the method body
-                if pc.is_extended_by_children {
+                if method_mutates_this {
                   wr.out("&mut self, " false)
                 } {
-                  if method_mutates_this {
-                    wr.out("&mut self, " false)
-                  } {
-                    wr.out("&self, " false)
-                  }
+                  wr.out("&self, " false)
                 }
               }
               this.writeArgsDef(variant ctx wr)
@@ -2663,13 +1939,13 @@ class RangerRustClassWriter {
       wr.out(("pub trait " + cl.name + "Trait {") true)
       wr.indent(1)
       ; Add method signatures only (no default implementations)
-      ; Traits use &mut self to allow mutation through the trait interface
-      ; This is necessary because Ranger methods can always mutate state
+      ; Traits use &self to allow calling through Rc<dyn Trait>
+      ; Methods that truly need mutation should use interior mutability (RefCell)
       for cl.defined_variants fnVar:string i {
         def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
         for mVs.variants variant:RangerAppFunctionDesc i {
-          ; Use &mut self for trait methods to allow mutation
-          wr.out(("fn " + variant.name + "(&mut self") false)
+          ; Use &self for trait methods to allow Rc<dyn Trait> access
+          wr.out(("fn " + variant.name + "(&self") false)
           for variant.params arg:RangerAppParamDesc pi {
             wr.out(", " false)
             def nameN:CodeNode (unwrap arg.nameNode)
@@ -2691,8 +1967,8 @@ class RangerRustClassWriter {
       for cl.defined_variants fnVar:string i {
         def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
         for mVs.variants variant:RangerAppFunctionDesc i {
-          ; Use &mut self for trait methods to match trait definition
-          wr.out(("fn " + variant.name + "(&mut self") false)
+          ; Use &self for trait methods to match trait definition
+          wr.out(("fn " + variant.name + "(&self") false)
           for variant.params arg:RangerAppParamDesc pi {
             wr.out(", " false)
             def nameN:CodeNode (unwrap arg.nameNode)
@@ -2744,8 +2020,8 @@ class RangerRustClassWriter {
             for pc.defined_variants fnVar:string i {
               def mVs:RangerAppMethodVariants (get pc.method_variants fnVar)
               for mVs.variants variant:RangerAppFunctionDesc i {
-                ; Use &mut self for trait methods to match trait definition
-                wr.out(("fn " + variant.name + "(&mut self") false)
+                ; Use &self for trait methods to match trait definition
+                wr.out(("fn " + variant.name + "(&self") false)
                 for variant.params arg:RangerAppParamDesc pi {
                   wr.out(", " false)
                   def nameN:CodeNode (unwrap arg.nameNode)
@@ -2861,32 +2137,10 @@ class RangerRustClassWriter {
       ; Check if left side is an optional field with self-referential type
       def is_optional:boolean false
       def is_self_ref:boolean false
-      def is_weak:boolean false  ; True if LHS field has @(weak) annotation
       def field_type_name:string ""
       def left_is_self_field:boolean false
       def left_is_array:boolean false
       def left_is_trait_type:boolean false  ; True if LHS field type is a trait (parent class)
-      def curr_class_is_trait_related:boolean false  ; True if current class is trait parent or extends one
-      
-      ; Check if current class is trait-related
-      def ucAssign@(optional):RangerAppClassDesc (ctx.getCurrentClass())
-      if (!null? ucAssign) {
-        def currCAssign:RangerAppClassDesc (unwrap ucAssign)
-        if currCAssign.is_extended_by_children {
-          curr_class_is_trait_related = true
-        }
-        if (curr_class_is_trait_related == false) {
-          for currCAssign.extends_classes extParentNameA:string epiA {
-            def extParentClassA@(optional):RangerAppClassDesc (ctx.findClass(extParentNameA))
-            if (!null? extParentClassA) {
-              def epcA:RangerAppClassDesc (unwrap extParentClassA)
-              if epcA.is_extended_by_children {
-                curr_class_is_trait_related = true
-              }
-            }
-          }
-        }
-      }
       
       if left.hasParamDesc {
         def pp:RangerAppParamDesc left.paramDesc
@@ -2896,10 +2150,6 @@ class RangerRustClassWriter {
         if (!null? nameN) {
           def nn:CodeNode (unwrap nameN)
           field_type_name = nn.type_name
-          ; Check if field has weak annotation
-          if (nn.hasFlag("weak")) {
-            is_weak = true
-          }
           ; Check if field is an array type 
           if (nn.value_type == RangerNodeType.Array) {
             left_is_array = true
@@ -3141,56 +2391,7 @@ class RangerRustClassWriter {
       }
       
       ctx.setInExpr()
-      ctx.setInLhs()  ; Mark that we're in LHS of assignment (for Rust as_mut vs as_ref)
       this.WalkNode(left ctx wr)
-      ctx.unsetInLhs()
-      
-      ; Handle weak reference assignments - use Rc::downgrade() to create Weak pointer
-      if is_weak {
-        ; Check if RHS is a parameter that's already Rc<RefCell<T>> (rust_needs_rc_wrap)
-        def rhs_is_rc_wrapped:boolean false
-        if right.hasParamDesc {
-          def rhsParam:RangerAppParamDesc right.paramDesc
-          if rhsParam.rust_needs_rc_wrap {
-            rhs_is_rc_wrapped = true
-          }
-        }
-        
-        if rhs_is_rc_wrapped {
-          ; RHS is already Rc<RefCell<T>>, just downgrade it directly
-          if is_optional {
-            wr.out(" = Some(Rc::downgrade(&" false)
-            this.WalkNode(right ctx wr)
-            wr.out("));" true)
-          } {
-            wr.out(" = Rc::downgrade(&" false)
-            this.WalkNode(right ctx wr)
-            wr.out(");" true)
-          }
-        } {
-          ; RHS is a raw value, need to wrap in Rc::new(RefCell::new(...)) first
-          ; WARNING: This creates a temporary Rc that goes out of scope immediately,
-          ; making the Weak reference invalid! This pattern should be avoided.
-          ; The proper fix is to ensure the caller passes an Rc<RefCell<T>>.
-          if is_optional {
-            wr.out(" = Some(Rc::downgrade(&Rc::new(RefCell::new(" false)
-            this.WalkNode(right ctx wr)
-            if should_clone_rhs {
-              wr.out(".clone()" false)
-            }
-            wr.out("))));" true)
-          } {
-            wr.out(" = Rc::downgrade(&Rc::new(RefCell::new(" false)
-            this.WalkNode(right ctx wr)
-            if should_clone_rhs {
-              wr.out(".clone()" false)
-            }
-            wr.out(")));" true)
-          }
-        }
-        ctx.unsetInExpr()
-        return
-      }
       
       if is_optional {
         if rhs_is_optional {
@@ -3207,47 +2408,27 @@ class RangerRustClassWriter {
           } {
             if left_is_trait_type {
               if rhs_is_already_boxed_trait {
-                ; RHS is already Rc<RefCell<dyn Trait>>, clone the Rc for shared ownership
+                ; RHS is already Rc<dyn Trait>, clone the Rc for shared ownership
                 wr.out(" = Some(" false)
                 this.WalkNode(right ctx wr)
                 wr.out(".clone());" true)
               } {
-                ; Assignment to trait type field: needs Some(Rc::new(RefCell::new(value)))
-                wr.out(" = Some(Rc::new(RefCell::new(" false)
-                this.WalkNode(right ctx wr)
-                if should_clone_rhs {
-                  wr.out(".clone()" false)
-                }
-                wr.out(")));" true)
-              }
-            } {
-              ; Check if this is a non-trait optional object field in a trait-related class
-              ; Such fields are wrapped in Option<RefCell<T>>
-              def needs_refcell_wrap_assign:boolean false
-              if curr_class_is_trait_related {
-                ; Check if field type is an object type (not primitive)
-                def fieldTypeClassAssign@(optional):RangerAppClassDesc (ctx.findClass(field_type_name))
-                if (!null? fieldTypeClassAssign) {
-                  needs_refcell_wrap_assign = true
-                }
-              }
-              if needs_refcell_wrap_assign {
-                ; Optional assignment to RefCell-wrapped field: Some(RefCell::new(value))
-                wr.out(" = Some(RefCell::new(" false)
+                ; Assignment to trait type field: needs Some(Rc::new(value))
+                wr.out(" = Some(Rc::new(" false)
                 this.WalkNode(right ctx wr)
                 if should_clone_rhs {
                   wr.out(".clone()" false)
                 }
                 wr.out("));" true)
-              } {
-                ; Standard optional assignment: wrap with Some()
-                wr.out(" = Some(" false)
-                this.WalkNode(right ctx wr)
-                if should_clone_rhs {
-                  wr.out(".clone()" false)
-                }
-                wr.out(");" true)
               }
+            } {
+              ; Optional assignment: wrap with Some()
+              wr.out(" = Some(" false)
+              this.WalkNode(right ctx wr)
+              if should_clone_rhs {
+                wr.out(".clone()" false)
+              }
+              wr.out(");" true)
             }
           }
         }
@@ -3256,16 +2437,16 @@ class RangerRustClassWriter {
         wr.out(" = " false)
         if left_is_trait_type {
           if rhs_is_already_boxed_trait {
-            ; RHS is already Rc<RefCell<dyn Trait>>, clone for shared ownership
+            ; RHS is already Rc<dyn Trait>, clone for shared ownership
             this.WalkNode(right ctx wr)
             wr.out(".clone()" false)
           } {
-            wr.out("Rc::new(RefCell::new(" false)
+            wr.out("Rc::new(" false)
             this.WalkNode(right ctx wr)
             if should_clone_rhs {
               wr.out(".clone()" false)
             }
-            wr.out("))" false)
+            wr.out(")" false)
           }
         } {
           this.WalkNode(right ctx wr)
@@ -3440,42 +2621,9 @@ class RangerRustClassWriter {
       
       if is_optional_target {
         ; For optional objects, unwrap then call clear
-        ; Check if the owning class is trait-related (uses Option<RefCell<T>>)
-        def clear_needs_borrow_mut:boolean false
-        if target.hasParamDesc {
-          def clearPp:RangerAppParamDesc target.paramDesc
-          def clearOwnerClass@(optional):RangerAppClassDesc clearPp.propertyClass
-          ; If propertyClass is null, fall back to current class (self field)
-          if (null? clearOwnerClass) {
-            if clearPp.is_class_variable {
-              clearOwnerClass = (ctx.getCurrentClass())
-            }
-          }
-          if (!null? clearOwnerClass) {
-            def clearOwnerC:RangerAppClassDesc (unwrap clearOwnerClass)
-            if clearOwnerC.is_extended_by_children {
-              clear_needs_borrow_mut = true
-            }
-            if (clear_needs_borrow_mut == false) {
-              for clearOwnerC.extends_classes clearExtParent:string clearEpi {
-                def clearExtParentClass@(optional):RangerAppClassDesc (ctx.findClass(clearExtParent))
-                if (!null? clearExtParentClass) {
-                  def clearEpc:RangerAppClassDesc (unwrap clearExtParentClass)
-                  if clearEpc.is_extended_by_children {
-                    clear_needs_borrow_mut = true
-                  }
-                }
-              }
-            }
-          }
-        }
         ctx.setInExpr()
         this.WalkNode(target ctx wr)
-        if clear_needs_borrow_mut {
-          wr.out(".as_ref().unwrap().borrow_mut().clear();" true)
-        } {
-          wr.out(".as_mut().unwrap().clear();" true)
-        }
+        wr.out(".as_mut().unwrap().clear();" true)
         ctx.unsetInExpr()
       } {
         ; For non-optional arrays, use the standard .length = 0 pattern
@@ -3549,14 +2697,12 @@ class RangerRustClassWriter {
     }
 
     ; Handle unwrap for optional types - need to dereference Box for self-referential types
-    ; and handle Weak references with upgrade()
     if (cmd == "unwrap") {
       def arg:CodeNode (node.getSecond())
       
       ; Check if the inner type is a self-referential Box
       def needs_deref:boolean false
       def is_self_field:boolean false
-      def is_weak_ref:boolean false
       def inner_type:string ""
       
       if arg.hasParamDesc {
@@ -3567,10 +2713,6 @@ class RangerRustClassWriter {
         if (!null? nameN) {
           def nn:CodeNode (unwrap nameN)
           inner_type = nn.type_name
-          ; Check if this is a weak reference
-          if (nn.hasFlag("weak")) {
-            is_weak_ref = true
-          }
           ; Check if field type equals the class that owns this property (self-referential)
           def oc@(optional):RangerAppClassDesc pp.propertyClass
           if (!null? oc) {
@@ -3583,20 +2725,6 @@ class RangerRustClassWriter {
       }
       
       ctx.setInExpr()
-      
-      ; Handle weak references - need to upgrade() to get Rc, then borrow_mut() to access value
-      if is_weak_ref {
-        this.WalkNode(arg ctx wr)
-        if is_self_field {
-          ; Clone the Option<Weak<...>> first, then upgrade and borrow
-          wr.out(".clone().unwrap().upgrade().unwrap().borrow_mut()" false)
-        } {
-          wr.out(".unwrap().upgrade().unwrap().borrow_mut()" false)
-        }
-        ctx.unsetInExpr()
-        return
-      }
-      
       if needs_deref {
         wr.out("(*" false)
         this.WalkNode(arg ctx wr)
@@ -3620,3 +2748,4 @@ class RangerRustClassWriter {
     }
   }
 }
+

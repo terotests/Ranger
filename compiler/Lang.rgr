@@ -1200,7 +1200,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 go ( (e 1) " + " (e 2) ) 
                 go.v2 ( "strings.Join([]string{ " (e 1) "," (e 2) " }, \"\")" (imp "strings"))
                 php ( (e 1) " . " (e 2) )
-                rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
+                rust ( "[&*" (e 1) ", &*" (e 2) "].concat()" )
                 * ( (e 1) " + " (e 2) ) 
             } 
         }
@@ -1367,6 +1367,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         /               cmdDivOp:double         ( left:double right:double ) { templates { * ( (e 1) " / " (e 2) ) } }
         /               cmdDivOp:double         ( left:int right:int ) { templates { 
             go ( "float64(" (e 1) ") / float64(" (e 2) ")" )
+            rust ( "(" (e 1) " as f64) / (" (e 2) " as f64)" )
             * ( (e 1) " / " (e 2) ) 
         } }
 
@@ -2128,6 +2129,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 )
 
                 python ( (e 1) ".split(" (e 2) ") if " (e 2) " else list(" (e 1) ")" )
+                rust ( (e 1) ".split(&*" (e 2) ").map(|s| s.to_string()).collect::<Vec<String>>()" )
                 * ( (e 1) ".split(" (e 2) ")")
             }
         }
@@ -2256,7 +2258,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 ranger ( "(buffer_get " (e 1) " " (e 2) ")" )
                 es6 ( (e 1) "._view.getUint8(" (e 2) ")" )
                 go ( "int64(" (e 1) "[" (e 2) "])" )
-                rust ( (e 1) "[" (e 2) " as usize] as i64" )
+                rust ( (e 1) "[(" (e 2) ") as usize] as i64" )
                 cpp ( "static_cast<int64_t>(" (e 1) "[" (e 2) "])" )
                 java7 ( "((" (e 1) "[(int)" (e 2) "] & 0xFF))" )
                 python ( (e 1) "[" (e 2) "]" )
@@ -2271,7 +2273,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 ranger ( "(buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( (e 1) "._view.setUint8(" (e 2) ", " (e 3) ")" )
                 go ( (e 1) "[" (e 2) "] = byte(" (e 3) ")" )
-                rust ( (e 1) "[" (e 2) " as usize] = " (e 3) " as u8" )
+                rust ( (e 1) "[(" (e 2) ") as usize] = " (e 3) " as u8" )
                 cpp ( (e 1) "[" (e 2) "] = static_cast<uint8_t>(" (e 3) ")" )
                 java7 ( (e 1) "[(int)" (e 2) "] = (byte)" (e 3) )
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
@@ -2443,7 +2445,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(int_buffer_get " (e 1) " " (e 2) ")" )
                 es6 ( (e 1) "[" (e 2) "]" )
                 go ( (e 1) "[" (e 2) "]" )
-                rust ( (e 1) "[" (e 2) " as usize]" )
+                rust ( (e 1) "[(" (e 2) ") as usize]" )
                 cpp ( (e 1) "[" (e 2) "]" )
                 java7 ( (e 1) "[(int)" (e 2) "]" )
                 python ( (e 1) "[" (e 2) "]" )
@@ -2458,7 +2460,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(int_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( (e 1) "[" (e 2) "] = " (e 3) )
                 go ( (e 1) "[" (e 2) "] = " (e 3) )
-                rust ( (e 1) "[" (e 2) " as usize] = " (e 3) )
+                rust ( (e 1) "[(" (e 2) ") as usize] = " (e 3) )
                 cpp ( (e 1) "[" (e 2) "] = " (e 3) )
                 java7 ( (e 1) "[(int)" (e 2) "] = " (e 3) )
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
@@ -2558,7 +2560,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(double_buffer_get " (e 1) " " (e 2) ")" )
                 es6 ( (e 1) "[" (e 2) "]" )
                 go ( (e 1) "[" (e 2) "]" )
-                rust ( (e 1) "[" (e 2) " as usize]" )
+                rust ( (e 1) "[(" (e 2) ") as usize]" )
                 cpp ( (e 1) "[" (e 2) "]" )
                 java7 ( (e 1) "[(int)" (e 2) "]" )
                 python ( (e 1) "[" (e 2) "]" )
@@ -2573,7 +2575,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(double_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( (e 1) "[" (e 2) "] = " (e 3) )
                 go ( (e 1) "[" (e 2) "] = " (e 3) )
-                rust ( (e 1) "[" (e 2) " as usize] = " (e 3) )
+                rust ( (e 1) "[(" (e 2) ") as usize] = " (e 3) )
                 cpp ( (e 1) "[" (e 2) "] = " (e 3) )
                 java7 ( (e 1) "[(int)" (e 2) "] = " (e 3) )
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
@@ -3392,7 +3394,7 @@ int r_string_index_of( std::string str, std::string key )  {
 " )                   
                     
                 )
-                rust ( "(" (e 1) ".find(" (e 2) ").map(|i| i as i64).unwrap_or(-1))" )
+                rust ( "(" (e 1) ".find(&*" (e 2) ").map(|i| i as i64).unwrap_or(-1))" )
             }        
         }
 
@@ -3418,7 +3420,7 @@ int r_string_last_index_of( std::string str, std::string key )  {
 }
 " )                   
                 )
-                rust ( "(" (e 1) ".rfind(" (e 2) ").map(|i| i as i64).unwrap_or(-1))" )
+                rust ( "(" (e 1) ".rfind(&*" (e 2) ").map(|i| i as i64).unwrap_or(-1))" )
                 kotlin ( (e 1) ".lastIndexOf(" (e 2) ")" )
                 ranger ( "(lastIndexOf " (e 1) " " (e 2) ")")
             }        
@@ -3684,7 +3686,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  php ( nl (e 1) " = array();" nl)
                  java7 ( (e 1) ".clear();" )                                                              
                  scala ( (e 1) ".clear()" )
-                 go ( (e 1) " = " (e 1) "[:0]" )                                                     
+                 go ( (e 1) " = " (e 1) "[:0]" )
+                 rust ( custom )
                  * ( (e 1) ".length = 0;" nl )                                              
             }
         }

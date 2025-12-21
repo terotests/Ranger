@@ -4586,7 +4586,7 @@ func EVGUnit_static_create(val float64, uType int64) *EVGUnit {
   unit.isSet = true; 
   return unit
 }
-func EVGUnit_static_pixels(val float64) *EVGUnit {
+func EVGUnit_static_px(val float64) *EVGUnit {
   return EVGUnit_static_create(val, int64(0))
 }
 func EVGUnit_static_percent(val float64) *EVGUnit {
@@ -5631,7 +5631,7 @@ func CreateNew_EVGElement() *EVGElement {
   me.backgroundColor.has_value = true; /* detected as non-optional */
   me.color.value = EVGColor_static_black();
   me.color.has_value = true; /* detected as non-optional */
-  me.fontSize.value = EVGUnit_static_pixels(14.0);
+  me.fontSize.value = EVGUnit_static_px(14.0);
   me.fontSize.has_value = true; /* detected as non-optional */
   me.shadowRadius.value = EVGUnit_static_unset();
   me.shadowRadius.has_value = true; /* detected as non-optional */
@@ -6135,9 +6135,8 @@ func (this *GrowableBuffer) writeByte (b int64) () {
   if  this.currentChunk.isFull() {
     this.allocateNewChunk();
   }
-  var buf []byte= this.currentChunk.data;
   var pos int64= this.currentChunk.used;
-  buf[pos] = byte(b)
+  this.currentChunk.data[pos] = byte(b)
   this.currentChunk.used = pos + int64(1); 
   this.totalSize = this.totalSize + int64(1); 
 }
@@ -6194,11 +6193,10 @@ func (this *GrowableBuffer) toBuffer () []byte {
   var chunk *BufferChunk= this.firstChunk;
   var done bool= false;
   for done == false {
-    var chunkData []byte= chunk.data;
     var chunkUsed int64= chunk.used;
     var i int64= int64(0);
     for i < chunkUsed {
-      var b int64= int64(chunkData[i]);
+      var b int64= int64(chunk.data[i]);
       result[pos] = byte(b)
       pos = pos + int64(1); 
       i = i + int64(1); 
@@ -6216,11 +6214,10 @@ func (this *GrowableBuffer) toString () string {
   var chunk *BufferChunk= this.firstChunk;
   var done bool= false;
   for done == false {
-    var chunkData []byte= chunk.data;
     var chunkUsed int64= chunk.used;
     var i int64= int64(0);
     for i < chunkUsed {
-      var b int64= int64(chunkData[i]);
+      var b int64= int64(chunk.data[i]);
       result = result + (string([] byte{byte(b)})); 
       i = i + int64(1); 
     }
@@ -7968,11 +7965,11 @@ func (this *EVGLayout) layout (root *EVGElement) () {
   this.log("EVGLayout: Starting layout");
   this.currentPage = int64(0); 
   if  root.width.value.(*EVGUnit).isSet == false {
-    root.width.value = EVGUnit_static_pixels(this.pageWidth);
+    root.width.value = EVGUnit_static_px(this.pageWidth);
     root.width.has_value = true; /* detected as non-optional */
   }
   if  root.height.value.(*EVGUnit).isSet == false {
-    root.height.value = EVGUnit_static_pixels(this.pageHeight);
+    root.height.value = EVGUnit_static_px(this.pageHeight);
     root.height.has_value = true; /* detected as non-optional */
   }
   this.layoutElement(root, 0.0, 0.0, this.pageWidth, this.pageHeight);
@@ -11022,19 +11019,15 @@ func (this *JPEGDecoder) parseMarkers () bool {
   return true
 }
 func (this *JPEGDecoder) decodeBlock (reader *BitReader, comp *JPEGComponent, quantTable *QuantizationTable) []int64 {
-  var coeffs []int64 = make([]int64, 0);
-  var i int64= int64(0);
-  for i < int64(64) {
-    coeffs = append(coeffs,int64(0)); 
-    i = i + int64(1); 
-  }
+  var coeffs []int64= make([]int64, int64(64));
+  for i := int64(0); i < int64(64); i++ { coeffs[i] = int64(0) }
   var dcTable *HuffmanTable= this.huffman.value.(*HuffmanDecoder).getDCTable(comp.dcTableId);
   var dcCategory int64= dcTable.decode(reader);
   var dcDiff int64= reader.receiveExtend(dcCategory);
   var dcValue int64= comp.prevDC + dcDiff;
   comp.prevDC = dcValue; 
   var dcQuant int64= quantTable.values[int64(0)];
-  coeffs[int64(0)] = dcValue * dcQuant;
+  coeffs[int64(0)] = dcValue * dcQuant
   var acTable *HuffmanTable= this.huffman.value.(*HuffmanDecoder).getACTable(comp.acTableId);
   var k int64= int64(1);
   for k < int64(64) {
@@ -11051,7 +11044,7 @@ func (this *JPEGDecoder) decodeBlock (reader *BitReader, comp *JPEGComponent, qu
         if  k < int64(64) {
           var acValue int64= reader.receiveExtend(acCategory);
           var acQuant int64= quantTable.values[k];
-          coeffs[k] = acValue * acQuant;
+          coeffs[k] = acValue * acQuant
           k = k + int64(1); 
         }
       }
@@ -11116,16 +11109,12 @@ func (this *JPEGDecoder) decode (dirPath string, fileName string) *ImageBuffer {
           var blockH int64= int64(0);
           for blockH < comp_1.hSamp {
             var coeffs []int64= this.decodeBlock(reader, comp_1, quantTable);
-            var blockPixels []int64 = make([]int64, 0);
-            var bi int64= int64(0);
-            for bi < int64(64) {
-              blockPixels = append(blockPixels,int64(0)); 
-              bi = bi + int64(1); 
-            }
+            var blockPixels []int64= make([]int64, int64(64));
+            for i := int64(0); i < int64(64); i++ { blockPixels[i] = int64(0) }
             var tempBlock []int64= this.idct.value.(*IDCT).dezigzag(coeffs);
             this.idct.value.(*IDCT).transform(tempBlock, blockPixels);
             if  compIdx == int64(0) {
-              bi = int64(0); 
+              var bi int64= int64(0);
               for bi < int64(64) {
                 yBlocksData = append(yBlocksData,blockPixels[bi]); 
                 bi = bi + int64(1); 
@@ -11134,18 +11123,18 @@ func (this *JPEGDecoder) decode (dirPath string, fileName string) *ImageBuffer {
             }
             if  compIdx == int64(1) {
               cbBlock = cbBlock[:0]
-              bi = int64(0); 
-              for bi < int64(64) {
-                cbBlock = append(cbBlock,blockPixels[bi]); 
-                bi = bi + int64(1); 
+              var bi_1 int64= int64(0);
+              for bi_1 < int64(64) {
+                cbBlock = append(cbBlock,blockPixels[bi_1]); 
+                bi_1 = bi_1 + int64(1); 
               }
             }
             if  compIdx == int64(2) {
               crBlock = crBlock[:0]
-              bi = int64(0); 
-              for bi < int64(64) {
-                crBlock = append(crBlock,blockPixels[bi]); 
-                bi = bi + int64(1); 
+              var bi_2 int64= int64(0);
+              for bi_2 < int64(64) {
+                crBlock = append(crBlock,blockPixels[bi_2]); 
+                bi_2 = bi_2 + int64(1); 
               }
             }
             blockH = blockH + int64(1); 
@@ -12797,6 +12786,7 @@ type IFACE_EVGPDFRenderer interface {
   Set_foundSections(value []*EVGElement) 
   Get_foundPages() []*EVGElement
   Set_foundPages(value []*EVGElement) 
+  init() ()
   setPageSize(width float64, height float64) ()
   setBaseDir(dir string) ()
   setAssetPaths(paths string) ()
@@ -12891,8 +12881,10 @@ func CreateNew_EVGPDFRenderer() *EVGPDFRenderer {
   me.foundSections = fs; 
   var fp []*EVGElement = make([]*EVGElement, 0);
   me.foundPages = fp; 
-  me.layout.value.(*EVGLayout).setImageMeasurer(me);
   return me;
+}
+func (this *EVGPDFRenderer) init () () {
+  this.layout.value.(*EVGLayout).setImageMeasurer(this);
 }
 func (this *EVGPDFRenderer) setPageSize (width float64, height float64) () {
   this.pageWidth = width; 
@@ -16027,6 +16019,7 @@ func (this *EVGComponentTool) main (args []string) () {
   fmt.Println( "" )
   fmt.Println( "Rendering to PDF..." )
   var renderer *EVGPDFRenderer= CreateNew_EVGPDFRenderer();
+  renderer.init();
   renderer.setPageSize(this.pageWidth, this.pageHeight);
   renderer.setFontManager(this.fontManager);
   renderer.setBaseDir(basePath);

@@ -61,6 +61,7 @@ class BitWriter;
 class JPEGEncoder;
 class EmbeddedFont;
 class EmbeddedImage;
+class PDFImageMeasurer;
 class EVGPDFRenderer;
 class EvalValue;
 class ImportedSymbol;
@@ -68,7 +69,7 @@ class EvalContext;
 class ComponentEngine;
 class EVGComponentTool;
 
-typedef mpark::variant<std::shared_ptr<Token>, std::shared_ptr<TSLexer>, std::shared_ptr<TSNode>, std::shared_ptr<TSParserSimple>, std::shared_ptr<EVGUnit>, std::shared_ptr<EVGColor>, std::shared_ptr<EVGBox>, std::shared_ptr<EVGElement>, std::shared_ptr<BufferChunk>, std::shared_ptr<GrowableBuffer>, std::shared_ptr<JPEGImage>, std::shared_ptr<JPEGReader>, std::shared_ptr<ExifTag>, std::shared_ptr<JPEGMetadataInfo>, std::shared_ptr<JPEGMetadataParser>, std::shared_ptr<JPEGMetadataMain>, std::shared_ptr<PDFWriter>, std::shared_ptr<Main>, std::shared_ptr<EVGTextMetrics>, std::shared_ptr<EVGTextMeasurer>, std::shared_ptr<SimpleTextMeasurer>, std::shared_ptr<EVGImageDimensions>, std::shared_ptr<EVGImageMeasurer>, std::shared_ptr<SimpleImageMeasurer>, std::shared_ptr<EVGLayout>, std::shared_ptr<PathCommand>, std::shared_ptr<PathBounds>, std::shared_ptr<SVGPathParser>, std::shared_ptr<TTFTableRecord>, std::shared_ptr<TTFGlyphMetrics>, std::shared_ptr<TrueTypeFont>, std::shared_ptr<FontManager>, std::shared_ptr<TTFTextMeasurer>, std::shared_ptr<BitReader>, std::shared_ptr<HuffmanTable>, std::shared_ptr<HuffmanDecoder>, std::shared_ptr<IDCT>, std::shared_ptr<Color>, std::shared_ptr<ImageBuffer>, std::shared_ptr<PPMImage>, std::shared_ptr<JPEGComponent>, std::shared_ptr<QuantizationTable>, std::shared_ptr<JPEGDecoder>, std::shared_ptr<FDCT>, std::shared_ptr<BitWriter>, std::shared_ptr<JPEGEncoder>, std::shared_ptr<EmbeddedFont>, std::shared_ptr<EmbeddedImage>, std::shared_ptr<EVGPDFRenderer>, std::shared_ptr<EvalValue>, std::shared_ptr<ImportedSymbol>, std::shared_ptr<EvalContext>, std::shared_ptr<ComponentEngine>, std::shared_ptr<EVGComponentTool>, int, std::string, bool, double>  r_union_Any;
+typedef mpark::variant<std::shared_ptr<Token>, std::shared_ptr<TSLexer>, std::shared_ptr<TSNode>, std::shared_ptr<TSParserSimple>, std::shared_ptr<EVGUnit>, std::shared_ptr<EVGColor>, std::shared_ptr<EVGBox>, std::shared_ptr<EVGElement>, std::shared_ptr<BufferChunk>, std::shared_ptr<GrowableBuffer>, std::shared_ptr<JPEGImage>, std::shared_ptr<JPEGReader>, std::shared_ptr<ExifTag>, std::shared_ptr<JPEGMetadataInfo>, std::shared_ptr<JPEGMetadataParser>, std::shared_ptr<JPEGMetadataMain>, std::shared_ptr<PDFWriter>, std::shared_ptr<Main>, std::shared_ptr<EVGTextMetrics>, std::shared_ptr<EVGTextMeasurer>, std::shared_ptr<SimpleTextMeasurer>, std::shared_ptr<EVGImageDimensions>, std::shared_ptr<EVGImageMeasurer>, std::shared_ptr<SimpleImageMeasurer>, std::shared_ptr<EVGLayout>, std::shared_ptr<PathCommand>, std::shared_ptr<PathBounds>, std::shared_ptr<SVGPathParser>, std::shared_ptr<TTFTableRecord>, std::shared_ptr<TTFGlyphMetrics>, std::shared_ptr<TrueTypeFont>, std::shared_ptr<FontManager>, std::shared_ptr<TTFTextMeasurer>, std::shared_ptr<BitReader>, std::shared_ptr<HuffmanTable>, std::shared_ptr<HuffmanDecoder>, std::shared_ptr<IDCT>, std::shared_ptr<Color>, std::shared_ptr<ImageBuffer>, std::shared_ptr<PPMImage>, std::shared_ptr<JPEGComponent>, std::shared_ptr<QuantizationTable>, std::shared_ptr<JPEGDecoder>, std::shared_ptr<FDCT>, std::shared_ptr<BitWriter>, std::shared_ptr<JPEGEncoder>, std::shared_ptr<EmbeddedFont>, std::shared_ptr<EmbeddedImage>, std::shared_ptr<PDFImageMeasurer>, std::shared_ptr<EVGPDFRenderer>, std::shared_ptr<EvalValue>, std::shared_ptr<ImportedSymbol>, std::shared_ptr<EvalContext>, std::shared_ptr<ComponentEngine>, std::shared_ptr<EVGComponentTool>, int, std::string, bool, double>  r_union_Any;
 
 std::string r_utf8_char_at(const std::string& str, int pos_i)
 {
@@ -1311,8 +1312,18 @@ class EmbeddedImage : public std::enable_shared_from_this<EmbeddedImage>  {
     /* class constructor */ 
     EmbeddedImage( std::string s  );
 };
-class EVGPDFRenderer : public EVGImageMeasurer { 
+class PDFImageMeasurer : public EVGImageMeasurer { 
   public :
+    std::shared_ptr<EVGPDFRenderer> renderer;
+    /* class constructor */ 
+    PDFImageMeasurer( );
+    /* instance methods */ 
+    void setRenderer( std::shared_ptr<EVGPDFRenderer> r );
+    std::shared_ptr<EVGImageDimensions> getImageDimensions( std::string src );
+};
+class EVGPDFRenderer : public std::enable_shared_from_this<EVGPDFRenderer>  { 
+  public :
+    std::shared_ptr<PDFImageMeasurer> imageMeasurer;
     std::shared_ptr<PDFWriter> writer;
     std::shared_ptr<EVGLayout> layout;
     std::shared_ptr<EVGTextMeasurer> measurer;
@@ -1353,7 +1364,7 @@ class EVGPDFRenderer : public EVGImageMeasurer {
     void setMeasurer( std::shared_ptr<EVGTextMeasurer> m );
     void setFontManager( std::shared_ptr<FontManager> fm );
     void setDebug( bool enabled );
-    std::shared_ptr<EVGImageDimensions> getImageDimensions( std::string src );
+    std::shared_ptr<EVGImageDimensions> loadImageDimensions( std::string src );
     std::string getPdfFontName( std::string fontFamily );
     std::vector<uint8_t> render( std::shared_ptr<EVGElement> root );
     void findPageElementsRecursive( std::shared_ptr<EVGElement> el );
@@ -12883,6 +12894,18 @@ EmbeddedImage::EmbeddedImage( std::string s  ) {
   this->pdfName = std::string("");
   src = s;
 }
+PDFImageMeasurer::PDFImageMeasurer( ) {
+}
+void  PDFImageMeasurer::setRenderer( std::shared_ptr<EVGPDFRenderer> r ) {
+  renderer  = r;
+}
+std::shared_ptr<EVGImageDimensions>  PDFImageMeasurer::getImageDimensions( std::string src ) {
+  if ( renderer != NULL  ) {
+    return ((renderer))->loadImageDimensions(src);
+  }
+  std::shared_ptr<EVGImageDimensions> dims =  std::make_shared<EVGImageDimensions>();
+  return dims;
+}
 EVGPDFRenderer::EVGPDFRenderer( ) {
   this->pageWidth = 595;
   this->pageHeight = 842;
@@ -12924,9 +12947,13 @@ EVGPDFRenderer::EVGPDFRenderer( ) {
   foundSections = fs;
   std::vector<std::shared_ptr<EVGElement>> fp;
   foundPages = fp;
+  std::shared_ptr<PDFImageMeasurer> imgMeasurer =  std::make_shared<PDFImageMeasurer>();
+  imageMeasurer  = imgMeasurer;
 }
 void  EVGPDFRenderer::init() {
-  layout->setImageMeasurer(std::dynamic_pointer_cast<EVGPDFRenderer>(shared_from_this()));
+  std::shared_ptr<PDFImageMeasurer> imgM = imageMeasurer;
+  imgM->setRenderer(shared_from_this());
+  layout->setImageMeasurer(imgM);
 }
 void  EVGPDFRenderer::setPageSize( double width , double height ) {
   pageWidth = width;
@@ -12978,7 +13005,7 @@ void  EVGPDFRenderer::setDebug( bool enabled ) {
   layout->debug = enabled;
   this->debug = enabled;
 }
-std::shared_ptr<EVGImageDimensions>  EVGPDFRenderer::getImageDimensions( std::string src ) {
+std::shared_ptr<EVGImageDimensions>  EVGPDFRenderer::loadImageDimensions( std::string src ) {
   int i = 0;
   while (i < ((int)(imageDimensionsCacheKeys.size()))) {
     std::string key = imageDimensionsCacheKeys.at(i);

@@ -3097,6 +3097,8 @@ class RangerFlowParser {
         currC.addParentClass(ee.vref)
         def ParentClass:RangerAppClassDesc (ctx.findClass(ee.vref))
         ParentClass.is_inherited = true
+        ParentClass.is_extended_by_children = true
+        push ParentClass.child_classes currC.name
       }
       find_more = false
     }
@@ -3107,6 +3109,8 @@ class RangerFlowParser {
         currC.addParentClass(ee.vref)
         def ParentClass:RangerAppClassDesc (ctx.findClass(ee.vref))
         ParentClass.is_inherited = true
+        ParentClass.is_extended_by_children = true
+        push ParentClass.child_classes currC.name
       }
     }
     if ( (node.isFirstVref("constructor")) || (node.isFirstVref("Constructor"))) {

@@ -165,7 +165,7 @@ class EVGPDFTool {
         print "Rendering to PDF..."
         
         def renderer (new EVGPDFRenderer())
-        renderer.init()  ; Must call init() for C++ compatibility
+        renderer.init(renderer)  ; Pass self for Rust Rc pattern
         renderer.setPageSize(pageWidth pageHeight)
         renderer.setFontManager(fontManager)
         renderer.setBaseDir(inputDir)

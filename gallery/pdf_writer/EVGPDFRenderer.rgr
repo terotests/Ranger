@@ -3,20 +3,20 @@
 ; Takes EVG element tree with calculated positions and renders to PDF using PDFWriter.
 
 Import "PDFWriter.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGLayout.rgr"
-Import "../../../evg/EVGTextMeasurer.rgr"
-Import "../../../evg/EVGImageMeasurer.rgr"
-Import "../../../evg/EVGUnit.rgr"
-Import "../../../evg/EVGColor.rgr"
-Import "../../../evg/SVGPathParser.rgr"
+Import "../evg/EVGElement.rgr"
+Import "../evg/EVGLayout.rgr"
+Import "../evg/EVGTextMeasurer.rgr"
+Import "../evg/EVGImageMeasurer.rgr"
+Import "../evg/EVGUnit.rgr"
+Import "../evg/EVGColor.rgr"
+Import "../evg/SVGPathParser.rgr"
 Import "Buffer.rgr"
-Import "../fonts/FontManager.rgr"
-Import "../jpeg/JPEGReader.rgr"
-Import "../jpeg/JPEGMetadata.rgr"
-Import "../jpeg/JPEGDecoder.rgr"
-Import "../jpeg/JPEGEncoder.rgr"
-Import "../jpeg/ImageBuffer.rgr"
+Import "FontManager.rgr"
+Import "JPEGReader.rgr"
+Import "JPEGMetadata.rgr"
+Import "JPEGDecoder.rgr"
+Import "JPEGEncoder.rgr"
+Import "ImageBuffer.rgr"
 
 ; Helper class to track embedded fonts
 class EmbeddedFont {
@@ -48,14 +48,15 @@ class EmbeddedImage {
     }
 }
 
-; PDFImageMeasurer - Composition pattern to avoid passing 'this' to trait parameters
+; Forward declaration for PDFImageMeasurer
+class EVGPDFRenderer
+
+; Separate image measurer class that delegates to EVGPDFRenderer
 ; This allows us to pass imageMeasurer (not 'this') to layout.setImageMeasurer
-; Uses @(optional weak) to break the reference cycle with EVGPDFRenderer
+; which avoids Rust's self-referential Rc<RefCell<>> issue
 class PDFImageMeasurer {
     Extends(EVGImageMeasurer)
-    ; Use @(optional weak) - the renderer is set after construction
-    ; weak reference prevents circular ownership in Rust
-    def renderer@(optional weak):EVGPDFRenderer
+    def renderer@(optional):EVGPDFRenderer
     
     Constructor () {
     }
@@ -65,19 +66,19 @@ class PDFImageMeasurer {
     }
     
     fn getImageDimensions:EVGImageDimensions (src:string) {
-        ; Delegate to renderer's loadImageDimensions method
         if (!null? renderer) {
             return ((unwrap renderer).loadImageDimensions(src))
         }
-        ; Return empty dimensions if no renderer set
+        ; Fallback - return invalid dimensions
         def dims (new EVGImageDimensions())
         return dims
     }
 }
 
 class EVGPDFRenderer {
-    ; Note: No longer extends EVGImageMeasurer - uses composition instead
-    def imageMeasurer@(optional):PDFImageMeasurer
+    ; NOTE: No longer extends EVGImageMeasurer - uses composition instead
+    ; This allows Rust compilation without self-referential Rc issues
+    def imageMeasurer:PDFImageMeasurer
     def writer:PDFWriter
     def layout:EVGLayout
     def measurer:EVGTextMeasurer
@@ -105,9 +106,6 @@ class EVGPDFRenderer {
     def jpegQuality:int 75
     def imageDimensionsCache:[EVGImageDimensions]
     def imageDimensionsCacheKeys:[string]
-    ; Temporary arrays for collecting elements (fixes Go slice parameter issue)
-    def foundSections:[EVGElement]
-    def foundPages:[EVGElement]
     
     Constructor () {
         def w (new PDFWriter())
@@ -130,24 +128,12 @@ class EVGPDFRenderer {
         imageDimensionsCacheKeys = idck
         def ap:[string]
         assetPaths = ap
-        def fs:[EVGElement]
-        foundSections = fs
-        def fp:[EVGElement]
-        foundPages = fp
-        ; Create the image measurer delegate
+        ; Create separate image measurer that delegates to this renderer
+        ; This avoids passing 'this' to setImageMeasurer (Rust compatibility)
         def imgMeasurer (new PDFImageMeasurer())
         imageMeasurer = imgMeasurer
-    }
-    
-    ; Initialize components that require 'this' reference
-    ; Must be called after construction for C++ compatibility
-    ; For Rust: selfRc must be the Rc<RefCell<Self>> that wraps this object
-    fn init:void (selfRc:EVGPDFRenderer) {
-        ; Set up the image measurer with reference to this renderer
-        ; selfRc is passed in - in C++/JS/Go it's just 'this', in Rust it's the Rc
-        def imgM:PDFImageMeasurer (unwrap imageMeasurer)
-        imgM.setRenderer(selfRc)
-        layout.setImageMeasurer(imgM)
+        imgMeasurer.setRenderer(this)
+        layout.setImageMeasurer(imgMeasurer)
     }
     
     fn setPageSize:void (width:double height:double) {
@@ -218,7 +204,8 @@ class EVGPDFRenderer {
         this.debug = enabled
     }
     
-    ; Load image dimensions from file (not a trait method - uses caching)
+    ; Load image dimensions - called by PDFImageMeasurer delegate
+    ; This is no longer a trait method, so caching can work normally
     fn loadImageDimensions:EVGImageDimensions (src:string) {
         ; Check cache first
         def i:int 0
@@ -269,7 +256,7 @@ class EVGPDFRenderer {
         def jpegImage:JPEGImage (reader.readJPEG(imgDir imgFile))
         
         if jpegImage.isValid {
-            ; Get EXIF orientation to determine final dimensions  
+            ; Get EXIF orientation to determine final dimensions
             def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
             def orientation:int metaInfo.orientation
             
@@ -287,7 +274,7 @@ class EVGPDFRenderer {
             print (("Image dimensions: " + src + " = " + (to_string imgW) + "x" + (to_string imgH) + " (orientation=" + (to_string orientation) + ")"))
         }
         
-        ; Cache the result
+        ; Cache the result - now works since this is not a trait method
         push imageDimensionsCacheKeys src
         push imageDimensionsCache dims
         
@@ -322,28 +309,28 @@ class EVGPDFRenderer {
         return (this.renderToPDF(root))
     }
     
-    fn findPageElementsRecursive:void (el:EVGElement) {
-        ; Recursively find all Page elements (stores in foundPages member)
+    fn findPageElements:void (el:EVGElement pages:[EVGElement]) {
+        ; Recursively find all Page elements
         if (el.tagName == "page") {
-            push foundPages el
+            push pages el
         }
         def i:int 0
         def childCount:int (el.getChildCount())
         while (i < childCount) {
             def child:EVGElement (el.getChild(i))
-            this.findPageElementsRecursive(child)
+            this.findPageElements(child pages)
             i = i + 1
         }
     }
     
-    fn findSectionElementsRecursive:void (el:EVGElement) {
-        ; Find all Section elements (stores in foundSections member)
+    fn findSectionElements:void (el:EVGElement sections:[EVGElement]) {
+        ; Find all Section elements (direct children of print)
         def i:int 0
         def childCount:int (el.getChildCount())
         while (i < childCount) {
             def child:EVGElement (el.getChild(i))
             if (child.tagName == "section") {
-                push foundSections child
+                push sections child
             }
             i = i + 1
         }
@@ -406,10 +393,9 @@ class EVGPDFRenderer {
         
         def objectOffsets:[int]
         
-        ; Find all sections (uses class member foundSections)
-        def emptyArr:[EVGElement]
-        foundSections = emptyArr
-        this.findSectionElementsRecursive(root)
+        ; Find all sections and pages
+        def sections:[EVGElement]
+        this.findSectionElements(root sections)
         
         ; Collect all pages from all sections
         def allPages:[EVGElement]
@@ -418,20 +404,19 @@ class EVGPDFRenderer {
         def allPageMargins:[double]
         
         def si:int 0
-        while (si < (array_length foundSections)) {
-            def section:EVGElement (itemAt foundSections si)
+        while (si < (array_length sections)) {
+            def section:EVGElement (itemAt sections si)
             def sectionWidth:double (this.getSectionPageWidth(section))
             def sectionHeight:double (this.getSectionPageHeight(section))
             def sectionMargin:double (this.getSectionMargin(section))
             
-            ; Find pages within this section (uses class member foundPages)
-            def emptyPages:[EVGElement]
-            foundPages = emptyPages
-            this.findPageElementsRecursive(section)
+            ; Find pages within this section
+            def pages:[EVGElement]
+            this.findPageElements(section pages)
             
             def pi:int 0
-            while (pi < (array_length foundPages)) {
-                def pg:EVGElement (itemAt foundPages pi)
+            while (pi < (array_length pages)) {
+                def pg:EVGElement (itemAt pages pi)
                 push allPages pg
                 push allPageWidths sectionWidth
                 push allPageHeights sectionHeight

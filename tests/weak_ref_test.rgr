@@ -1,0 +1,65 @@
+; weak_ref_test.rgr
+; Minimal test case for weak reference parameter detection
+
+class PDFWriter {
+    def name:string "writer"
+    
+    Constructor () {
+    }
+    
+    fn render:void () {
+        print "rendering"
+    }
+}
+
+class ImageMeasurer {
+    ; This is a weak reference field
+    def renderer@(optional weak):PDFWriter
+    
+    Constructor () {
+    }
+    
+    ; r should get rust_needs_rc_wrap = true
+    fn setRenderer:void (r:PDFWriter) {
+        renderer = r
+    }
+    
+    fn measure:int () {
+        return 100
+    }
+}
+
+class PDFContainer {
+    def measurer:ImageMeasurer
+    def myWriter:PDFWriter
+    
+    Constructor () {
+        def m (new ImageMeasurer())
+        measurer = m
+        def w (new PDFWriter())
+        myWriter = w
+    }
+    
+    ; selfRef should ALSO get rust_needs_rc_wrap = true
+    ; because it's passed to setRenderer which assigns to a weak field
+    fn init:void (selfRef:PDFWriter) {
+        measurer.setRenderer(selfRef)
+    }
+    
+    fn write:void () {
+        def size:int (measurer.measure())
+        print ("size: " + (to_string size))
+    }
+}
+
+class WeakRefTest {
+    sfn m@(main):void () {
+        print "Weak Reference Test"
+        
+        def container (new PDFContainer())
+        container.init(container.myWriter)
+        container.write()
+        
+        print "Done"
+    }
+}

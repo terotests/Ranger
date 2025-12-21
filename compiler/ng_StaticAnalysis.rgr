@@ -13,7 +13,7 @@ class StaticAnalyzer {
   def ctx@(optional):RangerAppWriterContext
   def currentFunction@(weak optional):RangerAppFunctionDesc
   def currentClass@(weak optional):RangerAppClassDesc
-  def debug:boolean false
+  def debug:boolean true
   
   ; Registry of operators that mutate their first argument
   def mutatingOps:[string:boolean]
@@ -71,6 +71,11 @@ class StaticAnalyzer {
   
   ; Get the root variable name from a node
   fn getRootVarName:string (node:CodeNode) {
+    ; Check namespace array first - for patterns like element.field
+    ; The ns array would be ["element", "field"]
+    if ((array_length node.ns) > 0) {
+      return (itemAt node.ns 0)
+    }
     if ((strlen node.vref) > 0) {
       return node.vref
     }
@@ -210,6 +215,23 @@ class StaticAnalyzer {
               print ("StaticAnalysis: " + varName + " needs C++ reference (mutated buffer function parameter)")
             }
           }
+          ; Check if it's an object type (class instance)
+          ; For Rust, object parameters that have fields mutated need &mut
+          def v_type:RangerNodeType typeNode.value_type
+          if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+            ; Check if type_name is a known class (not a primitive)
+            def typeName:string typeNode.type_name
+            if ((strlen typeName) > 0) {
+              ; If it's not a primitive type, treat as object that needs &mut when mutated
+              if ((typeName != "int") && (typeName != "double") && (typeName != "boolean") && (typeName != "string") && (typeName != "char")) {
+                param.needs_cpp_reference = true
+                param.rust_borrow_type = 2  ; mut_borrow
+                if debug {
+                  print ("StaticAnalysis: " + varName + " needs C++ reference (mutated object function parameter of type " + typeName + ")")
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -247,6 +269,63 @@ class StaticAnalyzer {
     }
   }
   
+  ; ============================================================================
+  ; PARAMETER-TO-FIELD ASSIGNMENT DETECTION (Rust-specific)
+  ; ============================================================================
+  ; Detects when a function parameter is assigned to a class field
+  ; e.g., this.data = buf  ; buf needs to be owned, not borrowed
+  
+  fn walkForFieldAssignments:void (node:CodeNode fnCtx:RangerAppWriterContext) {
+    ; Check for assignment: (= lhs rhs)
+    if node.expression {
+      if ((array_length node.children) >= 3) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "=") {
+          def lhs:CodeNode (node.getSecond())
+          def rhs:CodeNode (itemAt node.children 2)
+          
+          ; Check if LHS is a class field (this.field or just field where field is class var)
+          def is_field_assignment:boolean false
+          if ((array_length lhs.ns) >= 1) {
+            def firstPart:string (itemAt lhs.ns 0)
+            if (firstPart == "this") {
+              is_field_assignment = true
+            }
+          }
+          if (is_field_assignment == false) {
+            if lhs.hasParamDesc {
+              def lhsPd:RangerAppParamDesc lhs.paramDesc
+              if lhsPd.is_class_variable {
+                is_field_assignment = true
+              }
+            }
+          }
+          
+          ; If assigning to a field, check if RHS is a function parameter
+          if is_field_assignment {
+            def rhsVarName:string rhs.vref
+            if ((strlen rhsVarName) > 0) {
+              def rhsParam:RangerAppParamDesc (fnCtx.getVariableDef(rhsVarName))
+              if ((strlen rhsParam.name) > 0) {
+                if (rhsParam.varType == RangerContextVarType.FunctionParameter) {
+                  rhsParam.rust_assigned_to_field = true
+                  if debug {
+                    print ("StaticAnalysis: parameter " + rhsVarName + " assigned to field - requires owned value")
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForFieldAssignments(child fnCtx)
+    }
+  }
+  
   ; Walk the AST to collect variable definitions and detect mutations
   fn walkForMutations:void (node:CodeNode fnCtx:RangerAppWriterContext) {
     ; Check if this is a variable definition
@@ -268,6 +347,56 @@ class StaticAnalyzer {
         this.markVarAsMutated(varName fnCtx)
       }
     }
+    
+    ; Check if this is an assignment to an object's field (obj.field = value)
+    ; This mutates the object, even though = is not in mutatingOps
+    if node.expression {
+      if ((array_length node.children) >= 3) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "=") {
+          def lhs:CodeNode (node.getSecond())
+          ; Check if LHS is a field access (obj.field)
+          if ((array_length lhs.ns) >= 2) {
+            ; This is a field assignment like obj.field = value
+            ; The first element of ns is the object being mutated
+            def objName:string (itemAt lhs.ns 0)
+            ; Don't mark "this" - that's handled separately for &mut self
+            if (objName != "this") {
+              this.markVarAsMutated(objName fnCtx)
+              if debug {
+                print ("StaticAnalysis: field assignment to " + objName + "." + (itemAt lhs.ns 1))
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Check if this is a method call on a variable (obj.method(...))
+    ; This may mutate the object if the method mutates self
+    ; For Rust, we conservatively assume any method call mutates the receiver
+    if node.hasFnCall {
+      def fc:CodeNode (node.getFirst())
+      if ((array_length fc.ns) >= 2) {
+        def objName:string (itemAt fc.ns 0)
+        ; Skip this.method - handled separately
+        if (objName != "this") {
+          ; Check if this is a function parameter
+          def param:RangerAppParamDesc (fnCtx.getVariableDef(objName))
+          if (param.varType == RangerContextVarType.FunctionParameter) {
+            ; Method call on function parameter - mark as mutated
+            this.markVarAsMutated(objName fnCtx)
+            if debug {
+              print ("StaticAnalysis: method call on parameter " + objName + "." + (itemAt fc.ns 1))
+            }
+          }
+        }
+      }
+    }
+    
+    ; NOTE: Method call mutation analysis is now done in a separate pass
+    ; (analyzeMethodCallMutations) after all methods have been analyzed for direct mutations.
+    ; This allows us to properly determine if a called method actually mutates self.
     
     ; Recurse to children
     for node.children child:CodeNode i {
@@ -308,6 +437,417 @@ class StaticAnalyzer {
     }
   }
   
+  ; ============================================================================
+  ; SELF MUTATION DETECTION (for Rust &self vs &mut self)
+  ; ============================================================================
+  ; Detects when a method assigns to this.field, which requires &mut self in Rust
+  
+  ; Check if a node is an assignment to this.field
+  fn isSelfAssignment:boolean (node:CodeNode) {
+    if (node.expression == false) {
+      return false
+    }
+    if ((array_length node.children) < 2) {
+      return false
+    }
+    def first:CodeNode (node.getFirst())
+    ; Check for assignment operator
+    if (first.vref != "=") {
+      return false
+    }
+    ; Check if LHS is this.something
+    def lhs:CodeNode (node.getSecond())
+    if ((array_length lhs.ns) > 0) {
+      def firstPart:string (itemAt lhs.ns 0)
+      if (firstPart == "this") {
+        return true
+      }
+    }
+    return false
+  }
+  
+  ; Check if a node uses 'this' (field access or method call)
+  fn usesSelf:boolean (node:CodeNode) {
+    ; Direct 'this' reference
+    if (node.vref == "this") {
+      return true
+    }
+    ; Namespace starting with 'this'
+    if ((array_length node.ns) > 0) {
+      def firstPart:string (itemAt node.ns 0)
+      if (firstPart == "this") {
+        return true
+      }
+    }
+    return false
+  }
+  
+  ; Walk AST to detect self mutations and self usage
+  fn walkForSelfAnalysis:void (node:CodeNode) {
+    ; Check if this is an assignment to this.field
+    if (this.isSelfAssignment(node)) {
+      if (!null? currentFunction) {
+        def fn:RangerAppFunctionDesc (unwrap currentFunction)
+        fn.mutates_self = true
+        fn.rust_uses_self = true
+        if debug {
+          print ("StaticAnalysis: " + fn.name + " mutates self (assignment to this.field)")
+        }
+      }
+    }
+    
+    ; Check if this uses 'this' at all
+    if (this.usesSelf(node)) {
+      if (!null? currentFunction) {
+        def fn:RangerAppFunctionDesc (unwrap currentFunction)
+        fn.rust_uses_self = true
+      }
+    }
+    
+    ; Check if 'this' is a mutating operation target (e.g., push this.array item)
+    if (this.isMutatingNode(node)) {
+      if ((array_length node.children) >= 2) {
+        def target:CodeNode (node.getSecond())
+        if (this.usesSelf(target)) {
+          if (!null? currentFunction) {
+            def fn:RangerAppFunctionDesc (unwrap currentFunction)
+            fn.mutates_self = true
+            fn.rust_uses_self = true
+            if debug {
+              print ("StaticAnalysis: " + fn.name + " mutates self (mutating op on this.field)")
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForSelfAnalysis(child)
+    }
+  }
+  
+  ; ============================================================================
+  ; WEAK REFERENCE PARAMETER DETECTION
+  ; ============================================================================
+  ; Detects when a function parameter is assigned to a @(weak) field
+  ; This is needed to generate Rc<RefCell<T>> parameter types in Rust
+  
+  ; Check if a field has the @(weak) annotation
+  fn isWeakField:boolean (fieldName:string) {
+    if (null? currentClass) {
+      return false
+    }
+    def cl:RangerAppClassDesc (unwrap currentClass)
+    ; Find the field in the class variables
+    for cl.variables pvar:RangerAppParamDesc i {
+      if (!null? pvar.nameNode) {
+        def nameN:CodeNode (unwrap pvar.nameNode)
+        if (nameN.vref == fieldName) {
+          ; Check if the field has the weak flag
+          return (nameN.hasFlag("weak"))
+        }
+      }
+    }
+    return false
+  }
+  
+  ; Analyze assignments in a function to detect parameter-to-weak-field assignments
+  fn walkForWeakAssignments:void (node:CodeNode fnCtx:RangerAppWriterContext) {
+    if (node.expression == false) {
+      ; Recurse to children
+      for node.children child:CodeNode i {
+        this.walkForWeakAssignments(child fnCtx)
+      }
+      return
+    }
+    
+    if ((array_length node.children) < 3) {
+      ; Recurse to children
+      for node.children child:CodeNode i {
+        this.walkForWeakAssignments(child fnCtx)
+      }
+      return
+    }
+    
+    def first:CodeNode (node.getFirst())
+    ; Check for assignment: (= lhs rhs)
+    if (first.vref == "=") {
+      def lhs:CodeNode (node.getSecond())
+      def rhs:CodeNode (itemAt node.children 2)
+      
+      ; Check if LHS is this.field where field is @(weak)
+      ; Two patterns: explicit "this.field" or implicit "field" where field is class variable
+      def fieldName:string ""
+      def is_self_field:boolean false
+      
+      ; Pattern 1: this.field (explicit this)
+      if ((array_length lhs.ns) >= 2) {
+        def firstPart:string (itemAt lhs.ns 0)
+        if (firstPart == "this") {
+          fieldName = (itemAt lhs.ns 1)
+          is_self_field = true
+        }
+      }
+      
+      ; Pattern 2: field (implicit this - check if it's a class variable)
+      if (is_self_field == false) {
+        if lhs.hasParamDesc {
+          def lhsParam:RangerAppParamDesc lhs.paramDesc
+          if lhsParam.is_class_variable {
+            ; This is an assignment to a class variable without explicit this
+            fieldName = lhsParam.name
+            is_self_field = true
+          }
+        }
+      }
+      
+      if is_self_field {
+        if (this.isWeakField(fieldName)) {
+          ; RHS is being assigned to a weak field
+          ; Check if RHS is a function parameter
+          def rhsVarName:string rhs.vref
+          if ((strlen rhsVarName) > 0) {
+            ; Find the parameter
+            def param:RangerAppParamDesc (fnCtx.getVariableDef(rhsVarName))
+            if (param.varType == RangerContextVarType.FunctionParameter) {
+              param.rust_assigned_to_weak = true
+              param.rust_needs_rc_wrap = true
+              if debug {
+                print ("StaticAnalysis: parameter " + rhsVarName + " assigned to weak field " + fieldName)
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForWeakAssignments(child fnCtx)
+    }
+  }
+  
+  ; Walk for transitive weak assignments
+  ; Detects when a function parameter is passed to a method that has rust_needs_rc_wrap parameter
+  ; For example: imgM.setRenderer(selfRc) where setRenderer's param has rust_needs_rc_wrap
+  fn walkForTransitiveWeak:void (node:CodeNode fnCtx:RangerAppWriterContext) {
+    ; Look for method calls where arguments are function parameters
+    ; Check both has_call (for "call obj method args" style) and hasFnCall (for "obj.method(args)" style)
+    def isCall:boolean (node.has_call || node.hasFnCall)
+    
+    ; Debug: show what we're checking
+    if ((node.has_call == true) || (node.hasFnCall == true)) {
+      print ("StaticAnalysis: found call node has_call=" + (to_string node.has_call) + " hasFnCall=" + (to_string node.hasFnCall) + " vref=" + node.vref)
+    }
+    
+    if isCall {
+      ; Check if fnDesc is available (set by FlowWork/FlowParser for resolved calls)
+      if (!null? node.fnDesc) {
+        ; This is a function/method call with fnDesc available
+        def fnDesc:RangerAppFunctionDesc node.fnDesc
+        ; Check arguments against function parameters
+        def childCnt:int (array_length node.children)
+        
+        ; Debug: print all function calls being checked
+        print ("StaticAnalysis: transitive check call to " + fnDesc.name + " childCnt=" + (to_string childCnt))
+        
+        ; For hasFnCall (obj.method(args) style), structure is:
+        ; node.children[0] = fnNode (method reference like obj.method)
+        ; node.children[1] = callParams (contains actual args as children)
+        ; For has_call (call obj method args), structure is:
+        ; node.children = [call-marker, obj, method, args-node]
+        
+        if node.hasFnCall {
+          ; obj.method(args) style - args are in children[1].children
+          if (childCnt >= 2) {
+            def callParams:CodeNode (itemAt node.children 1)
+            def argCnt:int (array_length callParams.children)
+            def paramCnt:int (array_length fnDesc.params)
+            
+            print ("StaticAnalysis:   hasFnCall style, argCnt=" + (to_string argCnt))
+            
+            for callParams.children arg:CodeNode i {
+              ; This is an argument to the function call
+              def argVref:string arg.vref
+              print ("StaticAnalysis:   arg[" + (to_string i) + "]=" + argVref + " hasParamDesc=" + (to_string arg.hasParamDesc))
+              if ((strlen argVref) > 0) {
+                ; Check if argument is a function parameter OR local variable from our context
+                if arg.hasParamDesc {
+                  def argParam:RangerAppParamDesc arg.paramDesc
+                  def isFunctionParam:boolean (argParam.varType == RangerContextVarType.FunctionParameter)
+                  def isLocalVar:boolean (argParam.varType == RangerContextVarType.LocalVariable)
+                  print ("StaticAnalysis:   is FunctionParameter=" + (to_string isFunctionParam) + " isLocalVar=" + (to_string isLocalVar))
+                  if (isFunctionParam || isLocalVar) {
+                    ; Check if the called function's corresponding parameter has rust_needs_rc_wrap
+                    if (i < paramCnt) {
+                      def calledParam:RangerAppParamDesc (itemAt fnDesc.params i)
+                      print ("StaticAnalysis:   calledParam.rust_needs_rc_wrap=" + (to_string calledParam.rust_needs_rc_wrap))
+                      if calledParam.rust_needs_rc_wrap {
+                        ; The called method expects Rc<RefCell<T>>, so our arg needs it too
+                        argParam.rust_needs_rc_wrap = true
+                        print ("StaticAnalysis: transitive weak - " + argVref + " passed to " + fnDesc.name + " which needs Rc wrap")
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } {
+          ; (call obj method args) style - args start at index 3
+          if (childCnt > 3) {
+            def argsNode:CodeNode (itemAt node.children 3)
+            def paramCnt:int (array_length fnDesc.params)
+            
+            for argsNode.children arg:CodeNode i {
+              def argVref:string arg.vref
+              if ((strlen argVref) > 0) {
+                if arg.hasParamDesc {
+                  def argParam:RangerAppParamDesc arg.paramDesc
+                  def isFunctionParam:boolean (argParam.varType == RangerContextVarType.FunctionParameter)
+                  def isLocalVar:boolean (argParam.varType == RangerContextVarType.LocalVariable)
+                  if (isFunctionParam || isLocalVar) {
+                    if (i < paramCnt) {
+                      def calledParam:RangerAppParamDesc (itemAt fnDesc.params i)
+                      if calledParam.rust_needs_rc_wrap {
+                        argParam.rust_needs_rc_wrap = true
+                        print ("StaticAnalysis: transitive weak - " + argVref + " passed to " + fnDesc.name + " which needs Rc wrap")
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForTransitiveWeak(child fnCtx)
+    }
+  }
+  
+  ; ============================================================================
+  ; RUST BORROW CONFLICT DETECTION
+  ; ============================================================================
+  ; Detects patterns like: self.member.method(self.otherMethod())
+  ; where both calls try to borrow self mutably
+  
+  ; Check if a node contains a self method call (this.method() pattern)
+  fn containsSelfMethodCall:boolean (node:CodeNode) {
+    ; Check if this node is a call on self
+    if node.has_call {
+      if ((array_length node.ns) > 0) {
+        def firstPart:string (itemAt node.ns 0)
+        if (firstPart == "this") {
+          return true
+        }
+      }
+    }
+    
+    ; Check vref for "this" pattern
+    if ((strlen node.vref) > 0) {
+      if (node.vref == "this") {
+        return true
+      }
+    }
+    
+    ; Check namespace for "this" as first part
+    if ((array_length node.ns) > 0) {
+      def firstPart:string (itemAt node.ns 0)
+      if (firstPart == "this") {
+        ; And if this is used as a method call
+        if node.expression {
+          return true
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      if (this.containsSelfMethodCall(child)) {
+        return true
+      }
+    }
+    return false
+  }
+  
+  ; Collect all argument nodes that contain self method calls
+  fn collectSelfMethodCallArgs:void (node:CodeNode results:[CodeNode]) {
+    ; Check if this node is a call with self reference
+    if node.has_call {
+      if (this.containsSelfMethodCall(node)) {
+        push results node
+        return  ; Don't recurse into children of collected node
+      }
+    }
+    
+    ; Check if this is a self-referencing expression
+    if node.expression {
+      if ((array_length node.ns) > 0) {
+        def firstPart:string (itemAt node.ns 0)
+        if (firstPart == "this") {
+          ; This is a this.something expression that might need pre-evaluation
+          if (this.containsSelfMethodCall(node)) {
+            push results node
+            return
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.collectSelfMethodCallArgs(child results)
+    }
+  }
+  
+  ; Walk AST to detect and mark Rust borrow conflicts
+  fn walkForRustBorrowConflicts:void (node:CodeNode) {
+    ; Look for method calls: node.has_call indicates a call expression
+    ; Pattern: (call obj method args)
+    if node.has_call {
+      ; Check if this is a call on self.member
+      if ((array_length node.children) >= 4) {
+        def objNode:CodeNode (node.getSecond())
+        def argsNode:CodeNode (itemAt node.children 3)
+        
+        ; Check if obj is self.something
+        def objIsSelfMember:boolean false
+        if ((array_length objNode.ns) > 0) {
+          def firstPart:string (itemAt objNode.ns 0)
+          if (firstPart == "this") {
+            objIsSelfMember = true
+          }
+        }
+        
+        if objIsSelfMember {
+          ; Now check if any arguments contain self method calls
+          def argsWithSelfCalls:[CodeNode]
+          this.collectSelfMethodCallArgs(argsNode argsWithSelfCalls)
+          
+          if ((array_length argsWithSelfCalls) > 0) {
+            ; Mark this node as needing pre-evaluation of args
+            node.rust_needs_preevaluate = true
+            node.rust_preevaluated_args = argsWithSelfCalls
+            
+            if debug {
+              print "StaticAnalysis: Rust borrow conflict detected, marking for pre-evaluation"
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForRustBorrowConflicts(child)
+    }
+  }
+  
   ; Analyze a single function
   fn analyzeFunction:void (fn:RangerAppFunctionDesc) {
     if (fn.static_analysis_done) {
@@ -320,10 +860,66 @@ class StaticAnalyzer {
       if (!null? fn.fnCtx) {
         ; Walk for mutations using the function context
         this.walkForMutations((unwrap fn.fnBody) (unwrap fn.fnCtx))
+        
+        ; Walk for weak field assignments (Rust Rc<RefCell<T>> detection)
+        this.walkForWeakAssignments((unwrap fn.fnBody) (unwrap fn.fnCtx))
+        
+        ; Walk for parameter-to-field assignments (requires owned value, not borrow)
+        this.walkForFieldAssignments((unwrap fn.fnBody) (unwrap fn.fnCtx))
       }
       
       ; Analyze return patterns
       this.walkForReturns((unwrap fn.fnBody))
+      
+      ; Analyze self mutations and usage (Rust &self vs &mut self)
+      this.walkForSelfAnalysis((unwrap fn.fnBody))
+      
+      ; Analyze for Rust borrow conflicts
+      this.walkForRustBorrowConflicts((unwrap fn.fnBody))
+      
+      ; For Rust: Set immutable borrow for non-mutated buffer/array parameters
+      ; This avoids unnecessary moves when passing values to functions
+      ; NOTE: We do NOT mark object-type parameters as immutable because:
+      ; 1. They may have optional fields accessed with .as_mut().unwrap()
+      ; 2. Method calls on those fields require the parent to be &mut
+      ; NOTE: We also skip parameters that are assigned to fields (requires owned)
+      for fn.params param:RangerAppParamDesc i {
+        if (param.varType == RangerContextVarType.FunctionParameter) {
+          ; Skip if already marked for mutable borrow or Rc wrap
+          if ((param.rust_borrow_type != 2) && (param.rust_needs_rc_wrap == false)) {
+            ; Skip if already marked for cpp reference (mutable)
+            if (param.needs_cpp_reference == false) {
+              ; Skip if parameter is assigned to a field (needs owned value)
+              if (param.rust_assigned_to_field == false) {
+                ; Check if parameter is buffer/array type (NOT object types)
+                if (!null? param.nameNode) {
+                  def typeNode:CodeNode (unwrap param.nameNode)
+                  def typeName:string typeNode.type_name
+                  def isBufferOrArray:boolean false
+                  ; Buffer types - these are safe for immutable borrow
+                  if ((typeName == "int_buffer") || (typeName == "double_buffer") || (typeName == "buffer")) {
+                    isBufferOrArray = true
+                  }
+                  ; Array types (has array_type set) - safe for immutable borrow if not mutated
+                  if ((strlen typeNode.array_type) > 0) {
+                    isBufferOrArray = true
+                  }
+                  ; NOTE: We intentionally do NOT include Object/VRef types here
+                  ; because they may have optional fields that need as_mut().unwrap()
+                  
+                  ; If it's a buffer/array and NOT mutated, use immutable borrow
+                  if isBufferOrArray {
+                    param.rust_borrow_type = 1  ; immutable borrow
+                    if debug {
+                      print ("StaticAnalysis: " + param.name + " set to immutable borrow (non-mutated " + typeName + " parameter)")
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
     
     fn.static_analysis_done = true
@@ -343,6 +939,401 @@ class StaticAnalyzer {
     }
   }
   
+  ; Second pass: analyze transitive weak assignments
+  ; Must be called AFTER all functions have been analyzed with walkForWeakAssignments
+  fn analyzeTransitiveWeak:void (fn:RangerAppFunctionDesc) {
+    if (!null? fn.fnBody) {
+      if (!null? fn.fnCtx) {
+        this.walkForTransitiveWeak((unwrap fn.fnBody) (unwrap fn.fnCtx))
+      }
+    }
+  }
+  
+  fn analyzeClassTransitiveWeak:void (cl:RangerAppClassDesc) {
+    currentClass = cl
+    
+    for cl.methods m:RangerAppFunctionDesc i {
+      this.analyzeTransitiveWeak(m)
+    }
+    
+    ; Also analyze the constructor
+    if (!null? cl.constructor_fn) {
+      this.analyzeTransitiveWeak((unwrap cl.constructor_fn))
+    }
+  }
+  
+  ; ============================================================================
+  ; TRANSITIVE MUTABLE BORROW ANALYSIS (Rust-specific)
+  ; ============================================================================
+  ; Detects when a function parameter is passed to another function that requires
+  ; &mut for that parameter. If so, the outer function's parameter also needs &mut.
+  ; Example:
+  ;   fn transform(input, output) { set output 0 ... }  ; output is &mut
+  ;   fn transformWrapper(input, output) { transform(input, output) }
+  ;   ; output here ALSO needs &mut because it's passed to transform's &mut param
+  
+  ; Walk function body to find calls where our parameters are passed to &mut params
+  fn walkForTransitiveMutBorrow:void (node:CodeNode fnCtx:RangerAppWriterContext fn:RangerAppFunctionDesc changedParams:[string]) {
+    ; Check for function/method calls
+    if node.hasFnCall {
+      ; hasFnCall style: children[0] = fnRef (obj.method), children[1] = callParams
+      if ((array_length node.children) >= 2) {
+        def fnRef:CodeNode (node.getFirst())
+        def callParams:CodeNode (node.getSecond())
+        
+        ; Get the called function's descriptor
+        if (!null? node.fnDesc) {
+          def calledFn:RangerAppFunctionDesc node.fnDesc
+          def paramCnt:int (array_length calledFn.params)
+          
+          ; Check each argument
+          for callParams.children arg:CodeNode i {
+            if (i < paramCnt) {
+              ; Get the called function's parameter at this position
+              def calledParam:RangerAppParamDesc (itemAt calledFn.params i)
+              
+              ; Check if the called param requires &mut (borrow_type == 2)
+              if (calledParam.rust_borrow_type == 2) {
+                ; The called function wants &mut for this parameter
+                ; Check if our argument is one of our function's parameters
+                def argVarName:string arg.vref
+                if ((strlen argVarName) > 0) {
+                  ; Look up the argument in our function context
+                  def argParam:RangerAppParamDesc (fnCtx.getVariableDef(argVarName))
+                  if ((strlen argParam.name) > 0) {
+                    if (argParam.varType == RangerContextVarType.FunctionParameter) {
+                      ; Our parameter is passed to a &mut param
+                      ; Check if it's currently marked as immutable borrow or owned
+                      if (argParam.rust_borrow_type != 2) {
+                        ; Upgrade to &mut
+                        argParam.rust_borrow_type = 2
+                        argParam.needs_cpp_reference = true
+                        push changedParams argParam.name
+                        if debug {
+                          print ("StaticAnalysis: " + argParam.name + " upgraded to &mut (passed to " + calledFn.name + " param " + calledParam.name + " which requires &mut)")
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Also check has_call style: (call obj method args)
+    if node.has_call {
+      if ((array_length node.children) > 3) {
+        def argsNode:CodeNode (itemAt node.children 3)
+        
+        if (!null? node.fnDesc) {
+          def calledFn:RangerAppFunctionDesc node.fnDesc
+          def paramCnt:int (array_length calledFn.params)
+          
+          for argsNode.children arg:CodeNode i {
+            if (i < paramCnt) {
+              def calledParam:RangerAppParamDesc (itemAt calledFn.params i)
+              
+              if (calledParam.rust_borrow_type == 2) {
+                def argVarName:string arg.vref
+                if ((strlen argVarName) > 0) {
+                  def argParam:RangerAppParamDesc (fnCtx.getVariableDef(argVarName))
+                  if ((strlen argParam.name) > 0) {
+                    if (argParam.varType == RangerContextVarType.FunctionParameter) {
+                      if (argParam.rust_borrow_type != 2) {
+                        argParam.rust_borrow_type = 2
+                        argParam.needs_cpp_reference = true
+                        push changedParams argParam.name
+                        if debug {
+                          print ("StaticAnalysis: " + argParam.name + " upgraded to &mut (passed to " + calledFn.name + " param " + calledParam.name + " which requires &mut)")
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.walkForTransitiveMutBorrow(child fnCtx fn changedParams)
+    }
+  }
+  
+  ; Analyze transitive mutable borrow for a single function
+  fn analyzeTransitiveMutBorrow:void (fn:RangerAppFunctionDesc changedParams:[string]) {
+    if (!null? fn.fnBody) {
+      if (!null? fn.fnCtx) {
+        this.walkForTransitiveMutBorrow((unwrap fn.fnBody) (unwrap fn.fnCtx) fn changedParams)
+      }
+    }
+  }
+  
+  ; Analyze transitive mutable borrow for all methods in a class
+  fn analyzeClassTransitiveMutBorrow:void (cl:RangerAppClassDesc changedParams:[string]) {
+    currentClass = cl
+    
+    for cl.methods m:RangerAppFunctionDesc i {
+      this.analyzeTransitiveMutBorrow(m changedParams)
+    }
+    
+    if (!null? cl.constructor_fn) {
+      this.analyzeTransitiveMutBorrow((unwrap cl.constructor_fn) changedParams)
+    }
+  }
+  
+  ; ============================================================================
+  ; RECURSIVE MUTATION ANALYSIS
+  ; ============================================================================
+  ; This analysis determines if methods truly mutate self/parameters by walking
+  ; the call graph recursively. Only after all called methods are analyzed can
+  ; we determine if a method is mutating.
+  
+  ; Check if a method directly mutates self (assigns to this.field or calls mutating op on this.field)
+  fn checkDirectSelfMutation:boolean (fn:RangerAppFunctionDesc) {
+    if (null? fn.fnBody) {
+      return false
+    }
+    return (this.nodeDirectlyMutatesSelf((unwrap fn.fnBody)))
+  }
+  
+  ; Check if a node directly mutates self (without following method calls)
+  fn nodeDirectlyMutatesSelf:boolean (node:CodeNode) {
+    ; Check for assignment to this.field: (= this.field value)
+    if node.expression {
+      if ((array_length node.children) >= 2) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "=") {
+          def lhs:CodeNode (node.getSecond())
+          if ((array_length lhs.ns) > 0) {
+            def firstPart:string (itemAt lhs.ns 0)
+            if (firstPart == "this") {
+              return true
+            }
+          }
+        }
+        ; Check for mutating operators on this.field: (push this.array item)
+        if (this.isMutatingOperator(first.vref)) {
+          def target:CodeNode (node.getSecond())
+          if ((array_length target.ns) > 0) {
+            def firstPart:string (itemAt target.ns 0)
+            if (firstPart == "this") {
+              return true
+            }
+          }
+        }
+      }
+    }
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      if (this.nodeDirectlyMutatesSelf(child)) {
+        return true
+      }
+    }
+    return false
+  }
+  
+  ; Recursively analyze a method to determine if it mutates self
+  ; This handles cycles by marking methods as "in progress"
+  fn analyzeMethodMutation:boolean (fn:RangerAppFunctionDesc) {
+    ; If already analyzed, return the result
+    if fn.mutation_analysis_done {
+      return (fn.directly_mutates_self || fn.transitively_mutates_self)
+    }
+    
+    ; Detect cycles - if we're already analyzing this method, assume it doesn't mutate
+    ; (conservative for cycles - better than infinite loop)
+    if fn.mutation_analysis_in_progress {
+      return false
+    }
+    
+    ; Mark as in progress
+    fn.mutation_analysis_in_progress = true
+    
+    ; Check direct mutations first
+    fn.directly_mutates_self = (this.checkDirectSelfMutation(fn))
+    
+    ; If directly mutates, we're done
+    if fn.directly_mutates_self {
+      fn.mutation_analysis_done = true
+      fn.mutation_analysis_in_progress = false
+      fn.mutates_self = true
+      return true
+    }
+    
+    ; Check if method calls other methods that mutate self
+    if (!null? fn.fnBody) {
+      fn.transitively_mutates_self = (this.checkTransitiveMutation((unwrap fn.fnBody) fn))
+    }
+    
+    fn.mutates_self = (fn.directly_mutates_self || fn.transitively_mutates_self)
+    fn.mutation_analysis_done = true
+    fn.mutation_analysis_in_progress = false
+    
+    return fn.mutates_self
+  }
+  
+  ; Check if node contains calls to methods that mutate self
+  fn checkTransitiveMutation:boolean (node:CodeNode fn:RangerAppFunctionDesc) {
+    ; Check for method calls on this: this.method()
+    if node.hasFnCall {
+      if ((array_length node.children) >= 1) {
+        def fnRef:CodeNode (node.getFirst())
+        if ((array_length fnRef.ns) >= 2) {
+          def firstPart:string (itemAt fnRef.ns 0)
+          if (firstPart == "this") {
+            ; This is a call to this.method() - check if that method mutates
+            def methodName:string (itemAt fnRef.ns 1)
+            ; Look up the method in the current class
+            if (!null? currentClass) {
+              def cl:RangerAppClassDesc (unwrap currentClass)
+              def calledMethod@(optional):RangerAppFunctionDesc (cl.findMethod(methodName))
+              if (!null? calledMethod) {
+                def cm:RangerAppFunctionDesc (unwrap calledMethod)
+                ; Recursively analyze the called method
+                if (this.analyzeMethodMutation(cm)) {
+                  return true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      if (this.checkTransitiveMutation(child fn)) {
+        return true
+      }
+    }
+    return false
+  }
+  
+  ; Analyze mutation behavior for all methods in a class
+  fn analyzeClassMutation:void (cl:RangerAppClassDesc) {
+    currentClass = cl
+    
+    for cl.methods m:RangerAppFunctionDesc i {
+      this.analyzeMethodMutation(m)
+    }
+    
+    if (!null? cl.constructor_fn) {
+      this.analyzeMethodMutation((unwrap cl.constructor_fn))
+    }
+  }
+  
+  ; ============================================================================
+  ; PARAMETER MUTATION ANALYSIS
+  ; ============================================================================
+  ; After methods are analyzed for self-mutation, we can determine if calling
+  ; a method on a parameter means that parameter needs &mut
+  
+  ; Check if calling a method on a type would mutate the object
+  fn doesMethodMutate:boolean (typeName:string methodName:string) {
+    if (null? ctx) {
+      return false
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    
+    ; Look up the class
+    def cl@(optional):RangerAppClassDesc (root.findClass(typeName))
+    if (null? cl) {
+      ; Unknown class - be conservative and assume no mutation
+      ; This handles built-in types like buffer, etc.
+      return false
+    }
+    
+    def theClass:RangerAppClassDesc (unwrap cl)
+    def method@(optional):RangerAppFunctionDesc (theClass.findMethod(methodName))
+    if (null? method) {
+      return false
+    }
+    
+    def theMethod:RangerAppFunctionDesc (unwrap method)
+    ; Make sure the method has been analyzed
+    if (theMethod.mutation_analysis_done == false) {
+      ; Need to analyze it first
+      def savedClass@(optional):RangerAppClassDesc currentClass
+      currentClass = theClass
+      this.analyzeMethodMutation(theMethod)
+      currentClass = savedClass
+    }
+    
+    return theMethod.mutates_self
+  }
+  
+  ; Walk function body to find method calls on parameters and mark them if needed
+  fn analyzeParamMethodCalls:void (node:CodeNode fnCtx:RangerAppWriterContext fn:RangerAppFunctionDesc) {
+    ; Check for method calls: param.method()
+    if node.hasFnCall {
+      if ((array_length node.children) >= 1) {
+        def fnRef:CodeNode (node.getFirst())
+        if ((array_length fnRef.ns) >= 2) {
+          def rootVarName:string (itemAt fnRef.ns 0)
+          def methodName:string (itemAt fnRef.ns 1)
+          
+          ; Skip this.method() calls - those are self calls
+          if (rootVarName != "this") {
+            ; Check if this is a function parameter
+            def param:RangerAppParamDesc (fnCtx.getVariableDef(rootVarName))
+            if ((strlen param.name) > 0) {
+              if (param.varType == RangerContextVarType.FunctionParameter) {
+                ; Get the type of the parameter
+                if (!null? param.nameNode) {
+                  def typeNode:CodeNode (unwrap param.nameNode)
+                  def typeName:string typeNode.type_name
+                  
+                  ; Check if calling this method would mutate the object
+                  if (this.doesMethodMutate(typeName methodName)) {
+                    param.needs_cpp_reference = true
+                    param.rust_borrow_type = 2  ; mut_borrow
+                    if debug {
+                      print ("StaticAnalysis: " + rootVarName + " needs &mut (calls mutating method " + methodName + ")")
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.analyzeParamMethodCalls(child fnCtx fn)
+    }
+  }
+  
+  ; Analyze parameter mutations for a function
+  fn analyzeMethodParamMutations:void (fn:RangerAppFunctionDesc) {
+    if (!null? fn.fnBody) {
+      if (!null? fn.fnCtx) {
+        this.analyzeParamMethodCalls((unwrap fn.fnBody) (unwrap fn.fnCtx) fn)
+      }
+    }
+  }
+  
+  ; Analyze parameter mutations for all methods in a class
+  fn analyzeClassParamMutations:void (cl:RangerAppClassDesc) {
+    currentClass = cl
+    
+    for cl.methods m:RangerAppFunctionDesc i {
+      this.analyzeMethodParamMutations(m)
+    }
+    
+    if (!null? cl.constructor_fn) {
+      this.analyzeMethodParamMutations((unwrap cl.constructor_fn))
+    }
+  }
+  
   ; Run analysis on all classes in the context
   fn analyzeAll:void () {
     if (null? ctx) {
@@ -354,12 +1345,44 @@ class StaticAnalyzer {
     
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
     
+    ; Pass 1: Analyze all classes - detect direct weak assignments and basic mutations
     for root.definedClasses cl:RangerAppClassDesc i {
       this.analyzeClass(cl)
     }
     
-    if debug {
-      print "StaticAnalysis: completed analysis of all classes"
+    ; Pass 2: Analyze transitive weak assignments (after all direct assignments detected)
+    for root.definedClasses cl:RangerAppClassDesc i {
+      this.analyzeClassTransitiveWeak(cl)
     }
-  }
-}
+    
+    ; Pass 3: Recursive mutation analysis - determine which methods mutate self
+    for root.definedClasses cl:RangerAppClassDesc i {
+      this.analyzeClassMutation(cl)
+    }
+    
+    ; Pass 4: Parameter mutation analysis - mark params that need &mut based on method calls
+    for root.definedClasses cl:RangerAppClassDesc i {
+      this.analyzeClassParamMutations(cl)
+    }
+    
+    ; Pass 5: Transitive mutable borrow analysis (Rust-specific)
+    ; If a parameter is passed to a function that requires &mut for that param position,
+    ; then our parameter also needs &mut. Run until fixed point (no more changes).
+    def maxIterations:int 10
+    def iteration:int 0
+    def changed:boolean true
+    while ((changed == true) && (iteration < maxIterations)) {
+      changed = false
+      def changedParams:[string]
+      for root.definedClasses cl:RangerAppClassDesc i {
+        this.analyzeClassTransitiveMutBorrow(cl changedParams)
+      }
+      if ((array_length changedParams) > 0) {
+        changed = true
+        if debug {
+          print ("StaticAnalysis: transitive &mut pass " + (to_string iteration) + " - upgraded " + (to_string (array_length changedParams)) + " params")
+        }
+      }
+      iteration = iteration + 1
+    }
+    
