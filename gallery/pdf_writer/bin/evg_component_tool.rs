@@ -833,7 +833,7 @@ impl TSParserSimple {
     };
     return me;
   }
-  fn initParser(&mut self, mut toks : Vec<Token>) -> () {
+  fn initParser(&mut self, toks : &Vec<Token>) -> () {
     self.tokens = toks.clone();
     self.pos = 0;
     self.quiet = false;
@@ -5423,7 +5423,7 @@ impl EVGElement {
     el.elementType = 3;
     return el.clone();
   }
-  fn addChild(&mut self, mut child : EVGElement) -> () {
+  fn addChild(&mut self, mut child : &mut EVGElement) -> () {
     child.parent = Some(Box::new(self.clone()));
     self.children.push(child.clone());
   }
@@ -5578,7 +5578,7 @@ impl EVGElement {
       return;
     }
     if  name == "margin".to_string() {
-      let __arg_0 = EVGUnit::parse(value.clone());
+      let __arg_0 = EVGUnit::parse(value.clone()).clone();
       self.r#box.as_mut().unwrap().setMargin(__arg_0);
       return;
     }
@@ -5599,7 +5599,7 @@ impl EVGElement {
       return;
     }
     if  name == "padding".to_string() {
-      let __arg_0 = EVGUnit::parse(value.clone());
+      let __arg_0 = EVGUnit::parse(value.clone()).clone();
       self.r#box.as_mut().unwrap().setPadding(__arg_0);
       return;
     }
@@ -5855,7 +5855,7 @@ impl GrowableBuffer {
     self.currentChunk.used = pos + 1;
     self.totalSize = self.totalSize + 1;
   }
-  fn writeBytes(&mut self, mut src : Vec<u8>, srcOffset : i64, length : i64) -> () {
+  fn writeBytes(&mut self, src : &Vec<u8>, srcOffset : i64, length : i64) -> () {
     let mut i : i64 = 0;
     while i < length {
       let b : i64 = src[((srcOffset + i)) as usize] as i64;
@@ -5863,9 +5863,9 @@ impl GrowableBuffer {
       i = i + 1;
     };
   }
-  fn writeBuffer(&mut self, mut src : Vec<u8>) -> () {
+  fn writeBuffer(&mut self, src : &Vec<u8>) -> () {
     let __len : i64 = src.len() as i64;
-    self.writeBytes(src.clone(), 0, __len);
+    self.writeBytes(&src, 0, __len);
   }
   fn writeString(&mut self, s : String) -> () {
     let __len : i64 = s.len() as i64;
@@ -5986,7 +5986,7 @@ impl JPEGReader {
     };
     return me;
   }
-  fn readUint16BE(mut data : Vec<u8>, offset : i64) -> i64 {
+  fn readUint16BE(data : &Vec<u8>, offset : i64) -> i64 {
     let high : i64 = data[(offset) as usize] as i64;
     let low : i64 = data[((offset + 1)) as usize] as i64;
     return (high * 256) + low;
@@ -6022,8 +6022,8 @@ impl JPEGReader {
             if  ((m2 == 192) || (m2 == 193)) || (m2 == 194) {
               if  (pos + 9) < dataLen {
                 result.bitsPerComponent = data[((pos + 4)) as usize] as i64;
-                result.height = JPEGReader::readUint16BE(data.clone(), (pos + 5));
-                result.width = JPEGReader::readUint16BE(data.clone(), (pos + 7));
+                result.height = JPEGReader::readUint16BE(&data, (pos + 5));
+                result.width = JPEGReader::readUint16BE(&data, (pos + 7));
                 result.colorComponents = data[((pos + 9)) as usize] as i64;
                 foundSOF = true;
               }
@@ -6035,7 +6035,7 @@ impl JPEGReader {
                   pos = dataLen;
                 } else {
                   if  (pos + 4) < dataLen {
-                    let segLen : i64 = JPEGReader::readUint16BE(data.clone(), (pos + 2));
+                    let segLen : i64 = JPEGReader::readUint16BE(&data, (pos + 2));
                     pos = (pos + 2) + segLen;
                   } else {
                     pos = dataLen;
@@ -6467,7 +6467,7 @@ impl JPEGMetadataParser {
     }
     return [&*([&*([&*([&*([&*([&*(degrees.to_string()), &*"° ".to_string()].concat()), &*(minutes.to_string())].concat()), &*"' ".to_string()].concat()), &*seconds].concat()), &*"\" ".to_string()].concat()), &*r#ref].concat().clone();
   }
-  fn parseIFD(&mut self, mut info : JPEGMetadataInfo, tiffStart : i64, ifdOffset : i64, ifdType : i64) -> () {
+  fn parseIFD(&mut self, mut info : &mut JPEGMetadataInfo, tiffStart : i64, ifdOffset : i64, ifdType : i64) -> () {
     let mut pos : i64 = tiffStart + ifdOffset;
     if  (pos + 2) > self.dataLen {
       return;
@@ -6588,12 +6588,12 @@ impl JPEGMetadataParser {
       }
       if  tagId == 34665 {
         let exifOffset : i64 = self.readUint32((pos + 8));
-        self.parseIFD(info.clone(), tiffStart, exifOffset, 1);
+        self.parseIFD(&mut info, tiffStart, exifOffset, 1);
       }
       if  tagId == 34853 {
         info.hasGPS = true;
         let gpsOffset : i64 = self.readUint32((pos + 8));
-        self.parseIFD(info.clone(), tiffStart, gpsOffset, 2);
+        self.parseIFD(&mut info, tiffStart, gpsOffset, 2);
       }
       if  ifdType == 2 {
         if  tagId == 1 {
@@ -6639,7 +6639,7 @@ impl JPEGMetadataParser {
       i = i + 1;
     };
   }
-  fn parseExif(&mut self, mut info : JPEGMetadataInfo, appStart : i64, appLen : i64) -> () {
+  fn parseExif(&mut self, mut info : &mut JPEGMetadataInfo, appStart : i64, appLen : i64) -> () {
     let header : String = self.readString(appStart, 4);
     if  header != "Exif".to_string() {
       return;
@@ -6662,9 +6662,9 @@ impl JPEGMetadataParser {
       return;
     }
     let ifd0Offset : i64 = self.readUint32((tiffStart + 4));
-    self.parseIFD(info.clone(), tiffStart, ifd0Offset, 0);
+    self.parseIFD(&mut info, tiffStart, ifd0Offset, 0);
   }
-  fn parseJFIF(&mut self, mut info : JPEGMetadataInfo, appStart : i64, appLen : i64) -> () {
+  fn parseJFIF(&mut self, mut info : &mut JPEGMetadataInfo, appStart : i64, appLen : i64) -> () {
     let header : String = self.readString(appStart, 4);
     if  header != "JFIF".to_string() {
       return;
@@ -6677,7 +6677,7 @@ impl JPEGMetadataParser {
     info.xDensity = self.readUint16BE((appStart + 8));
     info.yDensity = self.readUint16BE((appStart + 10));
   }
-  fn parseComment(&mut self, mut info : JPEGMetadataInfo, appStart : i64, appLen : i64) -> () {
+  fn parseComment(&mut self, mut info : &mut JPEGMetadataInfo, appStart : i64, appLen : i64) -> () {
     info.hasComment = true;
     info.comment = self.readString(appStart, appLen);
   }
@@ -6722,13 +6722,13 @@ impl JPEGMetadataParser {
       let segLen : i64 = self.readUint16BE((pos + 2));
       let segStart : i64 = pos + 4;
       if  marker2 == 224 {
-        self.parseJFIF(info.clone(), segStart, segLen - 2);
+        self.parseJFIF(&mut info, segStart, segLen - 2);
       }
       if  marker2 == 225 {
-        self.parseExif(info.clone(), segStart, segLen - 2);
+        self.parseExif(&mut info, segStart, segLen - 2);
       }
       if  marker2 == 254 {
-        self.parseComment(info.clone(), segStart, segLen - 2);
+        self.parseComment(&mut info, segStart, segLen - 2);
       }
       if  (marker2 == 192) || (marker2 == 194) {
         if  (pos + 9) < self.dataLen {
@@ -6923,12 +6923,12 @@ impl PDFWriter {
     self.writeObject(content.clone());
     return objNum;
   }
-  fn writeImageObject(&mut self, header : String, mut imageData : Vec<u8>, footer : String) -> i64 {
+  fn writeImageObject(&mut self, header : String, imageData : &Vec<u8>, footer : String) -> i64 {
     let mut buf : GrowableBuffer = self.pdfBuffer.clone().unwrap();
     self.objectOffsets.push((buf).size());
     buf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
     buf.writeString(header.clone());
-    buf.writeBuffer(imageData.clone());
+    buf.writeBuffer(&imageData);
     buf.writeString(footer.clone());
     buf.writeString("\nendobj\n\n".to_string());
     let objNum : i64 = self.nextObjNum;
@@ -6964,7 +6964,7 @@ impl PDFWriter {
     imgHeader = [&*([&*imgHeader, &*" /Length ".to_string()].concat()), &*(dataLen.to_string())].concat();
     imgHeader = [&*imgHeader, &*" >>\nstream\n".to_string()].concat();
     let imgFooter : String = "\nendstream".to_string();
-    self.imageObjNum = self.writeImageObject(imgHeader.clone(), imgData.clone(), imgFooter.clone());
+    self.imageObjNum = self.writeImageObject(imgHeader.clone(), &imgData, imgFooter.clone());
     return self.imageObjNum;
   }
   fn escapeText(text : String) -> String {
@@ -7770,7 +7770,7 @@ impl EVGLayout {
       println!( "{}", msg );
     }
   }
-  fn layout(&mut self, mut root : EVGElement) -> () {
+  fn layout(&mut self, mut root : &mut EVGElement) -> () {
     self.log("EVGLayout: Starting layout".to_string());
     self.currentPage = 0;
     if  root.width.as_mut().unwrap().isSet == false {
@@ -7779,10 +7779,12 @@ impl EVGLayout {
     if  root.height.as_mut().unwrap().isSet == false {
       root.height = Some(EVGUnit::px(self.pageHeight));
     }
-    self.layoutElement(root.clone(), 0_f64, 0_f64, self.pageWidth, self.pageHeight);
+    let __arg_0 = self.pageWidth.clone();
+    let __arg_1 = self.pageHeight.clone();
+    self.layoutElement(&mut root, 0_f64, 0_f64, __arg_0, __arg_1);
     self.log("EVGLayout: Layout complete".to_string());
   }
-  fn layoutElement(&mut self, mut element : EVGElement, parentX : f64, parentY : f64, parentWidth : f64, parentHeight : f64) -> () {
+  fn layoutElement(&mut self, mut element : &mut EVGElement, parentX : f64, parentY : f64, parentWidth : f64, parentHeight : f64) -> () {
     element.resolveUnits(parentWidth, parentHeight);
     let mut width : f64 = parentWidth;
     if  element.width.as_mut().unwrap().isSet {
@@ -7802,11 +7804,13 @@ impl EVGLayout {
           if  element.width.as_mut().unwrap().isSet && (element.height.as_mut().unwrap().isSet == false) {
             height = width / dims.aspectRatio;
             autoHeight = false;
-            self.log([&*([&*([&*"  Image aspect ratio: ".to_string(), &*(dims.aspectRatio.to_string())].concat()), &*" -> height=".to_string()].concat()), &*(height.to_string())].concat());
+            let __arg_0 = [&*([&*([&*"  Image aspect ratio: ".to_string(), &*(dims.aspectRatio.to_string())].concat()), &*" -> height=".to_string()].concat()), &*(height.to_string())].concat().clone();
+            self.log(__arg_0);
           }
           if  (element.width.as_mut().unwrap().isSet == false) && element.height.as_mut().unwrap().isSet {
             width = height * dims.aspectRatio;
-            self.log([&*([&*([&*"  Image aspect ratio: ".to_string(), &*(dims.aspectRatio.to_string())].concat()), &*" -> width=".to_string()].concat()), &*(width.to_string())].concat());
+            let __arg_0 = [&*([&*([&*"  Image aspect ratio: ".to_string(), &*(dims.aspectRatio.to_string())].concat()), &*" -> width=".to_string()].concat()), &*(width.to_string())].concat().clone();
+            self.log(__arg_0);
           }
           if  (element.width.as_mut().unwrap().isSet == false) && (element.height.as_mut().unwrap().isSet == false) {
             width = (dims.width as f64);
@@ -7839,12 +7843,12 @@ impl EVGLayout {
       element.calculatedInnerHeight = element.r#box.as_mut().unwrap().getInnerHeight(height);
     }
     if  element.isAbsolute {
-      self.layoutAbsolute(element.clone(), parentWidth, parentHeight);
+      self.layoutAbsolute(&mut element, parentWidth, parentHeight);
     }
     let childCount : i64 = element.getChildCount();
     let mut contentHeight : f64 = 0_f64;
     if  childCount > 0 {
-      contentHeight = self.layoutChildren(element.clone());
+      contentHeight = self.layoutChildren(&mut element);
     } else {
       if  (element.tagName == "text".to_string()) || (element.tagName == "span".to_string()) {
         let mut fontSize : f64 = element.inheritedFontSize;
@@ -7882,9 +7886,10 @@ impl EVGLayout {
     element.calculatedInnerHeight = element.r#box.as_mut().unwrap().getInnerHeight(height);
     element.calculatedPage = self.currentPage;
     element.isLayoutComplete = true;
-    self.log([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*"  Laid out ".to_string(), &*element.tagName].concat()), &*" id=".to_string()].concat()), &*element.id].concat()), &*" at (".to_string()].concat()), &*(element.calculatedX.to_string())].concat()), &*",".to_string()].concat()), &*(element.calculatedY.to_string())].concat()), &*") size=".to_string()].concat()), &*(width.to_string())].concat()), &*"x".to_string()].concat()), &*(height.to_string())].concat());
+    let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*"  Laid out ".to_string(), &*element.tagName].concat()), &*" id=".to_string()].concat()), &*element.id].concat()), &*" at (".to_string()].concat()), &*(element.calculatedX.to_string())].concat()), &*",".to_string()].concat()), &*(element.calculatedY.to_string())].concat()), &*") size=".to_string()].concat()), &*(width.to_string())].concat()), &*"x".to_string()].concat()), &*(height.to_string())].concat().clone();
+    self.log(__arg_0);
   }
-  fn layoutChildren(&mut self, mut parent : EVGElement) -> f64 {
+  fn layoutChildren(&mut self, mut parent : &mut EVGElement) -> f64 {
     let childCount : i64 = parent.getChildCount();
     if  childCount == 0 {
       return 0_f64;
@@ -7940,11 +7945,11 @@ impl EVGLayout {
       child.inheritProperties(parent.clone());
       child.resolveUnits(innerWidth, innerHeight);
       if  child.isAbsolute {
-        self.layoutAbsolute(child.clone(), innerWidth, innerHeight);
+        self.layoutAbsolute(&mut child, innerWidth, innerHeight);
         child.calculatedX = child.calculatedX + startX;
         child.calculatedY = child.calculatedY + startY;
         if  child.getChildCount() > 0 {
-          self.layoutChildren(child.clone());
+          self.layoutChildren(&mut child);
         }
         i = i + 1;
         continue;
@@ -7961,7 +7966,7 @@ impl EVGLayout {
       if  isColumn == false {
         let availableWidth : f64 = (startX + innerWidth) - currentX;
         if  (childTotalWidth > availableWidth) && (((rowElements.len() as i64)) > 0) {
-          self.alignRow(rowElements.clone(), parent.clone(), rowHeight, startX, innerWidth);
+          self.alignRow(&rowElements, parent.clone(), rowHeight, startX, innerWidth);
           currentY = currentY + rowHeight;
           totalHeight = totalHeight + rowHeight;
           currentX = startX;
@@ -7970,7 +7975,9 @@ impl EVGLayout {
       }
       child.calculatedX = currentX + child.r#box.as_mut().unwrap().marginLeftPx;
       child.calculatedY = currentY + child.r#box.as_mut().unwrap().marginTopPx;
-      self.layoutElement(child.clone(), child.calculatedX, child.calculatedY, childWidth, innerHeight);
+      let __arg_0 = child.calculatedX.clone();
+      let __arg_1 = child.calculatedY.clone();
+      self.layoutElement(&mut child, __arg_0, __arg_1, childWidth, innerHeight);
       let childHeight : f64 = child.calculatedHeight;
       let childTotalHeight : f64 = (childHeight + child.r#box.as_mut().unwrap().marginTopPx) + child.r#box.as_mut().unwrap().marginBottomPx;
       if  isColumn {
@@ -7985,7 +7992,7 @@ impl EVGLayout {
       }
       if  child.lineBreak {
         if  isColumn == false {
-          self.alignRow(rowElements.clone(), parent.clone(), rowHeight, startX, innerWidth);
+          self.alignRow(&rowElements, parent.clone(), rowHeight, startX, innerWidth);
           currentY = currentY + rowHeight;
           totalHeight = totalHeight + rowHeight;
           currentX = startX;
@@ -7995,12 +8002,12 @@ impl EVGLayout {
       i = i + 1;
     };
     if  (isColumn == false) && (((rowElements.len() as i64)) > 0) {
-      self.alignRow(rowElements.clone(), parent.clone(), rowHeight, startX, innerWidth);
+      self.alignRow(&rowElements, parent.clone(), rowHeight, startX, innerWidth);
       totalHeight = totalHeight + rowHeight;
     }
     return totalHeight;
   }
-  fn alignRow(&mut self, mut rowElements : Vec<EVGElement>, mut parent : EVGElement, rowHeight : f64, startX : f64, innerWidth : f64) -> () {
+  fn alignRow(&mut self, rowElements : &Vec<EVGElement>, mut parent : EVGElement, rowHeight : f64, startX : f64, innerWidth : f64) -> () {
     let elementCount : i64 = (rowElements.len() as i64);
     if  elementCount == 0 {
       return;
@@ -8046,7 +8053,7 @@ impl EVGLayout {
       i = i + 1;
     };
   }
-  fn layoutAbsolute(&mut self, mut element : EVGElement, parentWidth : f64, parentHeight : f64) -> () {
+  fn layoutAbsolute(&mut self, mut element : &mut EVGElement, parentWidth : f64, parentHeight : f64) -> () {
     if  element.left.as_mut().unwrap().isSet {
       element.calculatedX = element.left.as_mut().unwrap().pixels + element.r#box.as_mut().unwrap().marginLeftPx;
     } else {
@@ -8082,7 +8089,7 @@ impl EVGLayout {
       }
     }
   }
-  fn printLayout(&mut self, mut element : EVGElement, indent : i64) -> () {
+  fn printLayout(&mut self, mut element : &mut EVGElement, indent : i64) -> () {
     let mut indentStr : String = "".to_string();
     let mut i : i64 = 0;
     while i < indent {
@@ -8094,7 +8101,7 @@ impl EVGLayout {
     i = 0;
     while i < childCount {
       let mut child : EVGElement = element.getChild(i);
-      self.printLayout(child.clone(), indent + 1);
+      self.printLayout(&mut child, indent + 1);
       i = i + 1;
     };
   }
@@ -9368,7 +9375,7 @@ impl BitReader {
     };
     return me;
   }
-  fn init(&mut self, mut buf : Vec<u8>, startPos : i64, length : i64) -> () {
+  fn init(&mut self, buf : &Vec<u8>, startPos : i64, length : i64) -> () {
     self.data = buf;
     self.dataStart = startPos;
     self.dataEnd = startPos + length;
@@ -9513,7 +9520,7 @@ impl HuffmanTable {
       i = i + 1;
     };
   }
-  fn decode(&mut self, mut reader : BitReader) -> i64 {
+  fn decode(&mut self, mut reader : &mut BitReader) -> i64 {
     let mut code : i64 = 0;
     let mut length : i64 = 0;
     while length < 16 {
@@ -9574,7 +9581,7 @@ impl HuffmanDecoder {
     }
     return self.acTable1.clone();
   }
-  fn parseDHT(&mut self, mut data : Vec<u8>, mut pos : i64, length : i64) -> () {
+  fn parseDHT(&mut self, data : &Vec<u8>, mut pos : i64, length : i64) -> () {
     let endPos : i64 = pos + length;
     while pos < endPos {
       let tableInfo : i64 = data[(pos) as usize] as i64;
@@ -9754,7 +9761,7 @@ impl IDCT {
     me.zigzagMap[(63) as usize] = 63;
     return me;
   }
-  fn dezigzag(&mut self, mut zigzag : Vec<i64>) -> Vec<i64> {
+  fn dezigzag(&mut self, zigzag : &Vec<i64>) -> Vec<i64> {
     let mut block : Vec<i64> = vec![0i64; 64 as usize];
     let mut i : i64 = 0;
     while i < 64 {
@@ -9765,7 +9772,7 @@ impl IDCT {
     };
     return block;
   }
-  fn idct1d(&mut self, mut input : Vec<i64>, startIdx : i64, stride : i64, mut output : &mut Vec<i64>, outIdx : i64, outStride : i64) -> () {
+  fn idct1d(&mut self, input : &Vec<i64>, startIdx : i64, stride : i64, mut output : &mut Vec<i64>, outIdx : i64, outStride : i64) -> () {
     let mut x : i64 = 0;
     while x < 8 {
       let mut sum : i64 = 0;
@@ -9786,17 +9793,17 @@ impl IDCT {
       x = x + 1;
     };
   }
-  fn transform(&mut self, mut block : Vec<i64>, mut output : &mut Vec<i64>) -> () {
+  fn transform(&mut self, block : &Vec<i64>, mut output : &mut Vec<i64>) -> () {
     let mut temp : Vec<i64> = vec![0i64; 64 as usize];
     let mut row : i64 = 0;
     while row < 8 {
       let rowStart : i64 = row * 8;
-      self.idct1d(block.clone(), rowStart, 1, &mut temp, rowStart, 1);
+      self.idct1d(&block, rowStart, 1, &mut temp, rowStart, 1);
       row = row + 1;
     };
     let mut col : i64 = 0;
     while col < 8 {
-      self.idct1d(temp.clone(), col, 8, &mut output, col, 8);
+      self.idct1d(&temp, col, 8, &mut output, col, 8);
       col = col + 1;
     };
     let mut i : i64 = 0;
@@ -9812,8 +9819,8 @@ impl IDCT {
       i = i + 1;
     };
   }
-  fn transformFast(&mut self, mut coeffs : Vec<i64>, mut output : Vec<i64>) -> () {
-    self.transform(coeffs.clone(), &mut output);
+  fn transformFast(&mut self, coeffs : &Vec<i64>, output : &Vec<i64>) -> () {
+    self.transform(&coeffs, &mut output);
   }
 }
 #[derive(Clone)]
@@ -10413,7 +10420,7 @@ impl PPMImage {
     };
     return me;
   }
-  fn parseNumber(mut data : Vec<u8>, startPos : i64, mut endPos : &mut Vec<i64>) -> i64 {
+  fn parseNumber(data : &Vec<u8>, startPos : i64, mut endPos : &mut Vec<i64>) -> i64 {
     let __len : i64 = data.len() as i64;
     let mut pos : i64 = startPos;
     let mut skipping : bool = true;
@@ -10439,7 +10446,7 @@ impl PPMImage {
     endPos[0 as usize] = pos;
     return value;
   }
-  fn skipToNextLine(mut data : Vec<u8>, mut pos : i64) -> i64 {
+  fn skipToNextLine(data : &Vec<u8>, mut pos : i64) -> i64 {
     let __len : i64 = data.len() as i64;
     while pos < __len {
       let ch : i64 = data[(pos) as usize] as i64;
@@ -10478,17 +10485,17 @@ impl PPMImage {
         pos = pos + 1;
       } else {
         if  ch == 35 {
-          pos = PPMImage::skipToNextLine(data.clone(), pos);
+          pos = PPMImage::skipToNextLine(&data, pos);
         } else {
           skippingComments = false;
         }
       }
     };
-    let width : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
+    let width : i64 = PPMImage::parseNumber(&data, pos, &mut endPos);
     pos = endPos[0 as usize].clone();
-    let height : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
+    let height : i64 = PPMImage::parseNumber(&data, pos, &mut endPos);
     pos = endPos[0 as usize].clone();
-    let maxVal : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
+    let maxVal : i64 = PPMImage::parseNumber(&data, pos, &mut endPos);
     pos = endPos[0 as usize].clone();
     if  pos < __len {
       pos = pos + 1;
@@ -10517,11 +10524,11 @@ impl PPMImage {
       while y_1 < height {
         let mut x_1 : i64 = 0;
         while x_1 < width {
-          let r_1 : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
+          let r_1 : i64 = PPMImage::parseNumber(&data, pos, &mut endPos);
           pos = endPos[0 as usize].clone();
-          let g_1 : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
+          let g_1 : i64 = PPMImage::parseNumber(&data, pos, &mut endPos);
           pos = endPos[0 as usize].clone();
-          let b_1 : i64 = PPMImage::parseNumber(data.clone(), pos, &mut endPos);
+          let b_1 : i64 = PPMImage::parseNumber(&data, pos, &mut endPos);
           pos = endPos[0 as usize].clone();
           img.setPixelRGB(x_1, y_1, r_1, g_1, b_1);
           x_1 = x_1 + 1;
@@ -10531,7 +10538,7 @@ impl PPMImage {
     }
     return img.clone();
   }
-  fn save(&mut self, mut img : ImageBuffer, dirPath : String, fileName : String) -> () {
+  fn save(&mut self, mut img : &mut ImageBuffer, dirPath : String, fileName : String) -> () {
     let mut buf : GrowableBuffer = GrowableBuffer::new();
     buf.writeString("P6\n".to_string());
     buf.writeString([&*([&*([&*(img.width.to_string()), &*" ".to_string()].concat()), &*(img.height.to_string())].concat()), &*"\n".to_string()].concat());
@@ -10552,7 +10559,7 @@ impl PPMImage {
     std::fs::write(format!("{}/{}", dirPath, fileName), &data).unwrap();
     println!( "{}", [&*([&*([&*"Saved PPM: ".to_string(), &*dirPath].concat()), &*"/".to_string()].concat()), &*fileName].concat() );
   }
-  fn saveP3(&mut self, mut img : ImageBuffer, dirPath : String, fileName : String) -> () {
+  fn saveP3(&mut self, mut img : &mut ImageBuffer, dirPath : String, fileName : String) -> () {
     let mut buf : GrowableBuffer = GrowableBuffer::new();
     buf.writeString("P3\n".to_string());
     buf.writeString("# Created by Ranger ImageEditor\n".to_string());
@@ -10841,9 +10848,7 @@ impl JPEGDecoder {
       if  marker2 == 196 {
         println!( "{}", "  DHT (Huffman Tables)".to_string() );
         let __arg_0 = self.data.clone();
-        let __arg_1 = dataStart.clone();
-        let __arg_2 = markerDataLen.clone();
-        self.huffman.as_mut().unwrap().parseDHT(__arg_0, __arg_1, __arg_2);
+        self.huffman.as_mut().unwrap().parseDHT(&__arg_0, dataStart, markerDataLen);
       }
       if  marker2 == 219 {
         println!( "{}", "  DQT (Quantization Tables)".to_string() );
@@ -10872,11 +10877,11 @@ impl JPEGDecoder {
     };
     return true;
   }
-  fn decodeBlock(&mut self, mut reader : BitReader, mut comp : JPEGComponent, mut quantTable : QuantizationTable) -> Vec<i64> {
+  fn decodeBlock(&mut self, mut reader : &mut BitReader, mut comp : &mut JPEGComponent, mut quantTable : QuantizationTable) -> Vec<i64> {
     let mut coeffs : Vec<i64> = vec![0i64; 64 as usize];
     coeffs[0 as usize..64 as usize].fill(0);
     let mut dcTable : HuffmanTable = self.huffman.as_mut().unwrap().getDCTable(comp.dcTableId);
-    let dcCategory : i64 = dcTable.decode(reader.clone());
+    let dcCategory : i64 = dcTable.decode(&mut reader);
     let dcDiff : i64 = reader.receiveExtend(dcCategory);
     let dcValue : i64 = comp.prevDC + dcDiff;
     comp.prevDC = dcValue;
@@ -10885,7 +10890,7 @@ impl JPEGDecoder {
     let mut acTable : HuffmanTable = self.huffman.as_mut().unwrap().getACTable(comp.acTableId);
     let mut k : i64 = 1;
     while k < 64 {
-      let acSymbol : i64 = acTable.decode(reader.clone());
+      let acSymbol : i64 = acTable.decode(&mut reader);
       if  acSymbol == 0 {
         k = 64;
       } else {
@@ -10927,7 +10932,7 @@ impl JPEGDecoder {
     let mut img : ImageBuffer = ImageBuffer::new();
     img.init(self.width, self.height);
     let mut reader : BitReader = BitReader::new();
-    reader.init(self.data.clone(), self.scanDataStart, self.scanDataLen);
+    reader.init(&self.data, self.scanDataStart, self.scanDataLen);
     let mut c : i64 = 0;
     while c < self.numComponents {
       let mut comp : JPEGComponent = self.components[c as usize].clone();
@@ -10961,11 +10966,11 @@ impl JPEGDecoder {
           while blockV < comp_1.vSamp {
             let mut blockH : i64 = 0;
             while blockH < comp_1.hSamp {
-              let mut coeffs : Vec<i64> = self.decodeBlock(reader.clone(), comp_1.clone(), quantTable.clone());
+              let mut coeffs : Vec<i64> = self.decodeBlock(&mut reader, &mut comp_1, quantTable.clone());
               let mut blockPixels : Vec<i64> = vec![0i64; 64 as usize];
               blockPixels[0 as usize..64 as usize].fill(0);
-              let mut tempBlock : Vec<i64> = self.idct.as_mut().unwrap().dezigzag(coeffs.clone());
-              self.idct.as_mut().unwrap().transform(tempBlock.clone(), &mut blockPixels);
+              let mut tempBlock : Vec<i64> = self.idct.as_mut().unwrap().dezigzag(&coeffs);
+              self.idct.as_mut().unwrap().transform(&tempBlock, &mut blockPixels);
               if  compIdx == 0 {
                 let mut bi : i64 = 0;
                 while bi < 64 {
@@ -10994,7 +10999,7 @@ impl JPEGDecoder {
           };
           compIdx = compIdx + 1;
         };
-        self.writeMCU(img.clone(), mcuX, mcuY, yBlocksData.clone(), yBlockCount, cbBlock.clone(), crBlock.clone());
+        self.writeMCU(&mut img, mcuX, mcuY, &yBlocksData, yBlockCount, &cbBlock, &crBlock);
         mcuX = mcuX + 1;
         mcuCount = mcuCount + 1;
       };
@@ -11006,7 +11011,7 @@ impl JPEGDecoder {
     println!( "{}", "Decode complete!".to_string() );
     return img.clone();
   }
-  fn writeMCU(&mut self, mut img : ImageBuffer, mcuX : i64, mcuY : i64, mut yBlocksData : Vec<i64>, yBlockCount : i64, mut cbBlock : Vec<i64>, mut crBlock : Vec<i64>) -> () {
+  fn writeMCU(&mut self, mut img : &mut ImageBuffer, mcuX : i64, mcuY : i64, yBlocksData : &Vec<i64>, yBlockCount : i64, cbBlock : &Vec<i64>, crBlock : &Vec<i64>) -> () {
     let baseX : i64 = mcuX * self.mcuWidth;
     let baseY : i64 = mcuY * self.mcuHeight;
     // unused:  let mut comp0 : JPEGComponent = self.components[0 as usize].clone();
@@ -11327,7 +11332,7 @@ impl FDCT {
     me.zigzagOrder[(63) as usize] = 63;
     return me;
   }
-  fn dct1d(&mut self, mut input : Vec<i64>, startIdx : i64, stride : i64, mut output : &mut Vec<i64>, outIdx : i64, outStride : i64) -> () {
+  fn dct1d(&mut self, input : &Vec<i64>, startIdx : i64, stride : i64, mut output : &mut Vec<i64>, outIdx : i64, outStride : i64) -> () {
     let mut u : i64 = 0;
     while u < 8 {
       let mut sum : i64 = 0;
@@ -11345,7 +11350,7 @@ impl FDCT {
       u = u + 1;
     };
   }
-  fn transform(&mut self, mut pixels : Vec<i64>) -> Vec<i64> {
+  fn transform(&mut self, pixels : &Vec<i64>) -> Vec<i64> {
     let mut shifted : Vec<i64> = vec![0i64; 64 as usize];
     let mut i : i64 = 0;
     while i < 64 {
@@ -11356,18 +11361,18 @@ impl FDCT {
     let mut row : i64 = 0;
     while row < 8 {
       let rowStart : i64 = row * 8;
-      self.dct1d(shifted.clone(), rowStart, 1, &mut temp, rowStart, 1);
+      self.dct1d(&shifted, rowStart, 1, &mut temp, rowStart, 1);
       row = row + 1;
     };
     let mut coeffs : Vec<i64> = vec![0i64; 64 as usize];
     let mut col : i64 = 0;
     while col < 8 {
-      self.dct1d(temp.clone(), col, 8, &mut coeffs, col, 8);
+      self.dct1d(&temp, col, 8, &mut coeffs, col, 8);
       col = col + 1;
     };
     return coeffs;
   }
-  fn zigzag(&mut self, mut block : Vec<i64>) -> Vec<i64> {
+  fn zigzag(&mut self, block : &Vec<i64>) -> Vec<i64> {
     let mut zigzagOut : Vec<i64> = vec![0i64; 64 as usize];
     let mut i : i64 = 0;
     while i < 64 {
@@ -11417,7 +11422,8 @@ impl BitWriter {
         self.bitBuffer = ((self.bitBuffer) | (1));
         self.bitCount = self.bitCount + 1;
       };
-      self.buffer.writeByte(self.bitBuffer);
+      let __arg_0 = self.bitBuffer.clone();
+      self.buffer.writeByte(__arg_0);
       if  self.bitBuffer == 255 {
         self.buffer.writeByte(0);
       }
@@ -11633,7 +11639,8 @@ impl JPEGEncoder {
     self.stdCQuant.push(99);
     self.stdCQuant.push(99);
     self.stdCQuant.push(99);
-    self.scaleQuantTables(self.quality);
+    let __arg_0 = self.quality.clone();
+    self.scaleQuantTables(__arg_0);
   }
   fn scaleQuantTables(&mut self, q : i64) -> () {
     let mut scale : i64 = 0;
@@ -12088,12 +12095,28 @@ impl JPEGEncoder {
       self.acCLengths.push(0);
       i = i + 1;
     };
-    JPEGEncoder::buildHuffmanCodes(self.dcYBits.clone(), self.dcYValues.clone(), &mut self.dcYCodes, &mut self.dcYLengths);
-    JPEGEncoder::buildHuffmanCodes(self.acYBits.clone(), self.acYValues.clone(), &mut self.acYCodes, &mut self.acYLengths);
-    JPEGEncoder::buildHuffmanCodes(self.dcCBits.clone(), self.dcCValues.clone(), &mut self.dcCCodes, &mut self.dcCLengths);
-    JPEGEncoder::buildHuffmanCodes(self.acCBits.clone(), self.acCValues.clone(), &mut self.acCCodes, &mut self.acCLengths);
+    let __arg_0 = self.dcYBits.clone();
+    let __arg_1 = self.dcYValues.clone();
+    let mut __arg_2 = self.dcYCodes.clone();
+    let mut __arg_3 = self.dcYLengths.clone();
+    JPEGEncoder::buildHuffmanCodes(&__arg_0, &__arg_1, &mut __arg_2, &mut __arg_3);
+    let __arg_0 = self.acYBits.clone();
+    let __arg_1 = self.acYValues.clone();
+    let mut __arg_2 = self.acYCodes.clone();
+    let mut __arg_3 = self.acYLengths.clone();
+    JPEGEncoder::buildHuffmanCodes(&__arg_0, &__arg_1, &mut __arg_2, &mut __arg_3);
+    let __arg_0 = self.dcCBits.clone();
+    let __arg_1 = self.dcCValues.clone();
+    let mut __arg_2 = self.dcCCodes.clone();
+    let mut __arg_3 = self.dcCLengths.clone();
+    JPEGEncoder::buildHuffmanCodes(&__arg_0, &__arg_1, &mut __arg_2, &mut __arg_3);
+    let __arg_0 = self.acCBits.clone();
+    let __arg_1 = self.acCValues.clone();
+    let mut __arg_2 = self.acCCodes.clone();
+    let mut __arg_3 = self.acCLengths.clone();
+    JPEGEncoder::buildHuffmanCodes(&__arg_0, &__arg_1, &mut __arg_2, &mut __arg_3);
   }
-  fn buildHuffmanCodes(mut bits : Vec<i64>, mut values : Vec<i64>, mut codes : &mut Vec<i64>, mut lengths : &mut Vec<i64>) -> () {
+  fn buildHuffmanCodes(bits : &Vec<i64>, values : &Vec<i64>, mut codes : &mut Vec<i64>, mut lengths : &mut Vec<i64>) -> () {
     let mut code : i64 = 0;
     let mut valueIdx : i64 = 0;
     let mut bitLen : i64 = 1;
@@ -12132,7 +12155,7 @@ impl JPEGEncoder {
     }
     return value;
   }
-  fn encodeBlock(&mut self, mut writer : BitWriter, mut coeffs : Vec<i64>, mut quantTable : Vec<i64>, mut dcCodes : Vec<i64>, mut dcLengths : Vec<i64>, mut acCodes : Vec<i64>, mut acLengths : Vec<i64>, prevDC : i64) -> () {
+  fn encodeBlock(&mut self, mut writer : &mut BitWriter, coeffs : &Vec<i64>, quantTable : &Vec<i64>, dcCodes : &Vec<i64>, dcLengths : &Vec<i64>, acCodes : &Vec<i64>, acLengths : &Vec<i64>, prevDC : i64) -> () {
     let mut quantized : Vec<i64> = vec![0i64; 64 as usize];
     let mut i : i64 = 0;
     while i < 64 {
@@ -12147,7 +12170,7 @@ impl JPEGEncoder {
       quantized[(i) as usize] = qVal;
       i = i + 1;
     };
-    let mut zigzagged : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(quantized.clone());
+    let mut zigzagged : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&quantized);
     let dc : i64 = zigzagged[(0) as usize];
     let dcDiff : i64 = dc - prevDC;
     let dcCat : i64 = JPEGEncoder::getCategory(dcDiff);
@@ -12214,7 +12237,7 @@ impl JPEGEncoder {
     cbOut.push(cb.clone());
     crOut.push(cr.clone());
   }
-  fn extractBlock(&mut self, mut img : ImageBuffer, blockX : i64, blockY : i64, channel : i64) -> Vec<i64> {
+  fn extractBlock(&mut self, mut img : &mut ImageBuffer, blockX : i64, blockY : i64, channel : i64) -> Vec<i64> {
     let mut output : Vec<i64> = vec![0i64; 64 as usize];
     let mut idx : i64 = 0;
     let mut py : i64 = 0;
@@ -12249,7 +12272,7 @@ impl JPEGEncoder {
     };
     return output;
   }
-  fn writeMarkers(&mut self, mut writer : BitWriter, width : i64, height : i64) -> () {
+  fn writeMarkers(&mut self, mut writer : &mut BitWriter, width : i64, height : i64) -> () {
     writer.writeByte(255);
     writer.writeByte(216);
     writer.writeByte(255);
@@ -12373,7 +12396,9 @@ impl JPEGEncoder {
   }
   fn encodeToBuffer(&mut self, mut img : ImageBuffer) -> Vec<u8> {
     let mut writer : BitWriter = BitWriter::new();
-    self.writeMarkers(writer.clone(), img.width, img.height);
+    let __arg_0 = img.width.clone();
+    let __arg_1 = img.height.clone();
+    self.writeMarkers(&mut writer, __arg_0, __arg_1);
     let mcuWidth : i64 = (((img.width + 7) as f64) / (8 as f64)) as i64 ;
     let mcuHeight : i64 = (((img.height + 7) as f64) / (8 as f64)) as i64 ;
     self.prevDCY = 0;
@@ -12385,10 +12410,16 @@ impl JPEGEncoder {
       while mcuX < mcuWidth {
         let blockX : i64 = mcuX * 8;
         let blockY : i64 = mcuY * 8;
-        let mut yBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 0);
-        let mut yCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(yBlock.clone());
-        self.encodeBlock(writer.clone(), yCoeffs.clone(), self.yQuantTable.clone(), self.dcYCodes.clone(), self.dcYLengths.clone(), self.acYCodes.clone(), self.acYLengths.clone(), self.prevDCY);
-        let mut yZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(yCoeffs.clone());
+        let mut yBlock : Vec<i64> = self.extractBlock(&mut img, blockX, blockY, 0);
+        let mut yCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(&yBlock);
+        let __arg_0 = self.yQuantTable.clone();
+        let __arg_1 = self.dcYCodes.clone();
+        let __arg_2 = self.dcYLengths.clone();
+        let __arg_3 = self.acYCodes.clone();
+        let __arg_4 = self.acYLengths.clone();
+        let __arg_5 = self.prevDCY.clone();
+        self.encodeBlock(&mut writer, yCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        let mut yZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&yCoeffs);
         let yQ : i64 = self.yQuantTable[0 as usize].clone();
         let yDC : i64 = yZig[(0) as usize];
         if  yDC >= 0 {
@@ -12396,10 +12427,16 @@ impl JPEGEncoder {
         } else {
           self.prevDCY = (((yDC - (((yQ) >> (1)))) as f64) / (yQ as f64)) as i64 ;
         }
-        let mut cbBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 1);
-        let mut cbCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(cbBlock.clone());
-        self.encodeBlock(writer.clone(), cbCoeffs.clone(), self.cQuantTable.clone(), self.dcCCodes.clone(), self.dcCLengths.clone(), self.acCCodes.clone(), self.acCLengths.clone(), self.prevDCCb);
-        let mut cbZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(cbCoeffs.clone());
+        let mut cbBlock : Vec<i64> = self.extractBlock(&mut img, blockX, blockY, 1);
+        let mut cbCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(&cbBlock);
+        let __arg_0 = self.cQuantTable.clone();
+        let __arg_1 = self.dcCCodes.clone();
+        let __arg_2 = self.dcCLengths.clone();
+        let __arg_3 = self.acCCodes.clone();
+        let __arg_4 = self.acCLengths.clone();
+        let __arg_5 = self.prevDCCb.clone();
+        self.encodeBlock(&mut writer, cbCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        let mut cbZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&cbCoeffs);
         let cbQ : i64 = self.cQuantTable[0 as usize].clone();
         let cbDC : i64 = cbZig[(0) as usize];
         if  cbDC >= 0 {
@@ -12407,10 +12444,16 @@ impl JPEGEncoder {
         } else {
           self.prevDCCb = (((cbDC - (((cbQ) >> (1)))) as f64) / (cbQ as f64)) as i64 ;
         }
-        let mut crBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 2);
-        let mut crCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(crBlock.clone());
-        self.encodeBlock(writer.clone(), crCoeffs.clone(), self.cQuantTable.clone(), self.dcCCodes.clone(), self.dcCLengths.clone(), self.acCCodes.clone(), self.acCLengths.clone(), self.prevDCCr);
-        let mut crZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(crCoeffs.clone());
+        let mut crBlock : Vec<i64> = self.extractBlock(&mut img, blockX, blockY, 2);
+        let mut crCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(&crBlock);
+        let __arg_0 = self.cQuantTable.clone();
+        let __arg_1 = self.dcCCodes.clone();
+        let __arg_2 = self.dcCLengths.clone();
+        let __arg_3 = self.acCCodes.clone();
+        let __arg_4 = self.acCLengths.clone();
+        let __arg_5 = self.prevDCCr.clone();
+        self.encodeBlock(&mut writer, crCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        let mut crZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&crCoeffs);
         let crQ : i64 = self.cQuantTable[0 as usize].clone();
         let crDC : i64 = crZig[(0) as usize];
         if  crDC >= 0 {
@@ -12439,7 +12482,9 @@ impl JPEGEncoder {
     println!( "{}", [&*"Encoding JPEG: ".to_string(), &*fileName].concat() );
     println!( "{}", [&*([&*([&*"  Image size: ".to_string(), &*(img.width.to_string())].concat()), &*"x".to_string()].concat()), &*(img.height.to_string())].concat() );
     let mut writer : BitWriter = BitWriter::new();
-    self.writeMarkers(writer.clone(), img.width, img.height);
+    let __arg_0 = img.width.clone();
+    let __arg_1 = img.height.clone();
+    self.writeMarkers(&mut writer, __arg_0, __arg_1);
     let mcuWidth : i64 = (((img.width + 7) as f64) / (8 as f64)) as i64 ;
     let mcuHeight : i64 = (((img.height + 7) as f64) / (8 as f64)) as i64 ;
     println!( "{}", [&*([&*([&*"  MCU grid: ".to_string(), &*(mcuWidth.to_string())].concat()), &*"x".to_string()].concat()), &*(mcuHeight.to_string())].concat() );
@@ -12452,10 +12497,16 @@ impl JPEGEncoder {
       while mcuX < mcuWidth {
         let blockX : i64 = mcuX * 8;
         let blockY : i64 = mcuY * 8;
-        let mut yBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 0);
-        let mut yCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(yBlock.clone());
-        self.encodeBlock(writer.clone(), yCoeffs.clone(), self.yQuantTable.clone(), self.dcYCodes.clone(), self.dcYLengths.clone(), self.acYCodes.clone(), self.acYLengths.clone(), self.prevDCY);
-        let mut yZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(yCoeffs.clone());
+        let mut yBlock : Vec<i64> = self.extractBlock(&mut img, blockX, blockY, 0);
+        let mut yCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(&yBlock);
+        let __arg_0 = self.yQuantTable.clone();
+        let __arg_1 = self.dcYCodes.clone();
+        let __arg_2 = self.dcYLengths.clone();
+        let __arg_3 = self.acYCodes.clone();
+        let __arg_4 = self.acYLengths.clone();
+        let __arg_5 = self.prevDCY.clone();
+        self.encodeBlock(&mut writer, yCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        let mut yZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&yCoeffs);
         let yQ : i64 = self.yQuantTable[0 as usize].clone();
         let yDC : i64 = yZig[(0) as usize];
         if  yDC >= 0 {
@@ -12463,10 +12514,16 @@ impl JPEGEncoder {
         } else {
           self.prevDCY = (((yDC - (((yQ) >> (1)))) as f64) / (yQ as f64)) as i64 ;
         }
-        let mut cbBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 1);
-        let mut cbCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(cbBlock.clone());
-        self.encodeBlock(writer.clone(), cbCoeffs.clone(), self.cQuantTable.clone(), self.dcCCodes.clone(), self.dcCLengths.clone(), self.acCCodes.clone(), self.acCLengths.clone(), self.prevDCCb);
-        let mut cbZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(cbCoeffs.clone());
+        let mut cbBlock : Vec<i64> = self.extractBlock(&mut img, blockX, blockY, 1);
+        let mut cbCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(&cbBlock);
+        let __arg_0 = self.cQuantTable.clone();
+        let __arg_1 = self.dcCCodes.clone();
+        let __arg_2 = self.dcCLengths.clone();
+        let __arg_3 = self.acCCodes.clone();
+        let __arg_4 = self.acCLengths.clone();
+        let __arg_5 = self.prevDCCb.clone();
+        self.encodeBlock(&mut writer, cbCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        let mut cbZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&cbCoeffs);
         let cbQ : i64 = self.cQuantTable[0 as usize].clone();
         let cbDC : i64 = cbZig[(0) as usize];
         if  cbDC >= 0 {
@@ -12474,10 +12531,16 @@ impl JPEGEncoder {
         } else {
           self.prevDCCb = (((cbDC - (((cbQ) >> (1)))) as f64) / (cbQ as f64)) as i64 ;
         }
-        let mut crBlock : Vec<i64> = self.extractBlock(img.clone(), blockX, blockY, 2);
-        let mut crCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(crBlock.clone());
-        self.encodeBlock(writer.clone(), crCoeffs.clone(), self.cQuantTable.clone(), self.dcCCodes.clone(), self.dcCLengths.clone(), self.acCCodes.clone(), self.acCLengths.clone(), self.prevDCCr);
-        let mut crZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(crCoeffs.clone());
+        let mut crBlock : Vec<i64> = self.extractBlock(&mut img, blockX, blockY, 2);
+        let mut crCoeffs : Vec<i64> = self.fdct.as_mut().unwrap().transform(&crBlock);
+        let __arg_0 = self.cQuantTable.clone();
+        let __arg_1 = self.dcCCodes.clone();
+        let __arg_2 = self.dcCLengths.clone();
+        let __arg_3 = self.acCCodes.clone();
+        let __arg_4 = self.acCLengths.clone();
+        let __arg_5 = self.prevDCCr.clone();
+        self.encodeBlock(&mut writer, crCoeffs, &__arg_0, &__arg_1, &__arg_2, &__arg_3, &__arg_4, __arg_5);
+        let mut crZig : Vec<i64> = self.fdct.as_mut().unwrap().zigzag(&crCoeffs);
         let crQ : i64 = self.cQuantTable[0 as usize].clone();
         let crDC : i64 = crZig[(0) as usize];
         if  crDC >= 0 {
@@ -12846,10 +12909,10 @@ impl EVGPDFRenderer {
     if  root.tagName == "print".to_string() {
       return self.renderMultiPageToPDF(root.clone());
     }
-    self.layout.as_mut().unwrap().layout(root.clone());
+    self.layout.as_mut().unwrap().layout(&mut root);
     return self.renderToPDF(root.clone());
   }
-  fn findPageElementsRecursive(&mut self, mut el : EVGElement) -> () {
+  fn findPageElementsRecursive(&mut self, mut el : &mut EVGElement) -> () {
     if  el.tagName == "page".to_string() {
       self.foundPages.push(el.clone());
     }
@@ -12857,11 +12920,11 @@ impl EVGPDFRenderer {
     let childCount : i64 = el.getChildCount();
     while i < childCount {
       let mut child : EVGElement = el.getChild(i);
-      self.findPageElementsRecursive(child.clone());
+      self.findPageElementsRecursive(&mut child);
       i = i + 1;
     };
   }
-  fn findSectionElementsRecursive(&mut self, mut el : EVGElement) -> () {
+  fn findSectionElementsRecursive(&mut self, mut el : &mut EVGElement) -> () {
     let mut i : i64 = 0;
     let childCount : i64 = el.getChildCount();
     while i < childCount {
@@ -12913,7 +12976,7 @@ impl EVGPDFRenderer {
     let mut objectOffsets : Vec<i64> = Vec::new();
     let mut emptyArr : Vec<EVGElement> = Vec::new();
     self.foundSections = emptyArr.clone();
-    self.findSectionElementsRecursive(root.clone());
+    self.findSectionElementsRecursive(&mut root);
     let mut allPages : Vec<EVGElement> = Vec::new();
     let mut allPageWidths : Vec<f64> = Vec::new();
     let mut allPageHeights : Vec<f64> = Vec::new();
@@ -12926,7 +12989,7 @@ impl EVGPDFRenderer {
       let sectionMargin : f64 = self.getSectionMargin(section.clone());
       let mut emptyPages : Vec<EVGElement> = Vec::new();
       self.foundPages = emptyPages.clone();
-      self.findPageElementsRecursive(section.clone());
+      self.findPageElementsRecursive(&mut section);
       let mut pi : i64 = 0;
       while pi < ((self.foundPages.len() as i64)) {
         let mut pg : EVGElement = self.foundPages[pi as usize].clone();
@@ -12948,7 +13011,7 @@ impl EVGPDFRenderer {
         pg.height.as_mut().unwrap().value = contentHeight;
         pg.height.as_mut().unwrap().unitType = 0;
         pg.height.as_mut().unwrap().isSet = true;
-        self.layout.as_mut().unwrap().layout(pg.clone());
+        self.layout.as_mut().unwrap().layout(&mut pg);
         println!( "{}", [&*([&*([&*"  After layout: pg.calculatedWidth=".to_string(), &*(pg.calculatedWidth.to_string())].concat()), &*" pg.calculatedHeight=".to_string()].concat()), &*(pg.calculatedHeight.to_string())].concat() );
         if  pg.getChildCount() > 0 {
           let mut firstChild : EVGElement = pg.getChild(0);
@@ -12959,7 +13022,7 @@ impl EVGPDFRenderer {
       si = si + 1;
     };
     if  ((allPages.len() as i64)) == 0 {
-      self.layout.as_mut().unwrap().layout(root.clone());
+      self.layout.as_mut().unwrap().layout(&mut root);
       allPages.push(root.clone());
       allPageWidths.push(self.pageWidth.clone());
       allPageHeights.push(self.pageHeight.clone());
@@ -12976,7 +13039,7 @@ impl EVGPDFRenderer {
       let pgMargin : f64 = allPageMargins[pgi as usize].clone();
       self.pageHeight = pgHeight;
       self.streamBuffer.as_mut().unwrap().clear();
-      self.renderElement(pg_1.clone(), pgMargin, pgMargin);
+      self.renderElement(&mut pg_1, pgMargin, pgMargin);
       let mut contentData : Vec<u8> = self.streamBuffer.as_mut().unwrap().toBuffer();
       contentDataList.push(contentData.clone());
       println!( "{}", [&*([&*([&*([&*"  Page ".to_string(), &*((pgi + 1).to_string())].concat()), &*": ".to_string()].concat()), &*((contentData.len() as i64).to_string())].concat()), &*" bytes".to_string()].concat() );
@@ -12994,7 +13057,7 @@ impl EVGPDFRenderer {
         pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         pdf.writeString([&*([&*([&*([&*"<< /Length ".to_string(), &*(fontFileLen.to_string())].concat()), &*" /Length1 ".to_string()].concat()), &*(fontFileLen.to_string())].concat()), &*" >>\n".to_string()].concat());
         pdf.writeString("stream\n".to_string());
-        pdf.writeBuffer(fontFileData.clone());
+        pdf.writeBuffer(&fontFileData);
         pdf.writeString("\nendstream\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
         let fontFileObjNum : i64 = self.nextObjNum;
@@ -13123,7 +13186,8 @@ impl EVGPDFRenderer {
           println!( "{}", [&*([&*([&*([&*([&*([&*([&*"  Resizing from ".to_string(), &*(origW.to_string())].concat()), &*"x".to_string()].concat()), &*(origH.to_string())].concat()), &*" to ".to_string()].concat()), &*(newW.to_string())].concat()), &*"x".to_string()].concat()), &*(newH.to_string())].concat() );
           imgBuffer = imgBuffer.scaleToSize(newW, newH);
         }
-        self.jpegEncoder.setQuality(self.jpegQuality);
+        let __arg_0 = self.jpegQuality.clone();
+        self.jpegEncoder.setQuality(__arg_0);
         let mut encodedData : Vec<u8> = self.jpegEncoder.encodeToBuffer(imgBuffer.clone());
         let encodedLen : i64 = encodedData.len() as i64;
         embImg.width = newW;
@@ -13140,7 +13204,7 @@ impl EVGPDFRenderer {
         pdf.writeString([&*" /Length ".to_string(), &*(encodedLen.to_string())].concat());
         pdf.writeString(" >>\n".to_string());
         pdf.writeString("stream\n".to_string());
-        pdf.writeBuffer(encodedData.clone());
+        pdf.writeBuffer(&encodedData);
         pdf.writeString("\nendstream\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
         embImg.objNum = self.nextObjNum;
@@ -13161,7 +13225,7 @@ impl EVGPDFRenderer {
       pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
       pdf.writeString([&*([&*"<< /Length ".to_string(), &*(contentLen.to_string())].concat()), &*" >>\n".to_string()].concat());
       pdf.writeString("stream\n".to_string());
-      pdf.writeBuffer(contentData_1.clone());
+      pdf.writeBuffer(&contentData_1);
       pdf.writeString("\nendstream\n".to_string());
       pdf.writeString("endobj\n\n".to_string());
       contentObjNumList.push(self.nextObjNum.clone());
@@ -13258,7 +13322,7 @@ impl EVGPDFRenderer {
     pdf.writeByte(10);
     let mut objectOffsets : Vec<i64> = Vec::new();
     self.streamBuffer.as_mut().unwrap().clear();
-    self.renderElement(root.clone(), 0_f64, 0_f64);
+    self.renderElement(&mut root, 0_f64, 0_f64);
     let mut contentData : Vec<u8> = self.streamBuffer.as_mut().unwrap().toBuffer();
     let contentLen : i64 = contentData.len() as i64;
     let mut fontObjNums : Vec<i64> = Vec::new();
@@ -13273,7 +13337,7 @@ impl EVGPDFRenderer {
         pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
         pdf.writeString([&*([&*([&*([&*"<< /Length ".to_string(), &*(fontFileLen.to_string())].concat()), &*" /Length1 ".to_string()].concat()), &*(fontFileLen.to_string())].concat()), &*" >>\n".to_string()].concat());
         pdf.writeString("stream\n".to_string());
-        pdf.writeBuffer(fontFileData.clone());
+        pdf.writeBuffer(&fontFileData);
         pdf.writeString("\nendstream\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
         let fontFileObjNum : i64 = self.nextObjNum;
@@ -13402,7 +13466,8 @@ impl EVGPDFRenderer {
           println!( "{}", [&*([&*([&*([&*([&*([&*([&*"  Resizing from ".to_string(), &*(origW.to_string())].concat()), &*"x".to_string()].concat()), &*(origH.to_string())].concat()), &*" to ".to_string()].concat()), &*(newW.to_string())].concat()), &*"x".to_string()].concat()), &*(newH.to_string())].concat() );
           imgBuffer = imgBuffer.scaleToSize(newW, newH);
         }
-        self.jpegEncoder.setQuality(self.jpegQuality);
+        let __arg_0 = self.jpegQuality.clone();
+        self.jpegEncoder.setQuality(__arg_0);
         let mut encodedData : Vec<u8> = self.jpegEncoder.encodeToBuffer(imgBuffer.clone());
         let encodedLen : i64 = encodedData.len() as i64;
         embImg.width = newW;
@@ -13419,7 +13484,7 @@ impl EVGPDFRenderer {
         pdf.writeString([&*" /Length ".to_string(), &*(encodedLen.to_string())].concat());
         pdf.writeString(" >>\n".to_string());
         pdf.writeString("stream\n".to_string());
-        pdf.writeBuffer(encodedData.clone());
+        pdf.writeBuffer(&encodedData);
         pdf.writeString("\nendstream\n".to_string());
         pdf.writeString("endobj\n\n".to_string());
         embImg.objNum = self.nextObjNum;
@@ -13435,7 +13500,7 @@ impl EVGPDFRenderer {
     pdf.writeString([&*(self.nextObjNum.to_string()), &*" 0 obj\n".to_string()].concat());
     pdf.writeString([&*([&*"<< /Length ".to_string(), &*(contentLen.to_string())].concat()), &*" >>\n".to_string()].concat());
     pdf.writeString("stream\n".to_string());
-    pdf.writeBuffer(contentData.clone());
+    pdf.writeBuffer(&contentData);
     pdf.writeString("\nendstream\n".to_string());
     pdf.writeString("endobj\n\n".to_string());
     let contentObjNum : i64 = self.nextObjNum;
@@ -13500,7 +13565,7 @@ impl EVGPDFRenderer {
     pdf.writeString("%%EOF\n".to_string());
     return pdf.toBuffer();
   }
-  fn renderElement(&mut self, mut el : EVGElement, offsetX : f64, offsetY : f64) -> () {
+  fn renderElement(&mut self, mut el : &mut EVGElement, offsetX : f64, offsetY : f64) -> () {
     let x : f64 = el.calculatedX + offsetX;
     let y : f64 = el.calculatedY + offsetY;
     let w : f64 = el.calculatedWidth;
@@ -13510,7 +13575,8 @@ impl EVGPDFRenderer {
     if  (el.clipPath.len() as i64) > 0 {
       hasClipPath = true;
       self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
-      self.applyClipPath(el.clipPath.clone(), x, pdfY, w, h);
+      let __arg_0 = el.clipPath.clone();
+      self.applyClipPath(__arg_0, x, pdfY, w, h);
     }
     let mut bgColor : EVGColor = el.backgroundColor.clone().unwrap();
     if  self.debug {
@@ -13536,7 +13602,7 @@ impl EVGPDFRenderer {
     let childCount : i64 = el.getChildCount();
     while i < childCount {
       let mut child : EVGElement = el.getChild(i);
-      self.renderElement(child.clone(), offsetX, offsetY);
+      self.renderElement(&mut child, offsetX, offsetY);
       i = i + 1;
     };
     if  hasClipPath {
@@ -13563,7 +13629,7 @@ impl EVGPDFRenderer {
     }
     let imgName : String = self.getImagePdfName(src.clone());
     self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
-    let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(w), &*" 0 0 ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" cm\n".to_string()].concat();
+    let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(w), &*" 0 0 ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" cm\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     self.streamBuffer.as_mut().unwrap().writeString([&*imgName, &*" Do\n".to_string()].concat());
     self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
@@ -13582,27 +13648,27 @@ impl EVGPDFRenderer {
       fillColor = el.backgroundColor.clone().unwrap();
     }
     self.streamBuffer.as_mut().unwrap().writeString("q\n".to_string());
-    let __arg_0 = [&*([&*([&*([&*"1 0 0 1 ".to_string(), &*EVGPDFRenderer::formatNum(x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" cm\n".to_string()].concat();
+    let __arg_0 = [&*([&*([&*([&*"1 0 0 1 ".to_string(), &*EVGPDFRenderer::formatNum(x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" cm\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
-    let __arg_0 = [&*([&*"1 0 0 -1 0 ".to_string(), &*EVGPDFRenderer::formatNum(h)].concat()), &*" cm\n".to_string()].concat();
+    let __arg_0 = [&*([&*"1 0 0 -1 0 ".to_string(), &*EVGPDFRenderer::formatNum(h)].concat()), &*" cm\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     let mut i : i64 = 0;
     while i < ((commands.len() as i64)) {
       let mut cmd : PathCommand = commands[i as usize].clone();
       if  cmd.r#type == "M".to_string() {
-        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(cmd.x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" m\n".to_string()].concat();
+        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(cmd.x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" m\n".to_string()].concat().clone();
         self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "L".to_string() {
-        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(cmd.x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" l\n".to_string()].concat();
+        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(cmd.x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" l\n".to_string()].concat().clone();
         self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "C".to_string() {
-        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(cmd.x1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" c\n".to_string()].concat();
+        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(cmd.x1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" c\n".to_string()].concat().clone();
         self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Q".to_string() {
-        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(cmd.x1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" c\n".to_string()].concat();
+        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(cmd.x1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.x)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(cmd.y)].concat()), &*" c\n".to_string()].concat().clone();
         self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Z".to_string() {
@@ -13614,15 +13680,15 @@ impl EVGPDFRenderer {
       let r : f64 = fillColor.r / 255_f64;
       let g : f64 = fillColor.g / 255_f64;
       let b : f64 = fillColor.b / 255_f64;
-      let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat();
+      let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat().clone();
       self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       let sr : f64 = strokeColor.r / 255_f64;
       let sg : f64 = strokeColor.g / 255_f64;
       let sb : f64 = strokeColor.b / 255_f64;
-      let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(sr), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sg)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sb)].concat()), &*" RG\n".to_string()].concat();
+      let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(sr), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sg)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sb)].concat()), &*" RG\n".to_string()].concat().clone();
       self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       if  el.strokeWidth > 0_f64 {
-        let __arg_0 = [&*EVGPDFRenderer::formatNum(el.strokeWidth), &*" w\n".to_string()].concat();
+        let __arg_0 = [&*EVGPDFRenderer::formatNum(el.strokeWidth), &*" w\n".to_string()].concat().clone();
         self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       self.streamBuffer.as_mut().unwrap().writeString("B\n".to_string());
@@ -13631,7 +13697,7 @@ impl EVGPDFRenderer {
         let r_1 : f64 = fillColor.r / 255_f64;
         let g_1 : f64 = fillColor.g / 255_f64;
         let b_1 : f64 = fillColor.b / 255_f64;
-        let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r_1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g_1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b_1)].concat()), &*" rg\n".to_string()].concat();
+        let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r_1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g_1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b_1)].concat()), &*" rg\n".to_string()].concat().clone();
         self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
         self.streamBuffer.as_mut().unwrap().writeString("f\n".to_string());
       } else {
@@ -13639,10 +13705,10 @@ impl EVGPDFRenderer {
           let sr_1 : f64 = strokeColor.r / 255_f64;
           let sg_1 : f64 = strokeColor.g / 255_f64;
           let sb_1 : f64 = strokeColor.b / 255_f64;
-          let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(sr_1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sg_1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sb_1)].concat()), &*" RG\n".to_string()].concat();
+          let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(sr_1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sg_1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(sb_1)].concat()), &*" RG\n".to_string()].concat().clone();
           self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
           if  el.strokeWidth > 0_f64 {
-            let __arg_0 = [&*EVGPDFRenderer::formatNum(el.strokeWidth), &*" w\n".to_string()].concat();
+            let __arg_0 = [&*EVGPDFRenderer::formatNum(el.strokeWidth), &*" w\n".to_string()].concat().clone();
             self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
           }
           self.streamBuffer.as_mut().unwrap().writeString("S\n".to_string());
@@ -13665,19 +13731,19 @@ impl EVGPDFRenderer {
       let px2 : f64 = x + cmd.x2;
       let py2 : f64 = (y + h) - cmd.y2;
       if  cmd.r#type == "M".to_string() {
-        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(px), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" m\n".to_string()].concat();
+        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(px), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" m\n".to_string()].concat().clone();
         self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "L".to_string() {
-        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(px), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" l\n".to_string()].concat();
+        let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(px), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" l\n".to_string()].concat().clone();
         self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "C".to_string() {
-        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(px1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" c\n".to_string()].concat();
+        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(px1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py2)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" c\n".to_string()].concat().clone();
         self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Q".to_string() {
-        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(px1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" c\n".to_string()].concat();
+        let __arg_0 = [&*([&*([&*([&*([&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(px1), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py1)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(px)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(py)].concat()), &*" c\n".to_string()].concat().clone();
         self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       }
       if  cmd.r#type == "Z".to_string() {
@@ -13692,9 +13758,9 @@ impl EVGPDFRenderer {
     let r : f64 = color.r / 255_f64;
     let g : f64 = color.g / 255_f64;
     let b : f64 = color.b / 255_f64;
-    let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat();
+    let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
-    let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(w)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" re\n".to_string()].concat();
+    let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(w)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" re\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     self.streamBuffer.as_mut().unwrap().writeString("f\n".to_string());
     self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
@@ -13712,17 +13778,17 @@ impl EVGPDFRenderer {
     let r : f64 = borderColor.r / 255_f64;
     let g : f64 = borderColor.g / 255_f64;
     let b : f64 = borderColor.b / 255_f64;
-    let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" RG\n".to_string()].concat();
+    let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" RG\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
-    let __arg_0 = [&*EVGPDFRenderer::formatNum(borderWidth), &*" w\n".to_string()].concat();
+    let __arg_0 = [&*EVGPDFRenderer::formatNum(borderWidth), &*" w\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
-    let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(w)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" re\n".to_string()].concat();
+    let __arg_0 = [&*([&*([&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(y)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(w)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(h)].concat()), &*" re\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     self.streamBuffer.as_mut().unwrap().writeString("S\n".to_string());
     self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
   fn renderText(&mut self, mut el : EVGElement, x : f64, y : f64, w : f64, h : f64) -> () {
-    let text : String = self.getTextContent(el.clone());
+    let text : String = self.getTextContent(&mut el);
     if  (text.len() as i64) == 0 {
       return;
     }
@@ -13750,12 +13816,12 @@ impl EVGPDFRenderer {
     while i < ((lines.len() as i64)) {
       let line : String = lines[i as usize].clone();
       self.streamBuffer.as_mut().unwrap().writeString("BT\n".to_string());
-      let __arg_0 = [&*([&*([&*fontName, &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(fontSize)].concat()), &*" Tf\n".to_string()].concat();
+      let __arg_0 = [&*([&*([&*fontName, &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(fontSize)].concat()), &*" Tf\n".to_string()].concat().clone();
       self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       let r : f64 = color.r / 255_f64;
       let g : f64 = color.g / 255_f64;
       let b : f64 = color.b / 255_f64;
-      let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat();
+      let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" rg\n".to_string()].concat().clone();
       self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       let mut textX : f64 = x;
       if  el.textAlign == "center".to_string() {
@@ -13766,9 +13832,9 @@ impl EVGPDFRenderer {
         let textWidth_1 : f64 = self.measurer.as_ref().unwrap().borrow_mut().measureTextWidth(line.clone(), fontFamily.clone(), fontSize);
         textX = (x + w) - textWidth_1;
       }
-      let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(textX), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" Td\n".to_string()].concat();
+      let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(textX), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" Td\n".to_string()].concat().clone();
       self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
-      let __arg_0 = [&*([&*"(".to_string(), &*EVGPDFRenderer::escapeText(line.clone())].concat()), &*") Tj\n".to_string()].concat();
+      let __arg_0 = [&*([&*"(".to_string(), &*EVGPDFRenderer::escapeText(line.clone())].concat()), &*") Tj\n".to_string()].concat().clone();
       self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
       self.streamBuffer.as_mut().unwrap().writeString("ET\n".to_string());
       lineY = lineY - lineSpacing;
@@ -13812,17 +13878,17 @@ impl EVGPDFRenderer {
     let r : f64 = color.r / 255_f64;
     let g : f64 = color.g / 255_f64;
     let b : f64 = color.b / 255_f64;
-    let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" RG\n".to_string()].concat();
+    let __arg_0 = [&*([&*([&*([&*([&*EVGPDFRenderer::formatNum(r), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(g)].concat()), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(b)].concat()), &*" RG\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     self.streamBuffer.as_mut().unwrap().writeString("1 w\n".to_string());
-    let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" m\n".to_string()].concat();
+    let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum(x), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" m\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
-    let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum((x + w)), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" l\n".to_string()].concat();
+    let __arg_0 = [&*([&*([&*EVGPDFRenderer::formatNum((x + w)), &*" ".to_string()].concat()), &*EVGPDFRenderer::formatNum(lineY)].concat()), &*" l\n".to_string()].concat().clone();
     self.streamBuffer.as_mut().unwrap().writeString(__arg_0);
     self.streamBuffer.as_mut().unwrap().writeString("S\n".to_string());
     self.streamBuffer.as_mut().unwrap().writeString("Q\n".to_string());
   }
-  fn getTextContent(&mut self, mut el : EVGElement) -> String {
+  fn getTextContent(&mut self, mut el : &mut EVGElement) -> String {
     if  (el.textContent.len() as i64) > 0 {
       return el.textContent.clone();
     }
@@ -14391,7 +14457,7 @@ impl ComponentEngine {
     self.source = src.clone();
     let mut lexer : TSLexer = TSLexer::new(src.clone());
     let mut tokens : Vec<Token> = lexer.tokenize();
-    self.parser.as_mut().unwrap().initParser(tokens.clone());
+    self.parser.as_mut().unwrap().initParser(&tokens);
     self.parser.as_mut().unwrap().tsxMode = true;
     let mut ast : TSNode = self.parser.as_mut().unwrap().parseProgram();
     self.processImports(ast.clone());
@@ -14468,7 +14534,7 @@ impl ComponentEngine {
     let mut lexer : TSLexer = TSLexer::new(src.clone());
     let mut tokens : Vec<Token> = lexer.tokenize();
     let mut importParser : TSParserSimple = TSParserSimple::new();
-    importParser.initParser(tokens.clone());
+    importParser.initParser(&tokens);
     importParser.tsxMode = true;
     let mut importAst : TSNode = importParser.parseProgram();
     let mut k : i64 = 0;
@@ -14479,7 +14545,7 @@ impl ComponentEngine {
           let mut declNode : TSNode = (*stmt.left.clone().unwrap());
           if  declNode.nodeType == "FunctionDeclaration".to_string() {
             let fnName : String = declNode.name.clone();
-            if  ComponentEngine::isInList(fnName.clone(), importedNames.clone()) {
+            if  ComponentEngine::isInList(fnName.clone(), &importedNames) {
               let mut sym : ImportedSymbol = ImportedSymbol::new();
               sym.name = fnName.clone();
               sym.originalName = fnName.clone();
@@ -14494,7 +14560,7 @@ impl ComponentEngine {
       }
       if  stmt.nodeType == "FunctionDeclaration".to_string() {
         let fnName_1 : String = stmt.name.clone();
-        if  ComponentEngine::isInList(fnName_1.clone(), importedNames.clone()) {
+        if  ComponentEngine::isInList(fnName_1.clone(), &importedNames) {
           let mut sym_1 : ImportedSymbol = ImportedSymbol::new();
           sym_1.name = fnName_1.clone();
           sym_1.originalName = fnName_1.clone();
@@ -14528,7 +14594,7 @@ impl ComponentEngine {
     }
     return modulePath.clone();
   }
-  fn isInList(name : String, mut list : Vec<String>) -> bool {
+  fn isInList(name : String, list : &Vec<String>) -> bool {
     let mut i : i64 = 0;
     while i < ((list.len() as i64)) {
       if  (list[i as usize].clone()) == name {
@@ -14618,22 +14684,20 @@ impl ComponentEngine {
     while i < ((fnNode.params.len() as i64)) {
       let mut param : TSNode = fnNode.params[i as usize].clone();
       if  param.nodeType == "ObjectPattern".to_string() {
-        self.bindObjectPattern(param.clone(), props.clone());
+        self.bindObjectPattern(param.clone(), &mut props);
       }
       if  param.nodeType == "Parameter".to_string() {
         let __arg_0 = param.name.clone();
-        let __arg_1 = props.clone();
-        self.context.as_mut().unwrap().define(__arg_0, __arg_1);
+        self.context.as_mut().unwrap().define(__arg_0, props);
       }
       if  param.nodeType == "Identifier".to_string() {
         let __arg_0 = param.name.clone();
-        let __arg_1 = props.clone();
-        self.context.as_mut().unwrap().define(__arg_0, __arg_1);
+        self.context.as_mut().unwrap().define(__arg_0, props);
       }
       i = i + 1;
     };
   }
-  fn bindObjectPattern(&mut self, mut pattern : TSNode, mut props : EvalValue) -> () {
+  fn bindObjectPattern(&mut self, mut pattern : TSNode, mut props : &mut EvalValue) -> () {
     let mut i : i64 = 0;
     while i < ((pattern.children.len() as i64)) {
       let mut prop : TSNode = pattern.children[i as usize].clone();
@@ -14686,7 +14750,7 @@ impl ComponentEngine {
     }
     if  node.nodeType == "JSXFragment".to_string() {
       element.tagName = "div".to_string();
-      self.evaluateChildren(element.clone(), node.clone());
+      self.evaluateChildren(&mut element, node.clone());
       return element.clone();
     }
     if  node.nodeType == "ParenthesizedExpression".to_string() {
@@ -14715,7 +14779,7 @@ impl ComponentEngine {
     if  ((tagName == "Label".to_string()) || (tagName == "span".to_string())) || (tagName == "text".to_string()) {
       element.textContent = self.evaluateTextContent(jsxNode.clone());
     } else {
-      self.evaluateChildren(element.clone(), jsxNode.clone());
+      self.evaluateChildren(&mut element, jsxNode.clone());
     }
     return element.clone();
   }
@@ -14858,12 +14922,12 @@ impl ComponentEngine {
         let rawAttrName : String = attr.name.clone();
         let mut attrValue : EvalValue = self.evaluateAttributeValue(attr.clone());
         let strValue : String = (attrValue).toString();
-        self.applyAttribute(element.clone(), rawAttrName.clone(), strValue.clone());
+        self.applyAttribute(&mut element, rawAttrName.clone(), strValue.clone());
       }
       i = i + 1;
     };
   }
-  fn applyAttribute(&mut self, mut element : EVGElement, rawName : String, strValue : String) -> () {
+  fn applyAttribute(&mut self, mut element : &mut EVGElement, rawName : String, strValue : String) -> () {
     if  rawName == "id".to_string() {
       element.id = strValue.clone();
       return;
@@ -14903,7 +14967,7 @@ impl ComponentEngine {
     let trimmedText : String = ComponentEngine::trimText(normalizedText.clone());
     return trimmedText.clone();
   }
-  fn evaluateChildren(&mut self, mut element : EVGElement, mut jsxNode : TSNode) -> () {
+  fn evaluateChildren(&mut self, mut element : &mut EVGElement, mut jsxNode : TSNode) -> () {
     let mut i : i64 = 0;
     let mut accumulatedText : String = "".to_string();
     while i < ((jsxNode.children.len() as i64)) {
@@ -14920,21 +14984,21 @@ impl ComponentEngine {
           let mut textEl : EVGElement = EVGElement::new();
           textEl.tagName = "text".to_string();
           textEl.textContent = text.clone();
-          element.addChild(textEl.clone());
+          element.addChild(&mut textEl);
         }
         accumulatedText = "".to_string();
       }
       if  child.nodeType == "JSXElement".to_string() {
         let mut childEl : EVGElement = self.evaluateJSXElement(child.clone());
         if  (childEl.tagName.len() as i64) > 0 {
-          element.addChild(childEl.clone());
+          element.addChild(&mut childEl);
         }
       }
       if  child.nodeType == "JSXExpressionContainer".to_string() {
-        self.evaluateExpressionChild(element.clone(), child.clone());
+        self.evaluateExpressionChild(&mut element, child.clone());
       }
       if  child.nodeType == "JSXFragment".to_string() {
-        self.evaluateChildren(element.clone(), child.clone());
+        self.evaluateChildren(&mut element, child.clone());
       }
       i = i + 1;
     };
@@ -14945,24 +15009,24 @@ impl ComponentEngine {
         let mut textEl_1 : EVGElement = EVGElement::new();
         textEl_1.tagName = "text".to_string();
         textEl_1.textContent = text_1.clone();
-        element.addChild(textEl_1.clone());
+        element.addChild(&mut textEl_1);
       }
     }
   }
-  fn evaluateExpressionChild(&mut self, mut element : EVGElement, mut exprContainer : TSNode) -> () {
+  fn evaluateExpressionChild(&mut self, mut element : &mut EVGElement, mut exprContainer : TSNode) -> () {
     if exprContainer.left.is_some() {
       let mut exprNode : TSNode = (*exprContainer.left.clone().unwrap());
       if  exprNode.nodeType == "CallExpression".to_string() {
-        self.evaluateArrayMapChild(element.clone(), exprNode.clone());
+        self.evaluateArrayMapChild(&mut element, exprNode.clone());
         return;
       }
       if  exprNode.nodeType == "ConditionalExpression".to_string() {
-        self.evaluateTernaryChild(element.clone(), exprNode.clone());
+        self.evaluateTernaryChild(&mut element, exprNode.clone());
         return;
       }
       if  exprNode.nodeType == "BinaryExpression".to_string() {
         if  exprNode.value == "&&".to_string() {
-          self.evaluateAndChild(element.clone(), exprNode.clone());
+          self.evaluateAndChild(&mut element, exprNode.clone());
           return;
         }
       }
@@ -14971,7 +15035,7 @@ impl ComponentEngine {
         if value.evgElement.is_some() {
           let mut childEl : EVGElement = value.evgElement.clone().unwrap();
           if  (childEl.tagName.len() as i64) > 0 {
-            element.addChild(childEl.clone());
+            element.addChild(&mut childEl);
           }
         }
         return;
@@ -14984,7 +15048,7 @@ impl ComponentEngine {
             if arrItem.evgElement.is_some() {
               let mut arrChildEl : EVGElement = arrItem.evgElement.clone().unwrap();
               if  (arrChildEl.tagName.len() as i64) > 0 {
-                element.addChild(arrChildEl.clone());
+                element.addChild(&mut arrChildEl);
               }
             }
           }
@@ -14998,11 +15062,11 @@ impl ComponentEngine {
         let mut textEl : EVGElement = EVGElement::new();
         textEl.tagName = "text".to_string();
         textEl.textContent = (value).toString();
-        element.addChild(textEl.clone());
+        element.addChild(&mut textEl);
       }
     }
   }
-  fn evaluateArrayMapChild(&mut self, mut element : EVGElement, mut callNode : TSNode) -> () {
+  fn evaluateArrayMapChild(&mut self, mut element : &mut EVGElement, mut callNode : TSNode) -> () {
     if callNode.left.is_some() {
       let mut calleeNode : TSNode = (*callNode.left.clone().unwrap());
       if  calleeNode.nodeType == "MemberExpression".to_string() {
@@ -15022,7 +15086,7 @@ impl ComponentEngine {
                   self.bindMapCallback(callback.clone(), item.clone(), i);
                   let mut resultEl : EVGElement = self.evaluateMapCallbackBody(callback.clone());
                   if  (resultEl.tagName.len() as i64) > 0 {
-                    element.addChild(resultEl.clone());
+                    element.addChild(&mut resultEl);
                   }
                   self.context = Some(savedContext.clone());
                   i = i + 1;
@@ -15044,7 +15108,7 @@ impl ComponentEngine {
       if  ((callback.params.len() as i64)) > 1 {
         let mut indexParam : TSNode = callback.params[1 as usize].clone();
         let __arg_0 = indexParam.name.clone();
-        let __arg_1 = EvalValue::fromInt(index);
+        let __arg_1 = EvalValue::fromInt(index).clone();
         self.context.as_mut().unwrap().define(__arg_0, __arg_1);
       }
     }
@@ -15064,7 +15128,7 @@ impl ComponentEngine {
     }
     return empty.clone();
   }
-  fn evaluateTernaryChild(&mut self, mut element : EVGElement, mut node : TSNode) -> () {
+  fn evaluateTernaryChild(&mut self, mut element : &mut EVGElement, mut node : TSNode) -> () {
     if node.test.is_some() {
       let mut testExpr : TSNode = (*node.test.clone().unwrap());
       let mut testValue : EvalValue = self.evaluateExpr(testExpr.clone());
@@ -15074,7 +15138,7 @@ impl ComponentEngine {
           if  (conseqNode.nodeType == "JSXElement".to_string()) || (conseqNode.nodeType == "JSXFragment".to_string()) {
             let mut childEl : EVGElement = self.evaluateJSX(conseqNode.clone());
             if  (childEl.tagName.len() as i64) > 0 {
-              element.addChild(childEl.clone());
+              element.addChild(&mut childEl);
             }
           }
         }
@@ -15084,14 +15148,14 @@ impl ComponentEngine {
           if  (altNode.nodeType == "JSXElement".to_string()) || (altNode.nodeType == "JSXFragment".to_string()) {
             let mut childEl_1 : EVGElement = self.evaluateJSX(altNode.clone());
             if  (childEl_1.tagName.len() as i64) > 0 {
-              element.addChild(childEl_1.clone());
+              element.addChild(&mut childEl_1);
             }
           }
         }
       }
     }
   }
-  fn evaluateAndChild(&mut self, mut element : EVGElement, mut node : TSNode) -> () {
+  fn evaluateAndChild(&mut self, mut element : &mut EVGElement, mut node : TSNode) -> () {
     if node.left.is_some() {
       let mut leftExpr : TSNode = (*node.left.clone().unwrap());
       let mut leftValue : EvalValue = self.evaluateExpr(leftExpr.clone());
@@ -15101,7 +15165,7 @@ impl ComponentEngine {
           if  (rightNode.nodeType == "JSXElement".to_string()) || (rightNode.nodeType == "JSXFragment".to_string()) {
             let mut childEl : EVGElement = self.evaluateJSX(rightNode.clone());
             if  (childEl.tagName.len() as i64) > 0 {
-              element.addChild(childEl.clone());
+              element.addChild(&mut childEl);
             }
           }
         }
@@ -15171,7 +15235,7 @@ impl ComponentEngine {
     if  node.nodeType == "JSXFragment".to_string() {
       let mut el_1 : EVGElement = EVGElement::new();
       el_1.tagName = "div".to_string();
-      self.evaluateChildren(el_1.clone(), node.clone());
+      self.evaluateChildren(&mut el_1, node.clone());
       return EvalValue::element(el_1.clone()).clone();
     }
     return EvalValue::null().clone();
@@ -15523,7 +15587,7 @@ impl EVGComponentTool {
     };
     return me;
   }
-  fn main(&mut self, mut args : Vec<String>) -> () {
+  fn main(&mut self, args : &Vec<String>) -> () {
     println!( "{}", "EVG Component Tool v1.0 - PDF Generator with TSX Components".to_string() );
     println!( "{}", "============================================================".to_string() );
     if  ((args.len() as i64)) < 3 {
@@ -15644,9 +15708,11 @@ impl EVGComponentTool {
   fn initFonts(&mut self, ) -> () {
     println!( "{}", "Loading fonts...".to_string() );
     if  (self.assetPaths.len() as i64) > 0 {
-      self.fontManager.setFontsDirectories(self.assetPaths.clone());
+      let __arg_0 = self.assetPaths.clone();
+      self.fontManager.setFontsDirectories(__arg_0);
     } else {
-      self.fontManager.setFontsDirectory(self.fontsDir.clone());
+      let __arg_0 = self.fontsDir.clone();
+      self.fontManager.setFontsDirectory(__arg_0);
     }
     self.fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf".to_string());
     self.fontManager.loadFont("Open_Sans/OpenSans-Bold.ttf".to_string());
@@ -15706,5 +15772,5 @@ fn main() {
     args.push(std::env::args().nth((i + 1) as usize).unwrap_or_default());
     i = i + 1;
   };
-  tool.main(args.clone());
+  tool.main(&args);
 }

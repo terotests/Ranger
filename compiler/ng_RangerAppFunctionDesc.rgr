@@ -53,6 +53,15 @@ class RangerAppFunctionDesc {
   
   ; Rust: Flag indicating method doesn't use 'this' and can be called as static
   def rust_can_be_static:boolean false
+  
+  ; Mutation analysis flags - for recursive call-graph analysis
+  def mutation_analysis_done:boolean false      ; True when we've fully analyzed this method's mutation behavior
+  def mutation_analysis_in_progress:boolean false  ; True while we're analyzing (detects cycles)
+  def directly_mutates_self:boolean false       ; True if this method directly assigns to this.field
+  def transitively_mutates_self:boolean false   ; True if this method calls other methods that mutate self
+  
+  ; Track which parameters are mutated by this method (for param.method() analysis)
+  def mutates_param_indices:[int]               ; List of parameter indices that this method mutates
 
   fn addCallTo( m@(weak):RangerAppFunctionDesc) {
     if( (indexOf m.isCalledBy this) < 0 ) {

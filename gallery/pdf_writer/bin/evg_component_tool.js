@@ -11461,9 +11461,23 @@ class EmbeddedImage  {
     this.src = s;
   }
 }
-class EVGPDFRenderer  extends EVGImageMeasurer {
+class PDFImageMeasurer  extends EVGImageMeasurer {
   constructor() {
     super()
+  }
+  setRenderer (r) {
+    this.renderer = r;
+  };
+  getImageDimensions (src) {
+    if ( (typeof(this.renderer) !== "undefined" && this.renderer != null )  ) {
+      return ((this.renderer)).loadImageDimensions(src);
+    }
+    const dims = new EVGImageDimensions();
+    return dims;
+  };
+}
+class EVGPDFRenderer  {
+  constructor() {
     this.pageWidth = 595.0;
     this.pageHeight = 842.0;
     this.nextObjNum = 1;
@@ -11513,9 +11527,13 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.foundSections = fs;
     let fp = [];
     this.foundPages = fp;
+    const imgMeasurer = new PDFImageMeasurer();
+    this.imageMeasurer = imgMeasurer;
   }
-  init () {
-    this.layout.setImageMeasurer(this);
+  init (selfRc) {
+    const imgM = this.imageMeasurer;
+    imgM.setRenderer(selfRc);
+    this.layout.setImageMeasurer(imgM);
   };
   setPageSize (width, height) {
     this.pageWidth = width;
@@ -11567,7 +11585,7 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.layout.debug = enabled;
     this.debug = enabled;
   };
-  getImageDimensions (src) {
+  loadImageDimensions (src) {
     let i = 0;
     while (i < (this.imageDimensionsCacheKeys.length)) {
       const key = this.imageDimensionsCacheKeys[i];
@@ -14285,7 +14303,7 @@ class EVGComponentTool  {
     console.log("");
     console.log("Rendering to PDF...");
     const renderer = new EVGPDFRenderer();
-    renderer.init();
+    renderer.init(renderer);
     renderer.setPageSize(this.pageWidth, this.pageHeight);
     renderer.setFontManager(this.fontManager);
     renderer.setBaseDir(basePath);

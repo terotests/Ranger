@@ -465,8 +465,28 @@ class RangerRustClassWriter {
                 ; Non-trait optional object fields in trait-related classes use Option<RefCell<T>>
                 wr.out(".as_ref().unwrap().borrow_mut()" false)
               } {
-                ; Use as_mut().unwrap() to allow both read and write access
-                wr.out(".as_mut().unwrap()" false)
+                ; Check if the root object (parameter) is an immutable borrow
+                ; If so, we MUST use as_ref() because we can't get &mut from &T
+                def root_is_immutable_borrow:boolean false
+                if (nsp_len > 0) {
+                  def rootParam:RangerAppParamDesc (itemAt node.nsp 0)
+                  if (rootParam.rust_borrow_type == 1) {
+                    root_is_immutable_borrow = true
+                  }
+                }
+                
+                if root_is_immutable_borrow {
+                  ; Root parameter is immutable borrow - must use as_ref()
+                  wr.out(".as_ref().unwrap()" false)
+                } {
+                  ; Check if we're on LHS of assignment - need as_mut
+                  if (ctx.isInLhs()) {
+                    wr.out(".as_mut().unwrap()" false)
+                  } {
+                    ; Default to as_mut for safety (methods might mutate)
+                    wr.out(".as_mut().unwrap()" false)
+                  }
+                }
               }
             }
           }
@@ -731,22 +751,32 @@ class RangerRustClassWriter {
         continue
       }
       
+      ; Check for immutable borrow (rust_borrow_type = 1)
+      ; This is for buffer/array/object params that are not mutated
+      def needsImmutableBorrow:boolean (arg.rust_borrow_type == 1)
+      
       ; Check if parameter is assigned - if so, make it mut
       if needsMutRef {
         ; Parameter is mutated - needs mut
         wr.out(("mut " + paramName + " : &mut ") false)
         this.writeTypeDef(nameN ctx wr)
       } {
-        if is_object {
-          wr.out(("mut " + paramName + " : ") false)
+        if needsImmutableBorrow {
+          ; Parameter is borrowed but not mutated - immutable reference
+          wr.out((paramName + " : &") false)
           this.writeTypeDef(nameN ctx wr)
         } {
-          if (arg.set_cnt > 0) {
+          if is_object {
             wr.out(("mut " + paramName + " : ") false)
+            this.writeTypeDef(nameN ctx wr)
           } {
-            wr.out((paramName + " : ") false)
+            if (arg.set_cnt > 0) {
+              wr.out(("mut " + paramName + " : ") false)
+            } {
+              wr.out((paramName + " : ") false)
+            }
+            this.writeTypeDef(nameN ctx wr)
           }
-          this.writeTypeDef(nameN ctx wr)
         }
       }
     }
@@ -815,6 +845,80 @@ class RangerRustClassWriter {
     for node.children child:CodeNode i {
       if (this.fnBodyUsesThis(child ctx)) {
         return true
+      }
+    }
+    return false
+  }
+
+  ; Helper: Check if a node accesses a field of the given variable
+  ; Returns true if node is like varName.field or varName.field.subfield
+  fn accessesFieldOf:boolean (node:CodeNode varName:string) {
+    if ((array_length node.ns) > 0) {
+      def firstPart:string (itemAt node.ns 0)
+      if (firstPart == varName) {
+        ; This accesses varName.something
+        if ((array_length node.ns) > 1) {
+          return true
+        }
+      }
+    }
+    ; Check children recursively
+    for node.children child:CodeNode i {
+      if (this.accessesFieldOf(child varName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Helper: Get root variable name from an argument node
+  ; For a simple var reference like "child", returns "child"
+  fn getArgRootVar:string (node:CodeNode) {
+    ; If node has ns, use first part
+    if ((array_length node.ns) > 0) {
+      return (itemAt node.ns 0)
+    }
+    ; If node is a simple vref
+    if ((strlen node.vref) > 0) {
+      return node.vref
+    }
+    return ""
+  }
+
+  ; Helper: Detect when we have a &mut ref conflict in function call arguments
+  ; Returns true if argIdx gets &mut and other args access fields of that same variable
+  fn hasMutRefConflict:boolean (node:CodeNode fnDesc:RangerAppFunctionDesc argIdx:int givenArgs:CodeNode) {
+    def paramCnt:int (array_length fnDesc.params)
+    if (argIdx >= paramCnt) {
+      return false
+    }
+    def param:RangerAppParamDesc (itemAt fnDesc.params argIdx)
+    ; Check if this parameter needs &mut
+    def needsMut:boolean false
+    if param.needs_cpp_reference {
+      needsMut = true
+    }
+    if (param.rust_borrow_type == 2) {
+      needsMut = true
+    }
+    if (needsMut == false) {
+      return false
+    }
+    ; Get the variable name being passed
+    def argNode@(optional):CodeNode (itemAt givenArgs.children argIdx)
+    if (null? argNode) {
+      return false
+    }
+    def varName:string (this.getArgRootVar((unwrap argNode)))
+    if ((strlen varName) == 0) {
+      return false
+    }
+    ; Check if other args access fields of this variable
+    for givenArgs.children otherArg:CodeNode otherIdx {
+      if (otherIdx != argIdx) {
+        if (this.accessesFieldOf(otherArg varName)) {
+          return true
+        }
       }
     }
     return false
@@ -1050,6 +1154,11 @@ class RangerRustClassWriter {
       def obj:CodeNode (node.getSecond())
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
+      
+      ; DEBUG: Check if this is the parseDHT call
+      if (method.vref == "parseDHT") {
+        print ("DEBUG CreateCallExpression: FOUND parseDHT! obj=" + obj.vref + " obj_is_class_var=" + (to_string obj.hasParamDesc))
+      }
 
       ; Check if the object is an optional type (which needs .as_ref().unwrap() or .as_mut().unwrap())
       def obj_is_optional:boolean false
@@ -1213,8 +1322,14 @@ class RangerRustClassWriter {
   ; Override CreateMethodCall for Rust to handle borrow conflicts with optional self members
   ; This is used for is_direct_method_call nodes (e.g., streamBuffer.writeString(...))
   fn CreateMethodCall(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; DEBUG: Always print to confirm this is called
+    print "DEBUG CreateMethodCall ALWAYS CALLED"
+    
     def obj:CodeNode (node.getFirst())
     def args:CodeNode (node.getSecond())
+    
+    ; DEBUG: Always print to confirm this function is being called
+    print ("DEBUG CreateMethodCall ALWAYS: obj.vref=" + obj.vref)
     
     ; Check if the object is an optional class variable (self member)
     def obj_is_optional:boolean false
@@ -1242,8 +1357,10 @@ class RangerRustClassWriter {
     }
     
     ; Check if we need to pre-evaluate arguments to avoid borrow conflicts
+    ; When calling a method on a self member, if args contain self references,
+    ; we need to pre-evaluate to avoid borrowing self twice
     def needs_arg_preevaluation:boolean false
-    if (obj_is_optional && obj_is_self_member) {
+    if obj_is_self_member {
       if (this.containsSelfReference(args)) {
         needs_arg_preevaluation = true
       }
@@ -1343,10 +1460,24 @@ class RangerRustClassWriter {
     return (-1)
   }
 
-  fn writeFnCall (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+  fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; DEBUG: Unconditional entry debug
+    print "DEBUG writeFnCall ENTRY"
+    
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
       def part:string (itemAt fc.ns 0)
+      
+      ; DEBUG: Print all method calls to trace huffman.parseDHT
+      if ((strlen part) > 0) {
+        def methodName:string ""
+        if ((array_length fc.ns) >= 2) {
+          methodName = (itemAt fc.ns 1)
+        }
+        if ((methodName == "parseDHT") || (part == "huffman")) {
+          print ("DEBUG writeFnCall: FOUND! part=" + part + " method=" + methodName + " isMemberVar=" + (to_string (ctx.isMemberVariable(part))))
+        }
+      }
       
       ; Check if the target is a class variable (self member) and if it's optional
       def target_is_self_member:boolean false
@@ -1376,12 +1507,29 @@ class RangerRustClassWriter {
       
       def givenArgs:CodeNode (node.getSecond())
       
-      ; If calling method on optional self member and args contain self references,
-      ; we need to pre-evaluate all arguments
+      ; If calling method on a self member and args contain self references,
+      ; we need to pre-evaluate all arguments to avoid borrow conflicts
+      ; e.g., self.huffman.parseDHT(self.data, ...) requires pre-evaluating self.data
       def needs_arg_preevaluation:boolean false
-      if (target_is_self_member && target_is_optional) {
+      if target_is_self_member {
         if (this.containsSelfReference(givenArgs)) {
           needs_arg_preevaluation = true
+        }
+      }
+      
+      ; Also check for &mut ref conflict: when an arg gets &mut and other args access its fields
+      ; e.g., fn(&mut child, child.field) - we can't read child.field while borrowing &mut child
+      if (needs_arg_preevaluation == false) {
+        if node.hasFnCall {
+          if (!null? node.fnDesc) {
+            def fnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+            for fnD.params param:RangerAppParamDesc paramIdx {
+              if (this.hasMutRefConflict(node fnD paramIdx givenArgs)) {
+                needs_arg_preevaluation = true
+                break
+              }
+            }
+          }
         }
       }
       
@@ -1390,36 +1538,138 @@ class RangerRustClassWriter {
         print ("DEBUG writeFnCall: part=" + part + " target_is_optional=" + (to_string target_is_optional) + " containsSelf=" + (to_string (this.containsSelfReference(givenArgs))) + " needs_preeval=" + (to_string needs_arg_preevaluation))
       }
       
-      ; Pre-evaluate all arguments if needed to avoid borrow conflicts
+      ; Pre-evaluate arguments if needed to avoid borrow conflicts
       ; BUT only do this if we're not inside an expression (can't emit let in expr)
       if (needs_arg_preevaluation && ((ctx.expressionLevel()) == 0)) {
+        ; When calling method on self.member and args contain self refs,
+        ; we need to pre-evaluate ALL args that reference self to avoid borrow conflicts
+        
         def tempVars:[string]
         def tmpIdx:int 0
+        def fnD3@(optional):RangerAppFunctionDesc node.fnDesc
         for givenArgs.children argNode:CodeNode argIdx {
-          def tmpName:string ("__arg_" + (to_string tmpIdx))
-          tmpIdx = tmpIdx + 1
-          push tempVars tmpName
-          ; Write temp variable assignment - clone to avoid move issues in loops
-          wr.out(("let " + tmpName + " = ") false)
-          ctx.setInExpr()
-          this.WalkNode(argNode ctx wr)
-          ctx.unsetInExpr()
-          ; Clone non-primitive types to avoid moving
-          if (argNode.value_type == RangerNodeType.VRef) {
-            wr.out(".clone()" false)
+          ; Check if this arg contains a self reference (class variable)
+          def argHasSelfRef:boolean (this.containsSelfReference(argNode))
+          
+          if argHasSelfRef {
+            ; Pre-evaluate this argument
+            def tmpName:string ("__arg_" + (to_string tmpIdx))
+            tmpIdx = tmpIdx + 1
+            push tempVars tmpName
+            ; Check if parameter needs &mut - if so, declare temp as mut
+            def needsMutDecl:boolean false
+            if (!null? fnD3) {
+              def fnD:RangerAppFunctionDesc (unwrap fnD3)
+              if (argIdx < (array_length fnD.params)) {
+                def argP:RangerAppParamDesc (itemAt fnD.params argIdx)
+                if argP.needs_cpp_reference {
+                  needsMutDecl = true
+                }
+                if (argP.rust_borrow_type == 2) {
+                  needsMutDecl = true
+                }
+              }
+            }
+            if needsMutDecl {
+              wr.out(("let mut " + tmpName + " = ") false)
+            } {
+              wr.out(("let " + tmpName + " = ") false)
+            }
+            ctx.setInExpr()
+            this.WalkNode(argNode ctx wr)
+            ctx.unsetInExpr()
+            wr.out(".clone();" true)
+          } {
+            ; Don't pre-eval, use empty marker
+            push tempVars ""
           }
-          wr.out(";" true)
         }
         
-        ; Now write the actual function call with temp vars
-        this.WriteVRef(fc ctx wr)
-        wr.out("(" false)
-        for node.fnDesc.params arg:RangerAppParamDesc i {
-          if (i > 0) {
-            wr.out(", " false)
+        ; Now write the actual function call with temp vars for pre-evaled args
+        ; First check if this is a static method call (method doesn't use 'this')
+        def call_as_static_preeval:boolean false
+        if (part == "this") {
+          if node.hasFnCall {
+            def fnD:RangerAppFunctionDesc node.fnDesc
+            def fnB@(optional):CodeNode fnD.fnBody
+            if (!null? fnB) {
+              def fnCtx@(optional):RangerAppWriterContext fnD.fnCtx
+              def useCtx:RangerAppWriterContext ctx
+              if (!null? fnCtx) {
+                useCtx = (unwrap fnCtx)
+              }
+              def uses_this:boolean (this.fnBodyUsesThis((unwrap fnB) useCtx))
+              if (uses_this == false) {
+                call_as_static_preeval = true
+              }
+            }
           }
-          def tmpVar:string (itemAt tempVars i)
-          wr.out(tmpVar false)
+        }
+        
+        if call_as_static_preeval {
+          ; Use ClassName::method() syntax for static call
+          def fnD:RangerAppFunctionDesc node.fnDesc
+          def fnContainerClass@(optional):RangerAppClassDesc fnD.container_class
+          if (!null? fnContainerClass) {
+            def containerClass:RangerAppClassDesc (unwrap fnContainerClass)
+            def methodName:string (itemAt fc.ns 1)
+            wr.out(((containerClass.name + "::") + methodName) false)
+          } {
+            ; Fallback to WriteVRef
+            this.WriteVRef(fc ctx wr)
+          }
+        } {
+          this.WriteVRef(fc ctx wr)
+        }
+        wr.out("(" false)
+        def fnD2@(optional):RangerAppFunctionDesc node.fnDesc
+        if (!null? fnD2) {
+          def fnDesc:RangerAppFunctionDesc (unwrap fnD2)
+          for fnDesc.params arg:RangerAppParamDesc i {
+            def n@(optional):CodeNode (itemAt givenArgs.children i)
+            if (i > 0) {
+              wr.out(", " false)
+            }
+            def tmpVar:string (itemAt tempVars i)
+            if ((strlen tmpVar) > 0) {
+              ; Use pre-evaluated temp var - check if needs &mut or &
+              def needsMutRefTmp:boolean false
+              if arg.needs_cpp_reference {
+                needsMutRefTmp = true
+              }
+              if (arg.rust_borrow_type == 2) {
+                needsMutRefTmp = true
+              }
+              def needsImmutableRefTmp:boolean (arg.rust_borrow_type == 1)
+              if needsMutRefTmp {
+                wr.out("&mut " false)
+              } {
+                if needsImmutableRefTmp {
+                  wr.out("&" false)
+                }
+              }
+              wr.out(tmpVar false)
+            } {
+              ; Output argument directly
+              if (!null? n) {
+                def nVal:CodeNode (unwrap n)
+                ; Check if parameter needs mutable reference
+                def needsMutRef:boolean false
+                if arg.needs_cpp_reference {
+                  needsMutRef = true
+                }
+                if (arg.rust_borrow_type == 2) {
+                  needsMutRef = true
+                }
+                if needsMutRef {
+                  wr.out("&mut " false)
+                }
+                ctx.setInExpr()
+                this.WalkNode(nVal ctx wr)
+                ctx.unsetInExpr()
+              }
+            }
+          }
         }
         wr.out(")" false)
         if ((ctx.expressionLevel()) == 0) {
@@ -1478,7 +1728,7 @@ class RangerRustClassWriter {
           ; Check if we have a temp var for this arg
           def tempVar:string (itemAt tempVars i)
           if ((strlen tempVar) > 0) {
-            ; Check if parameter needs mutable reference - add &mut prefix
+            ; Check if parameter needs mutable or immutable reference
             def needsMutRefTmp:boolean false
             if arg.needs_cpp_reference {
               needsMutRefTmp = true
@@ -1486,8 +1736,13 @@ class RangerRustClassWriter {
             if (arg.rust_borrow_type == 2) {
               needsMutRefTmp = true
             }
+            def needsImmutableRefTmp2:boolean (arg.rust_borrow_type == 1)
             if needsMutRefTmp {
               wr.out("&mut " false)
+            } {
+              if needsImmutableRefTmp2 {
+                wr.out("&" false)
+              }
             }
             wr.out(tempVar false)
           } {
@@ -1500,6 +1755,7 @@ class RangerRustClassWriter {
             if (arg.rust_borrow_type == 2) {
               needsMutRef2 = true
             }
+            def needsImmutableRef2:boolean (arg.rust_borrow_type == 1)
             
             if needsMutRef2 {
               ; Parameter needs &mut - output &mut prefix
@@ -1508,29 +1764,37 @@ class RangerRustClassWriter {
               this.WalkNode(nVal ctx wr)
               ctx.unsetInExpr()
             } {
-              ctx.setInExpr()
-              this.WalkNode(nVal ctx wr)
-              ctx.unsetInExpr()
-              ; In Rust, values are moved when passed, so clone when passing a variable
-              def argNameN:CodeNode (unwrap arg.nameNode)
-              def arg_type:RangerNodeType argNameN.value_type
-              if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
-                arg_type = (argNameN.typeNameAsType(ctx))
-              }
-              def needs_clone:boolean false
-              if (argNameN.type_name == "string") {
-                needs_clone = true
-              }
-              if (arg_type == RangerNodeType.Object) {
-                needs_clone = true
-              }
-              ; In Rust, arrays and hashes need cloning to avoid move errors
-              if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
-                needs_clone = true
-              }
-              if needs_clone {
-                if (nVal.value_type == RangerNodeType.VRef) {
-                  wr.out(".clone()" false)
+              if needsImmutableRef2 {
+                ; Parameter needs & - output & prefix without clone
+                wr.out("&" false)
+                ctx.setInExpr()
+                this.WalkNode(nVal ctx wr)
+                ctx.unsetInExpr()
+              } {
+                ctx.setInExpr()
+                this.WalkNode(nVal ctx wr)
+                ctx.unsetInExpr()
+                ; In Rust, values are moved when passed, so clone when passing a variable
+                def argNameN:CodeNode (unwrap arg.nameNode)
+                def arg_type:RangerNodeType argNameN.value_type
+                if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+                  arg_type = (argNameN.typeNameAsType(ctx))
+                }
+                def needs_clone:boolean false
+                if (argNameN.type_name == "string") {
+                  needs_clone = true
+                }
+                if (arg_type == RangerNodeType.Object) {
+                  needs_clone = true
+                }
+                ; In Rust, arrays and hashes need cloning to avoid move errors
+                if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
+                  needs_clone = true
+                }
+                if needs_clone {
+                  if (nVal.value_type == RangerNodeType.VRef) {
+                    wr.out(".clone()" false)
+                  }
                 }
               }
             }
@@ -1612,24 +1876,34 @@ class RangerRustClassWriter {
               this.WalkNode(nVal ctx wr)
               ctx.unsetInExpr()
             } {
-              ctx.setInExpr()
-              this.WalkNode(nVal ctx wr)
-              ctx.unsetInExpr()
-              ; Clone non-primitives when passing by value
-              def argNameN:CodeNode (unwrap arg.nameNode)
-              def arg_type:RangerNodeType argNameN.value_type
-              if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
-                arg_type = (argNameN.typeNameAsType(ctx))
-              }
-              def needs_clone:boolean false
-              if (argNameN.type_name == "string") { needs_clone = true }
-              if (arg_type == RangerNodeType.Object) { needs_clone = true }
-              if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
-                needs_clone = true
-              }
-              if needs_clone {
-                if (nVal.value_type == RangerNodeType.VRef) {
-                  wr.out(".clone()" false)
+              ; Check for immutable borrow parameter
+              def needsImmutableBorrow2:boolean (arg.rust_borrow_type == 1)
+              if needsImmutableBorrow2 {
+                ; Immutable reference - pass & without clone
+                wr.out("&" false)
+                ctx.setInExpr()
+                this.WalkNode(nVal ctx wr)
+                ctx.unsetInExpr()
+              } {
+                ctx.setInExpr()
+                this.WalkNode(nVal ctx wr)
+                ctx.unsetInExpr()
+                ; Clone non-primitives when passing by value
+                def argNameN:CodeNode (unwrap arg.nameNode)
+                def arg_type:RangerNodeType argNameN.value_type
+                if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+                  arg_type = (argNameN.typeNameAsType(ctx))
+                }
+                def needs_clone:boolean false
+                if (argNameN.type_name == "string") { needs_clone = true }
+                if (arg_type == RangerNodeType.Object) { needs_clone = true }
+                if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash) || (arg_type == RangerNodeType.IntBuffer) || (arg_type == RangerNodeType.DoubleBuffer) || (arg_type == RangerNodeType.CharBuffer) || (arg_type == RangerNodeType.Buffer)) {
+                  needs_clone = true
+                }
+                if needs_clone {
+                  if (nVal.value_type == RangerNodeType.VRef) {
+                    wr.out(".clone()" false)
+                  }
                 }
               }
             }
@@ -1694,24 +1968,45 @@ class RangerRustClassWriter {
               continue _
             }
             def nVal:CodeNode (unwrap n)
-            ctx.setInExpr()
-            this.WalkNode(nVal ctx wr)
-            ctx.unsetInExpr()
-            ; Clone non-primitives
-            def argNameN:CodeNode (unwrap arg.nameNode)
-            def arg_type:RangerNodeType argNameN.value_type
-            if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
-              arg_type = (argNameN.typeNameAsType(ctx))
-            }
-            def needs_clone:boolean false
-            if (argNameN.type_name == "string") { needs_clone = true }
-            if (arg_type == RangerNodeType.Object) { needs_clone = true }
-            if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash)) {
-              needs_clone = true
-            }
-            if needs_clone {
-              if (nVal.value_type == RangerNodeType.VRef) {
-                wr.out(".clone()" false)
+            ; Check for mutable or immutable borrow
+            def needsMutRef3:boolean false
+            if arg.needs_cpp_reference { needsMutRef3 = true }
+            if (arg.rust_borrow_type == 2) { needsMutRef3 = true }
+            def needsImmutableBorrow3:boolean (arg.rust_borrow_type == 1)
+            
+            if needsMutRef3 {
+              wr.out("&mut " false)
+              ctx.setInExpr()
+              this.WalkNode(nVal ctx wr)
+              ctx.unsetInExpr()
+            } {
+              if needsImmutableBorrow3 {
+                ; Immutable reference - pass & without clone
+                wr.out("&" false)
+                ctx.setInExpr()
+                this.WalkNode(nVal ctx wr)
+                ctx.unsetInExpr()
+              } {
+                ctx.setInExpr()
+                this.WalkNode(nVal ctx wr)
+                ctx.unsetInExpr()
+                ; Clone non-primitives
+                def argNameN:CodeNode (unwrap arg.nameNode)
+                def arg_type:RangerNodeType argNameN.value_type
+                if ((arg_type == RangerNodeType.Object) || (arg_type == RangerNodeType.VRef) || (arg_type == RangerNodeType.NoType)) {
+                  arg_type = (argNameN.typeNameAsType(ctx))
+                }
+                def needs_clone:boolean false
+                if (argNameN.type_name == "string") { needs_clone = true }
+                if (arg_type == RangerNodeType.Object) { needs_clone = true }
+                if ((arg_type == RangerNodeType.Array) || (arg_type == RangerNodeType.Hash)) {
+                  needs_clone = true
+                }
+                if needs_clone {
+                  if (nVal.value_type == RangerNodeType.VRef) {
+                    wr.out(".clone()" false)
+                  }
+                }
               }
             }
           }
@@ -1756,6 +2051,9 @@ class RangerRustClassWriter {
           needsMutRef = true
         }
         
+        ; Check for immutable borrow (rust_borrow_type = 1)
+        def needsImmutableBorrow:boolean (arg.rust_borrow_type == 1)
+        
         ; Check if parameter type is a trait type - if so, wrap in Box::new()
         def arg_is_trait_type:boolean false
         def argNameN:CodeNode (unwrap arg.nameNode)
@@ -1797,6 +2095,14 @@ class RangerRustClassWriter {
           this.WalkNode(nVal ctx wr)
           ctx.unsetInExpr()
         } {
+          ; Check for immutable borrow
+          if needsImmutableBorrow {
+            ; Parameter takes immutable reference - output & prefix
+            wr.out("&" false)
+            ctx.setInExpr()
+            this.WalkNode(nVal ctx wr)
+            ctx.unsetInExpr()
+          } {
           ; Standard case - may need clone and/or Rc::new(RefCell::new()) for trait types
           ; But if value is already Rc<RefCell<dyn Trait>>, don't wrap or clone
           if value_is_already_boxed_trait {
@@ -1884,6 +2190,7 @@ class RangerRustClassWriter {
               }
             }
           }
+        }
         }
       }
       wr.out(")" false)
@@ -2743,7 +3050,9 @@ class RangerRustClassWriter {
       }
       
       ctx.setInExpr()
+      ctx.setInLhs()  ; Mark that we're in LHS of assignment (for Rust as_mut vs as_ref)
       this.WalkNode(left ctx wr)
+      ctx.unsetInLhs()
       
       ; Handle weak reference assignments - use Rc::downgrade() to create Weak pointer
       if is_weak {

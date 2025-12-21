@@ -1,444 +1,549 @@
 # Rust Code Generation Issues
 
-This document describes the remaining issues with Rust code generation in Ranger, specifically for projects using trait polymorphism patterns.
+This document describes the current status and remaining issues with Rust code generation in Ranger, specifically for the `evg_component_tool` project.
 
-## Current Status
+## Current Status (December 2025)
 
-As of December 2025, the Rust backend can successfully compile complex projects like `evg_component_tool` with:
+### Error Count Progression
 
-- ✅ Trait-based polymorphism using `Rc<RefCell<dyn Trait>>`
-- ✅ Interior mutability for trait methods using `&mut self`
-- ✅ Optional object fields in trait-related classes wrapped in `RefCell`
-- ✅ Transitive mutation analysis for method signatures
-- ✅ Call graph analysis for detecting indirect mutations
+| Phase                  | Errors | Key Changes                      |
+| ---------------------- | ------ | -------------------------------- |
+| Initial                | 365+   | No static analysis               |
+| After trait fixes      | 50+    | Trait-based polymorphism working |
+| After static analysis  | 19     | Mutation detection, borrow types |
+| After immutable borrow | 11     | Proper `&` vs `&mut` handling    |
+| **Current**            | **11** | See remaining issues below       |
 
-**Error count progression**: 365+ errors → 0 errors (compilation succeeds)
+### What's Working ✅
 
-However, there is **one runtime issue** that causes a panic.
+1. **Trait-based polymorphism** using `Rc<RefCell<dyn Trait>>`
+2. **Interior mutability** for trait methods using `&mut self`
+3. **Optional object fields** in trait-related classes wrapped in `RefCell`
+4. **Transitive mutation analysis** for method signatures
+5. **Call graph analysis** for detecting indirect mutations
+6. **Static method detection** - methods that don't use `this` are emitted as `ClassName::method()`
+7. **Immutable borrow parameters** (`&Vec<T>`) for non-mutated buffer/array parameters
+8. **Pre-evaluation of arguments** to avoid borrow conflicts with self members
+9. **Optional field access** uses `as_ref().unwrap()` for reading, `as_mut().unwrap()` for writing
 
 ---
 
-## The Core Problem: Passing `this` to a Trait-Type Parameter
+## Static Analysis System
 
-### The Pattern
+The Rust code generator now includes a comprehensive static analysis phase that runs before code generation. See [PLAN_STATIC_ANALYSIS.md](PLAN_STATIC_ANALYSIS.md) for full details.
 
-In Ranger source code:
+### Key Components
 
-```ranger
-class EVGPDFRenderer {
-    Extends(EVGImageMeasurer)
-    def layout:EVGLayout
+**1. StaticAnalyzer class** (`compiler/ng_StaticAnalysis.rgr`)
 
-    Constructor () {
-        ; ... initialization ...
-        layout.setImageMeasurer(this)  ; <-- PROBLEM
+- Mutation detection for buffer/array operators (`buffer_set`, `push`, `set`, etc.)
+- Function parameter analysis (detects which params are mutated)
+- Field assignment tracking (`obj.field = value` mutations)
+- Method call mutation tracking (`obj.method()` where method mutates)
+- Return statement analysis
+
+**2. Borrow Type System**
+
+```
+rust_borrow_type values:
+  0 = owned (T) - default
+  1 = immutable borrow (&T) - for non-mutated buffers/arrays
+  2 = mutable borrow (&mut T) - for mutated parameters
+```
+
+**3. Context Tracking**
+
+- `ctx.isInLhs()` - tracks if we're on left side of assignment
+- `ctx.setInLhs()` / `ctx.unsetInLhs()` - for proper `as_mut()` vs `as_ref()` in optional fields
+
+**4. Static Method Detection**
+
+- Methods that don't use `this` are called as `ClassName::method()`
+- Avoids E0499 double mutable borrow errors when passing `&mut self.field` as argument
+
+---
+
+## Current Remaining Errors (11 total)
+
+### E0308: Type Mismatches (7 errors)
+
+**Issue 1: Assignment from borrowed parameter**
+
+```rust
+// Line 9379
+self.data = buf;  // ERROR: expected Vec<u8>, found &Vec<u8>
+```
+
+**Cause**: Parameter `buf` is an immutable borrow (`&Vec<u8>`) but we're assigning to an owned field.
+**Fix needed**: When assigning borrowed param to owned field, add `.clone()`: `self.data = buf.clone();`
+
+**Issue 2: Local variables passed to immutable borrow parameters**
+
+```rust
+// Lines 12421, 12438, 12455, 12508, 12525, 12542
+self.encodeBlock(&mut writer, yCoeffs, ...);
+//                            ^^^^^^^ expected &Vec<i64>, found Vec<i64>
+```
+
+**Cause**: `yCoeffs`, `cbCoeffs`, `crCoeffs` are local variables (not temp vars). The function expects `&Vec<i64>` but we're passing `Vec<i64>`.
+**Fix needed**: Add `&` prefix when passing local variables to immutable borrow parameters.
+
+### E0596: Borrow Mutability (2 errors)
+
+**Issue: Mutable borrow of immutable reference parameter**
+
+```rust
+// Line 9823
+fn transformFast(&mut self, coeffs: &Vec<i64>, output: &Vec<i64>) {
+    self.transform(&coeffs, &mut output);  // ERROR: cannot borrow as mutable
+}
+```
+
+**Cause**: Parameter `output` is `&Vec<i64>` (immutable) but we try to pass `&mut output`.
+**Fix needed**: Static analysis should detect that `output` is passed to a `&mut` parameter and mark it as needing mutable borrow in the function signature.
+
+### E0382: Moved Value (2 errors)
+
+**Issue: Variable moved in loop**
+
+```rust
+// Lines 14687, 14695
+fn bindFunctionParams(&mut self, fnNode: TSNode, props: EvalValue) {
+    while i < fnNode.params.len() {
+        self.bindObjectPattern(&param, &mut props);  // ERROR: props moved here
+        // ...
+        self.setSymbol(paramName, props.clone());    // ERROR: use of moved value
     }
 }
 ```
 
-The `setImageMeasurer` method expects an `EVGImageMeasurer` (a trait parent class). Passing `this` means "store a reference to myself as the image measurer."
+**Cause**: `props` is an owned `EvalValue` passed to functions multiple times in a loop.
+**Fix needed**: Either:
 
-### How It's Currently Generated
-
-```rust
-fn init(&mut self) {
-    self.layout.as_ref().unwrap().borrow_mut()
-        .setImageMeasurer(Rc::new(RefCell::new(self.clone())));
-    //                                         ^^^^^^^^^^^
-    //                                         PROBLEM: can't clone
-}
-```
-
-### Why It Fails
-
-`EVGPDFRenderer` cannot implement `Clone` because it contains fields of type `Rc<RefCell<dyn SomeTrait>>`. The `dyn Trait` type is not `Clone`, so the derive macro fails.
-
-Even if we could clone, **cloning is semantically wrong** - we want to store a reference to the SAME object, not a copy.
+1. Pass `props` as `&mut EvalValue` (mutable reference)
+2. Clone `props` each iteration
+3. Mark `EvalValue` as needing `&mut` when used in loops
 
 ---
 
-## Potential Solutions
+## Implementation Details
+
+### Where Fixes Are Needed
+
+**1. For E0308 (assignment from borrowed param)**
+File: `ng_RangerRustClassWriter.rgr`, in `CustomOperator` assignment handling.
+Add check: if RHS is an immutable borrow parameter and LHS is owned field, add `.clone()`.
+
+**2. For E0308 (local vars to immutable borrow params)**  
+File: `ng_RangerRustClassWriter.rgr`, in `writeFnCall` standard path.
+When passing a local variable (not temp var) to a parameter with `rust_borrow_type == 1`, add `&` prefix.
+
+**3. For E0596 (mutable borrow of immutable ref)**
+File: `ng_StaticAnalysis.rgr`, in `analyzeFunction`.
+Detect when a parameter is passed to a function requiring `&mut` and upgrade the parameter's borrow type.
+
+**4. For E0382 (moved value in loop)**
+File: `ng_StaticAnalysis.rgr`, in `walkForMutations`.
+Detect when a variable is used multiple times in a loop body and either:
+
+- Mark it for cloning
+- Mark it as needing reference parameter type
+
+---
+
+## Detailed Code Examples: Ranger → Rust → Problem
+
+### Example 1: Assignment from Borrowed Parameter (E0308)
+
+**Ranger Source** (`JPEGHuffman.setData`):
+
+```ranger
+class JPEGHuffman {
+  def data:buffer  ; owned Vec<u8>
+
+  fn setData:void (buf:buffer) {
+    data = buf  ; assign parameter to field
+  }
+}
+```
+
+**Generated Rust** (with immutable borrow optimization):
+
+```rust
+impl JPEGHuffman {
+  // Static analysis detected: buf is not mutated → use &Vec<u8>
+  fn setData(&mut self, buf: &Vec<u8>) -> () {
+    self.data = buf;  // ❌ ERROR: expected Vec<u8>, found &Vec<u8>
+  }
+}
+```
+
+**The Problem**: Static analysis correctly saw that `buf` is not mutated (no `buffer_set`, `push`, etc.), so it marked it as immutable borrow. But the assignment `data = buf` needs an owned value, not a reference.
+
+**Correct Rust**:
+
+```rust
+fn setData(&mut self, buf: &Vec<u8>) -> () {
+    self.data = buf.clone();  // ✅ Clone the borrowed data
+}
+```
+
+---
+
+### Example 2: Local Variable to Immutable Borrow Parameter (E0308)
+
+**Ranger Source** (`JPEGEncoder.writeSOSSegment`):
+
+```ranger
+class JPEGEncoder {
+  fn writeSOSSegment:void (writer:BitWriter) {
+    def yCoeffs:[int] (this.getDCTCoeffs(0))   ; local variable
+    def cbCoeffs:[int] (this.getDCTCoeffs(1))
+    def crCoeffs:[int] (this.getDCTCoeffs(2))
+
+    ; These calls pass local variables to encodeBlock
+    this.encodeBlock(writer yCoeffs dcY acY dcTableY acTableY prevDcY 0)
+    this.encodeBlock(writer cbCoeffs dcC acC dcTableC acTableC prevDcCb 1)
+    this.encodeBlock(writer crCoeffs dcC acC dcTableC acTableC prevDcCr 2)
+  }
+
+  ; coeffs parameter is not mutated - analyzed as immutable borrow
+  fn encodeBlock:void (writer:BitWriter coeffs:[int] ...) {
+    ; read-only access to coeffs
+    def dc:int (at coeffs 0)
+  }
+}
+```
+
+**Generated Rust**:
+
+```rust
+fn writeSOSSegment(&mut self, writer: &mut BitWriter) -> () {
+    let yCoeffs: Vec<i64> = self.getDCTCoeffs(0);   // owned local
+    let cbCoeffs: Vec<i64> = self.getDCTCoeffs(1);
+    let crCoeffs: Vec<i64> = self.getDCTCoeffs(2);
+
+    // encodeBlock expects &Vec<i64> but we pass Vec<i64>
+    self.encodeBlock(&mut writer, yCoeffs, ...);  // ❌ expected &Vec<i64>, found Vec<i64>
+}
+
+fn encodeBlock(&mut self, writer: &mut BitWriter, coeffs: &Vec<i64>, ...) -> () {
+    // coeffs is correctly &Vec<i64> here
+}
+```
+
+**The Problem**: Local variables `yCoeffs`, `cbCoeffs`, `crCoeffs` are owned `Vec<i64>`. When calling `encodeBlock` which expects `&Vec<i64>`, we need to pass a reference.
+
+**Correct Rust**:
+
+```rust
+self.encodeBlock(&mut writer, &yCoeffs, ...);  // ✅ Pass reference to local
+```
+
+---
+
+### Example 3: Transitive Mutable Borrow Requirement (E0596)
+
+**Ranger Source** (`FastDCT.transformFast`):
+
+```ranger
+class FastDCT {
+  fn transformFast:void (coeffs:[int] output:[int]) {
+    ; output is passed to transform() which mutates it
+    this.transform(coeffs output)
+  }
+
+  fn transform:void (coeffs:[int] output:[int]) {
+    ; output is mutated here
+    set output 0 (at coeffs 0)
+  }
+}
+```
+
+**Generated Rust**:
+
+```rust
+// Static analysis saw: coeffs not mutated → &Vec<i64>
+// Static analysis saw: output not DIRECTLY mutated in transformFast → &Vec<i64> (WRONG!)
+fn transformFast(&mut self, coeffs: &Vec<i64>, output: &Vec<i64>) -> () {
+    self.transform(&coeffs, &mut output);  // ❌ cannot borrow output as mutable
+}
+
+// transform correctly has output as &mut
+fn transform(&mut self, coeffs: &Vec<i64>, output: &mut Vec<i64>) -> () {
+    output[0] = coeffs[0];
+}
+```
+
+**The Problem**: Static analysis detected that `output` is mutated in `transform()` (correctly marking it `&mut`). But in `transformFast()`, the analysis only looked at direct mutations, not that `output` is PASSED to a function that requires `&mut`.
+
+**Correct Rust**:
+
+```rust
+// output needs &mut because it's passed to transform() which requires &mut
+fn transformFast(&mut self, coeffs: &Vec<i64>, output: &mut Vec<i64>) -> () {
+    self.transform(&coeffs, output);  // ✅ output is already &mut
+}
+```
+
+---
+
+### Example 4: Moved Value in Loop (E0382)
+
+**Ranger Source** (`ComponentEngine.bindFunctionParams`):
+
+```ranger
+class ComponentEngine {
+  fn bindFunctionParams:void (fnNode:TSNode props:EvalValue) {
+    def i:int 0
+    while (i < (array_length fnNode.params)) {
+      def param:TSNode (at fnNode.params i)
+
+      ; props is used multiple times in the loop
+      this.bindObjectPattern(param props)
+
+      def paramName:string param.name
+      this.setSymbol(paramName props)
+
+      i = i + 1
+    }
+  }
+}
+```
+
+**Generated Rust**:
+
+```rust
+fn bindFunctionParams(&mut self, fnNode: TSNode, props: EvalValue) -> () {
+    let mut i: i64 = 0;
+    while i < fnNode.params.len() as i64 {
+        let param: TSNode = fnNode.params[i as usize].clone();
+
+        // First use - props is MOVED here
+        self.bindObjectPattern(&param, &mut props);  // ❌ props moved
+
+        let paramName: String = param.name.clone();
+        // Second use - ERROR: props already moved!
+        self.setSymbol(paramName, props.clone());    // ❌ use of moved value
+
+        i = i + 1;
+        // Next iteration - props doesn't exist anymore!
+    }
+}
+```
+
+**The Problem**: In Rust, when you pass an owned value to a function, it's MOVED (ownership transferred). Inside a loop, `props` is moved on the first iteration and doesn't exist for subsequent iterations.
+
+**Correct Rust** (Option A - make props a reference):
+
+```rust
+fn bindFunctionParams(&mut self, fnNode: TSNode, props: &mut EvalValue) -> () {
+    while i < fnNode.params.len() as i64 {
+        self.bindObjectPattern(&param, props);  // ✅ borrow, not move
+        self.setSymbol(paramName, props);       // ✅ still valid
+    }
+}
+```
+
+**Correct Rust** (Option B - clone in loop):
+
+```rust
+fn bindFunctionParams(&mut self, fnNode: TSNode, props: EvalValue) -> () {
+    while i < fnNode.params.len() as i64 {
+        let props_copy = props.clone();
+        self.bindObjectPattern(&param, &mut props_copy);
+        self.setSymbol(paramName, props.clone());
+    }
+}
+```
+
+---
+
+## Code Patterns Implemented
+
+### Immutable Borrow for Parameters
+
+```ranger
+; When parameter is not mutated and is buffer/array type
+; Static analysis sets: param.rust_borrow_type = 1
+```
+
+Generates:
+
+```rust
+fn process(&mut self, data: &Vec<u8>) { ... }
+//                          ^^^ immutable borrow
+```
+
+### Mutable Borrow for Parameters
+
+```ranger
+; When parameter is mutated (field assignment, mutating method call)
+; Static analysis sets: param.rust_borrow_type = 2
+```
+
+Generates:
+
+```rust
+fn process(&mut self, data: &mut Vec<u8>) { ... }
+//                          ^^^^ mutable borrow
+```
+
+### Optional Field Access
+
+```ranger
+def box@(optional):EVGBox
+; Access: box.width
+```
+
+Generates:
+
+```rust
+// Reading (not in LHS of assignment)
+self.r#box.as_ref().unwrap().width
+
+// Writing (in LHS of assignment)
+self.r#box.as_mut().unwrap().width = value;
+```
+
+### Pre-evaluation for Borrow Conflicts
+
+```ranger
+; When calling method on self member with args that reference self
+self.huffman.parseDHT(self.data, pos, len)
+```
+
+Generates:
+
+```rust
+let __arg_0 = self.data.clone();
+let __arg_1 = pos;
+let __arg_2 = len;
+self.huffman.as_mut().unwrap().parseDHT(&__arg_0, __arg_1, __arg_2);
+```
+
+### Static Method Calls
+
+```ranger
+; Methods that don't use 'this' are detected
+; Called as ClassName::method() instead of self.method()
+```
+
+Generates:
+
+```rust
+// Instead of: self.buildHuffmanCodes(bits, codes, &mut ehuf, &mut esiz);
+JPEGEncoder::buildHuffmanCodes(&bits, &codes, &mut ehuf, &mut esiz);
+```
+
+---
+
+## Next Steps
+
+1. **Fix E0308 for assignment from borrowed param**
+
+   - Add clone when assigning `&T` parameter to owned field
+
+2. **Fix E0308 for local variables**
+
+   - Add `&` prefix for local vars passed to immutable borrow params
+
+3. **Fix E0596 for transitive mutation**
+
+   - Detect parameters that are passed to `&mut` functions and upgrade their signature
+
+4. **Fix E0382 for loop usage**
+   - Detect variables used multiple times in loops and handle appropriately
+
+---
+
+## Historical Issue: Passing `this` to Trait-Type Parameter
+
+**Status**: Generates panic message (intentional limitation)
+
+When passing `this` to a trait-type parameter in Rust, we cannot create `Rc<RefCell<Self>>` from `&mut self`. The compiler now generates:
+
+```rust
+panic!("Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>")
+```
+
+**Workaround**: Refactor to composition pattern - create a separate object that implements the trait and delegates to the main object. See archived solutions below.
+
+---
+
+## Testing Commands
+
+```bash
+# Compile Ranger compiler
+npm run compile
+
+# Build Rust code for evg_component_tool
+npm run evgcomp:build:rust
+
+# Count errors by type
+npm run evgcomp:build:rust 2>&1 | Select-String "^error\[E" | Group-Object | Select-Object Name, Count
+
+# Build C++ (working reference)
+npm run evgcomp:build:cpp
+```
+
+---
+
+## Related Files
+
+- `compiler/ng_StaticAnalysis.rgr` - Static analysis implementation
+- `compiler/ng_RangerRustClassWriter.rgr` - Rust code generation
+- `compiler/ng_RangerAppWriterContext.rgr` - Context flags (`isInLhs`, etc.)
+- `PLAN_STATIC_ANALYSIS.md` - Detailed static analysis plan
+
+---
+
+# Archived: Historical Solutions for `this` to Trait Parameter
+
+The following solutions were considered for the "passing `this` to trait-type parameter" problem. They are preserved here for reference but the issue is now handled with a panic message and the recommendation to refactor to composition.
+
+<details>
+<summary>Click to expand archived solutions</summary>
 
 ### 1. Refactor to Composition (Recommended)
 
-**Concept**: Instead of having `EVGPDFRenderer` extend `EVGImageMeasurer` (IS-A relationship), create a separate image measurer class that delegates to the renderer (HAS-A relationship). This avoids passing `this` entirely.
-
-**Current Design (Inheritance - problematic)**:
-
-```ranger
-class EVGPDFRenderer {
-    Extends(EVGImageMeasurer)  ; IS-A image measurer
-
-    Constructor () {
-        layout.setImageMeasurer(this)  ; Pass self - PROBLEM!
-    }
-
-    fn getImageDimensions:EVGImageDimensions (src:string) {
-        ; Implementation here
-    }
-}
-```
-
-**Refactored Design (Composition - works)**:
+**Concept**: Instead of having `EVGPDFRenderer` extend `EVGImageMeasurer` (IS-A relationship), create a separate image measurer class that delegates to the renderer (HAS-A relationship).
 
 ```ranger
 class PDFImageMeasurer {
-    Extends(EVGImageMeasurer)  ; This is the trait implementor
+    Extends(EVGImageMeasurer)
     def renderer:EVGPDFRenderer
 
     fn getImageDimensions:EVGImageDimensions (src:string) {
-        return renderer.loadImageDimensions(src)  ; Delegate to renderer
+        return renderer.loadImageDimensions(src)
     }
 }
 
 class EVGPDFRenderer {
-    ; Does NOT extend EVGImageMeasurer anymore!
     def imageMeasurer:PDFImageMeasurer
 
     Constructor () {
         imageMeasurer = (new PDFImageMeasurer())
         imageMeasurer.renderer = this
-        layout.setImageMeasurer(imageMeasurer)  ; Pass separate object - WORKS!
-    }
-
-    fn loadImageDimensions:EVGImageDimensions (src:string) {
-        ; Actual implementation (moved from getImageDimensions)
+        layout.setImageMeasurer(imageMeasurer)
     }
 }
 ```
-
-**Why this works in Rust**:
-
-1. `PDFImageMeasurer` is a simple struct that CAN be wrapped in `Rc<RefCell<...>>`
-2. We pass `imageMeasurer` (a separate object), not `this`
-3. `EVGPDFRenderer` is no longer trait-related, so no `RefCell` complexity for its fields
-4. The back-reference `renderer:EVGPDFRenderer` is just a regular owned object or reference
-
-**Pros**:
-
-- Composition over inheritance - cleaner design pattern
-- Rust-friendly - avoids self-referential Rc issues
-- Works for all targets - no Rust-specific workarounds needed
-- Separation of concerns - measurement logic is isolated
-- Idiomatic Rust approach
-
-**Cons**:
-
-- Requires source code refactoring
-- Slight indirection for method calls
-
----
 
 ### 2. Two-Phase Initialization
 
-**Concept**: Don't set the self-reference in the constructor. Instead, require the caller to:
-
-1. Create the object
-2. Wrap it in `Rc<RefCell<...>>`
-3. Call an init method passing the Rc
-
-**Ranger pattern**:
-
-```ranger
-class EVGPDFRenderer {
-    Constructor () {
-        ; Don't call setImageMeasurer here
-    }
-
-    fn initWithSelf:void (selfRc:EVGPDFRenderer) {
-        layout.setImageMeasurer(selfRc)
-    }
-}
-
-; Usage:
-def renderer (new EVGPDFRenderer())
-def rc:Rc (Rc.wrap(renderer))  ; New Ranger construct
-rc.initWithSelf(rc)
-```
-
-**Rust output**:
-
-```rust
-impl EVGPDFRenderer {
-    pub fn new() -> EVGPDFRenderer { /* no self-reference */ }
-
-    pub fn init_with_self(self_rc: Rc<RefCell<EVGPDFRenderer>>) {
-        self_rc.borrow_mut().layout.as_ref().unwrap().borrow_mut()
-            .setImageMeasurer(self_rc.clone());
-    }
-}
-
-// Usage:
-let renderer = Rc::new(RefCell::new(EVGPDFRenderer::new()));
-EVGPDFRenderer::init_with_self(renderer.clone());
-```
-
-**Pros**: Clean Rust semantics, no unsafe code
-**Cons**: Requires source code changes, changes API
-
----
+Don't set self-reference in constructor. Require caller to wrap in `Rc<RefCell<>>` first.
 
 ### 3. ID-Based References (Arena Pattern)
 
-**Concept**: Instead of storing actual object references, store IDs. Use a global registry to look up objects.
-
-**Implementation**:
-
-```rust
-// Global registry
-thread_local! {
-    static IMAGE_MEASURERS: RefCell<HashMap<u64, Rc<RefCell<dyn EVGImageMeasurerTrait>>>>
-        = RefCell::new(HashMap::new());
-}
-
-struct EVGLayout {
-    image_measurer_id: Option<u64>,  // Store ID, not reference
-}
-
-impl EVGLayout {
-    fn setImageMeasurer(&mut self, id: u64) {
-        self.image_measurer_id = Some(id);
-    }
-
-    fn get_image_measurer(&self) -> Option<Rc<RefCell<dyn EVGImageMeasurerTrait>>> {
-        self.image_measurer_id.and_then(|id| {
-            IMAGE_MEASURERS.with(|m| m.borrow().get(&id).cloned())
-        })
-    }
-}
-```
-
-**Pros**: Avoids self-referential issues entirely
-**Cons**: Runtime overhead, complexity, not idiomatic Rust
-
----
+Store IDs instead of references, use global registry for lookup.
 
 ### 4. Weak References
 
-**Concept**: Store `Weak<RefCell<dyn Trait>>` instead of `Rc<RefCell<dyn Trait>>` for back-references.
+Store `Weak<RefCell<dyn Trait>>` instead of `Rc`.
 
-**Implementation**:
+### 5. Compiler-Generated Rc Wrapper
 
-```rust
-struct EVGLayout {
-    image_measurer: Option<Weak<RefCell<dyn EVGImageMeasurerTrait>>>,
-}
+Annotate classes with `@RcWrapped` to have `new()` return `Rc<RefCell<Self>>`.
 
-impl EVGPDFRenderer {
-    pub fn init(self_rc: &Rc<RefCell<Self>>) {
-        self_rc.borrow_mut().layout.as_ref().unwrap().borrow_mut()
-            .setImageMeasurer(Rc::downgrade(self_rc));
-    }
-}
-```
-
-**Pros**: Prevents reference cycles, idiomatic Rust
-**Cons**: Requires upgrading Weak to Rc on each access, can fail if object dropped
-
----
-
-### 5. Detect and Skip for Rust
-
-**Concept**: Detect `this` being passed to trait-type parameters and generate a no-op or warning for Rust only.
-
-**Implementation in compiler**:
-
-```ranger
-if is_passing_this_to_trait {
-    ; For Rust: skip this line, add comment
-    wr.out("// NOTE: setImageMeasurer(this) skipped - not supported in Rust" true)
-}
-```
-
-**Pros**: Simple, doesn't break other targets
-**Cons**: Feature doesn't work in Rust, may cause runtime issues
-
----
-
-### 6. Custom Clone Implementation
-
-**Concept**: Generate a manual `Clone` implementation that clones `Rc` fields (shared ownership) rather than trying to clone the inner `dyn Trait`.
-
-**Implementation**:
-
-```rust
-impl Clone for EVGPDFRenderer {
-    fn clone(&self) -> Self {
-        EVGPDFRenderer {
-            // Clone Rc (shared ownership, not deep clone)
-            measurer: self.measurer.clone(),  // Rc::clone
-            layout: self.layout.clone(),
-            // ... other fields
-        }
-    }
-}
-```
-
-**Problem**: This creates a NEW object that shares the same trait object references. It's still not "this" - it's a shallow copy. When `setImageMeasurer` stores it, it stores a different object.
-
-**Verdict**: Doesn't actually solve the problem.
-
----
-
-### 7. Raw Pointer with Unsafe
-
-**Concept**: Use raw pointers for self-references.
-
-**Implementation**:
-
-```rust
-impl EVGPDFRenderer {
-    pub fn init(&mut self) {
-        let self_ptr = self as *mut Self;
-        // Store raw pointer... but this is very unsafe
-    }
-}
-```
-
-**Pros**: Works
-**Cons**: Unsafe, lifetime issues, undefined behavior risks
-
----
-
-### 8. Callback/Closure Pattern
-
-**Concept**: Instead of storing the measurer, pass it to methods that need it.
-
-**Ranger pattern**:
-
-```ranger
-class EVGLayout {
-    ; No stored image_measurer field
-
-    fn layoutWithMeasurer:void (measurer:EVGImageMeasurer) {
-        ; Use measurer for this operation only
-    }
-}
-```
-
-**Pros**: Avoids storing references entirely
-**Cons**: Significant API change, may not fit all use cases
-
----
-
-### 9. Compiler-Generated Rc Wrapper
-
-**Concept**: For classes that need to pass `this` to trait parameters, always wrap them in `Rc<RefCell<>>` at construction time.
-
-**Ranger annotation**:
-
-```ranger
-@RcWrapped
-class EVGPDFRenderer {
-    ; All instances are Rc<RefCell<EVGPDFRenderer>>
-}
-```
-
-**Rust output**:
-
-```rust
-// EVGPDFRenderer::new() returns Rc<RefCell<EVGPDFRenderer>>
-pub fn new() -> Rc<RefCell<EVGPDFRenderer>> {
-    let me = EVGPDFRenderer { /* fields */ };
-    let rc = Rc::new(RefCell::new(me));
-    // Now we can pass rc.clone() to setImageMeasurer
-    rc.borrow_mut().layout...setImageMeasurer(rc.clone());
-    rc
-}
-```
-
-**Pros**: Transparent to source code, works correctly
-**Cons**: All instances are heap-allocated, slightly different semantics
-
----
-
-## Recommended Approach
-
-**Best solution**: Use solution #1 (refactor to composition). This is the cleanest approach that:
-
-- Works across all language targets without special handling
-- Follows idiomatic Rust patterns (composition over inheritance)
-- Separates concerns cleanly
-- Requires no compiler changes
-
-**If source refactoring is not desired**:
-
-**Short term**: Use solution #5 (skip for Rust) to get compilation working, with a clear runtime message explaining the limitation.
-
-**Medium term**: Implement solution #9 (compiler-generated Rc wrapper) for classes that:
-
-1. Are trait-related (extend a trait parent or are extended)
-2. Have methods that pass `this` to trait-type parameters
-
-**Long term**: Consider solution #2 (two-phase initialization) as a language pattern, possibly with syntactic sugar to make it ergonomic across all targets.
-
----
-
-## Detection Algorithm
-
-To implement solution #9, we need to detect classes that pass `this` to trait parameters:
-
-```
-for each class C:
-    for each method M in C:
-        for each statement S in M:
-            if S is a method call:
-                for each argument A in S:
-                    if A == "this" and parameter type is trait-related:
-                        mark C as needs-rc-wrapper
-```
-
-Classes marked as `needs-rc-wrapper` would:
-
-1. Have `new()` return `Rc<RefCell<Self>>` instead of `Self`
-2. Have `this` references in trait-parameter positions use `self_rc.clone()`
-3. Store the Rc internally or receive it as a parameter
-
----
-
-## Affected Patterns in evg_component_tool
-
-Currently only one pattern triggers this issue:
-
-```ranger
-; In EVGPDFRenderer constructor:
-layout.setImageMeasurer(this)
-```
-
-The `EVGLayout.setImageMeasurer` method stores an `EVGImageMeasurer` reference for later use in layout calculations. This is a common pattern for dependency injection / strategy pattern.
-
----
-
-## Related Issues
-
-### Issue: Array Mutation in Trait Methods
-
-**Status**: Resolved by using `&mut self` for all trait methods.
-
-Previously, trait methods used `&self` which prevented mutation. Now all trait interface methods use `&mut self`, allowing normal mutation patterns.
-
-### Issue: Optional Field Access in Trait Classes
-
-**Status**: Resolved by wrapping in `RefCell`.
-
-Optional object fields in trait-related classes are wrapped in `Option<RefCell<T>>` and accessed via `.as_ref().unwrap().borrow_mut()`.
-
----
-
-## Testing
-
-To verify Rust compilation:
-
-```bash
-npm run evgcomp:build:rust
-```
-
-Current state: Compiles successfully with 0 errors, but runtime panic on `setImageMeasurer(this)` call.
-
-To test C++ (which works fully):
-
-```bash
-npm run evgcomp:build:cpp
-cd gallery/pdf_writer
-./bin/evg_component_tool_cpp.exe examples/test_multipage.tsx output.pdf --assets=./assets/fonts
-```
+</details>
