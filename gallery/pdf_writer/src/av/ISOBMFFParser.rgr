@@ -1,0 +1,601 @@
+; ISOBMFFParser.rgr - ISO Base Media File Format Parser
+; Parses HEIC/HEIF container format (also used by MP4, MOV)
+;
+; HEIC Structure:
+;   ftyp - File Type Box (identifies as HEIC)
+;   meta - Metadata Container
+;     hdlr - Handler Reference Box
+;     pitm - Primary Item Box
+;     iloc - Item Location Box (where image data is)
+;     iinf - Item Information Box
+;     iprp - Item Properties Box
+;       ipco - Item Property Container
+;         ispe - Image Spatial Extents (width/height)
+;         hvcC - HEVC Configuration
+;       ipma - Item Property Association
+;   mdat - Media Data Box (actual HEVC bitstream)
+
+Import "../../core/Buffer.rgr"
+
+class ISOBox {
+    def size:int 0           ; Box size in bytes
+    def boxType:string ""    ; 4-character box type
+    def dataOffset:int 0     ; Offset to box data (after header)
+    def dataSize:int 0       ; Size of data (size - header)
+    def children:[ISOBox]    ; Child boxes for container boxes
+    
+    Constructor () {
+    }
+    
+    fn isContainer:boolean () {
+        ; These box types contain other boxes
+        if (boxType == "meta") { return true }
+        if (boxType == "iprp") { return true }
+        if (boxType == "ipco") { return true }
+        if (boxType == "iinf") { return true }
+        return false
+    }
+    
+    fn print:void (indent:string) {
+        print (indent + boxType + " (size=" + (to_string size) + ", dataOffset=" + (to_string dataOffset) + ")")
+        def i 0
+        while (i < (array_length children)) {
+            def child:ISOBox (itemAt children i)
+            child.print(indent + "  ")
+            i = i + 1
+        }
+    }
+}
+
+class ItemLocation {
+    def itemId:int 0
+    def constructionMethod:int 0
+    def dataReferenceIndex:int 0
+    def baseOffset:int 0
+    def extents:[ItemExtent]
+    
+    Constructor () {
+    }
+}
+
+class ItemExtent {
+    def extentIndex:int 0
+    def extentOffset:int 0
+    def extentLength:int 0
+    
+    Constructor () {
+    }
+}
+
+class ItemInfo {
+    def itemId:int 0
+    def itemProtectionIndex:int 0
+    def itemType:string ""
+    def itemName:string ""
+    
+    Constructor () {
+    }
+}
+
+class HEVCConfig {
+    def configurationVersion:int 0
+    def generalProfileSpace:int 0
+    def generalTierFlag:int 0
+    def generalProfileIdc:int 0
+    def generalProfileCompatibilityFlags:int 0
+    def generalConstraintIndicatorFlags:int 0
+    def generalLevelIdc:int 0
+    def minSpatialSegmentationIdc:int 0
+    def parallelismType:int 0
+    def chromaFormat:int 0
+    def bitDepthLuma:int 0
+    def bitDepthChroma:int 0
+    def avgFrameRate:int 0
+    def constantFrameRate:int 0
+    def numTemporalLayers:int 0
+    def temporalIdNested:int 0
+    def lengthSizeMinusOne:int 0
+    
+    ; NAL units (VPS, SPS, PPS)
+    def vps:buffer (buffer_alloc 0)
+    def sps:buffer (buffer_alloc 0)
+    def pps:buffer (buffer_alloc 0)
+    
+    Constructor () {
+    }
+}
+
+class ISOBMFFParser {
+    def data:buffer (buffer_alloc 0)
+    def dataLen:int 0
+    
+    ; Parsed structure
+    def rootBoxes:[ISOBox]
+    
+    ; HEIC specific data
+    def brand:string ""
+    def minorVersion:int 0
+    def compatibleBrands:[string]
+    
+    ; Primary item
+    def primaryItemId:int 0
+    
+    ; Item locations
+    def itemLocations:[ItemLocation]
+    
+    ; Item info
+    def itemInfos:[ItemInfo]
+    
+    ; Image properties
+    def imageWidth:int 0
+    def imageHeight:int 0
+    
+    ; HEVC configuration
+    def hevcConfig:HEVCConfig
+    
+    Constructor () {
+        hevcConfig = (new HEVCConfig())
+    }
+    
+    fn loadFromBuffer:boolean (buf:buffer) {
+        data = buf
+        dataLen = (buffer_len data)
+        return (this.parse())
+    }
+    
+    fn loadFromFile:boolean (filename:string) {
+        data = (read_file filename)
+        if (null? data) {
+            print ("ISOBMFFParser: Failed to read file: " + filename)
+            return false
+        }
+        dataLen = (buffer_len data)
+        print ("ISOBMFFParser: Loaded " + (to_string dataLen) + " bytes from " + filename)
+        return (this.parse())
+    }
+    
+    fn readUint8:int (pos:int) {
+        return (buffer_get data pos)
+    }
+    
+    fn readUint16BE:int (pos:int) {
+        def high:int (buffer_get data pos)
+        def low:int (buffer_get data (pos + 1))
+        return ((high * 256) + low)
+    }
+    
+    fn readUint32BE:int (pos:int) {
+        def b0:int (buffer_get data pos)
+        def b1:int (buffer_get data (pos + 1))
+        def b2:int (buffer_get data (pos + 2))
+        def b3:int (buffer_get data (pos + 3))
+        return ((b0 * 16777216) + (b1 * 65536) + (b2 * 256) + b3)
+    }
+    
+    fn readUint64BE:int (pos:int) {
+        ; For simplicity, read only lower 32 bits (files > 4GB rare)
+        def high:int (this.readUint32BE(pos))
+        def low:int (this.readUint32BE(pos + 4))
+        ; If high is non-zero, we'd need proper 64-bit support
+        return low
+    }
+    
+    fn readString:string (pos:int len:int) {
+        def result:string ""
+        def i 0
+        while (i < len) {
+            def ch:int (buffer_get data (pos + i))
+            if (ch > 0) {
+                result = result + (strfromcode ch)
+            }
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn parse:boolean () {
+        print "ISOBMFFParser: Parsing HEIC file..."
+        clear rootBoxes
+        
+        def pos 0
+        while (pos < dataLen) {
+            def box:ISOBox (this.parseBox(pos))
+            if (null? box) {
+                break
+            }
+            push rootBoxes box
+            pos = pos + box.size
+            
+            ; Process special boxes
+            this.processBox(box)
+        }
+        
+        print ("ISOBMFFParser: Found " + (to_string (array_length rootBoxes)) + " root boxes")
+        return true
+    }
+    
+    fn parseBox:ISOBox (pos:int) {
+        if ((pos + 8) > dataLen) {
+            return null
+        }
+        
+        def box:ISOBox (new ISOBox())
+        box.size = (this.readUint32BE(pos))
+        box.boxType = (this.readString((pos + 4) 4))
+        
+        def headerSize 8
+        
+        ; Handle extended size (size == 1 means 64-bit size follows)
+        if (box.size == 1) {
+            box.size = (this.readUint64BE(pos + 8))
+            headerSize = 16
+        }
+        
+        ; Handle box extending to end of file (size == 0)
+        if (box.size == 0) {
+            box.size = dataLen - pos
+        }
+        
+        box.dataOffset = pos + headerSize
+        box.dataSize = box.size - headerSize
+        
+        ; Parse children for container boxes
+        if (box.isContainer()) {
+            ; meta box has a 4-byte version/flags field before children
+            def childStart box.dataOffset
+            if (box.boxType == "meta") {
+                childStart = childStart + 4
+            }
+            if (box.boxType == "iinf") {
+                childStart = childStart + 4  ; version/flags
+                ; Skip entry_count (2 bytes for version 0)
+                childStart = childStart + 2
+            }
+            
+            def childEnd (pos + box.size)
+            while (childStart < childEnd) {
+                def child:ISOBox (this.parseBox(childStart))
+                if (null? child) {
+                    break
+                }
+                push box.children child
+                childStart = childStart + child.size
+                
+                ; Process child boxes
+                this.processBox(child)
+            }
+        }
+        
+        return box
+    }
+    
+    fn processBox:void (box:ISOBox) {
+        if (box.boxType == "ftyp") {
+            this.parseFtyp(box)
+        }
+        if (box.boxType == "pitm") {
+            this.parsePitm(box)
+        }
+        if (box.boxType == "iloc") {
+            this.parseIloc(box)
+        }
+        if (box.boxType == "infe") {
+            this.parseInfe(box)
+        }
+        if (box.boxType == "ispe") {
+            this.parseIspe(box)
+        }
+        if (box.boxType == "hvcC") {
+            this.parseHvcC(box)
+        }
+    }
+    
+    fn parseFtyp:void (box:ISOBox) {
+        def pos box.dataOffset
+        brand = (this.readString(pos 4))
+        minorVersion = (this.readUint32BE(pos + 4))
+        
+        print ("  Brand: " + brand + ", version: " + (to_string minorVersion))
+        
+        ; Read compatible brands
+        clear compatibleBrands
+        def i 8
+        while (i < box.dataSize) {
+            def cb:string (this.readString((pos + i) 4))
+            push compatibleBrands cb
+            i = i + 4
+        }
+        
+        print ("  Compatible brands: " + (join compatibleBrands ", "))
+    }
+    
+    fn parsePitm:void (box:ISOBox) {
+        def pos box.dataOffset
+        def version:int (this.readUint8(pos))
+        
+        if (version == 0) {
+            primaryItemId = (this.readUint16BE(pos + 4))
+        }
+        ; version 1 uses 32-bit item_id
+        
+        print ("  Primary item ID: " + (to_string primaryItemId))
+    }
+    
+    fn parseIloc:void (box:ISOBox) {
+        def pos box.dataOffset
+        def version:int (this.readUint8(pos))
+        
+        def offsetSizeAndLengthSize:int (this.readUint8(pos + 4))
+        def offsetSize:int (offsetSizeAndLengthSize / 16)
+        def lengthSize:int (offsetSizeAndLengthSize % 16)
+        
+        def baseOffsetSizeAndIndexSize:int (this.readUint8(pos + 5))
+        def baseOffsetSize:int (baseOffsetSizeAndIndexSize / 16)
+        def indexSize:int 0
+        if (version >= 1) {
+            indexSize = baseOffsetSizeAndIndexSize % 16
+        }
+        
+        def itemCount:int 0
+        def currentPos (pos + 6)
+        
+        if (version < 2) {
+            itemCount = (this.readUint16BE(currentPos))
+            currentPos = currentPos + 2
+        }
+        ; version 2 uses 32-bit item_count
+        
+        print ("  Item locations: " + (to_string itemCount) + " items")
+        print ("    offsetSize=" + (to_string offsetSize) + ", lengthSize=" + (to_string lengthSize) + ", baseOffsetSize=" + (to_string baseOffsetSize))
+        
+        clear itemLocations
+        def i 0
+        while (i < itemCount) {
+            def loc:ItemLocation (new ItemLocation())
+            
+            if (version < 2) {
+                loc.itemId = (this.readUint16BE(currentPos))
+                currentPos = currentPos + 2
+            }
+            
+            if (version >= 1) {
+                def cm:int (this.readUint16BE(currentPos))
+                loc.constructionMethod = cm % 16
+                currentPos = currentPos + 2
+            }
+            
+            loc.dataReferenceIndex = (this.readUint16BE(currentPos))
+            currentPos = currentPos + 2
+            
+            ; Read base_offset based on baseOffsetSize
+            if (baseOffsetSize == 4) {
+                loc.baseOffset = (this.readUint32BE(currentPos))
+                currentPos = currentPos + 4
+            }
+            if (baseOffsetSize == 8) {
+                loc.baseOffset = (this.readUint64BE(currentPos))
+                currentPos = currentPos + 8
+            }
+            
+            def extentCount:int (this.readUint16BE(currentPos))
+            currentPos = currentPos + 2
+            
+            def j 0
+            while (j < extentCount) {
+                def ext:ItemExtent (new ItemExtent())
+                
+                if ((version >= 1) && (indexSize > 0)) {
+                    ; Read extent_index
+                    if (indexSize == 4) {
+                        ext.extentIndex = (this.readUint32BE(currentPos))
+                        currentPos = currentPos + 4
+                    }
+                    if (indexSize == 8) {
+                        ext.extentIndex = (this.readUint64BE(currentPos))
+                        currentPos = currentPos + 8
+                    }
+                }
+                
+                ; Read extent_offset
+                if (offsetSize == 4) {
+                    ext.extentOffset = (this.readUint32BE(currentPos))
+                    currentPos = currentPos + 4
+                }
+                if (offsetSize == 8) {
+                    ext.extentOffset = (this.readUint64BE(currentPos))
+                    currentPos = currentPos + 8
+                }
+                
+                ; Read extent_length
+                if (lengthSize == 4) {
+                    ext.extentLength = (this.readUint32BE(currentPos))
+                    currentPos = currentPos + 4
+                }
+                if (lengthSize == 8) {
+                    ext.extentLength = (this.readUint64BE(currentPos))
+                    currentPos = currentPos + 8
+                }
+                
+                push loc.extents ext
+                j = j + 1
+            }
+            
+            print ("    Item " + (to_string loc.itemId) + ": baseOffset=" + (to_string loc.baseOffset))
+            
+            push itemLocations loc
+            i = i + 1
+        }
+    }
+    
+    fn parseInfe:void (box:ISOBox) {
+        def pos box.dataOffset
+        def version:int (this.readUint8(pos))
+        
+        def info:ItemInfo (new ItemInfo())
+        
+        if (version >= 2) {
+            def itemIdPos (pos + 4)
+            if (version == 2) {
+                info.itemId = (this.readUint16BE(itemIdPos))
+                itemIdPos = itemIdPos + 2
+            }
+            if (version == 3) {
+                info.itemId = (this.readUint32BE(itemIdPos))
+                itemIdPos = itemIdPos + 4
+            }
+            
+            info.itemProtectionIndex = (this.readUint16BE(itemIdPos))
+            info.itemType = (this.readString((itemIdPos + 2) 4))
+            
+            print ("    Item info: id=" + (to_string info.itemId) + ", type=" + info.itemType)
+        }
+        
+        push itemInfos info
+    }
+    
+    fn parseIspe:void (box:ISOBox) {
+        def pos box.dataOffset
+        ; Skip version/flags (4 bytes)
+        imageWidth = (this.readUint32BE(pos + 4))
+        imageHeight = (this.readUint32BE(pos + 8))
+        
+        print ("  Image size: " + (to_string imageWidth) + "x" + (to_string imageHeight))
+    }
+    
+    fn parseHvcC:void (box:ISOBox) {
+        def pos box.dataOffset
+        
+        hevcConfig.configurationVersion = (this.readUint8(pos))
+        
+        def byte1:int (this.readUint8(pos + 1))
+        hevcConfig.generalProfileSpace = byte1 / 64
+        hevcConfig.generalTierFlag = (byte1 / 32) % 2
+        hevcConfig.generalProfileIdc = byte1 % 32
+        
+        hevcConfig.generalProfileCompatibilityFlags = (this.readUint32BE(pos + 2))
+        ; generalConstraintIndicatorFlags is 48 bits - skip for now
+        hevcConfig.generalLevelIdc = (this.readUint8(pos + 12))
+        
+        def byte13:int (this.readUint8(pos + 13))
+        def byte14:int (this.readUint8(pos + 14))
+        hevcConfig.minSpatialSegmentationIdc = ((byte13 % 16) * 256) + byte14
+        
+        def byte15:int (this.readUint8(pos + 15))
+        hevcConfig.parallelismType = byte15 % 4
+        
+        def byte16:int (this.readUint8(pos + 16))
+        hevcConfig.chromaFormat = byte16 % 4
+        
+        def byte17:int (this.readUint8(pos + 17))
+        hevcConfig.bitDepthLuma = (byte17 % 8) + 8
+        
+        def byte18:int (this.readUint8(pos + 18))
+        hevcConfig.bitDepthChroma = (byte18 % 8) + 8
+        
+        hevcConfig.avgFrameRate = (this.readUint16BE(pos + 19))
+        
+        def byte21:int (this.readUint8(pos + 21))
+        hevcConfig.constantFrameRate = byte21 / 64
+        hevcConfig.numTemporalLayers = (byte21 / 8) % 8
+        hevcConfig.temporalIdNested = (byte21 / 4) % 2
+        hevcConfig.lengthSizeMinusOne = byte21 % 4
+        
+        print ("  HEVC Config:")
+        print ("    Profile: " + (to_string hevcConfig.generalProfileIdc) + ", Level: " + (to_string hevcConfig.generalLevelIdc))
+        print ("    Chroma format: " + (to_string hevcConfig.chromaFormat))
+        print ("    Bit depth: " + (to_string hevcConfig.bitDepthLuma) + "/" + (to_string hevcConfig.bitDepthChroma))
+        print ("    NAL length size: " + (to_string (hevcConfig.lengthSizeMinusOne + 1)))
+        
+        ; Parse NAL unit arrays
+        def numArrays:int (this.readUint8(pos + 22))
+        def arrayPos (pos + 23)
+        
+        def k 0
+        while (k < numArrays) {
+            def arrayByte:int (this.readUint8(arrayPos))
+            def nalUnitType:int (arrayByte % 64)
+            arrayPos = arrayPos + 1
+            
+            def numNalus:int (this.readUint16BE(arrayPos))
+            arrayPos = arrayPos + 2
+            
+            def n 0
+            while (n < numNalus) {
+                def nalLen:int (this.readUint16BE(arrayPos))
+                arrayPos = arrayPos + 2
+                
+                ; Copy NAL unit data
+                if (nalUnitType == 32) {
+                    ; VPS
+                    hevcConfig.vps = (buffer_alloc nalLen)
+                    buffer_copy data hevcConfig.vps arrayPos 0 nalLen
+                    print ("    VPS: " + (to_string nalLen) + " bytes")
+                }
+                if (nalUnitType == 33) {
+                    ; SPS
+                    hevcConfig.sps = (buffer_alloc nalLen)
+                    buffer_copy data hevcConfig.sps arrayPos 0 nalLen
+                    print ("    SPS: " + (to_string nalLen) + " bytes")
+                }
+                if (nalUnitType == 34) {
+                    ; PPS
+                    hevcConfig.pps = (buffer_alloc nalLen)
+                    buffer_copy data hevcConfig.pps arrayPos 0 nalLen
+                    print ("    PPS: " + (to_string nalLen) + " bytes")
+                }
+                
+                arrayPos = arrayPos + nalLen
+                n = n + 1
+            }
+            
+            k = k + 1
+        }
+    }
+    
+    fn getImageData:buffer () {
+        ; Find the primary item's location and return its data
+        def i 0
+        while (i < (array_length itemLocations)) {
+            def loc:ItemLocation (itemAt itemLocations i)
+            if (loc.itemId == primaryItemId) {
+                ; Get total size of all extents
+                def totalSize 0
+                def j 0
+                while (j < (array_length loc.extents)) {
+                    def ext:ItemExtent (itemAt loc.extents j)
+                    totalSize = totalSize + ext.extentLength
+                    j = j + 1
+                }
+                
+                ; Allocate buffer and copy data
+                def result:buffer (buffer_alloc totalSize)
+                def destPos 0
+                j = 0
+                while (j < (array_length loc.extents)) {
+                    def ext:ItemExtent (itemAt loc.extents j)
+                    def srcPos (loc.baseOffset + ext.extentOffset)
+                    buffer_copy data result srcPos destPos ext.extentLength
+                    destPos = destPos + ext.extentLength
+                    j = j + 1
+                }
+                
+                print ("ISOBMFFParser: Extracted " + (to_string totalSize) + " bytes of image data")
+                return result
+            }
+            i = i + 1
+        }
+        
+        print "ISOBMFFParser: Primary item not found"
+        return (buffer_alloc 0)
+    }
+    
+    fn printStructure:void () {
+        print "=== ISOBMFF Structure ==="
+        def i 0
+        while (i < (array_length rootBoxes)) {
+            def box:ISOBox (itemAt rootBoxes i)
+            box.print("")
+            i = i + 1
+        }
+    }
+}
