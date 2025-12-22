@@ -1,0 +1,971 @@
+; EVGHTMLRenderer.rgr - Render EVG elements to HTML/CSS
+; 
+; Takes EVG element tree with calculated positions and renders to HTML.
+; Used for:
+; - Unit testing (verify layout output)
+; - Fast preview (instant browser preview)
+; - Development iteration (no PDF generation overhead)
+
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGTextMeasurer.rgr"
+Import "../../../evg/EVGUnit.rgr"
+Import "../../../evg/EVGColor.rgr"
+
+class EVGHTMLRenderer {
+    def layout:EVGLayout
+    def measurer:EVGTextMeasurer
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def debug:boolean false
+    def indentLevel:int 0
+    def indentString:string "  "
+    def usedFontFamilies:[string]
+    def fontBasePath:string "./fonts/"
+    def imageBasePath:string "./"
+    def outputMode:string "inline"  ; "inline" | "stylesheet" | "both"
+    def prettyPrint:boolean true
+    def elementCounter:int 0
+    def title:string "EVG Preview"
+    def baseDir:string "./"
+    def embedAssets:boolean false
+    
+    Constructor () {
+        def lay (new EVGLayout())
+        layout = lay
+        def m (new SimpleTextMeasurer())
+        measurer = m
+        def uf:[string]
+        usedFontFamilies = uf
+    }
+    
+    fn setPageSize:void (width:double height:double) {
+        pageWidth = width
+        pageHeight = height
+        layout.setPageSize(width height)
+    }
+    
+    fn setMeasurer:void (m:EVGTextMeasurer) {
+        measurer = m
+        layout.setMeasurer(m)
+    }
+    
+    fn setDebug:void (enabled:boolean) {
+        layout.debug = enabled
+        this.debug = enabled
+    }
+    
+    fn setFontBasePath:void (path:string) {
+        fontBasePath = path
+    }
+    
+    fn setImageBasePath:void (path:string) {
+        imageBasePath = path
+    }
+    
+    fn setTitle:void (t:string) {
+        title = t
+    }
+    
+    fn setBaseDir:void (dir:string) {
+        baseDir = dir
+        imageBasePath = dir
+    }
+    
+    fn setEmbedAssets:void (embed:boolean) {
+        embedAssets = embed
+    }
+    
+    ; Resolve an image path, removing leading "./" if present
+    fn resolveImagePath:string (src:string) {
+        def imgSrc:string src
+        if ((strlen src) > 2) {
+            def prefix:string (substring src 0 2)
+            if (prefix == "./") {
+                imgSrc = (substring src 2 (strlen src))
+            }
+        }
+        return imgSrc
+    }
+
+    ; =========================================================================
+    ; Main render entry point
+    ; =========================================================================
+    
+    fn render:string (root:EVGElement) {
+        ; Reset state
+        elementCounter = 0
+        def uf:[string]
+        usedFontFamilies = uf
+        
+        ; Run layout to calculate positions
+        layout.layout(root)
+        
+        ; Collect used fonts
+        this.collectFonts(root)
+        
+        ; Generate HTML document
+        def html:string ""
+        html = html + "<!DOCTYPE html>\n"
+        html = html + "<html>\n"
+        html = html + "<head>\n"
+        html = html + "  <meta charset=\"UTF-8\">\n"
+        html = html + "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+        html = html + "  <title>" + title + "</title>\n"
+        html = html + (this.generateStyleBlock())
+        html = html + "</head>\n"
+        html = html + "<body>\n"
+        
+        ; Add page container with visual boundaries
+        html = html + "  <div class=\"evg-page-container\">\n"
+        html = html + (this.renderElement(root 2))
+        html = html + "  </div>\n"
+        
+        html = html + "</body>\n"
+        html = html + "</html>\n"
+        
+        return html
+    }
+    
+    ; Render a single page (for multi-page documents)
+    fn renderPage:string (root:EVGElement pageNum:int) {
+        ; Reset state
+        elementCounter = 0
+        
+        ; Run layout
+        layout.layout(root)
+        
+        ; Render only elements on specified page
+        def html:string ""
+        html = html + (this.renderElementForPage(root pageNum 1))
+        
+        return html
+    }
+    
+    ; =========================================================================
+    ; Style generation
+    ; =========================================================================
+    
+    fn generateStyleBlock:string () {
+        def css:string "  <style>\n"
+        
+        ; Reset styles
+        css = css + "    * { margin: 0; padding: 0; box-sizing: border-box; }\n"
+        css = css + "    body { \n"
+        css = css + "      background: #b0b0b0; \n"
+        css = css + "      padding: 40px; \n"
+        css = css + "      min-height: 100vh;\n"
+        css = css + "      display: flex;\n"
+        css = css + "      justify-content: center;\n"
+        css = css + "    }\n"
+        
+        ; Font-face declarations (with embedded base64 if enabled)
+        def i:int 0
+        while (i < (array_length usedFontFamilies)) {
+            def fontFamily:string (itemAt usedFontFamilies i)
+            css = css + (this.generateFontFace(fontFamily))
+            i = i + 1
+        }
+        
+        ; Page container - visualizes actual page boundaries
+        css = css + "    .evg-page-container {\n"
+        css = css + "      width: " + (to_string (to_int pageWidth)) + "px;\n"
+        css = css + "      height: " + (to_string (to_int pageHeight)) + "px;\n"
+        css = css + "      background: white;\n"
+        css = css + "      box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.1);\n"
+        css = css + "      position: relative;\n"
+        css = css + "      overflow: hidden;\n"
+        css = css + "      flex-shrink: 0;\n"
+        css = css + "    }\n"
+        
+        ; Legacy page style (for Section/Page elements)
+        css = css + "    .evg-page {\n"
+        css = css + "      background: white;\n"
+        css = css + "      box-shadow: 0 2px 10px rgba(0,0,0,0.2);\n"
+        css = css + "      margin: 0 auto 20px auto;\n"
+        css = css + "      position: relative;\n"
+        css = css + "      overflow: hidden;\n"
+        css = css + "    }\n"
+        
+        ; Common element styles
+        css = css + "    .evg-view { position: relative; }\n"
+        css = css + "    .evg-label { display: block; }\n"
+        css = css + "    .evg-image { display: block; }\n"
+        
+        css = css + "  </style>\n"
+        
+        return css
+    }
+    
+    fn generateFontFace:string (fontFamily:string) {
+        ; Generate @font-face for a font family
+        ; Convert font family name to filename
+        def fileName:string (this.fontFamilyToFileName(fontFamily))
+        def fontPath:string fontBasePath
+        
+        def css:string ""
+        css = css + "    @font-face {\n"
+        css = css + "      font-family: '" + fontFamily + "';\n"
+        
+        ; Only try to embed fonts that have valid paths (contain /)
+        ; System fonts like Helvetica.ttf won't be embedded
+        def canEmbed:boolean false
+        if embedAssets {
+            if ((indexOf fileName "/") >= 0) {
+                canEmbed = true
+            }
+        }
+        
+        if canEmbed {
+            ; Try to embed font as base64 data URI
+            def resolvedPath:string (this.resolveImagePath(fileName))
+            def buf:buffer (buffer_read_file fontPath resolvedPath)
+            def len:int (buffer_length buf)
+            if (len > 0) {
+                def base64:string (buffer_to_base64 buf)
+                css = css + "      src: url('data:font/ttf;base64," + base64 + "');\n"
+            } {
+                ; Fallback to URL if file not found
+                css = css + "      src: url('" + fontPath + fileName + "');\n"
+            }
+        } {
+            css = css + "      src: url('" + fontPath + fileName + "');\n"
+        }
+        css = css + "    }\n"
+        
+        return css
+    }
+    
+    fn fontFamilyToFileName:string (fontFamily:string) {
+        ; Map font family names to actual font file paths
+        if (fontFamily == "Noto Sans") {
+            return "NotoSans-Regular.ttf"
+        }
+        if (fontFamily == "Noto Sans Bold") {
+            return "NotoSans-Bold.ttf"
+        }
+        if (fontFamily == "Helvetica") {
+            return "Helvetica.ttf"
+        }
+        ; Google Fonts mappings
+        if (fontFamily == "Amatic SC") {
+            return "Amatic_SC/AmaticSC-Regular.ttf"
+        }
+        if (fontFamily == "Amatic SC Bold") {
+            return "Amatic_SC/AmaticSC-Bold.ttf"
+        }
+        if (fontFamily == "Gloria Hallelujah") {
+            return "Gloria_Hallelujah/GloriaHallelujah.ttf"
+        }
+        if (fontFamily == "Josefin Slab") {
+            return "Josefin_Slab/JosefinSlab-Regular.ttf"
+        }
+        if (fontFamily == "Josefin Slab Bold") {
+            return "Josefin_Slab/JosefinSlab-Bold.ttf"
+        }
+        if (fontFamily == "Katibeh") {
+            return "Katibeh/Katibeh-Regular.ttf"
+        }
+        if (fontFamily == "Alike Angular") {
+            return "Alike_Angular/AlikeAngular-Regular.ttf"
+        }
+        ; Default: remove spaces and add .ttf
+        def result:string ""
+        def i:int 0
+        while (i < (strlen fontFamily)) {
+            def ch:string (substring fontFamily i (i + 1))
+            if (ch != " ") {
+                result = result + ch
+            }
+            i = i + 1
+        }
+        return (result + ".ttf")
+    }
+    
+    ; =========================================================================
+    ; Element rendering
+    ; =========================================================================
+    
+    fn renderElement:string (el:EVGElement depth:int) {
+        ; Render with parent position 0,0 (root level)
+        return (this.renderElementWithParent(el depth 0.0 0.0))
+    }
+    
+    fn renderElementWithParent:string (el:EVGElement depth:int parentX:double parentY:double) {
+        elementCounter = elementCounter + 1
+        def elementId:string ("evg-" + (to_string elementCounter))
+        
+        ; Generate element based on type
+        if (el.tagName == "Print") {
+            return (this.renderPrint(el depth))
+        }
+        if (el.tagName == "Section") {
+            return (this.renderSection(el depth))
+        }
+        if (el.tagName == "Page") {
+            return (this.renderPage_Element(el depth))
+        }
+        if ((el.tagName == "View") || (el.tagName == "div")) {
+            return (this.renderViewWithParent(el elementId depth parentX parentY))
+        }
+        if ((el.tagName == "Label") || (el.tagName == "span") || (el.tagName == "text")) {
+            return (this.renderLabelWithParent(el elementId depth parentX parentY))
+        }
+        if ((el.tagName == "Image") || (el.tagName == "img") || (el.tagName == "image")) {
+            return (this.renderImageWithParent(el elementId depth parentX parentY))
+        }
+        if ((el.tagName == "Path") || (el.tagName == "path")) {
+            return (this.renderPathWithParent(el elementId depth parentX parentY))
+        }
+        if ((el.tagName == "Rect") || (el.tagName == "rect")) {
+            return (this.renderViewWithParent(el elementId depth parentX parentY))
+        }
+        
+        ; Unknown element - render as div with children
+        return (this.renderViewWithParent(el elementId depth parentX parentY))
+    }
+    
+    fn renderElementForPage:string (el:EVGElement pageNum:int depth:int) {
+        ; Only render elements on the specified page
+        if (el.calculatedPage != pageNum) {
+            ; Check children - they might be on the target page
+            def childHtml:string ""
+            def i:int 0
+            while (i < (array_length el.children)) {
+                def child:EVGElement (itemAt el.children i)
+                childHtml = childHtml + (this.renderElementForPage(child pageNum depth))
+                i = i + 1
+            }
+            return childHtml
+        }
+        return (this.renderElement(el depth))
+    }
+    
+    ; =========================================================================
+    ; Print/Section/Page rendering (document structure)
+    ; =========================================================================
+    
+    fn renderPrint:string (el:EVGElement depth:int) {
+        ; Print is the root document container
+        def html:string ""
+        html = html + (this.indent(depth)) + "<div class=\"evg-document\">\n"
+        
+        ; Render children (Sections or Pages)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children i)
+            html = html + (this.renderElement(child (depth + 1)))
+            i = i + 1
+        }
+        
+        html = html + (this.indent(depth)) + "</div>\n"
+        return html
+    }
+    
+    fn renderSection:string (el:EVGElement depth:int) {
+        ; Section groups pages with common settings
+        def html:string ""
+        html = html + (this.indent(depth)) + "<div class=\"evg-section\">\n"
+        
+        ; Render children (Pages)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children i)
+            html = html + (this.renderElement(child (depth + 1)))
+            i = i + 1
+        }
+        
+        html = html + (this.indent(depth)) + "</div>\n"
+        return html
+    }
+    
+    fn renderPage_Element:string (el:EVGElement depth:int) {
+        ; Page is a fixed-size container
+        def w:double el.calculatedWidth
+        def h:double el.calculatedHeight
+        if (w <= 0.0) {
+            w = pageWidth
+        }
+        if (h <= 0.0) {
+            h = pageHeight
+        }
+        
+        def html:string ""
+        html = html + (this.indent(depth)) + "<div class=\"evg-page\" style=\""
+        html = html + "width: " + (this.formatPx(w)) + "; "
+        html = html + "height: " + (this.formatPx(h)) + "; "
+        
+        ; Add padding if set
+        def pt:double (this.getResolvedPadding(el "top"))
+        def pr:double (this.getResolvedPadding(el "right"))
+        def pb:double (this.getResolvedPadding(el "bottom"))
+        def pl:double (this.getResolvedPadding(el "left"))
+        if ((pt > 0.0) || (pr > 0.0) || (pb > 0.0) || (pl > 0.0)) {
+            html = html + "padding: " + (this.formatPx(pt)) + " " + (this.formatPx(pr)) + " " + (this.formatPx(pb)) + " " + (this.formatPx(pl)) + "; "
+        }
+        
+        html = html + "\">\n"
+        
+        ; Render children
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children i)
+            html = html + (this.renderElement(child (depth + 1)))
+            i = i + 1
+        }
+        
+        html = html + (this.indent(depth)) + "</div>\n"
+        return html
+    }
+    
+    ; =========================================================================
+    ; View rendering
+    ; =========================================================================
+    
+    fn renderView:string (el:EVGElement elementId:string depth:int) {
+        return (this.renderViewWithParent(el elementId depth 0.0 0.0))
+    }
+    
+    fn renderViewWithParent:string (el:EVGElement elementId:string depth:int parentX:double parentY:double) {
+        def html:string ""
+        html = html + (this.indent(depth)) + "<div"
+        
+        ; Add id if element has one
+        if ((strlen el.id) > 0) {
+            html = html + " id=\"" + el.id + "\""
+        }
+        
+        ; Add class
+        html = html + " class=\"evg-view\""
+        
+        ; Add inline styles - calculate position relative to parent
+        def relX:double (el.calculatedX - parentX)
+        def relY:double (el.calculatedY - parentY)
+        
+        html = html + " style=\""
+        html = html + (this.generateViewStylesRelative(el relX relY))
+        html = html + "\""
+        
+        html = html + ">\n"
+        
+        ; Render children with this element's position as parent
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children i)
+            html = html + (this.renderElementWithParent(child (depth + 1) el.calculatedX el.calculatedY))
+            i = i + 1
+        }
+        
+        html = html + (this.indent(depth)) + "</div>\n"
+        return html
+    }
+    
+    fn generateViewStylesRelative:string (el:EVGElement relX:double relY:double) {
+        def css:string ""
+        
+        ; Always use absolute positioning since EVG calculates exact positions
+        css = css + "position: absolute; "
+        css = css + "left: " + (this.formatPx(relX)) + "; "
+        css = css + "top: " + (this.formatPx(relY)) + "; "
+        
+        ; Dimensions
+        if (el.calculatedWidth > 0.0) {
+            css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
+        }
+        if (el.calculatedHeight > 0.0) {
+            css = css + "height: " + (this.formatPx(el.calculatedHeight)) + "; "
+        }
+        
+        ; Display and flexbox (for reference, though we use absolute positioning)
+        if (el.display == "flex") {
+            css = css + "display: flex; "
+            css = css + "flex-direction: " + el.flexDirection + "; "
+            if ((strlen el.justifyContent) > 0) {
+                css = css + "justify-content: " + el.justifyContent + "; "
+            }
+            if ((strlen el.alignItems) > 0) {
+                css = css + "align-items: " + el.alignItems + "; "
+            }
+            if (el.gap.isSet) {
+                css = css + "gap: " + (this.formatPx(el.gap.pixels)) + "; "
+            }
+        }
+        
+        ; Background color
+        if el.backgroundColor.isSet {
+            css = css + "background-color: " + (el.backgroundColor.toCSSString()) + "; "
+        }
+        
+        ; Border
+        def bw:double 0.0
+        if el.box.borderWidth.isSet {
+            bw = el.box.borderWidth.pixels
+        }
+        if (bw > 0.0) {
+            css = css + "border-width: " + (this.formatPx(bw)) + "; "
+            css = css + "border-style: solid; "
+            if el.box.borderColor.isSet {
+                css = css + "border-color: " + (el.box.borderColor.toCSSString()) + "; "
+            }
+        }
+        
+        ; Border radius
+        if el.box.borderRadius.isSet {
+            css = css + "border-radius: " + (this.formatPx(el.box.borderRadius.pixels)) + "; "
+        }
+        
+        ; Padding
+        def pt:double (this.getResolvedPadding(el "top"))
+        def pr:double (this.getResolvedPadding(el "right"))
+        def pb:double (this.getResolvedPadding(el "bottom"))
+        def pl:double (this.getResolvedPadding(el "left"))
+        if ((pt > 0.0) || (pr > 0.0) || (pb > 0.0) || (pl > 0.0)) {
+            css = css + "padding: " + (this.formatPx(pt)) + " " + (this.formatPx(pr)) + " " + (this.formatPx(pb)) + " " + (this.formatPx(pl)) + "; "
+        }
+        
+        ; Margin
+        def mt:double (this.getResolvedMargin(el "top"))
+        def mr:double (this.getResolvedMargin(el "right"))
+        def mb:double (this.getResolvedMargin(el "bottom"))
+        def ml:double (this.getResolvedMargin(el "left"))
+        if ((mt > 0.0) || (mr > 0.0) || (mb > 0.0) || (ml > 0.0)) {
+            css = css + "margin: " + (this.formatPx(mt)) + " " + (this.formatPx(mr)) + " " + (this.formatPx(mb)) + " " + (this.formatPx(ml)) + "; "
+        }
+        
+        ; Overflow
+        if (el.overflow == "hidden") {
+            css = css + "overflow: hidden; "
+        }
+        
+        ; Opacity
+        if (el.opacity < 1.0) {
+            css = css + "opacity: " + (to_string el.opacity) + "; "
+        }
+        
+        return css
+    }
+    
+    ; =========================================================================
+    ; Label (text) rendering
+    ; =========================================================================
+    
+    fn renderLabel:string (el:EVGElement elementId:string depth:int) {
+        return (this.renderLabelWithParent(el elementId depth 0.0 0.0))
+    }
+    
+    fn renderLabelWithParent:string (el:EVGElement elementId:string depth:int parentX:double parentY:double) {
+        def html:string ""
+        html = html + (this.indent(depth)) + "<span"
+        
+        ; Add id if element has one
+        if ((strlen el.id) > 0) {
+            html = html + " id=\"" + el.id + "\""
+        }
+        
+        ; Add class
+        html = html + " class=\"evg-label\""
+        
+        ; Calculate position relative to parent
+        def relX:double (el.calculatedX - parentX)
+        def relY:double (el.calculatedY - parentY)
+        
+        ; Add inline styles
+        html = html + " style=\""
+        html = html + (this.generateLabelStylesRelative(el relX relY))
+        html = html + "\""
+        
+        html = html + ">"
+        
+        ; Add text content (escape HTML)
+        html = html + (this.escapeHtml(el.textContent))
+        
+        ; Render any children (nested text)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children i)
+            html = html + (this.renderElementWithParent(child (depth + 1) el.calculatedX el.calculatedY))
+            i = i + 1
+        }
+        
+        html = html + "</span>\n"
+        return html
+    }
+    
+    fn generateLabelStylesRelative:string (el:EVGElement relX:double relY:double) {
+        def css:string ""
+        
+        ; Always use absolute positioning since EVG calculates exact positions
+        css = css + "position: absolute; "
+        css = css + "left: " + (this.formatPx(relX)) + "; "
+        css = css + "top: " + (this.formatPx(relY)) + "; "
+        
+        ; Font properties
+        if ((strlen el.fontFamily) > 0) {
+            css = css + "font-family: '" + el.fontFamily + "', sans-serif; "
+        }
+        
+        if el.fontSize.isSet {
+            css = css + "font-size: " + (this.formatPx(el.fontSize.pixels)) + "; "
+        }
+        
+        if ((strlen el.fontWeight) > 0) {
+            css = css + "font-weight: " + el.fontWeight + "; "
+        }
+        
+        ; Text color
+        if el.color.isSet {
+            css = css + "color: " + (el.color.toCSSString()) + "; "
+        }
+        
+        ; Text alignment
+        if ((strlen el.textAlign) > 0) {
+            css = css + "text-align: " + el.textAlign + "; "
+        }
+        
+        ; Line height
+        if (el.lineHeight > 0.0) {
+            css = css + "line-height: " + (to_string el.lineHeight) + "; "
+        }
+        
+        ; Dimensions (if set)
+        if (el.calculatedWidth > 0.0) {
+            css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
+        }
+        
+        return css
+    }
+    
+    ; =========================================================================
+    ; Image rendering
+    ; =========================================================================
+    
+    fn renderImage:string (el:EVGElement elementId:string depth:int) {
+        return (this.renderImageWithParent(el elementId depth 0.0 0.0))
+    }
+    
+    fn renderImageWithParent:string (el:EVGElement elementId:string depth:int parentX:double parentY:double) {
+        def html:string ""
+        html = html + (this.indent(depth)) + "<img"
+        
+        ; Add id if element has one
+        if ((strlen el.id) > 0) {
+            html = html + " id=\"" + el.id + "\""
+        }
+        
+        ; Add class
+        html = html + " class=\"evg-image\""
+        
+        ; Add src - either as data URI or relative path
+        def imgSrc:string el.src
+        if ((strlen imgSrc) > 0) {
+            if embedAssets {
+                ; Try to embed as base64 data URI
+                def dataUri:string (this.getImageDataUri(imgSrc))
+                if ((strlen dataUri) > 0) {
+                    html = html + " src=\"" + dataUri + "\""
+                } {
+                    ; Fallback to relative path if embedding fails
+                    html = html + " src=\"" + imageBasePath + imgSrc + "\""
+                }
+            } {
+                html = html + " src=\"" + imageBasePath + imgSrc + "\""
+            }
+        }
+        
+        ; Add alt
+        if ((strlen el.alt) > 0) {
+            html = html + " alt=\"" + (this.escapeHtml(el.alt)) + "\""
+        } {
+            html = html + " alt=\"\""
+        }
+        
+        ; Calculate position relative to parent
+        def relX:double (el.calculatedX - parentX)
+        def relY:double (el.calculatedY - parentY)
+        
+        ; Add inline styles
+        html = html + " style=\""
+        html = html + (this.generateImageStylesRelative(el relX relY))
+        html = html + "\""
+        
+        html = html + ">\n"
+        return html
+    }
+    
+    fn generateImageStylesRelative:string (el:EVGElement relX:double relY:double) {
+        def css:string ""
+        
+        ; Always use absolute positioning since EVG calculates exact positions
+        css = css + "position: absolute; "
+        css = css + "left: " + (this.formatPx(relX)) + "; "
+        css = css + "top: " + (this.formatPx(relY)) + "; "
+        
+        ; Dimensions
+        if (el.calculatedWidth > 0.0) {
+            css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
+        }
+        if (el.calculatedHeight > 0.0) {
+            css = css + "height: " + (this.formatPx(el.calculatedHeight)) + "; "
+        }
+        
+        ; Object fit (for viewBox support in future)
+        css = css + "object-fit: cover; "
+        
+        ; Border radius
+        if el.box.borderRadius.isSet {
+            css = css + "border-radius: " + (this.formatPx(el.box.borderRadius.pixels)) + "; "
+        }
+        
+        return css
+    }
+    
+    ; =========================================================================
+    ; SVG Path rendering
+    ; =========================================================================
+    
+    fn renderPath:string (el:EVGElement elementId:string depth:int) {
+        return (this.renderPathWithParent(el elementId depth 0.0 0.0))
+    }
+    
+    fn renderPathWithParent:string (el:EVGElement elementId:string depth:int parentX:double parentY:double) {
+        def html:string ""
+        
+        def w:double el.calculatedWidth
+        def h:double el.calculatedHeight
+        if (w <= 0.0) {
+            w = 24.0  ; Default icon size
+        }
+        if (h <= 0.0) {
+            h = 24.0
+        }
+        
+        ; Calculate position relative to parent
+        def relX:double (el.calculatedX - parentX)
+        def relY:double (el.calculatedY - parentY)
+        
+        html = html + (this.indent(depth)) + "<svg"
+        
+        ; Add id if element has one
+        if ((strlen el.id) > 0) {
+            html = html + " id=\"" + el.id + "\""
+        }
+        
+        ; Add class
+        html = html + " class=\"evg-path\""
+        
+        ; Add dimensions
+        html = html + " width=\"" + (to_string w) + "\""
+        html = html + " height=\"" + (to_string h) + "\""
+        
+        ; Add viewBox if set
+        if ((strlen el.viewBox) > 0) {
+            html = html + " viewBox=\"" + el.viewBox + "\""
+        }
+        
+        ; Add position styles - use relative position
+        html = html + " style=\""
+        html = html + "position: absolute; "
+        html = html + "left: " + (this.formatPx(relX)) + "; "
+        html = html + "top: " + (this.formatPx(relY)) + "; "
+        html = html + "\""
+        
+        html = html + ">\n"
+        
+        ; Add path element
+        html = html + (this.indent(depth + 1)) + "<path d=\"" + el.svgPath + "\""
+        
+        ; Fill color
+        if el.fillColor.isSet {
+            html = html + " fill=\"" + (el.fillColor.toCSSString()) + "\""
+        } {
+            if el.backgroundColor.isSet {
+                html = html + " fill=\"" + (el.backgroundColor.toCSSString()) + "\""
+            } {
+                html = html + " fill=\"currentColor\""
+            }
+        }
+        
+        ; Stroke
+        if el.strokeColor.isSet {
+            html = html + " stroke=\"" + (el.strokeColor.toCSSString()) + "\""
+            if (el.strokeWidth > 0.0) {
+                html = html + " stroke-width=\"" + (to_string el.strokeWidth) + "\""
+            }
+        }
+        
+        html = html + "/>\n"
+        
+        html = html + (this.indent(depth)) + "</svg>\n"
+        return html
+    }
+    
+    ; =========================================================================
+    ; Rect rendering
+    ; =========================================================================
+    
+    fn renderRect:string (el:EVGElement elementId:string depth:int) {
+        ; Rect is essentially a View with no children
+        return (this.renderView(el elementId depth))
+    }
+    
+    ; =========================================================================
+    ; Helper functions
+    ; =========================================================================
+    
+    fn indent:string (depth:int) {
+        if (prettyPrint == false) {
+            return ""
+        }
+        def result:string ""
+        def i:int 0
+        while (i < depth) {
+            result = result + indentString
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn formatPx:string (value:double) {
+        ; Format a pixel value, removing unnecessary decimals
+        def intVal:int (to_int value)
+        def diff:double (value - (to_double intVal))
+        if ((diff < 0.01) && (diff > -0.01)) {
+            return ((to_string intVal) + "px")
+        }
+        return ((to_string value) + "px")
+    }
+    
+    fn escapeHtml:string (text:string) {
+        ; Escape HTML special characters
+        def result:string ""
+        def i:int 0
+        while (i < (strlen text)) {
+            def ch:string (substring text i (i + 1))
+            if (ch == "<") {
+                result = result + "&lt;"
+            } {
+                if (ch == ">") {
+                    result = result + "&gt;"
+                } {
+                    if (ch == "&") {
+                        result = result + "&amp;"
+                    } {
+                        if (ch == "\"") {
+                            result = result + "&quot;"
+                        } {
+                            result = result + ch
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return result
+    }
+    
+    fn getMimeType:string (filename:string) {
+        ; Get MIME type based on file extension
+        ; Only JPEG/JPG is currently supported
+        def lower:string (to_lowercase filename)
+        if ((indexOf lower ".jpg") >= 0) {
+            return "image/jpeg"
+        }
+        if ((indexOf lower ".jpeg") >= 0) {
+            return "image/jpeg"
+        }
+        ; Unsupported format
+        return ""
+    }
+    
+    fn getImageDataUri:string (imagePath:string) {
+        ; Read image file and convert to data URI
+        ; Returns empty string if file cannot be read or format unsupported
+        def mimeType:string (this.getMimeType(imagePath))
+        if ((strlen mimeType) == 0) {
+            ; Unsupported format
+            return ""
+        }
+        def basePath:string baseDir
+        def resolvedPath:string (this.resolveImagePath(imagePath))
+        def buf:buffer (buffer_read_file basePath resolvedPath)
+        def len:int (buffer_length buf)
+        if (len == 0) {
+            return ""
+        }
+        def base64:string (buffer_to_base64 buf)
+        return ("data:" + mimeType + ";base64," + base64)
+    }
+    
+    fn getResolvedPadding:double (el:EVGElement side:string) {
+        if (side == "top") {
+            if el.box.paddingTop.isSet {
+                return el.box.paddingTop.pixels
+            }
+        }
+        if (side == "right") {
+            if el.box.paddingRight.isSet {
+                return el.box.paddingRight.pixels
+            }
+        }
+        if (side == "bottom") {
+            if el.box.paddingBottom.isSet {
+                return el.box.paddingBottom.pixels
+            }
+        }
+        if (side == "left") {
+            if el.box.paddingLeft.isSet {
+                return el.box.paddingLeft.pixels
+            }
+        }
+        return 0.0
+    }
+    
+    fn getResolvedMargin:double (el:EVGElement side:string) {
+        if (side == "top") {
+            if el.box.marginTop.isSet {
+                return el.box.marginTop.pixels
+            }
+        }
+        if (side == "right") {
+            if el.box.marginRight.isSet {
+                return el.box.marginRight.pixels
+            }
+        }
+        if (side == "bottom") {
+            if el.box.marginBottom.isSet {
+                return el.box.marginBottom.pixels
+            }
+        }
+        if (side == "left") {
+            if el.box.marginLeft.isSet {
+                return el.box.marginLeft.pixels
+            }
+        }
+        return 0.0
+    }
+    
+    fn collectFonts:void (el:EVGElement) {
+        ; Collect unique font families used in the document
+        if ((strlen el.fontFamily) > 0) {
+            def found:boolean false
+            def i:int 0
+            while (i < (array_length usedFontFamilies)) {
+                if ((itemAt usedFontFamilies i) == el.fontFamily) {
+                    found = true
+                }
+                i = i + 1
+            }
+            if (found == false) {
+                push usedFontFamilies el.fontFamily
+            }
+        }
+        
+        ; Recurse to children
+        def j:int 0
+        while (j < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children j)
+            this.collectFonts(child)
+            j = j + 1
+        }
+    }
+}

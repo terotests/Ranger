@@ -328,7 +328,8 @@ class JSXToEVG {
                     }
                     if (child.left.nodeType == "TemplateLiteral") {
                         ; Template literals have children with TemplateElement nodes
-                        def text:string (this.extractTemplateLiteralText(child.left))
+                        def leftNode:TSNode (unwrap child.left)
+                        def text:string (this.extractTemplateLiteralText(leftNode))
                         if ((strlen result) > 0) {
                             result = result + " " + text
                         } {

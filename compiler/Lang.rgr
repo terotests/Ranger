@@ -2312,6 +2312,39 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
             }
         }
 
+        ; Convert buffer to Base64 encoded string
+        buffer_to_base64    cmdBufferToBase64:string    ( buf:buffer ) {
+            templates {
+                ranger ( "(buffer_to_base64 " (e 1) ")" )
+                es6 ( "Buffer.from(" (e 1) ").toString('base64')" )
+                go ( "base64.StdEncoding.EncodeToString(" (e 1) ")" (imp "encoding/base64") )
+                rust ( "base64::encode(&" (e 1) ")" )
+                cpp ( "r_buffer_to_base64(" (e 1) ")" (imp "<string>") (imp "<vector>")
+(create_polyfill "
+std::string r_buffer_to_base64(const std::vector<uint8_t>& data) {
+    static const char* chars = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";
+    std::string result;
+    size_t i = 0;
+    while (i < data.size()) {
+        uint32_t n = data[i++] << 16;
+        if (i < data.size()) n |= data[i++] << 8;
+        if (i < data.size()) n |= data[i++];
+        result += chars[(n >> 18) & 0x3F];
+        result += chars[(n >> 12) & 0x3F];
+        result += (i > data.size() + 1) ? '=' : chars[(n >> 6) & 0x3F];
+        result += (i > data.size()) ? '=' : chars[n & 0x3F];
+    }
+    return result;
+}
+")
+                )
+                java7 ( "java.util.Base64.getEncoder().encodeToString(" (e 1) ")" )
+                python ( "base64.b64encode(" (e 1) ").decode('ascii')" (imp "base64") )
+                swift6 ( "Data(" (e 1) ").base64EncodedString()" (imp "Foundation") )
+                csharp ( "Convert.ToBase64String(" (e 1) ")" )
+            }
+        }
+
         ; Write buffer to a binary file
         buffer_write_file   cmdBufferWriteFile:void     ( path:string filename:string buf:buffer ) {
             templates {

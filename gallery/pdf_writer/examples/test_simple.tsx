@@ -1,31 +1,25 @@
-import { View, Label } from "./evg_types";
+import { View, Label, Image } from "./evg_types";
 
 function render() {
   return (
     <View width="100%" height="100%" padding="30px">
-      <Label fontSize="32px" fontWeight="bold" color="#2c3e50">
+      <Label fontSize="32px" fontWeight="bold" color="#2c3e50" fontFamily="Amatic SC Bold">
         The Adventures of Little Fox!!
       </Label>
-      <Label fontSize="14px" color="#7f8c8d" marginTop="8px">
+      <Label fontSize="14px" color="#7f8c8d" marginTop="8px" fontFamily="Josefin Slab">
         Chapter 1: A New Beginning
       </Label>
 
       <View flexDirection="row" marginTop="30px">
-        <View
+        <Image
+          src="../assets/images/Canon_40D_scaled.jpg"
           width="200px"
           height="150px"
-          backgroundColor="#e0e0e0"
-          borderWidth="1px"
-          borderColor="#bdbdbd"
-          padding="10px"
-        >
-          <Label fontSize="12px" color="#757575">
-            [Image: Little Fox in the forest]
-          </Label>
-        </View>
+          alt="Canon 40D test image"
+        />
 
         <View flex="1" marginLeft="20px">
-          <Label fontSize="18px" fontWeight="bold" color="#34495e">
+          <Label fontSize="18px" fontWeight="bold" color="#34495e" fontFamily="Gloria Hallelujah">
             The Forest Awakens
           </Label>
           <Label
@@ -33,6 +27,7 @@ function render() {
             color="#555555"
             marginTop="10px"
             lineHeight="1.6"
+            fontFamily="Alike Angular"
           >
             Once upon a time, in a magical forest far away, there lived a
             curious little fox named Rusty. Every morning, he would wake up to

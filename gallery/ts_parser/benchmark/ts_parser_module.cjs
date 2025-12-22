@@ -99,6 +99,9 @@ class TSLexer  {
     if ( ch == "$" ) {
       return true;
     }
+    if ( code > 127 ) {
+      return true;
+    }
     return false;
   };
   isAlphaNumCh (ch) {
@@ -124,6 +127,9 @@ class TSLexer  {
       if ( code <= 90 ) {
         return true;
       }
+    }
+    if ( code > 127 ) {
+      return true;
     }
     return false;
   };
@@ -3761,14 +3767,12 @@ class TSParserSimple  {
         let isMethod = false;
         let isGetter = false;
         let isSetter = false;
-        let isAsync = false;
         let currVal = this.peekValue();
         let nextType = this.peekNextType();
         let nextVal = this.peekNextValue();
         if ( currVal == "async" ) {
           if ( ((nextType == "Identifier") || (nextVal == "[")) || (nextVal == "(") ) {
             this.advance();
-            isAsync = true;
             prop.async = true;
             currVal = this.peekValue();
             nextType = this.peekNextType();
