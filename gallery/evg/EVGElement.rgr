@@ -118,6 +118,9 @@ class EVGElement {
     def shadowOffsetX:EVGUnit
     def shadowOffsetY:EVGUnit
     
+    ; Gradient (CSS gradient string like "linear-gradient(90deg, #ff0000, #0000ff)")
+    def backgroundGradient:string ""
+    
     ; Calculated values (output from layout)
     def calculatedX:double 0.0
     def calculatedY:double 0.0
@@ -447,6 +450,21 @@ class EVGElement {
         ; Colors
         if ((name == "background-color") || (name == "backgroundColor")) {
             backgroundColor = (EVGColor.parse(value))
+            return
+        }
+        if ((name == "background-gradient") || (name == "backgroundGradient")) {
+            backgroundGradient = value
+            return
+        }
+        ; Also support "background" which can be a gradient
+        if (name == "background") {
+            ; Check if it's a gradient
+            if ((contains value "linear-gradient") || (contains value "radial-gradient")) {
+                backgroundGradient = value
+            } {
+                ; Treat as color
+                backgroundColor = (EVGColor.parse(value))
+            }
             return
         }
         if (name == "color") {

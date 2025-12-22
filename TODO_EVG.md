@@ -1,6 +1,6 @@
 # EVG Rendering System - TODO List
 
-Based on priorities from `PLAN_EVG.md`. Updated: December 2024.
+Based on priorities from `PLAN_EVG.md`. Updated: December 22, 2024.
 
 ---
 
@@ -9,29 +9,38 @@ Based on priorities from `PLAN_EVG.md`. Updated: December 2024.
 ### 1. HTML Renderer
 **Goal:** Enable unit testing, fast preview, and rapid development iteration.
 
-- [ ] **0.1** Basic HTML structure (View, Label) - *1 day*
-- [ ] **0.2** CSS generation (colors, dimensions, spacing) - *1 day*
-- [ ] **0.3** Flexbox layout mapping - *1 day*
-- [ ] **0.4** Image rendering with viewBox - *1 day*
-- [ ] **0.5** SVG Path embedding - *1 day*
-- [ ] **0.6** Gradients and shadows - *1 day*
-- [ ] **0.7** Unit test framework - *1 day*
-- [ ] **0.8** Preview server with hot reload - *2 days*
+- [x] **0.1** Basic HTML structure (View, Label) - *DONE*
+- [x] **0.2** CSS generation (colors, dimensions, spacing) - *DONE*
+- [x] **0.3** Flexbox layout mapping - *DONE (absolute positioning)*
+- [x] **0.4** Image rendering with base64 embedding - *DONE*
+- [x] **0.5** SVG Path embedding - *DONE*
+- [x] **0.6** Font embedding (TTF to base64) - *DONE*
+- [ ] **0.7** Gradients and shadows - *TODO*
+- [ ] **0.8** Unit test framework (Vitest) - *TODO*
+- [ ] **0.9** Preview server with hot reload - *TODO*
 
-**Files to create:**
+**Completed Files:**
 ```
 gallery/pdf_writer/src/
 ├── core/
 │   ├── EVGPDFRenderer.rgr       # Existing PDF renderer
-│   ├── EVGHTMLRenderer.rgr      # NEW: HTML/CSS renderer
-│   ├── EVGCSSGenerator.rgr      # NEW: CSS style generation
-│   └── EVGRenderer.rgr          # NEW: Common renderer interface
+│   └── EVGHTMLRenderer.rgr      # ✅ NEW: HTML/CSS renderer (~970 lines)
 ├── jsx/
-│   └── JSXToEVG.rgr             # Existing TSX parser
+│   └── JSXToEVG.rgr             # ✅ Updated: Fixed punctuation spacing
+├── tools/
+│   └── evg_html_tool.rgr        # ✅ NEW: CLI tool for TSX→HTML
 └── tests/
-    ├── html_render_test.rgr     # NEW: Unit tests
-    └── expected/                # NEW: Expected HTML output files
+    └── (TODO: Unit tests)
 ```
+
+**Added to package.json:**
+- `npm run evghtml:compile` - Compile HTML renderer
+- `npm run evghtml:run` - Run TSX→HTML conversion
+- `npm run evghtml` - Compile and run
+- `-embed` flag for base64 embedding of images and fonts
+
+**Lang.rgr Updates:**
+- Added `buffer_to_base64` operator for base64 encoding
 
 **Note:** The HTML renderer lives alongside the PDF renderer in `gallery/pdf_writer/` because:
 - Both renderers share the same EVG element tree
@@ -39,7 +48,7 @@ gallery/pdf_writer/src/
 - The `evg` CLI tool will support both `--format=pdf` and `--format=html`
 - Unit tests can verify HTML output before PDF generation
 
-**Estimated time:** ~10 days
+**Estimated remaining time:** ~4 days (gradients, shadows, unit tests, hot reload)
 
 ---
 
@@ -213,11 +222,11 @@ gallery/pdf_writer/src/
 
 | Priority | Tasks | Completed | Remaining |
 |----------|-------|-----------|-----------|
-| 🔴 HIGHEST | 8 | 0 | 8 |
+| 🔴 HIGHEST | 9 | 6 | 3 |
 | 🟠 HIGH | 7 | 0 | 7 |
 | 🟡 MEDIUM | 4 | 0 | 4 |
 | 🟢 LOW | 3 | 0 | 3 |
-| **TOTAL** | **22** | **0** | **22** |
+| **TOTAL** | **23** | **6** | **17** |
 
 ---
 
@@ -232,6 +241,9 @@ gallery/pdf_writer/src/
 - TrueType fonts with Unicode
 - JPEG with EXIF orientation
 - Multi-page documents
+- **HTML Renderer** (View, Label, Image, Path)
+- **Base64 embedding** (images, fonts)
+- **Font mapping** (Google Fonts: Amatic SC, Gloria Hallelujah, Josefin Slab, etc.)
 
 ### Defined but Not Working ⚠️
 - `opacity` - parsed, not rendered
@@ -241,32 +253,43 @@ gallery/pdf_writer/src/
 - `shadow*` - defined, not parsed
 
 ### Not Implemented ❌
-- HTML renderer
-- Linear/radial gradients
-- Image viewBox (crop)
+- Linear/radial gradients (HTML & PDF)
+- Image viewBox (crop/zoom)
 - backgroundImage on View
 - Layer element
 - Incremental rendering
+- Unit test framework
+- Hot reload preview server
 
 ---
 
 ## Next Actions
 
-1. **Start with HTML Renderer** (Phase 0.1-0.3)
-   - Enables unit testing for all subsequent features
-   - Fast iteration during development
+### ✅ COMPLETED: HTML Renderer Phase 0.1-0.6
+- Created `EVGHTMLRenderer.rgr` (~970 lines)
+- Created `evg_html_tool.rgr` CLI tool
+- Added `buffer_to_base64` to Lang.rgr
+- Font embedding (TTF to base64)
+- Image embedding (JPEG to base64)
+- Fixed punctuation spacing in JSXToEVG.rgr
 
-2. **Then implement `overflow: hidden`**
-   - Simple, low complexity
-   - Enables image cropping use cases
+### 🔄 IN PROGRESS: HTML Renderer Phase 0.7-0.9
+1. **Gradients and shadows** (0.7)
+   - CSS `linear-gradient()` support
+   - CSS `box-shadow` support
 
-3. **Then implement `opacity`**
-   - Simple, low complexity
-   - High visual impact
+2. **Unit test framework** (0.8)
+   - Vitest for JavaScript testing
+   - Compare HTML output snapshots
 
-4. **Then implement transforms**
-   - `rotate` and `scale`
-   - Required for many design patterns
+3. **Preview server with hot reload** (0.9)
+   - File watcher for TSX changes
+   - WebSocket for live updates
+
+### 📋 NEXT: PDF Improvements
+1. **`overflow: hidden`** - Simple clipping rectangle
+2. **`opacity`** - PDF ExtGState transparency
+3. **`rotate` & `scale`** - PDF transformation matrix
 
 ---
 

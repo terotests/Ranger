@@ -593,6 +593,28 @@ class JSXToEVG {
                 if (attrName == "border-color") {
                     this.applyStyleProperty(element "borderColor" attrValue)
                 }
+                
+                ; Shadow attributes
+                if (attrName == "shadow-radius") {
+                    this.applyStyleProperty(element "shadowRadius" attrValue)
+                }
+                if (attrName == "shadow-color") {
+                    this.applyStyleProperty(element "shadowColor" attrValue)
+                }
+                if (attrName == "shadow-offset-x") {
+                    this.applyStyleProperty(element "shadowOffsetX" attrValue)
+                }
+                if (attrName == "shadow-offset-y") {
+                    this.applyStyleProperty(element "shadowOffsetY" attrValue)
+                }
+                
+                ; Gradient/background
+                if (attrName == "background") {
+                    this.applyStyleProperty(element "background" attrValue)
+                }
+                if (attrName == "background-gradient") {
+                    this.applyStyleProperty(element "backgroundGradient" attrValue)
+                }
             }
             
             i = i + 1
@@ -770,7 +792,7 @@ class JSXToEVG {
             element.borderLeftWidth = (EVGUnit.parse(value))
         }
         if (name == "borderRadius") {
-            element.borderRadius = (EVGUnit.parse(value))
+            element.box.borderRadius = (EVGUnit.parse(value))
         }
         
         ; Layout
@@ -814,11 +836,36 @@ class JSXToEVG {
         if (name == "backgroundColor") {
             element.backgroundColor = (EVGColor.parse(value))
         }
+        if (name == "background") {
+            ; Check if it's a gradient
+            if ((contains value "linear-gradient") || (contains value "radial-gradient")) {
+                element.backgroundGradient = value
+            } {
+                element.backgroundColor = (EVGColor.parse(value))
+            }
+        }
+        if (name == "backgroundGradient") {
+            element.backgroundGradient = value
+        }
         if (name == "color") {
             element.color = (EVGColor.parse(value))
         }
         if (name == "opacity") {
             element.opacity = (this.parseNumberValue(value))
+        }
+        
+        ; Shadow
+        if (name == "shadowRadius") {
+            element.shadowRadius = (EVGUnit.parse(value))
+        }
+        if (name == "shadowColor") {
+            element.shadowColor = (EVGColor.parse(value))
+        }
+        if (name == "shadowOffsetX") {
+            element.shadowOffsetX = (EVGUnit.parse(value))
+        }
+        if (name == "shadowOffsetY") {
+            element.shadowOffsetY = (EVGUnit.parse(value))
         }
         
         ; Text

@@ -100,6 +100,9 @@ class TSLexer  {
     if ( ch == "$" ) {
       return true;
     }
+    if ( code > 127 ) {
+      return true;
+    }
     return false;
   };
   isAlphaNumCh (ch) {
@@ -125,6 +128,9 @@ class TSLexer  {
       if ( code <= 90 ) {
         return true;
       }
+    }
+    if ( code > 127 ) {
+      return true;
     }
     return false;
   };
@@ -3762,14 +3768,12 @@ class TSParserSimple  {
         let isMethod = false;
         let isGetter = false;
         let isSetter = false;
-        let isAsync = false;
         let currVal = this.peekValue();
         let nextType = this.peekNextType();
         let nextVal = this.peekNextValue();
         if ( currVal == "async" ) {
           if ( ((nextType == "Identifier") || (nextVal == "[")) || (nextVal == "(") ) {
             this.advance();
-            isAsync = true;
             prop.async = true;
             currVal = this.peekValue();
             nextType = this.peekNextType();
@@ -4370,7 +4374,7 @@ EVGUnit.create = function(val, uType) {
   unit.isSet = true;
   return unit;
 };
-EVGUnit.pixels = function(val) {
+EVGUnit.px = function(val) {
   return EVGUnit.create(val, 0);
 };
 EVGUnit.percent = function(val) {
@@ -5070,9 +5074,16 @@ class EVGElement  {
     this.position = "relative";
     this.src = "";
     this.alt = "";
+    this.svgPath = "";
+    this.viewBox = "";
+    this.strokeWidth = 0.0;
+    this.clipPath = "";
     this.className = "";
+    this.imageQuality = 0;
+    this.maxImageSize = 0;
     this.rotate = 0.0;
     this.scale = 1.0;
+    this.backgroundGradient = "";
     this.calculatedX = 0.0;
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
@@ -5103,11 +5114,13 @@ class EVGElement  {
     this.box = newBox;
     this.backgroundColor = EVGColor.noColor();
     this.color = EVGColor.black();
-    this.fontSize = EVGUnit.pixels(14.0);
+    this.fontSize = EVGUnit.px(14.0);
     this.shadowRadius = EVGUnit.unset();
     this.shadowColor = EVGColor.noColor();
     this.shadowOffsetX = EVGUnit.unset();
     this.shadowOffsetY = EVGUnit.unset();
+    this.fillColor = EVGColor.noColor();
+    this.strokeColor = EVGColor.noColor();
   }
   addChild (child) {
     child.parent = this;
@@ -5317,6 +5330,18 @@ class EVGElement  {
       this.backgroundColor = EVGColor.parse(value);
       return;
     }
+    if ( (name == "background-gradient") || (name == "backgroundGradient") ) {
+      this.backgroundGradient = value;
+      return;
+    }
+    if ( name == "background" ) {
+      if ( (value.includes("linear-gradient")) || (value.includes("radial-gradient")) ) {
+        this.backgroundGradient = value;
+      } else {
+        this.backgroundColor = EVGColor.parse(value);
+      }
+      return;
+    }
     if ( name == "color" ) {
       this.color = EVGColor.parse(value);
       return;
@@ -5422,6 +5447,47 @@ class EVGElement  {
       this.shadowOffsetY = EVGUnit.parse(value);
       return;
     }
+    if ( (name == "clip-path") || (name == "clipPath") ) {
+      this.clipPath = value;
+      return;
+    }
+    if ( name == "imageQuality" ) {
+      const val_5 = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      if ( typeof(val_5) != "undefined" ) {
+        this.imageQuality = val_5;
+      }
+      return;
+    }
+    if ( name == "maxImageSize" ) {
+      const val_6 = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      if ( typeof(val_6) != "undefined" ) {
+        this.maxImageSize = val_6;
+      }
+      return;
+    }
+    if ( (name == "d") || (name == "svgPath") ) {
+      this.svgPath = value;
+      return;
+    }
+    if ( name == "viewBox" ) {
+      this.viewBox = value;
+      return;
+    }
+    if ( name == "fill" ) {
+      this.fillColor = EVGColor.parse(value);
+      return;
+    }
+    if ( name == "stroke" ) {
+      this.strokeColor = EVGColor.parse(value);
+      return;
+    }
+    if ( (name == "stroke-width") || (name == "strokeWidth") ) {
+      const val_7 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(val_7) != "undefined" ) {
+        this.strokeWidth = val_7;
+      }
+      return;
+    }
   };
   getCalculatedBounds () {
     return (((((("(" + ((this.calculatedX.toString()))) + ", ") + ((this.calculatedY.toString()))) + ") ") + ((this.calculatedWidth.toString()))) + "x") + ((this.calculatedHeight.toString()));
@@ -5446,6 +5512,12 @@ EVGElement.createImg = function() {
   const el = new EVGElement();
   el.tagName = "img";
   el.elementType = 2;
+  return el;
+};
+EVGElement.createPath = function() {
+  const el = new EVGElement();
+  el.tagName = "path";
+  el.elementType = 3;
   return el;
 };
 class JSXToEVG  {
@@ -5671,7 +5743,13 @@ class JSXToEVG  {
         const text = this.trimText(child.value);
         if ( (text.length) > 0 ) {
           if ( (result.length) > 0 ) {
-            result = (result + " ") + text;
+            const firstChar = text.charCodeAt(0 );
+            const isPunct = ((((((((firstChar == 44) || (firstChar == 46)) || (firstChar == 33)) || (firstChar == 63)) || (firstChar == 58)) || (firstChar == 59)) || (firstChar == 45)) || (firstChar == 41)) || (firstChar == 93);
+            if ( isPunct ) {
+              result = result + text;
+            } else {
+              result = (result + " ") + text;
+            }
           } else {
             result = text;
           }
@@ -5687,6 +5765,31 @@ class JSXToEVG  {
               result = text_1;
             }
           }
+          if ( child.left.nodeType == "TemplateLiteral" ) {
+            const leftNode = child.left;
+            const text_2 = this.extractTemplateLiteralText(leftNode);
+            if ( (result.length) > 0 ) {
+              result = (result + " ") + text_2;
+            } else {
+              result = text_2;
+            }
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return result;
+  };
+  extractTemplateLiteralText (node) {
+    let result = "";
+    let i = 0;
+    while (i < (node.children.length)) {
+      const child = node.children[i];
+      if ( child.nodeType == "TemplateElement" ) {
+        if ( (result.length) > 0 ) {
+          result = result + child.value;
+        } else {
+          result = child.value;
         }
       }
       i = i + 1;
@@ -5739,6 +5842,12 @@ class JSXToEVG  {
     if ( jsxTag == "Image" ) {
       return "image";
     }
+    if ( jsxTag == "path" ) {
+      return "path";
+    }
+    if ( jsxTag == "Path" ) {
+      return "path";
+    }
     return "div";
   };
   parseAttributes (element, openingNode) {
@@ -5761,6 +5870,24 @@ class JSXToEVG  {
         }
         if ( attrName == "alt" ) {
           element.alt = attrValue;
+        }
+        if ( (attrName == "d") || (attrName == "svg-path") ) {
+          element.svgPath = attrValue;
+        }
+        if ( attrName == "view-box" ) {
+          element.viewBox = attrValue;
+        }
+        if ( attrName == "fill" ) {
+          element.fillColor = EVGColor.parse(attrValue);
+        }
+        if ( attrName == "stroke" ) {
+          element.strokeColor = EVGColor.parse(attrValue);
+        }
+        if ( attrName == "stroke-width" ) {
+          element.strokeWidth = (isNaN( parseFloat(attrValue) ) ? undefined : parseFloat(attrValue));
+        }
+        if ( attrName == "clip-path" ) {
+          element.clipPath = attrValue;
         }
         if ( attrName == "width" ) {
           const unit = EVGUnit.parse(attrValue);
@@ -5843,6 +5970,24 @@ class JSXToEVG  {
         }
         if ( attrName == "border-color" ) {
           this.applyStyleProperty(element, "borderColor", attrValue);
+        }
+        if ( attrName == "shadow-radius" ) {
+          this.applyStyleProperty(element, "shadowRadius", attrValue);
+        }
+        if ( attrName == "shadow-color" ) {
+          this.applyStyleProperty(element, "shadowColor", attrValue);
+        }
+        if ( attrName == "shadow-offset-x" ) {
+          this.applyStyleProperty(element, "shadowOffsetX", attrValue);
+        }
+        if ( attrName == "shadow-offset-y" ) {
+          this.applyStyleProperty(element, "shadowOffsetY", attrValue);
+        }
+        if ( attrName == "background" ) {
+          this.applyStyleProperty(element, "background", attrValue);
+        }
+        if ( attrName == "background-gradient" ) {
+          this.applyStyleProperty(element, "backgroundGradient", attrValue);
         }
       }
       i = i + 1;
@@ -5990,7 +6135,7 @@ class JSXToEVG  {
       element.borderLeftWidth = EVGUnit.parse(value);
     }
     if ( name == "borderRadius" ) {
-      element.borderRadius = EVGUnit.parse(value);
+      element.box.borderRadius = EVGUnit.parse(value);
     }
     if ( name == "display" ) {
       element.display = value;
@@ -6028,11 +6173,33 @@ class JSXToEVG  {
     if ( name == "backgroundColor" ) {
       element.backgroundColor = EVGColor.parse(value);
     }
+    if ( name == "background" ) {
+      if ( (value.includes("linear-gradient")) || (value.includes("radial-gradient")) ) {
+        element.backgroundGradient = value;
+      } else {
+        element.backgroundColor = EVGColor.parse(value);
+      }
+    }
+    if ( name == "backgroundGradient" ) {
+      element.backgroundGradient = value;
+    }
     if ( name == "color" ) {
       element.color = EVGColor.parse(value);
     }
     if ( name == "opacity" ) {
       element.opacity = this.parseNumberValue(value);
+    }
+    if ( name == "shadowRadius" ) {
+      element.shadowRadius = EVGUnit.parse(value);
+    }
+    if ( name == "shadowColor" ) {
+      element.shadowColor = EVGColor.parse(value);
+    }
+    if ( name == "shadowOffsetX" ) {
+      element.shadowOffsetX = EVGUnit.parse(value);
+    }
+    if ( name == "shadowOffsetY" ) {
+      element.shadowOffsetY = EVGUnit.parse(value);
     }
     if ( name == "fontSize" ) {
       element.fontSize = EVGUnit.parse(value);
@@ -6179,9 +6346,8 @@ class GrowableBuffer  {
     if ( this.currentChunk.isFull() ) {
       this.allocateNewChunk();
     }
-    const buf = this.currentChunk.data;
     const pos = this.currentChunk.used;
-    buf._view.setUint8(pos, b);
+    this.currentChunk.data._view.setUint8(pos, b);
     this.currentChunk.used = pos + 1;
     this.totalSize = this.totalSize + 1;
   };
@@ -6238,11 +6404,10 @@ class GrowableBuffer  {
     let chunk = this.firstChunk;
     let done = false;
     while (done == false) {
-      const chunkData = chunk.data;
       const chunkUsed = chunk.used;
       let i = 0;
       while (i < chunkUsed) {
-        const b = chunkData._view.getUint8(i);
+        const b = chunk.data._view.getUint8(i);
         result._view.setUint8(pos, b);
         pos = pos + 1;
         i = i + 1;
@@ -6260,11 +6425,10 @@ class GrowableBuffer  {
     let chunk = this.firstChunk;
     let done = false;
     while (done == false) {
-      const chunkData = chunk.data;
       const chunkUsed = chunk.used;
       let i = 0;
       while (i < chunkUsed) {
-        const b = chunkData._view.getUint8(i);
+        const b = chunk.data._view.getUint8(i);
         result = result + (String.fromCharCode(b));
         i = i + 1;
       };
@@ -7189,6 +7353,13 @@ class PDFWriter  {
     this.imageObjNum = this.writeImageObject(imgHeader, imgData, imgFooter);
     return this.imageObjNum;
   };
+  toOctalEscape (ch) {
+    const d0 = ch % 8;
+    const t1 = Math.floor((ch / 8));
+    const d1 = t1 % 8;
+    const d2 = Math.floor((t1 / 8));
+    return (("\\" + ((d2.toString()))) + ((d1.toString()))) + ((d0.toString()));
+  };
   escapeText (text) {
     let result = "";
     const __len = text.length;
@@ -7204,7 +7375,15 @@ class PDFWriter  {
           if ( ch == 92 ) {
             result = result + "\\\\";
           } else {
-            result = result + (String.fromCharCode(ch));
+            if ( ch < 128 ) {
+              result = result + (String.fromCharCode(ch));
+            } else {
+              if ( ch <= 255 ) {
+                result = result + this.toOctalEscape(ch);
+              } else {
+                result = result + "?";
+              }
+            }
           }
         }
       }
@@ -7723,10 +7902,10 @@ class EVGLayout  {
     this.log("EVGLayout: Starting layout");
     this.currentPage = 0;
     if ( root.width.isSet == false ) {
-      root.width = EVGUnit.pixels(this.pageWidth);
+      root.width = EVGUnit.px(this.pageWidth);
     }
     if ( root.height.isSet == false ) {
-      root.height = EVGUnit.pixels(this.pageHeight);
+      root.height = EVGUnit.px(this.pageHeight);
     }
     this.layoutElement(root, 0.0, 0.0, this.pageWidth, this.pageHeight);
     this.log("EVGLayout: Layout complete");
@@ -7970,6 +8149,13 @@ class EVGLayout  {
     if ( parent.align == "right" ) {
       offsetX = innerWidth - rowWidth;
     }
+    let effectiveRowHeight = rowHeight;
+    if ( parent.height.isSet ) {
+      const parentInnerHeight = parent.calculatedInnerHeight;
+      if ( parentInnerHeight > rowHeight ) {
+        effectiveRowHeight = parentInnerHeight;
+      }
+    }
     i = 0;
     while (i < elementCount) {
       const el_1 = rowElements[i];
@@ -7979,10 +8165,10 @@ class EVGLayout  {
       const childTotalHeight = (el_1.calculatedHeight + el_1.box.marginTopPx) + el_1.box.marginBottomPx;
       let offsetY = 0.0;
       if ( parent.verticalAlign == "center" ) {
-        offsetY = (rowHeight - childTotalHeight) / 2.0;
+        offsetY = (effectiveRowHeight - childTotalHeight) / 2.0;
       }
       if ( parent.verticalAlign == "bottom" ) {
-        offsetY = rowHeight - childTotalHeight;
+        offsetY = effectiveRowHeight - childTotalHeight;
       }
       if ( offsetY != 0.0 ) {
         el_1.calculatedY = el_1.calculatedY + offsetY;
@@ -8073,6 +8259,409 @@ class EVGLayout  {
     return lineCount;
   };
 }
+class PathCommand  {
+  constructor() {
+    this.type = "";
+    this.x = 0.0;
+    this.y = 0.0;
+    this.x1 = 0.0;
+    this.y1 = 0.0;
+    this.x2 = 0.0;
+    this.y2 = 0.0;
+    this.rx = 0.0;     /** note: unused */
+    this.ry = 0.0;     /** note: unused */
+    this.rotation = 0.0;     /** note: unused */
+    this.largeArc = false;     /** note: unused */
+    this.sweep = false;     /** note: unused */
+  }
+}
+class PathBounds  {
+  constructor() {
+    this.minX = 0.0;
+    this.minY = 0.0;
+    this.maxX = 0.0;
+    this.maxY = 0.0;
+    this.width = 0.0;
+    this.height = 0.0;
+  }
+}
+class SVGPathParser  {
+  constructor() {
+    this.pathData = "";
+    this.i = 0;
+    this.__len = 0;
+    this.currentX = 0.0;
+    this.currentY = 0.0;
+    this.startX = 0.0;
+    this.startY = 0.0;
+    this.commands = [];
+    let emptyCommands = [];
+    this.commands = emptyCommands;
+    this.bounds = new PathBounds();
+  }
+  parse (data) {
+    this.pathData = data;
+    this.i = 0;
+    this.__len = data.length;
+    this.currentX = 0.0;
+    this.currentY = 0.0;
+    this.startX = 0.0;
+    this.startY = 0.0;
+    let emptyCommands = [];
+    this.commands = emptyCommands;
+    while (this.i < this.__len) {
+      this.skipWhitespace();
+      if ( this.i >= this.__len ) {
+        break;
+      }
+      const ch = this.pathData.charCodeAt(this.i );
+      const chInt = ch;
+      if ( ((chInt >= 65) && (chInt <= 90)) || ((chInt >= 97) && (chInt <= 122)) ) {
+        this.parseCommand(ch);
+      } else {
+        this.i = this.i + 1;
+      }
+    };
+    this.calculateBounds();
+  };
+  skipWhitespace () {
+    while (this.i < this.__len) {
+      const ch = this.pathData.charCodeAt(this.i );
+      const chInt = ch;
+      if ( ((((chInt == 32) || (chInt == 9)) || (chInt == 10)) || (chInt == 13)) || (chInt == 44) ) {
+        this.i = this.i + 1;
+      } else {
+        break;
+      }
+    };
+  };
+  parseNumber () {
+    this.skipWhitespace();
+    const start = this.i;
+    const ch = this.pathData.charCodeAt(this.i );
+    const chInt = ch;
+    if ( (chInt == 45) || (chInt == 43) ) {
+      this.i = this.i + 1;
+    }
+    while (this.i < this.__len) {
+      const ch2 = this.pathData.charCodeAt(this.i );
+      const chInt2 = ch2;
+      if ( (chInt2 >= 48) && (chInt2 <= 57) ) {
+        this.i = this.i + 1;
+      } else {
+        break;
+      }
+    };
+    if ( this.i < this.__len ) {
+      const ch3 = this.pathData.charCodeAt(this.i );
+      const chInt3 = ch3;
+      if ( chInt3 == 46 ) {
+        this.i = this.i + 1;
+        while (this.i < this.__len) {
+          const ch4 = this.pathData.charCodeAt(this.i );
+          const chInt4 = ch4;
+          if ( (chInt4 >= 48) && (chInt4 <= 57) ) {
+            this.i = this.i + 1;
+          } else {
+            break;
+          }
+        };
+      }
+    }
+    if ( this.i < this.__len ) {
+      const ch5 = this.pathData.charCodeAt(this.i );
+      const chInt5 = ch5;
+      if ( (chInt5 == 101) || (chInt5 == 69) ) {
+        this.i = this.i + 1;
+        if ( this.i < this.__len ) {
+          const ch6 = this.pathData.charCodeAt(this.i );
+          const chInt6 = ch6;
+          if ( (chInt6 == 45) || (chInt6 == 43) ) {
+            this.i = this.i + 1;
+          }
+        }
+        while (this.i < this.__len) {
+          const ch7 = this.pathData.charCodeAt(this.i );
+          const chInt7 = ch7;
+          if ( (chInt7 >= 48) && (chInt7 <= 57) ) {
+            this.i = this.i + 1;
+          } else {
+            break;
+          }
+        };
+      }
+    }
+    const numStr = this.pathData.substring(start, this.i );
+    const result = (isNaN( parseFloat(numStr) ) ? undefined : parseFloat(numStr));
+    return result;
+  };
+  parseCommand (cmd) {
+    const cmdInt = cmd;
+    const cmdStr = String.fromCharCode(cmdInt);
+    this.i = this.i + 1;
+    if ( (cmdInt == 77) || (cmdInt == 109) ) {
+      let x = this.parseNumber();
+      let y = this.parseNumber();
+      if ( cmdInt == 109 ) {
+        x = this.currentX + x;
+        y = this.currentY + y;
+      }
+      const pathCmd = new PathCommand();
+      pathCmd.type = "M";
+      pathCmd.x = x;
+      pathCmd.y = y;
+      this.commands.push(pathCmd);
+      this.currentX = x;
+      this.currentY = y;
+      this.startX = x;
+      this.startY = y;
+      return;
+    }
+    if ( (cmdInt == 76) || (cmdInt == 108) ) {
+      let x_1 = this.parseNumber();
+      let y_1 = this.parseNumber();
+      if ( cmdInt == 108 ) {
+        x_1 = this.currentX + x_1;
+        y_1 = this.currentY + y_1;
+      }
+      const pathCmd_1 = new PathCommand();
+      pathCmd_1.type = "L";
+      pathCmd_1.x = x_1;
+      pathCmd_1.y = y_1;
+      this.commands.push(pathCmd_1);
+      this.currentX = x_1;
+      this.currentY = y_1;
+      return;
+    }
+    if ( (cmdInt == 72) || (cmdInt == 104) ) {
+      let x_2 = this.parseNumber();
+      if ( cmdInt == 104 ) {
+        x_2 = this.currentX + x_2;
+      }
+      const pathCmd_2 = new PathCommand();
+      pathCmd_2.type = "L";
+      pathCmd_2.x = x_2;
+      pathCmd_2.y = this.currentY;
+      this.commands.push(pathCmd_2);
+      this.currentX = x_2;
+      return;
+    }
+    if ( (cmdInt == 86) || (cmdInt == 118) ) {
+      let y_2 = this.parseNumber();
+      if ( cmdInt == 118 ) {
+        y_2 = this.currentY + y_2;
+      }
+      const pathCmd_3 = new PathCommand();
+      pathCmd_3.type = "L";
+      pathCmd_3.x = this.currentX;
+      pathCmd_3.y = y_2;
+      this.commands.push(pathCmd_3);
+      this.currentY = y_2;
+      return;
+    }
+    if ( (cmdInt == 67) || (cmdInt == 99) ) {
+      let x1 = this.parseNumber();
+      let y1 = this.parseNumber();
+      let x2 = this.parseNumber();
+      let y2 = this.parseNumber();
+      let x_3 = this.parseNumber();
+      let y_3 = this.parseNumber();
+      if ( cmdInt == 99 ) {
+        x1 = this.currentX + x1;
+        y1 = this.currentY + y1;
+        x2 = this.currentX + x2;
+        y2 = this.currentY + y2;
+        x_3 = this.currentX + x_3;
+        y_3 = this.currentY + y_3;
+      }
+      const pathCmd_4 = new PathCommand();
+      pathCmd_4.type = "C";
+      pathCmd_4.x1 = x1;
+      pathCmd_4.y1 = y1;
+      pathCmd_4.x2 = x2;
+      pathCmd_4.y2 = y2;
+      pathCmd_4.x = x_3;
+      pathCmd_4.y = y_3;
+      this.commands.push(pathCmd_4);
+      this.currentX = x_3;
+      this.currentY = y_3;
+      return;
+    }
+    if ( (cmdInt == 81) || (cmdInt == 113) ) {
+      let x1_1 = this.parseNumber();
+      let y1_1 = this.parseNumber();
+      let x_4 = this.parseNumber();
+      let y_4 = this.parseNumber();
+      if ( cmdInt == 113 ) {
+        x1_1 = this.currentX + x1_1;
+        y1_1 = this.currentY + y1_1;
+        x_4 = this.currentX + x_4;
+        y_4 = this.currentY + y_4;
+      }
+      const pathCmd_5 = new PathCommand();
+      pathCmd_5.type = "Q";
+      pathCmd_5.x1 = x1_1;
+      pathCmd_5.y1 = y1_1;
+      pathCmd_5.x = x_4;
+      pathCmd_5.y = y_4;
+      this.commands.push(pathCmd_5);
+      this.currentX = x_4;
+      this.currentY = y_4;
+      return;
+    }
+    if ( (cmdInt == 90) || (cmdInt == 122) ) {
+      const pathCmd_6 = new PathCommand();
+      pathCmd_6.type = "Z";
+      this.commands.push(pathCmd_6);
+      this.currentX = this.startX;
+      this.currentY = this.startY;
+      return;
+    }
+  };
+  calculateBounds () {
+    if ( (this.commands.length) == 0 ) {
+      return;
+    }
+    let minX = 999999.0;
+    let minY = 999999.0;
+    let maxX = -999999.0;
+    let maxY = -999999.0;
+    let i_1 = 0;
+    while (i_1 < (this.commands.length)) {
+      const cmd = this.commands[i_1];
+      if ( (cmd.type == "M") || (cmd.type == "L") ) {
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      if ( cmd.type == "C" ) {
+        if ( cmd.x1 < minX ) {
+          minX = cmd.x1;
+        }
+        if ( cmd.x1 > maxX ) {
+          maxX = cmd.x1;
+        }
+        if ( cmd.y1 < minY ) {
+          minY = cmd.y1;
+        }
+        if ( cmd.y1 > maxY ) {
+          maxY = cmd.y1;
+        }
+        if ( cmd.x2 < minX ) {
+          minX = cmd.x2;
+        }
+        if ( cmd.x2 > maxX ) {
+          maxX = cmd.x2;
+        }
+        if ( cmd.y2 < minY ) {
+          minY = cmd.y2;
+        }
+        if ( cmd.y2 > maxY ) {
+          maxY = cmd.y2;
+        }
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      if ( cmd.type == "Q" ) {
+        if ( cmd.x1 < minX ) {
+          minX = cmd.x1;
+        }
+        if ( cmd.x1 > maxX ) {
+          maxX = cmd.x1;
+        }
+        if ( cmd.y1 < minY ) {
+          minY = cmd.y1;
+        }
+        if ( cmd.y1 > maxY ) {
+          maxY = cmd.y1;
+        }
+        if ( cmd.x < minX ) {
+          minX = cmd.x;
+        }
+        if ( cmd.x > maxX ) {
+          maxX = cmd.x;
+        }
+        if ( cmd.y < minY ) {
+          minY = cmd.y;
+        }
+        if ( cmd.y > maxY ) {
+          maxY = cmd.y;
+        }
+      }
+      i_1 = i_1 + 1;
+    };
+    this.bounds.minX = minX;
+    this.bounds.minY = minY;
+    this.bounds.maxX = maxX;
+    this.bounds.maxY = maxY;
+    this.bounds.width = maxX - minX;
+    this.bounds.height = maxY - minY;
+  };
+  getBounds () {
+    const result = this.bounds;
+    return result;
+  };
+  getCommands () {
+    return this.commands;
+  };
+  getScaledCommands (targetWidth, targetHeight) {
+    let scaleX = 1.0;
+    let scaleY = 1.0;
+    if ( this.bounds.width > 0.0 ) {
+      scaleX = targetWidth / this.bounds.width;
+    }
+    if ( this.bounds.height > 0.0 ) {
+      scaleY = targetHeight / this.bounds.height;
+    }
+    let scaled = [];
+    let i_1 = 0;
+    while (i_1 < (this.commands.length)) {
+      const cmd = this.commands[i_1];
+      const newCmd = new PathCommand();
+      newCmd.type = cmd.type;
+      if ( (cmd.type == "M") || (cmd.type == "L") ) {
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      if ( cmd.type == "C" ) {
+        newCmd.x1 = (cmd.x1 - this.bounds.minX) * scaleX;
+        newCmd.y1 = (cmd.y1 - this.bounds.minY) * scaleY;
+        newCmd.x2 = (cmd.x2 - this.bounds.minX) * scaleX;
+        newCmd.y2 = (cmd.y2 - this.bounds.minY) * scaleY;
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      if ( cmd.type == "Q" ) {
+        newCmd.x1 = (cmd.x1 - this.bounds.minX) * scaleX;
+        newCmd.y1 = (cmd.y1 - this.bounds.minY) * scaleY;
+        newCmd.x = (cmd.x - this.bounds.minX) * scaleX;
+        newCmd.y = (cmd.y - this.bounds.minY) * scaleY;
+      }
+      scaled.push(newCmd);
+      i_1 = i_1 + 1;
+    };
+    return scaled;
+  };
+}
 class TTFTableRecord  {
   constructor() {
     this.tag = "";
@@ -8139,6 +8728,9 @@ class TrueTypeFont  {
     if ( lastSlash >= 0 ) {
       dirPath = path.substring(0, lastSlash );
       fileName = path.substring((lastSlash + 1), (path.length) );
+    }
+    if ( (require("fs").existsSync(dirPath + "/" + fileName )) == false ) {
+      return false;
     }
     this.fontData = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
     if ( (this.fontData.byteLength) == 0 ) {
@@ -8502,30 +9094,79 @@ class FontManager  {
     this.fonts = [];
     this.fontNames = [];
     this.fontsDirectory = "./Fonts";
+    this.fontsDirectories = [];
     this.defaultFont = new TrueTypeFont();
     this.hasDefaultFont = false;
     let f = [];
     this.fonts = f;
     let n = [];
     this.fontNames = n;
+    let fd = [];
+    this.fontsDirectories = fd;
   }
   setFontsDirectory (path) {
     this.fontsDirectory = path;
   };
+  getFontCount () {
+    return this.fonts.length;
+  };
+  addFontsDirectory (path) {
+    this.fontsDirectories.push(path);
+  };
+  setFontsDirectories (paths) {
+    let start = 0;
+    let i = 0;
+    const __len = paths.length;
+    while (i <= __len) {
+      let ch = "";
+      if ( i < __len ) {
+        ch = paths.substring(i, (i + 1) );
+      }
+      if ( (ch == ";") || (i == __len) ) {
+        if ( i > start ) {
+          const part = paths.substring(start, i );
+          this.fontsDirectories.push(part);
+          console.log("FontManager: Added fonts directory: " + part);
+        }
+        start = i + 1;
+      }
+      i = i + 1;
+    };
+    if ( (this.fontsDirectories.length) > 0 ) {
+      this.fontsDirectory = this.fontsDirectories[0];
+    }
+  };
   loadFont (relativePath) {
-    const fullPath = (this.fontsDirectory + "/") + relativePath;
-    const font = new TrueTypeFont();
-    if ( font.loadFromFile(fullPath) == false ) {
-      console.log("FontManager: Failed to load font: " + fullPath);
+    let i = 0;
+    while (i < (this.fontsDirectories.length)) {
+      const dir = this.fontsDirectories[i];
+      const fullPath = (dir + "/") + relativePath;
+      const font = new TrueTypeFont();
+      if ( font.loadFromFile(fullPath) == true ) {
+        this.fonts.push(font);
+        this.fontNames.push(font.fontFamily);
+        if ( this.hasDefaultFont == false ) {
+          this.defaultFont = font;
+          this.hasDefaultFont = true;
+        }
+        console.log((((("FontManager: Loaded font '" + font.fontFamily) + "' (") + font.fontStyle) + ") from ") + fullPath);
+        return true;
+      }
+      i = i + 1;
+    };
+    const fullPath_1 = (this.fontsDirectory + "/") + relativePath;
+    const font_1 = new TrueTypeFont();
+    if ( font_1.loadFromFile(fullPath_1) == false ) {
+      console.log("FontManager: Failed to load font: " + relativePath);
       return false;
     }
-    this.fonts.push(font);
-    this.fontNames.push(font.fontFamily);
+    this.fonts.push(font_1);
+    this.fontNames.push(font_1.fontFamily);
     if ( this.hasDefaultFont == false ) {
-      this.defaultFont = font;
+      this.defaultFont = font_1;
       this.hasDefaultFont = true;
     }
-    console.log(((("FontManager: Loaded font '" + font.fontFamily) + "' (") + font.fontStyle) + ")");
+    console.log(((("FontManager: Loaded font '" + font_1.fontFamily) + "' (") + font_1.fontStyle) + ")");
     return true;
   };
   loadFontFamily (familyDir) {
@@ -8732,19 +9373,19 @@ class BitReader  {
 }
 class HuffmanTable  {
   constructor() {
-    this.bits = [];
+    this.bits = new Int32Array(16);
     this.values = [];
-    this.maxCode = [];
-    this.minCode = [];
-    this.valPtr = [];
+    this.maxCode = new Int32Array(16);
+    this.minCode = new Int32Array(16);
+    this.valPtr = new Int32Array(16);
     this.tableClass = 0;
     this.tableId = 0;
     let i = 0;
     while (i < 16) {
-      this.bits.push(0);
-      this.maxCode.push(-1);
-      this.minCode.push(0);
-      this.valPtr.push(0);
+      this.bits[i] = 0;
+      this.maxCode[i] = -1;
+      this.minCode[i] = 0;
+      this.valPtr[i] = 0;
       i = i + 1;
     };
   }
@@ -8789,6 +9430,17 @@ class HuffmanTable  {
     console.log("Huffman decode error: code not found");
     return 0;
   };
+  resetArrays () {
+    let i = 0;
+    while (i < 16) {
+      this.bits[i] = 0;
+      this.maxCode[i] = -1;
+      this.minCode[i] = 0;
+      this.valPtr[i] = 0;
+      i = i + 1;
+    };
+    this.values.length = 0;
+  };
 }
 class HuffmanDecoder  {
   constructor() {
@@ -8822,25 +9474,14 @@ class HuffmanDecoder  {
       }
       table.tableClass = tableClass;
       table.tableId = tableId;
-      table.bits.length = 0;
+      table.resetArrays();
       let totalSymbols = 0;
       let i = 0;
       while (i < 16) {
         const count = data._view.getUint8(pos);
-        table.bits.push(count);
+        table.bits[i] = count;
         totalSymbols = totalSymbols + count;
         pos = pos + 1;
-        i = i + 1;
-      };
-      table.values.length = 0;
-      table.maxCode.length = 0;
-      table.minCode.length = 0;
-      table.valPtr.length = 0;
-      i = 0;
-      while (i < 16) {
-        table.maxCode.push(-1);
-        table.minCode.push(0);
-        table.valPtr.push(0);
         i = i + 1;
       };
       i = 0;
@@ -8860,148 +9501,144 @@ class HuffmanDecoder  {
 }
 class IDCT  {
   constructor() {
-    this.cosTable = [];
-    this.zigzagMap = [];
-    this.cosTable.push(1024);
-    this.cosTable.push(1004);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(724);
-    this.cosTable.push(569);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(1024);
-    this.cosTable.push(851);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.cosTable.push(-724);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(1024);
-    this.cosTable.push(569);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(200);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(1024);
-    this.cosTable.push(200);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(724);
-    this.cosTable.push(851);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-200);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(724);
-    this.cosTable.push(-851);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-569);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(-200);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(1024);
-    this.cosTable.push(-851);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(-724);
-    this.cosTable.push(1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(1024);
-    this.cosTable.push(-1004);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(724);
-    this.cosTable.push(-569);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.zigzagMap.push(0);
-    this.zigzagMap.push(1);
-    this.zigzagMap.push(8);
-    this.zigzagMap.push(16);
-    this.zigzagMap.push(9);
-    this.zigzagMap.push(2);
-    this.zigzagMap.push(3);
-    this.zigzagMap.push(10);
-    this.zigzagMap.push(17);
-    this.zigzagMap.push(24);
-    this.zigzagMap.push(32);
-    this.zigzagMap.push(25);
-    this.zigzagMap.push(18);
-    this.zigzagMap.push(11);
-    this.zigzagMap.push(4);
-    this.zigzagMap.push(5);
-    this.zigzagMap.push(12);
-    this.zigzagMap.push(19);
-    this.zigzagMap.push(26);
-    this.zigzagMap.push(33);
-    this.zigzagMap.push(40);
-    this.zigzagMap.push(48);
-    this.zigzagMap.push(41);
-    this.zigzagMap.push(34);
-    this.zigzagMap.push(27);
-    this.zigzagMap.push(20);
-    this.zigzagMap.push(13);
-    this.zigzagMap.push(6);
-    this.zigzagMap.push(7);
-    this.zigzagMap.push(14);
-    this.zigzagMap.push(21);
-    this.zigzagMap.push(28);
-    this.zigzagMap.push(35);
-    this.zigzagMap.push(42);
-    this.zigzagMap.push(49);
-    this.zigzagMap.push(56);
-    this.zigzagMap.push(57);
-    this.zigzagMap.push(50);
-    this.zigzagMap.push(43);
-    this.zigzagMap.push(36);
-    this.zigzagMap.push(29);
-    this.zigzagMap.push(22);
-    this.zigzagMap.push(15);
-    this.zigzagMap.push(23);
-    this.zigzagMap.push(30);
-    this.zigzagMap.push(37);
-    this.zigzagMap.push(44);
-    this.zigzagMap.push(51);
-    this.zigzagMap.push(58);
-    this.zigzagMap.push(59);
-    this.zigzagMap.push(52);
-    this.zigzagMap.push(45);
-    this.zigzagMap.push(38);
-    this.zigzagMap.push(31);
-    this.zigzagMap.push(39);
-    this.zigzagMap.push(46);
-    this.zigzagMap.push(53);
-    this.zigzagMap.push(60);
-    this.zigzagMap.push(61);
-    this.zigzagMap.push(54);
-    this.zigzagMap.push(47);
-    this.zigzagMap.push(55);
-    this.zigzagMap.push(62);
-    this.zigzagMap.push(63);
+    this.cosTable = new Int32Array(64);
+    this.zigzagMap = new Int32Array(64);
+    this.cosTable[0] = 1024;
+    this.cosTable[1] = 1004;
+    this.cosTable[2] = 946;
+    this.cosTable[3] = 851;
+    this.cosTable[4] = 724;
+    this.cosTable[5] = 569;
+    this.cosTable[6] = 392;
+    this.cosTable[7] = 200;
+    this.cosTable[8] = 1024;
+    this.cosTable[9] = 851;
+    this.cosTable[10] = 392;
+    this.cosTable[11] = -200;
+    this.cosTable[12] = -724;
+    this.cosTable[13] = -1004;
+    this.cosTable[14] = -946;
+    this.cosTable[15] = -569;
+    this.cosTable[16] = 1024;
+    this.cosTable[17] = 569;
+    this.cosTable[18] = -392;
+    this.cosTable[19] = -1004;
+    this.cosTable[20] = -724;
+    this.cosTable[21] = 200;
+    this.cosTable[22] = 946;
+    this.cosTable[23] = 851;
+    this.cosTable[24] = 1024;
+    this.cosTable[25] = 200;
+    this.cosTable[26] = -946;
+    this.cosTable[27] = -569;
+    this.cosTable[28] = 724;
+    this.cosTable[29] = 851;
+    this.cosTable[30] = -392;
+    this.cosTable[31] = -1004;
+    this.cosTable[32] = 1024;
+    this.cosTable[33] = -200;
+    this.cosTable[34] = -946;
+    this.cosTable[35] = 569;
+    this.cosTable[36] = 724;
+    this.cosTable[37] = -851;
+    this.cosTable[38] = -392;
+    this.cosTable[39] = 1004;
+    this.cosTable[40] = 1024;
+    this.cosTable[41] = -569;
+    this.cosTable[42] = -392;
+    this.cosTable[43] = 1004;
+    this.cosTable[44] = -724;
+    this.cosTable[45] = -200;
+    this.cosTable[46] = 946;
+    this.cosTable[47] = -851;
+    this.cosTable[48] = 1024;
+    this.cosTable[49] = -851;
+    this.cosTable[50] = 392;
+    this.cosTable[51] = 200;
+    this.cosTable[52] = -724;
+    this.cosTable[53] = 1004;
+    this.cosTable[54] = -946;
+    this.cosTable[55] = 569;
+    this.cosTable[56] = 1024;
+    this.cosTable[57] = -1004;
+    this.cosTable[58] = 946;
+    this.cosTable[59] = -851;
+    this.cosTable[60] = 724;
+    this.cosTable[61] = -569;
+    this.cosTable[62] = 392;
+    this.cosTable[63] = -200;
+    this.zigzagMap[0] = 0;
+    this.zigzagMap[1] = 1;
+    this.zigzagMap[2] = 8;
+    this.zigzagMap[3] = 16;
+    this.zigzagMap[4] = 9;
+    this.zigzagMap[5] = 2;
+    this.zigzagMap[6] = 3;
+    this.zigzagMap[7] = 10;
+    this.zigzagMap[8] = 17;
+    this.zigzagMap[9] = 24;
+    this.zigzagMap[10] = 32;
+    this.zigzagMap[11] = 25;
+    this.zigzagMap[12] = 18;
+    this.zigzagMap[13] = 11;
+    this.zigzagMap[14] = 4;
+    this.zigzagMap[15] = 5;
+    this.zigzagMap[16] = 12;
+    this.zigzagMap[17] = 19;
+    this.zigzagMap[18] = 26;
+    this.zigzagMap[19] = 33;
+    this.zigzagMap[20] = 40;
+    this.zigzagMap[21] = 48;
+    this.zigzagMap[22] = 41;
+    this.zigzagMap[23] = 34;
+    this.zigzagMap[24] = 27;
+    this.zigzagMap[25] = 20;
+    this.zigzagMap[26] = 13;
+    this.zigzagMap[27] = 6;
+    this.zigzagMap[28] = 7;
+    this.zigzagMap[29] = 14;
+    this.zigzagMap[30] = 21;
+    this.zigzagMap[31] = 28;
+    this.zigzagMap[32] = 35;
+    this.zigzagMap[33] = 42;
+    this.zigzagMap[34] = 49;
+    this.zigzagMap[35] = 56;
+    this.zigzagMap[36] = 57;
+    this.zigzagMap[37] = 50;
+    this.zigzagMap[38] = 43;
+    this.zigzagMap[39] = 36;
+    this.zigzagMap[40] = 29;
+    this.zigzagMap[41] = 22;
+    this.zigzagMap[42] = 15;
+    this.zigzagMap[43] = 23;
+    this.zigzagMap[44] = 30;
+    this.zigzagMap[45] = 37;
+    this.zigzagMap[46] = 44;
+    this.zigzagMap[47] = 51;
+    this.zigzagMap[48] = 58;
+    this.zigzagMap[49] = 59;
+    this.zigzagMap[50] = 52;
+    this.zigzagMap[51] = 45;
+    this.zigzagMap[52] = 38;
+    this.zigzagMap[53] = 31;
+    this.zigzagMap[54] = 39;
+    this.zigzagMap[55] = 46;
+    this.zigzagMap[56] = 53;
+    this.zigzagMap[57] = 60;
+    this.zigzagMap[58] = 61;
+    this.zigzagMap[59] = 54;
+    this.zigzagMap[60] = 47;
+    this.zigzagMap[61] = 55;
+    this.zigzagMap[62] = 62;
+    this.zigzagMap[63] = 63;
   }
   dezigzag (zigzag) {
-    let block = [];
+    const block = new Int32Array(64);
     let i = 0;
     while (i < 64) {
-      block.push(0);
-      i = i + 1;
-    };
-    i = 0;
-    while (i < 64) {
       const pos = this.zigzagMap[i];
-      block[pos] = zigzag[i];
+      const val = zigzag[i];
+      block[pos] = val;
       i = i + 1;
     };
     return block;
@@ -9028,12 +9665,7 @@ class IDCT  {
     };
   };
   transform (block, output) {
-    let temp = [];
-    let i = 0;
-    while (i < 64) {
-      temp.push(0);
-      i = i + 1;
-    };
+    const temp = new Int32Array(64);
     let row = 0;
     while (row < 8) {
       const rowStart = row * 8;
@@ -9045,7 +9677,7 @@ class IDCT  {
       this.idct1d(temp, col, 8, output, col, 8);
       col = col + 1;
     };
-    i = 0;
+    let i = 0;
     while (i < 64) {
       let val = (output[i]) + 128;
       if ( val < 0 ) {
@@ -10039,12 +10671,8 @@ class JPEGDecoder  {
     return true;
   };
   decodeBlock (reader, comp, quantTable) {
-    let coeffs = [];
-    let i = 0;
-    while (i < 64) {
-      coeffs.push(0);
-      i = i + 1;
-    };
+    const coeffs = new Int32Array(64);
+    coeffs.fill(0, 0, 64);
     const dcTable = this.huffman.getDCTable(comp.dcTableId);
     const dcCategory = dcTable.decode(reader);
     const dcDiff = reader.receiveExtend(dcCategory);
@@ -10133,16 +10761,12 @@ class JPEGDecoder  {
             let blockH = 0;
             while (blockH < comp_1.hSamp) {
               const coeffs = this.decodeBlock(reader, comp_1, quantTable);
-              let blockPixels = [];
-              let bi = 0;
-              while (bi < 64) {
-                blockPixels.push(0);
-                bi = bi + 1;
-              };
+              const blockPixels = new Int32Array(64);
+              blockPixels.fill(0, 0, 64);
               const tempBlock = this.idct.dezigzag(coeffs);
               this.idct.transform(tempBlock, blockPixels);
               if ( compIdx == 0 ) {
-                bi = 0;
+                let bi = 0;
                 while (bi < 64) {
                   yBlocksData.push(blockPixels[bi]);
                   bi = bi + 1;
@@ -10151,18 +10775,18 @@ class JPEGDecoder  {
               }
               if ( compIdx == 1 ) {
                 cbBlock.length = 0;
-                bi = 0;
-                while (bi < 64) {
-                  cbBlock.push(blockPixels[bi]);
-                  bi = bi + 1;
+                let bi_1 = 0;
+                while (bi_1 < 64) {
+                  cbBlock.push(blockPixels[bi_1]);
+                  bi_1 = bi_1 + 1;
                 };
               }
               if ( compIdx == 2 ) {
                 crBlock.length = 0;
-                bi = 0;
-                while (bi < 64) {
-                  crBlock.push(blockPixels[bi]);
-                  bi = bi + 1;
+                let bi_2 = 0;
+                while (bi_2 < 64) {
+                  crBlock.push(blockPixels[bi_2]);
+                  bi_2 = bi_2 + 1;
                 };
               }
               blockH = blockH + 1;
@@ -10364,136 +10988,136 @@ class JPEGDecoder  {
 }
 class FDCT  {
   constructor() {
-    this.cosTable = [];
-    this.zigzagOrder = [];
-    this.cosTable.push(1024);
-    this.cosTable.push(1004);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(724);
-    this.cosTable.push(569);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(1024);
-    this.cosTable.push(851);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.cosTable.push(-724);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(1024);
-    this.cosTable.push(569);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(200);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(1024);
-    this.cosTable.push(200);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(724);
-    this.cosTable.push(851);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-200);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(724);
-    this.cosTable.push(-851);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-569);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(-200);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(1024);
-    this.cosTable.push(-851);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(-724);
-    this.cosTable.push(1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(1024);
-    this.cosTable.push(-1004);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(724);
-    this.cosTable.push(-569);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.zigzagOrder.push(0);
-    this.zigzagOrder.push(1);
-    this.zigzagOrder.push(8);
-    this.zigzagOrder.push(16);
-    this.zigzagOrder.push(9);
-    this.zigzagOrder.push(2);
-    this.zigzagOrder.push(3);
-    this.zigzagOrder.push(10);
-    this.zigzagOrder.push(17);
-    this.zigzagOrder.push(24);
-    this.zigzagOrder.push(32);
-    this.zigzagOrder.push(25);
-    this.zigzagOrder.push(18);
-    this.zigzagOrder.push(11);
-    this.zigzagOrder.push(4);
-    this.zigzagOrder.push(5);
-    this.zigzagOrder.push(12);
-    this.zigzagOrder.push(19);
-    this.zigzagOrder.push(26);
-    this.zigzagOrder.push(33);
-    this.zigzagOrder.push(40);
-    this.zigzagOrder.push(48);
-    this.zigzagOrder.push(41);
-    this.zigzagOrder.push(34);
-    this.zigzagOrder.push(27);
-    this.zigzagOrder.push(20);
-    this.zigzagOrder.push(13);
-    this.zigzagOrder.push(6);
-    this.zigzagOrder.push(7);
-    this.zigzagOrder.push(14);
-    this.zigzagOrder.push(21);
-    this.zigzagOrder.push(28);
-    this.zigzagOrder.push(35);
-    this.zigzagOrder.push(42);
-    this.zigzagOrder.push(49);
-    this.zigzagOrder.push(56);
-    this.zigzagOrder.push(57);
-    this.zigzagOrder.push(50);
-    this.zigzagOrder.push(43);
-    this.zigzagOrder.push(36);
-    this.zigzagOrder.push(29);
-    this.zigzagOrder.push(22);
-    this.zigzagOrder.push(15);
-    this.zigzagOrder.push(23);
-    this.zigzagOrder.push(30);
-    this.zigzagOrder.push(37);
-    this.zigzagOrder.push(44);
-    this.zigzagOrder.push(51);
-    this.zigzagOrder.push(58);
-    this.zigzagOrder.push(59);
-    this.zigzagOrder.push(52);
-    this.zigzagOrder.push(45);
-    this.zigzagOrder.push(38);
-    this.zigzagOrder.push(31);
-    this.zigzagOrder.push(39);
-    this.zigzagOrder.push(46);
-    this.zigzagOrder.push(53);
-    this.zigzagOrder.push(60);
-    this.zigzagOrder.push(61);
-    this.zigzagOrder.push(54);
-    this.zigzagOrder.push(47);
-    this.zigzagOrder.push(55);
-    this.zigzagOrder.push(62);
-    this.zigzagOrder.push(63);
+    this.cosTable = new Int32Array(64);
+    this.zigzagOrder = new Int32Array(64);
+    this.cosTable[0] = 1024;
+    this.cosTable[1] = 1004;
+    this.cosTable[2] = 946;
+    this.cosTable[3] = 851;
+    this.cosTable[4] = 724;
+    this.cosTable[5] = 569;
+    this.cosTable[6] = 392;
+    this.cosTable[7] = 200;
+    this.cosTable[8] = 1024;
+    this.cosTable[9] = 851;
+    this.cosTable[10] = 392;
+    this.cosTable[11] = -200;
+    this.cosTable[12] = -724;
+    this.cosTable[13] = -1004;
+    this.cosTable[14] = -946;
+    this.cosTable[15] = -569;
+    this.cosTable[16] = 1024;
+    this.cosTable[17] = 569;
+    this.cosTable[18] = -392;
+    this.cosTable[19] = -1004;
+    this.cosTable[20] = -724;
+    this.cosTable[21] = 200;
+    this.cosTable[22] = 946;
+    this.cosTable[23] = 851;
+    this.cosTable[24] = 1024;
+    this.cosTable[25] = 200;
+    this.cosTable[26] = -946;
+    this.cosTable[27] = -569;
+    this.cosTable[28] = 724;
+    this.cosTable[29] = 851;
+    this.cosTable[30] = -392;
+    this.cosTable[31] = -1004;
+    this.cosTable[32] = 1024;
+    this.cosTable[33] = -200;
+    this.cosTable[34] = -946;
+    this.cosTable[35] = 569;
+    this.cosTable[36] = 724;
+    this.cosTable[37] = -851;
+    this.cosTable[38] = -392;
+    this.cosTable[39] = 1004;
+    this.cosTable[40] = 1024;
+    this.cosTable[41] = -569;
+    this.cosTable[42] = -392;
+    this.cosTable[43] = 1004;
+    this.cosTable[44] = -724;
+    this.cosTable[45] = -200;
+    this.cosTable[46] = 946;
+    this.cosTable[47] = -851;
+    this.cosTable[48] = 1024;
+    this.cosTable[49] = -851;
+    this.cosTable[50] = 392;
+    this.cosTable[51] = 200;
+    this.cosTable[52] = -724;
+    this.cosTable[53] = 1004;
+    this.cosTable[54] = -946;
+    this.cosTable[55] = 569;
+    this.cosTable[56] = 1024;
+    this.cosTable[57] = -1004;
+    this.cosTable[58] = 946;
+    this.cosTable[59] = -851;
+    this.cosTable[60] = 724;
+    this.cosTable[61] = -569;
+    this.cosTable[62] = 392;
+    this.cosTable[63] = -200;
+    this.zigzagOrder[0] = 0;
+    this.zigzagOrder[1] = 1;
+    this.zigzagOrder[2] = 8;
+    this.zigzagOrder[3] = 16;
+    this.zigzagOrder[4] = 9;
+    this.zigzagOrder[5] = 2;
+    this.zigzagOrder[6] = 3;
+    this.zigzagOrder[7] = 10;
+    this.zigzagOrder[8] = 17;
+    this.zigzagOrder[9] = 24;
+    this.zigzagOrder[10] = 32;
+    this.zigzagOrder[11] = 25;
+    this.zigzagOrder[12] = 18;
+    this.zigzagOrder[13] = 11;
+    this.zigzagOrder[14] = 4;
+    this.zigzagOrder[15] = 5;
+    this.zigzagOrder[16] = 12;
+    this.zigzagOrder[17] = 19;
+    this.zigzagOrder[18] = 26;
+    this.zigzagOrder[19] = 33;
+    this.zigzagOrder[20] = 40;
+    this.zigzagOrder[21] = 48;
+    this.zigzagOrder[22] = 41;
+    this.zigzagOrder[23] = 34;
+    this.zigzagOrder[24] = 27;
+    this.zigzagOrder[25] = 20;
+    this.zigzagOrder[26] = 13;
+    this.zigzagOrder[27] = 6;
+    this.zigzagOrder[28] = 7;
+    this.zigzagOrder[29] = 14;
+    this.zigzagOrder[30] = 21;
+    this.zigzagOrder[31] = 28;
+    this.zigzagOrder[32] = 35;
+    this.zigzagOrder[33] = 42;
+    this.zigzagOrder[34] = 49;
+    this.zigzagOrder[35] = 56;
+    this.zigzagOrder[36] = 57;
+    this.zigzagOrder[37] = 50;
+    this.zigzagOrder[38] = 43;
+    this.zigzagOrder[39] = 36;
+    this.zigzagOrder[40] = 29;
+    this.zigzagOrder[41] = 22;
+    this.zigzagOrder[42] = 15;
+    this.zigzagOrder[43] = 23;
+    this.zigzagOrder[44] = 30;
+    this.zigzagOrder[45] = 37;
+    this.zigzagOrder[46] = 44;
+    this.zigzagOrder[47] = 51;
+    this.zigzagOrder[48] = 58;
+    this.zigzagOrder[49] = 59;
+    this.zigzagOrder[50] = 52;
+    this.zigzagOrder[51] = 45;
+    this.zigzagOrder[52] = 38;
+    this.zigzagOrder[53] = 31;
+    this.zigzagOrder[54] = 39;
+    this.zigzagOrder[55] = 46;
+    this.zigzagOrder[56] = 53;
+    this.zigzagOrder[57] = 60;
+    this.zigzagOrder[58] = 61;
+    this.zigzagOrder[59] = 54;
+    this.zigzagOrder[60] = 47;
+    this.zigzagOrder[61] = 55;
+    this.zigzagOrder[62] = 62;
+    this.zigzagOrder[63] = 63;
   }
   dct1d (input, startIdx, stride, output, outIdx, outStride) {
     let u = 0;
@@ -10514,30 +11138,20 @@ class FDCT  {
     };
   };
   transform (pixels) {
-    let shifted = [];
+    const shifted = new Int32Array(64);
     let i = 0;
     while (i < 64) {
-      shifted.push((pixels[i]) - 128);
+      shifted[i] = (pixels[i]) - 128;
       i = i + 1;
     };
-    let temp = [];
-    i = 0;
-    while (i < 64) {
-      temp.push(0);
-      i = i + 1;
-    };
+    const temp = new Int32Array(64);
     let row = 0;
     while (row < 8) {
       const rowStart = row * 8;
       this.dct1d(shifted, rowStart, 1, temp, rowStart, 1);
       row = row + 1;
     };
-    let coeffs = [];
-    i = 0;
-    while (i < 64) {
-      coeffs.push(0);
-      i = i + 1;
-    };
+    const coeffs = new Int32Array(64);
     let col = 0;
     while (col < 8) {
       this.dct1d(temp, col, 8, coeffs, col, 8);
@@ -10546,11 +11160,11 @@ class FDCT  {
     return coeffs;
   };
   zigzag (block) {
-    let zigzagOut = [];
+    const zigzagOut = new Int32Array(64);
     let i = 0;
     while (i < 64) {
       const pos = this.zigzagOrder[i];
-      zigzagOut.push(block[pos]);
+      zigzagOut[i] = block[pos];
       i = i + 1;
     };
     return zigzagOut;
@@ -11270,7 +11884,7 @@ class JPEGEncoder  {
     return value;
   };
   encodeBlock (writer, coeffs, quantTable, dcCodes, dcLengths, acCodes, acLengths, prevDC) {
-    let quantized = [];
+    const quantized = new Int32Array(64);
     let i = 0;
     while (i < 64) {
       const q = quantTable[i];
@@ -11281,7 +11895,7 @@ class JPEGEncoder  {
       } else {
         qVal = Math.floor( ((c - ((q >> 1))) / q));
       }
-      quantized.push(qVal);
+      quantized[i] = qVal;
       i = i + 1;
     };
     const zigzagged = this.fdct.zigzag(quantized);
@@ -11352,7 +11966,8 @@ class JPEGEncoder  {
     crOut.push(cr);
   };
   extractBlock (img, blockX, blockY, channel) {
-    let output = [];
+    const output = new Int32Array(64);
+    let idx = 0;
     let py = 0;
     while (py < 8) {
       let px = 0;
@@ -11370,14 +11985,15 @@ class JPEGEncoder  {
         const cb = (((((0 - (43 * c.r)) - (85 * c.g)) + (128 * c.b)) >> 8)) + 128;
         const cr = (((((128 * c.r) - (107 * c.g)) - (21 * c.b)) >> 8)) + 128;
         if ( channel == 0 ) {
-          output.push(y);
+          output[idx] = y;
         }
         if ( channel == 1 ) {
-          output.push(cb);
+          output[idx] = cb;
         }
         if ( channel == 2 ) {
-          output.push(cr);
+          output[idx] = cr;
         }
+        idx = idx + 1;
         px = px + 1;
       };
       py = py + 1;
@@ -11667,9 +12283,23 @@ class EmbeddedImage  {
     this.src = s;
   }
 }
-class EVGPDFRenderer  extends EVGImageMeasurer {
+class PDFImageMeasurer  extends EVGImageMeasurer {
   constructor() {
     super()
+  }
+  setRenderer (r) {
+    this.renderer = r;
+  };
+  getImageDimensions (src) {
+    if ( (typeof(this.renderer) !== "undefined" && this.renderer != null )  ) {
+      return ((this.renderer)).loadImageDimensions(src);
+    }
+    const dims = new EVGImageDimensions();
+    return dims;
+  };
+}
+class EVGPDFRenderer  {
+  constructor() {
     this.pageWidth = 595.0;
     this.pageHeight = 842.0;
     this.nextObjNum = 1;
@@ -11687,11 +12317,14 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.jpegEncoder = new JPEGEncoder();
     this.metadataParser = new JPEGMetadataParser();
     this.baseDir = "./";
+    this.assetPaths = [];
     this.maxImageWidth = 800;
     this.maxImageHeight = 800;
     this.jpegQuality = 75;
     this.imageDimensionsCache = [];
     this.imageDimensionsCacheKeys = [];
+    this.foundSections = [];
+    this.foundPages = [];
     const w = new PDFWriter();
     this.writer = w;
     const lay = new EVGLayout();
@@ -11710,8 +12343,20 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.imageDimensionsCache = idc;
     let idck = [];
     this.imageDimensionsCacheKeys = idck;
-    this.layout.setImageMeasurer(this);
+    let ap = [];
+    this.assetPaths = ap;
+    let fs = [];
+    this.foundSections = fs;
+    let fp = [];
+    this.foundPages = fp;
+    const imgMeasurer = new PDFImageMeasurer();
+    this.imageMeasurer = imgMeasurer;
   }
+  init (selfRc) {
+    const imgM = this.imageMeasurer;
+    imgM.setRenderer(selfRc);
+    this.layout.setImageMeasurer(imgM);
+  };
   setPageSize (width, height) {
     this.pageWidth = width;
     this.pageHeight = height;
@@ -11719,6 +12364,37 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
   };
   setBaseDir (dir) {
     this.baseDir = dir;
+  };
+  setAssetPaths (paths) {
+    let start = 0;
+    let i = 0;
+    const __len = paths.length;
+    while (i <= __len) {
+      let ch = "";
+      if ( i < __len ) {
+        ch = paths.substring(i, (i + 1) );
+      }
+      if ( (ch == ";") || (i == __len) ) {
+        if ( i > start ) {
+          const part = paths.substring(start, i );
+          this.assetPaths.push(part);
+          console.log("EVGPDFRenderer: Added asset path: " + part);
+        }
+        start = i + 1;
+      }
+      i = i + 1;
+    };
+  };
+  resolveImagePath (src) {
+    let imgSrc = src;
+    if ( (src.length) > 2 ) {
+      const prefix = src.substring(0, 2 );
+      if ( prefix == "./" ) {
+        imgSrc = src.substring(2, (src.length) );
+      }
+    }
+    const fullPath = this.baseDir + imgSrc;
+    return fullPath;
   };
   setMeasurer (m) {
     this.measurer = m;
@@ -11731,7 +12407,7 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.layout.debug = enabled;
     this.debug = enabled;
   };
-  getImageDimensions (src) {
+  loadImageDimensions (src) {
     let i = 0;
     while (i < (this.imageDimensionsCacheKeys.length)) {
       const key = this.imageDimensionsCacheKeys[i];
@@ -11801,25 +12477,25 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.layout.layout(root);
     return this.renderToPDF(root);
   };
-  findPageElements (el, pages) {
+  findPageElementsRecursive (el) {
     if ( el.tagName == "page" ) {
-      pages.push(el);
+      this.foundPages.push(el);
     }
     let i = 0;
     const childCount = el.getChildCount();
     while (i < childCount) {
       const child = el.getChild(i);
-      this.findPageElements(child, pages);
+      this.findPageElementsRecursive(child);
       i = i + 1;
     };
   };
-  findSectionElements (el, sections) {
+  findSectionElementsRecursive (el) {
     let i = 0;
     const childCount = el.getChildCount();
     while (i < childCount) {
       const child = el.getChild(i);
       if ( child.tagName == "section" ) {
-        sections.push(child);
+        this.foundSections.push(child);
       }
       i = i + 1;
     };
@@ -11850,6 +12526,15 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.usedFontNames.length = 0;
     this.embeddedFonts.length = 0;
     this.embeddedImages.length = 0;
+    if ( root.imageQuality > 0 ) {
+      this.jpegQuality = root.imageQuality;
+      console.log("Image quality: " + ((this.jpegQuality.toString())));
+    }
+    if ( root.maxImageSize > 0 ) {
+      this.maxImageWidth = root.maxImageSize;
+      this.maxImageHeight = root.maxImageSize;
+      console.log(("Max image size: " + ((this.maxImageWidth.toString()))) + "px");
+    }
     pdf.writeString("%PDF-1.5\n");
     pdf.writeByte(37);
     pdf.writeByte(226);
@@ -11858,23 +12543,25 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     pdf.writeByte(211);
     pdf.writeByte(10);
     let objectOffsets = [];
-    let sections = [];
-    this.findSectionElements(root, sections);
+    let emptyArr = [];
+    this.foundSections = emptyArr;
+    this.findSectionElementsRecursive(root);
     let allPages = [];
     let allPageWidths = [];
     let allPageHeights = [];
     let allPageMargins = [];
     let si = 0;
-    while (si < (sections.length)) {
-      const section = sections[si];
+    while (si < (this.foundSections.length)) {
+      const section = this.foundSections[si];
       const sectionWidth = this.getSectionPageWidth(section);
       const sectionHeight = this.getSectionPageHeight(section);
       const sectionMargin = this.getSectionMargin(section);
-      let pages = [];
-      this.findPageElements(section, pages);
+      let emptyPages = [];
+      this.foundPages = emptyPages;
+      this.findPageElementsRecursive(section);
       let pi = 0;
-      while (pi < (pages.length)) {
-        const pg = pages[pi];
+      while (pi < (this.foundPages.length)) {
+        const pg = this.foundPages[pi];
         allPages.push(pg);
         allPageWidths.push(sectionWidth);
         allPageHeights.push(sectionHeight);
@@ -12455,14 +13142,31 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     const w = el.calculatedWidth;
     const h = el.calculatedHeight;
     const pdfY = (this.pageHeight - y) - h;
-    const bgColor = el.backgroundColor;
-    if ( this.debug ) {
-      console.log((((("  bg check: " + el.tagName) + " isSet=") + ((bgColor.isSet.toString()))) + " r=") + ((bgColor.r.toString())));
+    let borderRadius = 0.0;
+    if ( el.box.borderRadius.isSet ) {
+      borderRadius = el.box.borderRadius.pixels;
     }
-    if ( bgColor.isSet ) {
-      this.renderBackground(x, pdfY, w, h, bgColor);
+    let hasClipPath = false;
+    if ( (el.clipPath.length) > 0 ) {
+      hasClipPath = true;
+      this.streamBuffer.writeString("q\n");
+      this.applyClipPath(el.clipPath, x, pdfY, w, h);
     }
-    this.renderBorder(el, x, pdfY, w, h);
+    if ( el.tagName != "text" ) {
+      this.renderShadow(el, x, pdfY, w, h, borderRadius);
+    }
+    if ( (el.backgroundGradient.length) > 0 ) {
+      this.renderGradientBackground(el, x, pdfY, w, h, borderRadius);
+    } else {
+      const bgColor = el.backgroundColor;
+      if ( this.debug ) {
+        console.log((((("  bg check: " + el.tagName) + " isSet=") + ((bgColor.isSet.toString()))) + " r=") + ((bgColor.r.toString())));
+      }
+      if ( bgColor.isSet ) {
+        this.renderBackgroundWithRadius(x, pdfY, w, h, bgColor, borderRadius);
+      }
+    }
+    this.renderBorderWithRadius(el, x, pdfY, w, h, borderRadius);
     if ( el.tagName == "text" ) {
       this.renderText(el, x, pdfY, w, h);
     }
@@ -12472,6 +13176,9 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     if ( el.tagName == "image" ) {
       this.renderImage(el, x, pdfY, w, h);
     }
+    if ( el.tagName == "path" ) {
+      this.renderPath(el, x, pdfY, w, h);
+    }
     let i = 0;
     const childCount = el.getChildCount();
     while (i < childCount) {
@@ -12479,6 +13186,9 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
       this.renderElement(child, offsetX, offsetY);
       i = i + 1;
     };
+    if ( hasClipPath ) {
+      this.streamBuffer.writeString("Q\n");
+    }
   };
   getImagePdfName (src) {
     let i = 0;
@@ -12504,14 +13214,356 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.streamBuffer.writeString(imgName + " Do\n");
     this.streamBuffer.writeString("Q\n");
   };
-  renderBackground (x, y, w, h, color) {
+  renderPath (el, x, y, w, h) {
+    const pathData = el.svgPath;
+    if ( (pathData.length) == 0 ) {
+      return;
+    }
+    const parser = new SVGPathParser();
+    parser.parse(pathData);
+    const commands = parser.getScaledCommands(w, h);
+    let fillColor = el.fillColor;
+    const strokeColor = el.strokeColor;
+    if ( fillColor.isSet == false ) {
+      fillColor = el.backgroundColor;
+    }
+    this.streamBuffer.writeString("q\n");
+    this.streamBuffer.writeString(((("1 0 0 1 " + this.formatNum(x)) + " ") + this.formatNum(y)) + " cm\n");
+    this.streamBuffer.writeString(("1 0 0 -1 0 " + this.formatNum(h)) + " cm\n");
+    let i = 0;
+    while (i < (commands.length)) {
+      const cmd = commands[i];
+      if ( cmd.type == "M" ) {
+        this.streamBuffer.writeString(((this.formatNum(cmd.x) + " ") + this.formatNum(cmd.y)) + " m\n");
+      }
+      if ( cmd.type == "L" ) {
+        this.streamBuffer.writeString(((this.formatNum(cmd.x) + " ") + this.formatNum(cmd.y)) + " l\n");
+      }
+      if ( cmd.type == "C" ) {
+        this.streamBuffer.writeString(((((((((((this.formatNum(cmd.x1) + " ") + this.formatNum(cmd.y1)) + " ") + this.formatNum(cmd.x2)) + " ") + this.formatNum(cmd.y2)) + " ") + this.formatNum(cmd.x)) + " ") + this.formatNum(cmd.y)) + " c\n");
+      }
+      if ( cmd.type == "Q" ) {
+        this.streamBuffer.writeString(((((((((((this.formatNum(cmd.x1) + " ") + this.formatNum(cmd.y1)) + " ") + this.formatNum(cmd.x1)) + " ") + this.formatNum(cmd.y1)) + " ") + this.formatNum(cmd.x)) + " ") + this.formatNum(cmd.y)) + " c\n");
+      }
+      if ( cmd.type == "Z" ) {
+        this.streamBuffer.writeString("h\n");
+      }
+      i = i + 1;
+    };
+    if ( fillColor.isSet && strokeColor.isSet ) {
+      const r = fillColor.r / 255.0;
+      const g = fillColor.g / 255.0;
+      const b = fillColor.b / 255.0;
+      this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
+      const sr = strokeColor.r / 255.0;
+      const sg = strokeColor.g / 255.0;
+      const sb = strokeColor.b / 255.0;
+      this.streamBuffer.writeString(((((this.formatNum(sr) + " ") + this.formatNum(sg)) + " ") + this.formatNum(sb)) + " RG\n");
+      if ( el.strokeWidth > 0.0 ) {
+        this.streamBuffer.writeString(this.formatNum(el.strokeWidth) + " w\n");
+      }
+      this.streamBuffer.writeString("B\n");
+    } else {
+      if ( fillColor.isSet ) {
+        const r_1 = fillColor.r / 255.0;
+        const g_1 = fillColor.g / 255.0;
+        const b_1 = fillColor.b / 255.0;
+        this.streamBuffer.writeString(((((this.formatNum(r_1) + " ") + this.formatNum(g_1)) + " ") + this.formatNum(b_1)) + " rg\n");
+        this.streamBuffer.writeString("f\n");
+      } else {
+        if ( strokeColor.isSet ) {
+          const sr_1 = strokeColor.r / 255.0;
+          const sg_1 = strokeColor.g / 255.0;
+          const sb_1 = strokeColor.b / 255.0;
+          this.streamBuffer.writeString(((((this.formatNum(sr_1) + " ") + this.formatNum(sg_1)) + " ") + this.formatNum(sb_1)) + " RG\n");
+          if ( el.strokeWidth > 0.0 ) {
+            this.streamBuffer.writeString(this.formatNum(el.strokeWidth) + " w\n");
+          }
+          this.streamBuffer.writeString("S\n");
+        }
+      }
+    }
+    this.streamBuffer.writeString("Q\n");
+  };
+  applyClipPath (pathData, x, y, w, h) {
+    const parser = new SVGPathParser();
+    parser.parse(pathData);
+    const commands = parser.getScaledCommands(w, h);
+    let i = 0;
+    while (i < (commands.length)) {
+      const cmd = commands[i];
+      const px = x + cmd.x;
+      const py = (y + h) - cmd.y;
+      const px1 = x + cmd.x1;
+      const py1 = (y + h) - cmd.y1;
+      const px2 = x + cmd.x2;
+      const py2 = (y + h) - cmd.y2;
+      if ( cmd.type == "M" ) {
+        this.streamBuffer.writeString(((this.formatNum(px) + " ") + this.formatNum(py)) + " m\n");
+      }
+      if ( cmd.type == "L" ) {
+        this.streamBuffer.writeString(((this.formatNum(px) + " ") + this.formatNum(py)) + " l\n");
+      }
+      if ( cmd.type == "C" ) {
+        this.streamBuffer.writeString(((((((((((this.formatNum(px1) + " ") + this.formatNum(py1)) + " ") + this.formatNum(px2)) + " ") + this.formatNum(py2)) + " ") + this.formatNum(px)) + " ") + this.formatNum(py)) + " c\n");
+      }
+      if ( cmd.type == "Q" ) {
+        this.streamBuffer.writeString(((((((((((this.formatNum(px1) + " ") + this.formatNum(py1)) + " ") + this.formatNum(px1)) + " ") + this.formatNum(py1)) + " ") + this.formatNum(px)) + " ") + this.formatNum(py)) + " c\n");
+      }
+      if ( cmd.type == "Z" ) {
+        this.streamBuffer.writeString("h\n");
+      }
+      i = i + 1;
+    };
+    this.streamBuffer.writeString("W n\n");
+  };
+  drawRoundedRectPath (x, y, w, h, radius) {
+    let maxRadius = w / 2.0;
+    if ( (h / 2.0) < maxRadius ) {
+      maxRadius = h / 2.0;
+    }
+    let r = radius;
+    if ( r > maxRadius ) {
+      r = maxRadius;
+    }
+    if ( r <= 0.0 ) {
+      this.streamBuffer.writeString(((((((this.formatNum(x) + " ") + this.formatNum(y)) + " ") + this.formatNum(w)) + " ") + this.formatNum(h)) + " re\n");
+      return;
+    }
+    const k = 0.5523;
+    const c = r * k;
+    this.streamBuffer.writeString(((this.formatNum(x) + " ") + this.formatNum((y + r))) + " m\n");
+    this.streamBuffer.writeString(((((((((((this.formatNum(x) + " ") + this.formatNum(((y + r) - c))) + " ") + this.formatNum(((x + r) - c))) + " ") + this.formatNum(y)) + " ") + this.formatNum((x + r))) + " ") + this.formatNum(y)) + " c\n");
+    this.streamBuffer.writeString(((this.formatNum(((x + w) - r)) + " ") + this.formatNum(y)) + " l\n");
+    this.streamBuffer.writeString(((((((((((this.formatNum((((x + w) - r) + c)) + " ") + this.formatNum(y)) + " ") + this.formatNum((x + w))) + " ") + this.formatNum(((y + r) - c))) + " ") + this.formatNum((x + w))) + " ") + this.formatNum((y + r))) + " c\n");
+    this.streamBuffer.writeString(((this.formatNum((x + w)) + " ") + this.formatNum(((y + h) - r))) + " l\n");
+    this.streamBuffer.writeString(((((((((((this.formatNum((x + w)) + " ") + this.formatNum((((y + h) - r) + c))) + " ") + this.formatNum((((x + w) - r) + c))) + " ") + this.formatNum((y + h))) + " ") + this.formatNum(((x + w) - r))) + " ") + this.formatNum((y + h))) + " c\n");
+    this.streamBuffer.writeString(((this.formatNum((x + r)) + " ") + this.formatNum((y + h))) + " l\n");
+    this.streamBuffer.writeString(((((((((((this.formatNum(((x + r) - c)) + " ") + this.formatNum((y + h))) + " ") + this.formatNum(x)) + " ") + this.formatNum((((y + h) - r) + c))) + " ") + this.formatNum(x)) + " ") + this.formatNum(((y + h) - r))) + " c\n");
+    this.streamBuffer.writeString("h\n");
+  };
+  renderShadow (el, x, y, w, h, radius) {
+    if ( el.shadowRadius.isSet == false ) {
+      if ( el.shadowColor.isSet == false ) {
+        return;
+      }
+    }
+    let offsetX = 0.0;
+    let offsetY = 0.0;
+    if ( el.shadowOffsetX.isSet ) {
+      offsetX = el.shadowOffsetX.pixels;
+    }
+    if ( el.shadowOffsetY.isSet ) {
+      offsetY = 0.0 - el.shadowOffsetY.pixels;
+    }
+    let blur = 0.0;
+    if ( el.shadowRadius.isSet ) {
+      blur = el.shadowRadius.pixels;
+    }
+    let shadowColor = el.shadowColor;
+    if ( shadowColor.isSet == false ) {
+      shadowColor = EVGColor.rgba(0, 0, 0, 0.5);
+    }
+    let numLayers = 8;
+    if ( blur < 5.0 ) {
+      numLayers = 5;
+    }
+    if ( blur < 2.0 ) {
+      numLayers = 3;
+    }
+    const baseAlpha = shadowColor.a / 255.0;
+    const alphaPerLayer = baseAlpha / (numLayers);
+    let i = 0;
+    while (i < numLayers) {
+      const layerRatio = ((numLayers - i)) / (numLayers);
+      const spread = blur * layerRatio;
+      const layerAlpha = alphaPerLayer * (1.0 + (layerRatio * 0.5));
+      this.streamBuffer.writeString("q\n");
+      const r = shadowColor.r / 255.0;
+      const g = shadowColor.g / 255.0;
+      const b = shadowColor.b / 255.0;
+      const blendFactor = 1.0 - layerAlpha;
+      let blendedR = (r * layerAlpha) + (1.0 * blendFactor);
+      let blendedG = (g * layerAlpha) + (1.0 * blendFactor);
+      let blendedB = (b * layerAlpha) + (1.0 * blendFactor);
+      if ( blendedR > 1.0 ) {
+        blendedR = 1.0;
+      }
+      if ( blendedG > 1.0 ) {
+        blendedG = 1.0;
+      }
+      if ( blendedB > 1.0 ) {
+        blendedB = 1.0;
+      }
+      this.streamBuffer.writeString(((((this.formatNum(blendedR) + " ") + this.formatNum(blendedG)) + " ") + this.formatNum(blendedB)) + " rg\n");
+      const sx = (x + offsetX) - spread;
+      const sy = (y + offsetY) - spread;
+      const sw = w + (spread * 2.0);
+      const sh = h + (spread * 2.0);
+      const sr = radius + spread;
+      this.drawRoundedRectPath(sx, sy, sw, sh, sr);
+      if ( i < (numLayers - 1) ) {
+        const nextRatio = (((numLayers - i) - 1)) / (numLayers);
+        const nextSpread = blur * nextRatio;
+        const nx = (x + offsetX) - nextSpread;
+        const ny = (y + offsetY) - nextSpread;
+        const nw = w + (nextSpread * 2.0);
+        const nh = h + (nextSpread * 2.0);
+        const nr = radius + nextSpread;
+        this.drawRoundedRectPath(nx, ny, nw, nh, nr);
+      }
+      this.streamBuffer.writeString("f*\n");
+      this.streamBuffer.writeString("Q\n");
+      i = i + 1;
+    };
+  };
+  renderBackgroundWithRadius (x, y, w, h, color, radius) {
     this.streamBuffer.writeString("q\n");
     const r = color.r / 255.0;
     const g = color.g / 255.0;
     const b = color.b / 255.0;
     this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
-    this.streamBuffer.writeString(((((((this.formatNum(x) + " ") + this.formatNum(y)) + " ") + this.formatNum(w)) + " ") + this.formatNum(h)) + " re\n");
+    this.drawRoundedRectPath(x, y, w, h, radius);
     this.streamBuffer.writeString("f\n");
+    this.streamBuffer.writeString("Q\n");
+  };
+  renderBackground (x, y, w, h, color) {
+    this.renderBackgroundWithRadius(x, y, w, h, color, 0.0);
+  };
+  renderGradientBackground (el, x, y, w, h, radius) {
+    const gradient = el.backgroundGradient;
+    const isLinear = gradient.includes("linear-gradient");
+    const isRadial = gradient.includes("radial-gradient");
+    if ( isLinear == false ) {
+      if ( isRadial == false ) {
+        return;
+      }
+    }
+    const parenStart = gradient.indexOf("(");
+    if ( parenStart < 0 ) {
+      return;
+    }
+    const parenEnd = gradient.lastIndexOf(")");
+    if ( parenEnd < 0 ) {
+      return;
+    }
+    const content = gradient.substring((parenStart + 1), parenEnd );
+    const parts = content.split(",");
+    if ( (parts.length) < 2 ) {
+      return;
+    }
+    const firstPart = (parts[0]).trim();
+    let angle = 180.0;
+    if ( isLinear ) {
+      if ( firstPart.includes("deg") ) {
+        const angleStr = firstPart.replace("deg", "");
+        const angleVal = isNaN( parseFloat(angleStr) ) ? undefined : parseFloat(angleStr);
+        if ( typeof(angleVal) != "undefined" ) {
+          angle = angleVal;
+        }
+      }
+    }
+    let colors = [];
+    let i = 1;
+    while (i < (parts.length)) {
+      const colorStr = (parts[i]).trim();
+      const color = EVGColor.parse(colorStr);
+      if ( color.isSet ) {
+        colors.push(color);
+      }
+      i = i + 1;
+    };
+    if ( (colors.length) < 2 ) {
+      if ( (colors.length) == 1 ) {
+        const c = colors[0];
+        this.renderBackgroundWithRadius(x, y, w, h, c, radius);
+      }
+      return;
+    }
+    this.streamBuffer.writeString("q\n");
+    if ( radius > 0.0 ) {
+      this.drawRoundedRectPath(x, y, w, h, radius);
+      this.streamBuffer.writeString("W n\n");
+    }
+    const numSteps = 50;
+    const radians = (angle * 3.14159265) / 180.0;
+    let isHorizontal = false;
+    let isVertical = false;
+    while (angle < 0.0) {
+      angle = angle + 360.0;
+    };
+    while (angle >= 360.0) {
+      angle = angle - 360.0;
+    };
+    if ( (angle >= 45.0) && (angle < 135.0) ) {
+      isHorizontal = true;
+    }
+    if ( (angle >= 135.0) && (angle < 225.0) ) {
+      isVertical = true;
+    }
+    if ( (angle >= 225.0) && (angle < 315.0) ) {
+      isHorizontal = true;
+    }
+    if ( (angle >= 315.0) || (angle < 45.0) ) {
+      isVertical = true;
+    }
+    let stepIdx = 0;
+    while (stepIdx < numSteps) {
+      const t = (stepIdx) / ((numSteps - 1));
+      const colorIdx = t * (((colors.length) - 1));
+      const idx1 = Math.floor( colorIdx);
+      let idx2 = idx1 + 1;
+      if ( idx2 >= (colors.length) ) {
+        idx2 = (colors.length) - 1;
+      }
+      const localT = colorIdx - (idx1);
+      const c1 = colors[idx1];
+      const c2 = colors[idx2];
+      const r = ((c1.r * (1.0 - localT)) + (c2.r * localT)) / 255.0;
+      const g = ((c1.g * (1.0 - localT)) + (c2.g * localT)) / 255.0;
+      const b = ((c1.b * (1.0 - localT)) + (c2.b * localT)) / 255.0;
+      this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
+      if ( isHorizontal ) {
+        const stripW = w / (numSteps);
+        let stripX = x;
+        if ( (angle >= 225.0) && (angle < 315.0) ) {
+          stripX = (x + w) - (stripW * ((stepIdx + 1)));
+        } else {
+          stripX = x + (stripW * (stepIdx));
+        }
+        this.streamBuffer.writeString(((((((this.formatNum(stripX) + " ") + this.formatNum(y)) + " ") + this.formatNum((stripW + 0.5))) + " ") + this.formatNum(h)) + " re\n");
+      } else {
+        const stripH = h / (numSteps);
+        let stripY = y;
+        if ( (angle >= 135.0) && (angle < 225.0) ) {
+          stripY = (y + h) - (stripH * ((stepIdx + 1)));
+        } else {
+          stripY = y + (stripH * (stepIdx));
+        }
+        this.streamBuffer.writeString(((((((this.formatNum(x) + " ") + this.formatNum(stripY)) + " ") + this.formatNum(w)) + " ") + this.formatNum((stripH + 0.5))) + " re\n");
+      }
+      this.streamBuffer.writeString("f\n");
+      stepIdx = stepIdx + 1;
+    };
+    this.streamBuffer.writeString("Q\n");
+  };
+  renderBorderWithRadius (el, x, y, w, h, radius) {
+    const borderWidth = el.box.borderWidth.pixels;
+    if ( borderWidth <= 0.0 ) {
+      return;
+    }
+    let borderColor = el.box.borderColor;
+    if ( borderColor.isSet == false ) {
+      borderColor = EVGColor.black();
+    }
+    this.streamBuffer.writeString("q\n");
+    const r = borderColor.r / 255.0;
+    const g = borderColor.g / 255.0;
+    const b = borderColor.b / 255.0;
+    this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " RG\n");
+    this.streamBuffer.writeString(this.formatNum(borderWidth) + " w\n");
+    this.drawRoundedRectPath(x, y, w, h, radius);
+    this.streamBuffer.writeString("S\n");
     this.streamBuffer.writeString("Q\n");
   };
   renderBorder (el, x, y, w, h) {
@@ -12557,16 +13609,30 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     }
     const lines = this.wrapText(text, w, fontSize, fontFamily);
     const fontName = this.getPdfFontName(fontFamily);
+    let hasShadow = false;
+    let shadowOffsetX = 0.0;
+    let shadowOffsetY = 0.0;
+    let shadowBlur = 0.0;
+    let shadowColor = EVGColor.rgba(0, 0, 0, 0.5);
+    if ( el.shadowRadius.isSet || el.shadowColor.isSet ) {
+      hasShadow = true;
+      if ( el.shadowOffsetX.isSet ) {
+        shadowOffsetX = el.shadowOffsetX.pixels;
+      }
+      if ( el.shadowOffsetY.isSet ) {
+        shadowOffsetY = 0.0 - el.shadowOffsetY.pixels;
+      }
+      if ( el.shadowRadius.isSet ) {
+        shadowBlur = el.shadowRadius.pixels;
+      }
+      if ( el.shadowColor.isSet ) {
+        shadowColor = el.shadowColor;
+      }
+    }
     let lineY = (y + h) - fontSize;
     let i = 0;
     while (i < (lines.length)) {
       const line = lines[i];
-      this.streamBuffer.writeString("BT\n");
-      this.streamBuffer.writeString(((fontName + " ") + this.formatNum(fontSize)) + " Tf\n");
-      const r = color.r / 255.0;
-      const g = color.g / 255.0;
-      const b = color.b / 255.0;
-      this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
       let textX = x;
       if ( el.textAlign == "center" ) {
         const textWidth = this.measurer.measureTextWidth(line, fontFamily, fontSize);
@@ -12576,6 +13642,39 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
         const textWidth_1 = this.measurer.measureTextWidth(line, fontFamily, fontSize);
         textX = (x + w) - textWidth_1;
       }
+      if ( hasShadow ) {
+        let numPasses = 1;
+        if ( shadowBlur > 1.0 ) {
+          numPasses = 3;
+        }
+        let pass = 0;
+        while (pass < numPasses) {
+          let blurOffset = 0.0;
+          if ( numPasses > 1 ) {
+            blurOffset = (shadowBlur * 0.3) * (pass);
+          }
+          const shadowAlpha = (shadowColor.a / 255.0) / (numPasses);
+          const blendFactor = 1.0 - shadowAlpha;
+          const sr = ((shadowColor.r / 255.0) * shadowAlpha) + (1.0 * blendFactor);
+          const sg = ((shadowColor.g / 255.0) * shadowAlpha) + (1.0 * blendFactor);
+          const sb = ((shadowColor.b / 255.0) * shadowAlpha) + (1.0 * blendFactor);
+          this.streamBuffer.writeString("BT\n");
+          this.streamBuffer.writeString(((fontName + " ") + this.formatNum(fontSize)) + " Tf\n");
+          this.streamBuffer.writeString(((((this.formatNum(sr) + " ") + this.formatNum(sg)) + " ") + this.formatNum(sb)) + " rg\n");
+          const shadowX = (textX + shadowOffsetX) + blurOffset;
+          const shadowY = (lineY + shadowOffsetY) - blurOffset;
+          this.streamBuffer.writeString(((this.formatNum(shadowX) + " ") + this.formatNum(shadowY)) + " Td\n");
+          this.streamBuffer.writeString(("(" + this.escapeText(line)) + ") Tj\n");
+          this.streamBuffer.writeString("ET\n");
+          pass = pass + 1;
+        };
+      }
+      this.streamBuffer.writeString("BT\n");
+      this.streamBuffer.writeString(((fontName + " ") + this.formatNum(fontSize)) + " Tf\n");
+      const r = color.r / 255.0;
+      const g = color.g / 255.0;
+      const b = color.b / 255.0;
+      this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
       this.streamBuffer.writeString(((this.formatNum(textX) + " ") + this.formatNum(lineY)) + " Td\n");
       this.streamBuffer.writeString(("(" + this.escapeText(line)) + ") Tj\n");
       this.streamBuffer.writeString("ET\n");
@@ -12628,10 +13727,40 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
     this.streamBuffer.writeString("Q\n");
   };
   getTextContent (el) {
-    return el.textContent;
+    if ( (el.textContent.length) > 0 ) {
+      return el.textContent;
+    }
+    let result = "";
+    let i = 0;
+    const childCount = el.getChildCount();
+    while (i < childCount) {
+      const child = el.getChild(i);
+      if ( child.tagName == "text" ) {
+        const childText = child.textContent;
+        if ( (childText.length) > 0 ) {
+          if ( (result.length) > 0 ) {
+            const lastChar = result.charCodeAt(((result.length) - 1) );
+            const firstChar = childText.charCodeAt(0 );
+            if ( (lastChar != 32) && (firstChar != 32) ) {
+              result = result + " ";
+            }
+          }
+          result = result + childText;
+        }
+      }
+      i = i + 1;
+    };
+    return result;
   };
   estimateTextWidth (text, fontSize) {
     return this.measurer.measureTextWidth(text, "Helvetica", fontSize);
+  };
+  toOctalEscape (ch) {
+    const d0 = ch % 8;
+    const t1 = Math.floor((ch / 8));
+    const d1 = t1 % 8;
+    const d2 = Math.floor((t1 / 8));
+    return (("\\" + ((d2.toString()))) + ((d1.toString()))) + ((d0.toString()));
   };
   escapeText (text) {
     let result = "";
@@ -12648,7 +13777,19 @@ class EVGPDFRenderer  extends EVGImageMeasurer {
           if ( ch == 92 ) {
             result = result + "\\\\";
           } else {
-            result = result + (String.fromCharCode(ch));
+            if ( ch < 32 ) {
+              result = result + " ";
+            } else {
+              if ( ch < 128 ) {
+                result = result + (String.fromCharCode(ch));
+              } else {
+                if ( ch <= 255 ) {
+                  result = result + this.toOctalEscape(ch);
+                } else {
+                  result = result + "?";
+                }
+              }
+            }
           }
         }
       }
@@ -12796,6 +13937,7 @@ class EVGPDFTool  {
     console.log("");
     console.log("Rendering to PDF...");
     const renderer = new EVGPDFRenderer();
+    renderer.init(renderer);
     renderer.setPageSize(this.pageWidth, this.pageHeight);
     renderer.setFontManager(this.fontManager);
     renderer.setBaseDir(inputDir);

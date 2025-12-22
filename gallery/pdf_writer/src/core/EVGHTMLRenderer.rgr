@@ -491,9 +491,13 @@ class EVGHTMLRenderer {
             }
         }
         
-        ; Background color
-        if el.backgroundColor.isSet {
-            css = css + "background-color: " + (el.backgroundColor.toCSSString()) + "; "
+        ; Background (gradient takes precedence over color)
+        if ((strlen el.backgroundGradient) > 0) {
+            css = css + "background: " + el.backgroundGradient + "; "
+        } {
+            if el.backgroundColor.isSet {
+                css = css + "background-color: " + (el.backgroundColor.toCSSString()) + "; "
+            }
         }
         
         ; Border
@@ -541,6 +545,48 @@ class EVGHTMLRenderer {
         if (el.opacity < 1.0) {
             css = css + "opacity: " + (to_string el.opacity) + "; "
         }
+        
+        ; Box shadow
+        css = css + (this.generateBoxShadow(el))
+        
+        return css
+    }
+    
+    ; Generate CSS box-shadow from EVG shadow properties
+    fn generateBoxShadow:string (el:EVGElement) {
+        ; Shadow requires at least shadowRadius or shadowColor to be set
+        if (el.shadowRadius.isSet == false) {
+            if (el.shadowColor.isSet == false) {
+                return ""
+            }
+        }
+        
+        def css:string ""
+        
+        ; Get shadow offset (default 0)
+        def offsetX:double 0.0
+        def offsetY:double 0.0
+        if el.shadowOffsetX.isSet {
+            offsetX = el.shadowOffsetX.pixels
+        }
+        if el.shadowOffsetY.isSet {
+            offsetY = el.shadowOffsetY.pixels
+        }
+        
+        ; Get blur radius (shadowRadius)
+        def blur:double 0.0
+        if el.shadowRadius.isSet {
+            blur = el.shadowRadius.pixels
+        }
+        
+        ; Get shadow color (default rgba(0,0,0,0.5))
+        def shadowColorStr:string "rgba(0, 0, 0, 0.5)"
+        if el.shadowColor.isSet {
+            shadowColorStr = (el.shadowColor.toCSSString())
+        }
+        
+        ; CSS format: box-shadow: offsetX offsetY blur color
+        css = css + "box-shadow: " + (this.formatPx(offsetX)) + " " + (this.formatPx(offsetY)) + " " + (this.formatPx(blur)) + " " + shadowColorStr + "; "
         
         return css
     }
@@ -631,6 +677,48 @@ class EVGHTMLRenderer {
         if (el.calculatedWidth > 0.0) {
             css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
         }
+        
+        ; Text shadow
+        css = css + (this.generateTextShadow(el))
+        
+        return css
+    }
+    
+    ; Generate CSS text-shadow from EVG shadow properties (for text elements)
+    fn generateTextShadow:string (el:EVGElement) {
+        ; Shadow requires at least shadowRadius or shadowColor to be set
+        if (el.shadowRadius.isSet == false) {
+            if (el.shadowColor.isSet == false) {
+                return ""
+            }
+        }
+        
+        def css:string ""
+        
+        ; Get shadow offset (default 0)
+        def offsetX:double 0.0
+        def offsetY:double 0.0
+        if el.shadowOffsetX.isSet {
+            offsetX = el.shadowOffsetX.pixels
+        }
+        if el.shadowOffsetY.isSet {
+            offsetY = el.shadowOffsetY.pixels
+        }
+        
+        ; Get blur radius (shadowRadius)
+        def blur:double 0.0
+        if el.shadowRadius.isSet {
+            blur = el.shadowRadius.pixels
+        }
+        
+        ; Get shadow color (default rgba(0,0,0,0.5))
+        def shadowColorStr:string "rgba(0, 0, 0, 0.5)"
+        if el.shadowColor.isSet {
+            shadowColorStr = (el.shadowColor.toCSSString())
+        }
+        
+        ; CSS format: text-shadow: offsetX offsetY blur color
+        css = css + "text-shadow: " + (this.formatPx(offsetX)) + " " + (this.formatPx(offsetY)) + " " + (this.formatPx(blur)) + " " + shadowColorStr + "; "
         
         return css
     }

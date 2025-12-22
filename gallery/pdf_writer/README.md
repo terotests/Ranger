@@ -3,9 +3,32 @@
 A collection of binary format utilities written in Ranger:
 
 - **EVG PDF Renderer** - TSX → PDF pipeline with flexbox layout, TrueType fonts, and JPEG images
+- **EVG HTML Renderer** - TSX → HTML preview with CSS flexbox layout
 - **JPEG Decoder** - Full baseline DCT JPEG decoder with Huffman decoding
 - **JPEG Encoder** - Baseline JPEG encoder with configurable quality
 - **TrueType Parser** - TTF font parsing for glyph metrics and PDF embedding
+
+## Feature Status
+
+### Completed Features
+
+| Feature | PDF | HTML | Notes |
+|---------|-----|------|-------|
+| Flexbox layout | ✅ | ✅ | Full support |
+| TrueType fonts | ✅ | ✅ | Embedded in PDF, CSS in HTML |
+| JPEG images | ✅ | ✅ | Embedded/base64 |
+| Text wrapping | ✅ | ✅ | Automatic word wrap |
+| Border radius | ✅ | ✅ | Bézier curves in PDF |
+| Linear gradients | ✅ | ✅ | Strip-based in PDF, CSS in HTML |
+| Radial gradients | ⚠️ | ✅ | Falls back to linear in PDF |
+| Box shadows | ⚠️ | ✅ | Hard edges in PDF, perfect in HTML |
+| Text shadows | ⚠️ | ✅ | Needs raster renderer in PDF |
+| Component system | ✅ | ✅ | TSX imports |
+
+### Planned: EVG Raster Renderer
+
+To properly support shadows and effects in PDF, a raster (pixel buffer) renderer is planned.
+See [EVG_RASTER_PLAN.md](EVG_RASTER_PLAN.md) for details.
 
 ## Folder Structure
 
@@ -16,6 +39,7 @@ pdf_writer/
 │   │   ├── EVGElement.rgr
 │   │   ├── EVGLayout.rgr
 │   │   ├── EVGPDFRenderer.rgr
+│   │   ├── EVGHTMLRenderer.rgr  # NEW: HTML output
 │   │   └── ...
 │   ├── jsx/               # TSX/JSX parsing and component engine
 │   │   ├── ComponentEngine.rgr
@@ -27,7 +51,9 @@ pdf_writer/
 │   ├── fonts/             # TrueType font handling
 │   │   └── FontManager.rgr
 │   └── tools/             # Command-line tools
-│       └── evg_component_tool.rgr
+│       ├── evg_component_tool.rgr
+│       ├── evg_pdf_tool.rgr
+│       └── evg_html_tool.rgr    # NEW: HTML tool
 ├── bin/                   # Compiled JavaScript output
 ├── components/            # Reusable TSX components
 │   ├── PhotoLayouts.tsx
@@ -35,6 +61,7 @@ pdf_writer/
 ├── examples/              # Example TSX files
 │   ├── test_gallery.tsx
 │   ├── test_imports.tsx
+│   ├── test_shadow_gradient.tsx  # NEW: Shadow/gradient test
 │   └── ...
 ├── assets/                # Static assets
 │   ├── fonts/            # TrueType fonts
@@ -43,10 +70,37 @@ pdf_writer/
 │   │   └── ...
 │   └── images/           # Sample images
 │       └── IMG_6573.jpg
-├── output/                # Generated PDFs (gitignored)
-│   └── pdfs/
+├── output/                # Generated output (gitignored)
+│   ├── pdfs/
+│   └── html/              # NEW: HTML output
 └── docs/                  # Documentation
 ```
+
+## EVG HTML Tool (TSX → HTML)
+
+Generate HTML previews from TSX files. Useful for rapid development and testing.
+
+### Quick Start
+
+```bash
+# Compile the HTML tool
+npm run evghtml:compile
+
+# Generate HTML from TSX
+node bin/evg_html_tool.js examples/test_simple.tsx output/html/sample_output.html
+
+# Or run the npm script
+npm run evghtml
+```
+
+### Features
+- Full CSS flexbox layout
+- Box shadows and text shadows (CSS native)
+- Linear and radial gradients
+- Border radius
+- Embedded images as base64
+
+---
 
 ## EVG PDF Tool (TSX → PDF)
 
@@ -56,6 +110,21 @@ Generate PDFs from TSX files using a React-like syntax with flexbox layout.
 
 ```bash
 # Compile the tool
+npm run evgpdf:compile
+
+# Generate a PDF from TSX
+node bin/evg_pdf_tool.js examples/test_simple.tsx output/pdfs/sample_output.pdf
+
+# Or run the npm script
+npm run evgpdf
+```
+
+### Advanced: Component Tool
+
+For multi-page documents with imported components:
+
+```bash
+# Compile the component tool
 npm run evgcomp:compile
 
 # Generate a PDF from TSX (with asset paths for fonts and components)

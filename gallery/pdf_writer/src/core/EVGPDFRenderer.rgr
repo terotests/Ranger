@@ -1165,6 +1165,12 @@ class EVGPDFRenderer {
         ; PDF uses bottom-left origin, flip Y
         def pdfY:double (pageHeight - y - h)
         
+        ; Get border radius
+        def borderRadius:double 0.0
+        if el.box.borderRadius.isSet {
+            borderRadius = el.box.borderRadius.pixels
+        }
+        
         ; Apply clip path if set
         def hasClipPath:boolean false
         if ((strlen el.clipPath) > 0) {
@@ -1173,17 +1179,28 @@ class EVGPDFRenderer {
             this.applyClipPath(el.clipPath x pdfY w h)
         }
         
-        ; Render background if set
-        def bgColor:EVGColor (unwrap el.backgroundColor)
-        if this.debug {
-            print ("  bg check: " + el.tagName + " isSet=" + (to_string bgColor.isSet) + " r=" + (to_string bgColor.r))
-        }
-        if bgColor.isSet {
-            this.renderBackground(x pdfY w h bgColor)
+        ; Render shadow first (behind everything) - but NOT for text elements
+        ; Text elements get text-shadow which is handled in renderText
+        if (el.tagName != "text") {
+            this.renderShadow(el x pdfY w h borderRadius)
         }
         
-        ; Render border
-        this.renderBorder(el x pdfY w h)
+        ; Render gradient background if set
+        if ((strlen el.backgroundGradient) > 0) {
+            this.renderGradientBackground(el x pdfY w h borderRadius)
+        } {
+            ; Render solid background if set (with border radius)
+            def bgColor:EVGColor (unwrap el.backgroundColor)
+            if this.debug {
+                print ("  bg check: " + el.tagName + " isSet=" + (to_string bgColor.isSet) + " r=" + (to_string bgColor.r))
+            }
+            if bgColor.isSet {
+                this.renderBackgroundWithRadius(x pdfY w h bgColor borderRadius)
+            }
+        }
+        
+        ; Render border (with border radius)
+        this.renderBorderWithRadius(el x pdfY w h borderRadius)
         
         ; Render text content
         if (el.tagName == "text") {
@@ -1416,19 +1433,387 @@ class EVGPDFRenderer {
         streamBuffer.writeString("W n\n")
     }
     
-    fn renderBackground:void (x:double y:double w:double h:double color:EVGColor) {
+    ; Draw a rounded rectangle path (does not fill or stroke - just defines the path)
+    ; Uses Bézier curves for the corners
+    fn drawRoundedRectPath:void (x:double y:double w:double h:double radius:double) {
+        ; Clamp radius to half of smallest dimension
+        def maxRadius:double (w / 2.0)
+        if ((h / 2.0) < maxRadius) {
+            maxRadius = (h / 2.0)
+        }
+        def r:double radius
+        if (r > maxRadius) {
+            r = maxRadius
+        }
+        if (r <= 0.0) {
+            ; No radius, use regular rectangle
+            streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum(y)) + " " + (this.formatNum(w)) + " " + (this.formatNum(h)) + " re\n")
+            return
+        }
+        
+        ; Bézier control point offset (approximation of circle with cubic Bézier)
+        ; k = 4 * (sqrt(2) - 1) / 3 ≈ 0.5523
+        def k:double 0.5523
+        def c:double (r * k)
+        
+        ; Start at bottom-left, just after the corner radius
+        streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum((y + r))) + " m\n")
+        
+        ; Bottom-left corner (curve from left edge to bottom edge)
+        streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum((y + r - c))) + " " + (this.formatNum((x + r - c))) + " " + (this.formatNum(y)) + " " + (this.formatNum((x + r))) + " " + (this.formatNum(y)) + " c\n")
+        
+        ; Bottom edge
+        streamBuffer.writeString((this.formatNum((x + w - r))) + " " + (this.formatNum(y)) + " l\n")
+        
+        ; Bottom-right corner
+        streamBuffer.writeString((this.formatNum((x + w - r + c))) + " " + (this.formatNum(y)) + " " + (this.formatNum((x + w))) + " " + (this.formatNum((y + r - c))) + " " + (this.formatNum((x + w))) + " " + (this.formatNum((y + r))) + " c\n")
+        
+        ; Right edge
+        streamBuffer.writeString((this.formatNum((x + w))) + " " + (this.formatNum((y + h - r))) + " l\n")
+        
+        ; Top-right corner
+        streamBuffer.writeString((this.formatNum((x + w))) + " " + (this.formatNum((y + h - r + c))) + " " + (this.formatNum((x + w - r + c))) + " " + (this.formatNum((y + h))) + " " + (this.formatNum((x + w - r))) + " " + (this.formatNum((y + h))) + " c\n")
+        
+        ; Top edge
+        streamBuffer.writeString((this.formatNum((x + r))) + " " + (this.formatNum((y + h))) + " l\n")
+        
+        ; Top-left corner
+        streamBuffer.writeString((this.formatNum((x + r - c))) + " " + (this.formatNum((y + h))) + " " + (this.formatNum(x)) + " " + (this.formatNum((y + h - r + c))) + " " + (this.formatNum(x)) + " " + (this.formatNum((y + h - r))) + " c\n")
+        
+        ; Left edge back to start
+        streamBuffer.writeString("h\n")
+    }
+    
+    ; Render a shadow behind an element
+    fn renderShadow:void (el:EVGElement x:double y:double w:double h:double radius:double) {
+        ; Check if shadow is set
+        if (el.shadowRadius.isSet == false) {
+            if (el.shadowColor.isSet == false) {
+                return
+            }
+        }
+        
+        ; Get shadow properties
+        def offsetX:double 0.0
+        def offsetY:double 0.0
+        if el.shadowOffsetX.isSet {
+            offsetX = el.shadowOffsetX.pixels
+        }
+        if el.shadowOffsetY.isSet {
+            ; PDF Y is flipped, so negate the Y offset
+            offsetY = (0.0 - el.shadowOffsetY.pixels)
+        }
+        
+        def blur:double 0.0
+        if el.shadowRadius.isSet {
+            blur = el.shadowRadius.pixels
+        }
+        
+        ; Get shadow color (default semi-transparent black)
+        def shadowColor:EVGColor el.shadowColor
+        if (shadowColor.isSet == false) {
+            shadowColor = (EVGColor.rgba(0 0 0 0.5))
+        }
+        
+        ; For PDF shadow simulation, we draw multiple increasingly larger and lighter shapes
+        ; starting from outside and working in, with the innermost being cut out
+        ; This creates a blur effect around the element
+        
+        def numLayers:int 8
+        if (blur < 5.0) {
+            numLayers = 5
+        }
+        if (blur < 2.0) {
+            numLayers = 3
+        }
+        
+        ; Base alpha per layer (total should approximate shadow alpha)
+        def baseAlpha:double (shadowColor.a / 255.0)
+        def alphaPerLayer:double (baseAlpha / (to_double numLayers))
+        
+        ; Draw layers from outside to inside
+        def i:int 0
+        while (i < numLayers) {
+            ; Calculate the spread for this layer (outermost = full blur, innermost = 0)
+            def layerRatio:double ((to_double (numLayers - i)) / (to_double numLayers))
+            def spread:double (blur * layerRatio)
+            
+            ; Alpha increases towards center for Gaussian-like falloff
+            def layerAlpha:double (alphaPerLayer * (1.0 + (layerRatio * 0.5)))
+            
+            streamBuffer.writeString("q\n")
+            
+            ; Set fill color with calculated alpha (approximated by using lighter color)
+            def r:double (shadowColor.r / 255.0)
+            def g:double (shadowColor.g / 255.0)
+            def b:double (shadowColor.b / 255.0)
+            
+            ; Blend towards background (assuming white/light background)
+            def blendFactor:double (1.0 - layerAlpha)
+            def blendedR:double ((r * layerAlpha) + (1.0 * blendFactor))
+            def blendedG:double ((g * layerAlpha) + (1.0 * blendFactor))
+            def blendedB:double ((b * layerAlpha) + (1.0 * blendFactor))
+            
+            ; Clamp to valid range
+            if (blendedR > 1.0) {
+                blendedR = 1.0
+            }
+            if (blendedG > 1.0) {
+                blendedG = 1.0
+            }
+            if (blendedB > 1.0) {
+                blendedB = 1.0
+            }
+            
+            streamBuffer.writeString((this.formatNum(blendedR)) + " " + (this.formatNum(blendedG)) + " " + (this.formatNum(blendedB)) + " rg\n")
+            
+            ; Draw shadow shape at offset position with spread
+            def sx:double (x + offsetX - spread)
+            def sy:double (y + offsetY - spread)
+            def sw:double (w + (spread * 2.0))
+            def sh:double (h + (spread * 2.0))
+            def sr:double (radius + spread)
+            
+            ; Draw outer rounded rect
+            this.drawRoundedRectPath(sx sy sw sh sr)
+            
+            ; Cut out the inner area (next layer's area) using even-odd fill rule
+            ; This creates a ring/halo effect
+            if (i < (numLayers - 1)) {
+                def nextRatio:double ((to_double (numLayers - i - 1)) / (to_double numLayers))
+                def nextSpread:double (blur * nextRatio)
+                def nx:double (x + offsetX - nextSpread)
+                def ny:double (y + offsetY - nextSpread)
+                def nw:double (w + (nextSpread * 2.0))
+                def nh:double (h + (nextSpread * 2.0))
+                def nr:double (radius + nextSpread)
+                this.drawRoundedRectPath(nx ny nw nh nr)
+            }
+            
+            ; Use even-odd fill rule to create the ring
+            streamBuffer.writeString("f*\n")
+            streamBuffer.writeString("Q\n")
+            
+            i = i + 1
+        }
+    }
+    
+    fn renderBackgroundWithRadius:void (x:double y:double w:double h:double color:EVGColor radius:double) {
         streamBuffer.writeString("q\n")
         ; Set fill color
         def r:double (color.r / 255.0)
         def g:double (color.g / 255.0)
         def b:double (color.b / 255.0)
         streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
-        ; Draw rectangle
-        streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum(y)) + " " + (this.formatNum(w)) + " " + (this.formatNum(h)) + " re\n")
+        ; Draw rounded rectangle
+        this.drawRoundedRectPath(x y w h radius)
         streamBuffer.writeString("f\n")
         streamBuffer.writeString("Q\n")
     }
     
+    fn renderBackground:void (x:double y:double w:double h:double color:EVGColor) {
+        this.renderBackgroundWithRadius(x y w h color 0.0)
+    }
+    
+    ; Render a gradient background by drawing multiple thin strips
+    ; Parses CSS gradient syntax: linear-gradient(angle, color1, color2, ...)
+    fn renderGradientBackground:void (el:EVGElement x:double y:double w:double h:double radius:double) {
+        def gradient:string el.backgroundGradient
+        
+        ; Parse gradient type and angle
+        def isLinear:boolean (contains gradient "linear-gradient")
+        def isRadial:boolean (contains gradient "radial-gradient")
+        
+        if (isLinear == false) {
+            if (isRadial == false) {
+                return
+            }
+        }
+        
+        ; Extract colors from gradient string
+        ; Format: linear-gradient(90deg, #ff0000, #0000ff)
+        ; or: radial-gradient(circle, #ff0000, #0000ff)
+        
+        ; Find the opening parenthesis
+        def parenStart:int (indexOf gradient "(")
+        if (parenStart < 0) {
+            return
+        }
+        
+        ; Find the closing parenthesis
+        def parenEnd:int (lastIndexOf gradient ")")
+        if (parenEnd < 0) {
+            return
+        }
+        
+        ; Extract content inside parentheses
+        def content:string (substring gradient (parenStart + 1) parenEnd)
+        
+        ; Split by comma
+        def parts:[string] (strsplit content ",")
+        if ((array_length parts) < 2) {
+            return
+        }
+        
+        ; First part is angle (for linear) or shape (for radial)
+        def firstPart:string (trim (itemAt parts 0))
+        def angle:double 180.0
+        
+        if isLinear {
+            ; Parse angle (e.g., "90deg", "45deg", "180deg")
+            if (contains firstPart "deg") {
+                def angleStr:string (replace firstPart "deg" "")
+                def angleVal@(optional):double (to_double angleStr)
+                if angleVal {
+                    angle = (unwrap angleVal)
+                }
+            }
+        }
+        
+        ; Collect colors (remaining parts)
+        def colors:[EVGColor]
+        def i:int 1
+        while (i < (array_length parts)) {
+            def colorStr:string (trim (itemAt parts i))
+            def color:EVGColor (EVGColor.parse(colorStr))
+            if color.isSet {
+                push colors color
+            }
+            i = i + 1
+        }
+        
+        if ((array_length colors) < 2) {
+            ; Not enough colors, just use first color as solid
+            if ((array_length colors) == 1) {
+                def c:EVGColor (itemAt colors 0)
+                this.renderBackgroundWithRadius(x y w h c radius)
+            }
+            return
+        }
+        
+        ; Clip to the rounded rectangle shape first
+        streamBuffer.writeString("q\n")
+        if (radius > 0.0) {
+            this.drawRoundedRectPath(x y w h radius)
+            streamBuffer.writeString("W n\n")
+        }
+        
+        ; Calculate gradient direction
+        def numSteps:int 50
+        def radians:double ((angle * 3.14159265) / 180.0)
+        
+        ; Determine if horizontal, vertical, or diagonal
+        def isHorizontal:boolean false
+        def isVertical:boolean false
+        
+        ; Normalize angle to 0-360
+        while (angle < 0.0) {
+            angle = angle + 360.0
+        }
+        while (angle >= 360.0) {
+            angle = angle - 360.0
+        }
+        
+        ; Approximate angle to major directions for simpler rendering
+        if ((angle >= 45.0) && (angle < 135.0)) {
+            ; Right (90 deg)
+            isHorizontal = true
+        }
+        if ((angle >= 135.0) && (angle < 225.0)) {
+            ; Down (180 deg)
+            isVertical = true
+        }
+        if ((angle >= 225.0) && (angle < 315.0)) {
+            ; Left (270 deg)
+            isHorizontal = true
+        }
+        if ((angle >= 315.0) || (angle < 45.0)) {
+            ; Up (0 deg or 360 deg)
+            isVertical = true
+        }
+        
+        ; Draw gradient strips
+        def stepIdx:int 0
+        while (stepIdx < numSteps) {
+            def t:double ((to_double stepIdx) / (to_double (numSteps - 1)))
+            
+            ; Interpolate color
+            def colorIdx:double (t * (to_double ((array_length colors) - 1)))
+            def idx1:int (to_int colorIdx)
+            def idx2:int (idx1 + 1)
+            if (idx2 >= (array_length colors)) {
+                idx2 = ((array_length colors) - 1)
+            }
+            def localT:double (colorIdx - (to_double idx1))
+            
+            def c1:EVGColor (itemAt colors idx1)
+            def c2:EVGColor (itemAt colors idx2)
+            
+            ; Linear interpolation of RGB
+            def r:double (((c1.r * (1.0 - localT)) + (c2.r * localT)) / 255.0)
+            def g:double (((c1.g * (1.0 - localT)) + (c2.g * localT)) / 255.0)
+            def b:double (((c1.b * (1.0 - localT)) + (c2.b * localT)) / 255.0)
+            
+            streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
+            
+            ; Draw a strip
+            if isHorizontal {
+                def stripW:double (w / (to_double numSteps))
+                def stripX:double x
+                if ((angle >= 225.0) && (angle < 315.0)) {
+                    ; Left direction - reverse
+                    stripX = (x + w - (stripW * (to_double (stepIdx + 1))))
+                } {
+                    stripX = (x + (stripW * (to_double stepIdx)))
+                }
+                streamBuffer.writeString((this.formatNum(stripX)) + " " + (this.formatNum(y)) + " " + (this.formatNum((stripW + 0.5))) + " " + (this.formatNum(h)) + " re\n")
+            } {
+                def stripH:double (h / (to_double numSteps))
+                def stripY:double y
+                if ((angle >= 135.0) && (angle < 225.0)) {
+                    ; Down direction
+                    stripY = (y + h - (stripH * (to_double (stepIdx + 1))))
+                } {
+                    ; Up direction - reverse
+                    stripY = (y + (stripH * (to_double stepIdx)))
+                }
+                streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum(stripY)) + " " + (this.formatNum(w)) + " " + (this.formatNum((stripH + 0.5))) + " re\n")
+            }
+            streamBuffer.writeString("f\n")
+            
+            stepIdx = stepIdx + 1
+        }
+        
+        streamBuffer.writeString("Q\n")
+    }
+    
+    fn renderBorderWithRadius:void (el:EVGElement x:double y:double w:double h:double radius:double) {
+        ; Get border width from box
+        def borderWidth:double el.box.borderWidth.pixels
+        if (borderWidth <= 0.0) {
+            return
+        }
+        
+        ; Get border color
+        def borderColor:EVGColor (unwrap el.box.borderColor)
+        if (borderColor.isSet == false) {
+            borderColor = (EVGColor.black())
+        }
+        
+        streamBuffer.writeString("q\n")
+        ; Set stroke color
+        def r:double (borderColor.r / 255.0)
+        def g:double (borderColor.g / 255.0)
+        def b:double (borderColor.b / 255.0)
+        streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " RG\n")
+        ; Set line width
+        streamBuffer.writeString((this.formatNum(borderWidth)) + " w\n")
+        ; Draw rounded rectangle outline
+        this.drawRoundedRectPath(x y w h radius)
+        streamBuffer.writeString("S\n")
+        streamBuffer.writeString("Q\n")
+    }
+
     fn renderBorder:void (el:EVGElement x:double y:double w:double h:double) {
         ; Get border width from box
         def borderWidth:double el.box.borderWidth.pixels
@@ -1494,25 +1879,38 @@ class EVGPDFRenderer {
         ; Get PDF font name
         def fontName:string (this.getPdfFontName(fontFamily))
         
-        ; Render each line
+        ; Check for text shadow
+        def hasShadow:boolean false
+        def shadowOffsetX:double 0.0
+        def shadowOffsetY:double 0.0
+        def shadowBlur:double 0.0
+        def shadowColor:EVGColor (EVGColor.rgba(0 0 0 0.5))
+        
+        if (el.shadowRadius.isSet || el.shadowColor.isSet) {
+            hasShadow = true
+            if el.shadowOffsetX.isSet {
+                shadowOffsetX = el.shadowOffsetX.pixels
+            }
+            if el.shadowOffsetY.isSet {
+                ; PDF Y is flipped
+                shadowOffsetY = (0.0 - el.shadowOffsetY.pixels)
+            }
+            if el.shadowRadius.isSet {
+                shadowBlur = el.shadowRadius.pixels
+            }
+            if el.shadowColor.isSet {
+                shadowColor = (unwrap el.shadowColor)
+            }
+        }
+        
+        ; Render each line (shadow first if present, then text)
         def lineY:double (y + h - fontSize)
         def i:int 0
         while (i < (array_length lines)) {
             def line:string (itemAt lines i)
             
-            streamBuffer.writeString("BT\n")
-            streamBuffer.writeString(fontName + " " + (this.formatNum(fontSize)) + " Tf\n")
-            
-            ; Set text color
-            def r:double (color.r / 255.0)
-            def g:double (color.g / 255.0)
-            def b:double (color.b / 255.0)
-            streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
-            
-            ; Position text
+            ; Calculate text X position based on alignment
             def textX:double x
-            
-            ; Handle text alignment
             if (el.textAlign == "center") {
                 def textWidth:double (measurer.measureTextWidth(line fontFamily fontSize))
                 textX = x + ((w - textWidth) / 2.0)
@@ -1521,6 +1919,52 @@ class EVGPDFRenderer {
                 def textWidth:double (measurer.measureTextWidth(line fontFamily fontSize))
                 textX = x + w - textWidth
             }
+            
+            ; Render shadow text first (if shadow is set)
+            if hasShadow {
+                ; For blur effect, render multiple slightly offset shadow copies
+                def numPasses:int 1
+                if (shadowBlur > 1.0) {
+                    numPasses = 3
+                }
+                
+                def pass:int 0
+                while (pass < numPasses) {
+                    def blurOffset:double 0.0
+                    if (numPasses > 1) {
+                        blurOffset = (shadowBlur * 0.3 * (to_double pass))
+                    }
+                    
+                    ; Calculate shadow color (blend towards background for blur effect)
+                    def shadowAlpha:double ((shadowColor.a / 255.0) / (to_double numPasses))
+                    def blendFactor:double (1.0 - shadowAlpha)
+                    def sr:double (((shadowColor.r / 255.0) * shadowAlpha) + (1.0 * blendFactor))
+                    def sg:double (((shadowColor.g / 255.0) * shadowAlpha) + (1.0 * blendFactor))
+                    def sb:double (((shadowColor.b / 255.0) * shadowAlpha) + (1.0 * blendFactor))
+                    
+                    streamBuffer.writeString("BT\n")
+                    streamBuffer.writeString(fontName + " " + (this.formatNum(fontSize)) + " Tf\n")
+                    streamBuffer.writeString((this.formatNum(sr)) + " " + (this.formatNum(sg)) + " " + (this.formatNum(sb)) + " rg\n")
+                    
+                    def shadowX:double (textX + shadowOffsetX + blurOffset)
+                    def shadowY:double (lineY + shadowOffsetY - blurOffset)
+                    streamBuffer.writeString((this.formatNum(shadowX)) + " " + (this.formatNum(shadowY)) + " Td\n")
+                    streamBuffer.writeString("(" + (this.escapeText(line)) + ") Tj\n")
+                    streamBuffer.writeString("ET\n")
+                    
+                    pass = pass + 1
+                }
+            }
+            
+            ; Render actual text
+            streamBuffer.writeString("BT\n")
+            streamBuffer.writeString(fontName + " " + (this.formatNum(fontSize)) + " Tf\n")
+            
+            ; Set text color
+            def r:double (color.r / 255.0)
+            def g:double (color.g / 255.0)
+            def b:double (color.b / 255.0)
+            streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
             
             streamBuffer.writeString((this.formatNum(textX)) + " " + (this.formatNum(lineY)) + " Td\n")
             streamBuffer.writeString("(" + (this.escapeText(line)) + ") Tj\n")

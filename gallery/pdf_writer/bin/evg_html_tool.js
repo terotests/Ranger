@@ -5083,6 +5083,7 @@ class EVGElement  {
     this.maxImageSize = 0;
     this.rotate = 0.0;
     this.scale = 1.0;
+    this.backgroundGradient = "";
     this.calculatedX = 0.0;
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
@@ -5327,6 +5328,18 @@ class EVGElement  {
     }
     if ( (name == "background-color") || (name == "backgroundColor") ) {
       this.backgroundColor = EVGColor.parse(value);
+      return;
+    }
+    if ( (name == "background-gradient") || (name == "backgroundGradient") ) {
+      this.backgroundGradient = value;
+      return;
+    }
+    if ( name == "background" ) {
+      if ( (value.includes("linear-gradient")) || (value.includes("radial-gradient")) ) {
+        this.backgroundGradient = value;
+      } else {
+        this.backgroundColor = EVGColor.parse(value);
+      }
       return;
     }
     if ( name == "color" ) {
@@ -5958,6 +5971,24 @@ class JSXToEVG  {
         if ( attrName == "border-color" ) {
           this.applyStyleProperty(element, "borderColor", attrValue);
         }
+        if ( attrName == "shadow-radius" ) {
+          this.applyStyleProperty(element, "shadowRadius", attrValue);
+        }
+        if ( attrName == "shadow-color" ) {
+          this.applyStyleProperty(element, "shadowColor", attrValue);
+        }
+        if ( attrName == "shadow-offset-x" ) {
+          this.applyStyleProperty(element, "shadowOffsetX", attrValue);
+        }
+        if ( attrName == "shadow-offset-y" ) {
+          this.applyStyleProperty(element, "shadowOffsetY", attrValue);
+        }
+        if ( attrName == "background" ) {
+          this.applyStyleProperty(element, "background", attrValue);
+        }
+        if ( attrName == "background-gradient" ) {
+          this.applyStyleProperty(element, "backgroundGradient", attrValue);
+        }
       }
       i = i + 1;
     };
@@ -6104,7 +6135,7 @@ class JSXToEVG  {
       element.borderLeftWidth = EVGUnit.parse(value);
     }
     if ( name == "borderRadius" ) {
-      element.borderRadius = EVGUnit.parse(value);
+      element.box.borderRadius = EVGUnit.parse(value);
     }
     if ( name == "display" ) {
       element.display = value;
@@ -6142,11 +6173,33 @@ class JSXToEVG  {
     if ( name == "backgroundColor" ) {
       element.backgroundColor = EVGColor.parse(value);
     }
+    if ( name == "background" ) {
+      if ( (value.includes("linear-gradient")) || (value.includes("radial-gradient")) ) {
+        element.backgroundGradient = value;
+      } else {
+        element.backgroundColor = EVGColor.parse(value);
+      }
+    }
+    if ( name == "backgroundGradient" ) {
+      element.backgroundGradient = value;
+    }
     if ( name == "color" ) {
       element.color = EVGColor.parse(value);
     }
     if ( name == "opacity" ) {
       element.opacity = this.parseNumberValue(value);
+    }
+    if ( name == "shadowRadius" ) {
+      element.shadowRadius = EVGUnit.parse(value);
+    }
+    if ( name == "shadowColor" ) {
+      element.shadowColor = EVGColor.parse(value);
+    }
+    if ( name == "shadowOffsetX" ) {
+      element.shadowOffsetX = EVGUnit.parse(value);
+    }
+    if ( name == "shadowOffsetY" ) {
+      element.shadowOffsetY = EVGUnit.parse(value);
     }
     if ( name == "fontSize" ) {
       element.fontSize = EVGUnit.parse(value);
@@ -7207,8 +7260,12 @@ class EVGHTMLRenderer  {
         css = ((css + "gap: ") + this.formatPx(el.gap.pixels)) + "; ";
       }
     }
-    if ( el.backgroundColor.isSet ) {
-      css = ((css + "background-color: ") + el.backgroundColor.toCSSString()) + "; ";
+    if ( (el.backgroundGradient.length) > 0 ) {
+      css = ((css + "background: ") + el.backgroundGradient) + "; ";
+    } else {
+      if ( el.backgroundColor.isSet ) {
+        css = ((css + "background-color: ") + el.backgroundColor.toCSSString()) + "; ";
+      }
     }
     let bw = 0.0;
     if ( el.box.borderWidth.isSet ) {
@@ -7244,6 +7301,33 @@ class EVGHTMLRenderer  {
     if ( el.opacity < 1.0 ) {
       css = ((css + "opacity: ") + ((el.opacity.toString()))) + "; ";
     }
+    css = css + this.generateBoxShadow(el);
+    return css;
+  };
+  generateBoxShadow (el) {
+    if ( el.shadowRadius.isSet == false ) {
+      if ( el.shadowColor.isSet == false ) {
+        return "";
+      }
+    }
+    let css = "";
+    let offsetX = 0.0;
+    let offsetY = 0.0;
+    if ( el.shadowOffsetX.isSet ) {
+      offsetX = el.shadowOffsetX.pixels;
+    }
+    if ( el.shadowOffsetY.isSet ) {
+      offsetY = el.shadowOffsetY.pixels;
+    }
+    let blur = 0.0;
+    if ( el.shadowRadius.isSet ) {
+      blur = el.shadowRadius.pixels;
+    }
+    let shadowColorStr = "rgba(0, 0, 0, 0.5)";
+    if ( el.shadowColor.isSet ) {
+      shadowColorStr = el.shadowColor.toCSSString();
+    }
+    css = ((((((((css + "box-shadow: ") + this.formatPx(offsetX)) + " ") + this.formatPx(offsetY)) + " ") + this.formatPx(blur)) + " ") + shadowColorStr) + "; ";
     return css;
   };
   renderLabel (el, elementId, depth) {
@@ -7298,6 +7382,33 @@ class EVGHTMLRenderer  {
     if ( el.calculatedWidth > 0.0 ) {
       css = ((css + "width: ") + this.formatPx(el.calculatedWidth)) + "; ";
     }
+    css = css + this.generateTextShadow(el);
+    return css;
+  };
+  generateTextShadow (el) {
+    if ( el.shadowRadius.isSet == false ) {
+      if ( el.shadowColor.isSet == false ) {
+        return "";
+      }
+    }
+    let css = "";
+    let offsetX = 0.0;
+    let offsetY = 0.0;
+    if ( el.shadowOffsetX.isSet ) {
+      offsetX = el.shadowOffsetX.pixels;
+    }
+    if ( el.shadowOffsetY.isSet ) {
+      offsetY = el.shadowOffsetY.pixels;
+    }
+    let blur = 0.0;
+    if ( el.shadowRadius.isSet ) {
+      blur = el.shadowRadius.pixels;
+    }
+    let shadowColorStr = "rgba(0, 0, 0, 0.5)";
+    if ( el.shadowColor.isSet ) {
+      shadowColorStr = el.shadowColor.toCSSString();
+    }
+    css = ((((((((css + "text-shadow: ") + this.formatPx(offsetX)) + " ") + this.formatPx(offsetY)) + " ") + this.formatPx(blur)) + " ") + shadowColorStr) + "; ";
     return css;
   };
   renderImage (el, elementId, depth) {
