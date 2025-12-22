@@ -103,8 +103,18 @@ class PDFWriter {
         return imageObjNum
     }
     
+    fn toOctalEscape:string (ch:int) {
+        ; Convert a byte value (0-255) to PDF octal escape format \NNN
+        def d0:int (ch % 8)
+        def t1:int (floor (ch / 8))
+        def d1:int (t1 % 8)
+        def d2:int (floor (t1 / 8))
+        return ("\\" + (to_string d2) + (to_string d1) + (to_string d0))
+    }
+    
     fn escapeText:string (text:string) {
         ; Basic PDF text escaping - escape parentheses and backslashes
+        ; For high-byte characters (128-255), use PDF octal escape \NNN
         def result ""
         def len (strlen text)
         def i 0
@@ -119,7 +129,18 @@ class PDFWriter {
                     if (ch == 92) {  ; \
                         result = result + "\\\\"
                     } {
-                        result = result + (strfromcode ch)
+                        if (ch < 128) {
+                            ; ASCII range - safe to use directly
+                            result = result + (strfromcode ch)
+                        } {
+                            if (ch <= 255) {
+                                ; WinAnsi high-byte - use octal escape
+                                result = result + (this.toOctalEscape(ch))
+                            } {
+                                ; Outside WinAnsi, use placeholder
+                                result = result + "?"
+                            }
+                        }
                     }
                 }
             }

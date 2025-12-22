@@ -5,6 +5,7 @@ import (
   "strconv"
   "os"
   "path/filepath"
+  "math"
 )
 
 type GoNullable struct {
@@ -77,27 +78,27 @@ func CreateNew_TSLexer(src string) *TSLexer {
   me.col = int64(1)
   me.__len = int64(0)
   me.source = src; 
-  me.__len = int64(len(src)); 
+  me.__len = int64(len([]rune(src))); 
   return me;
 }
 func (this *TSLexer) peek () string {
   if  this.pos >= this.__len {
     return ""
   }
-  return this.source[this.pos: (this.pos + 1)]
+  return string([]rune(this.source)[this.pos])
 }
 func (this *TSLexer) peekAt (offset int64) string {
   var idx int64= this.pos + offset;
   if  idx >= this.__len {
     return ""
   }
-  return this.source[idx: (idx + 1)]
+  return string([]rune(this.source)[idx])
 }
 func (this *TSLexer) advance () string {
   if  this.pos >= this.__len {
     return ""
   }
-  var ch string= this.source[this.pos: (this.pos + 1)];
+  var ch string= string([]rune(this.source)[this.pos]);
   this.pos = this.pos + int64(1); 
   if  (ch == "\n") || (ch == "\r\n") {
     this.line = this.line + int64(1); 
@@ -141,10 +142,10 @@ func (this *TSLexer) isDigit (ch string) bool {
   return false
 }
 func (this *TSLexer) isAlpha (ch string) bool {
-  if  (int64(len(ch))) == int64(0) {
+  if  (int64(len([]rune(ch)))) == int64(0) {
     return false
   }
-  var code int64= int64(this.source[this.pos]);
+  var code int64= int64([]rune(this.source)[this.pos]);
   if  code >= int64(97) {
     if  code <= int64(122) {
       return true
@@ -159,6 +160,9 @@ func (this *TSLexer) isAlpha (ch string) bool {
     return true
   }
   if  ch == "$" {
+    return true
+  }
+  if  code > int64(127) {
     return true
   }
   return false
@@ -173,10 +177,10 @@ func (this *TSLexer) isAlphaNumCh (ch string) bool {
   if  ch == "$" {
     return true
   }
-  if  (int64(len(ch))) == int64(0) {
+  if  (int64(len([]rune(ch)))) == int64(0) {
     return false
   }
-  var code int64= int64(this.source[this.pos]);
+  var code int64= int64([]rune(this.source)[this.pos]);
   if  code >= int64(97) {
     if  code <= int64(122) {
       return true
@@ -186,6 +190,9 @@ func (this *TSLexer) isAlphaNumCh (ch string) bool {
     if  code <= int64(90) {
       return true
     }
+  }
+  if  code > int64(127) {
+    return true
   }
   return false
 }
@@ -4302,10 +4309,10 @@ func (this *TSParserSimple) peekAheadValue (offset int64) string {
   return ""
 }
 func (this *TSParserSimple) startsWithLowerCase (s string) bool {
-  if  (int64(len(s))) == int64(0) {
+  if  (int64(len([]rune(s)))) == int64(0) {
     return false
   }
-  var code int64= int64(s[int64(0)]);
+  var code int64= int64([]rune(s)[int64(0)]);
   if  (code >= int64(97)) && (code <= int64(122)) {
     return true
   }
@@ -4609,7 +4616,7 @@ func EVGUnit_static_unset() *EVGUnit {
 func EVGUnit_static_parse(str string) *EVGUnit {
   var unit *EVGUnit= CreateNew_EVGUnit();
   var trimmed string= strings.TrimSpace(str);
-  var __len int64= int64(len(trimmed));
+  var __len int64= int64(len([]rune(trimmed)));
   if  __len == int64(0) {
     return unit
   }
@@ -4619,9 +4626,9 @@ func EVGUnit_static_parse(str string) *EVGUnit {
     unit.isSet = true; 
     return unit
   }
-  var lastChar int64= int64(trimmed[(__len - int64(1))]);
+  var lastChar int64= int64([]rune(trimmed)[(__len - int64(1))]);
   if  lastChar == int64(37) {
-    var numStr string= trimmed[int64(0):(__len - int64(1))];
+    var numStr string= string([]rune(trimmed)[int64(0):(__len - int64(1))]);
     var numVal *GoNullable = new(GoNullable); 
     numVal = r_str_2_d64(numStr);
     unit.value = numVal.value.(float64); 
@@ -4630,9 +4637,9 @@ func EVGUnit_static_parse(str string) *EVGUnit {
     return unit
   }
   if  __len >= int64(2) {
-    var suffix string= trimmed[(__len - int64(2)):__len];
+    var suffix string= string([]rune(trimmed)[(__len - int64(2)):__len]);
     if  suffix == "em" {
-      var numStr_1 string= trimmed[int64(0):(__len - int64(2))];
+      var numStr_1 string= string([]rune(trimmed)[int64(0):(__len - int64(2))]);
       var numVal_1 *GoNullable = new(GoNullable); 
       numVal_1 = r_str_2_d64(numStr_1);
       unit.value = numVal_1.value.(float64); 
@@ -4641,7 +4648,7 @@ func EVGUnit_static_parse(str string) *EVGUnit {
       return unit
     }
     if  suffix == "px" {
-      var numStr_2 string= trimmed[int64(0):(__len - int64(2))];
+      var numStr_2 string= string([]rune(trimmed)[int64(0):(__len - int64(2))]);
       var numVal_2 *GoNullable = new(GoNullable); 
       numVal_2 = r_str_2_d64(numStr_2);
       unit.value = numVal_2.value.(float64); 
@@ -4651,7 +4658,7 @@ func EVGUnit_static_parse(str string) *EVGUnit {
       return unit
     }
     if  suffix == "hp" {
-      var numStr_3 string= trimmed[int64(0):(__len - int64(2))];
+      var numStr_3 string= string([]rune(trimmed)[int64(0):(__len - int64(2))]);
       var numVal_3 *GoNullable = new(GoNullable); 
       numVal_3 = r_str_2_d64(numStr_3);
       unit.value = numVal_3.value.(float64); 
@@ -4822,19 +4829,19 @@ func EVGColor_static_hexDigit(ch int64) int64 {
 }
 func EVGColor_static_parseHex(hex string) *EVGColor {
   var c *EVGColor= CreateNew_EVGColor();
-  var __len int64= int64(len(hex));
+  var __len int64= int64(len([]rune(hex)));
   var start int64= int64(0);
   if  __len > int64(0) {
-    var firstChar int64= int64(hex[int64(0)]);
+    var firstChar int64= int64([]rune(hex)[int64(0)]);
     if  firstChar == int64(35) {
       start = int64(1); 
       __len = __len - int64(1); 
     }
   }
   if  __len == int64(3) {
-    var r1 int64= EVGColor_static_hexDigit((int64(hex[start])));
-    var g1 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(1))])));
-    var b1 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(2))])));
+    var r1 int64= EVGColor_static_hexDigit((int64([]rune(hex)[start])));
+    var g1 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(1))])));
+    var b1 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(2))])));
     c.r = float64( ((r1 * int64(16)) + r1) ); 
     c.g = float64( ((g1 * int64(16)) + g1) ); 
     c.b = float64( ((b1 * int64(16)) + b1) ); 
@@ -4843,12 +4850,12 @@ func EVGColor_static_parseHex(hex string) *EVGColor {
     return c
   }
   if  __len == int64(6) {
-    var r1_1 int64= EVGColor_static_hexDigit((int64(hex[start])));
-    var r2 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(1))])));
-    var g1_1 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(2))])));
-    var g2 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(3))])));
-    var b1_1 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(4))])));
-    var b2 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(5))])));
+    var r1_1 int64= EVGColor_static_hexDigit((int64([]rune(hex)[start])));
+    var r2 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(1))])));
+    var g1_1 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(2))])));
+    var g2 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(3))])));
+    var b1_1 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(4))])));
+    var b2 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(5))])));
     c.r = float64( ((r1_1 * int64(16)) + r2) ); 
     c.g = float64( ((g1_1 * int64(16)) + g2) ); 
     c.b = float64( ((b1_1 * int64(16)) + b2) ); 
@@ -4857,14 +4864,14 @@ func EVGColor_static_parseHex(hex string) *EVGColor {
     return c
   }
   if  __len == int64(8) {
-    var r1_2 int64= EVGColor_static_hexDigit((int64(hex[start])));
-    var r2_1 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(1))])));
-    var g1_2 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(2))])));
-    var g2_1 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(3))])));
-    var b1_2 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(4))])));
-    var b2_1 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(5))])));
-    var a1 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(6))])));
-    var a2 int64= EVGColor_static_hexDigit((int64(hex[(start + int64(7))])));
+    var r1_2 int64= EVGColor_static_hexDigit((int64([]rune(hex)[start])));
+    var r2_1 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(1))])));
+    var g1_2 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(2))])));
+    var g2_1 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(3))])));
+    var b1_2 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(4))])));
+    var b2_1 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(5))])));
+    var a1 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(6))])));
+    var a2 int64= EVGColor_static_hexDigit((int64([]rune(hex)[(start + int64(7))])));
     c.r = float64( ((r1_2 * int64(16)) + r2_1) ); 
     c.g = float64( ((g1_2 * int64(16)) + g2_1) ); 
     c.b = float64( ((b1_2 * int64(16)) + b2_1) ); 
@@ -4927,20 +4934,20 @@ func EVGColor_static_parseNumber(str string) float64 {
 }
 func EVGColor_static_parse(str string) *EVGColor {
   var trimmed string= strings.TrimSpace(str);
-  var __len int64= int64(len(trimmed));
+  var __len int64= int64(len([]rune(trimmed)));
   if  __len == int64(0) {
     return EVGColor_static_noColor()
   }
-  var firstChar int64= int64(trimmed[int64(0)]);
+  var firstChar int64= int64([]rune(trimmed)[int64(0)]);
   if  firstChar == int64(35) {
     return EVGColor_static_parseHex(trimmed)
   }
   if  __len >= int64(4) {
-    var prefix string= trimmed[int64(0):int64(4)];
+    var prefix string= string([]rune(trimmed)[int64(0):int64(4)]);
     if  prefix == "rgba" {
       return EVGColor_static_parseRgba(trimmed)
     }
-    var prefix3 string= trimmed[int64(0):int64(3)];
+    var prefix3 string= string([]rune(trimmed)[int64(0):int64(3)]);
     if  prefix3 == "rgb" {
       return EVGColor_static_parseRgb(trimmed)
     }
@@ -4952,11 +4959,11 @@ func EVGColor_static_parse(str string) *EVGColor {
 }
 func EVGColor_static_parseRgb(str string) *EVGColor {
   var c *EVGColor= CreateNew_EVGColor();
-  var __len int64= int64(len(str));
+  var __len int64= int64(len([]rune(str)));
   var start int64= int64(0);
   var i int64= int64(0);
   for i < __len {
-    var ch int64= int64(str[i]);
+    var ch int64= int64([]rune(str)[i]);
     if  ch == int64(40) {
       start = i + int64(1); 
     }
@@ -4965,32 +4972,32 @@ func EVGColor_static_parseRgb(str string) *EVGColor {
   var end int64= __len - int64(1);
   i = __len - int64(1); 
   for i >= int64(0) {
-    var ch_1 int64= int64(str[i]);
+    var ch_1 int64= int64([]rune(str)[i]);
     if  ch_1 == int64(41) {
       end = i; 
     }
     i = i - int64(1); 
   }
-  var content string= str[start:end];
+  var content string= string([]rune(str)[start:end]);
   var parts []string = make([]string, 0);
   var current string= "";
   i = int64(0); 
-  var contentLen int64= int64(len(content));
+  var contentLen int64= int64(len([]rune(content)));
   for i < contentLen {
-    var ch_2 int64= int64(content[i]);
+    var ch_2 int64= int64([]rune(content)[i]);
     if  (ch_2 == int64(44)) || (ch_2 == int64(32)) {
       var trimPart string= strings.TrimSpace(current);
-      if  (int64(len(trimPart))) > int64(0) {
+      if  (int64(len([]rune(trimPart)))) > int64(0) {
         parts = append(parts,trimPart); 
       }
       current = ""; 
     } else {
-      current = current + (string([] byte{byte(ch_2)})); 
+      current = current + (string([]rune{rune(ch_2)})); 
     }
     i = i + int64(1); 
   }
   var trimPart_1 string= strings.TrimSpace(current);
-  if  (int64(len(trimPart_1))) > int64(0) {
+  if  (int64(len([]rune(trimPart_1)))) > int64(0) {
     parts = append(parts,trimPart_1); 
   }
   if  (int64(len(parts))) >= int64(3) {
@@ -5004,12 +5011,12 @@ func EVGColor_static_parseRgb(str string) *EVGColor {
 }
 func EVGColor_static_parseRgba(str string) *EVGColor {
   var c *EVGColor= EVGColor_static_parseRgb(str);
-  var __len int64= int64(len(str));
+  var __len int64= int64(len([]rune(str)));
   var start int64= int64(0);
   var end int64= __len - int64(1);
   var i int64= int64(0);
   for i < __len {
-    var ch int64= int64(str[i]);
+    var ch int64= int64([]rune(str)[i]);
     if  ch == int64(40) {
       start = i + int64(1); 
     }
@@ -5018,26 +5025,26 @@ func EVGColor_static_parseRgba(str string) *EVGColor {
     }
     i = i + int64(1); 
   }
-  var content string= str[start:end];
+  var content string= string([]rune(str)[start:end]);
   var parts []string = make([]string, 0);
   var current string= "";
   i = int64(0); 
-  var contentLen int64= int64(len(content));
+  var contentLen int64= int64(len([]rune(content)));
   for i < contentLen {
-    var ch_1 int64= int64(content[i]);
+    var ch_1 int64= int64([]rune(content)[i]);
     if  (ch_1 == int64(44)) || (ch_1 == int64(32)) {
       var trimPart string= strings.TrimSpace(current);
-      if  (int64(len(trimPart))) > int64(0) {
+      if  (int64(len([]rune(trimPart)))) > int64(0) {
         parts = append(parts,trimPart); 
       }
       current = ""; 
     } else {
-      current = current + (string([] byte{byte(ch_1)})); 
+      current = current + (string([]rune{rune(ch_1)})); 
     }
     i = i + int64(1); 
   }
   var trimPart_1 string= strings.TrimSpace(current);
-  if  (int64(len(trimPart_1))) > int64(0) {
+  if  (int64(len([]rune(trimPart_1)))) > int64(0) {
     parts = append(parts,trimPart_1); 
   }
   if  (int64(len(parts))) >= int64(4) {
@@ -5050,12 +5057,12 @@ func EVGColor_static_parseRgba(str string) *EVGColor {
   return c
 }
 func EVGColor_static_parseHsl(str string) *EVGColor {
-  var __len int64= int64(len(str));
+  var __len int64= int64(len([]rune(str)));
   var start int64= int64(0);
   var end int64= __len - int64(1);
   var i int64= int64(0);
   for i < __len {
-    var ch int64= int64(str[i]);
+    var ch int64= int64([]rune(str)[i]);
     if  ch == int64(40) {
       start = i + int64(1); 
     }
@@ -5064,26 +5071,26 @@ func EVGColor_static_parseHsl(str string) *EVGColor {
     }
     i = i + int64(1); 
   }
-  var content string= str[start:end];
+  var content string= string([]rune(str)[start:end]);
   var parts []string = make([]string, 0);
   var current string= "";
   i = int64(0); 
-  var contentLen int64= int64(len(content));
+  var contentLen int64= int64(len([]rune(content)));
   for i < contentLen {
-    var ch_1 int64= int64(content[i]);
+    var ch_1 int64= int64([]rune(content)[i]);
     if  (ch_1 == int64(44)) || (ch_1 == int64(32)) {
       var trimPart string= strings.TrimSpace(current);
-      if  (int64(len(trimPart))) > int64(0) {
+      if  (int64(len([]rune(trimPart)))) > int64(0) {
         parts = append(parts,trimPart); 
       }
       current = ""; 
     } else {
-      current = current + (string([] byte{byte(ch_1)})); 
+      current = current + (string([]rune{rune(ch_1)})); 
     }
     i = i + int64(1); 
   }
   var trimPart_1 string= strings.TrimSpace(current);
-  if  (int64(len(trimPart_1))) > int64(0) {
+  if  (int64(len([]rune(trimPart_1)))) > int64(0) {
     parts = append(parts,trimPart_1); 
   }
   if  (int64(len(parts))) >= int64(3) {
@@ -5100,14 +5107,14 @@ func EVGColor_static_parseHsl(str string) *EVGColor {
 }
 func EVGColor_static_parseNamed(name string) *EVGColor {
   var lower string= "";
-  var __len int64= int64(len(name));
+  var __len int64= int64(len([]rune(name)));
   var i int64= int64(0);
   for i < __len {
-    var ch int64= int64(name[i]);
+    var ch int64= int64([]rune(name)[i]);
     if  (ch >= int64(65)) && (ch <= int64(90)) {
-      lower = lower + (string([] byte{byte((ch + int64(32)))})); 
+      lower = lower + (string([]rune{rune((ch + int64(32)))})); 
     } else {
-      lower = lower + (string([] byte{byte(ch)})); 
+      lower = lower + (string([]rune{rune(ch)})); 
     }
     i = i + int64(1); 
   }
@@ -5223,7 +5230,7 @@ func (this *EVGColor) toHexString () string {
   var b1D float64= (float64( bH )) / 16.0;
   var b1 int64= int64(b1D);
   var b2 int64= bH % int64(16);
-  return ((((("#" + (string([] byte{byte((int64(hexChars[r1])))}))) + (string([] byte{byte((int64(hexChars[r2])))}))) + (string([] byte{byte((int64(hexChars[g1])))}))) + (string([] byte{byte((int64(hexChars[g2])))}))) + (string([] byte{byte((int64(hexChars[b1])))}))) + (string([] byte{byte((int64(hexChars[b2])))}))
+  return ((((("#" + (string([]rune{rune((int64([]rune(hexChars)[r1])))}))) + (string([]rune{rune((int64([]rune(hexChars)[r2])))}))) + (string([]rune{rune((int64([]rune(hexChars)[g1])))}))) + (string([]rune{rune((int64([]rune(hexChars)[g2])))}))) + (string([]rune{rune((int64([]rune(hexChars)[b1])))}))) + (string([]rune{rune((int64([]rune(hexChars)[b2])))}))
 }
 func (this *EVGColor) toPDFColorString () string {
   if  this.isSet == false {
@@ -6153,10 +6160,10 @@ func (this *GrowableBuffer) writeBuffer (src []byte) () {
   this.writeBytes(src, int64(0), __len);
 }
 func (this *GrowableBuffer) writeString (s string) () {
-  var __len int64= int64(len(s));
+  var __len int64= int64(len([]rune(s)));
   var i int64= int64(0);
   for i < __len {
-    var ch int64= int64(s[i]);
+    var ch int64= int64([]rune(s)[i]);
     this.writeByte(ch);
     i = i + int64(1); 
   }
@@ -6218,7 +6225,7 @@ func (this *GrowableBuffer) toString () string {
     var i int64= int64(0);
     for i < chunkUsed {
       var b int64= int64(chunk.data[i]);
-      result = result + (string([] byte{byte(b)})); 
+      result = result + (string([]rune{rune(b)})); 
       i = i + int64(1); 
     }
     if  !chunk.next.has_value  {
@@ -6489,7 +6496,7 @@ func (this *JPEGMetadataParser) readString (offset int64, length int64) string {
     if  b == int64(0) {
       return result
     }
-    result = result + (string([] byte{byte(b)})); 
+    result = result + (string([]rune{rune(b)})); 
     i = i + int64(1); 
   }
   return result
@@ -7041,35 +7048,35 @@ func (this *JPEGMetadataParser) formatMetadata (info *JPEGMetadataInfo) string {
   }
   if  info.hasExif {
     out.writeString("\n--- EXIF Info ---\n");
-    if  (int64(len(info.cameraMake))) > int64(0) {
+    if  (int64(len([]rune(info.cameraMake)))) > int64(0) {
       out.writeString(("  Camera Make: " + info.cameraMake) + "\n");
     }
-    if  (int64(len(info.cameraModel))) > int64(0) {
+    if  (int64(len([]rune(info.cameraModel)))) > int64(0) {
       out.writeString(("  Camera Model: " + info.cameraModel) + "\n");
     }
-    if  (int64(len(info.software))) > int64(0) {
+    if  (int64(len([]rune(info.software)))) > int64(0) {
       out.writeString(("  Software: " + info.software) + "\n");
     }
-    if  (int64(len(info.dateTimeOriginal))) > int64(0) {
+    if  (int64(len([]rune(info.dateTimeOriginal)))) > int64(0) {
       out.writeString(("  Date/Time Original: " + info.dateTimeOriginal) + "\n");
     } else {
-      if  (int64(len(info.dateTime))) > int64(0) {
+      if  (int64(len([]rune(info.dateTime)))) > int64(0) {
         out.writeString(("  Date/Time: " + info.dateTime) + "\n");
       }
     }
-    if  (int64(len(info.exposureTime))) > int64(0) {
+    if  (int64(len([]rune(info.exposureTime)))) > int64(0) {
       out.writeString(("  Exposure Time: " + info.exposureTime) + " sec\n");
     }
-    if  (int64(len(info.fNumber))) > int64(0) {
+    if  (int64(len([]rune(info.fNumber)))) > int64(0) {
       out.writeString(("  F-Number: f/" + info.fNumber) + "\n");
     }
-    if  (int64(len(info.isoSpeed))) > int64(0) {
+    if  (int64(len([]rune(info.isoSpeed)))) > int64(0) {
       out.writeString(("  ISO Speed: " + info.isoSpeed) + "\n");
     }
-    if  (int64(len(info.focalLength))) > int64(0) {
+    if  (int64(len([]rune(info.focalLength)))) > int64(0) {
       out.writeString(("  Focal Length: " + info.focalLength) + " mm\n");
     }
-    if  (int64(len(info.flash))) > int64(0) {
+    if  (int64(len([]rune(info.flash)))) > int64(0) {
       out.writeString(("  Flash: " + info.flash) + "\n");
     }
     var orientStr string= "Normal";
@@ -7098,13 +7105,13 @@ func (this *JPEGMetadataParser) formatMetadata (info *JPEGMetadataInfo) string {
   }
   if  info.hasGPS {
     out.writeString("\n--- GPS Info ---\n");
-    if  (int64(len(info.gpsLatitude))) > int64(0) {
+    if  (int64(len([]rune(info.gpsLatitude)))) > int64(0) {
       out.writeString(("  Latitude: " + info.gpsLatitude) + "\n");
     }
-    if  (int64(len(info.gpsLongitude))) > int64(0) {
+    if  (int64(len([]rune(info.gpsLongitude)))) > int64(0) {
       out.writeString(("  Longitude: " + info.gpsLongitude) + "\n");
     }
-    if  (int64(len(info.gpsAltitude))) > int64(0) {
+    if  (int64(len([]rune(info.gpsAltitude)))) > int64(0) {
       out.writeString(("  Altitude: " + info.gpsAltitude) + "\n");
     }
   }
@@ -7131,7 +7138,7 @@ func (this *JPEGMetadataParser) formatMetadata (info *JPEGMetadataInfo) string {
       var h1D float64= float64(r2) / float64(int64(16));
       var h1 int64= int64(h1D);
       var h0 int64= r2 - (h1 * int64(16));
-      tagHex = (((hexChars[h3:(h3 + int64(1))]) + (hexChars[h2:(h2 + int64(1))])) + (hexChars[h1:(h1 + int64(1))])) + (hexChars[h0:(h0 + int64(1))]); 
+      tagHex = (((string([]rune(hexChars)[h3:(h3 + int64(1))])) + (string([]rune(hexChars)[h2:(h2 + int64(1))]))) + (string([]rune(hexChars)[h1:(h1 + int64(1))]))) + (string([]rune(hexChars)[h0:(h0 + int64(1))])); 
       out.writeString(((tagHex + "): ") + tag.tagValue) + "\n");
     }
   }
@@ -7232,12 +7239,19 @@ func (this *PDFWriter) addJPEGImage (dirPath string, fileName string) int64 {
   this.imageObjNum = this.writeImageObject(imgHeader, imgData, imgFooter); 
   return this.imageObjNum
 }
+func (this *PDFWriter) toOctalEscape (ch int64) string {
+  var d0 int64= ch % int64(8);
+  var t1 int64= int64(math.Floor((float64(ch) / float64(int64(8)))));
+  var d1 int64= t1 % int64(8);
+  var d2 int64= int64(math.Floor((float64(t1) / float64(int64(8)))));
+  return (("\\" + (strconv.FormatInt(d2, 10))) + (strconv.FormatInt(d1, 10))) + (strconv.FormatInt(d0, 10))
+}
 func (this *PDFWriter) escapeText (text string) string {
   var result string= "";
-  var __len int64= int64(len(text));
+  var __len int64= int64(len([]rune(text)));
   var i int64= int64(0);
   for i < __len {
-    var ch int64= int64(text[i]);
+    var ch int64= int64([]rune(text)[i]);
     if  ch == int64(40) {
       result = result + "\\("; 
     } else {
@@ -7247,7 +7261,15 @@ func (this *PDFWriter) escapeText (text string) string {
         if  ch == int64(92) {
           result = result + "\\\\"; 
         } else {
-          result = result + (string([] byte{byte(ch)})); 
+          if  ch < int64(128) {
+            result = result + (string([]rune{rune(ch)})); 
+          } else {
+            if  ch <= int64(255) {
+              result = result + this.toOctalEscape(ch); 
+            } else {
+              result = result + "?"; 
+            }
+          }
         }
       }
     }
@@ -7271,7 +7293,7 @@ func (this *PDFWriter) createPDFWithImage (message string, imageDirPath string, 
   buf.writeByte(int64(207));
   buf.writeByte(int64(211));
   buf.writeByte(int64(10));
-  var hasImage bool= (int64(len(imageFileName))) > int64(0);
+  var hasImage bool= (int64(len([]rune(imageFileName)))) > int64(0);
   if  hasImage {
     var imgNum int64= this.addJPEGImage(imageDirPath, imageFileName);
     if  imgNum == int64(0) {
@@ -7426,35 +7448,35 @@ func (this *PDFWriter) createPDFWithImage (message string, imageDirPath string, 
       streamBuf.writeString(((((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Size: ") + (strconv.FormatInt(meta.width, 10))) + " x ") + (strconv.FormatInt(meta.height, 10))) + ") Tj\nET\n");
       metaY = metaY - int64(12); 
       if  meta.hasExif {
-        if  (int64(len(meta.cameraMake))) > int64(0) {
+        if  (int64(len([]rune(meta.cameraMake)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Make: ") + this.escapeText(meta.cameraMake)) + ") Tj\nET\n");
           metaY = metaY - int64(12); 
         }
-        if  (int64(len(meta.cameraModel))) > int64(0) {
+        if  (int64(len([]rune(meta.cameraModel)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Model: ") + this.escapeText(meta.cameraModel)) + ") Tj\nET\n");
           metaY = metaY - int64(12); 
         }
-        if  (int64(len(meta.dateTimeOriginal))) > int64(0) {
+        if  (int64(len([]rune(meta.dateTimeOriginal)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Date: ") + this.escapeText(meta.dateTimeOriginal)) + ") Tj\nET\n");
           metaY = metaY - int64(12); 
         }
-        if  (int64(len(meta.exposureTime))) > int64(0) {
+        if  (int64(len([]rune(meta.exposureTime)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Exposure: ") + meta.exposureTime) + " sec) Tj\nET\n");
           metaY = metaY - int64(12); 
         }
-        if  (int64(len(meta.fNumber))) > int64(0) {
+        if  (int64(len([]rune(meta.fNumber)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Aperture: f/") + meta.fNumber) + ") Tj\nET\n");
           metaY = metaY - int64(12); 
         }
-        if  (int64(len(meta.isoSpeed))) > int64(0) {
+        if  (int64(len([]rune(meta.isoSpeed)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(ISO: ") + meta.isoSpeed) + ") Tj\nET\n");
           metaY = metaY - int64(12); 
         }
-        if  (int64(len(meta.focalLength))) > int64(0) {
+        if  (int64(len([]rune(meta.focalLength)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Focal Length: ") + meta.focalLength) + " mm) Tj\nET\n");
           metaY = metaY - int64(12); 
         }
-        if  (int64(len(meta.flash))) > int64(0) {
+        if  (int64(len([]rune(meta.flash)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Flash: ") + meta.flash) + ") Tj\nET\n");
           metaY = metaY - int64(12); 
         }
@@ -7462,15 +7484,15 @@ func (this *PDFWriter) createPDFWithImage (message string, imageDirPath string, 
       if  meta.hasGPS {
         streamBuf.writeString(("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(--- GPS Data ---) Tj\nET\n");
         metaY = metaY - int64(12); 
-        if  (int64(len(meta.gpsLatitude))) > int64(0) {
+        if  (int64(len([]rune(meta.gpsLatitude)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Latitude: ") + meta.gpsLatitude) + ") Tj\nET\n");
           metaY = metaY - int64(12); 
         }
-        if  (int64(len(meta.gpsLongitude))) > int64(0) {
+        if  (int64(len([]rune(meta.gpsLongitude)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Longitude: ") + meta.gpsLongitude) + ") Tj\nET\n");
           metaY = metaY - int64(12); 
         }
-        if  (int64(len(meta.gpsAltitude))) > int64(0) {
+        if  (int64(len([]rune(meta.gpsAltitude)))) > int64(0) {
           streamBuf.writeString(((("BT\n/F1 9 Tf\n400 " + (strconv.FormatInt(metaY, 10))) + " Td\n(Altitude: ") + meta.gpsAltitude) + ") Tj\nET\n");
           metaY = metaY - int64(12); 
         }
@@ -7493,7 +7515,7 @@ func (this *PDFWriter) createPDFWithImage (message string, imageDirPath string, 
   for ; i < int64(len(this.objectOffsets)) ; i++ {
     offset := this.objectOffsets[i];
     var offsetStr string= strconv.FormatInt(offset, 10);
-    for (int64(len(offsetStr))) < int64(10) {
+    for (int64(len([]rune(offsetStr)))) < int64(10) {
       offsetStr = "0" + offsetStr; 
     }
     buf.writeString(offsetStr + " 00000 n \n");
@@ -7566,7 +7588,7 @@ func CreateNew_EVGTextMeasurer() *EVGTextMeasurer {
 }
 func (this *EVGTextMeasurer) measureText (text string, fontFamily string, fontSize float64) *EVGTextMetrics {
   var avgCharWidth float64= fontSize * 0.55;
-  var textLen int64= int64(len(text));
+  var textLen int64= int64(len([]rune(text)));
   var width float64= (float64( textLen )) * avgCharWidth;
   var lineHeight float64= fontSize * 1.2;
   var metrics *EVGTextMetrics= CreateNew_EVGTextMetrics();
@@ -7607,13 +7629,13 @@ func (this *EVGTextMeasurer) wrapText (text string, fontFamily string, fontSize 
   var currentLine string= "";
   var currentWidth float64= 0.0;
   var wordStart int64= int64(0);
-  var textLen int64= int64(len(text));
+  var textLen int64= int64(len([]rune(text)));
   var i int64= int64(0);
   for i <= textLen {
     var ch int64= int64(0);
     var isEnd bool= i == textLen;
     if  isEnd == false {
-      ch = int64(text[i]); 
+      ch = int64([]rune(text)[i]); 
     }
     var isWordEnd bool= false;
     if  isEnd {
@@ -7628,22 +7650,22 @@ func (this *EVGTextMeasurer) wrapText (text string, fontFamily string, fontSize 
     if  isWordEnd {
       var word string= "";
       if  i > wordStart {
-        word = text[wordStart:i]; 
+        word = string([]rune(text)[wordStart:i]); 
       }
       var wordWidth float64= this.measureTextWidth(word, fontFamily, fontSize);
       var spaceWidth float64= 0.0;
-      if  (int64(len(currentLine))) > int64(0) {
+      if  (int64(len([]rune(currentLine)))) > int64(0) {
         spaceWidth = this.measureTextWidth(" ", fontFamily, fontSize); 
       }
       if  ((currentWidth + spaceWidth) + wordWidth) <= maxWidth {
-        if  (int64(len(currentLine))) > int64(0) {
+        if  (int64(len([]rune(currentLine)))) > int64(0) {
           currentLine = currentLine + " "; 
           currentWidth = currentWidth + spaceWidth; 
         }
         currentLine = currentLine + word; 
         currentWidth = currentWidth + wordWidth; 
       } else {
-        if  (int64(len(currentLine))) > int64(0) {
+        if  (int64(len([]rune(currentLine)))) > int64(0) {
           lines = append(lines,currentLine); 
         }
         currentLine = word; 
@@ -7658,7 +7680,7 @@ func (this *EVGTextMeasurer) wrapText (text string, fontFamily string, fontSize 
     }
     i = i + int64(1); 
   }
-  if  (int64(len(currentLine))) > int64(0) {
+  if  (int64(len([]rune(currentLine)))) > int64(0) {
     lines = append(lines,currentLine); 
   }
   return lines
@@ -7683,11 +7705,11 @@ func (this *SimpleTextMeasurer) setCharWidthRatio (ratio float64) () {
   this.charWidthRatio = ratio; 
 }
 func (this *SimpleTextMeasurer) measureText (text string, fontFamily string, fontSize float64) *EVGTextMetrics {
-  var textLen int64= int64(len(text));
+  var textLen int64= int64(len([]rune(text)));
   var width float64= 0.0;
   var i int64= int64(0);
   for i < textLen {
-    var ch int64= int64(text[i]);
+    var ch int64= int64([]rune(text)[i]);
     width = width + this.measureChar(ch, fontFamily, fontSize); 
     i = i + int64(1); 
   }
@@ -7731,13 +7753,13 @@ func (this *SimpleTextMeasurer) wrapText (text string, fontFamily string, fontSi
   var currentLine string= "";
   var currentWidth float64= 0.0;
   var wordStart int64= int64(0);
-  var textLen int64= int64(len(text));
+  var textLen int64= int64(len([]rune(text)));
   var i int64= int64(0);
   for i <= textLen {
     var ch int64= int64(0);
     var isEnd bool= i == textLen;
     if  isEnd == false {
-      ch = int64(text[i]); 
+      ch = int64([]rune(text)[i]); 
     }
     var isWordEnd bool= false;
     if  isEnd {
@@ -7752,22 +7774,22 @@ func (this *SimpleTextMeasurer) wrapText (text string, fontFamily string, fontSi
     if  isWordEnd {
       var word string= "";
       if  i > wordStart {
-        word = text[wordStart:i]; 
+        word = string([]rune(text)[wordStart:i]); 
       }
       var wordWidth float64= this.measureTextWidth(word, fontFamily, fontSize);
       var spaceWidth float64= 0.0;
-      if  (int64(len(currentLine))) > int64(0) {
+      if  (int64(len([]rune(currentLine)))) > int64(0) {
         spaceWidth = this.measureTextWidth(" ", fontFamily, fontSize); 
       }
       if  ((currentWidth + spaceWidth) + wordWidth) <= maxWidth {
-        if  (int64(len(currentLine))) > int64(0) {
+        if  (int64(len([]rune(currentLine)))) > int64(0) {
           currentLine = currentLine + " "; 
           currentWidth = currentWidth + spaceWidth; 
         }
         currentLine = currentLine + word; 
         currentWidth = currentWidth + wordWidth; 
       } else {
-        if  (int64(len(currentLine))) > int64(0) {
+        if  (int64(len([]rune(currentLine)))) > int64(0) {
           lines = append(lines,currentLine); 
         }
         currentLine = word; 
@@ -7782,7 +7804,7 @@ func (this *SimpleTextMeasurer) wrapText (text string, fontFamily string, fontSi
     }
     i = i + int64(1); 
   }
-  if  (int64(len(currentLine))) > int64(0) {
+  if  (int64(len([]rune(currentLine)))) > int64(0) {
     lines = append(lines,currentLine); 
   }
   return lines
@@ -7989,7 +8011,7 @@ func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, pare
   }
   if  element.tagName == "image" {
     var imgSrc string= element.src;
-    if  (int64(len(imgSrc))) > int64(0) {
+    if  (int64(len([]rune(imgSrc)))) > int64(0) {
       var dims *EVGImageDimensions= this.imageMeasurer.value.(IFACE_EVGImageMeasurer).getImageDimensions(imgSrc);
       if  dims.isValid {
         if  element.width.value.(*EVGUnit).isSet && (element.height.value.(*EVGUnit).isSet == false) {
@@ -8294,7 +8316,7 @@ func (this *EVGLayout) printLayout (element *EVGElement, indent int64) () {
   }
 }
 func (this *EVGLayout) estimateLineCount (text string, maxWidth float64, fontSize float64) int64 {
-  if  (int64(len(text))) == int64(0) {
+  if  (int64(len([]rune(text)))) == int64(0) {
     return int64(1)
   }
   if  maxWidth <= 0.0 {
@@ -8405,7 +8427,7 @@ func CreateNew_SVGPathParser() *SVGPathParser {
 func (this *SVGPathParser) parse (data string) () {
   this.pathData = data; 
   this.i = int64(0); 
-  this.__len = int64(len(data)); 
+  this.__len = int64(len([]rune(data))); 
   this.currentX = 0.0; 
   this.currentY = 0.0; 
   this.startX = 0.0; 
@@ -8417,7 +8439,7 @@ func (this *SVGPathParser) parse (data string) () {
     if  this.i >= this.__len {
       break;
     }
-    var ch byte= byte(int64(this.pathData[this.i]));
+    var ch byte= byte(int64([]rune(this.pathData)[this.i]));
     var chInt int64= int64(ch);
     if  ((chInt >= int64(65)) && (chInt <= int64(90))) || ((chInt >= int64(97)) && (chInt <= int64(122))) {
       this.parseCommand(ch);
@@ -8429,7 +8451,7 @@ func (this *SVGPathParser) parse (data string) () {
 }
 func (this *SVGPathParser) skipWhitespace () () {
   for this.i < this.__len {
-    var ch byte= byte(int64(this.pathData[this.i]));
+    var ch byte= byte(int64([]rune(this.pathData)[this.i]));
     var chInt int64= int64(ch);
     if  ((((chInt == int64(32)) || (chInt == int64(9))) || (chInt == int64(10))) || (chInt == int64(13))) || (chInt == int64(44)) {
       this.i = this.i + int64(1); 
@@ -8441,13 +8463,13 @@ func (this *SVGPathParser) skipWhitespace () () {
 func (this *SVGPathParser) parseNumber () float64 {
   this.skipWhitespace();
   var start int64= this.i;
-  var ch byte= byte(int64(this.pathData[this.i]));
+  var ch byte= byte(int64([]rune(this.pathData)[this.i]));
   var chInt int64= int64(ch);
   if  (chInt == int64(45)) || (chInt == int64(43)) {
     this.i = this.i + int64(1); 
   }
   for this.i < this.__len {
-    var ch2 byte= byte(int64(this.pathData[this.i]));
+    var ch2 byte= byte(int64([]rune(this.pathData)[this.i]));
     var chInt2 int64= int64(ch2);
     if  (chInt2 >= int64(48)) && (chInt2 <= int64(57)) {
       this.i = this.i + int64(1); 
@@ -8456,12 +8478,12 @@ func (this *SVGPathParser) parseNumber () float64 {
     }
   }
   if  this.i < this.__len {
-    var ch3 byte= byte(int64(this.pathData[this.i]));
+    var ch3 byte= byte(int64([]rune(this.pathData)[this.i]));
     var chInt3 int64= int64(ch3);
     if  chInt3 == int64(46) {
       this.i = this.i + int64(1); 
       for this.i < this.__len {
-        var ch4 byte= byte(int64(this.pathData[this.i]));
+        var ch4 byte= byte(int64([]rune(this.pathData)[this.i]));
         var chInt4 int64= int64(ch4);
         if  (chInt4 >= int64(48)) && (chInt4 <= int64(57)) {
           this.i = this.i + int64(1); 
@@ -8472,19 +8494,19 @@ func (this *SVGPathParser) parseNumber () float64 {
     }
   }
   if  this.i < this.__len {
-    var ch5 byte= byte(int64(this.pathData[this.i]));
+    var ch5 byte= byte(int64([]rune(this.pathData)[this.i]));
     var chInt5 int64= int64(ch5);
     if  (chInt5 == int64(101)) || (chInt5 == int64(69)) {
       this.i = this.i + int64(1); 
       if  this.i < this.__len {
-        var ch6 byte= byte(int64(this.pathData[this.i]));
+        var ch6 byte= byte(int64([]rune(this.pathData)[this.i]));
         var chInt6 int64= int64(ch6);
         if  (chInt6 == int64(45)) || (chInt6 == int64(43)) {
           this.i = this.i + int64(1); 
         }
       }
       for this.i < this.__len {
-        var ch7 byte= byte(int64(this.pathData[this.i]));
+        var ch7 byte= byte(int64([]rune(this.pathData)[this.i]));
         var chInt7 int64= int64(ch7);
         if  (chInt7 >= int64(48)) && (chInt7 <= int64(57)) {
           this.i = this.i + int64(1); 
@@ -8494,7 +8516,7 @@ func (this *SVGPathParser) parseNumber () float64 {
       }
     }
   }
-  var numStr string= this.pathData[start:this.i];
+  var numStr string= string([]rune(this.pathData)[start:this.i]);
   var result float64= (r_str_2_d64(numStr)).value.(float64);
   return result
 }
@@ -8863,8 +8885,8 @@ func (this *TrueTypeFont) loadFromFile (path string) bool {
   this.fontPath = path; 
   var lastSlash int64= int64(-1);
   var i int64= int64(0);
-  for i < (int64(len(path))) {
-    var ch int64= int64(path[i]);
+  for i < (int64(len([]rune(path)))) {
+    var ch int64= int64([]rune(path)[i]);
     if  (ch == int64(47)) || (ch == int64(92)) {
       lastSlash = i; 
     }
@@ -8873,8 +8895,8 @@ func (this *TrueTypeFont) loadFromFile (path string) bool {
   var dirPath string= ".";
   var fileName string= path;
   if  lastSlash >= int64(0) {
-    dirPath = path[int64(0):lastSlash]; 
-    fileName = path[(lastSlash + int64(1)):(int64(len(path)))]; 
+    dirPath = string([]rune(path)[int64(0):lastSlash]); 
+    fileName = string([]rune(path)[(lastSlash + int64(1)):(int64(len([]rune(path))))]); 
   }
   if  (r_file_exists(dirPath, fileName)) == false {
     return false
@@ -9033,7 +9055,7 @@ func (this *TrueTypeFont) parseNameTable () () {
       var strOff int64= (off + stringOffset) + strOffset;
       this.fontFamily = this.readUnicodeString(strOff, length); 
     }
-    if  ((nameID == int64(1)) && (platformID == int64(1))) && ((int64(len(this.fontFamily))) == int64(0)) {
+    if  ((nameID == int64(1)) && (platformID == int64(1))) && ((int64(len([]rune(this.fontFamily)))) == int64(0)) {
       var strOff_1 int64= (off + stringOffset) + strOffset;
       this.fontFamily = this.readAsciiString(strOff_1, length); 
     }
@@ -9041,7 +9063,7 @@ func (this *TrueTypeFont) parseNameTable () () {
       var strOff_2 int64= (off + stringOffset) + strOffset;
       this.fontStyle = this.readUnicodeString(strOff_2, length); 
     }
-    if  ((nameID == int64(2)) && (platformID == int64(1))) && ((int64(len(this.fontStyle))) == int64(0)) {
+    if  ((nameID == int64(2)) && (platformID == int64(1))) && ((int64(len([]rune(this.fontStyle)))) == int64(0)) {
       var strOff_3 int64= (off + stringOffset) + strOffset;
       this.fontStyle = this.readAsciiString(strOff_3, length); 
     }
@@ -9128,10 +9150,10 @@ func (this *TrueTypeFont) getCharWidthPoints (charCode int64, fontSize float64) 
 }
 func (this *TrueTypeFont) measureText (text string, fontSize float64) float64 {
   var width float64= 0.0;
-  var __len int64= int64(len(text));
+  var __len int64= int64(len([]rune(text)));
   var i int64= int64(0);
   for i < __len {
-    var ch int64= int64(text[i]);
+    var ch int64= int64([]rune(text)[i]);
     width = width + this.getCharWidthPoints(ch, fontSize); 
     i = i + int64(1); 
   }
@@ -9156,14 +9178,14 @@ func (this *TrueTypeFont) getPostScriptName () string {
   var name string= this.fontFamily;
   var result string= "";
   var i int64= int64(0);
-  for i < (int64(len(name))) {
-    var ch int64= int64(name[i]);
+  for i < (int64(len([]rune(name)))) {
+    var ch int64= int64([]rune(name)[i]);
     if  ch != int64(32) {
-      result = result + (string([] byte{byte(ch)})); 
+      result = result + (string([]rune{rune(ch)})); 
     }
     i = i + int64(1); 
   }
-  if  (int64(len(result))) == int64(0) {
+  if  (int64(len([]rune(result)))) == int64(0) {
     return "CustomFont"
   }
   return result
@@ -9196,7 +9218,7 @@ func (this *TrueTypeFont) readTag (offset int64) string {
   var i int64= int64(0);
   for i < int64(4) {
     var ch int64= int64(this.fontData[(offset + i)]);
-    result = result + (string([] byte{byte(ch)})); 
+    result = result + (string([]rune{rune(ch)})); 
     i = i + int64(1); 
   }
   return result
@@ -9207,7 +9229,7 @@ func (this *TrueTypeFont) readAsciiString (offset int64, length int64) string {
   for i < length {
     var ch int64= int64(this.fontData[(offset + i)]);
     if  ch > int64(0) {
-      result = result + (string([] byte{byte(ch)})); 
+      result = result + (string([]rune{rune(ch)})); 
     }
     i = i + int64(1); 
   }
@@ -9219,7 +9241,7 @@ func (this *TrueTypeFont) readUnicodeString (offset int64, length int64) string 
   for i < length {
     var ch int64= this.readUInt16((offset + i));
     if  (ch > int64(0)) && (ch < int64(128)) {
-      result = result + (string([] byte{byte(ch)})); 
+      result = result + (string([]rune{rune(ch)})); 
     }
     i = i + int64(2); 
   }
@@ -9272,15 +9294,15 @@ func (this *FontManager) addFontsDirectory (path string) () {
 func (this *FontManager) setFontsDirectories (paths string) () {
   var start int64= int64(0);
   var i int64= int64(0);
-  var __len int64= int64(len(paths));
+  var __len int64= int64(len([]rune(paths)));
   for i <= __len {
     var ch string= "";
     if  i < __len {
-      ch = paths[i:(i + int64(1))]; 
+      ch = string([]rune(paths)[i:(i + int64(1))]); 
     }
     if  (ch == ";") || (i == __len) {
       if  i > start {
-        var part string= paths[start:i];
+        var part string= string([]rune(paths)[start:i]);
         this.fontsDirectories = append(this.fontsDirectories,part); 
         fmt.Println( "FontManager: Added fonts directory: " + part )
       }
@@ -9352,7 +9374,7 @@ func (this *FontManager) measureText (text string, fontFamily string, fontSize f
   if  font.unitsPerEm > int64(0) {
     return font.measureText(text, fontSize)
   }
-  return ((float64( (int64(len(text))) )) * fontSize) * 0.5
+  return ((float64( (int64(len([]rune(text)))) )) * fontSize) * 0.5
 }
 func (this *FontManager) getLineHeight (fontFamily string, fontSize float64) float64 {
   var font *TrueTypeFont= this.getFont(fontFamily);
@@ -9444,13 +9466,13 @@ func (this *TTFTextMeasurer) wrapText (text string, fontFamily string, fontSize 
   var currentLine string= "";
   var currentWidth float64= 0.0;
   var wordStart int64= int64(0);
-  var textLen int64= int64(len(text));
+  var textLen int64= int64(len([]rune(text)));
   var i int64= int64(0);
   for i <= textLen {
     var ch int64= int64(0);
     var isEnd bool= i == textLen;
     if  isEnd == false {
-      ch = int64(text[i]); 
+      ch = int64([]rune(text)[i]); 
     }
     var isWordEnd bool= false;
     if  isEnd {
@@ -9465,22 +9487,22 @@ func (this *TTFTextMeasurer) wrapText (text string, fontFamily string, fontSize 
     if  isWordEnd {
       var word string= "";
       if  i > wordStart {
-        word = text[wordStart:i]; 
+        word = string([]rune(text)[wordStart:i]); 
       }
       var wordWidth float64= this.measureTextWidth(word, fontFamily, fontSize);
       var spaceWidth float64= 0.0;
-      if  (int64(len(currentLine))) > int64(0) {
+      if  (int64(len([]rune(currentLine)))) > int64(0) {
         spaceWidth = this.measureTextWidth(" ", fontFamily, fontSize); 
       }
       if  ((currentWidth + spaceWidth) + wordWidth) <= maxWidth {
-        if  (int64(len(currentLine))) > int64(0) {
+        if  (int64(len([]rune(currentLine)))) > int64(0) {
           currentLine = currentLine + " "; 
           currentWidth = currentWidth + spaceWidth; 
         }
         currentLine = currentLine + word; 
         currentWidth = currentWidth + wordWidth; 
       } else {
-        if  (int64(len(currentLine))) > int64(0) {
+        if  (int64(len([]rune(currentLine)))) > int64(0) {
           lines = append(lines,currentLine); 
         }
         currentLine = word; 
@@ -9495,7 +9517,7 @@ func (this *TTFTextMeasurer) wrapText (text string, fontFamily string, fontSize 
     }
     i = i + int64(1); 
   }
-  if  (int64(len(currentLine))) > int64(0) {
+  if  (int64(len([]rune(currentLine)))) > int64(0) {
     lines = append(lines,currentLine); 
   }
   return lines
@@ -12695,7 +12717,74 @@ func CreateNew_EmbeddedImage(s string) *EmbeddedImage {
   me.src = s; 
   return me;
 }
+type PDFImageMeasurer struct { 
+  renderer *GoNullable `json:"renderer"` 
+  // inherited from parent class EVGImageMeasurer
+}
+type IFACE_PDFImageMeasurer interface { 
+  Get_renderer() *GoNullable
+  Set_renderer(value *GoNullable) 
+  setRenderer(r *EVGPDFRenderer) ()
+  getImageDimensions(src string) *EVGImageDimensions
+}
+
+func CreateNew_PDFImageMeasurer() *PDFImageMeasurer {
+  me := new(PDFImageMeasurer)
+  me.renderer = new(GoNullable);
+  return me;
+}
+func (this *PDFImageMeasurer) setRenderer (r *EVGPDFRenderer) () {
+  this.renderer.value = r;
+  this.renderer.has_value = true; /* detected as non-optional */
+}
+func (this *PDFImageMeasurer) getImageDimensions (src string) *EVGImageDimensions {
+  if  this.renderer.has_value {
+    return ((this.renderer.value.(*EVGPDFRenderer))).loadImageDimensions(src)
+  }
+  var dims *EVGImageDimensions= CreateNew_EVGImageDimensions();
+  return dims
+}
+// inherited methods from parent class EVGImageMeasurer
+func (this *PDFImageMeasurer) calculateHeightForWidth (src string, targetWidth float64) float64 {
+  var dims *EVGImageDimensions= this.getImageDimensions(src);
+  if  dims.isValid {
+    return targetWidth / dims.aspectRatio
+  }
+  return targetWidth
+}
+func (this *PDFImageMeasurer) calculateWidthForHeight (src string, targetHeight float64) float64 {
+  var dims *EVGImageDimensions= this.getImageDimensions(src);
+  if  dims.isValid {
+    return targetHeight * dims.aspectRatio
+  }
+  return targetHeight
+}
+func (this *PDFImageMeasurer) calculateFitDimensions (src string, maxWidth float64, maxHeight float64) *EVGImageDimensions {
+  var dims *EVGImageDimensions= this.getImageDimensions(src);
+  if  dims.isValid == false {
+    return EVGImageDimensions_static_create((int64(maxWidth)), (int64(maxHeight)))
+  }
+  var scaleW float64= maxWidth / (float64( dims.width ));
+  var scaleH float64= maxHeight / (float64( dims.height ));
+  var scale float64= scaleW;
+  if  scaleH < scaleW {
+    scale = scaleH; 
+  }
+  var newW int64= int64(((float64( dims.width )) * scale));
+  var newH int64= int64(((float64( dims.height )) * scale));
+  return EVGImageDimensions_static_create(newW, newH)
+}
+// getter for variable renderer
+func (this *PDFImageMeasurer) Get_renderer() *GoNullable {
+  return this.renderer
+}
+// setter for variable renderer
+func (this *PDFImageMeasurer) Set_renderer( value *GoNullable)  {
+  this.renderer = value 
+}
+// inherited getters and setters from the parent class EVGImageMeasurer
 type EVGPDFRenderer struct { 
+  imageMeasurer *GoNullable `json:"imageMeasurer"` 
   writer *GoNullable `json:"writer"` 
   layout *GoNullable `json:"layout"` 
   measurer *GoNullable `json:"measurer"` 
@@ -12725,101 +12814,6 @@ type EVGPDFRenderer struct {
   imageDimensionsCacheKeys []string `json:"imageDimensionsCacheKeys"` 
   foundSections []*EVGElement `json:"foundSections"` 
   foundPages []*EVGElement `json:"foundPages"` 
-  // inherited from parent class EVGImageMeasurer
-}
-type IFACE_EVGPDFRenderer interface { 
-  Get_writer() *GoNullable
-  Set_writer(value *GoNullable) 
-  Get_layout() *GoNullable
-  Set_layout(value *GoNullable) 
-  Get_measurer() *GoNullable
-  Set_measurer(value *GoNullable) 
-  Get_streamBuffer() *GoNullable
-  Set_streamBuffer(value *GoNullable) 
-  Get_pageWidth() float64
-  Set_pageWidth(value float64) 
-  Get_pageHeight() float64
-  Set_pageHeight(value float64) 
-  Get_nextObjNum() int64
-  Set_nextObjNum(value int64) 
-  Get_fontObjNum() int64
-  Set_fontObjNum(value int64) 
-  Get_pagesObjNum() int64
-  Set_pagesObjNum(value int64) 
-  Get_contentObjNums() []int64
-  Set_contentObjNums(value []int64) 
-  Get_pageCount() int64
-  Set_pageCount(value int64) 
-  Get_debug() bool
-  Set_debug(value bool) 
-  Get_fontManager() *FontManager
-  Set_fontManager(value *FontManager) 
-  Get_embeddedFonts() []*EmbeddedFont
-  Set_embeddedFonts(value []*EmbeddedFont) 
-  Get_usedFontNames() []string
-  Set_usedFontNames(value []string) 
-  Get_embeddedImages() []*EmbeddedImage
-  Set_embeddedImages(value []*EmbeddedImage) 
-  Get_jpegReader() *JPEGReader
-  Set_jpegReader(value *JPEGReader) 
-  Get_jpegDecoder() *JPEGDecoder
-  Set_jpegDecoder(value *JPEGDecoder) 
-  Get_jpegEncoder() *JPEGEncoder
-  Set_jpegEncoder(value *JPEGEncoder) 
-  Get_metadataParser() *JPEGMetadataParser
-  Set_metadataParser(value *JPEGMetadataParser) 
-  Get_baseDir() string
-  Set_baseDir(value string) 
-  Get_assetPaths() []string
-  Set_assetPaths(value []string) 
-  Get_maxImageWidth() int64
-  Set_maxImageWidth(value int64) 
-  Get_maxImageHeight() int64
-  Set_maxImageHeight(value int64) 
-  Get_jpegQuality() int64
-  Set_jpegQuality(value int64) 
-  Get_imageDimensionsCache() []*EVGImageDimensions
-  Set_imageDimensionsCache(value []*EVGImageDimensions) 
-  Get_imageDimensionsCacheKeys() []string
-  Set_imageDimensionsCacheKeys(value []string) 
-  Get_foundSections() []*EVGElement
-  Set_foundSections(value []*EVGElement) 
-  Get_foundPages() []*EVGElement
-  Set_foundPages(value []*EVGElement) 
-  init() ()
-  setPageSize(width float64, height float64) ()
-  setBaseDir(dir string) ()
-  setAssetPaths(paths string) ()
-  resolveImagePath(src string) string
-  setMeasurer(m IFACE_EVGTextMeasurer) ()
-  setFontManager(fm *FontManager) ()
-  setDebug(enabled bool) ()
-  getImageDimensions(src string) *EVGImageDimensions
-  getPdfFontName(fontFamily string) string
-  render(root *EVGElement) []byte
-  findPageElementsRecursive(el *EVGElement) ()
-  findSectionElementsRecursive(el *EVGElement) ()
-  getSectionPageWidth(section *EVGElement) float64
-  getSectionPageHeight(section *EVGElement) float64
-  getSectionMargin(section *EVGElement) float64
-  renderMultiPageToPDF(root *EVGElement) []byte
-  renderToPDF(root *EVGElement) []byte
-  renderElement(el *EVGElement, offsetX float64, offsetY float64) ()
-  getImagePdfName(src string) string
-  renderImage(el *EVGElement, x float64, y float64, w float64, h float64) ()
-  renderPath(el *EVGElement, x float64, y float64, w float64, h float64) ()
-  applyClipPath(pathData string, x float64, y float64, w float64, h float64) ()
-  renderBackground(x float64, y float64, w float64, h float64, color *EVGColor) ()
-  renderBorder(el *EVGElement, x float64, y float64, w float64, h float64) ()
-  renderText(el *EVGElement, x float64, y float64, w float64, h float64) ()
-  wrapText(text string, maxWidth float64, fontSize float64, fontFamily string) []string
-  renderDivider(el *EVGElement, x float64, y float64, w float64, h float64) ()
-  getTextContent(el *EVGElement) string
-  estimateTextWidth(text string, fontSize float64) float64
-  escapeText(text string) string
-  formatNum(n float64) string
-  padLeft(s string, __len int64, padChar string) string
-  sanitizeFontName(name string) string
 }
 
 func CreateNew_EVGPDFRenderer() *EVGPDFRenderer {
@@ -12849,6 +12843,7 @@ func CreateNew_EVGPDFRenderer() *EVGPDFRenderer {
   me.imageDimensionsCacheKeys = make([]string,0)
   me.foundSections = make([]*EVGElement,0)
   me.foundPages = make([]*EVGElement,0)
+  me.imageMeasurer = new(GoNullable);
   me.writer = new(GoNullable);
   me.layout = new(GoNullable);
   me.measurer = new(GoNullable);
@@ -12881,10 +12876,15 @@ func CreateNew_EVGPDFRenderer() *EVGPDFRenderer {
   me.foundSections = fs; 
   var fp []*EVGElement = make([]*EVGElement, 0);
   me.foundPages = fp; 
+  var imgMeasurer *PDFImageMeasurer= CreateNew_PDFImageMeasurer();
+  me.imageMeasurer.value = imgMeasurer;
+  me.imageMeasurer.has_value = true; /* detected as non-optional */
   return me;
 }
-func (this *EVGPDFRenderer) init () () {
-  this.layout.value.(*EVGLayout).setImageMeasurer(this);
+func (this *EVGPDFRenderer) init (selfRc *EVGPDFRenderer) () {
+  var imgM *PDFImageMeasurer= this.imageMeasurer.value.(*PDFImageMeasurer);
+  imgM.setRenderer(selfRc);
+  this.layout.value.(*EVGLayout).setImageMeasurer(imgM);
 }
 func (this *EVGPDFRenderer) setPageSize (width float64, height float64) () {
   this.pageWidth = width; 
@@ -12897,15 +12897,15 @@ func (this *EVGPDFRenderer) setBaseDir (dir string) () {
 func (this *EVGPDFRenderer) setAssetPaths (paths string) () {
   var start int64= int64(0);
   var i int64= int64(0);
-  var __len int64= int64(len(paths));
+  var __len int64= int64(len([]rune(paths)));
   for i <= __len {
     var ch string= "";
     if  i < __len {
-      ch = paths[i:(i + int64(1))]; 
+      ch = string([]rune(paths)[i:(i + int64(1))]); 
     }
     if  (ch == ";") || (i == __len) {
       if  i > start {
-        var part string= paths[start:i];
+        var part string= string([]rune(paths)[start:i]);
         this.assetPaths = append(this.assetPaths,part); 
         fmt.Println( "EVGPDFRenderer: Added asset path: " + part )
       }
@@ -12916,10 +12916,10 @@ func (this *EVGPDFRenderer) setAssetPaths (paths string) () {
 }
 func (this *EVGPDFRenderer) resolveImagePath (src string) string {
   var imgSrc string= src;
-  if  (int64(len(src))) > int64(2) {
-    var prefix string= src[int64(0):int64(2)];
+  if  (int64(len([]rune(src)))) > int64(2) {
+    var prefix string= string([]rune(src)[int64(0):int64(2)]);
     if  prefix == "./" {
-      imgSrc = src[int64(2):(int64(len(src)))]; 
+      imgSrc = string([]rune(src)[int64(2):(int64(len([]rune(src))))]); 
     }
   }
   var fullPath string= this.baseDir + imgSrc;
@@ -12937,7 +12937,7 @@ func (this *EVGPDFRenderer) setDebug (enabled bool) () {
   this.layout.value.(*EVGLayout).debug = enabled; 
   this.debug = enabled; 
 }
-func (this *EVGPDFRenderer) getImageDimensions (src string) *EVGImageDimensions {
+func (this *EVGPDFRenderer) loadImageDimensions (src string) *EVGImageDimensions {
   var i int64= int64(0);
   for i < (int64(len(this.imageDimensionsCacheKeys))) {
     var key string= this.imageDimensionsCacheKeys[i];
@@ -12950,10 +12950,10 @@ func (this *EVGPDFRenderer) getImageDimensions (src string) *EVGImageDimensions 
   var imgDir string= "";
   var imgFile string= "";
   var imgSrc string= src;
-  if  (int64(len(src))) > int64(2) {
-    var prefix string= src[int64(0):int64(2)];
+  if  (int64(len([]rune(src)))) > int64(2) {
+    var prefix string= string([]rune(src)[int64(0):int64(2)]);
     if  prefix == "./" {
-      imgSrc = src[int64(2):(int64(len(src)))]; 
+      imgSrc = string([]rune(src)[int64(2):(int64(len([]rune(src))))]); 
     }
   }
   var lastSlash int64= int64(strings.LastIndex(imgSrc, "/"));
@@ -12963,8 +12963,8 @@ func (this *EVGPDFRenderer) getImageDimensions (src string) *EVGImageDimensions 
     lastSep = lastBackslash; 
   }
   if  lastSep >= int64(0) {
-    imgDir = this.baseDir + (imgSrc[int64(0):(lastSep + int64(1))]); 
-    imgFile = imgSrc[(lastSep + int64(1)):(int64(len(imgSrc)))]; 
+    imgDir = this.baseDir + (string([]rune(imgSrc)[int64(0):(lastSep + int64(1))])); 
+    imgFile = string([]rune(imgSrc)[(lastSep + int64(1)):(int64(len([]rune(imgSrc))))]); 
   } else {
     imgDir = this.baseDir; 
     imgFile = imgSrc; 
@@ -13184,7 +13184,7 @@ func (this *EVGPDFRenderer) renderMultiPageToPDF (root *EVGElement) []byte {
       var toUnicodeStream string= "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n";
       toUnicodeStream = toUnicodeStream + "2 beginbfrange\n<20> <7E> <0020>\n<A0> <FF> <00A0>\nendbfrange\n"; 
       toUnicodeStream = toUnicodeStream + "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend"; 
-      var toUnicodeLen int64= int64(len(toUnicodeStream));
+      var toUnicodeLen int64= int64(len([]rune(toUnicodeStream)));
       pdf.writeString(("<< /Length " + (strconv.FormatInt(toUnicodeLen, 10))) + " >>\n");
       pdf.writeString("stream\n");
       pdf.writeString(toUnicodeStream);
@@ -13243,10 +13243,10 @@ func (this *EVGPDFRenderer) renderMultiPageToPDF (root *EVGElement) []byte {
     var imgSrc string= embImg.src;
     var imgDir string= this.baseDir;
     var imgFile string= imgSrc;
-    if  (int64(len(imgSrc))) > int64(2) {
-      var prefix string= imgSrc[int64(0):int64(2)];
+    if  (int64(len([]rune(imgSrc)))) > int64(2) {
+      var prefix string= string([]rune(imgSrc)[int64(0):int64(2)]);
       if  prefix == "./" {
-        imgSrc = imgSrc[int64(2):(int64(len(imgSrc)))]; 
+        imgSrc = string([]rune(imgSrc)[int64(2):(int64(len([]rune(imgSrc))))]); 
       }
     }
     var lastSlash int64= int64(strings.LastIndex(imgSrc, "/"));
@@ -13256,8 +13256,8 @@ func (this *EVGPDFRenderer) renderMultiPageToPDF (root *EVGElement) []byte {
       lastSep = lastBackslash; 
     }
     if  lastSep >= int64(0) {
-      imgDir = this.baseDir + (imgSrc[int64(0):(lastSep + int64(1))]); 
-      imgFile = imgSrc[(lastSep + int64(1)):(int64(len(imgSrc)))]; 
+      imgDir = this.baseDir + (string([]rune(imgSrc)[int64(0):(lastSep + int64(1))])); 
+      imgFile = string([]rune(imgSrc)[(lastSep + int64(1)):(int64(len([]rune(imgSrc))))]); 
     } else {
       imgDir = this.baseDir; 
       imgFile = imgSrc; 
@@ -13467,7 +13467,7 @@ func (this *EVGPDFRenderer) renderToPDF (root *EVGElement) []byte {
       var toUnicodeStream string= "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n";
       toUnicodeStream = toUnicodeStream + "2 beginbfrange\n<20> <7E> <0020>\n<A0> <FF> <00A0>\nendbfrange\n"; 
       toUnicodeStream = toUnicodeStream + "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend"; 
-      var toUnicodeLen int64= int64(len(toUnicodeStream));
+      var toUnicodeLen int64= int64(len([]rune(toUnicodeStream)));
       pdf.writeString(("<< /Length " + (strconv.FormatInt(toUnicodeLen, 10))) + " >>\n");
       pdf.writeString("stream\n");
       pdf.writeString(toUnicodeStream);
@@ -13526,10 +13526,10 @@ func (this *EVGPDFRenderer) renderToPDF (root *EVGElement) []byte {
     var imgSrc string= embImg.src;
     var imgDir string= this.baseDir;
     var imgFile string= imgSrc;
-    if  (int64(len(imgSrc))) > int64(2) {
-      var prefix string= imgSrc[int64(0):int64(2)];
+    if  (int64(len([]rune(imgSrc)))) > int64(2) {
+      var prefix string= string([]rune(imgSrc)[int64(0):int64(2)]);
       if  prefix == "./" {
-        imgSrc = imgSrc[int64(2):(int64(len(imgSrc)))]; 
+        imgSrc = string([]rune(imgSrc)[int64(2):(int64(len([]rune(imgSrc))))]); 
       }
     }
     var lastSlash int64= int64(strings.LastIndex(imgSrc, "/"));
@@ -13539,8 +13539,8 @@ func (this *EVGPDFRenderer) renderToPDF (root *EVGElement) []byte {
       lastSep = lastBackslash; 
     }
     if  lastSep >= int64(0) {
-      imgDir = this.baseDir + (imgSrc[int64(0):(lastSep + int64(1))]); 
-      imgFile = imgSrc[(lastSep + int64(1)):(int64(len(imgSrc)))]; 
+      imgDir = this.baseDir + (string([]rune(imgSrc)[int64(0):(lastSep + int64(1))])); 
+      imgFile = string([]rune(imgSrc)[(lastSep + int64(1)):(int64(len([]rune(imgSrc))))]); 
     } else {
       imgDir = this.baseDir; 
       imgFile = imgSrc; 
@@ -13675,7 +13675,7 @@ func (this *EVGPDFRenderer) renderElement (el *EVGElement, offsetX float64, offs
   var h float64= el.calculatedHeight;
   var pdfY float64= (this.pageHeight - y) - h;
   var hasClipPath bool= false;
-  if  (int64(len(el.clipPath))) > int64(0) {
+  if  (int64(len([]rune(el.clipPath)))) > int64(0) {
     hasClipPath = true; 
     this.streamBuffer.value.(*GrowableBuffer).writeString("q\n");
     this.applyClipPath(el.clipPath, x, pdfY, w, h);
@@ -13726,7 +13726,7 @@ func (this *EVGPDFRenderer) getImagePdfName (src string) string {
 }
 func (this *EVGPDFRenderer) renderImage (el *EVGElement, x float64, y float64, w float64, h float64) () {
   var src string= el.src;
-  if  (int64(len(src))) == int64(0) {
+  if  (int64(len([]rune(src)))) == int64(0) {
     return
   }
   var imgName string= this.getImagePdfName(src);
@@ -13737,7 +13737,7 @@ func (this *EVGPDFRenderer) renderImage (el *EVGElement, x float64, y float64, w
 }
 func (this *EVGPDFRenderer) renderPath (el *EVGElement, x float64, y float64, w float64, h float64) () {
   var pathData string= el.svgPath;
-  if  (int64(len(pathData))) == int64(0) {
+  if  (int64(len([]rune(pathData)))) == int64(0) {
     return
   }
   var parser *SVGPathParser= CreateNew_SVGPathParser();
@@ -13877,7 +13877,7 @@ func (this *EVGPDFRenderer) renderBorder (el *EVGElement, x float64, y float64, 
 }
 func (this *EVGPDFRenderer) renderText (el *EVGElement, x float64, y float64, w float64, h float64) () {
   var text string= this.getTextContent(el);
-  if  (int64(len(text))) == int64(0) {
+  if  (int64(len([]rune(text)))) == int64(0) {
     return
   }
   var fontSize float64= 14.0;
@@ -13897,7 +13897,7 @@ func (this *EVGPDFRenderer) renderText (el *EVGElement, x float64, y float64, w 
   }
   var lineSpacing float64= fontSize * lineHeight;
   var fontFamily string= el.fontFamily;
-  if  (int64(len(fontFamily))) == int64(0) {
+  if  (int64(len([]rune(fontFamily)))) == int64(0) {
     fontFamily = "Helvetica"; 
   }
   var lines []string= this.wrapText(text, w, fontSize, fontFamily);
@@ -13936,13 +13936,13 @@ func (this *EVGPDFRenderer) wrapText (text string, maxWidth float64, fontSize fl
   for i < (int64(len(words))) {
     var word string= words[i];
     var testLine string= "";
-    if  (int64(len(currentLine))) == int64(0) {
+    if  (int64(len([]rune(currentLine)))) == int64(0) {
       testLine = word; 
     } else {
       testLine = (currentLine + " ") + word; 
     }
     var testWidth float64= this.measurer.value.(IFACE_EVGTextMeasurer).measureTextWidth(testLine, fontFamily, fontSize);
-    if  (testWidth > maxWidth) && ((int64(len(currentLine))) > int64(0)) {
+    if  (testWidth > maxWidth) && ((int64(len([]rune(currentLine)))) > int64(0)) {
       lines = append(lines,currentLine); 
       currentLine = word; 
     } else {
@@ -13950,7 +13950,7 @@ func (this *EVGPDFRenderer) wrapText (text string, maxWidth float64, fontSize fl
     }
     i = i + int64(1); 
   }
-  if  (int64(len(currentLine))) > int64(0) {
+  if  (int64(len([]rune(currentLine)))) > int64(0) {
     lines = append(lines,currentLine); 
   }
   return lines
@@ -13976,7 +13976,7 @@ func (this *EVGPDFRenderer) renderDivider (el *EVGElement, x float64, y float64,
   this.streamBuffer.value.(*GrowableBuffer).writeString("Q\n");
 }
 func (this *EVGPDFRenderer) getTextContent (el *EVGElement) string {
-  if  (int64(len(el.textContent))) > int64(0) {
+  if  (int64(len([]rune(el.textContent)))) > int64(0) {
     return el.textContent
   }
   var result string= "";
@@ -13986,10 +13986,10 @@ func (this *EVGPDFRenderer) getTextContent (el *EVGElement) string {
     var child *EVGElement= el.getChild(i);
     if  child.tagName == "text" {
       var childText string= child.textContent;
-      if  (int64(len(childText))) > int64(0) {
-        if  (int64(len(result))) > int64(0) {
-          var lastChar int64= int64(result[((int64(len(result))) - int64(1))]);
-          var firstChar int64= int64(childText[int64(0)]);
+      if  (int64(len([]rune(childText)))) > int64(0) {
+        if  (int64(len([]rune(result)))) > int64(0) {
+          var lastChar int64= int64([]rune(result)[((int64(len([]rune(result)))) - int64(1))]);
+          var firstChar int64= int64([]rune(childText)[int64(0)]);
           if  (lastChar != int64(32)) && (firstChar != int64(32)) {
             result = result + " "; 
           }
@@ -14004,12 +14004,19 @@ func (this *EVGPDFRenderer) getTextContent (el *EVGElement) string {
 func (this *EVGPDFRenderer) estimateTextWidth (text string, fontSize float64) float64 {
   return this.measurer.value.(IFACE_EVGTextMeasurer).measureTextWidth(text, "Helvetica", fontSize)
 }
+func (this *EVGPDFRenderer) toOctalEscape (ch int64) string {
+  var d0 int64= ch % int64(8);
+  var t1 int64= int64(math.Floor((float64(ch) / float64(int64(8)))));
+  var d1 int64= t1 % int64(8);
+  var d2 int64= int64(math.Floor((float64(t1) / float64(int64(8)))));
+  return (("\\" + (strconv.FormatInt(d2, 10))) + (strconv.FormatInt(d1, 10))) + (strconv.FormatInt(d0, 10))
+}
 func (this *EVGPDFRenderer) escapeText (text string) string {
   var result string= "";
-  var __len int64= int64(len(text));
+  var __len int64= int64(len([]rune(text)));
   var i int64= int64(0);
   for i < __len {
-    var ch int64= int64(text[i]);
+    var ch int64= int64([]rune(text)[i]);
     if  ch == int64(40) {
       result = result + "\\("; 
     } else {
@@ -14022,45 +14029,13 @@ func (this *EVGPDFRenderer) escapeText (text string) string {
           if  ch < int64(32) {
             result = result + " "; 
           } else {
-            if  ch <= int64(255) {
-              result = result + (string([] byte{byte(ch)})); 
+            if  ch < int64(128) {
+              result = result + (string([]rune{rune(ch)})); 
             } else {
-              if  ch == int64(9733) {
-                result = result + "*"; 
+              if  ch <= int64(255) {
+                result = result + this.toOctalEscape(ch); 
               } else {
-                if  ch == int64(9734) {
-                  result = result + "*"; 
-                } else {
-                  if  ch == int64(9829) {
-                    result = result + (string([] byte{byte(int64(183))})); 
-                  } else {
-                    if  ch == int64(9825) {
-                      result = result + (string([] byte{byte(int64(183))})); 
-                    } else {
-                      if  ch == int64(10003) {
-                        result = result + "v"; 
-                      } else {
-                        if  ch == int64(10007) {
-                          result = result + "x"; 
-                        } else {
-                          if  ch == int64(8226) {
-                            result = result + (string([] byte{byte(int64(149))})); 
-                          } else {
-                            if  ch == int64(8594) {
-                              result = result + "->"; 
-                            } else {
-                              if  ch == int64(8592) {
-                                result = result + "<-"; 
-                              } else {
-                                result = result + "?"; 
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
+                result = result + "?"; 
               }
             }
           }
@@ -14077,287 +14052,24 @@ func (this *EVGPDFRenderer) formatNum (n float64) string {
 }
 func (this *EVGPDFRenderer) padLeft (s string, __len int64, padChar string) string {
   var result string= s;
-  for (int64(len(result))) < __len {
+  for (int64(len([]rune(result)))) < __len {
     result = padChar + result; 
   }
   return result
 }
 func (this *EVGPDFRenderer) sanitizeFontName (name string) string {
   var result string= "";
-  var __len int64= int64(len(name));
+  var __len int64= int64(len([]rune(name)));
   var i int64= int64(0);
   for i < __len {
-    var ch int64= int64(name[i]);
+    var ch int64= int64([]rune(name)[i]);
     if  (((ch >= int64(65)) && (ch <= int64(90))) || ((ch >= int64(97)) && (ch <= int64(122)))) || ((ch >= int64(48)) && (ch <= int64(57))) {
-      result = result + (string([] byte{byte(ch)})); 
+      result = result + (string([]rune{rune(ch)})); 
     }
     i = i + int64(1); 
   }
   return result
 }
-// inherited methods from parent class EVGImageMeasurer
-func (this *EVGPDFRenderer) calculateHeightForWidth (src string, targetWidth float64) float64 {
-  var dims *EVGImageDimensions= this.getImageDimensions(src);
-  if  dims.isValid {
-    return targetWidth / dims.aspectRatio
-  }
-  return targetWidth
-}
-func (this *EVGPDFRenderer) calculateWidthForHeight (src string, targetHeight float64) float64 {
-  var dims *EVGImageDimensions= this.getImageDimensions(src);
-  if  dims.isValid {
-    return targetHeight * dims.aspectRatio
-  }
-  return targetHeight
-}
-func (this *EVGPDFRenderer) calculateFitDimensions (src string, maxWidth float64, maxHeight float64) *EVGImageDimensions {
-  var dims *EVGImageDimensions= this.getImageDimensions(src);
-  if  dims.isValid == false {
-    return EVGImageDimensions_static_create((int64(maxWidth)), (int64(maxHeight)))
-  }
-  var scaleW float64= maxWidth / (float64( dims.width ));
-  var scaleH float64= maxHeight / (float64( dims.height ));
-  var scale float64= scaleW;
-  if  scaleH < scaleW {
-    scale = scaleH; 
-  }
-  var newW int64= int64(((float64( dims.width )) * scale));
-  var newH int64= int64(((float64( dims.height )) * scale));
-  return EVGImageDimensions_static_create(newW, newH)
-}
-// getter for variable writer
-func (this *EVGPDFRenderer) Get_writer() *GoNullable {
-  return this.writer
-}
-// setter for variable writer
-func (this *EVGPDFRenderer) Set_writer( value *GoNullable)  {
-  this.writer = value 
-}
-// getter for variable layout
-func (this *EVGPDFRenderer) Get_layout() *GoNullable {
-  return this.layout
-}
-// setter for variable layout
-func (this *EVGPDFRenderer) Set_layout( value *GoNullable)  {
-  this.layout = value 
-}
-// getter for variable measurer
-func (this *EVGPDFRenderer) Get_measurer() *GoNullable {
-  return this.measurer
-}
-// setter for variable measurer
-func (this *EVGPDFRenderer) Set_measurer( value *GoNullable)  {
-  this.measurer = value 
-}
-// getter for variable streamBuffer
-func (this *EVGPDFRenderer) Get_streamBuffer() *GoNullable {
-  return this.streamBuffer
-}
-// setter for variable streamBuffer
-func (this *EVGPDFRenderer) Set_streamBuffer( value *GoNullable)  {
-  this.streamBuffer = value 
-}
-// getter for variable pageWidth
-func (this *EVGPDFRenderer) Get_pageWidth() float64 {
-  return this.pageWidth
-}
-// setter for variable pageWidth
-func (this *EVGPDFRenderer) Set_pageWidth( value float64)  {
-  this.pageWidth = value 
-}
-// getter for variable pageHeight
-func (this *EVGPDFRenderer) Get_pageHeight() float64 {
-  return this.pageHeight
-}
-// setter for variable pageHeight
-func (this *EVGPDFRenderer) Set_pageHeight( value float64)  {
-  this.pageHeight = value 
-}
-// getter for variable nextObjNum
-func (this *EVGPDFRenderer) Get_nextObjNum() int64 {
-  return this.nextObjNum
-}
-// setter for variable nextObjNum
-func (this *EVGPDFRenderer) Set_nextObjNum( value int64)  {
-  this.nextObjNum = value 
-}
-// getter for variable fontObjNum
-func (this *EVGPDFRenderer) Get_fontObjNum() int64 {
-  return this.fontObjNum
-}
-// setter for variable fontObjNum
-func (this *EVGPDFRenderer) Set_fontObjNum( value int64)  {
-  this.fontObjNum = value 
-}
-// getter for variable pagesObjNum
-func (this *EVGPDFRenderer) Get_pagesObjNum() int64 {
-  return this.pagesObjNum
-}
-// setter for variable pagesObjNum
-func (this *EVGPDFRenderer) Set_pagesObjNum( value int64)  {
-  this.pagesObjNum = value 
-}
-// getter for variable contentObjNums
-func (this *EVGPDFRenderer) Get_contentObjNums() []int64 {
-  return this.contentObjNums
-}
-// setter for variable contentObjNums
-func (this *EVGPDFRenderer) Set_contentObjNums( value []int64)  {
-  this.contentObjNums = value 
-}
-// getter for variable pageCount
-func (this *EVGPDFRenderer) Get_pageCount() int64 {
-  return this.pageCount
-}
-// setter for variable pageCount
-func (this *EVGPDFRenderer) Set_pageCount( value int64)  {
-  this.pageCount = value 
-}
-// getter for variable debug
-func (this *EVGPDFRenderer) Get_debug() bool {
-  return this.debug
-}
-// setter for variable debug
-func (this *EVGPDFRenderer) Set_debug( value bool)  {
-  this.debug = value 
-}
-// getter for variable fontManager
-func (this *EVGPDFRenderer) Get_fontManager() *FontManager {
-  return this.fontManager
-}
-// setter for variable fontManager
-func (this *EVGPDFRenderer) Set_fontManager( value *FontManager)  {
-  this.fontManager = value 
-}
-// getter for variable embeddedFonts
-func (this *EVGPDFRenderer) Get_embeddedFonts() []*EmbeddedFont {
-  return this.embeddedFonts
-}
-// setter for variable embeddedFonts
-func (this *EVGPDFRenderer) Set_embeddedFonts( value []*EmbeddedFont)  {
-  this.embeddedFonts = value 
-}
-// getter for variable usedFontNames
-func (this *EVGPDFRenderer) Get_usedFontNames() []string {
-  return this.usedFontNames
-}
-// setter for variable usedFontNames
-func (this *EVGPDFRenderer) Set_usedFontNames( value []string)  {
-  this.usedFontNames = value 
-}
-// getter for variable embeddedImages
-func (this *EVGPDFRenderer) Get_embeddedImages() []*EmbeddedImage {
-  return this.embeddedImages
-}
-// setter for variable embeddedImages
-func (this *EVGPDFRenderer) Set_embeddedImages( value []*EmbeddedImage)  {
-  this.embeddedImages = value 
-}
-// getter for variable jpegReader
-func (this *EVGPDFRenderer) Get_jpegReader() *JPEGReader {
-  return this.jpegReader
-}
-// setter for variable jpegReader
-func (this *EVGPDFRenderer) Set_jpegReader( value *JPEGReader)  {
-  this.jpegReader = value 
-}
-// getter for variable jpegDecoder
-func (this *EVGPDFRenderer) Get_jpegDecoder() *JPEGDecoder {
-  return this.jpegDecoder
-}
-// setter for variable jpegDecoder
-func (this *EVGPDFRenderer) Set_jpegDecoder( value *JPEGDecoder)  {
-  this.jpegDecoder = value 
-}
-// getter for variable jpegEncoder
-func (this *EVGPDFRenderer) Get_jpegEncoder() *JPEGEncoder {
-  return this.jpegEncoder
-}
-// setter for variable jpegEncoder
-func (this *EVGPDFRenderer) Set_jpegEncoder( value *JPEGEncoder)  {
-  this.jpegEncoder = value 
-}
-// getter for variable metadataParser
-func (this *EVGPDFRenderer) Get_metadataParser() *JPEGMetadataParser {
-  return this.metadataParser
-}
-// setter for variable metadataParser
-func (this *EVGPDFRenderer) Set_metadataParser( value *JPEGMetadataParser)  {
-  this.metadataParser = value 
-}
-// getter for variable baseDir
-func (this *EVGPDFRenderer) Get_baseDir() string {
-  return this.baseDir
-}
-// setter for variable baseDir
-func (this *EVGPDFRenderer) Set_baseDir( value string)  {
-  this.baseDir = value 
-}
-// getter for variable assetPaths
-func (this *EVGPDFRenderer) Get_assetPaths() []string {
-  return this.assetPaths
-}
-// setter for variable assetPaths
-func (this *EVGPDFRenderer) Set_assetPaths( value []string)  {
-  this.assetPaths = value 
-}
-// getter for variable maxImageWidth
-func (this *EVGPDFRenderer) Get_maxImageWidth() int64 {
-  return this.maxImageWidth
-}
-// setter for variable maxImageWidth
-func (this *EVGPDFRenderer) Set_maxImageWidth( value int64)  {
-  this.maxImageWidth = value 
-}
-// getter for variable maxImageHeight
-func (this *EVGPDFRenderer) Get_maxImageHeight() int64 {
-  return this.maxImageHeight
-}
-// setter for variable maxImageHeight
-func (this *EVGPDFRenderer) Set_maxImageHeight( value int64)  {
-  this.maxImageHeight = value 
-}
-// getter for variable jpegQuality
-func (this *EVGPDFRenderer) Get_jpegQuality() int64 {
-  return this.jpegQuality
-}
-// setter for variable jpegQuality
-func (this *EVGPDFRenderer) Set_jpegQuality( value int64)  {
-  this.jpegQuality = value 
-}
-// getter for variable imageDimensionsCache
-func (this *EVGPDFRenderer) Get_imageDimensionsCache() []*EVGImageDimensions {
-  return this.imageDimensionsCache
-}
-// setter for variable imageDimensionsCache
-func (this *EVGPDFRenderer) Set_imageDimensionsCache( value []*EVGImageDimensions)  {
-  this.imageDimensionsCache = value 
-}
-// getter for variable imageDimensionsCacheKeys
-func (this *EVGPDFRenderer) Get_imageDimensionsCacheKeys() []string {
-  return this.imageDimensionsCacheKeys
-}
-// setter for variable imageDimensionsCacheKeys
-func (this *EVGPDFRenderer) Set_imageDimensionsCacheKeys( value []string)  {
-  this.imageDimensionsCacheKeys = value 
-}
-// getter for variable foundSections
-func (this *EVGPDFRenderer) Get_foundSections() []*EVGElement {
-  return this.foundSections
-}
-// setter for variable foundSections
-func (this *EVGPDFRenderer) Set_foundSections( value []*EVGElement)  {
-  this.foundSections = value 
-}
-// getter for variable foundPages
-func (this *EVGPDFRenderer) Get_foundPages() []*EVGElement {
-  return this.foundPages
-}
-// setter for variable foundPages
-func (this *EVGPDFRenderer) Set_foundPages( value []*EVGElement)  {
-  this.foundPages = value 
-}
-// inherited getters and setters from the parent class EVGImageMeasurer
 type EvalValue struct { 
   valueType int64 `json:"valueType"` 
   numberValue float64 `json:"numberValue"` 
@@ -14545,7 +14257,7 @@ func (this *EvalValue) toBool () bool {
     return this.numberValue != 0.0
   }
   if  this.valueType == int64(2) {
-    return (int64(len(this.stringValue))) > int64(0)
+    return (int64(len([]rune(this.stringValue)))) > int64(0)
   }
   if  this.valueType == int64(3) {
     return this.boolValue
@@ -14581,7 +14293,7 @@ func (this *EvalValue) getMember (key string) *EvalValue {
   }
   if  this.valueType == int64(2) {
     if  key == "length" {
-      return EvalValue_static_fromInt((int64(len(this.stringValue))))
+      return EvalValue_static_fromInt((int64(len([]rune(this.stringValue)))))
     }
   }
   return EvalValue_static_null()
@@ -14593,8 +14305,8 @@ func (this *EvalValue) getIndex (index int64) *EvalValue {
     }
   }
   if  this.valueType == int64(2) {
-    if  (index >= int64(0)) && (index < (int64(len(this.stringValue)))) {
-      var charStr string= this.stringValue[index:(index + int64(1))];
+    if  (index >= int64(0)) && (index < (int64(len([]rune(this.stringValue))))) {
+      var charStr string= string([]rune(this.stringValue)[index:(index + int64(1))]);
       return EvalValue_static_string(charStr)
     }
   }
@@ -14760,15 +14472,15 @@ func CreateNew_ComponentEngine() *ComponentEngine {
 func (this *ComponentEngine) setAssetPaths (paths string) () {
   var start int64= int64(0);
   var i int64= int64(0);
-  var __len int64= int64(len(paths));
+  var __len int64= int64(len([]rune(paths)));
   for i <= __len {
     var ch string= "";
     if  i < __len {
-      ch = paths[i:(i + int64(1))]; 
+      ch = string([]rune(paths)[i:(i + int64(1))]); 
     }
     if  (ch == ";") || (i == __len) {
       if  i > start {
-        var part string= paths[start:i];
+        var part string= string([]rune(paths)[start:i]);
         this.assetPaths = append(this.assetPaths,part); 
         fmt.Println( "ComponentEngine: Added asset path: " + part )
       }
@@ -14826,7 +14538,7 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
     var srcNode *TSNode= node.left.value.(*TSNode);
     modulePath = this.unquote(srcNode.value); 
   }
-  if  (int64(len(modulePath))) == int64(0) {
+  if  (int64(len([]rune(modulePath)))) == int64(0) {
     return
   }
   if  (int64(strings.Index(modulePath, "evg_types"))) >= int64(0) {
@@ -14848,14 +14560,14 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
     j = j + int64(1); 
   }
   var fullPath string= this.resolveModulePath(modulePath);
-  if  (int64(len(fullPath))) == int64(0) {
+  if  (int64(len([]rune(fullPath)))) == int64(0) {
     return
   }
   var dirPath string= this.basePath;
   fmt.Println( ("Loading import: " + dirPath) + fullPath )
   var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fullPath)); return d }();
   var src string= string(fileContent);
-  if  (int64(len(src))) == int64(0) {
+  if  (int64(len([]rune(src)))) == int64(0) {
     fmt.Println( "" )
     fmt.Println( ("ERROR: Could not load component module: " + dirPath) + fullPath )
     fmt.Println( "" )
@@ -14917,8 +14629,8 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
 }
 func (this *ComponentEngine) resolveModulePath (modulePath string) string {
   if  (int64(strings.Index(modulePath, "./"))) == int64(0) {
-    var path string= modulePath[int64(2):(int64(len(modulePath)))];
-    if  (int64(len(path))) == int64(0) {
+    var path string= string([]rune(modulePath)[int64(2):(int64(len([]rune(modulePath))))]);
+    if  (int64(len([]rune(path)))) == int64(0) {
       return ""
     }
     if  (int64(strings.Index(path, ".tsx"))) < int64(0) {
@@ -15138,7 +14850,7 @@ func (this *ComponentEngine) evaluateJSXElement (jsxNode *TSNode) *EVGElement {
   return element
 }
 func (this *ComponentEngine) isComponent (name string) bool {
-  if  (int64(len(name))) == int64(0) {
+  if  (int64(len([]rune(name)))) == int64(0) {
     return false
   }
   var i int64= int64(0);
@@ -15148,7 +14860,7 @@ func (this *ComponentEngine) isComponent (name string) bool {
     }
     i = i + int64(1); 
   }
-  var firstChar int64= int64(name[int64(0)]);
+  var firstChar int64= int64([]rune(name)[int64(0)]);
   if  (firstChar >= int64(65)) && (firstChar <= int64(90)) {
     return true
   }
@@ -15217,13 +14929,13 @@ func (this *ComponentEngine) collectChildElements (jsxNode *TSNode) []*EvalValue
     var child *TSNode= jsxNode.children[i];
     if  child.nodeType == "JSXElement" {
       var el *EVGElement= this.evaluateJSXElement(child);
-      if  (int64(len(el.tagName))) > int64(0) {
+      if  (int64(len([]rune(el.tagName)))) > int64(0) {
         results = append(results,EvalValue_static_element(el)); 
       }
     }
     if  child.nodeType == "JSXText" {
       var text string= this.trimText(child.value);
-      if  (int64(len(text))) > int64(0) {
+      if  (int64(len([]rune(text)))) > int64(0) {
         var textEl *EVGElement= CreateNew_EVGElement();
         textEl.tagName = "text"; 
         textEl.textContent = text; 
@@ -15303,7 +15015,7 @@ func (this *ComponentEngine) evaluateTextContent (jsxNode *TSNode) string {
     var child *TSNode= jsxNode.children[i];
     if  child.nodeType == "JSXText" {
       var rawText string= child.value;
-      if  (int64(len(rawText))) > int64(0) {
+      if  (int64(len([]rune(rawText)))) > int64(0) {
         result = this.smartJoinText(result, rawText); 
       }
     }
@@ -15331,10 +15043,10 @@ func (this *ComponentEngine) evaluateChildren (element *EVGElement, jsxNode *TSN
       i = i + int64(1); 
       continue;
     }
-    if  (int64(len(accumulatedText))) > int64(0) {
+    if  (int64(len([]rune(accumulatedText)))) > int64(0) {
       var normalizedText string= this.normalizeWhitespace(accumulatedText);
       var text string= this.trimText(normalizedText);
-      if  (int64(len(text))) > int64(0) {
+      if  (int64(len([]rune(text)))) > int64(0) {
         var textEl *EVGElement= CreateNew_EVGElement();
         textEl.tagName = "text"; 
         textEl.textContent = text; 
@@ -15344,7 +15056,7 @@ func (this *ComponentEngine) evaluateChildren (element *EVGElement, jsxNode *TSN
     }
     if  child.nodeType == "JSXElement" {
       var childEl *EVGElement= this.evaluateJSXElement(child);
-      if  (int64(len(childEl.tagName))) > int64(0) {
+      if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
         element.addChild(childEl);
       }
     }
@@ -15356,10 +15068,10 @@ func (this *ComponentEngine) evaluateChildren (element *EVGElement, jsxNode *TSN
     }
     i = i + int64(1); 
   }
-  if  (int64(len(accumulatedText))) > int64(0) {
+  if  (int64(len([]rune(accumulatedText)))) > int64(0) {
     var normalizedText_1 string= this.normalizeWhitespace(accumulatedText);
     var text_1 string= this.trimText(normalizedText_1);
-    if  (int64(len(text_1))) > int64(0) {
+    if  (int64(len([]rune(text_1)))) > int64(0) {
       var textEl_1 *EVGElement= CreateNew_EVGElement();
       textEl_1.tagName = "text"; 
       textEl_1.textContent = text_1; 
@@ -15388,7 +15100,7 @@ func (this *ComponentEngine) evaluateExpressionChild (element *EVGElement, exprC
     if  value.isElement() {
       if ( value.evgElement.has_value) {
         var childEl *EVGElement= value.evgElement.value.(*EVGElement);
-        if  (int64(len(childEl.tagName))) > int64(0) {
+        if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
           element.addChild(childEl);
         }
       }
@@ -15401,7 +15113,7 @@ func (this *ComponentEngine) evaluateExpressionChild (element *EVGElement, exprC
         if  arrItem.isElement() {
           if ( arrItem.evgElement.has_value) {
             var arrChildEl *EVGElement= arrItem.evgElement.value.(*EVGElement);
-            if  (int64(len(arrChildEl.tagName))) > int64(0) {
+            if  (int64(len([]rune(arrChildEl.tagName)))) > int64(0) {
               element.addChild(arrChildEl);
             }
           }
@@ -15442,7 +15154,7 @@ func (this *ComponentEngine) evaluateArrayMapChild (element *EVGElement, callNod
                 this.context.has_value = true; /* detected as non-optional */
                 this.bindMapCallback(callback, item, i);
                 var resultEl *EVGElement= this.evaluateMapCallbackBody(callback);
-                if  (int64(len(resultEl.tagName))) > int64(0) {
+                if  (int64(len([]rune(resultEl.tagName)))) > int64(0) {
                   element.addChild(resultEl);
                 }
                 this.context.value = savedContext.value;
@@ -15496,7 +15208,7 @@ func (this *ComponentEngine) evaluateTernaryChild (element *EVGElement, node *TS
         var conseqNode *TSNode= node.consequent.value.(*TSNode);
         if  (conseqNode.nodeType == "JSXElement") || (conseqNode.nodeType == "JSXFragment") {
           var childEl *EVGElement= this.evaluateJSX(conseqNode);
-          if  (int64(len(childEl.tagName))) > int64(0) {
+          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
             element.addChild(childEl);
           }
         }
@@ -15506,7 +15218,7 @@ func (this *ComponentEngine) evaluateTernaryChild (element *EVGElement, node *TS
         var altNode *TSNode= node.alternate.value.(*TSNode);
         if  (altNode.nodeType == "JSXElement") || (altNode.nodeType == "JSXFragment") {
           var childEl_1 *EVGElement= this.evaluateJSX(altNode);
-          if  (int64(len(childEl_1.tagName))) > int64(0) {
+          if  (int64(len([]rune(childEl_1.tagName)))) > int64(0) {
             element.addChild(childEl_1);
           }
         }
@@ -15523,7 +15235,7 @@ func (this *ComponentEngine) evaluateAndChild (element *EVGElement, node *TSNode
         var rightNode *TSNode= node.right.value.(*TSNode);
         if  (rightNode.nodeType == "JSXElement") || (rightNode.nodeType == "JSXFragment") {
           var childEl *EVGElement= this.evaluateJSX(rightNode);
-          if  (int64(len(childEl.tagName))) > int64(0) {
+          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
             element.addChild(childEl);
           }
         }
@@ -15821,25 +15533,25 @@ func (this *ComponentEngine) trimText (text string) string {
   var result string= "";
   var started bool= false;
   var i int64= int64(0);
-  var __len int64= int64(len(text));
+  var __len int64= int64(len([]rune(text)));
   for i < __len {
-    var c int64= int64(text[i]);
+    var c int64= int64([]rune(text)[i]);
     var isWhitespace bool= (((c == int64(32)) || (c == int64(9))) || (c == int64(10))) || (c == int64(13));
     if  started {
-      result = result + (string([] byte{byte(c)})); 
+      result = result + (string([]rune{rune(c)})); 
     } else {
       if  isWhitespace == false {
         started = true; 
-        result = string([] byte{byte(c)}); 
+        result = string([]rune{rune(c)}); 
       }
     }
     i = i + int64(1); 
   }
-  var trimLen int64= int64(len(result));
+  var trimLen int64= int64(len([]rune(result)));
   for trimLen > int64(0) {
-    var lastC int64= int64(result[(trimLen - int64(1))]);
+    var lastC int64= int64([]rune(result)[(trimLen - int64(1))]);
     if  (((lastC == int64(32)) || (lastC == int64(9))) || (lastC == int64(10))) || (lastC == int64(13)) {
-      result = result[int64(0):(trimLen - int64(1))]; 
+      result = string([]rune(result)[int64(0):(trimLen - int64(1))]); 
       trimLen = trimLen - int64(1); 
     } else {
       trimLen = int64(0); 
@@ -15851,9 +15563,9 @@ func (this *ComponentEngine) normalizeWhitespace (text string) string {
   var result string= "";
   var lastWasSpace bool= false;
   var i int64= int64(0);
-  var __len int64= int64(len(text));
+  var __len int64= int64(len([]rune(text)));
   for i < __len {
-    var c int64= int64(text[i]);
+    var c int64= int64([]rune(text)[i]);
     var isWhitespace bool= (((c == int64(32)) || (c == int64(9))) || (c == int64(10))) || (c == int64(13));
     if  isWhitespace {
       if  lastWasSpace == false {
@@ -15861,7 +15573,7 @@ func (this *ComponentEngine) normalizeWhitespace (text string) string {
         lastWasSpace = true; 
       }
     } else {
-      result = result + (string([] byte{byte(c)})); 
+      result = result + (string([]rune{rune(c)})); 
       lastWasSpace = false; 
     }
     i = i + int64(1); 
@@ -15869,10 +15581,10 @@ func (this *ComponentEngine) normalizeWhitespace (text string) string {
   return result
 }
 func (this *ComponentEngine) startsWithPunctuation (s string) bool {
-  if  (int64(len(s))) == int64(0) {
+  if  (int64(len([]rune(s)))) == int64(0) {
     return false
   }
-  var first int64= int64(s[int64(0)]);
+  var first int64= int64([]rune(s)[int64(0)]);
   if  (((((first == int64(44)) || (first == int64(46))) || (first == int64(33))) || (first == int64(63))) || (first == int64(58))) || (first == int64(59)) {
     return true
   }
@@ -15885,21 +15597,21 @@ func (this *ComponentEngine) startsWithPunctuation (s string) bool {
   return false
 }
 func (this *ComponentEngine) endsWithOpenPunctuation (s string) bool {
-  var __len int64= int64(len(s));
+  var __len int64= int64(len([]rune(s)));
   if  __len == int64(0) {
     return false
   }
-  var last int64= int64(s[(__len - int64(1))]);
+  var last int64= int64([]rune(s)[(__len - int64(1))]);
   if  (((last == int64(40)) || (last == int64(91))) || (last == int64(123))) || (last == int64(45)) {
     return true
   }
   return false
 }
 func (this *ComponentEngine) smartJoinText (existing string, newText string) string {
-  if  (int64(len(existing))) == int64(0) {
+  if  (int64(len([]rune(existing)))) == int64(0) {
     return newText
   }
-  if  (int64(len(newText))) == int64(0) {
+  if  (int64(len([]rune(newText)))) == int64(0) {
     return existing
   }
   if  this.startsWithPunctuation(newText) {
@@ -15911,14 +15623,14 @@ func (this *ComponentEngine) smartJoinText (existing string, newText string) str
   return (existing + " ") + newText
 }
 func (this *ComponentEngine) unquote (s string) string {
-  var __len int64= int64(len(s));
+  var __len int64= int64(len([]rune(s)));
   if  __len < int64(2) {
     return s
   }
-  var first int64= int64(s[int64(0)]);
-  var last int64= int64(s[(__len - int64(1))]);
+  var first int64= int64([]rune(s)[int64(0)]);
+  var last int64= int64([]rune(s)[(__len - int64(1))]);
   if  ((first == int64(34)) || (first == int64(39))) && (first == last) {
-    return s[int64(1):(__len - int64(1))]
+    return string([]rune(s)[int64(1):(__len - int64(1))])
   }
   return s
 }
@@ -15963,12 +15675,12 @@ func (this *EVGComponentTool) main (args []string) () {
   for i < (int64(len(args))) {
     var arg string= args[i];
     if  (int64(strings.Index(arg, "--assets="))) == int64(0) {
-      this.assetPaths = arg[int64(9):(int64(len(arg)))]; 
+      this.assetPaths = string([]rune(arg)[int64(9):(int64(len([]rune(arg))))]); 
       fmt.Println( "Asset paths: " + this.assetPaths )
     }
     i = i + int64(1); 
   }
-  if  (int64(len(this.assetPaths))) == int64(0) {
+  if  (int64(len([]rune(this.assetPaths)))) == int64(0) {
     fmt.Println( "" )
     fmt.Println( "ERROR: Missing required --assets argument" )
     fmt.Println( "" )
@@ -16002,12 +15714,12 @@ func (this *EVGComponentTool) main (args []string) () {
   var engine *ComponentEngine= CreateNew_ComponentEngine();
   engine.pageWidth = this.pageWidth; 
   engine.pageHeight = this.pageHeight; 
-  if  (int64(len(this.assetPaths))) > int64(0) {
+  if  (int64(len([]rune(this.assetPaths)))) > int64(0) {
     engine.setAssetPaths(this.assetPaths);
   }
   fmt.Println( "Parsing TSX with components..." )
   var evgRoot *EVGElement= engine.parseFile(basePath, fileName);
-  if  (int64(len(evgRoot.tagName))) == int64(0) {
+  if  (int64(len([]rune(evgRoot.tagName)))) == int64(0) {
     fmt.Println( "Error: Failed to generate EVG tree" )
     return
   }
@@ -16019,11 +15731,11 @@ func (this *EVGComponentTool) main (args []string) () {
   fmt.Println( "" )
   fmt.Println( "Rendering to PDF..." )
   var renderer *EVGPDFRenderer= CreateNew_EVGPDFRenderer();
-  renderer.init();
+  renderer.init(renderer);
   renderer.setPageSize(this.pageWidth, this.pageHeight);
   renderer.setFontManager(this.fontManager);
   renderer.setBaseDir(basePath);
-  if  (int64(len(this.assetPaths))) > int64(0) {
+  if  (int64(len([]rune(this.assetPaths)))) > int64(0) {
     renderer.setAssetPaths(this.assetPaths);
   }
   var ttfMeasurer *TTFTextMeasurer= CreateNew_TTFTextMeasurer(this.fontManager);
@@ -16042,12 +15754,12 @@ func (this *EVGComponentTool) printEVGTree (el *EVGElement, depth int64) () {
     i = i + int64(1); 
   }
   var info string= (indent + "<") + el.tagName;
-  if  (int64(len(el.id))) > int64(0) {
+  if  (int64(len([]rune(el.id)))) > int64(0) {
     info = ((info + " id=\"") + el.id) + "\""; 
   }
-  if  (int64(len(el.textContent))) > int64(0) {
-    if  (int64(len(el.textContent))) > int64(30) {
-      info = ((info + " text=\"") + (el.textContent[int64(0):int64(30)])) + "...\""; 
+  if  (int64(len([]rune(el.textContent)))) > int64(0) {
+    if  (int64(len([]rune(el.textContent)))) > int64(30) {
+      info = ((info + " text=\"") + (string([]rune(el.textContent)[int64(0):int64(30)]))) + "...\""; 
     } else {
       info = ((info + " text=\"") + el.textContent) + "\""; 
     }
@@ -16063,7 +15775,7 @@ func (this *EVGComponentTool) printEVGTree (el *EVGElement, depth int64) () {
 }
 func (this *EVGComponentTool) initFonts () () {
   fmt.Println( "Loading fonts..." )
-  if  (int64(len(this.assetPaths))) > int64(0) {
+  if  (int64(len([]rune(this.assetPaths)))) > int64(0) {
     this.fontManager.setFontsDirectories(this.assetPaths);
   } else {
     this.fontManager.setFontsDirectory(this.fontsDir);
@@ -16082,32 +15794,32 @@ func (this *EVGComponentTool) initFonts () () {
 func (this *EVGComponentTool) getDirectory (path string) string {
   var lastSlash int64= int64(-1);
   var i int64= int64(0);
-  var __len int64= int64(len(path));
+  var __len int64= int64(len([]rune(path)));
   for i < __len {
-    var ch string= path[i:(i + int64(1))];
+    var ch string= string([]rune(path)[i:(i + int64(1))]);
     if  (ch == "/") || (ch == "\\") {
       lastSlash = i; 
     }
     i = i + int64(1); 
   }
   if  lastSlash >= int64(0) {
-    return path[int64(0):(lastSlash + int64(1))]
+    return string([]rune(path)[int64(0):(lastSlash + int64(1))])
   }
   return "./"
 }
 func (this *EVGComponentTool) getFileName (path string) string {
   var lastSlash int64= int64(-1);
   var i int64= int64(0);
-  var __len int64= int64(len(path));
+  var __len int64= int64(len([]rune(path)));
   for i < __len {
-    var ch string= path[i:(i + int64(1))];
+    var ch string= string([]rune(path)[i:(i + int64(1))]);
     if  (ch == "/") || (ch == "\\") {
       lastSlash = i; 
     }
     i = i + int64(1); 
   }
   if  lastSlash >= int64(0) {
-    return path[(lastSlash + int64(1)):__len]
+    return string([]rune(path)[(lastSlash + int64(1)):__len])
   }
   return path
 }

@@ -75,6 +75,8 @@ class TSLexer {
         }
         if (ch == "_") { return true }
         if (ch == "$") { return true }
+        ; Unicode letters (Latin Extended, etc.) - codes > 127
+        if (code > 127) { return true }
         return false
     }
 
@@ -94,6 +96,8 @@ class TSLexer {
                 return true
             }
         }
+        ; Unicode letters (Latin Extended, etc.) - codes > 127
+        if (code > 127) { return true }
         return false
     }
 
