@@ -309,7 +309,15 @@ class JSXToEVG {
                 def text:string (this.trimText(child.value))
                 if ((strlen text) > 0) {
                     if ((strlen result) > 0) {
-                        result = result + " " + text
+                        ; Check if text starts with punctuation - no space before it
+                        def firstChar:int (charAt text 0)
+                        def isPunct:boolean ((firstChar == 44) || (firstChar == 46) || (firstChar == 33) || (firstChar == 63) || (firstChar == 58) || (firstChar == 59) || (firstChar == 45) || (firstChar == 41) || (firstChar == 93))
+                        ; 44=, 46=. 33=! 63=? 58=: 59=; 45=- 41=) 93=]
+                        if isPunct {
+                            result = result + text
+                        } {
+                            result = result + " " + text
+                        }
                     } {
                         result = text
                     }

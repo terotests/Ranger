@@ -5730,7 +5730,13 @@ class JSXToEVG  {
         const text = this.trimText(child.value);
         if ( (text.length) > 0 ) {
           if ( (result.length) > 0 ) {
-            result = (result + " ") + text;
+            const firstChar = text.charCodeAt(0 );
+            const isPunct = ((((((((firstChar == 44) || (firstChar == 46)) || (firstChar == 33)) || (firstChar == 63)) || (firstChar == 58)) || (firstChar == 59)) || (firstChar == 45)) || (firstChar == 41)) || (firstChar == 93);
+            if ( isPunct ) {
+              result = result + text;
+            } else {
+              result = (result + " ") + text;
+            }
           } else {
             result = text;
           }
