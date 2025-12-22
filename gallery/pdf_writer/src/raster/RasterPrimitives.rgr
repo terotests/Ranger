@@ -1,0 +1,374 @@
+; RasterPrimitives - Shape drawing primitives for raster buffers
+; Provides line, rectangle, rounded rectangle, circle drawing
+
+Import "RasterBuffer.rgr"
+Import "RasterCompositing.rgr"
+
+; Shape drawing class
+class RasterPrimitives {
+    def compositor:RasterCompositor (new RasterCompositor())
+    
+    ; ============================================================
+    ; Line drawing (Bresenham's algorithm)
+    ; ============================================================
+    
+    fn drawLine:void (buf:RasterBuffer x1:int y1:int x2:int y2:int r:int g:int b:int a:int) {
+        def dx:int (x2 - x1)
+        def dy:int (y2 - y1)
+        
+        ; Get absolute values
+        def absDx:int dx
+        if (absDx < 0) {
+            absDx = 0 - absDx
+        }
+        def absDy:int dy
+        if (absDy < 0) {
+            absDy = 0 - absDy
+        }
+        
+        def sx:int 1
+        if (x1 > x2) {
+            sx = 0 - 1
+        }
+        def sy:int 1
+        if (y1 > y2) {
+            sy = 0 - 1
+        }
+        
+        def err:int (absDx - absDy)
+        def x:int x1
+        def y:int y1
+        
+        def done:boolean false
+        while (done == false) {
+            compositor.blendSourceOver(buf x y r g b a)
+            
+            if ((x == x2) && (y == y2)) {
+                done = true
+            } {
+                def e2:int (err * 2)
+                if (e2 > (0 - absDy)) {
+                    err = err - absDy
+                    x = x + sx
+                }
+                if (e2 < absDx) {
+                    err = err + absDx
+                    y = y + sy
+                }
+            }
+        }
+    }
+    
+    ; ============================================================
+    ; Rectangle drawing
+    ; ============================================================
+    
+    ; Draw rectangle outline
+    fn drawRect:void (buf:RasterBuffer x:int y:int w:int h:int r:int g:int b:int a:int) {
+        ; Top edge
+        this.drawLine(buf x y (x + w - 1) y r g b a)
+        ; Right edge
+        this.drawLine(buf (x + w - 1) y (x + w - 1) (y + h - 1) r g b a)
+        ; Bottom edge
+        this.drawLine(buf (x + w - 1) (y + h - 1) x (y + h - 1) r g b a)
+        ; Left edge
+        this.drawLine(buf x (y + h - 1) x y r g b a)
+    }
+    
+    ; Fill rectangle (with alpha blending)
+    fn fillRect:void (buf:RasterBuffer x:int y:int w:int h:int r:int g:int b:int a:int) {
+        compositor.fillRectBlended(buf x y w h r g b a)
+    }
+    
+    ; Fill rectangle without blending (opaque only)
+    fn fillRectSolid:void (buf:RasterBuffer x:int y:int w:int h:int r:int g:int b:int a:int) {
+        buf.fillRect(x y w h r g b a)
+    }
+    
+    ; ============================================================
+    ; Rounded rectangle drawing
+    ; ============================================================
+    
+    ; Fill a rounded rectangle
+    fn fillRoundedRect:void (buf:RasterBuffer x:int y:int w:int h:int radius:int r:int g:int b:int a:int) {
+        ; Clamp radius to max (half of smaller dimension)
+        def maxR:int (to_int ((to_double w) / 2.0))
+        def halfH:int (to_int ((to_double h) / 2.0))
+        if (halfH < maxR) {
+            maxR = halfH
+        }
+        if (radius > maxR) {
+            radius = maxR
+        }
+        if (radius < 0) {
+            radius = 0
+        }
+        
+        ; If no radius, just fill normal rect
+        if (radius == 0) {
+            this.fillRect(buf x y w h r g b a)
+            return
+        }
+        
+        ; Fill main body rectangles (cross shape)
+        ; Horizontal bar (full width, reduced height)
+        this.fillRect(buf x (y + radius) w (h - (radius * 2)) r g b a)
+        
+        ; Vertical bar (reduced width, full height in middle)
+        this.fillRect(buf (x + radius) y (w - (radius * 2)) radius r g b a)
+        this.fillRect(buf (x + radius) (y + h - radius) (w - (radius * 2)) radius r g b a)
+        
+        ; Fill corners with circles
+        this.fillCircleQuadrant(buf (x + radius) (y + radius) radius 2 r g b a)           ; Top-left
+        this.fillCircleQuadrant(buf (x + w - radius - 1) (y + radius) radius 1 r g b a)   ; Top-right
+        this.fillCircleQuadrant(buf (x + radius) (y + h - radius - 1) radius 3 r g b a)   ; Bottom-left
+        this.fillCircleQuadrant(buf (x + w - radius - 1) (y + h - radius - 1) radius 4 r g b a) ; Bottom-right
+    }
+    
+    ; Draw rounded rectangle outline
+    fn drawRoundedRect:void (buf:RasterBuffer x:int y:int w:int h:int radius:int r:int g:int b:int a:int) {
+        ; Clamp radius
+        def maxR:int (to_int ((to_double w) / 2.0))
+        def halfH:int (to_int ((to_double h) / 2.0))
+        if (halfH < maxR) {
+            maxR = halfH
+        }
+        if (radius > maxR) {
+            radius = maxR
+        }
+        if (radius < 0) {
+            radius = 0
+        }
+        
+        if (radius == 0) {
+            this.drawRect(buf x y w h r g b a)
+            return
+        }
+        
+        ; Draw straight edges
+        ; Top edge
+        this.drawLine(buf (x + radius) y (x + w - radius - 1) y r g b a)
+        ; Bottom edge
+        this.drawLine(buf (x + radius) (y + h - 1) (x + w - radius - 1) (y + h - 1) r g b a)
+        ; Left edge
+        this.drawLine(buf x (y + radius) x (y + h - radius - 1) r g b a)
+        ; Right edge
+        this.drawLine(buf (x + w - 1) (y + radius) (x + w - 1) (y + h - radius - 1) r g b a)
+        
+        ; Draw corner arcs
+        this.drawCircleArcQuadrant(buf (x + radius) (y + radius) radius 2 r g b a)
+        this.drawCircleArcQuadrant(buf (x + w - radius - 1) (y + radius) radius 1 r g b a)
+        this.drawCircleArcQuadrant(buf (x + radius) (y + h - radius - 1) radius 3 r g b a)
+        this.drawCircleArcQuadrant(buf (x + w - radius - 1) (y + h - radius - 1) radius 4 r g b a)
+    }
+    
+    ; ============================================================
+    ; Circle drawing
+    ; ============================================================
+    
+    ; Fill a full circle
+    fn fillCircle:void (buf:RasterBuffer cx:int cy:int radius:int r:int g:int b:int a:int) {
+        def r2:int (radius * radius)
+        def y:int (0 - radius)
+        while (y <= radius) {
+            def x:int (0 - radius)
+            while (x <= radius) {
+                def d2:int ((x * x) + (y * y))
+                if (d2 <= r2) {
+                    compositor.blendSourceOver(buf (cx + x) (cy + y) r g b a)
+                }
+                x = x + 1
+            }
+            y = y + 1
+        }
+    }
+    
+    ; Draw circle outline (Midpoint circle algorithm)
+    fn drawCircle:void (buf:RasterBuffer cx:int cy:int radius:int r:int g:int b:int a:int) {
+        def x:int 0
+        def y:int radius
+        def d:int (1 - radius)
+        
+        ; Draw initial points
+        this.drawCirclePoints(buf cx cy x y r g b a)
+        
+        while (x < y) {
+            if (d < 0) {
+                d = d + (2 * x) + 3
+            } {
+                d = d + (2 * (x - y)) + 5
+                y = y - 1
+            }
+            x = x + 1
+            this.drawCirclePoints(buf cx cy x y r g b a)
+        }
+    }
+    
+    ; Helper: draw 8 symmetric circle points
+    fn drawCirclePoints:void (buf:RasterBuffer cx:int cy:int x:int y:int r:int g:int b:int a:int) {
+        compositor.blendSourceOver(buf (cx + x) (cy + y) r g b a)
+        compositor.blendSourceOver(buf (cx - x) (cy + y) r g b a)
+        compositor.blendSourceOver(buf (cx + x) (cy - y) r g b a)
+        compositor.blendSourceOver(buf (cx - x) (cy - y) r g b a)
+        compositor.blendSourceOver(buf (cx + y) (cy + x) r g b a)
+        compositor.blendSourceOver(buf (cx - y) (cy + x) r g b a)
+        compositor.blendSourceOver(buf (cx + y) (cy - x) r g b a)
+        compositor.blendSourceOver(buf (cx - y) (cy - x) r g b a)
+    }
+    
+    ; Fill a circle quadrant (for rounded corners)
+    ; quadrant: 1=top-right, 2=top-left, 3=bottom-left, 4=bottom-right
+    fn fillCircleQuadrant:void (buf:RasterBuffer cx:int cy:int radius:int quadrant:int r:int g:int b:int a:int) {
+        def r2:int (radius * radius)
+        
+        def startY:int 0
+        def endY:int radius
+        def startX:int 0
+        def endX:int radius
+        def dirX:int 1
+        def dirY:int 1
+        
+        ; Determine direction based on quadrant
+        if (quadrant == 1) {
+            ; Top-right: x goes positive, y goes negative
+            dirX = 1
+            dirY = -1
+        }
+        if (quadrant == 2) {
+            ; Top-left: x goes negative, y goes negative
+            dirX = -1
+            dirY = -1
+        }
+        if (quadrant == 3) {
+            ; Bottom-left: x goes negative, y goes positive
+            dirX = -1
+            dirY = 1
+        }
+        if (quadrant == 4) {
+            ; Bottom-right: x goes positive, y goes positive
+            dirX = 1
+            dirY = 1
+        }
+        
+        def dy:int 0
+        while (dy <= radius) {
+            def dx:int 0
+            while (dx <= radius) {
+                def d2:int ((dx * dx) + (dy * dy))
+                if (d2 <= r2) {
+                    def px:int (cx + (dx * dirX))
+                    def py:int (cy + (dy * dirY))
+                    compositor.blendSourceOver(buf px py r g b a)
+                }
+                dx = dx + 1
+            }
+            dy = dy + 1
+        }
+    }
+    
+    ; Draw a circle arc for one quadrant
+    fn drawCircleArcQuadrant:void (buf:RasterBuffer cx:int cy:int radius:int quadrant:int r:int g:int b:int a:int) {
+        def x:int 0
+        def y:int radius
+        def d:int (1 - radius)
+        
+        def dirX:int 1
+        def dirY:int -1
+        
+        if (quadrant == 1) {
+            dirX = 1
+            dirY = -1
+        }
+        if (quadrant == 2) {
+            dirX = -1
+            dirY = -1
+        }
+        if (quadrant == 3) {
+            dirX = -1
+            dirY = 1
+        }
+        if (quadrant == 4) {
+            dirX = 1
+            dirY = 1
+        }
+        
+        ; Draw arc points
+        compositor.blendSourceOver(buf (cx + (x * dirX)) (cy + (y * dirY)) r g b a)
+        compositor.blendSourceOver(buf (cx + (y * dirX)) (cy + (x * dirY)) r g b a)
+        
+        while (x < y) {
+            if (d < 0) {
+                d = d + (2 * x) + 3
+            } {
+                d = d + (2 * (x - y)) + 5
+                y = y - 1
+            }
+            x = x + 1
+            compositor.blendSourceOver(buf (cx + (x * dirX)) (cy + (y * dirY)) r g b a)
+            compositor.blendSourceOver(buf (cx + (y * dirX)) (cy + (x * dirY)) r g b a)
+        }
+    }
+    
+    ; ============================================================
+    ; Anti-aliased line (Wu's algorithm - simplified)
+    ; ============================================================
+    
+    fn drawLineAA:void (buf:RasterBuffer x0:int y0:int x1:int y1:int r:int g:int b:int a:int) {
+        ; For now, delegate to standard line
+        ; TODO: Implement Wu's anti-aliased line algorithm
+        this.drawLine(buf x0 y0 x1 y1 r g b a)
+    }
+    
+    ; ============================================================
+    ; Ellipse (Midpoint ellipse algorithm)
+    ; ============================================================
+    
+    fn fillEllipse:void (buf:RasterBuffer cx:int cy:int rx:int ry:int r:int g:int b:int a:int) {
+        def rx2:double ((to_double rx) * (to_double rx))
+        def ry2:double ((to_double ry) * (to_double ry))
+        
+        def y:int (0 - ry)
+        while (y <= ry) {
+            def yf:double (to_double y)
+            ; Calculate x extent at this y
+            def xExtent:double (sqrt (rx2 * (1.0 - ((yf * yf) / ry2))))
+            def xi:int (to_int xExtent)
+            
+            def x:int (0 - xi)
+            while (x <= xi) {
+                compositor.blendSourceOver(buf (cx + x) (cy + y) r g b a)
+                x = x + 1
+            }
+            y = y + 1
+        }
+    }
+    
+    fn drawEllipse:void (buf:RasterBuffer cx:int cy:int rx:int ry:int r:int g:int b:int a:int) {
+        ; Simplified ellipse outline using parametric approach
+        def steps:int ((rx + ry) * 2)
+        if (steps < 20) { steps = 20 }
+        
+        def angleStep:double (6.28318530718 / (to_double steps))
+        def angle:double 0.0
+        
+        def lastX:int (cx + rx)
+        def lastY:int cy
+        
+        def i:int 0
+        while (i <= steps) {
+            def newX:int (cx + (to_int ((to_double rx) * (cos angle))))
+            def newY:int (cy + (to_int ((to_double ry) * (sin angle))))
+            
+            if (i > 0) {
+                this.drawLine(buf lastX lastY newX newY r g b a)
+            }
+            
+            lastX = newX
+            lastY = newY
+            angle = angle + angleStep
+            i = i + 1
+        }
+    }
+}
+
+; Note: Global instance removed - create locally where needed

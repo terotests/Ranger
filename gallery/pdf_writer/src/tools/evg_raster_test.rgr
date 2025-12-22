@@ -1,0 +1,122 @@
+; evg_raster_test.rgr - Test tool for EVG Raster Renderer
+; Generates a test image with shadows and gradients
+
+Import "../raster/EVGRasterRenderer.rgr"
+
+class RasterTest {
+    
+    sfn m@(main):void () {
+        def test:RasterTest (new RasterTest())
+        test.run()
+    }
+    
+    fn run:void () {
+        print "EVG Raster Renderer Test"
+        print "========================"
+        print ""
+        
+        ; Create renderer with 400x300 canvas
+        def renderer:EVGRasterRenderer (new EVGRasterRenderer())
+        renderer.init(400 300)
+        
+        ; Clear to light gray background
+        renderer.clear(245 245 245 255)
+        
+        print "Rendering test shapes..."
+        
+        ; Test 1: Rectangle with soft shadow
+        print "  - Rectangle with shadow"
+        renderer.renderRectWithShadow(
+            30 30           ; x, y
+            100 60          ; width, height
+            255 255 255 255 ; background: white
+            0 0 0 80        ; shadow: semi-transparent black
+            10              ; blur radius
+            4 4             ; shadow offset
+        )
+        
+        ; Test 2: Rounded rectangle with shadow
+        print "  - Rounded rectangle with shadow"
+        renderer.renderRoundedRectWithShadow(
+            160 30          ; x, y
+            100 60          ; width, height
+            12              ; border radius
+            52 152 219 255  ; background: blue
+            52 152 219 100  ; shadow: blue tint
+            15              ; blur radius
+            0 6             ; shadow offset
+        )
+        
+        ; Test 3: Another rounded rect (darker)
+        print "  - Dark rounded rectangle with shadow"
+        renderer.renderRoundedRectWithShadow(
+            290 30          ; x, y
+            80 60           ; width, height
+            8               ; border radius
+            44 62 80 255    ; background: dark blue
+            0 0 0 100       ; shadow: black
+            8               ; blur radius
+            3 4             ; shadow offset
+        )
+        
+        ; Test 4: Linear gradient (horizontal)
+        print "  - Linear gradient (horizontal)"
+        renderer.renderLinearGradientRect(
+            30 120          ; x, y
+            100 50          ; width, height
+            90.0            ; angle: 90 degrees (horizontal)
+            231 76 60       ; start color: red (RGB)
+            241 196 15      ; end color: yellow (RGB)
+        )
+        
+        ; Test 5: Vertical gradient
+        print "  - Linear gradient (vertical)"
+        renderer.renderLinearGradientRect(
+            160 120         ; x, y
+            100 50          ; width, height
+            180.0           ; angle: 180 degrees (vertical)
+            46 204 113      ; start color: green (RGB)
+            39 174 96       ; end color: darker green (RGB)
+        )
+        
+        ; Test 6: Radial gradient
+        print "  - Radial gradient"
+        renderer.renderRadialGradientRect(
+            290 120         ; x, y
+            80 50           ; width, height
+            155 89 182      ; center: purple (RGB)
+            44 62 80        ; edge: dark blue (RGB)
+        )
+        
+        ; Test 7: Gradient with shadow (combined)
+        print "  - Gradient with shadow (combined)"
+        renderer.renderLinearGradientWithShadow(
+            30 200          ; x, y
+            140 60          ; width, height
+            10              ; border radius
+            135.0           ; angle
+            102 126 234     ; start: light purple (RGB)
+            118 75 162      ; end: purple (RGB)
+            102 126 234 100 ; shadow color (RGBA)
+            12              ; blur radius
+            0 8             ; shadow offset
+        )
+        
+        ; Test 8: Simple filled shapes (no shadow)
+        print "  - Simple filled rectangle"
+        renderer.fillRect(200 200 60 30 230 126 34 255)  ; Orange
+        
+        print "  - Simple filled circle"
+        renderer.fillCircle(330 230 25 241 196 15 255)  ; Yellow
+        
+        print ""
+        print "Saving to JPEG..."
+        
+        ; Save as JPEG
+        renderer.saveAsJPEG("./gallery/pdf_writer/output/" "raster_test.jpg" 90)
+        
+        print "Done! Output: ./gallery/pdf_writer/output/raster_test.jpg"
+        print ""
+        print "Image size: 400 x 300"
+    }
+}

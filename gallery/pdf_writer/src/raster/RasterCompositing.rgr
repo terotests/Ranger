@@ -1,0 +1,254 @@
+; RasterCompositing - Alpha blending and compositing for raster rendering
+; Provides Porter-Duff compositing operations
+
+Import "RasterBuffer.rgr"
+
+; Alpha compositing class - provides blending operations
+class RasterCompositor {
+    
+    ; Clamp a value to 0-255 range
+    fn clamp255:int (val:int) {
+        if (val < 0) {
+            return 0
+        }
+        if (val > 255) {
+            return 255
+        }
+        return val
+    }
+    
+    ; Clamp a double value to 0.0-1.0 range
+    fn clamp01:double (val:double) {
+        if (val < 0.0) {
+            return 0.0
+        }
+        if (val > 1.0) {
+            return 1.0
+        }
+        return val
+    }
+    
+    ; Blend source pixel over destination pixel (Porter-Duff Source Over)
+    ; This is the standard alpha compositing operation
+    ; Formula: out = src + dst * (1 - src.a)
+    fn blendSourceOver:void (buf:RasterBuffer x:int y:int srcR:int srcG:int srcB:int srcA:int) {
+        if ((buf.inBounds(x y)) == false) {
+            return
+        }
+        
+        ; Fast path: fully opaque source replaces destination
+        if (srcA >= 255) {
+            buf.setPixel(x y srcR srcG srcB 255)
+            return
+        }
+        
+        ; Fast path: fully transparent source has no effect
+        if (srcA <= 0) {
+            return
+        }
+        
+        ; Get destination pixel
+        def dst:RasterPixel (buf.getPixel(x y))
+        
+        ; Convert alpha to 0.0-1.0 range
+        def srcAlpha:double ((to_double srcA) / 255.0)
+        def dstAlpha:double ((to_double dst.a) / 255.0)
+        
+        ; Calculate output alpha: outA = srcA + dstA * (1 - srcA)
+        def outAlpha:double (srcAlpha + (dstAlpha * (1.0 - srcAlpha)))
+        
+        ; Avoid division by zero
+        if (outAlpha < 0.001) {
+            buf.setPixel(x y 0 0 0 0)
+            return
+        }
+        
+        ; Calculate output color components
+        ; out = (src * srcA + dst * dstA * (1 - srcA)) / outA
+        def invSrcAlpha:double (1.0 - srcAlpha)
+        
+        def outR:double (((to_double srcR) * srcAlpha) + ((to_double dst.r) * dstAlpha * invSrcAlpha))
+        def outG:double (((to_double srcG) * srcAlpha) + ((to_double dst.g) * dstAlpha * invSrcAlpha))
+        def outB:double (((to_double srcB) * srcAlpha) + ((to_double dst.b) * dstAlpha * invSrcAlpha))
+        
+        outR = outR / outAlpha
+        outG = outG / outAlpha
+        outB = outB / outAlpha
+        
+        buf.setPixel(x y (this.clamp255((to_int outR))) (this.clamp255((to_int outG))) (this.clamp255((to_int outB))) (this.clamp255((to_int (outAlpha * 255.0)))))
+    }
+    
+    ; Blend with RasterPixel object
+    fn blendPixelOver:void (buf:RasterBuffer x:int y:int src:RasterPixel) {
+        this.blendSourceOver(buf x y src.r src.g src.b src.a)
+    }
+    
+    ; Fill a rectangle with alpha blending
+    fn fillRectBlended:void (buf:RasterBuffer x:int y:int w:int h:int r:int g:int b:int a:int) {
+        def endX:int (x + w)
+        def endY:int (y + h)
+        
+        ; Clamp to bounds
+        if (x < 0) {
+            x = 0
+        }
+        if (y < 0) {
+            y = 0
+        }
+        if (endX > buf.width) {
+            endX = buf.width
+        }
+        if (endY > buf.height) {
+            endY = buf.height
+        }
+        
+        def py:int y
+        while (py < endY) {
+            def px:int x
+            while (px < endX) {
+                this.blendSourceOver(buf px py r g b a)
+                px = px + 1
+            }
+            py = py + 1
+        }
+    }
+    
+    ; Composite one buffer over another at a given position
+    fn compositeOver:void (dst:RasterBuffer src:RasterBuffer dstX:int dstY:int) {
+        def sy:int 0
+        while (sy < src.height) {
+            def sx:int 0
+            while (sx < src.width) {
+                def p:RasterPixel (src.getPixel(sx sy))
+                this.blendSourceOver(dst (dstX + sx) (dstY + sy) p.r p.g p.b p.a)
+                sx = sx + 1
+            }
+            sy = sy + 1
+        }
+    }
+    
+    ; Composite a region of source over destination
+    fn compositeRegionOver:void (dst:RasterBuffer src:RasterBuffer srcX:int srcY:int srcW:int srcH:int dstX:int dstY:int) {
+        def sy:int 0
+        while (sy < srcH) {
+            def sx:int 0
+            while (sx < srcW) {
+                def p:RasterPixel (src.getPixel((srcX + sx) (srcY + sy)))
+                this.blendSourceOver(dst (dstX + sx) (dstY + sy) p.r p.g p.b p.a)
+                sx = sx + 1
+            }
+            sy = sy + 1
+        }
+    }
+    
+    ; Multiply blend mode: out = src * dst / 255
+    ; Darkens the image - useful for shadows
+    fn blendMultiply:void (buf:RasterBuffer x:int y:int srcR:int srcG:int srcB:int srcA:int) {
+        if ((buf.inBounds(x y)) == false) {
+            return
+        }
+        
+        def dst:RasterPixel (buf.getPixel(x y))
+        
+        ; Multiply the color channels
+        def outR:int (to_int ((to_double (srcR * dst.r)) / 255.0))
+        def outG:int (to_int ((to_double (srcG * dst.g)) / 255.0))
+        def outB:int (to_int ((to_double (srcB * dst.b)) / 255.0))
+        
+        ; Blend based on source alpha
+        def srcAlpha:double ((to_double srcA) / 255.0)
+        def invAlpha:double (1.0 - srcAlpha)
+        
+        outR = (to_int (((to_double outR) * srcAlpha) + ((to_double dst.r) * invAlpha)))
+        outG = (to_int (((to_double outG) * srcAlpha) + ((to_double dst.g) * invAlpha)))
+        outB = (to_int (((to_double outB) * srcAlpha) + ((to_double dst.b) * invAlpha)))
+        
+        buf.setPixel(x y (this.clamp255(outR)) (this.clamp255(outG)) (this.clamp255(outB)) dst.a)
+    }
+    
+    ; Screen blend mode: out = 255 - (255 - src) * (255 - dst) / 255
+    ; Lightens the image
+    fn blendScreen:void (buf:RasterBuffer x:int y:int srcR:int srcG:int srcB:int srcA:int) {
+        if ((buf.inBounds(x y)) == false) {
+            return
+        }
+        
+        def dst:RasterPixel (buf.getPixel(x y))
+        
+        ; Screen the color channels (use double to avoid int division issues)
+        def scrR:int (255 - srcR)
+        def scrG:int (255 - srcG)
+        def scrB:int (255 - srcB)
+        def dstInvR:int (255 - dst.r)
+        def dstInvG:int (255 - dst.g)
+        def dstInvB:int (255 - dst.b)
+        
+        def outR:int (255 - (to_int ((to_double (scrR * dstInvR)) / 255.0)))
+        def outG:int (255 - (to_int ((to_double (scrG * dstInvG)) / 255.0)))
+        def outB:int (255 - (to_int ((to_double (scrB * dstInvB)) / 255.0)))
+        
+        ; Blend based on source alpha
+        def srcAlpha:double ((to_double srcA) / 255.0)
+        def invAlpha:double (1.0 - srcAlpha)
+        
+        outR = (to_int (((to_double outR) * srcAlpha) + ((to_double dst.r) * invAlpha)))
+        outG = (to_int (((to_double outG) * srcAlpha) + ((to_double dst.g) * invAlpha)))
+        outB = (to_int (((to_double outB) * srcAlpha) + ((to_double dst.b) * invAlpha)))
+        
+        buf.setPixel(x y (this.clamp255(outR)) (this.clamp255(outG)) (this.clamp255(outB)) dst.a)
+    }
+    
+    ; Additive blend: out = src + dst (clamped to 255)
+    ; Creates glow effects
+    fn blendAdditive:void (buf:RasterBuffer x:int y:int srcR:int srcG:int srcB:int srcA:int) {
+        if ((buf.inBounds(x y)) == false) {
+            return
+        }
+        
+        def dst:RasterPixel (buf.getPixel(x y))
+        
+        ; Scale source by alpha first
+        def srcAlpha:double ((to_double srcA) / 255.0)
+        def addR:int (to_int ((to_double srcR) * srcAlpha))
+        def addG:int (to_int ((to_double srcG) * srcAlpha))
+        def addB:int (to_int ((to_double srcB) * srcAlpha))
+        
+        ; Add to destination
+        def outR:int (dst.r + addR)
+        def outG:int (dst.g + addG)
+        def outB:int (dst.b + addB)
+        
+        buf.setPixel(x y (this.clamp255(outR)) (this.clamp255(outG)) (this.clamp255(outB)) dst.a)
+    }
+    
+    ; Pre-multiplied alpha blend (faster when source is pre-multiplied)
+    ; For pre-multiplied: out = src + dst * (1 - srcA)
+    fn blendPreMultiplied:void (buf:RasterBuffer x:int y:int srcR:int srcG:int srcB:int srcA:int) {
+        if ((buf.inBounds(x y)) == false) {
+            return
+        }
+        
+        ; Fast paths
+        if (srcA >= 255) {
+            buf.setPixel(x y srcR srcG srcB 255)
+            return
+        }
+        if (srcA <= 0) {
+            return
+        }
+        
+        def dst:RasterPixel (buf.getPixel(x y))
+        
+        def invAlpha:int (255 - srcA)
+        
+        def outR:int (srcR + (to_int ((to_double (dst.r * invAlpha)) / 255.0)))
+        def outG:int (srcG + (to_int ((to_double (dst.g * invAlpha)) / 255.0)))
+        def outB:int (srcB + (to_int ((to_double (dst.b * invAlpha)) / 255.0)))
+        def outA:int (srcA + (to_int ((to_double (dst.a * invAlpha)) / 255.0)))
+        
+        buf.setPixel(x y (this.clamp255(outR)) (this.clamp255(outG)) (this.clamp255(outB)) (this.clamp255(outA)))
+    }
+}
+
+; Note: Global compositor instance removed - causes infinite recursion
+; Create instances locally where needed
