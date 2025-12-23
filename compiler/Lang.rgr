@@ -5092,7 +5092,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
         
         http_set_status cmdHttpSetStatus:void (res:HttpResponse code:int) {
             templates {
-                go ( (e 1) ".WriteHeader(" (e 2) ")" nl )
+                go ( (e 1) ".WriteHeader(int(" (e 2) "))" nl )
                 es6 ( (e 1) ".status(" (e 2) ")" nl )
                 * ( "/* http_set_status not implemented */" nl )
             }

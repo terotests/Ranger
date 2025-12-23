@@ -133,13 +133,7 @@ fn handleEvents@(SSE "/events"):void (req:HttpRequest client:SSEClient) { }
 
 ## Phase 4: EVG Watch Mode Server
 
-### 4.1 Create EVGPreviewServer
-- [ ] Create `gallery/pdf_writer/src/tools/evg_preview_server.rgr`
-- [ ] Implement `@(GET "/")` - serve shell HTML
-- [ ] Implement `@(GET "/content")` - render document content
-- [ ] Implement `@(GET "/fonts/:name")` - serve font files
-- [ ] Implement `@(GET "/images/*path")` - serve image files
-- [ ] Implement `@(SSE "/events")` - SSE for updates
+@
 - [ ] Implement `notifyReload()` method
 - [ ] Implement `renderDocument()` method
 
