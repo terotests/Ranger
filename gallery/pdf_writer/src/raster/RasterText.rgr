@@ -1,0 +1,891 @@
+; RasterText.rgr - Text rendering for raster buffers
+; Uses the existing TrueTypeFont class for font loading and metrics,
+; adds glyph outline parsing for rasterization.
+;
+; TTF Glyph outline structure:
+; - numberOfContours: if >= 0, simple glyph; if -1, composite glyph
+; - Simple glyph: contour end points, flags, x/y coordinates
+; - Points can be on-curve or off-curve (quadratic bezier control points)
+
+Import "RasterBuffer.rgr"
+Import "RasterCompositing.rgr"
+Import "RasterBlur.rgr"
+Import "../fonts/TrueTypeFont.rgr"
+Import "../fonts/FontManager.rgr"
+
+; A point in a glyph outline
+class GlyphPoint {
+    def x:double 0.0
+    def y:double 0.0
+    def onCurve:boolean true  ; true = on curve, false = control point
+    
+    fn init:void (px:double py:double on:boolean) {
+        x = px
+        y = py
+        onCurve = on
+    }
+}
+
+; A contour (closed path) in a glyph
+class GlyphContour {
+    def points:[GlyphPoint]
+    
+    Constructor () {
+        def p:[GlyphPoint]
+        points = p
+    }
+    
+    fn addPoint:void (x:double y:double onCurve:boolean) {
+        def pt:GlyphPoint (new GlyphPoint())
+        pt.init(x y onCurve)
+        push points pt
+    }
+    
+    fn numPoints:int () {
+        return (array_length points)
+    }
+}
+
+; Parsed glyph data
+class GlyphOutline {
+    def contours:[GlyphContour]
+    def xMin:double 0.0
+    def yMin:double 0.0
+    def xMax:double 0.0
+    def yMax:double 0.0
+    def advanceWidth:double 0.0
+    def leftSideBearing:double 0.0
+    
+    Constructor () {
+        def c:[GlyphContour]
+        contours = c
+    }
+    
+    fn addContour:void (contour:GlyphContour) {
+        push contours contour
+    }
+}
+
+; Edge for scanline rasterization
+class GlyphEdge {
+    def x1:double 0.0
+    def y1:double 0.0
+    def x2:double 0.0
+    def y2:double 0.0
+    def minY:double 0.0
+    def maxY:double 0.0
+    def xAtMinY:double 0.0  ; X coordinate at minY
+    def dxdy:double 0.0     ; dx/dy slope for interpolation
+    def dir:int 0           ; +1 if going down, -1 if going up (for winding)
+    
+    fn init:void (px1:double py1:double px2:double py2:double) {
+        x1 = px1
+        y1 = py1
+        x2 = px2
+        y2 = py2
+        
+        ; Note: We receive coordinates AFTER Y-flip, so the winding sense is inverted
+        ; In screen coords (Y down), we track: +1 going down, -1 going up
+        if (y1 < y2) {
+            minY = y1
+            maxY = y2
+            xAtMinY = x1
+            dir = 1   ; Edge goes downward in screen coords
+        } {
+            minY = y2
+            maxY = y1
+            xAtMinY = x2
+            dir = (0 - 1)  ; Edge goes upward in screen coords
+        }
+        
+        def dy:double (maxY - minY)
+        if (dy > 0.0001) {
+            ; Calculate slope as change in X per unit Y (always from minY to maxY)
+            if (y1 < y2) {
+                dxdy = (x2 - x1) / dy
+            } {
+                dxdy = (x1 - x2) / dy
+            }
+        } {
+            dxdy = 0.0
+        }
+    }
+    
+    ; Get X intersection at given Y
+    fn getX:double (y:double) {
+        return (xAtMinY + (dxdy * (y - minY)))
+    }
+}
+
+; Text rasterizer class
+class RasterText {
+    def font:TrueTypeFont
+    def compositor:RasterCompositor (new RasterCompositor())
+    
+    ; TTF table offsets (cached)
+    def glyfOffset:int 0
+    def locaOffset:int 0
+    def locaFormat:int 0
+    
+    Constructor () {
+    }
+    
+    fn setFont:void (ttf:TrueTypeFont) {
+        font = ttf
+        this.findTableOffsets()
+    }
+    
+    fn findTableOffsets:void () {
+        ; Find glyf and loca table offsets
+        def i:int 0
+        def numTables:int (array_length font.tables)
+        while (i < numTables) {
+            def t:TTFTableRecord (itemAt font.tables i)
+            if (t.tag == "glyf") {
+                glyfOffset = t.offset
+            }
+            if (t.tag == "loca") {
+                locaOffset = t.offset
+            }
+            i = i + 1
+        }
+        locaFormat = font.indexToLocFormat
+    }
+    
+    ; Get glyph offset in glyf table
+    fn getGlyphOffset:int (glyphIndex:int) {
+        if (locaFormat == 0) {
+            ; Short format: offsets are 16-bit, multiply by 2
+            def off:int (locaOffset + (glyphIndex * 2))
+            def offset16:int (this.readUInt16(off))
+            return (offset16 * 2)
+        }
+        ; Long format: offsets are 32-bit
+        def off:int (locaOffset + (glyphIndex * 4))
+        return (this.readUInt32(off))
+    }
+    
+    ; Get glyph length
+    fn getGlyphLength:int (glyphIndex:int) {
+        def start:int (this.getGlyphOffset(glyphIndex))
+        def end:int (this.getGlyphOffset(glyphIndex + 1))
+        return (end - start)
+    }
+    
+    ; Parse a glyph outline
+    fn parseGlyph:GlyphOutline (glyphIndex:int fontSize:double) {
+        def outline:GlyphOutline (new GlyphOutline())
+        
+        ; Calculate scale for this font size
+        def scale:double (fontSize / (to_double font.unitsPerEm))
+        
+        def glyphLen:int (this.getGlyphLength(glyphIndex))
+        if (glyphLen == 0) {
+            ; Empty glyph (space, etc) - still need advance width!
+            outline.advanceWidth = ((to_double (font.getGlyphWidth(glyphIndex))) * scale)
+            return outline
+        }
+        
+        def off:int (glyfOffset + (this.getGlyphOffset(glyphIndex)))
+        
+        ; Read glyph header
+        def numberOfContours:int (this.readInt16(off))
+        outline.xMin = (to_double (this.readInt16(off + 2)))
+        outline.yMin = (to_double (this.readInt16(off + 4)))
+        outline.xMax = (to_double (this.readInt16(off + 6)))
+        outline.yMax = (to_double (this.readInt16(off + 8)))
+        
+        if (numberOfContours < 0) {
+            ; Composite glyph - skip for now (TODO: implement)
+            return outline
+        }
+        
+        if (numberOfContours == 0) {
+            return outline
+        }
+        
+        ; Read contour end points
+        def endPts:[int]
+        def i:int 0
+        while (i < numberOfContours) {
+            def endPt:int (this.readUInt16(off + 10 + (i * 2)))
+            push endPts endPt
+            i = i + 1
+        }
+        
+        ; Skip instructions
+        def instrLen:int (this.readUInt16(off + 10 + (numberOfContours * 2)))
+        def dataOff:int (off + 10 + (numberOfContours * 2) + 2 + instrLen)
+        
+        ; Total number of points
+        def lastEndPt:int (itemAt endPts (numberOfContours - 1))
+        def numPoints:int (lastEndPt + 1)
+        
+        ; Safety check - limit points to prevent infinite loops
+        if (numPoints > 10000) {
+            print ("Warning: Too many points in glyph: " + (to_string numPoints))
+            return outline
+        }
+        
+        ; Read flags
+        def flags:[int]
+        def flagOff:int dataOff
+        i = 0
+        while (i < numPoints) {
+            def flag:int (this.readUInt8(flagOff))
+            push flags flag
+            flagOff = flagOff + 1
+            i = i + 1
+            
+            ; Check repeat flag (bit 3)
+            if ((bit_and flag 8) != 0) {
+                def repeatCount:int (this.readUInt8(flagOff))
+                flagOff = flagOff + 1
+                def j:int 0
+                while ((j < repeatCount) && (i < numPoints)) {
+                    push flags flag
+                    j = j + 1
+                    i = i + 1
+                }
+            }
+        }
+        
+        ; Read X coordinates
+        def xCoords:[int]
+        def xOff:int flagOff
+        def x:int 0
+        i = 0
+        while (i < numPoints) {
+            def flag:int (itemAt flags i)
+            def xShort:boolean ((bit_and flag 2) != 0)
+            def xSame:boolean ((bit_and flag 16) != 0)
+            
+            if xShort {
+                def dx:int (this.readUInt8(xOff))
+                xOff = xOff + 1
+                if xSame {
+                    x = x + dx
+                } {
+                    x = x - dx
+                }
+            } {
+                if (xSame == false) {
+                    def dx:int (this.readInt16(xOff))
+                    xOff = xOff + 2
+                    x = x + dx
+                }
+                ; if xSame, x stays the same
+            }
+            push xCoords x
+            i = i + 1
+        }
+        
+        ; Read Y coordinates
+        def yCoords:[int]
+        def yOff:int xOff
+        def y:int 0
+        i = 0
+        while (i < numPoints) {
+            def flag:int (itemAt flags i)
+            def yShort:boolean ((bit_and flag 4) != 0)
+            def ySame:boolean ((bit_and flag 32) != 0)
+            
+            if yShort {
+                def dy:int (this.readUInt8(yOff))
+                yOff = yOff + 1
+                if ySame {
+                    y = y + dy
+                } {
+                    y = y - dy
+                }
+            } {
+                if (ySame == false) {
+                    def dy:int (this.readInt16(yOff))
+                    yOff = yOff + 2
+                    y = y + dy
+                }
+            }
+            push yCoords y
+            i = i + 1
+        }
+        
+        ; Scale factor
+        def scale:double (fontSize / (to_double font.unitsPerEm))
+        
+        ; Build contours
+        def startPt:int 0
+        def contourIdx:int 0
+        while (contourIdx < numberOfContours) {
+            def endPt:int (itemAt endPts contourIdx)
+            def contour:GlyphContour (new GlyphContour())
+            
+            def ptIdx:int startPt
+            while (ptIdx <= endPt) {
+                def px:double ((to_double (itemAt xCoords ptIdx)) * scale)
+                def py:double ((to_double (itemAt yCoords ptIdx)) * scale)
+                def flag:int (itemAt flags ptIdx)
+                def onCurve:boolean ((bit_and flag 1) != 0)
+                
+                contour.addPoint(px py onCurve)
+                ptIdx = ptIdx + 1
+            }
+            
+            outline.addContour(contour)
+            startPt = endPt + 1
+            contourIdx = contourIdx + 1
+        }
+        
+        ; Get advance width
+        outline.advanceWidth = ((to_double (font.getGlyphWidth(glyphIndex))) * scale)
+        
+        return outline
+    }
+    
+    ; Render a glyph outline to buffer (anti-aliased)
+    fn renderGlyph:void (buf:RasterBuffer outline:GlyphOutline x:double y:double r:int g:int b:int a:int) {
+        ; Convert outline to edges
+        def edges:[GlyphEdge]
+        
+        def numContours:int (array_length outline.contours)
+        def cIdx:int 0
+        while (cIdx < numContours) {
+            def contour:GlyphContour (itemAt outline.contours cIdx)
+            def numPts:int (contour.numPoints())
+            
+            if (numPts >= 2) {
+                ; Flatten curves and create edges
+                this.flattenContour(contour edges x y)
+            }
+            cIdx = cIdx + 1
+        }
+        
+        ; Anti-aliased scanline fill using edges
+        this.scanlineFillAA(buf edges r g b a)
+    }
+    
+    ; Render a glyph outline to buffer (no anti-aliasing, faster)
+    fn renderGlyphFast:void (buf:RasterBuffer outline:GlyphOutline x:double y:double r:int g:int b:int a:int) {
+        ; Convert outline to edges
+        def edges:[GlyphEdge]
+        
+        def numContours:int (array_length outline.contours)
+        def cIdx:int 0
+        while (cIdx < numContours) {
+            def contour:GlyphContour (itemAt outline.contours cIdx)
+            def numPts:int (contour.numPoints())
+            
+            if (numPts >= 2) {
+                ; Flatten curves and create edges
+                this.flattenContour(contour edges x y)
+            }
+            cIdx = cIdx + 1
+        }
+        
+        ; Standard scanline fill (faster but aliased)
+        this.scanlineFill(buf edges r g b a)
+    }
+    
+    ; Flatten a contour (convert curves to line segments)
+    ; Returns edges that form a closed polygon
+    fn flattenContour:void (contour:GlyphContour edges:[GlyphEdge] offsetX:double offsetY:double) {
+        def numPts:int (contour.numPoints())
+        if (numPts < 2) {
+            return
+        }
+        
+        ; Find the first on-curve point (or implicit one)
+        def startX:double 0.0
+        def startY:double 0.0
+        def firstPt:GlyphPoint (itemAt contour.points 0)
+        
+        if (firstPt.onCurve) {
+            startX = firstPt.x + offsetX
+            startY = offsetY - firstPt.y
+        } {
+            ; First point is off-curve, find an implicit on-curve point
+            def lastPt:GlyphPoint (itemAt contour.points (numPts - 1))
+            if (lastPt.onCurve) {
+                startX = lastPt.x + offsetX
+                startY = offsetY - lastPt.y
+            } {
+                ; Both first and last are off-curve - use midpoint
+                startX = ((firstPt.x + lastPt.x) / 2.0) + offsetX
+                startY = offsetY - ((firstPt.y + lastPt.y) / 2.0)
+            }
+        }
+        
+        def currX:double startX
+        def currY:double startY
+        
+        def i:int 0
+        while (i < numPts) {
+            def pt:GlyphPoint (itemAt contour.points i)
+            def nextIdx:int ((i + 1) % numPts)
+            def nextPt:GlyphPoint (itemAt contour.points nextIdx)
+            
+            if (pt.onCurve) {
+                ; On-curve point - check what comes next
+                if (nextPt.onCurve) {
+                    ; Line to next on-curve point
+                    def nx:double (nextPt.x + offsetX)
+                    def ny:double (offsetY - nextPt.y)
+                    this.addEdge(edges currX currY nx ny)
+                    currX = nx
+                    currY = ny
+                }
+                ; If next is off-curve, do nothing - we'll handle the curve when we process that point
+            } {
+                ; Off-curve point - emit a quadratic bezier curve
+                ; Start point is current position
+                def p0x:double currX
+                def p0y:double currY
+                
+                ; Control point is this off-curve point
+                def p1x:double (pt.x + offsetX)
+                def p1y:double (offsetY - pt.y)
+                
+                ; End point - next on-curve, or implicit midpoint if next is also off-curve
+                def p2x:double 0.0
+                def p2y:double 0.0
+                if (nextPt.onCurve) {
+                    p2x = nextPt.x + offsetX
+                    p2y = offsetY - nextPt.y
+                } {
+                    ; Implicit on-curve midpoint
+                    p2x = ((pt.x + nextPt.x) / 2.0) + offsetX
+                    p2y = offsetY - ((pt.y + nextPt.y) / 2.0)
+                }
+                
+                ; Flatten the quadratic bezier curve
+                def segments:int 8
+                def j:int 1
+                while (j <= segments) {
+                    def t:double ((to_double j) / (to_double segments))
+                    def invT:double (1.0 - t)
+                    
+                    def nx:double ((invT * invT * p0x) + (2.0 * invT * t * p1x) + (t * t * p2x))
+                    def ny:double ((invT * invT * p0y) + (2.0 * invT * t * p1y) + (t * t * p2y))
+                    
+                    this.addEdge(edges currX currY nx ny)
+                    currX = nx
+                    currY = ny
+                    j = j + 1
+                }
+            }
+            i = i + 1
+        }
+        
+        ; Close the contour if needed (connect back to start)
+        def dx:double (currX - startX)
+        def dy:double (currY - startY)
+        if (dx < 0.0) {
+            dx = 0.0 - dx
+        }
+        if (dy < 0.0) {
+            dy = 0.0 - dy
+        }
+        if ((dx > 0.01) || (dy > 0.01)) {
+            this.addEdge(edges currX currY startX startY)
+        }
+    }
+    
+    ; Add an edge (skip only truly horizontal edges)
+    fn addEdge:void (edges:[GlyphEdge] x1:double y1:double x2:double y2:double) {
+        def dy:double (y2 - y1)
+        if (dy < 0.0) {
+            dy = 0.0 - dy
+        }
+        ; Only skip if truly horizontal (dy < 0.001 pixels)
+        ; Previously 0.1 was too aggressive - caused artifacts at horizontal features
+        if (dy < 0.001) {
+            return  ; Skip truly horizontal edges
+        }
+        
+        def edge:GlyphEdge (new GlyphEdge())
+        edge.init(x1 y1 x2 y2)
+        push edges edge
+    }
+    
+    ; Flatten a quadratic bezier curve
+    fn flattenQuadBezier:void (edges:[GlyphEdge] x0:double y0:double x1:double y1:double x2:double y2:double segments:int) {
+        def prevX:double x0
+        def prevY:double y0
+        
+        def i:int 1
+        while (i <= segments) {
+            def t:double ((to_double i) / (to_double segments))
+            def invT:double (1.0 - t)
+            
+            ; Quadratic bezier: B(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2
+            def currX:double ((invT * invT * x0) + (2.0 * invT * t * x1) + (t * t * x2))
+            def currY:double ((invT * invT * y0) + (2.0 * invT * t * y1) + (t * t * y2))
+            
+            this.addEdge(edges prevX prevY currX currY)
+            
+            prevX = currX
+            prevY = currY
+            i = i + 1
+        }
+    }
+    
+    ; Scanline fill using even-odd rule
+    fn scanlineFill:void (buf:RasterBuffer edges:[GlyphEdge] r:int g:int b:int a:int) {
+        def numEdges:int (array_length edges)
+        if (numEdges == 0) {
+            return
+        }
+        
+        ; Find bounding box
+        def minY:double 99999.0
+        def maxY:double (0.0 - 99999.0)
+        def i:int 0
+        while (i < numEdges) {
+            def e:GlyphEdge (itemAt edges i)
+            if (e.minY < minY) {
+                minY = e.minY
+            }
+            if (e.maxY > maxY) {
+                maxY = e.maxY
+            }
+            i = i + 1
+        }
+        
+        ; Clamp to buffer
+        def startY:int (to_int minY)
+        def endY:int (to_int maxY)
+        if (startY < 0) {
+            startY = 0
+        }
+        if (endY >= buf.height) {
+            endY = buf.height - 1
+        }
+        
+        ; Process each scanline
+        def scanY:int startY
+        while (scanY <= endY) {
+            def y:double ((to_double scanY) + 0.5)
+            
+            ; Find intersections with active edges
+            def intersections:[double]
+            
+            i = 0
+            while (i < numEdges) {
+                def e:GlyphEdge (itemAt edges i)
+                if ((y >= e.minY) && (y < e.maxY)) {
+                    def ix:double (e.getX(y))
+                    push intersections ix
+                }
+                i = i + 1
+            }
+            
+            ; Sort intersections
+            this.sortDoubles(intersections)
+            
+            ; Fill between pairs
+            def numInt:int (array_length intersections)
+            def j:int 0
+            while ((j + 1) < numInt) {
+                def x1:int (to_int (itemAt intersections j))
+                def x2:int (to_int (itemAt intersections (j + 1)))
+                
+                ; Clamp to buffer
+                if (x1 < 0) {
+                    x1 = 0
+                }
+                if (x2 >= buf.width) {
+                    x2 = buf.width - 1
+                }
+                
+                ; Fill scanline segment
+                def px:int x1
+                while (px <= x2) {
+                    compositor.blendSourceOver(buf px scanY r g b a)
+                    px = px + 1
+                }
+                
+                j = j + 2
+            }
+            
+            scanY = scanY + 1
+        }
+    }
+    
+    ; Anti-aliased scanline fill using subpixel sampling
+    ; Uses 4x4 grid (16 samples per pixel) for coverage calculation
+    fn scanlineFillAA:void (buf:RasterBuffer edges:[GlyphEdge] r:int g:int b:int a:int) {
+        def numEdges:int (array_length edges)
+        if (numEdges == 0) {
+            return
+        }
+        
+        ; Find bounding box
+        def minY:double 99999.0
+        def maxY:double (0.0 - 99999.0)
+        def minX:double 99999.0
+        def maxX:double (0.0 - 99999.0)
+        def i:int 0
+        while (i < numEdges) {
+            def e:GlyphEdge (itemAt edges i)
+            if (e.minY < minY) {
+                minY = e.minY
+            }
+            if (e.maxY > maxY) {
+                maxY = e.maxY
+            }
+            if (e.x1 < minX) {
+                minX = e.x1
+            }
+            if (e.x2 < minX) {
+                minX = e.x2
+            }
+            if (e.x1 > maxX) {
+                maxX = e.x1
+            }
+            if (e.x2 > maxX) {
+                maxX = e.x2
+            }
+            i = i + 1
+        }
+        
+        ; Clamp to buffer with 1 pixel margin
+        def startY:int ((to_int minY) - 1)
+        def endY:int ((to_int maxY) + 1)
+        def startX:int ((to_int minX) - 1)
+        def endX:int ((to_int maxX) + 1)
+        if (startY < 0) {
+            startY = 0
+        }
+        if (endY >= buf.height) {
+            endY = buf.height - 1
+        }
+        if (startX < 0) {
+            startX = 0
+        }
+        if (endX >= buf.width) {
+            endX = buf.width - 1
+        }
+        
+        ; Subpixel offsets for 4x4 grid
+        def subStep:double 0.25
+        def subOffset:double 0.125
+        def samplesPerPixel:double 16.0
+        
+        ; Small epsilon to avoid vertex coincidence issues
+        def epsilon:double 0.0001
+        
+        ; Process each pixel in bounding box
+        def scanY:int startY
+        while (scanY <= endY) {
+            def scanX:int startX
+            while (scanX <= endX) {
+                ; Count samples inside the shape
+                def coverage:int 0
+                
+                ; 4x4 subpixel grid
+                def sy:int 0
+                while (sy < 4) {
+                    ; Y position with small offset to avoid hitting vertices exactly
+                    def sampleY:double ((to_double scanY) + subOffset + ((to_double sy) * subStep))
+                    
+                    ; Check each sample point in X
+                    def sx:int 0
+                    while (sx < 4) {
+                        def sampleX:double ((to_double scanX) + subOffset + ((to_double sx) * subStep))
+                        
+                        ; Non-zero winding rule: sum winding contributions from all edges
+                        def winding:int 0
+                        i = 0
+                        while (i < numEdges) {
+                            def e:GlyphEdge (itemAt edges i)
+                            ; Check if edge crosses the horizontal ray from sample point going left to -infinity
+                            ; Edge must span the Y coordinate
+                            if ((sampleY >= e.minY) && (sampleY < e.maxY)) {
+                                ; Get X intersection
+                                def edgeX:double (e.getX(sampleY))
+                                ; If edge is to the LEFT of sample point, it crosses the ray
+                                if (edgeX < sampleX) {
+                                    ; Add winding contribution based on edge direction
+                                    winding = winding + e.dir
+                                }
+                            }
+                            i = i + 1
+                        }
+                        
+                        ; Inside if winding is non-zero
+                        if (winding != 0) {
+                            coverage = coverage + 1
+                        }
+                        sx = sx + 1
+                    }
+                    sy = sy + 1
+                }
+                
+                ; Apply coverage as alpha
+                if (coverage > 0) {
+                    def coverageAlpha:int (to_int (((to_double coverage) / samplesPerPixel) * (to_double a)))
+                    compositor.blendSourceOver(buf scanX scanY r g b coverageAlpha)
+                }
+                
+                scanX = scanX + 1
+            }
+            scanY = scanY + 1
+        }
+    }
+    
+    ; Sort intersections along with their winding directions
+    fn sortIntersections:void (arr:[double] dirs:[int]) {
+        def n:int (array_length arr)
+        def i:int 0
+        while (i < n) {
+            def j:int 0
+            while (j < (n - i - 1)) {
+                def v1:double (itemAt arr j)
+                def v2:double (itemAt arr (j + 1))
+                if (v1 > v2) {
+                    ; Swap both arrays
+                    set arr j v2
+                    set arr (j + 1) v1
+                    def d1:int (itemAt dirs j)
+                    def d2:int (itemAt dirs (j + 1))
+                    set dirs j d2
+                    set dirs (j + 1) d1
+                }
+                j = j + 1
+            }
+            i = i + 1
+        }
+    }
+    
+    ; Simple bubble sort for intersections (small arrays)
+    fn sortDoubles:void (arr:[double]) {
+        def n:int (array_length arr)
+        def i:int 0
+        while (i < n) {
+            def j:int 0
+            while (j < (n - i - 1)) {
+                def v1:double (itemAt arr j)
+                def v2:double (itemAt arr (j + 1))
+                if (v1 > v2) {
+                    set arr j v2
+                    set arr (j + 1) v1
+                }
+                j = j + 1
+            }
+            i = i + 1
+        }
+    }
+    
+    ; Render text string
+    fn renderText:void (buf:RasterBuffer text:string x:double y:double fontSize:double r:int g:int b:int a:int) {
+        def currX:double x
+        def len:int (strlen text)
+        def i:int 0
+        
+        ; Get baseline offset (ascender in pixels)
+        def baseline:double (font.getAscender(fontSize))
+        def renderY:double (y + baseline)
+        
+        while (i < len) {
+            def ch:int (charAt text i)
+            def glyphIdx:int (font.getGlyphIndex(ch))
+            
+            def outline:GlyphOutline (this.parseGlyph(glyphIdx fontSize))
+            
+            this.renderGlyph(buf outline currX renderY r g b a)
+            
+            ; Advance
+            currX = currX + outline.advanceWidth
+            i = i + 1
+        }
+    }
+    
+    ; Render text with shadow
+    fn renderTextWithShadow:void (buf:RasterBuffer text:string x:double y:double fontSize:double textR:int textG:int textB:int textA:int shadowR:int shadowG:int shadowB:int shadowA:int shadowOffX:double shadowOffY:double blurRadius:int) {
+        ; First, render shadow to a temporary buffer
+        def shadowBuf:RasterBuffer (new RasterBuffer())
+        def margin:int (blurRadius * 2)
+        def textWidth:double (font.measureText(text fontSize))
+        def textHeight:double (font.getLineHeight(fontSize))
+        
+        def bufW:int ((to_int textWidth) + margin + margin + 10)
+        def bufH:int ((to_int textHeight) + margin + margin + 10)
+        shadowBuf.create(bufW bufH)
+        
+        ; Render text to shadow buffer
+        this.renderText(shadowBuf text (to_double margin) (to_double margin) fontSize shadowR shadowG shadowB 255)
+        
+        ; Blur the shadow
+        if (blurRadius > 0) {
+            def blur:RasterBlur (new RasterBlur())
+            def blurred:RasterBuffer (blur.gaussianApproxBlur(shadowBuf blurRadius))
+            
+            ; Adjust shadow alpha
+            def py:int 0
+            while (py < blurred.height) {
+                def px:int 0
+                while (px < blurred.width) {
+                    def p:RasterPixel (blurred.getPixel(px py))
+                    def newA:int (to_int ((to_double (p.a * shadowA)) / 255.0))
+                    blurred.setPixel(px py p.r p.g p.b newA)
+                    px = px + 1
+                }
+                py = py + 1
+            }
+            
+            ; Composite shadow onto main buffer
+            def shadowX:int ((to_int (x + shadowOffX)) - margin)
+            def shadowY:int ((to_int (y + shadowOffY)) - margin)
+            compositor.compositeOver(buf blurred shadowX shadowY)
+        } {
+            ; No blur, just composite
+            def shadowX:int ((to_int (x + shadowOffX)) - margin)
+            def shadowY:int ((to_int (y + shadowOffY)) - margin)
+            
+            ; Adjust alpha
+            def py:int 0
+            while (py < shadowBuf.height) {
+                def px:int 0
+                while (px < shadowBuf.width) {
+                    def p:RasterPixel (shadowBuf.getPixel(px py))
+                    def newA:int (to_int ((to_double (p.a * shadowA)) / 255.0))
+                    shadowBuf.setPixel(px py p.r p.g p.b newA)
+                    px = px + 1
+                }
+                py = py + 1
+            }
+            
+            compositor.compositeOver(buf shadowBuf shadowX shadowY)
+        }
+        
+        ; Render main text on top
+        this.renderText(buf text x y fontSize textR textG textB textA)
+    }
+    
+    ; ============ Binary reading helpers ============
+    
+    fn readUInt8:int (offset:int) {
+        return (buffer_get font.fontData offset)
+    }
+    
+    fn readUInt16:int (offset:int) {
+        def b1:int (buffer_get font.fontData offset)
+        def b2:int (buffer_get font.fontData (offset + 1))
+        return ((b1 * 256) + b2)
+    }
+    
+    fn readInt16:int (offset:int) {
+        def val:int (this.readUInt16(offset))
+        if (val >= 32768) {
+            return (val - 65536)
+        }
+        return val
+    }
+    
+    fn readUInt32:int (offset:int) {
+        def b1:int (buffer_get font.fontData offset)
+        def b2:int (buffer_get font.fontData (offset + 1))
+        def b3:int (buffer_get font.fontData (offset + 2))
+        def b4:int (buffer_get font.fontData (offset + 3))
+        return (((((b1 * 256) + b2) * 256) + b3) * 256 + b4)
+    }
+}

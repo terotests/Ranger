@@ -1,0 +1,542 @@
+; evg_png_tool.rgr - CLI tool for TSX to PNG conversion
+;
+; Usage: evg_png_tool input.tsx output.png
+;
+; This tool converts TSX files to PNG images using the software rasterizer.
+; It uses the same JSXToEVG parser as the HTML and PDF tools.
+
+Import "../jsx/JSXToEVG.rgr"
+Import "../raster/EVGRasterRenderer.rgr"
+Import "../raster/RasterText.rgr"
+Import "../raster/PNGEncoder.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../fonts/TrueTypeFont.rgr"
+Import "../fonts/FontManager.rgr"
+
+class EVGPNGTool {
+    def inputFile:string ""
+    def outputFile:string ""
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def scale:double 1.0
+    def debug:boolean false
+    
+    def renderer:EVGRasterRenderer
+    def textRenderer:RasterText
+    def fontManager:FontManager
+    def layout:EVGLayout
+    def baseDir:string ""
+    
+    sfn m@(main):void () {
+        def tool (new EVGPNGTool())
+        tool.run()
+    }
+    
+    fn run:void () {
+        def argCount:int (shell_arg_cnt)
+        
+        if (argCount < 2) {
+            this.printUsage()
+            return
+        }
+        
+        ; Parse arguments
+        inputFile = (shell_arg 0)
+        outputFile = (shell_arg 1)
+        
+        ; Parse optional arguments
+        def i 2
+        while (i < argCount) {
+            def arg:string (shell_arg i)
+            
+            if (arg == "-w") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    def wArg:string (shell_arg i)
+                    def wVal@(optional):double (to_double wArg)
+                    if wVal {
+                        pageWidth = (unwrap wVal)
+                    }
+                }
+            }
+            
+            if (arg == "-h") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    def hArg:string (shell_arg i)
+                    def hVal@(optional):double (to_double hArg)
+                    if hVal {
+                        pageHeight = (unwrap hVal)
+                    }
+                }
+            }
+            
+            if (arg == "-scale") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    def sArg:string (shell_arg i)
+                    def sVal@(optional):double (to_double sArg)
+                    if sVal {
+                        scale = (unwrap sVal)
+                    }
+                }
+            }
+            
+            if (arg == "-debug") {
+                debug = true
+            }
+            
+            i = i + 1
+        }
+        
+        print ("EVG PNG Tool")
+        print ("Input:  " + inputFile)
+        print ("Output: " + outputFile)
+        print ("Page:   " + (to_string pageWidth) + " x " + (to_string pageHeight) + " points")
+        print ("Scale:  " + (to_string scale))
+        
+        this.convert()
+    }
+    
+    fn printUsage:void () {
+        print "EVG PNG Tool - Convert TSX files to PNG"
+        print ""
+        print "Usage: evg_png_tool input.tsx output.png"
+        print ""
+        print "Options:"
+        print "  -w WIDTH   Page width in points (default: 595 = A4)"
+        print "  -h HEIGHT  Page height in points (default: 842 = A4)"
+        print "  -scale S   Scale factor (default: 1.0)"
+        print "  -debug     Enable debug output"
+        print ""
+        print "Example:"
+        print "  evg_png_tool sample.tsx output.png"
+        print "  evg_png_tool sample.tsx output.png -w 800 -h 600 -scale 2"
+    }
+    
+    fn convert:void () {
+        ; Extract directory and filename from input path
+        def inputDir:string ""
+        def inputFileName:string inputFile
+        
+        def lastSlash:int (lastIndexOf inputFile "/")
+        def lastBackslash:int (lastIndexOf inputFile "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            inputDir = (substring inputFile 0 (lastSep + 1))
+            inputFileName = (substring inputFile (lastSep + 1) (strlen inputFile))
+        } {
+            inputDir = "./"
+        }
+        
+        baseDir = inputDir
+        
+        ; Parse TSX file
+        print ""
+        print "Parsing TSX file..."
+        
+        def converter (new JSXToEVG())
+        converter.pageWidth = pageWidth
+        converter.pageHeight = pageHeight
+        
+        def root:EVGElement (converter.parseFile(inputDir inputFileName))
+        
+        if (root.tagName == "") {
+            print "Error: Failed to parse TSX file or no JSX content found"
+            return
+        }
+        
+        print ("Found root element: <" + root.tagName + ">")
+        print ("Children: " + (to_string (root.getChildCount())))
+        
+        ; Initialize renderer
+        print ""
+        print "Initializing raster renderer..."
+        
+        def pixelWidth:int (to_int (pageWidth * scale))
+        def pixelHeight:int (to_int (pageHeight * scale))
+        
+        print ("Raster size: " + (to_string pixelWidth) + " x " + (to_string pixelHeight) + " pixels")
+        
+        renderer = (new EVGRasterRenderer())
+        renderer.init(pixelWidth pixelHeight)
+        renderer.clear(245 245 245 255)  ; Light gray background (#f5f5f5)
+        
+        ; Verify buffer was cleared - check first few pixels
+        def testBuf:RasterBuffer (renderer.getBuffer())
+        def p0:int (buffer_get testBuf.pixels 0)
+        def p1:int (buffer_get testBuf.pixels 1)
+        def p2:int (buffer_get testBuf.pixels 2)
+        def p3:int (buffer_get testBuf.pixels 3)
+        print ("Buffer created - first pixel RGBA: " + (to_string p0) + "," + (to_string p1) + "," + (to_string p2) + "," + (to_string p3))
+        
+        ; Initialize font manager
+        fontManager = (new FontManager())
+        fontManager.setFontsDirectories(inputDir + "../assets/fonts")
+        fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        fontManager.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        
+        ; Initialize text renderer
+        textRenderer = (new RasterText())
+        def defaultFont:TrueTypeFont (fontManager.getFont("Open Sans"))
+        if (defaultFont.unitsPerEm > 0) {
+            textRenderer.setFont(defaultFont)
+        }
+        
+        ; Run layout to calculate element positions and sizes
+        print ""
+        print "Running layout engine..."
+        
+        layout = (new EVGLayout())
+        layout.setPageSize(pageWidth pageHeight)
+        layout.debug = true
+        layout.layout(root)
+        
+        print ("Root calculated: x=" + (to_string root.calculatedX) + " y=" + (to_string root.calculatedY) + " w=" + (to_string root.calculatedWidth) + " h=" + (to_string root.calculatedHeight))
+        
+        ; Check buffer before render
+        def beforeRender:RasterBuffer (renderer.getBuffer())
+        def br0:int (buffer_get beforeRender.pixels 0)
+        print ("Before renderElement - first pixel R: " + (to_string br0))
+        
+        ; Render the element tree
+        print ""
+        print "Rendering to raster buffer..."
+        
+        this.renderElement(root 0.0 0.0)
+        
+        ; Check buffer after render
+        def afterRender:RasterBuffer (renderer.getBuffer())
+        def ar0:int (buffer_get afterRender.pixels 0)
+        print ("After renderElement - first pixel R: " + (to_string ar0))
+        
+        ; Save as PNG
+        print ""
+        print "Saving PNG..."
+        
+        ; Extract output directory and filename
+        def outputDir:string ""
+        def outputFileName:string outputFile
+        
+        lastSlash = (lastIndexOf outputFile "/")
+        lastBackslash = (lastIndexOf outputFile "\\")
+        lastSep = lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            outputDir = (substring outputFile 0 (lastSep + 1))
+            outputFileName = (substring outputFile (lastSep + 1) (strlen outputFile))
+        } {
+            outputDir = "./"
+        }
+        
+        ; Check pixel values before encoding
+        def finalBuf:RasterBuffer (renderer.getBuffer())
+        def fp0:int (buffer_get finalBuf.pixels 0)
+        def fp1:int (buffer_get finalBuf.pixels 1)
+        def fp2:int (buffer_get finalBuf.pixels 2)
+        def fp3:int (buffer_get finalBuf.pixels 3)
+        print ("Before PNG encode - first pixel RGBA: " + (to_string fp0) + "," + (to_string fp1) + "," + (to_string fp2) + "," + (to_string fp3))
+        print ("  Buffer size: " + (to_string finalBuf.width) + "x" + (to_string finalBuf.height))
+        
+        def pngEncoder:PNGEncoder (new PNGEncoder())
+        pngEncoder.encode((renderer.getBuffer()) outputDir outputFileName)
+        
+        print ""
+        print "Done!"
+        print ("Output: " + outputFile)
+    }
+    
+    ; Render an EVG element recursively
+    fn renderElement:void (el:EVGElement offsetX:double offsetY:double) {
+        ; Layout engine provides absolute positions, so ignore offsets
+        def x:double (el.calculatedX * scale)
+        def y:double (el.calculatedY * scale)
+        def w:double (el.calculatedWidth * scale)
+        def h:double (el.calculatedHeight * scale)
+        
+        ; Handle padding - with null checks
+        def padTop:double 0.0
+        def padRight:double 0.0
+        def padBottom:double 0.0
+        def padLeft:double 0.0
+        
+        if el.paddingTop {
+            if el.paddingTop.isSet {
+                padTop = el.paddingTop.pixels * scale
+            }
+        }
+        if el.paddingRight {
+            if el.paddingRight.isSet {
+                padRight = el.paddingRight.pixels * scale
+            }
+        }
+        if el.paddingBottom {
+            if el.paddingBottom.isSet {
+                padBottom = el.paddingBottom.pixels * scale
+            }
+        }
+        if el.paddingLeft {
+            if el.paddingLeft.isSet {
+                padLeft = el.paddingLeft.pixels * scale
+            }
+        }
+        
+        ; Get border radius
+        def radius:int 0
+        if el.borderRadius {
+            if el.borderRadius.isSet {
+                radius = (to_int (el.borderRadius.pixels * scale))
+            }
+        }
+        
+        if debug {
+            print ("Render: " + el.tagName + " at (" + (to_string x) + ", " + (to_string y) + ") size " + (to_string w) + "x" + (to_string h))
+        }
+        
+        ; Always print for now to debug
+        print ("  Render: " + el.tagName + " bg=" + (to_string el.backgroundColor.isSet) + " grad=" + el.backgroundGradient + " x=" + (to_string (to_int x)) + " y=" + (to_string (to_int y)) + " w=" + (to_string (to_int w)) + " h=" + (to_string (to_int h)))
+        
+        ; Render shadow first (if any)
+        if el.shadowColor {
+            if el.shadowColor.isSet {
+                def shadowR:int (el.shadowColor.red())
+                def shadowG:int (el.shadowColor.green())
+                def shadowB:int (el.shadowColor.blue())
+                def shadowA:int (to_int ((el.shadowColor.alpha()) * 255.0))
+                def blurRadius:int 0
+                def shadowOffX:int 0
+                def shadowOffY:int 0
+                
+                if el.shadowRadius {
+                    if el.shadowRadius.isSet {
+                        blurRadius = (to_int (el.shadowRadius.pixels * scale))
+                    }
+                }
+                if el.shadowOffsetX {
+                    if el.shadowOffsetX.isSet {
+                        shadowOffX = (to_int (el.shadowOffsetX.pixels * scale))
+                    }
+                }
+                if el.shadowOffsetY {
+                    if el.shadowOffsetY.isSet {
+                        shadowOffY = (to_int (el.shadowOffsetY.pixels * scale))
+                    }
+                }
+                
+                if (w > 0.0) {
+                    if (h > 0.0) {
+                        renderer.renderShadowOnly(
+                            (to_int x) (to_int y) (to_int w) (to_int h) radius
+                            shadowR shadowG shadowB shadowA
+                            blurRadius shadowOffX shadowOffY
+                        )
+                    }
+                }
+            }
+        }
+        
+        ; Render background (gradient or solid color)
+        if (el.backgroundGradient != "") {
+            this.renderGradient(el x y w h radius)
+        } {
+            if el.backgroundColor.isSet {
+                def bgR:int (el.backgroundColor.red())
+                def bgG:int (el.backgroundColor.green())
+                def bgB:int (el.backgroundColor.blue())
+                def bgA:int (to_int ((el.backgroundColor.alpha()) * 255.0))
+                
+                print ("    fillRect color: " + (to_string bgR) + "," + (to_string bgG) + "," + (to_string bgB) + "," + (to_string bgA))
+                
+                if (w > 0.0) {
+                    if (h > 0.0) {
+                        if (radius > 0) {
+                            renderer.fillRoundedRect((to_int x) (to_int y) (to_int w) (to_int h) radius bgR bgG bgB bgA)
+                        } {
+                            renderer.fillRect((to_int x) (to_int y) (to_int w) (to_int h) bgR bgG bgB bgA)
+                        }
+                    }
+                }
+            }
+        }
+        
+        ; Render border
+        if el.borderWidth {
+            if el.borderWidth.isSet {
+                if el.borderColor {
+                    if el.borderColor.isSet {
+                        def bw:int (to_int (el.borderWidth.pixels * scale))
+                        def br:int (el.borderColor.red())
+                        def bg:int (el.borderColor.green())
+                        def bb:int (el.borderColor.blue())
+                        def ba:int (to_int ((el.borderColor.alpha()) * 255.0))
+                        
+                        if (w > 0.0) {
+                            if (h > 0.0) {
+                                ; Draw border as outline
+                                if (radius > 0) {
+                                    renderer.drawRoundedRect((to_int x) (to_int y) (to_int w) (to_int h) radius br bg bb ba)
+                                } {
+                                    renderer.drawRect((to_int x) (to_int y) (to_int w) (to_int h) br bg bb ba)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        ; Render text content (for Label elements)
+        if (el.textContent != "") {
+            this.renderText(el x y w h padLeft padTop)
+        }
+        
+        ; Render children - they have their own absolute calculated positions
+        for el.children child:EVGElement i {
+            this.renderElement(child 0.0 0.0)
+        }
+    }
+    
+    fn renderGradient:void (el:EVGElement x:double y:double w:double h:double radius:int) {
+        ; Use the pre-parsed gradient from EVGElement
+        def grad:EVGGradient el.gradient
+        
+        if (grad.isSet == false) {
+            ; Fallback: no valid gradient parsed
+            return
+        }
+        
+        ; Get start and end colors
+        def startColor:EVGColor (grad.getStartColor())
+        def endColor:EVGColor (grad.getEndColor())
+        
+        def r1:int (startColor.red())
+        def g1:int (startColor.green())
+        def b1:int (startColor.blue())
+        def r2:int (endColor.red())
+        def g2:int (endColor.green())
+        def b2:int (endColor.blue())
+        
+        if grad.isLinear {
+            def angle:double grad.angle
+            
+            if (radius > 0) {
+                renderer.renderLinearGradientRoundedRect(
+                    (to_int x) (to_int y) (to_int w) (to_int h) radius angle
+                    r1 g1 b1 r2 g2 b2
+                )
+            } {
+                renderer.renderLinearGradientRect(
+                    (to_int x) (to_int y) (to_int w) (to_int h) angle
+                    r1 g1 b1 r2 g2 b2
+                )
+            }
+        } {
+            ; Radial gradient
+            renderer.renderRadialGradientRoundedRect(
+                (to_int x) (to_int y) (to_int w) (to_int h) radius
+                r1 g1 b1 r2 g2 b2
+            )
+        }
+    }
+    
+    fn renderText:void (el:EVGElement x:double y:double w:double h:double padLeft:double padTop:double) {
+        ; Get text color
+        def textR:int 0
+        def textG:int 0
+        def textB:int 0
+        def textA:int 255
+        if el.color.isSet {
+            textR = (el.color.red())
+            textG = (el.color.green())
+            textB = (el.color.blue())
+            textA = (to_int ((el.color.alpha()) * 255.0))
+        }
+        
+        ; Get font size
+        def fontSize:double 14.0 * scale
+        if el.fontSize {
+            if el.fontSize.isSet {
+                fontSize = el.fontSize.pixels * scale
+            }
+        }
+        if (fontSize < 1.0) {
+            fontSize = 14.0 * scale
+        }
+        
+        ; Get font (try to match weight)
+        def fontName:string "Open Sans"
+        if (el.fontWeight == "bold") {
+            def boldFont:TrueTypeFont (fontManager.getFont("Open Sans Bold"))
+            if (boldFont.unitsPerEm > 0) {
+                textRenderer.setFont(boldFont)
+            }
+        } {
+            def regularFont:TrueTypeFont (fontManager.getFont("Open Sans"))
+            if (regularFont.unitsPerEm > 0) {
+                textRenderer.setFont(regularFont)
+            }
+        }
+        
+        ; Render text shadow if set
+        def hasShadow:boolean false
+        if el.shadowColor {
+            if el.shadowColor.isSet {
+                hasShadow = true
+            }
+        }
+        
+        if hasShadow {
+            def shadowR:int (el.shadowColor.red())
+            def shadowG:int (el.shadowColor.green())
+            def shadowB:int (el.shadowColor.blue())
+            def shadowA:int (to_int ((el.shadowColor.alpha()) * 255.0))
+            def blurRadius:int 0
+            def shadowOffX:double 0.0
+            def shadowOffY:double 0.0
+            
+            if el.shadowRadius {
+                if el.shadowRadius.isSet {
+                    blurRadius = (to_int (el.shadowRadius.pixels * scale))
+                }
+            }
+            if el.shadowOffsetX {
+                if el.shadowOffsetX.isSet {
+                    shadowOffX = el.shadowOffsetX.pixels * scale
+                }
+            }
+            if el.shadowOffsetY {
+                if el.shadowOffsetY.isSet {
+                    shadowOffY = el.shadowOffsetY.pixels * scale
+                }
+            }
+            
+            textRenderer.renderTextWithShadow(
+                (renderer.getBuffer())
+                el.textContent
+                (x + padLeft) (y + padTop)
+                fontSize
+                textR textG textB textA
+                shadowR shadowG shadowB shadowA
+                shadowOffX shadowOffY
+                blurRadius
+            )
+        } {
+            ; Render text without shadow
+            textRenderer.renderText(
+                (renderer.getBuffer())
+                el.textContent
+                (x + padLeft) (y + padTop)
+                fontSize
+                textR textG textB textA
+            )
+        }
+    }
+}

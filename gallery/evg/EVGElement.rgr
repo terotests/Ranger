@@ -3,6 +3,7 @@
 Import "EVGUnit.rgr"
 Import "EVGColor.rgr"
 Import "EVGBox.rgr"
+Import "EVGGradient.rgr"
 
 ; Element type constants
 ; 0 = CONTAINER (div)
@@ -120,6 +121,8 @@ class EVGElement {
     
     ; Gradient (CSS gradient string like "linear-gradient(90deg, #ff0000, #0000ff)")
     def backgroundGradient:string ""
+    ; Parsed gradient (for renderers to use)
+    def gradient:EVGGradient (new EVGGradient())
     
     ; Calculated values (output from layout)
     def calculatedX:double 0.0
@@ -454,6 +457,7 @@ class EVGElement {
         }
         if ((name == "background-gradient") || (name == "backgroundGradient")) {
             backgroundGradient = value
+            gradient = (EVGGradient.parse(value))
             return
         }
         ; Also support "background" which can be a gradient
@@ -461,6 +465,7 @@ class EVGElement {
             ; Check if it's a gradient
             if ((contains value "linear-gradient") || (contains value "radial-gradient")) {
                 backgroundGradient = value
+                gradient = (EVGGradient.parse(value))
             } {
                 ; Treat as color
                 backgroundColor = (EVGColor.parse(value))

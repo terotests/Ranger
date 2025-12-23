@@ -1,0 +1,266 @@
+Import "RasterBuffer.rgr"
+Import "../core/Buffer.rgr"
+
+; PNG Encoder - Lossless image output
+; Implements basic PNG format with uncompressed DEFLATE
+
+class PNGEncoder {
+    def output:GrowableBuffer
+    def crcTable:[int]
+    def crcTableInit:boolean false
+    
+    Constructor () {
+        output = (new GrowableBuffer())
+    }
+    
+    ; Initialize CRC32 lookup table
+    fn initCRCTable:void () {
+        if crcTableInit {
+            return
+        }
+        def n:int 0
+        while (n < 256) {
+            def c:int n
+            def k:int 0
+            while (k < 8) {
+                if ((bit_and c 1) != 0) {
+                    ; EDB88320 in decimal = 3988292384
+                    c = (bit_xor (bit_ushr c 1) 3988292384)
+                } {
+                    c = (bit_ushr c 1)
+                }
+                k = k + 1
+            }
+            push crcTable c
+            n = n + 1
+        }
+        crcTableInit = true
+    }
+    
+    ; Calculate CRC32 of a GrowableBuffer section
+    fn crc32Buffer:int (data:GrowableBuffer) {
+        this.initCRCTable()
+        ; FFFFFFFF in decimal = 4294967295
+        def crc:int 4294967295
+        def buf:buffer (data.toBuffer())
+        def len:int (data.size())
+        def i:int 0
+        while (i < len) {
+            def byte:int (buffer_get buf i)
+            def idx:int (bit_and (bit_xor crc byte) 255)
+            crc = (bit_xor (bit_ushr crc 8) (itemAt crcTable idx))
+            i = i + 1
+        }
+        return (bit_xor crc 4294967295)
+    }
+    
+    ; Write PNG signature
+    fn writeSignature:void () {
+        output.writeByte(137)  ; 0x89
+        output.writeByte(80)   ; P
+        output.writeByte(78)   ; N
+        output.writeByte(71)   ; G
+        output.writeByte(13)   ; 0x0D
+        output.writeByte(10)   ; 0x0A
+        output.writeByte(26)   ; 0x1A
+        output.writeByte(10)   ; 0x0A
+    }
+    
+    ; Write 32-bit big-endian integer
+    fn writeUInt32:void (value:int) {
+        output.writeByte((bit_and (bit_shr value 24) 255))
+        output.writeByte((bit_and (bit_shr value 16) 255))
+        output.writeByte((bit_and (bit_shr value 8) 255))
+        output.writeByte((bit_and value 255))
+    }
+    
+    ; Write 32-bit big-endian to a GrowableBuffer
+    fn writeUInt32To:void (buf:GrowableBuffer value:int) {
+        buf.writeByte((bit_and (bit_shr value 24) 255))
+        buf.writeByte((bit_and (bit_shr value 16) 255))
+        buf.writeByte((bit_and (bit_shr value 8) 255))
+        buf.writeByte((bit_and value 255))
+    }
+    
+    ; Write a PNG chunk
+    fn writeChunk:void (chunkType:string data:GrowableBuffer) {
+        def dataLen:int (data.size())
+        
+        ; Length
+        this.writeUInt32(dataLen)
+        
+        ; Build chunk type + data for CRC
+        def crcData:GrowableBuffer (new GrowableBuffer())
+        def i:int 0
+        while (i < 4) {
+            def ch:int (charAt chunkType i)
+            crcData.writeByte(ch)
+            output.writeByte(ch)
+            i = i + 1
+        }
+        
+        ; Data
+        def dataBuf:buffer (data.toBuffer())
+        i = 0
+        while (i < dataLen) {
+            def b:int (buffer_get dataBuf i)
+            crcData.writeByte(b)
+            output.writeByte(b)
+            i = i + 1
+        }
+        
+        ; CRC
+        def crc:int (this.crc32Buffer(crcData))
+        this.writeUInt32(crc)
+    }
+    
+    ; Write IHDR chunk
+    fn writeIHDR:void (width:int height:int) {
+        def data:GrowableBuffer (new GrowableBuffer())
+        
+        ; Width (4 bytes)
+        this.writeUInt32To(data width)
+        
+        ; Height (4 bytes)
+        this.writeUInt32To(data height)
+        
+        ; Bit depth: 8
+        data.writeByte(8)
+        ; Color type: 2 = RGB
+        data.writeByte(2)
+        ; Compression method: 0 = deflate
+        data.writeByte(0)
+        ; Filter method: 0
+        data.writeByte(0)
+        ; Interlace method: 0 = none
+        data.writeByte(0)
+        
+        this.writeChunk("IHDR" data)
+    }
+    
+    ; Adler32 checksum for zlib
+    fn adler32:int (data:GrowableBuffer) {
+        def a:int 1
+        def b:int 0
+        def buf:buffer (data.toBuffer())
+        def len:int (data.size())
+        def i:int 0
+        while (i < len) {
+            a = ((a + (buffer_get buf i)) % 65521)
+            b = ((b + a) % 65521)
+            i = i + 1
+        }
+        return (bit_or (bit_shl b 16) a)
+    }
+    
+    ; Create uncompressed DEFLATE blocks (store mode)
+    fn createDeflateData:void (rawData:GrowableBuffer compressed:GrowableBuffer) {
+        def rawBuf:buffer (rawData.toBuffer())
+        def dataLen:int (rawData.size())
+        def blockSize:int 65535  ; Max block size
+        def offset:int 0
+        
+        while (offset < dataLen) {
+            def remaining:int (dataLen - offset)
+            def len:int blockSize
+            if (remaining < len) {
+                len = remaining
+            }
+            
+            def isFinal:int 0
+            if ((offset + len) >= dataLen) {
+                isFinal = 1
+            }
+            
+            ; Block header: BFINAL=1/0, BTYPE=00 (stored)
+            compressed.writeByte(isFinal)
+            
+            ; LEN (2 bytes, little-endian)
+            compressed.writeByte((bit_and len 255))
+            compressed.writeByte((bit_and (bit_shr len 8) 255))
+            
+            ; NLEN (one's complement of LEN)
+            def nlen:int (bit_xor len 65535)
+            compressed.writeByte((bit_and nlen 255))
+            compressed.writeByte((bit_and (bit_shr nlen 8) 255))
+            
+            ; Data
+            def i:int 0
+            while (i < len) {
+                compressed.writeByte((buffer_get rawBuf (offset + i)))
+                i = i + 1
+            }
+            
+            offset = offset + len
+        }
+    }
+    
+    ; Write IDAT chunk with image data
+    fn writeIDAT:void (buf:RasterBuffer) {
+        ; Build raw scanline data with filter bytes
+        def rawData:GrowableBuffer (new GrowableBuffer())
+        
+        def y:int 0
+        while (y < buf.height) {
+            ; Filter type: 0 = None
+            rawData.writeByte(0)
+            
+            def x:int 0
+            while (x < buf.width) {
+                def idx:int ((y * buf.width + x) * 4)
+                rawData.writeByte((buffer_get buf.pixels idx))        ; R
+                rawData.writeByte((buffer_get buf.pixels (idx + 1)))  ; G
+                rawData.writeByte((buffer_get buf.pixels (idx + 2)))  ; B
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        ; Wrap in zlib format
+        def zlibData:GrowableBuffer (new GrowableBuffer())
+        
+        ; Zlib header (CMF, FLG)
+        zlibData.writeByte(120)  ; 0x78 CMF: CM=8 (deflate), CINFO=7 (32K window)
+        zlibData.writeByte(1)    ; 0x01 FLG: no dict, level 0
+        
+        ; DEFLATE data
+        this.createDeflateData(rawData zlibData)
+        
+        ; Adler32 checksum (big-endian)
+        def adler:int (this.adler32(rawData))
+        zlibData.writeByte((bit_and (bit_shr adler 24) 255))
+        zlibData.writeByte((bit_and (bit_shr adler 16) 255))
+        zlibData.writeByte((bit_and (bit_shr adler 8) 255))
+        zlibData.writeByte((bit_and adler 255))
+        
+        this.writeChunk("IDAT" zlibData)
+    }
+    
+    ; Write IEND chunk
+    fn writeIEND:void () {
+        def data:GrowableBuffer (new GrowableBuffer())
+        this.writeChunk("IEND" data)
+    }
+    
+    ; Encode buffer to PNG
+    fn encode:void (buf:RasterBuffer dirPath:string fileName:string) {
+        print ("Encoding PNG: " + fileName)
+        print ("  Image size: " + (to_string buf.width) + "x" + (to_string buf.height))
+        
+        ; Reset output
+        output = (new GrowableBuffer())
+        
+        this.writeSignature()
+        this.writeIHDR(buf.width buf.height)
+        this.writeIDAT(buf)
+        this.writeIEND()
+        
+        def finalSize:int (output.size())
+        print ("  Encoded size: " + (to_string finalSize) + " bytes")
+        
+        ; Write to file
+        def outBuf:buffer (output.toBuffer())
+        buffer_write_file dirPath fileName outBuf
+        print ("  Saved: " + dirPath + "/" + fileName)
+    }
+}

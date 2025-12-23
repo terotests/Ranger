@@ -8,6 +8,7 @@ Import "../../../ts_parser/ts_lexer.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/EVGGradient.rgr"
 
 class JSXToEVG {
     def parser:TSParserSimple
@@ -840,12 +841,14 @@ class JSXToEVG {
             ; Check if it's a gradient
             if ((contains value "linear-gradient") || (contains value "radial-gradient")) {
                 element.backgroundGradient = value
+                element.gradient = (EVGGradient.parse(value))
             } {
                 element.backgroundColor = (EVGColor.parse(value))
             }
         }
         if (name == "backgroundGradient") {
             element.backgroundGradient = value
+            element.gradient = (EVGGradient.parse(value))
         }
         if (name == "color") {
             element.color = (EVGColor.parse(value))

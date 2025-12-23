@@ -1334,6 +1334,21 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             }
         }
 
+        ; Bit shift right unsigned (logical)
+        bit_ushr  _:int (value:int count:int) {
+            templates {
+                es6 ( "(" (e 1) " >>> " (e 2) ")" )
+                go ( "int64(uint64(" (e 1) ") >> uint(" (e 2) "))" )
+                rust ( "(((" (e 1) ") as u64 >> (" (e 2) ")) as i64)" )
+                cpp ( "(int64_t)((uint64_t)(" (e 1) ") >> (" (e 2) "))" )
+                java7 ( "((" (e 1) ") >>> (" (e 2) "))" )
+                python ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
+                swift6 ( "Int64(bitPattern: UInt64(bitPattern: Int64(" (e 1) ")) >> UInt64(" (e 2) "))" )
+                csharp ( "(int)((uint)(" (e 1) ") >> (int)(" (e 2) "))" )
+                * ( "(" (e 1) " >>> " (e 2) ")" )
+            }
+        }
+
         ; ============================================================================
                 
         +               cmdPlusOp:string             ( left:double right:string ) { 
