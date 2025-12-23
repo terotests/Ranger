@@ -407,6 +407,15 @@ class RangerArgMatch {
         return (type2 == "charbuffer")
       }
     }
+    
+    ; Check if type2 is a class with systemclass annotation matching type1
+    ; e.g., type1="HttpServer", type2="TestServer" where TestServer@(HttpServer)
+    if (ctx.isDefinedClass(type2)) {
+      def c2:RangerAppClassDesc (ctx.findClass(type2))
+      if (c2.isSystemclassType(t_name)) {
+        return true
+      }
+    }
 
     if( (ctx.isDefinedClass(t_name)) && (ctx.isDefinedClass (type2))) {
         def c1:RangerAppClassDesc (ctx.findClass(t_name))
@@ -494,6 +503,14 @@ class RangerArgMatch {
       }
       case "charbuffer" {
         return (type2 == "charbuffer")
+      }
+    }
+    
+    ; Check if type2 is a class with systemclass annotation matching type1
+    if (ctx.isDefinedClass(type2)) {
+      def c2Check:RangerAppClassDesc (ctx.findClass(type2))
+      if (c2Check.isSystemclassType(t_name)) {
+        return true
       }
     }
 

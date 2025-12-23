@@ -1,0 +1,94 @@
+; evg_single_char_test.rgr - Test single character rendering for debugging artifacts
+
+Import "../raster/EVGRasterRenderer.rgr"
+Import "../raster/RasterText.rgr"
+Import "../raster/PNGEncoder.rgr"
+Import "../fonts/TrueTypeFont.rgr"
+Import "../fonts/FontManager.rgr"
+
+class SingleCharTest {
+    
+    sfn m@(main):void () {
+        def test:SingleCharTest (new SingleCharTest())
+        test.run()
+    }
+    
+    fn run:void () {
+        print "Single Character Rendering Test"
+        print "================================"
+        print ""
+        
+        ; Load font
+        def fontManager:FontManager (new FontManager())
+        fontManager.setFontsDirectories("./gallery/pdf_writer/assets/fonts")
+        def fontLoaded:boolean (fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf"))
+        
+        if (fontLoaded == false) {
+            print "ERROR: Could not load font!"
+            return
+        }
+        
+        def font:TrueTypeFont (fontManager.getFont("Open Sans"))
+        
+        ; Create renderer - white background
+        def renderer:EVGRasterRenderer (new EVGRasterRenderer())
+        renderer.init(800 600)
+        renderer.clear(255 255 255 255)
+        
+        ; Create text rasterizer
+        def textRenderer:RasterText (new RasterText())
+        textRenderer.setFont(font)
+        
+        ; ===== TEST 1: Single "a" at different sizes =====
+        print "Test 1: Letter 'a' at different sizes..."
+        textRenderer.renderText((renderer.getBuffer()) "a" 20.0 30.0 12.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "a" 50.0 30.0 16.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "a" 90.0 30.0 24.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "a" 140.0 30.0 32.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "a" 200.0 30.0 48.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "a" 290.0 30.0 72.0 0 0 0 255)
+        
+        ; ===== TEST 2: Row of repeated "a" to see if artifact is consistent =====
+        print "Test 2: Repeated 'a' at 48pt..."
+        textRenderer.renderText((renderer.getBuffer()) "aaaaaaaaaa" 20.0 120.0 48.0 0 0 0 255)
+        
+        ; ===== TEST 3: Same with "e" (often problematic) =====
+        print "Test 3: Letter 'e' at different sizes..."
+        textRenderer.renderText((renderer.getBuffer()) "e" 20.0 200.0 12.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "e" 50.0 200.0 16.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "e" 90.0 200.0 24.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "e" 140.0 200.0 32.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "e" 200.0 200.0 48.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "e" 290.0 200.0 72.0 0 0 0 255)
+        
+        ; ===== TEST 4: Row of repeated "e" =====
+        print "Test 4: Repeated 'e' at 48pt..."
+        textRenderer.renderText((renderer.getBuffer()) "eeeeeeeeee" 20.0 290.0 48.0 0 0 0 255)
+        
+        ; ===== TEST 5: Various problematic characters =====
+        print "Test 5: Various characters at 48pt..."
+        textRenderer.renderText((renderer.getBuffer()) "o" 20.0 370.0 48.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "p" 80.0 370.0 48.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "d" 140.0 370.0 48.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "b" 200.0 370.0 48.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "g" 260.0 370.0 48.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "q" 320.0 370.0 48.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "c" 380.0 370.0 48.0 0 0 0 255)
+        textRenderer.renderText((renderer.getBuffer()) "s" 440.0 370.0 48.0 0 0 0 255)
+        
+        ; ===== TEST 6: Colored repeated chars to spot artifacts better =====
+        print "Test 6: Colored repeated 'a' and 'e'..."
+        textRenderer.renderText((renderer.getBuffer()) "aaaaaaaaaa" 20.0 450.0 48.0 220 53 69 255)
+        textRenderer.renderText((renderer.getBuffer()) "eeeeeeeeee" 20.0 520.0 48.0 0 123 255 255)
+        
+        ; Save output
+        print ""
+        print "Saving output..."
+        
+        def pngEncoder:PNGEncoder (new PNGEncoder())
+        pngEncoder.encode((renderer.getBuffer()) "./gallery/pdf_writer/output/" "single_char_test.png")
+        
+        print "Done!"
+        print "Output: ./gallery/pdf_writer/output/single_char_test.png"
+    }
+}

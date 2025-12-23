@@ -3,6 +3,7 @@
 Import "EVGUnit.rgr"
 Import "EVGColor.rgr"
 Import "EVGBox.rgr"
+Import "EVGGradient.rgr"
 
 ; Element type constants
 ; 0 = CONTAINER (div)
@@ -90,6 +91,16 @@ class EVGElement {
     ; Image properties
     def src:string ""
     def alt:string ""
+    ; Image viewBox for cropping/zooming: "x% y% w% h%" or "x y w h" (pixels)
+    def imageViewBox:string ""
+    ; Parsed image viewBox values (0-1 range for percentages)
+    def imageViewBoxX:double 0.0
+    def imageViewBoxY:double 0.0
+    def imageViewBoxW:double 1.0
+    def imageViewBoxH:double 1.0
+    def imageViewBoxSet:boolean false
+    ; Image sizing: "cover", "contain", "fill", "none"
+    def objectFit:string "fill"
     
     ; SVG Path properties
     def svgPath:string ""
@@ -117,6 +128,11 @@ class EVGElement {
     def shadowColor:EVGColor
     def shadowOffsetX:EVGUnit
     def shadowOffsetY:EVGUnit
+    
+    ; Gradient (CSS gradient string like "linear-gradient(90deg, #ff0000, #0000ff)")
+    def backgroundGradient:string ""
+    ; Parsed gradient (for renderers to use)
+    def gradient:EVGGradient (new EVGGradient())
     
     ; Calculated values (output from layout)
     def calculatedX:double 0.0
@@ -447,6 +463,23 @@ class EVGElement {
         ; Colors
         if ((name == "background-color") || (name == "backgroundColor")) {
             backgroundColor = (EVGColor.parse(value))
+            return
+        }
+        if ((name == "background-gradient") || (name == "backgroundGradient")) {
+            backgroundGradient = value
+            gradient = (EVGGradient.parse(value))
+            return
+        }
+        ; Also support "background" which can be a gradient
+        if (name == "background") {
+            ; Check if it's a gradient
+            if ((contains value "linear-gradient") || (contains value "radial-gradient")) {
+                backgroundGradient = value
+                gradient = (EVGGradient.parse(value))
+            } {
+                ; Treat as color
+                backgroundColor = (EVGColor.parse(value))
+            }
             return
         }
         if (name == "color") {

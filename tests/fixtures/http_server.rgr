@@ -1,0 +1,175 @@
+; Test HTTP Server with @(HttpServer) annotation
+Import "stdlib.rgr"
+
+; HTTP Server class with @(HttpServer) annotation
+; This makes TestServer match operators expecting HttpServer type
+; Port is specified in the start operator: start server 3000
+class TestServer@(HttpServer) {
+    def name:string "Test Server"
+    
+    ; GET endpoint for root path
+    fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) {
+        def method:string (http_get_method req)
+        def path:string (http_get_path req)
+        
+        http_set_header res "Content-Type" "text/html"
+        http_set_status res 200
+        http_send res "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>Ranger HTTP Server</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+        .container {
+            text-align: center;
+            padding: 3rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+        }
+        .logo {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(90deg, #e94560, #ff6b6b, #feca57);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            color: #8892b0;
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+        }
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(46, 213, 115, 0.1);
+            color: #2ed573;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+        }
+        .status::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #2ed573;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .endpoints {
+            text-align: left;
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+        .endpoints h3 {
+            color: #8892b0;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 1rem;
+        }
+        .endpoint {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .endpoint:last-child { border-bottom: none; }
+        .method {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            min-width: 45px;
+            text-align: center;
+        }
+        .method.get { background: #2ed573; color: #000; }
+        .method.sse { background: #feca57; color: #000; }
+        .path { color: #ccd6f6; font-family: monospace; }
+        .footer {
+            margin-top: 2rem;
+            color: #495670;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <div class=\"container\">
+        <div class=\"logo\">🦊</div>
+        <h1>Ranger HTTP Server</h1>
+        <p class=\"subtitle\">High-performance server generated from Ranger code</p>
+        <div class=\"status\">Server Running on Port 3000</div>
+        <div class=\"endpoints\">
+            <h3>Available Endpoints</h3>
+            <div class=\"endpoint\">
+                <span class=\"method get\">GET</span>
+                <span class=\"path\">/</span>
+            </div>
+            <div class=\"endpoint\">
+                <span class=\"method get\">GET</span>
+                <span class=\"path\">/content</span>
+            </div>
+            <div class=\"endpoint\">
+                <span class=\"method sse\">SSE</span>
+                <span class=\"path\">/events</span>
+            </div>
+        </div>
+        <p class=\"footer\">Built with Ranger Programming Language</p>
+    </div>
+</body>
+</html>"
+    }
+    
+    ; GET endpoint for content (for live preview)
+    fn handleContent@(GET "/content"):void (req:HttpRequest res:HttpResponse) {
+        http_set_header res "Content-Type" "text/html"
+        http_set_status res 200
+        http_send res "<div><h2>Dynamic Content</h2><p>This is rendered content.</p></div>"
+    }
+    
+    ; SSE endpoint for live updates
+    fn handleEvents@(SSE "/events"):void (client:SSEClient) {
+        ; Send initial message
+        sse_send client "connected" "Welcome to SSE!"
+        
+        ; In a real app, this would loop and send updates
+        def connected:boolean (sse_is_connected client)
+        if connected {
+            print "Client connected to SSE"
+        }
+    }
+}
+
+sfn m@(main):void () {
+    def server:TestServer (new TestServer())
+    print "Starting " + server.name + "..."
+    start server 3000
+}

@@ -1,0 +1,561 @@
+; RasterGradient - Gradient rendering for raster buffers
+; Supports linear and radial gradients with multiple color stops
+
+Import "RasterBuffer.rgr"
+
+; A color stop in a gradient
+class GradientStop {
+    def position:double 0.0   ; 0.0 to 1.0
+    def r:int 0
+    def g:int 0
+    def b:int 0
+    def a:int 255
+    
+    fn init:void (pos:double red:int green:int blue:int alpha:int) {
+        position = pos
+        r = red
+        g = green
+        b = blue
+        a = alpha
+    }
+    
+    fn initRGB:void (pos:double red:int green:int blue:int) {
+        position = pos
+        r = red
+        g = green
+        b = blue
+        a = 255
+    }
+}
+
+; Gradient renderer class
+class RasterGradient {
+    
+    ; Interpolate between two colors based on t (0.0 to 1.0)
+    fn interpolateColor:RasterPixel (stop1:GradientStop stop2:GradientStop t:double) {
+        def p:RasterPixel (new RasterPixel())
+        
+        ; Clamp t
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        
+        def invT:double (1.0 - t)
+        
+        p.r = (to_int (((to_double stop1.r) * invT) + ((to_double stop2.r) * t)))
+        p.g = (to_int (((to_double stop1.g) * invT) + ((to_double stop2.g) * t)))
+        p.b = (to_int (((to_double stop1.b) * invT) + ((to_double stop2.b) * t)))
+        p.a = (to_int (((to_double stop1.a) * invT) + ((to_double stop2.a) * t)))
+        
+        return p
+    }
+    
+    ; Get color at position (0.0 to 1.0) from multiple stops
+    fn getColorAtPosition:RasterPixel (stops:[GradientStop] position:double) {
+        def numStops:int (array_length stops)
+        
+        if (numStops == 0) {
+            def p:RasterPixel (new RasterPixel())
+            return p
+        }
+        
+        if (numStops == 1) {
+            def stop:GradientStop (itemAt stops 0)
+            def p:RasterPixel (new RasterPixel())
+            p.r = stop.r
+            p.g = stop.g
+            p.b = stop.b
+            p.a = stop.a
+            return p
+        }
+        
+        ; Clamp position
+        if (position <= 0.0) {
+            def stop:GradientStop (itemAt stops 0)
+            def p:RasterPixel (new RasterPixel())
+            p.r = stop.r
+            p.g = stop.g
+            p.b = stop.b
+            p.a = stop.a
+            return p
+        }
+        
+        if (position >= 1.0) {
+            def stop:GradientStop (itemAt stops (numStops - 1))
+            def p:RasterPixel (new RasterPixel())
+            p.r = stop.r
+            p.g = stop.g
+            p.b = stop.b
+            p.a = stop.a
+            return p
+        }
+        
+        ; Find the two stops that bracket this position
+        def i:int 0
+        while (i < (numStops - 1)) {
+            def stop1:GradientStop (itemAt stops i)
+            def stop2:GradientStop (itemAt stops (i + 1))
+            
+            if ((position >= stop1.position) && (position <= stop2.position)) {
+                ; Interpolate between these two stops
+                def range:double (stop2.position - stop1.position)
+                if (range < 0.001) {
+                    ; Same position, return first stop
+                    def p:RasterPixel (new RasterPixel())
+                    p.r = stop1.r
+                    p.g = stop1.g
+                    p.b = stop1.b
+                    p.a = stop1.a
+                    return p
+                }
+                def t:double ((position - stop1.position) / range)
+                return (this.interpolateColor(stop1 stop2 t))
+            }
+            i = i + 1
+        }
+        
+        ; Fallback to last stop
+        def stop:GradientStop (itemAt stops (numStops - 1))
+        def p:RasterPixel (new RasterPixel())
+        p.r = stop.r
+        p.g = stop.g
+        p.b = stop.b
+        p.a = stop.a
+        return p
+    }
+    
+    ; Render a linear gradient to a buffer
+    ; angleDeg: angle in degrees (0 = right, 90 = down, 180 = left, 270 = up)
+    fn renderLinearGradient:void (buf:RasterBuffer x:int y:int w:int h:int angleDeg:double stops:[GradientStop]) {
+        ; Convert angle to radians
+        def angleRad:double (angleDeg * 3.14159265359 / 180.0)
+        
+        ; Calculate direction vector
+        def dirX:double (cos angleRad)
+        def dirY:double (sin angleRad)
+        
+        ; Calculate gradient line length (diagonal of rectangle projected onto direction)
+        def hw:double ((to_double w) / 2.0)
+        def hh:double ((to_double h) / 2.0)
+        
+        ; Project corners onto gradient direction to find extent
+        def d1:double ((hw * dirX) + (hh * dirY))
+        def d2:double ((hw * dirX) - (hh * dirY))
+        def d3:double ((0.0 - hw) * dirX + (hh * dirY))
+        def d4:double ((0.0 - hw) * dirX - (hh * dirY))
+        
+        ; Find min and max projection
+        def minD:double d1
+        if (d2 < minD) { 
+            minD = d2 
+        }
+        if (d3 < minD) { 
+            minD = d3 
+        }
+        if (d4 < minD) { 
+            minD = d4 
+        }
+        
+        def maxD:double d1
+        if (d2 > maxD) { 
+            maxD = d2 
+        }
+        if (d3 > maxD) { 
+            maxD = d3 
+        }
+        if (d4 > maxD) { 
+            maxD = d4 
+        }
+        
+        def gradientLength:double (maxD - minD)
+        if (gradientLength < 1.0) {
+            gradientLength = 1.0
+        }
+        
+        ; Center of gradient
+        def cx:double (hw)
+        def cy:double (hh)
+        
+        ; Render each pixel
+        def py:int 0
+        while (py < h) {
+            def px:int 0
+            while (px < w) {
+                ; Calculate position relative to center
+                def relX:double ((to_double px) - cx)
+                def relY:double ((to_double py) - cy)
+                
+                ; Project onto gradient direction
+                def proj:double ((relX * dirX) + (relY * dirY))
+                
+                ; Normalize to 0-1 range
+                def t:double ((proj - minD) / gradientLength)
+                
+                ; Get color at this position
+                def color:RasterPixel (this.getColorAtPosition(stops t))
+                
+                ; Set pixel
+                buf.setPixel((x + px) (y + py) color.r color.g color.b color.a)
+                
+                px = px + 1
+            }
+            py = py + 1
+        }
+    }
+    
+    ; Render a radial gradient to a buffer
+    ; cx, cy: center of gradient (relative to x, y)
+    ; radius: radius of gradient
+    fn renderRadialGradient:void (buf:RasterBuffer x:int y:int w:int h:int cx:double cy:double radius:double stops:[GradientStop]) {
+        if (radius < 1.0) {
+            radius = 1.0
+        }
+        
+        def py:int 0
+        while (py < h) {
+            def px:int 0
+            while (px < w) {
+                ; Calculate distance from center
+                def dx:double ((to_double px) - cx)
+                def dy:double ((to_double py) - cy)
+                def dist:double (sqrt ((dx * dx) + (dy * dy)))
+                
+                ; Normalize to 0-1 range
+                def t:double (dist / radius)
+                if (t > 1.0) {
+                    t = 1.0
+                }
+                
+                ; Get color at this position
+                def color:RasterPixel (this.getColorAtPosition(stops t))
+                
+                ; Set pixel
+                buf.setPixel((x + px) (y + py) color.r color.g color.b color.a)
+                
+                px = px + 1
+            }
+            py = py + 1
+        }
+    }
+    
+    ; Render a radial gradient centered in the rectangle
+    fn renderRadialGradientCentered:void (buf:RasterBuffer x:int y:int w:int h:int stops:[GradientStop]) {
+        def cx:double ((to_double w) / 2.0)
+        def cy:double ((to_double h) / 2.0)
+        
+        ; Radius is distance to corner
+        def radius:double (sqrt ((cx * cx) + (cy * cy)))
+        
+        this.renderRadialGradient(buf x y w h cx cy radius stops)
+    }
+    
+    ; Helper: Create a two-color linear gradient
+    fn renderTwoColorLinear:void (buf:RasterBuffer x:int y:int w:int h:int angleDeg:double r1:int g1:int b1:int r2:int g2:int b2:int) {
+        def stops:[GradientStop]
+        
+        def stop1:GradientStop (new GradientStop())
+        stop1.initRGB(0.0 r1 g1 b1)
+        (push stops stop1)
+        
+        def stop2:GradientStop (new GradientStop())
+        stop2.initRGB(1.0 r2 g2 b2)
+        (push stops stop2)
+        
+        this.renderLinearGradient(buf x y w h angleDeg stops)
+    }
+    
+    ; Helper: Create a two-color radial gradient centered
+    fn renderTwoColorRadial:void (buf:RasterBuffer x:int y:int w:int h:int r1:int g1:int b1:int r2:int g2:int b2:int) {
+        def stops:[GradientStop]
+        
+        def stop1:GradientStop (new GradientStop())
+        stop1.initRGB(0.0 r1 g1 b1)
+        (push stops stop1)
+        
+        def stop2:GradientStop (new GradientStop())
+        stop2.initRGB(1.0 r2 g2 b2)
+        (push stops stop2)
+        
+        this.renderRadialGradientCentered(buf x y w h stops)
+    }
+    
+    ; NOTE: Gradient CSS string parsing removed - use explicit stop creation instead
+    ; The parseGradientStops function used multi-return which is not supported
+    
+    ; Parse a color string into a gradient stop
+    fn parseColorToStop:void (colorStr:string stop:GradientStop) {
+        ; Handle hex colors
+        def firstChar:string (substring colorStr 0 1)
+        if (firstChar == "#") {
+            def hex:string (substring colorStr 1 (strlen colorStr))
+            def hexLen:int (strlen hex)
+            
+            if (hexLen == 6) {
+                ; #RRGGBB
+                def rHex:string (substring hex 0 2)
+                def gHex:string (substring hex 2 4)
+                def bHex:string (substring hex 4 6)
+                stop.r = (this.hexToInt(rHex))
+                stop.g = (this.hexToInt(gHex))
+                stop.b = (this.hexToInt(bHex))
+                stop.a = 255
+            }
+            if (hexLen == 3) {
+                ; #RGB -> #RRGGBB
+                def rHex:string (substring hex 0 1)
+                def gHex:string (substring hex 1 2)
+                def bHex:string (substring hex 2 3)
+                stop.r = (this.hexToInt((rHex + rHex)))
+                stop.g = (this.hexToInt((gHex + gHex)))
+                stop.b = (this.hexToInt((bHex + bHex)))
+                stop.a = 255
+            }
+            return
+        }
+        
+        ; Handle rgba() - simplified, no optional types
+        if (contains colorStr "rgba") {
+            def start:int (indexOf colorStr "(")
+            def end:int (indexOf colorStr ")")
+            if ((start >= 0) && (end > start)) {
+                def inner:string (substring colorStr (start + 1) end)
+                def parts:[string] (strsplit inner ",")
+                if ((array_length parts) >= 4) {
+                    ; Parse directly without optional wrapping
+                    stop.r = (this.parseIntSafe((trim (itemAt parts 0))))
+                    stop.g = (this.parseIntSafe((trim (itemAt parts 1))))
+                    stop.b = (this.parseIntSafe((trim (itemAt parts 2))))
+                    def aStr:string (trim (itemAt parts 3))
+                    def alpha:double (this.parseDoubleSafe(aStr))
+                    if (alpha <= 1.0) {
+                        stop.a = (to_int (alpha * 255.0))
+                    } {
+                        stop.a = (to_int alpha)
+                    }
+                }
+            }
+            return
+        }
+        
+        ; Handle rgb()
+        if (contains colorStr "rgb") {
+            def start:int (indexOf colorStr "(")
+            def end:int (indexOf colorStr ")")
+            if ((start >= 0) && (end > start)) {
+                def inner:string (substring colorStr (start + 1) end)
+                def parts:[string] (strsplit inner ",")
+                if ((array_length parts) >= 3) {
+                    stop.r = (this.parseIntSafe((trim (itemAt parts 0))))
+                    stop.g = (this.parseIntSafe((trim (itemAt parts 1))))
+                    stop.b = (this.parseIntSafe((trim (itemAt parts 2))))
+                    stop.a = 255
+                }
+            }
+            return
+        }
+        
+        ; Handle named colors (basic set)
+        if (colorStr == "red") {
+            stop.r = 255
+            stop.g = 0
+            stop.b = 0
+            stop.a = 255
+            return
+        }
+        if (colorStr == "green") {
+            stop.r = 0
+            stop.g = 128
+            stop.b = 0
+            stop.a = 255
+            return
+        }
+        if (colorStr == "blue") {
+            stop.r = 0
+            stop.g = 0
+            stop.b = 255
+            stop.a = 255
+            return
+        }
+        if (colorStr == "white") {
+            stop.r = 255
+            stop.g = 255
+            stop.b = 255
+            stop.a = 255
+            return
+        }
+        if (colorStr == "black") {
+            stop.r = 0
+            stop.g = 0
+            stop.b = 0
+            stop.a = 255
+            return
+        }
+        if (colorStr == "yellow") {
+            stop.r = 255
+            stop.g = 255
+            stop.b = 0
+            stop.a = 255
+            return
+        }
+        if (colorStr == "cyan") {
+            stop.r = 0
+            stop.g = 255
+            stop.b = 255
+            stop.a = 255
+            return
+        }
+        if (colorStr == "magenta") {
+            stop.r = 255
+            stop.g = 0
+            stop.b = 255
+            stop.a = 255
+            return
+        }
+        if (colorStr == "orange") {
+            stop.r = 255
+            stop.g = 165
+            stop.b = 0
+            stop.a = 255
+            return
+        }
+        if (colorStr == "purple") {
+            stop.r = 128
+            stop.g = 0
+            stop.b = 128
+            stop.a = 255
+            return
+        }
+        if (colorStr == "gray") {
+            stop.r = 128
+            stop.g = 128
+            stop.b = 128
+            stop.a = 255
+            return
+        }
+        if (colorStr == "grey") {
+            stop.r = 128
+            stop.g = 128
+            stop.b = 128
+            stop.a = 255
+            return
+        }
+        if (colorStr == "transparent") {
+            stop.r = 0
+            stop.g = 0
+            stop.b = 0
+            stop.a = 0
+            return
+        }
+        
+        ; Default to black if unknown
+        stop.r = 0
+        stop.g = 0
+        stop.b = 0
+        stop.a = 255
+    }
+    
+    ; Helper: convert hex string to int
+    fn hexToInt:int (hex:string) {
+        def result:int 0
+        def i:int 0
+        def len:int (strlen hex)
+        while (i < len) {
+            def c:int (charAt hex i)
+            def digit:int 0
+            ; '0'=48, '9'=57, 'a'=97, 'f'=102, 'A'=65, 'F'=70
+            if ((c >= 48) && (c <= 57)) {
+                digit = c - 48  ; '0'-'9' -> 0-9
+            }
+            if ((c >= 97) && (c <= 102)) {
+                digit = c - 87  ; 'a'-'f' -> 10-15
+            }
+            if ((c >= 65) && (c <= 70)) {
+                digit = c - 55  ; 'A'-'F' -> 10-15
+            }
+            result = (result * 16) + digit
+            i = i + 1
+        }
+        return result
+    }
+    
+    ; Helper: safe int parse (returns 0 if fails)
+    fn parseIntSafe:int (s:string) {
+        ; Simple integer parsing
+        def result:int 0
+        def i:int 0
+        def len:int (strlen s)
+        def negative:boolean false
+        
+        if (len == 0) {
+            return 0
+        }
+        
+        def first:int (charAt s 0)
+        if (first == 45) {  ; '-'
+            negative = true
+            i = 1
+        }
+        
+        while (i < len) {
+            def c:int (charAt s i)
+            if ((c >= 48) && (c <= 57)) {
+                result = (result * 10) + (c - 48)
+            }
+            i = i + 1
+        }
+        
+        if negative {
+            return (0 - result)
+        }
+        return result
+    }
+    
+    ; Helper: safe double parse (returns 0.0 if fails)
+    fn parseDoubleSafe:double (s:string) {
+        ; Simple double parsing
+        def result:double 0.0
+        def decimal:double 0.1
+        def inDecimal:boolean false
+        def negative:boolean false
+        def i:int 0
+        def len:int (strlen s)
+        
+        if (len == 0) {
+            return 0.0
+        }
+        
+        def first:int (charAt s 0)
+        if (first == 45) {  ; '-'
+            negative = true
+            i = 1
+        }
+        
+        while (i < len) {
+            def c:int (charAt s i)
+            if (c == 46) {  ; '.'
+                inDecimal = true
+            } {
+                if ((c >= 48) && (c <= 57)) {
+                    def digit:double (to_double (c - 48))
+                    if inDecimal {
+                        result = result + (digit * decimal)
+                        decimal = decimal * 0.1
+                    } {
+                        result = (result * 10.0) + digit
+                    }
+                }
+            }
+            i = i + 1
+        }
+        
+        if negative {
+            return (0.0 - result)
+        }
+        return result
+    }
+}
+
+; Note: Global instance removed - create locally where needed

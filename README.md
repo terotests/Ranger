@@ -146,6 +146,53 @@ void writeByte(int b) {
 
 This optimization is automatically applied when compiling to C++ - no source code changes required.
 
+### HTTP Server Support (New - December 2025)
+
+Ranger now supports defining HTTP servers using **annotation-based type aliasing**. Classes marked with `@(HttpServer)` can use HTTP operators and route annotations.
+
+**Example HTTP Server:**
+
+```ranger
+Import "stdlib.rgr"
+
+class MyServer@(HttpServer) {
+    fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) {
+        http_set_header res "Content-Type" "text/html"
+        http_set_status res 200
+        http_send res "<h1>Hello from Ranger!</h1>"
+    }
+    
+    fn handleEvents@(SSE "/events"):void (client:SSEClient) {
+        sse_send client "message" "Welcome!"
+    }
+}
+
+sfn main@(main):void () {
+    def server:MyServer (new MyServer())
+    start server 3000
+}
+```
+
+**Key Features:**
+
+- **Systemclass types**: `HttpRequest`, `HttpResponse`, `SSEClient`, `HttpServer`
+- **HTTP operators**: `http_get_method`, `http_get_path`, `http_set_status`, `http_set_header`, `http_send`
+- **SSE operators**: `sse_send`, `sse_is_connected`
+- **Route annotations**: `@(GET "/path")`, `@(POST "/path")`, `@(SSE "/path")`
+- **Server lifecycle**: `start server port`, `stop server`
+
+**Compilation:**
+
+```bash
+# Compile to Go
+RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./myserver.rgr -d=./bin -o=myserver.go -nodecli
+
+# Run the server
+cd bin && go run myserver.go
+```
+
+Currently supports **Go** target. See `tests/fixtures/http_server.rgr` for a complete example.
+
 ### Space Invaders Demo Game
 
 A complete terminal-based Space Invaders game demonstrating Ranger's cross-language capabilities. The same source code compiles to **4 different targets**:

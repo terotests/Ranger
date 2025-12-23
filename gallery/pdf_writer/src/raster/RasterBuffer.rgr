@@ -1,0 +1,302 @@
+; RasterBuffer - Core pixel buffer for EVG raster rendering
+; Provides RGBA pixel storage with basic operations
+; Compatible with ImageBuffer from JPEG encoder
+
+Import "../core/Buffer.rgr"
+Import "../jpeg/ImageBuffer.rgr"
+
+; A single RGBA pixel
+class RasterPixel {
+    def r:int 0
+    def g:int 0
+    def b:int 0
+    def a:int 255
+    
+    fn init:void (red:int green:int blue:int alpha:int) {
+        r = red
+        g = green
+        b = blue
+        a = alpha
+    }
+    
+    fn initRGB:void (red:int green:int blue:int) {
+        r = red
+        g = green
+        b = blue
+        a = 255
+    }
+    
+    fn clone:RasterPixel () {
+        def p:RasterPixel (new RasterPixel())
+        p.r = r
+        p.g = g
+        p.b = b
+        p.a = a
+        return p
+    }
+}
+
+; Main raster buffer class - uses native binary buffer for efficiency
+; Compatible with ImageBuffer used by JPEGEncoder
+class RasterBuffer {
+    def width:int 0
+    def height:int 0
+    def pixels:buffer (buffer_alloc 0)
+    
+    ; Create a new buffer with given dimensions
+    fn create:void (w:int h:int) {
+        width = w
+        height = h
+        def size:int (w * h * 4)
+        pixels = (buffer_alloc size)
+        
+        ; Initialize to transparent black
+        def i:int 0
+        while (i < size) {
+            buffer_set pixels i 0
+            i = i + 1
+        }
+    }
+    
+    ; Create and fill with a color
+    fn createWithColor:void (w:int h:int r:int g:int b:int a:int) {
+        this.create(w h)
+        this.fill(r g b a)
+    }
+    
+    ; Get pixel index in flat array
+    fn getIndex:int (x:int y:int) {
+        return ((y * width + x) * 4)
+    }
+    
+    ; Check if coordinates are in bounds
+    fn inBounds:boolean (x:int y:int) {
+        if (x < 0) {
+            return false
+        }
+        if (y < 0) {
+            return false
+        }
+        if (x >= width) {
+            return false
+        }
+        if (y >= height) {
+            return false
+        }
+        return true
+    }
+    
+    ; Set pixel at x,y with RGBA values (0-255)
+    fn setPixel:void (x:int y:int r:int g:int b:int a:int) {
+        if ((this.inBounds(x y)) == false) {
+            return
+        }
+        def idx:int (this.getIndex(x y))
+        buffer_set pixels idx r
+        buffer_set pixels (idx + 1) g
+        buffer_set pixels (idx + 2) b
+        buffer_set pixels (idx + 3) a
+    }
+    
+    ; Set pixel from RasterPixel object
+    fn setPixelObj:void (x:int y:int p:RasterPixel) {
+        this.setPixel(x y p.r p.g p.b p.a)
+    }
+    
+    ; Get pixel at x,y - returns RasterPixel
+    fn getPixel:RasterPixel (x:int y:int) {
+        def p:RasterPixel (new RasterPixel())
+        if ((this.inBounds(x y)) == false) {
+            return p
+        }
+        def idx:int (this.getIndex(x y))
+        p.r = (buffer_get pixels idx)
+        p.g = (buffer_get pixels (idx + 1))
+        p.b = (buffer_get pixels (idx + 2))
+        p.a = (buffer_get pixels (idx + 3))
+        return p
+    }
+    
+    ; Get individual color component
+    fn getR:int (x:int y:int) {
+        if ((this.inBounds(x y)) == false) {
+            return 0
+        }
+        def idx:int (this.getIndex(x y))
+        return (buffer_get pixels idx)
+    }
+    
+    fn getG:int (x:int y:int) {
+        if ((this.inBounds(x y)) == false) {
+            return 0
+        }
+        def idx:int (this.getIndex(x y))
+        return (buffer_get pixels (idx + 1))
+    }
+    
+    fn getB:int (x:int y:int) {
+        if ((this.inBounds(x y)) == false) {
+            return 0
+        }
+        def idx:int (this.getIndex(x y))
+        return (buffer_get pixels (idx + 2))
+    }
+    
+    fn getA:int (x:int y:int) {
+        if ((this.inBounds(x y)) == false) {
+            return 0
+        }
+        def idx:int (this.getIndex(x y))
+        return (buffer_get pixels (idx + 3))
+    }
+    
+    ; Fill entire buffer with a color
+    fn fill:void (r:int g:int b:int a:int) {
+        def size:int (width * height)
+        def i:int 0
+        while (i < size) {
+            def idx:int (i * 4)
+            buffer_set pixels idx r
+            buffer_set pixels (idx + 1) g
+            buffer_set pixels (idx + 2) b
+            buffer_set pixels (idx + 3) a
+            i = i + 1
+        }
+    }
+    
+    ; Clear buffer to transparent black
+    fn clear:void () {
+        this.fill(0 0 0 0)
+    }
+    
+    ; Clear buffer to opaque white
+    fn clearWhite:void () {
+        this.fill(255 255 255 255)
+    }
+    
+    ; Fill a rectangular region
+    fn fillRect:void (x:int y:int w:int h:int r:int g:int b:int a:int) {
+        def endX:int (x + w)
+        def endY:int (y + h)
+        
+        ; Clamp to bounds
+        if (x < 0) {
+            x = 0
+        }
+        if (y < 0) {
+            y = 0
+        }
+        if (endX > width) {
+            endX = width
+        }
+        if (endY > height) {
+            endY = height
+        }
+        
+        def py:int y
+        while (py < endY) {
+            def px:int x
+            while (px < endX) {
+                this.setPixel(px py r g b a)
+                px = px + 1
+            }
+            py = py + 1
+        }
+    }
+    
+    ; Copy a region from another buffer
+    fn copyFrom:void (src:RasterBuffer srcX:int srcY:int dstX:int dstY:int w:int h:int) {
+        def sy:int 0
+        while (sy < h) {
+            def sx:int 0
+            while (sx < w) {
+                def p:RasterPixel (src.getPixel((srcX + sx) (srcY + sy)))
+                this.setPixel((dstX + sx) (dstY + sy) p.r p.g p.b p.a)
+                sx = sx + 1
+            }
+            sy = sy + 1
+        }
+    }
+    
+    ; Create a copy of this buffer
+    fn clone:RasterBuffer () {
+        def copy:RasterBuffer (new RasterBuffer())
+        copy.create(width height)
+        def size:int (width * height * 4)
+        def i:int 0
+        while (i < size) {
+            buffer_set copy.pixels i (buffer_get pixels i)
+            i = i + 1
+        }
+        return copy
+    }
+    
+    ; Get total number of pixels
+    fn getPixelCount:int () {
+        return (width * height)
+    }
+    
+    ; Get total size in bytes
+    fn getByteSize:int () {
+        return (width * height * 4)
+    }
+    
+    ; ============================================================
+    ; JPEG Encoder Compatibility - Convert to/from ImageBuffer
+    ; ============================================================
+    
+    ; Convert to ImageBuffer for JPEG encoding
+    fn toImageBuffer:ImageBuffer () {
+        def img:ImageBuffer (new ImageBuffer())
+        img.init(width height)
+        
+        def size:int (width * height * 4)
+        def i:int 0
+        while (i < size) {
+            def r:int (buffer_get pixels i)
+            def g:int (buffer_get pixels (i + 1))
+            def b:int (buffer_get pixels (i + 2))
+            def a:int (buffer_get pixels (i + 3))
+            
+            ; If pixel has alpha < 255, blend with white background
+            ; (JPEG doesn't support alpha)
+            if (a < 255) {
+                def alpha:double ((to_double a) / 255.0)
+                def invAlpha:double (1.0 - alpha)
+                r = (to_int (((to_double r) * alpha) + (255.0 * invAlpha)))
+                g = (to_int (((to_double g) * alpha) + (255.0 * invAlpha)))
+                b = (to_int (((to_double b) * alpha) + (255.0 * invAlpha)))
+            }
+            
+            buffer_set img.pixels i r
+            buffer_set img.pixels (i + 1) g
+            buffer_set img.pixels (i + 2) b
+            buffer_set img.pixels (i + 3) 255
+            
+            i = i + 4
+        }
+        
+        return img
+    }
+    
+    ; Load from ImageBuffer (sets alpha to 255)
+    fn fromImageBuffer:void (img:ImageBuffer) {
+        this.create(img.width img.height)
+        
+        def size:int (img.width * img.height * 4)
+        def i:int 0
+        while (i < size) {
+            buffer_set pixels i (buffer_get img.pixels i)
+            buffer_set pixels (i + 1) (buffer_get img.pixels (i + 1))
+            buffer_set pixels (i + 2) (buffer_get img.pixels (i + 2))
+            buffer_set pixels (i + 3) 255  ; ImageBuffer stores alpha but often unused
+            i = i + 4
+        }
+    }
+    
+    ; Direct access to raw pixel buffer (for advanced use)
+    fn getRawBuffer:buffer () {
+        return pixels
+    }
+}
+

@@ -1,0 +1,290 @@
+; ============================================================
+; EVG Raster Renderer
+; ============================================================
+; Main renderer class that combines all raster operations
+; to render shapes with proper shadows and gradients.
+;
+; This renderer creates a software rasterized image that can
+; be embedded in PDF or saved as JPEG.
+;
+; Note: This is the standalone renderer. EVGElement integration
+; is provided separately to avoid circular dependencies.
+; ============================================================
+
+Import "RasterBuffer.rgr"
+Import "RasterCompositing.rgr"
+Import "RasterPrimitives.rgr"
+Import "RasterGradient.rgr"
+Import "RasterBlur.rgr"
+Import "../jpeg/ImageBuffer.rgr"
+Import "../jpeg/JPEGEncoder.rgr"
+Import "../core/Buffer.rgr"
+
+class EVGRasterRenderer {
+
+    def buffer:RasterBuffer (new RasterBuffer())
+    def compositor:RasterCompositor (new RasterCompositor())
+    def primitives:RasterPrimitives (new RasterPrimitives())
+    def gradient:RasterGradient (new RasterGradient())
+    def shadow:RasterShadow (new RasterShadow())
+    
+    Constructor () {
+    }
+    
+    ; Initialize the render buffer
+    fn init:void (width:int height:int) {
+        buffer.create(width height)
+    }
+    
+    ; Clear with background color
+    fn clear:void (r:int g:int b:int a:int) {
+        buffer.fill(r g b a)
+    }
+    
+    ; Clear to white (opaque)
+    fn clearWhite:void () {
+        buffer.fill(255 255 255 255)
+    }
+    
+    ; Clear to transparent
+    fn clearTransparent:void () {
+        buffer.fill(0 0 0 0)
+    }
+    
+    ; Get the underlying buffer
+    fn getBuffer:RasterBuffer () {
+        return buffer
+    }
+    
+    ; ============================================================
+    ; Shape rendering with shadows
+    ; ============================================================
+    
+    ; Render a rectangle with drop shadow
+    fn renderRectWithShadow:void (x:int y:int w:int h:int bgR:int bgG:int bgB:int bgA:int shadowR:int shadowG:int shadowB:int shadowA:int blurRadius:int offsetX:int offsetY:int) {
+        ; Create and composite shadow
+        def shadowBuf:RasterBuffer (shadow.renderRectShadow(w h blurRadius shadowR shadowG shadowB shadowA))
+        def spread:int (blurRadius * 2)
+        compositor.compositeOver(buffer shadowBuf (x + offsetX - spread) (y + offsetY - spread))
+        
+        ; Draw rectangle on top
+        primitives.fillRect(buffer x y w h bgR bgG bgB bgA)
+    }
+    
+    ; Render a rounded rectangle with drop shadow
+    fn renderRoundedRectWithShadow:void (x:int y:int w:int h:int radius:int bgR:int bgG:int bgB:int bgA:int shadowR:int shadowG:int shadowB:int shadowA:int blurRadius:int offsetX:int offsetY:int) {
+        ; Create and composite shadow
+        def shadowBuf:RasterBuffer (shadow.renderRoundedRectShadow(w h radius blurRadius shadowR shadowG shadowB shadowA))
+        def spread:int (blurRadius * 2)
+        compositor.compositeOver(buffer shadowBuf (x + offsetX - spread) (y + offsetY - spread))
+        
+        ; Draw rounded rectangle on top
+        primitives.fillRoundedRect(buffer x y w h radius bgR bgG bgB bgA)
+    }
+    
+    ; Render shadow only (no fill)
+    fn renderShadowOnly:void (x:int y:int w:int h:int radius:int shadowR:int shadowG:int shadowB:int shadowA:int blurRadius:int offsetX:int offsetY:int) {
+        def spread:int (blurRadius * 2)
+        
+        if (radius > 0) {
+            def shadowBuf:RasterBuffer (shadow.renderRoundedRectShadow(w h radius blurRadius shadowR shadowG shadowB shadowA))
+            compositor.compositeOver(buffer shadowBuf (x + offsetX - spread) (y + offsetY - spread))
+        } {
+            def shadowBuf2:RasterBuffer (shadow.renderRectShadow(w h blurRadius shadowR shadowG shadowB shadowA))
+            compositor.compositeOver(buffer shadowBuf2 (x + offsetX - spread) (y + offsetY - spread))
+        }
+    }
+    
+    ; ============================================================
+    ; Shape rendering (no shadow)
+    ; ============================================================
+    
+    ; Fill a rectangle
+    fn fillRect:void (x:int y:int w:int h:int r:int g:int b:int a:int) {
+        primitives.fillRect(buffer x y w h r g b a)
+    }
+    
+    ; Fill a rounded rectangle
+    fn fillRoundedRect:void (x:int y:int w:int h:int radius:int r:int g:int b:int a:int) {
+        primitives.fillRoundedRect(buffer x y w h radius r g b a)
+    }
+    
+    ; Fill a circle
+    fn fillCircle:void (cx:int cy:int radius:int r:int g:int b:int a:int) {
+        primitives.fillCircle(buffer cx cy radius r g b a)
+    }
+    
+    ; Draw rectangle outline
+    fn drawRect:void (x:int y:int w:int h:int r:int g:int b:int a:int) {
+        primitives.drawRect(buffer x y w h r g b a)
+    }
+    
+    ; Draw rounded rectangle outline
+    fn drawRoundedRect:void (x:int y:int w:int h:int radius:int r:int g:int b:int a:int) {
+        primitives.drawRoundedRect(buffer x y w h radius r g b a)
+    }
+    
+    ; ============================================================
+    ; Gradient rendering
+    ; ============================================================
+    
+    ; Render linear gradient rectangle (two colors)
+    fn renderLinearGradientRect:void (x:int y:int w:int h:int angleDeg:double r1:int g1:int b1:int r2:int g2:int b2:int) {
+        def gradBuf:RasterBuffer (new RasterBuffer())
+        gradBuf.create(w h)
+        gradient.renderTwoColorLinear(gradBuf 0 0 w h angleDeg r1 g1 b1 r2 g2 b2)
+        compositor.compositeOver(buffer gradBuf x y)
+    }
+    
+    ; Render linear gradient rounded rectangle (two colors)
+    fn renderLinearGradientRoundedRect:void (x:int y:int w:int h:int radius:int angleDeg:double r1:int g1:int b1:int r2:int g2:int b2:int) {
+        def gradBuf:RasterBuffer (new RasterBuffer())
+        gradBuf.create(w h)
+        gradient.renderTwoColorLinear(gradBuf 0 0 w h angleDeg r1 g1 b1 r2 g2 b2)
+        
+        ; Apply rounded rect mask
+        this.maskRoundedRect(gradBuf w h radius)
+        
+        compositor.compositeOver(buffer gradBuf x y)
+    }
+    
+    ; Render radial gradient rectangle (two colors)
+    fn renderRadialGradientRect:void (x:int y:int w:int h:int r1:int g1:int b1:int r2:int g2:int b2:int) {
+        def gradBuf:RasterBuffer (new RasterBuffer())
+        gradBuf.create(w h)
+        gradient.renderTwoColorRadial(gradBuf 0 0 w h r1 g1 b1 r2 g2 b2)
+        compositor.compositeOver(buffer gradBuf x y)
+    }
+    
+    ; Render radial gradient rounded rectangle (two colors)
+    fn renderRadialGradientRoundedRect:void (x:int y:int w:int h:int radius:int r1:int g1:int b1:int r2:int g2:int b2:int) {
+        def gradBuf:RasterBuffer (new RasterBuffer())
+        gradBuf.create(w h)
+        gradient.renderTwoColorRadial(gradBuf 0 0 w h r1 g1 b1 r2 g2 b2)
+        
+        ; Apply rounded rect mask
+        this.maskRoundedRect(gradBuf w h radius)
+        
+        compositor.compositeOver(buffer gradBuf x y)
+    }
+    
+    ; ============================================================
+    ; Gradient with shadow
+    ; ============================================================
+    
+    ; Render linear gradient rect with shadow
+    fn renderLinearGradientWithShadow:void (x:int y:int w:int h:int radius:int angleDeg:double r1:int g1:int b1:int r2:int g2:int b2:int shadowR:int shadowG:int shadowB:int shadowA:int blurRadius:int offsetX:int offsetY:int) {
+        ; Render shadow first
+        this.renderShadowOnly(x y w h radius shadowR shadowG shadowB shadowA blurRadius offsetX offsetY)
+        
+        ; Render gradient
+        if (radius > 0) {
+            this.renderLinearGradientRoundedRect(x y w h radius angleDeg r1 g1 b1 r2 g2 b2)
+        } {
+            this.renderLinearGradientRect(x y w h angleDeg r1 g1 b1 r2 g2 b2)
+        }
+    }
+    
+    ; ============================================================
+    ; Utility functions
+    ; ============================================================
+    
+    ; Apply a rounded rectangle mask to a buffer
+    fn maskRoundedRect:void (buf:RasterBuffer w:int h:int radius:int) {
+        ; Create a mask buffer
+        def mask:RasterBuffer (new RasterBuffer())
+        mask.create(w h)
+        
+        ; Fill mask with opaque white for the rounded rect shape
+        primitives.fillRoundedRect(mask 0 0 w h radius 255 255 255 255)
+        
+        ; Apply mask: multiply alpha of buf by mask alpha
+        def y:int 0
+        while (y < h) {
+            def x:int 0
+            while (x < w) {
+                def maskA:int (mask.getA(x y))
+                if (maskA < 255) {
+                    def p:RasterPixel (buf.getPixel(x y))
+                    def newA:int (to_int ((to_double (p.a * maskA)) / 255.0))
+                    buf.setPixel(x y p.r p.g p.b newA)
+                }
+                x = x + 1
+            }
+            y = y + 1
+        }
+    }
+    
+    ; ============================================================
+    ; Output methods
+    ; ============================================================
+    
+    ; Convert to ImageBuffer for JPEG encoding
+    fn toImageBuffer:ImageBuffer () {
+        return (buffer.toImageBuffer())
+    }
+    
+    ; Encode to JPEG buffer
+    fn toJPEG:buffer (quality:int) {
+        def img:ImageBuffer (buffer.toImageBuffer())
+        def encoder:JPEGEncoder (new JPEGEncoder())
+        encoder.setQuality(quality)
+        return (encoder.encodeToBuffer(img))
+    }
+    
+    ; Save as JPEG file
+    fn saveAsJPEG:void (dirPath:string fileName:string quality:int) {
+        def img:ImageBuffer (buffer.toImageBuffer())
+        def encoder:JPEGEncoder (new JPEGEncoder())
+        encoder.setQuality(quality)
+        encoder.encode(img dirPath fileName)
+    }
+    
+    ; Get raw RGBA buffer
+    fn getRawBuffer:buffer () {
+        return (buffer.getRawBuffer())
+    }
+    
+    ; Get width
+    fn getWidth:int () {
+        return buffer.width
+    }
+    
+    ; Get height
+    fn getHeight:int () {
+        return buffer.height
+    }
+    
+    ; Write as PPM image for testing (simple format, no compression)
+    fn savePPM:void (dirPath:string fileName:string) {
+        def w:int buffer.width
+        def h:int buffer.height
+        
+        ; Use GrowableBuffer for writing
+        def buf:GrowableBuffer (new GrowableBuffer())
+        
+        ; PPM header: P6 format (binary RGB)
+        buf.writeString("P6\n")
+        buf.writeString((to_string w) + " " + (to_string h) + "\n")
+        buf.writeString("255\n")
+        
+        ; Create RGB data (no alpha in PPM)
+        def y:int 0
+        while (y < h) {
+            def x:int 0
+            while (x < w) {
+                def p:RasterPixel (buffer.getPixel(x y))
+                buf.writeByte(p.r)
+                buf.writeByte(p.g)
+                buf.writeByte(p.b)
+                x = x + 1
+            }
+            y = y + 1
+        }
+        
+        ; Write file
+        def data:buffer (buf.toBuffer())
+        buffer_write_file dirPath fileName data
+        print ("Saved PPM: " + dirPath + "/" + fileName)
+    }
+}

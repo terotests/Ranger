@@ -1,5 +1,27 @@
 # Ranger Compiler Known Issues
 
+## Summary (December 2025)
+
+### Recently Fixed
+- Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
+- Issue #4: Go integer division type - Fixed with `float64()` cast
+- Issue #57: Go UTF-8 string handling - Fixed with rune-based operations
+- Issue #58: Go slice pass-by-value - Fixed with pointer semantics
+- Issue #59: Go `clear` operator - Fixed with `[:0]` slice reset
+- Issue #60: Go `buffer_read_file` separator - Fixed with `filepath.Join()`
+
+### Still Open
+- Issue #59: System classes have hardcoded type handling (Design Issue)
+- Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` (High)
+
+### New in December 2025
+- HTTP Server support added with annotation-based type aliasing
+- New systemclasses: `HttpRequest`, `HttpResponse`, `SSEClient`, `HttpServer`
+- Route annotations: `@(GET "/")`, `@(POST "/")`, `@(SSE "/")`
+- `start server port` operator for HttpServer types
+
+---
+
 ## Issue #1: Compiler crash with `toString` method name
 
 **Status:** Fixed  
@@ -1714,3 +1736,292 @@ Use this test string containing various Unicode characters:
 
 ---
 
+## Issue #59: System Classes Have Hardcoded Type Handling
+
+**Status:** Open  
+**Severity:** Low (Design Issue)  
+**Found:** December 23, 2025
+
+### Description
+
+The `systemclass` declarations in `Lang.rgr` provide a dynamic way to define type mappings for different target languages. However, many class writers also have **hardcoded** `case` statements for specific system types like `buffer`, `charbuffer`, etc.
+
+This means:
+1. Adding a new `systemclass` to `Lang.rgr` may not be sufficient
+2. Some class writers need manual updates to handle new system types
+3. The dynamic systemclass mechanism is not fully utilized
+
+### Evidence
+
+The `systemclass` definitions are parsed dynamically in `ng_FlowWork.rgr` (line 3076):
+
+```ranger
+if (node.isFirstVref("systemclass")) {
+    ; ... parses systemclass and stores in systemNames map
+    set new_class.systemNames langName.vref langClassName.vref
+}
+```
+
+And used dynamically in `ng_RangerGolangClassWriter.rgr` (line 314):
+
+```ranger
+if(cc.is_system) {
+    def sysName (get cc.systemNames "go")
+    ; ... uses sysName for type output
+}
+```
+
+But many writers also have hardcoded type handling:
+
+**ng_RangerGolangClassWriter.rgr:**
+```ranger
+case "charbuffer" { wr.out("[]byte" false) }
+case "buffer" { wr.out("[]byte" false) }
+```
+
+**ng_RangerJavaScriptClassWriter.rgr:**
+```ranger
+case "charbuffer" { wr.out("Uint8Array" false) }
+case "buffer" { wr.out("Buffer" false) }
+```
+
+**ng_RangerAppWriterContext.rgr (isPrimitiveType):**
+```ranger
+if (typeName == "charbuffer") || (typeName == "buffer") || ...
+```
+
+### Files with Hardcoded System Types
+
+| File | Types Hardcoded |
+|------|-----------------|
+| `ng_RangerGolangClassWriter.rgr` | buffer, charbuffer |
+| `ng_RangerJavaScriptClassWriter.rgr` | buffer, charbuffer |
+| `ng_RangerSwift6ClassWriter.rgr` | buffer, charbuffer |
+| `ng_RangerRustClassWriter.rgr` | buffer |
+| `ng_RangerScalaClassWriter.rgr` | buffer |
+| `ng_RangerAppWriterContext.rgr` | buffer, charbuffer, int_buffer, double_buffer |
+| `ng_CodeNodeCompilerExtensions.rgr` | charbuffer |
+| `TTypes.rgr` | buffer, charbuffer |
+
+### Impact on HTTP Extension
+
+When adding new system classes like `HttpRequest`, `HttpResponse`, `SSEClient`, `HttpServer`:
+
+1. ✅ Adding `systemclass` to `Lang.rgr` works for type resolution
+2. ⚠️ The `isPrimitiveType()` check may affect type handling
+3. ⚠️ Some code paths may fall through to error cases
+
+### Recommended Actions
+
+1. **Short-term:** Verify new system classes work with existing code paths
+2. **Long-term:** Refactor class writers to use the dynamic systemclass mechanism consistently
+3. **Documentation:** Document which types require hardcoded handling and why
+
+### Test Case
+
+When adding a new systemclass, test:
+1. Variable declaration: `def req:HttpRequest`
+2. Function parameter: `fn handle(req:HttpRequest)`
+3. Function return type: `fn getReq:HttpRequest ()`
+4. Array of type: `def requests:[HttpRequest]`
+5. Dictionary value: `def cache:[string:HttpRequest]`
+
+---
+
+## Issue #60: Systemclass Types Not Dynamically Discovered in isDefinedType()
+
+**Status:** Open  
+**Severity:** High  
+**Found:** December 23, 2025
+
+### Description
+
+When adding new `systemclass` definitions to `Lang.rgr`, they are not automatically recognized as valid types. The compiler produces "Unknown type" errors even though the systemclass is properly defined.
+
+### Root Cause
+
+The type validation in `ng_RangerAppWriterContext.rgr` uses `isDefinedType()` which has a hardcoded list of primitive types:
+
+```ranger
+fn isDefinedType:boolean (name:string) {
+    ; Hardcoded primitive types
+    if( (name == "double") || (name == "string") || (name == "int") || (name == "void") || (name == "char") || (name == "boolean") || (name == "charbuffer") || (name == "buffer") || (name == "int_buffer") || (name == "double_buffer") ) {
+        return true
+    }
+    return (this.isDefinedClass(name))
+}
+```
+
+The `systemclass` definitions in `Lang.rgr` are parsed by `ng_FlowWork.rgr` and added to `ctx.addClass()`, but this happens in the context of parsing `Lang.rgr` itself - NOT the root context used when compiling user code.
+
+### Evidence
+
+1. `buffer` systemclass works because it's hardcoded in `isDefinedType()`
+2. New systemclasses like `HttpRequest` fail with "Unknown type" error
+3. The systemclass parsing code in `ng_FlowWork.rgr` line 3076 correctly calls `ctx.addClass()`, but the context is local to Lang.rgr parsing
+
+### Error Message
+
+```
+ERROR: [1053] : Unknown type HttpRequest ( ID = 11 )
+ERROR: [1053] : Unknown type HttpResponse ( ID = 11 )
+ERROR: [1053] : Unknown type SSEClient ( ID = 11 )
+```
+
+### Workaround Options
+
+**Option 1: Hardcode in isDefinedType()** (Quick fix)
+```ranger
+if( (name == "HttpRequest") || (name == "HttpResponse") || (name == "SSEClient") || (name == "HttpServer") ) {
+    return true
+}
+```
+
+**Option 2: Add to definedClasses at startup** (Better)
+Manually add system classes to the root context before compilation starts.
+
+**Option 3: Fix context propagation** (Best, but complex)
+Ensure systemclass definitions from Lang.rgr are propagated to the compilation context.
+
+### Recommended Solution
+
+The cleanest long-term solution is to:
+
+1. After parsing `Lang.rgr`, collect all systemclass definitions
+2. Before compiling user code, inject these definitions into the root context
+3. This would make all systemclasses automatically available
+
+### Related Issues
+
+- Issue #59: Systemclass Handling Not Dynamic (covers hardcoded writer behavior)
+
+### Files Affected
+
+- `ng_RangerAppWriterContext.rgr` - `isDefinedType()` function
+- `ng_FlowWork.rgr` - systemclass parsing
+- `Lang.rgr` - systemclass definitions
+
+---
+
+## Issue #61: HTTP Server Implementation - Design Notes
+
+**Status:** Implemented (Design Documentation)  
+**Severity:** N/A (Feature)  
+**Found:** December 23, 2025
+
+### Description
+
+Documentation of the HTTP server implementation approach using annotation-based type aliasing.
+
+### Key Design Decisions
+
+#### 1. Annotation-Based Type Aliasing
+
+Instead of using inheritance (`Extends(HttpServer)`), we use annotations to mark classes as specific systemclass types:
+
+```ranger
+; Class annotation marks it as HttpServer type
+class MyServer@(HttpServer) {
+    fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) { }
+}
+```
+
+**Why annotations instead of inheritance:**
+- Systemclasses don't support inheritance in the traditional sense
+- Annotations are more flexible and don't require class hierarchy
+- Type matching can check annotations via `isSystemclassType()`
+
+#### 2. Route Annotation Sibling Syntax
+
+Route annotations store the HTTP method and path as **siblings** in the AST:
+
+```ranger
+; @(GET "/path") - GET and "/path" are siblings, not parent-child
+fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) { }
+```
+
+**Implementation insight:**
+- Use `getFlagSiblingString("GET", "/")` to extract the path
+- NOT `getFlag("GET").children[0]` - this is wrong!
+
+#### 3. Custom Operator with Type Checking
+
+The `start` operator uses `(custom _)` template and checks for `@(HttpServer)` annotation:
+
+```ranger
+; In Lang.rgr
+start cmdStart:void (server:HttpServer port:int) {
+    templates {
+        go (custom _)
+        es6 (custom _)
+    }
+}
+```
+
+**In Go writer CustomOperator:**
+```ranger
+if (cmd == "start") {
+    def serverVar (node.getSecond())
+    def serverClass (ctx.findClass(serverVar.value_type))
+    if (!null? serverClass) && (serverClass.isSystemclassType("HttpServer")) {
+        ; Generate HTTP server code
+    }
+}
+```
+
+#### 4. Type Matching Enhancement
+
+Added systemclass annotation check in `areEqualTypes()`:
+
+```ranger
+; In ng_RangerArgMatch.rgr
+fn areEqualTypes:boolean (type1 type2) {
+    ; ... existing checks ...
+    
+    ; NEW: Check if type2's class has systemclass annotation matching type1
+    def type2Class (ctx.findClass(type2Name))
+    if (!null? type2Class) {
+        if (type2Class.isSystemclassType(type1Name)) {
+            return true
+        }
+    }
+}
+```
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `Lang.rgr` | Added HTTP systemclasses and operators |
+| `ng_RangerAppWriterContext.rgr` | Added HTTP types to `isDefinedType()` |
+| `ng_RangerAppClassDesc.rgr` | Added `getSystemclassType()`, `isSystemclassType()` |
+| `ng_RangerArgMatch.rgr` | Added systemclass annotation check in `areEqualTypes()` |
+| `ng_CodeNode.rgr` | Added `getFlagSiblingString()` helper |
+| `ng_RangerGolangClassWriter.rgr` | Added CustomOperator handling for `start` |
+| `ng_RangerGolangHttpServerWriter.rgr` | New file for HTTP server code generation |
+
+### Test File
+
+Working example: `tests/fixtures/http_server.rgr`
+
+```bash
+# Compile to Go
+RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./tests/fixtures/http_server.rgr -d=./tests/fixtures/bin -o=http_server.go -nodecli
+
+# Run server
+cd tests/fixtures/bin && go run http_server.go
+
+# Test endpoints
+curl http://localhost:3000/
+curl http://localhost:3000/content
+```
+
+### Remaining Work
+
+1. **ES6 target**: HTTP server not yet implemented for JavaScript/Node.js
+2. **SSE testing**: Full SSE loop testing needed
+3. **Path parameters**: `@(GET "/users/:id")` not yet implemented
+4. **Stop operator**: Server shutdown not fully implemented
+5. **Watch mode**: File watching for live preview
+
+---

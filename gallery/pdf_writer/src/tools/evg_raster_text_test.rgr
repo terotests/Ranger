@@ -1,0 +1,120 @@
+; evg_raster_text_test.rgr - Test text rendering in raster buffer
+
+Import "../raster/EVGRasterRenderer.rgr"
+Import "../raster/RasterText.rgr"
+Import "../raster/RasterBlur.rgr"
+Import "../raster/PNGEncoder.rgr"
+Import "../fonts/TrueTypeFont.rgr"
+Import "../fonts/FontManager.rgr"
+
+class RasterTextTest {
+    
+    sfn m@(main):void () {
+        def test:RasterTextTest (new RasterTextTest())
+        test.run()
+    }
+    
+    fn run:void () {
+        print "EVG Raster Text Test"
+        print "===================="
+        print ""
+        
+        ; Use FontManager to load fonts (same as PDF renderer)
+        print "Loading fonts using FontManager..."
+        def fontManager:FontManager (new FontManager())
+        
+        ; Set font directories - use the same ones as the examples
+        fontManager.setFontsDirectories("./gallery/pdf_writer/assets/fonts")
+        
+        ; Load Open Sans font (available in assets)
+        def fontLoaded:boolean (fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf"))
+        
+        if (fontLoaded == false) {
+            print "ERROR: Could not load Open Sans font!"
+            print "Please ensure fonts are available in ./gallery/pdf_writer/assets/fonts/Open_Sans/"
+            return
+        }
+        
+        fontManager.printLoadedFonts()
+        print ""
+        
+        ; Get the loaded font for rasterization
+        def font:TrueTypeFont (fontManager.getFont("Open Sans"))
+        
+        if (font.unitsPerEm == 0) {
+            print "ERROR: No valid font loaded!"
+            return
+        }
+        
+        font.printInfo()
+        print ""
+        
+        ; Create renderer
+        print "Creating render buffer (600x400)..."
+        def renderer:EVGRasterRenderer (new EVGRasterRenderer())
+        renderer.init(600 400)
+        renderer.clear(250 250 250 255)  ; Light gray background
+        
+        ; Create text rasterizer
+        def textRenderer:RasterText (new RasterText())
+        textRenderer.setFont(font)
+        
+        ; Test 1: Simple text rendering
+        print "Rendering simple text..."
+        textRenderer.renderText((renderer.getBuffer()) "Hello World!" 30.0 30.0 36.0 0 0 0 255)
+        
+        ; Test 2: Smaller text
+        print "Rendering smaller text..."
+        textRenderer.renderText((renderer.getBuffer()) "The quick brown fox jumps over the lazy dog." 30.0 90.0 16.0 51 51 51 255)
+        
+        ; Test 3: Text with shadow
+        print "Rendering text with shadow..."
+        textRenderer.renderTextWithShadow(
+            (renderer.getBuffer())
+            "Shadow Text"
+            30.0 140.0           ; position
+            48.0                 ; font size
+            30 30 30 255         ; text color (dark gray)
+            0 0 0 100            ; shadow color (semi-transparent black)
+            3.0 4.0              ; shadow offset
+            5                    ; blur radius
+        )
+        
+        ; Test 4: Colored text
+        print "Rendering colored text..."
+        textRenderer.renderText((renderer.getBuffer()) "Red" 30.0 220.0 32.0 220 53 69 255)
+        textRenderer.renderText((renderer.getBuffer()) "Green" 120.0 220.0 32.0 40 167 69 255)
+        textRenderer.renderText((renderer.getBuffer()) "Blue" 240.0 220.0 32.0 0 123 255 255)
+        
+        ; Draw a background rectangle for white text
+        renderer.fillRect(20 270 350 100 52 73 94 255)
+        
+        ; Test 5: Large text with shadow on dark background
+        print "Rendering large text with blur..."
+        textRenderer.renderTextWithShadow(
+            (renderer.getBuffer())
+            "RASTER"
+            30.0 290.0
+            72.0
+            255 255 255 255
+            0 0 0 180
+            0.0 6.0
+            8
+        )
+        
+        print ""
+        print "Saving output..."
+        
+        ; Save as PNG (lossless)
+        def pngEncoder:PNGEncoder (new PNGEncoder())
+        pngEncoder.encode((renderer.getBuffer()) "./gallery/pdf_writer/output/" "raster_text_test.png")
+        
+        ; Save as JPEG
+        renderer.saveAsJPEG("./gallery/pdf_writer/output/" "raster_text_test.jpg" 92)
+        
+        print "Done!"
+        print ""
+        print "Output: ./gallery/pdf_writer/output/raster_text_test.png"
+        print "Output: ./gallery/pdf_writer/output/raster_text_test.jpg"
+    }
+}

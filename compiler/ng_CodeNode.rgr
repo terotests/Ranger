@@ -477,6 +477,86 @@ class CodeNode {
     push vref_annotation.children flag
     has_vref_annotation = true
   }
+
+  ; Get flag's sub-annotation parameter as int
+  ; e.g., @(HttpServer@(port 8080)) → getFlagInt("HttpServer" "port" 3000) → 8080
+  fn getFlagInt:int (flagName:string paramName:string defaultValue:int) {
+    if (false == has_vref_annotation) { return defaultValue }
+    def flag@(optional):CodeNode (this.getFlag(flagName))
+    if (null? flag) { return defaultValue }
+    def uflag:CodeNode (unwrap flag)
+    if (uflag.has_vref_annotation) {
+      def ann:CodeNode uflag.vref_annotation
+      for ann.children ch:CodeNode i {
+        if (ch.vref == paramName) {
+          ; Next child is the value
+          if ((array_length ann.children) > (i + 1)) {
+            def valueNode:CodeNode (itemAt ann.children (i + 1))
+            return valueNode.int_value
+          }
+        }
+      }
+    }
+    return defaultValue
+  }
+
+  ; Get flag's first argument as string
+  ; e.g., @(GET "/path") → getFlagFirstString("GET" "") → "/path"
+  fn getFlagFirstString:string (flagName:string defaultValue:string) {
+    if (false == has_vref_annotation) { return defaultValue }
+    def flag@(optional):CodeNode (this.getFlag(flagName))
+    if (null? flag) { return defaultValue }
+    def uflag:CodeNode (unwrap flag)
+    ; For route annotations like @(GET "/path"), the path is first child
+    if ((array_length uflag.children) > 0) {
+      def first:CodeNode (uflag.getFirst())
+      return first.string_value
+    }
+    return defaultValue
+  }
+  
+  ; Get the sibling value after a flag in annotation
+  ; e.g., @(GET "/path") → getFlagSiblingString("GET" "") → "/path"
+  ; In this case, GET and "/path" are siblings in vref_annotation.children
+  fn getFlagSiblingString:string (flagName:string defaultValue:string) {
+    if (false == has_vref_annotation) { return defaultValue }
+    def foundFlag:boolean false
+    for vref_annotation.children ch:CodeNode i {
+      if foundFlag {
+        ; This is the sibling after the flag - return its value
+        if ((strlen ch.string_value) > 0) {
+          return ch.string_value
+        }
+        if ((strlen ch.vref) > 0) {
+          return ch.vref
+        }
+        return defaultValue
+      }
+      if (ch.vref == flagName) {
+        foundFlag = true
+      }
+    }
+    return defaultValue
+  }
+
+  ; Check if flag has a specific sub-parameter
+  ; e.g., @(HttpServer@(port 8080 tls true)) → hasFlagParam("HttpServer" "tls") → true
+  fn hasFlagParam:boolean (flagName:string paramName:string) {
+    if (false == has_vref_annotation) { return false }
+    def flag@(optional):CodeNode (this.getFlag(flagName))
+    if (null? flag) { return false }
+    def uflag:CodeNode (unwrap flag)
+    if (uflag.has_vref_annotation) {
+      def ann:CodeNode uflag.vref_annotation
+      for ann.children ch:CodeNode i {
+        if (ch.vref == paramName) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
   fn getTypeInformationString:string () {
     def s:string ""
     if ((strlen vref) > 0) {

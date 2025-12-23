@@ -1334,6 +1334,21 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             }
         }
 
+        ; Bit shift right unsigned (logical)
+        bit_ushr  _:int (value:int count:int) {
+            templates {
+                es6 ( "(" (e 1) " >>> " (e 2) ")" )
+                go ( "int64(uint64(" (e 1) ") >> uint(" (e 2) "))" )
+                rust ( "(((" (e 1) ") as u64 >> (" (e 2) ")) as i64)" )
+                cpp ( "(int64_t)((uint64_t)(" (e 1) ") >> (" (e 2) "))" )
+                java7 ( "((" (e 1) ") >>> (" (e 2) "))" )
+                python ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
+                swift6 ( "Int64(bitPattern: UInt64(bitPattern: Int64(" (e 1) ")) >> UInt64(" (e 2) "))" )
+                csharp ( "(int)((uint)(" (e 1) ") >> (int)(" (e 2) "))" )
+                * ( "(" (e 1) " >>> " (e 2) ")" )
+            }
+        }
+
         ; ============================================================================
                 
         +               cmdPlusOp:string             ( left:double right:string ) { 
@@ -2309,6 +2324,39 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 python ( (e 1) ".decode('utf-8')" )
                 swift6 ( "String(bytes: " (e 1) ", encoding: .utf8) ?? \"\"" )
                 csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
+            }
+        }
+
+        ; Convert buffer to Base64 encoded string
+        buffer_to_base64    cmdBufferToBase64:string    ( buf:buffer ) {
+            templates {
+                ranger ( "(buffer_to_base64 " (e 1) ")" )
+                es6 ( "Buffer.from(" (e 1) ").toString('base64')" )
+                go ( "base64.StdEncoding.EncodeToString(" (e 1) ")" (imp "encoding/base64") )
+                rust ( "base64::encode(&" (e 1) ")" )
+                cpp ( "r_buffer_to_base64(" (e 1) ")" (imp "<string>") (imp "<vector>")
+(create_polyfill "
+std::string r_buffer_to_base64(const std::vector<uint8_t>& data) {
+    static const char* chars = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";
+    std::string result;
+    size_t i = 0;
+    while (i < data.size()) {
+        uint32_t n = data[i++] << 16;
+        if (i < data.size()) n |= data[i++] << 8;
+        if (i < data.size()) n |= data[i++];
+        result += chars[(n >> 18) & 0x3F];
+        result += chars[(n >> 12) & 0x3F];
+        result += (i > data.size() + 1) ? '=' : chars[(n >> 6) & 0x3F];
+        result += (i > data.size()) ? '=' : chars[n & 0x3F];
+    }
+    return result;
+}
+")
+                )
+                java7 ( "java.util.Base64.getEncoder().encodeToString(" (e 1) ")" )
+                python ( "base64.b64encode(" (e 1) ").decode('ascii')" (imp "base64") )
+                swift6 ( "Data(" (e 1) ").base64EncodedString()" (imp "Foundation") )
+                csharp ( "Convert.ToBase64String(" (e 1) ")" )
             }
         }
 
@@ -4994,6 +5042,134 @@ std::string r_cpp_str_to_uppercase(std::string original)
             } 
         }
 
+        ; ============================================================================
+        ; HTTP Request Operators
+        ; ============================================================================
+        
+        http_get_method cmdHttpGetMethod:string (req:HttpRequest) {
+            templates {
+                go ( (e 1) ".Method" )
+                es6 ( (e 1) ".method" )
+                * ( "/* http_get_method not implemented */" )
+            }
+        }
+        
+        http_get_path cmdHttpGetPath:string (req:HttpRequest) {
+            templates {
+                go ( (e 1) ".URL.Path" )
+                es6 ( (e 1) ".url" )
+                * ( "/* http_get_path not implemented */" )
+            }
+        }
+        
+        http_get_param cmdHttpGetParam:string (req:HttpRequest name:string) {
+            templates {
+                go ( (e 1) ".PathValue(" (e 2) ")" )
+                es6 ( (e 1) ".params[" (e 2) "]" )
+                * ( "/* http_get_param not implemented */" )
+            }
+        }
+        
+        http_get_query cmdHttpGetQuery:string (req:HttpRequest name:string) {
+            templates {
+                go ( (e 1) ".URL.Query().Get(" (e 2) ")" )
+                es6 ( (e 1) ".query[" (e 2) "]" )
+                * ( "/* http_get_query not implemented */" )
+            }
+        }
+        
+        http_get_header cmdHttpGetHeader:string (req:HttpRequest name:string) {
+            templates {
+                go ( (e 1) ".Header.Get(" (e 2) ")" )
+                es6 ( (e 1) ".headers.get(" (e 2) ")" )
+                * ( "/* http_get_header not implemented */" )
+            }
+        }
+        
+        ; ============================================================================
+        ; HTTP Response Operators
+        ; ============================================================================
+        
+        http_set_status cmdHttpSetStatus:void (res:HttpResponse code:int) {
+            templates {
+                go ( (e 1) ".WriteHeader(int(" (e 2) "))" nl )
+                es6 ( (e 1) ".status(" (e 2) ")" nl )
+                * ( "/* http_set_status not implemented */" nl )
+            }
+        }
+        
+        http_set_header cmdHttpSetHeader:void (res:HttpResponse name:string value:string) {
+            templates {
+                go ( (e 1) ".Header().Set(" (e 2) ", " (e 3) ")" nl )
+                es6 ( (e 1) ".setHeader(" (e 2) ", " (e 3) ")" nl )
+                * ( "/* http_set_header not implemented */" nl )
+            }
+        }
+        
+        http_send cmdHttpSend:void (res:HttpResponse body:string) {
+            templates {
+                go ( (e 1) ".Write([]byte(" (e 2) "))" nl )
+                es6 ( (e 1) ".send(" (e 2) ")" nl )
+                * ( "/* http_send not implemented */" nl )
+            }
+        }
+        
+        http_send_bytes cmdHttpSendBytes:void (res:HttpResponse content:charbuffer) {
+            templates {
+                go ( (e 1) ".Write(" (e 2) ")" nl )
+                es6 ( (e 1) ".send(Buffer.from(" (e 2) "))" nl )
+                * ( "/* http_send_bytes not implemented */" nl )
+            }
+        }
+        
+        ; ============================================================================
+        ; SSE (Server-Sent Events) Operators
+        ; ============================================================================
+        
+        sse_send cmdSSESend:void (client:SSEClient event:string data:string) {
+            templates {
+                go ( 
+                    "fmt.Fprintf(" (e 1) ".Writer, \"event: %s\\ndata: %s\\n\\n\", " (e 2) ", " (e 3) ")" nl
+                    (e 1) ".Flusher.Flush()" nl
+                    (imp "fmt")
+                )
+                es6 ( (e 1) ".send(" (e 2) ", " (e 3) ")" nl )
+                * ( "/* sse_send not implemented */" nl )
+            }
+        }
+        
+        sse_is_connected cmdSSEIsConnected:boolean (client:SSEClient) {
+            templates {
+                go ( (e 1) ".IsConnected" )
+                es6 ( (e 1) ".isConnected()" )
+                * ( "false /* sse_is_connected not implemented */" )
+            }
+        }
+
+        ; HTTP Server Lifecycle Operators
+        ; These are special operators - the Go writer will detect @(HttpServer) class
+        ; and generate route setup code when start is called on HttpServer
+        
+        ; Start HTTP server - wires up all @(GET), @(POST), @(SSE) routes and starts listening
+        ; Usage: start server 8080   OR   start server  (uses default port from annotation)
+        ; The Go writer generates http.HandleFunc calls for each annotated method
+        start@(moves@( 1 )) cmdHttpServerStart:void (server:HttpServer port:int) {
+            templates {
+                go ( (custom _) )
+                es6 ( (e 1) ".start(" (e 2) ")" )
+                * ( "/* start HttpServer not implemented */" )
+            }
+        }
+
+        ; Stop HTTP server gracefully
+        ; Usage: stop server
+        stop@(moves@( 1 )) cmdHttpServerStop:void (server:HttpServer) {
+            templates {
+                go ( (e 1) ".Shutdown(context.Background())" )
+                es6 ( (e 1) ".stop()" )
+                * ( "/* stop HttpServer not implemented */" )
+            }
+        }
 
     }
 
@@ -5057,4 +5233,36 @@ systemclass double_buffer {
     csharp "double[]"
     kotlin DoubleArray
     scala "Array[Double]"
+}
+
+; ============================================================================
+; SYSTEM CLASSES: HTTP Server Types
+; ============================================================================
+; HTTP server types for building web servers and APIs.
+; These are used with the @(HttpServer) annotation system.
+; See PLAN_HTTP.md for details.
+; ============================================================================
+
+; HTTP Request object - represents an incoming HTTP request
+systemclass HttpRequest {
+    es6 Request
+    go "*http.Request" ((imp '"net/http"'))
+}
+
+; HTTP Response Writer - for writing HTTP responses
+systemclass HttpResponse {
+    es6 Response
+    go "http.ResponseWriter" ((imp '"net/http"'))
+}
+
+; Server-Sent Events client - for SSE streaming connections
+systemclass SSEClient {
+    es6 SSEClient
+    go "*SSEClient"
+}
+
+; HTTP Server instance - for server control
+systemclass HttpServer {
+    es6 Server
+    go "*http.Server" ((imp '"net/http"'))
 }

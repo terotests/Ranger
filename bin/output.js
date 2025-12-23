@@ -901,6 +901,30 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     const special = ((((this.is_operator_class || this.is_trait) || this.is_system) || this.is_generic_instance) || this.is_system_union) || this.is_union;
     return special == false;
   };
+  getSystemclassType () {
+    if ( typeof(this.nameNode) === "undefined" ) {
+      return "";
+    }
+    if ( this.nameNode.hasFlag("HttpServer") ) {
+      return "HttpServer";
+    }
+    if ( this.nameNode.hasFlag("HttpRequest") ) {
+      return "HttpRequest";
+    }
+    if ( this.nameNode.hasFlag("HttpResponse") ) {
+      return "HttpResponse";
+    }
+    if ( this.nameNode.hasFlag("SSEClient") ) {
+      return "SSEClient";
+    }
+    return "";
+  };
+  isSystemclassType (typeName) {
+    if ( typeof(this.nameNode) === "undefined" ) {
+      return false;
+    }
+    return this.nameNode.hasFlag(typeName);
+  };
   hasTrait (class_name, ctx) {
     let res;
     for ( let i = 0; i < this.consumes_traits.length; i++) {
@@ -921,6 +945,9 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
       return false;
     }
     if ( class_name == this.name ) {
+      return true;
+    }
+    if ( this.isSystemclassType(class_name) ) {
       return true;
     }
     if ( (this.extends_classes.indexOf(class_name)) >= 0 ) {
@@ -1680,6 +1707,86 @@ class CodeNode  {
     flag.parsed_type = flag.value_type;
     this.vref_annotation.children.push(flag);
     this.has_vref_annotation = true;
+  };
+  getFlagInt (flagName, paramName, defaultValue) {
+    if ( false == this.has_vref_annotation ) {
+      return defaultValue;
+    }
+    const flag = this.getFlag(flagName);
+    if ( typeof(flag) === "undefined" ) {
+      return defaultValue;
+    }
+    const uflag = flag;
+    if ( uflag.has_vref_annotation ) {
+      const ann = uflag.vref_annotation;
+      for ( let i = 0; i < ann.children.length; i++) {
+        var ch = ann.children[i];
+        if ( ch.vref == paramName ) {
+          if ( (ann.children.length) > (i + 1) ) {
+            const valueNode = ann.children[(i + 1)];
+            return valueNode.int_value;
+          }
+        }
+      };
+    }
+    return defaultValue;
+  };
+  getFlagFirstString (flagName, defaultValue) {
+    if ( false == this.has_vref_annotation ) {
+      return defaultValue;
+    }
+    const flag = this.getFlag(flagName);
+    if ( typeof(flag) === "undefined" ) {
+      return defaultValue;
+    }
+    const uflag = flag;
+    if ( (uflag.children.length) > 0 ) {
+      const first = uflag.getFirst();
+      return first.string_value;
+    }
+    return defaultValue;
+  };
+  getFlagSiblingString (flagName, defaultValue) {
+    if ( false == this.has_vref_annotation ) {
+      return defaultValue;
+    }
+    let foundFlag = false;
+    for ( let i = 0; i < this.vref_annotation.children.length; i++) {
+      var ch = this.vref_annotation.children[i];
+      if ( foundFlag ) {
+        if ( (ch.string_value.length) > 0 ) {
+          return ch.string_value;
+        }
+        if ( (ch.vref.length) > 0 ) {
+          return ch.vref;
+        }
+        return defaultValue;
+      }
+      if ( ch.vref == flagName ) {
+        foundFlag = true;
+      }
+    };
+    return defaultValue;
+  };
+  hasFlagParam (flagName, paramName) {
+    if ( false == this.has_vref_annotation ) {
+      return false;
+    }
+    const flag = this.getFlag(flagName);
+    if ( typeof(flag) === "undefined" ) {
+      return false;
+    }
+    const uflag = flag;
+    if ( uflag.has_vref_annotation ) {
+      const ann = uflag.vref_annotation;
+      for ( let i = 0; i < ann.children.length; i++) {
+        var ch = ann.children[i];
+        if ( ch.vref == paramName ) {
+          return true;
+        }
+      };
+    }
+    return false;
   };
   getTypeInformationString () {
     let s = "";
@@ -3587,6 +3694,9 @@ class RangerAppWriterContext  {
       return true;
     }
     if ( ((((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "int_buffer")) || (typeName == "double_buffer")) || (typeName == "boolean") ) {
+      return true;
+    }
+    if ( (((typeName == "HttpRequest") || (typeName == "HttpResponse")) || (typeName == "SSEClient")) || (typeName == "HttpServer") ) {
       return true;
     }
     if ( this.isEnumDefined(typeName) ) {
@@ -6158,14 +6268,20 @@ class RangerArgMatch  {
       case "charbuffer" : 
         return type2 == "charbuffer";
     };
+    if ( ctx.isDefinedClass(type2) ) {
+      const c2 = ctx.findClass(type2);
+      if ( c2.isSystemclassType(t_name) ) {
+        return true;
+      }
+    }
     if ( ctx.isDefinedClass(t_name) && ctx.isDefinedClass(type2) ) {
       const c1 = ctx.findClass(t_name);
-      const c2 = ctx.findClass(type2);
+      const c2_1 = ctx.findClass(type2);
       const trait1 = c1.hasTrait(type2, ctx);
-      if ( (c2.is_union == true) && (c1.is_union == false) ) {
+      if ( (c2_1.is_union == true) && (c1.is_union == false) ) {
         return false;
       }
-      if ( (c2.is_system_union == true) && (c1.is_system_union == false) ) {
+      if ( (c2_1.is_system_union == true) && (c1.is_system_union == false) ) {
         return false;
       }
       if ( (typeof(trait1) !== "undefined" && trait1 != null )  ) {
@@ -6179,11 +6295,11 @@ class RangerArgMatch  {
           };
         }
       }
-      const trait1_1 = c2.hasTrait(t_name, ctx);
+      const trait1_1 = c2_1.hasTrait(t_name, ctx);
       if ( (typeof(trait1_1) !== "undefined" && trait1_1 != null )  ) {
-        this.force_add(t_name, c2.name, ctx);
-        if ( ( typeof(c2.trait_params[t_name] ) != "undefined" && c2.trait_params.hasOwnProperty(t_name) ) ) {
-          const pms_1 = (( c2.trait_params.hasOwnProperty(t_name) ? c2.trait_params[t_name] : undefined ));
+        this.force_add(t_name, c2_1.name, ctx);
+        if ( ( typeof(c2_1.trait_params[t_name] ) != "undefined" && c2_1.trait_params.hasOwnProperty(t_name) ) ) {
+          const pms_1 = (( c2_1.trait_params.hasOwnProperty(t_name) ? c2_1.trait_params[t_name] : undefined ));
           for ( let i_1 = 0; i_1 < pms_1.param_names.length; i_1++) {
             var pn_1 = pms_1.param_names[i_1];
             const pn_value_1 = (( pms_1.values.hasOwnProperty(pn_1) ? pms_1.values[pn_1] : undefined ));
@@ -6195,7 +6311,7 @@ class RangerArgMatch  {
       if ( c1.isSameOrParentClass(type2, ctx) ) {
         return true;
       }
-      if ( c2.isSameOrParentClass(t_name, ctx) ) {
+      if ( c2_1.isSameOrParentClass(t_name, ctx) ) {
         return true;
       }
     } else {
@@ -6229,6 +6345,12 @@ class RangerArgMatch  {
       case "charbuffer" : 
         return type2 == "charbuffer";
     };
+    if ( ctx.isDefinedClass(type2) ) {
+      const c2Check = ctx.findClass(type2);
+      if ( c2Check.isSystemclassType(t_name) ) {
+        return true;
+      }
+    }
     if ( ctx.isDefinedClass(t_name) && ctx.isDefinedClass(type2) ) {
       const c1 = ctx.findClass(t_name);
       const c2 = ctx.findClass(type2);
@@ -21282,6 +21404,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     this.thisName = "this";
     this.write_raw_type = false;
     this.did_write_nullable = false;
+    this.did_write_sseclient = false;     /** note: unused */
+    this.httpServerWriter = new RangerGolangHttpServerWriter();
   }
   WriteScalarValue (node, ctx, wr) {
     switch (node.value_type ) { 
@@ -21336,6 +21460,14 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         return "[]int64";
       case "double_buffer" : 
         return "[]float64";
+      case "HttpRequest" : 
+        return "*http.Request";
+      case "HttpResponse" : 
+        return "http.ResponseWriter";
+      case "SSEClient" : 
+        return "*SSEClient";
+      case "HttpServer" : 
+        return "*http.Server";
     };
     return ctx.transformTypeName(type_string);
   };
@@ -21362,6 +21494,14 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         return "[]int64";
       case "double_buffer" : 
         return "[]float64";
+      case "HttpRequest" : 
+        return "*http.Request";
+      case "HttpResponse" : 
+        return "http.ResponseWriter";
+      case "SSEClient" : 
+        return "*SSEClient";
+      case "HttpServer" : 
+        return "*http.Server";
     };
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
@@ -21541,6 +21681,25 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       default: 
         if ( (node.type_name == "void") || (false == ((node.type_name.length) > 0)) ) {
           wr.out("()", false);
+          return;
+        }
+        if ( t_name == "HttpRequest" ) {
+          wr.addImport("net/http");
+          wr.out("*http.Request", false);
+          return;
+        }
+        if ( t_name == "HttpResponse" ) {
+          wr.addImport("net/http");
+          wr.out("http.ResponseWriter", false);
+          return;
+        }
+        if ( t_name == "SSEClient" ) {
+          wr.out("*SSEClient", false);
+          return;
+        }
+        if ( t_name == "HttpServer" ) {
+          wr.addImport("net/http");
+          wr.out("*http.Server", false);
           return;
         }
         let b_iface = false;
@@ -22285,6 +22444,31 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   async CustomOperator (node, ctx, wr) {
     const fc = node.getFirst();
     const cmd = fc.vref;
+    if ( cmd == "start" ) {
+      if ( (node.children.length) >= 2 ) {
+        const serverArg = node.getSecond();
+        if ( serverArg.hasParamDesc ) {
+          const paramDesc = serverArg.paramDesc;
+          if ( (typeof(paramDesc.nameNode) !== "undefined" && paramDesc.nameNode != null )  ) {
+            const typeName = paramDesc.nameNode.type_name;
+            let isHttpServer = false;
+            if ( typeName == "HttpServer" ) {
+              isHttpServer = true;
+            }
+            if ( ctx.isDefinedClass(typeName) ) {
+              const serverClass = ctx.findClass(typeName);
+              if ( serverClass.isSystemclassType("HttpServer") ) {
+                isHttpServer = true;
+              }
+            }
+            if ( isHttpServer ) {
+              this.httpServerWriter.writeServerStart(serverArg, node, ctx, wr);
+              return;
+            }
+          }
+        }
+      }
+    }
     if ( cmd == "return" ) {
       if ( (node.children.length) > 1 ) {
         const rValue = node.getSecond();
@@ -22923,6 +23107,274 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         wr.out("}", true);
       }
     };
+  };
+}
+class RangerGolangHttpServerWriter  {
+  constructor() {
+    this.didWriteSSEClient = false;
+    this.didWriteHttpTypes = false;     /** note: unused */
+  }
+  isHttpServerClass (cl) {
+    if ( typeof(cl.nameNode) === "undefined" ) {
+      return false;
+    }
+    return cl.nameNode.hasFlag("HttpServer");
+  };
+  getServerPort (cl) {
+    if ( typeof(cl.nameNode) === "undefined" ) {
+      return 8080;
+    }
+    const nameNode = cl.nameNode;
+    if ( nameNode.hasFlag("HttpServer") ) {
+      const httpServerFlag = nameNode.getFlag("HttpServer");
+      if ( httpServerFlag.hasFlag("port") ) {
+        const portFlag = httpServerFlag.getFlag("port");
+        if ( (portFlag.children.length) > 0 ) {
+          const portValue = portFlag.children[0];
+          return portValue.int_value;
+        }
+      }
+    }
+    return 8080;
+  };
+  getRouteMethod (fnDesc) {
+    if ( typeof(fnDesc.nameNode) === "undefined" ) {
+      return "";
+    }
+    const nameNode = fnDesc.nameNode;
+    if ( nameNode.hasFlag("GET") ) {
+      return "GET";
+    }
+    if ( nameNode.hasFlag("POST") ) {
+      return "POST";
+    }
+    if ( nameNode.hasFlag("PUT") ) {
+      return "PUT";
+    }
+    if ( nameNode.hasFlag("DELETE") ) {
+      return "DELETE";
+    }
+    if ( nameNode.hasFlag("SSE") ) {
+      return "SSE";
+    }
+    return "";
+  };
+  getRoutePath (fnDesc) {
+    if ( typeof(fnDesc.nameNode) === "undefined" ) {
+      return "/";
+    }
+    const nameNode = fnDesc.nameNode;
+    const method = this.getRouteMethod(fnDesc);
+    if ( (method.length) == 0 ) {
+      return "/";
+    }
+    const path = nameNode.getFlagSiblingString(method, "/");
+    return path;
+  };
+  writeSSEClientStruct (wr) {
+    if ( this.didWriteSSEClient ) {
+      return;
+    }
+    this.didWriteSSEClient = true;
+    const utilWr = wr.getTag("utilities");
+    utilWr.newline();
+    utilWr.out("// SSEClient represents a Server-Sent Events client connection", true);
+    utilWr.out("type SSEClient struct {", true);
+    utilWr.indent(1);
+    utilWr.out("Writer      http.ResponseWriter", true);
+    utilWr.out("Flusher     http.Flusher", true);
+    utilWr.out("Request     *http.Request", true);
+    utilWr.out("IsConnected bool", true);
+    utilWr.out("done        chan bool", true);
+    utilWr.indent(-1);
+    utilWr.out("}", true);
+    utilWr.newline();
+  };
+  addHttpImports (wr) {
+    wr.addImport("net/http");
+    wr.addImport("fmt");
+    wr.addImport("log");
+  };
+  writeServerStart (serverArg, node, ctx, wr) {
+    const paramDesc = serverArg.paramDesc;
+    const className = paramDesc.nameNode.type_name;
+    let cl;
+    if ( false == ctx.hasClass(className) ) {
+      wr.out("/* Error: Could not find HttpServer class ", false);
+      wr.out(className, false);
+      wr.out(" */", true);
+      return;
+    }
+    cl = ctx.findClass(className);
+    let port = 8080;
+    if ( (node.children.length) >= 3 ) {
+      const portArg = node.children[2];
+      port = portArg.int_value;
+    }
+    this.addHttpImports(wr);
+    let hasSSE = false;
+    for ( let i = 0; i < cl.methods.length; i++) {
+      var fnDesc = cl.methods[i];
+      if ( this.getRouteMethod(fnDesc) == "SSE" ) {
+        hasSSE = true;
+      }
+    };
+    if ( hasSSE ) {
+      this.writeSSEClientStruct(wr);
+    }
+    const serverName = paramDesc.compiledName;
+    wr.newline();
+    wr.out("// HTTP Server setup for ", false);
+    wr.out(className, true);
+    wr.out("mux := http.NewServeMux()", true);
+    wr.newline();
+    for ( let i_1 = 0; i_1 < cl.methods.length; i_1++) {
+      var fnDesc_1 = cl.methods[i_1];
+      const method = this.getRouteMethod(fnDesc_1);
+      if ( (method.length) > 0 ) {
+        const path = this.getRoutePath(fnDesc_1);
+        if ( method == "SSE" ) {
+          wr.out(("mux.HandleFunc(\"" + path) + "\", func(w http.ResponseWriter, r *http.Request) {", true);
+          wr.indent(1);
+          wr.out("flusher, ok := w.(http.Flusher)", true);
+          wr.out("if !ok {", true);
+          wr.indent(1);
+          wr.out("http.Error(w, \"SSE not supported\", http.StatusInternalServerError)", true);
+          wr.out("return", true);
+          wr.indent(-1);
+          wr.out("}", true);
+          wr.newline();
+          wr.out("w.Header().Set(\"Content-Type\", \"text/event-stream\")", true);
+          wr.out("w.Header().Set(\"Cache-Control\", \"no-cache\")", true);
+          wr.out("w.Header().Set(\"Connection\", \"keep-alive\")", true);
+          wr.out("w.Header().Set(\"Access-Control-Allow-Origin\", \"*\")", true);
+          wr.newline();
+          wr.out("client := &SSEClient{", true);
+          wr.indent(1);
+          wr.out("Writer:      w,", true);
+          wr.out("Flusher:     flusher,", true);
+          wr.out("Request:     r,", true);
+          wr.out("IsConnected: true,", true);
+          wr.out("done:        make(chan bool),", true);
+          wr.indent(-1);
+          wr.out("}", true);
+          wr.newline();
+          wr.out(((serverName + ".") + fnDesc_1.name) + "(client)", true);
+          wr.indent(-1);
+          wr.out("})", true);
+        } else {
+          wr.out(("mux.HandleFunc(\"" + path) + "\", func(w http.ResponseWriter, r *http.Request) {", true);
+          wr.indent(1);
+          if ( (method.length) > 0 ) {
+            wr.out(("if r.Method != \"" + method) + "\" {", true);
+            wr.indent(1);
+            wr.out("http.Error(w, \"Method not allowed\", http.StatusMethodNotAllowed)", true);
+            wr.out("return", true);
+            wr.indent(-1);
+            wr.out("}", true);
+          }
+          wr.out(((serverName + ".") + fnDesc_1.name) + "(r, w)", true);
+          wr.indent(-1);
+          wr.out("})", true);
+        }
+        wr.newline();
+      }
+    };
+    wr.out(("addr := fmt.Sprintf(\":%d\", " + ((port.toString()))) + ")", true);
+    wr.out("fmt.Printf(\"Server starting on http://localhost%s\\n\", addr)", true);
+    wr.out("log.Fatal(http.ListenAndServe(addr, mux))", true);
+  };
+  writeStartMethod (cl, ctx, wr) {
+    const port = this.getServerPort(cl);
+    wr.newline();
+    wr.out(("func (this *" + cl.name) + ") Start() {", true);
+    wr.indent(1);
+    wr.out("mux := http.NewServeMux()", true);
+    wr.newline();
+    for ( let i = 0; i < cl.methods.length; i++) {
+      var fnDesc = cl.methods[i];
+      const method = this.getRouteMethod(fnDesc);
+      if ( (method.length) > 0 ) {
+        const path = this.getRoutePath(fnDesc);
+        if ( method == "SSE" ) {
+          wr.out(("mux.HandleFunc(\"" + path) + "\", func(w http.ResponseWriter, r *http.Request) {", true);
+          wr.indent(1);
+          wr.out("flusher, ok := w.(http.Flusher)", true);
+          wr.out("if !ok {", true);
+          wr.indent(1);
+          wr.out("http.Error(w, \"SSE not supported\", http.StatusInternalServerError)", true);
+          wr.out("return", true);
+          wr.indent(-1);
+          wr.out("}", true);
+          wr.newline();
+          wr.out("w.Header().Set(\"Content-Type\", \"text/event-stream\")", true);
+          wr.out("w.Header().Set(\"Cache-Control\", \"no-cache\")", true);
+          wr.out("w.Header().Set(\"Connection\", \"keep-alive\")", true);
+          wr.out("w.Header().Set(\"Access-Control-Allow-Origin\", \"*\")", true);
+          wr.newline();
+          wr.out("client := &SSEClient{", true);
+          wr.indent(1);
+          wr.out("Writer:      w,", true);
+          wr.out("Flusher:     flusher,", true);
+          wr.out("Request:     r,", true);
+          wr.out("IsConnected: true,", true);
+          wr.out("done:        make(chan bool),", true);
+          wr.indent(-1);
+          wr.out("}", true);
+          wr.newline();
+          wr.out(("this." + fnDesc.name) + "(client)", true);
+          wr.indent(-1);
+          wr.out("})", true);
+        } else {
+          wr.out(("mux.HandleFunc(\"" + path) + "\", func(w http.ResponseWriter, r *http.Request) {", true);
+          wr.indent(1);
+          if ( (method.length) > 0 ) {
+            wr.out(("if r.Method != \"" + method) + "\" {", true);
+            wr.indent(1);
+            wr.out("http.Error(w, \"Method not allowed\", http.StatusMethodNotAllowed)", true);
+            wr.out("return", true);
+            wr.indent(-1);
+            wr.out("}", true);
+          }
+          wr.out(("this." + fnDesc.name) + "(r, w)", true);
+          wr.indent(-1);
+          wr.out("})", true);
+        }
+        wr.newline();
+      }
+    };
+    wr.out(("addr := fmt.Sprintf(\":%d\", " + ((port.toString()))) + ")", true);
+    wr.out("fmt.Printf(\"Server starting on http://localhost%s\\n\", addr)", true);
+    wr.out("log.Fatal(http.ListenAndServe(addr, mux))", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  writeStopMethod (cl, ctx, wr) {
+    wr.newline();
+    wr.out(("func (this *" + cl.name) + ") Stop() {", true);
+    wr.indent(1);
+    wr.out("// TODO: Implement graceful shutdown", true);
+    wr.out("fmt.Println(\"Server stopping...\")", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  writeHttpServerClass (cl, ctx, wr) {
+    if ( this.isHttpServerClass(cl) == false ) {
+      return;
+    }
+    this.addHttpImports(wr);
+    let hasSSE = false;
+    for ( let i = 0; i < cl.methods.length; i++) {
+      var fnDesc = cl.methods[i];
+      if ( this.getRouteMethod(fnDesc) == "SSE" ) {
+        hasSSE = true;
+      }
+    };
+    if ( hasSSE ) {
+      this.writeSSEClientStruct(wr);
+    }
+    this.writeStartMethod(cl, ctx, wr);
+    this.writeStopMethod(cl, ctx, wr);
   };
 }
 class RangerPHPClassWriter  extends RangerGenericClassWriter {
