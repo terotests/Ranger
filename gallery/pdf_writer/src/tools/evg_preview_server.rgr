@@ -1,14 +1,14 @@
 ; evg_preview_server.rgr - Live Preview Server for TSX files
 ;
-; Usage: evg_preview_server input.tsx [port]
+; Usage: evg_preview_server input.tsx [port] [--assets=path1;path2;...]
 ;
 ; Opens a TSX file in the browser with live reloading.
 ; When the file changes, the browser automatically refreshes.
 ;
-; Compile: npm run evg:preview:compile:go
-; Run: ./evg_preview_server sample.tsx
+; Compile: npm run evgpreview:compile
+; Run: ./evg_preview_server sample.tsx 3000 --assets=./assets;./fonts
 
-Import "../jsx/JSXToEVG.rgr"
+Import "../jsx/ComponentEngine.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
 Import "../../../evg/EVGElement.rgr"
 
@@ -17,6 +17,7 @@ class EVGPreviewServer@(HttpServer) {
     def inputFile:string ""
     def inputDir:string ""
     def inputFileName:string ""
+    def assetPaths:string ""
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def port:int 3000
@@ -31,9 +32,10 @@ class EVGPreviewServer@(HttpServer) {
     ; File modification tracking
     def lastModTime:int 0
     
-    fn initialize:void (tsxFile:string serverPort:int) {
+    fn initialize:void (tsxFile:string serverPort:int assets:string) {
         inputFile = tsxFile
         port = serverPort
+        assetPaths = assets
         serverUrl = "http://localhost:" + (to_string port)
         
         ; Extract directory and filename
@@ -62,12 +64,17 @@ class EVGPreviewServer@(HttpServer) {
     fn reloadContent:void () {
         print "Parsing TSX file: " + inputFile
         
-        ; Parse TSX file
-        def converter (new JSXToEVG())
-        converter.pageWidth = pageWidth
-        converter.pageHeight = pageHeight
+        ; Use ComponentEngine for full component support
+        def engine (new ComponentEngine())
+        engine.pageWidth = pageWidth
+        engine.pageHeight = pageHeight
         
-        def root:EVGElement (converter.parseFile(inputDir inputFileName))
+        ; Set asset paths for component and resource resolution
+        if ((strlen assetPaths) > 0) {
+            engine.setAssetPaths(assetPaths)
+        }
+        
+        def root:EVGElement (engine.parseFile(inputDir inputFileName))
         
         if (root.tagName == "") {
             print "Error: Failed to parse TSX file"
@@ -126,6 +133,110 @@ class EVGPreviewServer@(HttpServer) {
         http_send res cachedFontsCSS
     }
     
+    ; GET /assets/* - Serve static assets (images, fonts, etc.)
+    ; This handles paths like /assets/images/IMG_6573.jpg or /assets/fonts/Helvetica/Helvetica.ttf
+    fn handleAssets@(GET "/assets/"):void (req:HttpRequest res:HttpResponse) {
+        def path:string (http_get_path req)
+        ; Strip /assets/ prefix to get the relative path
+        def assetPath:string (substring path 8 (strlen path))
+        
+        ; Build full path: inputDir/../assets/assetPath
+        ; inputDir is like "examples/", so ../assets/ goes to the assets folder
+        def fullPath:string (inputDir + "../assets/" + assetPath)
+        
+        print "Serving asset: " + fullPath
+        
+        ; Read the file as binary
+        def fileData:buffer (buffer_read_file "" fullPath)
+        
+        ; Determine content type from extension
+        def ext:string ""
+        def lastDot:int (lastIndexOf assetPath ".")
+        if (lastDot >= 0) {
+            ext = (to_lowercase (substring assetPath (lastDot + 1) (strlen assetPath)))
+        }
+        
+        def contentType:string "application/octet-stream"
+        ; Image types
+        if (ext == "jpg") {
+            contentType = "image/jpeg"
+        }
+        if (ext == "jpeg") {
+            contentType = "image/jpeg"
+        }
+        if (ext == "png") {
+            contentType = "image/png"
+        }
+        if (ext == "gif") {
+            contentType = "image/gif"
+        }
+        if (ext == "svg") {
+            contentType = "image/svg+xml"
+        }
+        if (ext == "webp") {
+            contentType = "image/webp"
+        }
+        ; Font types
+        if (ext == "woff2") {
+            contentType = "font/woff2"
+        }
+        if (ext == "woff") {
+            contentType = "font/woff"
+        }
+        if (ext == "ttf") {
+            contentType = "font/ttf"
+        }
+        if (ext == "otf") {
+            contentType = "font/otf"
+        }
+        
+        http_set_header res "Content-Type" contentType
+        http_set_header res "Cache-Control" "max-age=3600"
+        http_set_status res 200
+        http_send_buffer res fileData
+    }
+    
+    ; GET /fonts/* - Serve fonts from asset paths (legacy - kept for compatibility)
+    fn handleFonts@(GET "/fonts/"):void (req:HttpRequest res:HttpResponse) {
+        def path:string (http_get_path req)
+        ; Strip /fonts/ prefix
+        def fontPath:string (substring path 7 (strlen path))
+        
+        ; Resolve relative paths - fontPath might be like "../assets/fonts/Inter-Regular.woff2"
+        def fullPath:string (inputDir + fontPath)
+        
+        print "Serving font: " + fullPath
+        
+        ; Read the file as binary
+        def fileData:buffer (buffer_read_file "" fullPath)
+        
+        ; Determine content type from extension
+        def ext:string ""
+        def lastDot:int (lastIndexOf fontPath ".")
+        if (lastDot >= 0) {
+            ext = (to_lowercase (substring fontPath (lastDot + 1) (strlen fontPath)))
+        }
+        
+        def contentType:string "application/octet-stream"
+        if (ext == "woff2") {
+            contentType = "font/woff2"
+        }
+        if (ext == "woff") {
+            contentType = "font/woff"
+        }
+        if (ext == "ttf") {
+            contentType = "font/ttf"
+        }
+        if (ext == "otf") {
+            contentType = "font/otf"
+        }
+        
+        http_set_header res "Content-Type" contentType
+        http_set_header res "Cache-Control" "max-age=3600"
+        http_set_status res 200
+        http_send_buffer res fileData
+    }
+    
     ; SSE /events - Live update stream
     fn handleEvents@(SSE "/events"):void (client:SSEClient) {
         print "SSE client connected - watching for changes"
@@ -164,43 +275,66 @@ sfn m@(main):void () {
     def argCount:int (shell_arg_cnt)
     
     if (argCount < 1) {
-        print "EVG Preview Server - Live TSX Preview"
+        print "EVG Preview Server - Live TSX Preview with Component Support"
         print ""
-        print "Usage: evg_preview_server input.tsx [port]"
+        print "Usage: evg_preview_server input.tsx [port] [--assets=path1;path2;...]"
         print ""
         print "Options:"
         print "  input.tsx   TSX file to preview"
         print "  port        Server port (default: 3000)"
+        print "  --assets    Semicolon-separated paths for components, fonts, images"
         print ""
         print "Example:"
         print "  evg_preview_server sample.tsx"
         print "  evg_preview_server sample.tsx 8080"
+        print "  evg_preview_server test_gallery.tsx 3000 --assets=./components;./assets"
         return
     }
     
     def inputFile:string (shell_arg 0)
     def port:int 3000
+    def assetPaths:string ""
     
-    if (argCount >= 2) {
-        def portArg:string (shell_arg 1)
-        def portVal@(optional):int (to_int portArg)
-        if portVal {
-            port = (unwrap portVal)
+    ; Parse arguments
+    def i:int 1
+    while (i < argCount) {
+        def arg:string (shell_arg i)
+        if ((indexOf arg "--assets=") == 0) {
+            assetPaths = (substring arg 9 (strlen arg))
+        } {
+            ; Check if it's a port number
+            def portVal@(optional):int (to_int arg)
+            if portVal {
+                port = (unwrap portVal)
+            }
+        }
+        i = i + 1
+    }
+    
+    ; If no assets specified, try to derive from input file location
+    if ((strlen assetPaths) == 0) {
+        ; Extract directory from input file
+        def lastSlash:int (lastIndexOf inputFile "/")
+        if (lastSlash >= 0) {
+            def baseDir:string (substring inputFile 0 lastSlash)
+            ; Add common component and asset paths relative to file
+            assetPaths = baseDir + "/../components;" + baseDir + "/../assets"
         }
     }
     
     print ""
     print "╔═══════════════════════════════════════════════════════════╗"
-    print "║           EVG Preview Server - Live Preview               ║"
+    print "║     EVG Preview Server - Live Preview with Components     ║"
     print "╚═══════════════════════════════════════════════════════════╝"
     print ""
     print "  File: " + inputFile
     print "  Port: " + (to_string port)
+    print "  Assets: " + assetPaths
     print "  Live reload: enabled"
     print ""
     
     def server (new EVGPreviewServer())
-    server.initialize(inputFile port)
+    server.initialize(inputFile port assetPaths)
     
     print ""
     print "Starting server at http://localhost:" + (to_string port)

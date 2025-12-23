@@ -5645,7 +5645,7 @@ type EVGElement struct {
   justifyContent string `json:"justifyContent"` 
   alignItems string `json:"alignItems"` 
   gap *GoNullable `json:"gap"` 
-  position string `json:"position"` 
+  position string /**  unused  **/  `json:"position"` 
   marginTop *GoNullable /**  unused  **/  `json:"marginTop"` 
   marginRight *GoNullable /**  unused  **/  `json:"marginRight"` 
   marginBottom *GoNullable /**  unused  **/  `json:"marginBottom"` 
@@ -5654,16 +5654,16 @@ type EVGElement struct {
   paddingRight *GoNullable /**  unused  **/  `json:"paddingRight"` 
   paddingBottom *GoNullable /**  unused  **/  `json:"paddingBottom"` 
   paddingLeft *GoNullable /**  unused  **/  `json:"paddingLeft"` 
-  borderWidth *GoNullable `json:"borderWidth"` 
-  borderTopWidth *GoNullable `json:"borderTopWidth"` 
-  borderRightWidth *GoNullable `json:"borderRightWidth"` 
-  borderBottomWidth *GoNullable `json:"borderBottomWidth"` 
-  borderLeftWidth *GoNullable `json:"borderLeftWidth"` 
-  borderColor *GoNullable `json:"borderColor"` 
+  borderWidth *GoNullable /**  unused  **/  `json:"borderWidth"` 
+  borderTopWidth *GoNullable /**  unused  **/  `json:"borderTopWidth"` 
+  borderRightWidth *GoNullable /**  unused  **/  `json:"borderRightWidth"` 
+  borderBottomWidth *GoNullable /**  unused  **/  `json:"borderBottomWidth"` 
+  borderLeftWidth *GoNullable /**  unused  **/  `json:"borderLeftWidth"` 
+  borderColor *GoNullable /**  unused  **/  `json:"borderColor"` 
   borderRadius *GoNullable /**  unused  **/  `json:"borderRadius"` 
   src string `json:"src"` 
   alt string `json:"alt"` 
-  imageViewBox string `json:"imageViewBox"` 
+  imageViewBox string /**  unused  **/  `json:"imageViewBox"` 
   imageViewBoxX float64 `json:"imageViewBoxX"` 
   imageViewBoxY float64 `json:"imageViewBoxY"` 
   imageViewBoxW float64 `json:"imageViewBoxW"` 
@@ -6291,305 +6291,1424 @@ func (this *EVGElement) getCalculatedBounds () string {
 func (this *EVGElement) toString () string {
   return ((((("<" + this.tagName) + " id=\"") + this.id) + "\" ") + this.getCalculatedBounds()) + ">"
 }
-type JSXToEVG struct { 
-  parser *GoNullable `json:"parser"` 
-  source string `json:"source"` 
-  pageWidth float64 `json:"pageWidth"` 
-  pageHeight float64 `json:"pageHeight"` 
+type EvalValue struct { 
+  valueType int64 `json:"valueType"` 
+  numberValue float64 `json:"numberValue"` 
+  stringValue string `json:"stringValue"` 
+  boolValue bool `json:"boolValue"` 
+  arrayValue []*EvalValue `json:"arrayValue"` 
+  objectKeys []string `json:"objectKeys"` 
+  objectValues []*EvalValue `json:"objectValues"` 
+  functionName string `json:"functionName"` 
+  functionBody string /**  unused  **/  `json:"functionBody"` 
+  evgElement *GoNullable `json:"evgElement"` 
 }
 
-func CreateNew_JSXToEVG() *JSXToEVG {
-  me := new(JSXToEVG)
-  me.source = ""
-  me.pageWidth = 595.0
-  me.pageHeight = 842.0
-  me.parser = new(GoNullable);
-  me.parser.value = CreateNew_TSParserSimple();
-  me.parser.has_value = true; /* detected as non-optional */
-  me.parser.value.(*TSParserSimple).tsxMode = true; 
+func CreateNew_EvalValue() *EvalValue {
+  me := new(EvalValue)
+  me.valueType = int64(0)
+  me.numberValue = 0.0
+  me.stringValue = ""
+  me.boolValue = false
+  me.arrayValue = make([]*EvalValue,0)
+  me.objectKeys = make([]string,0)
+  me.objectValues = make([]*EvalValue,0)
+  me.functionName = ""
+  me.functionBody = ""
+  me.evgElement = new(GoNullable);
   return me;
 }
-func (this *JSXToEVG) camelToKebab (name string) string {
-  var result string= "";
-  var i int64= int64(0);
-  var __len int64= int64(len([]rune(name)));
-  for i < __len {
-    var code byte= byte(int64([]rune(name)[i]));
-    var codeInt int64= int64(code);
-    if  (codeInt >= int64(65)) && (codeInt <= int64(90)) {
+func EvalValue_static_null() *EvalValue {
+  var v *EvalValue= CreateNew_EvalValue();
+  v.valueType = int64(0); 
+  return v
+}
+func EvalValue_static_number(n float64) *EvalValue {
+  var v *EvalValue= CreateNew_EvalValue();
+  v.valueType = int64(1); 
+  v.numberValue = n; 
+  return v
+}
+func EvalValue_static_fromInt(n int64) *EvalValue {
+  var v *EvalValue= CreateNew_EvalValue();
+  v.valueType = int64(1); 
+  v.numberValue = float64( n ); 
+  return v
+}
+func EvalValue_static_string(s string) *EvalValue {
+  var v *EvalValue= CreateNew_EvalValue();
+  v.valueType = int64(2); 
+  v.stringValue = s; 
+  return v
+}
+func EvalValue_static_boolean(b bool) *EvalValue {
+  var v *EvalValue= CreateNew_EvalValue();
+  v.valueType = int64(3); 
+  v.boolValue = b; 
+  return v
+}
+func EvalValue_static_array(items []*EvalValue) *EvalValue {
+  var v *EvalValue= CreateNew_EvalValue();
+  v.valueType = int64(4); 
+  v.arrayValue = items; 
+  return v
+}
+func EvalValue_static_object(keys []string, values []*EvalValue) *EvalValue {
+  var v *EvalValue= CreateNew_EvalValue();
+  v.valueType = int64(5); 
+  v.objectKeys = keys; 
+  v.objectValues = values; 
+  return v
+}
+func EvalValue_static_element(el *EVGElement) *EvalValue {
+  var v *EvalValue= CreateNew_EvalValue();
+  v.valueType = int64(7); 
+  v.evgElement.value = el;
+  v.evgElement.has_value = true; /* detected as non-optional */
+  return v
+}
+func (this *EvalValue) isNull () bool {
+  return this.valueType == int64(0)
+}
+func (this *EvalValue) isNumber () bool {
+  return this.valueType == int64(1)
+}
+func (this *EvalValue) isString () bool {
+  return this.valueType == int64(2)
+}
+func (this *EvalValue) isBoolean () bool {
+  return this.valueType == int64(3)
+}
+func (this *EvalValue) isArray () bool {
+  return this.valueType == int64(4)
+}
+func (this *EvalValue) isObject () bool {
+  return this.valueType == int64(5)
+}
+func (this *EvalValue) isFunction () bool {
+  return this.valueType == int64(6)
+}
+func (this *EvalValue) isElement () bool {
+  return this.valueType == int64(7)
+}
+func (this *EvalValue) toNumber () float64 {
+  if  this.valueType == int64(1) {
+    return this.numberValue
+  }
+  if  this.valueType == int64(2) {
+    var parsed *GoNullable = new(GoNullable); 
+    parsed = r_str_2_d64(this.stringValue);
+    return parsed.value.(float64)
+  }
+  if  this.valueType == int64(3) {
+    if  this.boolValue {
+      return 1.0
+    }
+    return 0.0
+  }
+  return 0.0
+}
+func (this *EvalValue) toString () string {
+  if  this.valueType == int64(0) {
+    return "null"
+  }
+  if  this.valueType == int64(1) {
+    var s string= strconv.FormatFloat(this.numberValue,'f', 6, 64);
+    var intVal int64= int64(this.numberValue);
+    if  (float64( intVal )) == this.numberValue {
+      return strconv.FormatInt(intVal, 10)
+    }
+    return s
+  }
+  if  this.valueType == int64(2) {
+    return this.stringValue
+  }
+  if  this.valueType == int64(3) {
+    if  this.boolValue {
+      return "true"
+    }
+    return "false"
+  }
+  if  this.valueType == int64(4) {
+    var result string= "[";
+    var i int64= int64(0);
+    for i < (int64(len(this.arrayValue))) {
       if  i > int64(0) {
-        result = result + "-"; 
+        result = result + ", "; 
       }
-      var lowerCode int64= codeInt + int64(32);
-      var lowerCh string= string([]rune{rune(lowerCode)});
-      result = result + lowerCh; 
-    } else {
-      var ch string= string([]rune{rune(codeInt)});
-      result = result + ch; 
+      var item *EvalValue= this.arrayValue[i];
+      var itemStr string= (item).toString();
+      result = result + itemStr; 
+      i = i + int64(1); 
+    }
+    return result + "]"
+  }
+  if  this.valueType == int64(5) {
+    var result_1 string= "{";
+    var i_1 int64= int64(0);
+    for i_1 < (int64(len(this.objectKeys))) {
+      if  i_1 > int64(0) {
+        result_1 = result_1 + ", "; 
+      }
+      var key string= this.objectKeys[i_1];
+      var val *EvalValue= this.objectValues[i_1];
+      var valStr string= (val).toString();
+      result_1 = ((result_1 + key) + ": ") + valStr; 
+      i_1 = i_1 + int64(1); 
+    }
+    return result_1 + "}"
+  }
+  if  this.valueType == int64(6) {
+    return ("[Function: " + this.functionName) + "]"
+  }
+  if  this.valueType == int64(7) {
+    if ( this.evgElement.has_value) {
+      var el *EVGElement= this.evgElement.value.(*EVGElement);
+      return ("[EVGElement: " + el.tagName) + "]"
+    }
+    return "[EVGElement: null]"
+  }
+  return "undefined"
+}
+func (this *EvalValue) toBool () bool {
+  if  this.valueType == int64(0) {
+    return false
+  }
+  if  this.valueType == int64(1) {
+    return this.numberValue != 0.0
+  }
+  if  this.valueType == int64(2) {
+    return (int64(len([]rune(this.stringValue)))) > int64(0)
+  }
+  if  this.valueType == int64(3) {
+    return this.boolValue
+  }
+  if  this.valueType == int64(4) {
+    return true
+  }
+  if  this.valueType == int64(5) {
+    return true
+  }
+  if  this.valueType == int64(6) {
+    return true
+  }
+  if  this.valueType == int64(7) {
+    return true
+  }
+  return false
+}
+func (this *EvalValue) getMember (key string) *EvalValue {
+  if  this.valueType == int64(5) {
+    var i int64= int64(0);
+    for i < (int64(len(this.objectKeys))) {
+      if  (this.objectKeys[i]) == key {
+        return this.objectValues[i]
+      }
+      i = i + int64(1); 
+    }
+  }
+  if  this.valueType == int64(4) {
+    if  key == "length" {
+      return EvalValue_static_fromInt((int64(len(this.arrayValue))))
+    }
+  }
+  if  this.valueType == int64(2) {
+    if  key == "length" {
+      return EvalValue_static_fromInt((int64(len([]rune(this.stringValue)))))
+    }
+  }
+  return EvalValue_static_null()
+}
+func (this *EvalValue) getIndex (index int64) *EvalValue {
+  if  this.valueType == int64(4) {
+    if  (index >= int64(0)) && (index < (int64(len(this.arrayValue)))) {
+      return this.arrayValue[index]
+    }
+  }
+  if  this.valueType == int64(2) {
+    if  (index >= int64(0)) && (index < (int64(len([]rune(this.stringValue))))) {
+      var charStr string= string([]rune(this.stringValue)[index:(index + int64(1))]);
+      return EvalValue_static_string(charStr)
+    }
+  }
+  return EvalValue_static_null()
+}
+func (this *EvalValue) equals (other *EvalValue) bool {
+  if  this.valueType != other.valueType {
+    return false
+  }
+  if  this.valueType == int64(0) {
+    return true
+  }
+  if  this.valueType == int64(1) {
+    return this.numberValue == other.numberValue
+  }
+  if  this.valueType == int64(2) {
+    return this.stringValue == other.stringValue
+  }
+  if  this.valueType == int64(3) {
+    return this.boolValue == other.boolValue
+  }
+  return false
+}
+type ImportedSymbol struct { 
+  name string `json:"name"` 
+  originalName string `json:"originalName"` 
+  sourcePath string `json:"sourcePath"` 
+  symbolType string `json:"symbolType"` 
+  functionNode *GoNullable `json:"functionNode"` 
+}
+
+func CreateNew_ImportedSymbol() *ImportedSymbol {
+  me := new(ImportedSymbol)
+  me.name = ""
+  me.originalName = ""
+  me.sourcePath = ""
+  me.symbolType = ""
+  me.functionNode = new(GoNullable);
+  return me;
+}
+type EvalContext struct { 
+  variables []string `json:"variables"` 
+  values []*EvalValue `json:"values"` 
+  parent *GoNullable `json:"parent"` 
+}
+
+func CreateNew_EvalContext() *EvalContext {
+  me := new(EvalContext)
+  me.variables = make([]string,0)
+  me.values = make([]*EvalValue,0)
+  me.parent = new(GoNullable);
+  var v []string = make([]string, 0);
+  me.variables = v; 
+  var vl []*EvalValue = make([]*EvalValue, 0);
+  me.values = vl; 
+  return me;
+}
+func (this *EvalContext) define (name string, value *EvalValue) () {
+  var i int64= int64(0);
+  for i < (int64(len(this.variables))) {
+    if  (this.variables[i]) == name {
+      this.values[i] = value;
+      return
     }
     i = i + int64(1); 
   }
-  return result
+  this.variables = append(this.variables,name); 
+  this.values = append(this.values,value); 
 }
-func (this *JSXToEVG) parseFile (dirPath string, fileName string) *EVGElement {
+func (this *EvalContext) lookup (name string) *EvalValue {
+  var i int64= int64(0);
+  for i < (int64(len(this.variables))) {
+    if  (this.variables[i]) == name {
+      return this.values[i]
+    }
+    i = i + int64(1); 
+  }
+  if ( this.parent.has_value) {
+    var p *EvalContext= this.parent.value.(*EvalContext);
+    return p.lookup(name)
+  }
+  return EvalValue_static_null()
+}
+func (this *EvalContext) has (name string) bool {
+  var i int64= int64(0);
+  for i < (int64(len(this.variables))) {
+    if  (this.variables[i]) == name {
+      return true
+    }
+    i = i + int64(1); 
+  }
+  if ( this.parent.has_value) {
+    var p *EvalContext= this.parent.value.(*EvalContext);
+    return (p).has(name)
+  }
+  return false
+}
+func (this *EvalContext) createChild () *EvalContext {
+  var child *EvalContext= CreateNew_EvalContext();
+  child.parent.value = this;
+  child.parent.has_value = true; /* detected as non-optional */
+  return child
+}
+type ComponentEngine struct { 
+  parser *GoNullable `json:"parser"` 
+  source string `json:"source"` 
+  basePath string `json:"basePath"` 
+  assetPaths []string `json:"assetPaths"` 
+  pageWidth float64 `json:"pageWidth"` 
+  pageHeight float64 `json:"pageHeight"` 
+  imports []*ImportedSymbol `json:"imports"` 
+  localComponents []*ImportedSymbol `json:"localComponents"` 
+  context *GoNullable `json:"context"` 
+  primitives []string `json:"primitives"` 
+}
+
+func CreateNew_ComponentEngine() *ComponentEngine {
+  me := new(ComponentEngine)
+  me.source = ""
+  me.basePath = "./"
+  me.assetPaths = make([]string,0)
+  me.pageWidth = 595.0
+  me.pageHeight = 842.0
+  me.imports = make([]*ImportedSymbol,0)
+  me.localComponents = make([]*ImportedSymbol,0)
+  me.primitives = make([]string,0)
+  me.parser = new(GoNullable);
+  me.context = new(GoNullable);
+  var p *TSParserSimple= CreateNew_TSParserSimple();
+  me.parser.value = p;
+  me.parser.has_value = true; /* detected as non-optional */
+  me.parser.value.(*TSParserSimple).tsxMode = true; 
+  var imp []*ImportedSymbol = make([]*ImportedSymbol, 0);
+  me.imports = imp; 
+  var loc []*ImportedSymbol = make([]*ImportedSymbol, 0);
+  me.localComponents = loc; 
+  var ctx *EvalContext= CreateNew_EvalContext();
+  me.context.value = ctx;
+  me.context.has_value = true; /* detected as non-optional */
+  var prim []string = make([]string, 0);
+  me.primitives = prim; 
+  var ap []string = make([]string, 0);
+  me.assetPaths = ap; 
+  me.primitives = append(me.primitives,"View"); 
+  me.primitives = append(me.primitives,"Label"); 
+  me.primitives = append(me.primitives,"Print"); 
+  me.primitives = append(me.primitives,"Section"); 
+  me.primitives = append(me.primitives,"Page"); 
+  me.primitives = append(me.primitives,"Image"); 
+  me.primitives = append(me.primitives,"Path"); 
+  me.primitives = append(me.primitives,"Spacer"); 
+  me.primitives = append(me.primitives,"Divider"); 
+  me.primitives = append(me.primitives,"div"); 
+  me.primitives = append(me.primitives,"span"); 
+  me.primitives = append(me.primitives,"p"); 
+  me.primitives = append(me.primitives,"h1"); 
+  me.primitives = append(me.primitives,"h2"); 
+  me.primitives = append(me.primitives,"h3"); 
+  me.primitives = append(me.primitives,"img"); 
+  me.primitives = append(me.primitives,"path"); 
+  return me;
+}
+func (this *ComponentEngine) setAssetPaths (paths string) () {
+  var start int64= int64(0);
+  var i int64= int64(0);
+  var __len int64= int64(len([]rune(paths)));
+  for i <= __len {
+    var ch string= "";
+    if  i < __len {
+      ch = string([]rune(paths)[i:(i + int64(1))]); 
+    }
+    if  (ch == ";") || (i == __len) {
+      if  i > start {
+        var part string= string([]rune(paths)[start:i]);
+        this.assetPaths = append(this.assetPaths,part); 
+        fmt.Println( "ComponentEngine: Added asset path: " + part )
+      }
+      start = i + int64(1); 
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) resolveComponentPath (relativePath string) string {
+  var fullPath string= this.basePath + relativePath;
+  var i int64= int64(0);
+  for i < (int64(len(this.assetPaths))) {
+    /** unused:  assetDir*/
+    i = i + int64(1); 
+  }
+  return fullPath
+}
+func (this *ComponentEngine) parseFile (dirPath string, fileName string) *EVGElement {
+  this.basePath = dirPath; 
   var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fileName)); return d }();
   var src string= string(fileContent);
   return this.parse(src)
 }
-func (this *JSXToEVG) parse (src string) *EVGElement {
+func (this *ComponentEngine) parse (src string) *EVGElement {
   this.source = src; 
   var lexer *TSLexer= CreateNew_TSLexer(src);
   var tokens []*Token= lexer.tokenize();
   this.parser.value.(*TSParserSimple).initParser(tokens);
   this.parser.value.(*TSParserSimple).tsxMode = true; 
   var ast *TSNode= this.parser.value.(*TSParserSimple).parseProgram();
-  var jsxRoot *TSNode= this.findJSXRoot(ast);
-  if  jsxRoot.nodeType == "" {
-    fmt.Println( "Error: No JSX found in render() function" )
+  this.processImports(ast);
+  this.registerComponents(ast);
+  this.processVariables(ast);
+  var renderFn *TSNode= this.findRenderFunction(ast);
+  if  renderFn.nodeType == "" {
+    fmt.Println( "Error: No render() function found" )
     var empty *EVGElement= CreateNew_EVGElement();
     return empty
   }
-  return this.convertNode(jsxRoot)
+  return this.evaluateFunction(renderFn)
 }
-func (this *JSXToEVG) findJSXRoot (ast *TSNode) *TSNode {
-  var result *TSNode= this.searchForRenderFunction(ast);
-  return result
-}
-func (this *JSXToEVG) searchForRenderFunction (node *TSNode) *TSNode {
-  var empty *TSNode= CreateNew_TSNode();
-  if  node.nodeType == "FunctionDeclaration" {
-    if  node.name == "render" {
-      return this.findReturnJSX(node)
+func (this *ComponentEngine) processImports (ast *TSNode) () {
+  var i int64= int64(0);
+  for i < (int64(len(ast.children))) {
+    var node *TSNode= ast.children[i];
+    if  node.nodeType == "ImportDeclaration" {
+      this.processImportDeclaration(node);
     }
+    i = i + int64(1); 
   }
-  if  node.nodeType == "VariableDeclaration" {
-    var i int64= int64(0);
-    for i < (int64(len(node.children))) {
-      var child *TSNode= node.children[i];
-      if  child.name == "render" {
-        if ( child.right.has_value) {
-          var rightNode *TSNode= child.right.value.(*TSNode);
-          if  rightNode.nodeType == "FunctionExpression" {
-            return this.findReturnJSX(rightNode)
-          }
-          if  rightNode.nodeType == "ArrowFunctionExpression" {
-            return this.findReturnJSX(rightNode)
+}
+func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
+  var modulePath string= "";
+  if ( node.left.has_value) {
+    var srcNode *TSNode= node.left.value.(*TSNode);
+    modulePath = this.unquote(srcNode.value); 
+  }
+  if  (int64(len([]rune(modulePath)))) == int64(0) {
+    return
+  }
+  if  (int64(strings.Index(modulePath, "evg_types"))) >= int64(0) {
+    return
+  }
+  if  (int64(strings.Index(modulePath, "evg_"))) >= int64(0) {
+    return
+  }
+  var importedNames []string = make([]string, 0);
+  var j int64= int64(0);
+  for j < (int64(len(node.children))) {
+    var spec *TSNode= node.children[j];
+    if  spec.nodeType == "ImportSpecifier" {
+      importedNames = append(importedNames,spec.name); 
+    }
+    if  spec.nodeType == "ImportDefaultSpecifier" {
+      importedNames = append(importedNames,spec.name); 
+    }
+    j = j + int64(1); 
+  }
+  var fullPath string= this.resolveModulePath(modulePath);
+  if  (int64(len([]rune(fullPath)))) == int64(0) {
+    return
+  }
+  var dirPath string= this.basePath;
+  fmt.Println( ("Loading import: " + dirPath) + fullPath )
+  var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fullPath)); return d }();
+  var src string= string(fileContent);
+  if  (int64(len([]rune(src)))) == int64(0) {
+    fmt.Println( "" )
+    fmt.Println( ("ERROR: Could not load component module: " + dirPath) + fullPath )
+    fmt.Println( "" )
+    fmt.Println( "Please ensure the imported file exists. You may need to:" )
+    fmt.Println( "  1. Check that the import path is correct in your TSX file" )
+    fmt.Println( "  2. Make sure the component file exists in one of your asset paths:" )
+    var pathIdx int64= int64(0);
+    for pathIdx < (int64(len(this.assetPaths))) {
+      fmt.Println( "     - " + (this.assetPaths[pathIdx]) )
+      pathIdx = pathIdx + int64(1); 
+    }
+    fmt.Println( "" )
+    return
+  }
+  var lexer *TSLexer= CreateNew_TSLexer(src);
+  var tokens []*Token= lexer.tokenize();
+  var importParser *TSParserSimple= CreateNew_TSParserSimple();
+  importParser.initParser(tokens);
+  importParser.tsxMode = true; 
+  var importAst *TSNode= importParser.parseProgram();
+  var k int64= int64(0);
+  for k < (int64(len(importAst.children))) {
+    var stmt *TSNode= importAst.children[k];
+    if  stmt.nodeType == "ExportNamedDeclaration" {
+      if ( stmt.left.has_value) {
+        var declNode *TSNode= stmt.left.value.(*TSNode);
+        if  declNode.nodeType == "FunctionDeclaration" {
+          var fnName string= declNode.name;
+          if  this.isInList(fnName, importedNames) {
+            var sym *ImportedSymbol= CreateNew_ImportedSymbol();
+            sym.name = fnName; 
+            sym.originalName = fnName; 
+            sym.sourcePath = fullPath; 
+            sym.symbolType = "component"; 
+            sym.functionNode.value = declNode;
+            sym.functionNode.has_value = true; /* detected as non-optional */
+            this.localComponents = append(this.localComponents,sym); 
+            fmt.Println( (("Imported component: " + fnName) + " from ") + fullPath )
           }
         }
+      }
+    }
+    if  stmt.nodeType == "FunctionDeclaration" {
+      var fnName_1 string= stmt.name;
+      if  this.isInList(fnName_1, importedNames) {
+        var sym_1 *ImportedSymbol= CreateNew_ImportedSymbol();
+        sym_1.name = fnName_1; 
+        sym_1.originalName = fnName_1; 
+        sym_1.sourcePath = fullPath; 
+        sym_1.symbolType = "component"; 
+        sym_1.functionNode.value = stmt;
+        sym_1.functionNode.has_value = true; /* detected as non-optional */
+        this.localComponents = append(this.localComponents,sym_1); 
+        fmt.Println( (("Imported component: " + fnName_1) + " from ") + fullPath )
+      }
+    }
+    k = k + int64(1); 
+  }
+}
+func (this *ComponentEngine) resolveModulePath (modulePath string) string {
+  if  (int64(strings.Index(modulePath, "./"))) == int64(0) {
+    var path string= string([]rune(modulePath)[int64(2):(int64(len([]rune(modulePath))))]);
+    if  (int64(len([]rune(path)))) == int64(0) {
+      return ""
+    }
+    if  (int64(strings.Index(path, ".tsx"))) < int64(0) {
+      if  (int64(strings.Index(path, ".ts"))) < int64(0) {
+        path = path + ".tsx"; 
+      }
+    }
+    return path
+  }
+  if  (int64(strings.Index(modulePath, ".tsx"))) < int64(0) {
+    if  (int64(strings.Index(modulePath, ".ts"))) < int64(0) {
+      return modulePath + ".tsx"
+    }
+  }
+  return modulePath
+}
+func (this *ComponentEngine) isInList (name string, list []string) bool {
+  var i int64= int64(0);
+  for i < (int64(len(list))) {
+    if  (list[i]) == name {
+      return true
+    }
+    i = i + int64(1); 
+  }
+  return false
+}
+func (this *ComponentEngine) registerComponents (ast *TSNode) () {
+  var i int64= int64(0);
+  for i < (int64(len(ast.children))) {
+    var node *TSNode= ast.children[i];
+    if  node.nodeType == "FunctionDeclaration" {
+      if  node.name != "render" {
+        var sym *ImportedSymbol= CreateNew_ImportedSymbol();
+        sym.name = node.name; 
+        sym.originalName = node.name; 
+        sym.symbolType = "component"; 
+        sym.functionNode.value = node;
+        sym.functionNode.has_value = true; /* detected as non-optional */
+        this.localComponents = append(this.localComponents,sym); 
+        fmt.Println( "Registered local component: " + node.name )
+      }
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) findRenderFunction (ast *TSNode) *TSNode {
+  var empty *TSNode= CreateNew_TSNode();
+  var i int64= int64(0);
+  for i < (int64(len(ast.children))) {
+    var node *TSNode= ast.children[i];
+    if  node.nodeType == "FunctionDeclaration" {
+      if  node.name == "render" {
+        return node
+      }
+    }
+    i = i + int64(1); 
+  }
+  return empty
+}
+func (this *ComponentEngine) processVariables (ast *TSNode) () {
+  var i int64= int64(0);
+  for i < (int64(len(ast.children))) {
+    var node *TSNode= ast.children[i];
+    if  node.nodeType == "VariableDeclaration" {
+      this.processVariableDeclaration(node);
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) processVariableDeclaration (node *TSNode) () {
+  var i int64= int64(0);
+  for i < (int64(len(node.children))) {
+    var decl *TSNode= node.children[i];
+    if  decl.nodeType == "VariableDeclarator" {
+      var varName string= decl.name;
+      if ( decl.init.has_value) {
+        var initNode *TSNode= decl.init.value.(*TSNode);
+        var value *EvalValue= this.evaluateExpr(initNode);
+        this.context.value.(*EvalContext).define(varName, value);
+        fmt.Println( (("Defined variable: " + varName) + " = ") + (value).toString() )
+      }
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) evaluateFunction (fnNode *TSNode) *EVGElement {
+  var savedContext *GoNullable = new(GoNullable); 
+  savedContext.value = this.context.value;
+  savedContext.has_value = this.context.has_value;
+  this.context.value = this.context.value.(*EvalContext).createChild();
+  this.context.has_value = true; /* detected as non-optional */
+  var body *TSNode= this.getFunctionBody(fnNode);
+  var result *EVGElement= this.evaluateFunctionBody(body);
+  this.context.value = savedContext.value;
+  this.context.has_value = false; 
+  if this.context.value != nil {
+    this.context.has_value = true
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateFunctionWithProps (fnNode *TSNode, props *EvalValue) *EVGElement {
+  var savedContext *GoNullable = new(GoNullable); 
+  savedContext.value = this.context.value;
+  savedContext.has_value = this.context.has_value;
+  this.context.value = this.context.value.(*EvalContext).createChild();
+  this.context.has_value = true; /* detected as non-optional */
+  this.bindFunctionParams(fnNode, props);
+  var body *TSNode= this.getFunctionBody(fnNode);
+  var result *EVGElement= this.evaluateFunctionBody(body);
+  this.context.value = savedContext.value;
+  this.context.has_value = false; 
+  if this.context.value != nil {
+    this.context.has_value = true
+  }
+  return result
+}
+func (this *ComponentEngine) bindFunctionParams (fnNode *TSNode, props *EvalValue) () {
+  var i int64= int64(0);
+  for i < (int64(len(fnNode.params))) {
+    var param *TSNode= fnNode.params[i];
+    if  param.nodeType == "ObjectPattern" {
+      this.bindObjectPattern(param, props);
+    }
+    if  param.nodeType == "Parameter" {
+      this.context.value.(*EvalContext).define(param.name, props);
+    }
+    if  param.nodeType == "Identifier" {
+      this.context.value.(*EvalContext).define(param.name, props);
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) bindObjectPattern (pattern *TSNode, props *EvalValue) () {
+  var i int64= int64(0);
+  for i < (int64(len(pattern.children))) {
+    var prop *TSNode= pattern.children[i];
+    if  prop.nodeType == "Property" {
+      var propName string= prop.name;
+      var propValue *EvalValue= props.getMember(propName);
+      if  propValue.isNull() {
+        if ( prop.init.has_value) {
+          var initNode *TSNode= prop.init.value.(*TSNode);
+          propValue = this.evaluateExpr(initNode); 
+        }
+      }
+      this.context.value.(*EvalContext).define(propName, propValue);
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) getFunctionBody (fnNode *TSNode) *TSNode {
+  if ( fnNode.body.has_value) {
+    return fnNode.body.value.(*TSNode)
+  }
+  var empty *TSNode= CreateNew_TSNode();
+  return empty
+}
+func (this *ComponentEngine) evaluateFunctionBody (body *TSNode) *EVGElement {
+  var empty *EVGElement= CreateNew_EVGElement();
+  var i int64= int64(0);
+  for i < (int64(len(body.children))) {
+    var stmt *TSNode= body.children[i];
+    if  stmt.nodeType == "VariableDeclaration" {
+      this.processVariableDeclaration(stmt);
+    }
+    if  stmt.nodeType == "ReturnStatement" {
+      if ( stmt.left.has_value) {
+        var returnExpr *TSNode= stmt.left.value.(*TSNode);
+        return this.evaluateJSX(returnExpr)
+      }
+    }
+    i = i + int64(1); 
+  }
+  if  (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") {
+    return this.evaluateJSX(body)
+  }
+  return empty
+}
+func (this *ComponentEngine) evaluateJSX (node *TSNode) *EVGElement {
+  var element *EVGElement= CreateNew_EVGElement();
+  if  node.nodeType == "JSXElement" {
+    return this.evaluateJSXElement(node)
+  }
+  if  node.nodeType == "JSXFragment" {
+    element.tagName = "div"; 
+    this.evaluateChildren(element, node);
+    return element
+  }
+  if  node.nodeType == "ParenthesizedExpression" {
+    if ( node.left.has_value) {
+      var inner *TSNode= node.left.value.(*TSNode);
+      return this.evaluateJSX(inner)
+    }
+  }
+  return element
+}
+func (this *ComponentEngine) evaluateJSXElement (jsxNode *TSNode) *EVGElement {
+  var tagName string= "";
+  if ( jsxNode.left.has_value) {
+    var openingEl *TSNode= jsxNode.left.value.(*TSNode);
+    tagName = openingEl.name; 
+  }
+  if  this.isComponent(tagName) {
+    return this.expandComponent(tagName, jsxNode)
+  }
+  var element *EVGElement= CreateNew_EVGElement();
+  element.tagName = this.mapTagName(tagName); 
+  if ( jsxNode.left.has_value) {
+    var openingEl_1 *TSNode= jsxNode.left.value.(*TSNode);
+    this.evaluateAttributes(element, openingEl_1);
+  }
+  if  ((tagName == "Label") || (tagName == "span")) || (tagName == "text") {
+    element.textContent = this.evaluateTextContent(jsxNode); 
+  } else {
+    this.evaluateChildren(element, jsxNode);
+  }
+  return element
+}
+func (this *ComponentEngine) isComponent (name string) bool {
+  if  (int64(len([]rune(name)))) == int64(0) {
+    return false
+  }
+  var i int64= int64(0);
+  for i < (int64(len(this.primitives))) {
+    if  (this.primitives[i]) == name {
+      return false
+    }
+    i = i + int64(1); 
+  }
+  var firstChar int64= int64([]rune(name)[int64(0)]);
+  if  (firstChar >= int64(65)) && (firstChar <= int64(90)) {
+    return true
+  }
+  return false
+}
+func (this *ComponentEngine) expandComponent (name string, jsxNode *TSNode) *EVGElement {
+  var i int64= int64(0);
+  for i < (int64(len(this.localComponents))) {
+    var sym *ImportedSymbol= this.localComponents[i];
+    if  sym.name == name {
+      var props *EvalValue= this.evaluateProps(jsxNode);
+      if ( sym.functionNode.has_value) {
+        var fnNode *TSNode= sym.functionNode.value.(*TSNode);
+        return this.evaluateFunctionWithProps(fnNode, props)
+      }
+    }
+    i = i + int64(1); 
+  }
+  fmt.Println( "Warning: Unknown component: " + name )
+  var empty *EVGElement= CreateNew_EVGElement();
+  empty.tagName = "div"; 
+  return empty
+}
+func (this *ComponentEngine) evaluateProps (jsxNode *TSNode) *EvalValue {
+  var keys []string = make([]string, 0);
+  var values []*EvalValue = make([]*EvalValue, 0);
+  if ( jsxNode.left.has_value) {
+    var openingEl *TSNode= jsxNode.left.value.(*TSNode);
+    var i int64= int64(0);
+    for i < (int64(len(openingEl.children))) {
+      var attr *TSNode= openingEl.children[i];
+      if  attr.nodeType == "JSXAttribute" {
+        var attrName string= attr.name;
+        var attrValue *EvalValue= this.evaluateAttributeValue(attr);
+        keys = append(keys,attrName); 
+        values = append(values,attrValue); 
       }
       i = i + int64(1); 
     }
   }
-  var i_1 int64= int64(0);
-  for i_1 < (int64(len(node.children))) {
-    var child_1 *TSNode= node.children[i_1];
-    var found *TSNode= this.searchForRenderFunction(child_1);
-    if  found.nodeType != "" {
-      return found
+  var hasExplicitChildren bool= false;
+  var ci int64= int64(0);
+  for ci < (int64(len(keys))) {
+    if  (keys[ci]) == "children" {
+      hasExplicitChildren = true; 
     }
-    i_1 = i_1 + int64(1); 
+    ci = ci + int64(1); 
   }
-  if ( node.left.has_value) {
-    var leftNode *TSNode= node.left.value.(*TSNode);
-    var found_1 *TSNode= this.searchForRenderFunction(leftNode);
-    if  found_1.nodeType != "" {
-      return found_1
-    }
-  }
-  if ( node.right.has_value) {
-    var rightNode_1 *TSNode= node.right.value.(*TSNode);
-    var found_2 *TSNode= this.searchForRenderFunction(rightNode_1);
-    if  found_2.nodeType != "" {
-      return found_2
+  if  hasExplicitChildren == false {
+    var childElements []*EvalValue= this.collectChildElements(jsxNode);
+    if  (int64(len(childElements))) > int64(0) {
+      keys = append(keys,"children"); 
+      if  (int64(len(childElements))) == int64(1) {
+        values = append(values,childElements[int64(0)]); 
+      } else {
+        values = append(values,EvalValue_static_array(childElements)); 
+      }
     }
   }
-  return empty
+  return EvalValue_static_object(keys, values)
 }
-func (this *JSXToEVG) findReturnJSX (funcNode *TSNode) *TSNode {
-  var empty *TSNode= CreateNew_TSNode();
-  if ( funcNode.body.has_value) {
-    var bodyNode *TSNode= funcNode.body.value.(*TSNode);
-    var found *TSNode= this.findReturnJSX(bodyNode);
-    if  found.nodeType != "" {
-      return found
-    }
-  }
+func (this *ComponentEngine) collectChildElements (jsxNode *TSNode) []*EvalValue {
+  var results []*EvalValue = make([]*EvalValue, 0);
   var i int64= int64(0);
-  for i < (int64(len(funcNode.children))) {
-    var child *TSNode= funcNode.children[i];
-    if  child.nodeType == "ReturnStatement" {
+  for i < (int64(len(jsxNode.children))) {
+    var child *TSNode= jsxNode.children[i];
+    if  child.nodeType == "JSXElement" {
+      var el *EVGElement= this.evaluateJSXElement(child);
+      if  (int64(len([]rune(el.tagName)))) > int64(0) {
+        results = append(results,EvalValue_static_element(el)); 
+      }
+    }
+    if  child.nodeType == "JSXText" {
+      var text string= this.trimText(child.value);
+      if  (int64(len([]rune(text)))) > int64(0) {
+        var textEl *EVGElement= CreateNew_EVGElement();
+        textEl.tagName = "text"; 
+        textEl.textContent = text; 
+        results = append(results,EvalValue_static_element(textEl)); 
+      }
+    }
+    if  child.nodeType == "JSXExpressionContainer" {
       if ( child.left.has_value) {
-        var leftNode *TSNode= child.left.value.(*TSNode);
-        if  (leftNode.nodeType == "JSXElement") || (leftNode.nodeType == "JSXFragment") {
-          return leftNode
+        var exprNode *TSNode= child.left.value.(*TSNode);
+        var exprValue *EvalValue= this.evaluateExpr(exprNode);
+        if  exprValue.isElement() {
+          results = append(results,exprValue); 
+        }
+        if  (exprValue).isArray() {
+          var ai int64= int64(0);
+          for ai < (int64(len(exprValue.arrayValue))) {
+            var arrItem *EvalValue= exprValue.arrayValue[ai];
+            if  arrItem.isElement() {
+              results = append(results,arrItem); 
+            }
+            ai = ai + int64(1); 
+          }
         }
       }
     }
-    if  child.nodeType == "BlockStatement" {
-      var found_1 *TSNode= this.findReturnJSX(child);
-      if  found_1.nodeType != "" {
-        return found_1
+    i = i + int64(1); 
+  }
+  return results
+}
+func (this *ComponentEngine) evaluateAttributeValue (attr *TSNode) *EvalValue {
+  if ( attr.right.has_value) {
+    var rightNode *TSNode= attr.right.value.(*TSNode);
+    if  rightNode.nodeType == "StringLiteral" {
+      return EvalValue_static_string(this.unquote(rightNode.value))
+    }
+    if  rightNode.nodeType == "JSXExpressionContainer" {
+      if ( rightNode.left.has_value) {
+        var exprNode *TSNode= rightNode.left.value.(*TSNode);
+        return this.evaluateExpr(exprNode)
       }
     }
-    if  (child.nodeType == "JSXElement") || (child.nodeType == "JSXFragment") {
-      return child
+  }
+  return EvalValue_static_boolean(true)
+}
+func (this *ComponentEngine) evaluateAttributes (element *EVGElement, openingNode *TSNode) () {
+  var i int64= int64(0);
+  for i < (int64(len(openingNode.children))) {
+    var attr *TSNode= openingNode.children[i];
+    if  attr.nodeType == "JSXAttribute" {
+      var rawAttrName string= attr.name;
+      var attrValue *EvalValue= this.evaluateAttributeValue(attr);
+      var strValue string= (attrValue).toString();
+      this.applyAttribute(element, rawAttrName, strValue);
     }
     i = i + int64(1); 
   }
-  if ( funcNode.right.has_value) {
-    var rightNode *TSNode= funcNode.right.value.(*TSNode);
-    if  (rightNode.nodeType == "JSXElement") || (rightNode.nodeType == "JSXFragment") {
-      return rightNode
-    }
-  }
-  return empty
 }
-func (this *JSXToEVG) convertNode (jsxNode *TSNode) *EVGElement {
-  var element *EVGElement= CreateNew_EVGElement();
-  if  jsxNode.nodeType == "JSXElement" {
-    return this.convertJSXElement(jsxNode)
+func (this *ComponentEngine) applyAttribute (element *EVGElement, rawName string, strValue string) () {
+  if  rawName == "id" {
+    element.id = strValue; 
+    return
   }
-  if  jsxNode.nodeType == "JSXFragment" {
-    element.tagName = "div"; 
-    this.convertChildren(element, jsxNode);
-    return element
+  if  rawName == "className" {
+    element.className = strValue; 
+    return
   }
-  if  jsxNode.nodeType == "JSXText" {
-    element.tagName = "text"; 
-    element.textContent = this.trimText(jsxNode.value); 
-    return element
+  if  rawName == "src" {
+    element.src = strValue; 
+    return
   }
-  if  jsxNode.nodeType == "JSXExpressionContainer" {
-    if ( jsxNode.left.has_value) {
-      if  jsxNode.left.value.(*TSNode).nodeType == "StringLiteral" {
-        element.tagName = "text"; 
-        element.textContent = jsxNode.left.value.(*TSNode).value; 
-        return element
-      }
-      if  jsxNode.left.value.(*TSNode).nodeType == "NumericLiteral" {
-        element.tagName = "text"; 
-        element.textContent = jsxNode.left.value.(*TSNode).value; 
-        return element
-      }
-    }
-    element.tagName = ""; 
-    return element
-  }
-  element.tagName = ""; 
-  return element
+  element.setAttribute(rawName, strValue);
 }
-func (this *JSXToEVG) convertJSXElement (jsxNode *TSNode) *EVGElement {
-  var element *EVGElement= CreateNew_EVGElement();
-  var tagName string= "";
-  if ( jsxNode.left.has_value) {
-    tagName = jsxNode.left.value.(*TSNode).name; 
-  }
-  element.tagName = this.mapTagName(tagName); 
-  if  tagName == "page" {
-    element.tagName = "page"; 
-  }
-  if  tagName == "row" {
-    element.tagName = "div"; 
-    element.display = "flex"; 
-    element.flexDirection = "row"; 
-  }
-  if  tagName == "column" {
-    element.tagName = "div"; 
-    element.display = "flex"; 
-    element.flexDirection = "column"; 
-  }
-  if  tagName == "spacer" {
-    element.tagName = "spacer"; 
-  }
-  if  tagName == "divider" {
-    element.tagName = "divider"; 
-  }
-  if  (tagName == "layer") || (tagName == "Layer") {
-    element.tagName = "layer"; 
-    element.position = "absolute"; 
-    element.left.value = EVGUnit_static_px(0.0);
-    element.left.has_value = true; /* detected as non-optional */
-    element.top.value = EVGUnit_static_px(0.0);
-    element.top.has_value = true; /* detected as non-optional */
-    element.width.value = EVGUnit_static_percent(100.0);
-    element.width.has_value = true; /* detected as non-optional */
-    element.height.value = EVGUnit_static_percent(100.0);
-    element.height.has_value = true; /* detected as non-optional */
-  }
-  if ( jsxNode.left.has_value) {
-    var leftNode *TSNode= jsxNode.left.value.(*TSNode);
-    this.parseAttributes(element, leftNode);
-  }
-  if  ((tagName == "span") || (tagName == "Label")) || (tagName == "text") {
-    element.textContent = this.collectTextContent(jsxNode); 
-  } else {
-    this.convertChildren(element, jsxNode);
-  }
-  return element
-}
-func (this *JSXToEVG) collectTextContent (jsxNode *TSNode) string {
+func (this *ComponentEngine) evaluateTextContent (jsxNode *TSNode) string {
   var result string= "";
   var i int64= int64(0);
   for i < (int64(len(jsxNode.children))) {
     var child *TSNode= jsxNode.children[i];
     if  child.nodeType == "JSXText" {
-      var text string= this.trimText(child.value);
-      if  (int64(len([]rune(text)))) > int64(0) {
-        if  (int64(len([]rune(result)))) > int64(0) {
-          var firstChar int64= int64([]rune(text)[int64(0)]);
-          var isPunct bool= ((((((((firstChar == int64(44)) || (firstChar == int64(46))) || (firstChar == int64(33))) || (firstChar == int64(63))) || (firstChar == int64(58))) || (firstChar == int64(59))) || (firstChar == int64(45))) || (firstChar == int64(41))) || (firstChar == int64(93));
-          if  isPunct {
-            result = result + text; 
-          } else {
-            result = (result + " ") + text; 
-          }
-        } else {
-          result = text; 
-        }
+      var rawText string= child.value;
+      if  (int64(len([]rune(rawText)))) > int64(0) {
+        result = this.smartJoinText(result, rawText); 
       }
     }
     if  child.nodeType == "JSXExpressionContainer" {
       if ( child.left.has_value) {
-        if  child.left.value.(*TSNode).nodeType == "StringLiteral" {
-          var text_1 string= this.unquote(child.left.value.(*TSNode).value);
-          if  (int64(len([]rune(result)))) > int64(0) {
-            result = (result + " ") + text_1; 
-          } else {
-            result = text_1; 
-          }
-        }
-        if  child.left.value.(*TSNode).nodeType == "TemplateLiteral" {
-          var leftNode *TSNode= child.left.value.(*TSNode);
-          var text_2 string= this.extractTemplateLiteralText(leftNode);
-          if  (int64(len([]rune(result)))) > int64(0) {
-            result = (result + " ") + text_2; 
-          } else {
-            result = text_2; 
-          }
-        }
+        var exprNode *TSNode= child.left.value.(*TSNode);
+        var exprValue *EvalValue= this.evaluateExpr(exprNode);
+        var exprStr string= (exprValue).toString();
+        result = this.smartJoinText(result, exprStr); 
       }
     }
     i = i + int64(1); 
   }
-  return result
+  var normalizedText string= this.normalizeWhitespace(result);
+  var trimmedText string= this.trimText(normalizedText);
+  return trimmedText
 }
-func (this *JSXToEVG) extractTemplateLiteralText (node *TSNode) string {
-  var result string= "";
+func (this *ComponentEngine) evaluateChildren (element *EVGElement, jsxNode *TSNode) () {
+  var i int64= int64(0);
+  var accumulatedText string= "";
+  for i < (int64(len(jsxNode.children))) {
+    var child *TSNode= jsxNode.children[i];
+    if  child.nodeType == "JSXText" {
+      accumulatedText = this.smartJoinText(accumulatedText, child.value); 
+      i = i + int64(1); 
+      continue;
+    }
+    if  (int64(len([]rune(accumulatedText)))) > int64(0) {
+      var normalizedText string= this.normalizeWhitespace(accumulatedText);
+      var text string= this.trimText(normalizedText);
+      if  (int64(len([]rune(text)))) > int64(0) {
+        var textEl *EVGElement= CreateNew_EVGElement();
+        textEl.tagName = "text"; 
+        textEl.textContent = text; 
+        element.addChild(textEl);
+      }
+      accumulatedText = ""; 
+    }
+    if  child.nodeType == "JSXElement" {
+      var childEl *EVGElement= this.evaluateJSXElement(child);
+      if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
+        element.addChild(childEl);
+      }
+    }
+    if  child.nodeType == "JSXExpressionContainer" {
+      this.evaluateExpressionChild(element, child);
+    }
+    if  child.nodeType == "JSXFragment" {
+      this.evaluateChildren(element, child);
+    }
+    i = i + int64(1); 
+  }
+  if  (int64(len([]rune(accumulatedText)))) > int64(0) {
+    var normalizedText_1 string= this.normalizeWhitespace(accumulatedText);
+    var text_1 string= this.trimText(normalizedText_1);
+    if  (int64(len([]rune(text_1)))) > int64(0) {
+      var textEl_1 *EVGElement= CreateNew_EVGElement();
+      textEl_1.tagName = "text"; 
+      textEl_1.textContent = text_1; 
+      element.addChild(textEl_1);
+    }
+  }
+}
+func (this *ComponentEngine) evaluateExpressionChild (element *EVGElement, exprContainer *TSNode) () {
+  if ( exprContainer.left.has_value) {
+    var exprNode *TSNode= exprContainer.left.value.(*TSNode);
+    if  exprNode.nodeType == "CallExpression" {
+      this.evaluateArrayMapChild(element, exprNode);
+      return
+    }
+    if  exprNode.nodeType == "ConditionalExpression" {
+      this.evaluateTernaryChild(element, exprNode);
+      return
+    }
+    if  exprNode.nodeType == "BinaryExpression" {
+      if  exprNode.value == "&&" {
+        this.evaluateAndChild(element, exprNode);
+        return
+      }
+    }
+    var value *EvalValue= this.evaluateExpr(exprNode);
+    if  value.isElement() {
+      if ( value.evgElement.has_value) {
+        var childEl *EVGElement= value.evgElement.value.(*EVGElement);
+        if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
+          element.addChild(childEl);
+        }
+      }
+      return
+    }
+    if  (value).isArray() {
+      var ai int64= int64(0);
+      for ai < (int64(len(value.arrayValue))) {
+        var arrItem *EvalValue= value.arrayValue[ai];
+        if  arrItem.isElement() {
+          if ( arrItem.evgElement.has_value) {
+            var arrChildEl *EVGElement= arrItem.evgElement.value.(*EVGElement);
+            if  (int64(len([]rune(arrChildEl.tagName)))) > int64(0) {
+              element.addChild(arrChildEl);
+            }
+          }
+        }
+        ai = ai + int64(1); 
+      }
+      return
+    }
+    var isStr bool= value.isString();
+    var isNum bool= value.isNumber();
+    if  isStr || isNum {
+      var textEl *EVGElement= CreateNew_EVGElement();
+      textEl.tagName = "text"; 
+      textEl.textContent = (value).toString(); 
+      element.addChild(textEl);
+    }
+  }
+}
+func (this *ComponentEngine) evaluateArrayMapChild (element *EVGElement, callNode *TSNode) () {
+  if ( callNode.left.has_value) {
+    var calleeNode *TSNode= callNode.left.value.(*TSNode);
+    if  calleeNode.nodeType == "MemberExpression" {
+      var methodName string= calleeNode.name;
+      if  methodName == "map" {
+        if ( calleeNode.left.has_value) {
+          var arrayExpr *TSNode= calleeNode.left.value.(*TSNode);
+          var arrayValue *EvalValue= this.evaluateExpr(arrayExpr);
+          if  (arrayValue).isArray() {
+            if  (int64(len(callNode.children))) > int64(0) {
+              var callback *TSNode= callNode.children[int64(0)];
+              var i int64= int64(0);
+              for i < (int64(len(arrayValue.arrayValue))) {
+                var item *EvalValue= arrayValue.arrayValue[i];
+                var savedContext *GoNullable = new(GoNullable); 
+                savedContext.value = this.context.value;
+                savedContext.has_value = this.context.has_value;
+                this.context.value = this.context.value.(*EvalContext).createChild();
+                this.context.has_value = true; /* detected as non-optional */
+                this.bindMapCallback(callback, item, i);
+                var resultEl *EVGElement= this.evaluateMapCallbackBody(callback);
+                if  (int64(len([]rune(resultEl.tagName)))) > int64(0) {
+                  element.addChild(resultEl);
+                }
+                this.context.value = savedContext.value;
+                this.context.has_value = false; 
+                if this.context.value != nil {
+                  this.context.has_value = true
+                }
+                i = i + int64(1); 
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+func (this *ComponentEngine) bindMapCallback (callback *TSNode, item *EvalValue, index int64) () {
+  if  callback.nodeType == "ArrowFunctionExpression" {
+    if  (int64(len(callback.params))) > int64(0) {
+      var param *TSNode= callback.params[int64(0)];
+      var paramName string= param.name;
+      this.context.value.(*EvalContext).define(paramName, item);
+    }
+    if  (int64(len(callback.params))) > int64(1) {
+      var indexParam *TSNode= callback.params[int64(1)];
+      this.context.value.(*EvalContext).define(indexParam.name, EvalValue_static_fromInt(index));
+    }
+  }
+}
+func (this *ComponentEngine) evaluateMapCallbackBody (callback *TSNode) *EVGElement {
+  var empty *EVGElement= CreateNew_EVGElement();
+  if  callback.nodeType == "ArrowFunctionExpression" {
+    if ( callback.body.has_value) {
+      var body *TSNode= callback.body.value.(*TSNode);
+      if  (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") {
+        return this.evaluateJSX(body)
+      }
+      if  body.nodeType == "BlockStatement" {
+        return this.evaluateFunctionBody(body)
+      }
+    }
+  }
+  return empty
+}
+func (this *ComponentEngine) evaluateTernaryChild (element *EVGElement, node *TSNode) () {
+  if ( node.test.has_value) {
+    var testExpr *TSNode= node.test.value.(*TSNode);
+    var testValue *EvalValue= this.evaluateExpr(testExpr);
+    if  testValue.toBool() {
+      if ( node.consequent.has_value) {
+        var conseqNode *TSNode= node.consequent.value.(*TSNode);
+        if  (conseqNode.nodeType == "JSXElement") || (conseqNode.nodeType == "JSXFragment") {
+          var childEl *EVGElement= this.evaluateJSX(conseqNode);
+          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
+            element.addChild(childEl);
+          }
+        }
+      }
+    } else {
+      if ( node.alternate.has_value) {
+        var altNode *TSNode= node.alternate.value.(*TSNode);
+        if  (altNode.nodeType == "JSXElement") || (altNode.nodeType == "JSXFragment") {
+          var childEl_1 *EVGElement= this.evaluateJSX(altNode);
+          if  (int64(len([]rune(childEl_1.tagName)))) > int64(0) {
+            element.addChild(childEl_1);
+          }
+        }
+      }
+    }
+  }
+}
+func (this *ComponentEngine) evaluateAndChild (element *EVGElement, node *TSNode) () {
+  if ( node.left.has_value) {
+    var leftExpr *TSNode= node.left.value.(*TSNode);
+    var leftValue *EvalValue= this.evaluateExpr(leftExpr);
+    if  leftValue.toBool() {
+      if ( node.right.has_value) {
+        var rightNode *TSNode= node.right.value.(*TSNode);
+        if  (rightNode.nodeType == "JSXElement") || (rightNode.nodeType == "JSXFragment") {
+          var childEl *EVGElement= this.evaluateJSX(rightNode);
+          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
+            element.addChild(childEl);
+          }
+        }
+      }
+    }
+  }
+}
+func (this *ComponentEngine) evaluateExpr (node *TSNode) *EvalValue {
+  if  node.nodeType == "NumericLiteral" {
+    var numVal *GoNullable = new(GoNullable); 
+    numVal = r_str_2_d64(node.value);
+    if ( numVal.has_value) {
+      return EvalValue_static_number((numVal.value.(float64)))
+    }
+    return EvalValue_static_number(0.0)
+  }
+  if  node.nodeType == "StringLiteral" {
+    return EvalValue_static_string(this.unquote(node.value))
+  }
+  if  node.nodeType == "TemplateLiteral" {
+    var templateText string= "";
+    var ti int64= int64(0);
+    for ti < (int64(len(node.children))) {
+      var templateChild *TSNode= node.children[ti];
+      if  templateChild.nodeType == "TemplateElement" {
+        templateText = templateText + templateChild.value; 
+      }
+      ti = ti + int64(1); 
+    }
+    return EvalValue_static_string(templateText)
+  }
+  if  node.nodeType == "BooleanLiteral" {
+    return EvalValue_static_boolean((node.value == "true"))
+  }
+  if  node.nodeType == "NullLiteral" {
+    return EvalValue_static_null()
+  }
+  if  node.nodeType == "Identifier" {
+    return this.context.value.(*EvalContext).lookup(node.name)
+  }
+  if  node.nodeType == "BinaryExpression" {
+    return this.evaluateBinaryExpr(node)
+  }
+  if  node.nodeType == "UnaryExpression" {
+    return this.evaluateUnaryExpr(node)
+  }
+  if  node.nodeType == "ConditionalExpression" {
+    return this.evaluateConditionalExpr(node)
+  }
+  if  node.nodeType == "MemberExpression" {
+    return this.evaluateMemberExpr(node)
+  }
+  if  node.nodeType == "ArrayExpression" {
+    return this.evaluateArrayExpr(node)
+  }
+  if  node.nodeType == "ObjectExpression" {
+    return this.evaluateObjectExpr(node)
+  }
+  if  node.nodeType == "ParenthesizedExpression" {
+    if ( node.left.has_value) {
+      var inner *TSNode= node.left.value.(*TSNode);
+      return this.evaluateExpr(inner)
+    }
+  }
+  if  node.nodeType == "JSXElement" {
+    var el *EVGElement= this.evaluateJSXElement(node);
+    return EvalValue_static_element(el)
+  }
+  if  node.nodeType == "JSXFragment" {
+    var el_1 *EVGElement= CreateNew_EVGElement();
+    el_1.tagName = "div"; 
+    this.evaluateChildren(el_1, node);
+    return EvalValue_static_element(el_1)
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateBinaryExpr (node *TSNode) *EvalValue {
+  var op string= node.value;
+  if  op == "&&" {
+    if ( node.left.has_value) {
+      var leftExpr *TSNode= node.left.value.(*TSNode);
+      var left *EvalValue= this.evaluateExpr(leftExpr);
+      if  left.toBool() == false {
+        return left
+      }
+      if ( node.right.has_value) {
+        var rightExpr *TSNode= node.right.value.(*TSNode);
+        return this.evaluateExpr(rightExpr)
+      }
+    }
+  }
+  if  op == "||" {
+    if ( node.left.has_value) {
+      var leftExpr_1 *TSNode= node.left.value.(*TSNode);
+      var left_1 *EvalValue= this.evaluateExpr(leftExpr_1);
+      if  left_1.toBool() {
+        return left_1
+      }
+      if ( node.right.has_value) {
+        var rightExpr_1 *TSNode= node.right.value.(*TSNode);
+        return this.evaluateExpr(rightExpr_1)
+      }
+    }
+  }
+  var left_2 *EvalValue= EvalValue_static_null();
+  var right *EvalValue= EvalValue_static_null();
+  if ( node.left.has_value) {
+    var leftExpr_2 *TSNode= node.left.value.(*TSNode);
+    left_2 = this.evaluateExpr(leftExpr_2); 
+  }
+  if ( node.right.has_value) {
+    var rightExpr_2 *TSNode= node.right.value.(*TSNode);
+    right = this.evaluateExpr(rightExpr_2); 
+  }
+  if  op == "+" {
+    var isLeftStr bool= left_2.isString();
+    var isRightStr bool= right.isString();
+    if  isLeftStr || isRightStr {
+      return EvalValue_static_string(((left_2).toString() + (right).toString()))
+    }
+    return EvalValue_static_number((left_2.toNumber() + right.toNumber()))
+  }
+  if  op == "-" {
+    return EvalValue_static_number((left_2.toNumber() - right.toNumber()))
+  }
+  if  op == "*" {
+    return EvalValue_static_number((left_2.toNumber() * right.toNumber()))
+  }
+  if  op == "/" {
+    var rightNum float64= right.toNumber();
+    if  rightNum != 0.0 {
+      return EvalValue_static_number((left_2.toNumber() / rightNum))
+    }
+    return EvalValue_static_number(0.0)
+  }
+  if  op == "%" {
+    var leftInt int64= int64(left_2.toNumber());
+    var rightInt int64= int64(right.toNumber());
+    if  rightInt != int64(0) {
+      return EvalValue_static_fromInt((leftInt % rightInt))
+    }
+    return EvalValue_static_number(0.0)
+  }
+  if  op == "<" {
+    return EvalValue_static_boolean((left_2.toNumber() < right.toNumber()))
+  }
+  if  op == ">" {
+    return EvalValue_static_boolean((left_2.toNumber() > right.toNumber()))
+  }
+  if  op == "<=" {
+    return EvalValue_static_boolean((left_2.toNumber() <= right.toNumber()))
+  }
+  if  op == ">=" {
+    return EvalValue_static_boolean((left_2.toNumber() >= right.toNumber()))
+  }
+  if  (op == "==") || (op == "===") {
+    return EvalValue_static_boolean(left_2.equals(right))
+  }
+  if  (op == "!=") || (op == "!==") {
+    return EvalValue_static_boolean((left_2.equals(right) == false))
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateUnaryExpr (node *TSNode) *EvalValue {
+  var op string= node.value;
+  if ( node.left.has_value) {
+    var argExpr *TSNode= node.left.value.(*TSNode);
+    var arg *EvalValue= this.evaluateExpr(argExpr);
+    if  op == "!" {
+      return EvalValue_static_boolean((arg.toBool() == false))
+    }
+    if  op == "-" {
+      return EvalValue_static_number((0.0 - arg.toNumber()))
+    }
+    if  op == "+" {
+      return EvalValue_static_number(arg.toNumber())
+    }
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateConditionalExpr (node *TSNode) *EvalValue {
+  if ( node.test.has_value) {
+    var testExpr *TSNode= node.test.value.(*TSNode);
+    var test *EvalValue= this.evaluateExpr(testExpr);
+    if  test.toBool() {
+      if ( node.consequent.has_value) {
+        var conseqNode *TSNode= node.consequent.value.(*TSNode);
+        return this.evaluateExpr(conseqNode)
+      }
+    } else {
+      if ( node.alternate.has_value) {
+        var altNode *TSNode= node.alternate.value.(*TSNode);
+        return this.evaluateExpr(altNode)
+      }
+    }
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateMemberExpr (node *TSNode) *EvalValue {
+  if ( node.left.has_value) {
+    var leftExpr *TSNode= node.left.value.(*TSNode);
+    var obj *EvalValue= this.evaluateExpr(leftExpr);
+    var propName string= node.name;
+    if  node.computed {
+      if ( node.right.has_value) {
+        var indexExpr *TSNode= node.right.value.(*TSNode);
+        var indexVal *EvalValue= this.evaluateExpr(indexExpr);
+        if  indexVal.isNumber() {
+          var idx int64= int64(indexVal.toNumber());
+          return obj.getIndex(idx)
+        }
+        if  indexVal.isString() {
+          return obj.getMember(indexVal.stringValue)
+        }
+      }
+    }
+    return obj.getMember(propName)
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateArrayExpr (node *TSNode) *EvalValue {
+  var items []*EvalValue = make([]*EvalValue, 0);
   var i int64= int64(0);
   for i < (int64(len(node.children))) {
-    var child *TSNode= node.children[i];
-    if  child.nodeType == "TemplateElement" {
-      if  (int64(len([]rune(result)))) > int64(0) {
-        result = result + child.value; 
+    var elem *TSNode= node.children[i];
+    var value *EvalValue= this.evaluateExpr(elem);
+    items = append(items,value); 
+    i = i + int64(1); 
+  }
+  return EvalValue_static_array(items)
+}
+func (this *ComponentEngine) evaluateObjectExpr (node *TSNode) *EvalValue {
+  var keys []string = make([]string, 0);
+  var values []*EvalValue = make([]*EvalValue, 0);
+  var i int64= int64(0);
+  for i < (int64(len(node.children))) {
+    var prop *TSNode= node.children[i];
+    if  prop.nodeType == "Property" {
+      var key string= prop.name;
+      keys = append(keys,key); 
+      if ( prop.left.has_value ) {
+        var valueNode *TSNode= prop.left.value.(*TSNode);
+        values = append(values,this.evaluateExpr(valueNode)); 
       } else {
-        result = child.value; 
+        values = append(values,EvalValue_static_null()); 
       }
     }
     i = i + int64(1); 
   }
-  return result
+  return EvalValue_static_object(keys, values)
 }
-func (this *JSXToEVG) mapTagName (jsxTag string) string {
+func (this *ComponentEngine) mapTagName (jsxTag string) string {
   if  jsxTag == "Print" {
     return "print"
   }
@@ -6599,551 +7718,75 @@ func (this *JSXToEVG) mapTagName (jsxTag string) string {
   if  jsxTag == "Page" {
     return "page"
   }
-  if  jsxTag == "page" {
-    return "page"
-  }
   if  jsxTag == "View" {
     return "div"
   }
+  if  jsxTag == "Label" {
+    return "text"
+  }
+  if  jsxTag == "Image" {
+    return "image"
+  }
+  if  jsxTag == "Path" {
+    return "path"
+  }
+  if  jsxTag == "Spacer" {
+    return "spacer"
+  }
+  if  jsxTag == "Divider" {
+    return "divider"
+  }
   if  jsxTag == "div" {
-    return "div"
-  }
-  if  jsxTag == "box" {
-    return "div"
-  }
-  if  jsxTag == "row" {
-    return "div"
-  }
-  if  jsxTag == "column" {
     return "div"
   }
   if  jsxTag == "span" {
     return "text"
   }
-  if  jsxTag == "Label" {
-    return "text"
-  }
-  if  jsxTag == "text" {
-    return "text"
-  }
   if  jsxTag == "img" {
-    return "image"
-  }
-  if  jsxTag == "image" {
-    return "image"
-  }
-  if  jsxTag == "Image" {
     return "image"
   }
   if  jsxTag == "path" {
     return "path"
   }
-  if  jsxTag == "Path" {
-    return "path"
-  }
-  if  jsxTag == "layer" {
-    return "layer"
-  }
-  if  jsxTag == "Layer" {
-    return "layer"
-  }
   return "div"
 }
-func (this *JSXToEVG) parseAttributes (element *EVGElement, openingNode *TSNode) () {
-  var i int64= int64(0);
-  for i < (int64(len(openingNode.children))) {
-    var attr *TSNode= openingNode.children[i];
-    if  attr.nodeType == "JSXAttribute" {
-      var rawAttrName string= attr.name;
-      var attrName string= this.camelToKebab(rawAttrName);
-      var attrValue string= this.getAttributeValue(attr);
-      fmt.Println( (((("  Attr: " + rawAttrName) + " -> ") + attrName) + " = ") + attrValue )
-      if  attrName == "id" {
-        element.id = attrValue; 
-      }
-      if  attrName == "className" {
-        element.className = attrValue; 
-      }
-      if  attrName == "src" {
-        element.src = attrValue; 
-      }
-      if  attrName == "alt" {
-        element.alt = attrValue; 
-      }
-      if  attrName == "image-view-box" {
-        element.imageViewBox = attrValue; 
-        this.parseImageViewBox(element, attrValue);
-      }
-      if  attrName == "object-fit" {
-        element.objectFit = attrValue; 
-      }
-      if  (attrName == "d") || (attrName == "svg-path") {
-        element.svgPath = attrValue; 
-      }
-      if  attrName == "view-box" {
-        element.viewBox = attrValue; 
-      }
-      if  attrName == "fill" {
-        element.fillColor.value = EVGColor_static_parse(attrValue);
-        element.fillColor.has_value = true; /* detected as non-optional */
-      }
-      if  attrName == "stroke" {
-        element.strokeColor.value = EVGColor_static_parse(attrValue);
-        element.strokeColor.has_value = true; /* detected as non-optional */
-      }
-      if  attrName == "stroke-width" {
-        element.strokeWidth = (r_str_2_d64(attrValue)).value.(float64); 
-      }
-      if  attrName == "clip-path" {
-        element.clipPath = attrValue; 
-      }
-      if  attrName == "width" {
-        var unit *EVGUnit= EVGUnit_static_parse(attrValue);
-        element.width.value = unit;
-        element.width.has_value = true; /* detected as non-optional */
-        if  (unit.unitType == int64(0)) && (unit.pixels > 0.0) {
-          this.pageWidth = unit.pixels; 
-        }
-      }
-      if  attrName == "height" {
-        var unit_1 *EVGUnit= EVGUnit_static_parse(attrValue);
-        element.height.value = unit_1;
-        element.height.has_value = true; /* detected as non-optional */
-        if  (unit_1.unitType == int64(0)) && (unit_1.pixels > 0.0) {
-          this.pageHeight = unit_1.pixels; 
-        }
-      }
-      if  attrName == "page-width" {
-        var unit_2 *EVGUnit= EVGUnit_static_parse(attrValue);
-        element.width.value = unit_2;
-        element.width.has_value = true; /* detected as non-optional */
-      }
-      if  attrName == "page-height" {
-        var unit_3 *EVGUnit= EVGUnit_static_parse(attrValue);
-        element.height.value = unit_3;
-        element.height.has_value = true; /* detected as non-optional */
-      }
-      if  attrName == "color" {
-        element.color.value = EVGColor_static_parse(attrValue);
-        element.color.has_value = true; /* detected as non-optional */
-      }
-      if  attrName == "style" {
-        this.parseStyleAttribute(element, attr);
-      }
-      if  attrName == "padding" {
-        this.applyStyleProperty(element, "padding", attrValue);
-      }
-      if  attrName == "margin" {
-        this.applyStyleProperty(element, "margin", attrValue);
-      }
-      if  attrName == "margin-top" {
-        this.applyStyleProperty(element, "marginTop", attrValue);
-      }
-      if  attrName == "margin-bottom" {
-        this.applyStyleProperty(element, "marginBottom", attrValue);
-      }
-      if  attrName == "margin-left" {
-        this.applyStyleProperty(element, "marginLeft", attrValue);
-      }
-      if  attrName == "margin-right" {
-        this.applyStyleProperty(element, "marginRight", attrValue);
-      }
-      if  attrName == "font-size" {
-        this.applyStyleProperty(element, "fontSize", attrValue);
-      }
-      if  attrName == "font-weight" {
-        this.applyStyleProperty(element, "fontWeight", attrValue);
-      }
-      if  attrName == "font-family" {
-        this.applyStyleProperty(element, "fontFamily", attrValue);
-      }
-      if  attrName == "background-color" {
-        fmt.Println( "  Parsing background-color: " + attrValue )
-        this.applyStyleProperty(element, "backgroundColor", attrValue);
-        var bgc *EVGColor= element.backgroundColor.value.(*EVGColor);
-        fmt.Println( (("  After parse: isSet=" + (strconv.FormatBool(bgc.isSet))) + " r=") + (strconv.FormatFloat(bgc.r,'f', 6, 64)) )
-      }
-      if  attrName == "border-radius" {
-        this.applyStyleProperty(element, "borderRadius", attrValue);
-      }
-      if  attrName == "border-width" {
-        this.applyStyleProperty(element, "borderWidth", attrValue);
-      }
-      if  attrName == "line-height" {
-        this.applyStyleProperty(element, "lineHeight", attrValue);
-      }
-      if  attrName == "text-align" {
-        this.applyStyleProperty(element, "textAlign", attrValue);
-      }
-      if  attrName == "flex-direction" {
-        this.applyStyleProperty(element, "flexDirection", attrValue);
-      }
-      if  attrName == "flex" {
-        this.applyStyleProperty(element, "flex", attrValue);
-      }
-      if  attrName == "align" {
-        element.align = attrValue; 
-      }
-      if  attrName == "vertical-align" {
-        element.verticalAlign = attrValue; 
-      }
-      if  attrName == "border-color" {
-        this.applyStyleProperty(element, "borderColor", attrValue);
-      }
-      if  attrName == "shadow-radius" {
-        this.applyStyleProperty(element, "shadowRadius", attrValue);
-      }
-      if  attrName == "shadow-color" {
-        this.applyStyleProperty(element, "shadowColor", attrValue);
-      }
-      if  attrName == "shadow-offset-x" {
-        this.applyStyleProperty(element, "shadowOffsetX", attrValue);
-      }
-      if  attrName == "shadow-offset-y" {
-        this.applyStyleProperty(element, "shadowOffsetY", attrValue);
-      }
-      if  attrName == "background" {
-        this.applyStyleProperty(element, "background", attrValue);
-      }
-      if  attrName == "background-gradient" {
-        this.applyStyleProperty(element, "backgroundGradient", attrValue);
-      }
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *JSXToEVG) getAttributeValue (attr *TSNode) string {
-  if ( attr.right.has_value) {
-    var rightNode *TSNode= attr.right.value.(*TSNode);
-    if  rightNode.nodeType == "StringLiteral" {
-      return this.unquote(rightNode.value)
-    }
-    if  rightNode.nodeType == "JSXExpressionContainer" {
-      if ( rightNode.left.has_value) {
-        var exprNode *TSNode= rightNode.left.value.(*TSNode);
-        return this.extractExpressionValue(exprNode)
-      }
-    }
-  }
-  return ""
-}
-func (this *JSXToEVG) extractExpressionValue (exprNode *TSNode) string {
-  if  exprNode.nodeType == "NumericLiteral" {
-    return exprNode.value
-  }
-  if  exprNode.nodeType == "StringLiteral" {
-    return this.unquote(exprNode.value)
-  }
-  if  exprNode.nodeType == "Identifier" {
-    return exprNode.name
-  }
-  if  exprNode.nodeType == "ObjectExpression" {
-    return "OBJECT"
-  }
-  return ""
-}
-func (this *JSXToEVG) parseStyleAttribute (element *EVGElement, attr *TSNode) () {
-  if ( attr.right.has_value) {
-    var rightNode *TSNode= attr.right.value.(*TSNode);
-    if  rightNode.nodeType == "JSXExpressionContainer" {
-      if ( rightNode.left.has_value) {
-        var styleExpr *TSNode= rightNode.left.value.(*TSNode);
-        this.parseStyleObject(element, styleExpr);
-      }
-    }
-  }
-}
-func (this *JSXToEVG) parseStyleObject (element *EVGElement, styleNode *TSNode) () {
-  if  styleNode.nodeType != "ObjectExpression" {
-    return
-  }
-  var i int64= int64(0);
-  for i < (int64(len(styleNode.children))) {
-    var prop *TSNode= styleNode.children[i];
-    if  prop.nodeType == "Property" {
-      var propName string= prop.name;
-      var propValue string= "";
-      if ( prop.right.has_value) {
-        var propRightNode *TSNode= prop.right.value.(*TSNode);
-        propValue = this.extractExpressionValue(propRightNode); 
-        if  propRightNode.nodeType == "StringLiteral" {
-          propValue = this.unquote(propRightNode.value); 
-        }
-      }
-      this.applyStyleProperty(element, propName, propValue);
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *JSXToEVG) applyStyleProperty (element *EVGElement, name string, value string) () {
-  if  name == "width" {
-    element.width.value = EVGUnit_static_parse(value);
-    element.width.has_value = true; /* detected as non-optional */
-  }
-  if  name == "height" {
-    element.height.value = EVGUnit_static_parse(value);
-    element.height.has_value = true; /* detected as non-optional */
-  }
-  if  name == "minWidth" {
-    element.minWidth.value = EVGUnit_static_parse(value);
-    element.minWidth.has_value = true; /* detected as non-optional */
-  }
-  if  name == "maxWidth" {
-    element.maxWidth.value = EVGUnit_static_parse(value);
-    element.maxWidth.has_value = true; /* detected as non-optional */
-  }
-  if  name == "minHeight" {
-    element.minHeight.value = EVGUnit_static_parse(value);
-    element.minHeight.has_value = true; /* detected as non-optional */
-  }
-  if  name == "maxHeight" {
-    element.maxHeight.value = EVGUnit_static_parse(value);
-    element.maxHeight.has_value = true; /* detected as non-optional */
-  }
-  if  name == "margin" {
-    var unit *EVGUnit= EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).marginTop.value = unit;
-    element.box.value.(*EVGBox).marginTop.has_value = true; /* detected as non-optional */
-    element.box.value.(*EVGBox).marginRight.value = unit;
-    element.box.value.(*EVGBox).marginRight.has_value = true; /* detected as non-optional */
-    element.box.value.(*EVGBox).marginBottom.value = unit;
-    element.box.value.(*EVGBox).marginBottom.has_value = true; /* detected as non-optional */
-    element.box.value.(*EVGBox).marginLeft.value = unit;
-    element.box.value.(*EVGBox).marginLeft.has_value = true; /* detected as non-optional */
-  }
-  if  name == "marginTop" {
-    element.box.value.(*EVGBox).marginTop.value = EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).marginTop.has_value = true; /* detected as non-optional */
-  }
-  if  name == "marginRight" {
-    element.box.value.(*EVGBox).marginRight.value = EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).marginRight.has_value = true; /* detected as non-optional */
-  }
-  if  name == "marginBottom" {
-    element.box.value.(*EVGBox).marginBottom.value = EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).marginBottom.has_value = true; /* detected as non-optional */
-  }
-  if  name == "marginLeft" {
-    element.box.value.(*EVGBox).marginLeft.value = EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).marginLeft.has_value = true; /* detected as non-optional */
-  }
-  if  name == "padding" {
-    var unit_1 *EVGUnit= EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).paddingTop.value = unit_1;
-    element.box.value.(*EVGBox).paddingTop.has_value = true; /* detected as non-optional */
-    element.box.value.(*EVGBox).paddingRight.value = unit_1;
-    element.box.value.(*EVGBox).paddingRight.has_value = true; /* detected as non-optional */
-    element.box.value.(*EVGBox).paddingBottom.value = unit_1;
-    element.box.value.(*EVGBox).paddingBottom.has_value = true; /* detected as non-optional */
-    element.box.value.(*EVGBox).paddingLeft.value = unit_1;
-    element.box.value.(*EVGBox).paddingLeft.has_value = true; /* detected as non-optional */
-  }
-  if  name == "paddingTop" {
-    element.box.value.(*EVGBox).paddingTop.value = EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).paddingTop.has_value = true; /* detected as non-optional */
-  }
-  if  name == "paddingRight" {
-    element.box.value.(*EVGBox).paddingRight.value = EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).paddingRight.has_value = true; /* detected as non-optional */
-  }
-  if  name == "paddingBottom" {
-    element.box.value.(*EVGBox).paddingBottom.value = EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).paddingBottom.has_value = true; /* detected as non-optional */
-  }
-  if  name == "paddingLeft" {
-    element.box.value.(*EVGBox).paddingLeft.value = EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).paddingLeft.has_value = true; /* detected as non-optional */
-  }
-  if  name == "border" {
-    element.box.value.(*EVGBox).borderWidth.value = EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).borderWidth.has_value = true; /* detected as non-optional */
-  }
-  if  name == "borderWidth" {
-    element.borderWidth.value = EVGUnit_static_parse(value);
-    element.borderWidth.has_value = true; /* detected as non-optional */
-  }
-  if  name == "borderColor" {
-    element.borderColor.value = EVGColor_static_parse(value);
-    element.borderColor.has_value = true; /* detected as non-optional */
-  }
-  if  name == "borderTop" {
-    element.borderTopWidth.value = EVGUnit_static_parse(value);
-    element.borderTopWidth.has_value = true; /* detected as non-optional */
-  }
-  if  name == "borderRight" {
-    element.borderRightWidth.value = EVGUnit_static_parse(value);
-    element.borderRightWidth.has_value = true; /* detected as non-optional */
-  }
-  if  name == "borderBottom" {
-    element.borderBottomWidth.value = EVGUnit_static_parse(value);
-    element.borderBottomWidth.has_value = true; /* detected as non-optional */
-  }
-  if  name == "borderLeft" {
-    element.borderLeftWidth.value = EVGUnit_static_parse(value);
-    element.borderLeftWidth.has_value = true; /* detected as non-optional */
-  }
-  if  name == "borderRadius" {
-    element.box.value.(*EVGBox).borderRadius.value = EVGUnit_static_parse(value);
-    element.box.value.(*EVGBox).borderRadius.has_value = true; /* detected as non-optional */
-  }
-  if  name == "display" {
-    element.display = value; 
-  }
-  if  name == "flexDirection" {
-    element.flexDirection = value; 
-  }
-  if  name == "justifyContent" {
-    element.justifyContent = value; 
-  }
-  if  name == "alignItems" {
-    element.alignItems = value; 
-  }
-  if  name == "align" {
-    element.align = value; 
-  }
-  if  name == "verticalAlign" {
-    element.verticalAlign = value; 
-  }
-  if  name == "gap" {
-    element.gap.value = EVGUnit_static_parse(value);
-    element.gap.has_value = true; /* detected as non-optional */
-  }
-  if  name == "flex" {
-    element.flex = this.parseNumberValue(value); 
-  }
-  if  name == "position" {
-    element.position = value; 
-  }
-  if  name == "top" {
-    element.top.value = EVGUnit_static_parse(value);
-    element.top.has_value = true; /* detected as non-optional */
-  }
-  if  name == "left" {
-    element.left.value = EVGUnit_static_parse(value);
-    element.left.has_value = true; /* detected as non-optional */
-  }
-  if  name == "right" {
-    element.right.value = EVGUnit_static_parse(value);
-    element.right.has_value = true; /* detected as non-optional */
-  }
-  if  name == "bottom" {
-    element.bottom.value = EVGUnit_static_parse(value);
-    element.bottom.has_value = true; /* detected as non-optional */
-  }
-  if  name == "backgroundColor" {
-    element.backgroundColor.value = EVGColor_static_parse(value);
-    element.backgroundColor.has_value = true; /* detected as non-optional */
-  }
-  if  name == "background" {
-    if  (strings.Contains(value, "linear-gradient")) || (strings.Contains(value, "radial-gradient")) {
-      element.backgroundGradient = value; 
-      element.gradient = EVGGradient_static_parse(value); 
-    } else {
-      element.backgroundColor.value = EVGColor_static_parse(value);
-      element.backgroundColor.has_value = true; /* detected as non-optional */
-    }
-  }
-  if  name == "backgroundGradient" {
-    element.backgroundGradient = value; 
-    element.gradient = EVGGradient_static_parse(value); 
-  }
-  if  name == "color" {
-    element.color.value = EVGColor_static_parse(value);
-    element.color.has_value = true; /* detected as non-optional */
-  }
-  if  name == "opacity" {
-    element.opacity = this.parseNumberValue(value); 
-  }
-  if  name == "shadowRadius" {
-    element.shadowRadius.value = EVGUnit_static_parse(value);
-    element.shadowRadius.has_value = true; /* detected as non-optional */
-  }
-  if  name == "shadowColor" {
-    element.shadowColor.value = EVGColor_static_parse(value);
-    element.shadowColor.has_value = true; /* detected as non-optional */
-  }
-  if  name == "shadowOffsetX" {
-    element.shadowOffsetX.value = EVGUnit_static_parse(value);
-    element.shadowOffsetX.has_value = true; /* detected as non-optional */
-  }
-  if  name == "shadowOffsetY" {
-    element.shadowOffsetY.value = EVGUnit_static_parse(value);
-    element.shadowOffsetY.has_value = true; /* detected as non-optional */
-  }
-  if  name == "fontSize" {
-    element.fontSize.value = EVGUnit_static_parse(value);
-    element.fontSize.has_value = true; /* detected as non-optional */
-  }
-  if  name == "fontFamily" {
-    element.fontFamily = value; 
-  }
-  if  name == "fontWeight" {
-    element.fontWeight = value; 
-  }
-  if  name == "textAlign" {
-    element.textAlign = value; 
-  }
-  if  name == "lineHeight" {
-    element.lineHeight = this.parseNumberValue(value); 
-  }
-}
-func (this *JSXToEVG) convertChildren (element *EVGElement, jsxNode *TSNode) () {
-  var i int64= int64(0);
-  for i < (int64(len(jsxNode.children))) {
-    var childJsx *TSNode= jsxNode.children[i];
-    if  childJsx.nodeType == "JSXOpeningElement" {
-      i = i + int64(1); 
-      continue;
-    }
-    if  childJsx.nodeType == "JSXClosingElement" {
-      i = i + int64(1); 
-      continue;
-    }
-    if  childJsx.nodeType == "JSXAttribute" {
-      i = i + int64(1); 
-      continue;
-    }
-    var childElement *EVGElement= this.convertNode(childJsx);
-    if  childElement.tagName != "" {
-      if  childElement.tagName == "text" {
-        var hasContent bool= false;
-        if  (int64(len([]rune(childElement.textContent)))) > int64(0) {
-          hasContent = true; 
-        }
-        if  childElement.getChildCount() > int64(0) {
-          hasContent = true; 
-        }
-        if  hasContent == false {
-          i = i + int64(1); 
-          continue;
-        }
-      }
-      childElement.parent.value = element;
-      childElement.parent.has_value = true; /* detected as non-optional */
-      element.children = append(element.children,childElement); 
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *JSXToEVG) unquote (s string) string {
-  var __len int64= int64(len([]rune(s)));
-  if  __len < int64(2) {
-    return s
-  }
-  var first int64= int64([]rune(s)[int64(0)]);
-  var last int64= int64([]rune(s)[(__len - int64(1))]);
-  if  ((first == int64(34)) || (first == int64(39))) && (first == last) {
-    return string([]rune(s)[int64(1):(__len - int64(1))])
-  }
-  return s
-}
-func (this *JSXToEVG) trimText (s string) string {
-  var __len int64= int64(len([]rune(s)));
+func (this *ComponentEngine) trimText (text string) string {
   var result string= "";
-  var lastWasSpace bool= true;
+  var started bool= false;
   var i int64= int64(0);
+  var __len int64= int64(len([]rune(text)));
   for i < __len {
-    var c int64= int64([]rune(s)[i]);
+    var c int64= int64([]rune(text)[i]);
+    var isWhitespace bool= (((c == int64(32)) || (c == int64(9))) || (c == int64(10))) || (c == int64(13));
+    if  started {
+      result = result + (string([]rune{rune(c)})); 
+    } else {
+      if  isWhitespace == false {
+        started = true; 
+        result = string([]rune{rune(c)}); 
+      }
+    }
+    i = i + int64(1); 
+  }
+  var trimLen int64= int64(len([]rune(result)));
+  for trimLen > int64(0) {
+    var lastC int64= int64([]rune(result)[(trimLen - int64(1))]);
+    if  (((lastC == int64(32)) || (lastC == int64(9))) || (lastC == int64(10))) || (lastC == int64(13)) {
+      result = string([]rune(result)[int64(0):(trimLen - int64(1))]); 
+      trimLen = trimLen - int64(1); 
+    } else {
+      trimLen = int64(0); 
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) normalizeWhitespace (text string) string {
+  var result string= "";
+  var lastWasSpace bool= false;
+  var i int64= int64(0);
+  var __len int64= int64(len([]rune(text)));
+  for i < __len {
+    var c int64= int64([]rune(text)[i]);
     var isWhitespace bool= (((c == int64(32)) || (c == int64(9))) || (c == int64(10))) || (c == int64(13));
     if  isWhitespace {
       if  lastWasSpace == false {
@@ -7156,64 +7799,61 @@ func (this *JSXToEVG) trimText (s string) string {
     }
     i = i + int64(1); 
   }
-  var resultLen int64= int64(len([]rune(result)));
-  if  resultLen > int64(0) {
-    var lastChar int64= int64([]rune(result)[(resultLen - int64(1))]);
-    if  lastChar == int64(32) {
-      result = string([]rune(result)[int64(0):(resultLen - int64(1))]); 
-    }
-  }
   return result
 }
-func (this *JSXToEVG) parseNumberValue (s string) float64 {
-  var result *GoNullable = new(GoNullable); 
-  result = r_str_2_d64(s);
-  if ( result.has_value) {
-    return result.value.(float64)
+func (this *ComponentEngine) startsWithPunctuation (s string) bool {
+  if  (int64(len([]rune(s)))) == int64(0) {
+    return false
   }
-  return 0.0
-}
-func (this *JSXToEVG) parseImageViewBox (element *EVGElement, value string) () {
-  var parts []string= strings.Split(value, " ");
-  var numParts int64= int64(len(parts));
-  if  numParts >= int64(4) {
-    var xStr string= parts[int64(0)];
-    var yStr string= parts[int64(1)];
-    var wStr string= parts[int64(2)];
-    var hStr string= parts[int64(3)];
-    var isPercent bool= strings.Contains(xStr, "%");
-    if  isPercent {
-      var xPct float64= this.parsePercentValue(xStr);
-      var yPct float64= this.parsePercentValue(yStr);
-      var wPct float64= this.parsePercentValue(wStr);
-      var hPct float64= this.parsePercentValue(hStr);
-      element.imageViewBoxX = xPct; 
-      element.imageViewBoxY = yPct; 
-      element.imageViewBoxW = wPct; 
-      element.imageViewBoxH = hPct; 
-    } else {
-      var xPx float64= this.parseNumberValue(xStr);
-      var yPx float64= this.parseNumberValue(yStr);
-      var wPx float64= this.parseNumberValue(wStr);
-      var hPx float64= this.parseNumberValue(hStr);
-      element.imageViewBoxX = xPx; 
-      element.imageViewBoxY = yPx; 
-      element.imageViewBoxW = wPx; 
-      element.imageViewBoxH = hPx; 
-    }
-    element.imageViewBoxSet = true; 
+  var first int64= int64([]rune(s)[int64(0)]);
+  if  (((((first == int64(44)) || (first == int64(46))) || (first == int64(33))) || (first == int64(63))) || (first == int64(58))) || (first == int64(59)) {
+    return true
   }
+  if  ((first == int64(41)) || (first == int64(93))) || (first == int64(125)) {
+    return true
+  }
+  if  ((first == int64(39)) || (first == int64(34))) || (first == int64(45)) {
+    return true
+  }
+  return false
 }
-func (this *JSXToEVG) parsePercentValue (s string) float64 {
-  var numStr string= strings.Replace(s, "%", "", 1);
-  var val float64= this.parseNumberValue(numStr);
-  return val / 100.0
+func (this *ComponentEngine) endsWithOpenPunctuation (s string) bool {
+  var __len int64= int64(len([]rune(s)));
+  if  __len == int64(0) {
+    return false
+  }
+  var last int64= int64([]rune(s)[(__len - int64(1))]);
+  if  (((last == int64(40)) || (last == int64(91))) || (last == int64(123))) || (last == int64(45)) {
+    return true
+  }
+  return false
 }
-func (this *JSXToEVG) getPageWidth () float64 {
-  return this.pageWidth
+func (this *ComponentEngine) smartJoinText (existing string, newText string) string {
+  if  (int64(len([]rune(existing)))) == int64(0) {
+    return newText
+  }
+  if  (int64(len([]rune(newText)))) == int64(0) {
+    return existing
+  }
+  if  this.startsWithPunctuation(newText) {
+    return existing + newText
+  }
+  if  this.endsWithOpenPunctuation(existing) {
+    return existing + newText
+  }
+  return (existing + " ") + newText
 }
-func (this *JSXToEVG) getPageHeight () float64 {
-  return this.pageHeight
+func (this *ComponentEngine) unquote (s string) string {
+  var __len int64= int64(len([]rune(s)));
+  if  __len < int64(2) {
+    return s
+  }
+  var first int64= int64([]rune(s)[int64(0)]);
+  var last int64= int64([]rune(s)[(__len - int64(1))]);
+  if  ((first == int64(34)) || (first == int64(39))) && (first == last) {
+    return string([]rune(s)[int64(1):(__len - int64(1))])
+  }
+  return s
 }
 type EVGTextMetrics struct { 
   width float64 `json:"width"` 
@@ -7676,6 +8316,15 @@ func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, pare
   }
   var height float64= 0.0;
   var autoHeight bool= true;
+  if  (element.tagName == "Page") || (element.tagName == "page") {
+    if  element.width.value.(*EVGUnit).isSet == false {
+      width = this.pageWidth; 
+    }
+    if  element.height.value.(*EVGUnit).isSet == false {
+      height = this.pageHeight; 
+      autoHeight = false; 
+    }
+  }
   if  element.height.value.(*EVGUnit).isSet {
     height = element.height.value.(*EVGUnit).pixels; 
     autoHeight = false; 
@@ -8047,6 +8696,9 @@ type EVGHTMLRenderer struct {
   title string `json:"title"` 
   baseDir string `json:"baseDir"` 
   embedAssets bool `json:"embedAssets"` 
+  imageServerUrl string /**  unused  **/  `json:"imageServerUrl"` 
+  foundSections []*EVGElement `json:"foundSections"` 
+  foundPages []*EVGElement `json:"foundPages"` 
 }
 
 func CreateNew_EVGHTMLRenderer() *EVGHTMLRenderer {
@@ -8065,6 +8717,9 @@ func CreateNew_EVGHTMLRenderer() *EVGHTMLRenderer {
   me.title = "EVG Preview"
   me.baseDir = "./"
   me.embedAssets = false
+  me.imageServerUrl = ""
+  me.foundSections = make([]*EVGElement,0)
+  me.foundPages = make([]*EVGElement,0)
   me.layout = new(GoNullable);
   me.measurer = new(GoNullable);
   var lay *EVGLayout= CreateNew_EVGLayout();
@@ -8075,6 +8730,10 @@ func CreateNew_EVGHTMLRenderer() *EVGHTMLRenderer {
   me.measurer.has_value = true; /* detected as non-optional */
   var uf []string = make([]string, 0);
   me.usedFontFamilies = uf; 
+  var fs []*EVGElement = make([]*EVGElement, 0);
+  me.foundSections = fs; 
+  var fp []*EVGElement = make([]*EVGElement, 0);
+  me.foundPages = fp; 
   return me;
 }
 func (this *EVGHTMLRenderer) setPageSize (width float64, height float64) () {
@@ -8215,13 +8874,13 @@ func (this *EVGHTMLRenderer) generateFontFace (fontFamily string) string {
 }
 func (this *EVGHTMLRenderer) fontFamilyToFileName (fontFamily string) string {
   if  fontFamily == "Noto Sans" {
-    return "NotoSans-Regular.ttf"
+    return "Noto_Sans/NotoSans-Regular.ttf"
   }
   if  fontFamily == "Noto Sans Bold" {
-    return "NotoSans-Bold.ttf"
+    return "Noto_Sans/NotoSans-Bold.ttf"
   }
   if  fontFamily == "Helvetica" {
-    return "Helvetica.ttf"
+    return "Helvetica/Helvetica.ttf"
   }
   if  fontFamily == "Amatic SC" {
     return "Amatic_SC/AmaticSC-Regular.ttf"
@@ -8261,13 +8920,13 @@ func (this *EVGHTMLRenderer) renderElement (el *EVGElement, depth int64) string 
 func (this *EVGHTMLRenderer) renderElementWithParent (el *EVGElement, depth int64, parentX float64, parentY float64) string {
   this.elementCounter = this.elementCounter + int64(1); 
   var elementId string= "evg-" + (strconv.FormatInt(this.elementCounter, 10));
-  if  el.tagName == "Print" {
+  if  (el.tagName == "Print") || (el.tagName == "print") {
     return this.renderPrint(el, depth)
   }
-  if  el.tagName == "Section" {
+  if  (el.tagName == "Section") || (el.tagName == "section") {
     return this.renderSection(el, depth)
   }
-  if  el.tagName == "Page" {
+  if  (el.tagName == "Page") || (el.tagName == "page") {
     return this.renderPage_Element(el, depth)
   }
   if  ((el.tagName == "View") || (el.tagName == "div")) || (el.tagName == "layer") {
@@ -8348,7 +9007,7 @@ func (this *EVGHTMLRenderer) renderPage_Element (el *EVGElement, depth int64) st
   var i int64= int64(0);
   for i < (int64(len(el.children))) {
     var child *EVGElement= el.children[i];
-    html = html + this.renderElement(child, (depth + int64(1))); 
+    html = html + this.renderElementWithParent(child, (depth + int64(1)), el.calculatedX, el.calculatedY); 
     i = i + int64(1); 
   }
   html = (html + this.indent(depth)) + "</div>\n"; 
@@ -8581,10 +9240,10 @@ func (this *EVGHTMLRenderer) renderImageWithParent (el *EVGElement, elementId st
       if  (int64(len([]rune(dataUri)))) > int64(0) {
         html = ((html + " src=\"") + dataUri) + "\""; 
       } else {
-        html = (((html + " src=\"") + this.imageBasePath) + imgSrc) + "\""; 
+        html = ((html + " src=\"") + this.transformImagePath(imgSrc)) + "\""; 
       }
     } else {
-      html = (((html + " src=\"") + this.imageBasePath) + imgSrc) + "\""; 
+      html = ((html + " src=\"") + this.transformImagePath(imgSrc)) + "\""; 
     }
   }
   if  (int64(len([]rune(el.alt)))) > int64(0) {
@@ -8638,10 +9297,10 @@ func (this *EVGHTMLRenderer) renderImageWithViewBox (el *EVGElement, elementId s
       if  (int64(len([]rune(dataUri)))) > int64(0) {
         html = ((html + " src=\"") + dataUri) + "\""; 
       } else {
-        html = (((html + " src=\"") + this.imageBasePath) + imgSrc) + "\""; 
+        html = ((html + " src=\"") + this.transformImagePath(imgSrc)) + "\""; 
       }
     } else {
-      html = (((html + " src=\"") + this.imageBasePath) + imgSrc) + "\""; 
+      html = ((html + " src=\"") + this.transformImagePath(imgSrc)) + "\""; 
     }
   }
   html = html + " alt=\"\""; 
@@ -8853,13 +9512,108 @@ func (this *EVGHTMLRenderer) getResolvedMargin (el *EVGElement, side string) flo
   }
   return 0.0
 }
+func (this *EVGHTMLRenderer) findPageElementsRecursive (el *EVGElement) () {
+  if  (el.tagName == "page") || (el.tagName == "Page") {
+    this.foundPages = append(this.foundPages,el); 
+  }
+  var i int64= int64(0);
+  var childCount int64= el.getChildCount();
+  for i < childCount {
+    var child *EVGElement= el.getChild(i);
+    this.findPageElementsRecursive(child);
+    i = i + int64(1); 
+  }
+}
+func (this *EVGHTMLRenderer) findSectionElementsRecursive (el *EVGElement) () {
+  var i int64= int64(0);
+  var childCount int64= el.getChildCount();
+  for i < childCount {
+    var child *EVGElement= el.getChild(i);
+    if  (child.tagName == "section") || (child.tagName == "Section") {
+      this.foundSections = append(this.foundSections,child); 
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *EVGHTMLRenderer) getSectionPageWidth (section *EVGElement) float64 {
+  if  section.width.value.(*EVGUnit).isSet {
+    return section.width.value.(*EVGUnit).pixels
+  }
+  return this.pageWidth
+}
+func (this *EVGHTMLRenderer) getSectionPageHeight (section *EVGElement) float64 {
+  if  section.height.value.(*EVGUnit).isSet {
+    return section.height.value.(*EVGUnit).pixels
+  }
+  return this.pageHeight
+}
+func (this *EVGHTMLRenderer) getSectionMargin (section *EVGElement) float64 {
+  var m *GoNullable = new(GoNullable); 
+  m.value = section.box.value.(*EVGBox).marginTop.value;
+  m.has_value = section.box.value.(*EVGBox).marginTop.has_value;
+  if  m.value.(*EVGUnit).isSet {
+    return m.value.(*EVGUnit).pixels
+  }
+  return 0.0
+}
 func (this *EVGHTMLRenderer) renderContent (root *EVGElement) string {
   this.elementCounter = int64(0); 
   var uf []string = make([]string, 0);
   this.usedFontFamilies = uf; 
-  this.layout.value.(*EVGLayout).layout(root);
+  var isMultiPage bool= false;
+  if  (((root.tagName == "Print") || (root.tagName == "print")) || (root.tagName == "Section")) || (root.tagName == "section") {
+    isMultiPage = true; 
+  }
+  if  isMultiPage {
+    var emptyArr []*EVGElement = make([]*EVGElement, 0);
+    this.foundSections = emptyArr; 
+    this.findSectionElementsRecursive(root);
+    var si int64= int64(0);
+    for si < (int64(len(this.foundSections))) {
+      var section *EVGElement= this.foundSections[si];
+      var sectionWidth float64= this.getSectionPageWidth(section);
+      var sectionHeight float64= this.getSectionPageHeight(section);
+      var sectionMargin float64= this.getSectionMargin(section);
+      var emptyPages []*EVGElement = make([]*EVGElement, 0);
+      this.foundPages = emptyPages; 
+      this.findPageElementsRecursive(section);
+      var pi int64= int64(0);
+      for pi < (int64(len(this.foundPages))) {
+        var pg *EVGElement= this.foundPages[pi];
+        var contentWidth float64= sectionWidth - (sectionMargin * 2.0);
+        var contentHeight float64= sectionHeight - (sectionMargin * 2.0);
+        this.layout.value.(*EVGLayout).pageWidth = contentWidth; 
+        this.layout.value.(*EVGLayout).pageHeight = contentHeight; 
+        pg.resetLayoutState();
+        pg.width.value.(*EVGUnit).pixels = contentWidth; 
+        pg.width.value.(*EVGUnit).value = contentWidth; 
+        pg.width.value.(*EVGUnit).unitType = int64(0); 
+        pg.width.value.(*EVGUnit).isSet = true; 
+        pg.height.value.(*EVGUnit).pixels = contentHeight; 
+        pg.height.value.(*EVGUnit).value = contentHeight; 
+        pg.height.value.(*EVGUnit).unitType = int64(0); 
+        pg.height.value.(*EVGUnit).isSet = true; 
+        this.layout.value.(*EVGLayout).layout(pg);
+        pi = pi + int64(1); 
+      }
+      si = si + int64(1); 
+    }
+    if  (int64(len(this.foundSections))) == int64(0) {
+      this.layout.value.(*EVGLayout).layout(root);
+    }
+  } else {
+    this.layout.value.(*EVGLayout).layout(root);
+  }
   this.collectFonts(root);
-  return this.renderElement(root, int64(0))
+  var result string= "";
+  if  isMultiPage {
+    result = this.renderElement(root, int64(0)); 
+  } else {
+    result = "<div class=\"evg-page-container\">\n"; 
+    result = result + this.renderElement(root, int64(1)); 
+    result = result + "</div>\n"; 
+  }
+  return result
 }
 func (this *EVGHTMLRenderer) getUsedFonts () []string {
   return this.usedFontFamilies
@@ -8872,7 +9626,7 @@ func (this *EVGHTMLRenderer) generateServerFontFaceCSS (serverUrl string) string
     var fontFileName string= this.fontFamilyToFileName(fontFamily);
     css = css + "@font-face {\n"; 
     css = ((css + "    font-family: '") + fontFamily) + "';\n"; 
-    css = ((((css + "    src: url('") + serverUrl) + "/fonts/") + fontFileName) + "') format('truetype');\n"; 
+    css = ((((css + "    src: url('") + serverUrl) + "/assets/fonts/") + fontFileName) + "') format('truetype');\n"; 
     css = css + "    font-weight: 400;\n"; 
     css = css + "    font-style: normal;\n"; 
     css = css + "}\n"; 
@@ -8880,8 +9634,18 @@ func (this *EVGHTMLRenderer) generateServerFontFaceCSS (serverUrl string) string
   }
   return css
 }
+func (this *EVGHTMLRenderer) transformImagePath (imgSrc string) string {
+  if  (int64(len([]rune(imgSrc)))) >= int64(10) {
+    var prefix string= string([]rune(imgSrc)[int64(0):int64(10)]);
+    if  prefix == "../assets/" {
+      var relativePath string= string([]rune(imgSrc)[int64(10):(int64(len([]rune(imgSrc))))]);
+      return this.imageBasePath + relativePath
+    }
+  }
+  return this.imageBasePath + imgSrc
+}
 func (this *EVGHTMLRenderer) setImageServer (serverUrl string) () {
-  this.imageBasePath = serverUrl + "/images/"; 
+  this.imageBasePath = serverUrl + "/assets/"; 
 }
 func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   var html string= "";
@@ -8897,10 +9661,26 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "            background: #b0b0b0;\n"; 
   html = html + "            padding: 40px;\n"; 
   html = html + "            min-height: 100vh;\n"; 
-  html = html + "            display: flex;\n"; 
-  html = html + "            justify-content: center;\n"; 
   html = html + "        }\n"; 
+  html = html + "        /* Document container - centers pages */\n"; 
+  html = html + "        .evg-document-container {\n"; 
+  html = html + "            display: flex;\n"; 
+  html = html + "            flex-direction: column;\n"; 
+  html = html + "            align-items: center;\n"; 
+  html = html + "            gap: 40px;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Page wrapper for single-page content */\n"; 
   html = html + "        .evg-page-container {\n"; 
+  html = ((html + "            width: ") + (strconv.FormatInt((int64(this.pageWidth)), 10))) + "px;\n"; 
+  html = ((html + "            min-height: ") + (strconv.FormatInt((int64(this.pageHeight)), 10))) + "px;\n"; 
+  html = html + "            background: white;\n"; 
+  html = html + "            box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.1);\n"; 
+  html = html + "            position: relative;\n"; 
+  html = html + "            overflow: hidden;\n"; 
+  html = html + "            flex-shrink: 0;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Individual pages in multi-page docs */\n"; 
+  html = html + "        .evg-page {\n"; 
   html = ((html + "            width: ") + (strconv.FormatInt((int64(this.pageWidth)), 10))) + "px;\n"; 
   html = ((html + "            height: ") + (strconv.FormatInt((int64(this.pageHeight)), 10))) + "px;\n"; 
   html = html + "            background: white;\n"; 
@@ -8908,6 +9688,20 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "            position: relative;\n"; 
   html = html + "            overflow: hidden;\n"; 
   html = html + "            flex-shrink: 0;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Section groups pages */\n"; 
+  html = html + "        .evg-section {\n"; 
+  html = html + "            display: flex;\n"; 
+  html = html + "            flex-direction: column;\n"; 
+  html = html + "            align-items: center;\n"; 
+  html = html + "            gap: 40px;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Document wrapper */\n"; 
+  html = html + "        .evg-document {\n"; 
+  html = html + "            display: flex;\n"; 
+  html = html + "            flex-direction: column;\n"; 
+  html = html + "            align-items: center;\n"; 
+  html = html + "            gap: 40px;\n"; 
   html = html + "        }\n"; 
   html = html + "        .evg-status {\n"; 
   html = html + "            position: fixed;\n"; 
@@ -8921,14 +9715,17 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "            border-radius: 4px;\n"; 
   html = html + "            opacity: 0.8;\n"; 
   html = html + "        }\n"; 
+  html = html + "        .evg-view { position: relative; }\n"; 
+  html = html + "        .evg-label { display: block; }\n"; 
+  html = html + "        .evg-image { display: block; }\n"; 
   html = html + "    </style>\n"; 
   html = html + "    <style id=\"evg-fonts\">\n"; 
   html = html + "        /* Font faces loaded dynamically */\n"; 
   html = html + "    </style>\n"; 
   html = html + "</head>\n"; 
   html = html + "<body>\n"; 
-  html = html + "    <div class=\"evg-page-container\" id=\"evg-content\">\n"; 
-  html = html + "        <div style=\"padding: 20px; color: #666;\">Loading...</div>\n"; 
+  html = html + "    <div class=\"evg-document-container\" id=\"evg-content\">\n"; 
+  html = html + "        <div class=\"evg-page-container\" style=\"padding: 20px; color: #666;\">Loading...</div>\n"; 
   html = html + "    </div>\n"; 
   html = html + "    <div class=\"evg-status\" id=\"evg-status\">Connecting...</div>\n"; 
   html = html + "    <script>\n"; 
@@ -9022,6 +9819,7 @@ type EVGPreviewServer struct {
   inputFile string `json:"inputFile"` 
   inputDir string `json:"inputDir"` 
   inputFileName string `json:"inputFileName"` 
+  assetPaths string `json:"assetPaths"` 
   pageWidth float64 `json:"pageWidth"` 
   pageHeight float64 `json:"pageHeight"` 
   port int64 `json:"port"` 
@@ -9038,6 +9836,7 @@ func CreateNew_EVGPreviewServer() *EVGPreviewServer {
   me.inputFile = ""
   me.inputDir = ""
   me.inputFileName = ""
+  me.assetPaths = ""
   me.pageWidth = 595.0
   me.pageHeight = 842.0
   me.port = int64(3000)
@@ -9049,9 +9848,10 @@ func CreateNew_EVGPreviewServer() *EVGPreviewServer {
   me.lastModTime = int64(0)
   return me;
 }
-func (this *EVGPreviewServer) initialize (tsxFile string, serverPort int64) () {
+func (this *EVGPreviewServer) initialize (tsxFile string, serverPort int64, assets string) () {
   this.inputFile = tsxFile; 
   this.port = serverPort; 
+  this.assetPaths = assets; 
   this.serverUrl = "http://localhost:" + (strconv.FormatInt(this.port, 10)); 
   var lastSlash int64= int64(strings.LastIndex(this.inputFile, "/"));
   var lastBackslash int64= int64(strings.LastIndex(this.inputFile, "\\"));
@@ -9071,10 +9871,13 @@ func (this *EVGPreviewServer) initialize (tsxFile string, serverPort int64) () {
 }
 func (this *EVGPreviewServer) reloadContent () () {
   fmt.Println( "Parsing TSX file: " + this.inputFile )
-  var converter *JSXToEVG= CreateNew_JSXToEVG();
-  converter.pageWidth = this.pageWidth; 
-  converter.pageHeight = this.pageHeight; 
-  var root *EVGElement= converter.parseFile(this.inputDir, this.inputFileName);
+  var engine *ComponentEngine= CreateNew_ComponentEngine();
+  engine.pageWidth = this.pageWidth; 
+  engine.pageHeight = this.pageHeight; 
+  if  (int64(len([]rune(this.assetPaths)))) > int64(0) {
+    engine.setAssetPaths(this.assetPaths);
+  }
+  var root *EVGElement= engine.parseFile(this.inputDir, this.inputFileName);
   if  root.tagName == "" {
     fmt.Println( "Error: Failed to parse TSX file" )
     this.cachedContentHTML = "<div style='color:red;padding:20px;'>Error: Failed to parse TSX file</div>"; 
@@ -9110,6 +9913,82 @@ func (this *EVGPreviewServer) handleFontsCSS (req *http.Request, res http.Respon
   res.WriteHeader(int(int64(200)))
   res.Write([]byte(this.cachedFontsCSS))
 }
+func (this *EVGPreviewServer) handleAssets (req *http.Request, res http.ResponseWriter) () {
+  var path string= req.URL.Path;
+  var assetPath string= string([]rune(path)[int64(8):(int64(len([]rune(path))))]);
+  var fullPath string= (this.inputDir + "../assets/") + assetPath;
+  fmt.Println( "Serving asset: " + fullPath )
+  var fileData []byte= func() []byte { d, _ := os.ReadFile(filepath.Join("", fullPath)); return d }();
+  var ext string= "";
+  var lastDot int64= int64(strings.LastIndex(assetPath, "."));
+  if  lastDot >= int64(0) {
+    ext = strings.ToLower((string([]rune(assetPath)[(lastDot + int64(1)):(int64(len([]rune(assetPath))))]))); 
+  }
+  var contentType string= "application/octet-stream";
+  if  ext == "jpg" {
+    contentType = "image/jpeg"; 
+  }
+  if  ext == "jpeg" {
+    contentType = "image/jpeg"; 
+  }
+  if  ext == "png" {
+    contentType = "image/png"; 
+  }
+  if  ext == "gif" {
+    contentType = "image/gif"; 
+  }
+  if  ext == "svg" {
+    contentType = "image/svg+xml"; 
+  }
+  if  ext == "webp" {
+    contentType = "image/webp"; 
+  }
+  if  ext == "woff2" {
+    contentType = "font/woff2"; 
+  }
+  if  ext == "woff" {
+    contentType = "font/woff"; 
+  }
+  if  ext == "ttf" {
+    contentType = "font/ttf"; 
+  }
+  if  ext == "otf" {
+    contentType = "font/otf"; 
+  }
+  res.Header().Set("Content-Type", contentType)
+  res.Header().Set("Cache-Control", "max-age=3600")
+  res.WriteHeader(int(int64(200)))
+  res.Write(fileData)
+}
+func (this *EVGPreviewServer) handleFonts (req *http.Request, res http.ResponseWriter) () {
+  var path string= req.URL.Path;
+  var fontPath string= string([]rune(path)[int64(7):(int64(len([]rune(path))))]);
+  var fullPath string= this.inputDir + fontPath;
+  fmt.Println( "Serving font: " + fullPath )
+  var fileData []byte= func() []byte { d, _ := os.ReadFile(filepath.Join("", fullPath)); return d }();
+  var ext string= "";
+  var lastDot int64= int64(strings.LastIndex(fontPath, "."));
+  if  lastDot >= int64(0) {
+    ext = strings.ToLower((string([]rune(fontPath)[(lastDot + int64(1)):(int64(len([]rune(fontPath))))]))); 
+  }
+  var contentType string= "application/octet-stream";
+  if  ext == "woff2" {
+    contentType = "font/woff2"; 
+  }
+  if  ext == "woff" {
+    contentType = "font/woff"; 
+  }
+  if  ext == "ttf" {
+    contentType = "font/ttf"; 
+  }
+  if  ext == "otf" {
+    contentType = "font/otf"; 
+  }
+  res.Header().Set("Content-Type", contentType)
+  res.Header().Set("Cache-Control", "max-age=3600")
+  res.WriteHeader(int(int64(200)))
+  res.Write(fileData)
+}
 func (this *EVGPreviewServer) handleEvents (client *SSEClient) () {
   fmt.Println( "SSE client connected - watching for changes" )
   fmt.Fprintf(client.Writer, "event: %s\ndata: %s\n\n", "connected", "EVG Preview Server")
@@ -9132,40 +10011,57 @@ func (this *EVGPreviewServer) handleEvents (client *SSEClient) () {
 func main() {
   var argCount int64= int64( len( os.Args) - 1 );
   if  argCount < int64(1) {
-    fmt.Println( "EVG Preview Server - Live TSX Preview" )
+    fmt.Println( "EVG Preview Server - Live TSX Preview with Component Support" )
     fmt.Println( "" )
-    fmt.Println( "Usage: evg_preview_server input.tsx [port]" )
+    fmt.Println( "Usage: evg_preview_server input.tsx [port] [--assets=path1;path2;...]" )
     fmt.Println( "" )
     fmt.Println( "Options:" )
     fmt.Println( "  input.tsx   TSX file to preview" )
     fmt.Println( "  port        Server port (default: 3000)" )
+    fmt.Println( "  --assets    Semicolon-separated paths for components, fonts, images" )
     fmt.Println( "" )
     fmt.Println( "Example:" )
     fmt.Println( "  evg_preview_server sample.tsx" )
     fmt.Println( "  evg_preview_server sample.tsx 8080" )
+    fmt.Println( "  evg_preview_server test_gallery.tsx 3000 --assets=./components;./assets" )
     return
   }
   var inputFile string= os.Args[int64(0) + 1];
   var port int64= int64(3000);
-  if  argCount >= int64(2) {
-    var portArg string= os.Args[int64(1) + 1];
-    var portVal *GoNullable = new(GoNullable); 
-    portVal = r_str_2_i64(portArg);
-    if ( portVal.has_value) {
-      port = portVal.value.(int64); 
+  var assetPaths string= "";
+  var i int64= int64(1);
+  for i < argCount {
+    var arg string= os.Args[i + 1];
+    if  (int64(strings.Index(arg, "--assets="))) == int64(0) {
+      assetPaths = string([]rune(arg)[int64(9):(int64(len([]rune(arg))))]); 
+    } else {
+      var portVal *GoNullable = new(GoNullable); 
+      portVal = r_str_2_i64(arg);
+      if ( portVal.has_value) {
+        port = portVal.value.(int64); 
+      }
+    }
+    i = i + int64(1); 
+  }
+  if  (int64(len([]rune(assetPaths)))) == int64(0) {
+    var lastSlash int64= int64(strings.LastIndex(inputFile, "/"));
+    if  lastSlash >= int64(0) {
+      var baseDir string= string([]rune(inputFile)[int64(0):lastSlash]);
+      assetPaths = ((baseDir + "/../components;") + baseDir) + "/../assets"; 
     }
   }
   fmt.Println( "" )
   fmt.Println( "╔═══════════════════════════════════════════════════════════╗" )
-  fmt.Println( "║           EVG Preview Server - Live Preview               ║" )
+  fmt.Println( "║     EVG Preview Server - Live Preview with Components     ║" )
   fmt.Println( "╚═══════════════════════════════════════════════════════════╝" )
   fmt.Println( "" )
   fmt.Println( "  File: " + inputFile )
   fmt.Println( "  Port: " + (strconv.FormatInt(port, 10)) )
+  fmt.Println( "  Assets: " + assetPaths )
   fmt.Println( "  Live reload: enabled" )
   fmt.Println( "" )
   var server *EVGPreviewServer= CreateNew_EVGPreviewServer();
-  server.initialize(inputFile, port);
+  server.initialize(inputFile, port, assetPaths);
   fmt.Println( "" )
   fmt.Println( "Starting server at http://localhost:" + (strconv.FormatInt(port, 10)) )
   fmt.Println( "Watching for file changes..." )
@@ -9193,6 +10089,20 @@ func main() {
       return
     }
     server.handleFontsCSS(r, w)
+  })
+  mux.HandleFunc("/assets/", func(w http.ResponseWriter, r *http.Request) {
+    if r.Method != "GET" {
+      http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+      return
+    }
+    server.handleAssets(r, w)
+  })
+  mux.HandleFunc("/fonts/", func(w http.ResponseWriter, r *http.Request) {
+    if r.Method != "GET" {
+      http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+      return
+    }
+    server.handleFonts(r, w)
   })
   mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
     flusher, ok := w.(http.Flusher)

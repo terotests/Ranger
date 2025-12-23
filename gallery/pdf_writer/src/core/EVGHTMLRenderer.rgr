@@ -29,6 +29,11 @@ class EVGHTMLRenderer {
     def title:string "EVG Preview"
     def baseDir:string "./"
     def embedAssets:boolean false
+    ; For tracking server URL prefix for images and fonts
+    def imageServerUrl:string ""
+    ; Temporary arrays for collecting elements (like PDF renderer)
+    def foundSections:[EVGElement]
+    def foundPages:[EVGElement]
     
     Constructor () {
         def lay (new EVGLayout())
@@ -37,6 +42,10 @@ class EVGHTMLRenderer {
         measurer = m
         def uf:[string]
         usedFontFamilies = uf
+        def fs:[EVGElement]
+        foundSections = fs
+        def fp:[EVGElement]
+        foundPages = fp
     }
     
     fn setPageSize:void (width:double height:double) {
@@ -238,14 +247,15 @@ class EVGHTMLRenderer {
     
     fn fontFamilyToFileName:string (fontFamily:string) {
         ; Map font family names to actual font file paths
+        ; Fonts are stored in FolderName/FileName.ttf structure
         if (fontFamily == "Noto Sans") {
-            return "NotoSans-Regular.ttf"
+            return "Noto_Sans/NotoSans-Regular.ttf"
         }
         if (fontFamily == "Noto Sans Bold") {
-            return "NotoSans-Bold.ttf"
+            return "Noto_Sans/NotoSans-Bold.ttf"
         }
         if (fontFamily == "Helvetica") {
-            return "Helvetica.ttf"
+            return "Helvetica/Helvetica.ttf"
         }
         ; Google Fonts mappings
         if (fontFamily == "Amatic SC") {
@@ -295,14 +305,14 @@ class EVGHTMLRenderer {
         elementCounter = elementCounter + 1
         def elementId:string ("evg-" + (to_string elementCounter))
         
-        ; Generate element based on type
-        if (el.tagName == "Print") {
+        ; Generate element based on type (check both cases for JSX/EVG compatibility)
+        if ((el.tagName == "Print") || (el.tagName == "print")) {
             return (this.renderPrint(el depth))
         }
-        if (el.tagName == "Section") {
+        if ((el.tagName == "Section") || (el.tagName == "section")) {
             return (this.renderSection(el depth))
         }
-        if (el.tagName == "Page") {
+        if ((el.tagName == "Page") || (el.tagName == "page")) {
             return (this.renderPage_Element(el depth))
         }
         if ((el.tagName == "View") || (el.tagName == "div") || (el.tagName == "layer")) {
@@ -406,11 +416,11 @@ class EVGHTMLRenderer {
         
         html = html + "\">\n"
         
-        ; Render children
+        ; Render children - pass page position so children render relative to page
         def i:int 0
         while (i < (array_length el.children)) {
             def child:EVGElement (itemAt el.children i)
-            html = html + (this.renderElement(child (depth + 1)))
+            html = html + (this.renderElementWithParent(child (depth + 1) el.calculatedX el.calculatedY))
             i = i + 1
         }
         
@@ -770,10 +780,10 @@ class EVGHTMLRenderer {
                     html = html + " src=\"" + dataUri + "\""
                 } {
                     ; Fallback to relative path if embedding fails
-                    html = html + " src=\"" + imageBasePath + imgSrc + "\""
+                    html = html + " src=\"" + (this.transformImagePath(imgSrc)) + "\""
                 }
             } {
-                html = html + " src=\"" + imageBasePath + imgSrc + "\""
+                html = html + " src=\"" + (this.transformImagePath(imgSrc)) + "\""
             }
         }
         
@@ -854,10 +864,10 @@ class EVGHTMLRenderer {
                 if ((strlen dataUri) > 0) {
                     html = html + " src=\"" + dataUri + "\""
                 } {
-                    html = html + " src=\"" + imageBasePath + imgSrc + "\""
+                    html = html + " src=\"" + (this.transformImagePath(imgSrc)) + "\""
                 }
             } {
-                html = html + " src=\"" + imageBasePath + imgSrc + "\""
+                html = html + " src=\"" + (this.transformImagePath(imgSrc)) + "\""
             }
         }
         
@@ -1151,6 +1161,59 @@ class EVGHTMLRenderer {
     ; Live Preview Support
     ; =========================================================================
     
+    ; Helper functions for finding sections and pages (like PDF renderer)
+    fn findPageElementsRecursive:void (el:EVGElement) {
+        ; Recursively find all Page elements (stores in foundPages member)
+        if ((el.tagName == "page") || (el.tagName == "Page")) {
+            push foundPages el
+        }
+        def i:int 0
+        def childCount:int (el.getChildCount())
+        while (i < childCount) {
+            def child:EVGElement (el.getChild(i))
+            this.findPageElementsRecursive(child)
+            i = i + 1
+        }
+    }
+    
+    fn findSectionElementsRecursive:void (el:EVGElement) {
+        ; Find all Section elements (stores in foundSections member)
+        def i:int 0
+        def childCount:int (el.getChildCount())
+        while (i < childCount) {
+            def child:EVGElement (el.getChild(i))
+            if ((child.tagName == "section") || (child.tagName == "Section")) {
+                push foundSections child
+            }
+            i = i + 1
+        }
+    }
+    
+    fn getSectionPageWidth:double (section:EVGElement) {
+        ; Get page width from section, default to A4
+        if section.width.isSet {
+            return section.width.pixels
+        }
+        return pageWidth
+    }
+    
+    fn getSectionPageHeight:double (section:EVGElement) {
+        ; Get page height from section, default to A4
+        if section.height.isSet {
+            return section.height.pixels
+        }
+        return pageHeight
+    }
+    
+    fn getSectionMargin:double (section:EVGElement) {
+        ; Get margin from section (use marginTop as the uniform margin)
+        def m:EVGUnit section.box.marginTop
+        if m.isSet {
+            return m.pixels
+        }
+        return 0.0
+    }
+    
     ; Render just the document content (no html/head/body wrapper)
     ; Used for live preview where shell HTML is served separately
     fn renderContent:string (root:EVGElement) {
@@ -1159,14 +1222,88 @@ class EVGHTMLRenderer {
         def uf:[string]
         usedFontFamilies = uf
         
-        ; Run layout to calculate positions
-        layout.layout(root)
+        ; Check if it's a multi-page document (Print/Section/Page structure)
+        def isMultiPage:boolean false
+        if ((root.tagName == "Print") || (root.tagName == "print") || (root.tagName == "Section") || (root.tagName == "section")) {
+            isMultiPage = true
+        }
+        
+        if isMultiPage {
+            ; Multi-page document - set up page dimensions like PDF renderer
+            ; Find all sections
+            def emptyArr:[EVGElement]
+            foundSections = emptyArr
+            this.findSectionElementsRecursive(root)
+            
+            ; Process each section and its pages
+            def si:int 0
+            while (si < (array_length foundSections)) {
+                def section:EVGElement (itemAt foundSections si)
+                def sectionWidth:double (this.getSectionPageWidth(section))
+                def sectionHeight:double (this.getSectionPageHeight(section))
+                def sectionMargin:double (this.getSectionMargin(section))
+                
+                ; Find pages within this section
+                def emptyPages:[EVGElement]
+                foundPages = emptyPages
+                this.findPageElementsRecursive(section)
+                
+                def pi:int 0
+                while (pi < (array_length foundPages)) {
+                    def pg:EVGElement (itemAt foundPages pi)
+                    
+                    ; Set page dimensions for layout - this is the content area inside margins
+                    def contentWidth:double (sectionWidth - (sectionMargin * 2.0))
+                    def contentHeight:double (sectionHeight - (sectionMargin * 2.0))
+                    
+                    ; Set the layout engine's page dimensions before layout
+                    layout.pageWidth = contentWidth
+                    layout.pageHeight = contentHeight
+                    
+                    ; Reset layout state for fresh layout
+                    pg.resetLayoutState()
+                    
+                    ; Explicitly set Page dimensions (like PDF renderer does)
+                    pg.width.pixels = contentWidth
+                    pg.width.value = contentWidth
+                    pg.width.unitType = 0  ; pixels
+                    pg.width.isSet = true
+                    pg.height.pixels = contentHeight
+                    pg.height.value = contentHeight
+                    pg.height.unitType = 0  ; pixels
+                    pg.height.isSet = true
+                    
+                    ; Layout each page independently
+                    layout.layout(pg)
+                    
+                    pi = pi + 1
+                }
+                si = si + 1
+            }
+            
+            ; If no sections found, try default layout
+            if ((array_length foundSections) == 0) {
+                layout.layout(root)
+            }
+        } {
+            ; Single-page view - just run layout normally
+            layout.layout(root)
+        }
         
         ; Collect used fonts (for getUsedFonts())
         this.collectFonts(root)
         
-        ; Render just the content - no wrapper divs
-        return (this.renderElement(root 0))
+        def result:string ""
+        if isMultiPage {
+            ; Multi-page: render directly (Print/Section/Page handle their own structure)
+            result = (this.renderElement(root 0))
+        } {
+            ; Single-page: wrap in a page container
+            result = "<div class=\"evg-page-container\">\n"
+            result = result + (this.renderElement(root 1))
+            result = result + "</div>\n"
+        }
+        return result
     }
     
     ; Get list of font families used in the document
@@ -1184,10 +1321,10 @@ class EVGHTMLRenderer {
             def fontFamily:string (itemAt usedFontFamilies i)
             def fontFileName:string (this.fontFamilyToFileName(fontFamily))
             
-            ; Regular weight
+            ; Regular weight - fonts are in assets/fonts/ folder
             css = css + "@font-face {\n"
             css = css + "    font-family: '" + fontFamily + "';\n"
-            css = css + "    src: url('" + serverUrl + "/fonts/" + fontFileName + "') format('truetype');\n"
+            css = css + "    src: url('" + serverUrl + "/assets/fonts/" + fontFileName + "') format('truetype');\n"
             css = css + "    font-weight: 400;\n"
             css = css + "    font-style: normal;\n"
             css = css + "}\n"
@@ -1197,12 +1334,28 @@ class EVGHTMLRenderer {
         return css
     }
     
+    ; Transform an image path for server mode
+    ; Converts ../assets/images/x.jpg to /assets/images/x.jpg
+    fn transformImagePath:string (imgSrc:string) {
+        ; If image path starts with ../assets/, transform to /assets/
+        if ((strlen imgSrc) >= 10) {
+            def prefix:string (substring imgSrc 0 10)
+            if (prefix == "../assets/") {
+                ; Strip "../assets/" and replace with server url + "/assets/"
+                def relativePath:string (substring imgSrc 10 (strlen imgSrc))
+                return imageBasePath + relativePath
+            }
+        }
+        ; Otherwise, return as-is with base path
+        return imageBasePath + imgSrc
+    }
+    
     ; Set server URL prefix for images
     ; When set, image paths are prefixed with this URL
     ; Example: setImageServer("http://localhost:3000") 
-    ; Then "../assets/image.jpg" becomes "http://localhost:3000/images/assets/image.jpg"
+    ; Then "../assets/images/x.jpg" becomes "http://localhost:3000/assets/images/x.jpg"
     fn setImageServer:void (serverUrl:string) {
-        imageBasePath = serverUrl + "/images/"
+        imageBasePath = serverUrl + "/assets/"
     }
     
     ; Generate the shell HTML for live preview
@@ -1221,10 +1374,26 @@ class EVGHTMLRenderer {
         html = html + "            background: #b0b0b0;\n"
         html = html + "            padding: 40px;\n"
         html = html + "            min-height: 100vh;\n"
-        html = html + "            display: flex;\n"
-        html = html + "            justify-content: center;\n"
         html = html + "        }\n"
+        html = html + "        /* Document container - centers pages */\n"
+        html = html + "        .evg-document-container {\n"
+        html = html + "            display: flex;\n"
+        html = html + "            flex-direction: column;\n"
+        html = html + "            align-items: center;\n"
+        html = html + "            gap: 40px;\n"
+        html = html + "        }\n"
+        html = html + "        /* Page wrapper for single-page content */\n"
         html = html + "        .evg-page-container {\n"
+        html = html + "            width: " + (to_string (to_int pageWidth)) + "px;\n"
+        html = html + "            min-height: " + (to_string (to_int pageHeight)) + "px;\n"
+        html = html + "            background: white;\n"
+        html = html + "            box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.1);\n"
+        html = html + "            position: relative;\n"
+        html = html + "            overflow: hidden;\n"
+        html = html + "            flex-shrink: 0;\n"
+        html = html + "        }\n"
+        html = html + "        /* Individual pages in multi-page docs */\n"
+        html = html + "        .evg-page {\n"
         html = html + "            width: " + (to_string (to_int pageWidth)) + "px;\n"
         html = html + "            height: " + (to_string (to_int pageHeight)) + "px;\n"
         html = html + "            background: white;\n"
@@ -1232,6 +1401,20 @@ class EVGHTMLRenderer {
         html = html + "            position: relative;\n"
         html = html + "            overflow: hidden;\n"
         html = html + "            flex-shrink: 0;\n"
+        html = html + "        }\n"
+        html = html + "        /* Section groups pages */\n"
+        html = html + "        .evg-section {\n"
+        html = html + "            display: flex;\n"
+        html = html + "            flex-direction: column;\n"
+        html = html + "            align-items: center;\n"
+        html = html + "            gap: 40px;\n"
+        html = html + "        }\n"
+        html = html + "        /* Document wrapper */\n"
+        html = html + "        .evg-document {\n"
+        html = html + "            display: flex;\n"
+        html = html + "            flex-direction: column;\n"
+        html = html + "            align-items: center;\n"
+        html = html + "            gap: 40px;\n"
         html = html + "        }\n"
         html = html + "        .evg-status {\n"
         html = html + "            position: fixed;\n"
@@ -1245,14 +1428,17 @@ class EVGHTMLRenderer {
         html = html + "            border-radius: 4px;\n"
         html = html + "            opacity: 0.8;\n"
         html = html + "        }\n"
+        html = html + "        .evg-view { position: relative; }\n"
+        html = html + "        .evg-label { display: block; }\n"
+        html = html + "        .evg-image { display: block; }\n"
         html = html + "    </style>\n"
         html = html + "    <style id=\"evg-fonts\">\n"
         html = html + "        /* Font faces loaded dynamically */\n"
         html = html + "    </style>\n"
         html = html + "</head>\n"
         html = html + "<body>\n"
-        html = html + "    <div class=\"evg-page-container\" id=\"evg-content\">\n"
-        html = html + "        <div style=\"padding: 20px; color: #666;\">Loading...</div>\n"
+        html = html + "    <div class=\"evg-document-container\" id=\"evg-content\">\n"
+        html = html + "        <div class=\"evg-page-container\" style=\"padding: 20px; color: #666;\">Loading...</div>\n"
         html = html + "    </div>\n"
         html = html + "    <div class=\"evg-status\" id=\"evg-status\">Connecting...</div>\n"
         html = html + "    <script>\n"
