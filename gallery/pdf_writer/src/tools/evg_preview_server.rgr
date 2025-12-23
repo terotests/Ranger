@@ -1,0 +1,212 @@
+; evg_preview_server.rgr - Live Preview Server for TSX files
+;
+; Usage: evg_preview_server input.tsx [port]
+;
+; Opens a TSX file in the browser with live reloading.
+; When the file changes, the browser automatically refreshes.
+;
+; Compile: npm run evg:preview:compile:go
+; Run: ./evg_preview_server sample.tsx
+
+Import "../jsx/JSXToEVG.rgr"
+Import "../core/EVGHTMLRenderer.rgr"
+Import "../../../evg/EVGElement.rgr"
+
+; Preview Server with @(HttpServer) annotation
+class EVGPreviewServer@(HttpServer) {
+    def inputFile:string ""
+    def inputDir:string ""
+    def inputFileName:string ""
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def port:int 3000
+    def title:string "EVG Preview"
+    def serverUrl:string ""
+    
+    ; Cached content for serving
+    def cachedShellHTML:string ""
+    def cachedContentHTML:string ""
+    def cachedFontsCSS:string ""
+    
+    ; File modification tracking
+    def lastModTime:int 0
+    
+    fn initialize:void (tsxFile:string serverPort:int) {
+        inputFile = tsxFile
+        port = serverPort
+        serverUrl = "http://localhost:" + (to_string port)
+        
+        ; Extract directory and filename
+        def lastSlash:int (lastIndexOf inputFile "/")
+        def lastBackslash:int (lastIndexOf inputFile "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            inputDir = (substring inputFile 0 (lastSep + 1))
+            inputFileName = (substring inputFile (lastSep + 1) (strlen inputFile))
+        } {
+            inputDir = "./"
+            inputFileName = inputFile
+        }
+        
+        ; Set title from filename
+        title = inputFileName
+        
+        ; Initial render
+        this.reloadContent()
+    }
+    
+    fn reloadContent:void () {
+        print "Parsing TSX file: " + inputFile
+        
+        ; Parse TSX file
+        def converter (new JSXToEVG())
+        converter.pageWidth = pageWidth
+        converter.pageHeight = pageHeight
+        
+        def root:EVGElement (converter.parseFile(inputDir inputFileName))
+        
+        if (root.tagName == "") {
+            print "Error: Failed to parse TSX file"
+            cachedContentHTML = "<div style='color:red;padding:20px;'>Error: Failed to parse TSX file</div>"
+            return
+        }
+        
+        print "Parsed: <" + root.tagName + "> with " + (to_string (root.getChildCount())) + " children"
+        
+        ; Create renderer
+        def renderer (new EVGHTMLRenderer())
+        renderer.setPageSize(pageWidth pageHeight)
+        renderer.setTitle(title)
+        renderer.setBaseDir(inputDir)
+        renderer.setFontBasePath(inputDir + "../assets/fonts/")
+        renderer.setImageServer(serverUrl)
+        
+        ; Render content (without html/head/body wrapper)
+        cachedContentHTML = (renderer.renderContent(root))
+        
+        ; Generate shell HTML
+        cachedShellHTML = (renderer.generateShellHTML(serverUrl))
+        
+        ; Generate fonts CSS
+        cachedFontsCSS = (renderer.generateServerFontFaceCSS(serverUrl))
+        
+        print "Content rendered: " + (to_string (strlen cachedContentHTML)) + " bytes"
+    }
+    
+    ; =========================================================================
+    ; HTTP Endpoints
+    ; =========================================================================
+    
+    ; GET / - Serve the shell HTML
+    fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) {
+        http_set_header res "Content-Type" "text/html; charset=utf-8"
+        http_set_status res 200
+        http_send res cachedShellHTML
+    }
+    
+    ; GET /content - Serve the rendered document content
+    fn handleContent@(GET "/content"):void (req:HttpRequest res:HttpResponse) {
+        ; Reload content on each request to pick up changes
+        this.reloadContent()
+        http_set_header res "Content-Type" "text/html; charset=utf-8"
+        http_set_header res "Cache-Control" "no-cache"
+        http_set_status res 200
+        http_send res cachedContentHTML
+    }
+    
+    ; GET /fonts.css - Serve font-face CSS
+    fn handleFontsCSS@(GET "/fonts.css"):void (req:HttpRequest res:HttpResponse) {
+        http_set_header res "Content-Type" "text/css; charset=utf-8"
+        http_set_header res "Cache-Control" "no-cache"
+        http_set_status res 200
+        http_send res cachedFontsCSS
+    }
+    
+    ; SSE /events - Live update stream
+    fn handleEvents@(SSE "/events"):void (client:SSEClient) {
+        print "SSE client connected - watching for changes"
+        
+        ; Send initial connected message
+        sse_send client "connected" "EVG Preview Server"
+        
+        ; Get initial modification time
+        def currentModTime:int (file_mtime inputDir inputFileName)
+        lastModTime = currentModTime
+        
+        ; Keep connection open and poll for updates
+        def connected:boolean (sse_is_connected client)
+        
+        while connected {
+            ; Check file modification time
+            currentModTime = (file_mtime inputDir inputFileName)
+            
+            if (currentModTime > lastModTime) {
+                print "File changed - sending update"
+                lastModTime = currentModTime
+                sse_send client "update" "File modified"
+            }
+            
+            ; Sleep 500ms between checks
+            wait 0.5
+            connected = (sse_is_connected client)
+        }
+        
+        print "SSE client disconnected"
+    }
+}
+
+; Main entry point
+sfn m@(main):void () {
+    def argCount:int (shell_arg_cnt)
+    
+    if (argCount < 1) {
+        print "EVG Preview Server - Live TSX Preview"
+        print ""
+        print "Usage: evg_preview_server input.tsx [port]"
+        print ""
+        print "Options:"
+        print "  input.tsx   TSX file to preview"
+        print "  port        Server port (default: 3000)"
+        print ""
+        print "Example:"
+        print "  evg_preview_server sample.tsx"
+        print "  evg_preview_server sample.tsx 8080"
+        return
+    }
+    
+    def inputFile:string (shell_arg 0)
+    def port:int 3000
+    
+    if (argCount >= 2) {
+        def portArg:string (shell_arg 1)
+        def portVal@(optional):int (to_int portArg)
+        if portVal {
+            port = (unwrap portVal)
+        }
+    }
+    
+    print ""
+    print "╔═══════════════════════════════════════════════════════════╗"
+    print "║           EVG Preview Server - Live Preview               ║"
+    print "╚═══════════════════════════════════════════════════════════╝"
+    print ""
+    print "  File: " + inputFile
+    print "  Port: " + (to_string port)
+    print "  Live reload: enabled"
+    print ""
+    
+    def server (new EVGPreviewServer())
+    server.initialize(inputFile port)
+    
+    print ""
+    print "Starting server at http://localhost:" + (to_string port)
+    print "Watching for file changes..."
+    print "Press Ctrl+C to stop"
+    print ""
+    
+    start server port
+}

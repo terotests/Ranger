@@ -1226,7 +1226,7 @@ class RangerGolangClassWriter {
             }
             if isHttpServer {
               ; This is an HttpServer - generate route setup and server start
-              httpServerWriter.writeServerStart(serverArg node ctx wr)
+              httpServerWriter.writeServerStart(serverArg node ctx wr this)
               return
             }
           }

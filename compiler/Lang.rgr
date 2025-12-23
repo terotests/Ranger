@@ -666,6 +666,27 @@ func r_dir_exists(pathName string) bool {
            }
         }
 
+        ; Returns the file modification time as Unix timestamp (seconds since epoch)
+        file_mtime          cmdFileMTime:int (path:string filename:string) {
+            templates {
+                go ( "r_file_mtime(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+func r_file_mtime(pathName string, fileName string) int64 {
+    info, err := os.Stat(pathName + \"/\" + fileName)
+    if err != nil {
+        return 0
+    }
+    return info.ModTime().Unix()
+}
+"
+)                    
+                )
+                es6 ( "require('fs').statSync(" (e 1) " + '/' + " (e 2) ").mtimeMs" )
+                ranger ( "(file_mtime " (e 1) " " (e 2) ")" )
+           }
+        }
+
         create_dir          cmdCreateDir:void (path:string) {
             templates {
                 scala ( "/* create_dir not implemented */ ")
