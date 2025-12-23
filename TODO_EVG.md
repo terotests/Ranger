@@ -6,6 +6,18 @@ Based on priorities from `PLAN_EVG.md`. Updated: December 23, 2025.
 
 ## ✅ RECENTLY COMPLETED (December 2025)
 
+### EVG Preview Server with Live Reload
+- [x] Create `evg_preview_server.rgr` with HTTP server
+- [x] Shell HTML endpoint (GET `/`) with SSE client JavaScript
+- [x] Content endpoint (GET `/content`) for document rendering
+- [x] Font CSS endpoint (GET `/fonts.css`) with server URLs
+- [x] Asset serving endpoint (GET `/assets/`) for images and fonts
+- [x] SSE events endpoint (GET `/events`) for live reload
+- [x] File watching via `file_mtime` operator
+- [x] ComponentEngine integration for TSX parsing
+- [x] EVGLayout integration for proper page dimensions
+- [x] Multi-page document support (16+ pages tested)
+
 ### Layer Element
 - [x] Add `<Layer>` element type to parser
 - [x] Implement as absolute-positioned container filling parent
@@ -44,7 +56,7 @@ Based on current progress, here are the most impactful next items:
 
 ### Nice to Have
 6. **Unified evg_tool** - Merge all tools into one with better CLI (see PLAN_HTTP.md)
-7. **Preview server with hot reload** - HTTP server with SSE for live preview
+7. **Diff-based page updates** - Only reload changed pages in live preview
 8. **Unit test framework** - Vitest integration for regression testing
 
 ---
@@ -62,7 +74,7 @@ Based on current progress, here are the most impactful next items:
 - [x] **0.6** Font embedding (TTF to base64) - *DONE*
 - [x] **0.7** Gradients and shadows - *DONE (CSS native)*
 - [ ] **0.8** Unit test framework (Vitest) - *TODO*
-- [ ] **0.9** Preview server with hot reload - *TODO*
+- [x] **0.9** Preview server with hot reload - *DONE*
 
 ### 2. PNG Raster Renderer
 **Goal:** Pixel-accurate rendering for testing and preview images.
