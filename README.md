@@ -193,6 +193,47 @@ cd bin && go run myserver.go
 
 Currently supports **Go** target. See `tests/fixtures/http_server.rgr` for a complete example.
 
+### EVG Document Preview Tools (New - December 2025)
+
+Ranger includes tools for creating and previewing documents using a React-like TSX syntax. The EVG (Extensible Vector Graphics) system supports multi-page documents with flexbox layout.
+
+**Live Preview Server:**
+
+```bash
+# Build the preview server (one-time)
+npm run evgpreview:build
+
+# Start live preview with auto-reload
+cd gallery/pdf_writer
+./bin/evg_preview_server examples/test_gallery.tsx 3006
+
+# Open http://localhost:3006 - auto-refreshes on file save!
+```
+
+**HTML Generation:**
+
+```bash
+# Build the HTML tool (one-time)
+npm run evg:tool:build:go
+
+# Convert TSX to HTML
+cd gallery/pdf_writer
+./bin/evg_tool examples/test_gallery.tsx output.html
+
+# With component imports
+./bin/evg_tool document.tsx --assets=../components;../assets
+```
+
+**Features:**
+
+- **Live reload** - Browser auto-refreshes when you save
+- **Component imports** - Reusable TSX components
+- **Multi-page documents** - Print, Section, Page elements
+- **Flexbox layout** - CSS-like positioning
+- **Images & fonts** - Asset serving from configurable paths
+
+See `gallery/pdf_writer/README.md` for full documentation and TSX syntax reference.
+
 ### Space Invaders Demo Game
 
 A complete terminal-based Space Invaders game demonstrating Ranger's cross-language capabilities. The same source code compiles to **4 different targets**:

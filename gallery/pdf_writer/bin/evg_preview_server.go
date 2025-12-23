@@ -10010,20 +10010,55 @@ func (this *EVGPreviewServer) handleEvents (client *SSEClient) () {
 }
 func main() {
   var argCount int64= int64( len( os.Args) - 1 );
-  if  argCount < int64(1) {
+  var showHelp bool= false;
+  if  argCount >= int64(1) {
+    var firstArg string= os.Args[int64(0) + 1];
+    if  (firstArg == "--help") || (firstArg == "-h") {
+      showHelp = true; 
+    }
+  }
+  if  (argCount < int64(1)) || showHelp {
     fmt.Println( "EVG Preview Server - Live TSX Preview with Component Support" )
     fmt.Println( "" )
-    fmt.Println( "Usage: evg_preview_server input.tsx [port] [--assets=path1;path2;...]" )
+    fmt.Println( "Usage: evg_preview_server <input.tsx> [port] [options]" )
     fmt.Println( "" )
-    fmt.Println( "Options:" )
-    fmt.Println( "  input.tsx   TSX file to preview" )
+    fmt.Println( "DESCRIPTION:" )
+    fmt.Println( "  Starts a live preview server for TSX documents." )
+    fmt.Println( "  Changes to the file automatically refresh the browser." )
+    fmt.Println( "" )
+    fmt.Println( "ARGUMENTS:" )
+    fmt.Println( "  input.tsx   TSX file to preview (required)" )
     fmt.Println( "  port        Server port (default: 3000)" )
-    fmt.Println( "  --assets    Semicolon-separated paths for components, fonts, images" )
     fmt.Println( "" )
-    fmt.Println( "Example:" )
-    fmt.Println( "  evg_preview_server sample.tsx" )
-    fmt.Println( "  evg_preview_server sample.tsx 8080" )
-    fmt.Println( "  evg_preview_server test_gallery.tsx 3000 --assets=./components;./assets" )
+    fmt.Println( "OPTIONS:" )
+    fmt.Println( "  --assets=PATHS   Semicolon-separated paths for imports" )
+    fmt.Println( "                   Default: ../components;../assets (relative to input)" )
+    fmt.Println( "" )
+    fmt.Println( "DEFAULT FOLDER STRUCTURE:" )
+    fmt.Println( "  The server expects this structure (can be overridden with --assets):" )
+    fmt.Println( "" )
+    fmt.Println( "    project/" )
+    fmt.Println( "    ├── examples/" )
+    fmt.Println( "    │   └── document.tsx      <- Run server here" )
+    fmt.Println( "    ├── components/" )
+    fmt.Println( "    │   └── PhotoLayouts.tsx  <- Component imports" )
+    fmt.Println( "    └── assets/" )
+    fmt.Println( "        ├── fonts/            <- Font files" )
+    fmt.Println( "        │   └── Helvetica/Helvetica.ttf" )
+    fmt.Println( "        └── images/           <- Image files" )
+    fmt.Println( "            └── photo.jpg" )
+    fmt.Println( "" )
+    fmt.Println( "EXAMPLES:" )
+    fmt.Println( "  # Basic usage (from examples folder)" )
+    fmt.Println( "  cd gallery/pdf_writer && ./bin/evg_preview_server examples/test_gallery.tsx 3006" )
+    fmt.Println( "" )
+    fmt.Println( "  # With custom port" )
+    fmt.Println( "  ./bin/evg_preview_server examples/document.tsx 8080" )
+    fmt.Println( "" )
+    fmt.Println( "  # With explicit asset paths" )
+    fmt.Println( "  ./bin/evg_preview_server my_doc.tsx 3000 --assets=./components;./fonts" )
+    fmt.Println( "" )
+    fmt.Println( "  Then open http://localhost:<port> in your browser." )
     return
   }
   var inputFile string= os.Args[int64(0) + 1];

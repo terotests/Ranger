@@ -1,12 +1,41 @@
-; evg_preview_server.rgr - Live Preview Server for TSX files
+; =============================================================================
+; evg_preview_server.rgr - Live Preview Server for EVG/TSX Documents
+; =============================================================================
 ;
-; Usage: evg_preview_server input.tsx [port] [--assets=path1;path2;...]
+; A live-reloading HTTP server for previewing TSX documents in the browser.
+; When you save changes to the TSX file, the browser automatically updates.
 ;
-; Opens a TSX file in the browser with live reloading.
-; When the file changes, the browser automatically refreshes.
+; FEATURES:
+;   - Live reload on file save (via Server-Sent Events)
+;   - ComponentEngine for TSX import resolution
+;   - Serves fonts and images from assets folder
+;   - Multi-page document support
 ;
-; Compile: npm run evgpreview:compile
-; Run: ./evg_preview_server sample.tsx 3000 --assets=./assets;./fonts
+; USAGE:
+;   evg_preview_server <input.tsx> [port] [--assets=paths]
+;
+; QUICK START:
+;   cd gallery/pdf_writer
+;   ./bin/evg_preview_server examples/test_gallery.tsx 3006
+;   # Open http://localhost:3006 in browser
+;
+; DEFAULT FOLDER STRUCTURE:
+;   project/
+;   ├── examples/           <- Your TSX files (run server from here)
+;   │   └── document.tsx
+;   ├── components/         <- Reusable components (auto-discovered)
+;   │   └── PhotoLayouts.tsx
+;   └── assets/
+;       ├── fonts/          <- Font files (served via /assets/fonts/)
+;       └── images/         <- Images (served via /assets/images/)
+;
+; COMPILE & BUILD:
+;   npm run evgpreview:compile    # Compile Ranger to Go
+;   npm run evgpreview:build      # Compile + Go build
+;   npm run evgpreview            # Build and start with example file
+;
+; See also: evg_tool.rgr (for batch HTML generation)
+; =============================================================================
 
 Import "../jsx/ComponentEngine.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
@@ -274,20 +303,57 @@ class EVGPreviewServer@(HttpServer) {
 sfn m@(main):void () {
     def argCount:int (shell_arg_cnt)
     
-    if (argCount < 1) {
+    ; Check for --help or -h first
+    def showHelp:boolean false
+    if (argCount >= 1) {
+        def firstArg:string (shell_arg 0)
+        if ((firstArg == "--help") || (firstArg == "-h")) {
+            showHelp = true
+        }
+    }
+    
+    if ((argCount < 1) || showHelp) {
         print "EVG Preview Server - Live TSX Preview with Component Support"
         print ""
-        print "Usage: evg_preview_server input.tsx [port] [--assets=path1;path2;...]"
+        print "Usage: evg_preview_server <input.tsx> [port] [options]"
         print ""
-        print "Options:"
-        print "  input.tsx   TSX file to preview"
+        print "DESCRIPTION:"
+        print "  Starts a live preview server for TSX documents."
+        print "  Changes to the file automatically refresh the browser."
+        print ""
+        print "ARGUMENTS:"
+        print "  input.tsx   TSX file to preview (required)"
         print "  port        Server port (default: 3000)"
-        print "  --assets    Semicolon-separated paths for components, fonts, images"
         print ""
-        print "Example:"
-        print "  evg_preview_server sample.tsx"
-        print "  evg_preview_server sample.tsx 8080"
-        print "  evg_preview_server test_gallery.tsx 3000 --assets=./components;./assets"
+        print "OPTIONS:"
+        print "  --assets=PATHS   Semicolon-separated paths for imports"
+        print "                   Default: ../components;../assets (relative to input)"
+        print ""
+        print "DEFAULT FOLDER STRUCTURE:"
+        print "  The server expects this structure (can be overridden with --assets):"
+        print ""
+        print "    project/"
+        print "    ├── examples/"
+        print "    │   └── document.tsx      <- Run server here"
+        print "    ├── components/"
+        print "    │   └── PhotoLayouts.tsx  <- Component imports"
+        print "    └── assets/"
+        print "        ├── fonts/            <- Font files"
+        print "        │   └── Helvetica/Helvetica.ttf"
+        print "        └── images/           <- Image files"
+        print "            └── photo.jpg"
+        print ""
+        print "EXAMPLES:"
+        print "  # Basic usage (from examples folder)"
+        print "  cd gallery/pdf_writer && ./bin/evg_preview_server examples/test_gallery.tsx 3006"
+        print ""
+        print "  # With custom port"
+        print "  ./bin/evg_preview_server examples/document.tsx 8080"
+        print ""
+        print "  # With explicit asset paths"
+        print "  ./bin/evg_preview_server my_doc.tsx 3000 --assets=./components;./fonts"
+        print ""
+        print "  Then open http://localhost:<port> in your browser."
         return
     }
     
