@@ -6,7 +6,8 @@
   "types": "dist/bin/api.d.ts",
   "bin": {
     "ranger-compiler": "bin/output.js",
-    "rgrc": "bin/output.js"
+    "rgrc": "bin/output.js",
+    "evg_server": "bin/evg_server.js"
   },
   "directories": {
     "example": "examples",

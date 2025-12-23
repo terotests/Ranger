@@ -169,14 +169,31 @@ class EVGPreviewServer@(HttpServer) {
         ; Strip /assets/ prefix to get the relative path
         def assetPath:string (substring path 8 (strlen path))
         
-        ; Build full path: inputDir/../assets/assetPath
-        ; inputDir is like "examples/", so ../assets/ goes to the assets folder
-        def fullPath:string (inputDir + "../assets/" + assetPath)
+        print "Asset request: " + assetPath
         
-        print "Serving asset: " + fullPath
-        
-        ; Read the file as binary
+        ; Try ./assets/ first (for when running from project root)
+        def fullPath:string ("./assets/" + assetPath)
+        print "  Trying: " + fullPath
         def fileData:buffer (buffer_read_file "" fullPath)
+        
+        ; If not found, try inputDir/../assets/
+        if ((buffer_length fileData) == 0) {
+            print "  Not found, trying alternative path..."
+            fullPath = (inputDir + "../assets/" + assetPath)
+            print "  Trying: " + fullPath
+            fileData = (buffer_read_file "" fullPath)
+        }
+        
+        ; If still not found, return 404
+        if ((buffer_length fileData) == 0) {
+            print "  NOT FOUND: " + assetPath
+            http_set_header res "Content-Type" "text/plain"
+            http_set_status res 404
+            http_send res ("Asset not found: " + assetPath)
+            return
+        }
+        
+        print "  SUCCESS: Serving asset from " + fullPath
         
         ; Determine content type from extension
         def ext:string ""

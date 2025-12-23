@@ -875,6 +875,7 @@ func (this *TSParserSimple) initParser (toks []*Token) () {
   if  (int64(len(toks))) > int64(0) {
     this.currentToken.value = toks[int64(0)];
     this.currentToken.has_value = true; /* detected as non-optional */
+    this.skipIgnoredTokens();
   }
 }
 func (this *TSParserSimple) setQuiet (q bool) () {
@@ -911,6 +912,29 @@ func (this *TSParserSimple) advance () () {
     eof.value = ""; 
     this.currentToken.value = eof;
     this.currentToken.has_value = true; /* detected as non-optional */
+  }
+  this.skipIgnoredTokens();
+}
+func (this *TSParserSimple) skipIgnoredTokens () () {
+  for this.pos < (int64(len(this.tokens))) {
+    var tok *Token= this.peek();
+    var tokType string= tok.tokenType;
+    if  (tokType == "LineComment") || (tokType == "BlockComment") {
+      this.pos = this.pos + int64(1); 
+      if  this.pos < (int64(len(this.tokens))) {
+        this.currentToken.value = this.tokens[this.pos];
+        this.currentToken.has_value = true; /* detected as non-optional */
+      } else {
+        var eof *Token= CreateNew_Token();
+        eof.tokenType = "EOF"; 
+        eof.value = ""; 
+        this.currentToken.value = eof;
+        this.currentToken.has_value = true; /* detected as non-optional */
+        return
+      }
+    } else {
+      return
+    }
   }
 }
 func (this *TSParserSimple) expect (expectedType string) *Token {
@@ -6680,6 +6704,7 @@ func CreateNew_ComponentEngine() *ComponentEngine {
   me.primitives = append(me.primitives,"Path"); 
   me.primitives = append(me.primitives,"Spacer"); 
   me.primitives = append(me.primitives,"Divider"); 
+  me.primitives = append(me.primitives,"Layer"); 
   me.primitives = append(me.primitives,"div"); 
   me.primitives = append(me.primitives,"span"); 
   me.primitives = append(me.primitives,"p"); 
@@ -6688,6 +6713,7 @@ func CreateNew_ComponentEngine() *ComponentEngine {
   me.primitives = append(me.primitives,"h3"); 
   me.primitives = append(me.primitives,"img"); 
   me.primitives = append(me.primitives,"path"); 
+  me.primitives = append(me.primitives,"layer"); 
   return me;
 }
 func (this *ComponentEngine) setAssetPaths (paths string) () {
@@ -7721,6 +7747,9 @@ func (this *ComponentEngine) mapTagName (jsxTag string) string {
   if  jsxTag == "View" {
     return "div"
   }
+  if  jsxTag == "Layer" {
+    return "layer"
+  }
   if  jsxTag == "Label" {
     return "text"
   }
@@ -7747,6 +7776,9 @@ func (this *ComponentEngine) mapTagName (jsxTag string) string {
   }
   if  jsxTag == "path" {
     return "path"
+  }
+  if  jsxTag == "layer" {
+    return "layer"
   }
   return "div"
 }
@@ -9022,7 +9054,11 @@ func (this *EVGHTMLRenderer) renderViewWithParent (el *EVGElement, elementId str
   if  (int64(len([]rune(el.id)))) > int64(0) {
     html = ((html + " id=\"") + el.id) + "\""; 
   }
-  html = html + " class=\"evg-view\""; 
+  if  el.tagName == "layer" {
+    html = html + " class=\"evg-layer\""; 
+  } else {
+    html = html + " class=\"evg-view\""; 
+  }
   var relX float64= el.calculatedX - parentX;
   var relY float64= el.calculatedY - parentY;
   html = html + " style=\""; 
@@ -9040,13 +9076,14 @@ func (this *EVGHTMLRenderer) renderViewWithParent (el *EVGElement, elementId str
 }
 func (this *EVGHTMLRenderer) generateViewStylesRelative (el *EVGElement, relX float64, relY float64) string {
   var css string= "";
-  css = css + "position: absolute; "; 
-  css = ((css + "left: ") + this.formatPx(relX)) + "; "; 
-  css = ((css + "top: ") + this.formatPx(relY)) + "; "; 
   if  el.tagName == "layer" {
-    css = css + "width: 100%; "; 
-    css = css + "height: 100%; "; 
+    css = css + "position: absolute; "; 
+    css = css + "inset: 0; "; 
+    css = css + "pointer-events: none; "; 
   } else {
+    css = css + "position: absolute; "; 
+    css = ((css + "left: ") + this.formatPx(relX)) + "; "; 
+    css = ((css + "top: ") + this.formatPx(relY)) + "; "; 
     if  el.calculatedWidth > 0.0 {
       css = ((css + "width: ") + this.formatPx(el.calculatedWidth)) + "; "; 
     }
@@ -9916,9 +9953,24 @@ func (this *EVGPreviewServer) handleFontsCSS (req *http.Request, res http.Respon
 func (this *EVGPreviewServer) handleAssets (req *http.Request, res http.ResponseWriter) () {
   var path string= req.URL.Path;
   var assetPath string= string([]rune(path)[int64(8):(int64(len([]rune(path))))]);
-  var fullPath string= (this.inputDir + "../assets/") + assetPath;
-  fmt.Println( "Serving asset: " + fullPath )
+  fmt.Println( "Asset request: " + assetPath )
+  var fullPath string= "./assets/" + assetPath;
+  fmt.Println( "  Trying: " + fullPath )
   var fileData []byte= func() []byte { d, _ := os.ReadFile(filepath.Join("", fullPath)); return d }();
+  if  (int64(len(fileData))) == int64(0) {
+    fmt.Println( "  Not found, trying alternative path..." )
+    fullPath = (this.inputDir + "../assets/") + assetPath; 
+    fmt.Println( "  Trying: " + fullPath )
+    fileData = func() []byte { d, _ := os.ReadFile(filepath.Join("", fullPath)); return d }(); 
+  }
+  if  (int64(len(fileData))) == int64(0) {
+    fmt.Println( "  NOT FOUND: " + assetPath )
+    res.Header().Set("Content-Type", "text/plain")
+    res.WriteHeader(int(int64(404)))
+    res.Write([]byte("Asset not found: " + assetPath))
+    return
+  }
+  fmt.Println( "  SUCCESS: Serving asset from " + fullPath )
   var ext string= "";
   var lastDot int64= int64(strings.LastIndex(assetPath, "."));
   if  lastDot >= int64(0) {

@@ -445,8 +445,12 @@ class EVGHTMLRenderer {
             html = html + " id=\"" + el.id + "\""
         }
         
-        ; Add class
-        html = html + " class=\"evg-view\""
+        ; Add class - use evg-layer for layer elements
+        if (el.tagName == "layer") {
+            html = html + " class=\"evg-layer\""
+        } {
+            html = html + " class=\"evg-view\""
+        }
         
         ; Add inline styles - calculate position relative to parent
         def relX:double (el.calculatedX - parentX)
@@ -473,16 +477,17 @@ class EVGHTMLRenderer {
     fn generateViewStylesRelative:string (el:EVGElement relX:double relY:double) {
         def css:string ""
         
-        ; Always use absolute positioning since EVG calculates exact positions
-        css = css + "position: absolute; "
-        css = css + "left: " + (this.formatPx(relX)) + "; "
-        css = css + "top: " + (this.formatPx(relY)) + "; "
-        
-        ; Layer elements use 100% width/height to fill parent
+        ; Layer elements overlay parent with inset: 0
         if (el.tagName == "layer") {
-            css = css + "width: 100%; "
-            css = css + "height: 100%; "
+            css = css + "position: absolute; "
+            css = css + "inset: 0; "
+            css = css + "pointer-events: none; "  ; Allow clicks through to elements below
         } {
+            ; Regular positioning from layout calculation
+            css = css + "position: absolute; "
+            css = css + "left: " + (this.formatPx(relX)) + "; "
+            css = css + "top: " + (this.formatPx(relY)) + "; "
+            
             ; Regular dimensions from layout calculation
             if (el.calculatedWidth > 0.0) {
                 css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "

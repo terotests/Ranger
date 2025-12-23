@@ -138,6 +138,7 @@ class ComponentEngine {
         push primitives "Path"
         push primitives "Spacer"
         push primitives "Divider"
+        push primitives "Layer"
         push primitives "div"
         push primitives "span"
         push primitives "p"
@@ -146,6 +147,7 @@ class ComponentEngine {
         push primitives "h3"
         push primitives "img"
         push primitives "path"
+        push primitives "layer"
     }
     
     ; ==========================================================================
@@ -1492,6 +1494,7 @@ class ComponentEngine {
         if (jsxTag == "Section") { return "section" }
         if (jsxTag == "Page") { return "page" }
         if (jsxTag == "View") { return "div" }
+        if (jsxTag == "Layer") { return "layer" }
         if (jsxTag == "Label") { return "text" }
         if (jsxTag == "Image") { return "image" }
         if (jsxTag == "Path") { return "path" }
@@ -1501,6 +1504,7 @@ class ComponentEngine {
         if (jsxTag == "span") { return "text" }
         if (jsxTag == "img") { return "image" }
         if (jsxTag == "path") { return "path" }
+        if (jsxTag == "layer") { return "layer" }
         return "div"
     }
     

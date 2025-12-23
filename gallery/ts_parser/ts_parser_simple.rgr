@@ -59,6 +59,8 @@ class TSParserSimple {
     this.quiet = false
     if ((array_length toks) > 0) {
       this.currentToken = (itemAt toks 0)
+      ; Skip initial comments/whitespace
+      this.skipIgnoredTokens()
     }
   }
   
@@ -99,6 +101,29 @@ class TSParserSimple {
       eof.tokenType = "EOF"
       eof.value = ""
       this.currentToken = eof
+    }
+    ; Skip comments and whitespace tokens
+    this.skipIgnoredTokens()
+  }
+  
+  fn skipIgnoredTokens:void () {
+    while (this.pos < (array_length this.tokens)) {
+      def tok (this.peek())
+      def tokType:string tok.tokenType
+      if ((tokType == "LineComment") || (tokType == "BlockComment")) {
+        this.pos = this.pos + 1
+        if (this.pos < (array_length this.tokens)) {
+          this.currentToken = (itemAt this.tokens this.pos)
+        } {
+          def eof (new Token())
+          eof.tokenType = "EOF"
+          eof.value = ""
+          this.currentToken = eof
+          return
+        }
+      } {
+        return
+      }
     }
   }
   
