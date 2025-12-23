@@ -4,7 +4,11 @@ function render() {
   return (
     <View width="100%" height="100%" padding="30px" backgroundColor="#f5f5f5">
       <Label fontSize="28px" fontWeight="bold" color="#2c3e50">
-        Shadow and Gradient Tests
+        Shadow and Gradient Testing
+      </Label>
+      <Label>
+        This is a test, !!!!!!
+        and this seems to work
       </Label>
 
       {/* Box Shadow Test */}

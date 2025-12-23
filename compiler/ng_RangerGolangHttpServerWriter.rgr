@@ -130,7 +130,7 @@ class RangerGolangHttpServerWriter {
     
     ; Called from CustomOperator when "start server port" is encountered
     ; Generates inline route setup and server start code
-    fn writeServerStart:void (serverArg:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    fn writeServerStart:void (serverArg:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter writer:RangerGolangClassWriter) {
         ; Get the class of the server variable
         def paramDesc:RangerAppParamDesc serverArg.paramDesc
         def className:string paramDesc.nameNode.type_name
@@ -148,10 +148,27 @@ class RangerGolangHttpServerWriter {
         cl = (ctx.findClass(className))
         
         ; Get port from operator argument (3rd child) or default
-        def port:int 8080
+        def portExpr:string "8080"
+        
         if ((array_length node.children) >= 3) {
             def portArg:CodeNode (itemAt node.children 2)
-            port = portArg.int_value
+            
+            ; Check if it's a variable reference or literal
+            if ((strlen portArg.vref) > 0) {
+                ; It's a variable reference - use vref or paramDesc.compiledName
+                if (false == (null? portArg.paramDesc)) {
+                    if ((strlen portArg.paramDesc.compiledName) > 0) {
+                        portExpr = portArg.paramDesc.compiledName
+                    } {
+                        portExpr = portArg.vref
+                    }
+                } {
+                    portExpr = portArg.vref
+                }
+            } {
+                ; It's a literal - use int_value
+                portExpr = (to_string portArg.int_value)
+            }
         }
         
         ; Add imports
@@ -235,7 +252,7 @@ class RangerGolangHttpServerWriter {
         }
         
         ; Start server
-        wr.out(("addr := fmt.Sprintf(\":%d\", " + (to_string port) + ")") true)
+        wr.out(("addr := fmt.Sprintf(\":%d\", " + portExpr + ")") true)
         wr.out("fmt.Printf(\"Server starting on http://localhost%s\\n\", addr)" true)
         wr.out("log.Fatal(http.ListenAndServe(addr, mux))" true)
     }

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 class CmdParams  {
   constructor() {
     this.flags = {};
@@ -22462,7 +22461,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
               }
             }
             if ( isHttpServer ) {
-              this.httpServerWriter.writeServerStart(serverArg, node, ctx, wr);
+              await this.httpServerWriter.writeServerStart(serverArg, node, ctx, wr, this);
               return;
             }
           }
@@ -23195,7 +23194,7 @@ class RangerGolangHttpServerWriter  {
     wr.addImport("fmt");
     wr.addImport("log");
   };
-  writeServerStart (serverArg, node, ctx, wr) {
+  async writeServerStart (serverArg, node, ctx, wr, writer) {
     const paramDesc = serverArg.paramDesc;
     const className = paramDesc.nameNode.type_name;
     let cl;
@@ -23206,10 +23205,17 @@ class RangerGolangHttpServerWriter  {
       return;
     }
     cl = ctx.findClass(className);
-    let port = 8080;
+    let portExpr = "8080";
     if ( (node.children.length) >= 3 ) {
       const portArg = node.children[2];
-      port = portArg.int_value;
+      const portWriter = new CodeWriter();
+      ctx.setInExpr();
+      await writer.WalkNode(portArg, ctx, portWriter);
+      ctx.unsetInExpr();
+      const compiledPort = portWriter.getCode();
+      if ( (compiledPort.length) > 0 ) {
+        portExpr = compiledPort;
+      }
     }
     this.addHttpImports(wr);
     let hasSSE = false;
@@ -23280,7 +23286,7 @@ class RangerGolangHttpServerWriter  {
         wr.newline();
       }
     };
-    wr.out(("addr := fmt.Sprintf(\":%d\", " + ((port.toString()))) + ")", true);
+    wr.out(("addr := fmt.Sprintf(\":%d\", " + portExpr) + ")", true);
     wr.out("fmt.Printf(\"Server starting on http://localhost%s\\n\", addr)", true);
     wr.out("log.Fatal(http.ListenAndServe(addr, mux))", true);
   };

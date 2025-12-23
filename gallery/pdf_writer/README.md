@@ -182,7 +182,7 @@ pdf_writer/
 │   │   ├── EVGElement.rgr
 │   │   ├── EVGLayout.rgr
 │   │   ├── EVGPDFRenderer.rgr
-│   │   ├── EVGHTMLRenderer.rgr  # NEW: HTML output
+│   │   ├── EVGHTMLRenderer.rgr  # HTML output
 │   │   └── ...
 │   ├── jsx/               # TSX/JSX parsing and component engine
 │   │   ├── ComponentEngine.rgr
@@ -194,10 +194,15 @@ pdf_writer/
 │   ├── fonts/             # TrueType font handling
 │   │   └── FontManager.rgr
 │   └── tools/             # Command-line tools
-│       ├── evg_component_tool.rgr
-│       ├── evg_pdf_tool.rgr
-│       └── evg_html_tool.rgr    # NEW: HTML tool
-├── bin/                   # Compiled JavaScript output
+│       ├── evg_tool.rgr           # Go: TSX → HTML
+│       ├── evg_preview_server.rgr # Go: Live preview server
+│       ├── evg_html_tool.rgr      # JS: TSX → HTML
+│       ├── evg_pdf_tool.rgr       # JS: TSX → PDF
+│       └── evg_component_tool.rgr # JS: TSX → PDF with components
+├── bin/                   # Compiled output (JS and Go binaries)
+│   ├── evg_tool           # Go binary: fast HTML conversion
+│   ├── evg_preview_server # Go binary: live reload server
+│   └── *.js               # Node.js tools
 ├── components/            # Reusable TSX components
 │   ├── PhotoLayouts.tsx
 │   └── ...
@@ -242,6 +247,153 @@ npm run evghtml
 - Linear and radial gradients
 - Border radius
 - Embedded images as base64
+
+---
+
+## EVG Tool (Go Binary - Recommended)
+
+A fast, standalone Go binary for TSX to HTML conversion. Includes component support and configurable paths.
+
+### Quick Start
+
+```bash
+# Build the Go binary (one-time)
+npm run evg:tool:build:go
+
+# Convert TSX to HTML
+cd gallery/pdf_writer
+./bin/evg_tool examples/test_gallery.tsx output.html
+
+# With component imports
+./bin/evg_tool examples/test_gallery.tsx --assets=../components;../assets
+
+# Self-contained HTML (embedded images/fonts)
+./bin/evg_tool examples/test_gallery.tsx output.html --embed
+```
+
+### Command Line Options
+
+```
+USAGE:
+  evg_tool <input.tsx> [output.html] [options]
+
+OPTIONS:
+  Input/Output:
+    <input.tsx>             TSX file to convert (required)
+    [output.html]           Output HTML file (optional, defaults to input.html)
+
+  Components & Assets:
+    -a, --assets=PATHS      Semicolon-separated paths for component imports
+    -c, --components        Use ComponentEngine even without --assets
+
+  Fonts & Images:
+    -f, --fonts=PATH        Path to fonts folder (default: ../assets/fonts/)
+    -i, --images=PATH       Base path for images (default: input directory)
+
+  Page Layout:
+    --width=N               Page width in points (default: 595 = A4)
+    --height=N              Page height in points (default: 842 = A4)
+
+  Output Options:
+    -t, --title=TEXT        HTML page title (default: 'EVG Preview')
+    -e, --embed             Embed images/fonts as base64 data URIs
+
+  Debug & Info:
+    -d, --debug             Print element tree and debug information
+    -h, --help              Show help message
+    -v, --version           Show version
+```
+
+### Default Folder Structure
+
+The tool expects this folder structure (can be overridden with options):
+
+```
+project/
+├── examples/                 # Your TSX files here
+│   └── document.tsx
+├── components/               # Reusable components (use --assets)
+│   └── PhotoLayouts.tsx
+└── assets/
+    ├── fonts/                # Font files (default: ../assets/fonts/)
+    │   ├── Helvetica/
+    │   │   └── Helvetica.ttf
+    │   └── Noto_Sans/
+    │       └── NotoSans-Regular.ttf
+    └── images/               # Image files (referenced in TSX)
+        └── photo.jpg
+```
+
+---
+
+## EVG Preview Server (Live Reload)
+
+A live-reloading HTTP server for rapid TSX development. Changes to the file automatically refresh the browser.
+
+### Quick Start
+
+```bash
+# Build the Go binary (one-time)
+npm run evgpreview:build
+
+# Start the preview server
+cd gallery/pdf_writer
+./bin/evg_preview_server examples/test_gallery.tsx 3006
+
+# Open http://localhost:3006 in your browser
+# Edit the TSX file - browser auto-refreshes on save!
+```
+
+### Features
+
+- **Live reload** - Browser automatically refreshes when you save
+- **Component support** - Import and use reusable TSX components
+- **Asset serving** - Images and fonts served from the assets folder
+- **Multi-page support** - Preview documents with multiple pages
+- **SSE-based updates** - Efficient Server-Sent Events for change detection
+
+### Command Line Options
+
+```
+USAGE:
+  evg_preview_server <input.tsx> [port] [options]
+
+ARGUMENTS:
+  input.tsx         TSX file to preview (required)
+  port              Server port (default: 3000)
+
+OPTIONS:
+  --assets=PATHS    Semicolon-separated paths for imports
+                    Default: ../components;../assets (relative to input)
+```
+
+### Examples
+
+```bash
+# Basic usage
+./bin/evg_preview_server examples/document.tsx 3000
+
+# Custom port
+./bin/evg_preview_server examples/document.tsx 8080
+
+# Explicit asset paths
+./bin/evg_preview_server my_doc.tsx 3000 --assets=./components;./fonts
+```
+
+### Folder Structure
+
+The preview server uses the same folder structure as evg_tool:
+
+```
+project/
+├── examples/           <- Your TSX files (run server here)
+│   └── document.tsx
+├── components/         <- Reusable components (auto-discovered)
+│   └── PhotoLayouts.tsx
+└── assets/
+    ├── fonts/          <- Font files (served via /assets/fonts/)
+    └── images/         <- Images (served via /assets/images/)
+```
 
 ---
 

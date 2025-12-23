@@ -1,18 +1,36 @@
 ; =============================================================================
-; evg_tool.rgr - EVG Preview Tool
+; evg_tool.rgr - EVG TSX to HTML Preview Generator
 ; =============================================================================
-; Command line tool for rendering TSX documents to HTML for quick preview.
 ; 
-; Primary use: Fast HTML preview with live reload capability
-; Future: Add PDF output when needed
+; A command-line tool for converting TSX documents with EVG elements 
+; (Print, Section, Page, View, Label, Image, Layer) to HTML for quick
+; browser preview.
 ;
-; Usage: evg_tool <input.tsx> [output.html] [options]
+; FEATURES:
+;   - TSX to HTML conversion with proper layout
+;   - Component imports via ComponentEngine (--assets flag)
+;   - Base64 image embedding (--embed flag)
+;   - Custom page sizes (--width, --height)
+;   - Debug output (--debug flag)
 ;
-; Compile to Go:
-;   npm run evg:tool:compile:go
+; USAGE:
+;   evg_tool <input.tsx> [output.html] [options]
 ;
-; Build Go binary:
-;   npm run evg:tool:build:go
+; QUICK EXAMPLES:
+;   evg_tool document.tsx                    # Basic conversion
+;   evg_tool doc.tsx out.html --embed        # With embedded images
+;   evg_tool gallery.tsx -a=./components     # With component imports
+;
+; COMPILE & BUILD:
+;   npm run evg:tool:compile:go              # Compile Ranger to Go
+;   npm run evg:tool:build:go                # Build Go binary
+;   npm run evg:tool                         # Compile, build, and run
+;
+; For live preview with auto-reload, use evg_preview_server instead:
+;   ./evg_preview_server examples/document.tsx 3006
+;
+; See also: TODO_HTTP.md, gallery/pdf_writer/README.md
+; =============================================================================
 
 Import "../jsx/JSXToEVG.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
@@ -33,7 +51,9 @@ class EVGTool {
     def debug:boolean false
     def embedAssets:boolean false
     def title:string "EVG Preview"
-    def assetPaths:string ""     ; Semicolon-separated paths
+    def assetPaths:string ""     ; Semicolon-separated paths for component imports
+    def fontPath:string ""       ; Path to fonts folder (default: ../assets/fonts/ relative to input)
+    def imagePath:string ""      ; Base path for images (default: input directory)
     def showVersion:boolean false
     def showHelp:boolean false
     def useComponents:boolean false  ; Use ComponentEngine for imports
@@ -202,6 +222,32 @@ class EVGTool {
                 continue
             }
             
+            ; Font path option
+            if ((indexOf arg "--fonts=") == 0) {
+                fontPath = (substring arg 8 (strlen arg))
+                i = i + 1
+                continue
+            }
+            
+            if ((indexOf arg "-f=") == 0) {
+                fontPath = (substring arg 3 (strlen arg))
+                i = i + 1
+                continue
+            }
+            
+            ; Image base path option
+            if ((indexOf arg "--images=") == 0) {
+                imagePath = (substring arg 9 (strlen arg))
+                i = i + 1
+                continue
+            }
+            
+            if ((indexOf arg "-i=") == 0) {
+                imagePath = (substring arg 3 (strlen arg))
+                i = i + 1
+                continue
+            }
+            
             ; Positional arguments: input and output files
             if ((indexOf arg "-") != 0) {
                 if ((strlen inputFile) == 0) {
@@ -261,7 +307,26 @@ class EVGTool {
         def inputDir:string (this.getDirectory(inputFile))
         def inputFileName:string (this.getFileName(inputFile))
         
+        ; Resolve font path - use explicit path or default
+        def resolvedFontPath:string fontPath
+        if ((strlen fontPath) == 0) {
+            ; Default: look for fonts in ../assets/fonts/ relative to input file
+            resolvedFontPath = inputDir + "../assets/fonts/"
+        }
+        
+        ; Resolve image path - use explicit path or default to input directory
+        def resolvedImagePath:string imagePath
+        if ((strlen imagePath) == 0) {
+            resolvedImagePath = inputDir
+        }
+        
         print "Parsing TSX file..."
+        print ("  Input dir: " + inputDir)
+        print ("  Font path: " + resolvedFontPath)
+        if ((strlen assetPaths) > 0) {
+            print ("  Assets:    " + assetPaths)
+        }
+        print ""
         
         def root:EVGElement (new EVGElement())
         
@@ -304,8 +369,8 @@ class EVGTool {
         def renderer (new EVGHTMLRenderer())
         renderer.setPageSize(pageWidth pageHeight)
         renderer.setTitle(title)
-        renderer.setBaseDir(inputDir)
-        renderer.setFontBasePath(inputDir + "../assets/fonts/")
+        renderer.setBaseDir(resolvedImagePath)
+        renderer.setFontBasePath(resolvedFontPath)
         
         if debug {
             renderer.setDebug(true)
@@ -375,49 +440,124 @@ class EVGTool {
     fn printUsage:void () {
         print "Usage: evg_tool <input.tsx> [output.html] [options]"
         print ""
-        print "Run 'evg_tool --help' for more information."
+        print "Try 'evg_tool --help' for more information."
+        print ""
+        print "Quick Examples:"
+        print "  evg_tool document.tsx                     # Convert to document.html"
+        print "  evg_tool document.tsx preview.html        # Specify output name"
+        print "  evg_tool document.tsx -a=./components     # With component imports"
+        print "  evg_tool document.tsx -f=./fonts          # Custom fonts folder"
     }
     
     fn printHelp:void () {
-        print "EVG Tool - HTML Preview for TSX Documents"
+        print "╔══════════════════════════════════════════════════════════════════════╗"
+        print "║              EVG Tool - TSX to HTML Preview Generator                ║"
+        print "╚══════════════════════════════════════════════════════════════════════╝"
         print ""
         print "USAGE:"
-        print "    evg_tool <input.tsx> [output.html] [options]"
+        print "  evg_tool <input.tsx> [output.html] [options]"
         print ""
         print "DESCRIPTION:"
-        print "    Converts TSX documents to HTML for quick preview."
-        print "    Output file defaults to input name with .html extension."
+        print "  Renders TSX documents (with EVG elements like Print, Section, Page,"
+        print "  View, Label, Image) to HTML for quick preview in a browser."
+        print ""
+        print "  If no output file is specified, uses input name with .html extension."
         print ""
         print "OPTIONS:"
-        print "    -a, --assets=PATHS      Asset directories (semicolon-separated)"
-        print "                            Enables component imports when specified"
-        print "    -c, --components        Use component engine (for imports)"
-        print "    -t, --title=TEXT        HTML page title"
-        print "    -e, --embed             Embed images as base64"
-        print "    --width=N               Page width in points (default: 595)"
-        print "    --height=N              Page height in points (default: 842)"
-        print "    -d, --debug             Enable debug output"
-        print "    -h, --help              Show this help message"
-        print "    -v, --version           Show version"
+        print "  Input/Output:"
+        print "    <input.tsx>             TSX file to convert (required)"
+        print "    [output.html]           Output HTML file (optional)"
         print ""
-        print "WATCH MODE (coming soon):"
-        print "    -w, --watch             Watch file for changes and auto-reload"
-        print "    -p, --port=N            Server port (default: 3000)"
+        print "  Components & Assets:"
+        print "    -a, --assets=PATHS      Semicolon-separated paths for component imports"
+        print "                            Enables ComponentEngine for processing imports"
+        print "                            Example: --assets=./components;./assets"
+        print "    -c, --components        Use ComponentEngine even without --assets"
+        print ""
+        print "  Fonts & Images:"
+        print "    -f, --fonts=PATH        Path to fonts folder"
+        print "                            Default: ../assets/fonts/ (relative to input file)"
+        print "    -i, --images=PATH       Base path for images"
+        print "                            Default: same directory as input file"
+        print ""
+        print "  Page Layout:"
+        print "    --width=N               Page width in points (default: 595 = A4)"
+        print "    --height=N              Page height in points (default: 842 = A4)"
+        print ""
+        print "  Output Options:"
+        print "    -t, --title=TEXT        HTML page title (default: 'EVG Preview')"
+        print "    -e, --embed             Embed images/fonts as base64 data URIs"
+        print "                            (creates self-contained HTML file)"
+        print ""
+        print "  Debug & Info:"
+        print "    -d, --debug             Print element tree and debug information"
+        print "    -h, --help              Show this help message"
+        print "    -v, --version           Show version number"
+        print ""
+        print "DEFAULT FOLDER STRUCTURE:"
+        print "  The tool expects this structure by default (can be overridden with options):"
+        print ""
+        print "    project/"
+        print "    ├── examples/                 # Your TSX files here"
+        print "    │   └── document.tsx"
+        print "    ├── components/               # Reusable components (use --assets)"
+        print "    │   └── PhotoLayouts.tsx"
+        print "    └── assets/"
+        print "        ├── fonts/                # Font files (--fonts default: ../assets/fonts/)"
+        print "        │   ├── Helvetica/"
+        print "        │   │   └── Helvetica.ttf"
+        print "        │   └── Noto_Sans/"
+        print "        │       └── NotoSans-Regular.ttf"
+        print "        └── images/               # Image files (referenced in TSX)"
+        print "            └── photo.jpg"
+        print ""
+        print "  TSX files reference images with relative paths like:"
+        print "    <Image src=\"../assets/images/photo.jpg\" />"
         print ""
         print "EXAMPLES:"
-        print "    # Simple preview"
-        print "    evg_tool document.tsx"
         print ""
-        print "    # With custom output name"
-        print "    evg_tool document.tsx preview.html"
+        print "  1. Basic conversion (using default folder structure)"
+        print "     $ cd project/examples"
+        print "     $ evg_tool document.tsx"
         print ""
-        print "    # With embedded images"
-        print "    evg_tool document.tsx output.html --embed"
+        print "  2. Specify custom fonts folder"
+        print "     $ evg_tool document.tsx --fonts=/path/to/my/fonts"
         print ""
-        print "    # With component imports"
-        print "    evg_tool document.tsx --assets=./components;./fonts"
+        print "  3. With component imports"
+        print "     $ evg_tool gallery.tsx --assets=../components;../assets"
         print ""
-        print "    # Custom page size"
-        print "    evg_tool document.tsx --width=800 --height=600"
+        print "  4. Self-contained HTML (embeds images and fonts)"
+        print "     $ evg_tool document.tsx output.html --embed"
+        print ""
+        print "  5. Custom page size (US Letter: 612x792 points)"
+        print "     $ evg_tool document.tsx --width=612 --height=792"
+        print ""
+        print "  6. Full example with all paths explicit"
+        print "     $ evg_tool photo_album.tsx album.html \\"
+        print "         --assets=../components;../assets \\"
+        print "         --fonts=../assets/fonts \\"
+        print "         --title=\"My Photo Album\""
+        print ""
+        print "SUPPORTED ELEMENTS:"
+        print "  <Print>    Document root container"
+        print "  <Section>  Document section/chapter"
+        print "  <Page>     Individual page"
+        print "  <View>     Flexible container (like div)"
+        print "  <Label>    Text content"
+        print "  <Image>    Image element"
+        print "  <Layer>    Absolute positioning overlay"
+        print "  <Path>     SVG path element"
+        print ""
+        print "LIVE PREVIEW:"
+        print "  For live preview with auto-reload on save, use evg_preview_server:"
+        print ""
+        print "    $ cd gallery/pdf_writer"
+        print "    $ ./bin/evg_preview_server examples/document.tsx 3006"
+        print "    # Open http://localhost:3006 in your browser"
+        print ""
+        print "  The preview server also expects the default folder structure,"
+        print "  or you can run it from the examples folder."
+        print ""
+        print "More info: See gallery/pdf_writer/README.md"
     }
 }

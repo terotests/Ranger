@@ -7672,6 +7672,15 @@ func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, pare
   }
   var height float64= 0.0;
   var autoHeight bool= true;
+  if  (element.tagName == "Page") || (element.tagName == "page") {
+    if  element.width.value.(*EVGUnit).isSet == false {
+      width = this.pageWidth; 
+    }
+    if  element.height.value.(*EVGUnit).isSet == false {
+      height = this.pageHeight; 
+      autoHeight = false; 
+    }
+  }
   if  element.height.value.(*EVGUnit).isSet {
     height = element.height.value.(*EVGUnit).pixels; 
     autoHeight = false; 
@@ -8043,6 +8052,9 @@ type EVGHTMLRenderer struct {
   title string `json:"title"` 
   baseDir string `json:"baseDir"` 
   embedAssets bool `json:"embedAssets"` 
+  imageServerUrl string /**  unused  **/  `json:"imageServerUrl"` 
+  foundSections []*EVGElement `json:"foundSections"` 
+  foundPages []*EVGElement `json:"foundPages"` 
 }
 
 func CreateNew_EVGHTMLRenderer() *EVGHTMLRenderer {
@@ -8061,6 +8073,9 @@ func CreateNew_EVGHTMLRenderer() *EVGHTMLRenderer {
   me.title = "EVG Preview"
   me.baseDir = "./"
   me.embedAssets = false
+  me.imageServerUrl = ""
+  me.foundSections = make([]*EVGElement,0)
+  me.foundPages = make([]*EVGElement,0)
   me.layout = new(GoNullable);
   me.measurer = new(GoNullable);
   var lay *EVGLayout= CreateNew_EVGLayout();
@@ -8071,6 +8086,10 @@ func CreateNew_EVGHTMLRenderer() *EVGHTMLRenderer {
   me.measurer.has_value = true; /* detected as non-optional */
   var uf []string = make([]string, 0);
   me.usedFontFamilies = uf; 
+  var fs []*EVGElement = make([]*EVGElement, 0);
+  me.foundSections = fs; 
+  var fp []*EVGElement = make([]*EVGElement, 0);
+  me.foundPages = fp; 
   return me;
 }
 func (this *EVGHTMLRenderer) setPageSize (width float64, height float64) () {
@@ -8211,13 +8230,13 @@ func (this *EVGHTMLRenderer) generateFontFace (fontFamily string) string {
 }
 func (this *EVGHTMLRenderer) fontFamilyToFileName (fontFamily string) string {
   if  fontFamily == "Noto Sans" {
-    return "NotoSans-Regular.ttf"
+    return "Noto_Sans/NotoSans-Regular.ttf"
   }
   if  fontFamily == "Noto Sans Bold" {
-    return "NotoSans-Bold.ttf"
+    return "Noto_Sans/NotoSans-Bold.ttf"
   }
   if  fontFamily == "Helvetica" {
-    return "Helvetica.ttf"
+    return "Helvetica/Helvetica.ttf"
   }
   if  fontFamily == "Amatic SC" {
     return "Amatic_SC/AmaticSC-Regular.ttf"
@@ -8257,13 +8276,13 @@ func (this *EVGHTMLRenderer) renderElement (el *EVGElement, depth int64) string 
 func (this *EVGHTMLRenderer) renderElementWithParent (el *EVGElement, depth int64, parentX float64, parentY float64) string {
   this.elementCounter = this.elementCounter + int64(1); 
   var elementId string= "evg-" + (strconv.FormatInt(this.elementCounter, 10));
-  if  el.tagName == "Print" {
+  if  (el.tagName == "Print") || (el.tagName == "print") {
     return this.renderPrint(el, depth)
   }
-  if  el.tagName == "Section" {
+  if  (el.tagName == "Section") || (el.tagName == "section") {
     return this.renderSection(el, depth)
   }
-  if  el.tagName == "Page" {
+  if  (el.tagName == "Page") || (el.tagName == "page") {
     return this.renderPage_Element(el, depth)
   }
   if  ((el.tagName == "View") || (el.tagName == "div")) || (el.tagName == "layer") {
@@ -8344,7 +8363,7 @@ func (this *EVGHTMLRenderer) renderPage_Element (el *EVGElement, depth int64) st
   var i int64= int64(0);
   for i < (int64(len(el.children))) {
     var child *EVGElement= el.children[i];
-    html = html + this.renderElement(child, (depth + int64(1))); 
+    html = html + this.renderElementWithParent(child, (depth + int64(1)), el.calculatedX, el.calculatedY); 
     i = i + int64(1); 
   }
   html = (html + this.indent(depth)) + "</div>\n"; 
@@ -8577,10 +8596,10 @@ func (this *EVGHTMLRenderer) renderImageWithParent (el *EVGElement, elementId st
       if  (int64(len([]rune(dataUri)))) > int64(0) {
         html = ((html + " src=\"") + dataUri) + "\""; 
       } else {
-        html = (((html + " src=\"") + this.imageBasePath) + imgSrc) + "\""; 
+        html = ((html + " src=\"") + this.transformImagePath(imgSrc)) + "\""; 
       }
     } else {
-      html = (((html + " src=\"") + this.imageBasePath) + imgSrc) + "\""; 
+      html = ((html + " src=\"") + this.transformImagePath(imgSrc)) + "\""; 
     }
   }
   if  (int64(len([]rune(el.alt)))) > int64(0) {
@@ -8634,10 +8653,10 @@ func (this *EVGHTMLRenderer) renderImageWithViewBox (el *EVGElement, elementId s
       if  (int64(len([]rune(dataUri)))) > int64(0) {
         html = ((html + " src=\"") + dataUri) + "\""; 
       } else {
-        html = (((html + " src=\"") + this.imageBasePath) + imgSrc) + "\""; 
+        html = ((html + " src=\"") + this.transformImagePath(imgSrc)) + "\""; 
       }
     } else {
-      html = (((html + " src=\"") + this.imageBasePath) + imgSrc) + "\""; 
+      html = ((html + " src=\"") + this.transformImagePath(imgSrc)) + "\""; 
     }
   }
   html = html + " alt=\"\""; 
@@ -8849,13 +8868,108 @@ func (this *EVGHTMLRenderer) getResolvedMargin (el *EVGElement, side string) flo
   }
   return 0.0
 }
+func (this *EVGHTMLRenderer) findPageElementsRecursive (el *EVGElement) () {
+  if  (el.tagName == "page") || (el.tagName == "Page") {
+    this.foundPages = append(this.foundPages,el); 
+  }
+  var i int64= int64(0);
+  var childCount int64= el.getChildCount();
+  for i < childCount {
+    var child *EVGElement= el.getChild(i);
+    this.findPageElementsRecursive(child);
+    i = i + int64(1); 
+  }
+}
+func (this *EVGHTMLRenderer) findSectionElementsRecursive (el *EVGElement) () {
+  var i int64= int64(0);
+  var childCount int64= el.getChildCount();
+  for i < childCount {
+    var child *EVGElement= el.getChild(i);
+    if  (child.tagName == "section") || (child.tagName == "Section") {
+      this.foundSections = append(this.foundSections,child); 
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *EVGHTMLRenderer) getSectionPageWidth (section *EVGElement) float64 {
+  if  section.width.value.(*EVGUnit).isSet {
+    return section.width.value.(*EVGUnit).pixels
+  }
+  return this.pageWidth
+}
+func (this *EVGHTMLRenderer) getSectionPageHeight (section *EVGElement) float64 {
+  if  section.height.value.(*EVGUnit).isSet {
+    return section.height.value.(*EVGUnit).pixels
+  }
+  return this.pageHeight
+}
+func (this *EVGHTMLRenderer) getSectionMargin (section *EVGElement) float64 {
+  var m *GoNullable = new(GoNullable); 
+  m.value = section.box.value.(*EVGBox).marginTop.value;
+  m.has_value = section.box.value.(*EVGBox).marginTop.has_value;
+  if  m.value.(*EVGUnit).isSet {
+    return m.value.(*EVGUnit).pixels
+  }
+  return 0.0
+}
 func (this *EVGHTMLRenderer) renderContent (root *EVGElement) string {
   this.elementCounter = int64(0); 
   var uf []string = make([]string, 0);
   this.usedFontFamilies = uf; 
-  this.layout.value.(*EVGLayout).layout(root);
+  var isMultiPage bool= false;
+  if  (((root.tagName == "Print") || (root.tagName == "print")) || (root.tagName == "Section")) || (root.tagName == "section") {
+    isMultiPage = true; 
+  }
+  if  isMultiPage {
+    var emptyArr []*EVGElement = make([]*EVGElement, 0);
+    this.foundSections = emptyArr; 
+    this.findSectionElementsRecursive(root);
+    var si int64= int64(0);
+    for si < (int64(len(this.foundSections))) {
+      var section *EVGElement= this.foundSections[si];
+      var sectionWidth float64= this.getSectionPageWidth(section);
+      var sectionHeight float64= this.getSectionPageHeight(section);
+      var sectionMargin float64= this.getSectionMargin(section);
+      var emptyPages []*EVGElement = make([]*EVGElement, 0);
+      this.foundPages = emptyPages; 
+      this.findPageElementsRecursive(section);
+      var pi int64= int64(0);
+      for pi < (int64(len(this.foundPages))) {
+        var pg *EVGElement= this.foundPages[pi];
+        var contentWidth float64= sectionWidth - (sectionMargin * 2.0);
+        var contentHeight float64= sectionHeight - (sectionMargin * 2.0);
+        this.layout.value.(*EVGLayout).pageWidth = contentWidth; 
+        this.layout.value.(*EVGLayout).pageHeight = contentHeight; 
+        pg.resetLayoutState();
+        pg.width.value.(*EVGUnit).pixels = contentWidth; 
+        pg.width.value.(*EVGUnit).value = contentWidth; 
+        pg.width.value.(*EVGUnit).unitType = int64(0); 
+        pg.width.value.(*EVGUnit).isSet = true; 
+        pg.height.value.(*EVGUnit).pixels = contentHeight; 
+        pg.height.value.(*EVGUnit).value = contentHeight; 
+        pg.height.value.(*EVGUnit).unitType = int64(0); 
+        pg.height.value.(*EVGUnit).isSet = true; 
+        this.layout.value.(*EVGLayout).layout(pg);
+        pi = pi + int64(1); 
+      }
+      si = si + int64(1); 
+    }
+    if  (int64(len(this.foundSections))) == int64(0) {
+      this.layout.value.(*EVGLayout).layout(root);
+    }
+  } else {
+    this.layout.value.(*EVGLayout).layout(root);
+  }
   this.collectFonts(root);
-  return this.renderElement(root, int64(0))
+  var result string= "";
+  if  isMultiPage {
+    result = this.renderElement(root, int64(0)); 
+  } else {
+    result = "<div class=\"evg-page-container\">\n"; 
+    result = result + this.renderElement(root, int64(1)); 
+    result = result + "</div>\n"; 
+  }
+  return result
 }
 func (this *EVGHTMLRenderer) getUsedFonts () []string {
   return this.usedFontFamilies
@@ -8868,7 +8982,7 @@ func (this *EVGHTMLRenderer) generateServerFontFaceCSS (serverUrl string) string
     var fontFileName string= this.fontFamilyToFileName(fontFamily);
     css = css + "@font-face {\n"; 
     css = ((css + "    font-family: '") + fontFamily) + "';\n"; 
-    css = ((((css + "    src: url('") + serverUrl) + "/fonts/") + fontFileName) + "') format('truetype');\n"; 
+    css = ((((css + "    src: url('") + serverUrl) + "/assets/fonts/") + fontFileName) + "') format('truetype');\n"; 
     css = css + "    font-weight: 400;\n"; 
     css = css + "    font-style: normal;\n"; 
     css = css + "}\n"; 
@@ -8876,8 +8990,18 @@ func (this *EVGHTMLRenderer) generateServerFontFaceCSS (serverUrl string) string
   }
   return css
 }
+func (this *EVGHTMLRenderer) transformImagePath (imgSrc string) string {
+  if  (int64(len([]rune(imgSrc)))) >= int64(10) {
+    var prefix string= string([]rune(imgSrc)[int64(0):int64(10)]);
+    if  prefix == "../assets/" {
+      var relativePath string= string([]rune(imgSrc)[int64(10):(int64(len([]rune(imgSrc))))]);
+      return this.imageBasePath + relativePath
+    }
+  }
+  return this.imageBasePath + imgSrc
+}
 func (this *EVGHTMLRenderer) setImageServer (serverUrl string) () {
-  this.imageBasePath = serverUrl + "/images/"; 
+  this.imageBasePath = serverUrl + "/assets/"; 
 }
 func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   var html string= "";
@@ -8893,10 +9017,26 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "            background: #b0b0b0;\n"; 
   html = html + "            padding: 40px;\n"; 
   html = html + "            min-height: 100vh;\n"; 
-  html = html + "            display: flex;\n"; 
-  html = html + "            justify-content: center;\n"; 
   html = html + "        }\n"; 
+  html = html + "        /* Document container - centers pages */\n"; 
+  html = html + "        .evg-document-container {\n"; 
+  html = html + "            display: flex;\n"; 
+  html = html + "            flex-direction: column;\n"; 
+  html = html + "            align-items: center;\n"; 
+  html = html + "            gap: 40px;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Page wrapper for single-page content */\n"; 
   html = html + "        .evg-page-container {\n"; 
+  html = ((html + "            width: ") + (strconv.FormatInt((int64(this.pageWidth)), 10))) + "px;\n"; 
+  html = ((html + "            min-height: ") + (strconv.FormatInt((int64(this.pageHeight)), 10))) + "px;\n"; 
+  html = html + "            background: white;\n"; 
+  html = html + "            box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.1);\n"; 
+  html = html + "            position: relative;\n"; 
+  html = html + "            overflow: hidden;\n"; 
+  html = html + "            flex-shrink: 0;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Individual pages in multi-page docs */\n"; 
+  html = html + "        .evg-page {\n"; 
   html = ((html + "            width: ") + (strconv.FormatInt((int64(this.pageWidth)), 10))) + "px;\n"; 
   html = ((html + "            height: ") + (strconv.FormatInt((int64(this.pageHeight)), 10))) + "px;\n"; 
   html = html + "            background: white;\n"; 
@@ -8904,6 +9044,20 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "            position: relative;\n"; 
   html = html + "            overflow: hidden;\n"; 
   html = html + "            flex-shrink: 0;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Section groups pages */\n"; 
+  html = html + "        .evg-section {\n"; 
+  html = html + "            display: flex;\n"; 
+  html = html + "            flex-direction: column;\n"; 
+  html = html + "            align-items: center;\n"; 
+  html = html + "            gap: 40px;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Document wrapper */\n"; 
+  html = html + "        .evg-document {\n"; 
+  html = html + "            display: flex;\n"; 
+  html = html + "            flex-direction: column;\n"; 
+  html = html + "            align-items: center;\n"; 
+  html = html + "            gap: 40px;\n"; 
   html = html + "        }\n"; 
   html = html + "        .evg-status {\n"; 
   html = html + "            position: fixed;\n"; 
@@ -8917,14 +9071,17 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "            border-radius: 4px;\n"; 
   html = html + "            opacity: 0.8;\n"; 
   html = html + "        }\n"; 
+  html = html + "        .evg-view { position: relative; }\n"; 
+  html = html + "        .evg-label { display: block; }\n"; 
+  html = html + "        .evg-image { display: block; }\n"; 
   html = html + "    </style>\n"; 
   html = html + "    <style id=\"evg-fonts\">\n"; 
   html = html + "        /* Font faces loaded dynamically */\n"; 
   html = html + "    </style>\n"; 
   html = html + "</head>\n"; 
   html = html + "<body>\n"; 
-  html = html + "    <div class=\"evg-page-container\" id=\"evg-content\">\n"; 
-  html = html + "        <div style=\"padding: 20px; color: #666;\">Loading...</div>\n"; 
+  html = html + "    <div class=\"evg-document-container\" id=\"evg-content\">\n"; 
+  html = html + "        <div class=\"evg-page-container\" style=\"padding: 20px; color: #666;\">Loading...</div>\n"; 
   html = html + "    </div>\n"; 
   html = html + "    <div class=\"evg-status\" id=\"evg-status\">Connecting...</div>\n"; 
   html = html + "    <script>\n"; 
@@ -10587,6 +10744,8 @@ type EVGTool struct {
   embedAssets bool `json:"embedAssets"` 
   title string `json:"title"` 
   assetPaths string `json:"assetPaths"` 
+  fontPath string `json:"fontPath"` 
+  imagePath string `json:"imagePath"` 
   showVersion bool `json:"showVersion"` 
   showHelp bool `json:"showHelp"` 
   useComponents bool `json:"useComponents"` 
@@ -10605,6 +10764,8 @@ func CreateNew_EVGTool() *EVGTool {
   me.embedAssets = false
   me.title = "EVG Preview"
   me.assetPaths = ""
+  me.fontPath = ""
+  me.imagePath = ""
   me.showVersion = false
   me.showHelp = false
   me.useComponents = false
@@ -10736,6 +10897,26 @@ func (this *EVGTool) parseArgs () () {
       i = i + int64(1); 
       continue;
     }
+    if  (int64(strings.Index(arg, "--fonts="))) == int64(0) {
+      this.fontPath = string([]rune(arg)[int64(8):(int64(len([]rune(arg))))]); 
+      i = i + int64(1); 
+      continue;
+    }
+    if  (int64(strings.Index(arg, "-f="))) == int64(0) {
+      this.fontPath = string([]rune(arg)[int64(3):(int64(len([]rune(arg))))]); 
+      i = i + int64(1); 
+      continue;
+    }
+    if  (int64(strings.Index(arg, "--images="))) == int64(0) {
+      this.imagePath = string([]rune(arg)[int64(9):(int64(len([]rune(arg))))]); 
+      i = i + int64(1); 
+      continue;
+    }
+    if  (int64(strings.Index(arg, "-i="))) == int64(0) {
+      this.imagePath = string([]rune(arg)[int64(3):(int64(len([]rune(arg))))]); 
+      i = i + int64(1); 
+      continue;
+    }
     if  (int64(strings.Index(arg, "-"))) != int64(0) {
       if  (int64(len([]rune(this.inputFile)))) == int64(0) {
         this.inputFile = arg; 
@@ -10782,7 +10963,21 @@ func (this *EVGTool) getFileName (path string) string {
 func (this *EVGTool) convertToHTML () () {
   var inputDir string= this.getDirectory(this.inputFile);
   var inputFileName string= this.getFileName(this.inputFile);
+  var resolvedFontPath string= this.fontPath;
+  if  (int64(len([]rune(this.fontPath)))) == int64(0) {
+    resolvedFontPath = inputDir + "../assets/fonts/"; 
+  }
+  var resolvedImagePath string= this.imagePath;
+  if  (int64(len([]rune(this.imagePath)))) == int64(0) {
+    resolvedImagePath = inputDir; 
+  }
   fmt.Println( "Parsing TSX file..." )
+  fmt.Println( "  Input dir: " + inputDir )
+  fmt.Println( "  Font path: " + resolvedFontPath )
+  if  (int64(len([]rune(this.assetPaths)))) > int64(0) {
+    fmt.Println( "  Assets:    " + this.assetPaths )
+  }
+  fmt.Println( "" )
   var root *EVGElement= CreateNew_EVGElement();
   if  this.useComponents {
     var engine *ComponentEngine= CreateNew_ComponentEngine();
@@ -10812,8 +11007,8 @@ func (this *EVGTool) convertToHTML () () {
   var renderer *EVGHTMLRenderer= CreateNew_EVGHTMLRenderer();
   renderer.setPageSize(this.pageWidth, this.pageHeight);
   renderer.setTitle(this.title);
-  renderer.setBaseDir(inputDir);
-  renderer.setFontBasePath(inputDir + "../assets/fonts/");
+  renderer.setBaseDir(resolvedImagePath);
+  renderer.setFontBasePath(resolvedFontPath);
   if  this.debug {
     renderer.setDebug(true);
   }
@@ -10861,49 +11056,124 @@ func (this *EVGTool) printTree (element *EVGElement, depth int64) () {
 func (this *EVGTool) printUsage () () {
   fmt.Println( "Usage: evg_tool <input.tsx> [output.html] [options]" )
   fmt.Println( "" )
-  fmt.Println( "Run 'evg_tool --help' for more information." )
+  fmt.Println( "Try 'evg_tool --help' for more information." )
+  fmt.Println( "" )
+  fmt.Println( "Quick Examples:" )
+  fmt.Println( "  evg_tool document.tsx                     # Convert to document.html" )
+  fmt.Println( "  evg_tool document.tsx preview.html        # Specify output name" )
+  fmt.Println( "  evg_tool document.tsx -a=./components     # With component imports" )
+  fmt.Println( "  evg_tool document.tsx -f=./fonts          # Custom fonts folder" )
 }
 func (this *EVGTool) printHelp () () {
-  fmt.Println( "EVG Tool - HTML Preview for TSX Documents" )
+  fmt.Println( "╔══════════════════════════════════════════════════════════════════════╗" )
+  fmt.Println( "║              EVG Tool - TSX to HTML Preview Generator                ║" )
+  fmt.Println( "╚══════════════════════════════════════════════════════════════════════╝" )
   fmt.Println( "" )
   fmt.Println( "USAGE:" )
-  fmt.Println( "    evg_tool <input.tsx> [output.html] [options]" )
+  fmt.Println( "  evg_tool <input.tsx> [output.html] [options]" )
   fmt.Println( "" )
   fmt.Println( "DESCRIPTION:" )
-  fmt.Println( "    Converts TSX documents to HTML for quick preview." )
-  fmt.Println( "    Output file defaults to input name with .html extension." )
+  fmt.Println( "  Renders TSX documents (with EVG elements like Print, Section, Page," )
+  fmt.Println( "  View, Label, Image) to HTML for quick preview in a browser." )
+  fmt.Println( "" )
+  fmt.Println( "  If no output file is specified, uses input name with .html extension." )
   fmt.Println( "" )
   fmt.Println( "OPTIONS:" )
-  fmt.Println( "    -a, --assets=PATHS      Asset directories (semicolon-separated)" )
-  fmt.Println( "                            Enables component imports when specified" )
-  fmt.Println( "    -c, --components        Use component engine (for imports)" )
-  fmt.Println( "    -t, --title=TEXT        HTML page title" )
-  fmt.Println( "    -e, --embed             Embed images as base64" )
-  fmt.Println( "    --width=N               Page width in points (default: 595)" )
-  fmt.Println( "    --height=N              Page height in points (default: 842)" )
-  fmt.Println( "    -d, --debug             Enable debug output" )
-  fmt.Println( "    -h, --help              Show this help message" )
-  fmt.Println( "    -v, --version           Show version" )
+  fmt.Println( "  Input/Output:" )
+  fmt.Println( "    <input.tsx>             TSX file to convert (required)" )
+  fmt.Println( "    [output.html]           Output HTML file (optional)" )
   fmt.Println( "" )
-  fmt.Println( "WATCH MODE (coming soon):" )
-  fmt.Println( "    -w, --watch             Watch file for changes and auto-reload" )
-  fmt.Println( "    -p, --port=N            Server port (default: 3000)" )
+  fmt.Println( "  Components & Assets:" )
+  fmt.Println( "    -a, --assets=PATHS      Semicolon-separated paths for component imports" )
+  fmt.Println( "                            Enables ComponentEngine for processing imports" )
+  fmt.Println( "                            Example: --assets=./components;./assets" )
+  fmt.Println( "    -c, --components        Use ComponentEngine even without --assets" )
+  fmt.Println( "" )
+  fmt.Println( "  Fonts & Images:" )
+  fmt.Println( "    -f, --fonts=PATH        Path to fonts folder" )
+  fmt.Println( "                            Default: ../assets/fonts/ (relative to input file)" )
+  fmt.Println( "    -i, --images=PATH       Base path for images" )
+  fmt.Println( "                            Default: same directory as input file" )
+  fmt.Println( "" )
+  fmt.Println( "  Page Layout:" )
+  fmt.Println( "    --width=N               Page width in points (default: 595 = A4)" )
+  fmt.Println( "    --height=N              Page height in points (default: 842 = A4)" )
+  fmt.Println( "" )
+  fmt.Println( "  Output Options:" )
+  fmt.Println( "    -t, --title=TEXT        HTML page title (default: 'EVG Preview')" )
+  fmt.Println( "    -e, --embed             Embed images/fonts as base64 data URIs" )
+  fmt.Println( "                            (creates self-contained HTML file)" )
+  fmt.Println( "" )
+  fmt.Println( "  Debug & Info:" )
+  fmt.Println( "    -d, --debug             Print element tree and debug information" )
+  fmt.Println( "    -h, --help              Show this help message" )
+  fmt.Println( "    -v, --version           Show version number" )
+  fmt.Println( "" )
+  fmt.Println( "DEFAULT FOLDER STRUCTURE:" )
+  fmt.Println( "  The tool expects this structure by default (can be overridden with options):" )
+  fmt.Println( "" )
+  fmt.Println( "    project/" )
+  fmt.Println( "    ├── examples/                 # Your TSX files here" )
+  fmt.Println( "    │   └── document.tsx" )
+  fmt.Println( "    ├── components/               # Reusable components (use --assets)" )
+  fmt.Println( "    │   └── PhotoLayouts.tsx" )
+  fmt.Println( "    └── assets/" )
+  fmt.Println( "        ├── fonts/                # Font files (--fonts default: ../assets/fonts/)" )
+  fmt.Println( "        │   ├── Helvetica/" )
+  fmt.Println( "        │   │   └── Helvetica.ttf" )
+  fmt.Println( "        │   └── Noto_Sans/" )
+  fmt.Println( "        │       └── NotoSans-Regular.ttf" )
+  fmt.Println( "        └── images/               # Image files (referenced in TSX)" )
+  fmt.Println( "            └── photo.jpg" )
+  fmt.Println( "" )
+  fmt.Println( "  TSX files reference images with relative paths like:" )
+  fmt.Println( "    <Image src=\"../assets/images/photo.jpg\" />" )
   fmt.Println( "" )
   fmt.Println( "EXAMPLES:" )
-  fmt.Println( "    # Simple preview" )
-  fmt.Println( "    evg_tool document.tsx" )
   fmt.Println( "" )
-  fmt.Println( "    # With custom output name" )
-  fmt.Println( "    evg_tool document.tsx preview.html" )
+  fmt.Println( "  1. Basic conversion (using default folder structure)" )
+  fmt.Println( "     $ cd project/examples" )
+  fmt.Println( "     $ evg_tool document.tsx" )
   fmt.Println( "" )
-  fmt.Println( "    # With embedded images" )
-  fmt.Println( "    evg_tool document.tsx output.html --embed" )
+  fmt.Println( "  2. Specify custom fonts folder" )
+  fmt.Println( "     $ evg_tool document.tsx --fonts=/path/to/my/fonts" )
   fmt.Println( "" )
-  fmt.Println( "    # With component imports" )
-  fmt.Println( "    evg_tool document.tsx --assets=./components;./fonts" )
+  fmt.Println( "  3. With component imports" )
+  fmt.Println( "     $ evg_tool gallery.tsx --assets=../components;../assets" )
   fmt.Println( "" )
-  fmt.Println( "    # Custom page size" )
-  fmt.Println( "    evg_tool document.tsx --width=800 --height=600" )
+  fmt.Println( "  4. Self-contained HTML (embeds images and fonts)" )
+  fmt.Println( "     $ evg_tool document.tsx output.html --embed" )
+  fmt.Println( "" )
+  fmt.Println( "  5. Custom page size (US Letter: 612x792 points)" )
+  fmt.Println( "     $ evg_tool document.tsx --width=612 --height=792" )
+  fmt.Println( "" )
+  fmt.Println( "  6. Full example with all paths explicit" )
+  fmt.Println( "     $ evg_tool photo_album.tsx album.html \\" )
+  fmt.Println( "         --assets=../components;../assets \\" )
+  fmt.Println( "         --fonts=../assets/fonts \\" )
+  fmt.Println( "         --title=\"My Photo Album\"" )
+  fmt.Println( "" )
+  fmt.Println( "SUPPORTED ELEMENTS:" )
+  fmt.Println( "  <Print>    Document root container" )
+  fmt.Println( "  <Section>  Document section/chapter" )
+  fmt.Println( "  <Page>     Individual page" )
+  fmt.Println( "  <View>     Flexible container (like div)" )
+  fmt.Println( "  <Label>    Text content" )
+  fmt.Println( "  <Image>    Image element" )
+  fmt.Println( "  <Layer>    Absolute positioning overlay" )
+  fmt.Println( "  <Path>     SVG path element" )
+  fmt.Println( "" )
+  fmt.Println( "LIVE PREVIEW:" )
+  fmt.Println( "  For live preview with auto-reload on save, use evg_preview_server:" )
+  fmt.Println( "" )
+  fmt.Println( "    $ cd gallery/pdf_writer" )
+  fmt.Println( "    $ ./bin/evg_preview_server examples/document.tsx 3006" )
+  fmt.Println( "    # Open http://localhost:3006 in your browser" )
+  fmt.Println( "" )
+  fmt.Println( "  The preview server also expects the default folder structure," )
+  fmt.Println( "  or you can run it from the examples folder." )
+  fmt.Println( "" )
+  fmt.Println( "More info: See gallery/pdf_writer/README.md" )
 }
 func main() {
   var tool *EVGTool= CreateNew_EVGTool();

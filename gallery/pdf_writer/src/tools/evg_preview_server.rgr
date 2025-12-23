@@ -1,0 +1,412 @@
+; =============================================================================
+; evg_preview_server.rgr - Live Preview Server for EVG/TSX Documents
+; =============================================================================
+;
+; A live-reloading HTTP server for previewing TSX documents in the browser.
+; When you save changes to the TSX file, the browser automatically updates.
+;
+; FEATURES:
+;   - Live reload on file save (via Server-Sent Events)
+;   - ComponentEngine for TSX import resolution
+;   - Serves fonts and images from assets folder
+;   - Multi-page document support
+;
+; USAGE:
+;   evg_preview_server <input.tsx> [port] [--assets=paths]
+;
+; QUICK START:
+;   cd gallery/pdf_writer
+;   ./bin/evg_preview_server examples/test_gallery.tsx 3006
+;   # Open http://localhost:3006 in browser
+;
+; DEFAULT FOLDER STRUCTURE:
+;   project/
+;   ├── examples/           <- Your TSX files (run server from here)
+;   │   └── document.tsx
+;   ├── components/         <- Reusable components (auto-discovered)
+;   │   └── PhotoLayouts.tsx
+;   └── assets/
+;       ├── fonts/          <- Font files (served via /assets/fonts/)
+;       └── images/         <- Images (served via /assets/images/)
+;
+; COMPILE & BUILD:
+;   npm run evgpreview:compile    # Compile Ranger to Go
+;   npm run evgpreview:build      # Compile + Go build
+;   npm run evgpreview            # Build and start with example file
+;
+; See also: evg_tool.rgr (for batch HTML generation)
+; =============================================================================
+
+Import "../jsx/ComponentEngine.rgr"
+Import "../core/EVGHTMLRenderer.rgr"
+Import "../../../evg/EVGElement.rgr"
+
+; Preview Server with @(HttpServer) annotation
+class EVGPreviewServer@(HttpServer) {
+    def inputFile:string ""
+    def inputDir:string ""
+    def inputFileName:string ""
+    def assetPaths:string ""
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def port:int 3000
+    def title:string "EVG Preview"
+    def serverUrl:string ""
+    
+    ; Cached content for serving
+    def cachedShellHTML:string ""
+    def cachedContentHTML:string ""
+    def cachedFontsCSS:string ""
+    
+    ; File modification tracking
+    def lastModTime:int 0
+    
+    fn initialize:void (tsxFile:string serverPort:int assets:string) {
+        inputFile = tsxFile
+        port = serverPort
+        assetPaths = assets
+        serverUrl = "http://localhost:" + (to_string port)
+        
+        ; Extract directory and filename
+        def lastSlash:int (lastIndexOf inputFile "/")
+        def lastBackslash:int (lastIndexOf inputFile "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            inputDir = (substring inputFile 0 (lastSep + 1))
+            inputFileName = (substring inputFile (lastSep + 1) (strlen inputFile))
+        } {
+            inputDir = "./"
+            inputFileName = inputFile
+        }
+        
+        ; Set title from filename
+        title = inputFileName
+        
+        ; Initial render
+        this.reloadContent()
+    }
+    
+    fn reloadContent:void () {
+        print "Parsing TSX file: " + inputFile
+        
+        ; Use ComponentEngine for full component support
+        def engine (new ComponentEngine())
+        engine.pageWidth = pageWidth
+        engine.pageHeight = pageHeight
+        
+        ; Set asset paths for component and resource resolution
+        if ((strlen assetPaths) > 0) {
+            engine.setAssetPaths(assetPaths)
+        }
+        
+        def root:EVGElement (engine.parseFile(inputDir inputFileName))
+        
+        if (root.tagName == "") {
+            print "Error: Failed to parse TSX file"
+            cachedContentHTML = "<div style='color:red;padding:20px;'>Error: Failed to parse TSX file</div>"
+            return
+        }
+        
+        print "Parsed: <" + root.tagName + "> with " + (to_string (root.getChildCount())) + " children"
+        
+        ; Create renderer
+        def renderer (new EVGHTMLRenderer())
+        renderer.setPageSize(pageWidth pageHeight)
+        renderer.setTitle(title)
+        renderer.setBaseDir(inputDir)
+        renderer.setFontBasePath(inputDir + "../assets/fonts/")
+        renderer.setImageServer(serverUrl)
+        
+        ; Render content (without html/head/body wrapper)
+        cachedContentHTML = (renderer.renderContent(root))
+        
+        ; Generate shell HTML
+        cachedShellHTML = (renderer.generateShellHTML(serverUrl))
+        
+        ; Generate fonts CSS
+        cachedFontsCSS = (renderer.generateServerFontFaceCSS(serverUrl))
+        
+        print "Content rendered: " + (to_string (strlen cachedContentHTML)) + " bytes"
+    }
+    
+    ; =========================================================================
+    ; HTTP Endpoints
+    ; =========================================================================
+    
+    ; GET / - Serve the shell HTML
+    fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) {
+        http_set_header res "Content-Type" "text/html; charset=utf-8"
+        http_set_status res 200
+        http_send res cachedShellHTML
+    }
+    
+    ; GET /content - Serve the rendered document content
+    fn handleContent@(GET "/content"):void (req:HttpRequest res:HttpResponse) {
+        ; Reload content on each request to pick up changes
+        this.reloadContent()
+        http_set_header res "Content-Type" "text/html; charset=utf-8"
+        http_set_header res "Cache-Control" "no-cache"
+        http_set_status res 200
+        http_send res cachedContentHTML
+    }
+    
+    ; GET /fonts.css - Serve font-face CSS
+    fn handleFontsCSS@(GET "/fonts.css"):void (req:HttpRequest res:HttpResponse) {
+        http_set_header res "Content-Type" "text/css; charset=utf-8"
+        http_set_header res "Cache-Control" "no-cache"
+        http_set_status res 200
+        http_send res cachedFontsCSS
+    }
+    
+    ; GET /assets/* - Serve static assets (images, fonts, etc.)
+    ; This handles paths like /assets/images/IMG_6573.jpg or /assets/fonts/Helvetica/Helvetica.ttf
+    fn handleAssets@(GET "/assets/"):void (req:HttpRequest res:HttpResponse) {
+        def path:string (http_get_path req)
+        ; Strip /assets/ prefix to get the relative path
+        def assetPath:string (substring path 8 (strlen path))
+        
+        ; Build full path: inputDir/../assets/assetPath
+        ; inputDir is like "examples/", so ../assets/ goes to the assets folder
+        def fullPath:string (inputDir + "../assets/" + assetPath)
+        
+        print "Serving asset: " + fullPath
+        
+        ; Read the file as binary
+        def fileData:buffer (buffer_read_file "" fullPath)
+        
+        ; Determine content type from extension
+        def ext:string ""
+        def lastDot:int (lastIndexOf assetPath ".")
+        if (lastDot >= 0) {
+            ext = (to_lowercase (substring assetPath (lastDot + 1) (strlen assetPath)))
+        }
+        
+        def contentType:string "application/octet-stream"
+        ; Image types
+        if (ext == "jpg") {
+            contentType = "image/jpeg"
+        }
+        if (ext == "jpeg") {
+            contentType = "image/jpeg"
+        }
+        if (ext == "png") {
+            contentType = "image/png"
+        }
+        if (ext == "gif") {
+            contentType = "image/gif"
+        }
+        if (ext == "svg") {
+            contentType = "image/svg+xml"
+        }
+        if (ext == "webp") {
+            contentType = "image/webp"
+        }
+        ; Font types
+        if (ext == "woff2") {
+            contentType = "font/woff2"
+        }
+        if (ext == "woff") {
+            contentType = "font/woff"
+        }
+        if (ext == "ttf") {
+            contentType = "font/ttf"
+        }
+        if (ext == "otf") {
+            contentType = "font/otf"
+        }
+        
+        http_set_header res "Content-Type" contentType
+        http_set_header res "Cache-Control" "max-age=3600"
+        http_set_status res 200
+        http_send_buffer res fileData
+    }
+    
+    ; GET /fonts/* - Serve fonts from asset paths (legacy - kept for compatibility)
+    fn handleFonts@(GET "/fonts/"):void (req:HttpRequest res:HttpResponse) {
+        def path:string (http_get_path req)
+        ; Strip /fonts/ prefix
+        def fontPath:string (substring path 7 (strlen path))
+        
+        ; Resolve relative paths - fontPath might be like "../assets/fonts/Inter-Regular.woff2"
+        def fullPath:string (inputDir + fontPath)
+        
+        print "Serving font: " + fullPath
+        
+        ; Read the file as binary
+        def fileData:buffer (buffer_read_file "" fullPath)
+        
+        ; Determine content type from extension
+        def ext:string ""
+        def lastDot:int (lastIndexOf fontPath ".")
+        if (lastDot >= 0) {
+            ext = (to_lowercase (substring fontPath (lastDot + 1) (strlen fontPath)))
+        }
+        
+        def contentType:string "application/octet-stream"
+        if (ext == "woff2") {
+            contentType = "font/woff2"
+        }
+        if (ext == "woff") {
+            contentType = "font/woff"
+        }
+        if (ext == "ttf") {
+            contentType = "font/ttf"
+        }
+        if (ext == "otf") {
+            contentType = "font/otf"
+        }
+        
+        http_set_header res "Content-Type" contentType
+        http_set_header res "Cache-Control" "max-age=3600"
+        http_set_status res 200
+        http_send_buffer res fileData
+    }
+    
+    ; SSE /events - Live update stream
+    fn handleEvents@(SSE "/events"):void (client:SSEClient) {
+        print "SSE client connected - watching for changes"
+        
+        ; Send initial connected message
+        sse_send client "connected" "EVG Preview Server"
+        
+        ; Get initial modification time
+        def currentModTime:int (file_mtime inputDir inputFileName)
+        lastModTime = currentModTime
+        
+        ; Keep connection open and poll for updates
+        def connected:boolean (sse_is_connected client)
+        
+        while connected {
+            ; Check file modification time
+            currentModTime = (file_mtime inputDir inputFileName)
+            
+            if (currentModTime > lastModTime) {
+                print "File changed - sending update"
+                lastModTime = currentModTime
+                sse_send client "update" "File modified"
+            }
+            
+            ; Sleep 500ms between checks
+            wait 0.5
+            connected = (sse_is_connected client)
+        }
+        
+        print "SSE client disconnected"
+    }
+}
+
+; Main entry point
+sfn m@(main):void () {
+    def argCount:int (shell_arg_cnt)
+    
+    ; Check for --help or -h first
+    def showHelp:boolean false
+    if (argCount >= 1) {
+        def firstArg:string (shell_arg 0)
+        if ((firstArg == "--help") || (firstArg == "-h")) {
+            showHelp = true
+        }
+    }
+    
+    if ((argCount < 1) || showHelp) {
+        print "EVG Preview Server - Live TSX Preview with Component Support"
+        print ""
+        print "Usage: evg_preview_server <input.tsx> [port] [options]"
+        print ""
+        print "DESCRIPTION:"
+        print "  Starts a live preview server for TSX documents."
+        print "  Changes to the file automatically refresh the browser."
+        print ""
+        print "ARGUMENTS:"
+        print "  input.tsx   TSX file to preview (required)"
+        print "  port        Server port (default: 3000)"
+        print ""
+        print "OPTIONS:"
+        print "  --assets=PATHS   Semicolon-separated paths for imports"
+        print "                   Default: ../components;../assets (relative to input)"
+        print ""
+        print "DEFAULT FOLDER STRUCTURE:"
+        print "  The server expects this structure (can be overridden with --assets):"
+        print ""
+        print "    project/"
+        print "    ├── examples/"
+        print "    │   └── document.tsx      <- Run server here"
+        print "    ├── components/"
+        print "    │   └── PhotoLayouts.tsx  <- Component imports"
+        print "    └── assets/"
+        print "        ├── fonts/            <- Font files"
+        print "        │   └── Helvetica/Helvetica.ttf"
+        print "        └── images/           <- Image files"
+        print "            └── photo.jpg"
+        print ""
+        print "EXAMPLES:"
+        print "  # Basic usage (from examples folder)"
+        print "  cd gallery/pdf_writer && ./bin/evg_preview_server examples/test_gallery.tsx 3006"
+        print ""
+        print "  # With custom port"
+        print "  ./bin/evg_preview_server examples/document.tsx 8080"
+        print ""
+        print "  # With explicit asset paths"
+        print "  ./bin/evg_preview_server my_doc.tsx 3000 --assets=./components;./fonts"
+        print ""
+        print "  Then open http://localhost:<port> in your browser."
+        return
+    }
+    
+    def inputFile:string (shell_arg 0)
+    def port:int 3000
+    def assetPaths:string ""
+    
+    ; Parse arguments
+    def i:int 1
+    while (i < argCount) {
+        def arg:string (shell_arg i)
+        if ((indexOf arg "--assets=") == 0) {
+            assetPaths = (substring arg 9 (strlen arg))
+        } {
+            ; Check if it's a port number
+            def portVal@(optional):int (to_int arg)
+            if portVal {
+                port = (unwrap portVal)
+            }
+        }
+        i = i + 1
+    }
+    
+    ; If no assets specified, try to derive from input file location
+    if ((strlen assetPaths) == 0) {
+        ; Extract directory from input file
+        def lastSlash:int (lastIndexOf inputFile "/")
+        if (lastSlash >= 0) {
+            def baseDir:string (substring inputFile 0 lastSlash)
+            ; Add common component and asset paths relative to file
+            assetPaths = baseDir + "/../components;" + baseDir + "/../assets"
+        }
+    }
+    
+    print ""
+    print "╔═══════════════════════════════════════════════════════════╗"
+    print "║     EVG Preview Server - Live Preview with Components     ║"
+    print "╚═══════════════════════════════════════════════════════════╝"
+    print ""
+    print "  File: " + inputFile
+    print "  Port: " + (to_string port)
+    print "  Assets: " + assetPaths
+    print "  Live reload: enabled"
+    print ""
+    
+    def server (new EVGPreviewServer())
+    server.initialize(inputFile port assetPaths)
+    
+    print ""
+    print "Starting server at http://localhost:" + (to_string port)
+    print "Watching for file changes..."
+    print "Press Ctrl+C to stop"
+    print ""
+    
+    start server port
+}

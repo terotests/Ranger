@@ -110,7 +110,7 @@ function render() {
         <Page>
           <PhotoCaptionBelow
             src={samplePhoto}
-            caption="The golden hour light made everything magical that evening. We spent hours just watching the waves."
+            caption="TKultainen tunti light made kaikki maagiseksi!! that evening. We spent hours just watching the waves."
             captionFontSize="14px"
             captionColor="#555555"
           />
@@ -304,7 +304,7 @@ function render() {
                   marginTop="8px"
                   textAlign="center"
                 >
-                  Memories
+                  Memories of summer here 
                 </Label>
               </View>
             </View>

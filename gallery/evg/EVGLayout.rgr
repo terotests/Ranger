@@ -73,6 +73,17 @@ class EVGLayout {
         
         def height:double 0.0
         def autoHeight:boolean true
+        
+        ; Special handling for Page elements - they always use page size
+        if ((element.tagName == "Page") || (element.tagName == "page")) {
+            if (element.width.isSet == false) {
+                width = pageWidth
+            }
+            if (element.height.isSet == false) {
+                height = pageHeight
+                autoHeight = false
+            }
+        }
         if element.height.isSet {
             height = element.height.pixels
             autoHeight = false

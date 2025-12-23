@@ -2,7 +2,7 @@
 
 Based on [PLAN_HTTP.md](./PLAN_HTTP.md)
 
-## Status: ✅ Phase 3 Complete (Core HTTP Server Working)
+## Status: ✅ Phase 4 Complete (EVG Preview Server Working)
 
 Started: December 23, 2025
 
@@ -136,22 +136,51 @@ start server 3000
 
 ---
 
-## Phase 4: EVG Watch Mode Server 🚧 NEXT
+## Phase 4: EVG Watch Mode Server ✅ COMPLETE
 
-### 4.1 File Watching
-- [ ] Add `watch_file` operator to Lang.rgr (Go: fsnotify)
-- [ ] Implement file change detection
-- [ ] Send SSE "update" event on file change
-- [ ] Handle imported component changes
-- [ ] Add debouncing for rapid changes
+### 4.1 Create EVG Preview Server ✅
+- [x] Create `gallery/pdf_writer/src/tools/evg_preview_server.rgr`
+- [x] Implement ComponentEngine integration for TSX parsing
+- [x] Implement EVGHTMLRenderer for HTML generation
+- [x] Implement EVGLayout for proper page dimensions
+- [x] Add shell HTML endpoint (GET `/`)
+- [x] Add content endpoint (GET `/content`)
+- [x] Add font CSS endpoint (GET `/fonts.css`)
+- [x] Add SSE events endpoint (GET `/events`)
+- [x] Add asset serving endpoint (GET `/assets/`)
 
-### 4.2 Browser Auto-Open
+### 4.2 File Watching ✅
+- [x] Add `file_mtime` operator to Lang.rgr (Go: os.Stat)
+- [x] Implement file change detection via polling
+- [x] Send SSE "reload" event on file change
+- [x] Cache font CSS to avoid regeneration
+
+### 4.3 Asset Serving ✅
+- [x] Add `buffer_read_file` operator for binary file reading
+- [x] Add `http_send_buffer` operator for sending binary data
+- [x] Implement `/assets/` route for images and fonts
+- [x] Transform image paths from `../assets/` to `/assets/`
+- [x] Generate proper font-face CSS with server URLs
+
+### 4.4 Live Reload ✅
+- [x] SSE connection management
+- [x] Automatic reload on file save
+- [x] Font CSS served from server (not embedded)
+- [x] Images served from server (not base64)
+
+### 4.5 Package.json Scripts ✅
+- [x] Add `evgpreview:compile` - Compile to Go
+- [x] Add `evgpreview:build` - Compile + Go build
+- [x] Add `evgpreview:start` - Run preview server
+- [x] Add `evgpreview` - Build and start
+
+### 4.6 Browser Auto-Open (TODO)
 - [ ] Add `open_browser` operator to Lang.rgr
 - [ ] Implement macOS support (`open` command)
 - [ ] Implement Linux support (`xdg-open` command)
 - [ ] Implement Windows support (`start` command)
 
-### 4.3 Integration with evg_tool
+### 4.7 Integration with evg_tool (TODO)
 - [ ] Add `--watch` flag to evg_tool
 - [ ] Add `--port` flag for server port
 - [ ] Start preview server when --watch specified
@@ -160,21 +189,49 @@ start server 3000
 
 ---
 
-## Phase 5: Testing & Documentation
+## Phase 5: Incremental Page Updates (Future Enhancement)
 
-### 5.1 Test Fixtures ✅ PARTIAL
+### 5.1 Diff-Based Page Loading
+- [ ] Assign unique IDs to each Page element during rendering
+- [ ] Store previous render content hash per page
+- [ ] Compare page content hashes on re-render
+- [ ] Send only changed pages via SSE with page index
+- [ ] Client-side DOM patching for individual pages
+
+### 5.2 Benefits
+- Faster updates for large documents
+- Preserved scroll position
+- Reduced network traffic
+- Smoother editing experience
+
+### 5.3 Implementation Notes
+```
+SSE event format for incremental updates:
+  event: page-update
+  data: {"index": 5, "html": "<div class='evg-page'>...</div>"}
+
+Client JS: Replace specific page div instead of full content
+```
+
+---
+
+## Phase 6: Testing & Documentation
+
+### 6.1 Test Fixtures ✅ PARTIAL
 - [x] Create `tests/fixtures/http_server.rgr` - basic HTTP server
+- [x] Create `gallery/pdf_writer/src/tools/evg_preview_server.rgr` - EVG preview server
 - [ ] Create `tests/fixtures/http_sse.rgr` - SSE endpoint test
 - [ ] Create `tests/fixtures/http_params.rgr` - path parameters
 
-### 5.2 Test Cases
+### 6.2 Test Cases
 - [x] Test HTTP server compilation to Go
 - [x] Test route generation
-- [ ] Test SSE endpoint generation (full test)
+- [x] Test SSE endpoint generation
 - [ ] Test path parameter handling
 - [x] Test annotation parameter extraction
+- [x] Test asset serving (images, fonts)
 
-### 5.3 Documentation
+### 6.3 Documentation
 - [ ] Update `gallery/pdf_writer/README.md` with new CLI
 - [ ] Add watch mode examples
 - [ ] Document HTTP server annotations
@@ -182,7 +239,7 @@ start server 3000
 
 ---
 
-## Phase 6: AI Integration (Future)
+## Phase 7: AI Integration (Future)
 
 > **Note**: This phase should be implemented after Phases 1-5 are stable.
 
@@ -242,6 +299,31 @@ Before marking a phase complete:
 ---
 
 ## Notes
+
+### December 23, 2025 - Phase 4 Complete! 🎉
+- **EVG Watch Mode Preview Server WORKING**
+  - Live preview of TSX files with ComponentEngine
+  - SSE-based live reload on file save
+  - Asset serving for images and fonts via `/assets/` route
+  - Proper layout calculation using EVGLayout
+  - Multi-page document support (16+ pages tested)
+  
+- **New Operators Added to Lang.rgr**:
+  - `file_mtime` - Get file modification time (Go: os.Stat)
+  - `buffer_read_file` - Read file as binary buffer
+  - `http_send_buffer` - Send binary buffer in HTTP response
+
+- **EVGHTMLRenderer Updates**:
+  - `transformImagePath()` - Convert `../assets/` paths to `/assets/`
+  - `fontFamilyToFileName()` - Fixed font path mappings
+  - Server-side font serving with proper folder structure
+
+- **Usage**:
+  ```bash
+  npm run evgpreview:build
+  cd gallery/pdf_writer && ./bin/evg_preview_server examples/test_gallery.tsx 3006
+  # Open http://localhost:3006
+  ```
 
 ### December 23, 2025 - Phase 3 Complete! 🎉
 - **HTTP Server Language Extension WORKING**

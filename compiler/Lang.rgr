@@ -666,6 +666,27 @@ func r_dir_exists(pathName string) bool {
            }
         }
 
+        ; Returns the file modification time as Unix timestamp (seconds since epoch)
+        file_mtime          cmdFileMTime:int (path:string filename:string) {
+            templates {
+                go ( "r_file_mtime(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+func r_file_mtime(pathName string, fileName string) int64 {
+    info, err := os.Stat(pathName + \"/\" + fileName)
+    if err != nil {
+        return 0
+    }
+    return info.ModTime().Unix()
+}
+"
+)                    
+                )
+                es6 ( "require('fs').statSync(" (e 1) " + '/' + " (e 2) ").mtimeMs" )
+                ranger ( "(file_mtime " (e 1) " " (e 2) ")" )
+           }
+        }
+
         create_dir          cmdCreateDir:void (path:string) {
             templates {
                 scala ( "/* create_dir not implemented */ ")
@@ -5119,6 +5140,14 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 go ( (e 1) ".Write(" (e 2) ")" nl )
                 es6 ( (e 1) ".send(Buffer.from(" (e 2) "))" nl )
                 * ( "/* http_send_bytes not implemented */" nl )
+            }
+        }
+        
+        http_send_buffer cmdHttpSendBuffer:void (res:HttpResponse content:buffer) {
+            templates {
+                go ( (e 1) ".Write(" (e 2) ")" nl )
+                es6 ( (e 1) ".send(Buffer.from(" (e 2) "))" nl )
+                * ( "/* http_send_buffer not implemented */" nl )
             }
         }
         
