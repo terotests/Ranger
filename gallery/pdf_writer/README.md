@@ -24,11 +24,154 @@ A collection of binary format utilities written in Ranger:
 | Box shadows | ⚠️ | ✅ | Hard edges in PDF, perfect in HTML |
 | Text shadows | ⚠️ | ✅ | Needs raster renderer in PDF |
 | Component system | ✅ | ✅ | TSX imports |
+| Layer element | ⏳ | ✅ | Absolute overlay for stacking |
+| Image viewBox | ⏳ | ✅ | Crop/zoom images |
+| Alignment (align/verticalAlign) | ✅ | ✅ | Row alignment |
 
 ### Planned: EVG Raster Renderer
 
 To properly support shadows and effects in PDF, a raster (pixel buffer) renderer is planned.
 See [EVG_RASTER_PLAN.md](EVG_RASTER_PLAN.md) for details.
+
+## EVG Attributes Reference
+
+TSX uses **camelCase** for all attributes (e.g., `fontSize`, `backgroundColor`, `verticalAlign`).
+
+### Layout & Positioning
+
+| Attribute | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `width` | string | Element width | `"100px"`, `"50%"`, `"100%"` |
+| `height` | string | Element height | `"200px"`, `"auto"` |
+| `padding` | string | Inner spacing | `"20px"`, `"10px 20px"` |
+| `margin` | string | Outer spacing | `"10px"`, `"0 auto"` |
+| `marginTop/Right/Bottom/Left` | string | Individual margins | `"20px"` |
+| `position` | string | Positioning mode | `"relative"`, `"absolute"` |
+| `top/right/bottom/left` | string | Position offset | `"10px"`, `"50%"` |
+
+### Flexbox Layout
+
+| Attribute | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `flexDirection` | string | Main axis direction | `"row"`, `"column"` |
+| `flex` | number | Flex grow factor | `1`, `2` |
+| `gap` | string | Gap between children | `"10px"`, `"20px"` |
+| `align` | string | Horizontal alignment of children | `"left"`, `"center"`, `"right"` |
+| `verticalAlign` | string | Vertical alignment of children | `"top"`, `"center"`, `"bottom"` |
+| `justifyContent` | string | Main axis distribution | `"flex-start"`, `"center"`, `"space-between"` |
+| `alignItems` | string | Cross axis alignment | `"flex-start"`, `"center"`, `"stretch"` |
+
+### Typography
+
+| Attribute | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `fontSize` | string | Font size | `"16px"`, `"1.2em"` |
+| `fontWeight` | string | Font weight | `"normal"`, `"bold"`, `"600"` |
+| `fontFamily` | string | Font family | `"'Open Sans'"`, `"Helvetica"` |
+| `color` | string | Text color | `"#333"`, `"rgb(50,50,50)"` |
+| `textAlign` | string | Text alignment | `"left"`, `"center"`, `"right"` |
+| `lineHeight` | number | Line spacing factor | `1.2`, `1.6` |
+
+### Visual Styling
+
+| Attribute | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `backgroundColor` | string | Background color | `"#f0f0f0"`, `"rgba(0,0,0,0.5)"` |
+| `background` | string | Background (gradients) | `"linear-gradient(180deg, #fff, #000)"` |
+| `borderRadius` | string | Corner rounding | `"8px"`, `"50%"` |
+| `borderWidth` | string | Border thickness | `"1px"`, `"2px"` |
+| `borderColor` | string | Border color | `"#ccc"`, `"transparent"` |
+
+### Shadows (HTML only)
+
+| Attribute | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `shadowRadius` | string | Shadow blur radius | `"10px"` |
+| `shadowColor` | string | Shadow color | `"rgba(0,0,0,0.3)"` |
+| `shadowOffsetX` | string | Horizontal shadow offset | `"2px"`, `"-5px"` |
+| `shadowOffsetY` | string | Vertical shadow offset | `"4px"` |
+
+> **Note:** Shadows are fully supported in HTML output but have limited support in PDF (hard edges only). For best results with shadows, use the HTML renderer.
+
+### Images
+
+| Attribute | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `src` | string | Image source path | `"./photo.jpg"` |
+| `objectFit` | string | Image scaling mode | `"cover"`, `"contain"`, `"fill"` |
+| `imageViewBox` | string | Crop region (x% y% w% h%) | `"25% 25% 50% 50%"` |
+
+### Special Elements
+
+#### Layer Element
+A `Layer` is an absolutely positioned overlay that fills its parent completely. Useful for overlaying text on images.
+
+```tsx
+<View width="300px" height="200px" position="relative">
+  <Image src="./photo.jpg" width="100%" height="100%" objectFit="cover" />
+  <Layer
+    background="linear-gradient(180deg, transparent, rgba(0,0,0,0.7))"
+    align="center"
+    verticalAlign="center"
+  >
+    <Label fontSize="24px" color="#ffffff" textAlign="center">
+      Centered Title
+    </Label>
+  </Layer>
+</View>
+```
+
+#### Image ViewBox (Cropping)
+The `imageViewBox` attribute crops an image to show only a specific region.
+
+```tsx
+{/* Show only the center 50% of the image */}
+<Image
+  src="./photo.jpg"
+  imageViewBox="25% 25% 50% 50%"
+  width="150px"
+  height="100px"
+  objectFit="cover"
+/>
+```
+
+### Alignment Examples
+
+#### Horizontal Centering (align)
+```tsx
+<View width="100%" flexDirection="row" align="center">
+  <Label>This text is horizontally centered</Label>
+</View>
+```
+
+#### Vertical Centering (verticalAlign)
+```tsx
+<View width="100%" height="200px" flexDirection="row" verticalAlign="center">
+  <Label>This text is vertically centered</Label>
+</View>
+```
+
+#### Both Centered
+```tsx
+<View width="100%" height="200px" flexDirection="row" align="center" verticalAlign="center">
+  <Label textAlign="center">Centered both ways</Label>
+</View>
+```
+
+#### Bottom-aligned Text on Image
+```tsx
+<View width="300px" height="200px" position="relative">
+  <Image src="./photo.jpg" width="100%" height="100%" objectFit="cover" />
+  <Layer
+    background="linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.7))"
+    align="center"
+    verticalAlign="bottom"
+    padding="20px"
+  >
+    <Label fontSize="18px" color="#ffffff">Bottom Title</Label>
+  </Layer>
+</View>
+```
 
 ## Folder Structure
 
