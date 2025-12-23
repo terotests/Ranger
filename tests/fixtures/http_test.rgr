@@ -1,0 +1,57 @@
+; Test HTTP Server Types and Operators
+Import "stdlib.rgr"
+
+; Simple HTTP handler class - not using @(HttpServer) annotation yet
+; This just tests that the types and operators compile correctly
+
+class SimpleHttpHandler {
+    def port:int 8080
+    
+    ; Test using the HTTP types
+    fn handleRequest:void (req:HttpRequest res:HttpResponse) {
+        ; Test http_get_method
+        def method:string (http_get_method req)
+        
+        ; Test http_get_path
+        def path:string (http_get_path req)
+        
+        ; Test http_get_header
+        def contentType:string (http_get_header req "Content-Type")
+        
+        ; Test http_get_query
+        def query:string (http_get_query req "id")
+        
+        ; Test http_set_header
+        http_set_header res "Content-Type" "text/html"
+        
+        ; Test http_set_status
+        http_set_status res 200
+        
+        ; Test http_send
+        http_send res "<h1>Hello World</h1>"
+        
+        print("Method: " + method)
+        print("Path: " + path)
+        print("Content-Type: " + contentType)
+        print("Query id: " + query)
+    }
+    
+    ; Test SSE client
+    fn handleSSE:void (client:SSEClient) {
+        ; Test sse_send
+        sse_send client "update" "content changed"
+        
+        ; Test sse_is_connected
+        def connected:boolean (sse_is_connected client)
+        if connected {
+            print("Client is connected")
+        }
+    }
+}
+
+sfn m@(main):void () {
+    def handler:SimpleHttpHandler (new SimpleHttpHandler())
+    print("HTTP test compiled successfully!")
+    print("Port: " + (to_string handler.port))
+}
+}

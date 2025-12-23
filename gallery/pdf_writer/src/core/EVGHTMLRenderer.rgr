@@ -1147,6 +1147,182 @@ class EVGHTMLRenderer {
         return 0.0
     }
     
+    ; =========================================================================
+    ; Live Preview Support
+    ; =========================================================================
+    
+    ; Render just the document content (no html/head/body wrapper)
+    ; Used for live preview where shell HTML is served separately
+    fn renderContent:string (root:EVGElement) {
+        ; Reset state
+        elementCounter = 0
+        def uf:[string]
+        usedFontFamilies = uf
+        
+        ; Run layout to calculate positions
+        layout.layout(root)
+        
+        ; Collect used fonts (for getUsedFonts())
+        this.collectFonts(root)
+        
+        ; Render just the content - no wrapper divs
+        return (this.renderElement(root 0))
+    }
+    
+    ; Get list of font families used in the document
+    ; Call after render() or renderContent()
+    fn getUsedFonts:[string] () {
+        return usedFontFamilies
+    }
+    
+    ; Generate CSS @font-face rules pointing to server URLs
+    ; serverUrl should be like "http://localhost:3000"
+    fn generateServerFontFaceCSS:string (serverUrl:string) {
+        def css:string ""
+        def i:int 0
+        while (i < (array_length usedFontFamilies)) {
+            def fontFamily:string (itemAt usedFontFamilies i)
+            def fontFileName:string (this.fontFamilyToFileName(fontFamily))
+            
+            ; Regular weight
+            css = css + "@font-face {\n"
+            css = css + "    font-family: '" + fontFamily + "';\n"
+            css = css + "    src: url('" + serverUrl + "/fonts/" + fontFileName + "') format('truetype');\n"
+            css = css + "    font-weight: 400;\n"
+            css = css + "    font-style: normal;\n"
+            css = css + "}\n"
+            
+            i = i + 1
+        }
+        return css
+    }
+    
+    ; Set server URL prefix for images
+    ; When set, image paths are prefixed with this URL
+    ; Example: setImageServer("http://localhost:3000") 
+    ; Then "../assets/image.jpg" becomes "http://localhost:3000/images/assets/image.jpg"
+    fn setImageServer:void (serverUrl:string) {
+        imageBasePath = serverUrl + "/images/"
+    }
+    
+    ; Generate the shell HTML for live preview
+    ; This is served once and cached by the browser
+    fn generateShellHTML:string (serverUrl:string) {
+        def html:string ""
+        html = html + "<!DOCTYPE html>\n"
+        html = html + "<html>\n"
+        html = html + "<head>\n"
+        html = html + "    <meta charset=\"UTF-8\">\n"
+        html = html + "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+        html = html + "    <title>" + title + " - Live Preview</title>\n"
+        html = html + "    <style>\n"
+        html = html + "        * { margin: 0; padding: 0; box-sizing: border-box; }\n"
+        html = html + "        body {\n"
+        html = html + "            background: #b0b0b0;\n"
+        html = html + "            padding: 40px;\n"
+        html = html + "            min-height: 100vh;\n"
+        html = html + "            display: flex;\n"
+        html = html + "            justify-content: center;\n"
+        html = html + "        }\n"
+        html = html + "        .evg-page-container {\n"
+        html = html + "            width: " + (to_string (to_int pageWidth)) + "px;\n"
+        html = html + "            height: " + (to_string (to_int pageHeight)) + "px;\n"
+        html = html + "            background: white;\n"
+        html = html + "            box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.1);\n"
+        html = html + "            position: relative;\n"
+        html = html + "            overflow: hidden;\n"
+        html = html + "            flex-shrink: 0;\n"
+        html = html + "        }\n"
+        html = html + "        .evg-status {\n"
+        html = html + "            position: fixed;\n"
+        html = html + "            bottom: 10px;\n"
+        html = html + "            right: 10px;\n"
+        html = html + "            padding: 5px 10px;\n"
+        html = html + "            background: #333;\n"
+        html = html + "            color: #0f0;\n"
+        html = html + "            font-family: monospace;\n"
+        html = html + "            font-size: 12px;\n"
+        html = html + "            border-radius: 4px;\n"
+        html = html + "            opacity: 0.8;\n"
+        html = html + "        }\n"
+        html = html + "    </style>\n"
+        html = html + "    <style id=\"evg-fonts\">\n"
+        html = html + "        /* Font faces loaded dynamically */\n"
+        html = html + "    </style>\n"
+        html = html + "</head>\n"
+        html = html + "<body>\n"
+        html = html + "    <div class=\"evg-page-container\" id=\"evg-content\">\n"
+        html = html + "        <div style=\"padding: 20px; color: #666;\">Loading...</div>\n"
+        html = html + "    </div>\n"
+        html = html + "    <div class=\"evg-status\" id=\"evg-status\">Connecting...</div>\n"
+        html = html + "    <script>\n"
+        html = html + "        const serverUrl = '" + serverUrl + "';\n"
+        html = html + "        const contentEl = document.getElementById('evg-content');\n"
+        html = html + "        const statusEl = document.getElementById('evg-status');\n"
+        html = html + "        const fontsEl = document.getElementById('evg-fonts');\n"
+        html = html + "        \n"
+        html = html + "        // Load content from server\n"
+        html = html + "        async function loadContent() {\n"
+        html = html + "            try {\n"
+        html = html + "                const response = await fetch(serverUrl + '/content');\n"
+        html = html + "                const html = await response.text();\n"
+        html = html + "                contentEl.innerHTML = html;\n"
+        html = html + "                statusEl.textContent = 'Connected';\n"
+        html = html + "                statusEl.style.color = '#0f0';\n"
+        html = html + "            } catch (err) {\n"
+        html = html + "                statusEl.textContent = 'Error: ' + err.message;\n"
+        html = html + "                statusEl.style.color = '#f00';\n"
+        html = html + "            }\n"
+        html = html + "        }\n"
+        html = html + "        \n"
+        html = html + "        // Load fonts CSS\n"
+        html = html + "        async function loadFonts() {\n"
+        html = html + "            try {\n"
+        html = html + "                const response = await fetch(serverUrl + '/fonts.css');\n"
+        html = html + "                const css = await response.text();\n"
+        html = html + "                fontsEl.textContent = css;\n"
+        html = html + "            } catch (err) {\n"
+        html = html + "                console.error('Failed to load fonts:', err);\n"
+        html = html + "            }\n"
+        html = html + "        }\n"
+        html = html + "        \n"
+        html = html + "        // Set up SSE for live updates\n"
+        html = html + "        function connectSSE() {\n"
+        html = html + "            const evtSource = new EventSource(serverUrl + '/events');\n"
+        html = html + "            \n"
+        html = html + "            evtSource.addEventListener('update', function(e) {\n"
+        html = html + "                console.log('EVG: Content updated');\n"
+        html = html + "                loadContent();\n"
+        html = html + "            });\n"
+        html = html + "            \n"
+        html = html + "            evtSource.addEventListener('fonts', function(e) {\n"
+        html = html + "                console.log('EVG: Fonts updated');\n"
+        html = html + "                loadFonts();\n"
+        html = html + "            });\n"
+        html = html + "            \n"
+        html = html + "            evtSource.onopen = function() {\n"
+        html = html + "                console.log('EVG: Connected to preview server');\n"
+        html = html + "                statusEl.textContent = 'Connected';\n"
+        html = html + "                statusEl.style.color = '#0f0';\n"
+        html = html + "            };\n"
+        html = html + "            \n"
+        html = html + "            evtSource.onerror = function() {\n"
+        html = html + "                statusEl.textContent = 'Disconnected';\n"
+        html = html + "                statusEl.style.color = '#f00';\n"
+        html = html + "            };\n"
+        html = html + "        }\n"
+        html = html + "        \n"
+        html = html + "        // Initialize\n"
+        html = html + "        loadFonts();\n"
+        html = html + "        loadContent();\n"
+        html = html + "        connectSSE();\n"
+        html = html + "    </script>\n"
+        html = html + "</body>\n"
+        html = html + "</html>\n"
+        
+        return html
+    }
+    
     fn collectFonts:void (el:EVGElement) {
         ; Collect unique font families used in the document
         if ((strlen el.fontFamily) > 0) {

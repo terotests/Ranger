@@ -1,0 +1,357 @@
+; RangerGolangHttpServerWriter - HTTP Server Code Generator for Go
+; ============================================================================
+; This class generates Go HTTP server code from classes annotated with
+; @(HttpServer) and methods annotated with @(GET "/path"), @(POST "/path"),
+; @(SSE "/events"), etc.
+;
+; Usage in Ranger:
+;   class MyServer@(HttpServer) {
+;       fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) { }
+;       fn handleEvents@(SSE "/events"):void (client:SSEClient) { }
+;   }
+;   sfn main:void () {
+;       def server:MyServer (new MyServer())
+;       start server 8080
+;   }
+;
+; Generated Go code includes:
+;   - SSEClient struct with Writer, Flusher, IsConnected
+;   - HTTP handler wrapper functions with route registration
+;   - Server startup with http.ListenAndServe
+; ============================================================================
+
+Import "ng_RangerAppWriterContext.rgr"
+Import "ng_RangerAppClassDesc.rgr"
+Import "ng_RangerAppFunctionDesc.rgr"
+Import "ng_CodeNode.rgr"
+
+class RangerGolangHttpServerWriter {
+    
+    def didWriteSSEClient:boolean false
+    def didWriteHttpTypes:boolean false
+    
+    ; Check if a class has the @(HttpServer) annotation
+    fn isHttpServerClass:boolean (cl:RangerAppClassDesc) {
+        if (null? cl.nameNode) {
+            return false
+        }
+        return (cl.nameNode.hasFlag("HttpServer"))
+    }
+    
+    ; Get the port number from @(HttpServer@(port N)) annotation
+    fn getServerPort:int (cl:RangerAppClassDesc) {
+        if (null? cl.nameNode) {
+            return 8080
+        }
+        def nameNode:CodeNode cl.nameNode
+        if (nameNode.hasFlag("HttpServer")) {
+            def httpServerFlag:CodeNode (nameNode.getFlag("HttpServer"))
+            if (httpServerFlag.hasFlag("port")) {
+                def portFlag:CodeNode (httpServerFlag.getFlag("port"))
+                if ((array_length portFlag.children) > 0) {
+                    def portValue:CodeNode (itemAt portFlag.children 0)
+                    return portValue.int_value
+                }
+            }
+        }
+        return 8080
+    }
+    
+    ; Check if a method has a route annotation (@GET, @POST, @SSE, etc.)
+    fn getRouteMethod:string (fnDesc:RangerAppFunctionDesc) {
+        if (null? fnDesc.nameNode) {
+            return ""
+        }
+        def nameNode:CodeNode fnDesc.nameNode
+        if (nameNode.hasFlag("GET")) {
+            return "GET"
+        }
+        if (nameNode.hasFlag("POST")) {
+            return "POST"
+        }
+        if (nameNode.hasFlag("PUT")) {
+            return "PUT"
+        }
+        if (nameNode.hasFlag("DELETE")) {
+            return "DELETE"
+        }
+        if (nameNode.hasFlag("SSE")) {
+            return "SSE"
+        }
+        return ""
+    }
+    
+    ; Get the route path from annotation like @(GET "/path")
+    ; In @(GET "/path"), GET and "/path" are siblings in the annotation
+    fn getRoutePath:string (fnDesc:RangerAppFunctionDesc) {
+        if (null? fnDesc.nameNode) {
+            return "/"
+        }
+        def nameNode:CodeNode fnDesc.nameNode
+        def method:string (this.getRouteMethod(fnDesc))
+        if ((strlen method) == 0) {
+            return "/"
+        }
+        ; Use getFlagSiblingString - in @(GET "/path"), the path is a sibling after GET
+        def path:string (nameNode.getFlagSiblingString(method "/"))
+        return path
+    }
+    
+    ; Write the SSEClient struct definition at package level (once per file)
+    fn writeSSEClientStruct:void (wr:CodeWriter) {
+        if didWriteSSEClient {
+            return
+        }
+        didWriteSSEClient = true
+        
+        ; Get the utilities section which is at package level
+        def utilWr:CodeWriter (wr.getTag("utilities"))
+        
+        utilWr.newline()
+        utilWr.out("// SSEClient represents a Server-Sent Events client connection" true)
+        utilWr.out("type SSEClient struct {" true)
+        utilWr.indent(1)
+        utilWr.out("Writer      http.ResponseWriter" true)
+        utilWr.out("Flusher     http.Flusher" true)
+        utilWr.out("Request     *http.Request" true)
+        utilWr.out("IsConnected bool" true)
+        utilWr.out("done        chan bool" true)
+        utilWr.indent(-1)
+        utilWr.out("}" true)
+        utilWr.newline()
+    }
+    
+    ; Write imports needed for HTTP server
+    fn addHttpImports:void (wr:CodeWriter) {
+        wr.addImport("net/http")
+        wr.addImport("fmt")
+        wr.addImport("log")
+    }
+    
+    ; Called from CustomOperator when "start server port" is encountered
+    ; Generates inline route setup and server start code
+    fn writeServerStart:void (serverArg:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+        ; Get the class of the server variable
+        def paramDesc:RangerAppParamDesc serverArg.paramDesc
+        def className:string paramDesc.nameNode.type_name
+        
+        def cl:RangerAppClassDesc
+        
+        ; Find the class definition to get route annotations
+        if (false == (ctx.hasClass(className))) {
+            wr.out("/* Error: Could not find HttpServer class " false)
+            wr.out(className false)
+            wr.out(" */" true)
+            return
+        }
+        
+        cl = (ctx.findClass(className))
+        
+        ; Get port from operator argument (3rd child) or default
+        def port:int 8080
+        if ((array_length node.children) >= 3) {
+            def portArg:CodeNode (itemAt node.children 2)
+            port = portArg.int_value
+        }
+        
+        ; Add imports
+        this.addHttpImports(wr)
+        
+        ; Check if we need SSE support
+        def hasSSE:boolean false
+        for cl.methods fnDesc:RangerAppFunctionDesc i {
+            if ((this.getRouteMethod(fnDesc)) == "SSE") {
+                hasSSE = true
+            }
+        }
+        if hasSSE {
+            this.writeSSEClientStruct(wr)
+        }
+        
+        ; Get the server variable name
+        def serverName:string paramDesc.compiledName
+        
+        ; Generate inline server setup
+        wr.newline()
+        wr.out("// HTTP Server setup for " false)
+        wr.out(className true)
+        wr.out("mux := http.NewServeMux()" true)
+        wr.newline()
+        
+        ; Register routes for each annotated method
+        for cl.methods fnDesc:RangerAppFunctionDesc i {
+            def method:string (this.getRouteMethod(fnDesc))
+            if ((strlen method) > 0) {
+                def path:string (this.getRoutePath(fnDesc))
+                
+                if (method == "SSE") {
+                    ; SSE handler
+                    wr.out(("mux.HandleFunc(\"" + path + "\", func(w http.ResponseWriter, r *http.Request) {") true)
+                    wr.indent(1)
+                    wr.out("flusher, ok := w.(http.Flusher)" true)
+                    wr.out("if !ok {" true)
+                    wr.indent(1)
+                    wr.out("http.Error(w, \"SSE not supported\", http.StatusInternalServerError)" true)
+                    wr.out("return" true)
+                    wr.indent(-1)
+                    wr.out("}" true)
+                    wr.newline()
+                    wr.out("w.Header().Set(\"Content-Type\", \"text/event-stream\")" true)
+                    wr.out("w.Header().Set(\"Cache-Control\", \"no-cache\")" true)
+                    wr.out("w.Header().Set(\"Connection\", \"keep-alive\")" true)
+                    wr.out("w.Header().Set(\"Access-Control-Allow-Origin\", \"*\")" true)
+                    wr.newline()
+                    wr.out("client := &SSEClient{" true)
+                    wr.indent(1)
+                    wr.out("Writer:      w," true)
+                    wr.out("Flusher:     flusher," true)
+                    wr.out("Request:     r," true)
+                    wr.out("IsConnected: true," true)
+                    wr.out("done:        make(chan bool)," true)
+                    wr.indent(-1)
+                    wr.out("}" true)
+                    wr.newline()
+                    wr.out((serverName + "." + fnDesc.name + "(client)") true)
+                    wr.indent(-1)
+                    wr.out("})" true)
+                } {
+                    ; Regular HTTP handler (GET, POST, PUT, DELETE)
+                    wr.out(("mux.HandleFunc(\"" + path + "\", func(w http.ResponseWriter, r *http.Request) {") true)
+                    wr.indent(1)
+                    if ((strlen method) > 0) {
+                        wr.out(("if r.Method != \"" + method + "\" {") true)
+                        wr.indent(1)
+                        wr.out("http.Error(w, \"Method not allowed\", http.StatusMethodNotAllowed)" true)
+                        wr.out("return" true)
+                        wr.indent(-1)
+                        wr.out("}" true)
+                    }
+                    wr.out((serverName + "." + fnDesc.name + "(r, w)") true)
+                    wr.indent(-1)
+                    wr.out("})" true)
+                }
+                wr.newline()
+            }
+        }
+        
+        ; Start server
+        wr.out(("addr := fmt.Sprintf(\":%d\", " + (to_string port) + ")") true)
+        wr.out("fmt.Printf(\"Server starting on http://localhost%s\\n\", addr)" true)
+        wr.out("log.Fatal(http.ListenAndServe(addr, mux))" true)
+    }
+    
+    ; Generate the Start() method for the HTTP server (legacy - kept for reference)
+    fn writeStartMethod:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+        def port:int (this.getServerPort(cl))
+        
+        wr.newline()
+        wr.out(("func (this *" + cl.name + ") Start() {") true)
+        wr.indent(1)
+        
+        ; Create mux
+        wr.out("mux := http.NewServeMux()" true)
+        wr.newline()
+        
+        ; Register routes for each annotated method
+        for cl.methods fnDesc:RangerAppFunctionDesc i {
+            def method:string (this.getRouteMethod(fnDesc))
+            if ((strlen method) > 0) {
+                def path:string (this.getRoutePath(fnDesc))
+                
+                if (method == "SSE") {
+                    ; SSE handler
+                    wr.out(("mux.HandleFunc(\"" + path + "\", func(w http.ResponseWriter, r *http.Request) {") true)
+                    wr.indent(1)
+                    wr.out("flusher, ok := w.(http.Flusher)" true)
+                    wr.out("if !ok {" true)
+                    wr.indent(1)
+                    wr.out("http.Error(w, \"SSE not supported\", http.StatusInternalServerError)" true)
+                    wr.out("return" true)
+                    wr.indent(-1)
+                    wr.out("}" true)
+                    wr.newline()
+                    wr.out("w.Header().Set(\"Content-Type\", \"text/event-stream\")" true)
+                    wr.out("w.Header().Set(\"Cache-Control\", \"no-cache\")" true)
+                    wr.out("w.Header().Set(\"Connection\", \"keep-alive\")" true)
+                    wr.out("w.Header().Set(\"Access-Control-Allow-Origin\", \"*\")" true)
+                    wr.newline()
+                    wr.out("client := &SSEClient{" true)
+                    wr.indent(1)
+                    wr.out("Writer:      w," true)
+                    wr.out("Flusher:     flusher," true)
+                    wr.out("Request:     r," true)
+                    wr.out("IsConnected: true," true)
+                    wr.out("done:        make(chan bool)," true)
+                    wr.indent(-1)
+                    wr.out("}" true)
+                    wr.newline()
+                    wr.out(("this." + fnDesc.name + "(client)") true)
+                    wr.indent(-1)
+                    wr.out("})" true)
+                } {
+                    ; Regular HTTP handler (GET, POST, PUT, DELETE)
+                    wr.out(("mux.HandleFunc(\"" + path + "\", func(w http.ResponseWriter, r *http.Request) {") true)
+                    wr.indent(1)
+                    if ((strlen method) > 0) {
+                        wr.out(("if r.Method != \"" + method + "\" {") true)
+                        wr.indent(1)
+                        wr.out("http.Error(w, \"Method not allowed\", http.StatusMethodNotAllowed)" true)
+                        wr.out("return" true)
+                        wr.indent(-1)
+                        wr.out("}" true)
+                    }
+                    wr.out(("this." + fnDesc.name + "(r, w)") true)
+                    wr.indent(-1)
+                    wr.out("})" true)
+                }
+                wr.newline()
+            }
+        }
+        
+        ; Start server
+        wr.out(("addr := fmt.Sprintf(\":%d\", " + (to_string port) + ")") true)
+        wr.out("fmt.Printf(\"Server starting on http://localhost%s\\n\", addr)" true)
+        wr.out("log.Fatal(http.ListenAndServe(addr, mux))" true)
+        
+        wr.indent(-1)
+        wr.out("}" true)
+    }
+    
+    ; Generate the Stop() method for the HTTP server (placeholder for graceful shutdown)
+    fn writeStopMethod:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+        wr.newline()
+        wr.out(("func (this *" + cl.name + ") Stop() {") true)
+        wr.indent(1)
+        wr.out("// TODO: Implement graceful shutdown" true)
+        wr.out("fmt.Println(\"Server stopping...\")" true)
+        wr.indent(-1)
+        wr.out("}" true)
+    }
+    
+    ; Main entry point - called from RangerGolangClassWriter when @(HttpServer) is detected
+    fn writeHttpServerClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+        if ((this.isHttpServerClass(cl)) == false) {
+            return
+        }
+        
+        ; Add imports
+        this.addHttpImports(wr)
+        
+        ; Write SSEClient struct if any SSE routes exist
+        def hasSSE:boolean false
+        for cl.methods fnDesc:RangerAppFunctionDesc i {
+            if ((this.getRouteMethod(fnDesc)) == "SSE") {
+                hasSSE = true
+            }
+        }
+        if hasSSE {
+            this.writeSSEClientStruct(wr)
+        }
+        
+        ; Write Start() method
+        this.writeStartMethod(cl ctx wr)
+        
+        ; Write Stop() method
+        this.writeStopMethod(cl ctx wr)
+    }
+}

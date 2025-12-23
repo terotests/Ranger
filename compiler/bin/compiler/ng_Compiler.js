@@ -1680,6 +1680,64 @@ class CodeNode  {
     this.vref_annotation.children.push(flag);
     this.has_vref_annotation = true;
   };
+  getFlagInt (flagName, paramName, defaultValue) {
+    if ( false == this.has_vref_annotation ) {
+      return defaultValue;
+    }
+    const flag = this.getFlag(flagName);
+    if ( typeof(flag) === "undefined" ) {
+      return defaultValue;
+    }
+    const uflag = flag;
+    if ( uflag.has_vref_annotation ) {
+      const ann = uflag.vref_annotation;
+      for ( let i = 0; i < ann.children.length; i++) {
+        var ch = ann.children[i];
+        if ( ch.vref == paramName ) {
+          if ( (ann.children.length) > (i + 1) ) {
+            const valueNode = ann.children[(i + 1)];
+            return valueNode.int_value;
+          }
+        }
+      };
+    }
+    return defaultValue;
+  };
+  getFlagFirstString (flagName, defaultValue) {
+    if ( false == this.has_vref_annotation ) {
+      return defaultValue;
+    }
+    const flag = this.getFlag(flagName);
+    if ( typeof(flag) === "undefined" ) {
+      return defaultValue;
+    }
+    const uflag = flag;
+    if ( (uflag.children.length) > 0 ) {
+      const first = uflag.getFirst();
+      return first.string_value;
+    }
+    return defaultValue;
+  };
+  hasFlagParam (flagName, paramName) {
+    if ( false == this.has_vref_annotation ) {
+      return false;
+    }
+    const flag = this.getFlag(flagName);
+    if ( typeof(flag) === "undefined" ) {
+      return false;
+    }
+    const uflag = flag;
+    if ( uflag.has_vref_annotation ) {
+      const ann = uflag.vref_annotation;
+      for ( let i = 0; i < ann.children.length; i++) {
+        var ch = ann.children[i];
+        if ( ch.vref == paramName ) {
+          return true;
+        }
+      };
+    }
+    return false;
+  };
   getTypeInformationString () {
     let s = "";
     if ( (this.vref.length) > 0 ) {
@@ -3586,6 +3644,9 @@ class RangerAppWriterContext  {
       return true;
     }
     if ( ((((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "int_buffer")) || (typeName == "double_buffer")) || (typeName == "boolean") ) {
+      return true;
+    }
+    if ( (((typeName == "HttpRequest") || (typeName == "HttpResponse")) || (typeName == "SSEClient")) || (typeName == "HttpServer") ) {
       return true;
     }
     if ( this.isEnumDefined(typeName) ) {

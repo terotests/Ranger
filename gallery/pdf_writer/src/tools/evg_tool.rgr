@@ -1,0 +1,423 @@
+; =============================================================================
+; evg_tool.rgr - EVG Preview Tool
+; =============================================================================
+; Command line tool for rendering TSX documents to HTML for quick preview.
+; 
+; Primary use: Fast HTML preview with live reload capability
+; Future: Add PDF output when needed
+;
+; Usage: evg_tool <input.tsx> [output.html] [options]
+;
+; Compile to Go:
+;   npm run evg:tool:compile:go
+;
+; Build Go binary:
+;   npm run evg:tool:build:go
+
+Import "../jsx/JSXToEVG.rgr"
+Import "../core/EVGHTMLRenderer.rgr"
+Import "../jsx/ComponentEngine.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGLayout.rgr"
+
+class EVGTool {
+    ; Input/Output
+    def inputFile:string ""
+    def outputFile:string ""
+    
+    ; Page settings
+    def pageWidth:double 595.0   ; A4 width in points
+    def pageHeight:double 842.0  ; A4 height in points
+    
+    ; Options
+    def debug:boolean false
+    def embedAssets:boolean false
+    def title:string "EVG Preview"
+    def assetPaths:string ""     ; Semicolon-separated paths
+    def showVersion:boolean false
+    def showHelp:boolean false
+    def useComponents:boolean false  ; Use ComponentEngine for imports
+    
+    ; Server options (for future watch mode)
+    def serverPort:int 3000
+    def watchMode:boolean false
+    
+    ; Version
+    def VERSION:string "1.0.0"
+    
+    sfn m@(main):void () {
+        def tool (new EVGTool())
+        tool.run()
+    }
+    
+    fn run:void () {
+        ; Parse command line arguments
+        this.parseArgs()
+        
+        ; Handle --help and --version
+        if showHelp {
+            this.printHelp()
+            return
+        }
+        
+        if showVersion {
+            print ("evg_tool version " + VERSION)
+            return
+        }
+        
+        ; Validate input
+        if ((strlen inputFile) == 0) {
+            print "Error: No input file specified"
+            print ""
+            this.printUsage()
+            return
+        }
+        
+        ; Generate default output filename if needed
+        if ((strlen outputFile) == 0) {
+            outputFile = (this.replaceExtension(inputFile ".html"))
+        }
+        
+        ; Print banner
+        print "EVG Tool v1.0.0 - HTML Preview"
+        print "=============================="
+        print ("Input:   " + inputFile)
+        print ("Output:  " + outputFile)
+        print ("Page:    " + (to_string pageWidth) + " x " + (to_string pageHeight) + " points")
+        
+        if debug {
+            print "Debug:   enabled"
+        }
+        
+        print ""
+        
+        ; Convert to HTML
+        this.convertToHTML()
+    }
+    
+    fn parseArgs:void () {
+        def argCount:int (shell_arg_cnt)
+        def i:int 0
+        
+        while (i < argCount) {
+            def arg:string (shell_arg i)
+            
+            ; Check for flags
+            if ((arg == "--help") || (arg == "-h")) {
+                showHelp = true
+                i = i + 1
+                continue
+            }
+            
+            if ((arg == "--version") || (arg == "-v")) {
+                showVersion = true
+                i = i + 1
+                continue
+            }
+            
+            if ((arg == "--debug") || (arg == "-d")) {
+                debug = true
+                i = i + 1
+                continue
+            }
+            
+            if ((arg == "--embed") || (arg == "-e")) {
+                embedAssets = true
+                i = i + 1
+                continue
+            }
+            
+            if ((arg == "--watch") || (arg == "-w")) {
+                watchMode = true
+                i = i + 1
+                continue
+            }
+            
+            if ((arg == "--components") || (arg == "-c")) {
+                useComponents = true
+                i = i + 1
+                continue
+            }
+            
+            ; Check for key=value arguments
+            if ((indexOf arg "--assets=") == 0) {
+                assetPaths = (substring arg 9 (strlen arg))
+                useComponents = true  ; Enable components if assets specified
+                i = i + 1
+                continue
+            }
+            
+            if ((indexOf arg "-a=") == 0) {
+                assetPaths = (substring arg 3 (strlen arg))
+                useComponents = true
+                i = i + 1
+                continue
+            }
+            
+            if ((indexOf arg "--title=") == 0) {
+                title = (substring arg 8 (strlen arg))
+                i = i + 1
+                continue
+            }
+            
+            if ((indexOf arg "-t=") == 0) {
+                title = (substring arg 3 (strlen arg))
+                i = i + 1
+                continue
+            }
+            
+            if ((indexOf arg "--port=") == 0) {
+                def pVal@(optional):int (to_int (substring arg 7 (strlen arg)))
+                if pVal {
+                    serverPort = (unwrap pVal)
+                }
+                i = i + 1
+                continue
+            }
+            
+            if ((indexOf arg "-p=") == 0) {
+                def pVal@(optional):int (to_int (substring arg 3 (strlen arg)))
+                if pVal {
+                    serverPort = (unwrap pVal)
+                }
+                i = i + 1
+                continue
+            }
+            
+            if ((indexOf arg "--width=") == 0) {
+                def wVal@(optional):double (to_double (substring arg 8 (strlen arg)))
+                if wVal {
+                    pageWidth = (unwrap wVal)
+                }
+                i = i + 1
+                continue
+            }
+            
+            if ((indexOf arg "--height=") == 0) {
+                def hVal@(optional):double (to_double (substring arg 9 (strlen arg)))
+                if hVal {
+                    pageHeight = (unwrap hVal)
+                }
+                i = i + 1
+                continue
+            }
+            
+            ; Positional arguments: input and output files
+            if ((indexOf arg "-") != 0) {
+                if ((strlen inputFile) == 0) {
+                    inputFile = arg
+                } {
+                    if ((strlen outputFile) == 0) {
+                        outputFile = arg
+                    }
+                }
+            }
+            
+            i = i + 1
+        }
+    }
+    
+    fn replaceExtension:string (filename:string newExt:string) {
+        def lastDot:int (lastIndexOf filename ".")
+        if (lastDot >= 0) {
+            return ((substring filename 0 lastDot) + newExt)
+        }
+        return (filename + newExt)
+    }
+    
+    fn getDirectory:string (path:string) {
+        def lastSlash:int (lastIndexOf path "/")
+        def lastBackslash:int (lastIndexOf path "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            return (substring path 0 (lastSep + 1))
+        }
+        return "./"
+    }
+    
+    fn getFileName:string (path:string) {
+        def lastSlash:int (lastIndexOf path "/")
+        def lastBackslash:int (lastIndexOf path "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            return (substring path (lastSep + 1) (strlen path))
+        }
+        return path
+    }
+    
+    ; ==========================================================================
+    ; HTML Conversion
+    ; ==========================================================================
+    
+    fn convertToHTML:void () {
+        def inputDir:string (this.getDirectory(inputFile))
+        def inputFileName:string (this.getFileName(inputFile))
+        
+        print "Parsing TSX file..."
+        
+        def root:EVGElement (new EVGElement())
+        
+        ; Choose parser based on options
+        if useComponents {
+            ; Use ComponentEngine for complex documents with imports
+            def engine (new ComponentEngine())
+            engine.pageWidth = pageWidth
+            engine.pageHeight = pageHeight
+            
+            if ((strlen assetPaths) > 0) {
+                engine.setAssetPaths(assetPaths)
+            }
+            
+            root = (engine.parseFile(inputDir inputFileName))
+        } {
+            ; Use simple JSXToEVG for basic documents
+            def converter (new JSXToEVG())
+            converter.pageWidth = pageWidth
+            converter.pageHeight = pageHeight
+            
+            root = (converter.parseFile(inputDir inputFileName))
+        }
+        
+        if (root.tagName == "") {
+            print "Error: Failed to parse TSX file or no JSX content found"
+            return
+        }
+        
+        print ("Found root element: <" + root.tagName + ">")
+        print ("Children: " + (to_string (root.getChildCount())))
+        
+        if debug {
+            this.printTree(root 0)
+        }
+        
+        print ""
+        print "Rendering to HTML..."
+        
+        def renderer (new EVGHTMLRenderer())
+        renderer.setPageSize(pageWidth pageHeight)
+        renderer.setTitle(title)
+        renderer.setBaseDir(inputDir)
+        renderer.setFontBasePath(inputDir + "../assets/fonts/")
+        
+        if debug {
+            renderer.setDebug(true)
+        }
+        if embedAssets {
+            renderer.setEmbedAssets(true)
+        }
+        
+        def htmlContent:string (renderer.render(root))
+        
+        ; Write output
+        def outputDir:string (this.getDirectory(outputFile))
+        def outputFileName:string (this.getFileName(outputFile))
+        
+        print ("Writing HTML to: " + outputFile)
+        (write_file outputDir outputFileName htmlContent)
+        
+        print ""
+        print "Done!"
+        print ("Output: " + outputFile)
+        print ("File size: " + (to_string (strlen htmlContent)) + " bytes")
+    }
+    
+    ; ==========================================================================
+    ; Debug Helpers
+    ; ==========================================================================
+    
+    fn printTree:void (element:EVGElement depth:int) {
+        def indent:string ""
+        def i 0
+        while (i < depth) {
+            indent = indent + "  "
+            i = i + 1
+        }
+        
+        def info:string (indent + "<" + element.tagName)
+        
+        if (element.id != "") {
+            info = info + " id=\"" + element.id + "\""
+        }
+        
+        if element.width.isSet {
+            info = info + " width=\"" + (element.width.toString()) + "\""
+        }
+        
+        if element.height.isSet {
+            info = info + " height=\"" + (element.height.toString()) + "\""
+        }
+        
+        info = info + ">"
+        
+        if (element.textContent != "") {
+            info = info + " \"" + element.textContent + "\""
+        }
+        
+        print info
+        
+        for element.children child:EVGElement i {
+            this.printTree(child (depth + 1))
+        }
+    }
+    
+    ; ==========================================================================
+    ; Help and Usage
+    ; ==========================================================================
+    
+    fn printUsage:void () {
+        print "Usage: evg_tool <input.tsx> [output.html] [options]"
+        print ""
+        print "Run 'evg_tool --help' for more information."
+    }
+    
+    fn printHelp:void () {
+        print "EVG Tool - HTML Preview for TSX Documents"
+        print ""
+        print "USAGE:"
+        print "    evg_tool <input.tsx> [output.html] [options]"
+        print ""
+        print "DESCRIPTION:"
+        print "    Converts TSX documents to HTML for quick preview."
+        print "    Output file defaults to input name with .html extension."
+        print ""
+        print "OPTIONS:"
+        print "    -a, --assets=PATHS      Asset directories (semicolon-separated)"
+        print "                            Enables component imports when specified"
+        print "    -c, --components        Use component engine (for imports)"
+        print "    -t, --title=TEXT        HTML page title"
+        print "    -e, --embed             Embed images as base64"
+        print "    --width=N               Page width in points (default: 595)"
+        print "    --height=N              Page height in points (default: 842)"
+        print "    -d, --debug             Enable debug output"
+        print "    -h, --help              Show this help message"
+        print "    -v, --version           Show version"
+        print ""
+        print "WATCH MODE (coming soon):"
+        print "    -w, --watch             Watch file for changes and auto-reload"
+        print "    -p, --port=N            Server port (default: 3000)"
+        print ""
+        print "EXAMPLES:"
+        print "    # Simple preview"
+        print "    evg_tool document.tsx"
+        print ""
+        print "    # With custom output name"
+        print "    evg_tool document.tsx preview.html"
+        print ""
+        print "    # With embedded images"
+        print "    evg_tool document.tsx output.html --embed"
+        print ""
+        print "    # With component imports"
+        print "    evg_tool document.tsx --assets=./components;./fonts"
+        print ""
+        print "    # Custom page size"
+        print "    evg_tool document.tsx --width=800 --height=600"
+    }
+}

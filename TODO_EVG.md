@@ -1,6 +1,51 @@
 # EVG Rendering System - TODO List
 
-Based on priorities from `PLAN_EVG.md`. Updated: December 23, 2024.
+Based on priorities from `PLAN_EVG.md`. Updated: December 23, 2025.
+
+---
+
+## ✅ RECENTLY COMPLETED (December 2025)
+
+### Layer Element
+- [x] Add `<Layer>` element type to parser
+- [x] Implement as absolute-positioned container filling parent
+- [x] Support `background` for gradient overlays
+- [x] Render children in order (first = bottom, last = top)
+- [x] Support `align` and `verticalAlign` for child positioning
+
+### Image ViewBox (HTML)
+- [x] Parse `imageViewBox` attribute: `"25% 25% 50% 50%"` (x y w h)
+- [x] Implement HTML cropping with wrapper div and overflow:hidden
+- [x] Add `objectFit` attribute: "cover", "contain", "fill"
+
+### Alignment Attributes
+- [x] Add `align` attribute for horizontal alignment: "left", "center", "right"
+- [x] Add `verticalAlign` attribute for vertical alignment: "top", "center", "bottom"
+- [x] Parse attributes in JSXToEVG with kebab-case conversion
+
+### Documentation
+- [x] Updated README.md with EVG Attributes Reference
+- [x] Added examples for Layer, imageViewBox, and alignment
+
+---
+
+## 🎯 RECOMMENDED NEXT STEPS
+
+Based on current progress, here are the most impactful next items:
+
+### Quick Wins (< 1 day each)
+1. **PDF: imageViewBox** - Add cropping to PDF renderer (parsing already done)
+2. **PDF: overflow: hidden** - Clip children to View bounds
+3. **PDF: opacity** - Simple ExtGState implementation
+
+### Medium Impact (1-2 days)
+4. **backgroundImage on View** - Views with background images (useful with Layer)
+5. **PNG: Image rendering** - Complete the PNG raster renderer
+
+### Nice to Have
+6. **Unified evg_tool** - Merge all tools into one with better CLI (see PLAN_HTTP.md)
+7. **Preview server with hot reload** - HTTP server with SSE for live preview
+8. **Unit test framework** - Vitest integration for regression testing
 
 ---
 
@@ -152,29 +197,27 @@ gallery/evg/
 
 - [x] Parse `imageViewBox` attribute on Image elements: `imageViewBox="10% 10% 80% 80%"` - *DONE*
 - [x] Calculate source rectangle from percentages - *DONE*
-- [x] Implement HTML with CSS `object-position` - *DONE*
+- [x] Implement HTML with CSS wrapper div and overflow:hidden - *DONE*
 - [x] Add `objectFit` attribute for sizing mode: "cover", "contain", "fill", "none" - *DONE*
 - [ ] Implement PDF image transformation matrix for cropping
-- [ ] Support pixel values (need image dimensions)
 
-**Complexity:** Medium  
-**Estimated time:** 1 day (PDF remaining)
+**Complexity:** Low (PDF remaining)  
+**Estimated time:** 0.5 day (PDF remaining)
 
 ---
 
-### 7. Layer Element
+### 7. Layer Element ✅ COMPLETED
 **Goal:** Enable stacking content with overlays.
 
 - [x] Add `<Layer>` element type to parser - *DONE*
-- [x] Implement as absolute-positioned container - *DONE*
+- [x] Implement as absolute-positioned container filling parent - *DONE*
 - [x] Support `background` for gradient overlays - *DONE*
 - [x] Render children in order (first = bottom, last = top) - *DONE*
+- [x] Support `align` and `verticalAlign` for child positioning - *DONE*
 
-**Complexity:** Low  
-**Estimated time:** COMPLETED
+**Status:** COMPLETED (December 2025)
 
-**New Files:**
-- `gallery/pdf_writer/examples/test_layer_viewbox.tsx` - Test file for Layer and imageViewBox
+**Test File:** `gallery/pdf_writer/examples/test_layer_viewbox.tsx`
 
 ---
 

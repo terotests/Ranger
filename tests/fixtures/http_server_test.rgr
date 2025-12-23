@@ -1,0 +1,44 @@
+; Test HTTP Server with @(HttpServer) annotation
+Import "stdlib.rgr"
+
+; HTTP Server class with @(HttpServer) annotation
+; This makes TestServer match operators expecting HttpServer type
+; Port is specified in the start operator: start server 3000
+class TestServer@(HttpServer) {
+    def name:string "Test Server"
+    
+    ; GET endpoint for root path
+    fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) {
+        def method:string (http_get_method req)
+        def path:string (http_get_path req)
+        
+        http_set_header res "Content-Type" "text/html"
+        http_set_status res 200
+        http_send res "<html><body><h1>Hello from Ranger HTTP Server!</h1><p>Path: " + path + "</p></body></html>"
+    }
+    
+    ; GET endpoint for content (for live preview)
+    fn handleContent@(GET "/content"):void (req:HttpRequest res:HttpResponse) {
+        http_set_header res "Content-Type" "text/html"
+        http_set_status res 200
+        http_send res "<div><h2>Dynamic Content</h2><p>This is rendered content.</p></div>"
+    }
+    
+    ; SSE endpoint for live updates
+    fn handleEvents@(SSE "/events"):void (client:SSEClient) {
+        ; Send initial message
+        sse_send client "connected" "Welcome to SSE!"
+        
+        ; In a real app, this would loop and send updates
+        def connected:boolean (sse_is_connected client)
+        if connected {
+            print "Client connected to SSE"
+        }
+    }
+}
+
+sfn m@(main):void () {
+    def server:TestServer (new TestServer())
+    print "Starting " + server.name + "..."
+    start server 3000
+}

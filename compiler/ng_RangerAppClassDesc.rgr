@@ -74,6 +74,38 @@ class RangerAppClassDesc {
     def special ( is_operator_class || is_trait || is_system || is_generic_instance || is_system_union || is_union )
     return (special == false)
   }
+  
+  ; Check if this class has a systemclass annotation (like @(HttpServer))
+  ; Returns the systemclass name if found, empty string otherwise
+  fn getSystemclassType:string () {
+    if (null? nameNode) {
+      return ""
+    }
+    ; Check common systemclass annotations
+    ; These are classes that can be used as type markers
+    if (nameNode.hasFlag("HttpServer")) {
+      return "HttpServer"
+    }
+    if (nameNode.hasFlag("HttpRequest")) {
+      return "HttpRequest"
+    }
+    if (nameNode.hasFlag("HttpResponse")) {
+      return "HttpResponse"
+    }
+    if (nameNode.hasFlag("SSEClient")) {
+      return "SSEClient"
+    }
+    return ""
+  }
+  
+  ; Check if this class IS a specific systemclass type via annotation
+  fn isSystemclassType:boolean (typeName:string) {
+    if (null? nameNode) {
+      return false
+    }
+    return (nameNode.hasFlag(typeName))
+  }
+  
   fn hasTrait@(optional weak):RangerAppClassDesc (class_name:string ctx@(weak):RangerAppWriterContext) {
     def res@(optional):RangerAppClassDesc
     for consumes_traits c_name:string i {
@@ -92,6 +124,7 @@ Tests if the `class name` is either
 - belongs to the same union
 - is either parent or child class of this class
 - implements same trait (interface) than this class
+- has a systemclass annotation matching the class_name (e.g., @(HttpServer))
   "
   fn isSameOrParentClass:boolean (class_name:string ctx@(weak):RangerAppWriterContext) {
 
@@ -105,6 +138,13 @@ Tests if the `class name` is either
     if (class_name == name) {
       return true
     }
+    
+    ; Check if this class has a systemclass annotation matching the target type
+    ; e.g., class MyServer@(HttpServer) should match HttpServer type
+    if (this.isSystemclassType(class_name)) {
+      return true
+    }
+    
     if ((indexOf extends_classes class_name) >= 0) {
       return true
     }

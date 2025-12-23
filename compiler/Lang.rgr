@@ -5042,6 +5042,134 @@ std::string r_cpp_str_to_uppercase(std::string original)
             } 
         }
 
+        ; ============================================================================
+        ; HTTP Request Operators
+        ; ============================================================================
+        
+        http_get_method cmdHttpGetMethod:string (req:HttpRequest) {
+            templates {
+                go ( (e 1) ".Method" )
+                es6 ( (e 1) ".method" )
+                * ( "/* http_get_method not implemented */" )
+            }
+        }
+        
+        http_get_path cmdHttpGetPath:string (req:HttpRequest) {
+            templates {
+                go ( (e 1) ".URL.Path" )
+                es6 ( (e 1) ".url" )
+                * ( "/* http_get_path not implemented */" )
+            }
+        }
+        
+        http_get_param cmdHttpGetParam:string (req:HttpRequest name:string) {
+            templates {
+                go ( (e 1) ".PathValue(" (e 2) ")" )
+                es6 ( (e 1) ".params[" (e 2) "]" )
+                * ( "/* http_get_param not implemented */" )
+            }
+        }
+        
+        http_get_query cmdHttpGetQuery:string (req:HttpRequest name:string) {
+            templates {
+                go ( (e 1) ".URL.Query().Get(" (e 2) ")" )
+                es6 ( (e 1) ".query[" (e 2) "]" )
+                * ( "/* http_get_query not implemented */" )
+            }
+        }
+        
+        http_get_header cmdHttpGetHeader:string (req:HttpRequest name:string) {
+            templates {
+                go ( (e 1) ".Header.Get(" (e 2) ")" )
+                es6 ( (e 1) ".headers.get(" (e 2) ")" )
+                * ( "/* http_get_header not implemented */" )
+            }
+        }
+        
+        ; ============================================================================
+        ; HTTP Response Operators
+        ; ============================================================================
+        
+        http_set_status cmdHttpSetStatus:void (res:HttpResponse code:int) {
+            templates {
+                go ( (e 1) ".WriteHeader(" (e 2) ")" nl )
+                es6 ( (e 1) ".status(" (e 2) ")" nl )
+                * ( "/* http_set_status not implemented */" nl )
+            }
+        }
+        
+        http_set_header cmdHttpSetHeader:void (res:HttpResponse name:string value:string) {
+            templates {
+                go ( (e 1) ".Header().Set(" (e 2) ", " (e 3) ")" nl )
+                es6 ( (e 1) ".setHeader(" (e 2) ", " (e 3) ")" nl )
+                * ( "/* http_set_header not implemented */" nl )
+            }
+        }
+        
+        http_send cmdHttpSend:void (res:HttpResponse body:string) {
+            templates {
+                go ( (e 1) ".Write([]byte(" (e 2) "))" nl )
+                es6 ( (e 1) ".send(" (e 2) ")" nl )
+                * ( "/* http_send not implemented */" nl )
+            }
+        }
+        
+        http_send_bytes cmdHttpSendBytes:void (res:HttpResponse content:charbuffer) {
+            templates {
+                go ( (e 1) ".Write(" (e 2) ")" nl )
+                es6 ( (e 1) ".send(Buffer.from(" (e 2) "))" nl )
+                * ( "/* http_send_bytes not implemented */" nl )
+            }
+        }
+        
+        ; ============================================================================
+        ; SSE (Server-Sent Events) Operators
+        ; ============================================================================
+        
+        sse_send cmdSSESend:void (client:SSEClient event:string data:string) {
+            templates {
+                go ( 
+                    "fmt.Fprintf(" (e 1) ".Writer, \"event: %s\\ndata: %s\\n\\n\", " (e 2) ", " (e 3) ")" nl
+                    (e 1) ".Flusher.Flush()" nl
+                    (imp "fmt")
+                )
+                es6 ( (e 1) ".send(" (e 2) ", " (e 3) ")" nl )
+                * ( "/* sse_send not implemented */" nl )
+            }
+        }
+        
+        sse_is_connected cmdSSEIsConnected:boolean (client:SSEClient) {
+            templates {
+                go ( (e 1) ".IsConnected" )
+                es6 ( (e 1) ".isConnected()" )
+                * ( "false /* sse_is_connected not implemented */" )
+            }
+        }
+
+        ; HTTP Server Lifecycle Operators
+        ; These are special operators - the Go writer will detect @(HttpServer) class
+        ; and generate route setup code when start is called on HttpServer
+        
+        ; Start HTTP server - wires up all @(GET), @(POST), @(SSE) routes and starts listening
+        ; Usage: start server 8080   OR   start server  (uses default port from annotation)
+        ; The Go writer generates http.HandleFunc calls for each annotated method
+        start@(moves@( 1 )) cmdHttpServerStart:void (server:HttpServer port:int) {
+            templates {
+                go ( (custom _) )
+                es6 ( (e 1) ".start(" (e 2) ")" )
+                * ( "/* start HttpServer not implemented */" )
+            }
+        }
+
+        ; Stop HTTP server gracefully
+        ; Usage: stop server
+        stop@(moves@( 1 )) cmdHttpServerStop:void (server:HttpServer) {
+            templates {
+                go ( (e 1) ".Shutdown(context.Background())" )
+                es6 ( (e 1) ".stop()" )
+                * ( "/* stop HttpServer not implemented */" )
+            }
+        }
 
     }
 
@@ -5105,4 +5233,36 @@ systemclass double_buffer {
     csharp "double[]"
     kotlin DoubleArray
     scala "Array[Double]"
+}
+
+; ============================================================================
+; SYSTEM CLASSES: HTTP Server Types
+; ============================================================================
+; HTTP server types for building web servers and APIs.
+; These are used with the @(HttpServer) annotation system.
+; See PLAN_HTTP.md for details.
+; ============================================================================
+
+; HTTP Request object - represents an incoming HTTP request
+systemclass HttpRequest {
+    es6 Request
+    go "*http.Request" ((imp '"net/http"'))
+}
+
+; HTTP Response Writer - for writing HTTP responses
+systemclass HttpResponse {
+    es6 Response
+    go "http.ResponseWriter" ((imp '"net/http"'))
+}
+
+; Server-Sent Events client - for SSE streaming connections
+systemclass SSEClient {
+    es6 SSEClient
+    go "*SSEClient"
+}
+
+; HTTP Server instance - for server control
+systemclass HttpServer {
+    es6 Server
+    go "*http.Server" ((imp '"net/http"'))
 }

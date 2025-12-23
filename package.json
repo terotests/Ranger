@@ -138,6 +138,11 @@
     "evgcomp:run": "node ./gallery/pdf_writer/bin/evg_component_tool.js ./gallery/pdf_writer/examples/test_component_simple.tsx ./gallery/pdf_writer/output/pdfs/component_output.pdf",
     "evgcomp:test": "npm run evgcomp:compile && npm run evgcomp:run",
     "evgcomp": "npm run evgcomp:compile && npm run evgcomp:run",
+    "evg:tool:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_tool.js -nodecli",
+    "evg:tool:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./gallery/pdf_writer/src/tools/evg_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_tool.go -nodecli",
+    "evg:tool:build:go": "npm run evg:tool:compile:go && cd gallery/pdf_writer/bin && go build -o evg_tool evg_tool.go",
+    "evg:tool:run": "node ./gallery/pdf_writer/bin/evg_tool.js",
+    "evg:tool": "npm run evg:tool:compile && npm run evg:tool:run",
     "font:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/font_test.rgr -d=./gallery/pdf_writer/bin -o=font_test.js -nodecli",
     "font:run": "node ./gallery/pdf_writer/bin/font_test.js",
     "font": "npm run font:compile && npm run font:run"

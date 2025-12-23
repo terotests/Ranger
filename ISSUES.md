@@ -1714,3 +1714,170 @@ Use this test string containing various Unicode characters:
 
 ---
 
+## Issue #59: System Classes Have Hardcoded Type Handling
+
+**Status:** Open  
+**Severity:** Low (Design Issue)  
+**Found:** December 23, 2025
+
+### Description
+
+The `systemclass` declarations in `Lang.rgr` provide a dynamic way to define type mappings for different target languages. However, many class writers also have **hardcoded** `case` statements for specific system types like `buffer`, `charbuffer`, etc.
+
+This means:
+1. Adding a new `systemclass` to `Lang.rgr` may not be sufficient
+2. Some class writers need manual updates to handle new system types
+3. The dynamic systemclass mechanism is not fully utilized
+
+### Evidence
+
+The `systemclass` definitions are parsed dynamically in `ng_FlowWork.rgr` (line 3076):
+
+```ranger
+if (node.isFirstVref("systemclass")) {
+    ; ... parses systemclass and stores in systemNames map
+    set new_class.systemNames langName.vref langClassName.vref
+}
+```
+
+And used dynamically in `ng_RangerGolangClassWriter.rgr` (line 314):
+
+```ranger
+if(cc.is_system) {
+    def sysName (get cc.systemNames "go")
+    ; ... uses sysName for type output
+}
+```
+
+But many writers also have hardcoded type handling:
+
+**ng_RangerGolangClassWriter.rgr:**
+```ranger
+case "charbuffer" { wr.out("[]byte" false) }
+case "buffer" { wr.out("[]byte" false) }
+```
+
+**ng_RangerJavaScriptClassWriter.rgr:**
+```ranger
+case "charbuffer" { wr.out("Uint8Array" false) }
+case "buffer" { wr.out("Buffer" false) }
+```
+
+**ng_RangerAppWriterContext.rgr (isPrimitiveType):**
+```ranger
+if (typeName == "charbuffer") || (typeName == "buffer") || ...
+```
+
+### Files with Hardcoded System Types
+
+| File | Types Hardcoded |
+|------|-----------------|
+| `ng_RangerGolangClassWriter.rgr` | buffer, charbuffer |
+| `ng_RangerJavaScriptClassWriter.rgr` | buffer, charbuffer |
+| `ng_RangerSwift6ClassWriter.rgr` | buffer, charbuffer |
+| `ng_RangerRustClassWriter.rgr` | buffer |
+| `ng_RangerScalaClassWriter.rgr` | buffer |
+| `ng_RangerAppWriterContext.rgr` | buffer, charbuffer, int_buffer, double_buffer |
+| `ng_CodeNodeCompilerExtensions.rgr` | charbuffer |
+| `TTypes.rgr` | buffer, charbuffer |
+
+### Impact on HTTP Extension
+
+When adding new system classes like `HttpRequest`, `HttpResponse`, `SSEClient`, `HttpServer`:
+
+1. ✅ Adding `systemclass` to `Lang.rgr` works for type resolution
+2. ⚠️ The `isPrimitiveType()` check may affect type handling
+3. ⚠️ Some code paths may fall through to error cases
+
+### Recommended Actions
+
+1. **Short-term:** Verify new system classes work with existing code paths
+2. **Long-term:** Refactor class writers to use the dynamic systemclass mechanism consistently
+3. **Documentation:** Document which types require hardcoded handling and why
+
+### Test Case
+
+When adding a new systemclass, test:
+1. Variable declaration: `def req:HttpRequest`
+2. Function parameter: `fn handle(req:HttpRequest)`
+3. Function return type: `fn getReq:HttpRequest ()`
+4. Array of type: `def requests:[HttpRequest]`
+5. Dictionary value: `def cache:[string:HttpRequest]`
+
+---
+
+## Issue #60: Systemclass Types Not Dynamically Discovered in isDefinedType()
+
+**Status:** Open  
+**Severity:** High  
+**Found:** December 23, 2025
+
+### Description
+
+When adding new `systemclass` definitions to `Lang.rgr`, they are not automatically recognized as valid types. The compiler produces "Unknown type" errors even though the systemclass is properly defined.
+
+### Root Cause
+
+The type validation in `ng_RangerAppWriterContext.rgr` uses `isDefinedType()` which has a hardcoded list of primitive types:
+
+```ranger
+fn isDefinedType:boolean (name:string) {
+    ; Hardcoded primitive types
+    if( (name == "double") || (name == "string") || (name == "int") || (name == "void") || (name == "char") || (name == "boolean") || (name == "charbuffer") || (name == "buffer") || (name == "int_buffer") || (name == "double_buffer") ) {
+        return true
+    }
+    return (this.isDefinedClass(name))
+}
+```
+
+The `systemclass` definitions in `Lang.rgr` are parsed by `ng_FlowWork.rgr` and added to `ctx.addClass()`, but this happens in the context of parsing `Lang.rgr` itself - NOT the root context used when compiling user code.
+
+### Evidence
+
+1. `buffer` systemclass works because it's hardcoded in `isDefinedType()`
+2. New systemclasses like `HttpRequest` fail with "Unknown type" error
+3. The systemclass parsing code in `ng_FlowWork.rgr` line 3076 correctly calls `ctx.addClass()`, but the context is local to Lang.rgr parsing
+
+### Error Message
+
+```
+ERROR: [1053] : Unknown type HttpRequest ( ID = 11 )
+ERROR: [1053] : Unknown type HttpResponse ( ID = 11 )
+ERROR: [1053] : Unknown type SSEClient ( ID = 11 )
+```
+
+### Workaround Options
+
+**Option 1: Hardcode in isDefinedType()** (Quick fix)
+```ranger
+if( (name == "HttpRequest") || (name == "HttpResponse") || (name == "SSEClient") || (name == "HttpServer") ) {
+    return true
+}
+```
+
+**Option 2: Add to definedClasses at startup** (Better)
+Manually add system classes to the root context before compilation starts.
+
+**Option 3: Fix context propagation** (Best, but complex)
+Ensure systemclass definitions from Lang.rgr are propagated to the compilation context.
+
+### Recommended Solution
+
+The cleanest long-term solution is to:
+
+1. After parsing `Lang.rgr`, collect all systemclass definitions
+2. Before compiling user code, inject these definitions into the root context
+3. This would make all systemclasses automatically available
+
+### Related Issues
+
+- Issue #59: Systemclass Handling Not Dynamic (covers hardcoded writer behavior)
+
+### Files Affected
+
+- `ng_RangerAppWriterContext.rgr` - `isDefinedType()` function
+- `ng_FlowWork.rgr` - systemclass parsing
+- `Lang.rgr` - systemclass definitions
+
+---
+
