@@ -5048,6 +5048,155 @@ class EVGBox  {
     return ((((((((((((((((("Box[margin:" + ((this.marginTopPx.toString()))) + "/") + ((this.marginRightPx.toString()))) + "/") + ((this.marginBottomPx.toString()))) + "/") + ((this.marginLeftPx.toString()))) + " padding:") + ((this.paddingTopPx.toString()))) + "/") + ((this.paddingRightPx.toString()))) + "/") + ((this.paddingBottomPx.toString()))) + "/") + ((this.paddingLeftPx.toString()))) + " border:") + ((this.borderWidthPx.toString()))) + "]";
   };
 }
+class EVGGradientStop  {
+  constructor() {
+    this.percentage = 0.0;
+    this.color = new EVGColor();
+  }
+}
+EVGGradientStop.create = function(pct, col) {
+  const stop = new EVGGradientStop();
+  stop.percentage = pct;
+  stop.color = col;
+  return stop;
+};
+class EVGGradient  {
+  constructor() {
+    this.isSet = false;
+    this.isLinear = true;
+    this.angle = 0.0;
+    this.stops = [];
+    let s = [];
+    this.stops = s;
+  }
+  getStartColor () {
+    if ( (this.stops.length) > 0 ) {
+      const stop = this.stops[0];
+      return stop.color;
+    }
+    return EVGColor.noColor();
+  };
+  getEndColor () {
+    const __len = this.stops.length;
+    if ( __len > 0 ) {
+      const stop = this.stops[(__len - 1)];
+      return stop.color;
+    }
+    return EVGColor.noColor();
+  };
+  getStopCount () {
+    return this.stops.length;
+  };
+  getStop (index) {
+    return this.stops[index];
+  };
+  addStop (percentage, color) {
+    const stop = EVGGradientStop.create(percentage, color);
+    this.stops.push(stop);
+  };
+  toCSSString () {
+    if ( this.isSet == false ) {
+      return "";
+    }
+    let result = "";
+    if ( this.isLinear ) {
+      result = ("linear-gradient(" + ((this.angle.toString()))) + "deg";
+    } else {
+      result = "radial-gradient(circle";
+    }
+    const numStops = this.stops.length;
+    let i = 0;
+    while (i < numStops) {
+      const stop = this.stops[i];
+      result = (result + ", ") + stop.color.toCSSString();
+      i = i + 1;
+    };
+    result = result + ")";
+    return result;
+  };
+}
+EVGGradient.parse = function(gradStr) {
+  const grad = new EVGGradient();
+  const __len = gradStr.length;
+  if ( __len == 0 ) {
+    return grad;
+  }
+  const linearIdx = gradStr.indexOf("linear-gradient");
+  const radialIdx = gradStr.indexOf("radial-gradient");
+  if ( linearIdx >= 0 ) {
+    grad.isLinear = true;
+    grad.isSet = true;
+  }
+  if ( radialIdx >= 0 ) {
+    grad.isLinear = false;
+    grad.isSet = true;
+  }
+  if ( grad.isSet == false ) {
+    return grad;
+  }
+  if ( grad.isLinear ) {
+    const degIdx = gradStr.indexOf("deg");
+    if ( degIdx > 0 ) {
+      const startIdx = gradStr.indexOf("(");
+      if ( startIdx >= 0 ) {
+        const angleStr = gradStr.substring((startIdx + 1), degIdx );
+        const angleVal = isNaN( parseFloat((angleStr.trim())) ) ? undefined : parseFloat((angleStr.trim()));
+        if ( typeof(angleVal) != "undefined" ) {
+          grad.angle = angleVal;
+        }
+      }
+    }
+  }
+  let colors = [];
+  let i = 0;
+  while (i < __len) {
+    const ch = gradStr.charCodeAt(i );
+    if ( ch == 35 ) {
+      const colorStart = i;
+      let colorEnd = i + 1;
+      while (colorEnd < __len) {
+        const c = gradStr.charCodeAt(colorEnd );
+        let isHex = false;
+        if ( (c >= 48) && (c <= 57) ) {
+          isHex = true;
+        }
+        if ( (c >= 65) && (c <= 70) ) {
+          isHex = true;
+        }
+        if ( (c >= 97) && (c <= 102) ) {
+          isHex = true;
+        }
+        if ( isHex ) {
+          colorEnd = colorEnd + 1;
+        } else {
+          break;
+        }
+      };
+      const colorStr = gradStr.substring(colorStart, colorEnd );
+      const parsedColor = EVGColor.parseHex(colorStr);
+      if ( parsedColor.isSet ) {
+        colors.push(parsedColor);
+      }
+      i = colorEnd;
+    } else {
+      i = i + 1;
+    }
+  };
+  const numColors = colors.length;
+  if ( numColors > 0 ) {
+    let colorIdx = 0;
+    while (colorIdx < numColors) {
+      let pct = 0.0;
+      if ( numColors > 1 ) {
+        pct = (colorIdx) / ((numColors - 1));
+      }
+      const col = colors[colorIdx];
+      grad.addStop(pct, col);
+      colorIdx = colorIdx + 1;
+    };
+  }
+  return grad;
+};
 class EVGElement  {
   constructor() {
     this.id = "";
@@ -5074,6 +5223,13 @@ class EVGElement  {
     this.position = "relative";
     this.src = "";
     this.alt = "";
+    this.imageViewBox = "";
+    this.imageViewBoxX = 0.0;
+    this.imageViewBoxY = 0.0;
+    this.imageViewBoxW = 1.0;
+    this.imageViewBoxH = 1.0;
+    this.imageViewBoxSet = false;
+    this.objectFit = "fill";
     this.svgPath = "";
     this.viewBox = "";
     this.strokeWidth = 0.0;
@@ -5084,6 +5240,7 @@ class EVGElement  {
     this.rotate = 0.0;
     this.scale = 1.0;
     this.backgroundGradient = "";
+    this.gradient = new EVGGradient();
     this.calculatedX = 0.0;
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
@@ -5332,11 +5489,13 @@ class EVGElement  {
     }
     if ( (name == "background-gradient") || (name == "backgroundGradient") ) {
       this.backgroundGradient = value;
+      this.gradient = EVGGradient.parse(value);
       return;
     }
     if ( name == "background" ) {
       if ( (value.includes("linear-gradient")) || (value.includes("radial-gradient")) ) {
         this.backgroundGradient = value;
+        this.gradient = EVGGradient.parse(value);
       } else {
         this.backgroundColor = EVGColor.parse(value);
       }
@@ -5723,6 +5882,14 @@ class JSXToEVG  {
     if ( tagName == "divider" ) {
       element.tagName = "divider";
     }
+    if ( (tagName == "layer") || (tagName == "Layer") ) {
+      element.tagName = "layer";
+      element.position = "absolute";
+      element.left = EVGUnit.px(0.0);
+      element.top = EVGUnit.px(0.0);
+      element.width = EVGUnit.percent(100.0);
+      element.height = EVGUnit.percent(100.0);
+    }
     if ( typeof(jsxNode.left) != "undefined" ) {
       const leftNode = jsxNode.left;
       this.parseAttributes(element, leftNode);
@@ -5848,6 +6015,12 @@ class JSXToEVG  {
     if ( jsxTag == "Path" ) {
       return "path";
     }
+    if ( jsxTag == "layer" ) {
+      return "layer";
+    }
+    if ( jsxTag == "Layer" ) {
+      return "layer";
+    }
     return "div";
   };
   parseAttributes (element, openingNode) {
@@ -5870,6 +6043,13 @@ class JSXToEVG  {
         }
         if ( attrName == "alt" ) {
           element.alt = attrValue;
+        }
+        if ( attrName == "image-view-box" ) {
+          element.imageViewBox = attrValue;
+          this.parseImageViewBox(element, attrValue);
+        }
+        if ( attrName == "object-fit" ) {
+          element.objectFit = attrValue;
         }
         if ( (attrName == "d") || (attrName == "svg-path") ) {
           element.svgPath = attrValue;
@@ -5967,6 +6147,12 @@ class JSXToEVG  {
         }
         if ( attrName == "flex" ) {
           this.applyStyleProperty(element, "flex", attrValue);
+        }
+        if ( attrName == "align" ) {
+          element.align = attrValue;
+        }
+        if ( attrName == "vertical-align" ) {
+          element.verticalAlign = attrValue;
         }
         if ( attrName == "border-color" ) {
           this.applyStyleProperty(element, "borderColor", attrValue);
@@ -6149,6 +6335,12 @@ class JSXToEVG  {
     if ( name == "alignItems" ) {
       element.alignItems = value;
     }
+    if ( name == "align" ) {
+      element.align = value;
+    }
+    if ( name == "verticalAlign" ) {
+      element.verticalAlign = value;
+    }
     if ( name == "gap" ) {
       element.gap = EVGUnit.parse(value);
     }
@@ -6176,12 +6368,14 @@ class JSXToEVG  {
     if ( name == "background" ) {
       if ( (value.includes("linear-gradient")) || (value.includes("radial-gradient")) ) {
         element.backgroundGradient = value;
+        element.gradient = EVGGradient.parse(value);
       } else {
         element.backgroundColor = EVGColor.parse(value);
       }
     }
     if ( name == "backgroundGradient" ) {
       element.backgroundGradient = value;
+      element.gradient = EVGGradient.parse(value);
     }
     if ( name == "color" ) {
       element.color = EVGColor.parse(value);
@@ -6300,6 +6494,42 @@ class JSXToEVG  {
       return result;
     }
     return 0.0;
+  };
+  parseImageViewBox (element, value) {
+    const parts = value.split(" ");
+    const numParts = parts.length;
+    if ( numParts >= 4 ) {
+      const xStr = parts[0];
+      const yStr = parts[1];
+      const wStr = parts[2];
+      const hStr = parts[3];
+      const isPercent = xStr.includes("%");
+      if ( isPercent ) {
+        const xPct = this.parsePercentValue(xStr);
+        const yPct = this.parsePercentValue(yStr);
+        const wPct = this.parsePercentValue(wStr);
+        const hPct = this.parsePercentValue(hStr);
+        element.imageViewBoxX = xPct;
+        element.imageViewBoxY = yPct;
+        element.imageViewBoxW = wPct;
+        element.imageViewBoxH = hPct;
+      } else {
+        const xPx = this.parseNumberValue(xStr);
+        const yPx = this.parseNumberValue(yStr);
+        const wPx = this.parseNumberValue(wStr);
+        const hPx = this.parseNumberValue(hStr);
+        element.imageViewBoxX = xPx;
+        element.imageViewBoxY = yPx;
+        element.imageViewBoxW = wPx;
+        element.imageViewBoxH = hPx;
+      }
+      element.imageViewBoxSet = true;
+    }
+  };
+  parsePercentValue (s) {
+    const numStr = s.replace("%", "");
+    const val = this.parseNumberValue(numStr);
+    return val / 100.0;
   };
   getPageWidth () {
     return this.pageWidth;
@@ -6721,9 +6951,23 @@ class EVGLayout  {
       child.inheritProperties(parent);
       child.resolveUnits(innerWidth, innerHeight);
       if ( child.isAbsolute ) {
-        this.layoutAbsolute(child, innerWidth, innerHeight);
-        child.calculatedX = child.calculatedX + startX;
-        child.calculatedY = child.calculatedY + startY;
+        if ( child.tagName == "layer" ) {
+          child.unitsResolved = false;
+          child.resolveUnits(parent.calculatedWidth, parent.calculatedHeight);
+          child.calculatedWidth = parent.calculatedWidth;
+          child.calculatedHeight = parent.calculatedHeight;
+          child.calculatedInnerWidth = child.box.getInnerWidth(child.calculatedWidth);
+          child.calculatedInnerHeight = child.box.getInnerHeight(child.calculatedHeight);
+          child.height.isSet = true;
+          child.height.pixels = child.calculatedHeight;
+          this.layoutAbsolute(child, parent.calculatedWidth, parent.calculatedHeight);
+          child.calculatedX = child.calculatedX + parent.calculatedX;
+          child.calculatedY = child.calculatedY + parent.calculatedY;
+        } else {
+          this.layoutAbsolute(child, innerWidth, innerHeight);
+          child.calculatedX = child.calculatedX + startX;
+          child.calculatedY = child.calculatedY + startY;
+        }
         if ( child.getChildCount() > 0 ) {
           this.layoutChildren(child);
         }
@@ -7127,7 +7371,7 @@ class EVGHTMLRenderer  {
     if ( el.tagName == "Page" ) {
       return this.renderPage_Element(el, depth);
     }
-    if ( (el.tagName == "View") || (el.tagName == "div") ) {
+    if ( ((el.tagName == "View") || (el.tagName == "div")) || (el.tagName == "layer") ) {
       return this.renderViewWithParent(el, elementId, depth, parentX, parentY);
     }
     if ( ((el.tagName == "Label") || (el.tagName == "span")) || (el.tagName == "text") ) {
@@ -7241,11 +7485,16 @@ class EVGHTMLRenderer  {
     css = css + "position: absolute; ";
     css = ((css + "left: ") + this.formatPx(relX)) + "; ";
     css = ((css + "top: ") + this.formatPx(relY)) + "; ";
-    if ( el.calculatedWidth > 0.0 ) {
-      css = ((css + "width: ") + this.formatPx(el.calculatedWidth)) + "; ";
-    }
-    if ( el.calculatedHeight > 0.0 ) {
-      css = ((css + "height: ") + this.formatPx(el.calculatedHeight)) + "; ";
+    if ( el.tagName == "layer" ) {
+      css = css + "width: 100%; ";
+      css = css + "height: 100%; ";
+    } else {
+      if ( el.calculatedWidth > 0.0 ) {
+        css = ((css + "width: ") + this.formatPx(el.calculatedWidth)) + "; ";
+      }
+      if ( el.calculatedHeight > 0.0 ) {
+        css = ((css + "height: ") + this.formatPx(el.calculatedHeight)) + "; ";
+      }
     }
     if ( el.display == "flex" ) {
       css = css + "display: flex; ";
@@ -7416,6 +7665,11 @@ class EVGHTMLRenderer  {
   };
   renderImageWithParent (el, elementId, depth, parentX, parentY) {
     let html = "";
+    const relX = el.calculatedX - parentX;
+    const relY = el.calculatedY - parentY;
+    if ( el.imageViewBoxSet ) {
+      return this.renderImageWithViewBox(el, elementId, depth, relX, relY);
+    }
     html = (html + this.indent(depth)) + "<img";
     if ( (el.id.length) > 0 ) {
       html = ((html + " id=\"") + el.id) + "\"";
@@ -7439,12 +7693,68 @@ class EVGHTMLRenderer  {
     } else {
       html = html + " alt=\"\"";
     }
-    const relX = el.calculatedX - parentX;
-    const relY = el.calculatedY - parentY;
     html = html + " style=\"";
     html = html + this.generateImageStylesRelative(el, relX, relY);
     html = html + "\"";
     html = html + ">\n";
+    return html;
+  };
+  renderImageWithViewBox (el, elementId, depth, relX, relY) {
+    let html = "";
+    let scaleX = 1.0;
+    let scaleY = 1.0;
+    if ( el.imageViewBoxW > 0.0 ) {
+      scaleX = 1.0 / el.imageViewBoxW;
+    }
+    if ( el.imageViewBoxH > 0.0 ) {
+      scaleY = 1.0 / el.imageViewBoxH;
+    }
+    let scale = scaleX;
+    if ( scaleY > scaleX ) {
+      scale = scaleY;
+    }
+    const offsetXPercent = (el.imageViewBoxX * scale) * 100.0;
+    const offsetYPercent = (el.imageViewBoxY * scale) * 100.0;
+    html = (html + this.indent(depth)) + "<div class=\"evg-image-crop\" style=\"";
+    html = html + "position: absolute; ";
+    html = ((html + "left: ") + this.formatPx(relX)) + "; ";
+    html = ((html + "top: ") + this.formatPx(relY)) + "; ";
+    if ( el.calculatedWidth > 0.0 ) {
+      html = ((html + "width: ") + this.formatPx(el.calculatedWidth)) + "; ";
+    }
+    if ( el.calculatedHeight > 0.0 ) {
+      html = ((html + "height: ") + this.formatPx(el.calculatedHeight)) + "; ";
+    }
+    html = html + "overflow: hidden; ";
+    if ( el.box.borderRadius.isSet ) {
+      html = ((html + "border-radius: ") + this.formatPx(el.box.borderRadius.pixels)) + "; ";
+    }
+    html = html + "\">\n";
+    html = (html + this.indent((depth + 1))) + "<img";
+    html = html + " class=\"evg-image\"";
+    const imgSrc = el.src;
+    if ( (imgSrc.length) > 0 ) {
+      if ( this.embedAssets ) {
+        const dataUri = this.getImageDataUri(imgSrc);
+        if ( (dataUri.length) > 0 ) {
+          html = ((html + " src=\"") + dataUri) + "\"";
+        } else {
+          html = (((html + " src=\"") + this.imageBasePath) + imgSrc) + "\"";
+        }
+      } else {
+        html = (((html + " src=\"") + this.imageBasePath) + imgSrc) + "\"";
+      }
+    }
+    html = html + " alt=\"\"";
+    html = html + " style=\"";
+    html = html + "position: absolute; ";
+    html = ((html + "width: ") + (((scale * 100.0).toString()))) + "%; ";
+    html = ((html + "height: ") + (((scale * 100.0).toString()))) + "%; ";
+    html = ((html + "left: -") + ((offsetXPercent.toString()))) + "%; ";
+    html = ((html + "top: -") + ((offsetYPercent.toString()))) + "%; ";
+    html = html + "object-fit: cover; ";
+    html = html + "\">\n";
+    html = (html + this.indent(depth)) + "</div>\n";
     return html;
   };
   generateImageStylesRelative (el, relX, relY) {
@@ -7458,7 +7768,16 @@ class EVGHTMLRenderer  {
     if ( el.calculatedHeight > 0.0 ) {
       css = ((css + "height: ") + this.formatPx(el.calculatedHeight)) + "; ";
     }
-    css = css + "object-fit: cover; ";
+    if ( (el.objectFit.length) > 0 ) {
+      css = ((css + "object-fit: ") + el.objectFit) + "; ";
+    } else {
+      css = css + "object-fit: cover; ";
+    }
+    if ( el.imageViewBoxSet ) {
+      const posX = el.imageViewBoxX * 100.0;
+      const posY = el.imageViewBoxY * 100.0;
+      css = ((((css + "object-position: ") + ((posX.toString()))) + "% ") + ((posY.toString()))) + "%; ";
+    }
     if ( el.box.borderRadius.isSet ) {
       css = ((css + "border-radius: ") + this.formatPx(el.box.borderRadius.pixels)) + "; ";
     }

@@ -91,6 +91,16 @@ class EVGElement {
     ; Image properties
     def src:string ""
     def alt:string ""
+    ; Image viewBox for cropping/zooming: "x% y% w% h%" or "x y w h" (pixels)
+    def imageViewBox:string ""
+    ; Parsed image viewBox values (0-1 range for percentages)
+    def imageViewBoxX:double 0.0
+    def imageViewBoxY:double 0.0
+    def imageViewBoxW:double 1.0
+    def imageViewBoxH:double 1.0
+    def imageViewBoxSet:boolean false
+    ; Image sizing: "cover", "contain", "fill", "none"
+    def objectFit:string "fill"
     
     ; SVG Path properties
     def svgPath:string ""

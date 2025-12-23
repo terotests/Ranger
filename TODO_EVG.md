@@ -1,6 +1,6 @@
 # EVG Rendering System - TODO List
 
-Based on priorities from `PLAN_EVG.md`. Updated: December 22, 2024.
+Based on priorities from `PLAN_EVG.md`. Updated: December 23, 2024.
 
 ---
 
@@ -15,22 +15,63 @@ Based on priorities from `PLAN_EVG.md`. Updated: December 22, 2024.
 - [x] **0.4** Image rendering with base64 embedding - *DONE*
 - [x] **0.5** SVG Path embedding - *DONE*
 - [x] **0.6** Font embedding (TTF to base64) - *DONE*
-- [ ] **0.7** Gradients and shadows - *TODO*
+- [x] **0.7** Gradients and shadows - *DONE (CSS native)*
 - [ ] **0.8** Unit test framework (Vitest) - *TODO*
 - [ ] **0.9** Preview server with hot reload - *TODO*
+
+### 2. PNG Raster Renderer
+**Goal:** Pixel-accurate rendering for testing and preview images.
+
+- [x] **PNG 0.1** Basic rasterization (rectangles, colors) - *DONE*
+- [x] **PNG 0.2** Anti-aliased text with TrueType fonts - *DONE*
+- [x] **PNG 0.3** Rounded rectangles - *DONE*
+- [x] **PNG 0.4** Linear gradients (all angles) - *DONE*
+- [x] **PNG 0.5** Radial gradients - *DONE*
+- [x] **PNG 0.6** Box shadows with blur - *DONE*
+- [x] **PNG 0.7** EVGGradient shared parsing - *DONE*
+- [ ] **PNG 0.8** Image rendering - *TODO*
+- [ ] **PNG 0.9** SVG path rasterization - *TODO*
+
+**New Files Created:**
+```
+gallery/pdf_writer/src/
+├── raster/
+│   ├── EVGRasterRenderer.rgr    # Software rasterizer
+│   ├── RasterText.rgr           # TrueType glyph rasterizer (4x4 AA)
+│   └── PNGEncoder.rgr           # PNG file encoder
+├── tools/
+│   └── evg_png_tool.rgr         # CLI tool: TSX → PNG
+gallery/evg/
+├── EVGGradient.rgr              # Shared gradient parsing (NEW)
+```
+
+**Added to package.json:**
+- `npm run evgpng:compile` - Compile PNG renderer
+- `npm run evgpng:run` - Run TSX→PNG conversion
+- `npm run evgpng` - Compile and run
 
 **Completed Files:**
 ```
 gallery/pdf_writer/src/
 ├── core/
 │   ├── EVGPDFRenderer.rgr       # Existing PDF renderer
-│   └── EVGHTMLRenderer.rgr      # ✅ NEW: HTML/CSS renderer (~970 lines)
+│   └── EVGHTMLRenderer.rgr      # ✅ HTML/CSS renderer (~970 lines)
+├── raster/
+│   ├── EVGRasterRenderer.rgr    # ✅ Software rasterizer
+│   ├── RasterText.rgr           # ✅ TrueType glyph rasterizer
+│   └── PNGEncoder.rgr           # ✅ PNG file encoder
 ├── jsx/
-│   └── JSXToEVG.rgr             # ✅ Updated: Fixed punctuation spacing
+│   └── JSXToEVG.rgr             # ✅ Updated: Gradient parsing
 ├── tools/
-│   └── evg_html_tool.rgr        # ✅ NEW: CLI tool for TSX→HTML
+│   ├── evg_html_tool.rgr        # ✅ CLI tool for TSX→HTML
+│   └── evg_png_tool.rgr         # ✅ CLI tool for TSX→PNG
 └── tests/
     └── (TODO: Unit tests)
+
+gallery/evg/
+├── EVGElement.rgr               # ✅ Updated: gradient property
+├── EVGGradient.rgr              # ✅ NEW: Shared gradient parsing
+└── EVGColor.rgr                 # Color with method accessors
 ```
 
 **Added to package.json:**
@@ -94,10 +135,12 @@ gallery/pdf_writer/src/
 ### 5. PDF: linear-gradient
 **Goal:** Gradient backgrounds on View elements.
 
-- [ ] Parse CSS-style gradient syntax: `linear-gradient(45deg, red, blue)`
+- [x] Parse CSS-style gradient syntax: `linear-gradient(45deg, red, blue)` - *DONE (EVGGradient.rgr)*
 - [ ] Implement PDF Shading Pattern Type 2 (Axial)
 - [ ] Calculate gradient endpoints from angle and bounds
 - [ ] Register shading pattern resources
+
+**Note:** Gradient parsing is shared via `EVGGradient.rgr`. PDF rendering needs shading patterns.
 
 **Complexity:** Medium  
 **Estimated time:** 2-3 days
@@ -107,26 +150,31 @@ gallery/pdf_writer/src/
 ### 6. Image viewBox (Crop/Zoom)
 **Goal:** Crop/zoom into specific regions of images.
 
-- [ ] Parse `viewBox` attribute on Image elements: `viewBox="10% 10% 80% 80%"`
-- [ ] Calculate source rectangle from percentages or pixels
+- [x] Parse `imageViewBox` attribute on Image elements: `imageViewBox="10% 10% 80% 80%"` - *DONE*
+- [x] Calculate source rectangle from percentages - *DONE*
+- [x] Implement HTML with CSS `object-position` - *DONE*
+- [x] Add `objectFit` attribute for sizing mode: "cover", "contain", "fill", "none" - *DONE*
 - [ ] Implement PDF image transformation matrix for cropping
-- [ ] Support both percentage and pixel values
+- [ ] Support pixel values (need image dimensions)
 
 **Complexity:** Medium  
-**Estimated time:** 2 days
+**Estimated time:** 1 day (PDF remaining)
 
 ---
 
 ### 7. Layer Element
 **Goal:** Enable stacking content with overlays.
 
-- [ ] Add `<Layer>` element type to parser
-- [ ] Implement as absolute-positioned container
-- [ ] Support `background` for gradient overlays
-- [ ] Render children in order (first = bottom, last = top)
+- [x] Add `<Layer>` element type to parser - *DONE*
+- [x] Implement as absolute-positioned container - *DONE*
+- [x] Support `background` for gradient overlays - *DONE*
+- [x] Render children in order (first = bottom, last = top) - *DONE*
 
 **Complexity:** Low  
-**Estimated time:** 1 day
+**Estimated time:** COMPLETED
+
+**New Files:**
+- `gallery/pdf_writer/examples/test_layer_viewbox.tsx` - Test file for Layer and imageViewBox
 
 ---
 
@@ -149,7 +197,7 @@ gallery/pdf_writer/src/
 ### 9. PDF: radial-gradient
 **Goal:** Radial gradient backgrounds.
 
-- [ ] Parse CSS-style syntax: `radial-gradient(red, blue)`
+- [x] Parse CSS-style syntax: `radial-gradient(red, blue)` - *DONE (EVGGradient.rgr)*
 - [ ] Implement PDF Shading Pattern Type 3 (Radial)
 - [ ] Calculate center and radius from bounds
 
@@ -158,16 +206,37 @@ gallery/pdf_writer/src/
 
 ---
 
-### 10. PDF: shadow effects
+### 10. PDF: shadow effects (DEFERRED)
 **Goal:** Box shadows on elements.
 
-- [ ] Parse `shadowRadius`, `shadowColor`, `shadowOffsetX`, `shadowOffsetY`
-- [ ] Implement shadow simulation (no native PDF shadows)
-- [ ] Option A: Draw blurred offset shapes
-- [ ] Option B: Rasterize shadow as image
+⚠️ **DEFERRED** - PDF does not natively support shadows. Complex simulation required.
+
+- [ ] Parse `shadowRadius`, `shadowColor`, `shadowOffsetX`, `shadowOffsetY` - *Already parsed*
+- [ ] Option A: Draw blurred offset shapes (complex, poor quality)
+- [ ] Option B: Rasterize shadow as image (memory/quality tradeoff)
+- [ ] Option C: Pre-render shadow to PNG, embed in PDF
+
+**Note:** Shadows work in HTML (native CSS) and PNG (rasterized blur). 
+For PDF, consider using the PNG renderer to generate shadow images, then embed.
 
 **Complexity:** High  
-**Estimated time:** 3-4 days
+**Estimated time:** 3-4 days (if implemented)
+
+---
+
+### 10b. Text/Path/Image Shadows (DEFERRED)
+**Goal:** Drop shadows on text, paths, and images.
+
+⚠️ **DEFERRED** - Requires rasterization for PDF. Native in HTML/CSS.
+
+- Text shadow: CSS `text-shadow` (HTML), rasterize for PDF
+- Path shadow: Duplicate path with offset and blur
+- Image shadow: Add shadow behind image
+
+**Note:** These work natively in HTML renderer. For PDF/PNG, use raster approach.
+
+**Complexity:** High  
+**Estimated time:** 3-4 days (if implemented)
 
 ---
 
@@ -222,11 +291,12 @@ gallery/pdf_writer/src/
 
 | Priority | Tasks | Completed | Remaining |
 |----------|-------|-----------|-----------|
-| 🔴 HIGHEST | 9 | 6 | 3 |
-| 🟠 HIGH | 7 | 0 | 7 |
-| 🟡 MEDIUM | 4 | 0 | 4 |
+| 🔴 HIGHEST (HTML) | 9 | 7 | 2 |
+| � HIGHEST (PNG) | 9 | 7 | 2 |
+| �🟠 HIGH | 7 | 0 | 7 |
+| 🟡 MEDIUM | 4 | 0 | 4 (2 deferred) |
 | 🟢 LOW | 3 | 0 | 3 |
-| **TOTAL** | **23** | **6** | **17** |
+| **TOTAL** | **32** | **14** | **18** |
 
 ---
 
@@ -241,19 +311,27 @@ gallery/pdf_writer/src/
 - TrueType fonts with Unicode
 - JPEG with EXIF orientation
 - Multi-page documents
-- **HTML Renderer** (View, Label, Image, Path)
+- **HTML Renderer** (View, Label, Image, Path, gradients, shadows)
+- **PNG Renderer** (View, Label, gradients, shadows, rounded corners)
 - **Base64 embedding** (images, fonts)
 - **Font mapping** (Google Fonts: Amatic SC, Gloria Hallelujah, Josefin Slab, etc.)
+- **Gradient parsing** (shared EVGGradient.rgr for all renderers)
 
 ### Defined but Not Working ⚠️
-- `opacity` - parsed, not rendered
+- `opacity` - parsed, not rendered in PDF
 - `rotate` - defined, not parsed
 - `scale` - defined, not parsed
 - `overflow` - defined, not parsed
-- `shadow*` - defined, not parsed
+- PDF linear-gradient - parsing done, PDF shading not implemented
+- PDF radial-gradient - parsing done, PDF shading not implemented
+
+### Deferred ⏸️
+- PDF shadows (no native support, requires rasterization)
+- Text shadows for PDF (use HTML/PNG instead)
+- Path shadows for PDF (use HTML/PNG instead)
+- Image shadows for PDF (use HTML/PNG instead)
 
 ### Not Implemented ❌
-- Linear/radial gradients (HTML & PDF)
 - Image viewBox (crop/zoom)
 - backgroundImage on View
 - Layer element
@@ -265,31 +343,45 @@ gallery/pdf_writer/src/
 
 ## Next Actions
 
-### ✅ COMPLETED: HTML Renderer Phase 0.1-0.6
+### ✅ COMPLETED: HTML Renderer Phase 0.1-0.7
 - Created `EVGHTMLRenderer.rgr` (~970 lines)
 - Created `evg_html_tool.rgr` CLI tool
 - Added `buffer_to_base64` to Lang.rgr
 - Font embedding (TTF to base64)
 - Image embedding (JPEG to base64)
-- Fixed punctuation spacing in JSXToEVG.rgr
+- Gradients and shadows (native CSS)
 
-### 🔄 IN PROGRESS: HTML Renderer Phase 0.7-0.9
-1. **Gradients and shadows** (0.7)
-   - CSS `linear-gradient()` support
-   - CSS `box-shadow` support
+### ✅ COMPLETED: PNG Raster Renderer Phase 0.1-0.7
+- Created `EVGRasterRenderer.rgr` - software rasterizer
+- Created `RasterText.rgr` - TrueType glyph rasterizer with 4x4 AA
+- Created `PNGEncoder.rgr` - PNG file output
+- Created `evg_png_tool.rgr` - CLI tool for TSX→PNG
+- Created `EVGGradient.rgr` - shared gradient parsing
+- Linear gradients (all angles)
+- Radial gradients
+- Box shadows with blur
+- Rounded rectangles
 
-2. **Unit test framework** (0.8)
+### 🔄 IN PROGRESS: HTML/PNG Renderer Phase 0.8-0.9
+1. **Unit test framework** (0.8)
    - Vitest for JavaScript testing
    - Compare HTML output snapshots
+   - Compare PNG output (pixel diff)
 
-3. **Preview server with hot reload** (0.9)
+2. **Preview server with hot reload** (0.9)
    - File watcher for TSX changes
    - WebSocket for live updates
 
-### 📋 NEXT: PDF Improvements
-1. **`overflow: hidden`** - Simple clipping rectangle
-2. **`opacity`** - PDF ExtGState transparency
-3. **`rotate` & `scale`** - PDF transformation matrix
+### 📋 NEXT: PDF Improvements (in order)
+1. **`overflow: hidden`** - Simple clipping rectangle (1 day)
+2. **`opacity`** - PDF ExtGState transparency (1 day)
+3. **`rotate` & `scale`** - PDF transformation matrix (2 days)
+4. **`linear-gradient`** - PDF Type 2 shading (2-3 days)
+5. **`radial-gradient`** - PDF Type 3 shading (2 days)
+
+### 📋 NEXT: PNG Renderer Completion
+1. **Image rendering** - Embed images in raster output
+2. **SVG path rasterization** - Bezier curve rendering
 
 ---
 

@@ -278,9 +278,31 @@ class EVGLayout {
             
             ; Skip absolute positioned elements in flow
             if child.isAbsolute {
-                this.layoutAbsolute(child innerWidth innerHeight)
-                child.calculatedX = child.calculatedX + startX
-                child.calculatedY = child.calculatedY + startY
+                ; Layer elements use parent's full dimensions, not inner dimensions
+                if (child.tagName == "layer") {
+                    ; Re-resolve Layer dimensions with parent's full width/height
+                    child.unitsResolved = false
+                    child.resolveUnits(parent.calculatedWidth parent.calculatedHeight)
+                    
+                    ; Set Layer's calculated dimensions to parent's full size
+                    child.calculatedWidth = parent.calculatedWidth
+                    child.calculatedHeight = parent.calculatedHeight
+                    child.calculatedInnerWidth = (child.box.getInnerWidth(child.calculatedWidth))
+                    child.calculatedInnerHeight = (child.box.getInnerHeight(child.calculatedHeight))
+                    
+                    ; Ensure height.isSet is true for alignment calculations
+                    child.height.isSet = true
+                    child.height.pixels = child.calculatedHeight
+                    
+                    this.layoutAbsolute(child parent.calculatedWidth parent.calculatedHeight)
+                    ; Layer positions relative to parent's edge (0,0), not content area
+                    child.calculatedX = child.calculatedX + parent.calculatedX
+                    child.calculatedY = child.calculatedY + parent.calculatedY
+                } {
+                    this.layoutAbsolute(child innerWidth innerHeight)
+                    child.calculatedX = child.calculatedX + startX
+                    child.calculatedY = child.calculatedY + startY
+                }
                 ; Recurse for children of absolute element
                 if ((child.getChildCount()) > 0) {
                     this.layoutChildren(child)

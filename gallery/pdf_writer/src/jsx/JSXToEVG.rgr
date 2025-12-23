@@ -281,6 +281,15 @@ class JSXToEVG {
         if (tagName == "divider") {
             element.tagName = "divider"
         }
+        ; Layer element: absolute positioned overlay that fills parent
+        if ((tagName == "layer") || (tagName == "Layer")) {
+            element.tagName = "layer"
+            element.position = "absolute"
+            element.left = (EVGUnit.px(0.0))
+            element.top = (EVGUnit.px(0.0))
+            element.width = (EVGUnit.percent(100.0))
+            element.height = (EVGUnit.percent(100.0))
+        }
         
         ; Parse attributes from opening element
         if jsxNode.left {
@@ -433,6 +442,14 @@ class JSXToEVG {
             return "path"
         }
         
+        ; Layer element (absolute positioned overlay)
+        if (jsxTag == "layer") {
+            return "layer"
+        }
+        if (jsxTag == "Layer") {
+            return "layer"
+        }
+        
         ; Default to div
         return "div"
     }
@@ -469,6 +486,17 @@ class JSXToEVG {
                 ; Handle alt for images
                 if (attrName == "alt") {
                     element.alt = attrValue
+                }
+                
+                ; Handle imageViewBox for image cropping: "10% 10% 80% 80%" or "100 100 400 300"
+                if (attrName == "image-view-box") {
+                    element.imageViewBox = attrValue
+                    this.parseImageViewBox(element attrValue)
+                }
+                
+                ; Handle objectFit for images: "cover", "contain", "fill", "none"
+                if (attrName == "object-fit") {
+                    element.objectFit = attrValue
                 }
                 
                 ; Handle SVG path data (d or svgPath)
@@ -590,6 +618,12 @@ class JSXToEVG {
                 }
                 if (attrName == "flex") {
                     this.applyStyleProperty(element "flex" attrValue)
+                }
+                if (attrName == "align") {
+                    element.align = attrValue
+                }
+                if (attrName == "vertical-align") {
+                    element.verticalAlign = attrValue
                 }
                 if (attrName == "border-color") {
                     this.applyStyleProperty(element "borderColor" attrValue)
@@ -809,6 +843,12 @@ class JSXToEVG {
         if (name == "alignItems") {
             element.alignItems = value
         }
+        if (name == "align") {
+            element.align = value
+        }
+        if (name == "verticalAlign") {
+            element.verticalAlign = value
+        }
         if (name == "gap") {
             element.gap = (EVGUnit.parse(value))
         }
@@ -994,6 +1034,60 @@ class JSXToEVG {
             return (unwrap result)
         }
         return 0.0
+    }
+    
+    ; Parse imageViewBox: "10% 10% 80% 80%" or "100 100 400 300" (pixels)
+    ; Sets element.imageViewBoxX/Y/W/H and imageViewBoxSet
+    fn parseImageViewBox:void (element:EVGElement value:string) {
+        ; Split by spaces
+        def parts:[string] (strsplit value " ")
+        def numParts:int (array_length parts)
+        
+        if (numParts >= 4) {
+            def xStr:string (itemAt parts 0)
+            def yStr:string (itemAt parts 1)
+            def wStr:string (itemAt parts 2)
+            def hStr:string (itemAt parts 3)
+            
+            ; Check if percentages (contains %)
+            def isPercent:boolean (contains xStr "%")
+            
+            if isPercent {
+                ; Parse as percentages: "10% 10% 80% 80%" -> 0.1, 0.1, 0.8, 0.8
+                def xPct:double (this.parsePercentValue(xStr))
+                def yPct:double (this.parsePercentValue(yStr))
+                def wPct:double (this.parsePercentValue(wStr))
+                def hPct:double (this.parsePercentValue(hStr))
+                
+                element.imageViewBoxX = xPct
+                element.imageViewBoxY = yPct
+                element.imageViewBoxW = wPct
+                element.imageViewBoxH = hPct
+            } {
+                ; Parse as pixel values (will need image dimensions to convert)
+                ; Store as negative values to indicate pixels
+                def xPx:double (this.parseNumberValue(xStr))
+                def yPx:double (this.parseNumberValue(yStr))
+                def wPx:double (this.parseNumberValue(wStr))
+                def hPx:double (this.parseNumberValue(hStr))
+                
+                ; Store pixel values (renderer will convert when image size is known)
+                element.imageViewBoxX = xPx
+                element.imageViewBoxY = yPx
+                element.imageViewBoxW = wPx
+                element.imageViewBoxH = hPx
+            }
+            
+            element.imageViewBoxSet = true
+        }
+    }
+    
+    ; Parse percentage string like "10%" or "50%" to decimal (0.1, 0.5)
+    fn parsePercentValue:double (s:string) {
+        ; Remove % sign
+        def numStr:string (replace s "%" "")
+        def val:double (this.parseNumberValue(numStr))
+        return (val / 100.0)
     }
     
     fn getPageWidth:double () {

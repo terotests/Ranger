@@ -305,7 +305,7 @@ class EVGHTMLRenderer {
         if (el.tagName == "Page") {
             return (this.renderPage_Element(el depth))
         }
-        if ((el.tagName == "View") || (el.tagName == "div")) {
+        if ((el.tagName == "View") || (el.tagName == "div") || (el.tagName == "layer")) {
             return (this.renderViewWithParent(el elementId depth parentX parentY))
         }
         if ((el.tagName == "Label") || (el.tagName == "span") || (el.tagName == "text")) {
@@ -468,12 +468,18 @@ class EVGHTMLRenderer {
         css = css + "left: " + (this.formatPx(relX)) + "; "
         css = css + "top: " + (this.formatPx(relY)) + "; "
         
-        ; Dimensions
-        if (el.calculatedWidth > 0.0) {
-            css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
-        }
-        if (el.calculatedHeight > 0.0) {
-            css = css + "height: " + (this.formatPx(el.calculatedHeight)) + "; "
+        ; Layer elements use 100% width/height to fill parent
+        if (el.tagName == "layer") {
+            css = css + "width: 100%; "
+            css = css + "height: 100%; "
+        } {
+            ; Regular dimensions from layout calculation
+            if (el.calculatedWidth > 0.0) {
+                css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
+            }
+            if (el.calculatedHeight > 0.0) {
+                css = css + "height: " + (this.formatPx(el.calculatedHeight)) + "; "
+            }
         }
         
         ; Display and flexbox (for reference, though we use absolute positioning)
@@ -733,6 +739,17 @@ class EVGHTMLRenderer {
     
     fn renderImageWithParent:string (el:EVGElement elementId:string depth:int parentX:double parentY:double) {
         def html:string ""
+        
+        ; Calculate position relative to parent
+        def relX:double (el.calculatedX - parentX)
+        def relY:double (el.calculatedY - parentY)
+        
+        ; If imageViewBox is set, wrap in a container div for proper cropping
+        if el.imageViewBoxSet {
+            return (this.renderImageWithViewBox(el elementId depth relX relY))
+        }
+        
+        ; Standard image rendering (no viewBox)
         html = html + (this.indent(depth)) + "<img"
         
         ; Add id if element has one
@@ -767,16 +784,98 @@ class EVGHTMLRenderer {
             html = html + " alt=\"\""
         }
         
-        ; Calculate position relative to parent
-        def relX:double (el.calculatedX - parentX)
-        def relY:double (el.calculatedY - parentY)
-        
         ; Add inline styles
         html = html + " style=\""
         html = html + (this.generateImageStylesRelative(el relX relY))
         html = html + "\""
         
         html = html + ">\n"
+        return html
+    }
+    
+    ; Render image with viewBox cropping using wrapper div
+    fn renderImageWithViewBox:string (el:EVGElement elementId:string depth:int relX:double relY:double) {
+        def html:string ""
+        
+        ; viewBox defines: x%, y%, width%, height% of the source image to show
+        ; Example: "25% 25% 50% 50%" means show the center 50% of the image
+        
+        ; Calculate scale factor: if viewBox width is 50%, image needs to be 200% to fill container
+        def scaleX:double 1.0
+        def scaleY:double 1.0
+        if (el.imageViewBoxW > 0.0) {
+            scaleX = (1.0 / el.imageViewBoxW)
+        }
+        if (el.imageViewBoxH > 0.0) {
+            scaleY = (1.0 / el.imageViewBoxH)
+        }
+        
+        ; Use the larger scale to maintain aspect ratio with cover behavior
+        def scale:double scaleX
+        if (scaleY > scaleX) {
+            scale = scaleY
+        }
+        
+        ; Calculate image offset (negative) to position the viewBox region
+        ; offsetX = viewBoxX * imageWidth = viewBoxX * (containerWidth * scale)
+        def offsetXPercent:double ((el.imageViewBoxX * scale) * 100.0)
+        def offsetYPercent:double ((el.imageViewBoxY * scale) * 100.0)
+        
+        ; Wrapper div with overflow:hidden
+        html = html + (this.indent(depth)) + "<div class=\"evg-image-crop\" style=\""
+        html = html + "position: absolute; "
+        html = html + "left: " + (this.formatPx(relX)) + "; "
+        html = html + "top: " + (this.formatPx(relY)) + "; "
+        if (el.calculatedWidth > 0.0) {
+            html = html + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
+        }
+        if (el.calculatedHeight > 0.0) {
+            html = html + "height: " + (this.formatPx(el.calculatedHeight)) + "; "
+        }
+        html = html + "overflow: hidden; "
+        
+        ; Border radius on wrapper
+        if el.box.borderRadius.isSet {
+            html = html + "border-radius: " + (this.formatPx(el.box.borderRadius.pixels)) + "; "
+        }
+        html = html + "\">\n"
+        
+        ; Image inside wrapper - scaled and positioned
+        html = html + (this.indent((depth + 1))) + "<img"
+        
+        ; Add class
+        html = html + " class=\"evg-image\""
+        
+        ; Add src
+        def imgSrc:string el.src
+        if ((strlen imgSrc) > 0) {
+            if embedAssets {
+                def dataUri:string (this.getImageDataUri(imgSrc))
+                if ((strlen dataUri) > 0) {
+                    html = html + " src=\"" + dataUri + "\""
+                } {
+                    html = html + " src=\"" + imageBasePath + imgSrc + "\""
+                }
+            } {
+                html = html + " src=\"" + imageBasePath + imgSrc + "\""
+            }
+        }
+        
+        html = html + " alt=\"\""
+        
+        ; Image styles: scaled and offset
+        html = html + " style=\""
+        html = html + "position: absolute; "
+        html = html + "width: " + (to_string (scale * 100.0)) + "%; "
+        html = html + "height: " + (to_string (scale * 100.0)) + "%; "
+        html = html + "left: -" + (to_string offsetXPercent) + "%; "
+        html = html + "top: -" + (to_string offsetYPercent) + "%; "
+        html = html + "object-fit: cover; "
+        html = html + "\">\n"
+        
+        ; Close wrapper
+        html = html + (this.indent(depth)) + "</div>\n"
+        
         return html
     }
     
@@ -796,8 +895,24 @@ class EVGHTMLRenderer {
             css = css + "height: " + (this.formatPx(el.calculatedHeight)) + "; "
         }
         
-        ; Object fit (for viewBox support in future)
-        css = css + "object-fit: cover; "
+        ; Object fit - use element's objectFit property
+        if ((strlen el.objectFit) > 0) {
+            css = css + "object-fit: " + el.objectFit + "; "
+        } {
+            css = css + "object-fit: cover; "
+        }
+        
+        ; Image viewBox support using CSS object-position
+        ; imageViewBox: x% y% w% h% - we use object-position to offset
+        ; For proper cropping we'd need a wrapper div with overflow:hidden
+        if el.imageViewBoxSet {
+            ; Calculate object-position based on viewBox
+            ; viewBox x,y define where to start showing the image
+            ; We convert to CSS object-position percentages
+            def posX:double (el.imageViewBoxX * 100.0)
+            def posY:double (el.imageViewBoxY * 100.0)
+            css = css + "object-position: " + (to_string posX) + "% " + (to_string posY) + "%; "
+        }
         
         ; Border radius
         if el.box.borderRadius.isSet {
