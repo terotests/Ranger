@@ -1335,3 +1335,191 @@ If generated code doesn't behave correctly:
 3. **Look for missing references** - Search generated C++ for functions that take arrays by value when they should be references
 
 4. **Verify mutation detection** - The mutating operator list may need updating for new operators
+
+---
+
+## Annotations Reference
+
+Annotations in Ranger use the `@(...)` syntax and can be attached to classes, methods, variables, and operators.
+
+### Annotation Syntax
+
+```ranger
+; Basic annotation
+def counter@(mutable):int 0
+
+; Multiple annotations
+fn process@(async throws):void () { }
+
+; Nested annotations (with parameters)
+class MyServer@(HttpServer@(port 8080)) { }
+
+; Method annotation with sibling value
+fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) { }
+```
+
+### Built-in Annotations
+
+| Annotation | Target | Purpose |
+|------------|--------|---------|
+| `@(main)` | Function | Entry point for program |
+| `@(mutable)` | Variable | Variable can be reassigned |
+| `@(optional)` | Variable | Value may be null |
+| `@(weak)` | Variable | Weak reference (memory management) |
+| `@(strong)` | Variable | Strong reference (memory management) |
+| `@(temp)` | Variable | Temporary variable |
+| `@(pure)` | Function | No side effects |
+| `@(async)` | Function/Operator | Asynchronous operation |
+| `@(throws)` | Function | May throw exception |
+
+### Custom Annotations for Extensions
+
+Annotations can be used to mark classes for special handling by code generators:
+
+```ranger
+; Mark class as HTTP server type
+class MyServer@(HttpServer) { }
+
+; Route annotations with path as sibling
+fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) { }
+fn handleCreate@(POST "/api/create"):void (req:HttpRequest res:HttpResponse) { }
+fn handleEvents@(SSE "/events"):void (client:SSEClient) { }
+```
+
+### Accessing Annotations in Code Generators
+
+In class writer code (`.rgr` files in `/compiler/`):
+
+```ranger
+; Check if node has annotation
+if (node.hasFlag("GET")) {
+    def path:string (node.getFlagSiblingString("GET" "/"))
+    ; path contains the route path
+}
+
+; Check class annotation
+if (classDesc.hasFlag("HttpServer")) {
+    ; Class is an HTTP server
+}
+
+; Check systemclass type via annotation
+if (classDesc.isSystemclassType("HttpServer")) {
+    ; Class has @(HttpServer) annotation
+}
+```
+
+**Key Insight**: In annotations like `@(GET "/path")`, the flag name (`GET`) and value (`"/path"`) are **siblings** in the AST, not parent-child. Use `getFlagSiblingString()` to extract the value.
+
+---
+
+## System Classes Reference
+
+System classes are low-level types that map directly to native types in target languages. They are defined in `Lang.rgr` using the `systemclass` keyword.
+
+### Defining System Classes
+
+```ranger
+operators {
+    ; Define a systemclass with target language mappings
+    systemclass buffer {
+        es6 Buffer
+        go []byte
+        python bytes
+        rust Vec<u8>
+        cpp std::vector<uint8_t>
+    }
+    
+    systemclass HttpRequest {
+        go *http.Request
+        es6 http.IncomingMessage
+    }
+}
+```
+
+### Built-in System Classes
+
+| System Class | ES6 | Go | Purpose |
+|-------------|-----|----|---------| 
+| `buffer` | `Buffer` | `[]byte` | Byte buffer |
+| `charbuffer` | `Uint8Array` | `[]byte` | Character buffer |
+| `int_buffer` | `Int32Array` | `[]int64` | Integer array |
+| `double_buffer` | `Float64Array` | `[]float64` | Float array |
+| `HttpRequest` | `http.IncomingMessage` | `*http.Request` | HTTP request |
+| `HttpResponse` | `http.ServerResponse` | `http.ResponseWriter` | HTTP response |
+| `SSEClient` | `SSEClient` | `*SSEClient` | SSE connection |
+| `HttpServer` | - | - | HTTP server marker |
+
+### Using Annotation-Based Type Aliasing
+
+Classes can be marked with systemclass annotations to make them compatible with operators expecting that type:
+
+```ranger
+; Class with @(HttpServer) annotation
+class MyServer@(HttpServer) {
+    ; This class now matches HttpServer type for operators
+}
+
+; The 'start' operator expects HttpServer type
+start server 3000  ; Works because MyServer has @(HttpServer)
+```
+
+**How it works:**
+
+1. The `start` operator is defined with parameter type `HttpServer`
+2. `MyServer` has `@(HttpServer)` annotation
+3. Type matching in `areEqualTypes()` checks for systemclass annotations
+4. `MyServer` matches `HttpServer` type because of the annotation
+
+### Type Matching for System Classes
+
+The type matching logic in `ng_RangerArgMatch.rgr`:
+
+```ranger
+fn areEqualTypes:boolean (type1 type2) {
+    ; ... other checks ...
+    
+    ; Check if type2's class has systemclass annotation matching type1
+    def type2Class (ctx.findClass(type2Name))
+    if (!null? type2Class) {
+        if (type2Class.isSystemclassType(type1Name)) {
+            return true  ; Match via annotation!
+        }
+    }
+}
+```
+
+### Adding New System Classes
+
+When adding a new systemclass to `Lang.rgr`:
+
+1. **Define the systemclass** with target language mappings
+2. **Add to `isDefinedType()`** in `ng_RangerAppWriterContext.rgr` (currently hardcoded)
+3. **Add operators** that use the type
+4. **Add code generation** in target language writers
+
+**Example - Adding HttpRequest:**
+
+```ranger
+; In Lang.rgr
+systemclass HttpRequest {
+    go *http.Request
+    es6 http.IncomingMessage
+}
+
+; Add operators using the type
+http_get_method cmdHttpGetMethod:string (req:HttpRequest) {
+    templates {
+        go ( (e 1) ".Method" )
+        es6 ( (e 1) ".method" )
+    }
+}
+```
+
+### Known Limitations
+
+1. **Hardcoded type list**: New systemclasses must be added to `isDefinedType()` function
+2. **Writer-specific handling**: Some class writers have hardcoded handling for specific types
+3. **Context propagation**: Systemclass definitions from `Lang.rgr` need explicit handling
+
+See `ISSUES.md` Issue #59 and #60 for details on systemclass limitations.
+

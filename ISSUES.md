@@ -1,5 +1,27 @@
 # Ranger Compiler Known Issues
 
+## Summary (December 2025)
+
+### Recently Fixed
+- Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
+- Issue #4: Go integer division type - Fixed with `float64()` cast
+- Issue #57: Go UTF-8 string handling - Fixed with rune-based operations
+- Issue #58: Go slice pass-by-value - Fixed with pointer semantics
+- Issue #59: Go `clear` operator - Fixed with `[:0]` slice reset
+- Issue #60: Go `buffer_read_file` separator - Fixed with `filepath.Join()`
+
+### Still Open
+- Issue #59: System classes have hardcoded type handling (Design Issue)
+- Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` (High)
+
+### New in December 2025
+- HTTP Server support added with annotation-based type aliasing
+- New systemclasses: `HttpRequest`, `HttpResponse`, `SSEClient`, `HttpServer`
+- Route annotations: `@(GET "/")`, `@(POST "/")`, `@(SSE "/")`
+- `start server port` operator for HttpServer types
+
+---
+
 ## Issue #1: Compiler crash with `toString` method name
 
 **Status:** Fixed  
@@ -1881,3 +1903,125 @@ The cleanest long-term solution is to:
 
 ---
 
+## Issue #61: HTTP Server Implementation - Design Notes
+
+**Status:** Implemented (Design Documentation)  
+**Severity:** N/A (Feature)  
+**Found:** December 23, 2025
+
+### Description
+
+Documentation of the HTTP server implementation approach using annotation-based type aliasing.
+
+### Key Design Decisions
+
+#### 1. Annotation-Based Type Aliasing
+
+Instead of using inheritance (`Extends(HttpServer)`), we use annotations to mark classes as specific systemclass types:
+
+```ranger
+; Class annotation marks it as HttpServer type
+class MyServer@(HttpServer) {
+    fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) { }
+}
+```
+
+**Why annotations instead of inheritance:**
+- Systemclasses don't support inheritance in the traditional sense
+- Annotations are more flexible and don't require class hierarchy
+- Type matching can check annotations via `isSystemclassType()`
+
+#### 2. Route Annotation Sibling Syntax
+
+Route annotations store the HTTP method and path as **siblings** in the AST:
+
+```ranger
+; @(GET "/path") - GET and "/path" are siblings, not parent-child
+fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) { }
+```
+
+**Implementation insight:**
+- Use `getFlagSiblingString("GET", "/")` to extract the path
+- NOT `getFlag("GET").children[0]` - this is wrong!
+
+#### 3. Custom Operator with Type Checking
+
+The `start` operator uses `(custom _)` template and checks for `@(HttpServer)` annotation:
+
+```ranger
+; In Lang.rgr
+start cmdStart:void (server:HttpServer port:int) {
+    templates {
+        go (custom _)
+        es6 (custom _)
+    }
+}
+```
+
+**In Go writer CustomOperator:**
+```ranger
+if (cmd == "start") {
+    def serverVar (node.getSecond())
+    def serverClass (ctx.findClass(serverVar.value_type))
+    if (!null? serverClass) && (serverClass.isSystemclassType("HttpServer")) {
+        ; Generate HTTP server code
+    }
+}
+```
+
+#### 4. Type Matching Enhancement
+
+Added systemclass annotation check in `areEqualTypes()`:
+
+```ranger
+; In ng_RangerArgMatch.rgr
+fn areEqualTypes:boolean (type1 type2) {
+    ; ... existing checks ...
+    
+    ; NEW: Check if type2's class has systemclass annotation matching type1
+    def type2Class (ctx.findClass(type2Name))
+    if (!null? type2Class) {
+        if (type2Class.isSystemclassType(type1Name)) {
+            return true
+        }
+    }
+}
+```
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `Lang.rgr` | Added HTTP systemclasses and operators |
+| `ng_RangerAppWriterContext.rgr` | Added HTTP types to `isDefinedType()` |
+| `ng_RangerAppClassDesc.rgr` | Added `getSystemclassType()`, `isSystemclassType()` |
+| `ng_RangerArgMatch.rgr` | Added systemclass annotation check in `areEqualTypes()` |
+| `ng_CodeNode.rgr` | Added `getFlagSiblingString()` helper |
+| `ng_RangerGolangClassWriter.rgr` | Added CustomOperator handling for `start` |
+| `ng_RangerGolangHttpServerWriter.rgr` | New file for HTTP server code generation |
+
+### Test File
+
+Working example: `tests/fixtures/http_server.rgr`
+
+```bash
+# Compile to Go
+RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./tests/fixtures/http_server.rgr -d=./tests/fixtures/bin -o=http_server.go -nodecli
+
+# Run server
+cd tests/fixtures/bin && go run http_server.go
+
+# Test endpoints
+curl http://localhost:3000/
+curl http://localhost:3000/content
+```
+
+### Remaining Work
+
+1. **ES6 target**: HTTP server not yet implemented for JavaScript/Node.js
+2. **SSE testing**: Full SSE loop testing needed
+3. **Path parameters**: `@(GET "/users/:id")` not yet implemented
+4. **Stop operator**: Server shutdown not fully implemented
+5. **Watch mode**: File watching for live preview
+
+---

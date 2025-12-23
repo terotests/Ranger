@@ -150,6 +150,48 @@ This document provides a formal grammar specification for the Ranger language.
                   | 'throws'      ; function may throw
 ```
 
+## HTTP Server Annotations
+
+```bnf
+; Class-level systemclass annotations
+<class-annotation> ::= 'HttpServer'    ; marks class as HTTP server type
+
+; Route annotations (method-level)
+<route-annotation> ::= 'GET' <path-string>     ; HTTP GET endpoint
+                     | 'POST' <path-string>    ; HTTP POST endpoint
+                     | 'PUT' <path-string>     ; HTTP PUT endpoint
+                     | 'DELETE' <path-string>  ; HTTP DELETE endpoint
+                     | 'SSE' <path-string>     ; Server-Sent Events endpoint
+
+<path-string>      ::= <string-literal>        ; e.g., "/" or "/api/users"
+```
+
+### HTTP Server Example
+
+```ranger
+; @(HttpServer) marks class to match HttpServer type for operators
+class MyServer@(HttpServer) {
+    
+    ; @(GET "/") - route annotation with path as sibling
+    fn handleIndex@(GET "/"):void (req:HttpRequest res:HttpResponse) {
+        http_set_status res 200
+        http_send res "Hello!"
+    }
+    
+    ; @(SSE "/events") - Server-Sent Events endpoint
+    fn handleEvents@(SSE "/events"):void (client:SSEClient) {
+        sse_send client "message" "Connected!"
+    }
+}
+
+sfn main@(main):void () {
+    def server:MyServer (new MyServer())
+    start server 3000  ; 'start' operator works because @(HttpServer) annotation
+}
+```
+
+**Important**: In route annotations like `@(GET "/path")`, the method name (`GET`) and path (`"/path"`) are **siblings** in the AST structure, not parent-child.
+
 ## Statements
 
 ```bnf
