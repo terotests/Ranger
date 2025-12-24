@@ -99,7 +99,37 @@ TSX uses **camelCase** for all attributes (e.g., `fontSize`, `backgroundColor`, 
 |-----------|------|-------------|---------|
 | `src` | string | Image source path | `"./photo.jpg"` |
 | `objectFit` | string | Image scaling mode | `"cover"`, `"contain"`, `"fill"` |
+| `imageOffsetX` | string | Horizontal image offset | `"50px"`, `"-20%"` |
+| `imageOffsetY` | string | Vertical image offset | `"100px"`, `"-10%"` |
 | `imageViewBox` | string | Crop region (x% y% w% h%) | `"25% 25% 50% 50%"` |
+
+#### Image Offset (Positioning)
+The `imageOffsetX` and `imageOffsetY` attributes adjust the position of the image within its container. This is useful for fine-tuning the focal point of cropped images.
+
+- **Positive values**: Move image right/down
+- **Negative values**: Move image left/up
+- **Pixels**: Absolute offset in pixels (e.g., `"50px"`, `"-100px"`)
+- **Percentage**: Offset relative to image size (e.g., `"10%"`, `"-20%"`)
+
+```tsx
+{/* Move image 100px up to show more of the bottom */}
+<Image
+  src="./portrait.jpg"
+  width="100%"
+  height="300px"
+  objectFit="cover"
+  imageOffsetY="-100px"
+/>
+
+{/* Shift image 20% to the right */}
+<Image
+  src="./landscape.jpg"
+  width="400px"
+  height="250px"
+  objectFit="cover"
+  imageOffsetX="20%"
+/>
+```
 
 ### Special Elements
 

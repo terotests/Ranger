@@ -56,7 +56,7 @@ class EVGUnit {
     }
     
     sfn parse:EVGUnit (str:string) {
-        ; Parse unit string like "100px", "50%", "2em", "30hp", "fill"
+        ; Parse unit string like "100px", "50%", "2em", "30hp", "fill", "auto"
         def unit (new EVGUnit())
         def trimmed:string (trim str)
         def len:int (strlen trimmed)
@@ -73,14 +73,21 @@ class EVGUnit {
             return unit
         }
         
+        ; Check for "auto" - return unset unit (auto sizing)
+        if (trimmed == "auto") {
+            return unit
+        }
+        
         ; Check for percentage
         def lastChar:int (charAt trimmed (len - 1))
         if (lastChar == 37) {  ; '%'
             def numStr:string (substring trimmed 0 (len - 1))
             def numVal@(optional):double (to_double numStr)
-            unit.value = (unwrap numVal)
-            unit.unitType = 1
-            unit.isSet = true
+            if numVal {
+                unit.value = (unwrap numVal)
+                unit.unitType = 1
+                unit.isSet = true
+            }
             return unit
         }
         
@@ -90,36 +97,44 @@ class EVGUnit {
             if (suffix == "em") {
                 def numStr:string (substring trimmed 0 (len - 2))
                 def numVal@(optional):double (to_double numStr)
-                unit.value = (unwrap numVal)
-                unit.unitType = 2
-                unit.isSet = true
+                if numVal {
+                    unit.value = (unwrap numVal)
+                    unit.unitType = 2
+                    unit.isSet = true
+                }
                 return unit
             }
             if (suffix == "px") {
                 def numStr:string (substring trimmed 0 (len - 2))
                 def numVal@(optional):double (to_double numStr)
-                unit.value = (unwrap numVal)
-                unit.pixels = unit.value  ; For pixels, set pixels immediately
-                unit.unitType = 0
-                unit.isSet = true
+                if numVal {
+                    unit.value = (unwrap numVal)
+                    unit.pixels = unit.value  ; For pixels, set pixels immediately
+                    unit.unitType = 0
+                    unit.isSet = true
+                }
                 return unit
             }
             if (suffix == "hp") {
                 def numStr:string (substring trimmed 0 (len - 2))
                 def numVal@(optional):double (to_double numStr)
-                unit.value = (unwrap numVal)
-                unit.unitType = 3
-                unit.isSet = true
+                if numVal {
+                    unit.value = (unwrap numVal)
+                    unit.unitType = 3
+                    unit.isSet = true
+                }
                 return unit
             }
         }
         
-        ; Default: treat as pixels
+        ; Default: treat as pixels (only if it's a valid number)
         def numVal@(optional):double (to_double trimmed)
-        unit.value = (unwrap numVal)
-        unit.pixels = unit.value  ; For pixels, set pixels immediately
-        unit.unitType = 0
-        unit.isSet = true
+        if numVal {
+            unit.value = (unwrap numVal)
+            unit.pixels = unit.value  ; For pixels, set pixels immediately
+            unit.unitType = 0
+            unit.isSet = true
+        }
         return unit
     }
     

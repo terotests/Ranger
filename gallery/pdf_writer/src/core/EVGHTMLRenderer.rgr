@@ -931,6 +931,27 @@ class EVGHTMLRenderer {
             offsetY = 0.0
         }
         
+        ; Apply user-specified imageOffset adjustments
+        ; These shift the image position within the container
+        if el.imageOffsetX.isSet {
+            if (el.imageOffsetX.unitType == 1) {
+                ; Percentage - offset relative to scaled image size
+                offsetX = offsetX + ((scaledW * el.imageOffsetX.value) / 100.0)
+            } {
+                ; Pixels - add directly
+                offsetX = offsetX + el.imageOffsetX.pixels
+            }
+        }
+        if el.imageOffsetY.isSet {
+            if (el.imageOffsetY.unitType == 1) {
+                ; Percentage - offset relative to scaled image size
+                offsetY = offsetY + ((scaledH * el.imageOffsetY.value) / 100.0)
+            } {
+                ; Pixels - add directly
+                offsetY = offsetY + el.imageOffsetY.pixels
+            }
+        }
+        
         ; Image inside - position absolutely with calculated dimensions
         html = html + (this.indent((depth + 1))) + "<img"
         html = html + " class=\"evg-image\""
@@ -1082,16 +1103,48 @@ class EVGHTMLRenderer {
             css = css + "object-fit: cover; "
         }
         
-        ; Image viewBox support using CSS object-position
-        ; imageViewBox: x% y% w% h% - we use object-position to offset
-        ; For proper cropping we'd need a wrapper div with overflow:hidden
+        ; Image position offset using CSS object-position
+        ; Default is center (50% 50%), offsets move from there
+        ; imageOffsetX/Y can be pixels or percentages (negative values supported)
+        def hasOffset:boolean false
+        def posX:string "50%"
+        def posY:string "50%"
+        
+        if el.imageOffsetX.isSet {
+            hasOffset = true
+            ; For percentages, add to 50%, for pixels use calc()
+            if (el.imageOffsetX.unitType == 1) {
+                ; Percentage - add to center
+                def offsetPct:double (50.0 + el.imageOffsetX.value)
+                posX = (to_string offsetPct) + "%"
+            } {
+                ; Pixels - use calc()
+                posX = "calc(50% + " + (this.formatPx(el.imageOffsetX.pixels)) + ")"
+            }
+        }
+        
+        if el.imageOffsetY.isSet {
+            hasOffset = true
+            if (el.imageOffsetY.unitType == 1) {
+                def offsetPct:double (50.0 + el.imageOffsetY.value)
+                posY = (to_string offsetPct) + "%"
+            } {
+                posY = "calc(50% + " + (this.formatPx(el.imageOffsetY.pixels)) + ")"
+            }
+        }
+        
+        ; Legacy imageViewBox support
         if el.imageViewBoxSet {
-            ; Calculate object-position based on viewBox
+            hasOffset = true
             ; viewBox x,y define where to start showing the image
-            ; We convert to CSS object-position percentages
-            def posX:double (el.imageViewBoxX * 100.0)
-            def posY:double (el.imageViewBoxY * 100.0)
-            css = css + "object-position: " + (to_string posX) + "% " + (to_string posY) + "%; "
+            def vbX:double (el.imageViewBoxX * 100.0)
+            def vbY:double (el.imageViewBoxY * 100.0)
+            posX = (to_string vbX) + "%"
+            posY = (to_string vbY) + "%"
+        }
+        
+        if hasOffset {
+            css = css + "object-position: " + posX + " " + posY + "; "
         }
         
         ; Border radius

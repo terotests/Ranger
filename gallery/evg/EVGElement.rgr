@@ -105,6 +105,10 @@ class EVGElement {
     def imageViewBoxW:double 1.0
     def imageViewBoxH:double 1.0
     def imageViewBoxSet:boolean false
+    ; Image offset for positioning within container (can be negative)
+    ; Works with object-position CSS property
+    def imageOffsetX:EVGUnit
+    def imageOffsetY:EVGUnit
     ; Image sizing: "cover", "contain", "fill", "none"
     ; Default is "cover" - preserves aspect ratio, fills container, clips overflow
     def objectFit:string "cover"
@@ -190,6 +194,9 @@ class EVGElement {
         shadowColor = (EVGColor.noColor())
         shadowOffsetX = (EVGUnit.unset())
         shadowOffsetY = (EVGUnit.unset())
+        
+        imageOffsetX = (EVGUnit.unset())
+        imageOffsetY = (EVGUnit.unset())
         
         fillColor = (EVGColor.noColor())
         strokeColor = (EVGColor.noColor())
@@ -614,6 +621,20 @@ class EVGElement {
         if (name == "opacity") {
             def val@(optional):double (to_double value)
             opacity = (unwrap val)
+            return
+        }
+        
+        ; Image properties
+        if ((name == "object-fit") || (name == "objectFit")) {
+            objectFit = value
+            return
+        }
+        if ((name == "image-offset-x") || (name == "imageOffsetX")) {
+            imageOffsetX = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "image-offset-y") || (name == "imageOffsetY")) {
+            imageOffsetY = (EVGUnit.parse(value))
             return
         }
         

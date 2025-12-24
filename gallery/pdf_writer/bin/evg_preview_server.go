@@ -4661,14 +4661,19 @@ func EVGUnit_static_parse(str string) *EVGUnit {
     unit.isSet = true; 
     return unit
   }
+  if  trimmed == "auto" {
+    return unit
+  }
   var lastChar int64= int64([]rune(trimmed)[(__len - int64(1))]);
   if  lastChar == int64(37) {
     var numStr string= string([]rune(trimmed)[int64(0):(__len - int64(1))]);
     var numVal *GoNullable = new(GoNullable); 
     numVal = r_str_2_d64(numStr);
-    unit.value = numVal.value.(float64); 
-    unit.unitType = int64(1); 
-    unit.isSet = true; 
+    if ( numVal.has_value) {
+      unit.value = numVal.value.(float64); 
+      unit.unitType = int64(1); 
+      unit.isSet = true; 
+    }
     return unit
   }
   if  __len >= int64(2) {
@@ -4677,37 +4682,45 @@ func EVGUnit_static_parse(str string) *EVGUnit {
       var numStr_1 string= string([]rune(trimmed)[int64(0):(__len - int64(2))]);
       var numVal_1 *GoNullable = new(GoNullable); 
       numVal_1 = r_str_2_d64(numStr_1);
-      unit.value = numVal_1.value.(float64); 
-      unit.unitType = int64(2); 
-      unit.isSet = true; 
+      if ( numVal_1.has_value) {
+        unit.value = numVal_1.value.(float64); 
+        unit.unitType = int64(2); 
+        unit.isSet = true; 
+      }
       return unit
     }
     if  suffix == "px" {
       var numStr_2 string= string([]rune(trimmed)[int64(0):(__len - int64(2))]);
       var numVal_2 *GoNullable = new(GoNullable); 
       numVal_2 = r_str_2_d64(numStr_2);
-      unit.value = numVal_2.value.(float64); 
-      unit.pixels = unit.value; 
-      unit.unitType = int64(0); 
-      unit.isSet = true; 
+      if ( numVal_2.has_value) {
+        unit.value = numVal_2.value.(float64); 
+        unit.pixels = unit.value; 
+        unit.unitType = int64(0); 
+        unit.isSet = true; 
+      }
       return unit
     }
     if  suffix == "hp" {
       var numStr_3 string= string([]rune(trimmed)[int64(0):(__len - int64(2))]);
       var numVal_3 *GoNullable = new(GoNullable); 
       numVal_3 = r_str_2_d64(numStr_3);
-      unit.value = numVal_3.value.(float64); 
-      unit.unitType = int64(3); 
-      unit.isSet = true; 
+      if ( numVal_3.has_value) {
+        unit.value = numVal_3.value.(float64); 
+        unit.unitType = int64(3); 
+        unit.isSet = true; 
+      }
       return unit
     }
   }
   var numVal_4 *GoNullable = new(GoNullable); 
   numVal_4 = r_str_2_d64(trimmed);
-  unit.value = numVal_4.value.(float64); 
-  unit.pixels = unit.value; 
-  unit.unitType = int64(0); 
-  unit.isSet = true; 
+  if ( numVal_4.has_value) {
+    unit.value = numVal_4.value.(float64); 
+    unit.pixels = unit.value; 
+    unit.unitType = int64(0); 
+    unit.isSet = true; 
+  }
   return unit
 }
 func (this *EVGUnit) resolve (parentSize float64, fontSize float64) () {
@@ -5697,6 +5710,8 @@ type EVGElement struct {
   imageViewBoxW float64 `json:"imageViewBoxW"` 
   imageViewBoxH float64 `json:"imageViewBoxH"` 
   imageViewBoxSet bool `json:"imageViewBoxSet"` 
+  imageOffsetX *GoNullable `json:"imageOffsetX"` 
+  imageOffsetY *GoNullable `json:"imageOffsetY"` 
   objectFit string `json:"objectFit"` 
   sourceWidth float64 `json:"sourceWidth"` 
   sourceHeight float64 `json:"sourceHeight"` 
@@ -5826,6 +5841,8 @@ func CreateNew_EVGElement() *EVGElement {
   me.borderLeftWidth = new(GoNullable);
   me.borderColor = new(GoNullable);
   me.borderRadius = new(GoNullable);
+  me.imageOffsetX = new(GoNullable);
+  me.imageOffsetY = new(GoNullable);
   me.fillColor = new(GoNullable);
   me.strokeColor = new(GoNullable);
   me.shadowRadius = new(GoNullable);
@@ -5875,6 +5892,10 @@ func CreateNew_EVGElement() *EVGElement {
   me.shadowOffsetX.has_value = true; /* detected as non-optional */
   me.shadowOffsetY.value = EVGUnit_static_unset();
   me.shadowOffsetY.has_value = true; /* detected as non-optional */
+  me.imageOffsetX.value = EVGUnit_static_unset();
+  me.imageOffsetX.has_value = true; /* detected as non-optional */
+  me.imageOffsetY.value = EVGUnit_static_unset();
+  me.imageOffsetY.has_value = true; /* detected as non-optional */
   me.fillColor.value = EVGColor_static_noColor();
   me.fillColor.has_value = true; /* detected as non-optional */
   me.strokeColor.value = EVGColor_static_noColor();
@@ -6267,6 +6288,20 @@ func (this *EVGElement) setAttribute (name string, value string) () {
     var val *GoNullable = new(GoNullable); 
     val = r_str_2_d64(value);
     this.opacity = val.value.(float64); 
+    return
+  }
+  if  (name == "object-fit") || (name == "objectFit") {
+    this.objectFit = value; 
+    return
+  }
+  if  (name == "image-offset-x") || (name == "imageOffsetX") {
+    this.imageOffsetX.value = EVGUnit_static_parse(value);
+    this.imageOffsetX.has_value = true; /* detected as non-optional */
+    return
+  }
+  if  (name == "image-offset-y") || (name == "imageOffsetY") {
+    this.imageOffsetY.value = EVGUnit_static_parse(value);
+    this.imageOffsetY.has_value = true; /* detected as non-optional */
     return
   }
   if  name == "direction" {
@@ -10700,6 +10735,20 @@ func (this *EVGHTMLRenderer) renderImageWithParent (el *EVGElement, elementId st
     offsetX = 0.0; 
     offsetY = 0.0; 
   }
+  if  el.imageOffsetX.value.(*EVGUnit).isSet {
+    if  el.imageOffsetX.value.(*EVGUnit).unitType == int64(1) {
+      offsetX = offsetX + ((scaledW * el.imageOffsetX.value.(*EVGUnit).value) / 100.0); 
+    } else {
+      offsetX = offsetX + el.imageOffsetX.value.(*EVGUnit).pixels; 
+    }
+  }
+  if  el.imageOffsetY.value.(*EVGUnit).isSet {
+    if  el.imageOffsetY.value.(*EVGUnit).unitType == int64(1) {
+      offsetY = offsetY + ((scaledH * el.imageOffsetY.value.(*EVGUnit).value) / 100.0); 
+    } else {
+      offsetY = offsetY + el.imageOffsetY.value.(*EVGUnit).pixels; 
+    }
+  }
   html = (html + this.indent((depth + int64(1)))) + "<img"; 
   html = html + " class=\"evg-image\""; 
   var imgSrc string= el.src;
@@ -10805,10 +10854,36 @@ func (this *EVGHTMLRenderer) generateImageStylesRelative (el *EVGElement, relX f
   } else {
     css = css + "object-fit: cover; "; 
   }
+  var hasOffset bool= false;
+  var posX string= "50%";
+  var posY string= "50%";
+  if  el.imageOffsetX.value.(*EVGUnit).isSet {
+    hasOffset = true; 
+    if  el.imageOffsetX.value.(*EVGUnit).unitType == int64(1) {
+      var offsetPct float64= 50.0 + el.imageOffsetX.value.(*EVGUnit).value;
+      posX = (strconv.FormatFloat(offsetPct,'f', 6, 64)) + "%"; 
+    } else {
+      posX = ("calc(50% + " + this.formatPx(el.imageOffsetX.value.(*EVGUnit).pixels)) + ")"; 
+    }
+  }
+  if  el.imageOffsetY.value.(*EVGUnit).isSet {
+    hasOffset = true; 
+    if  el.imageOffsetY.value.(*EVGUnit).unitType == int64(1) {
+      var offsetPct_1 float64= 50.0 + el.imageOffsetY.value.(*EVGUnit).value;
+      posY = (strconv.FormatFloat(offsetPct_1,'f', 6, 64)) + "%"; 
+    } else {
+      posY = ("calc(50% + " + this.formatPx(el.imageOffsetY.value.(*EVGUnit).pixels)) + ")"; 
+    }
+  }
   if  el.imageViewBoxSet {
-    var posX float64= el.imageViewBoxX * 100.0;
-    var posY float64= el.imageViewBoxY * 100.0;
-    css = ((((css + "object-position: ") + (strconv.FormatFloat(posX,'f', 6, 64))) + "% ") + (strconv.FormatFloat(posY,'f', 6, 64))) + "%; "; 
+    hasOffset = true; 
+    var vbX float64= el.imageViewBoxX * 100.0;
+    var vbY float64= el.imageViewBoxY * 100.0;
+    posX = (strconv.FormatFloat(vbX,'f', 6, 64)) + "%"; 
+    posY = (strconv.FormatFloat(vbY,'f', 6, 64)) + "%"; 
+  }
+  if  hasOffset {
+    css = ((((css + "object-position: ") + posX) + " ") + posY) + "; "; 
   }
   if  el.box.value.(*EVGBox).borderRadius.value.(*EVGUnit).isSet {
     css = ((css + "border-radius: ") + this.formatPx(el.box.value.(*EVGBox).borderRadius.value.(*EVGUnit).pixels)) + "; "; 
