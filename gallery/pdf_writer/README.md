@@ -104,30 +104,41 @@ TSX uses **camelCase** for all attributes (e.g., `fontSize`, `backgroundColor`, 
 | `imageViewBox` | string | Crop region (x% y% w% h%) | `"25% 25% 50% 50%"` |
 
 #### Image Offset (Positioning)
-The `imageOffsetX` and `imageOffsetY` attributes adjust the position of the image within its container. This is useful for fine-tuning the focal point of cropped images.
+The `imageOffsetX` and `imageOffsetY` attributes adjust the position of the image within its container. This is useful for fine-tuning the focal point of cropped images when using `objectFit="cover"`.
 
-- **Positive values**: Move image right/down
-- **Negative values**: Move image left/up
-- **Pixels**: Absolute offset in pixels (e.g., `"50px"`, `"-100px"`)
-- **Percentage**: Offset relative to image size (e.g., `"10%"`, `"-20%"`)
+**Percentage values** work relative to the image overflow (how much the image extends beyond the container):
+- **`0%`** = Image aligned to start (top/left edge visible)
+- **`50%`** = Image centered (default for cover mode)
+- **`100%`** = Image aligned to end (bottom/right edge visible)
+
+**Pixel values** are absolute offsets added to the default position.
 
 ```tsx
-{/* Move image 100px up to show more of the bottom */}
+{/* Show top of image (0% = top edge) */}
 <Image
   src="./portrait.jpg"
   width="100%"
   height="300px"
   objectFit="cover"
-  imageOffsetY="-100px"
+  imageOffsetY="0%"
 />
 
-{/* Shift image 20% to the right */}
+{/* Show bottom of image (100% = bottom edge) */}
+<Image
+  src="./portrait.jpg"
+  width="100%"
+  height="300px"
+  objectFit="cover"
+  imageOffsetY="100%"
+/>
+
+{/* Shift image 50px down from center */}
 <Image
   src="./landscape.jpg"
   width="400px"
   height="250px"
   objectFit="cover"
-  imageOffsetX="20%"
+  imageOffsetY="50px"
 />
 ```
 

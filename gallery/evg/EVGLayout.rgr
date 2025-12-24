@@ -459,6 +459,8 @@ class EVGLayout {
                 ; Apply vertical offset
                 if (offsetY != 0.0) {
                     child.calculatedY = child.calculatedY + offsetY
+                    ; Propagate to descendants
+                    this.propagateOffsetToChildren(child 0.0 offsetY)
                 }
                 
                 ; Apply horizontal alignment (alignItems)
@@ -474,6 +476,8 @@ class EVGLayout {
                 
                 if (offsetX != 0.0) {
                     child.calculatedX = child.calculatedX + offsetX
+                    ; Propagate to descendants
+                    this.propagateOffsetToChildren(child offsetX 0.0)
                 }
             }
             
@@ -551,9 +555,11 @@ class EVGLayout {
         while (i < elementCount) {
             def el:EVGElement (itemAt rowElements i)
             
-            ; Horizontal offset
+            ; Horizontal offset - also propagate to children!
             if (offsetX != 0.0) {
                 el.calculatedX = el.calculatedX + offsetX
+                ; Propagate offset to all descendants
+                this.propagateOffsetToChildren(el offsetX 0.0)
             }
             
             ; Vertical alignment within row
@@ -569,8 +575,28 @@ class EVGLayout {
             
             if (offsetY != 0.0) {
                 el.calculatedY = el.calculatedY + offsetY
+                ; Propagate offset to all descendants
+                this.propagateOffsetToChildren(el 0.0 offsetY)
             }
             
+            i = i + 1
+        }
+    }
+    
+    fn propagateOffsetToChildren:void (parent:EVGElement offsetX:double offsetY:double) {
+        ; Recursively add offset to all children's positions
+        def childCount:int (parent.getChildCount())
+        def i:int 0
+        while (i < childCount) {
+            def child:EVGElement (parent.getChild(i))
+            if (offsetX != 0.0) {
+                child.calculatedX = child.calculatedX + offsetX
+            }
+            if (offsetY != 0.0) {
+                child.calculatedY = child.calculatedY + offsetY
+            }
+            ; Recurse to grandchildren
+            this.propagateOffsetToChildren(child offsetX offsetY)
             i = i + 1
         }
     }

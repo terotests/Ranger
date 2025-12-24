@@ -670,6 +670,17 @@ class ComponentEngine {
         def element (new EVGElement())
         element.tagName = (this.mapTagName(tagName))
         
+        ; Set elementType based on tag
+        if ((tagName == "Label") || (tagName == "span") || (tagName == "text")) {
+            element.elementType = 1  ; Text
+        }
+        if ((tagName == "Image") || (tagName == "img") || (tagName == "image")) {
+            element.elementType = 2  ; Image
+        }
+        if ((tagName == "Path") || (tagName == "path")) {
+            element.elementType = 3  ; Path
+        }
+        
         ; Parse attributes
         if jsxNode.left {
             def openingEl:TSNode (unwrap jsxNode.left)

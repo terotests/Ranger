@@ -7244,6 +7244,15 @@ func (this *ComponentEngine) evaluateJSXElement (jsxNode *TSNode) *EVGElement {
   }
   var element *EVGElement= CreateNew_EVGElement();
   element.tagName = this.mapTagName(tagName); 
+  if  ((tagName == "Label") || (tagName == "span")) || (tagName == "text") {
+    element.elementType = int64(1); 
+  }
+  if  ((tagName == "Image") || (tagName == "img")) || (tagName == "image") {
+    element.elementType = int64(2); 
+  }
+  if  (tagName == "Path") || (tagName == "path") {
+    element.elementType = int64(3); 
+  }
   if ( jsxNode.left.has_value) {
     var openingEl_1 *TSNode= jsxNode.left.value.(*TSNode);
     this.evaluateAttributes(element, openingEl_1);
@@ -8786,6 +8795,7 @@ func (this *EVGLayout) alignColumn (parent *EVGElement, contentHeight float64, s
     if  child.isAbsolute == false {
       if  offsetY != 0.0 {
         child.calculatedY = child.calculatedY + offsetY; 
+        this.propagateOffsetToChildren(child, 0.0, offsetY);
       }
       var childTotalWidth float64= (child.calculatedWidth + child.box.value.(*EVGBox).marginLeftPx) + child.box.value.(*EVGBox).marginRightPx;
       var offsetX float64= 0.0;
@@ -8797,6 +8807,7 @@ func (this *EVGLayout) alignColumn (parent *EVGElement, contentHeight float64, s
       }
       if  offsetX != 0.0 {
         child.calculatedX = child.calculatedX + offsetX; 
+        this.propagateOffsetToChildren(child, offsetX, 0.0);
       }
     }
     i = i + int64(1); 
@@ -8852,6 +8863,7 @@ func (this *EVGLayout) alignRow (rowElements []*EVGElement, parent *EVGElement, 
     var el_1 *EVGElement= rowElements[i];
     if  offsetX != 0.0 {
       el_1.calculatedX = el_1.calculatedX + offsetX; 
+      this.propagateOffsetToChildren(el_1, offsetX, 0.0);
     }
     var childTotalHeight float64= (el_1.calculatedHeight + el_1.box.value.(*EVGBox).marginTopPx) + el_1.box.value.(*EVGBox).marginBottomPx;
     var offsetY float64= 0.0;
@@ -8863,7 +8875,23 @@ func (this *EVGLayout) alignRow (rowElements []*EVGElement, parent *EVGElement, 
     }
     if  offsetY != 0.0 {
       el_1.calculatedY = el_1.calculatedY + offsetY; 
+      this.propagateOffsetToChildren(el_1, 0.0, offsetY);
     }
+    i = i + int64(1); 
+  }
+}
+func (this *EVGLayout) propagateOffsetToChildren (parent *EVGElement, offsetX float64, offsetY float64) () {
+  var childCount int64= parent.getChildCount();
+  var i int64= int64(0);
+  for i < childCount {
+    var child *EVGElement= parent.getChild(i);
+    if  offsetX != 0.0 {
+      child.calculatedX = child.calculatedX + offsetX; 
+    }
+    if  offsetY != 0.0 {
+      child.calculatedY = child.calculatedY + offsetY; 
+    }
+    this.propagateOffsetToChildren(child, offsetX, offsetY);
     i = i + int64(1); 
   }
 }
@@ -10434,8 +10462,15 @@ func (this *EVGHTMLRenderer) renderViewWithParent (el *EVGElement, elementId str
   } else {
     html = html + " class=\"evg-view\""; 
   }
-  var relX float64= el.calculatedX - parentX;
-  var relY float64= el.calculatedY - parentY;
+  var relX float64= 0.0;
+  var relY float64= 0.0;
+  if  el.isAbsolute {
+    relX = el.calculatedX; 
+    relY = el.calculatedY; 
+  } else {
+    relX = el.calculatedX - parentX; 
+    relY = el.calculatedY - parentY; 
+  }
   html = html + " style=\""; 
   html = html + this.generateViewStylesRelative(el, relX, relY); 
   html = html + "\""; 
@@ -10552,8 +10587,15 @@ func (this *EVGHTMLRenderer) renderLabelWithParent (el *EVGElement, elementId st
     html = ((html + " id=\"") + el.id) + "\""; 
   }
   html = html + " class=\"evg-label\""; 
-  var relX float64= el.calculatedX - parentX;
-  var relY float64= el.calculatedY - parentY;
+  var relX float64= 0.0;
+  var relY float64= 0.0;
+  if  el.isAbsolute {
+    relX = el.calculatedX; 
+    relY = el.calculatedY; 
+  } else {
+    relX = el.calculatedX - parentX; 
+    relY = el.calculatedY - parentY; 
+  }
   html = html + " style=\""; 
   html = html + this.generateLabelStylesRelative(el, relX, relY); 
   html = html + "\""; 
@@ -10636,8 +10678,15 @@ func (this *EVGHTMLRenderer) renderImage (el *EVGElement, elementId string, dept
 }
 func (this *EVGHTMLRenderer) renderImageWithParent (el *EVGElement, elementId string, depth int64, parentX float64, parentY float64) string {
   var html string= "";
-  var relX float64= el.calculatedX - parentX;
-  var relY float64= el.calculatedY - parentY;
+  var relX float64= 0.0;
+  var relY float64= 0.0;
+  if  el.isAbsolute {
+    relX = el.calculatedX; 
+    relY = el.calculatedY; 
+  } else {
+    relX = el.calculatedX - parentX; 
+    relY = el.calculatedY - parentY; 
+  }
   if  el.imageViewBoxSet {
     return this.renderImageWithViewBox(el, elementId, depth, relX, relY)
   }
@@ -10737,14 +10786,24 @@ func (this *EVGHTMLRenderer) renderImageWithParent (el *EVGElement, elementId st
   }
   if  el.imageOffsetX.value.(*EVGUnit).isSet {
     if  el.imageOffsetX.value.(*EVGUnit).unitType == int64(1) {
-      offsetX = offsetX + ((scaledW * el.imageOffsetX.value.(*EVGUnit).value) / 100.0); 
+      var overflowX float64= scaledW - containerW;
+      if  overflowX < 0.0 {
+        overflowX = 0.0; 
+      }
+      var targetOffsetX float64= (overflowX * el.imageOffsetX.value.(*EVGUnit).value) / 100.0;
+      offsetX = 0.0 - targetOffsetX; 
     } else {
       offsetX = offsetX + el.imageOffsetX.value.(*EVGUnit).pixels; 
     }
   }
   if  el.imageOffsetY.value.(*EVGUnit).isSet {
     if  el.imageOffsetY.value.(*EVGUnit).unitType == int64(1) {
-      offsetY = offsetY + ((scaledH * el.imageOffsetY.value.(*EVGUnit).value) / 100.0); 
+      var overflowY float64= scaledH - containerH;
+      if  overflowY < 0.0 {
+        overflowY = 0.0; 
+      }
+      var targetOffsetY float64= (overflowY * el.imageOffsetY.value.(*EVGUnit).value) / 100.0;
+      offsetY = 0.0 - targetOffsetY; 
     } else {
       offsetY = offsetY + el.imageOffsetY.value.(*EVGUnit).pixels; 
     }
@@ -10903,8 +10962,15 @@ func (this *EVGHTMLRenderer) renderPathWithParent (el *EVGElement, elementId str
   if  h <= 0.0 {
     h = 24.0; 
   }
-  var relX float64= el.calculatedX - parentX;
-  var relY float64= el.calculatedY - parentY;
+  var relX float64= 0.0;
+  var relY float64= 0.0;
+  if  el.isAbsolute {
+    relX = el.calculatedX; 
+    relY = el.calculatedY; 
+  } else {
+    relX = el.calculatedX - parentX; 
+    relY = el.calculatedY - parentY; 
+  }
   html = (html + this.indent(depth)) + "<svg"; 
   if  (int64(len([]rune(el.id)))) > int64(0) {
     html = ((html + " id=\"") + el.id) + "\""; 

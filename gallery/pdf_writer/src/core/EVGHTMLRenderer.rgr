@@ -476,8 +476,17 @@ class EVGHTMLRenderer {
         }
         
         ; Add inline styles - calculate position relative to parent
-        def relX:double (el.calculatedX - parentX)
-        def relY:double (el.calculatedY - parentY)
+        ; For absolute elements, calculatedX/Y are already relative to parent
+        ; For flow elements, we need to subtract parent's absolute position
+        def relX:double 0.0
+        def relY:double 0.0
+        if el.isAbsolute {
+            relX = el.calculatedX
+            relY = el.calculatedY
+        } {
+            relX = (el.calculatedX - parentX)
+            relY = (el.calculatedY - parentY)
+        }
         
         html = html + " style=\""
         html = html + (this.generateViewStylesRelative(el relX relY))
@@ -652,8 +661,17 @@ class EVGHTMLRenderer {
         html = html + " class=\"evg-label\""
         
         ; Calculate position relative to parent
-        def relX:double (el.calculatedX - parentX)
-        def relY:double (el.calculatedY - parentY)
+        ; For absolute elements, calculatedX/Y are already relative to parent
+        ; For flow elements, we need to subtract parent's absolute position
+        def relX:double 0.0
+        def relY:double 0.0
+        if el.isAbsolute {
+            relX = el.calculatedX
+            relY = el.calculatedY
+        } {
+            relX = (el.calculatedX - parentX)
+            relY = (el.calculatedY - parentY)
+        }
         
         ; Add inline styles
         html = html + " style=\""
@@ -786,8 +804,17 @@ class EVGHTMLRenderer {
         def html:string ""
         
         ; Calculate position relative to parent
-        def relX:double (el.calculatedX - parentX)
-        def relY:double (el.calculatedY - parentY)
+        ; For absolute elements, calculatedX/Y are already relative to parent
+        ; For flow elements, we need to subtract parent's absolute position
+        def relX:double 0.0
+        def relY:double 0.0
+        if el.isAbsolute {
+            relX = el.calculatedX
+            relY = el.calculatedY
+        } {
+            relX = (el.calculatedX - parentX)
+            relY = (el.calculatedY - parentY)
+        }
         
         ; If imageViewBox is set, use special viewBox rendering
         if el.imageViewBoxSet {
@@ -932,11 +959,20 @@ class EVGHTMLRenderer {
         }
         
         ; Apply user-specified imageOffset adjustments
-        ; These shift the image position within the container
+        ; Percentage is relative to the OVERFLOW (how much image extends beyond container)
+        ; This way 0% = image at start, 50% = centered, 100% = image at end
+        ; For cover mode, the overflow is (scaledSize - containerSize)
         if el.imageOffsetX.isSet {
             if (el.imageOffsetX.unitType == 1) {
-                ; Percentage - offset relative to scaled image size
-                offsetX = offsetX + ((scaledW * el.imageOffsetX.value) / 100.0)
+                ; Percentage - offset relative to horizontal overflow
+                def overflowX:double (scaledW - containerW)
+                if (overflowX < 0.0) {
+                    overflowX = 0.0
+                }
+                ; 0% = left edge, 50% = centered, 100% = right edge
+                ; Default center is at 50%, so we adjust from there
+                def targetOffsetX:double ((overflowX * el.imageOffsetX.value) / 100.0)
+                offsetX = (0.0 - targetOffsetX)
             } {
                 ; Pixels - add directly
                 offsetX = offsetX + el.imageOffsetX.pixels
@@ -944,8 +980,14 @@ class EVGHTMLRenderer {
         }
         if el.imageOffsetY.isSet {
             if (el.imageOffsetY.unitType == 1) {
-                ; Percentage - offset relative to scaled image size
-                offsetY = offsetY + ((scaledH * el.imageOffsetY.value) / 100.0)
+                ; Percentage - offset relative to vertical overflow
+                def overflowY:double (scaledH - containerH)
+                if (overflowY < 0.0) {
+                    overflowY = 0.0
+                }
+                ; 0% = top edge, 50% = centered, 100% = bottom edge
+                def targetOffsetY:double ((overflowY * el.imageOffsetY.value) / 100.0)
+                offsetY = (0.0 - targetOffsetY)
             } {
                 ; Pixels - add directly
                 offsetY = offsetY + el.imageOffsetY.pixels
@@ -1176,8 +1218,16 @@ class EVGHTMLRenderer {
         }
         
         ; Calculate position relative to parent
-        def relX:double (el.calculatedX - parentX)
-        def relY:double (el.calculatedY - parentY)
+        ; Use the same logic as View elements
+        def relX:double 0.0
+        def relY:double 0.0
+        if el.isAbsolute {
+            relX = el.calculatedX
+            relY = el.calculatedY
+        } {
+            relX = (el.calculatedX - parentX)
+            relY = (el.calculatedY - parentY)
+        }
         
         html = html + (this.indent(depth)) + "<svg"
         
