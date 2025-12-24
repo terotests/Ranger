@@ -5948,6 +5948,9 @@ func (this *EVGElement) isPath () bool {
   return this.elementType == int64(3)
 }
 func (this *EVGElement) hasAbsolutePosition () bool {
+  if  (this.tagName == "layer") || (this.tagName == "Layer") {
+    return true
+  }
   if  this.left.value.(*EVGUnit).isSet {
     return true
   }
@@ -8543,7 +8546,8 @@ func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, pare
   if  childCount > int64(0) {
     contentHeight = this.layoutChildren(element); 
   } else {
-    if  (element.tagName == "text") || (element.tagName == "span") {
+    var textContent string= element.textContent;
+    if  (int64(len([]rune(textContent)))) > int64(0) {
       var fontSize float64= element.inheritedFontSize;
       if  element.fontSize.value.(*EVGUnit).isSet {
         fontSize = element.fontSize.value.(*EVGUnit).pixels; 
@@ -8556,7 +8560,6 @@ func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, pare
         lineHeightFactor = 1.2; 
       }
       var lineSpacing float64= fontSize * lineHeightFactor;
-      var textContent string= element.textContent;
       var availableWidth float64= (width - element.box.value.(*EVGBox).paddingLeftPx) - element.box.value.(*EVGBox).paddingRightPx;
       var lineCount int64= this.estimateLineCount(textContent, availableWidth, fontSize);
       contentHeight = lineSpacing * (float64( lineCount )); 
@@ -8588,8 +8591,8 @@ func (this *EVGLayout) layoutChildren (parent *EVGElement) float64 {
   }
   var innerWidth float64= parent.calculatedInnerWidth;
   var innerHeight float64= parent.calculatedInnerHeight;
-  var startX float64= ((parent.calculatedX + parent.box.value.(*EVGBox).marginLeftPx) + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingLeftPx;
-  var startY float64= ((parent.calculatedY + parent.box.value.(*EVGBox).marginTopPx) + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingTopPx;
+  var startX float64= (parent.calculatedX + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingLeftPx;
+  var startY float64= (parent.calculatedY + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingTopPx;
   var currentX float64= startX;
   var currentY float64= startY;
   var rowHeight float64= 0.0;
@@ -8637,7 +8640,7 @@ func (this *EVGLayout) layoutChildren (parent *EVGElement) float64 {
     child.inheritProperties(parent);
     child.resolveUnits(innerWidth, innerHeight);
     if  child.isAbsolute {
-      if  child.tagName == "layer" {
+      if  (child.tagName == "layer") || (child.tagName == "Layer") {
         child.unitsResolved = false; 
         child.resolveUnits(parent.calculatedWidth, parent.calculatedHeight);
         child.calculatedWidth = parent.calculatedWidth; 
@@ -8660,9 +8663,14 @@ func (this *EVGLayout) layoutChildren (parent *EVGElement) float64 {
       i = i + int64(1); 
       continue;
     }
-    var childWidth float64= innerWidth;
+    var availableForChild float64= (innerWidth - child.box.value.(*EVGBox).marginLeftPx) - child.box.value.(*EVGBox).marginRightPx;
+    var childWidth float64= availableForChild;
     if  child.width.value.(*EVGUnit).isSet {
-      childWidth = child.width.value.(*EVGUnit).pixels; 
+      if  child.width.value.(*EVGUnit).pixels >= innerWidth {
+        childWidth = availableForChild; 
+      } else {
+        childWidth = child.width.value.(*EVGUnit).pixels; 
+      }
     } else {
       if  child.calculatedFlexWidth > 0.0 {
         childWidth = child.calculatedFlexWidth; 
@@ -8711,7 +8719,53 @@ func (this *EVGLayout) layoutChildren (parent *EVGElement) float64 {
     this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
     totalHeight = totalHeight + rowHeight; 
   }
+  if  isColumn {
+    this.alignColumn(parent, totalHeight, startX, startY, innerWidth, innerHeight);
+  }
   return totalHeight
+}
+func (this *EVGLayout) alignColumn (parent *EVGElement, contentHeight float64, startX float64, startY float64, innerWidth float64, innerHeight float64) () {
+  var childCount int64= parent.getChildCount();
+  if  childCount == int64(0) {
+    return
+  }
+  var verticalAlign string= parent.justifyContent;
+  var horizontalAlign string= parent.alignItems;
+  var availableHeight float64= innerHeight;
+  if  parent.height.value.(*EVGUnit).isSet {
+    availableHeight = parent.calculatedInnerHeight; 
+  }
+  var offsetY float64= 0.0;
+  if  verticalAlign == "center" {
+    offsetY = (availableHeight - contentHeight) / 2.0; 
+  }
+  if  (verticalAlign == "flex-end") || (verticalAlign == "end") {
+    offsetY = availableHeight - contentHeight; 
+  }
+  if  verticalAlign == "space-between" {
+    offsetY = 0.0; 
+  }
+  var i int64= int64(0);
+  for i < childCount {
+    var child *EVGElement= parent.getChild(i);
+    if  child.isAbsolute == false {
+      if  offsetY != 0.0 {
+        child.calculatedY = child.calculatedY + offsetY; 
+      }
+      var childTotalWidth float64= (child.calculatedWidth + child.box.value.(*EVGBox).marginLeftPx) + child.box.value.(*EVGBox).marginRightPx;
+      var offsetX float64= 0.0;
+      if  horizontalAlign == "center" {
+        offsetX = (innerWidth - childTotalWidth) / 2.0; 
+      }
+      if  (horizontalAlign == "flex-end") || (horizontalAlign == "end") {
+        offsetX = innerWidth - childTotalWidth; 
+      }
+      if  offsetX != 0.0 {
+        child.calculatedX = child.calculatedX + offsetX; 
+      }
+    }
+    i = i + int64(1); 
+  }
 }
 func (this *EVGLayout) alignRow (rowElements []*EVGElement, parent *EVGElement, rowHeight float64, startX float64, innerWidth float64) () {
   var elementCount int64= int64(len(rowElements));
@@ -8725,12 +8779,31 @@ func (this *EVGLayout) alignRow (rowElements []*EVGElement, parent *EVGElement, 
     rowWidth = ((rowWidth + el.calculatedWidth) + el.box.value.(*EVGBox).marginLeftPx) + el.box.value.(*EVGBox).marginRightPx; 
     i = i + int64(1); 
   }
+  var isColumn bool= parent.flexDirection == "column";
+  var mainAxisAlign string= parent.justifyContent;
+  var crossAxisAlign string= parent.alignItems;
+  var horizontalAlign string= mainAxisAlign;
+  if  isColumn {
+    horizontalAlign = crossAxisAlign; 
+  }
+  if  (int64(len([]rune(parent.align)))) > int64(0) {
+    horizontalAlign = parent.align; 
+  }
   var offsetX float64= 0.0;
-  if  parent.align == "center" {
+  if  horizontalAlign == "center" {
     offsetX = (innerWidth - rowWidth) / 2.0; 
   }
-  if  parent.align == "right" {
+  if  (horizontalAlign == "flex-end") || (horizontalAlign == "right") {
     offsetX = innerWidth - rowWidth; 
+  }
+  var verticalAlignVal string= crossAxisAlign;
+  if  isColumn {
+    verticalAlignVal = mainAxisAlign; 
+  }
+  if  (int64(len([]rune(parent.verticalAlign)))) > int64(0) {
+    if  parent.verticalAlign != "top" {
+      verticalAlignVal = parent.verticalAlign; 
+    }
   }
   var effectiveRowHeight float64= rowHeight;
   if  parent.height.value.(*EVGUnit).isSet {
@@ -8747,10 +8820,10 @@ func (this *EVGLayout) alignRow (rowElements []*EVGElement, parent *EVGElement, 
     }
     var childTotalHeight float64= (el_1.calculatedHeight + el_1.box.value.(*EVGBox).marginTopPx) + el_1.box.value.(*EVGBox).marginBottomPx;
     var offsetY float64= 0.0;
-    if  parent.verticalAlign == "center" {
+    if  verticalAlignVal == "center" {
       offsetY = (effectiveRowHeight - childTotalHeight) / 2.0; 
     }
-    if  parent.verticalAlign == "bottom" {
+    if  (verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom") {
       offsetY = effectiveRowHeight - childTotalHeight; 
     }
     if  offsetY != 0.0 {
@@ -10222,7 +10295,7 @@ func (this *EVGHTMLRenderer) renderElementWithParent (el *EVGElement, depth int6
   if  (el.tagName == "Page") || (el.tagName == "page") {
     return this.renderPage_Element(el, depth)
   }
-  if  ((el.tagName == "View") || (el.tagName == "div")) || (el.tagName == "layer") {
+  if  (((el.tagName == "View") || (el.tagName == "div")) || (el.tagName == "layer")) || (el.tagName == "Layer") {
     return this.renderViewWithParent(el, elementId, depth, parentX, parentY)
   }
   if  ((el.tagName == "Label") || (el.tagName == "span")) || (el.tagName == "text") {
@@ -10321,7 +10394,7 @@ func (this *EVGHTMLRenderer) renderViewWithParent (el *EVGElement, elementId str
   if  (int64(len([]rune(el.id)))) > int64(0) {
     html = ((html + " id=\"") + el.id) + "\""; 
   }
-  if  el.tagName == "layer" {
+  if  (el.tagName == "layer") || (el.tagName == "Layer") {
     html = html + " class=\"evg-layer\""; 
   } else {
     html = html + " class=\"evg-view\""; 
@@ -10343,7 +10416,7 @@ func (this *EVGHTMLRenderer) renderViewWithParent (el *EVGElement, elementId str
 }
 func (this *EVGHTMLRenderer) generateViewStylesRelative (el *EVGElement, relX float64, relY float64) string {
   var css string= "";
-  if  el.tagName == "layer" {
+  if  (el.tagName == "layer") || (el.tagName == "Layer") {
     css = css + "position: absolute; "; 
     css = css + "inset: 0; "; 
     css = css + "pointer-events: none; "; 
@@ -10398,13 +10471,6 @@ func (this *EVGHTMLRenderer) generateViewStylesRelative (el *EVGElement, relX fl
   var pl float64= this.getResolvedPadding(el, "left");
   if  (((pt > 0.0) || (pr > 0.0)) || (pb > 0.0)) || (pl > 0.0) {
     css = ((((((((css + "padding: ") + this.formatPx(pt)) + " ") + this.formatPx(pr)) + " ") + this.formatPx(pb)) + " ") + this.formatPx(pl)) + "; "; 
-  }
-  var mt float64= this.getResolvedMargin(el, "top");
-  var mr float64= this.getResolvedMargin(el, "right");
-  var mb float64= this.getResolvedMargin(el, "bottom");
-  var ml float64= this.getResolvedMargin(el, "left");
-  if  (((mt > 0.0) || (mr > 0.0)) || (mb > 0.0)) || (ml > 0.0) {
-    css = ((((((((css + "margin: ") + this.formatPx(mt)) + " ") + this.formatPx(mr)) + " ") + this.formatPx(mb)) + " ") + this.formatPx(ml)) + "; "; 
   }
   if  el.overflow == "hidden" {
     css = css + "overflow: hidden; "; 
@@ -10470,8 +10536,16 @@ func (this *EVGHTMLRenderer) renderLabelWithParent (el *EVGElement, elementId st
 func (this *EVGHTMLRenderer) generateLabelStylesRelative (el *EVGElement, relX float64, relY float64) string {
   var css string= "";
   css = css + "position: absolute; "; 
-  css = ((css + "left: ") + this.formatPx(relX)) + "; "; 
-  css = ((css + "top: ") + this.formatPx(relY)) + "; "; 
+  var px float64= relX;
+  var py float64= relY;
+  if  px < el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingLeftPx {
+    px = el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingLeftPx; 
+  }
+  if  py < el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingTopPx {
+    py = el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingTopPx; 
+  }
+  css = ((css + "left: ") + this.formatPx(px)) + "; "; 
+  css = ((css + "top: ") + this.formatPx(py)) + "; "; 
   if  (int64(len([]rune(el.fontFamily)))) > int64(0) {
     css = ((css + "font-family: '") + el.fontFamily) + "', sans-serif; "; 
   }

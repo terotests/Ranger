@@ -330,7 +330,7 @@ class EVGHTMLRenderer {
         if ((el.tagName == "Page") || (el.tagName == "page")) {
             return (this.renderPage_Element(el depth))
         }
-        if ((el.tagName == "View") || (el.tagName == "div") || (el.tagName == "layer")) {
+        if ((el.tagName == "View") || (el.tagName == "div") || (el.tagName == "layer") || (el.tagName == "Layer")) {
             return (this.renderViewWithParent(el elementId depth parentX parentY))
         }
         if ((el.tagName == "Label") || (el.tagName == "span") || (el.tagName == "text")) {
@@ -469,7 +469,7 @@ class EVGHTMLRenderer {
         }
         
         ; Add class - use evg-layer for layer elements
-        if (el.tagName == "layer") {
+        if ((el.tagName == "layer") || (el.tagName == "Layer")) {
             html = html + " class=\"evg-layer\""
         } {
             html = html + " class=\"evg-view\""
@@ -501,7 +501,7 @@ class EVGHTMLRenderer {
         def css:string ""
         
         ; Layer elements overlay parent with inset: 0
-        if (el.tagName == "layer") {
+        if ((el.tagName == "layer") || (el.tagName == "Layer")) {
             css = css + "position: absolute; "
             css = css + "inset: 0; "
             css = css + "pointer-events: none; "  ; Allow clicks through to elements below
@@ -571,14 +571,10 @@ class EVGHTMLRenderer {
             css = css + "padding: " + (this.formatPx(pt)) + " " + (this.formatPx(pr)) + " " + (this.formatPx(pb)) + " " + (this.formatPx(pl)) + "; "
         }
         
-        ; Margin
-        def mt:double (this.getResolvedMargin(el "top"))
-        def mr:double (this.getResolvedMargin(el "right"))
-        def mb:double (this.getResolvedMargin(el "bottom"))
-        def ml:double (this.getResolvedMargin(el "left"))
-        if ((mt > 0.0) || (mr > 0.0) || (mb > 0.0) || (ml > 0.0)) {
-            css = css + "margin: " + (this.formatPx(mt)) + " " + (this.formatPx(mr)) + " " + (this.formatPx(mb)) + " " + (this.formatPx(ml)) + "; "
-        }
+        ; Note: We do NOT output CSS margin for absolute-positioned elements
+        ; because the layout engine has already calculated positions (left, top)
+        ; with margins taken into account, and width/height adjusted accordingly.
+        ; CSS margin on position:absolute elements would add extra unwanted offset.
         
         ; Overflow
         if (el.overflow == "hidden") {
@@ -686,8 +682,19 @@ class EVGHTMLRenderer {
         
         ; Always use absolute positioning since EVG calculates exact positions
         css = css + "position: absolute; "
-        css = css + "left: " + (this.formatPx(relX)) + "; "
-        css = css + "top: " + (this.formatPx(relY)) + "; "
+        ; If the calculated relative coordinates end up outside the parent's padding
+        ; (negative due to layout ordering quirks), clamp them to parent's padding
+        ; to ensure text stays inside the padded content area.
+        def px:double relX
+        def py:double relY
+        if (px < el.parent.box.paddingLeftPx) {
+            px = el.parent.box.paddingLeftPx
+        }
+        if (py < el.parent.box.paddingTopPx) {
+            py = el.parent.box.paddingTopPx
+        }
+        css = css + "left: " + (this.formatPx(px)) + "; "
+        css = css + "top: " + (this.formatPx(py)) + "; "
         
         ; Font properties
         if ((strlen el.fontFamily) > 0) {

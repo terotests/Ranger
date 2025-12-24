@@ -278,6 +278,10 @@ class EVGElement {
     
     fn hasAbsolutePosition:boolean () {
         ; Check if element has absolute positioning
+        ; Layer elements are always absolute (overlay parent)
+        if ((tagName == "layer") || (tagName == "Layer")) {
+            return true
+        }
         if left.isSet {
             return true
         }
