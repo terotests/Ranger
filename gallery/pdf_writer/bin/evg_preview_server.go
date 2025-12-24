@@ -6774,6 +6774,7 @@ type ComponentEngine struct {
   pageHeight float64 `json:"pageHeight"` 
   imports []*ImportedSymbol `json:"imports"` 
   localComponents []*ImportedSymbol `json:"localComponents"` 
+  loadedFiles []string `json:"loadedFiles"` 
   context *GoNullable `json:"context"` 
   primitives []string `json:"primitives"` 
 }
@@ -6787,6 +6788,7 @@ func CreateNew_ComponentEngine() *ComponentEngine {
   me.pageHeight = 842.0
   me.imports = make([]*ImportedSymbol,0)
   me.localComponents = make([]*ImportedSymbol,0)
+  me.loadedFiles = make([]string,0)
   me.primitives = make([]string,0)
   me.parser = new(GoNullable);
   me.context = new(GoNullable);
@@ -6798,6 +6800,8 @@ func CreateNew_ComponentEngine() *ComponentEngine {
   me.imports = imp; 
   var loc []*ImportedSymbol = make([]*ImportedSymbol, 0);
   me.localComponents = loc; 
+  var lf []string = make([]string, 0);
+  me.loadedFiles = lf; 
   var ctx *EvalContext= CreateNew_EvalContext();
   me.context.value = ctx;
   me.context.has_value = true; /* detected as non-optional */
@@ -6855,8 +6859,13 @@ func (this *ComponentEngine) resolveComponentPath (relativePath string) string {
   }
   return fullPath
 }
+func (this *ComponentEngine) getLoadedFiles () []string {
+  return this.loadedFiles
+}
 func (this *ComponentEngine) parseFile (dirPath string, fileName string) *EVGElement {
   this.basePath = dirPath; 
+  var mainFilePath string= dirPath + fileName;
+  this.loadedFiles = append(this.loadedFiles,mainFilePath); 
   var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fileName)); return d }();
   var src string= string(fileContent);
   return this.parse(src)
@@ -6922,6 +6931,8 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
   }
   var dirPath string= this.basePath;
   fmt.Println( ("Loading import: " + dirPath) + fullPath )
+  var loadedFilePath string= dirPath + fullPath;
+  this.loadedFiles = append(this.loadedFiles,loadedFilePath); 
   var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fullPath)); return d }();
   var src string= string(fileContent);
   if  (int64(len([]rune(src)))) == int64(0) {
@@ -11300,7 +11311,9 @@ type EVGPreviewServer struct {
   cachedShellHTML string `json:"cachedShellHTML"` 
   cachedContentHTML string `json:"cachedContentHTML"` 
   cachedFontsCSS string `json:"cachedFontsCSS"` 
-  lastModTime int64 `json:"lastModTime"` 
+  lastModTime int64 /**  unused  **/  `json:"lastModTime"` 
+  watchedFiles []string `json:"watchedFiles"` 
+  lastModTimes []int64 `json:"lastModTimes"` 
 }
 
 func CreateNew_EVGPreviewServer() *EVGPreviewServer {
@@ -11318,6 +11331,8 @@ func CreateNew_EVGPreviewServer() *EVGPreviewServer {
   me.cachedContentHTML = ""
   me.cachedFontsCSS = ""
   me.lastModTime = int64(0)
+  me.watchedFiles = make([]string,0)
+  me.lastModTimes = make([]int64,0)
   return me;
 }
 func (this *EVGPreviewServer) initialize (tsxFile string, serverPort int64, assets string) () {
@@ -11325,6 +11340,10 @@ func (this *EVGPreviewServer) initialize (tsxFile string, serverPort int64, asse
   this.port = serverPort; 
   this.assetPaths = assets; 
   this.serverUrl = "http://localhost:" + (strconv.FormatInt(this.port, 10)); 
+  var wf []string = make([]string, 0);
+  this.watchedFiles = wf; 
+  var lmt []int64 = make([]int64, 0);
+  this.lastModTimes = lmt; 
   var lastSlash int64= int64(strings.LastIndex(this.inputFile, "/"));
   var lastBackslash int64= int64(strings.LastIndex(this.inputFile, "\\"));
   var lastSep int64= lastSlash;
@@ -11350,6 +11369,27 @@ func (this *EVGPreviewServer) reloadContent () () {
     engine.setAssetPaths(this.assetPaths);
   }
   var root *EVGElement= engine.parseFile(this.inputDir, this.inputFileName);
+  var newWatchedFiles []string = make([]string, 0);
+  this.watchedFiles = newWatchedFiles; 
+  var newLastModTimes []int64 = make([]int64, 0);
+  this.lastModTimes = newLastModTimes; 
+  var loadedFileList []string= engine.getLoadedFiles();
+  var fileIdx int64= int64(0);
+  for fileIdx < (int64(len(loadedFileList))) {
+    var loadedFile string= loadedFileList[fileIdx];
+    this.watchedFiles = append(this.watchedFiles,loadedFile); 
+    var lastSlashIdx int64= int64(strings.LastIndex(loadedFile, "/"));
+    var fileDir string= "./";
+    var fileName string= loadedFile;
+    if  lastSlashIdx >= int64(0) {
+      fileDir = string([]rune(loadedFile)[int64(0):(lastSlashIdx + int64(1))]); 
+      fileName = string([]rune(loadedFile)[(lastSlashIdx + int64(1)):(int64(len([]rune(loadedFile))))]); 
+    }
+    var modTime int64= r_file_mtime(fileDir, fileName);
+    this.lastModTimes = append(this.lastModTimes,modTime); 
+    fileIdx = fileIdx + int64(1); 
+  }
+  fmt.Println( ("Watching " + (strconv.FormatInt((int64(len(this.watchedFiles))), 10))) + " files for changes" )
   if  root.tagName == "" {
     fmt.Println( "Error: Failed to parse TSX file" )
     this.cachedContentHTML = "<div style='color:red;padding:20px;'>Error: Failed to parse TSX file</div>"; 
@@ -11490,15 +11530,32 @@ func (this *EVGPreviewServer) handleEvents (client *SSEClient) () {
   fmt.Println( "SSE client connected - watching for changes" )
   fmt.Fprintf(client.Writer, "event: %s\ndata: %s\n\n", "connected", "EVG Preview Server")
   client.Flusher.Flush()
-  var currentModTime int64= r_file_mtime(this.inputDir, this.inputFileName);
-  this.lastModTime = currentModTime; 
   var connected bool= client.IsConnected;
   for connected {
-    currentModTime = r_file_mtime(this.inputDir, this.inputFileName); 
-    if  currentModTime > this.lastModTime {
-      fmt.Println( "File changed - sending update" )
-      this.lastModTime = currentModTime; 
-      fmt.Fprintf(client.Writer, "event: %s\ndata: %s\n\n", "update", "File modified")
+    var fileChanged bool= false;
+    var changedFile string= "";
+    var i int64= int64(0);
+    for i < (int64(len(this.watchedFiles))) {
+      var watchedFile string= this.watchedFiles[i];
+      var storedModTime int64= this.lastModTimes[i];
+      var lastSlashIdx int64= int64(strings.LastIndex(watchedFile, "/"));
+      var fileDir string= "./";
+      var fileName string= watchedFile;
+      if  lastSlashIdx >= int64(0) {
+        fileDir = string([]rune(watchedFile)[int64(0):(lastSlashIdx + int64(1))]); 
+        fileName = string([]rune(watchedFile)[(lastSlashIdx + int64(1)):(int64(len([]rune(watchedFile))))]); 
+      }
+      var currentModTime int64= r_file_mtime(fileDir, fileName);
+      if  currentModTime > storedModTime {
+        fileChanged = true; 
+        changedFile = watchedFile; 
+        this.lastModTimes[i] = currentModTime
+      }
+      i = i + int64(1); 
+    }
+    if  fileChanged {
+      fmt.Println( ("File changed: " + changedFile) + " - sending update" )
+      fmt.Fprintf(client.Writer, "event: %s\ndata: %s\n\n", "update", changedFile)
       client.Flusher.Flush()
     }
     connected = client.IsConnected; 

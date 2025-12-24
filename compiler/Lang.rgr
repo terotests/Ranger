@@ -3683,7 +3683,27 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  ranger ( nl "remove " (e 1) " " (e 2) nl)
                  es6 ( (e 1) ".splice(" (e 2) ", 1);" )                                              
             }
-        }         
+        }
+
+        ; Set value at specific index in array
+        set_at    cmdSetAt:void  ( array@(mutates):[T] index:int value:T ) { 
+            templates {
+                 ranger ( nl "set_at " (e 1) " " (e 2) " " (e 3) nl)
+                 es6 ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                 go ( (e 1) "[" (e 2) "] = " (e 3) )
+                 cpp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                 swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
+                 swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
+                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                 python ( (e 1) "[" (e 2) "] = " (e 3) )
+                 java7 ( (e 1) ".set(" (e 2) ", " (e 3) ");" )
+                 kotlin ( (e 1) "[" (e 2) "] = " (e 3) )
+                 csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                 scala ( (e 1) "(" (e 2) ") = " (e 3) )
+                 rust ( (e 1) "[" (e 2) " as usize] = " (e 3) ";" )
+                 * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+            }
+        }
 
         push    cmdPush@(moves@( 2 1 ) ):void  ( array@(mutates):[T] item:T ) { 
             templates {

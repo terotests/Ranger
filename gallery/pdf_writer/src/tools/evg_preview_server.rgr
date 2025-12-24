@@ -60,12 +60,20 @@ class EVGPreviewServer@(HttpServer) {
     
     ; File modification tracking
     def lastModTime:int 0
+    def watchedFiles:[string]
+    def lastModTimes:[int]
     
     fn initialize:void (tsxFile:string serverPort:int assets:string) {
         inputFile = tsxFile
         port = serverPort
         assetPaths = assets
         serverUrl = "http://localhost:" + (to_string port)
+        
+        ; Initialize watched files arrays
+        def wf:[string]
+        watchedFiles = wf
+        def lmt:[int]
+        lastModTimes = lmt
         
         ; Extract directory and filename
         def lastSlash:int (lastIndexOf inputFile "/")
@@ -104,6 +112,31 @@ class EVGPreviewServer@(HttpServer) {
         }
         
         def root:EVGElement (engine.parseFile(inputDir inputFileName))
+        
+        ; Update watched files list from engine
+        def newWatchedFiles:[string]
+        watchedFiles = newWatchedFiles
+        def newLastModTimes:[int]
+        lastModTimes = newLastModTimes
+        
+        def loadedFileList:[string] (engine.getLoadedFiles())
+        def fileIdx:int 0
+        while (fileIdx < (array_length loadedFileList)) {
+            def loadedFile:string (itemAt loadedFileList fileIdx)
+            push watchedFiles loadedFile
+            ; Get initial mod time for this file - need to split path
+            def lastSlashIdx:int (lastIndexOf loadedFile "/")
+            def fileDir:string "./"
+            def fileName:string loadedFile
+            if (lastSlashIdx >= 0) {
+                fileDir = (substring loadedFile 0 (lastSlashIdx + 1))
+                fileName = (substring loadedFile (lastSlashIdx + 1) (strlen loadedFile))
+            }
+            def modTime:int (file_mtime fileDir fileName)
+            push lastModTimes modTime
+            fileIdx = fileIdx + 1
+        }
+        print ("Watching " + (to_string (array_length watchedFiles)) + " files for changes")
         
         if (root.tagName == "") {
             print "Error: Failed to parse TSX file"
@@ -302,21 +335,42 @@ class EVGPreviewServer@(HttpServer) {
         ; Send initial connected message
         sse_send client "connected" "EVG Preview Server"
         
-        ; Get initial modification time
-        def currentModTime:int (file_mtime inputDir inputFileName)
-        lastModTime = currentModTime
-        
         ; Keep connection open and poll for updates
         def connected:boolean (sse_is_connected client)
         
         while connected {
-            ; Check file modification time
-            currentModTime = (file_mtime inputDir inputFileName)
+            ; Check all watched files for modifications
+            def fileChanged:boolean false
+            def changedFile:string ""
             
-            if (currentModTime > lastModTime) {
-                print "File changed - sending update"
-                lastModTime = currentModTime
-                sse_send client "update" "File modified"
+            def i:int 0
+            while (i < (array_length watchedFiles)) {
+                def watchedFile:string (itemAt watchedFiles i)
+                def storedModTime:int (itemAt lastModTimes i)
+                
+                ; Split path to get dir and filename for file_mtime
+                def lastSlashIdx:int (lastIndexOf watchedFile "/")
+                def fileDir:string "./"
+                def fileName:string watchedFile
+                if (lastSlashIdx >= 0) {
+                    fileDir = (substring watchedFile 0 (lastSlashIdx + 1))
+                    fileName = (substring watchedFile (lastSlashIdx + 1) (strlen watchedFile))
+                }
+                
+                def currentModTime:int (file_mtime fileDir fileName)
+                
+                if (currentModTime > storedModTime) {
+                    fileChanged = true
+                    changedFile = watchedFile
+                    ; Update stored mod time
+                    set_at lastModTimes i currentModTime
+                }
+                i = i + 1
+            }
+            
+            if fileChanged {
+                print ("File changed: " + changedFile + " - sending update")
+                sse_send client "update" changedFile
             }
             
             ; Sleep 500ms between checks
