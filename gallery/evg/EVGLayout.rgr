@@ -90,7 +90,7 @@ class EVGLayout {
         }
         
         ; For image elements, calculate dimensions based on aspect ratio
-        if (element.tagName == "image") {
+        if ((element.tagName == "image") || (element.tagName == "Image") || (element.tagName == "img")) {
             def imgSrc:string element.src
             if ((strlen imgSrc) > 0) {
                 def dims:EVGImageDimensions (imageMeasurer.getImageDimensions(imgSrc))

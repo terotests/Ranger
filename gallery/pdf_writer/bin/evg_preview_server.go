@@ -8480,7 +8480,7 @@ func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, pare
     height = element.height.value.(*EVGUnit).pixels; 
     autoHeight = false; 
   }
-  if  element.tagName == "image" {
+  if  ((element.tagName == "image") || (element.tagName == "Image")) || (element.tagName == "img") {
     var imgSrc string= element.src;
     if  (int64(len([]rune(imgSrc)))) > int64(0) {
       var dims *EVGImageDimensions= this.imageMeasurer.value.(IFACE_EVGImageMeasurer).getImageDimensions(imgSrc);
@@ -10523,6 +10523,23 @@ func (this *EVGHTMLRenderer) renderImageWithParent (el *EVGElement, elementId st
   }
   var containerW float64= el.calculatedWidth;
   var containerH float64= el.calculatedHeight;
+  var parentAvailableH float64= el.parent.value.(*EVGElement).calculatedHeight;
+  if  el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingTopPx > 0.0 {
+    parentAvailableH = (parentAvailableH - el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingTopPx) - el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingBottomPx; 
+  }
+  if  (((containerH <= 0.0) && (containerW > 0.0)) && (el.sourceWidth > 0.0)) && (el.sourceHeight > 0.0) {
+    var imageAspect float64= el.sourceWidth / el.sourceHeight;
+    containerH = containerW / imageAspect; 
+    if  this.debug {
+      fmt.Println( "Image: calculated containerH from aspect ratio: " + (strconv.FormatFloat(containerH,'f', 6, 64)) )
+    }
+  }
+  if  (parentAvailableH > 0.0) && (containerH > parentAvailableH) {
+    if  this.debug {
+      fmt.Println( (("Image: clipping containerH from " + (strconv.FormatFloat(containerH,'f', 6, 64))) + " to parent height ") + (strconv.FormatFloat(parentAvailableH,'f', 6, 64)) )
+    }
+    containerH = parentAvailableH; 
+  }
   html = (html + this.indent(depth)) + "<div"; 
   if  (int64(len([]rune(el.id)))) > int64(0) {
     html = ((html + " id=\"") + el.id) + "\""; 

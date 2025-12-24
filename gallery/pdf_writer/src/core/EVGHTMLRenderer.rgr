@@ -791,6 +791,31 @@ class EVGHTMLRenderer {
         def containerW:double el.calculatedWidth
         def containerH:double el.calculatedHeight
         
+        ; Get parent's available height for clipping (use parent's calculatedHeight if available)
+        def parentAvailableH:double el.parent.calculatedHeight
+        ; Account for padding if parent has it
+        if (el.parent.box.paddingTopPx > 0.0) {
+            parentAvailableH = parentAvailableH - el.parent.box.paddingTopPx - el.parent.box.paddingBottomPx
+        }
+        
+        ; If containerH is 0 but we have source dimensions and containerW, 
+        ; calculate height from aspect ratio to preserve image proportions
+        if ((containerH <= 0.0) && (containerW > 0.0) && (el.sourceWidth > 0.0) && (el.sourceHeight > 0.0)) {
+            def imageAspect:double (el.sourceWidth / el.sourceHeight)
+            containerH = (containerW / imageAspect)
+            if debug {
+                print ("Image: calculated containerH from aspect ratio: " + (to_string containerH))
+            }
+        }
+        
+        ; Clip containerH to parent's available height if needed
+        if ((parentAvailableH > 0.0) && (containerH > parentAvailableH)) {
+            if debug {
+                print ("Image: clipping containerH from " + (to_string containerH) + " to parent height " + (to_string parentAvailableH))
+            }
+            containerH = parentAvailableH
+        }
+        
         ; Always use wrapper div + absolute positioned img to preserve aspect ratio
         ; This ensures PDF and HTML render identically - NO object-fit CSS
         ; We calculate the exact image dimensions and position manually
