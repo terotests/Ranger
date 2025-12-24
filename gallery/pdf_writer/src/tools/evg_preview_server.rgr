@@ -113,9 +113,21 @@ class EVGPreviewServer@(HttpServer) {
         
         print "Parsed: <" + root.tagName + "> with " + (to_string (root.getChildCount())) + " children"
         
+        ; Use Print element's dimensions if available (from format prop)
+        def useWidth:double pageWidth
+        def useHeight:double pageHeight
+        if (root.pageWidth > 0.0) {
+            useWidth = root.pageWidth
+            print "Using book format width: " + (to_string root.pageWidth) + " pts"
+        }
+        if (root.pageHeight > 0.0) {
+            useHeight = root.pageHeight
+            print "Using book format height: " + (to_string root.pageHeight) + " pts"
+        }
+        
         ; Create renderer
         def renderer (new EVGHTMLRenderer())
-        renderer.setPageSize(pageWidth pageHeight)
+        renderer.setPageSize(useWidth useHeight)
         renderer.setTitle(title)
         renderer.setBaseDir(inputDir)
         renderer.setFontBasePath(inputDir + "../assets/fonts/")

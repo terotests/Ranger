@@ -263,6 +263,33 @@ declare global {
 // Print Document Props
 // =============================================================================
 
+/**
+ * Book/document format presets based on Blurb standard sizes.
+ * Dimensions are in points (1 inch = 72 points).
+ */
+export type BookFormat =
+  // Standard paper sizes
+  | "a4"                    // 595×842 pts (8.27×11.69") - ISO A4
+  | "letter"                // 612×792 pts (8.5×11") - US Letter
+  // Trade book sizes (common for novels and non-fiction)
+  | "trade-5x8"             // 360×576 pts (5×8")
+  | "trade-6x9"             // 432×648 pts (6×9")
+  | "trade-8x10"            // 576×720 pts (8×10")
+  // Square formats (great for photo books)
+  | "mini-square"           // 360×360 pts (5×5" / 13×13cm)
+  | "small-square"          // 504×504 pts (7×7" / 18×18cm)
+  | "large-square"          // 864×864 pts (12×12" / 30×30cm)
+  // Standard photo book sizes
+  | "standard-portrait"     // 576×720 pts (8×10")
+  | "standard-landscape"    // 720×576 pts (10×8")
+  // Large format
+  | "large-landscape"       // 936×720 pts (13×10")
+  // Magazine
+  | "magazine";             // 612×792 pts (8.5×11")
+
+/** Page orientation */
+export type PageOrientation = "portrait" | "landscape";
+
 /** Print document properties - top-level container */
 export interface EVGPrintProps {
   children?: any;
@@ -270,6 +297,22 @@ export interface EVGPrintProps {
   title?: string;
   /** Document author for metadata */
   author?: string;
+  /** 
+   * Book format preset - defines page dimensions.
+   * Choose from standard paper sizes, trade book sizes, square formats, or photo book sizes.
+   * @default "a4"
+   */
+  format?: BookFormat;
+  /**
+   * Page orientation - portrait or landscape.
+   * For square formats, orientation has no effect.
+   * @default "portrait"
+   */
+  orientation?: PageOrientation;
+  /** JPEG quality for embedded images (1-100) */
+  imageQuality?: string;
+  /** Maximum image dimension in pixels */
+  maxImageSize?: string;
 }
 
 /** Section properties - groups pages with shared settings */

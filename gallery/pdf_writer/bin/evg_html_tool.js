@@ -5229,7 +5229,7 @@ class EVGElement  {
     this.imageViewBoxW = 1.0;
     this.imageViewBoxH = 1.0;
     this.imageViewBoxSet = false;
-    this.objectFit = "fill";
+    this.objectFit = "cover";
     this.svgPath = "";
     this.viewBox = "";
     this.strokeWidth = 0.0;

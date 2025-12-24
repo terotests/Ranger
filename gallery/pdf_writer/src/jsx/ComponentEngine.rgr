@@ -657,6 +657,18 @@ class ComponentEngine {
             this.evaluateAttributes(element openingEl)
         }
         
+        ; Handle Print element - resolve book format and update engine dimensions
+        if (tagName == "Print") {
+            element.resolveBookFormat()
+            ; Update engine's page dimensions for children
+            if (element.pageWidth > 0.0) {
+                pageWidth = element.pageWidth
+            }
+            if (element.pageHeight > 0.0) {
+                pageHeight = element.pageHeight
+            }
+        }
+        
         ; Handle text content for Label/text elements
         if ((tagName == "Label") || (tagName == "span") || (tagName == "text")) {
             element.textContent = (this.evaluateTextContent(jsxNode))
