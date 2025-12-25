@@ -9155,10 +9155,12 @@ func (this *ComponentEngine) evaluateExpr (node *TSNode) *EvalValue {
     return EvalValue_static_string(this.unquote(node.value))
   }
   if  node.nodeType == "TemplateLiteral" {
+    fmt.Println( ("TemplateLiteral: processing template with " + (strconv.FormatInt((int64(len(node.children))), 10))) + " children" )
     var templateText string= "";
     var ti int64= int64(0);
     for ti < (int64(len(node.children))) {
       var templateChild *TSNode= node.children[ti];
+      fmt.Println( (((("TemplateLiteral child " + (strconv.FormatInt(ti, 10))) + ": nodeType=") + templateChild.nodeType) + " value=") + templateChild.value )
       if  templateChild.nodeType == "TemplateElement" {
         var rawText string= templateChild.value;
         var processedText string= this.evaluateTemplateExpressions(rawText);
@@ -9166,6 +9168,7 @@ func (this *ComponentEngine) evaluateExpr (node *TSNode) *EvalValue {
       }
       ti = ti + int64(1); 
     }
+    fmt.Println( ("TemplateLiteral: result = '" + templateText) + "'" )
     return EvalValue_static_string(templateText)
   }
   if  node.nodeType == "BooleanLiteral" {
@@ -9220,6 +9223,145 @@ func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
   if ( node.left.has_value) {
     var callee *TSNode= node.left.value.(*TSNode);
     if  callee.nodeType == "MemberExpression" {
+      var obj *EvalValue= EvalValue_static_null();
+      var methodName string= "";
+      if ( callee.left.has_value) {
+        var objNode *TSNode= callee.left.value.(*TSNode);
+        obj = this.evaluateExpr(objNode); 
+      }
+      methodName = callee.name; 
+      if  (int64(len([]rune(methodName)))) == int64(0) {
+        if ( callee.right.has_value) {
+          var propNode *TSNode= callee.right.value.(*TSNode);
+          methodName = propNode.name; 
+          if  (int64(len([]rune(methodName)))) == int64(0) {
+            methodName = propNode.value; 
+          }
+        }
+      }
+      fmt.Println( (("Method call: " + methodName) + " on value type=") + (strconv.FormatInt(obj.valueType, 10)) )
+      if  methodName == "toFixed" {
+        var numVal float64= obj.toNumber();
+        var decimals int64= int64(0);
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode *TSNode= node.children[int64(0)];
+          var argVal *EvalValue= this.evaluateExpr(argNode);
+          decimals = int64(argVal.toNumber()); 
+        }
+        var multiplier float64= 1.0;
+        var i int64= int64(0);
+        for i < decimals {
+          multiplier = multiplier * 10.0; 
+          i = i + int64(1); 
+        }
+        var rounded float64= float64( (int64(((numVal * multiplier) + 0.5))) );
+        var result float64= rounded / multiplier;
+        var resultStr string= strconv.FormatFloat(result,'f', 6, 64);
+        var dotIdx int64= int64(strings.Index(resultStr, "."));
+        if  decimals == int64(0) {
+          if  dotIdx >= int64(0) {
+            return EvalValue_static_string((string([]rune(resultStr)[int64(0):dotIdx])))
+          }
+          return EvalValue_static_string(resultStr)
+        }
+        if  dotIdx < int64(0) {
+          resultStr = resultStr + "."; 
+          var z int64= int64(0);
+          for z < decimals {
+            resultStr = resultStr + "0"; 
+            z = z + int64(1); 
+          }
+          return EvalValue_static_string(resultStr)
+        }
+        var currentDecimals int64= ((int64(len([]rune(resultStr)))) - dotIdx) - int64(1);
+        if  currentDecimals < decimals {
+          var p int64= currentDecimals;
+          for p < decimals {
+            resultStr = resultStr + "0"; 
+            p = p + int64(1); 
+          }
+        } else {
+          resultStr = string([]rune(resultStr)[int64(0):((dotIdx + int64(1)) + decimals)]); 
+        }
+        return EvalValue_static_string(resultStr)
+      }
+      if  methodName == "toString" {
+        return EvalValue_static_string((obj).toString())
+      }
+      if  methodName == "toUpperCase" {
+        return EvalValue_static_string((strings.ToUpper((obj).toString())))
+      }
+      if  methodName == "toLowerCase" {
+        return EvalValue_static_string((strings.ToLower((obj).toString())))
+      }
+      if  methodName == "trim" {
+        return EvalValue_static_string((strings.TrimSpace((obj).toString())))
+      }
+      if  methodName == "charAt" {
+        var str string= (obj).toString();
+        var idx int64= int64(0);
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode_1 *TSNode= node.children[int64(0)];
+          var argVal_1 *EvalValue= this.evaluateExpr(argNode_1);
+          idx = int64(argVal_1.toNumber()); 
+        }
+        if  idx < (int64(len([]rune(str)))) {
+          return EvalValue_static_string((string([]rune(str)[idx:(idx + int64(1))])))
+        }
+        return EvalValue_static_string("")
+      }
+      if  methodName == "substring" {
+        var str_1 string= (obj).toString();
+        var startIdx int64= int64(0);
+        var endIdx int64= int64(len([]rune(str_1)));
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode_2 *TSNode= node.children[int64(0)];
+          var argVal_2 *EvalValue= this.evaluateExpr(argNode_2);
+          startIdx = int64(argVal_2.toNumber()); 
+        }
+        if  (int64(len(node.children))) > int64(1) {
+          var argNode2 *TSNode= node.children[int64(1)];
+          var argVal2 *EvalValue= this.evaluateExpr(argNode2);
+          endIdx = int64(argVal2.toNumber()); 
+        }
+        return EvalValue_static_string((string([]rune(str_1)[startIdx:endIdx])))
+      }
+      if  obj.isObject() {
+        var objName string= "";
+        if ( callee.left.has_value) {
+          var objNode_1 *TSNode= callee.left.value.(*TSNode);
+          if  objNode_1.nodeType == "Identifier" {
+            objName = objNode_1.name; 
+          }
+        }
+        if  objName == "Math" {
+          if  (int64(len(node.children))) > int64(0) {
+            var argNode_3 *TSNode= node.children[int64(0)];
+            var argVal_3 *EvalValue= this.evaluateExpr(argNode_3);
+            var num float64= argVal_3.toNumber();
+            if  methodName == "round" {
+              return EvalValue_static_number((float64( (int64((num + 0.5))) )))
+            }
+            if  methodName == "floor" {
+              return EvalValue_static_number((float64( (int64(num)) )))
+            }
+            if  methodName == "ceil" {
+              var intPart int64= int64(num);
+              if  num > (float64( intPart )) {
+                return EvalValue_static_number((float64( (intPart + int64(1)) )))
+              }
+              return EvalValue_static_number((float64( intPart )))
+            }
+            if  methodName == "abs" {
+              if  num < 0.0 {
+                return EvalValue_static_number((0.0 - num))
+              }
+              return EvalValue_static_number(num)
+            }
+          }
+        }
+      }
+      fmt.Println( "Warning: Unhandled method call: " + methodName )
       return EvalValue_static_null()
     }
     if  callee.nodeType == "Identifier" {
@@ -9231,9 +9373,9 @@ func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
       if  fnName == "useImage" {
         var srcArg string= "";
         if  (int64(len(node.children))) > int64(0) {
-          var argNode *TSNode= node.children[int64(0)];
-          fmt.Println( "useImage arg nodeType: " + argNode.nodeType )
-          var argValue *EvalValue= this.evaluateExpr(argNode);
+          var argNode_4 *TSNode= node.children[int64(0)];
+          fmt.Println( "useImage arg nodeType: " + argNode_4.nodeType )
+          var argValue *EvalValue= this.evaluateExpr(argNode_4);
           fmt.Println( (("useImage arg value: " + (argValue).toString()) + " type=") + (strconv.FormatInt(argValue.valueType, 10)) )
           srcArg = argValue.stringValue; 
           fmt.Println( "useImage srcArg: " + srcArg )
@@ -9256,8 +9398,8 @@ func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
           var argIdx int64= int64(0);
           for argIdx < numParams {
             if  argIdx < numArgs {
-              var argNode_1 *TSNode= node.children[argIdx];
-              var argValue_1 *EvalValue= this.evaluateExpr(argNode_1);
+              var argNode_5 *TSNode= node.children[argIdx];
+              var argValue_1 *EvalValue= this.evaluateExpr(argNode_5);
               var paramNode *TSNode= fnNode.params[argIdx];
               var paramName string= paramNode.name;
               fmt.Println( (("Binding param '" + paramName) + "' = ") + (argValue_1).toString() )
@@ -9266,13 +9408,13 @@ func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
             argIdx = argIdx + int64(1); 
           }
           var body *TSNode= this.getFunctionBody(fnNode);
-          var result *EvalValue= this.evaluateFunctionBodyValue(body);
+          var result_1 *EvalValue= this.evaluateFunctionBodyValue(body);
           this.context.value = savedContext.value;
           this.context.has_value = false; 
           if this.context.value != nil {
             this.context.has_value = true
           }
-          return result
+          return result_1
         }
       }
     }
@@ -9611,6 +9753,7 @@ func (this *ComponentEngine) unquote (s string) string {
   return s
 }
 func (this *ComponentEngine) evaluateTemplateExpressions (templateStr string) string {
+  fmt.Println( ("evaluateTemplateExpressions: input = '" + templateStr) + "'" )
   var result string= "";
   var __len int64= int64(len([]rune(templateStr)));
   var i int64= int64(0);
@@ -9637,6 +9780,7 @@ func (this *ComponentEngine) evaluateTemplateExpressions (templateStr string) st
           }
           if  braceDepth == int64(0) {
             var exprStr string= string([]rune(templateStr)[exprStart:j]);
+            fmt.Println( ("evaluateTemplateExpressions: found expression '" + exprStr) + "'" )
             var exprValue string= this.evaluateTemplateExpression(exprStr);
             result = result + exprValue; 
             i = j + int64(1); 
@@ -9660,20 +9804,30 @@ func (this *ComponentEngine) evaluateTemplateExpressions (templateStr string) st
   return result
 }
 func (this *ComponentEngine) evaluateTemplateExpression (exprStr string) string {
+  fmt.Println( ("evaluateTemplateExpression: parsing '" + exprStr) + "'" )
+  var lexer *TSLexer= CreateNew_TSLexer(exprStr);
+  var tokens []*Token= lexer.tokenize();
   var parser_1 *TSParserSimple= CreateNew_TSParserSimple();
+  parser_1.initParser(tokens);
   var ast *TSNode= parser_1.parseProgram();
+  fmt.Println( ("evaluateTemplateExpression: AST has " + (strconv.FormatInt((int64(len(ast.children))), 10))) + " children" )
   if  (int64(len(ast.children))) > int64(0) {
     var stmt *TSNode= ast.children[int64(0)];
+    fmt.Println( "evaluateTemplateExpression: stmt.nodeType = " + stmt.nodeType )
     if  stmt.nodeType == "ExpressionStatement" {
       if ( stmt.left.has_value) {
         var exprNode *TSNode= stmt.left.value.(*TSNode);
+        fmt.Println( "evaluateTemplateExpression: exprNode.nodeType = " + exprNode.nodeType )
         var value *EvalValue= this.evaluateExpr(exprNode);
+        fmt.Println( "evaluateTemplateExpression: result = " + (value).toString() )
         return (value).toString()
       }
     }
     var value_1 *EvalValue= this.evaluateExpr(stmt);
+    fmt.Println( "evaluateTemplateExpression: direct result = " + (value_1).toString() )
     return (value_1).toString()
   }
+  fmt.Println( ("evaluateTemplateExpression: fallback for '" + exprStr) + "'" )
   return ("${" + exprStr) + "}"
 }
 func (this *ComponentEngine) evaluateUsePrintSettings () *EvalValue {
@@ -9803,7 +9957,21 @@ func (this *ComponentEngine) evaluateUseImage (src string) *EvalValue {
   if  (int64(len([]rune(src)))) > int64(0) {
     var firstChar string= string([]rune(src)[int64(0):int64(1)]);
     if  firstChar != "/" {
-      resolvedPath = this.basePath + src; 
+      var startsWithDotSlash bool= false;
+      if  (int64(len([]rune(src)))) >= int64(2) {
+        if  (string([]rune(src)[int64(0):int64(2)])) == "./" {
+          startsWithDotSlash = true; 
+        }
+      }
+      if  startsWithDotSlash {
+        if  this.basePath == "./" {
+          resolvedPath = src; 
+        } else {
+          resolvedPath = this.basePath + (string([]rune(src)[int64(2):(int64(len([]rune(src))))])); 
+        }
+      } else {
+        resolvedPath = this.basePath + src; 
+      }
     }
   }
   fmt.Println( (("Hook: useImage() called with src: " + src) + " -> resolved: ") + resolvedPath )
@@ -9817,6 +9985,19 @@ func (this *ComponentEngine) evaluateUseImage (src string) *EvalValue {
   fmt.Println( (("Hook: parsing JPEG - dir: " + dirPath) + " file: ") + fileName )
   var parser_1 *JPEGMetadataParser= CreateNew_JPEGMetadataParser();
   var metadata *JPEGMetadataInfo= parser_1.parseMetadata(dirPath, fileName);
+  if  metadata.isValid == false {
+    var altDirPath string= "";
+    if  (int64(strings.Index(dirPath, "./"))) == int64(0) {
+      altDirPath = "./assets/" + (string([]rune(dirPath)[int64(2):(int64(len([]rune(dirPath))))])); 
+    } else {
+      altDirPath = "./assets/" + dirPath; 
+    }
+    fmt.Println( ("Hook: useImage() trying alternative path: " + altDirPath) + fileName )
+    metadata = parser_1.parseMetadata(altDirPath, fileName); 
+    if  metadata.isValid {
+      resolvedPath = altDirPath + fileName; 
+    }
+  }
   var propNames []string = make([]string, 0);
   var propValues []*EvalValue = make([]*EvalValue, 0);
   propNames = append(propNames,"resolvedPath"); 

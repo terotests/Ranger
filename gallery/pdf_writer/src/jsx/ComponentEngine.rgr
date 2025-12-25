@@ -1810,10 +1810,12 @@ class ComponentEngine {
         if (node.nodeType == "TemplateLiteral") {
             ; Template literals have TemplateElement children with the text
             ; The text may contain ${...} expressions that need to be evaluated
+            print "TemplateLiteral: processing template with " + (to_string (array_length node.children)) + " children"
             def templateText:string ""
             def ti:int 0
             while (ti < (array_length node.children)) {
                 def templateChild:TSNode (itemAt node.children ti)
+                print "TemplateLiteral child " + (to_string ti) + ": nodeType=" + templateChild.nodeType + " value=" + templateChild.value
                 if (templateChild.nodeType == "TemplateElement") {
                     ; Parse and evaluate any ${...} expressions in the template text
                     def rawText:string templateChild.value
@@ -1822,6 +1824,7 @@ class ComponentEngine {
                 }
                 ti = ti + 1
             }
+            print "TemplateLiteral: result = '" + templateText + "'"
             return (EvalValue.string(templateText))
         }
         
@@ -1905,9 +1908,174 @@ class ComponentEngine {
         if node.left {
             def callee:TSNode (unwrap node.left)
             
-            ; Handle method calls (e.g., arr.map())
+            ; Handle method calls (e.g., arr.map(), num.toFixed())
             if (callee.nodeType == "MemberExpression") {
-                ; For now, return null - method calls are handled elsewhere
+                ; Get the object and method name
+                def obj:EvalValue (EvalValue.null())
+                def methodName:string ""
+                
+                ; Get the object (left side of the member expression)
+                if callee.left {
+                    def objNode:TSNode (unwrap callee.left)
+                    obj = (this.evaluateExpr(objNode))
+                }
+                
+                ; Get the method name - try callee.name first (direct property)
+                ; then fall back to callee.right for computed access
+                methodName = callee.name
+                if ((strlen methodName) == 0) {
+                    if callee.right {
+                        def propNode:TSNode (unwrap callee.right)
+                        methodName = propNode.name
+                        if ((strlen methodName) == 0) {
+                            methodName = propNode.value
+                        }
+                    }
+                }
+                
+                print "Method call: " + methodName + " on value type=" + (to_string obj.valueType)
+                
+                ; Handle Number methods
+                if (methodName == "toFixed") {
+                    def numVal:double (obj.toNumber())
+                    def decimals:int 0
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        def argVal:EvalValue (this.evaluateExpr(argNode))
+                        decimals = (to_int (argVal.toNumber()))
+                    }
+                    ; Format the number with specified decimal places
+                    ; Multiply, round, then divide to get the right precision
+                    def multiplier:double 1.0
+                    def i:int 0
+                    while (i < decimals) {
+                        multiplier = multiplier * 10.0
+                        i = i + 1
+                    }
+                    def rounded:double (to_double (to_int ((numVal * multiplier) + 0.5)))
+                    def result:double (rounded / multiplier)
+                    
+                    ; Convert to string with proper decimal places
+                    def resultStr:string (to_string result)
+                    ; Find decimal point
+                    def dotIdx:int (indexOf resultStr ".")
+                    if (decimals == 0) {
+                        ; Return integer part only
+                        if (dotIdx >= 0) {
+                            return (EvalValue.string((substring resultStr 0 dotIdx)))
+                        }
+                        return (EvalValue.string(resultStr))
+                    }
+                    if (dotIdx < 0) {
+                        ; No decimal point, add one with zeros
+                        resultStr = resultStr + "."
+                        def z:int 0
+                        while (z < decimals) {
+                            resultStr = resultStr + "0"
+                            z = z + 1
+                        }
+                        return (EvalValue.string(resultStr))
+                    }
+                    ; Pad or truncate decimals
+                    def currentDecimals:int ((strlen resultStr) - dotIdx - 1)
+                    if (currentDecimals < decimals) {
+                        ; Pad with zeros
+                        def p:int currentDecimals
+                        while (p < decimals) {
+                            resultStr = resultStr + "0"
+                            p = p + 1
+                        }
+                    } {
+                        ; Truncate
+                        resultStr = (substring resultStr 0 (dotIdx + 1 + decimals))
+                    }
+                    return (EvalValue.string(resultStr))
+                }
+                
+                ; Handle String methods
+                if (methodName == "toString") {
+                    return (EvalValue.string((obj.toString())))
+                }
+                if (methodName == "toUpperCase") {
+                    return (EvalValue.string((to_uppercase (obj.toString()))))
+                }
+                if (methodName == "toLowerCase") {
+                    return (EvalValue.string((to_lowercase (obj.toString()))))
+                }
+                if (methodName == "trim") {
+                    return (EvalValue.string((trim (obj.toString()))))
+                }
+                if (methodName == "charAt") {
+                    def str:string (obj.toString())
+                    def idx:int 0
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        def argVal:EvalValue (this.evaluateExpr(argNode))
+                        idx = (to_int (argVal.toNumber()))
+                    }
+                    if (idx < (strlen str)) {
+                        ; Use substring to get single character as string (charAt returns int)
+                        return (EvalValue.string((substring str idx (idx + 1))))
+                    }
+                    return (EvalValue.string(""))
+                }
+                if (methodName == "substring") {
+                    def str:string (obj.toString())
+                    def startIdx:int 0
+                    def endIdx:int (strlen str)
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        def argVal:EvalValue (this.evaluateExpr(argNode))
+                        startIdx = (to_int (argVal.toNumber()))
+                    }
+                    if ((array_length node.children) > 1) {
+                        def argNode2:TSNode (itemAt node.children 1)
+                        def argVal2:EvalValue (this.evaluateExpr(argNode2))
+                        endIdx = (to_int (argVal2.toNumber()))
+                    }
+                    return (EvalValue.string((substring str startIdx endIdx)))
+                }
+                
+                ; Handle Math methods like Math.round, Math.floor, Math.ceil
+                if (obj.isObject()) {
+                    def objName:string ""
+                    if callee.left {
+                        def objNode:TSNode (unwrap callee.left)
+                        if (objNode.nodeType == "Identifier") {
+                            objName = objNode.name
+                        }
+                    }
+                    if (objName == "Math") {
+                        if ((array_length node.children) > 0) {
+                            def argNode:TSNode (itemAt node.children 0)
+                            def argVal:EvalValue (this.evaluateExpr(argNode))
+                            def num:double (argVal.toNumber())
+                            
+                            if (methodName == "round") {
+                                return (EvalValue.number((to_double (to_int (num + 0.5)))))
+                            }
+                            if (methodName == "floor") {
+                                return (EvalValue.number((to_double (to_int num))))
+                            }
+                            if (methodName == "ceil") {
+                                def intPart:int (to_int num)
+                                if (num > (to_double intPart)) {
+                                    return (EvalValue.number((to_double (intPart + 1))))
+                                }
+                                return (EvalValue.number((to_double intPart)))
+                            }
+                            if (methodName == "abs") {
+                                if (num < 0.0) {
+                                    return (EvalValue.number((0.0 - num)))
+                                }
+                                return (EvalValue.number(num))
+                            }
+                        }
+                    }
+                }
+                
+                ; Fallback: return null for unhandled methods
+                print "Warning: Unhandled method call: " + methodName
                 return (EvalValue.null())
             }
             
@@ -2354,6 +2522,7 @@ class ComponentEngine {
     ; Evaluates ${...} template expressions within a template literal string
     ; Parses the string, finds ${...} patterns, evaluates them, and returns the result
     fn evaluateTemplateExpressions:string (templateStr:string) {
+        print "evaluateTemplateExpressions: input = '" + templateStr + "'"
         def result:string ""
         def len:int (strlen templateStr)
         def i:int 0
@@ -2387,6 +2556,7 @@ class ComponentEngine {
                         if (braceDepth == 0) {
                             ; Extract the expression
                             def exprStr:string (substring templateStr exprStart j)
+                            print "evaluateTemplateExpressions: found expression '" + exprStr + "'"
                             
                             ; Parse and evaluate the expression
                             def exprValue:string (this.evaluateTemplateExpression(exprStr))
@@ -2421,26 +2591,36 @@ class ComponentEngine {
     
     ; Evaluates a single template expression string like "img.gps.latitude"
     fn evaluateTemplateExpression:string (exprStr:string) {
-        ; Parse the expression using the TypeScript parser
-        def parser:TSParserSimple (new TSParserSimple(exprStr))
+        print "evaluateTemplateExpression: parsing '" + exprStr + "'"
+        ; Tokenize and parse the expression using the TypeScript parser
+        def lexer:TSLexer (new TSLexer(exprStr))
+        def tokens:[Token] (lexer.tokenize())
+        def parser:TSParserSimple (new TSParserSimple())
+        parser.initParser(tokens)
         def ast:TSNode (parser.parseProgram())
         
         ; The AST should have a Program with one ExpressionStatement
+        print "evaluateTemplateExpression: AST has " + (to_string (array_length ast.children)) + " children"
         if ((array_length ast.children) > 0) {
             def stmt:TSNode (itemAt ast.children 0)
+            print "evaluateTemplateExpression: stmt.nodeType = " + stmt.nodeType
             if (stmt.nodeType == "ExpressionStatement") {
                 if stmt.left {
                     def exprNode:TSNode (unwrap stmt.left)
+                    print "evaluateTemplateExpression: exprNode.nodeType = " + exprNode.nodeType
                     def value:EvalValue (this.evaluateExpr(exprNode))
+                    print "evaluateTemplateExpression: result = " + (value.toString())
                     return (value.toString())
                 }
             }
             ; Try direct expression evaluation
             def value:EvalValue (this.evaluateExpr(stmt))
+            print "evaluateTemplateExpression: direct result = " + (value.toString())
             return (value.toString())
         }
         
         ; Fallback: return the original expression
+        print "evaluateTemplateExpression: fallback for '" + exprStr + "'"
         return ("${" + exprStr + "}")
     }
     
@@ -2627,7 +2807,25 @@ class ComponentEngine {
             ; Check if it's a relative path (not starting with /)
             def firstChar:string (substring src 0 1)
             if (firstChar != "/") {
-                resolvedPath = basePath + src
+                ; Check if src starts with "./" - if basePath is "./" avoid double "./"
+                def startsWithDotSlash:boolean false
+                if ((strlen src) >= 2) {
+                    if ((substring src 0 2) == "./") {
+                        startsWithDotSlash = true
+                    }
+                }
+                
+                if startsWithDotSlash {
+                    ; src already starts with "./" - check if basePath is just "./"
+                    if (basePath == "./") {
+                        resolvedPath = src
+                    } {
+                        ; basePath is something else, prepend it but remove the "./" from src
+                        resolvedPath = basePath + (substring src 2 (strlen src))
+                    }
+                } {
+                    resolvedPath = basePath + src
+                }
             }
         }
         print "Hook: useImage() called with src: " + src + " -> resolved: " + resolvedPath
@@ -2647,6 +2845,24 @@ class ComponentEngine {
         ; Parse the JPEG metadata
         def parser (new JPEGMetadataParser())
         def metadata:JPEGMetadataInfo (parser.parseMetadata(dirPath fileName))
+        
+        ; If file not found or invalid, try with ./assets/ prefix (same as ResourceLoader)
+        if (metadata.isValid == false) {
+            def altDirPath:string ""
+            if ((indexOf dirPath "./") == 0) {
+                ; ./images/ -> ./assets/images/
+                altDirPath = "./assets/" + (substring dirPath 2 (strlen dirPath))
+            } {
+                altDirPath = "./assets/" + dirPath
+            }
+            print "Hook: useImage() trying alternative path: " + altDirPath + fileName
+            metadata = (parser.parseMetadata(altDirPath fileName))
+            
+            ; Update resolvedPath if alternative worked
+            if metadata.isValid {
+                resolvedPath = altDirPath + fileName
+            }
+        }
         
         ; Create property names and values arrays
         def propNames:[string]
