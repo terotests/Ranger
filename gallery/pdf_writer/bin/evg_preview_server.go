@@ -12660,11 +12660,15 @@ func (this *EVGPreviewServer) handleEvents (client *SSEClient) () {
   for connected {
     var fileChanged bool= false;
     var changedFile string= "";
-    if  ((int64(len(this.watchedFiles))) > int64(0)) && ((int64(len(this.lastModTimes))) == (int64(len(this.watchedFiles)))) {
+    var localWatchedFiles []string= this.watchedFiles;
+    var localModTimes []int64= this.lastModTimes;
+    var watchedCount int64= int64(len(localWatchedFiles));
+    var modTimesCount int64= int64(len(localModTimes));
+    if  (watchedCount > int64(0)) && (modTimesCount == watchedCount) {
       var i int64= int64(0);
-      for i < (int64(len(this.watchedFiles))) {
-        var watchedFile string= this.watchedFiles[i];
-        var storedModTime int64= this.lastModTimes[i];
+      for i < watchedCount {
+        var watchedFile string= localWatchedFiles[i];
+        var storedModTime int64= localModTimes[i];
         var lastSlashIdx int64= int64(strings.LastIndex(watchedFile, "/"));
         var fileDir string= "./";
         var fileName string= watchedFile;
@@ -12676,7 +12680,9 @@ func (this *EVGPreviewServer) handleEvents (client *SSEClient) () {
         if  currentModTime > storedModTime {
           fileChanged = true; 
           changedFile = watchedFile; 
-          this.lastModTimes[i] = currentModTime
+          if  i < (int64(len(this.lastModTimes))) {
+            this.lastModTimes[i] = currentModTime
+          }
         }
         i = i + int64(1); 
       }

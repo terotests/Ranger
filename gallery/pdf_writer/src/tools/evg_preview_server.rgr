@@ -343,12 +343,19 @@ class EVGPreviewServer@(HttpServer) {
             def fileChanged:boolean false
             def changedFile:string ""
             
+            ; Take local snapshots of the arrays to avoid race conditions
+            ; (generateHTML may clear and rebuild these arrays concurrently)
+            def localWatchedFiles:[string] watchedFiles
+            def localModTimes:[int] lastModTimes
+            def watchedCount:int (array_length localWatchedFiles)
+            def modTimesCount:int (array_length localModTimes)
+            
             ; Only check files if we have any watched files AND matching mod times
-            if (((array_length watchedFiles) > 0) && ((array_length lastModTimes) == (array_length watchedFiles))) {
+            if ((watchedCount > 0) && (modTimesCount == watchedCount)) {
                 def i:int 0
-                while (i < (array_length watchedFiles)) {
-                    def watchedFile:string (itemAt watchedFiles i)
-                    def storedModTime:int (itemAt lastModTimes i)
+                while (i < watchedCount) {
+                    def watchedFile:string (itemAt localWatchedFiles i)
+                    def storedModTime:int (itemAt localModTimes i)
                     
                     ; Split path to get dir and filename for file_mtime
                     def lastSlashIdx:int (lastIndexOf watchedFile "/")
@@ -364,8 +371,10 @@ class EVGPreviewServer@(HttpServer) {
                     if (currentModTime > storedModTime) {
                         fileChanged = true
                         changedFile = watchedFile
-                        ; Update stored mod time
-                        set_at lastModTimes i currentModTime
+                        ; Update stored mod time - check bounds to avoid race condition
+                        if (i < (array_length lastModTimes)) {
+                            set_at lastModTimes i currentModTime
+                        }
                     }
                     i = i + 1
                 }
