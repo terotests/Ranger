@@ -2035,6 +2035,74 @@ class ComponentEngine {
                     }
                     return (EvalValue.string((substring str startIdx endIdx)))
                 }
+                if (methodName == "padStart") {
+                    def str:string (obj.toString())
+                    def targetLen:int (strlen str)
+                    def padStr:string " "
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        def argVal:EvalValue (this.evaluateExpr(argNode))
+                        targetLen = (to_int (argVal.toNumber()))
+                    }
+                    if ((array_length node.children) > 1) {
+                        def argNode2:TSNode (itemAt node.children 1)
+                        def argVal2:EvalValue (this.evaluateExpr(argNode2))
+                        padStr = (argVal2.toString())
+                        if ((strlen padStr) == 0) {
+                            padStr = " "
+                        }
+                    }
+                    ; Pad the string at the start
+                    def currentLen:int (strlen str)
+                    if (currentLen >= targetLen) {
+                        return (EvalValue.string(str))
+                    }
+                    def padding:string ""
+                    def padLen:int (strlen padStr)
+                    while ((strlen padding) < (targetLen - currentLen)) {
+                        padding = padding + padStr
+                    }
+                    ; Trim padding to exact length needed
+                    def neededPad:int (targetLen - currentLen)
+                    if ((strlen padding) > neededPad) {
+                        padding = (substring padding 0 neededPad)
+                    }
+                    return (EvalValue.string(padding + str))
+                }
+                if (methodName == "padEnd") {
+                    def str:string (obj.toString())
+                    def targetLen:int (strlen str)
+                    def padStr:string " "
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        def argVal:EvalValue (this.evaluateExpr(argNode))
+                        targetLen = (to_int (argVal.toNumber()))
+                    }
+                    if ((array_length node.children) > 1) {
+                        def argNode2:TSNode (itemAt node.children 1)
+                        def argVal2:EvalValue (this.evaluateExpr(argNode2))
+                        padStr = (argVal2.toString())
+                        if ((strlen padStr) == 0) {
+                            padStr = " "
+                        }
+                    }
+                    ; Pad the string at the end
+                    def currentLen:int (strlen str)
+                    if (currentLen >= targetLen) {
+                        return (EvalValue.string(str))
+                    }
+                    def padding:string ""
+                    def padLen:int (strlen padStr)
+                    while ((strlen padding) < (targetLen - currentLen)) {
+                        padding = padding + padStr
+                    }
+                    ; Trim padding to exact length needed
+                    def neededPad:int (targetLen - currentLen)
+                    if ((strlen padding) > neededPad) {
+                        padding = (substring padding 0 neededPad)
+                    }
+                    return (EvalValue.string(str + padding))
+                }
                 
                 ; Handle Math methods like Math.round, Math.floor, Math.ceil
                 if (obj.isObject()) {
@@ -2799,6 +2867,263 @@ class ComponentEngine {
         return result
     }
     
+    ; Parse EXIF date string like "2025:07:17 19:22:41" into components
+    ; Returns an object with year, month, day, hour, minute, second, monthName, weekday, timeOfDay, formatted
+    fn parseDateInfo:EvalValue (dateStr:string) {
+        def names:[string]
+        def values:[EvalValue]
+        
+        ; Return null object if no date string
+        if ((strlen dateStr) < 10) {
+            return (EvalValue.null())
+        }
+        
+        ; Parse EXIF format: "YYYY:MM:DD HH:MM:SS"
+        ; Example: "2025:07:17 19:22:41"
+        def year:int 0
+        def month:int 0
+        def day:int 0
+        def hour:int 0
+        def minute:int 0
+        def second:int 0
+        
+        ; Extract year (chars 0-3)
+        if ((strlen dateStr) >= 4) {
+            def yearStr:string (substring dateStr 0 4)
+            def yearOpt@(optional):double (to_double yearStr)
+            if yearOpt {
+                year = (to_int (unwrap yearOpt))
+            }
+        }
+        
+        ; Extract month (chars 5-6)
+        if ((strlen dateStr) >= 7) {
+            def monthStr:string (substring dateStr 5 7)
+            def monthOpt@(optional):double (to_double monthStr)
+            if monthOpt {
+                month = (to_int (unwrap monthOpt))
+            }
+        }
+        
+        ; Extract day (chars 8-9)
+        if ((strlen dateStr) >= 10) {
+            def dayStr:string (substring dateStr 8 10)
+            def dayOpt@(optional):double (to_double dayStr)
+            if dayOpt {
+                day = (to_int (unwrap dayOpt))
+            }
+        }
+        
+        ; Extract hour (chars 11-12)
+        if ((strlen dateStr) >= 13) {
+            def hourStr:string (substring dateStr 11 13)
+            def hourOpt@(optional):double (to_double hourStr)
+            if hourOpt {
+                hour = (to_int (unwrap hourOpt))
+            }
+        }
+        
+        ; Extract minute (chars 14-15)
+        if ((strlen dateStr) >= 16) {
+            def minuteStr:string (substring dateStr 14 16)
+            def minuteOpt@(optional):double (to_double minuteStr)
+            if minuteOpt {
+                minute = (to_int (unwrap minuteOpt))
+            }
+        }
+        
+        ; Extract second (chars 17-18)
+        if ((strlen dateStr) >= 19) {
+            def secondStr:string (substring dateStr 17 19)
+            def secondOpt@(optional):double (to_double secondStr)
+            if secondOpt {
+                second = (to_int (unwrap secondOpt))
+            }
+        }
+        
+        ; Store numeric values
+        push names "year"
+        push values (EvalValue.number((to_double year)))
+        
+        push names "month"
+        push values (EvalValue.number((to_double month)))
+        
+        push names "day"
+        push values (EvalValue.number((to_double day)))
+        
+        push names "hour"
+        push values (EvalValue.number((to_double hour)))
+        
+        push names "minute"
+        push values (EvalValue.number((to_double minute)))
+        
+        push names "second"
+        push values (EvalValue.number((to_double second)))
+        
+        ; Month name
+        push names "monthName"
+        def monthName:string "Unknown"
+        if (month == 1) { monthName = "January" }
+        if (month == 2) { monthName = "February" }
+        if (month == 3) { monthName = "March" }
+        if (month == 4) { monthName = "April" }
+        if (month == 5) { monthName = "May" }
+        if (month == 6) { monthName = "June" }
+        if (month == 7) { monthName = "July" }
+        if (month == 8) { monthName = "August" }
+        if (month == 9) { monthName = "September" }
+        if (month == 10) { monthName = "October" }
+        if (month == 11) { monthName = "November" }
+        if (month == 12) { monthName = "December" }
+        push values (EvalValue.string(monthName))
+        
+        ; Short month name
+        push names "monthShort"
+        def monthShort:string "Unk"
+        if (month == 1) { monthShort = "Jan" }
+        if (month == 2) { monthShort = "Feb" }
+        if (month == 3) { monthShort = "Mar" }
+        if (month == 4) { monthShort = "Apr" }
+        if (month == 5) { monthShort = "May" }
+        if (month == 6) { monthShort = "Jun" }
+        if (month == 7) { monthShort = "Jul" }
+        if (month == 8) { monthShort = "Aug" }
+        if (month == 9) { monthShort = "Sep" }
+        if (month == 10) { monthShort = "Oct" }
+        if (month == 11) { monthShort = "Nov" }
+        if (month == 12) { monthShort = "Dec" }
+        push values (EvalValue.string(monthShort))
+        
+        ; Calculate weekday using Zeller's formula (simplified)
+        ; This gives 0=Saturday, 1=Sunday, ... 6=Friday
+        ; We adjust to 0=Sunday, 1=Monday, ... 6=Saturday
+        push names "weekday"
+        def weekdayName:string "Unknown"
+        def weekdayNum:int 0
+        
+        ; Adjust month and year for Zeller (Jan and Feb are months 13, 14 of previous year)
+        def adjustedMonth:int month
+        def adjustedYear:int year
+        if (month < 3) {
+            adjustedMonth = month + 12
+            adjustedYear = year - 1
+        }
+        
+        ; Zeller's congruence - use to_int for integer division
+        def k:int (adjustedYear % 100)
+        def j:int (to_int ((to_double adjustedYear) / 100.0))
+        def monthTerm:int (to_int ((to_double (13 * (adjustedMonth + 1))) / 5.0))
+        def kDiv4:int (to_int ((to_double k) / 4.0))
+        def jDiv4:int (to_int ((to_double j) / 4.0))
+        def h:int ((day + monthTerm + k + kDiv4 + jDiv4 - (2 * j)) % 7)
+        
+        ; Handle negative modulo result
+        if (h < 0) {
+            h = h + 7
+        }
+        
+        ; Convert from Zeller (0=Sat) to standard (0=Sun)
+        weekdayNum = ((h + 6) % 7)
+        
+        if (weekdayNum == 0) { weekdayName = "Sunday" }
+        if (weekdayNum == 1) { weekdayName = "Monday" }
+        if (weekdayNum == 2) { weekdayName = "Tuesday" }
+        if (weekdayNum == 3) { weekdayName = "Wednesday" }
+        if (weekdayNum == 4) { weekdayName = "Thursday" }
+        if (weekdayNum == 5) { weekdayName = "Friday" }
+        if (weekdayNum == 6) { weekdayName = "Saturday" }
+        push values (EvalValue.string(weekdayName))
+        
+        ; Short weekday name
+        push names "weekdayShort"
+        def weekdayShort:string "Unk"
+        if (weekdayNum == 0) { weekdayShort = "Sun" }
+        if (weekdayNum == 1) { weekdayShort = "Mon" }
+        if (weekdayNum == 2) { weekdayShort = "Tue" }
+        if (weekdayNum == 3) { weekdayShort = "Wed" }
+        if (weekdayNum == 4) { weekdayShort = "Thu" }
+        if (weekdayNum == 5) { weekdayShort = "Fri" }
+        if (weekdayNum == 6) { weekdayShort = "Sat" }
+        push values (EvalValue.string(weekdayShort))
+        
+        ; Weekday number (0 = Sunday)
+        push names "weekdayNumber"
+        push values (EvalValue.number((to_double weekdayNum)))
+        
+        ; Time of day (verbal description based on hour)
+        push names "timeOfDay"
+        def timeOfDay:string "night"
+        if ((hour >= 5) && (hour < 12)) {
+            timeOfDay = "morning"
+        }
+        if ((hour >= 12) && (hour < 14)) {
+            timeOfDay = "noon"
+        }
+        if ((hour >= 14) && (hour < 17)) {
+            timeOfDay = "afternoon"
+        }
+        if ((hour >= 17) && (hour < 21)) {
+            timeOfDay = "evening"
+        }
+        if ((hour >= 21) || (hour < 5)) {
+            timeOfDay = "night"
+        }
+        push values (EvalValue.string(timeOfDay))
+        
+        ; Is it AM or PM
+        push names "ampm"
+        if (hour < 12) {
+            push values (EvalValue.string("AM"))
+        } {
+            push values (EvalValue.string("PM"))
+        }
+        
+        ; Hour in 12-hour format
+        push names "hour12"
+        def hour12:int hour
+        if (hour == 0) {
+            hour12 = 12
+        } {
+            if (hour > 12) {
+                hour12 = hour - 12
+            }
+        }
+        push values (EvalValue.number((to_double hour12)))
+        
+        ; Formatted strings for convenience
+        ; ISO format: 2025-07-17
+        push names "isoDate"
+        def monthPad:string (to_string month)
+        if (month < 10) { monthPad = "0" + monthPad }
+        def dayPad:string (to_string day)
+        if (day < 10) { dayPad = "0" + dayPad }
+        push values (EvalValue.string((to_string year) + "-" + monthPad + "-" + dayPad))
+        
+        ; Time: 19:22:41
+        push names "time"
+        def hourPad:string (to_string hour)
+        if (hour < 10) { hourPad = "0" + hourPad }
+        def minPad:string (to_string minute)
+        if (minute < 10) { minPad = "0" + minPad }
+        def secPad:string (to_string second)
+        if (second < 10) { secPad = "0" + secPad }
+        push values (EvalValue.string(hourPad + ":" + minPad + ":" + secPad))
+        
+        ; Full formatted: "Thursday, July 17, 2025"
+        push names "formatted"
+        push values (EvalValue.string(weekdayName + ", " + monthName + " " + (to_string day) + ", " + (to_string year)))
+        
+        ; Short formatted: "Jul 17, 2025"
+        push names "shortFormatted"
+        push values (EvalValue.string(monthShort + " " + (to_string day) + ", " + (to_string year)))
+        
+        ; Original value
+        push names "originalValue"
+        push values (EvalValue.string(dateStr))
+        
+        return (EvalValue.object(names values))
+    }
+
     ; useImage(src) - returns image metadata as an object EvalValue
     fn evaluateUseImage:EvalValue (src:string) {
         ; Resolve the image path relative to the current TSX file's directory
@@ -2986,6 +3311,18 @@ class ComponentEngine {
         push featValues (EvalValue.boolean(hasOrientation))
         
         push propValues (EvalValue.object(featNames featValues))
+        
+        ; dateInfo - parsed date components if available
+        push propNames "dateInfo"
+        if ((strlen metadata.dateTimeOriginal) > 0) {
+            push propValues (this.parseDateInfo(metadata.dateTimeOriginal))
+        } {
+            if ((strlen metadata.dateTime) > 0) {
+                push propValues (this.parseDateInfo(metadata.dateTime))
+            } {
+                push propValues (EvalValue.null())
+            }
+        }
         
         return (EvalValue.object(propNames propValues))
     }

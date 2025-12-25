@@ -9326,6 +9326,70 @@ func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
         }
         return EvalValue_static_string((string([]rune(str_1)[startIdx:endIdx])))
       }
+      if  methodName == "padStart" {
+        var str_2 string= (obj).toString();
+        var targetLen int64= int64(len([]rune(str_2)));
+        var padStr string= " ";
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode_3 *TSNode= node.children[int64(0)];
+          var argVal_3 *EvalValue= this.evaluateExpr(argNode_3);
+          targetLen = int64(argVal_3.toNumber()); 
+        }
+        if  (int64(len(node.children))) > int64(1) {
+          var argNode2_1 *TSNode= node.children[int64(1)];
+          var argVal2_1 *EvalValue= this.evaluateExpr(argNode2_1);
+          padStr = (argVal2_1).toString(); 
+          if  (int64(len([]rune(padStr)))) == int64(0) {
+            padStr = " "; 
+          }
+        }
+        var currentLen int64= int64(len([]rune(str_2)));
+        if  currentLen >= targetLen {
+          return EvalValue_static_string(str_2)
+        }
+        var padding string= "";
+        /** unused:  padLen*/
+        for (int64(len([]rune(padding)))) < (targetLen - currentLen) {
+          padding = padding + padStr; 
+        }
+        var neededPad int64= targetLen - currentLen;
+        if  (int64(len([]rune(padding)))) > neededPad {
+          padding = string([]rune(padding)[int64(0):neededPad]); 
+        }
+        return EvalValue_static_string((padding + str_2))
+      }
+      if  methodName == "padEnd" {
+        var str_3 string= (obj).toString();
+        var targetLen_1 int64= int64(len([]rune(str_3)));
+        var padStr_1 string= " ";
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode_4 *TSNode= node.children[int64(0)];
+          var argVal_4 *EvalValue= this.evaluateExpr(argNode_4);
+          targetLen_1 = int64(argVal_4.toNumber()); 
+        }
+        if  (int64(len(node.children))) > int64(1) {
+          var argNode2_2 *TSNode= node.children[int64(1)];
+          var argVal2_2 *EvalValue= this.evaluateExpr(argNode2_2);
+          padStr_1 = (argVal2_2).toString(); 
+          if  (int64(len([]rune(padStr_1)))) == int64(0) {
+            padStr_1 = " "; 
+          }
+        }
+        var currentLen_1 int64= int64(len([]rune(str_3)));
+        if  currentLen_1 >= targetLen_1 {
+          return EvalValue_static_string(str_3)
+        }
+        var padding_1 string= "";
+        /** unused:  padLen_1*/
+        for (int64(len([]rune(padding_1)))) < (targetLen_1 - currentLen_1) {
+          padding_1 = padding_1 + padStr_1; 
+        }
+        var neededPad_1 int64= targetLen_1 - currentLen_1;
+        if  (int64(len([]rune(padding_1)))) > neededPad_1 {
+          padding_1 = string([]rune(padding_1)[int64(0):neededPad_1]); 
+        }
+        return EvalValue_static_string((str_3 + padding_1))
+      }
       if  obj.isObject() {
         var objName string= "";
         if ( callee.left.has_value) {
@@ -9336,9 +9400,9 @@ func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
         }
         if  objName == "Math" {
           if  (int64(len(node.children))) > int64(0) {
-            var argNode_3 *TSNode= node.children[int64(0)];
-            var argVal_3 *EvalValue= this.evaluateExpr(argNode_3);
-            var num float64= argVal_3.toNumber();
+            var argNode_5 *TSNode= node.children[int64(0)];
+            var argVal_5 *EvalValue= this.evaluateExpr(argNode_5);
+            var num float64= argVal_5.toNumber();
             if  methodName == "round" {
               return EvalValue_static_number((float64( (int64((num + 0.5))) )))
             }
@@ -9373,9 +9437,9 @@ func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
       if  fnName == "useImage" {
         var srcArg string= "";
         if  (int64(len(node.children))) > int64(0) {
-          var argNode_4 *TSNode= node.children[int64(0)];
-          fmt.Println( "useImage arg nodeType: " + argNode_4.nodeType )
-          var argValue *EvalValue= this.evaluateExpr(argNode_4);
+          var argNode_6 *TSNode= node.children[int64(0)];
+          fmt.Println( "useImage arg nodeType: " + argNode_6.nodeType )
+          var argValue *EvalValue= this.evaluateExpr(argNode_6);
           fmt.Println( (("useImage arg value: " + (argValue).toString()) + " type=") + (strconv.FormatInt(argValue.valueType, 10)) )
           srcArg = argValue.stringValue; 
           fmt.Println( "useImage srcArg: " + srcArg )
@@ -9398,8 +9462,8 @@ func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
           var argIdx int64= int64(0);
           for argIdx < numParams {
             if  argIdx < numArgs {
-              var argNode_5 *TSNode= node.children[argIdx];
-              var argValue_1 *EvalValue= this.evaluateExpr(argNode_5);
+              var argNode_7 *TSNode= node.children[argIdx];
+              var argValue_1 *EvalValue= this.evaluateExpr(argNode_7);
               var paramNode *TSNode= fnNode.params[argIdx];
               var paramName string= paramNode.name;
               fmt.Println( (("Binding param '" + paramName) + "' = ") + (argValue_1).toString() )
@@ -9952,6 +10016,289 @@ func (this *ComponentEngine) extractNumber (str string) string {
   }
   return result
 }
+func (this *ComponentEngine) parseDateInfo (dateStr string) *EvalValue {
+  var names []string = make([]string, 0);
+  var values []*EvalValue = make([]*EvalValue, 0);
+  if  (int64(len([]rune(dateStr)))) < int64(10) {
+    return EvalValue_static_null()
+  }
+  var year int64= int64(0);
+  var month int64= int64(0);
+  var day int64= int64(0);
+  var hour int64= int64(0);
+  var minute int64= int64(0);
+  var second int64= int64(0);
+  if  (int64(len([]rune(dateStr)))) >= int64(4) {
+    var yearStr string= string([]rune(dateStr)[int64(0):int64(4)]);
+    var yearOpt *GoNullable = new(GoNullable); 
+    yearOpt = r_str_2_d64(yearStr);
+    if ( yearOpt.has_value) {
+      year = int64((yearOpt.value.(float64))); 
+    }
+  }
+  if  (int64(len([]rune(dateStr)))) >= int64(7) {
+    var monthStr string= string([]rune(dateStr)[int64(5):int64(7)]);
+    var monthOpt *GoNullable = new(GoNullable); 
+    monthOpt = r_str_2_d64(monthStr);
+    if ( monthOpt.has_value) {
+      month = int64((monthOpt.value.(float64))); 
+    }
+  }
+  if  (int64(len([]rune(dateStr)))) >= int64(10) {
+    var dayStr string= string([]rune(dateStr)[int64(8):int64(10)]);
+    var dayOpt *GoNullable = new(GoNullable); 
+    dayOpt = r_str_2_d64(dayStr);
+    if ( dayOpt.has_value) {
+      day = int64((dayOpt.value.(float64))); 
+    }
+  }
+  if  (int64(len([]rune(dateStr)))) >= int64(13) {
+    var hourStr string= string([]rune(dateStr)[int64(11):int64(13)]);
+    var hourOpt *GoNullable = new(GoNullable); 
+    hourOpt = r_str_2_d64(hourStr);
+    if ( hourOpt.has_value) {
+      hour = int64((hourOpt.value.(float64))); 
+    }
+  }
+  if  (int64(len([]rune(dateStr)))) >= int64(16) {
+    var minuteStr string= string([]rune(dateStr)[int64(14):int64(16)]);
+    var minuteOpt *GoNullable = new(GoNullable); 
+    minuteOpt = r_str_2_d64(minuteStr);
+    if ( minuteOpt.has_value) {
+      minute = int64((minuteOpt.value.(float64))); 
+    }
+  }
+  if  (int64(len([]rune(dateStr)))) >= int64(19) {
+    var secondStr string= string([]rune(dateStr)[int64(17):int64(19)]);
+    var secondOpt *GoNullable = new(GoNullable); 
+    secondOpt = r_str_2_d64(secondStr);
+    if ( secondOpt.has_value) {
+      second = int64((secondOpt.value.(float64))); 
+    }
+  }
+  names = append(names,"year"); 
+  values = append(values,EvalValue_static_number((float64( year )))); 
+  names = append(names,"month"); 
+  values = append(values,EvalValue_static_number((float64( month )))); 
+  names = append(names,"day"); 
+  values = append(values,EvalValue_static_number((float64( day )))); 
+  names = append(names,"hour"); 
+  values = append(values,EvalValue_static_number((float64( hour )))); 
+  names = append(names,"minute"); 
+  values = append(values,EvalValue_static_number((float64( minute )))); 
+  names = append(names,"second"); 
+  values = append(values,EvalValue_static_number((float64( second )))); 
+  names = append(names,"monthName"); 
+  var monthName string= "Unknown";
+  if  month == int64(1) {
+    monthName = "January"; 
+  }
+  if  month == int64(2) {
+    monthName = "February"; 
+  }
+  if  month == int64(3) {
+    monthName = "March"; 
+  }
+  if  month == int64(4) {
+    monthName = "April"; 
+  }
+  if  month == int64(5) {
+    monthName = "May"; 
+  }
+  if  month == int64(6) {
+    monthName = "June"; 
+  }
+  if  month == int64(7) {
+    monthName = "July"; 
+  }
+  if  month == int64(8) {
+    monthName = "August"; 
+  }
+  if  month == int64(9) {
+    monthName = "September"; 
+  }
+  if  month == int64(10) {
+    monthName = "October"; 
+  }
+  if  month == int64(11) {
+    monthName = "November"; 
+  }
+  if  month == int64(12) {
+    monthName = "December"; 
+  }
+  values = append(values,EvalValue_static_string(monthName)); 
+  names = append(names,"monthShort"); 
+  var monthShort string= "Unk";
+  if  month == int64(1) {
+    monthShort = "Jan"; 
+  }
+  if  month == int64(2) {
+    monthShort = "Feb"; 
+  }
+  if  month == int64(3) {
+    monthShort = "Mar"; 
+  }
+  if  month == int64(4) {
+    monthShort = "Apr"; 
+  }
+  if  month == int64(5) {
+    monthShort = "May"; 
+  }
+  if  month == int64(6) {
+    monthShort = "Jun"; 
+  }
+  if  month == int64(7) {
+    monthShort = "Jul"; 
+  }
+  if  month == int64(8) {
+    monthShort = "Aug"; 
+  }
+  if  month == int64(9) {
+    monthShort = "Sep"; 
+  }
+  if  month == int64(10) {
+    monthShort = "Oct"; 
+  }
+  if  month == int64(11) {
+    monthShort = "Nov"; 
+  }
+  if  month == int64(12) {
+    monthShort = "Dec"; 
+  }
+  values = append(values,EvalValue_static_string(monthShort)); 
+  names = append(names,"weekday"); 
+  var weekdayName string= "Unknown";
+  var weekdayNum int64= int64(0);
+  var adjustedMonth int64= month;
+  var adjustedYear int64= year;
+  if  month < int64(3) {
+    adjustedMonth = month + int64(12); 
+    adjustedYear = year - int64(1); 
+  }
+  var k int64= adjustedYear % int64(100);
+  var j int64= int64(((float64( adjustedYear )) / 100.0));
+  var monthTerm int64= int64(((float64( (int64(13) * (adjustedMonth + int64(1))) )) / 5.0));
+  var kDiv4 int64= int64(((float64( k )) / 4.0));
+  var jDiv4 int64= int64(((float64( j )) / 4.0));
+  var h int64= (((((day + monthTerm) + k) + kDiv4) + jDiv4) - (int64(2) * j)) % int64(7);
+  if  h < int64(0) {
+    h = h + int64(7); 
+  }
+  weekdayNum = (h + int64(6)) % int64(7); 
+  if  weekdayNum == int64(0) {
+    weekdayName = "Sunday"; 
+  }
+  if  weekdayNum == int64(1) {
+    weekdayName = "Monday"; 
+  }
+  if  weekdayNum == int64(2) {
+    weekdayName = "Tuesday"; 
+  }
+  if  weekdayNum == int64(3) {
+    weekdayName = "Wednesday"; 
+  }
+  if  weekdayNum == int64(4) {
+    weekdayName = "Thursday"; 
+  }
+  if  weekdayNum == int64(5) {
+    weekdayName = "Friday"; 
+  }
+  if  weekdayNum == int64(6) {
+    weekdayName = "Saturday"; 
+  }
+  values = append(values,EvalValue_static_string(weekdayName)); 
+  names = append(names,"weekdayShort"); 
+  var weekdayShort string= "Unk";
+  if  weekdayNum == int64(0) {
+    weekdayShort = "Sun"; 
+  }
+  if  weekdayNum == int64(1) {
+    weekdayShort = "Mon"; 
+  }
+  if  weekdayNum == int64(2) {
+    weekdayShort = "Tue"; 
+  }
+  if  weekdayNum == int64(3) {
+    weekdayShort = "Wed"; 
+  }
+  if  weekdayNum == int64(4) {
+    weekdayShort = "Thu"; 
+  }
+  if  weekdayNum == int64(5) {
+    weekdayShort = "Fri"; 
+  }
+  if  weekdayNum == int64(6) {
+    weekdayShort = "Sat"; 
+  }
+  values = append(values,EvalValue_static_string(weekdayShort)); 
+  names = append(names,"weekdayNumber"); 
+  values = append(values,EvalValue_static_number((float64( weekdayNum )))); 
+  names = append(names,"timeOfDay"); 
+  var timeOfDay string= "night";
+  if  (hour >= int64(5)) && (hour < int64(12)) {
+    timeOfDay = "morning"; 
+  }
+  if  (hour >= int64(12)) && (hour < int64(14)) {
+    timeOfDay = "noon"; 
+  }
+  if  (hour >= int64(14)) && (hour < int64(17)) {
+    timeOfDay = "afternoon"; 
+  }
+  if  (hour >= int64(17)) && (hour < int64(21)) {
+    timeOfDay = "evening"; 
+  }
+  if  (hour >= int64(21)) || (hour < int64(5)) {
+    timeOfDay = "night"; 
+  }
+  values = append(values,EvalValue_static_string(timeOfDay)); 
+  names = append(names,"ampm"); 
+  if  hour < int64(12) {
+    values = append(values,EvalValue_static_string("AM")); 
+  } else {
+    values = append(values,EvalValue_static_string("PM")); 
+  }
+  names = append(names,"hour12"); 
+  var hour12 int64= hour;
+  if  hour == int64(0) {
+    hour12 = int64(12); 
+  } else {
+    if  hour > int64(12) {
+      hour12 = hour - int64(12); 
+    }
+  }
+  values = append(values,EvalValue_static_number((float64( hour12 )))); 
+  names = append(names,"isoDate"); 
+  var monthPad string= strconv.FormatInt(month, 10);
+  if  month < int64(10) {
+    monthPad = "0" + monthPad; 
+  }
+  var dayPad string= strconv.FormatInt(day, 10);
+  if  day < int64(10) {
+    dayPad = "0" + dayPad; 
+  }
+  values = append(values,EvalValue_static_string((((((strconv.FormatInt(year, 10)) + "-") + monthPad) + "-") + dayPad))); 
+  names = append(names,"time"); 
+  var hourPad string= strconv.FormatInt(hour, 10);
+  if  hour < int64(10) {
+    hourPad = "0" + hourPad; 
+  }
+  var minPad string= strconv.FormatInt(minute, 10);
+  if  minute < int64(10) {
+    minPad = "0" + minPad; 
+  }
+  var secPad string= strconv.FormatInt(second, 10);
+  if  second < int64(10) {
+    secPad = "0" + secPad; 
+  }
+  values = append(values,EvalValue_static_string(((((hourPad + ":") + minPad) + ":") + secPad))); 
+  names = append(names,"formatted"); 
+  values = append(values,EvalValue_static_string(((((((weekdayName + ", ") + monthName) + " ") + (strconv.FormatInt(day, 10))) + ", ") + (strconv.FormatInt(year, 10))))); 
+  names = append(names,"shortFormatted"); 
+  values = append(values,EvalValue_static_string(((((monthShort + " ") + (strconv.FormatInt(day, 10))) + ", ") + (strconv.FormatInt(year, 10))))); 
+  names = append(names,"originalValue"); 
+  values = append(values,EvalValue_static_string(dateStr)); 
+  return EvalValue_static_object(names, values)
+}
 func (this *ComponentEngine) evaluateUseImage (src string) *EvalValue {
   var resolvedPath string= src;
   if  (int64(len([]rune(src)))) > int64(0) {
@@ -10082,6 +10429,16 @@ func (this *ComponentEngine) evaluateUseImage (src string) *EvalValue {
   var hasOrientation bool= metadata.orientation > int64(1);
   featValues = append(featValues,EvalValue_static_boolean(hasOrientation)); 
   propValues = append(propValues,EvalValue_static_object(featNames, featValues)); 
+  propNames = append(propNames,"dateInfo"); 
+  if  (int64(len([]rune(metadata.dateTimeOriginal)))) > int64(0) {
+    propValues = append(propValues,this.parseDateInfo(metadata.dateTimeOriginal)); 
+  } else {
+    if  (int64(len([]rune(metadata.dateTime)))) > int64(0) {
+      propValues = append(propValues,this.parseDateInfo(metadata.dateTime)); 
+    } else {
+      propValues = append(propValues,EvalValue_static_null()); 
+    }
+  }
   return EvalValue_static_object(propNames, propValues)
 }
 func (this *ComponentEngine) setPrintSettings (format string, orientation string, width float64, height float64) () {

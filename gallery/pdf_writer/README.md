@@ -49,6 +49,44 @@ The ComponentEngine now supports **full TypeScript control flow evaluation**, en
 | Compound assignment | `total += value` | `+=`, `-=`, `*=`, `/=`, `%=` |
 | Update expressions | `i++`, `++i`, `i--`, `--i` | Pre/post increment/decrement |
 | Function calls in JSX | `{buildItems()}` | Call functions that return element arrays |
+| Template literals | `` `${expr}` `` | String interpolation with expressions |
+| Method calls | `.toFixed()`, `.substring()` | String and number methods |
+
+#### Template Literals
+
+Template literals (backtick strings) are fully supported with expression interpolation:
+
+```tsx
+// Simple variable interpolation
+const name = "World";
+const greeting = `Hello, ${name}!`;  // "Hello, World!"
+
+// Expressions with arithmetic
+const width = `${100 / photos.length}%`;  // "16.666...%"
+
+// Method calls in template literals
+function formatGPS(coord: GPSCoordinate): string {
+  return `${coord.direction} ${coord.degrees}° ${coord.minutes}' ${coord.seconds.toFixed(2)}"`;
+}
+// Result: "N 58° 39' 55.35""
+
+// Property access chains
+const info = `${img.camera} - ${img.createdAt.substring(0, 10)}`;
+```
+
+**Supported methods in expressions:**
+
+| Method | Description | Example |
+|--------|-------------|---------|
+| `.toFixed(n)` | Format number with n decimals | `(3.14159).toFixed(2)` → `"3.14"` |
+| `.toString()` | Convert to string | `(42).toString()` → `"42"` |
+| `.toUpperCase()` | Uppercase string | `"hello".toUpperCase()` → `"HELLO"` |
+| `.toLowerCase()` | Lowercase string | `"HELLO".toLowerCase()` → `"hello"` |
+| `.trim()` | Remove whitespace | `"  hi  ".trim()` → `"hi"` |
+| `.substring(start, end)` | Extract substring | `"hello".substring(0, 3)` → `"hel"` |
+| `.charAt(index)` | Get character at index | `"hello".charAt(1)` → `"e"` |
+| `.padStart(len, str)` | Pad string at start | `"5".padStart(2, "0")` → `"05"` |
+| `.padEnd(len, str)` | Pad string at end | `"5".padEnd(3, ".")` → `"5.."` |
 
 **Example - Dynamic List with For Loop:**
 
@@ -781,6 +819,7 @@ function PhotoInfo({ src }: { src: string }) {
 | `colorSpace` | `string` | Color space (e.g., "RGB") |
 | `bitsPerComponent` | `number` | Bits per color component |
 | `gps` | `GPSLocation \| null` | GPS coordinates |
+| `dateInfo` | `DateInfo \| null` | Parsed date/time components |
 | `features` | `ImageFeatures` | Flags for available EXIF data |
 
 **GPSLocation interface:**
@@ -801,6 +840,30 @@ function PhotoInfo({ src }: { src: string }) {
 | `seconds` | `number` | Seconds component |
 | `originalValue` | `string` | Raw EXIF string |
 
+**DateInfo interface:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `year` | `number` | Full year (e.g., 2025) |
+| `month` | `number` | Month (1-12) |
+| `day` | `number` | Day of month (1-31) |
+| `hour` | `number` | Hour (0-23) |
+| `minute` | `number` | Minute (0-59) |
+| `second` | `number` | Second (0-59) |
+| `monthName` | `string` | Full month name (e.g., "July") |
+| `monthShort` | `string` | Abbreviated month (e.g., "Jul") |
+| `weekday` | `string` | Full weekday name (e.g., "Thursday") |
+| `weekdayShort` | `string` | Abbreviated weekday (e.g., "Thu") |
+| `weekdayNumber` | `number` | Day of week (0=Sunday, 6=Saturday) |
+| `timeOfDay` | `string` | "morning", "noon", "afternoon", "evening", "night" |
+| `ampm` | `string` | "AM" or "PM" |
+| `hour12` | `number` | Hour in 12-hour format (1-12) |
+| `isoDate` | `string` | ISO format date (e.g., "2025-07-17") |
+| `time` | `string` | Time string (e.g., "19:22:41") |
+| `formatted` | `string` | Full format (e.g., "Thursday, July 17, 2025") |
+| `shortFormatted` | `string` | Short format (e.g., "Jul 17, 2025") |
+| `originalValue` | `string` | Raw EXIF date string |
+
 **Example with GPS formatting:**
 
 ```tsx
@@ -819,6 +882,48 @@ function LocationCard({ src }: { src: string }) {
     <View padding={16}>
       <Label>Latitude: {formatGPS(img.gps.latitude)}</Label>
       <Label>Longitude: {formatGPS(img.gps.longitude)}</Label>
+    </View>
+  );
+}
+```
+
+**Example with date formatting:**
+
+```tsx
+function PhotoDateInfo({ src }: { src: string }) {
+  const img = useImage(src);
+  
+  if (!img.dateInfo) {
+    return <Label>No date information</Label>;
+  }
+  
+  const d = img.dateInfo;
+  
+  return (
+    <View padding={16} gap="8px">
+      {/* Full formatted date: "Thursday, July 17, 2025" */}
+      <Label fontWeight="bold">{d.formatted}</Label>
+      
+      {/* Time (already formatted with leading zeros): "19:22:41" */}
+      <Label>Time: {d.time}</Label>
+      
+      {/* 12-hour format with AM/PM */}
+      <Label>{d.hour12}:{d.minute < 10 ? "0" : ""}{d.minute} {d.ampm}</Label>
+      
+      {/* Time of day description: "morning", "afternoon", "evening", "night" */}
+      <Label>Taken in the {d.timeOfDay}</Label>
+      
+      {/* Short format: "Thu, Jul 17, 2025" */}
+      <Label>{d.weekdayShort}, {d.shortFormatted}</Label>
+      
+      {/* ISO date: "2025-07-17" */}
+      <Label>ISO: {d.isoDate}</Label>
+      
+      {/* Individual components */}
+      <Label>Year: {d.year}, Month: {d.monthName}, Day: {d.day}</Label>
+      
+      {/* Weekday info */}
+      <Label>{d.weekday} (day {d.weekdayNumber} of week)</Label>
     </View>
   );
 }
