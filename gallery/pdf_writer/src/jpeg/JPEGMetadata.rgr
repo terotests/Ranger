@@ -8,7 +8,7 @@
 ; FFED (APP13) - IPTC/Photoshop
 ; FFFE - Comment
 
-Import "Buffer.rgr"
+Import "../core/Buffer.rgr"
 
 class ExifTag {
     def tagId:int 0

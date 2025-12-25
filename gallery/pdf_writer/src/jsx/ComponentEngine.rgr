@@ -10,6 +10,7 @@ Import "../../../ts_parser/ts_parser_simple.rgr"
 Import "../../../ts_parser/ts_lexer.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "EvalValue.rgr"
+Import "../jpeg/JPEGMetadata.rgr"
 
 ; =============================================================================
 ; ImportedSymbol - Represents an imported component or function
@@ -102,6 +103,15 @@ class ComponentEngine {
     def assetPaths:[string]  ; Multiple asset directories for component resolution
     def pageWidth:double 595.0
     def pageHeight:double 842.0
+    
+    ; Print settings for hooks
+    def printFormat:string "a4"
+    def printOrientation:string "portrait"
+    def printMarginTop:double 0.0
+    def printMarginRight:double 0.0
+    def printMarginBottom:double 0.0
+    def printMarginLeft:double 0.0
+    def printPageCount:int 1
     
     ; Import/export tracking
     def imports:[ImportedSymbol]
@@ -241,7 +251,7 @@ class ComponentEngine {
         ; 3. Process top-level variable declarations
         this.processVariables(ast)
         
-        ; 3. Find and evaluate render() function
+        ; 4. Find and evaluate render() function
         def renderFn:TSNode (this.findRenderFunction(ast))
         if (renderFn.nodeType == "") {
             print "Error: No render() function found"
@@ -249,7 +259,7 @@ class ComponentEngine {
             return empty
         }
         
-        ; 4. Evaluate render function and return EVG tree
+        ; 5. Evaluate render function and return EVG tree
         return (this.evaluateFunction(renderFn))
     }
     
@@ -1168,6 +1178,10 @@ class ComponentEngine {
             if (element.pageHeight > 0.0) {
                 pageHeight = element.pageHeight
             }
+            ; Update print settings for hooks
+            printFormat = element.format
+            printOrientation = element.orientation
+            print "Print settings: format=" + printFormat + " orientation=" + printOrientation + " " + (to_string pageWidth) + "x" + (to_string pageHeight)
         }
         
         ; Handle text content for Label/text elements
@@ -1866,6 +1880,26 @@ class ComponentEngine {
                 def fnName:string callee.name
                 print "Evaluating function call: " + fnName
                 
+                ; ============================================================
+                ; Handle built-in hooks
+                ; ============================================================
+                if (fnName == "usePrintSettings") {
+                    return (this.evaluateUsePrintSettings())
+                }
+                if (fnName == "useImage") {
+                    ; Get the src argument from node.children
+                    def srcArg:string ""
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        print "useImage arg nodeType: " + argNode.nodeType
+                        def argValue:EvalValue (this.evaluateExpr(argNode))
+                        print "useImage arg value: " + (argValue.toString()) + " type=" + (to_string argValue.valueType)
+                        srcArg = argValue.stringValue
+                        print "useImage srcArg: " + srcArg
+                    }
+                    return (this.evaluateUseImage(srcArg))
+                }
+                
                 ; Look up the function in context
                 def fnValue:EvalValue (context.lookup(fnName))
                 if (fnValue.isFunction()) {
@@ -2258,5 +2292,194 @@ class ComponentEngine {
             return (substring s 1 (len - 1))
         }
         return s
+    }
+    
+    ; ==========================================================================
+    ; Hooks Implementation
+    ; ==========================================================================
+    
+    ; usePrintSettings() - returns print settings as an object EvalValue
+    fn evaluateUsePrintSettings:EvalValue () {
+        print "Hook: usePrintSettings() called"
+        
+        ; Create property names and values arrays
+        def propNames:[string]
+        def propValues:[EvalValue]
+        
+        ; format
+        push propNames "format"
+        def formatVal:EvalValue (EvalValue.string(printFormat))
+        push propValues formatVal
+        
+        ; width
+        push propNames "width"
+        def widthVal:EvalValue (EvalValue.number(pageWidth))
+        push propValues widthVal
+        
+        ; height
+        push propNames "height"
+        def heightVal:EvalValue (EvalValue.number(pageHeight))
+        push propValues heightVal
+        
+        ; orientation
+        push propNames "orientation"
+        def orientVal:EvalValue (EvalValue.string(printOrientation))
+        push propValues orientVal
+        
+        ; pageCount
+        push propNames "pageCount"
+        def pageCountVal:EvalValue (EvalValue.number((to_double printPageCount)))
+        push propValues pageCountVal
+        
+        ; margins object
+        push propNames "margins"
+        def marginNames:[string]
+        def marginValues:[EvalValue]
+        push marginNames "top"
+        push marginValues (EvalValue.number(printMarginTop))
+        push marginNames "right"
+        push marginValues (EvalValue.number(printMarginRight))
+        push marginNames "bottom"
+        push marginValues (EvalValue.number(printMarginBottom))
+        push marginNames "left"
+        push marginValues (EvalValue.number(printMarginLeft))
+        def marginsVal:EvalValue (EvalValue.object(marginNames marginValues))
+        push propValues marginsVal
+        
+        return (EvalValue.object(propNames propValues))
+    }
+    
+    ; useImage(src) - returns image metadata as an object EvalValue
+    fn evaluateUseImage:EvalValue (src:string) {
+        ; Resolve the image path relative to the current TSX file's directory
+        def resolvedPath:string src
+        if ((strlen src) > 0) {
+            ; Check if it's a relative path (not starting with /)
+            def firstChar:string (substring src 0 1)
+            if (firstChar != "/") {
+                resolvedPath = basePath + src
+            }
+        }
+        print "Hook: useImage() called with src: " + src + " -> resolved: " + resolvedPath
+        
+        ; Parse the JPEG file to get actual metadata
+        ; Split resolvedPath into directory and filename
+        def lastSlash:int (lastIndexOf resolvedPath "/")
+        def dirPath:string ""
+        def fileName:string resolvedPath
+        if (lastSlash >= 0) {
+            dirPath = (substring resolvedPath 0 (lastSlash + 1))
+            fileName = (substring resolvedPath (lastSlash + 1) (strlen resolvedPath))
+        }
+        
+        print "Hook: parsing JPEG - dir: " + dirPath + " file: " + fileName
+        
+        ; Parse the JPEG metadata
+        def parser (new JPEGMetadataParser())
+        def metadata:JPEGMetadataInfo (parser.parseMetadata(dirPath fileName))
+        
+        ; Create property names and values arrays
+        def propNames:[string]
+        def propValues:[EvalValue]
+        
+        ; Store the resolved path so ResourceLoader can use it
+        push propNames "resolvedPath"
+        push propValues (EvalValue.string(resolvedPath))
+        
+        ; Get actual values from metadata
+        ; width
+        push propNames "width"
+        push propValues (EvalValue.number((to_double metadata.width)))
+        
+        ; height
+        push propNames "height"
+        push propValues (EvalValue.number((to_double metadata.height)))
+        
+        ; createdAt - use dateTimeOriginal if available
+        push propNames "createdAt"
+        if ((strlen metadata.dateTimeOriginal) > 0) {
+            push propValues (EvalValue.string(metadata.dateTimeOriginal))
+        } {
+            if ((strlen metadata.dateTime) > 0) {
+                push propValues (EvalValue.string(metadata.dateTime))
+            } {
+                push propValues (EvalValue.null())
+            }
+        }
+        
+        ; camera - combine make and model
+        push propNames "camera"
+        if ((strlen metadata.cameraModel) > 0) {
+            def cameraStr:string ""
+            if ((strlen metadata.cameraMake) > 0) {
+                cameraStr = metadata.cameraMake + " " + metadata.cameraModel
+            } {
+                cameraStr = metadata.cameraModel
+            }
+            push propValues (EvalValue.string(cameraStr))
+        } {
+            push propValues (EvalValue.null())
+        }
+        
+        ; orientation
+        push propNames "orientation"
+        push propValues (EvalValue.number((to_double metadata.orientation)))
+        
+        ; gps - create nested object if available
+        push propNames "gps"
+        if metadata.hasGPS {
+            def gpsNames:[string]
+            def gpsValues:[EvalValue]
+            push gpsNames "latitude"
+            push gpsValues (EvalValue.string(metadata.gpsLatitudeRef + " " + metadata.gpsLatitude))
+            push gpsNames "longitude"
+            push gpsValues (EvalValue.string(metadata.gpsLongitudeRef + " " + metadata.gpsLongitude))
+            if ((strlen metadata.gpsAltitude) > 0) {
+                push gpsNames "altitude"
+                push gpsValues (EvalValue.string(metadata.gpsAltitude))
+            }
+            push propValues (EvalValue.object(gpsNames gpsValues))
+        } {
+            push propValues (EvalValue.null())
+        }
+        
+        ; colorSpace - based on color components
+        push propNames "colorSpace"
+        if (metadata.colorComponents == 1) {
+            push propValues (EvalValue.string("Grayscale"))
+        } {
+            if (metadata.colorComponents == 3) {
+                push propValues (EvalValue.string("RGB"))
+            } {
+                if (metadata.colorComponents == 4) {
+                    push propValues (EvalValue.string("CMYK"))
+                } {
+                    push propValues (EvalValue.string("Unknown"))
+                }
+            }
+        }
+        
+        ; bitsPerComponent
+        push propNames "bitsPerComponent"
+        push propValues (EvalValue.number((to_double metadata.bitsPerComponent)))
+        
+        return (EvalValue.object(propNames propValues))
+    }
+    
+    ; Set print settings from Print element props
+    fn setPrintSettings:void (format:string orientation:string width:double height:double) {
+        printFormat = format
+        printOrientation = orientation
+        pageWidth = width
+        pageHeight = height
+        print "Print settings updated: " + format + " " + orientation + " " + (to_string width) + "x" + (to_string height)
+    }
+    
+    ; Set print margins
+    fn setPrintMargins:void (top:double right:double bottom:double left:double) {
+        printMarginTop = top
+        printMarginRight = right
+        printMarginBottom = bottom
+        printMarginLeft = left
     }
 }

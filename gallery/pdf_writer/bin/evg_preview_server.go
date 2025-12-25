@@ -6811,2679 +6811,6 @@ func (this *EvalValue) equals (other *EvalValue) bool {
   }
   return false
 }
-type ImportedSymbol struct { 
-  name string `json:"name"` 
-  originalName string `json:"originalName"` 
-  sourcePath string `json:"sourcePath"` 
-  symbolType string `json:"symbolType"` 
-  functionNode *GoNullable `json:"functionNode"` 
-}
-
-func CreateNew_ImportedSymbol() *ImportedSymbol {
-  me := new(ImportedSymbol)
-  me.name = ""
-  me.originalName = ""
-  me.sourcePath = ""
-  me.symbolType = ""
-  me.functionNode = new(GoNullable);
-  return me;
-}
-type EvalContext struct { 
-  variables []string `json:"variables"` 
-  values []*EvalValue `json:"values"` 
-  parent *GoNullable `json:"parent"` 
-}
-
-func CreateNew_EvalContext() *EvalContext {
-  me := new(EvalContext)
-  me.variables = make([]string,0)
-  me.values = make([]*EvalValue,0)
-  me.parent = new(GoNullable);
-  var v []string = make([]string, 0);
-  me.variables = v; 
-  var vl []*EvalValue = make([]*EvalValue, 0);
-  me.values = vl; 
-  return me;
-}
-func (this *EvalContext) define (name string, value *EvalValue) () {
-  var i int64= int64(0);
-  for i < (int64(len(this.variables))) {
-    if  (this.variables[i]) == name {
-      this.values[i] = value;
-      return
-    }
-    i = i + int64(1); 
-  }
-  this.variables = append(this.variables,name); 
-  this.values = append(this.values,value); 
-}
-func (this *EvalContext) lookup (name string) *EvalValue {
-  var i int64= int64(0);
-  for i < (int64(len(this.variables))) {
-    if  (this.variables[i]) == name {
-      return this.values[i]
-    }
-    i = i + int64(1); 
-  }
-  if ( this.parent.has_value) {
-    var p *EvalContext= this.parent.value.(*EvalContext);
-    return p.lookup(name)
-  }
-  return EvalValue_static_null()
-}
-func (this *EvalContext) has (name string) bool {
-  var i int64= int64(0);
-  for i < (int64(len(this.variables))) {
-    if  (this.variables[i]) == name {
-      return true
-    }
-    i = i + int64(1); 
-  }
-  if ( this.parent.has_value) {
-    var p *EvalContext= this.parent.value.(*EvalContext);
-    return (p).has(name)
-  }
-  return false
-}
-func (this *EvalContext) createChild () *EvalContext {
-  var child *EvalContext= CreateNew_EvalContext();
-  child.parent.value = this;
-  child.parent.has_value = true; /* detected as non-optional */
-  return child
-}
-type ComponentEngine struct { 
-  parser *GoNullable `json:"parser"` 
-  source string `json:"source"` 
-  basePath string `json:"basePath"` 
-  assetPaths []string `json:"assetPaths"` 
-  pageWidth float64 `json:"pageWidth"` 
-  pageHeight float64 `json:"pageHeight"` 
-  imports []*ImportedSymbol `json:"imports"` 
-  localComponents []*ImportedSymbol `json:"localComponents"` 
-  loadedFiles []string `json:"loadedFiles"` 
-  context *GoNullable `json:"context"` 
-  primitives []string `json:"primitives"` 
-}
-
-func CreateNew_ComponentEngine() *ComponentEngine {
-  me := new(ComponentEngine)
-  me.source = ""
-  me.basePath = "./"
-  me.assetPaths = make([]string,0)
-  me.pageWidth = 595.0
-  me.pageHeight = 842.0
-  me.imports = make([]*ImportedSymbol,0)
-  me.localComponents = make([]*ImportedSymbol,0)
-  me.loadedFiles = make([]string,0)
-  me.primitives = make([]string,0)
-  me.parser = new(GoNullable);
-  me.context = new(GoNullable);
-  var p *TSParserSimple= CreateNew_TSParserSimple();
-  me.parser.value = p;
-  me.parser.has_value = true; /* detected as non-optional */
-  me.parser.value.(*TSParserSimple).tsxMode = true; 
-  var imp []*ImportedSymbol = make([]*ImportedSymbol, 0);
-  me.imports = imp; 
-  var loc []*ImportedSymbol = make([]*ImportedSymbol, 0);
-  me.localComponents = loc; 
-  var lf []string = make([]string, 0);
-  me.loadedFiles = lf; 
-  var ctx *EvalContext= CreateNew_EvalContext();
-  me.context.value = ctx;
-  me.context.has_value = true; /* detected as non-optional */
-  var prim []string = make([]string, 0);
-  me.primitives = prim; 
-  var ap []string = make([]string, 0);
-  me.assetPaths = ap; 
-  me.primitives = append(me.primitives,"View"); 
-  me.primitives = append(me.primitives,"Label"); 
-  me.primitives = append(me.primitives,"Print"); 
-  me.primitives = append(me.primitives,"Section"); 
-  me.primitives = append(me.primitives,"Page"); 
-  me.primitives = append(me.primitives,"Image"); 
-  me.primitives = append(me.primitives,"Path"); 
-  me.primitives = append(me.primitives,"Spacer"); 
-  me.primitives = append(me.primitives,"Divider"); 
-  me.primitives = append(me.primitives,"Layer"); 
-  me.primitives = append(me.primitives,"div"); 
-  me.primitives = append(me.primitives,"span"); 
-  me.primitives = append(me.primitives,"p"); 
-  me.primitives = append(me.primitives,"h1"); 
-  me.primitives = append(me.primitives,"h2"); 
-  me.primitives = append(me.primitives,"h3"); 
-  me.primitives = append(me.primitives,"img"); 
-  me.primitives = append(me.primitives,"path"); 
-  me.primitives = append(me.primitives,"layer"); 
-  return me;
-}
-func (this *ComponentEngine) setAssetPaths (paths string) () {
-  var start int64= int64(0);
-  var i int64= int64(0);
-  var __len int64= int64(len([]rune(paths)));
-  for i <= __len {
-    var ch string= "";
-    if  i < __len {
-      ch = string([]rune(paths)[i:(i + int64(1))]); 
-    }
-    if  (ch == ";") || (i == __len) {
-      if  i > start {
-        var part string= string([]rune(paths)[start:i]);
-        this.assetPaths = append(this.assetPaths,part); 
-        fmt.Println( "ComponentEngine: Added asset path: " + part )
-      }
-      start = i + int64(1); 
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *ComponentEngine) resolveComponentPath (relativePath string) string {
-  var fullPath string= this.basePath + relativePath;
-  var i int64= int64(0);
-  for i < (int64(len(this.assetPaths))) {
-    /** unused:  assetDir*/
-    i = i + int64(1); 
-  }
-  return fullPath
-}
-func (this *ComponentEngine) getLoadedFiles () []string {
-  return this.loadedFiles
-}
-func (this *ComponentEngine) parseFile (dirPath string, fileName string) *EVGElement {
-  this.basePath = dirPath; 
-  var mainFilePath string= dirPath + fileName;
-  this.loadedFiles = append(this.loadedFiles,mainFilePath); 
-  var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fileName)); return d }();
-  var src string= string(fileContent);
-  return this.parse(src)
-}
-func (this *ComponentEngine) parse (src string) *EVGElement {
-  this.source = src; 
-  var lexer *TSLexer= CreateNew_TSLexer(src);
-  var tokens []*Token= lexer.tokenize();
-  this.parser.value.(*TSParserSimple).initParser(tokens);
-  this.parser.value.(*TSParserSimple).tsxMode = true; 
-  var ast *TSNode= this.parser.value.(*TSParserSimple).parseProgram();
-  this.processImports(ast);
-  this.registerComponents(ast);
-  this.processVariables(ast);
-  var renderFn *TSNode= this.findRenderFunction(ast);
-  if  renderFn.nodeType == "" {
-    fmt.Println( "Error: No render() function found" )
-    var empty *EVGElement= CreateNew_EVGElement();
-    return empty
-  }
-  return this.evaluateFunction(renderFn)
-}
-func (this *ComponentEngine) processImports (ast *TSNode) () {
-  var i int64= int64(0);
-  for i < (int64(len(ast.children))) {
-    var node *TSNode= ast.children[i];
-    if  node.nodeType == "ImportDeclaration" {
-      this.processImportDeclaration(node);
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
-  var modulePath string= "";
-  if ( node.left.has_value) {
-    var srcNode *TSNode= node.left.value.(*TSNode);
-    modulePath = this.unquote(srcNode.value); 
-  }
-  if  (int64(len([]rune(modulePath)))) == int64(0) {
-    return
-  }
-  if  (int64(strings.Index(modulePath, "evg_types"))) >= int64(0) {
-    return
-  }
-  if  (int64(strings.Index(modulePath, "evg_"))) >= int64(0) {
-    return
-  }
-  var importedNames []string = make([]string, 0);
-  var j int64= int64(0);
-  for j < (int64(len(node.children))) {
-    var spec *TSNode= node.children[j];
-    if  spec.nodeType == "ImportSpecifier" {
-      importedNames = append(importedNames,spec.name); 
-    }
-    if  spec.nodeType == "ImportDefaultSpecifier" {
-      importedNames = append(importedNames,spec.name); 
-    }
-    j = j + int64(1); 
-  }
-  var fullPath string= this.resolveModulePath(modulePath);
-  if  (int64(len([]rune(fullPath)))) == int64(0) {
-    return
-  }
-  var dirPath string= this.basePath;
-  fmt.Println( ("Loading import: " + dirPath) + fullPath )
-  var loadedFilePath string= dirPath + fullPath;
-  this.loadedFiles = append(this.loadedFiles,loadedFilePath); 
-  var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fullPath)); return d }();
-  var src string= string(fileContent);
-  if  (int64(len([]rune(src)))) == int64(0) {
-    fmt.Println( "" )
-    fmt.Println( ("ERROR: Could not load component module: " + dirPath) + fullPath )
-    fmt.Println( "" )
-    fmt.Println( "Please ensure the imported file exists. You may need to:" )
-    fmt.Println( "  1. Check that the import path is correct in your TSX file" )
-    fmt.Println( "  2. Make sure the component file exists in one of your asset paths:" )
-    var pathIdx int64= int64(0);
-    for pathIdx < (int64(len(this.assetPaths))) {
-      fmt.Println( "     - " + (this.assetPaths[pathIdx]) )
-      pathIdx = pathIdx + int64(1); 
-    }
-    fmt.Println( "" )
-    return
-  }
-  var lexer *TSLexer= CreateNew_TSLexer(src);
-  var tokens []*Token= lexer.tokenize();
-  var importParser *TSParserSimple= CreateNew_TSParserSimple();
-  importParser.initParser(tokens);
-  importParser.tsxMode = true; 
-  var importAst *TSNode= importParser.parseProgram();
-  var k int64= int64(0);
-  for k < (int64(len(importAst.children))) {
-    var stmt *TSNode= importAst.children[k];
-    if  stmt.nodeType == "ExportNamedDeclaration" {
-      if ( stmt.left.has_value) {
-        var declNode *TSNode= stmt.left.value.(*TSNode);
-        if  declNode.nodeType == "FunctionDeclaration" {
-          var fnName string= declNode.name;
-          if  this.isInList(fnName, importedNames) {
-            var sym *ImportedSymbol= CreateNew_ImportedSymbol();
-            sym.name = fnName; 
-            sym.originalName = fnName; 
-            sym.sourcePath = fullPath; 
-            sym.symbolType = "component"; 
-            sym.functionNode.value = declNode;
-            sym.functionNode.has_value = true; /* detected as non-optional */
-            this.localComponents = append(this.localComponents,sym); 
-            fmt.Println( (("Imported component: " + fnName) + " from ") + fullPath )
-          }
-        }
-      }
-    }
-    if  stmt.nodeType == "FunctionDeclaration" {
-      var fnName_1 string= stmt.name;
-      if  this.isInList(fnName_1, importedNames) {
-        var sym_1 *ImportedSymbol= CreateNew_ImportedSymbol();
-        sym_1.name = fnName_1; 
-        sym_1.originalName = fnName_1; 
-        sym_1.sourcePath = fullPath; 
-        sym_1.symbolType = "component"; 
-        sym_1.functionNode.value = stmt;
-        sym_1.functionNode.has_value = true; /* detected as non-optional */
-        this.localComponents = append(this.localComponents,sym_1); 
-        fmt.Println( (("Imported component: " + fnName_1) + " from ") + fullPath )
-      }
-    }
-    k = k + int64(1); 
-  }
-}
-func (this *ComponentEngine) resolveModulePath (modulePath string) string {
-  if  (int64(strings.Index(modulePath, "./"))) == int64(0) {
-    var path string= string([]rune(modulePath)[int64(2):(int64(len([]rune(modulePath))))]);
-    if  (int64(len([]rune(path)))) == int64(0) {
-      return ""
-    }
-    if  (int64(strings.Index(path, ".tsx"))) < int64(0) {
-      if  (int64(strings.Index(path, ".ts"))) < int64(0) {
-        path = path + ".tsx"; 
-      }
-    }
-    return path
-  }
-  if  (int64(strings.Index(modulePath, ".tsx"))) < int64(0) {
-    if  (int64(strings.Index(modulePath, ".ts"))) < int64(0) {
-      return modulePath + ".tsx"
-    }
-  }
-  return modulePath
-}
-func (this *ComponentEngine) isInList (name string, list []string) bool {
-  var i int64= int64(0);
-  for i < (int64(len(list))) {
-    if  (list[i]) == name {
-      return true
-    }
-    i = i + int64(1); 
-  }
-  return false
-}
-func (this *ComponentEngine) registerComponents (ast *TSNode) () {
-  var i int64= int64(0);
-  for i < (int64(len(ast.children))) {
-    var node *TSNode= ast.children[i];
-    if  node.nodeType == "FunctionDeclaration" {
-      if  node.name != "render" {
-        var sym *ImportedSymbol= CreateNew_ImportedSymbol();
-        sym.name = node.name; 
-        sym.originalName = node.name; 
-        sym.symbolType = "component"; 
-        sym.functionNode.value = node;
-        sym.functionNode.has_value = true; /* detected as non-optional */
-        this.localComponents = append(this.localComponents,sym); 
-        this.context.value.(*EvalContext).define(node.name, EvalValue_static_function(node));
-        fmt.Println( "Registered local component: " + node.name )
-      }
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *ComponentEngine) findRenderFunction (ast *TSNode) *TSNode {
-  var empty *TSNode= CreateNew_TSNode();
-  var i int64= int64(0);
-  for i < (int64(len(ast.children))) {
-    var node *TSNode= ast.children[i];
-    if  node.nodeType == "FunctionDeclaration" {
-      if  node.name == "render" {
-        return node
-      }
-    }
-    i = i + int64(1); 
-  }
-  return empty
-}
-func (this *ComponentEngine) processVariables (ast *TSNode) () {
-  var i int64= int64(0);
-  for i < (int64(len(ast.children))) {
-    var node *TSNode= ast.children[i];
-    if  node.nodeType == "VariableDeclaration" {
-      this.processVariableDeclaration(node);
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *ComponentEngine) processVariableDeclaration (node *TSNode) () {
-  var i int64= int64(0);
-  for i < (int64(len(node.children))) {
-    var decl *TSNode= node.children[i];
-    if  decl.nodeType == "VariableDeclarator" {
-      var varName string= decl.name;
-      if ( decl.init.has_value) {
-        var initNode *TSNode= decl.init.value.(*TSNode);
-        var value *EvalValue= this.evaluateExpr(initNode);
-        this.context.value.(*EvalContext).define(varName, value);
-        fmt.Println( (("Defined variable: " + varName) + " = ") + (value).toString() )
-      }
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *ComponentEngine) evaluateFunction (fnNode *TSNode) *EVGElement {
-  var savedContext *GoNullable = new(GoNullable); 
-  savedContext.value = this.context.value;
-  savedContext.has_value = this.context.has_value;
-  this.context.value = this.context.value.(*EvalContext).createChild();
-  this.context.has_value = true; /* detected as non-optional */
-  var body *TSNode= this.getFunctionBody(fnNode);
-  var result *EVGElement= this.evaluateFunctionBody(body);
-  this.context.value = savedContext.value;
-  this.context.has_value = false; 
-  if this.context.value != nil {
-    this.context.has_value = true
-  }
-  return result
-}
-func (this *ComponentEngine) evaluateFunctionWithProps (fnNode *TSNode, props *EvalValue) *EVGElement {
-  var savedContext *GoNullable = new(GoNullable); 
-  savedContext.value = this.context.value;
-  savedContext.has_value = this.context.has_value;
-  this.context.value = this.context.value.(*EvalContext).createChild();
-  this.context.has_value = true; /* detected as non-optional */
-  this.bindFunctionParams(fnNode, props);
-  var body *TSNode= this.getFunctionBody(fnNode);
-  var result *EVGElement= this.evaluateFunctionBody(body);
-  this.context.value = savedContext.value;
-  this.context.has_value = false; 
-  if this.context.value != nil {
-    this.context.has_value = true
-  }
-  return result
-}
-func (this *ComponentEngine) evaluateFunctionCall (fnNode *TSNode, props *EvalValue) *EvalValue {
-  var savedContext *GoNullable = new(GoNullable); 
-  savedContext.value = this.context.value;
-  savedContext.has_value = this.context.has_value;
-  this.context.value = this.context.value.(*EvalContext).createChild();
-  this.context.has_value = true; /* detected as non-optional */
-  if  props.valueType != int64(0) {
-    this.bindFunctionParams(fnNode, props);
-  }
-  var body *TSNode= this.getFunctionBody(fnNode);
-  var result *EvalValue= this.evaluateFunctionBodyValue(body);
-  this.context.value = savedContext.value;
-  this.context.has_value = false; 
-  if this.context.value != nil {
-    this.context.has_value = true
-  }
-  return result
-}
-func (this *ComponentEngine) bindFunctionParams (fnNode *TSNode, props *EvalValue) () {
-  var i int64= int64(0);
-  for i < (int64(len(fnNode.params))) {
-    var param *TSNode= fnNode.params[i];
-    if  param.nodeType == "ObjectPattern" {
-      this.bindObjectPattern(param, props);
-    }
-    if  param.nodeType == "Parameter" {
-      this.context.value.(*EvalContext).define(param.name, props);
-    }
-    if  param.nodeType == "Identifier" {
-      this.context.value.(*EvalContext).define(param.name, props);
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *ComponentEngine) bindObjectPattern (pattern *TSNode, props *EvalValue) () {
-  var i int64= int64(0);
-  for i < (int64(len(pattern.children))) {
-    var prop *TSNode= pattern.children[i];
-    if  prop.nodeType == "Property" {
-      var propName string= prop.name;
-      var propValue *EvalValue= props.getMember(propName);
-      if  propValue.isNull() {
-        if ( prop.init.has_value) {
-          var initNode *TSNode= prop.init.value.(*TSNode);
-          propValue = this.evaluateExpr(initNode); 
-        }
-      }
-      this.context.value.(*EvalContext).define(propName, propValue);
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *ComponentEngine) getFunctionBody (fnNode *TSNode) *TSNode {
-  if ( fnNode.body.has_value) {
-    return fnNode.body.value.(*TSNode)
-  }
-  var empty *TSNode= CreateNew_TSNode();
-  return empty
-}
-func (this *ComponentEngine) evaluateFunctionBody (body *TSNode) *EVGElement {
-  var empty *EVGElement= CreateNew_EVGElement();
-  var i int64= int64(0);
-  for i < (int64(len(body.children))) {
-    var stmt *TSNode= body.children[i];
-    if  stmt.nodeType == "VariableDeclaration" {
-      this.processVariableDeclaration(stmt);
-    }
-    if  stmt.nodeType == "IfStatement" {
-      var ifResult *EVGElement= this.evaluateIfStatement(stmt);
-      if  ifResult.hasReturn {
-        return ifResult
-      }
-    }
-    if  stmt.nodeType == "ForStatement" {
-      var forResult *EVGElement= this.evaluateForStatement(stmt);
-      if  forResult.hasReturn {
-        return forResult
-      }
-    }
-    if  stmt.nodeType == "ForOfStatement" {
-      var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
-      if  forOfResult.hasReturn {
-        return forOfResult
-      }
-    }
-    if  stmt.nodeType == "ExpressionStatement" {
-      if ( stmt.left.has_value) {
-        var exprNode *TSNode= stmt.left.value.(*TSNode);
-        this.evaluateExprForSideEffect(exprNode);
-      }
-    }
-    if  stmt.nodeType == "ReturnStatement" {
-      if ( stmt.left.has_value) {
-        var returnExpr *TSNode= stmt.left.value.(*TSNode);
-        return this.evaluateJSX(returnExpr)
-      }
-    }
-    i = i + int64(1); 
-  }
-  if  (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") {
-    return this.evaluateJSX(body)
-  }
-  return empty
-}
-func (this *ComponentEngine) evaluateFunctionBodyValue (body *TSNode) *EvalValue {
-  var i int64= int64(0);
-  fmt.Println( ("evaluateFunctionBodyValue: body has " + (strconv.FormatInt((int64(len(body.children))), 10))) + " children" )
-  for i < (int64(len(body.children))) {
-    var stmt *TSNode= body.children[i];
-    fmt.Println( (("  Statement " + (strconv.FormatInt(i, 10))) + ": ") + stmt.nodeType )
-    if  stmt.nodeType == "VariableDeclaration" {
-      this.processVariableDeclaration(stmt);
-    }
-    if  stmt.nodeType == "IfStatement" {
-      var ifResult *EVGElement= this.evaluateIfStatement(stmt);
-      if  ifResult.hasReturn {
-      }
-    }
-    if  stmt.nodeType == "ForStatement" {
-      var forResult *EVGElement= this.evaluateForStatement(stmt);
-      if  forResult.hasReturn {
-      }
-    }
-    if  stmt.nodeType == "ForOfStatement" {
-      var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
-      if  forOfResult.hasReturn {
-      }
-    }
-    if  stmt.nodeType == "ExpressionStatement" {
-      if ( stmt.left.has_value) {
-        var exprNode *TSNode= stmt.left.value.(*TSNode);
-        this.evaluateExprForSideEffect(exprNode);
-      }
-    }
-    if  stmt.nodeType == "ReturnStatement" {
-      if ( stmt.left.has_value) {
-        var returnExpr *TSNode= stmt.left.value.(*TSNode);
-        return this.evaluateExpr(returnExpr)
-      }
-      return EvalValue_static_null()
-    }
-    i = i + int64(1); 
-  }
-  if  (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") {
-    var el *EVGElement= this.evaluateJSX(body);
-    return EvalValue_static_element(el)
-  }
-  if  (body.nodeType != "BlockStatement") && (body.nodeType != "") {
-    return this.evaluateExpr(body)
-  }
-  return EvalValue_static_null()
-}
-func (this *ComponentEngine) evaluateIfStatement (node *TSNode) *EVGElement {
-  var result *EVGElement= CreateNew_EVGElement();
-  result.hasReturn = false; 
-  if ( node.left.has_value) {
-    var condNode *TSNode= node.left.value.(*TSNode);
-    var condition *EvalValue= this.evaluateExpr(condNode);
-    if  condition.toBool() {
-      if ( node.body.has_value) {
-        var thenBlock *TSNode= node.body.value.(*TSNode);
-        var blockResult *EVGElement= this.evaluateStatementBlock(thenBlock);
-        if  blockResult.hasReturn {
-          return blockResult
-        }
-      }
-    } else {
-      if ( node.right.has_value) {
-        var elseBlock *TSNode= node.right.value.(*TSNode);
-        if  elseBlock.nodeType == "IfStatement" {
-          return this.evaluateIfStatement(elseBlock)
-        }
-        var blockResult_1 *EVGElement= this.evaluateStatementBlock(elseBlock);
-        if  blockResult_1.hasReturn {
-          return blockResult_1
-        }
-      }
-    }
-  }
-  return result
-}
-func (this *ComponentEngine) evaluateStatementBlock (block *TSNode) *EVGElement {
-  var result *EVGElement= CreateNew_EVGElement();
-  result.hasReturn = false; 
-  if  block.nodeType == "ReturnStatement" {
-    if ( block.left.has_value) {
-      var returnExpr *TSNode= block.left.value.(*TSNode);
-      var returnedEl *EVGElement= this.evaluateJSX(returnExpr);
-      returnedEl.hasReturn = true; 
-      return returnedEl
-    }
-  }
-  if  block.nodeType == "BlockStatement" {
-    var i int64= int64(0);
-    for i < (int64(len(block.children))) {
-      var stmt *TSNode= block.children[i];
-      if  stmt.nodeType == "VariableDeclaration" {
-        this.processVariableDeclaration(stmt);
-      }
-      if  stmt.nodeType == "IfStatement" {
-        var ifResult *EVGElement= this.evaluateIfStatement(stmt);
-        if  ifResult.hasReturn {
-          return ifResult
-        }
-      }
-      if  stmt.nodeType == "ForStatement" {
-        var forResult *EVGElement= this.evaluateForStatement(stmt);
-        if  forResult.hasReturn {
-          return forResult
-        }
-      }
-      if  stmt.nodeType == "ForOfStatement" {
-        var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
-        if  forOfResult.hasReturn {
-          return forOfResult
-        }
-      }
-      if  stmt.nodeType == "ExpressionStatement" {
-        if ( stmt.left.has_value) {
-          var exprNode *TSNode= stmt.left.value.(*TSNode);
-          this.evaluateExprForSideEffect(exprNode);
-        }
-      }
-      if  stmt.nodeType == "ReturnStatement" {
-        if ( stmt.left.has_value) {
-          var returnExpr_1 *TSNode= stmt.left.value.(*TSNode);
-          var returnedEl_1 *EVGElement= this.evaluateJSX(returnExpr_1);
-          returnedEl_1.hasReturn = true; 
-          return returnedEl_1
-        }
-      }
-      i = i + int64(1); 
-    }
-  }
-  return result
-}
-func (this *ComponentEngine) evaluateExprForSideEffect (node *TSNode) () {
-  if  node.nodeType == "CallExpression" {
-    this.evaluateCallExprForSideEffect(node);
-  }
-  if  node.nodeType == "UpdateExpression" {
-    this.evaluateUpdateExpr(node);
-  }
-  if  node.nodeType == "AssignmentExpression" {
-    this.evaluateUpdateExpr(node);
-  }
-}
-func (this *ComponentEngine) evaluateCallExprForSideEffect (node *TSNode) () {
-  if ( node.left.has_value) {
-    var calleeNode *TSNode= node.left.value.(*TSNode);
-    if  calleeNode.nodeType == "MemberExpression" {
-      var methodName string= calleeNode.name;
-      if ( calleeNode.left.has_value) {
-        var objNode *TSNode= calleeNode.left.value.(*TSNode);
-        if  objNode.nodeType == "Identifier" {
-          var objName string= objNode.name;
-          var objValue *EvalValue= this.context.value.(*EvalContext).lookup(objName);
-          if  (methodName == "push") && (objValue).isArray() {
-            if  (int64(len(node.children))) > int64(0) {
-              var argNode *TSNode= node.children[int64(0)];
-              var argValue *EvalValue= this.evaluateExpr(argNode);
-              objValue.arrayValue = append(objValue.arrayValue,argValue); 
-              this.context.value.(*EvalContext).define(objName, objValue);
-            }
-          }
-        }
-      }
-    }
-  }
-}
-func (this *ComponentEngine) evaluateForStatement (node *TSNode) *EVGElement {
-  var result *EVGElement= CreateNew_EVGElement();
-  result.hasReturn = false; 
-  fmt.Println( "evaluateForStatement called" )
-  if ( node.init.has_value) {
-    var initNode *TSNode= node.init.value.(*TSNode);
-    fmt.Println( "For init nodeType: " + initNode.nodeType )
-    if  initNode.nodeType == "VariableDeclaration" {
-      this.processVariableDeclaration(initNode);
-    }
-  }
-  var maxIterations int64= int64(10000);
-  var iterations int64= int64(0);
-  for iterations < maxIterations {
-    if ( node.left.has_value) {
-      var testNode *TSNode= node.left.value.(*TSNode);
-      var testResult *EvalValue= this.evaluateExpr(testNode);
-      if  testResult.toBool() == false {
-        return result
-      }
-    }
-    if ( node.body.has_value) {
-      var bodyNode *TSNode= node.body.value.(*TSNode);
-      var bodyResult *EVGElement= this.evaluateStatementBlock(bodyNode);
-      if  bodyResult.hasReturn {
-        return bodyResult
-      }
-    }
-    if ( node.right.has_value) {
-      var updateNode *TSNode= node.right.value.(*TSNode);
-      this.evaluateUpdateExpr(updateNode);
-    }
-    iterations = iterations + int64(1); 
-  }
-  return result
-}
-func (this *ComponentEngine) evaluateForOfStatement (node *TSNode) *EVGElement {
-  var result *EVGElement= CreateNew_EVGElement();
-  result.hasReturn = false; 
-  var varName string= "";
-  if ( node.left.has_value) {
-    var leftNode *TSNode= node.left.value.(*TSNode);
-    if  leftNode.nodeType == "VariableDeclaration" {
-      if  (int64(len(leftNode.children))) > int64(0) {
-        var decl *TSNode= leftNode.children[int64(0)];
-        varName = decl.name; 
-      }
-    }
-  }
-  if ( node.right.has_value) {
-    var rightNode *TSNode= node.right.value.(*TSNode);
-    var arrayValue *EvalValue= this.evaluateExpr(rightNode);
-    if  (arrayValue).isArray() {
-      var i int64= int64(0);
-      for i < (int64(len(arrayValue.arrayValue))) {
-        var item *EvalValue= arrayValue.arrayValue[i];
-        this.context.value.(*EvalContext).define(varName, item);
-        if ( node.body.has_value) {
-          var bodyNode *TSNode= node.body.value.(*TSNode);
-          var bodyResult *EVGElement= this.evaluateStatementBlock(bodyNode);
-          if  bodyResult.hasReturn {
-            return bodyResult
-          }
-        }
-        i = i + int64(1); 
-      }
-    }
-  }
-  return result
-}
-func (this *ComponentEngine) evaluateUpdateExpr (node *TSNode) () {
-  if  node.nodeType == "UpdateExpression" {
-    if ( node.left.has_value) {
-      var argNode *TSNode= node.left.value.(*TSNode);
-      if  argNode.nodeType == "Identifier" {
-        var varName string= argNode.name;
-        var current *EvalValue= this.context.value.(*EvalContext).lookup(varName);
-        var currentNum float64= current.toNumber();
-        if  node.value == "++" {
-          this.context.value.(*EvalContext).define(varName, EvalValue_static_number((currentNum + 1.0)));
-        }
-        if  node.value == "--" {
-          this.context.value.(*EvalContext).define(varName, EvalValue_static_number((currentNum - 1.0)));
-        }
-      }
-    }
-  }
-  if  node.nodeType == "AssignmentExpression" {
-    if ( node.left.has_value) {
-      var leftNode *TSNode= node.left.value.(*TSNode);
-      if  leftNode.nodeType == "Identifier" {
-        var varName_1 string= leftNode.name;
-        var op string= node.value;
-        if ( node.right.has_value) {
-          var rightNode *TSNode= node.right.value.(*TSNode);
-          var rightValue *EvalValue= this.evaluateExpr(rightNode);
-          if  op == "=" {
-            this.context.value.(*EvalContext).define(varName_1, rightValue);
-          }
-          if  op == "+=" {
-            var current_1 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
-            var isLeftStr bool= current_1.isString();
-            var isRightStr bool= rightValue.isString();
-            if  isLeftStr || isRightStr {
-              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_string(((current_1).toString() + (rightValue).toString())));
-            } else {
-              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_1.toNumber() + rightValue.toNumber())));
-            }
-          }
-          if  op == "-=" {
-            var current_2 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
-            this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_2.toNumber() - rightValue.toNumber())));
-          }
-          if  op == "*=" {
-            var current_3 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
-            this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_3.toNumber() * rightValue.toNumber())));
-          }
-          if  op == "/=" {
-            var current_4 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
-            var rightNum float64= rightValue.toNumber();
-            if  rightNum != 0.0 {
-              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_4.toNumber() / rightNum)));
-            }
-          }
-        }
-      }
-    }
-  }
-}
-func (this *ComponentEngine) evaluateJSX (node *TSNode) *EVGElement {
-  var element *EVGElement= CreateNew_EVGElement();
-  if  node.nodeType == "JSXElement" {
-    return this.evaluateJSXElement(node)
-  }
-  if  node.nodeType == "JSXFragment" {
-    element.tagName = "div"; 
-    this.evaluateChildren(element, node);
-    return element
-  }
-  if  node.nodeType == "ParenthesizedExpression" {
-    if ( node.left.has_value) {
-      var inner *TSNode= node.left.value.(*TSNode);
-      return this.evaluateJSX(inner)
-    }
-  }
-  return element
-}
-func (this *ComponentEngine) evaluateJSXElement (jsxNode *TSNode) *EVGElement {
-  var tagName string= "";
-  if ( jsxNode.left.has_value) {
-    var openingEl *TSNode= jsxNode.left.value.(*TSNode);
-    tagName = openingEl.name; 
-  }
-  if  this.isComponent(tagName) {
-    return this.expandComponent(tagName, jsxNode)
-  }
-  var element *EVGElement= CreateNew_EVGElement();
-  element.tagName = this.mapTagName(tagName); 
-  if  ((tagName == "Label") || (tagName == "span")) || (tagName == "text") {
-    element.elementType = int64(1); 
-  }
-  if  ((tagName == "Image") || (tagName == "img")) || (tagName == "image") {
-    element.elementType = int64(2); 
-  }
-  if  (tagName == "Path") || (tagName == "path") {
-    element.elementType = int64(3); 
-  }
-  if ( jsxNode.left.has_value) {
-    var openingEl_1 *TSNode= jsxNode.left.value.(*TSNode);
-    this.evaluateAttributes(element, openingEl_1);
-  }
-  if  tagName == "Print" {
-    element.resolveBookFormat();
-    if  element.pageWidth > 0.0 {
-      this.pageWidth = element.pageWidth; 
-    }
-    if  element.pageHeight > 0.0 {
-      this.pageHeight = element.pageHeight; 
-    }
-  }
-  if  ((tagName == "Label") || (tagName == "span")) || (tagName == "text") {
-    element.textContent = this.evaluateTextContent(jsxNode); 
-  } else {
-    this.evaluateChildren(element, jsxNode);
-  }
-  return element
-}
-func (this *ComponentEngine) isComponent (name string) bool {
-  if  (int64(len([]rune(name)))) == int64(0) {
-    return false
-  }
-  var i int64= int64(0);
-  for i < (int64(len(this.primitives))) {
-    if  (this.primitives[i]) == name {
-      return false
-    }
-    i = i + int64(1); 
-  }
-  var firstChar int64= int64([]rune(name)[int64(0)]);
-  if  (firstChar >= int64(65)) && (firstChar <= int64(90)) {
-    return true
-  }
-  return false
-}
-func (this *ComponentEngine) expandComponent (name string, jsxNode *TSNode) *EVGElement {
-  var i int64= int64(0);
-  for i < (int64(len(this.localComponents))) {
-    var sym *ImportedSymbol= this.localComponents[i];
-    if  sym.name == name {
-      var props *EvalValue= this.evaluateProps(jsxNode);
-      if ( sym.functionNode.has_value) {
-        var fnNode *TSNode= sym.functionNode.value.(*TSNode);
-        return this.evaluateFunctionWithProps(fnNode, props)
-      }
-    }
-    i = i + int64(1); 
-  }
-  fmt.Println( "Warning: Unknown component: " + name )
-  var empty *EVGElement= CreateNew_EVGElement();
-  empty.tagName = "div"; 
-  return empty
-}
-func (this *ComponentEngine) evaluateProps (jsxNode *TSNode) *EvalValue {
-  var keys []string = make([]string, 0);
-  var values []*EvalValue = make([]*EvalValue, 0);
-  if ( jsxNode.left.has_value) {
-    var openingEl *TSNode= jsxNode.left.value.(*TSNode);
-    var i int64= int64(0);
-    for i < (int64(len(openingEl.children))) {
-      var attr *TSNode= openingEl.children[i];
-      if  attr.nodeType == "JSXAttribute" {
-        var attrName string= attr.name;
-        var attrValue *EvalValue= this.evaluateAttributeValue(attr);
-        keys = append(keys,attrName); 
-        values = append(values,attrValue); 
-      }
-      i = i + int64(1); 
-    }
-  }
-  var hasExplicitChildren bool= false;
-  var ci int64= int64(0);
-  for ci < (int64(len(keys))) {
-    if  (keys[ci]) == "children" {
-      hasExplicitChildren = true; 
-    }
-    ci = ci + int64(1); 
-  }
-  if  hasExplicitChildren == false {
-    var childElements []*EvalValue= this.collectChildElements(jsxNode);
-    if  (int64(len(childElements))) > int64(0) {
-      keys = append(keys,"children"); 
-      if  (int64(len(childElements))) == int64(1) {
-        values = append(values,childElements[int64(0)]); 
-      } else {
-        values = append(values,EvalValue_static_array(childElements)); 
-      }
-    }
-  }
-  return EvalValue_static_object(keys, values)
-}
-func (this *ComponentEngine) collectChildElements (jsxNode *TSNode) []*EvalValue {
-  var results []*EvalValue = make([]*EvalValue, 0);
-  var i int64= int64(0);
-  for i < (int64(len(jsxNode.children))) {
-    var child *TSNode= jsxNode.children[i];
-    if  child.nodeType == "JSXElement" {
-      var el *EVGElement= this.evaluateJSXElement(child);
-      if  (int64(len([]rune(el.tagName)))) > int64(0) {
-        results = append(results,EvalValue_static_element(el)); 
-      }
-    }
-    if  child.nodeType == "JSXText" {
-      var text string= this.trimText(child.value);
-      if  (int64(len([]rune(text)))) > int64(0) {
-        var textEl *EVGElement= CreateNew_EVGElement();
-        textEl.tagName = "text"; 
-        textEl.textContent = text; 
-        results = append(results,EvalValue_static_element(textEl)); 
-      }
-    }
-    if  child.nodeType == "JSXExpressionContainer" {
-      if ( child.left.has_value) {
-        var exprNode *TSNode= child.left.value.(*TSNode);
-        var exprValue *EvalValue= this.evaluateExpr(exprNode);
-        if  exprValue.isElement() {
-          results = append(results,exprValue); 
-        }
-        if  (exprValue).isArray() {
-          var ai int64= int64(0);
-          for ai < (int64(len(exprValue.arrayValue))) {
-            var arrItem *EvalValue= exprValue.arrayValue[ai];
-            if  arrItem.isElement() {
-              results = append(results,arrItem); 
-            }
-            ai = ai + int64(1); 
-          }
-        }
-      }
-    }
-    i = i + int64(1); 
-  }
-  return results
-}
-func (this *ComponentEngine) evaluateAttributeValue (attr *TSNode) *EvalValue {
-  if ( attr.right.has_value) {
-    var rightNode *TSNode= attr.right.value.(*TSNode);
-    if  rightNode.nodeType == "StringLiteral" {
-      return EvalValue_static_string(this.unquote(rightNode.value))
-    }
-    if  rightNode.nodeType == "JSXExpressionContainer" {
-      if ( rightNode.left.has_value) {
-        var exprNode *TSNode= rightNode.left.value.(*TSNode);
-        return this.evaluateExpr(exprNode)
-      }
-    }
-  }
-  return EvalValue_static_boolean(true)
-}
-func (this *ComponentEngine) evaluateAttributes (element *EVGElement, openingNode *TSNode) () {
-  var i int64= int64(0);
-  for i < (int64(len(openingNode.children))) {
-    var attr *TSNode= openingNode.children[i];
-    if  attr.nodeType == "JSXAttribute" {
-      var rawAttrName string= attr.name;
-      var attrValue *EvalValue= this.evaluateAttributeValue(attr);
-      var strValue string= (attrValue).toString();
-      this.applyAttribute(element, rawAttrName, strValue);
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *ComponentEngine) applyAttribute (element *EVGElement, rawName string, strValue string) () {
-  if  rawName == "id" {
-    element.id = strValue; 
-    return
-  }
-  if  rawName == "className" {
-    element.className = strValue; 
-    return
-  }
-  if  rawName == "src" {
-    element.src = strValue; 
-    return
-  }
-  element.setAttribute(rawName, strValue);
-}
-func (this *ComponentEngine) evaluateTextContent (jsxNode *TSNode) string {
-  var result string= "";
-  var i int64= int64(0);
-  for i < (int64(len(jsxNode.children))) {
-    var child *TSNode= jsxNode.children[i];
-    if  child.nodeType == "JSXText" {
-      var rawText string= child.value;
-      if  (int64(len([]rune(rawText)))) > int64(0) {
-        result = this.smartJoinText(result, rawText); 
-      }
-    }
-    if  child.nodeType == "JSXExpressionContainer" {
-      if ( child.left.has_value) {
-        var exprNode *TSNode= child.left.value.(*TSNode);
-        var exprValue *EvalValue= this.evaluateExpr(exprNode);
-        var exprStr string= (exprValue).toString();
-        result = this.smartJoinText(result, exprStr); 
-      }
-    }
-    i = i + int64(1); 
-  }
-  var normalizedText string= this.normalizeWhitespace(result);
-  var trimmedText string= this.trimText(normalizedText);
-  return trimmedText
-}
-func (this *ComponentEngine) evaluateChildren (element *EVGElement, jsxNode *TSNode) () {
-  var i int64= int64(0);
-  var accumulatedText string= "";
-  for i < (int64(len(jsxNode.children))) {
-    var child *TSNode= jsxNode.children[i];
-    if  child.nodeType == "JSXText" {
-      accumulatedText = this.smartJoinText(accumulatedText, child.value); 
-      i = i + int64(1); 
-      continue;
-    }
-    if  (int64(len([]rune(accumulatedText)))) > int64(0) {
-      var normalizedText string= this.normalizeWhitespace(accumulatedText);
-      var text string= this.trimText(normalizedText);
-      if  (int64(len([]rune(text)))) > int64(0) {
-        var textEl *EVGElement= CreateNew_EVGElement();
-        textEl.tagName = "text"; 
-        textEl.textContent = text; 
-        element.addChild(textEl);
-      }
-      accumulatedText = ""; 
-    }
-    if  child.nodeType == "JSXElement" {
-      var childEl *EVGElement= this.evaluateJSXElement(child);
-      if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
-        element.addChild(childEl);
-      }
-    }
-    if  child.nodeType == "JSXExpressionContainer" {
-      this.evaluateExpressionChild(element, child);
-    }
-    if  child.nodeType == "JSXFragment" {
-      this.evaluateChildren(element, child);
-    }
-    i = i + int64(1); 
-  }
-  if  (int64(len([]rune(accumulatedText)))) > int64(0) {
-    var normalizedText_1 string= this.normalizeWhitespace(accumulatedText);
-    var text_1 string= this.trimText(normalizedText_1);
-    if  (int64(len([]rune(text_1)))) > int64(0) {
-      var textEl_1 *EVGElement= CreateNew_EVGElement();
-      textEl_1.tagName = "text"; 
-      textEl_1.textContent = text_1; 
-      element.addChild(textEl_1);
-    }
-  }
-}
-func (this *ComponentEngine) evaluateExpressionChild (element *EVGElement, exprContainer *TSNode) () {
-  if ( exprContainer.left.has_value) {
-    var exprNode *TSNode= exprContainer.left.value.(*TSNode);
-    if  exprNode.nodeType == "CallExpression" {
-      if ( exprNode.left.has_value) {
-        var calleeNode *TSNode= exprNode.left.value.(*TSNode);
-        if  calleeNode.nodeType == "MemberExpression" {
-          var methodName string= calleeNode.name;
-          if  methodName == "map" {
-            this.evaluateArrayMapChild(element, exprNode);
-            return
-          }
-        }
-      }
-      var callResult *EvalValue= this.evaluateExpr(exprNode);
-      if  (callResult).isArray() {
-        var ai int64= int64(0);
-        for ai < (int64(len(callResult.arrayValue))) {
-          var arrItem *EvalValue= callResult.arrayValue[ai];
-          if  arrItem.isElement() {
-            if ( arrItem.evgElement.has_value) {
-              var arrChildEl *EVGElement= arrItem.evgElement.value.(*EVGElement);
-              if  (int64(len([]rune(arrChildEl.tagName)))) > int64(0) {
-                element.addChild(arrChildEl);
-              }
-            }
-          }
-          ai = ai + int64(1); 
-        }
-        return
-      }
-      if  callResult.isElement() {
-        if ( callResult.evgElement.has_value) {
-          var childEl *EVGElement= callResult.evgElement.value.(*EVGElement);
-          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
-            element.addChild(childEl);
-          }
-        }
-        return
-      }
-      var isStr bool= callResult.isString();
-      var isNum bool= callResult.isNumber();
-      if  isStr || isNum {
-        var textEl *EVGElement= CreateNew_EVGElement();
-        textEl.tagName = "text"; 
-        textEl.textContent = (callResult).toString(); 
-        element.addChild(textEl);
-      }
-      return
-    }
-    if  exprNode.nodeType == "ConditionalExpression" {
-      this.evaluateTernaryChild(element, exprNode);
-      return
-    }
-    if  exprNode.nodeType == "BinaryExpression" {
-      if  exprNode.value == "&&" {
-        this.evaluateAndChild(element, exprNode);
-        return
-      }
-    }
-    var value *EvalValue= this.evaluateExpr(exprNode);
-    if  value.isElement() {
-      if ( value.evgElement.has_value) {
-        var childEl_1 *EVGElement= value.evgElement.value.(*EVGElement);
-        if  (int64(len([]rune(childEl_1.tagName)))) > int64(0) {
-          element.addChild(childEl_1);
-        }
-      }
-      return
-    }
-    if  (value).isArray() {
-      var ai_1 int64= int64(0);
-      for ai_1 < (int64(len(value.arrayValue))) {
-        var arrItem_1 *EvalValue= value.arrayValue[ai_1];
-        if  arrItem_1.isElement() {
-          if ( arrItem_1.evgElement.has_value) {
-            var arrChildEl_1 *EVGElement= arrItem_1.evgElement.value.(*EVGElement);
-            if  (int64(len([]rune(arrChildEl_1.tagName)))) > int64(0) {
-              element.addChild(arrChildEl_1);
-            }
-          }
-        }
-        ai_1 = ai_1 + int64(1); 
-      }
-      return
-    }
-    var isStr_1 bool= value.isString();
-    var isNum_1 bool= value.isNumber();
-    if  isStr_1 || isNum_1 {
-      var textEl_1 *EVGElement= CreateNew_EVGElement();
-      textEl_1.tagName = "text"; 
-      textEl_1.textContent = (value).toString(); 
-      element.addChild(textEl_1);
-    }
-  }
-}
-func (this *ComponentEngine) evaluateArrayMapChild (element *EVGElement, callNode *TSNode) () {
-  if ( callNode.left.has_value) {
-    var calleeNode *TSNode= callNode.left.value.(*TSNode);
-    if  calleeNode.nodeType == "MemberExpression" {
-      var methodName string= calleeNode.name;
-      if  methodName == "map" {
-        if ( calleeNode.left.has_value) {
-          var arrayExpr *TSNode= calleeNode.left.value.(*TSNode);
-          var arrayValue *EvalValue= this.evaluateExpr(arrayExpr);
-          if  (arrayValue).isArray() {
-            if  (int64(len(callNode.children))) > int64(0) {
-              var callback *TSNode= callNode.children[int64(0)];
-              var i int64= int64(0);
-              for i < (int64(len(arrayValue.arrayValue))) {
-                var item *EvalValue= arrayValue.arrayValue[i];
-                var savedContext *GoNullable = new(GoNullable); 
-                savedContext.value = this.context.value;
-                savedContext.has_value = this.context.has_value;
-                this.context.value = this.context.value.(*EvalContext).createChild();
-                this.context.has_value = true; /* detected as non-optional */
-                this.bindMapCallback(callback, item, i);
-                var resultEl *EVGElement= this.evaluateMapCallbackBody(callback);
-                if  (int64(len([]rune(resultEl.tagName)))) > int64(0) {
-                  element.addChild(resultEl);
-                }
-                this.context.value = savedContext.value;
-                this.context.has_value = false; 
-                if this.context.value != nil {
-                  this.context.has_value = true
-                }
-                i = i + int64(1); 
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-func (this *ComponentEngine) bindMapCallback (callback *TSNode, item *EvalValue, index int64) () {
-  if  callback.nodeType == "ArrowFunctionExpression" {
-    if  (int64(len(callback.params))) > int64(0) {
-      var param *TSNode= callback.params[int64(0)];
-      var paramName string= param.name;
-      this.context.value.(*EvalContext).define(paramName, item);
-    }
-    if  (int64(len(callback.params))) > int64(1) {
-      var indexParam *TSNode= callback.params[int64(1)];
-      this.context.value.(*EvalContext).define(indexParam.name, EvalValue_static_fromInt(index));
-    }
-  }
-}
-func (this *ComponentEngine) evaluateMapCallbackBody (callback *TSNode) *EVGElement {
-  var empty *EVGElement= CreateNew_EVGElement();
-  if  callback.nodeType == "ArrowFunctionExpression" {
-    if ( callback.body.has_value) {
-      var body *TSNode= callback.body.value.(*TSNode);
-      if  (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") {
-        return this.evaluateJSX(body)
-      }
-      if  body.nodeType == "BlockStatement" {
-        return this.evaluateFunctionBody(body)
-      }
-    }
-  }
-  return empty
-}
-func (this *ComponentEngine) evaluateTernaryChild (element *EVGElement, node *TSNode) () {
-  if ( node.test.has_value) {
-    var testExpr *TSNode= node.test.value.(*TSNode);
-    var testValue *EvalValue= this.evaluateExpr(testExpr);
-    if  testValue.toBool() {
-      if ( node.consequent.has_value) {
-        var conseqNode *TSNode= node.consequent.value.(*TSNode);
-        if  (conseqNode.nodeType == "JSXElement") || (conseqNode.nodeType == "JSXFragment") {
-          var childEl *EVGElement= this.evaluateJSX(conseqNode);
-          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
-            element.addChild(childEl);
-          }
-        }
-      }
-    } else {
-      if ( node.alternate.has_value) {
-        var altNode *TSNode= node.alternate.value.(*TSNode);
-        if  (altNode.nodeType == "JSXElement") || (altNode.nodeType == "JSXFragment") {
-          var childEl_1 *EVGElement= this.evaluateJSX(altNode);
-          if  (int64(len([]rune(childEl_1.tagName)))) > int64(0) {
-            element.addChild(childEl_1);
-          }
-        }
-      }
-    }
-  }
-}
-func (this *ComponentEngine) evaluateAndChild (element *EVGElement, node *TSNode) () {
-  if ( node.left.has_value) {
-    var leftExpr *TSNode= node.left.value.(*TSNode);
-    var leftValue *EvalValue= this.evaluateExpr(leftExpr);
-    if  leftValue.toBool() {
-      if ( node.right.has_value) {
-        var rightNode *TSNode= node.right.value.(*TSNode);
-        if  (rightNode.nodeType == "JSXElement") || (rightNode.nodeType == "JSXFragment") {
-          var childEl *EVGElement= this.evaluateJSX(rightNode);
-          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
-            element.addChild(childEl);
-          }
-        }
-      }
-    }
-  }
-}
-func (this *ComponentEngine) evaluateExpr (node *TSNode) *EvalValue {
-  if  node.nodeType == "NumericLiteral" {
-    var numVal *GoNullable = new(GoNullable); 
-    numVal = r_str_2_d64(node.value);
-    if ( numVal.has_value) {
-      return EvalValue_static_number((numVal.value.(float64)))
-    }
-    return EvalValue_static_number(0.0)
-  }
-  if  node.nodeType == "StringLiteral" {
-    return EvalValue_static_string(this.unquote(node.value))
-  }
-  if  node.nodeType == "TemplateLiteral" {
-    var templateText string= "";
-    var ti int64= int64(0);
-    for ti < (int64(len(node.children))) {
-      var templateChild *TSNode= node.children[ti];
-      if  templateChild.nodeType == "TemplateElement" {
-        templateText = templateText + templateChild.value; 
-      }
-      ti = ti + int64(1); 
-    }
-    return EvalValue_static_string(templateText)
-  }
-  if  node.nodeType == "BooleanLiteral" {
-    return EvalValue_static_boolean((node.value == "true"))
-  }
-  if  node.nodeType == "NullLiteral" {
-    return EvalValue_static_null()
-  }
-  if  node.nodeType == "Identifier" {
-    return this.context.value.(*EvalContext).lookup(node.name)
-  }
-  if  node.nodeType == "BinaryExpression" {
-    return this.evaluateBinaryExpr(node)
-  }
-  if  node.nodeType == "UnaryExpression" {
-    return this.evaluateUnaryExpr(node)
-  }
-  if  node.nodeType == "ConditionalExpression" {
-    return this.evaluateConditionalExpr(node)
-  }
-  if  node.nodeType == "MemberExpression" {
-    return this.evaluateMemberExpr(node)
-  }
-  if  node.nodeType == "ArrayExpression" {
-    return this.evaluateArrayExpr(node)
-  }
-  if  node.nodeType == "ObjectExpression" {
-    return this.evaluateObjectExpr(node)
-  }
-  if  node.nodeType == "ParenthesizedExpression" {
-    if ( node.left.has_value) {
-      var inner *TSNode= node.left.value.(*TSNode);
-      return this.evaluateExpr(inner)
-    }
-  }
-  if  node.nodeType == "JSXElement" {
-    var el *EVGElement= this.evaluateJSXElement(node);
-    return EvalValue_static_element(el)
-  }
-  if  node.nodeType == "JSXFragment" {
-    var el_1 *EVGElement= CreateNew_EVGElement();
-    el_1.tagName = "div"; 
-    this.evaluateChildren(el_1, node);
-    return EvalValue_static_element(el_1)
-  }
-  if  node.nodeType == "CallExpression" {
-    return this.evaluateCallExpr(node)
-  }
-  return EvalValue_static_null()
-}
-func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
-  if ( node.left.has_value) {
-    var callee *TSNode= node.left.value.(*TSNode);
-    if  callee.nodeType == "MemberExpression" {
-      return EvalValue_static_null()
-    }
-    if  callee.nodeType == "Identifier" {
-      var fnName string= callee.name;
-      fmt.Println( "Evaluating function call: " + fnName )
-      var fnValue *EvalValue= this.context.value.(*EvalContext).lookup(fnName);
-      if  fnValue.isFunction() {
-        if ( fnValue.functionNode.has_value) {
-          var fnNode *TSNode= fnValue.functionNode.value.(*TSNode);
-          var savedContext *GoNullable = new(GoNullable); 
-          savedContext.value = this.context.value;
-          savedContext.has_value = this.context.has_value;
-          this.context.value = this.context.value.(*EvalContext).createChild();
-          this.context.has_value = true; /* detected as non-optional */
-          var body *TSNode= this.getFunctionBody(fnNode);
-          var result *EvalValue= this.evaluateFunctionBodyValue(body);
-          this.context.value = savedContext.value;
-          this.context.has_value = false; 
-          if this.context.value != nil {
-            this.context.has_value = true
-          }
-          return result
-        }
-      }
-    }
-  }
-  return EvalValue_static_null()
-}
-func (this *ComponentEngine) evaluateBinaryExpr (node *TSNode) *EvalValue {
-  var op string= node.value;
-  if  op == "&&" {
-    if ( node.left.has_value) {
-      var leftExpr *TSNode= node.left.value.(*TSNode);
-      var left *EvalValue= this.evaluateExpr(leftExpr);
-      if  left.toBool() == false {
-        return left
-      }
-      if ( node.right.has_value) {
-        var rightExpr *TSNode= node.right.value.(*TSNode);
-        return this.evaluateExpr(rightExpr)
-      }
-    }
-  }
-  if  op == "||" {
-    if ( node.left.has_value) {
-      var leftExpr_1 *TSNode= node.left.value.(*TSNode);
-      var left_1 *EvalValue= this.evaluateExpr(leftExpr_1);
-      if  left_1.toBool() {
-        return left_1
-      }
-      if ( node.right.has_value) {
-        var rightExpr_1 *TSNode= node.right.value.(*TSNode);
-        return this.evaluateExpr(rightExpr_1)
-      }
-    }
-  }
-  var left_2 *EvalValue= EvalValue_static_null();
-  var right *EvalValue= EvalValue_static_null();
-  if ( node.left.has_value) {
-    var leftExpr_2 *TSNode= node.left.value.(*TSNode);
-    left_2 = this.evaluateExpr(leftExpr_2); 
-  }
-  if ( node.right.has_value) {
-    var rightExpr_2 *TSNode= node.right.value.(*TSNode);
-    right = this.evaluateExpr(rightExpr_2); 
-  }
-  if  op == "+" {
-    var isLeftStr bool= left_2.isString();
-    var isRightStr bool= right.isString();
-    if  isLeftStr || isRightStr {
-      return EvalValue_static_string(((left_2).toString() + (right).toString()))
-    }
-    return EvalValue_static_number((left_2.toNumber() + right.toNumber()))
-  }
-  if  op == "-" {
-    return EvalValue_static_number((left_2.toNumber() - right.toNumber()))
-  }
-  if  op == "*" {
-    return EvalValue_static_number((left_2.toNumber() * right.toNumber()))
-  }
-  if  op == "/" {
-    var rightNum float64= right.toNumber();
-    if  rightNum != 0.0 {
-      return EvalValue_static_number((left_2.toNumber() / rightNum))
-    }
-    return EvalValue_static_number(0.0)
-  }
-  if  op == "%" {
-    var leftInt int64= int64(left_2.toNumber());
-    var rightInt int64= int64(right.toNumber());
-    if  rightInt != int64(0) {
-      return EvalValue_static_fromInt((leftInt % rightInt))
-    }
-    return EvalValue_static_number(0.0)
-  }
-  if  op == "<" {
-    return EvalValue_static_boolean((left_2.toNumber() < right.toNumber()))
-  }
-  if  op == ">" {
-    return EvalValue_static_boolean((left_2.toNumber() > right.toNumber()))
-  }
-  if  op == "<=" {
-    return EvalValue_static_boolean((left_2.toNumber() <= right.toNumber()))
-  }
-  if  op == ">=" {
-    return EvalValue_static_boolean((left_2.toNumber() >= right.toNumber()))
-  }
-  if  (op == "==") || (op == "===") {
-    return EvalValue_static_boolean(left_2.equals(right))
-  }
-  if  (op == "!=") || (op == "!==") {
-    return EvalValue_static_boolean((left_2.equals(right) == false))
-  }
-  return EvalValue_static_null()
-}
-func (this *ComponentEngine) evaluateUnaryExpr (node *TSNode) *EvalValue {
-  var op string= node.value;
-  if ( node.left.has_value) {
-    var argExpr *TSNode= node.left.value.(*TSNode);
-    var arg *EvalValue= this.evaluateExpr(argExpr);
-    if  op == "!" {
-      return EvalValue_static_boolean((arg.toBool() == false))
-    }
-    if  op == "-" {
-      return EvalValue_static_number((0.0 - arg.toNumber()))
-    }
-    if  op == "+" {
-      return EvalValue_static_number(arg.toNumber())
-    }
-  }
-  return EvalValue_static_null()
-}
-func (this *ComponentEngine) evaluateConditionalExpr (node *TSNode) *EvalValue {
-  if ( node.test.has_value) {
-    var testExpr *TSNode= node.test.value.(*TSNode);
-    var test *EvalValue= this.evaluateExpr(testExpr);
-    if  test.toBool() {
-      if ( node.consequent.has_value) {
-        var conseqNode *TSNode= node.consequent.value.(*TSNode);
-        return this.evaluateExpr(conseqNode)
-      }
-    } else {
-      if ( node.alternate.has_value) {
-        var altNode *TSNode= node.alternate.value.(*TSNode);
-        return this.evaluateExpr(altNode)
-      }
-    }
-  }
-  return EvalValue_static_null()
-}
-func (this *ComponentEngine) evaluateMemberExpr (node *TSNode) *EvalValue {
-  if ( node.left.has_value) {
-    var leftExpr *TSNode= node.left.value.(*TSNode);
-    var obj *EvalValue= this.evaluateExpr(leftExpr);
-    var propName string= node.name;
-    fmt.Println( (((("evaluateMemberExpr: propName=" + propName) + " computed=") + (strconv.FormatBool(node.computed))) + " obj.type=") + (strconv.FormatInt(obj.valueType, 10)) )
-    if  node.computed {
-      if ( node.right.has_value) {
-        var indexExpr *TSNode= node.right.value.(*TSNode);
-        var indexVal *EvalValue= this.evaluateExpr(indexExpr);
-        fmt.Println( (("  Index value: " + (indexVal).toString()) + " type=") + (strconv.FormatInt(indexVal.valueType, 10)) )
-        if  indexVal.isNumber() {
-          var idx int64= int64(indexVal.toNumber());
-          fmt.Println( (("  Getting index " + (strconv.FormatInt(idx, 10))) + " from array of length ") + (strconv.FormatInt((int64(len(obj.arrayValue))), 10)) )
-          return obj.getIndex(idx)
-        }
-        if  indexVal.isString() {
-          return obj.getMember(indexVal.stringValue)
-        }
-      }
-    }
-    return obj.getMember(propName)
-  }
-  return EvalValue_static_null()
-}
-func (this *ComponentEngine) evaluateArrayExpr (node *TSNode) *EvalValue {
-  var items []*EvalValue = make([]*EvalValue, 0);
-  var i int64= int64(0);
-  for i < (int64(len(node.children))) {
-    var elem *TSNode= node.children[i];
-    var value *EvalValue= this.evaluateExpr(elem);
-    items = append(items,value); 
-    i = i + int64(1); 
-  }
-  return EvalValue_static_array(items)
-}
-func (this *ComponentEngine) evaluateObjectExpr (node *TSNode) *EvalValue {
-  var keys []string = make([]string, 0);
-  var values []*EvalValue = make([]*EvalValue, 0);
-  var i int64= int64(0);
-  for i < (int64(len(node.children))) {
-    var prop *TSNode= node.children[i];
-    if  prop.nodeType == "Property" {
-      var key string= prop.name;
-      keys = append(keys,key); 
-      if ( prop.left.has_value ) {
-        var valueNode *TSNode= prop.left.value.(*TSNode);
-        values = append(values,this.evaluateExpr(valueNode)); 
-      } else {
-        values = append(values,EvalValue_static_null()); 
-      }
-    }
-    i = i + int64(1); 
-  }
-  return EvalValue_static_object(keys, values)
-}
-func (this *ComponentEngine) mapTagName (jsxTag string) string {
-  if  jsxTag == "Print" {
-    return "print"
-  }
-  if  jsxTag == "Section" {
-    return "section"
-  }
-  if  jsxTag == "Page" {
-    return "page"
-  }
-  if  jsxTag == "View" {
-    return "div"
-  }
-  if  jsxTag == "Layer" {
-    return "layer"
-  }
-  if  jsxTag == "Label" {
-    return "text"
-  }
-  if  jsxTag == "Image" {
-    return "image"
-  }
-  if  jsxTag == "Path" {
-    return "path"
-  }
-  if  jsxTag == "Spacer" {
-    return "spacer"
-  }
-  if  jsxTag == "Divider" {
-    return "divider"
-  }
-  if  jsxTag == "div" {
-    return "div"
-  }
-  if  jsxTag == "span" {
-    return "text"
-  }
-  if  jsxTag == "img" {
-    return "image"
-  }
-  if  jsxTag == "path" {
-    return "path"
-  }
-  if  jsxTag == "layer" {
-    return "layer"
-  }
-  return "div"
-}
-func (this *ComponentEngine) trimText (text string) string {
-  var result string= "";
-  var started bool= false;
-  var i int64= int64(0);
-  var __len int64= int64(len([]rune(text)));
-  for i < __len {
-    var c int64= int64([]rune(text)[i]);
-    var isWhitespace bool= (((c == int64(32)) || (c == int64(9))) || (c == int64(10))) || (c == int64(13));
-    if  started {
-      result = result + (string([]rune{rune(c)})); 
-    } else {
-      if  isWhitespace == false {
-        started = true; 
-        result = string([]rune{rune(c)}); 
-      }
-    }
-    i = i + int64(1); 
-  }
-  var trimLen int64= int64(len([]rune(result)));
-  for trimLen > int64(0) {
-    var lastC int64= int64([]rune(result)[(trimLen - int64(1))]);
-    if  (((lastC == int64(32)) || (lastC == int64(9))) || (lastC == int64(10))) || (lastC == int64(13)) {
-      result = string([]rune(result)[int64(0):(trimLen - int64(1))]); 
-      trimLen = trimLen - int64(1); 
-    } else {
-      trimLen = int64(0); 
-    }
-  }
-  return result
-}
-func (this *ComponentEngine) normalizeWhitespace (text string) string {
-  var result string= "";
-  var lastWasSpace bool= false;
-  var i int64= int64(0);
-  var __len int64= int64(len([]rune(text)));
-  for i < __len {
-    var c int64= int64([]rune(text)[i]);
-    var isWhitespace bool= (((c == int64(32)) || (c == int64(9))) || (c == int64(10))) || (c == int64(13));
-    if  isWhitespace {
-      if  lastWasSpace == false {
-        result = result + " "; 
-        lastWasSpace = true; 
-      }
-    } else {
-      result = result + (string([]rune{rune(c)})); 
-      lastWasSpace = false; 
-    }
-    i = i + int64(1); 
-  }
-  return result
-}
-func (this *ComponentEngine) startsWithPunctuation (s string) bool {
-  if  (int64(len([]rune(s)))) == int64(0) {
-    return false
-  }
-  var first int64= int64([]rune(s)[int64(0)]);
-  if  (((((first == int64(44)) || (first == int64(46))) || (first == int64(33))) || (first == int64(63))) || (first == int64(58))) || (first == int64(59)) {
-    return true
-  }
-  if  ((first == int64(41)) || (first == int64(93))) || (first == int64(125)) {
-    return true
-  }
-  if  ((first == int64(39)) || (first == int64(34))) || (first == int64(45)) {
-    return true
-  }
-  return false
-}
-func (this *ComponentEngine) endsWithOpenPunctuation (s string) bool {
-  var __len int64= int64(len([]rune(s)));
-  if  __len == int64(0) {
-    return false
-  }
-  var last int64= int64([]rune(s)[(__len - int64(1))]);
-  if  (((last == int64(40)) || (last == int64(91))) || (last == int64(123))) || (last == int64(45)) {
-    return true
-  }
-  return false
-}
-func (this *ComponentEngine) smartJoinText (existing string, newText string) string {
-  if  (int64(len([]rune(existing)))) == int64(0) {
-    return newText
-  }
-  if  (int64(len([]rune(newText)))) == int64(0) {
-    return existing
-  }
-  if  this.startsWithPunctuation(newText) {
-    return existing + newText
-  }
-  if  this.endsWithOpenPunctuation(existing) {
-    return existing + newText
-  }
-  return (existing + " ") + newText
-}
-func (this *ComponentEngine) unquote (s string) string {
-  var __len int64= int64(len([]rune(s)));
-  if  __len < int64(2) {
-    return s
-  }
-  var first int64= int64([]rune(s)[int64(0)]);
-  var last int64= int64([]rune(s)[(__len - int64(1))]);
-  if  ((first == int64(34)) || (first == int64(39))) && (first == last) {
-    return string([]rune(s)[int64(1):(__len - int64(1))])
-  }
-  return s
-}
-type EVGTextMetrics struct { 
-  width float64 `json:"width"` 
-  height float64 `json:"height"` 
-  ascent float64 `json:"ascent"` 
-  descent float64 `json:"descent"` 
-  lineHeight float64 `json:"lineHeight"` 
-}
-
-func CreateNew_EVGTextMetrics() *EVGTextMetrics {
-  me := new(EVGTextMetrics)
-  me.width = 0.0
-  me.height = 0.0
-  me.ascent = 0.0
-  me.descent = 0.0
-  me.lineHeight = 0.0
-  me.width = 0.0; 
-  me.height = 0.0; 
-  me.ascent = 0.0; 
-  me.descent = 0.0; 
-  me.lineHeight = 0.0; 
-  return me;
-}
-func EVGTextMetrics_static_create(w float64, h float64) *EVGTextMetrics {
-  var m *EVGTextMetrics= CreateNew_EVGTextMetrics();
-  m.width = w; 
-  m.height = h; 
-  return m
-}
-type EVGTextMeasurer struct { 
-}
-type IFACE_EVGTextMeasurer interface { 
-  measureText(text string, fontFamily string, fontSize float64) *EVGTextMetrics
-  measureTextWidth(text string, fontFamily string, fontSize float64) float64
-  getLineHeight(fontFamily string, fontSize float64) float64
-  measureChar(ch int64, fontFamily string, fontSize float64) float64
-  wrapText(text string, fontFamily string, fontSize float64, maxWidth float64) []string
-}
-
-func CreateNew_EVGTextMeasurer() *EVGTextMeasurer {
-  me := new(EVGTextMeasurer)
-  return me;
-}
-func (this *EVGTextMeasurer) measureText (text string, fontFamily string, fontSize float64) *EVGTextMetrics {
-  var avgCharWidth float64= fontSize * 0.55;
-  var textLen int64= int64(len([]rune(text)));
-  var width float64= (float64( textLen )) * avgCharWidth;
-  var lineHeight float64= fontSize * 1.2;
-  var metrics *EVGTextMetrics= CreateNew_EVGTextMetrics();
-  metrics.width = width; 
-  metrics.height = lineHeight; 
-  metrics.ascent = fontSize * 0.8; 
-  metrics.descent = fontSize * 0.2; 
-  metrics.lineHeight = lineHeight; 
-  return metrics
-}
-func (this *EVGTextMeasurer) measureTextWidth (text string, fontFamily string, fontSize float64) float64 {
-  var metrics *EVGTextMetrics= this.measureText(text, fontFamily, fontSize);
-  return metrics.width
-}
-func (this *EVGTextMeasurer) getLineHeight (fontFamily string, fontSize float64) float64 {
-  return fontSize * 1.2
-}
-func (this *EVGTextMeasurer) measureChar (ch int64, fontFamily string, fontSize float64) float64 {
-  if  ch == int64(32) {
-    return fontSize * 0.3
-  }
-  if  ((((ch == int64(105)) || (ch == int64(108))) || (ch == int64(106))) || (ch == int64(116))) || (ch == int64(102)) {
-    return fontSize * 0.3
-  }
-  if  (ch == int64(109)) || (ch == int64(119)) {
-    return fontSize * 0.8
-  }
-  if  (ch == int64(77)) || (ch == int64(87)) {
-    return fontSize * 0.9
-  }
-  if  ch == int64(73) {
-    return fontSize * 0.35
-  }
-  return fontSize * 0.55
-}
-func (this *EVGTextMeasurer) wrapText (text string, fontFamily string, fontSize float64, maxWidth float64) []string {
-  var lines []string = make([]string, 0);
-  var currentLine string= "";
-  var currentWidth float64= 0.0;
-  var wordStart int64= int64(0);
-  var textLen int64= int64(len([]rune(text)));
-  var i int64= int64(0);
-  for i <= textLen {
-    var ch int64= int64(0);
-    var isEnd bool= i == textLen;
-    if  isEnd == false {
-      ch = int64([]rune(text)[i]); 
-    }
-    var isWordEnd bool= false;
-    if  isEnd {
-      isWordEnd = true; 
-    }
-    if  ch == int64(32) {
-      isWordEnd = true; 
-    }
-    if  ch == int64(10) {
-      isWordEnd = true; 
-    }
-    if  isWordEnd {
-      var word string= "";
-      if  i > wordStart {
-        word = string([]rune(text)[wordStart:i]); 
-      }
-      var wordWidth float64= this.measureTextWidth(word, fontFamily, fontSize);
-      var spaceWidth float64= 0.0;
-      if  (int64(len([]rune(currentLine)))) > int64(0) {
-        spaceWidth = this.measureTextWidth(" ", fontFamily, fontSize); 
-      }
-      if  ((currentWidth + spaceWidth) + wordWidth) <= maxWidth {
-        if  (int64(len([]rune(currentLine)))) > int64(0) {
-          currentLine = currentLine + " "; 
-          currentWidth = currentWidth + spaceWidth; 
-        }
-        currentLine = currentLine + word; 
-        currentWidth = currentWidth + wordWidth; 
-      } else {
-        if  (int64(len([]rune(currentLine)))) > int64(0) {
-          lines = append(lines,currentLine); 
-        }
-        currentLine = word; 
-        currentWidth = wordWidth; 
-      }
-      if  ch == int64(10) {
-        lines = append(lines,currentLine); 
-        currentLine = ""; 
-        currentWidth = 0.0; 
-      }
-      wordStart = i + int64(1); 
-    }
-    i = i + int64(1); 
-  }
-  if  (int64(len([]rune(currentLine)))) > int64(0) {
-    lines = append(lines,currentLine); 
-  }
-  return lines
-}
-type SimpleTextMeasurer struct { 
-  charWidthRatio float64 `json:"charWidthRatio"` 
-  // inherited from parent class EVGTextMeasurer
-}
-type IFACE_SimpleTextMeasurer interface { 
-  Get_charWidthRatio() float64
-  Set_charWidthRatio(value float64) 
-  setCharWidthRatio(ratio float64) ()
-  measureText(text string, fontFamily string, fontSize float64) *EVGTextMetrics
-}
-
-func CreateNew_SimpleTextMeasurer() *SimpleTextMeasurer {
-  me := new(SimpleTextMeasurer)
-  me.charWidthRatio = 0.55
-  return me;
-}
-func (this *SimpleTextMeasurer) setCharWidthRatio (ratio float64) () {
-  this.charWidthRatio = ratio; 
-}
-func (this *SimpleTextMeasurer) measureText (text string, fontFamily string, fontSize float64) *EVGTextMetrics {
-  var textLen int64= int64(len([]rune(text)));
-  var width float64= 0.0;
-  var i int64= int64(0);
-  for i < textLen {
-    var ch int64= int64([]rune(text)[i]);
-    width = width + this.measureChar(ch, fontFamily, fontSize); 
-    i = i + int64(1); 
-  }
-  var lineHeight float64= fontSize * 1.2;
-  var metrics *EVGTextMetrics= CreateNew_EVGTextMetrics();
-  metrics.width = width; 
-  metrics.height = lineHeight; 
-  metrics.ascent = fontSize * 0.8; 
-  metrics.descent = fontSize * 0.2; 
-  metrics.lineHeight = lineHeight; 
-  return metrics
-}
-// inherited methods from parent class EVGTextMeasurer
-func (this *SimpleTextMeasurer) measureTextWidth (text string, fontFamily string, fontSize float64) float64 {
-  var metrics *EVGTextMetrics= this.measureText(text, fontFamily, fontSize);
-  return metrics.width
-}
-func (this *SimpleTextMeasurer) getLineHeight (fontFamily string, fontSize float64) float64 {
-  return fontSize * 1.2
-}
-func (this *SimpleTextMeasurer) measureChar (ch int64, fontFamily string, fontSize float64) float64 {
-  if  ch == int64(32) {
-    return fontSize * 0.3
-  }
-  if  ((((ch == int64(105)) || (ch == int64(108))) || (ch == int64(106))) || (ch == int64(116))) || (ch == int64(102)) {
-    return fontSize * 0.3
-  }
-  if  (ch == int64(109)) || (ch == int64(119)) {
-    return fontSize * 0.8
-  }
-  if  (ch == int64(77)) || (ch == int64(87)) {
-    return fontSize * 0.9
-  }
-  if  ch == int64(73) {
-    return fontSize * 0.35
-  }
-  return fontSize * 0.55
-}
-func (this *SimpleTextMeasurer) wrapText (text string, fontFamily string, fontSize float64, maxWidth float64) []string {
-  var lines []string = make([]string, 0);
-  var currentLine string= "";
-  var currentWidth float64= 0.0;
-  var wordStart int64= int64(0);
-  var textLen int64= int64(len([]rune(text)));
-  var i int64= int64(0);
-  for i <= textLen {
-    var ch int64= int64(0);
-    var isEnd bool= i == textLen;
-    if  isEnd == false {
-      ch = int64([]rune(text)[i]); 
-    }
-    var isWordEnd bool= false;
-    if  isEnd {
-      isWordEnd = true; 
-    }
-    if  ch == int64(32) {
-      isWordEnd = true; 
-    }
-    if  ch == int64(10) {
-      isWordEnd = true; 
-    }
-    if  isWordEnd {
-      var word string= "";
-      if  i > wordStart {
-        word = string([]rune(text)[wordStart:i]); 
-      }
-      var wordWidth float64= this.measureTextWidth(word, fontFamily, fontSize);
-      var spaceWidth float64= 0.0;
-      if  (int64(len([]rune(currentLine)))) > int64(0) {
-        spaceWidth = this.measureTextWidth(" ", fontFamily, fontSize); 
-      }
-      if  ((currentWidth + spaceWidth) + wordWidth) <= maxWidth {
-        if  (int64(len([]rune(currentLine)))) > int64(0) {
-          currentLine = currentLine + " "; 
-          currentWidth = currentWidth + spaceWidth; 
-        }
-        currentLine = currentLine + word; 
-        currentWidth = currentWidth + wordWidth; 
-      } else {
-        if  (int64(len([]rune(currentLine)))) > int64(0) {
-          lines = append(lines,currentLine); 
-        }
-        currentLine = word; 
-        currentWidth = wordWidth; 
-      }
-      if  ch == int64(10) {
-        lines = append(lines,currentLine); 
-        currentLine = ""; 
-        currentWidth = 0.0; 
-      }
-      wordStart = i + int64(1); 
-    }
-    i = i + int64(1); 
-  }
-  if  (int64(len([]rune(currentLine)))) > int64(0) {
-    lines = append(lines,currentLine); 
-  }
-  return lines
-}
-// getter for variable charWidthRatio
-func (this *SimpleTextMeasurer) Get_charWidthRatio() float64 {
-  return this.charWidthRatio
-}
-// setter for variable charWidthRatio
-func (this *SimpleTextMeasurer) Set_charWidthRatio( value float64)  {
-  this.charWidthRatio = value 
-}
-// inherited getters and setters from the parent class EVGTextMeasurer
-type EVGImageDimensions struct { 
-  width int64 `json:"width"` 
-  height int64 `json:"height"` 
-  aspectRatio float64 `json:"aspectRatio"` 
-  isValid bool `json:"isValid"` 
-}
-
-func CreateNew_EVGImageDimensions() *EVGImageDimensions {
-  me := new(EVGImageDimensions)
-  me.width = int64(0)
-  me.height = int64(0)
-  me.aspectRatio = 1.0
-  me.isValid = false
-  me.width = int64(0); 
-  me.height = int64(0); 
-  me.aspectRatio = 1.0; 
-  me.isValid = false; 
-  return me;
-}
-func EVGImageDimensions_static_create(w int64, h int64) *EVGImageDimensions {
-  var d *EVGImageDimensions= CreateNew_EVGImageDimensions();
-  d.width = w; 
-  d.height = h; 
-  if  h > int64(0) {
-    d.aspectRatio = (float64( w )) / (float64( h )); 
-  }
-  d.isValid = true; 
-  return d
-}
-type EVGImageMeasurer struct { 
-}
-type IFACE_EVGImageMeasurer interface { 
-  getImageDimensions(src string) *EVGImageDimensions
-  calculateHeightForWidth(src string, targetWidth float64) float64
-  calculateWidthForHeight(src string, targetHeight float64) float64
-  calculateFitDimensions(src string, maxWidth float64, maxHeight float64) *EVGImageDimensions
-}
-
-func CreateNew_EVGImageMeasurer() *EVGImageMeasurer {
-  me := new(EVGImageMeasurer)
-  return me;
-}
-func (this *EVGImageMeasurer) getImageDimensions (src string) *EVGImageDimensions {
-  var dims *EVGImageDimensions= CreateNew_EVGImageDimensions();
-  return dims
-}
-func (this *EVGImageMeasurer) calculateHeightForWidth (src string, targetWidth float64) float64 {
-  var dims *EVGImageDimensions= this.getImageDimensions(src);
-  if  dims.isValid {
-    return targetWidth / dims.aspectRatio
-  }
-  return targetWidth
-}
-func (this *EVGImageMeasurer) calculateWidthForHeight (src string, targetHeight float64) float64 {
-  var dims *EVGImageDimensions= this.getImageDimensions(src);
-  if  dims.isValid {
-    return targetHeight * dims.aspectRatio
-  }
-  return targetHeight
-}
-func (this *EVGImageMeasurer) calculateFitDimensions (src string, maxWidth float64, maxHeight float64) *EVGImageDimensions {
-  var dims *EVGImageDimensions= this.getImageDimensions(src);
-  if  dims.isValid == false {
-    return EVGImageDimensions_static_create((int64(maxWidth)), (int64(maxHeight)))
-  }
-  var scaleW float64= maxWidth / (float64( dims.width ));
-  var scaleH float64= maxHeight / (float64( dims.height ));
-  var scale float64= scaleW;
-  if  scaleH < scaleW {
-    scale = scaleH; 
-  }
-  var newW int64= int64(((float64( dims.width )) * scale));
-  var newH int64= int64(((float64( dims.height )) * scale));
-  return EVGImageDimensions_static_create(newW, newH)
-}
-type SimpleImageMeasurer struct { 
-  // inherited from parent class EVGImageMeasurer
-}
-type IFACE_SimpleImageMeasurer interface { 
-}
-
-func CreateNew_SimpleImageMeasurer() *SimpleImageMeasurer {
-  me := new(SimpleImageMeasurer)
-  return me;
-}
-// inherited methods from parent class EVGImageMeasurer
-func (this *SimpleImageMeasurer) getImageDimensions (src string) *EVGImageDimensions {
-  var dims *EVGImageDimensions= CreateNew_EVGImageDimensions();
-  return dims
-}
-func (this *SimpleImageMeasurer) calculateHeightForWidth (src string, targetWidth float64) float64 {
-  var dims *EVGImageDimensions= this.getImageDimensions(src);
-  if  dims.isValid {
-    return targetWidth / dims.aspectRatio
-  }
-  return targetWidth
-}
-func (this *SimpleImageMeasurer) calculateWidthForHeight (src string, targetHeight float64) float64 {
-  var dims *EVGImageDimensions= this.getImageDimensions(src);
-  if  dims.isValid {
-    return targetHeight * dims.aspectRatio
-  }
-  return targetHeight
-}
-func (this *SimpleImageMeasurer) calculateFitDimensions (src string, maxWidth float64, maxHeight float64) *EVGImageDimensions {
-  var dims *EVGImageDimensions= this.getImageDimensions(src);
-  if  dims.isValid == false {
-    return EVGImageDimensions_static_create((int64(maxWidth)), (int64(maxHeight)))
-  }
-  var scaleW float64= maxWidth / (float64( dims.width ));
-  var scaleH float64= maxHeight / (float64( dims.height ));
-  var scale float64= scaleW;
-  if  scaleH < scaleW {
-    scale = scaleH; 
-  }
-  var newW int64= int64(((float64( dims.width )) * scale));
-  var newH int64= int64(((float64( dims.height )) * scale));
-  return EVGImageDimensions_static_create(newW, newH)
-}
-// inherited getters and setters from the parent class EVGImageMeasurer
-type EVGLayout struct { 
-  measurer *GoNullable `json:"measurer"` 
-  imageMeasurer *GoNullable `json:"imageMeasurer"` 
-  pageWidth float64 `json:"pageWidth"` 
-  pageHeight float64 `json:"pageHeight"` 
-  currentPage int64 `json:"currentPage"` 
-  debug bool `json:"debug"` 
-}
-
-func CreateNew_EVGLayout() *EVGLayout {
-  me := new(EVGLayout)
-  me.pageWidth = 612.0
-  me.pageHeight = 792.0
-  me.currentPage = int64(0)
-  me.debug = false
-  me.measurer = new(GoNullable);
-  me.imageMeasurer = new(GoNullable);
-  var m *SimpleTextMeasurer= CreateNew_SimpleTextMeasurer();
-  me.measurer.value = m;
-  me.measurer.has_value = true; /* detected as non-optional */
-  var im *SimpleImageMeasurer= CreateNew_SimpleImageMeasurer();
-  me.imageMeasurer.value = im;
-  me.imageMeasurer.has_value = true; /* detected as non-optional */
-  return me;
-}
-func (this *EVGLayout) setMeasurer (m IFACE_EVGTextMeasurer) () {
-  this.measurer.value = m;
-  this.measurer.has_value = true; /* detected as non-optional */
-}
-func (this *EVGLayout) setImageMeasurer (m IFACE_EVGImageMeasurer) () {
-  this.imageMeasurer.value = m;
-  this.imageMeasurer.has_value = true; /* detected as non-optional */
-}
-func (this *EVGLayout) setPageSize (w float64, h float64) () {
-  this.pageWidth = w; 
-  this.pageHeight = h; 
-}
-func (this *EVGLayout) setDebug (d bool) () {
-  this.debug = d; 
-}
-func (this *EVGLayout) log (msg string) () {
-  if  this.debug {
-    fmt.Println( msg )
-  }
-}
-func (this *EVGLayout) layout (root *EVGElement) () {
-  this.log("EVGLayout: Starting layout");
-  this.currentPage = int64(0); 
-  if  root.width.value.(*EVGUnit).isSet == false {
-    root.width.value = EVGUnit_static_px(this.pageWidth);
-    root.width.has_value = true; /* detected as non-optional */
-  }
-  if  root.height.value.(*EVGUnit).isSet == false {
-    root.height.value = EVGUnit_static_px(this.pageHeight);
-    root.height.has_value = true; /* detected as non-optional */
-  }
-  this.layoutElement(root, 0.0, 0.0, this.pageWidth, this.pageHeight);
-  this.log("EVGLayout: Layout complete");
-}
-func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, parentY float64, parentWidth float64, parentHeight float64) () {
-  element.resolveUnits(parentWidth, parentHeight);
-  var width float64= parentWidth;
-  if  element.width.value.(*EVGUnit).isSet {
-    width = element.width.value.(*EVGUnit).pixels; 
-  }
-  var height float64= 0.0;
-  var autoHeight bool= true;
-  if  (element.tagName == "Page") || (element.tagName == "page") {
-    if  element.width.value.(*EVGUnit).isSet == false {
-      width = this.pageWidth; 
-    }
-    if  element.height.value.(*EVGUnit).isSet == false {
-      height = this.pageHeight; 
-      autoHeight = false; 
-    }
-  }
-  if  element.height.value.(*EVGUnit).isSet {
-    height = element.height.value.(*EVGUnit).pixels; 
-    autoHeight = false; 
-  }
-  if  ((element.tagName == "image") || (element.tagName == "Image")) || (element.tagName == "img") {
-    var imgSrc string= element.src;
-    if  (int64(len([]rune(imgSrc)))) > int64(0) {
-      var dims *EVGImageDimensions= this.imageMeasurer.value.(IFACE_EVGImageMeasurer).getImageDimensions(imgSrc);
-      if  dims.isValid {
-        if  element.width.value.(*EVGUnit).isSet && (element.height.value.(*EVGUnit).isSet == false) {
-          height = width / dims.aspectRatio; 
-          autoHeight = false; 
-          this.log((("  Image aspect ratio: " + (strconv.FormatFloat(dims.aspectRatio,'f', 6, 64))) + " -> height=") + (strconv.FormatFloat(height,'f', 6, 64)));
-        }
-        if  (element.width.value.(*EVGUnit).isSet == false) && element.height.value.(*EVGUnit).isSet {
-          width = height * dims.aspectRatio; 
-          this.log((("  Image aspect ratio: " + (strconv.FormatFloat(dims.aspectRatio,'f', 6, 64))) + " -> width=") + (strconv.FormatFloat(width,'f', 6, 64)));
-        }
-        if  (element.width.value.(*EVGUnit).isSet == false) && (element.height.value.(*EVGUnit).isSet == false) {
-          width = float64( dims.width ); 
-          height = float64( dims.height ); 
-          if  width > parentWidth {
-            var scale float64= parentWidth / width;
-            width = parentWidth; 
-            height = height * scale; 
-          }
-          autoHeight = false; 
-          this.log((("  Image natural size: " + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)));
-        }
-      }
-    }
-  }
-  if  element.minWidth.value.(*EVGUnit).isSet {
-    if  width < element.minWidth.value.(*EVGUnit).pixels {
-      width = element.minWidth.value.(*EVGUnit).pixels; 
-    }
-  }
-  if  element.maxWidth.value.(*EVGUnit).isSet {
-    if  width > element.maxWidth.value.(*EVGUnit).pixels {
-      width = element.maxWidth.value.(*EVGUnit).pixels; 
-    }
-  }
-  element.calculatedWidth = width; 
-  element.calculatedInnerWidth = element.box.value.(*EVGBox).getInnerWidth(width); 
-  if  autoHeight == false {
-    element.calculatedHeight = height; 
-    element.calculatedInnerHeight = element.box.value.(*EVGBox).getInnerHeight(height); 
-  }
-  if  element.isAbsolute {
-    this.layoutAbsolute(element, parentWidth, parentHeight);
-  }
-  var childCount int64= element.getChildCount();
-  var contentHeight float64= 0.0;
-  if  childCount > int64(0) {
-    contentHeight = this.layoutChildren(element); 
-  } else {
-    var textContent string= element.textContent;
-    if  (int64(len([]rune(textContent)))) > int64(0) {
-      var fontSize float64= element.inheritedFontSize;
-      if  element.fontSize.value.(*EVGUnit).isSet {
-        fontSize = element.fontSize.value.(*EVGUnit).pixels; 
-      }
-      if  fontSize <= 0.0 {
-        fontSize = 14.0; 
-      }
-      var lineHeightFactor float64= element.lineHeight;
-      if  lineHeightFactor <= 0.0 {
-        lineHeightFactor = 1.2; 
-      }
-      var lineSpacing float64= fontSize * lineHeightFactor;
-      var availableWidth float64= (width - element.box.value.(*EVGBox).paddingLeftPx) - element.box.value.(*EVGBox).paddingRightPx;
-      var lineCount int64= this.estimateLineCount(textContent, availableWidth, fontSize);
-      contentHeight = lineSpacing * (float64( lineCount )); 
-    }
-  }
-  if  autoHeight {
-    height = ((contentHeight + element.box.value.(*EVGBox).paddingTopPx) + element.box.value.(*EVGBox).paddingBottomPx) + (element.box.value.(*EVGBox).borderWidthPx * 2.0); 
-  }
-  if  element.minHeight.value.(*EVGUnit).isSet {
-    if  height < element.minHeight.value.(*EVGUnit).pixels {
-      height = element.minHeight.value.(*EVGUnit).pixels; 
-    }
-  }
-  if  element.maxHeight.value.(*EVGUnit).isSet {
-    if  height > element.maxHeight.value.(*EVGUnit).pixels {
-      height = element.maxHeight.value.(*EVGUnit).pixels; 
-    }
-  }
-  element.calculatedHeight = height; 
-  element.calculatedInnerHeight = element.box.value.(*EVGBox).getInnerHeight(height); 
-  element.calculatedPage = this.currentPage; 
-  element.isLayoutComplete = true; 
-  this.log((((((((((("  Laid out " + element.tagName) + " id=") + element.id) + " at (") + (strconv.FormatFloat(element.calculatedX,'f', 6, 64))) + ",") + (strconv.FormatFloat(element.calculatedY,'f', 6, 64))) + ") size=") + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)));
-}
-func (this *EVGLayout) layoutChildren (parent *EVGElement) float64 {
-  var childCount int64= parent.getChildCount();
-  if  childCount == int64(0) {
-    return 0.0
-  }
-  var innerWidth float64= parent.calculatedInnerWidth;
-  var innerHeight float64= parent.calculatedInnerHeight;
-  var startX float64= (parent.calculatedX + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingLeftPx;
-  var startY float64= (parent.calculatedY + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingTopPx;
-  var currentX float64= startX;
-  var currentY float64= startY;
-  var rowHeight float64= 0.0;
-  var rowElements []*EVGElement = make([]*EVGElement, 0);
-  var totalHeight float64= 0.0;
-  var isColumn bool= parent.flexDirection == "column";
-  if  isColumn == false {
-    var fixedWidth float64= 0.0;
-    var totalFlex float64= 0.0;
-    var j int64= int64(0);
-    for j < childCount {
-      var c *EVGElement= parent.getChild(j);
-      c.resolveUnits(innerWidth, innerHeight);
-      if  c.width.value.(*EVGUnit).isSet {
-        fixedWidth = ((fixedWidth + c.width.value.(*EVGUnit).pixels) + c.box.value.(*EVGBox).marginLeftPx) + c.box.value.(*EVGBox).marginRightPx; 
-      } else {
-        if  c.flex > 0.0 {
-          totalFlex = totalFlex + c.flex; 
-          fixedWidth = (fixedWidth + c.box.value.(*EVGBox).marginLeftPx) + c.box.value.(*EVGBox).marginRightPx; 
-        } else {
-          fixedWidth = ((fixedWidth + innerWidth) + c.box.value.(*EVGBox).marginLeftPx) + c.box.value.(*EVGBox).marginRightPx; 
-        }
-      }
-      j = j + int64(1); 
-    }
-    var availableForFlex float64= innerWidth - fixedWidth;
-    if  availableForFlex < 0.0 {
-      availableForFlex = 0.0; 
-    }
-    if  totalFlex > 0.0 {
-      j = int64(0); 
-      for j < childCount {
-        var c_1 *EVGElement= parent.getChild(j);
-        if  (c_1.width.value.(*EVGUnit).isSet == false) && (c_1.flex > 0.0) {
-          var flexWidth float64= (availableForFlex * c_1.flex) / totalFlex;
-          c_1.calculatedFlexWidth = flexWidth; 
-        }
-        j = j + int64(1); 
-      }
-    }
-  }
-  var i int64= int64(0);
-  for i < childCount {
-    var child *EVGElement= parent.getChild(i);
-    child.inheritProperties(parent);
-    child.resolveUnits(innerWidth, innerHeight);
-    if  child.isAbsolute {
-      if  (child.tagName == "layer") || (child.tagName == "Layer") {
-        child.unitsResolved = false; 
-        child.resolveUnits(parent.calculatedWidth, parent.calculatedHeight);
-        child.calculatedWidth = parent.calculatedWidth; 
-        child.calculatedHeight = parent.calculatedHeight; 
-        child.calculatedInnerWidth = child.box.value.(*EVGBox).getInnerWidth(child.calculatedWidth); 
-        child.calculatedInnerHeight = child.box.value.(*EVGBox).getInnerHeight(child.calculatedHeight); 
-        child.height.value.(*EVGUnit).isSet = true; 
-        child.height.value.(*EVGUnit).pixels = child.calculatedHeight; 
-        this.layoutAbsolute(child, parent.calculatedWidth, parent.calculatedHeight);
-        child.calculatedX = child.calculatedX + parent.calculatedX; 
-        child.calculatedY = child.calculatedY + parent.calculatedY; 
-      } else {
-        this.layoutAbsolute(child, innerWidth, innerHeight);
-        child.calculatedX = child.calculatedX + startX; 
-        child.calculatedY = child.calculatedY + startY; 
-      }
-      if  child.getChildCount() > int64(0) {
-        this.layoutChildren(child);
-      }
-      i = i + int64(1); 
-      continue;
-    }
-    var availableForChild float64= (innerWidth - child.box.value.(*EVGBox).marginLeftPx) - child.box.value.(*EVGBox).marginRightPx;
-    var childWidth float64= availableForChild;
-    if  child.width.value.(*EVGUnit).isSet {
-      if  child.width.value.(*EVGUnit).pixels >= innerWidth {
-        childWidth = availableForChild; 
-      } else {
-        childWidth = child.width.value.(*EVGUnit).pixels; 
-      }
-    } else {
-      if  child.calculatedFlexWidth > 0.0 {
-        childWidth = child.calculatedFlexWidth; 
-      }
-    }
-    var childTotalWidth float64= (childWidth + child.box.value.(*EVGBox).marginLeftPx) + child.box.value.(*EVGBox).marginRightPx;
-    if  isColumn == false {
-      var availableWidth float64= (startX + innerWidth) - currentX;
-      if  (childTotalWidth > availableWidth) && ((int64(len(rowElements))) > int64(0)) {
-        this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
-        currentY = currentY + rowHeight; 
-        totalHeight = totalHeight + rowHeight; 
-        currentX = startX; 
-        rowHeight = 0.0; 
-        rowElements = rowElements[:0]
-      }
-    }
-    child.calculatedX = currentX + child.box.value.(*EVGBox).marginLeftPx; 
-    child.calculatedY = currentY + child.box.value.(*EVGBox).marginTopPx; 
-    this.layoutElement(child, child.calculatedX, child.calculatedY, childWidth, innerHeight);
-    var childHeight float64= child.calculatedHeight;
-    var childTotalHeight float64= (childHeight + child.box.value.(*EVGBox).marginTopPx) + child.box.value.(*EVGBox).marginBottomPx;
-    if  isColumn {
-      currentY = currentY + childTotalHeight; 
-      totalHeight = totalHeight + childTotalHeight; 
-    } else {
-      currentX = currentX + childTotalWidth; 
-      rowElements = append(rowElements,child); 
-      if  childTotalHeight > rowHeight {
-        rowHeight = childTotalHeight; 
-      }
-    }
-    if  child.lineBreak {
-      if  isColumn == false {
-        this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
-        currentY = currentY + rowHeight; 
-        totalHeight = totalHeight + rowHeight; 
-        currentX = startX; 
-        rowHeight = 0.0; 
-        rowElements = rowElements[:0]
-      }
-    }
-    i = i + int64(1); 
-  }
-  if  (isColumn == false) && ((int64(len(rowElements))) > int64(0)) {
-    this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
-    totalHeight = totalHeight + rowHeight; 
-  }
-  if  isColumn {
-    this.alignColumn(parent, totalHeight, startX, startY, innerWidth, innerHeight);
-  }
-  return totalHeight
-}
-func (this *EVGLayout) alignColumn (parent *EVGElement, contentHeight float64, startX float64, startY float64, innerWidth float64, innerHeight float64) () {
-  var childCount int64= parent.getChildCount();
-  if  childCount == int64(0) {
-    return
-  }
-  var verticalAlign string= parent.justifyContent;
-  var horizontalAlign string= parent.alignItems;
-  var availableHeight float64= innerHeight;
-  if  parent.height.value.(*EVGUnit).isSet {
-    availableHeight = parent.calculatedInnerHeight; 
-  }
-  var offsetY float64= 0.0;
-  if  verticalAlign == "center" {
-    offsetY = (availableHeight - contentHeight) / 2.0; 
-  }
-  if  (verticalAlign == "flex-end") || (verticalAlign == "end") {
-    offsetY = availableHeight - contentHeight; 
-  }
-  if  verticalAlign == "space-between" {
-    offsetY = 0.0; 
-  }
-  var i int64= int64(0);
-  for i < childCount {
-    var child *EVGElement= parent.getChild(i);
-    if  child.isAbsolute == false {
-      if  offsetY != 0.0 {
-        child.calculatedY = child.calculatedY + offsetY; 
-        this.propagateOffsetToChildren(child, 0.0, offsetY);
-      }
-      var childTotalWidth float64= (child.calculatedWidth + child.box.value.(*EVGBox).marginLeftPx) + child.box.value.(*EVGBox).marginRightPx;
-      var offsetX float64= 0.0;
-      if  horizontalAlign == "center" {
-        offsetX = (innerWidth - childTotalWidth) / 2.0; 
-      }
-      if  (horizontalAlign == "flex-end") || (horizontalAlign == "end") {
-        offsetX = innerWidth - childTotalWidth; 
-      }
-      if  offsetX != 0.0 {
-        child.calculatedX = child.calculatedX + offsetX; 
-        this.propagateOffsetToChildren(child, offsetX, 0.0);
-      }
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *EVGLayout) alignRow (rowElements []*EVGElement, parent *EVGElement, rowHeight float64, startX float64, innerWidth float64) () {
-  var elementCount int64= int64(len(rowElements));
-  if  elementCount == int64(0) {
-    return
-  }
-  var rowWidth float64= 0.0;
-  var i int64= int64(0);
-  for i < elementCount {
-    var el *EVGElement= rowElements[i];
-    rowWidth = ((rowWidth + el.calculatedWidth) + el.box.value.(*EVGBox).marginLeftPx) + el.box.value.(*EVGBox).marginRightPx; 
-    i = i + int64(1); 
-  }
-  var isColumn bool= parent.flexDirection == "column";
-  var mainAxisAlign string= parent.justifyContent;
-  var crossAxisAlign string= parent.alignItems;
-  var horizontalAlign string= mainAxisAlign;
-  if  isColumn {
-    horizontalAlign = crossAxisAlign; 
-  }
-  if  (int64(len([]rune(parent.align)))) > int64(0) {
-    horizontalAlign = parent.align; 
-  }
-  var offsetX float64= 0.0;
-  if  horizontalAlign == "center" {
-    offsetX = (innerWidth - rowWidth) / 2.0; 
-  }
-  if  (horizontalAlign == "flex-end") || (horizontalAlign == "right") {
-    offsetX = innerWidth - rowWidth; 
-  }
-  var verticalAlignVal string= crossAxisAlign;
-  if  isColumn {
-    verticalAlignVal = mainAxisAlign; 
-  }
-  if  (int64(len([]rune(parent.verticalAlign)))) > int64(0) {
-    if  parent.verticalAlign != "top" {
-      verticalAlignVal = parent.verticalAlign; 
-    }
-  }
-  var effectiveRowHeight float64= rowHeight;
-  if  parent.height.value.(*EVGUnit).isSet {
-    var parentInnerHeight float64= parent.calculatedInnerHeight;
-    if  parentInnerHeight > rowHeight {
-      effectiveRowHeight = parentInnerHeight; 
-    }
-  }
-  i = int64(0); 
-  for i < elementCount {
-    var el_1 *EVGElement= rowElements[i];
-    if  offsetX != 0.0 {
-      el_1.calculatedX = el_1.calculatedX + offsetX; 
-      this.propagateOffsetToChildren(el_1, offsetX, 0.0);
-    }
-    var childTotalHeight float64= (el_1.calculatedHeight + el_1.box.value.(*EVGBox).marginTopPx) + el_1.box.value.(*EVGBox).marginBottomPx;
-    var offsetY float64= 0.0;
-    if  verticalAlignVal == "center" {
-      offsetY = (effectiveRowHeight - childTotalHeight) / 2.0; 
-    }
-    if  (verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom") {
-      offsetY = effectiveRowHeight - childTotalHeight; 
-    }
-    if  offsetY != 0.0 {
-      el_1.calculatedY = el_1.calculatedY + offsetY; 
-      this.propagateOffsetToChildren(el_1, 0.0, offsetY);
-    }
-    i = i + int64(1); 
-  }
-}
-func (this *EVGLayout) propagateOffsetToChildren (parent *EVGElement, offsetX float64, offsetY float64) () {
-  var childCount int64= parent.getChildCount();
-  var i int64= int64(0);
-  for i < childCount {
-    var child *EVGElement= parent.getChild(i);
-    if  offsetX != 0.0 {
-      child.calculatedX = child.calculatedX + offsetX; 
-    }
-    if  offsetY != 0.0 {
-      child.calculatedY = child.calculatedY + offsetY; 
-    }
-    this.propagateOffsetToChildren(child, offsetX, offsetY);
-    i = i + int64(1); 
-  }
-}
-func (this *EVGLayout) layoutAbsolute (element *EVGElement, parentWidth float64, parentHeight float64) () {
-  if  element.left.value.(*EVGUnit).isSet {
-    element.calculatedX = element.left.value.(*EVGUnit).pixels + element.box.value.(*EVGBox).marginLeftPx; 
-  } else {
-    if  element.x.value.(*EVGUnit).isSet {
-      element.calculatedX = element.x.value.(*EVGUnit).pixels + element.box.value.(*EVGBox).marginLeftPx; 
-    } else {
-      if  element.right.value.(*EVGUnit).isSet {
-        var width float64= element.calculatedWidth;
-        if  width == 0.0 {
-          if  element.width.value.(*EVGUnit).isSet {
-            width = element.width.value.(*EVGUnit).pixels; 
-          }
-        }
-        element.calculatedX = ((parentWidth - element.right.value.(*EVGUnit).pixels) - width) - element.box.value.(*EVGBox).marginRightPx; 
-      }
-    }
-  }
-  if  element.top.value.(*EVGUnit).isSet {
-    element.calculatedY = element.top.value.(*EVGUnit).pixels + element.box.value.(*EVGBox).marginTopPx; 
-  } else {
-    if  element.y.value.(*EVGUnit).isSet {
-      element.calculatedY = element.y.value.(*EVGUnit).pixels + element.box.value.(*EVGBox).marginTopPx; 
-    } else {
-      if  element.bottom.value.(*EVGUnit).isSet {
-        var height float64= element.calculatedHeight;
-        if  height == 0.0 {
-          if  element.height.value.(*EVGUnit).isSet {
-            height = element.height.value.(*EVGUnit).pixels; 
-          }
-        }
-        element.calculatedY = ((parentHeight - element.bottom.value.(*EVGUnit).pixels) - height) - element.box.value.(*EVGBox).marginBottomPx; 
-      }
-    }
-  }
-}
-func (this *EVGLayout) printLayout (element *EVGElement, indent int64) () {
-  var indentStr string= "";
-  var i int64= int64(0);
-  for i < indent {
-    indentStr = indentStr + "  "; 
-    i = i + int64(1); 
-  }
-  fmt.Println( ((((((((((indentStr + element.tagName) + " id=\"") + element.id) + "\" (") + (strconv.FormatFloat(element.calculatedX,'f', 6, 64))) + ", ") + (strconv.FormatFloat(element.calculatedY,'f', 6, 64))) + ") ") + (strconv.FormatFloat(element.calculatedWidth,'f', 6, 64))) + "x") + (strconv.FormatFloat(element.calculatedHeight,'f', 6, 64)) )
-  var childCount int64= element.getChildCount();
-  i = int64(0); 
-  for i < childCount {
-    var child *EVGElement= element.getChild(i);
-    this.printLayout(child, indent + int64(1));
-    i = i + int64(1); 
-  }
-}
-func (this *EVGLayout) estimateLineCount (text string, maxWidth float64, fontSize float64) int64 {
-  if  (int64(len([]rune(text)))) == int64(0) {
-    return int64(1)
-  }
-  if  maxWidth <= 0.0 {
-    return int64(1)
-  }
-  var words []string= strings.Split(text, " ");
-  var lineCount int64= int64(1);
-  var currentLineWidth float64= 0.0;
-  var spaceWidth float64= fontSize * 0.3;
-  var i int64= int64(0);
-  for i < (int64(len(words))) {
-    var word string= words[i];
-    var wordWidth float64= this.measurer.value.(IFACE_EVGTextMeasurer).measureTextWidth(word, "Helvetica", fontSize);
-    if  currentLineWidth == 0.0 {
-      currentLineWidth = wordWidth; 
-    } else {
-      var testWidth float64= (currentLineWidth + spaceWidth) + wordWidth;
-      if  testWidth > maxWidth {
-        lineCount = lineCount + int64(1); 
-        currentLineWidth = wordWidth; 
-      } else {
-        currentLineWidth = testWidth; 
-      }
-    }
-    i = i + int64(1); 
-  }
-  return lineCount
-}
 type BufferChunk struct { 
   data []byte `json:"data"` 
   used int64 `json:"used"` 
@@ -10446,12 +7773,2857 @@ func CreateNew_JPEGMetadataMain() *JPEGMetadataMain {
   me := new(JPEGMetadataMain)
   return me;
 }
+type ImportedSymbol struct { 
+  name string `json:"name"` 
+  originalName string `json:"originalName"` 
+  sourcePath string `json:"sourcePath"` 
+  symbolType string `json:"symbolType"` 
+  functionNode *GoNullable `json:"functionNode"` 
+}
+
+func CreateNew_ImportedSymbol() *ImportedSymbol {
+  me := new(ImportedSymbol)
+  me.name = ""
+  me.originalName = ""
+  me.sourcePath = ""
+  me.symbolType = ""
+  me.functionNode = new(GoNullable);
+  return me;
+}
+type EvalContext struct { 
+  variables []string `json:"variables"` 
+  values []*EvalValue `json:"values"` 
+  parent *GoNullable `json:"parent"` 
+}
+
+func CreateNew_EvalContext() *EvalContext {
+  me := new(EvalContext)
+  me.variables = make([]string,0)
+  me.values = make([]*EvalValue,0)
+  me.parent = new(GoNullable);
+  var v []string = make([]string, 0);
+  me.variables = v; 
+  var vl []*EvalValue = make([]*EvalValue, 0);
+  me.values = vl; 
+  return me;
+}
+func (this *EvalContext) define (name string, value *EvalValue) () {
+  var i int64= int64(0);
+  for i < (int64(len(this.variables))) {
+    if  (this.variables[i]) == name {
+      this.values[i] = value;
+      return
+    }
+    i = i + int64(1); 
+  }
+  this.variables = append(this.variables,name); 
+  this.values = append(this.values,value); 
+}
+func (this *EvalContext) lookup (name string) *EvalValue {
+  var i int64= int64(0);
+  for i < (int64(len(this.variables))) {
+    if  (this.variables[i]) == name {
+      return this.values[i]
+    }
+    i = i + int64(1); 
+  }
+  if ( this.parent.has_value) {
+    var p *EvalContext= this.parent.value.(*EvalContext);
+    return p.lookup(name)
+  }
+  return EvalValue_static_null()
+}
+func (this *EvalContext) has (name string) bool {
+  var i int64= int64(0);
+  for i < (int64(len(this.variables))) {
+    if  (this.variables[i]) == name {
+      return true
+    }
+    i = i + int64(1); 
+  }
+  if ( this.parent.has_value) {
+    var p *EvalContext= this.parent.value.(*EvalContext);
+    return (p).has(name)
+  }
+  return false
+}
+func (this *EvalContext) createChild () *EvalContext {
+  var child *EvalContext= CreateNew_EvalContext();
+  child.parent.value = this;
+  child.parent.has_value = true; /* detected as non-optional */
+  return child
+}
+type ComponentEngine struct { 
+  parser *GoNullable `json:"parser"` 
+  source string `json:"source"` 
+  basePath string `json:"basePath"` 
+  assetPaths []string `json:"assetPaths"` 
+  pageWidth float64 `json:"pageWidth"` 
+  pageHeight float64 `json:"pageHeight"` 
+  printFormat string `json:"printFormat"` 
+  printOrientation string `json:"printOrientation"` 
+  printMarginTop float64 `json:"printMarginTop"` 
+  printMarginRight float64 `json:"printMarginRight"` 
+  printMarginBottom float64 `json:"printMarginBottom"` 
+  printMarginLeft float64 `json:"printMarginLeft"` 
+  printPageCount int64 `json:"printPageCount"` 
+  imports []*ImportedSymbol `json:"imports"` 
+  localComponents []*ImportedSymbol `json:"localComponents"` 
+  loadedFiles []string `json:"loadedFiles"` 
+  context *GoNullable `json:"context"` 
+  primitives []string `json:"primitives"` 
+}
+
+func CreateNew_ComponentEngine() *ComponentEngine {
+  me := new(ComponentEngine)
+  me.source = ""
+  me.basePath = "./"
+  me.assetPaths = make([]string,0)
+  me.pageWidth = 595.0
+  me.pageHeight = 842.0
+  me.printFormat = "a4"
+  me.printOrientation = "portrait"
+  me.printMarginTop = 0.0
+  me.printMarginRight = 0.0
+  me.printMarginBottom = 0.0
+  me.printMarginLeft = 0.0
+  me.printPageCount = int64(1)
+  me.imports = make([]*ImportedSymbol,0)
+  me.localComponents = make([]*ImportedSymbol,0)
+  me.loadedFiles = make([]string,0)
+  me.primitives = make([]string,0)
+  me.parser = new(GoNullable);
+  me.context = new(GoNullable);
+  var p *TSParserSimple= CreateNew_TSParserSimple();
+  me.parser.value = p;
+  me.parser.has_value = true; /* detected as non-optional */
+  me.parser.value.(*TSParserSimple).tsxMode = true; 
+  var imp []*ImportedSymbol = make([]*ImportedSymbol, 0);
+  me.imports = imp; 
+  var loc []*ImportedSymbol = make([]*ImportedSymbol, 0);
+  me.localComponents = loc; 
+  var lf []string = make([]string, 0);
+  me.loadedFiles = lf; 
+  var ctx *EvalContext= CreateNew_EvalContext();
+  me.context.value = ctx;
+  me.context.has_value = true; /* detected as non-optional */
+  var prim []string = make([]string, 0);
+  me.primitives = prim; 
+  var ap []string = make([]string, 0);
+  me.assetPaths = ap; 
+  me.primitives = append(me.primitives,"View"); 
+  me.primitives = append(me.primitives,"Label"); 
+  me.primitives = append(me.primitives,"Print"); 
+  me.primitives = append(me.primitives,"Section"); 
+  me.primitives = append(me.primitives,"Page"); 
+  me.primitives = append(me.primitives,"Image"); 
+  me.primitives = append(me.primitives,"Path"); 
+  me.primitives = append(me.primitives,"Spacer"); 
+  me.primitives = append(me.primitives,"Divider"); 
+  me.primitives = append(me.primitives,"Layer"); 
+  me.primitives = append(me.primitives,"div"); 
+  me.primitives = append(me.primitives,"span"); 
+  me.primitives = append(me.primitives,"p"); 
+  me.primitives = append(me.primitives,"h1"); 
+  me.primitives = append(me.primitives,"h2"); 
+  me.primitives = append(me.primitives,"h3"); 
+  me.primitives = append(me.primitives,"img"); 
+  me.primitives = append(me.primitives,"path"); 
+  me.primitives = append(me.primitives,"layer"); 
+  return me;
+}
+func (this *ComponentEngine) setAssetPaths (paths string) () {
+  var start int64= int64(0);
+  var i int64= int64(0);
+  var __len int64= int64(len([]rune(paths)));
+  for i <= __len {
+    var ch string= "";
+    if  i < __len {
+      ch = string([]rune(paths)[i:(i + int64(1))]); 
+    }
+    if  (ch == ";") || (i == __len) {
+      if  i > start {
+        var part string= string([]rune(paths)[start:i]);
+        this.assetPaths = append(this.assetPaths,part); 
+        fmt.Println( "ComponentEngine: Added asset path: " + part )
+      }
+      start = i + int64(1); 
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) resolveComponentPath (relativePath string) string {
+  var fullPath string= this.basePath + relativePath;
+  var i int64= int64(0);
+  for i < (int64(len(this.assetPaths))) {
+    /** unused:  assetDir*/
+    i = i + int64(1); 
+  }
+  return fullPath
+}
+func (this *ComponentEngine) getLoadedFiles () []string {
+  return this.loadedFiles
+}
+func (this *ComponentEngine) parseFile (dirPath string, fileName string) *EVGElement {
+  this.basePath = dirPath; 
+  var mainFilePath string= dirPath + fileName;
+  this.loadedFiles = append(this.loadedFiles,mainFilePath); 
+  var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fileName)); return d }();
+  var src string= string(fileContent);
+  return this.parse(src)
+}
+func (this *ComponentEngine) parse (src string) *EVGElement {
+  this.source = src; 
+  var lexer *TSLexer= CreateNew_TSLexer(src);
+  var tokens []*Token= lexer.tokenize();
+  this.parser.value.(*TSParserSimple).initParser(tokens);
+  this.parser.value.(*TSParserSimple).tsxMode = true; 
+  var ast *TSNode= this.parser.value.(*TSParserSimple).parseProgram();
+  this.processImports(ast);
+  this.registerComponents(ast);
+  this.processVariables(ast);
+  var renderFn *TSNode= this.findRenderFunction(ast);
+  if  renderFn.nodeType == "" {
+    fmt.Println( "Error: No render() function found" )
+    var empty *EVGElement= CreateNew_EVGElement();
+    return empty
+  }
+  return this.evaluateFunction(renderFn)
+}
+func (this *ComponentEngine) processImports (ast *TSNode) () {
+  var i int64= int64(0);
+  for i < (int64(len(ast.children))) {
+    var node *TSNode= ast.children[i];
+    if  node.nodeType == "ImportDeclaration" {
+      this.processImportDeclaration(node);
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
+  var modulePath string= "";
+  if ( node.left.has_value) {
+    var srcNode *TSNode= node.left.value.(*TSNode);
+    modulePath = this.unquote(srcNode.value); 
+  }
+  if  (int64(len([]rune(modulePath)))) == int64(0) {
+    return
+  }
+  if  (int64(strings.Index(modulePath, "evg_types"))) >= int64(0) {
+    return
+  }
+  if  (int64(strings.Index(modulePath, "evg_"))) >= int64(0) {
+    return
+  }
+  var importedNames []string = make([]string, 0);
+  var j int64= int64(0);
+  for j < (int64(len(node.children))) {
+    var spec *TSNode= node.children[j];
+    if  spec.nodeType == "ImportSpecifier" {
+      importedNames = append(importedNames,spec.name); 
+    }
+    if  spec.nodeType == "ImportDefaultSpecifier" {
+      importedNames = append(importedNames,spec.name); 
+    }
+    j = j + int64(1); 
+  }
+  var fullPath string= this.resolveModulePath(modulePath);
+  if  (int64(len([]rune(fullPath)))) == int64(0) {
+    return
+  }
+  var dirPath string= this.basePath;
+  fmt.Println( ("Loading import: " + dirPath) + fullPath )
+  var loadedFilePath string= dirPath + fullPath;
+  this.loadedFiles = append(this.loadedFiles,loadedFilePath); 
+  var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fullPath)); return d }();
+  var src string= string(fileContent);
+  if  (int64(len([]rune(src)))) == int64(0) {
+    fmt.Println( "" )
+    fmt.Println( ("ERROR: Could not load component module: " + dirPath) + fullPath )
+    fmt.Println( "" )
+    fmt.Println( "Please ensure the imported file exists. You may need to:" )
+    fmt.Println( "  1. Check that the import path is correct in your TSX file" )
+    fmt.Println( "  2. Make sure the component file exists in one of your asset paths:" )
+    var pathIdx int64= int64(0);
+    for pathIdx < (int64(len(this.assetPaths))) {
+      fmt.Println( "     - " + (this.assetPaths[pathIdx]) )
+      pathIdx = pathIdx + int64(1); 
+    }
+    fmt.Println( "" )
+    return
+  }
+  var lexer *TSLexer= CreateNew_TSLexer(src);
+  var tokens []*Token= lexer.tokenize();
+  var importParser *TSParserSimple= CreateNew_TSParserSimple();
+  importParser.initParser(tokens);
+  importParser.tsxMode = true; 
+  var importAst *TSNode= importParser.parseProgram();
+  var k int64= int64(0);
+  for k < (int64(len(importAst.children))) {
+    var stmt *TSNode= importAst.children[k];
+    if  stmt.nodeType == "ExportNamedDeclaration" {
+      if ( stmt.left.has_value) {
+        var declNode *TSNode= stmt.left.value.(*TSNode);
+        if  declNode.nodeType == "FunctionDeclaration" {
+          var fnName string= declNode.name;
+          if  this.isInList(fnName, importedNames) {
+            var sym *ImportedSymbol= CreateNew_ImportedSymbol();
+            sym.name = fnName; 
+            sym.originalName = fnName; 
+            sym.sourcePath = fullPath; 
+            sym.symbolType = "component"; 
+            sym.functionNode.value = declNode;
+            sym.functionNode.has_value = true; /* detected as non-optional */
+            this.localComponents = append(this.localComponents,sym); 
+            fmt.Println( (("Imported component: " + fnName) + " from ") + fullPath )
+          }
+        }
+      }
+    }
+    if  stmt.nodeType == "FunctionDeclaration" {
+      var fnName_1 string= stmt.name;
+      if  this.isInList(fnName_1, importedNames) {
+        var sym_1 *ImportedSymbol= CreateNew_ImportedSymbol();
+        sym_1.name = fnName_1; 
+        sym_1.originalName = fnName_1; 
+        sym_1.sourcePath = fullPath; 
+        sym_1.symbolType = "component"; 
+        sym_1.functionNode.value = stmt;
+        sym_1.functionNode.has_value = true; /* detected as non-optional */
+        this.localComponents = append(this.localComponents,sym_1); 
+        fmt.Println( (("Imported component: " + fnName_1) + " from ") + fullPath )
+      }
+    }
+    k = k + int64(1); 
+  }
+}
+func (this *ComponentEngine) resolveModulePath (modulePath string) string {
+  if  (int64(strings.Index(modulePath, "./"))) == int64(0) {
+    var path string= string([]rune(modulePath)[int64(2):(int64(len([]rune(modulePath))))]);
+    if  (int64(len([]rune(path)))) == int64(0) {
+      return ""
+    }
+    if  (int64(strings.Index(path, ".tsx"))) < int64(0) {
+      if  (int64(strings.Index(path, ".ts"))) < int64(0) {
+        path = path + ".tsx"; 
+      }
+    }
+    return path
+  }
+  if  (int64(strings.Index(modulePath, ".tsx"))) < int64(0) {
+    if  (int64(strings.Index(modulePath, ".ts"))) < int64(0) {
+      return modulePath + ".tsx"
+    }
+  }
+  return modulePath
+}
+func (this *ComponentEngine) isInList (name string, list []string) bool {
+  var i int64= int64(0);
+  for i < (int64(len(list))) {
+    if  (list[i]) == name {
+      return true
+    }
+    i = i + int64(1); 
+  }
+  return false
+}
+func (this *ComponentEngine) registerComponents (ast *TSNode) () {
+  var i int64= int64(0);
+  for i < (int64(len(ast.children))) {
+    var node *TSNode= ast.children[i];
+    if  node.nodeType == "FunctionDeclaration" {
+      if  node.name != "render" {
+        var sym *ImportedSymbol= CreateNew_ImportedSymbol();
+        sym.name = node.name; 
+        sym.originalName = node.name; 
+        sym.symbolType = "component"; 
+        sym.functionNode.value = node;
+        sym.functionNode.has_value = true; /* detected as non-optional */
+        this.localComponents = append(this.localComponents,sym); 
+        this.context.value.(*EvalContext).define(node.name, EvalValue_static_function(node));
+        fmt.Println( "Registered local component: " + node.name )
+      }
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) findRenderFunction (ast *TSNode) *TSNode {
+  var empty *TSNode= CreateNew_TSNode();
+  var i int64= int64(0);
+  for i < (int64(len(ast.children))) {
+    var node *TSNode= ast.children[i];
+    if  node.nodeType == "FunctionDeclaration" {
+      if  node.name == "render" {
+        return node
+      }
+    }
+    i = i + int64(1); 
+  }
+  return empty
+}
+func (this *ComponentEngine) processVariables (ast *TSNode) () {
+  var i int64= int64(0);
+  for i < (int64(len(ast.children))) {
+    var node *TSNode= ast.children[i];
+    if  node.nodeType == "VariableDeclaration" {
+      this.processVariableDeclaration(node);
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) processVariableDeclaration (node *TSNode) () {
+  var i int64= int64(0);
+  for i < (int64(len(node.children))) {
+    var decl *TSNode= node.children[i];
+    if  decl.nodeType == "VariableDeclarator" {
+      var varName string= decl.name;
+      if ( decl.init.has_value) {
+        var initNode *TSNode= decl.init.value.(*TSNode);
+        var value *EvalValue= this.evaluateExpr(initNode);
+        this.context.value.(*EvalContext).define(varName, value);
+        fmt.Println( (("Defined variable: " + varName) + " = ") + (value).toString() )
+      }
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) evaluateFunction (fnNode *TSNode) *EVGElement {
+  var savedContext *GoNullable = new(GoNullable); 
+  savedContext.value = this.context.value;
+  savedContext.has_value = this.context.has_value;
+  this.context.value = this.context.value.(*EvalContext).createChild();
+  this.context.has_value = true; /* detected as non-optional */
+  var body *TSNode= this.getFunctionBody(fnNode);
+  var result *EVGElement= this.evaluateFunctionBody(body);
+  this.context.value = savedContext.value;
+  this.context.has_value = false; 
+  if this.context.value != nil {
+    this.context.has_value = true
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateFunctionWithProps (fnNode *TSNode, props *EvalValue) *EVGElement {
+  var savedContext *GoNullable = new(GoNullable); 
+  savedContext.value = this.context.value;
+  savedContext.has_value = this.context.has_value;
+  this.context.value = this.context.value.(*EvalContext).createChild();
+  this.context.has_value = true; /* detected as non-optional */
+  this.bindFunctionParams(fnNode, props);
+  var body *TSNode= this.getFunctionBody(fnNode);
+  var result *EVGElement= this.evaluateFunctionBody(body);
+  this.context.value = savedContext.value;
+  this.context.has_value = false; 
+  if this.context.value != nil {
+    this.context.has_value = true
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateFunctionCall (fnNode *TSNode, props *EvalValue) *EvalValue {
+  var savedContext *GoNullable = new(GoNullable); 
+  savedContext.value = this.context.value;
+  savedContext.has_value = this.context.has_value;
+  this.context.value = this.context.value.(*EvalContext).createChild();
+  this.context.has_value = true; /* detected as non-optional */
+  if  props.valueType != int64(0) {
+    this.bindFunctionParams(fnNode, props);
+  }
+  var body *TSNode= this.getFunctionBody(fnNode);
+  var result *EvalValue= this.evaluateFunctionBodyValue(body);
+  this.context.value = savedContext.value;
+  this.context.has_value = false; 
+  if this.context.value != nil {
+    this.context.has_value = true
+  }
+  return result
+}
+func (this *ComponentEngine) bindFunctionParams (fnNode *TSNode, props *EvalValue) () {
+  var i int64= int64(0);
+  for i < (int64(len(fnNode.params))) {
+    var param *TSNode= fnNode.params[i];
+    if  param.nodeType == "ObjectPattern" {
+      this.bindObjectPattern(param, props);
+    }
+    if  param.nodeType == "Parameter" {
+      this.context.value.(*EvalContext).define(param.name, props);
+    }
+    if  param.nodeType == "Identifier" {
+      this.context.value.(*EvalContext).define(param.name, props);
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) bindObjectPattern (pattern *TSNode, props *EvalValue) () {
+  var i int64= int64(0);
+  for i < (int64(len(pattern.children))) {
+    var prop *TSNode= pattern.children[i];
+    if  prop.nodeType == "Property" {
+      var propName string= prop.name;
+      var propValue *EvalValue= props.getMember(propName);
+      if  propValue.isNull() {
+        if ( prop.init.has_value) {
+          var initNode *TSNode= prop.init.value.(*TSNode);
+          propValue = this.evaluateExpr(initNode); 
+        }
+      }
+      this.context.value.(*EvalContext).define(propName, propValue);
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) getFunctionBody (fnNode *TSNode) *TSNode {
+  if ( fnNode.body.has_value) {
+    return fnNode.body.value.(*TSNode)
+  }
+  var empty *TSNode= CreateNew_TSNode();
+  return empty
+}
+func (this *ComponentEngine) evaluateFunctionBody (body *TSNode) *EVGElement {
+  var empty *EVGElement= CreateNew_EVGElement();
+  var i int64= int64(0);
+  for i < (int64(len(body.children))) {
+    var stmt *TSNode= body.children[i];
+    if  stmt.nodeType == "VariableDeclaration" {
+      this.processVariableDeclaration(stmt);
+    }
+    if  stmt.nodeType == "IfStatement" {
+      var ifResult *EVGElement= this.evaluateIfStatement(stmt);
+      if  ifResult.hasReturn {
+        return ifResult
+      }
+    }
+    if  stmt.nodeType == "ForStatement" {
+      var forResult *EVGElement= this.evaluateForStatement(stmt);
+      if  forResult.hasReturn {
+        return forResult
+      }
+    }
+    if  stmt.nodeType == "ForOfStatement" {
+      var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
+      if  forOfResult.hasReturn {
+        return forOfResult
+      }
+    }
+    if  stmt.nodeType == "ExpressionStatement" {
+      if ( stmt.left.has_value) {
+        var exprNode *TSNode= stmt.left.value.(*TSNode);
+        this.evaluateExprForSideEffect(exprNode);
+      }
+    }
+    if  stmt.nodeType == "ReturnStatement" {
+      if ( stmt.left.has_value) {
+        var returnExpr *TSNode= stmt.left.value.(*TSNode);
+        return this.evaluateJSX(returnExpr)
+      }
+    }
+    i = i + int64(1); 
+  }
+  if  (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") {
+    return this.evaluateJSX(body)
+  }
+  return empty
+}
+func (this *ComponentEngine) evaluateFunctionBodyValue (body *TSNode) *EvalValue {
+  var i int64= int64(0);
+  fmt.Println( ("evaluateFunctionBodyValue: body has " + (strconv.FormatInt((int64(len(body.children))), 10))) + " children" )
+  for i < (int64(len(body.children))) {
+    var stmt *TSNode= body.children[i];
+    fmt.Println( (("  Statement " + (strconv.FormatInt(i, 10))) + ": ") + stmt.nodeType )
+    if  stmt.nodeType == "VariableDeclaration" {
+      this.processVariableDeclaration(stmt);
+    }
+    if  stmt.nodeType == "IfStatement" {
+      var ifResult *EVGElement= this.evaluateIfStatement(stmt);
+      if  ifResult.hasReturn {
+      }
+    }
+    if  stmt.nodeType == "ForStatement" {
+      var forResult *EVGElement= this.evaluateForStatement(stmt);
+      if  forResult.hasReturn {
+      }
+    }
+    if  stmt.nodeType == "ForOfStatement" {
+      var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
+      if  forOfResult.hasReturn {
+      }
+    }
+    if  stmt.nodeType == "ExpressionStatement" {
+      if ( stmt.left.has_value) {
+        var exprNode *TSNode= stmt.left.value.(*TSNode);
+        this.evaluateExprForSideEffect(exprNode);
+      }
+    }
+    if  stmt.nodeType == "ReturnStatement" {
+      if ( stmt.left.has_value) {
+        var returnExpr *TSNode= stmt.left.value.(*TSNode);
+        return this.evaluateExpr(returnExpr)
+      }
+      return EvalValue_static_null()
+    }
+    i = i + int64(1); 
+  }
+  if  (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") {
+    var el *EVGElement= this.evaluateJSX(body);
+    return EvalValue_static_element(el)
+  }
+  if  (body.nodeType != "BlockStatement") && (body.nodeType != "") {
+    return this.evaluateExpr(body)
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateIfStatement (node *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  if ( node.left.has_value) {
+    var condNode *TSNode= node.left.value.(*TSNode);
+    var condition *EvalValue= this.evaluateExpr(condNode);
+    if  condition.toBool() {
+      if ( node.body.has_value) {
+        var thenBlock *TSNode= node.body.value.(*TSNode);
+        var blockResult *EVGElement= this.evaluateStatementBlock(thenBlock);
+        if  blockResult.hasReturn {
+          return blockResult
+        }
+      }
+    } else {
+      if ( node.right.has_value) {
+        var elseBlock *TSNode= node.right.value.(*TSNode);
+        if  elseBlock.nodeType == "IfStatement" {
+          return this.evaluateIfStatement(elseBlock)
+        }
+        var blockResult_1 *EVGElement= this.evaluateStatementBlock(elseBlock);
+        if  blockResult_1.hasReturn {
+          return blockResult_1
+        }
+      }
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateStatementBlock (block *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  if  block.nodeType == "ReturnStatement" {
+    if ( block.left.has_value) {
+      var returnExpr *TSNode= block.left.value.(*TSNode);
+      var returnedEl *EVGElement= this.evaluateJSX(returnExpr);
+      returnedEl.hasReturn = true; 
+      return returnedEl
+    }
+  }
+  if  block.nodeType == "BlockStatement" {
+    var i int64= int64(0);
+    for i < (int64(len(block.children))) {
+      var stmt *TSNode= block.children[i];
+      if  stmt.nodeType == "VariableDeclaration" {
+        this.processVariableDeclaration(stmt);
+      }
+      if  stmt.nodeType == "IfStatement" {
+        var ifResult *EVGElement= this.evaluateIfStatement(stmt);
+        if  ifResult.hasReturn {
+          return ifResult
+        }
+      }
+      if  stmt.nodeType == "ForStatement" {
+        var forResult *EVGElement= this.evaluateForStatement(stmt);
+        if  forResult.hasReturn {
+          return forResult
+        }
+      }
+      if  stmt.nodeType == "ForOfStatement" {
+        var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
+        if  forOfResult.hasReturn {
+          return forOfResult
+        }
+      }
+      if  stmt.nodeType == "ExpressionStatement" {
+        if ( stmt.left.has_value) {
+          var exprNode *TSNode= stmt.left.value.(*TSNode);
+          this.evaluateExprForSideEffect(exprNode);
+        }
+      }
+      if  stmt.nodeType == "ReturnStatement" {
+        if ( stmt.left.has_value) {
+          var returnExpr_1 *TSNode= stmt.left.value.(*TSNode);
+          var returnedEl_1 *EVGElement= this.evaluateJSX(returnExpr_1);
+          returnedEl_1.hasReturn = true; 
+          return returnedEl_1
+        }
+      }
+      i = i + int64(1); 
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateExprForSideEffect (node *TSNode) () {
+  if  node.nodeType == "CallExpression" {
+    this.evaluateCallExprForSideEffect(node);
+  }
+  if  node.nodeType == "UpdateExpression" {
+    this.evaluateUpdateExpr(node);
+  }
+  if  node.nodeType == "AssignmentExpression" {
+    this.evaluateUpdateExpr(node);
+  }
+}
+func (this *ComponentEngine) evaluateCallExprForSideEffect (node *TSNode) () {
+  if ( node.left.has_value) {
+    var calleeNode *TSNode= node.left.value.(*TSNode);
+    if  calleeNode.nodeType == "MemberExpression" {
+      var methodName string= calleeNode.name;
+      if ( calleeNode.left.has_value) {
+        var objNode *TSNode= calleeNode.left.value.(*TSNode);
+        if  objNode.nodeType == "Identifier" {
+          var objName string= objNode.name;
+          var objValue *EvalValue= this.context.value.(*EvalContext).lookup(objName);
+          if  (methodName == "push") && (objValue).isArray() {
+            if  (int64(len(node.children))) > int64(0) {
+              var argNode *TSNode= node.children[int64(0)];
+              var argValue *EvalValue= this.evaluateExpr(argNode);
+              objValue.arrayValue = append(objValue.arrayValue,argValue); 
+              this.context.value.(*EvalContext).define(objName, objValue);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+func (this *ComponentEngine) evaluateForStatement (node *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  fmt.Println( "evaluateForStatement called" )
+  if ( node.init.has_value) {
+    var initNode *TSNode= node.init.value.(*TSNode);
+    fmt.Println( "For init nodeType: " + initNode.nodeType )
+    if  initNode.nodeType == "VariableDeclaration" {
+      this.processVariableDeclaration(initNode);
+    }
+  }
+  var maxIterations int64= int64(10000);
+  var iterations int64= int64(0);
+  for iterations < maxIterations {
+    if ( node.left.has_value) {
+      var testNode *TSNode= node.left.value.(*TSNode);
+      var testResult *EvalValue= this.evaluateExpr(testNode);
+      if  testResult.toBool() == false {
+        return result
+      }
+    }
+    if ( node.body.has_value) {
+      var bodyNode *TSNode= node.body.value.(*TSNode);
+      var bodyResult *EVGElement= this.evaluateStatementBlock(bodyNode);
+      if  bodyResult.hasReturn {
+        return bodyResult
+      }
+    }
+    if ( node.right.has_value) {
+      var updateNode *TSNode= node.right.value.(*TSNode);
+      this.evaluateUpdateExpr(updateNode);
+    }
+    iterations = iterations + int64(1); 
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateForOfStatement (node *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  var varName string= "";
+  if ( node.left.has_value) {
+    var leftNode *TSNode= node.left.value.(*TSNode);
+    if  leftNode.nodeType == "VariableDeclaration" {
+      if  (int64(len(leftNode.children))) > int64(0) {
+        var decl *TSNode= leftNode.children[int64(0)];
+        varName = decl.name; 
+      }
+    }
+  }
+  if ( node.right.has_value) {
+    var rightNode *TSNode= node.right.value.(*TSNode);
+    var arrayValue *EvalValue= this.evaluateExpr(rightNode);
+    if  (arrayValue).isArray() {
+      var i int64= int64(0);
+      for i < (int64(len(arrayValue.arrayValue))) {
+        var item *EvalValue= arrayValue.arrayValue[i];
+        this.context.value.(*EvalContext).define(varName, item);
+        if ( node.body.has_value) {
+          var bodyNode *TSNode= node.body.value.(*TSNode);
+          var bodyResult *EVGElement= this.evaluateStatementBlock(bodyNode);
+          if  bodyResult.hasReturn {
+            return bodyResult
+          }
+        }
+        i = i + int64(1); 
+      }
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateUpdateExpr (node *TSNode) () {
+  if  node.nodeType == "UpdateExpression" {
+    if ( node.left.has_value) {
+      var argNode *TSNode= node.left.value.(*TSNode);
+      if  argNode.nodeType == "Identifier" {
+        var varName string= argNode.name;
+        var current *EvalValue= this.context.value.(*EvalContext).lookup(varName);
+        var currentNum float64= current.toNumber();
+        if  node.value == "++" {
+          this.context.value.(*EvalContext).define(varName, EvalValue_static_number((currentNum + 1.0)));
+        }
+        if  node.value == "--" {
+          this.context.value.(*EvalContext).define(varName, EvalValue_static_number((currentNum - 1.0)));
+        }
+      }
+    }
+  }
+  if  node.nodeType == "AssignmentExpression" {
+    if ( node.left.has_value) {
+      var leftNode *TSNode= node.left.value.(*TSNode);
+      if  leftNode.nodeType == "Identifier" {
+        var varName_1 string= leftNode.name;
+        var op string= node.value;
+        if ( node.right.has_value) {
+          var rightNode *TSNode= node.right.value.(*TSNode);
+          var rightValue *EvalValue= this.evaluateExpr(rightNode);
+          if  op == "=" {
+            this.context.value.(*EvalContext).define(varName_1, rightValue);
+          }
+          if  op == "+=" {
+            var current_1 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            var isLeftStr bool= current_1.isString();
+            var isRightStr bool= rightValue.isString();
+            if  isLeftStr || isRightStr {
+              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_string(((current_1).toString() + (rightValue).toString())));
+            } else {
+              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_1.toNumber() + rightValue.toNumber())));
+            }
+          }
+          if  op == "-=" {
+            var current_2 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_2.toNumber() - rightValue.toNumber())));
+          }
+          if  op == "*=" {
+            var current_3 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_3.toNumber() * rightValue.toNumber())));
+          }
+          if  op == "/=" {
+            var current_4 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            var rightNum float64= rightValue.toNumber();
+            if  rightNum != 0.0 {
+              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_4.toNumber() / rightNum)));
+            }
+          }
+        }
+      }
+    }
+  }
+}
+func (this *ComponentEngine) evaluateJSX (node *TSNode) *EVGElement {
+  var element *EVGElement= CreateNew_EVGElement();
+  if  node.nodeType == "JSXElement" {
+    return this.evaluateJSXElement(node)
+  }
+  if  node.nodeType == "JSXFragment" {
+    element.tagName = "div"; 
+    this.evaluateChildren(element, node);
+    return element
+  }
+  if  node.nodeType == "ParenthesizedExpression" {
+    if ( node.left.has_value) {
+      var inner *TSNode= node.left.value.(*TSNode);
+      return this.evaluateJSX(inner)
+    }
+  }
+  return element
+}
+func (this *ComponentEngine) evaluateJSXElement (jsxNode *TSNode) *EVGElement {
+  var tagName string= "";
+  if ( jsxNode.left.has_value) {
+    var openingEl *TSNode= jsxNode.left.value.(*TSNode);
+    tagName = openingEl.name; 
+  }
+  if  this.isComponent(tagName) {
+    return this.expandComponent(tagName, jsxNode)
+  }
+  var element *EVGElement= CreateNew_EVGElement();
+  element.tagName = this.mapTagName(tagName); 
+  if  ((tagName == "Label") || (tagName == "span")) || (tagName == "text") {
+    element.elementType = int64(1); 
+  }
+  if  ((tagName == "Image") || (tagName == "img")) || (tagName == "image") {
+    element.elementType = int64(2); 
+  }
+  if  (tagName == "Path") || (tagName == "path") {
+    element.elementType = int64(3); 
+  }
+  if ( jsxNode.left.has_value) {
+    var openingEl_1 *TSNode= jsxNode.left.value.(*TSNode);
+    this.evaluateAttributes(element, openingEl_1);
+  }
+  if  tagName == "Print" {
+    element.resolveBookFormat();
+    if  element.pageWidth > 0.0 {
+      this.pageWidth = element.pageWidth; 
+    }
+    if  element.pageHeight > 0.0 {
+      this.pageHeight = element.pageHeight; 
+    }
+    this.printFormat = element.format; 
+    this.printOrientation = element.orientation; 
+    fmt.Println( (((((("Print settings: format=" + this.printFormat) + " orientation=") + this.printOrientation) + " ") + (strconv.FormatFloat(this.pageWidth,'f', 6, 64))) + "x") + (strconv.FormatFloat(this.pageHeight,'f', 6, 64)) )
+  }
+  if  ((tagName == "Label") || (tagName == "span")) || (tagName == "text") {
+    element.textContent = this.evaluateTextContent(jsxNode); 
+  } else {
+    this.evaluateChildren(element, jsxNode);
+  }
+  return element
+}
+func (this *ComponentEngine) isComponent (name string) bool {
+  if  (int64(len([]rune(name)))) == int64(0) {
+    return false
+  }
+  var i int64= int64(0);
+  for i < (int64(len(this.primitives))) {
+    if  (this.primitives[i]) == name {
+      return false
+    }
+    i = i + int64(1); 
+  }
+  var firstChar int64= int64([]rune(name)[int64(0)]);
+  if  (firstChar >= int64(65)) && (firstChar <= int64(90)) {
+    return true
+  }
+  return false
+}
+func (this *ComponentEngine) expandComponent (name string, jsxNode *TSNode) *EVGElement {
+  var i int64= int64(0);
+  for i < (int64(len(this.localComponents))) {
+    var sym *ImportedSymbol= this.localComponents[i];
+    if  sym.name == name {
+      var props *EvalValue= this.evaluateProps(jsxNode);
+      if ( sym.functionNode.has_value) {
+        var fnNode *TSNode= sym.functionNode.value.(*TSNode);
+        return this.evaluateFunctionWithProps(fnNode, props)
+      }
+    }
+    i = i + int64(1); 
+  }
+  fmt.Println( "Warning: Unknown component: " + name )
+  var empty *EVGElement= CreateNew_EVGElement();
+  empty.tagName = "div"; 
+  return empty
+}
+func (this *ComponentEngine) evaluateProps (jsxNode *TSNode) *EvalValue {
+  var keys []string = make([]string, 0);
+  var values []*EvalValue = make([]*EvalValue, 0);
+  if ( jsxNode.left.has_value) {
+    var openingEl *TSNode= jsxNode.left.value.(*TSNode);
+    var i int64= int64(0);
+    for i < (int64(len(openingEl.children))) {
+      var attr *TSNode= openingEl.children[i];
+      if  attr.nodeType == "JSXAttribute" {
+        var attrName string= attr.name;
+        var attrValue *EvalValue= this.evaluateAttributeValue(attr);
+        keys = append(keys,attrName); 
+        values = append(values,attrValue); 
+      }
+      i = i + int64(1); 
+    }
+  }
+  var hasExplicitChildren bool= false;
+  var ci int64= int64(0);
+  for ci < (int64(len(keys))) {
+    if  (keys[ci]) == "children" {
+      hasExplicitChildren = true; 
+    }
+    ci = ci + int64(1); 
+  }
+  if  hasExplicitChildren == false {
+    var childElements []*EvalValue= this.collectChildElements(jsxNode);
+    if  (int64(len(childElements))) > int64(0) {
+      keys = append(keys,"children"); 
+      if  (int64(len(childElements))) == int64(1) {
+        values = append(values,childElements[int64(0)]); 
+      } else {
+        values = append(values,EvalValue_static_array(childElements)); 
+      }
+    }
+  }
+  return EvalValue_static_object(keys, values)
+}
+func (this *ComponentEngine) collectChildElements (jsxNode *TSNode) []*EvalValue {
+  var results []*EvalValue = make([]*EvalValue, 0);
+  var i int64= int64(0);
+  for i < (int64(len(jsxNode.children))) {
+    var child *TSNode= jsxNode.children[i];
+    if  child.nodeType == "JSXElement" {
+      var el *EVGElement= this.evaluateJSXElement(child);
+      if  (int64(len([]rune(el.tagName)))) > int64(0) {
+        results = append(results,EvalValue_static_element(el)); 
+      }
+    }
+    if  child.nodeType == "JSXText" {
+      var text string= this.trimText(child.value);
+      if  (int64(len([]rune(text)))) > int64(0) {
+        var textEl *EVGElement= CreateNew_EVGElement();
+        textEl.tagName = "text"; 
+        textEl.textContent = text; 
+        results = append(results,EvalValue_static_element(textEl)); 
+      }
+    }
+    if  child.nodeType == "JSXExpressionContainer" {
+      if ( child.left.has_value) {
+        var exprNode *TSNode= child.left.value.(*TSNode);
+        var exprValue *EvalValue= this.evaluateExpr(exprNode);
+        if  exprValue.isElement() {
+          results = append(results,exprValue); 
+        }
+        if  (exprValue).isArray() {
+          var ai int64= int64(0);
+          for ai < (int64(len(exprValue.arrayValue))) {
+            var arrItem *EvalValue= exprValue.arrayValue[ai];
+            if  arrItem.isElement() {
+              results = append(results,arrItem); 
+            }
+            ai = ai + int64(1); 
+          }
+        }
+      }
+    }
+    i = i + int64(1); 
+  }
+  return results
+}
+func (this *ComponentEngine) evaluateAttributeValue (attr *TSNode) *EvalValue {
+  if ( attr.right.has_value) {
+    var rightNode *TSNode= attr.right.value.(*TSNode);
+    if  rightNode.nodeType == "StringLiteral" {
+      return EvalValue_static_string(this.unquote(rightNode.value))
+    }
+    if  rightNode.nodeType == "JSXExpressionContainer" {
+      if ( rightNode.left.has_value) {
+        var exprNode *TSNode= rightNode.left.value.(*TSNode);
+        return this.evaluateExpr(exprNode)
+      }
+    }
+  }
+  return EvalValue_static_boolean(true)
+}
+func (this *ComponentEngine) evaluateAttributes (element *EVGElement, openingNode *TSNode) () {
+  var i int64= int64(0);
+  for i < (int64(len(openingNode.children))) {
+    var attr *TSNode= openingNode.children[i];
+    if  attr.nodeType == "JSXAttribute" {
+      var rawAttrName string= attr.name;
+      var attrValue *EvalValue= this.evaluateAttributeValue(attr);
+      var strValue string= (attrValue).toString();
+      this.applyAttribute(element, rawAttrName, strValue);
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *ComponentEngine) applyAttribute (element *EVGElement, rawName string, strValue string) () {
+  if  rawName == "id" {
+    element.id = strValue; 
+    return
+  }
+  if  rawName == "className" {
+    element.className = strValue; 
+    return
+  }
+  if  rawName == "src" {
+    element.src = strValue; 
+    return
+  }
+  element.setAttribute(rawName, strValue);
+}
+func (this *ComponentEngine) evaluateTextContent (jsxNode *TSNode) string {
+  var result string= "";
+  var i int64= int64(0);
+  for i < (int64(len(jsxNode.children))) {
+    var child *TSNode= jsxNode.children[i];
+    if  child.nodeType == "JSXText" {
+      var rawText string= child.value;
+      if  (int64(len([]rune(rawText)))) > int64(0) {
+        result = this.smartJoinText(result, rawText); 
+      }
+    }
+    if  child.nodeType == "JSXExpressionContainer" {
+      if ( child.left.has_value) {
+        var exprNode *TSNode= child.left.value.(*TSNode);
+        var exprValue *EvalValue= this.evaluateExpr(exprNode);
+        var exprStr string= (exprValue).toString();
+        result = this.smartJoinText(result, exprStr); 
+      }
+    }
+    i = i + int64(1); 
+  }
+  var normalizedText string= this.normalizeWhitespace(result);
+  var trimmedText string= this.trimText(normalizedText);
+  return trimmedText
+}
+func (this *ComponentEngine) evaluateChildren (element *EVGElement, jsxNode *TSNode) () {
+  var i int64= int64(0);
+  var accumulatedText string= "";
+  for i < (int64(len(jsxNode.children))) {
+    var child *TSNode= jsxNode.children[i];
+    if  child.nodeType == "JSXText" {
+      accumulatedText = this.smartJoinText(accumulatedText, child.value); 
+      i = i + int64(1); 
+      continue;
+    }
+    if  (int64(len([]rune(accumulatedText)))) > int64(0) {
+      var normalizedText string= this.normalizeWhitespace(accumulatedText);
+      var text string= this.trimText(normalizedText);
+      if  (int64(len([]rune(text)))) > int64(0) {
+        var textEl *EVGElement= CreateNew_EVGElement();
+        textEl.tagName = "text"; 
+        textEl.textContent = text; 
+        element.addChild(textEl);
+      }
+      accumulatedText = ""; 
+    }
+    if  child.nodeType == "JSXElement" {
+      var childEl *EVGElement= this.evaluateJSXElement(child);
+      if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
+        element.addChild(childEl);
+      }
+    }
+    if  child.nodeType == "JSXExpressionContainer" {
+      this.evaluateExpressionChild(element, child);
+    }
+    if  child.nodeType == "JSXFragment" {
+      this.evaluateChildren(element, child);
+    }
+    i = i + int64(1); 
+  }
+  if  (int64(len([]rune(accumulatedText)))) > int64(0) {
+    var normalizedText_1 string= this.normalizeWhitespace(accumulatedText);
+    var text_1 string= this.trimText(normalizedText_1);
+    if  (int64(len([]rune(text_1)))) > int64(0) {
+      var textEl_1 *EVGElement= CreateNew_EVGElement();
+      textEl_1.tagName = "text"; 
+      textEl_1.textContent = text_1; 
+      element.addChild(textEl_1);
+    }
+  }
+}
+func (this *ComponentEngine) evaluateExpressionChild (element *EVGElement, exprContainer *TSNode) () {
+  if ( exprContainer.left.has_value) {
+    var exprNode *TSNode= exprContainer.left.value.(*TSNode);
+    if  exprNode.nodeType == "CallExpression" {
+      if ( exprNode.left.has_value) {
+        var calleeNode *TSNode= exprNode.left.value.(*TSNode);
+        if  calleeNode.nodeType == "MemberExpression" {
+          var methodName string= calleeNode.name;
+          if  methodName == "map" {
+            this.evaluateArrayMapChild(element, exprNode);
+            return
+          }
+        }
+      }
+      var callResult *EvalValue= this.evaluateExpr(exprNode);
+      if  (callResult).isArray() {
+        var ai int64= int64(0);
+        for ai < (int64(len(callResult.arrayValue))) {
+          var arrItem *EvalValue= callResult.arrayValue[ai];
+          if  arrItem.isElement() {
+            if ( arrItem.evgElement.has_value) {
+              var arrChildEl *EVGElement= arrItem.evgElement.value.(*EVGElement);
+              if  (int64(len([]rune(arrChildEl.tagName)))) > int64(0) {
+                element.addChild(arrChildEl);
+              }
+            }
+          }
+          ai = ai + int64(1); 
+        }
+        return
+      }
+      if  callResult.isElement() {
+        if ( callResult.evgElement.has_value) {
+          var childEl *EVGElement= callResult.evgElement.value.(*EVGElement);
+          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
+            element.addChild(childEl);
+          }
+        }
+        return
+      }
+      var isStr bool= callResult.isString();
+      var isNum bool= callResult.isNumber();
+      if  isStr || isNum {
+        var textEl *EVGElement= CreateNew_EVGElement();
+        textEl.tagName = "text"; 
+        textEl.textContent = (callResult).toString(); 
+        element.addChild(textEl);
+      }
+      return
+    }
+    if  exprNode.nodeType == "ConditionalExpression" {
+      this.evaluateTernaryChild(element, exprNode);
+      return
+    }
+    if  exprNode.nodeType == "BinaryExpression" {
+      if  exprNode.value == "&&" {
+        this.evaluateAndChild(element, exprNode);
+        return
+      }
+    }
+    var value *EvalValue= this.evaluateExpr(exprNode);
+    if  value.isElement() {
+      if ( value.evgElement.has_value) {
+        var childEl_1 *EVGElement= value.evgElement.value.(*EVGElement);
+        if  (int64(len([]rune(childEl_1.tagName)))) > int64(0) {
+          element.addChild(childEl_1);
+        }
+      }
+      return
+    }
+    if  (value).isArray() {
+      var ai_1 int64= int64(0);
+      for ai_1 < (int64(len(value.arrayValue))) {
+        var arrItem_1 *EvalValue= value.arrayValue[ai_1];
+        if  arrItem_1.isElement() {
+          if ( arrItem_1.evgElement.has_value) {
+            var arrChildEl_1 *EVGElement= arrItem_1.evgElement.value.(*EVGElement);
+            if  (int64(len([]rune(arrChildEl_1.tagName)))) > int64(0) {
+              element.addChild(arrChildEl_1);
+            }
+          }
+        }
+        ai_1 = ai_1 + int64(1); 
+      }
+      return
+    }
+    var isStr_1 bool= value.isString();
+    var isNum_1 bool= value.isNumber();
+    if  isStr_1 || isNum_1 {
+      var textEl_1 *EVGElement= CreateNew_EVGElement();
+      textEl_1.tagName = "text"; 
+      textEl_1.textContent = (value).toString(); 
+      element.addChild(textEl_1);
+    }
+  }
+}
+func (this *ComponentEngine) evaluateArrayMapChild (element *EVGElement, callNode *TSNode) () {
+  if ( callNode.left.has_value) {
+    var calleeNode *TSNode= callNode.left.value.(*TSNode);
+    if  calleeNode.nodeType == "MemberExpression" {
+      var methodName string= calleeNode.name;
+      if  methodName == "map" {
+        if ( calleeNode.left.has_value) {
+          var arrayExpr *TSNode= calleeNode.left.value.(*TSNode);
+          var arrayValue *EvalValue= this.evaluateExpr(arrayExpr);
+          if  (arrayValue).isArray() {
+            if  (int64(len(callNode.children))) > int64(0) {
+              var callback *TSNode= callNode.children[int64(0)];
+              var i int64= int64(0);
+              for i < (int64(len(arrayValue.arrayValue))) {
+                var item *EvalValue= arrayValue.arrayValue[i];
+                var savedContext *GoNullable = new(GoNullable); 
+                savedContext.value = this.context.value;
+                savedContext.has_value = this.context.has_value;
+                this.context.value = this.context.value.(*EvalContext).createChild();
+                this.context.has_value = true; /* detected as non-optional */
+                this.bindMapCallback(callback, item, i);
+                var resultEl *EVGElement= this.evaluateMapCallbackBody(callback);
+                if  (int64(len([]rune(resultEl.tagName)))) > int64(0) {
+                  element.addChild(resultEl);
+                }
+                this.context.value = savedContext.value;
+                this.context.has_value = false; 
+                if this.context.value != nil {
+                  this.context.has_value = true
+                }
+                i = i + int64(1); 
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+func (this *ComponentEngine) bindMapCallback (callback *TSNode, item *EvalValue, index int64) () {
+  if  callback.nodeType == "ArrowFunctionExpression" {
+    if  (int64(len(callback.params))) > int64(0) {
+      var param *TSNode= callback.params[int64(0)];
+      var paramName string= param.name;
+      this.context.value.(*EvalContext).define(paramName, item);
+    }
+    if  (int64(len(callback.params))) > int64(1) {
+      var indexParam *TSNode= callback.params[int64(1)];
+      this.context.value.(*EvalContext).define(indexParam.name, EvalValue_static_fromInt(index));
+    }
+  }
+}
+func (this *ComponentEngine) evaluateMapCallbackBody (callback *TSNode) *EVGElement {
+  var empty *EVGElement= CreateNew_EVGElement();
+  if  callback.nodeType == "ArrowFunctionExpression" {
+    if ( callback.body.has_value) {
+      var body *TSNode= callback.body.value.(*TSNode);
+      if  (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") {
+        return this.evaluateJSX(body)
+      }
+      if  body.nodeType == "BlockStatement" {
+        return this.evaluateFunctionBody(body)
+      }
+    }
+  }
+  return empty
+}
+func (this *ComponentEngine) evaluateTernaryChild (element *EVGElement, node *TSNode) () {
+  if ( node.test.has_value) {
+    var testExpr *TSNode= node.test.value.(*TSNode);
+    var testValue *EvalValue= this.evaluateExpr(testExpr);
+    if  testValue.toBool() {
+      if ( node.consequent.has_value) {
+        var conseqNode *TSNode= node.consequent.value.(*TSNode);
+        if  (conseqNode.nodeType == "JSXElement") || (conseqNode.nodeType == "JSXFragment") {
+          var childEl *EVGElement= this.evaluateJSX(conseqNode);
+          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
+            element.addChild(childEl);
+          }
+        }
+      }
+    } else {
+      if ( node.alternate.has_value) {
+        var altNode *TSNode= node.alternate.value.(*TSNode);
+        if  (altNode.nodeType == "JSXElement") || (altNode.nodeType == "JSXFragment") {
+          var childEl_1 *EVGElement= this.evaluateJSX(altNode);
+          if  (int64(len([]rune(childEl_1.tagName)))) > int64(0) {
+            element.addChild(childEl_1);
+          }
+        }
+      }
+    }
+  }
+}
+func (this *ComponentEngine) evaluateAndChild (element *EVGElement, node *TSNode) () {
+  if ( node.left.has_value) {
+    var leftExpr *TSNode= node.left.value.(*TSNode);
+    var leftValue *EvalValue= this.evaluateExpr(leftExpr);
+    if  leftValue.toBool() {
+      if ( node.right.has_value) {
+        var rightNode *TSNode= node.right.value.(*TSNode);
+        if  (rightNode.nodeType == "JSXElement") || (rightNode.nodeType == "JSXFragment") {
+          var childEl *EVGElement= this.evaluateJSX(rightNode);
+          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
+            element.addChild(childEl);
+          }
+        }
+      }
+    }
+  }
+}
+func (this *ComponentEngine) evaluateExpr (node *TSNode) *EvalValue {
+  if  node.nodeType == "NumericLiteral" {
+    var numVal *GoNullable = new(GoNullable); 
+    numVal = r_str_2_d64(node.value);
+    if ( numVal.has_value) {
+      return EvalValue_static_number((numVal.value.(float64)))
+    }
+    return EvalValue_static_number(0.0)
+  }
+  if  node.nodeType == "StringLiteral" {
+    return EvalValue_static_string(this.unquote(node.value))
+  }
+  if  node.nodeType == "TemplateLiteral" {
+    var templateText string= "";
+    var ti int64= int64(0);
+    for ti < (int64(len(node.children))) {
+      var templateChild *TSNode= node.children[ti];
+      if  templateChild.nodeType == "TemplateElement" {
+        templateText = templateText + templateChild.value; 
+      }
+      ti = ti + int64(1); 
+    }
+    return EvalValue_static_string(templateText)
+  }
+  if  node.nodeType == "BooleanLiteral" {
+    return EvalValue_static_boolean((node.value == "true"))
+  }
+  if  node.nodeType == "NullLiteral" {
+    return EvalValue_static_null()
+  }
+  if  node.nodeType == "Identifier" {
+    return this.context.value.(*EvalContext).lookup(node.name)
+  }
+  if  node.nodeType == "BinaryExpression" {
+    return this.evaluateBinaryExpr(node)
+  }
+  if  node.nodeType == "UnaryExpression" {
+    return this.evaluateUnaryExpr(node)
+  }
+  if  node.nodeType == "ConditionalExpression" {
+    return this.evaluateConditionalExpr(node)
+  }
+  if  node.nodeType == "MemberExpression" {
+    return this.evaluateMemberExpr(node)
+  }
+  if  node.nodeType == "ArrayExpression" {
+    return this.evaluateArrayExpr(node)
+  }
+  if  node.nodeType == "ObjectExpression" {
+    return this.evaluateObjectExpr(node)
+  }
+  if  node.nodeType == "ParenthesizedExpression" {
+    if ( node.left.has_value) {
+      var inner *TSNode= node.left.value.(*TSNode);
+      return this.evaluateExpr(inner)
+    }
+  }
+  if  node.nodeType == "JSXElement" {
+    var el *EVGElement= this.evaluateJSXElement(node);
+    return EvalValue_static_element(el)
+  }
+  if  node.nodeType == "JSXFragment" {
+    var el_1 *EVGElement= CreateNew_EVGElement();
+    el_1.tagName = "div"; 
+    this.evaluateChildren(el_1, node);
+    return EvalValue_static_element(el_1)
+  }
+  if  node.nodeType == "CallExpression" {
+    return this.evaluateCallExpr(node)
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
+  if ( node.left.has_value) {
+    var callee *TSNode= node.left.value.(*TSNode);
+    if  callee.nodeType == "MemberExpression" {
+      return EvalValue_static_null()
+    }
+    if  callee.nodeType == "Identifier" {
+      var fnName string= callee.name;
+      fmt.Println( "Evaluating function call: " + fnName )
+      if  fnName == "usePrintSettings" {
+        return this.evaluateUsePrintSettings()
+      }
+      if  fnName == "useImage" {
+        var srcArg string= "";
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode *TSNode= node.children[int64(0)];
+          fmt.Println( "useImage arg nodeType: " + argNode.nodeType )
+          var argValue *EvalValue= this.evaluateExpr(argNode);
+          fmt.Println( (("useImage arg value: " + (argValue).toString()) + " type=") + (strconv.FormatInt(argValue.valueType, 10)) )
+          srcArg = argValue.stringValue; 
+          fmt.Println( "useImage srcArg: " + srcArg )
+        }
+        return this.evaluateUseImage(srcArg)
+      }
+      var fnValue *EvalValue= this.context.value.(*EvalContext).lookup(fnName);
+      if  fnValue.isFunction() {
+        if ( fnValue.functionNode.has_value) {
+          var fnNode *TSNode= fnValue.functionNode.value.(*TSNode);
+          var savedContext *GoNullable = new(GoNullable); 
+          savedContext.value = this.context.value;
+          savedContext.has_value = this.context.has_value;
+          this.context.value = this.context.value.(*EvalContext).createChild();
+          this.context.has_value = true; /* detected as non-optional */
+          var body *TSNode= this.getFunctionBody(fnNode);
+          var result *EvalValue= this.evaluateFunctionBodyValue(body);
+          this.context.value = savedContext.value;
+          this.context.has_value = false; 
+          if this.context.value != nil {
+            this.context.has_value = true
+          }
+          return result
+        }
+      }
+    }
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateBinaryExpr (node *TSNode) *EvalValue {
+  var op string= node.value;
+  if  op == "&&" {
+    if ( node.left.has_value) {
+      var leftExpr *TSNode= node.left.value.(*TSNode);
+      var left *EvalValue= this.evaluateExpr(leftExpr);
+      if  left.toBool() == false {
+        return left
+      }
+      if ( node.right.has_value) {
+        var rightExpr *TSNode= node.right.value.(*TSNode);
+        return this.evaluateExpr(rightExpr)
+      }
+    }
+  }
+  if  op == "||" {
+    if ( node.left.has_value) {
+      var leftExpr_1 *TSNode= node.left.value.(*TSNode);
+      var left_1 *EvalValue= this.evaluateExpr(leftExpr_1);
+      if  left_1.toBool() {
+        return left_1
+      }
+      if ( node.right.has_value) {
+        var rightExpr_1 *TSNode= node.right.value.(*TSNode);
+        return this.evaluateExpr(rightExpr_1)
+      }
+    }
+  }
+  var left_2 *EvalValue= EvalValue_static_null();
+  var right *EvalValue= EvalValue_static_null();
+  if ( node.left.has_value) {
+    var leftExpr_2 *TSNode= node.left.value.(*TSNode);
+    left_2 = this.evaluateExpr(leftExpr_2); 
+  }
+  if ( node.right.has_value) {
+    var rightExpr_2 *TSNode= node.right.value.(*TSNode);
+    right = this.evaluateExpr(rightExpr_2); 
+  }
+  if  op == "+" {
+    var isLeftStr bool= left_2.isString();
+    var isRightStr bool= right.isString();
+    if  isLeftStr || isRightStr {
+      return EvalValue_static_string(((left_2).toString() + (right).toString()))
+    }
+    return EvalValue_static_number((left_2.toNumber() + right.toNumber()))
+  }
+  if  op == "-" {
+    return EvalValue_static_number((left_2.toNumber() - right.toNumber()))
+  }
+  if  op == "*" {
+    return EvalValue_static_number((left_2.toNumber() * right.toNumber()))
+  }
+  if  op == "/" {
+    var rightNum float64= right.toNumber();
+    if  rightNum != 0.0 {
+      return EvalValue_static_number((left_2.toNumber() / rightNum))
+    }
+    return EvalValue_static_number(0.0)
+  }
+  if  op == "%" {
+    var leftInt int64= int64(left_2.toNumber());
+    var rightInt int64= int64(right.toNumber());
+    if  rightInt != int64(0) {
+      return EvalValue_static_fromInt((leftInt % rightInt))
+    }
+    return EvalValue_static_number(0.0)
+  }
+  if  op == "<" {
+    return EvalValue_static_boolean((left_2.toNumber() < right.toNumber()))
+  }
+  if  op == ">" {
+    return EvalValue_static_boolean((left_2.toNumber() > right.toNumber()))
+  }
+  if  op == "<=" {
+    return EvalValue_static_boolean((left_2.toNumber() <= right.toNumber()))
+  }
+  if  op == ">=" {
+    return EvalValue_static_boolean((left_2.toNumber() >= right.toNumber()))
+  }
+  if  (op == "==") || (op == "===") {
+    return EvalValue_static_boolean(left_2.equals(right))
+  }
+  if  (op == "!=") || (op == "!==") {
+    return EvalValue_static_boolean((left_2.equals(right) == false))
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateUnaryExpr (node *TSNode) *EvalValue {
+  var op string= node.value;
+  if ( node.left.has_value) {
+    var argExpr *TSNode= node.left.value.(*TSNode);
+    var arg *EvalValue= this.evaluateExpr(argExpr);
+    if  op == "!" {
+      return EvalValue_static_boolean((arg.toBool() == false))
+    }
+    if  op == "-" {
+      return EvalValue_static_number((0.0 - arg.toNumber()))
+    }
+    if  op == "+" {
+      return EvalValue_static_number(arg.toNumber())
+    }
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateConditionalExpr (node *TSNode) *EvalValue {
+  if ( node.test.has_value) {
+    var testExpr *TSNode= node.test.value.(*TSNode);
+    var test *EvalValue= this.evaluateExpr(testExpr);
+    if  test.toBool() {
+      if ( node.consequent.has_value) {
+        var conseqNode *TSNode= node.consequent.value.(*TSNode);
+        return this.evaluateExpr(conseqNode)
+      }
+    } else {
+      if ( node.alternate.has_value) {
+        var altNode *TSNode= node.alternate.value.(*TSNode);
+        return this.evaluateExpr(altNode)
+      }
+    }
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateMemberExpr (node *TSNode) *EvalValue {
+  if ( node.left.has_value) {
+    var leftExpr *TSNode= node.left.value.(*TSNode);
+    var obj *EvalValue= this.evaluateExpr(leftExpr);
+    var propName string= node.name;
+    fmt.Println( (((("evaluateMemberExpr: propName=" + propName) + " computed=") + (strconv.FormatBool(node.computed))) + " obj.type=") + (strconv.FormatInt(obj.valueType, 10)) )
+    if  node.computed {
+      if ( node.right.has_value) {
+        var indexExpr *TSNode= node.right.value.(*TSNode);
+        var indexVal *EvalValue= this.evaluateExpr(indexExpr);
+        fmt.Println( (("  Index value: " + (indexVal).toString()) + " type=") + (strconv.FormatInt(indexVal.valueType, 10)) )
+        if  indexVal.isNumber() {
+          var idx int64= int64(indexVal.toNumber());
+          fmt.Println( (("  Getting index " + (strconv.FormatInt(idx, 10))) + " from array of length ") + (strconv.FormatInt((int64(len(obj.arrayValue))), 10)) )
+          return obj.getIndex(idx)
+        }
+        if  indexVal.isString() {
+          return obj.getMember(indexVal.stringValue)
+        }
+      }
+    }
+    return obj.getMember(propName)
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateArrayExpr (node *TSNode) *EvalValue {
+  var items []*EvalValue = make([]*EvalValue, 0);
+  var i int64= int64(0);
+  for i < (int64(len(node.children))) {
+    var elem *TSNode= node.children[i];
+    var value *EvalValue= this.evaluateExpr(elem);
+    items = append(items,value); 
+    i = i + int64(1); 
+  }
+  return EvalValue_static_array(items)
+}
+func (this *ComponentEngine) evaluateObjectExpr (node *TSNode) *EvalValue {
+  var keys []string = make([]string, 0);
+  var values []*EvalValue = make([]*EvalValue, 0);
+  var i int64= int64(0);
+  for i < (int64(len(node.children))) {
+    var prop *TSNode= node.children[i];
+    if  prop.nodeType == "Property" {
+      var key string= prop.name;
+      keys = append(keys,key); 
+      if ( prop.left.has_value ) {
+        var valueNode *TSNode= prop.left.value.(*TSNode);
+        values = append(values,this.evaluateExpr(valueNode)); 
+      } else {
+        values = append(values,EvalValue_static_null()); 
+      }
+    }
+    i = i + int64(1); 
+  }
+  return EvalValue_static_object(keys, values)
+}
+func (this *ComponentEngine) mapTagName (jsxTag string) string {
+  if  jsxTag == "Print" {
+    return "print"
+  }
+  if  jsxTag == "Section" {
+    return "section"
+  }
+  if  jsxTag == "Page" {
+    return "page"
+  }
+  if  jsxTag == "View" {
+    return "div"
+  }
+  if  jsxTag == "Layer" {
+    return "layer"
+  }
+  if  jsxTag == "Label" {
+    return "text"
+  }
+  if  jsxTag == "Image" {
+    return "image"
+  }
+  if  jsxTag == "Path" {
+    return "path"
+  }
+  if  jsxTag == "Spacer" {
+    return "spacer"
+  }
+  if  jsxTag == "Divider" {
+    return "divider"
+  }
+  if  jsxTag == "div" {
+    return "div"
+  }
+  if  jsxTag == "span" {
+    return "text"
+  }
+  if  jsxTag == "img" {
+    return "image"
+  }
+  if  jsxTag == "path" {
+    return "path"
+  }
+  if  jsxTag == "layer" {
+    return "layer"
+  }
+  return "div"
+}
+func (this *ComponentEngine) trimText (text string) string {
+  var result string= "";
+  var started bool= false;
+  var i int64= int64(0);
+  var __len int64= int64(len([]rune(text)));
+  for i < __len {
+    var c int64= int64([]rune(text)[i]);
+    var isWhitespace bool= (((c == int64(32)) || (c == int64(9))) || (c == int64(10))) || (c == int64(13));
+    if  started {
+      result = result + (string([]rune{rune(c)})); 
+    } else {
+      if  isWhitespace == false {
+        started = true; 
+        result = string([]rune{rune(c)}); 
+      }
+    }
+    i = i + int64(1); 
+  }
+  var trimLen int64= int64(len([]rune(result)));
+  for trimLen > int64(0) {
+    var lastC int64= int64([]rune(result)[(trimLen - int64(1))]);
+    if  (((lastC == int64(32)) || (lastC == int64(9))) || (lastC == int64(10))) || (lastC == int64(13)) {
+      result = string([]rune(result)[int64(0):(trimLen - int64(1))]); 
+      trimLen = trimLen - int64(1); 
+    } else {
+      trimLen = int64(0); 
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) normalizeWhitespace (text string) string {
+  var result string= "";
+  var lastWasSpace bool= false;
+  var i int64= int64(0);
+  var __len int64= int64(len([]rune(text)));
+  for i < __len {
+    var c int64= int64([]rune(text)[i]);
+    var isWhitespace bool= (((c == int64(32)) || (c == int64(9))) || (c == int64(10))) || (c == int64(13));
+    if  isWhitespace {
+      if  lastWasSpace == false {
+        result = result + " "; 
+        lastWasSpace = true; 
+      }
+    } else {
+      result = result + (string([]rune{rune(c)})); 
+      lastWasSpace = false; 
+    }
+    i = i + int64(1); 
+  }
+  return result
+}
+func (this *ComponentEngine) startsWithPunctuation (s string) bool {
+  if  (int64(len([]rune(s)))) == int64(0) {
+    return false
+  }
+  var first int64= int64([]rune(s)[int64(0)]);
+  if  (((((first == int64(44)) || (first == int64(46))) || (first == int64(33))) || (first == int64(63))) || (first == int64(58))) || (first == int64(59)) {
+    return true
+  }
+  if  ((first == int64(41)) || (first == int64(93))) || (first == int64(125)) {
+    return true
+  }
+  if  ((first == int64(39)) || (first == int64(34))) || (first == int64(45)) {
+    return true
+  }
+  return false
+}
+func (this *ComponentEngine) endsWithOpenPunctuation (s string) bool {
+  var __len int64= int64(len([]rune(s)));
+  if  __len == int64(0) {
+    return false
+  }
+  var last int64= int64([]rune(s)[(__len - int64(1))]);
+  if  (((last == int64(40)) || (last == int64(91))) || (last == int64(123))) || (last == int64(45)) {
+    return true
+  }
+  return false
+}
+func (this *ComponentEngine) smartJoinText (existing string, newText string) string {
+  if  (int64(len([]rune(existing)))) == int64(0) {
+    return newText
+  }
+  if  (int64(len([]rune(newText)))) == int64(0) {
+    return existing
+  }
+  if  this.startsWithPunctuation(newText) {
+    return existing + newText
+  }
+  if  this.endsWithOpenPunctuation(existing) {
+    return existing + newText
+  }
+  return (existing + " ") + newText
+}
+func (this *ComponentEngine) unquote (s string) string {
+  var __len int64= int64(len([]rune(s)));
+  if  __len < int64(2) {
+    return s
+  }
+  var first int64= int64([]rune(s)[int64(0)]);
+  var last int64= int64([]rune(s)[(__len - int64(1))]);
+  if  ((first == int64(34)) || (first == int64(39))) && (first == last) {
+    return string([]rune(s)[int64(1):(__len - int64(1))])
+  }
+  return s
+}
+func (this *ComponentEngine) evaluateUsePrintSettings () *EvalValue {
+  fmt.Println( "Hook: usePrintSettings() called" )
+  var propNames []string = make([]string, 0);
+  var propValues []*EvalValue = make([]*EvalValue, 0);
+  propNames = append(propNames,"format"); 
+  var formatVal *EvalValue= EvalValue_static_string(this.printFormat);
+  propValues = append(propValues,formatVal); 
+  propNames = append(propNames,"width"); 
+  var widthVal *EvalValue= EvalValue_static_number(this.pageWidth);
+  propValues = append(propValues,widthVal); 
+  propNames = append(propNames,"height"); 
+  var heightVal *EvalValue= EvalValue_static_number(this.pageHeight);
+  propValues = append(propValues,heightVal); 
+  propNames = append(propNames,"orientation"); 
+  var orientVal *EvalValue= EvalValue_static_string(this.printOrientation);
+  propValues = append(propValues,orientVal); 
+  propNames = append(propNames,"pageCount"); 
+  var pageCountVal *EvalValue= EvalValue_static_number((float64( this.printPageCount )));
+  propValues = append(propValues,pageCountVal); 
+  propNames = append(propNames,"margins"); 
+  var marginNames []string = make([]string, 0);
+  var marginValues []*EvalValue = make([]*EvalValue, 0);
+  marginNames = append(marginNames,"top"); 
+  marginValues = append(marginValues,EvalValue_static_number(this.printMarginTop)); 
+  marginNames = append(marginNames,"right"); 
+  marginValues = append(marginValues,EvalValue_static_number(this.printMarginRight)); 
+  marginNames = append(marginNames,"bottom"); 
+  marginValues = append(marginValues,EvalValue_static_number(this.printMarginBottom)); 
+  marginNames = append(marginNames,"left"); 
+  marginValues = append(marginValues,EvalValue_static_number(this.printMarginLeft)); 
+  var marginsVal *EvalValue= EvalValue_static_object(marginNames, marginValues);
+  propValues = append(propValues,marginsVal); 
+  return EvalValue_static_object(propNames, propValues)
+}
+func (this *ComponentEngine) evaluateUseImage (src string) *EvalValue {
+  var resolvedPath string= src;
+  if  (int64(len([]rune(src)))) > int64(0) {
+    var firstChar string= string([]rune(src)[int64(0):int64(1)]);
+    if  firstChar != "/" {
+      resolvedPath = this.basePath + src; 
+    }
+  }
+  fmt.Println( (("Hook: useImage() called with src: " + src) + " -> resolved: ") + resolvedPath )
+  var lastSlash int64= int64(strings.LastIndex(resolvedPath, "/"));
+  var dirPath string= "";
+  var fileName string= resolvedPath;
+  if  lastSlash >= int64(0) {
+    dirPath = string([]rune(resolvedPath)[int64(0):(lastSlash + int64(1))]); 
+    fileName = string([]rune(resolvedPath)[(lastSlash + int64(1)):(int64(len([]rune(resolvedPath))))]); 
+  }
+  fmt.Println( (("Hook: parsing JPEG - dir: " + dirPath) + " file: ") + fileName )
+  var parser_1 *JPEGMetadataParser= CreateNew_JPEGMetadataParser();
+  var metadata *JPEGMetadataInfo= parser_1.parseMetadata(dirPath, fileName);
+  var propNames []string = make([]string, 0);
+  var propValues []*EvalValue = make([]*EvalValue, 0);
+  propNames = append(propNames,"resolvedPath"); 
+  propValues = append(propValues,EvalValue_static_string(resolvedPath)); 
+  propNames = append(propNames,"width"); 
+  propValues = append(propValues,EvalValue_static_number((float64( metadata.width )))); 
+  propNames = append(propNames,"height"); 
+  propValues = append(propValues,EvalValue_static_number((float64( metadata.height )))); 
+  propNames = append(propNames,"createdAt"); 
+  if  (int64(len([]rune(metadata.dateTimeOriginal)))) > int64(0) {
+    propValues = append(propValues,EvalValue_static_string(metadata.dateTimeOriginal)); 
+  } else {
+    if  (int64(len([]rune(metadata.dateTime)))) > int64(0) {
+      propValues = append(propValues,EvalValue_static_string(metadata.dateTime)); 
+    } else {
+      propValues = append(propValues,EvalValue_static_null()); 
+    }
+  }
+  propNames = append(propNames,"camera"); 
+  if  (int64(len([]rune(metadata.cameraModel)))) > int64(0) {
+    var cameraStr string= "";
+    if  (int64(len([]rune(metadata.cameraMake)))) > int64(0) {
+      cameraStr = (metadata.cameraMake + " ") + metadata.cameraModel; 
+    } else {
+      cameraStr = metadata.cameraModel; 
+    }
+    propValues = append(propValues,EvalValue_static_string(cameraStr)); 
+  } else {
+    propValues = append(propValues,EvalValue_static_null()); 
+  }
+  propNames = append(propNames,"orientation"); 
+  propValues = append(propValues,EvalValue_static_number((float64( metadata.orientation )))); 
+  propNames = append(propNames,"gps"); 
+  if  metadata.hasGPS {
+    var gpsNames []string = make([]string, 0);
+    var gpsValues []*EvalValue = make([]*EvalValue, 0);
+    gpsNames = append(gpsNames,"latitude"); 
+    gpsValues = append(gpsValues,EvalValue_static_string(((metadata.gpsLatitudeRef + " ") + metadata.gpsLatitude))); 
+    gpsNames = append(gpsNames,"longitude"); 
+    gpsValues = append(gpsValues,EvalValue_static_string(((metadata.gpsLongitudeRef + " ") + metadata.gpsLongitude))); 
+    if  (int64(len([]rune(metadata.gpsAltitude)))) > int64(0) {
+      gpsNames = append(gpsNames,"altitude"); 
+      gpsValues = append(gpsValues,EvalValue_static_string(metadata.gpsAltitude)); 
+    }
+    propValues = append(propValues,EvalValue_static_object(gpsNames, gpsValues)); 
+  } else {
+    propValues = append(propValues,EvalValue_static_null()); 
+  }
+  propNames = append(propNames,"colorSpace"); 
+  if  metadata.colorComponents == int64(1) {
+    propValues = append(propValues,EvalValue_static_string("Grayscale")); 
+  } else {
+    if  metadata.colorComponents == int64(3) {
+      propValues = append(propValues,EvalValue_static_string("RGB")); 
+    } else {
+      if  metadata.colorComponents == int64(4) {
+        propValues = append(propValues,EvalValue_static_string("CMYK")); 
+      } else {
+        propValues = append(propValues,EvalValue_static_string("Unknown")); 
+      }
+    }
+  }
+  propNames = append(propNames,"bitsPerComponent"); 
+  propValues = append(propValues,EvalValue_static_number((float64( metadata.bitsPerComponent )))); 
+  return EvalValue_static_object(propNames, propValues)
+}
+func (this *ComponentEngine) setPrintSettings (format string, orientation string, width float64, height float64) () {
+  this.printFormat = format; 
+  this.printOrientation = orientation; 
+  this.pageWidth = width; 
+  this.pageHeight = height; 
+  fmt.Println( (((((("Print settings updated: " + format) + " ") + orientation) + " ") + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)) )
+}
+func (this *ComponentEngine) setPrintMargins (top float64, right float64, bottom float64, left float64) () {
+  this.printMarginTop = top; 
+  this.printMarginRight = right; 
+  this.printMarginBottom = bottom; 
+  this.printMarginLeft = left; 
+}
+type EVGTextMetrics struct { 
+  width float64 `json:"width"` 
+  height float64 `json:"height"` 
+  ascent float64 `json:"ascent"` 
+  descent float64 `json:"descent"` 
+  lineHeight float64 `json:"lineHeight"` 
+}
+
+func CreateNew_EVGTextMetrics() *EVGTextMetrics {
+  me := new(EVGTextMetrics)
+  me.width = 0.0
+  me.height = 0.0
+  me.ascent = 0.0
+  me.descent = 0.0
+  me.lineHeight = 0.0
+  me.width = 0.0; 
+  me.height = 0.0; 
+  me.ascent = 0.0; 
+  me.descent = 0.0; 
+  me.lineHeight = 0.0; 
+  return me;
+}
+func EVGTextMetrics_static_create(w float64, h float64) *EVGTextMetrics {
+  var m *EVGTextMetrics= CreateNew_EVGTextMetrics();
+  m.width = w; 
+  m.height = h; 
+  return m
+}
+type EVGTextMeasurer struct { 
+}
+type IFACE_EVGTextMeasurer interface { 
+  measureText(text string, fontFamily string, fontSize float64) *EVGTextMetrics
+  measureTextWidth(text string, fontFamily string, fontSize float64) float64
+  getLineHeight(fontFamily string, fontSize float64) float64
+  measureChar(ch int64, fontFamily string, fontSize float64) float64
+  wrapText(text string, fontFamily string, fontSize float64, maxWidth float64) []string
+}
+
+func CreateNew_EVGTextMeasurer() *EVGTextMeasurer {
+  me := new(EVGTextMeasurer)
+  return me;
+}
+func (this *EVGTextMeasurer) measureText (text string, fontFamily string, fontSize float64) *EVGTextMetrics {
+  var avgCharWidth float64= fontSize * 0.55;
+  var textLen int64= int64(len([]rune(text)));
+  var width float64= (float64( textLen )) * avgCharWidth;
+  var lineHeight float64= fontSize * 1.2;
+  var metrics *EVGTextMetrics= CreateNew_EVGTextMetrics();
+  metrics.width = width; 
+  metrics.height = lineHeight; 
+  metrics.ascent = fontSize * 0.8; 
+  metrics.descent = fontSize * 0.2; 
+  metrics.lineHeight = lineHeight; 
+  return metrics
+}
+func (this *EVGTextMeasurer) measureTextWidth (text string, fontFamily string, fontSize float64) float64 {
+  var metrics *EVGTextMetrics= this.measureText(text, fontFamily, fontSize);
+  return metrics.width
+}
+func (this *EVGTextMeasurer) getLineHeight (fontFamily string, fontSize float64) float64 {
+  return fontSize * 1.2
+}
+func (this *EVGTextMeasurer) measureChar (ch int64, fontFamily string, fontSize float64) float64 {
+  if  ch == int64(32) {
+    return fontSize * 0.3
+  }
+  if  ((((ch == int64(105)) || (ch == int64(108))) || (ch == int64(106))) || (ch == int64(116))) || (ch == int64(102)) {
+    return fontSize * 0.3
+  }
+  if  (ch == int64(109)) || (ch == int64(119)) {
+    return fontSize * 0.8
+  }
+  if  (ch == int64(77)) || (ch == int64(87)) {
+    return fontSize * 0.9
+  }
+  if  ch == int64(73) {
+    return fontSize * 0.35
+  }
+  return fontSize * 0.55
+}
+func (this *EVGTextMeasurer) wrapText (text string, fontFamily string, fontSize float64, maxWidth float64) []string {
+  var lines []string = make([]string, 0);
+  var currentLine string= "";
+  var currentWidth float64= 0.0;
+  var wordStart int64= int64(0);
+  var textLen int64= int64(len([]rune(text)));
+  var i int64= int64(0);
+  for i <= textLen {
+    var ch int64= int64(0);
+    var isEnd bool= i == textLen;
+    if  isEnd == false {
+      ch = int64([]rune(text)[i]); 
+    }
+    var isWordEnd bool= false;
+    if  isEnd {
+      isWordEnd = true; 
+    }
+    if  ch == int64(32) {
+      isWordEnd = true; 
+    }
+    if  ch == int64(10) {
+      isWordEnd = true; 
+    }
+    if  isWordEnd {
+      var word string= "";
+      if  i > wordStart {
+        word = string([]rune(text)[wordStart:i]); 
+      }
+      var wordWidth float64= this.measureTextWidth(word, fontFamily, fontSize);
+      var spaceWidth float64= 0.0;
+      if  (int64(len([]rune(currentLine)))) > int64(0) {
+        spaceWidth = this.measureTextWidth(" ", fontFamily, fontSize); 
+      }
+      if  ((currentWidth + spaceWidth) + wordWidth) <= maxWidth {
+        if  (int64(len([]rune(currentLine)))) > int64(0) {
+          currentLine = currentLine + " "; 
+          currentWidth = currentWidth + spaceWidth; 
+        }
+        currentLine = currentLine + word; 
+        currentWidth = currentWidth + wordWidth; 
+      } else {
+        if  (int64(len([]rune(currentLine)))) > int64(0) {
+          lines = append(lines,currentLine); 
+        }
+        currentLine = word; 
+        currentWidth = wordWidth; 
+      }
+      if  ch == int64(10) {
+        lines = append(lines,currentLine); 
+        currentLine = ""; 
+        currentWidth = 0.0; 
+      }
+      wordStart = i + int64(1); 
+    }
+    i = i + int64(1); 
+  }
+  if  (int64(len([]rune(currentLine)))) > int64(0) {
+    lines = append(lines,currentLine); 
+  }
+  return lines
+}
+type SimpleTextMeasurer struct { 
+  charWidthRatio float64 `json:"charWidthRatio"` 
+  // inherited from parent class EVGTextMeasurer
+}
+type IFACE_SimpleTextMeasurer interface { 
+  Get_charWidthRatio() float64
+  Set_charWidthRatio(value float64) 
+  setCharWidthRatio(ratio float64) ()
+  measureText(text string, fontFamily string, fontSize float64) *EVGTextMetrics
+}
+
+func CreateNew_SimpleTextMeasurer() *SimpleTextMeasurer {
+  me := new(SimpleTextMeasurer)
+  me.charWidthRatio = 0.55
+  return me;
+}
+func (this *SimpleTextMeasurer) setCharWidthRatio (ratio float64) () {
+  this.charWidthRatio = ratio; 
+}
+func (this *SimpleTextMeasurer) measureText (text string, fontFamily string, fontSize float64) *EVGTextMetrics {
+  var textLen int64= int64(len([]rune(text)));
+  var width float64= 0.0;
+  var i int64= int64(0);
+  for i < textLen {
+    var ch int64= int64([]rune(text)[i]);
+    width = width + this.measureChar(ch, fontFamily, fontSize); 
+    i = i + int64(1); 
+  }
+  var lineHeight float64= fontSize * 1.2;
+  var metrics *EVGTextMetrics= CreateNew_EVGTextMetrics();
+  metrics.width = width; 
+  metrics.height = lineHeight; 
+  metrics.ascent = fontSize * 0.8; 
+  metrics.descent = fontSize * 0.2; 
+  metrics.lineHeight = lineHeight; 
+  return metrics
+}
+// inherited methods from parent class EVGTextMeasurer
+func (this *SimpleTextMeasurer) measureTextWidth (text string, fontFamily string, fontSize float64) float64 {
+  var metrics *EVGTextMetrics= this.measureText(text, fontFamily, fontSize);
+  return metrics.width
+}
+func (this *SimpleTextMeasurer) getLineHeight (fontFamily string, fontSize float64) float64 {
+  return fontSize * 1.2
+}
+func (this *SimpleTextMeasurer) measureChar (ch int64, fontFamily string, fontSize float64) float64 {
+  if  ch == int64(32) {
+    return fontSize * 0.3
+  }
+  if  ((((ch == int64(105)) || (ch == int64(108))) || (ch == int64(106))) || (ch == int64(116))) || (ch == int64(102)) {
+    return fontSize * 0.3
+  }
+  if  (ch == int64(109)) || (ch == int64(119)) {
+    return fontSize * 0.8
+  }
+  if  (ch == int64(77)) || (ch == int64(87)) {
+    return fontSize * 0.9
+  }
+  if  ch == int64(73) {
+    return fontSize * 0.35
+  }
+  return fontSize * 0.55
+}
+func (this *SimpleTextMeasurer) wrapText (text string, fontFamily string, fontSize float64, maxWidth float64) []string {
+  var lines []string = make([]string, 0);
+  var currentLine string= "";
+  var currentWidth float64= 0.0;
+  var wordStart int64= int64(0);
+  var textLen int64= int64(len([]rune(text)));
+  var i int64= int64(0);
+  for i <= textLen {
+    var ch int64= int64(0);
+    var isEnd bool= i == textLen;
+    if  isEnd == false {
+      ch = int64([]rune(text)[i]); 
+    }
+    var isWordEnd bool= false;
+    if  isEnd {
+      isWordEnd = true; 
+    }
+    if  ch == int64(32) {
+      isWordEnd = true; 
+    }
+    if  ch == int64(10) {
+      isWordEnd = true; 
+    }
+    if  isWordEnd {
+      var word string= "";
+      if  i > wordStart {
+        word = string([]rune(text)[wordStart:i]); 
+      }
+      var wordWidth float64= this.measureTextWidth(word, fontFamily, fontSize);
+      var spaceWidth float64= 0.0;
+      if  (int64(len([]rune(currentLine)))) > int64(0) {
+        spaceWidth = this.measureTextWidth(" ", fontFamily, fontSize); 
+      }
+      if  ((currentWidth + spaceWidth) + wordWidth) <= maxWidth {
+        if  (int64(len([]rune(currentLine)))) > int64(0) {
+          currentLine = currentLine + " "; 
+          currentWidth = currentWidth + spaceWidth; 
+        }
+        currentLine = currentLine + word; 
+        currentWidth = currentWidth + wordWidth; 
+      } else {
+        if  (int64(len([]rune(currentLine)))) > int64(0) {
+          lines = append(lines,currentLine); 
+        }
+        currentLine = word; 
+        currentWidth = wordWidth; 
+      }
+      if  ch == int64(10) {
+        lines = append(lines,currentLine); 
+        currentLine = ""; 
+        currentWidth = 0.0; 
+      }
+      wordStart = i + int64(1); 
+    }
+    i = i + int64(1); 
+  }
+  if  (int64(len([]rune(currentLine)))) > int64(0) {
+    lines = append(lines,currentLine); 
+  }
+  return lines
+}
+// getter for variable charWidthRatio
+func (this *SimpleTextMeasurer) Get_charWidthRatio() float64 {
+  return this.charWidthRatio
+}
+// setter for variable charWidthRatio
+func (this *SimpleTextMeasurer) Set_charWidthRatio( value float64)  {
+  this.charWidthRatio = value 
+}
+// inherited getters and setters from the parent class EVGTextMeasurer
+type EVGImageDimensions struct { 
+  width int64 `json:"width"` 
+  height int64 `json:"height"` 
+  aspectRatio float64 `json:"aspectRatio"` 
+  isValid bool `json:"isValid"` 
+}
+
+func CreateNew_EVGImageDimensions() *EVGImageDimensions {
+  me := new(EVGImageDimensions)
+  me.width = int64(0)
+  me.height = int64(0)
+  me.aspectRatio = 1.0
+  me.isValid = false
+  me.width = int64(0); 
+  me.height = int64(0); 
+  me.aspectRatio = 1.0; 
+  me.isValid = false; 
+  return me;
+}
+func EVGImageDimensions_static_create(w int64, h int64) *EVGImageDimensions {
+  var d *EVGImageDimensions= CreateNew_EVGImageDimensions();
+  d.width = w; 
+  d.height = h; 
+  if  h > int64(0) {
+    d.aspectRatio = (float64( w )) / (float64( h )); 
+  }
+  d.isValid = true; 
+  return d
+}
+type EVGImageMeasurer struct { 
+}
+type IFACE_EVGImageMeasurer interface { 
+  getImageDimensions(src string) *EVGImageDimensions
+  calculateHeightForWidth(src string, targetWidth float64) float64
+  calculateWidthForHeight(src string, targetHeight float64) float64
+  calculateFitDimensions(src string, maxWidth float64, maxHeight float64) *EVGImageDimensions
+}
+
+func CreateNew_EVGImageMeasurer() *EVGImageMeasurer {
+  me := new(EVGImageMeasurer)
+  return me;
+}
+func (this *EVGImageMeasurer) getImageDimensions (src string) *EVGImageDimensions {
+  var dims *EVGImageDimensions= CreateNew_EVGImageDimensions();
+  return dims
+}
+func (this *EVGImageMeasurer) calculateHeightForWidth (src string, targetWidth float64) float64 {
+  var dims *EVGImageDimensions= this.getImageDimensions(src);
+  if  dims.isValid {
+    return targetWidth / dims.aspectRatio
+  }
+  return targetWidth
+}
+func (this *EVGImageMeasurer) calculateWidthForHeight (src string, targetHeight float64) float64 {
+  var dims *EVGImageDimensions= this.getImageDimensions(src);
+  if  dims.isValid {
+    return targetHeight * dims.aspectRatio
+  }
+  return targetHeight
+}
+func (this *EVGImageMeasurer) calculateFitDimensions (src string, maxWidth float64, maxHeight float64) *EVGImageDimensions {
+  var dims *EVGImageDimensions= this.getImageDimensions(src);
+  if  dims.isValid == false {
+    return EVGImageDimensions_static_create((int64(maxWidth)), (int64(maxHeight)))
+  }
+  var scaleW float64= maxWidth / (float64( dims.width ));
+  var scaleH float64= maxHeight / (float64( dims.height ));
+  var scale float64= scaleW;
+  if  scaleH < scaleW {
+    scale = scaleH; 
+  }
+  var newW int64= int64(((float64( dims.width )) * scale));
+  var newH int64= int64(((float64( dims.height )) * scale));
+  return EVGImageDimensions_static_create(newW, newH)
+}
+type SimpleImageMeasurer struct { 
+  // inherited from parent class EVGImageMeasurer
+}
+type IFACE_SimpleImageMeasurer interface { 
+}
+
+func CreateNew_SimpleImageMeasurer() *SimpleImageMeasurer {
+  me := new(SimpleImageMeasurer)
+  return me;
+}
+// inherited methods from parent class EVGImageMeasurer
+func (this *SimpleImageMeasurer) getImageDimensions (src string) *EVGImageDimensions {
+  var dims *EVGImageDimensions= CreateNew_EVGImageDimensions();
+  return dims
+}
+func (this *SimpleImageMeasurer) calculateHeightForWidth (src string, targetWidth float64) float64 {
+  var dims *EVGImageDimensions= this.getImageDimensions(src);
+  if  dims.isValid {
+    return targetWidth / dims.aspectRatio
+  }
+  return targetWidth
+}
+func (this *SimpleImageMeasurer) calculateWidthForHeight (src string, targetHeight float64) float64 {
+  var dims *EVGImageDimensions= this.getImageDimensions(src);
+  if  dims.isValid {
+    return targetHeight * dims.aspectRatio
+  }
+  return targetHeight
+}
+func (this *SimpleImageMeasurer) calculateFitDimensions (src string, maxWidth float64, maxHeight float64) *EVGImageDimensions {
+  var dims *EVGImageDimensions= this.getImageDimensions(src);
+  if  dims.isValid == false {
+    return EVGImageDimensions_static_create((int64(maxWidth)), (int64(maxHeight)))
+  }
+  var scaleW float64= maxWidth / (float64( dims.width ));
+  var scaleH float64= maxHeight / (float64( dims.height ));
+  var scale float64= scaleW;
+  if  scaleH < scaleW {
+    scale = scaleH; 
+  }
+  var newW int64= int64(((float64( dims.width )) * scale));
+  var newH int64= int64(((float64( dims.height )) * scale));
+  return EVGImageDimensions_static_create(newW, newH)
+}
+// inherited getters and setters from the parent class EVGImageMeasurer
+type EVGLayout struct { 
+  measurer *GoNullable `json:"measurer"` 
+  imageMeasurer *GoNullable `json:"imageMeasurer"` 
+  pageWidth float64 `json:"pageWidth"` 
+  pageHeight float64 `json:"pageHeight"` 
+  currentPage int64 `json:"currentPage"` 
+  debug bool `json:"debug"` 
+}
+
+func CreateNew_EVGLayout() *EVGLayout {
+  me := new(EVGLayout)
+  me.pageWidth = 612.0
+  me.pageHeight = 792.0
+  me.currentPage = int64(0)
+  me.debug = false
+  me.measurer = new(GoNullable);
+  me.imageMeasurer = new(GoNullable);
+  var m *SimpleTextMeasurer= CreateNew_SimpleTextMeasurer();
+  me.measurer.value = m;
+  me.measurer.has_value = true; /* detected as non-optional */
+  var im *SimpleImageMeasurer= CreateNew_SimpleImageMeasurer();
+  me.imageMeasurer.value = im;
+  me.imageMeasurer.has_value = true; /* detected as non-optional */
+  return me;
+}
+func (this *EVGLayout) setMeasurer (m IFACE_EVGTextMeasurer) () {
+  this.measurer.value = m;
+  this.measurer.has_value = true; /* detected as non-optional */
+}
+func (this *EVGLayout) setImageMeasurer (m IFACE_EVGImageMeasurer) () {
+  this.imageMeasurer.value = m;
+  this.imageMeasurer.has_value = true; /* detected as non-optional */
+}
+func (this *EVGLayout) setPageSize (w float64, h float64) () {
+  this.pageWidth = w; 
+  this.pageHeight = h; 
+}
+func (this *EVGLayout) setDebug (d bool) () {
+  this.debug = d; 
+}
+func (this *EVGLayout) log (msg string) () {
+  if  this.debug {
+    fmt.Println( msg )
+  }
+}
+func (this *EVGLayout) layout (root *EVGElement) () {
+  this.log("EVGLayout: Starting layout");
+  this.currentPage = int64(0); 
+  if  root.width.value.(*EVGUnit).isSet == false {
+    root.width.value = EVGUnit_static_px(this.pageWidth);
+    root.width.has_value = true; /* detected as non-optional */
+  }
+  if  root.height.value.(*EVGUnit).isSet == false {
+    root.height.value = EVGUnit_static_px(this.pageHeight);
+    root.height.has_value = true; /* detected as non-optional */
+  }
+  this.layoutElement(root, 0.0, 0.0, this.pageWidth, this.pageHeight);
+  this.log("EVGLayout: Layout complete");
+}
+func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, parentY float64, parentWidth float64, parentHeight float64) () {
+  element.resolveUnits(parentWidth, parentHeight);
+  var width float64= parentWidth;
+  if  element.width.value.(*EVGUnit).isSet {
+    width = element.width.value.(*EVGUnit).pixels; 
+  }
+  var height float64= 0.0;
+  var autoHeight bool= true;
+  if  (element.tagName == "Page") || (element.tagName == "page") {
+    if  element.width.value.(*EVGUnit).isSet == false {
+      width = this.pageWidth; 
+    }
+    if  element.height.value.(*EVGUnit).isSet == false {
+      height = this.pageHeight; 
+      autoHeight = false; 
+    }
+  }
+  if  element.height.value.(*EVGUnit).isSet {
+    height = element.height.value.(*EVGUnit).pixels; 
+    autoHeight = false; 
+  }
+  if  ((element.tagName == "image") || (element.tagName == "Image")) || (element.tagName == "img") {
+    var imgSrc string= element.src;
+    if  (int64(len([]rune(imgSrc)))) > int64(0) {
+      var dims *EVGImageDimensions= this.imageMeasurer.value.(IFACE_EVGImageMeasurer).getImageDimensions(imgSrc);
+      if  dims.isValid {
+        if  element.width.value.(*EVGUnit).isSet && (element.height.value.(*EVGUnit).isSet == false) {
+          height = width / dims.aspectRatio; 
+          autoHeight = false; 
+          this.log((("  Image aspect ratio: " + (strconv.FormatFloat(dims.aspectRatio,'f', 6, 64))) + " -> height=") + (strconv.FormatFloat(height,'f', 6, 64)));
+        }
+        if  (element.width.value.(*EVGUnit).isSet == false) && element.height.value.(*EVGUnit).isSet {
+          width = height * dims.aspectRatio; 
+          this.log((("  Image aspect ratio: " + (strconv.FormatFloat(dims.aspectRatio,'f', 6, 64))) + " -> width=") + (strconv.FormatFloat(width,'f', 6, 64)));
+        }
+        if  (element.width.value.(*EVGUnit).isSet == false) && (element.height.value.(*EVGUnit).isSet == false) {
+          width = float64( dims.width ); 
+          height = float64( dims.height ); 
+          if  width > parentWidth {
+            var scale float64= parentWidth / width;
+            width = parentWidth; 
+            height = height * scale; 
+          }
+          autoHeight = false; 
+          this.log((("  Image natural size: " + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)));
+        }
+      }
+    }
+  }
+  if  element.minWidth.value.(*EVGUnit).isSet {
+    if  width < element.minWidth.value.(*EVGUnit).pixels {
+      width = element.minWidth.value.(*EVGUnit).pixels; 
+    }
+  }
+  if  element.maxWidth.value.(*EVGUnit).isSet {
+    if  width > element.maxWidth.value.(*EVGUnit).pixels {
+      width = element.maxWidth.value.(*EVGUnit).pixels; 
+    }
+  }
+  element.calculatedWidth = width; 
+  element.calculatedInnerWidth = element.box.value.(*EVGBox).getInnerWidth(width); 
+  if  autoHeight == false {
+    element.calculatedHeight = height; 
+    element.calculatedInnerHeight = element.box.value.(*EVGBox).getInnerHeight(height); 
+  }
+  if  element.isAbsolute {
+    this.layoutAbsolute(element, parentWidth, parentHeight);
+  }
+  var childCount int64= element.getChildCount();
+  var contentHeight float64= 0.0;
+  if  childCount > int64(0) {
+    contentHeight = this.layoutChildren(element); 
+  } else {
+    var textContent string= element.textContent;
+    if  (int64(len([]rune(textContent)))) > int64(0) {
+      var fontSize float64= element.inheritedFontSize;
+      if  element.fontSize.value.(*EVGUnit).isSet {
+        fontSize = element.fontSize.value.(*EVGUnit).pixels; 
+      }
+      if  fontSize <= 0.0 {
+        fontSize = 14.0; 
+      }
+      var lineHeightFactor float64= element.lineHeight;
+      if  lineHeightFactor <= 0.0 {
+        lineHeightFactor = 1.2; 
+      }
+      var lineSpacing float64= fontSize * lineHeightFactor;
+      var availableWidth float64= (width - element.box.value.(*EVGBox).paddingLeftPx) - element.box.value.(*EVGBox).paddingRightPx;
+      var lineCount int64= this.estimateLineCount(textContent, availableWidth, fontSize);
+      contentHeight = lineSpacing * (float64( lineCount )); 
+    }
+  }
+  if  autoHeight {
+    height = ((contentHeight + element.box.value.(*EVGBox).paddingTopPx) + element.box.value.(*EVGBox).paddingBottomPx) + (element.box.value.(*EVGBox).borderWidthPx * 2.0); 
+  }
+  if  element.minHeight.value.(*EVGUnit).isSet {
+    if  height < element.minHeight.value.(*EVGUnit).pixels {
+      height = element.minHeight.value.(*EVGUnit).pixels; 
+    }
+  }
+  if  element.maxHeight.value.(*EVGUnit).isSet {
+    if  height > element.maxHeight.value.(*EVGUnit).pixels {
+      height = element.maxHeight.value.(*EVGUnit).pixels; 
+    }
+  }
+  element.calculatedHeight = height; 
+  element.calculatedInnerHeight = element.box.value.(*EVGBox).getInnerHeight(height); 
+  element.calculatedPage = this.currentPage; 
+  element.isLayoutComplete = true; 
+  this.log((((((((((("  Laid out " + element.tagName) + " id=") + element.id) + " at (") + (strconv.FormatFloat(element.calculatedX,'f', 6, 64))) + ",") + (strconv.FormatFloat(element.calculatedY,'f', 6, 64))) + ") size=") + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)));
+}
+func (this *EVGLayout) layoutChildren (parent *EVGElement) float64 {
+  var childCount int64= parent.getChildCount();
+  if  childCount == int64(0) {
+    return 0.0
+  }
+  var innerWidth float64= parent.calculatedInnerWidth;
+  var innerHeight float64= parent.calculatedInnerHeight;
+  var startX float64= (parent.calculatedX + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingLeftPx;
+  var startY float64= (parent.calculatedY + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingTopPx;
+  var currentX float64= startX;
+  var currentY float64= startY;
+  var rowHeight float64= 0.0;
+  var rowElements []*EVGElement = make([]*EVGElement, 0);
+  var totalHeight float64= 0.0;
+  var isColumn bool= parent.flexDirection == "column";
+  if  isColumn == false {
+    var fixedWidth float64= 0.0;
+    var totalFlex float64= 0.0;
+    var j int64= int64(0);
+    for j < childCount {
+      var c *EVGElement= parent.getChild(j);
+      c.resolveUnits(innerWidth, innerHeight);
+      if  c.width.value.(*EVGUnit).isSet {
+        fixedWidth = ((fixedWidth + c.width.value.(*EVGUnit).pixels) + c.box.value.(*EVGBox).marginLeftPx) + c.box.value.(*EVGBox).marginRightPx; 
+      } else {
+        if  c.flex > 0.0 {
+          totalFlex = totalFlex + c.flex; 
+          fixedWidth = (fixedWidth + c.box.value.(*EVGBox).marginLeftPx) + c.box.value.(*EVGBox).marginRightPx; 
+        } else {
+          fixedWidth = ((fixedWidth + innerWidth) + c.box.value.(*EVGBox).marginLeftPx) + c.box.value.(*EVGBox).marginRightPx; 
+        }
+      }
+      j = j + int64(1); 
+    }
+    var availableForFlex float64= innerWidth - fixedWidth;
+    if  availableForFlex < 0.0 {
+      availableForFlex = 0.0; 
+    }
+    if  totalFlex > 0.0 {
+      j = int64(0); 
+      for j < childCount {
+        var c_1 *EVGElement= parent.getChild(j);
+        if  (c_1.width.value.(*EVGUnit).isSet == false) && (c_1.flex > 0.0) {
+          var flexWidth float64= (availableForFlex * c_1.flex) / totalFlex;
+          c_1.calculatedFlexWidth = flexWidth; 
+        }
+        j = j + int64(1); 
+      }
+    }
+  }
+  var i int64= int64(0);
+  for i < childCount {
+    var child *EVGElement= parent.getChild(i);
+    child.inheritProperties(parent);
+    child.resolveUnits(innerWidth, innerHeight);
+    if  child.isAbsolute {
+      if  (child.tagName == "layer") || (child.tagName == "Layer") {
+        child.unitsResolved = false; 
+        child.resolveUnits(parent.calculatedWidth, parent.calculatedHeight);
+        child.calculatedWidth = parent.calculatedWidth; 
+        child.calculatedHeight = parent.calculatedHeight; 
+        child.calculatedInnerWidth = child.box.value.(*EVGBox).getInnerWidth(child.calculatedWidth); 
+        child.calculatedInnerHeight = child.box.value.(*EVGBox).getInnerHeight(child.calculatedHeight); 
+        child.height.value.(*EVGUnit).isSet = true; 
+        child.height.value.(*EVGUnit).pixels = child.calculatedHeight; 
+        this.layoutAbsolute(child, parent.calculatedWidth, parent.calculatedHeight);
+        child.calculatedX = child.calculatedX + parent.calculatedX; 
+        child.calculatedY = child.calculatedY + parent.calculatedY; 
+      } else {
+        this.layoutAbsolute(child, innerWidth, innerHeight);
+        child.calculatedX = child.calculatedX + startX; 
+        child.calculatedY = child.calculatedY + startY; 
+      }
+      if  child.getChildCount() > int64(0) {
+        this.layoutChildren(child);
+      }
+      i = i + int64(1); 
+      continue;
+    }
+    var availableForChild float64= (innerWidth - child.box.value.(*EVGBox).marginLeftPx) - child.box.value.(*EVGBox).marginRightPx;
+    var childWidth float64= availableForChild;
+    if  child.width.value.(*EVGUnit).isSet {
+      if  child.width.value.(*EVGUnit).pixels >= innerWidth {
+        childWidth = availableForChild; 
+      } else {
+        childWidth = child.width.value.(*EVGUnit).pixels; 
+      }
+    } else {
+      if  child.calculatedFlexWidth > 0.0 {
+        childWidth = child.calculatedFlexWidth; 
+      }
+    }
+    var childTotalWidth float64= (childWidth + child.box.value.(*EVGBox).marginLeftPx) + child.box.value.(*EVGBox).marginRightPx;
+    if  isColumn == false {
+      var availableWidth float64= (startX + innerWidth) - currentX;
+      if  (childTotalWidth > availableWidth) && ((int64(len(rowElements))) > int64(0)) {
+        this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
+        currentY = currentY + rowHeight; 
+        totalHeight = totalHeight + rowHeight; 
+        currentX = startX; 
+        rowHeight = 0.0; 
+        rowElements = rowElements[:0]
+      }
+    }
+    child.calculatedX = currentX + child.box.value.(*EVGBox).marginLeftPx; 
+    child.calculatedY = currentY + child.box.value.(*EVGBox).marginTopPx; 
+    this.layoutElement(child, child.calculatedX, child.calculatedY, childWidth, innerHeight);
+    var childHeight float64= child.calculatedHeight;
+    var childTotalHeight float64= (childHeight + child.box.value.(*EVGBox).marginTopPx) + child.box.value.(*EVGBox).marginBottomPx;
+    if  isColumn {
+      currentY = currentY + childTotalHeight; 
+      totalHeight = totalHeight + childTotalHeight; 
+    } else {
+      currentX = currentX + childTotalWidth; 
+      rowElements = append(rowElements,child); 
+      if  childTotalHeight > rowHeight {
+        rowHeight = childTotalHeight; 
+      }
+    }
+    if  child.lineBreak {
+      if  isColumn == false {
+        this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
+        currentY = currentY + rowHeight; 
+        totalHeight = totalHeight + rowHeight; 
+        currentX = startX; 
+        rowHeight = 0.0; 
+        rowElements = rowElements[:0]
+      }
+    }
+    i = i + int64(1); 
+  }
+  if  (isColumn == false) && ((int64(len(rowElements))) > int64(0)) {
+    this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
+    totalHeight = totalHeight + rowHeight; 
+  }
+  if  isColumn {
+    this.alignColumn(parent, totalHeight, startX, startY, innerWidth, innerHeight);
+  }
+  return totalHeight
+}
+func (this *EVGLayout) alignColumn (parent *EVGElement, contentHeight float64, startX float64, startY float64, innerWidth float64, innerHeight float64) () {
+  var childCount int64= parent.getChildCount();
+  if  childCount == int64(0) {
+    return
+  }
+  var verticalAlign string= parent.justifyContent;
+  var horizontalAlign string= parent.alignItems;
+  var availableHeight float64= innerHeight;
+  if  parent.height.value.(*EVGUnit).isSet {
+    availableHeight = parent.calculatedInnerHeight; 
+  }
+  var offsetY float64= 0.0;
+  if  verticalAlign == "center" {
+    offsetY = (availableHeight - contentHeight) / 2.0; 
+  }
+  if  (verticalAlign == "flex-end") || (verticalAlign == "end") {
+    offsetY = availableHeight - contentHeight; 
+  }
+  if  verticalAlign == "space-between" {
+    offsetY = 0.0; 
+  }
+  var i int64= int64(0);
+  for i < childCount {
+    var child *EVGElement= parent.getChild(i);
+    if  child.isAbsolute == false {
+      if  offsetY != 0.0 {
+        child.calculatedY = child.calculatedY + offsetY; 
+        this.propagateOffsetToChildren(child, 0.0, offsetY);
+      }
+      var childTotalWidth float64= (child.calculatedWidth + child.box.value.(*EVGBox).marginLeftPx) + child.box.value.(*EVGBox).marginRightPx;
+      var offsetX float64= 0.0;
+      if  horizontalAlign == "center" {
+        offsetX = (innerWidth - childTotalWidth) / 2.0; 
+      }
+      if  (horizontalAlign == "flex-end") || (horizontalAlign == "end") {
+        offsetX = innerWidth - childTotalWidth; 
+      }
+      if  offsetX != 0.0 {
+        child.calculatedX = child.calculatedX + offsetX; 
+        this.propagateOffsetToChildren(child, offsetX, 0.0);
+      }
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *EVGLayout) alignRow (rowElements []*EVGElement, parent *EVGElement, rowHeight float64, startX float64, innerWidth float64) () {
+  var elementCount int64= int64(len(rowElements));
+  if  elementCount == int64(0) {
+    return
+  }
+  var rowWidth float64= 0.0;
+  var i int64= int64(0);
+  for i < elementCount {
+    var el *EVGElement= rowElements[i];
+    rowWidth = ((rowWidth + el.calculatedWidth) + el.box.value.(*EVGBox).marginLeftPx) + el.box.value.(*EVGBox).marginRightPx; 
+    i = i + int64(1); 
+  }
+  var isColumn bool= parent.flexDirection == "column";
+  var mainAxisAlign string= parent.justifyContent;
+  var crossAxisAlign string= parent.alignItems;
+  var horizontalAlign string= mainAxisAlign;
+  if  isColumn {
+    horizontalAlign = crossAxisAlign; 
+  }
+  if  (int64(len([]rune(parent.align)))) > int64(0) {
+    horizontalAlign = parent.align; 
+  }
+  var offsetX float64= 0.0;
+  if  horizontalAlign == "center" {
+    offsetX = (innerWidth - rowWidth) / 2.0; 
+  }
+  if  (horizontalAlign == "flex-end") || (horizontalAlign == "right") {
+    offsetX = innerWidth - rowWidth; 
+  }
+  var verticalAlignVal string= crossAxisAlign;
+  if  isColumn {
+    verticalAlignVal = mainAxisAlign; 
+  }
+  if  (int64(len([]rune(parent.verticalAlign)))) > int64(0) {
+    if  parent.verticalAlign != "top" {
+      verticalAlignVal = parent.verticalAlign; 
+    }
+  }
+  var effectiveRowHeight float64= rowHeight;
+  if  parent.height.value.(*EVGUnit).isSet {
+    var parentInnerHeight float64= parent.calculatedInnerHeight;
+    if  parentInnerHeight > rowHeight {
+      effectiveRowHeight = parentInnerHeight; 
+    }
+  }
+  i = int64(0); 
+  for i < elementCount {
+    var el_1 *EVGElement= rowElements[i];
+    if  offsetX != 0.0 {
+      el_1.calculatedX = el_1.calculatedX + offsetX; 
+      this.propagateOffsetToChildren(el_1, offsetX, 0.0);
+    }
+    var childTotalHeight float64= (el_1.calculatedHeight + el_1.box.value.(*EVGBox).marginTopPx) + el_1.box.value.(*EVGBox).marginBottomPx;
+    var offsetY float64= 0.0;
+    if  verticalAlignVal == "center" {
+      offsetY = (effectiveRowHeight - childTotalHeight) / 2.0; 
+    }
+    if  (verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom") {
+      offsetY = effectiveRowHeight - childTotalHeight; 
+    }
+    if  offsetY != 0.0 {
+      el_1.calculatedY = el_1.calculatedY + offsetY; 
+      this.propagateOffsetToChildren(el_1, 0.0, offsetY);
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *EVGLayout) propagateOffsetToChildren (parent *EVGElement, offsetX float64, offsetY float64) () {
+  var childCount int64= parent.getChildCount();
+  var i int64= int64(0);
+  for i < childCount {
+    var child *EVGElement= parent.getChild(i);
+    if  offsetX != 0.0 {
+      child.calculatedX = child.calculatedX + offsetX; 
+    }
+    if  offsetY != 0.0 {
+      child.calculatedY = child.calculatedY + offsetY; 
+    }
+    this.propagateOffsetToChildren(child, offsetX, offsetY);
+    i = i + int64(1); 
+  }
+}
+func (this *EVGLayout) layoutAbsolute (element *EVGElement, parentWidth float64, parentHeight float64) () {
+  if  element.left.value.(*EVGUnit).isSet {
+    element.calculatedX = element.left.value.(*EVGUnit).pixels + element.box.value.(*EVGBox).marginLeftPx; 
+  } else {
+    if  element.x.value.(*EVGUnit).isSet {
+      element.calculatedX = element.x.value.(*EVGUnit).pixels + element.box.value.(*EVGBox).marginLeftPx; 
+    } else {
+      if  element.right.value.(*EVGUnit).isSet {
+        var width float64= element.calculatedWidth;
+        if  width == 0.0 {
+          if  element.width.value.(*EVGUnit).isSet {
+            width = element.width.value.(*EVGUnit).pixels; 
+          }
+        }
+        element.calculatedX = ((parentWidth - element.right.value.(*EVGUnit).pixels) - width) - element.box.value.(*EVGBox).marginRightPx; 
+      }
+    }
+  }
+  if  element.top.value.(*EVGUnit).isSet {
+    element.calculatedY = element.top.value.(*EVGUnit).pixels + element.box.value.(*EVGBox).marginTopPx; 
+  } else {
+    if  element.y.value.(*EVGUnit).isSet {
+      element.calculatedY = element.y.value.(*EVGUnit).pixels + element.box.value.(*EVGBox).marginTopPx; 
+    } else {
+      if  element.bottom.value.(*EVGUnit).isSet {
+        var height float64= element.calculatedHeight;
+        if  height == 0.0 {
+          if  element.height.value.(*EVGUnit).isSet {
+            height = element.height.value.(*EVGUnit).pixels; 
+          }
+        }
+        element.calculatedY = ((parentHeight - element.bottom.value.(*EVGUnit).pixels) - height) - element.box.value.(*EVGBox).marginBottomPx; 
+      }
+    }
+  }
+}
+func (this *EVGLayout) printLayout (element *EVGElement, indent int64) () {
+  var indentStr string= "";
+  var i int64= int64(0);
+  for i < indent {
+    indentStr = indentStr + "  "; 
+    i = i + int64(1); 
+  }
+  fmt.Println( ((((((((((indentStr + element.tagName) + " id=\"") + element.id) + "\" (") + (strconv.FormatFloat(element.calculatedX,'f', 6, 64))) + ", ") + (strconv.FormatFloat(element.calculatedY,'f', 6, 64))) + ") ") + (strconv.FormatFloat(element.calculatedWidth,'f', 6, 64))) + "x") + (strconv.FormatFloat(element.calculatedHeight,'f', 6, 64)) )
+  var childCount int64= element.getChildCount();
+  i = int64(0); 
+  for i < childCount {
+    var child *EVGElement= element.getChild(i);
+    this.printLayout(child, indent + int64(1));
+    i = i + int64(1); 
+  }
+}
+func (this *EVGLayout) estimateLineCount (text string, maxWidth float64, fontSize float64) int64 {
+  if  (int64(len([]rune(text)))) == int64(0) {
+    return int64(1)
+  }
+  if  maxWidth <= 0.0 {
+    return int64(1)
+  }
+  var words []string= strings.Split(text, " ");
+  var lineCount int64= int64(1);
+  var currentLineWidth float64= 0.0;
+  var spaceWidth float64= fontSize * 0.3;
+  var i int64= int64(0);
+  for i < (int64(len(words))) {
+    var word string= words[i];
+    var wordWidth float64= this.measurer.value.(IFACE_EVGTextMeasurer).measureTextWidth(word, "Helvetica", fontSize);
+    if  currentLineWidth == 0.0 {
+      currentLineWidth = wordWidth; 
+    } else {
+      var testWidth float64= (currentLineWidth + spaceWidth) + wordWidth;
+      if  testWidth > maxWidth {
+        lineCount = lineCount + int64(1); 
+        currentLineWidth = wordWidth; 
+      } else {
+        currentLineWidth = testWidth; 
+      }
+    }
+    i = i + int64(1); 
+  }
+  return lineCount
+}
 type ImageInfo struct { 
   path string `json:"path"` 
   width int64 `json:"width"` 
   height int64 `json:"height"` 
   loaded bool `json:"loaded"` 
   error string `json:"error"` 
+  orientation int64 /**  unused  **/  `json:"orientation"` 
+  colorSpace string /**  unused  **/  `json:"colorSpace"` 
+  bitsPerComponent int64 /**  unused  **/  `json:"bitsPerComponent"` 
+  createdAt string /**  unused  **/  `json:"createdAt"` 
+  camera string /**  unused  **/  `json:"camera"` 
+  hasGPS bool /**  unused  **/  `json:"hasGPS"` 
+  gpsLatitude float64 /**  unused  **/  `json:"gpsLatitude"` 
+  gpsLongitude float64 /**  unused  **/  `json:"gpsLongitude"` 
 }
 
 func CreateNew_ImageInfo() *ImageInfo {
@@ -10461,6 +10633,14 @@ func CreateNew_ImageInfo() *ImageInfo {
   me.height = int64(0)
   me.loaded = false
   me.error = ""
+  me.orientation = int64(1)
+  me.colorSpace = "RGB"
+  me.bitsPerComponent = int64(8)
+  me.createdAt = ""
+  me.camera = ""
+  me.hasGPS = false
+  me.gpsLatitude = 0.0
+  me.gpsLongitude = 0.0
   return me;
 }
 type EVGResourceLoader struct { 

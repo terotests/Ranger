@@ -6,13 +6,25 @@
 Import "../jpeg/JPEGMetadata.rgr"
 Import "../../../evg/EVGElement.rgr"
 
-; Simple class to cache image info
+; Extended class to cache image info including EXIF data
 class ImageInfo {
     def path:string ""
     def width:int 0
     def height:int 0
     def loaded:boolean false
     def error:string ""
+    
+    ; EXIF metadata
+    def orientation:int 1
+    def colorSpace:string "RGB"
+    def bitsPerComponent:int 8
+    def createdAt:string ""
+    def camera:string ""
+    
+    ; GPS data (parsed as decimal degrees)
+    def hasGPS:boolean false
+    def gpsLatitude:double 0.0
+    def gpsLongitude:double 0.0
 }
 
 ; Resource loader for EVG documents - loads image metadata

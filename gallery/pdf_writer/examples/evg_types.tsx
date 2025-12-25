@@ -487,4 +487,94 @@ export const Label = (props: EVGTextProps): any => null;
 export const Image = (props: EVGImageProps): any => null;
 export const Path = (props: EVGPathProps): any => null;
 
+// =============================================================================
+// Hooks - React-like hooks for accessing document context
+// =============================================================================
+
+/**
+ * Print settings returned by usePrintSettings() hook.
+ * Contains page dimensions, format, and margin information.
+ */
+export interface PrintSettings {
+  /** Page format (e.g., "a4", "letter", "large-square") */
+  format: string;
+  /** Page width in pixels */
+  width: number;
+  /** Page height in pixels */
+  height: number;
+  /** Page orientation: "portrait" or "landscape" */
+  orientation: "portrait" | "landscape";
+  /** Total number of pages in the document */
+  pageCount: number;
+  /** Page margins */
+  margins: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  };
+}
+
+/**
+ * Image metadata returned by useImage() hook.
+ * Contains dimensions and EXIF data from JPEG images.
+ */
+export interface ImageMetadata {
+  /** Image width in pixels */
+  width: number;
+  /** Image height in pixels */
+  height: number;
+  /** Image creation date from EXIF (null if not available) */
+  createdAt: string | null;
+  /** Camera make and model from EXIF (null if not available) */
+  camera: string | null;
+  /** EXIF orientation value (1-8, 1 = normal) */
+  orientation: number;
+  /** GPS coordinates from EXIF (null if not available) */
+  gps: { latitude: string; longitude: string; altitude?: string } | null;
+  /** Color space (e.g., "RGB", "CMYK") */
+  colorSpace: string;
+  /** Bits per color component */
+  bitsPerComponent: number;
+}
+
+/**
+ * Hook to get current print/page settings.
+ * Returns format, dimensions, orientation, and margins from the <Print> element.
+ * 
+ * @example
+ * ```tsx
+ * function render() {
+ *   const settings = usePrintSettings();
+ *   const isLandscape = settings.orientation === "landscape";
+ *   const columnsCount = isLandscape ? 3 : 2;
+ *   // ... use settings.width, settings.height, etc.
+ * }
+ * ```
+ */
+export declare function usePrintSettings(): PrintSettings;
+
+/**
+ * Hook to get metadata for an image file.
+ * Returns dimensions and EXIF data (creation date, camera, GPS, etc.)
+ * 
+ * @param src - Path to the image file
+ * @returns Image metadata including dimensions and EXIF data
+ * 
+ * @example
+ * ```tsx
+ * function PhotoInfo({ src }: { src: string }) {
+ *   const img = useImage(src);
+ *   return (
+ *     <View>
+ *       <Label>{img.width} × {img.height}</Label>
+ *       {img.createdAt && <Label>📅 {img.createdAt}</Label>}
+ *       {img.camera && <Label>📷 {img.camera}</Label>}
+ *     </View>
+ *   );
+ * }
+ * ```
+ */
+export declare function useImage(src: string): ImageMetadata;
+
 export default {};
