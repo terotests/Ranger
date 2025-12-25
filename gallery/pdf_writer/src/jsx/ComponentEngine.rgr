@@ -443,6 +443,10 @@ class ComponentEngine {
                     sym.symbolType = "component"
                     sym.functionNode = node
                     push localComponents sym
+                    
+                    ; Also register in context as callable function
+                    context.define(node.name (EvalValue.function(node)))
+                    
                     print ("Registered local component: " + node.name)
                 }
             }
@@ -537,6 +541,29 @@ class ComponentEngine {
         return result
     }
     
+    ; Evaluate a function call and return the result as EvalValue
+    ; This supports functions that return arrays, not just JSX elements
+    fn evaluateFunctionCall:EvalValue (fnNode:TSNode props:EvalValue) {
+        ; Create new context for function scope
+        def savedContext:EvalContext context
+        context = (context.createChild())
+        
+        ; Process function parameters and bind props (if any)
+        ; valueType 0 = null, so check if props is provided
+        if (props.valueType != 0) {
+            this.bindFunctionParams(fnNode props)
+        }
+        
+        ; Process function body - evaluating statements and looking for return
+        def body:TSNode (this.getFunctionBody(fnNode))
+        def result:EvalValue (this.evaluateFunctionBodyValue(body))
+        
+        ; Restore context
+        context = savedContext
+        
+        return result
+    }
+    
     fn bindFunctionParams:void (fnNode:TSNode props:EvalValue) {
         ; Check function params
         def i:int 0
@@ -607,6 +634,38 @@ class ComponentEngine {
                 this.processVariableDeclaration(stmt)
             }
             
+            ; Process if statement
+            if (stmt.nodeType == "IfStatement") {
+                def ifResult:EVGElement (this.evaluateIfStatement(stmt))
+                if ifResult.hasReturn {
+                    return ifResult
+                }
+            }
+            
+            ; Process for loop
+            if (stmt.nodeType == "ForStatement") {
+                def forResult:EVGElement (this.evaluateForStatement(stmt))
+                if forResult.hasReturn {
+                    return forResult
+                }
+            }
+            
+            ; Process for...of loop
+            if (stmt.nodeType == "ForOfStatement") {
+                def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
+                if forOfResult.hasReturn {
+                    return forOfResult
+                }
+            }
+            
+            ; Process expression statement (e.g., arr.push(x))
+            if (stmt.nodeType == "ExpressionStatement") {
+                if stmt.left {
+                    def exprNode:TSNode (unwrap stmt.left)
+                    this.evaluateExprForSideEffect(exprNode)
+                }
+            }
+            
             ; Process return statement
             if (stmt.nodeType == "ReturnStatement") {
                 if stmt.left {
@@ -626,6 +685,418 @@ class ComponentEngine {
         return empty
     }
     
+    ; Evaluate function body and return result as EvalValue (not EVGElement)
+    ; This allows functions to return arrays, primitives, etc.
+    fn evaluateFunctionBodyValue:EvalValue (body:TSNode) {
+        ; Process statements
+        def i:int 0
+        print "evaluateFunctionBodyValue: body has " + (to_string (array_length body.children)) + " children"
+        while (i < (array_length body.children)) {
+            def stmt:TSNode (itemAt body.children i)
+            print "  Statement " + (to_string i) + ": " + stmt.nodeType
+            
+            ; Process variable declarations
+            if (stmt.nodeType == "VariableDeclaration") {
+                this.processVariableDeclaration(stmt)
+            }
+            
+            ; Process if statement
+            if (stmt.nodeType == "IfStatement") {
+                def ifResult:EVGElement (this.evaluateIfStatement(stmt))
+                if ifResult.hasReturn {
+                    ; If returned from if statement, need to get the value
+                    ; For now, just continue - we'll handle this properly later
+                }
+            }
+            
+            ; Process for loop
+            if (stmt.nodeType == "ForStatement") {
+                def forResult:EVGElement (this.evaluateForStatement(stmt))
+                ; Check if loop returned early (though we continue processing)
+                if forResult.hasReturn {
+                    ; For now, continue - loops with early returns need special handling
+                }
+            }
+            
+            ; Process for...of loop
+            if (stmt.nodeType == "ForOfStatement") {
+                def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
+                ; Check if loop returned early
+                if forOfResult.hasReturn {
+                    ; For now, continue
+                }
+            }
+            
+            ; Process expression statement (e.g., arr.push(x))
+            if (stmt.nodeType == "ExpressionStatement") {
+                if stmt.left {
+                    def exprNode:TSNode (unwrap stmt.left)
+                    this.evaluateExprForSideEffect(exprNode)
+                }
+            }
+            
+            ; Process return statement - evaluate as EvalValue
+            if (stmt.nodeType == "ReturnStatement") {
+                if stmt.left {
+                    def returnExpr:TSNode (unwrap stmt.left)
+                    return (this.evaluateExpr(returnExpr))
+                }
+                return (EvalValue.null())
+            }
+            
+            i = i + 1
+        }
+        
+        ; Arrow function with expression body
+        if ((body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment")) {
+            def el:EVGElement (this.evaluateJSX(body))
+            return (EvalValue.element(el))
+        }
+        
+        ; If body is a simple expression
+        if ((body.nodeType != "BlockStatement") && (body.nodeType != "")) {
+            return (this.evaluateExpr(body))
+        }
+        
+        return (EvalValue.null())
+    }
+    
+    ; ==========================================================================
+    ; If Statement Evaluation
+    ; ==========================================================================
+    
+    ; Evaluates an if statement
+    ; Returns EVGElement with hasReturn flag set if a return was executed
+    fn evaluateIfStatement:EVGElement (node:TSNode) {
+        def result (new EVGElement())
+        result.hasReturn = false
+        
+        ; Evaluate the condition (node.left)
+        if node.left {
+            def condNode:TSNode (unwrap node.left)
+            def condition:EvalValue (this.evaluateExpr(condNode))
+            
+            if (condition.toBool()) {
+                ; Execute then-block (node.body)
+                if node.body {
+                    def thenBlock:TSNode (unwrap node.body)
+                    def blockResult:EVGElement (this.evaluateStatementBlock(thenBlock))
+                    if blockResult.hasReturn {
+                        return blockResult
+                    }
+                }
+            } {
+                ; Execute else-block if present (node.right)
+                if node.right {
+                    def elseBlock:TSNode (unwrap node.right)
+                    ; Could be another IfStatement (else if) or BlockStatement (else)
+                    if (elseBlock.nodeType == "IfStatement") {
+                        return (this.evaluateIfStatement(elseBlock))
+                    }
+                    def blockResult:EVGElement (this.evaluateStatementBlock(elseBlock))
+                    if blockResult.hasReturn {
+                        return blockResult
+                    }
+                }
+            }
+        }
+        ; No return was hit
+        return result
+    }
+    
+    ; Evaluates a block of statements (BlockStatement)
+    ; Returns EVGElement with hasReturn flag set if a return was executed
+    fn evaluateStatementBlock:EVGElement (block:TSNode) {
+        def result (new EVGElement())
+        result.hasReturn = false
+        
+        ; Handle single statement (not wrapped in BlockStatement)
+        if (block.nodeType == "ReturnStatement") {
+            if block.left {
+                def returnExpr:TSNode (unwrap block.left)
+                def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
+                returnedEl.hasReturn = true
+                return returnedEl
+            }
+        }
+        
+        ; Handle BlockStatement with children
+        if (block.nodeType == "BlockStatement") {
+            def i:int 0
+            while (i < (array_length block.children)) {
+                def stmt:TSNode (itemAt block.children i)
+                
+                if (stmt.nodeType == "VariableDeclaration") {
+                    this.processVariableDeclaration(stmt)
+                }
+                
+                if (stmt.nodeType == "IfStatement") {
+                    def ifResult:EVGElement (this.evaluateIfStatement(stmt))
+                    if ifResult.hasReturn {
+                        return ifResult
+                    }
+                }
+                
+                if (stmt.nodeType == "ForStatement") {
+                    def forResult:EVGElement (this.evaluateForStatement(stmt))
+                    if forResult.hasReturn {
+                        return forResult
+                    }
+                }
+                
+                if (stmt.nodeType == "ForOfStatement") {
+                    def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
+                    if forOfResult.hasReturn {
+                        return forOfResult
+                    }
+                }
+                
+                if (stmt.nodeType == "ExpressionStatement") {
+                    if stmt.left {
+                        def exprNode:TSNode (unwrap stmt.left)
+                        this.evaluateExprForSideEffect(exprNode)
+                    }
+                }
+                
+                if (stmt.nodeType == "ReturnStatement") {
+                    if stmt.left {
+                        def returnExpr:TSNode (unwrap stmt.left)
+                        def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
+                        returnedEl.hasReturn = true
+                        return returnedEl
+                    }
+                }
+                
+                i = i + 1
+            }
+        }
+        
+        return result
+    }
+    
+    ; Evaluates an expression for its side effects (e.g., arr.push(x), i++)
+    fn evaluateExprForSideEffect:void (node:TSNode) {
+        ; Handle CallExpression (method calls like arr.push(x))
+        if (node.nodeType == "CallExpression") {
+            this.evaluateCallExprForSideEffect(node)
+        }
+        
+        ; Handle UpdateExpression (i++, ++i)
+        if (node.nodeType == "UpdateExpression") {
+            this.evaluateUpdateExpr(node)
+        }
+        
+        ; Handle AssignmentExpression (x = 1, x += 1)
+        if (node.nodeType == "AssignmentExpression") {
+            this.evaluateUpdateExpr(node)
+        }
+    }
+    
+    ; Evaluates a call expression for side effects (e.g., arr.push(x))
+    fn evaluateCallExprForSideEffect:void (node:TSNode) {
+        ; Check if it's a method call: arr.push(x)
+        if node.left {
+            def calleeNode:TSNode (unwrap node.left)
+            if (calleeNode.nodeType == "MemberExpression") {
+                def methodName:string calleeNode.name
+                
+                ; Get the object being called on
+                if calleeNode.left {
+                    def objNode:TSNode (unwrap calleeNode.left)
+                    if (objNode.nodeType == "Identifier") {
+                        def objName:string objNode.name
+                        def objValue:EvalValue (context.lookup(objName))
+                        
+                        ; Array.push()
+                        if ((methodName == "push") && (objValue.isArray())) {
+                            ; Get arguments from node.children
+                            if ((array_length node.children) > 0) {
+                                def argNode:TSNode (itemAt node.children 0)
+                                def argValue:EvalValue (this.evaluateExpr(argNode))
+                                ; Mutate the array by adding the item
+                                push objValue.arrayValue argValue
+                                ; Update the context (in case of reassignment)
+                                context.define(objName objValue)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    ; ==========================================================================
+    ; For Loop Evaluation
+    ; ==========================================================================
+    
+    ; Evaluates a for statement: for (init; test; update) body
+    ; Returns EVGElement with hasReturn flag set if a return was executed
+    fn evaluateForStatement:EVGElement (node:TSNode) {
+        def result (new EVGElement())
+        result.hasReturn = false
+        
+        print "evaluateForStatement called"
+        
+        ; Process init (usually VariableDeclaration)
+        if node.init {
+            def initNode:TSNode (unwrap node.init)
+            print "For init nodeType: " + initNode.nodeType
+            if (initNode.nodeType == "VariableDeclaration") {
+                this.processVariableDeclaration(initNode)
+            }
+        }
+        
+        ; Loop with test (node.left) and update (node.right)
+        def maxIterations:int 10000  ; Safety limit
+        def iterations:int 0
+        
+        while (iterations < maxIterations) {
+            ; Evaluate test condition (node.left)
+            if node.left {
+                def testNode:TSNode (unwrap node.left)
+                def testResult:EvalValue (this.evaluateExpr(testNode))
+                if ((testResult.toBool()) == false) {
+                    ; Condition is false, exit loop
+                    return result
+                }
+            }
+            
+            ; Execute body
+            if node.body {
+                def bodyNode:TSNode (unwrap node.body)
+                def bodyResult:EVGElement (this.evaluateStatementBlock(bodyNode))
+                if bodyResult.hasReturn {
+                    return bodyResult
+                }
+            }
+            
+            ; Execute update (node.right)
+            if node.right {
+                def updateNode:TSNode (unwrap node.right)
+                this.evaluateUpdateExpr(updateNode)
+            }
+            
+            iterations = iterations + 1
+        }
+        
+        return result
+    }
+    
+    ; Evaluates a for...of statement: for (const x of array) body
+    ; Returns EVGElement with hasReturn flag set if a return was executed
+    fn evaluateForOfStatement:EVGElement (node:TSNode) {
+        def result (new EVGElement())
+        result.hasReturn = false
+        
+        ; Get variable name from node.left (VariableDeclaration)
+        def varName:string ""
+        if node.left {
+            def leftNode:TSNode (unwrap node.left)
+            if (leftNode.nodeType == "VariableDeclaration") {
+                if ((array_length leftNode.children) > 0) {
+                    def decl:TSNode (itemAt leftNode.children 0)
+                    varName = decl.name
+                }
+            }
+        }
+        
+        ; Get the array to iterate (node.right)
+        if node.right {
+            def rightNode:TSNode (unwrap node.right)
+            def arrayValue:EvalValue (this.evaluateExpr(rightNode))
+            
+            if (arrayValue.isArray()) {
+                def i:int 0
+                while (i < (array_length arrayValue.arrayValue)) {
+                    def item:EvalValue (itemAt arrayValue.arrayValue i)
+                    
+                    ; Bind loop variable
+                    context.define(varName item)
+                    
+                    ; Execute body
+                    if node.body {
+                        def bodyNode:TSNode (unwrap node.body)
+                        def bodyResult:EVGElement (this.evaluateStatementBlock(bodyNode))
+                        if bodyResult.hasReturn {
+                            return bodyResult
+                        }
+                    }
+                    
+                    i = i + 1
+                }
+            }
+        }
+        
+        return result
+    }
+    
+    ; Evaluates update expressions like i++, i += 1, etc.
+    fn evaluateUpdateExpr:void (node:TSNode) {
+        if (node.nodeType == "UpdateExpression") {
+            ; i++ or ++i
+            if node.left {
+                def argNode:TSNode (unwrap node.left)
+                if (argNode.nodeType == "Identifier") {
+                    def varName:string argNode.name
+                    def current:EvalValue (context.lookup(varName))
+                    def currentNum:double (current.toNumber())
+                    
+                    if (node.value == "++") {
+                        context.define(varName (EvalValue.number((currentNum + 1.0))))
+                    }
+                    if (node.value == "--") {
+                        context.define(varName (EvalValue.number((currentNum - 1.0))))
+                    }
+                }
+            }
+        }
+        
+        if (node.nodeType == "AssignmentExpression") {
+            ; i += 1, i = i + 1, etc.
+            if node.left {
+                def leftNode:TSNode (unwrap node.left)
+                if (leftNode.nodeType == "Identifier") {
+                    def varName:string leftNode.name
+                    def op:string node.value
+                    
+                    if node.right {
+                        def rightNode:TSNode (unwrap node.right)
+                        def rightValue:EvalValue (this.evaluateExpr(rightNode))
+                        
+                        if (op == "=") {
+                            context.define(varName rightValue)
+                        }
+                        if (op == "+=") {
+                            def current:EvalValue (context.lookup(varName))
+                            def isLeftStr:boolean (current.isString())
+                            def isRightStr:boolean (rightValue.isString())
+                            if (isLeftStr || isRightStr) {
+                                context.define(varName (EvalValue.string((current.toString()) + (rightValue.toString()))))
+                            } {
+                                context.define(varName (EvalValue.number((current.toNumber()) + (rightValue.toNumber()))))
+                            }
+                        }
+                        if (op == "-=") {
+                            def current:EvalValue (context.lookup(varName))
+                            context.define(varName (EvalValue.number((current.toNumber()) - (rightValue.toNumber()))))
+                        }
+                        if (op == "*=") {
+                            def current:EvalValue (context.lookup(varName))
+                            context.define(varName (EvalValue.number((current.toNumber()) * (rightValue.toNumber()))))
+                        }
+                        if (op == "/=") {
+                            def current:EvalValue (context.lookup(varName))
+                            def rightNum:double (rightValue.toNumber())
+                            if (rightNum != 0.0) {
+                                context.define(varName (EvalValue.number((current.toNumber()) / rightNum)))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     ; ==========================================================================
     ; JSX Evaluation
     ; ==========================================================================
@@ -1022,9 +1493,62 @@ class ComponentEngine {
         if exprContainer.left {
             def exprNode:TSNode (unwrap exprContainer.left)
             
-            ; Handle array.map()
+            ; Handle CallExpression - both array.map() and regular function calls
             if (exprNode.nodeType == "CallExpression") {
-                this.evaluateArrayMapChild(element exprNode)
+                ; Check if it's a method call like array.map()
+                if exprNode.left {
+                    def calleeNode:TSNode (unwrap exprNode.left)
+                    if (calleeNode.nodeType == "MemberExpression") {
+                        ; Method call - check for .map()
+                        def methodName:string calleeNode.name
+                        if (methodName == "map") {
+                            this.evaluateArrayMapChild(element exprNode)
+                            return
+                        }
+                    }
+                }
+                ; Regular function call like buildColorBoxes()
+                ; Evaluate using evaluateExpr which handles CallExpression
+                def callResult:EvalValue (this.evaluateExpr(exprNode))
+                
+                ; Handle array result (array of elements from function)
+                if (callResult.isArray()) {
+                    def ai:int 0
+                    while (ai < (array_length callResult.arrayValue)) {
+                        def arrItem:EvalValue (itemAt callResult.arrayValue ai)
+                        if (arrItem.isElement()) {
+                            if arrItem.evgElement {
+                                def arrChildEl:EVGElement (unwrap arrItem.evgElement)
+                                if ((strlen arrChildEl.tagName) > 0) {
+                                    element.addChild(arrChildEl)
+                                }
+                            }
+                        }
+                        ai = ai + 1
+                    }
+                    return
+                }
+                
+                ; Handle single element result
+                if (callResult.isElement()) {
+                    if callResult.evgElement {
+                        def childEl:EVGElement (unwrap callResult.evgElement)
+                        if ((strlen childEl.tagName) > 0) {
+                            element.addChild(childEl)
+                        }
+                    }
+                    return
+                }
+                
+                ; Handle string/number result as text
+                def isStr:boolean (callResult.isString())
+                def isNum:boolean (callResult.isNumber())
+                if (isStr || isNum) {
+                    def textEl (new EVGElement())
+                    textEl.tagName = "text"
+                    textEl.textContent = (callResult.toString())
+                    element.addChild(textEl)
+                }
                 return
             }
             
@@ -1317,6 +1841,57 @@ class ComponentEngine {
             return (EvalValue.element(el))
         }
         
+        ; Call Expression (function calls)
+        if (node.nodeType == "CallExpression") {
+            return (this.evaluateCallExpr(node))
+        }
+        
+        return (EvalValue.null())
+    }
+    
+    ; Evaluate a call expression (function call)
+    ; Returns the function's return value as EvalValue
+    fn evaluateCallExpr:EvalValue (node:TSNode) {
+        if node.left {
+            def callee:TSNode (unwrap node.left)
+            
+            ; Handle method calls (e.g., arr.map())
+            if (callee.nodeType == "MemberExpression") {
+                ; For now, return null - method calls are handled elsewhere
+                return (EvalValue.null())
+            }
+            
+            ; Handle regular function calls
+            if (callee.nodeType == "Identifier") {
+                def fnName:string callee.name
+                print "Evaluating function call: " + fnName
+                
+                ; Look up the function in context
+                def fnValue:EvalValue (context.lookup(fnName))
+                if (fnValue.isFunction()) {
+                    if fnValue.functionNode {
+                        def fnNode:TSNode (unwrap fnValue.functionNode)
+                        
+                        ; Create new context for function scope
+                        def savedContext:EvalContext context
+                        context = (context.createChild())
+                        
+                        ; TODO: Handle function arguments when needed
+                        ; For now, functions without parameters work
+                        
+                        ; Evaluate function body and capture return value
+                        def body:TSNode (this.getFunctionBody(fnNode))
+                        def result:EvalValue (this.evaluateFunctionBodyValue(body))
+                        
+                        ; Restore context
+                        context = savedContext
+                        
+                        return result
+                    }
+                }
+            }
+        }
+        
         return (EvalValue.null())
     }
     
@@ -1468,13 +2043,17 @@ class ComponentEngine {
             def obj:EvalValue (this.evaluateExpr(leftExpr))
             def propName:string node.name
             
+            print ("evaluateMemberExpr: propName=" + propName + " computed=" + (to_string node.computed) + " obj.type=" + (to_string obj.valueType))
+            
             ; Check for computed access [index]
             if node.computed {
                 if node.right {
                     def indexExpr:TSNode (unwrap node.right)
                     def indexVal:EvalValue (this.evaluateExpr(indexExpr))
+                    print ("  Index value: " + (indexVal.toString()) + " type=" + (to_string indexVal.valueType))
                     if (indexVal.isNumber()) {
                         def idx:int (to_int (indexVal.toNumber()))
+                        print ("  Getting index " + (to_string idx) + " from array of length " + (to_string (array_length obj.arrayValue)))
                         return (obj.getIndex(idx))
                     }
                     if (indexVal.isString()) {

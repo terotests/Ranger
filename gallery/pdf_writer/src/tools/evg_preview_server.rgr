@@ -343,29 +343,32 @@ class EVGPreviewServer@(HttpServer) {
             def fileChanged:boolean false
             def changedFile:string ""
             
-            def i:int 0
-            while (i < (array_length watchedFiles)) {
-                def watchedFile:string (itemAt watchedFiles i)
-                def storedModTime:int (itemAt lastModTimes i)
-                
-                ; Split path to get dir and filename for file_mtime
-                def lastSlashIdx:int (lastIndexOf watchedFile "/")
-                def fileDir:string "./"
-                def fileName:string watchedFile
-                if (lastSlashIdx >= 0) {
-                    fileDir = (substring watchedFile 0 (lastSlashIdx + 1))
-                    fileName = (substring watchedFile (lastSlashIdx + 1) (strlen watchedFile))
+            ; Only check files if we have any watched files AND matching mod times
+            if (((array_length watchedFiles) > 0) && ((array_length lastModTimes) == (array_length watchedFiles))) {
+                def i:int 0
+                while (i < (array_length watchedFiles)) {
+                    def watchedFile:string (itemAt watchedFiles i)
+                    def storedModTime:int (itemAt lastModTimes i)
+                    
+                    ; Split path to get dir and filename for file_mtime
+                    def lastSlashIdx:int (lastIndexOf watchedFile "/")
+                    def fileDir:string "./"
+                    def fileName:string watchedFile
+                    if (lastSlashIdx >= 0) {
+                        fileDir = (substring watchedFile 0 (lastSlashIdx + 1))
+                        fileName = (substring watchedFile (lastSlashIdx + 1) (strlen watchedFile))
+                    }
+                    
+                    def currentModTime:int (file_mtime fileDir fileName)
+                    
+                    if (currentModTime > storedModTime) {
+                        fileChanged = true
+                        changedFile = watchedFile
+                        ; Update stored mod time
+                        set_at lastModTimes i currentModTime
+                    }
+                    i = i + 1
                 }
-                
-                def currentModTime:int (file_mtime fileDir fileName)
-                
-                if (currentModTime > storedModTime) {
-                    fileChanged = true
-                    changedFile = watchedFile
-                    ; Update stored mod time
-                    set_at lastModTimes i currentModTime
-                }
-                i = i + 1
             }
             
             if fileChanged {

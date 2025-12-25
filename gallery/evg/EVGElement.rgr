@@ -161,6 +161,9 @@ class EVGElement {
     def isLayoutComplete:boolean false
     def unitsResolved:boolean false
     
+    ; For statement evaluation: indicates if a return was executed
+    def hasReturn:boolean false
+    
     ; Inherited font size in pixels
     def inheritedFontSize:double 14.0
     

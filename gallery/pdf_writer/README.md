@@ -33,6 +33,81 @@ A collection of binary format utilities written in Ranger:
 To properly support shadows and effects in PDF, a raster (pixel buffer) renderer is planned.
 See [EVG_RASTER_PLAN.md](EVG_RASTER_PLAN.md) for details.
 
+### New: TypeScript Control Flow Evaluation (December 2025)
+
+The ComponentEngine now supports **full TypeScript control flow evaluation**, enabling dynamic document generation with loops, conditionals, and array operations.
+
+**Supported Features:**
+
+| Feature | Syntax | Description |
+|---------|--------|-------------|
+| For loops | `for (let i = 0; i < n; i++)` | Standard for loops with init/test/update |
+| Decrement loops | `for (let i = 5; i > 0; i--)` | Countdown loops |
+| Step loops | `for (let i = 0; i < n; i += 2)` | Custom step increments |
+| Array.push | `arr.push(<Element />)` | Build arrays of JSX elements |
+| Array indexing | `colors[i]` | Access array elements by index |
+| Compound assignment | `total += value` | `+=`, `-=`, `*=`, `/=`, `%=` |
+| Update expressions | `i++`, `++i`, `i--`, `--i` | Pre/post increment/decrement |
+| Function calls in JSX | `{buildItems()}` | Call functions that return element arrays |
+
+**Example - Dynamic List with For Loop:**
+
+```tsx
+const colors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6"];
+
+function buildColorBoxes() {
+  const boxes: any[] = [];
+  
+  for (let i = 0; i < colors.length; i++) {
+    const color = colors[i];
+    boxes.push(
+      <View backgroundColor={color} padding={8} marginBottom={4}>
+        <Label color="#ffffff">Box {i + 1}: {color}</Label>
+      </View>
+    );
+  }
+  
+  return boxes;
+}
+
+function render() {
+  return (
+    <Print>
+      <Section>
+        <Page>
+          <View padding={16}>
+            <Label fontSize={20} fontWeight="bold">Dynamic Color Boxes</Label>
+            {buildColorBoxes()}
+          </View>
+        </Page>
+      </Section>
+    </Print>
+  );
+}
+```
+
+**Example - Accumulator Pattern:**
+
+```tsx
+function buildProgressBars() {
+  const bars: any[] = [];
+  let totalWidth = 0;
+  
+  for (let i = 1; i <= 5; i++) {
+    totalWidth += i * 20;  // Accumulating: 20, 60, 120, 200, 300
+    bars.push(
+      <View width={totalWidth} backgroundColor="#0ea5e9" padding={4}>
+        <Label color="#ffffff">Width: {totalWidth}px</Label>
+      </View>
+    );
+  }
+  
+  return bars;
+}
+```
+
+See `examples/test_for_loop.tsx` for a complete demonstration of all loop types.
+
 ## EVG Attributes Reference
 
 TSX uses **camelCase** for all attributes (e.g., `fontSize`, `backgroundColor`, `verticalAlign`).

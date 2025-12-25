@@ -675,6 +675,11 @@ class TSLexer  {
         this.advance();
         return this.makeToken("Punctuator", "++", startPos, startLine, startCol);
       }
+      if ( next_1 == "=" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "+=", startPos, startLine, startCol);
+      }
     }
     if ( ch == "-" ) {
       if ( next_1 == "-" ) {
@@ -682,12 +687,36 @@ class TSLexer  {
         this.advance();
         return this.makeToken("Punctuator", "--", startPos, startLine, startCol);
       }
+      if ( next_1 == "=" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "-=", startPos, startLine, startCol);
+      }
     }
     if ( ch == "*" ) {
       if ( next_1 == "*" ) {
         this.advance();
         this.advance();
         return this.makeToken("Punctuator", "**", startPos, startLine, startCol);
+      }
+      if ( next_1 == "=" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "*=", startPos, startLine, startCol);
+      }
+    }
+    if ( ch == "/" ) {
+      if ( next_1 == "=" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "/=", startPos, startLine, startCol);
+      }
+    }
+    if ( ch == "%" ) {
+      if ( next_1 == "=" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "%=", startPos, startLine, startCol);
       }
     }
     if ( ch == "." ) {
@@ -727,6 +756,7 @@ class TSNode  {
     this.kind = "";
     this.optional = false;
     this.readonly = false;
+    this.prefix = false;
     this.shorthand = false;
     this.computed = false;
     this.method = false;
@@ -752,6 +782,7 @@ class TSParserSimple  {
     this.quiet = false;
     if ( (toks.length) > 0 ) {
       this.currentToken = toks[0];
+      this.skipIgnoredTokens();
     }
   };
   setQuiet (q) {
@@ -787,6 +818,27 @@ class TSParserSimple  {
       eof.value = "";
       this.currentToken = eof;
     }
+    this.skipIgnoredTokens();
+  };
+  skipIgnoredTokens () {
+    while (this.pos < (this.tokens.length)) {
+      const tok = this.peek();
+      const tokType = tok.tokenType;
+      if ( (tokType == "LineComment") || (tokType == "BlockComment") ) {
+        this.pos = this.pos + 1;
+        if ( this.pos < (this.tokens.length) ) {
+          this.currentToken = this.tokens[this.pos];
+        } else {
+          const eof = new Token();
+          eof.tokenType = "EOF";
+          eof.value = "";
+          this.currentToken = eof;
+          return;
+        }
+      } else {
+        return;
+      }
+    };
   };
   expect (expectedType) {
     const tok = this.peek();
@@ -3054,7 +3106,7 @@ class TSParserSimple  {
       assign.col = left.col;
       return assign;
     }
-    if ( ((tokVal == "&&=") || (tokVal == "||=")) || (tokVal == "??=") ) {
+    if ( ((((tokVal == "+=") || (tokVal == "-=")) || (tokVal == "*=")) || (tokVal == "/=")) || (tokVal == "%=") ) {
       this.advance();
       const right_1 = this.parseAssign();
       const assign_1 = new TSNode();
@@ -3066,6 +3118,19 @@ class TSParserSimple  {
       assign_1.line = left.line;
       assign_1.col = left.col;
       return assign_1;
+    }
+    if ( ((tokVal == "&&=") || (tokVal == "||=")) || (tokVal == "??=") ) {
+      this.advance();
+      const right_2 = this.parseAssign();
+      const assign_2 = new TSNode();
+      assign_2.nodeType = "AssignmentExpression";
+      assign_2.value = tokVal;
+      assign_2.left = left;
+      assign_2.right = right_2;
+      assign_2.start = left.start;
+      assign_2.line = left.line;
+      assign_2.col = left.col;
+      return assign_2;
     }
     return left;
   };
@@ -3235,17 +3300,31 @@ class TSParserSimple  {
   };
   parseUnary () {
     const tokVal = this.peekValue();
-    if ( (tokVal == "!") || (tokVal == "-") ) {
+    if ( (tokVal == "++") || (tokVal == "--") ) {
       const opTok = this.peek();
       this.advance();
       const arg = this.parseUnary();
+      const update = new TSNode();
+      update.nodeType = "UpdateExpression";
+      update.value = opTok.value;
+      update.left = arg;
+      update.prefix = true;
+      update.start = opTok.start;
+      update.line = opTok.line;
+      update.col = opTok.col;
+      return update;
+    }
+    if ( (tokVal == "!") || (tokVal == "-") ) {
+      const opTok_1 = this.peek();
+      this.advance();
+      const arg_1 = this.parseUnary();
       const unary = new TSNode();
       unary.nodeType = "UnaryExpression";
-      unary.value = opTok.value;
-      unary.left = arg;
-      unary.start = opTok.start;
-      unary.line = opTok.line;
-      unary.col = opTok.col;
+      unary.value = opTok_1.value;
+      unary.left = arg_1;
+      unary.start = opTok_1.start;
+      unary.line = opTok_1.line;
+      unary.col = opTok_1.col;
       return unary;
     }
     if ( tokVal == "yield" ) {
@@ -3269,10 +3348,10 @@ class TSParserSimple  {
     if ( tokVal == "await" ) {
       const awaitTok = this.peek();
       this.advance();
-      const arg_1 = this.parseUnary();
+      const arg_2 = this.parseUnary();
       const awaitExpr = new TSNode();
       awaitExpr.nodeType = "AwaitExpression";
-      awaitExpr.left = arg_1;
+      awaitExpr.left = arg_2;
       awaitExpr.start = awaitTok.start;
       awaitExpr.line = awaitTok.line;
       awaitExpr.col = awaitTok.col;
@@ -3299,11 +3378,11 @@ class TSParserSimple  {
         const typeNode = this.parseType();
         if ( this.matchValue(">") ) {
           this.advance();
-          const arg_2 = this.parseUnary();
+          const arg_3 = this.parseUnary();
           const assertion = new TSNode();
           assertion.nodeType = "TSTypeAssertion";
           assertion.typeAnnotation = typeNode;
-          assertion.left = arg_2;
+          assertion.left = arg_3;
           assertion.start = startTok.start;
           assertion.line = startTok.line;
           assertion.col = startTok.col;
@@ -3528,9 +3607,22 @@ class TSParserSimple  {
         tagged.col = expr.col;
         expr = tagged;
       }
+      if ( (tokVal == "++") || (tokVal == "--") ) {
+        const opTok = this.peek();
+        this.advance();
+        const update = new TSNode();
+        update.nodeType = "UpdateExpression";
+        update.value = opTok.value;
+        update.left = expr;
+        update.prefix = false;
+        update.start = expr.start;
+        update.line = expr.line;
+        update.col = expr.col;
+        expr = update;
+      }
       const newTokVal = this.peekValue();
       const newTokType = this.peekType();
-      if ( (((((((newTokVal != "(") && (newTokVal != ".")) && (newTokVal != "?.")) && (newTokVal != "[")) && (newTokVal != "!")) && (newTokVal != "as")) && (newTokVal != "satisfies")) && (newTokType != "Template") ) {
+      if ( (((((((((newTokVal != "(") && (newTokVal != ".")) && (newTokVal != "?.")) && (newTokVal != "[")) && (newTokVal != "!")) && (newTokVal != "as")) && (newTokVal != "satisfies")) && (newTokVal != "++")) && (newTokVal != "--")) && (newTokType != "Template") ) {
         keepParsing = false;
       }
     };

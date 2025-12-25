@@ -749,6 +749,11 @@ func (this *TSLexer) nextToken () *Token {
       this.advance();
       return this.makeToken("Punctuator", "++", startPos, startLine, startCol)
     }
+    if  next_1 == "=" {
+      this.advance();
+      this.advance();
+      return this.makeToken("Punctuator", "+=", startPos, startLine, startCol)
+    }
   }
   if  ch == "-" {
     if  next_1 == "-" {
@@ -756,12 +761,36 @@ func (this *TSLexer) nextToken () *Token {
       this.advance();
       return this.makeToken("Punctuator", "--", startPos, startLine, startCol)
     }
+    if  next_1 == "=" {
+      this.advance();
+      this.advance();
+      return this.makeToken("Punctuator", "-=", startPos, startLine, startCol)
+    }
   }
   if  ch == "*" {
     if  next_1 == "*" {
       this.advance();
       this.advance();
       return this.makeToken("Punctuator", "**", startPos, startLine, startCol)
+    }
+    if  next_1 == "=" {
+      this.advance();
+      this.advance();
+      return this.makeToken("Punctuator", "*=", startPos, startLine, startCol)
+    }
+  }
+  if  ch == "/" {
+    if  next_1 == "=" {
+      this.advance();
+      this.advance();
+      return this.makeToken("Punctuator", "/=", startPos, startLine, startCol)
+    }
+  }
+  if  ch == "%" {
+    if  next_1 == "=" {
+      this.advance();
+      this.advance();
+      return this.makeToken("Punctuator", "%=", startPos, startLine, startCol)
     }
   }
   if  ch == "." {
@@ -799,6 +828,7 @@ type TSNode struct {
   kind string `json:"kind"` 
   optional bool `json:"optional"` 
   readonly bool `json:"readonly"` 
+  prefix bool `json:"prefix"` 
   shorthand bool `json:"shorthand"` 
   computed bool `json:"computed"` 
   method bool `json:"method"` 
@@ -831,6 +861,7 @@ func CreateNew_TSNode() *TSNode {
   me.kind = ""
   me.optional = false
   me.readonly = false
+  me.prefix = false
   me.shorthand = false
   me.computed = false
   me.method = false
@@ -3324,7 +3355,7 @@ func (this *TSParserSimple) parseAssign () *TSNode {
     assign.col = left.col; 
     return assign
   }
-  if  ((tokVal == "&&=") || (tokVal == "||=")) || (tokVal == "??=") {
+  if  ((((tokVal == "+=") || (tokVal == "-=")) || (tokVal == "*=")) || (tokVal == "/=")) || (tokVal == "%=") {
     this.advance();
     var right_1 *TSNode= this.parseAssign();
     var assign_1 *TSNode= CreateNew_TSNode();
@@ -3338,6 +3369,21 @@ func (this *TSParserSimple) parseAssign () *TSNode {
     assign_1.line = left.line; 
     assign_1.col = left.col; 
     return assign_1
+  }
+  if  ((tokVal == "&&=") || (tokVal == "||=")) || (tokVal == "??=") {
+    this.advance();
+    var right_2 *TSNode= this.parseAssign();
+    var assign_2 *TSNode= CreateNew_TSNode();
+    assign_2.nodeType = "AssignmentExpression"; 
+    assign_2.value = tokVal; 
+    assign_2.left.value = left;
+    assign_2.left.has_value = true; /* detected as non-optional */
+    assign_2.right.value = right_2;
+    assign_2.right.has_value = true; /* detected as non-optional */
+    assign_2.start = left.start; 
+    assign_2.line = left.line; 
+    assign_2.col = left.col; 
+    return assign_2
   }
   return left
 }
@@ -3525,18 +3571,33 @@ func (this *TSParserSimple) parseMultiplicative () *TSNode {
 }
 func (this *TSParserSimple) parseUnary () *TSNode {
   var tokVal string= this.peekValue();
-  if  (tokVal == "!") || (tokVal == "-") {
+  if  (tokVal == "++") || (tokVal == "--") {
     var opTok *Token= this.peek();
     this.advance();
     var arg *TSNode= this.parseUnary();
+    var update *TSNode= CreateNew_TSNode();
+    update.nodeType = "UpdateExpression"; 
+    update.value = opTok.value; 
+    update.left.value = arg;
+    update.left.has_value = true; /* detected as non-optional */
+    update.prefix = true; 
+    update.start = opTok.start; 
+    update.line = opTok.line; 
+    update.col = opTok.col; 
+    return update
+  }
+  if  (tokVal == "!") || (tokVal == "-") {
+    var opTok_1 *Token= this.peek();
+    this.advance();
+    var arg_1 *TSNode= this.parseUnary();
     var unary *TSNode= CreateNew_TSNode();
     unary.nodeType = "UnaryExpression"; 
-    unary.value = opTok.value; 
-    unary.left.value = arg;
+    unary.value = opTok_1.value; 
+    unary.left.value = arg_1;
     unary.left.has_value = true; /* detected as non-optional */
-    unary.start = opTok.start; 
-    unary.line = opTok.line; 
-    unary.col = opTok.col; 
+    unary.start = opTok_1.start; 
+    unary.line = opTok_1.line; 
+    unary.col = opTok_1.col; 
     return unary
   }
   if  tokVal == "yield" {
@@ -3561,10 +3622,10 @@ func (this *TSParserSimple) parseUnary () *TSNode {
   if  tokVal == "await" {
     var awaitTok *Token= this.peek();
     this.advance();
-    var arg_1 *TSNode= this.parseUnary();
+    var arg_2 *TSNode= this.parseUnary();
     var awaitExpr *TSNode= CreateNew_TSNode();
     awaitExpr.nodeType = "AwaitExpression"; 
-    awaitExpr.left.value = arg_1;
+    awaitExpr.left.value = arg_2;
     awaitExpr.left.has_value = true; /* detected as non-optional */
     awaitExpr.start = awaitTok.start; 
     awaitExpr.line = awaitTok.line; 
@@ -3592,12 +3653,12 @@ func (this *TSParserSimple) parseUnary () *TSNode {
       var typeNode *TSNode= this.parseType();
       if  this.matchValue(">") {
         this.advance();
-        var arg_2 *TSNode= this.parseUnary();
+        var arg_3 *TSNode= this.parseUnary();
         var assertion *TSNode= CreateNew_TSNode();
         assertion.nodeType = "TSTypeAssertion"; 
         assertion.typeAnnotation.value = typeNode;
         assertion.typeAnnotation.has_value = true; /* detected as non-optional */
-        assertion.left.value = arg_2;
+        assertion.left.value = arg_3;
         assertion.left.has_value = true; /* detected as non-optional */
         assertion.start = startTok.start; 
         assertion.line = startTok.line; 
@@ -3778,6 +3839,7 @@ func (this *TSParserSimple) parsePostfix () *TSNode {
       this.expectValue("]");
       var computed *TSNode= CreateNew_TSNode();
       computed.nodeType = "MemberExpression"; 
+      computed.computed = true; 
       computed.left.value = expr;
       computed.left.has_value = true; /* detected as non-optional */
       computed.right.value = indexExpr_1;
@@ -3841,9 +3903,23 @@ func (this *TSParserSimple) parsePostfix () *TSNode {
       tagged.col = expr.col; 
       expr = tagged; 
     }
+    if  (tokVal == "++") || (tokVal == "--") {
+      var opTok *Token= this.peek();
+      this.advance();
+      var update *TSNode= CreateNew_TSNode();
+      update.nodeType = "UpdateExpression"; 
+      update.value = opTok.value; 
+      update.left.value = expr;
+      update.left.has_value = true; /* detected as non-optional */
+      update.prefix = false; 
+      update.start = expr.start; 
+      update.line = expr.line; 
+      update.col = expr.col; 
+      expr = update; 
+    }
     var newTokVal string= this.peekValue();
     var newTokType string= this.peekType();
-    if  (((((((newTokVal != "(") && (newTokVal != ".")) && (newTokVal != "?.")) && (newTokVal != "[")) && (newTokVal != "!")) && (newTokVal != "as")) && (newTokVal != "satisfies")) && (newTokType != "Template") {
+    if  (((((((((newTokVal != "(") && (newTokVal != ".")) && (newTokVal != "?.")) && (newTokVal != "[")) && (newTokVal != "!")) && (newTokVal != "as")) && (newTokVal != "satisfies")) && (newTokVal != "++")) && (newTokVal != "--")) && (newTokType != "Template") {
       keepParsing = false; 
     }
   }
@@ -5743,6 +5819,7 @@ type EVGElement struct {
   isAbsolute bool `json:"isAbsolute"` 
   isLayoutComplete bool `json:"isLayoutComplete"` 
   unitsResolved bool `json:"unitsResolved"` 
+  hasReturn bool `json:"hasReturn"` 
   inheritedFontSize float64 `json:"inheritedFontSize"` 
 }
 
@@ -5807,6 +5884,7 @@ func CreateNew_EVGElement() *EVGElement {
   me.isAbsolute = false
   me.isLayoutComplete = false
   me.unitsResolved = false
+  me.hasReturn = false
   me.inheritedFontSize = 14.0
   me.parent = new(GoNullable);
   me.width = new(GoNullable);
@@ -6473,6 +6551,7 @@ type EvalValue struct {
   objectValues []*EvalValue `json:"objectValues"` 
   functionName string `json:"functionName"` 
   functionBody string /**  unused  **/  `json:"functionBody"` 
+  functionNode *GoNullable `json:"functionNode"` 
   evgElement *GoNullable `json:"evgElement"` 
 }
 
@@ -6487,6 +6566,7 @@ func CreateNew_EvalValue() *EvalValue {
   me.objectValues = make([]*EvalValue,0)
   me.functionName = ""
   me.functionBody = ""
+  me.functionNode = new(GoNullable);
   me.evgElement = new(GoNullable);
   return me;
 }
@@ -6530,6 +6610,14 @@ func EvalValue_static_object(keys []string, values []*EvalValue) *EvalValue {
   v.valueType = int64(5); 
   v.objectKeys = keys; 
   v.objectValues = values; 
+  return v
+}
+func EvalValue_static_function(fnNode *TSNode) *EvalValue {
+  var v *EvalValue= CreateNew_EvalValue();
+  v.valueType = int64(6); 
+  v.functionNode.value = fnNode;
+  v.functionNode.has_value = true; /* detected as non-optional */
+  v.functionName = fnNode.name; 
   return v
 }
 func EvalValue_static_element(el *EVGElement) *EvalValue {
@@ -7076,6 +7164,7 @@ func (this *ComponentEngine) registerComponents (ast *TSNode) () {
         sym.functionNode.value = node;
         sym.functionNode.has_value = true; /* detected as non-optional */
         this.localComponents = append(this.localComponents,sym); 
+        this.context.value.(*EvalContext).define(node.name, EvalValue_static_function(node));
         fmt.Println( "Registered local component: " + node.name )
       }
     }
@@ -7153,6 +7242,24 @@ func (this *ComponentEngine) evaluateFunctionWithProps (fnNode *TSNode, props *E
   }
   return result
 }
+func (this *ComponentEngine) evaluateFunctionCall (fnNode *TSNode, props *EvalValue) *EvalValue {
+  var savedContext *GoNullable = new(GoNullable); 
+  savedContext.value = this.context.value;
+  savedContext.has_value = this.context.has_value;
+  this.context.value = this.context.value.(*EvalContext).createChild();
+  this.context.has_value = true; /* detected as non-optional */
+  if  props.valueType != int64(0) {
+    this.bindFunctionParams(fnNode, props);
+  }
+  var body *TSNode= this.getFunctionBody(fnNode);
+  var result *EvalValue= this.evaluateFunctionBodyValue(body);
+  this.context.value = savedContext.value;
+  this.context.has_value = false; 
+  if this.context.value != nil {
+    this.context.has_value = true
+  }
+  return result
+}
 func (this *ComponentEngine) bindFunctionParams (fnNode *TSNode, props *EvalValue) () {
   var i int64= int64(0);
   for i < (int64(len(fnNode.params))) {
@@ -7202,6 +7309,30 @@ func (this *ComponentEngine) evaluateFunctionBody (body *TSNode) *EVGElement {
     if  stmt.nodeType == "VariableDeclaration" {
       this.processVariableDeclaration(stmt);
     }
+    if  stmt.nodeType == "IfStatement" {
+      var ifResult *EVGElement= this.evaluateIfStatement(stmt);
+      if  ifResult.hasReturn {
+        return ifResult
+      }
+    }
+    if  stmt.nodeType == "ForStatement" {
+      var forResult *EVGElement= this.evaluateForStatement(stmt);
+      if  forResult.hasReturn {
+        return forResult
+      }
+    }
+    if  stmt.nodeType == "ForOfStatement" {
+      var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
+      if  forOfResult.hasReturn {
+        return forOfResult
+      }
+    }
+    if  stmt.nodeType == "ExpressionStatement" {
+      if ( stmt.left.has_value) {
+        var exprNode *TSNode= stmt.left.value.(*TSNode);
+        this.evaluateExprForSideEffect(exprNode);
+      }
+    }
     if  stmt.nodeType == "ReturnStatement" {
       if ( stmt.left.has_value) {
         var returnExpr *TSNode= stmt.left.value.(*TSNode);
@@ -7214,6 +7345,301 @@ func (this *ComponentEngine) evaluateFunctionBody (body *TSNode) *EVGElement {
     return this.evaluateJSX(body)
   }
   return empty
+}
+func (this *ComponentEngine) evaluateFunctionBodyValue (body *TSNode) *EvalValue {
+  var i int64= int64(0);
+  fmt.Println( ("evaluateFunctionBodyValue: body has " + (strconv.FormatInt((int64(len(body.children))), 10))) + " children" )
+  for i < (int64(len(body.children))) {
+    var stmt *TSNode= body.children[i];
+    fmt.Println( (("  Statement " + (strconv.FormatInt(i, 10))) + ": ") + stmt.nodeType )
+    if  stmt.nodeType == "VariableDeclaration" {
+      this.processVariableDeclaration(stmt);
+    }
+    if  stmt.nodeType == "IfStatement" {
+      var ifResult *EVGElement= this.evaluateIfStatement(stmt);
+      if  ifResult.hasReturn {
+      }
+    }
+    if  stmt.nodeType == "ForStatement" {
+      var forResult *EVGElement= this.evaluateForStatement(stmt);
+      if  forResult.hasReturn {
+      }
+    }
+    if  stmt.nodeType == "ForOfStatement" {
+      var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
+      if  forOfResult.hasReturn {
+      }
+    }
+    if  stmt.nodeType == "ExpressionStatement" {
+      if ( stmt.left.has_value) {
+        var exprNode *TSNode= stmt.left.value.(*TSNode);
+        this.evaluateExprForSideEffect(exprNode);
+      }
+    }
+    if  stmt.nodeType == "ReturnStatement" {
+      if ( stmt.left.has_value) {
+        var returnExpr *TSNode= stmt.left.value.(*TSNode);
+        return this.evaluateExpr(returnExpr)
+      }
+      return EvalValue_static_null()
+    }
+    i = i + int64(1); 
+  }
+  if  (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") {
+    var el *EVGElement= this.evaluateJSX(body);
+    return EvalValue_static_element(el)
+  }
+  if  (body.nodeType != "BlockStatement") && (body.nodeType != "") {
+    return this.evaluateExpr(body)
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateIfStatement (node *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  if ( node.left.has_value) {
+    var condNode *TSNode= node.left.value.(*TSNode);
+    var condition *EvalValue= this.evaluateExpr(condNode);
+    if  condition.toBool() {
+      if ( node.body.has_value) {
+        var thenBlock *TSNode= node.body.value.(*TSNode);
+        var blockResult *EVGElement= this.evaluateStatementBlock(thenBlock);
+        if  blockResult.hasReturn {
+          return blockResult
+        }
+      }
+    } else {
+      if ( node.right.has_value) {
+        var elseBlock *TSNode= node.right.value.(*TSNode);
+        if  elseBlock.nodeType == "IfStatement" {
+          return this.evaluateIfStatement(elseBlock)
+        }
+        var blockResult_1 *EVGElement= this.evaluateStatementBlock(elseBlock);
+        if  blockResult_1.hasReturn {
+          return blockResult_1
+        }
+      }
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateStatementBlock (block *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  if  block.nodeType == "ReturnStatement" {
+    if ( block.left.has_value) {
+      var returnExpr *TSNode= block.left.value.(*TSNode);
+      var returnedEl *EVGElement= this.evaluateJSX(returnExpr);
+      returnedEl.hasReturn = true; 
+      return returnedEl
+    }
+  }
+  if  block.nodeType == "BlockStatement" {
+    var i int64= int64(0);
+    for i < (int64(len(block.children))) {
+      var stmt *TSNode= block.children[i];
+      if  stmt.nodeType == "VariableDeclaration" {
+        this.processVariableDeclaration(stmt);
+      }
+      if  stmt.nodeType == "IfStatement" {
+        var ifResult *EVGElement= this.evaluateIfStatement(stmt);
+        if  ifResult.hasReturn {
+          return ifResult
+        }
+      }
+      if  stmt.nodeType == "ForStatement" {
+        var forResult *EVGElement= this.evaluateForStatement(stmt);
+        if  forResult.hasReturn {
+          return forResult
+        }
+      }
+      if  stmt.nodeType == "ForOfStatement" {
+        var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
+        if  forOfResult.hasReturn {
+          return forOfResult
+        }
+      }
+      if  stmt.nodeType == "ExpressionStatement" {
+        if ( stmt.left.has_value) {
+          var exprNode *TSNode= stmt.left.value.(*TSNode);
+          this.evaluateExprForSideEffect(exprNode);
+        }
+      }
+      if  stmt.nodeType == "ReturnStatement" {
+        if ( stmt.left.has_value) {
+          var returnExpr_1 *TSNode= stmt.left.value.(*TSNode);
+          var returnedEl_1 *EVGElement= this.evaluateJSX(returnExpr_1);
+          returnedEl_1.hasReturn = true; 
+          return returnedEl_1
+        }
+      }
+      i = i + int64(1); 
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateExprForSideEffect (node *TSNode) () {
+  if  node.nodeType == "CallExpression" {
+    this.evaluateCallExprForSideEffect(node);
+  }
+  if  node.nodeType == "UpdateExpression" {
+    this.evaluateUpdateExpr(node);
+  }
+  if  node.nodeType == "AssignmentExpression" {
+    this.evaluateUpdateExpr(node);
+  }
+}
+func (this *ComponentEngine) evaluateCallExprForSideEffect (node *TSNode) () {
+  if ( node.left.has_value) {
+    var calleeNode *TSNode= node.left.value.(*TSNode);
+    if  calleeNode.nodeType == "MemberExpression" {
+      var methodName string= calleeNode.name;
+      if ( calleeNode.left.has_value) {
+        var objNode *TSNode= calleeNode.left.value.(*TSNode);
+        if  objNode.nodeType == "Identifier" {
+          var objName string= objNode.name;
+          var objValue *EvalValue= this.context.value.(*EvalContext).lookup(objName);
+          if  (methodName == "push") && (objValue).isArray() {
+            if  (int64(len(node.children))) > int64(0) {
+              var argNode *TSNode= node.children[int64(0)];
+              var argValue *EvalValue= this.evaluateExpr(argNode);
+              objValue.arrayValue = append(objValue.arrayValue,argValue); 
+              this.context.value.(*EvalContext).define(objName, objValue);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+func (this *ComponentEngine) evaluateForStatement (node *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  fmt.Println( "evaluateForStatement called" )
+  if ( node.init.has_value) {
+    var initNode *TSNode= node.init.value.(*TSNode);
+    fmt.Println( "For init nodeType: " + initNode.nodeType )
+    if  initNode.nodeType == "VariableDeclaration" {
+      this.processVariableDeclaration(initNode);
+    }
+  }
+  var maxIterations int64= int64(10000);
+  var iterations int64= int64(0);
+  for iterations < maxIterations {
+    if ( node.left.has_value) {
+      var testNode *TSNode= node.left.value.(*TSNode);
+      var testResult *EvalValue= this.evaluateExpr(testNode);
+      if  testResult.toBool() == false {
+        return result
+      }
+    }
+    if ( node.body.has_value) {
+      var bodyNode *TSNode= node.body.value.(*TSNode);
+      var bodyResult *EVGElement= this.evaluateStatementBlock(bodyNode);
+      if  bodyResult.hasReturn {
+        return bodyResult
+      }
+    }
+    if ( node.right.has_value) {
+      var updateNode *TSNode= node.right.value.(*TSNode);
+      this.evaluateUpdateExpr(updateNode);
+    }
+    iterations = iterations + int64(1); 
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateForOfStatement (node *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  var varName string= "";
+  if ( node.left.has_value) {
+    var leftNode *TSNode= node.left.value.(*TSNode);
+    if  leftNode.nodeType == "VariableDeclaration" {
+      if  (int64(len(leftNode.children))) > int64(0) {
+        var decl *TSNode= leftNode.children[int64(0)];
+        varName = decl.name; 
+      }
+    }
+  }
+  if ( node.right.has_value) {
+    var rightNode *TSNode= node.right.value.(*TSNode);
+    var arrayValue *EvalValue= this.evaluateExpr(rightNode);
+    if  (arrayValue).isArray() {
+      var i int64= int64(0);
+      for i < (int64(len(arrayValue.arrayValue))) {
+        var item *EvalValue= arrayValue.arrayValue[i];
+        this.context.value.(*EvalContext).define(varName, item);
+        if ( node.body.has_value) {
+          var bodyNode *TSNode= node.body.value.(*TSNode);
+          var bodyResult *EVGElement= this.evaluateStatementBlock(bodyNode);
+          if  bodyResult.hasReturn {
+            return bodyResult
+          }
+        }
+        i = i + int64(1); 
+      }
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateUpdateExpr (node *TSNode) () {
+  if  node.nodeType == "UpdateExpression" {
+    if ( node.left.has_value) {
+      var argNode *TSNode= node.left.value.(*TSNode);
+      if  argNode.nodeType == "Identifier" {
+        var varName string= argNode.name;
+        var current *EvalValue= this.context.value.(*EvalContext).lookup(varName);
+        var currentNum float64= current.toNumber();
+        if  node.value == "++" {
+          this.context.value.(*EvalContext).define(varName, EvalValue_static_number((currentNum + 1.0)));
+        }
+        if  node.value == "--" {
+          this.context.value.(*EvalContext).define(varName, EvalValue_static_number((currentNum - 1.0)));
+        }
+      }
+    }
+  }
+  if  node.nodeType == "AssignmentExpression" {
+    if ( node.left.has_value) {
+      var leftNode *TSNode= node.left.value.(*TSNode);
+      if  leftNode.nodeType == "Identifier" {
+        var varName_1 string= leftNode.name;
+        var op string= node.value;
+        if ( node.right.has_value) {
+          var rightNode *TSNode= node.right.value.(*TSNode);
+          var rightValue *EvalValue= this.evaluateExpr(rightNode);
+          if  op == "=" {
+            this.context.value.(*EvalContext).define(varName_1, rightValue);
+          }
+          if  op == "+=" {
+            var current_1 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            var isLeftStr bool= current_1.isString();
+            var isRightStr bool= rightValue.isString();
+            if  isLeftStr || isRightStr {
+              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_string(((current_1).toString() + (rightValue).toString())));
+            } else {
+              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_1.toNumber() + rightValue.toNumber())));
+            }
+          }
+          if  op == "-=" {
+            var current_2 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_2.toNumber() - rightValue.toNumber())));
+          }
+          if  op == "*=" {
+            var current_3 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_3.toNumber() * rightValue.toNumber())));
+          }
+          if  op == "/=" {
+            var current_4 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            var rightNum float64= rightValue.toNumber();
+            if  rightNum != 0.0 {
+              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_4.toNumber() / rightNum)));
+            }
+          }
+        }
+      }
+    }
+  }
 }
 func (this *ComponentEngine) evaluateJSX (node *TSNode) *EVGElement {
   var element *EVGElement= CreateNew_EVGElement();
@@ -7507,7 +7933,50 @@ func (this *ComponentEngine) evaluateExpressionChild (element *EVGElement, exprC
   if ( exprContainer.left.has_value) {
     var exprNode *TSNode= exprContainer.left.value.(*TSNode);
     if  exprNode.nodeType == "CallExpression" {
-      this.evaluateArrayMapChild(element, exprNode);
+      if ( exprNode.left.has_value) {
+        var calleeNode *TSNode= exprNode.left.value.(*TSNode);
+        if  calleeNode.nodeType == "MemberExpression" {
+          var methodName string= calleeNode.name;
+          if  methodName == "map" {
+            this.evaluateArrayMapChild(element, exprNode);
+            return
+          }
+        }
+      }
+      var callResult *EvalValue= this.evaluateExpr(exprNode);
+      if  (callResult).isArray() {
+        var ai int64= int64(0);
+        for ai < (int64(len(callResult.arrayValue))) {
+          var arrItem *EvalValue= callResult.arrayValue[ai];
+          if  arrItem.isElement() {
+            if ( arrItem.evgElement.has_value) {
+              var arrChildEl *EVGElement= arrItem.evgElement.value.(*EVGElement);
+              if  (int64(len([]rune(arrChildEl.tagName)))) > int64(0) {
+                element.addChild(arrChildEl);
+              }
+            }
+          }
+          ai = ai + int64(1); 
+        }
+        return
+      }
+      if  callResult.isElement() {
+        if ( callResult.evgElement.has_value) {
+          var childEl *EVGElement= callResult.evgElement.value.(*EVGElement);
+          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
+            element.addChild(childEl);
+          }
+        }
+        return
+      }
+      var isStr bool= callResult.isString();
+      var isNum bool= callResult.isNumber();
+      if  isStr || isNum {
+        var textEl *EVGElement= CreateNew_EVGElement();
+        textEl.tagName = "text"; 
+        textEl.textContent = (callResult).toString(); 
+        element.addChild(textEl);
+      }
       return
     }
     if  exprNode.nodeType == "ConditionalExpression" {
@@ -7523,36 +7992,36 @@ func (this *ComponentEngine) evaluateExpressionChild (element *EVGElement, exprC
     var value *EvalValue= this.evaluateExpr(exprNode);
     if  value.isElement() {
       if ( value.evgElement.has_value) {
-        var childEl *EVGElement= value.evgElement.value.(*EVGElement);
-        if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
-          element.addChild(childEl);
+        var childEl_1 *EVGElement= value.evgElement.value.(*EVGElement);
+        if  (int64(len([]rune(childEl_1.tagName)))) > int64(0) {
+          element.addChild(childEl_1);
         }
       }
       return
     }
     if  (value).isArray() {
-      var ai int64= int64(0);
-      for ai < (int64(len(value.arrayValue))) {
-        var arrItem *EvalValue= value.arrayValue[ai];
-        if  arrItem.isElement() {
-          if ( arrItem.evgElement.has_value) {
-            var arrChildEl *EVGElement= arrItem.evgElement.value.(*EVGElement);
-            if  (int64(len([]rune(arrChildEl.tagName)))) > int64(0) {
-              element.addChild(arrChildEl);
+      var ai_1 int64= int64(0);
+      for ai_1 < (int64(len(value.arrayValue))) {
+        var arrItem_1 *EvalValue= value.arrayValue[ai_1];
+        if  arrItem_1.isElement() {
+          if ( arrItem_1.evgElement.has_value) {
+            var arrChildEl_1 *EVGElement= arrItem_1.evgElement.value.(*EVGElement);
+            if  (int64(len([]rune(arrChildEl_1.tagName)))) > int64(0) {
+              element.addChild(arrChildEl_1);
             }
           }
         }
-        ai = ai + int64(1); 
+        ai_1 = ai_1 + int64(1); 
       }
       return
     }
-    var isStr bool= value.isString();
-    var isNum bool= value.isNumber();
-    if  isStr || isNum {
-      var textEl *EVGElement= CreateNew_EVGElement();
-      textEl.tagName = "text"; 
-      textEl.textContent = (value).toString(); 
-      element.addChild(textEl);
+    var isStr_1 bool= value.isString();
+    var isNum_1 bool= value.isNumber();
+    if  isStr_1 || isNum_1 {
+      var textEl_1 *EVGElement= CreateNew_EVGElement();
+      textEl_1.tagName = "text"; 
+      textEl_1.textContent = (value).toString(); 
+      element.addChild(textEl_1);
     }
   }
 }
@@ -7734,6 +8203,41 @@ func (this *ComponentEngine) evaluateExpr (node *TSNode) *EvalValue {
     this.evaluateChildren(el_1, node);
     return EvalValue_static_element(el_1)
   }
+  if  node.nodeType == "CallExpression" {
+    return this.evaluateCallExpr(node)
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
+  if ( node.left.has_value) {
+    var callee *TSNode= node.left.value.(*TSNode);
+    if  callee.nodeType == "MemberExpression" {
+      return EvalValue_static_null()
+    }
+    if  callee.nodeType == "Identifier" {
+      var fnName string= callee.name;
+      fmt.Println( "Evaluating function call: " + fnName )
+      var fnValue *EvalValue= this.context.value.(*EvalContext).lookup(fnName);
+      if  fnValue.isFunction() {
+        if ( fnValue.functionNode.has_value) {
+          var fnNode *TSNode= fnValue.functionNode.value.(*TSNode);
+          var savedContext *GoNullable = new(GoNullable); 
+          savedContext.value = this.context.value;
+          savedContext.has_value = this.context.has_value;
+          this.context.value = this.context.value.(*EvalContext).createChild();
+          this.context.has_value = true; /* detected as non-optional */
+          var body *TSNode= this.getFunctionBody(fnNode);
+          var result *EvalValue= this.evaluateFunctionBodyValue(body);
+          this.context.value = savedContext.value;
+          this.context.has_value = false; 
+          if this.context.value != nil {
+            this.context.has_value = true
+          }
+          return result
+        }
+      }
+    }
+  }
   return EvalValue_static_null()
 }
 func (this *ComponentEngine) evaluateBinaryExpr (node *TSNode) *EvalValue {
@@ -7863,12 +8367,15 @@ func (this *ComponentEngine) evaluateMemberExpr (node *TSNode) *EvalValue {
     var leftExpr *TSNode= node.left.value.(*TSNode);
     var obj *EvalValue= this.evaluateExpr(leftExpr);
     var propName string= node.name;
+    fmt.Println( (((("evaluateMemberExpr: propName=" + propName) + " computed=") + (strconv.FormatBool(node.computed))) + " obj.type=") + (strconv.FormatInt(obj.valueType, 10)) )
     if  node.computed {
       if ( node.right.has_value) {
         var indexExpr *TSNode= node.right.value.(*TSNode);
         var indexVal *EvalValue= this.evaluateExpr(indexExpr);
+        fmt.Println( (("  Index value: " + (indexVal).toString()) + " type=") + (strconv.FormatInt(indexVal.valueType, 10)) )
         if  indexVal.isNumber() {
           var idx int64= int64(indexVal.toNumber());
+          fmt.Println( (("  Getting index " + (strconv.FormatInt(idx, 10))) + " from array of length ") + (strconv.FormatInt((int64(len(obj.arrayValue))), 10)) )
           return obj.getIndex(idx)
         }
         if  indexVal.isString() {
@@ -11381,16 +11888,21 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "        // Arrange pages as book spreads: cover alone, then pairs\n"; 
   html = html + "        function arrangeAsBookSpreads() {\n"; 
   html = html + "            const pages = Array.from(contentEl.querySelectorAll('.evg-page'));\n"; 
-  html = html + "            if (pages.length === 0) return;\n"; 
+  html = html + "            // Only arrange as book if there are multiple pages\n"; 
+  html = html + "            if (pages.length <= 1) return;\n"; 
   html = html + "            \n"; 
   html = html + "            // Find the section or document container\n"; 
   html = html + "            const section = contentEl.querySelector('.evg-section') || contentEl.querySelector('.evg-document') || contentEl;\n"; 
+  html = html + "            if (!section) return;\n"; 
+  html = html + "            \n"; 
+  html = html + "            // Clone pages before clearing to avoid DOM issues\n"; 
+  html = html + "            const pageClones = pages.map(p => p.cloneNode(true));\n"; 
   html = html + "            \n"; 
   html = html + "            // Clear the section\n"; 
   html = html + "            section.innerHTML = '';\n"; 
   html = html + "            \n"; 
   html = html + "            // First page is cover - show alone\n"; 
-  html = html + "            const cover = pages[0];\n"; 
+  html = html + "            const cover = pageClones[0];\n"; 
   html = html + "            cover.classList.add('evg-cover');\n"; 
   html = html + "            const coverWrapper = document.createElement('div');\n"; 
   html = html + "            coverWrapper.style.position = 'relative';\n"; 
@@ -11403,18 +11915,18 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "            section.appendChild(coverWrapper);\n"; 
   html = html + "            \n"; 
   html = html + "            // Remaining pages in pairs (spreads)\n"; 
-  html = html + "            for (let i = 1; i < pages.length; i += 2) {\n"; 
+  html = html + "            for (let i = 1; i < pageClones.length; i += 2) {\n"; 
   html = html + "                const spread = document.createElement('div');\n"; 
   html = html + "                spread.className = 'evg-spread';\n"; 
   html = html + "                spread.style.position = 'relative';\n"; 
   html = html + "                spread.style.marginBottom = '20px';\n"; 
   html = html + "                \n"; 
   html = html + "                // Left page\n"; 
-  html = html + "                spread.appendChild(pages[i]);\n"; 
+  html = html + "                spread.appendChild(pageClones[i]);\n"; 
   html = html + "                \n"; 
   html = html + "                // Right page (if exists)\n"; 
-  html = html + "                if (i + 1 < pages.length) {\n"; 
-  html = html + "                    spread.appendChild(pages[i + 1]);\n"; 
+  html = html + "                if (i + 1 < pageClones.length) {\n"; 
+  html = html + "                    spread.appendChild(pageClones[i + 1]);\n"; 
   html = html + "                }\n"; 
   html = html + "                \n"; 
   html = html + "                // Add spread label\n"; 
@@ -11749,24 +12261,26 @@ func (this *EVGPreviewServer) handleEvents (client *SSEClient) () {
   for connected {
     var fileChanged bool= false;
     var changedFile string= "";
-    var i int64= int64(0);
-    for i < (int64(len(this.watchedFiles))) {
-      var watchedFile string= this.watchedFiles[i];
-      var storedModTime int64= this.lastModTimes[i];
-      var lastSlashIdx int64= int64(strings.LastIndex(watchedFile, "/"));
-      var fileDir string= "./";
-      var fileName string= watchedFile;
-      if  lastSlashIdx >= int64(0) {
-        fileDir = string([]rune(watchedFile)[int64(0):(lastSlashIdx + int64(1))]); 
-        fileName = string([]rune(watchedFile)[(lastSlashIdx + int64(1)):(int64(len([]rune(watchedFile))))]); 
+    if  ((int64(len(this.watchedFiles))) > int64(0)) && ((int64(len(this.lastModTimes))) == (int64(len(this.watchedFiles)))) {
+      var i int64= int64(0);
+      for i < (int64(len(this.watchedFiles))) {
+        var watchedFile string= this.watchedFiles[i];
+        var storedModTime int64= this.lastModTimes[i];
+        var lastSlashIdx int64= int64(strings.LastIndex(watchedFile, "/"));
+        var fileDir string= "./";
+        var fileName string= watchedFile;
+        if  lastSlashIdx >= int64(0) {
+          fileDir = string([]rune(watchedFile)[int64(0):(lastSlashIdx + int64(1))]); 
+          fileName = string([]rune(watchedFile)[(lastSlashIdx + int64(1)):(int64(len([]rune(watchedFile))))]); 
+        }
+        var currentModTime int64= r_file_mtime(fileDir, fileName);
+        if  currentModTime > storedModTime {
+          fileChanged = true; 
+          changedFile = watchedFile; 
+          this.lastModTimes[i] = currentModTime
+        }
+        i = i + int64(1); 
       }
-      var currentModTime int64= r_file_mtime(fileDir, fileName);
-      if  currentModTime > storedModTime {
-        fileChanged = true; 
-        changedFile = watchedFile; 
-        this.lastModTimes[i] = currentModTime
-      }
-      i = i + int64(1); 
     }
     if  fileChanged {
       fmt.Println( ("File changed: " + changedFile) + " - sending update" )

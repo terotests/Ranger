@@ -1268,13 +1268,15 @@ class TSParser {
   fn parseAssignmentExpression:ASTNode () {
     def left (this.parseBinaryExpression())
     
-    if (this.matchValue("=")) {
+    def tokVal (this.peekValue())
+    ; Handle all assignment operators: =, +=, -=, *=, /=, %=
+    if ((tokVal == "=") || (tokVal == "+=") || (tokVal == "-=") || (tokVal == "*=") || (tokVal == "/=") || (tokVal == "%=")) {
       def opTok (this.peek())
       this.advance()
       def right (this.parseAssignmentExpression())
       
       def assign (new AssignmentExpression())
-      assign.operator = "="
+      assign.operator = opTok.value
       assign.left = left
       assign.right = right
       assign.start = left.start
@@ -1312,6 +1314,22 @@ class TSParser {
   fn parseUnaryExpression:ASTNode () {
     def tokVal (this.peekValue())
     
+    ; Handle prefix ++ and --
+    if ((tokVal == "++") || (tokVal == "--")) {
+      def opTok (this.peek())
+      this.advance()
+      def argument (this.parseUnaryExpression())
+      
+      def update (new UpdateExpression())
+      update.operator = opTok.value
+      update.argument = argument
+      update.prefix = true
+      update.start = opTok.start
+      update.line = opTok.line
+      update.col = opTok.col
+      return update
+    }
+    
     if ((tokVal == "!") || (tokVal == "-")) {
       def opTok (this.peek())
       this.advance()
@@ -1326,7 +1344,29 @@ class TSParser {
       return unary
     }
     
-    return (this.parseCallExpression())
+    return (this.parsePostfixExpression())
+  }
+  
+  fn parsePostfixExpression:ASTNode () {
+    def expr (this.parseCallExpression())
+    
+    ; Handle postfix ++ and --
+    def tokVal (this.peekValue())
+    if ((tokVal == "++") || (tokVal == "--")) {
+      def opTok (this.peek())
+      this.advance()
+      
+      def update (new UpdateExpression())
+      update.operator = opTok.value
+      update.argument = expr
+      update.prefix = false
+      update.start = expr.start
+      update.line = expr.line
+      update.col = expr.col
+      return update
+    }
+    
+    return expr
   }
   
   fn parseCallExpression:ASTNode () {

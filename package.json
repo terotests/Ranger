@@ -25,7 +25,7 @@
     "try": "node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -o=try.js",
     "compilets": "node bin/output.js -es6 -typescript ./compiler/ng_Compiler.rgr -o=compiler.ts -nodecli && tsc",
     "module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.rgr -o=api.ts && tsc",
-    "evalvalue:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodemodule ./gallery/pdf_writer/src/tools/eval_value_module.rgr -o=eval_value_module.cjs && move eval_value_module.cjs gallery/pdf_writer/bin/",
+    "evalvalue:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodemodule ./gallery/pdf_writer/src/tools/eval_value_module.rgr -d=./gallery/pdf_writer/bin -o=eval_value_module.cjs",
     "test:evalvalue": "npm run evalvalue:module && vitest run --config gallery/pdf_writer/vitest.config.js",
     "test": "cross-env NODE_OPTIONS=--max-old-space-size=8192 vitest run --config tests/vitest.config.ts",
     "test:es6": "vitest run --config tests/vitest.config.ts compiler.test.ts",
