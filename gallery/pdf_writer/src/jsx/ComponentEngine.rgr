@@ -21,6 +21,7 @@ class ImportedSymbol {
     def sourcePath:string ""     ; File path
     def symbolType:string ""     ; "component" | "function" | "constant"
     def functionNode@(optional):TSNode      ; AST node for function components
+    def helperFunctions:[TSNode] ; Helper functions defined in the same file
 }
 
 ; =============================================================================
@@ -356,6 +357,23 @@ class ComponentEngine {
         importParser.tsxMode = true
         def importAst:TSNode (importParser.parseProgram())
         
+        ; Collect all non-exported helper functions from the file
+        def helperFns:[TSNode]
+        def hk:int 0
+        while (hk < (array_length importAst.children)) {
+            def hstmt:TSNode (itemAt importAst.children hk)
+            ; Collect non-exported function declarations as helpers
+            if (hstmt.nodeType == "FunctionDeclaration") {
+                def hfnName:string hstmt.name
+                ; Only add if not in import list (those will be the main components)
+                if ((this.isInList(hfnName importedNames)) == false) {
+                    push helperFns hstmt
+                    print ("  Found helper function: " + hfnName)
+                }
+            }
+            hk = hk + 1
+        }
+        
         ; Find exported functions that match imported names
         def k:int 0
         while (k < (array_length importAst.children)) {
@@ -375,6 +393,7 @@ class ComponentEngine {
                             sym.sourcePath = fullPath
                             sym.symbolType = "component"
                             sym.functionNode = declNode
+                            sym.helperFunctions = helperFns
                             push localComponents sym
                             print ("Imported component: " + fnName + " from " + fullPath)
                         }
@@ -392,6 +411,7 @@ class ComponentEngine {
                     sym.sourcePath = fullPath
                     sym.symbolType = "component"
                     sym.functionNode = stmt
+                    sym.helperFunctions = helperFns
                     push localComponents sym
                     print ("Imported component: " + fnName + " from " + fullPath)
                 }
@@ -1228,6 +1248,18 @@ class ComponentEngine {
                 def props:EvalValue (this.evaluateProps(jsxNode))
                 if sym.functionNode {
                     def fnNode:TSNode (unwrap sym.functionNode)
+                    
+                    ; Register helper functions from the component's file in the context
+                    def hi:int 0
+                    while (hi < (array_length sym.helperFunctions)) {
+                        def helperFn:TSNode (itemAt sym.helperFunctions hi)
+                        def helperName:string helperFn.name
+                        def helperValue:EvalValue (EvalValue.function(helperFn))
+                        context.define(helperName helperValue)
+                        print ("Registered helper function: " + helperName)
+                        hi = hi + 1
+                    }
+                    
                     return (this.evaluateFunctionWithProps(fnNode props))
                 }
             }
@@ -1777,12 +1809,16 @@ class ComponentEngine {
         
         if (node.nodeType == "TemplateLiteral") {
             ; Template literals have TemplateElement children with the text
+            ; The text may contain ${...} expressions that need to be evaluated
             def templateText:string ""
             def ti:int 0
             while (ti < (array_length node.children)) {
                 def templateChild:TSNode (itemAt node.children ti)
                 if (templateChild.nodeType == "TemplateElement") {
-                    templateText = templateText + templateChild.value
+                    ; Parse and evaluate any ${...} expressions in the template text
+                    def rawText:string templateChild.value
+                    def processedText:string (this.evaluateTemplateExpressions(rawText))
+                    templateText = templateText + processedText
                 }
                 ti = ti + 1
             }
@@ -1902,6 +1938,7 @@ class ComponentEngine {
                 
                 ; Look up the function in context
                 def fnValue:EvalValue (context.lookup(fnName))
+                print "Lookup function '" + fnName + "' -> type=" + (to_string fnValue.valueType) + " isFunction=" + (to_string (fnValue.isFunction()))
                 if (fnValue.isFunction()) {
                     if fnValue.functionNode {
                         def fnNode:TSNode (unwrap fnValue.functionNode)
@@ -1910,8 +1947,28 @@ class ComponentEngine {
                         def savedContext:EvalContext context
                         context = (context.createChild())
                         
-                        ; TODO: Handle function arguments when needed
-                        ; For now, functions without parameters work
+                        ; Bind function arguments to parameters
+                        def numArgs:int (array_length node.children)
+                        def numParams:int (array_length fnNode.params)
+                        print "Function " + fnName + " called with " + (to_string numArgs) + " args, has " + (to_string numParams) + " params"
+                        
+                        def argIdx:int 0
+                        while (argIdx < numParams) {
+                            if (argIdx < numArgs) {
+                                ; Evaluate the argument
+                                def argNode:TSNode (itemAt node.children argIdx)
+                                def argValue:EvalValue (this.evaluateExpr(argNode))
+                                
+                                ; Get the parameter name
+                                def paramNode:TSNode (itemAt fnNode.params argIdx)
+                                def paramName:string paramNode.name
+                                print "Binding param '" + paramName + "' = " + (argValue.toString())
+                                
+                                ; Define the parameter in the new context
+                                context.define(paramName argValue)
+                            }
+                            argIdx = argIdx + 1
+                        }
                         
                         ; Evaluate function body and capture return value
                         def body:TSNode (this.getFunctionBody(fnNode))
@@ -2294,6 +2351,99 @@ class ComponentEngine {
         return s
     }
     
+    ; Evaluates ${...} template expressions within a template literal string
+    ; Parses the string, finds ${...} patterns, evaluates them, and returns the result
+    fn evaluateTemplateExpressions:string (templateStr:string) {
+        def result:string ""
+        def len:int (strlen templateStr)
+        def i:int 0
+        
+        while (i < len) {
+            def ch:string (at templateStr i)
+            
+            ; Check for ${...} pattern
+            if (ch == "$") {
+                if ((i + 1) < len) {
+                    def nextCh:string (at templateStr (i + 1))
+                    if (nextCh == "{") {
+                        ; Found ${, now find the matching }
+                        def exprStart:int (i + 2)
+                        def braceDepth:int 1
+                        def j:int exprStart
+                        
+                        while ((j < len) && (braceDepth > 0)) {
+                            def c:string (at templateStr j)
+                            if (c == "{") {
+                                braceDepth = braceDepth + 1
+                            }
+                            if (c == "}") {
+                                braceDepth = braceDepth - 1
+                            }
+                            if (braceDepth > 0) {
+                                j = j + 1
+                            }
+                        }
+                        
+                        if (braceDepth == 0) {
+                            ; Extract the expression
+                            def exprStr:string (substring templateStr exprStart j)
+                            
+                            ; Parse and evaluate the expression
+                            def exprValue:string (this.evaluateTemplateExpression(exprStr))
+                            result = result + exprValue
+                            
+                            ; Move past the closing }
+                            i = j + 1
+                        } {
+                            ; No matching }, treat as literal
+                            result = result + ch
+                            i = i + 1
+                        }
+                    } {
+                        ; Just a $ without {
+                        result = result + ch
+                        i = i + 1
+                    }
+                } {
+                    ; $ at end of string
+                    result = result + ch
+                    i = i + 1
+                }
+            } {
+                ; Regular character
+                result = result + ch
+                i = i + 1
+            }
+        }
+        
+        return result
+    }
+    
+    ; Evaluates a single template expression string like "img.gps.latitude"
+    fn evaluateTemplateExpression:string (exprStr:string) {
+        ; Parse the expression using the TypeScript parser
+        def parser:TSParserSimple (new TSParserSimple(exprStr))
+        def ast:TSNode (parser.parseProgram())
+        
+        ; The AST should have a Program with one ExpressionStatement
+        if ((array_length ast.children) > 0) {
+            def stmt:TSNode (itemAt ast.children 0)
+            if (stmt.nodeType == "ExpressionStatement") {
+                if stmt.left {
+                    def exprNode:TSNode (unwrap stmt.left)
+                    def value:EvalValue (this.evaluateExpr(exprNode))
+                    return (value.toString())
+                }
+            }
+            ; Try direct expression evaluation
+            def value:EvalValue (this.evaluateExpr(stmt))
+            return (value.toString())
+        }
+        
+        ; Fallback: return the original expression
+        return ("${" + exprStr + "}")
+    }
+    
     ; ==========================================================================
     ; Hooks Implementation
     ; ==========================================================================
@@ -2347,6 +2497,126 @@ class ComponentEngine {
         push propValues marginsVal
         
         return (EvalValue.object(propNames propValues))
+    }
+    
+    ; Parse GPS coordinate string like "43° 28' 1.49"" into components
+    ; Returns an object with direction, degrees, minutes, seconds, originalValue
+    fn parseGPSCoordinate:EvalValue (direction:string coordStr:string originalValue:string) {
+        def names:[string]
+        def values:[EvalValue]
+        
+        ; direction (N, S, E, W)
+        push names "direction"
+        push values (EvalValue.string(direction))
+        
+        ; Parse the coordinate string format: "43° 28' 1.49""
+        ; Or it might be decimal format: "43.4670833"
+        def degrees:double 0.0
+        def minutes:double 0.0
+        def seconds:double 0.0
+        
+        ; Debug: print the coordinate string being parsed
+        print "parseGPSCoordinate: coordStr = '" + coordStr + "'"
+        
+        ; Check if contains degree symbol or space-separated DMS
+        def hasDegreeSym:boolean ((indexOf coordStr "°") >= 0)
+        if hasDegreeSym {
+            ; Parse DMS format: "43° 28' 1.49""
+            ; Extract numeric parts by filtering out non-numeric characters
+            
+            def degEnd:int (indexOf coordStr "°")
+            print "parseGPSCoordinate: degEnd = " + (to_string degEnd)
+            if (degEnd > 0) {
+                def degStr:string (substring coordStr 0 degEnd)
+                def cleanDegStr:string (this.extractNumber(degStr))
+                print "parseGPSCoordinate: degStr = '" + degStr + "' -> clean: '" + cleanDegStr + "'"
+                def degVal@(optional):double (to_double cleanDegStr)
+                if degVal {
+                    degrees = (unwrap degVal)
+                }
+            }
+            
+            ; Find minutes between ° and '
+            def minEnd:int (indexOf coordStr "'")
+            print "parseGPSCoordinate: minEnd = " + (to_string minEnd)
+            if (minEnd > degEnd) {
+                ; Extract text between degree symbol and minute marker
+                ; Account for multi-byte degree symbol by starting a bit further
+                def minStr:string (substring coordStr (degEnd + 1) minEnd)
+                def cleanMinStr:string (this.extractNumber(minStr))
+                print "parseGPSCoordinate: minStr = '" + minStr + "' -> clean: '" + cleanMinStr + "'"
+                def minVal@(optional):double (to_double cleanMinStr)
+                if minVal {
+                    minutes = (unwrap minVal)
+                }
+            }
+            
+            ; Find seconds between ' and " (or end)
+            def secEnd:int (indexOf coordStr "\"")
+            print "parseGPSCoordinate: secEnd = " + (to_string secEnd)
+            if (secEnd < 0) {
+                secEnd = (strlen coordStr)
+            }
+            if (secEnd > minEnd) {
+                def secStr:string (substring coordStr (minEnd + 1) secEnd)
+                def cleanSecStr:string (this.extractNumber(secStr))
+                print "parseGPSCoordinate: secStr = '" + secStr + "' -> clean: '" + cleanSecStr + "'"
+                def secVal@(optional):double (to_double cleanSecStr)
+                if secVal {
+                    seconds = (unwrap secVal)
+                }
+            }
+        } {
+            ; Assume decimal degrees format, convert to DMS
+            def decVal@(optional):double (to_double (trim coordStr))
+            if decVal {
+                def decimalDeg:double (unwrap decVal)
+                def degreesInt:int (floor decimalDeg)
+                degrees = (to_double degreesInt)
+                def minFloat:double ((decimalDeg - degrees) * 60.0)
+                def minutesInt:int (floor minFloat)
+                minutes = (to_double minutesInt)
+                seconds = ((minFloat - minutes) * 60.0)
+            }
+        }
+        
+        print "parseGPSCoordinate: degrees=" + (to_string degrees) + " minutes=" + (to_string minutes) + " seconds=" + (to_string seconds)
+        
+        ; degrees
+        push names "degrees"
+        push values (EvalValue.number(degrees))
+        
+        ; minutes
+        push names "minutes"
+        push values (EvalValue.number(minutes))
+        
+        ; seconds
+        push names "seconds"
+        push values (EvalValue.number(seconds))
+        
+        ; originalValue
+        push names "originalValue"
+        push values (EvalValue.string(originalValue))
+        
+        return (EvalValue.object(names values))
+    }
+    
+    ; Helper: Extract numeric characters (digits, decimal point, minus) from a string
+    fn extractNumber:string (str:string) {
+        def result:string ""
+        def i:int 0
+        def len:int (strlen str)
+        while (i < len) {
+            def chCode:int (charAt str i)
+            ; Check if character is digit (48-57), decimal point (46), or minus sign (45)
+            ; ASCII: '0'=48, '9'=57, '.'=46, '-'=45
+            if (((chCode >= 48) && (chCode <= 57)) || (chCode == 46) || (chCode == 45)) {
+                def chStr:string (substring str i (i + 1))
+                result = result + chStr
+            }
+            i = i + 1
+        }
+        return result
     }
     
     ; useImage(src) - returns image metadata as an object EvalValue
@@ -2425,15 +2695,22 @@ class ComponentEngine {
         push propNames "orientation"
         push propValues (EvalValue.number((to_double metadata.orientation)))
         
-        ; gps - create nested object if available
+        ; gps - create nested object with parsed components if available
         push propNames "gps"
         if metadata.hasGPS {
             def gpsNames:[string]
             def gpsValues:[EvalValue]
+            
+            ; Parse latitude into components
+            def latRaw:string (metadata.gpsLatitudeRef + " " + metadata.gpsLatitude)
             push gpsNames "latitude"
-            push gpsValues (EvalValue.string(metadata.gpsLatitudeRef + " " + metadata.gpsLatitude))
+            push gpsValues (this.parseGPSCoordinate(metadata.gpsLatitudeRef metadata.gpsLatitude latRaw))
+            
+            ; Parse longitude into components
+            def lonRaw:string (metadata.gpsLongitudeRef + " " + metadata.gpsLongitude)
             push gpsNames "longitude"
-            push gpsValues (EvalValue.string(metadata.gpsLongitudeRef + " " + metadata.gpsLongitude))
+            push gpsValues (this.parseGPSCoordinate(metadata.gpsLongitudeRef metadata.gpsLongitude lonRaw))
+            
             if ((strlen metadata.gpsAltitude) > 0) {
                 push gpsNames "altitude"
                 push gpsValues (EvalValue.string(metadata.gpsAltitude))
@@ -2462,6 +2739,37 @@ class ComponentEngine {
         ; bitsPerComponent
         push propNames "bitsPerComponent"
         push propValues (EvalValue.number((to_double metadata.bitsPerComponent)))
+        
+        ; features - flags indicating what EXIF data is available
+        push propNames "features"
+        def featNames:[string]
+        def featValues:[EvalValue]
+        
+        ; hasExif - true if we have any EXIF data
+        push featNames "hasExif"
+        def hasExif:boolean (((strlen metadata.dateTimeOriginal) > 0) || ((strlen metadata.cameraModel) > 0) || metadata.hasGPS || (metadata.orientation > 1))
+        push featValues (EvalValue.boolean(hasExif))
+        
+        ; hasGps
+        push featNames "hasGps"
+        push featValues (EvalValue.boolean(metadata.hasGPS))
+        
+        ; hasDateTime
+        push featNames "hasDateTime"
+        def hasDateTime:boolean (((strlen metadata.dateTimeOriginal) > 0) || ((strlen metadata.dateTime) > 0))
+        push featValues (EvalValue.boolean(hasDateTime))
+        
+        ; hasCamera
+        push featNames "hasCamera"
+        def hasCamera:boolean ((strlen metadata.cameraModel) > 0)
+        push featValues (EvalValue.boolean(hasCamera))
+        
+        ; hasOrientation
+        push featNames "hasOrientation"
+        def hasOrientation:boolean (metadata.orientation > 1)
+        push featValues (EvalValue.boolean(hasOrientation))
+        
+        push propValues (EvalValue.object(featNames featValues))
         
         return (EvalValue.object(propNames propValues))
     }

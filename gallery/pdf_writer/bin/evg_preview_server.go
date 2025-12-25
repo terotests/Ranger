@@ -5,6 +5,7 @@ import (
   "strconv"
   "os"
   "path/filepath"
+  "math"
   "encoding/base64"
   "net/http"
   "log"
@@ -7362,7 +7363,7 @@ func (this *JPEGMetadataParser) formatGPSCoordinate (offset int64, ref string) s
       seconds = strconv.FormatInt(secWhole, 10); 
     }
   }
-  return ((((((strconv.FormatInt(degrees, 10)) + "° ") + (strconv.FormatInt(minutes, 10))) + "' ") + seconds) + "\" ") + ref
+  return (((((strconv.FormatInt(degrees, 10)) + "° ") + (strconv.FormatInt(minutes, 10))) + "' ") + seconds) + "\""
 }
 func (this *JPEGMetadataParser) parseIFD (info *JPEGMetadataInfo, tiffStart int64, ifdOffset int64, ifdType int64) () {
   var pos int64= tiffStart + ifdOffset;
@@ -7779,6 +7780,7 @@ type ImportedSymbol struct {
   sourcePath string `json:"sourcePath"` 
   symbolType string `json:"symbolType"` 
   functionNode *GoNullable `json:"functionNode"` 
+  helperFunctions []*TSNode `json:"helperFunctions"` 
 }
 
 func CreateNew_ImportedSymbol() *ImportedSymbol {
@@ -7787,6 +7789,7 @@ func CreateNew_ImportedSymbol() *ImportedSymbol {
   me.originalName = ""
   me.sourcePath = ""
   me.symbolType = ""
+  me.helperFunctions = make([]*TSNode,0)
   me.functionNode = new(GoNullable);
   return me;
 }
@@ -8058,6 +8061,19 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
   importParser.initParser(tokens);
   importParser.tsxMode = true; 
   var importAst *TSNode= importParser.parseProgram();
+  var helperFns []*TSNode = make([]*TSNode, 0);
+  var hk int64= int64(0);
+  for hk < (int64(len(importAst.children))) {
+    var hstmt *TSNode= importAst.children[hk];
+    if  hstmt.nodeType == "FunctionDeclaration" {
+      var hfnName string= hstmt.name;
+      if  this.isInList(hfnName, importedNames) == false {
+        helperFns = append(helperFns,hstmt); 
+        fmt.Println( "  Found helper function: " + hfnName )
+      }
+    }
+    hk = hk + int64(1); 
+  }
   var k int64= int64(0);
   for k < (int64(len(importAst.children))) {
     var stmt *TSNode= importAst.children[k];
@@ -8074,6 +8090,7 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
             sym.symbolType = "component"; 
             sym.functionNode.value = declNode;
             sym.functionNode.has_value = true; /* detected as non-optional */
+            sym.helperFunctions = helperFns; 
             this.localComponents = append(this.localComponents,sym); 
             fmt.Println( (("Imported component: " + fnName) + " from ") + fullPath )
           }
@@ -8090,6 +8107,7 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
         sym_1.symbolType = "component"; 
         sym_1.functionNode.value = stmt;
         sym_1.functionNode.has_value = true; /* detected as non-optional */
+        sym_1.helperFunctions = helperFns; 
         this.localComponents = append(this.localComponents,sym_1); 
         fmt.Println( (("Imported component: " + fnName_1) + " from ") + fullPath )
       }
@@ -8703,6 +8721,15 @@ func (this *ComponentEngine) expandComponent (name string, jsxNode *TSNode) *EVG
       var props *EvalValue= this.evaluateProps(jsxNode);
       if ( sym.functionNode.has_value) {
         var fnNode *TSNode= sym.functionNode.value.(*TSNode);
+        var hi int64= int64(0);
+        for hi < (int64(len(sym.helperFunctions))) {
+          var helperFn *TSNode= sym.helperFunctions[hi];
+          var helperName string= helperFn.name;
+          var helperValue *EvalValue= EvalValue_static_function(helperFn);
+          this.context.value.(*EvalContext).define(helperName, helperValue);
+          fmt.Println( "Registered helper function: " + helperName )
+          hi = hi + int64(1); 
+        }
         return this.evaluateFunctionWithProps(fnNode, props)
       }
     }
@@ -9133,7 +9160,9 @@ func (this *ComponentEngine) evaluateExpr (node *TSNode) *EvalValue {
     for ti < (int64(len(node.children))) {
       var templateChild *TSNode= node.children[ti];
       if  templateChild.nodeType == "TemplateElement" {
-        templateText = templateText + templateChild.value; 
+        var rawText string= templateChild.value;
+        var processedText string= this.evaluateTemplateExpressions(rawText);
+        templateText = templateText + processedText; 
       }
       ti = ti + int64(1); 
     }
@@ -9212,6 +9241,7 @@ func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
         return this.evaluateUseImage(srcArg)
       }
       var fnValue *EvalValue= this.context.value.(*EvalContext).lookup(fnName);
+      fmt.Println( (((("Lookup function '" + fnName) + "' -> type=") + (strconv.FormatInt(fnValue.valueType, 10))) + " isFunction=") + (strconv.FormatBool(fnValue.isFunction())) )
       if  fnValue.isFunction() {
         if ( fnValue.functionNode.has_value) {
           var fnNode *TSNode= fnValue.functionNode.value.(*TSNode);
@@ -9220,6 +9250,21 @@ func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
           savedContext.has_value = this.context.has_value;
           this.context.value = this.context.value.(*EvalContext).createChild();
           this.context.has_value = true; /* detected as non-optional */
+          var numArgs int64= int64(len(node.children));
+          var numParams int64= int64(len(fnNode.params));
+          fmt.Println( ((((("Function " + fnName) + " called with ") + (strconv.FormatInt(numArgs, 10))) + " args, has ") + (strconv.FormatInt(numParams, 10))) + " params" )
+          var argIdx int64= int64(0);
+          for argIdx < numParams {
+            if  argIdx < numArgs {
+              var argNode_1 *TSNode= node.children[argIdx];
+              var argValue_1 *EvalValue= this.evaluateExpr(argNode_1);
+              var paramNode *TSNode= fnNode.params[argIdx];
+              var paramName string= paramNode.name;
+              fmt.Println( (("Binding param '" + paramName) + "' = ") + (argValue_1).toString() )
+              this.context.value.(*EvalContext).define(paramName, argValue_1);
+            }
+            argIdx = argIdx + int64(1); 
+          }
           var body *TSNode= this.getFunctionBody(fnNode);
           var result *EvalValue= this.evaluateFunctionBodyValue(body);
           this.context.value = savedContext.value;
@@ -9565,6 +9610,72 @@ func (this *ComponentEngine) unquote (s string) string {
   }
   return s
 }
+func (this *ComponentEngine) evaluateTemplateExpressions (templateStr string) string {
+  var result string= "";
+  var __len int64= int64(len([]rune(templateStr)));
+  var i int64= int64(0);
+  for i < __len {
+    var ch string= string([]rune(templateStr)[i]);
+    if  ch == "$" {
+      if  (i + int64(1)) < __len {
+        var nextCh string= string([]rune(templateStr)[(i + int64(1))]);
+        if  nextCh == "{" {
+          var exprStart int64= i + int64(2);
+          var braceDepth int64= int64(1);
+          var j int64= exprStart;
+          for (j < __len) && (braceDepth > int64(0)) {
+            var c string= string([]rune(templateStr)[j]);
+            if  c == "{" {
+              braceDepth = braceDepth + int64(1); 
+            }
+            if  c == "}" {
+              braceDepth = braceDepth - int64(1); 
+            }
+            if  braceDepth > int64(0) {
+              j = j + int64(1); 
+            }
+          }
+          if  braceDepth == int64(0) {
+            var exprStr string= string([]rune(templateStr)[exprStart:j]);
+            var exprValue string= this.evaluateTemplateExpression(exprStr);
+            result = result + exprValue; 
+            i = j + int64(1); 
+          } else {
+            result = result + ch; 
+            i = i + int64(1); 
+          }
+        } else {
+          result = result + ch; 
+          i = i + int64(1); 
+        }
+      } else {
+        result = result + ch; 
+        i = i + int64(1); 
+      }
+    } else {
+      result = result + ch; 
+      i = i + int64(1); 
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateTemplateExpression (exprStr string) string {
+  var parser_1 *TSParserSimple= CreateNew_TSParserSimple();
+  var ast *TSNode= parser_1.parseProgram();
+  if  (int64(len(ast.children))) > int64(0) {
+    var stmt *TSNode= ast.children[int64(0)];
+    if  stmt.nodeType == "ExpressionStatement" {
+      if ( stmt.left.has_value) {
+        var exprNode *TSNode= stmt.left.value.(*TSNode);
+        var value *EvalValue= this.evaluateExpr(exprNode);
+        return (value).toString()
+      }
+    }
+    var value_1 *EvalValue= this.evaluateExpr(stmt);
+    return (value_1).toString()
+  }
+  return ("${" + exprStr) + "}"
+}
 func (this *ComponentEngine) evaluateUsePrintSettings () *EvalValue {
   fmt.Println( "Hook: usePrintSettings() called" )
   var propNames []string = make([]string, 0);
@@ -9598,6 +9709,94 @@ func (this *ComponentEngine) evaluateUsePrintSettings () *EvalValue {
   var marginsVal *EvalValue= EvalValue_static_object(marginNames, marginValues);
   propValues = append(propValues,marginsVal); 
   return EvalValue_static_object(propNames, propValues)
+}
+func (this *ComponentEngine) parseGPSCoordinate (direction string, coordStr string, originalValue string) *EvalValue {
+  var names []string = make([]string, 0);
+  var values []*EvalValue = make([]*EvalValue, 0);
+  names = append(names,"direction"); 
+  values = append(values,EvalValue_static_string(direction)); 
+  var degrees float64= 0.0;
+  var minutes float64= 0.0;
+  var seconds float64= 0.0;
+  fmt.Println( ("parseGPSCoordinate: coordStr = '" + coordStr) + "'" )
+  var hasDegreeSym bool= (int64(strings.Index(coordStr, "°"))) >= int64(0);
+  if  hasDegreeSym {
+    var degEnd int64= int64(strings.Index(coordStr, "°"));
+    fmt.Println( "parseGPSCoordinate: degEnd = " + (strconv.FormatInt(degEnd, 10)) )
+    if  degEnd > int64(0) {
+      var degStr string= string([]rune(coordStr)[int64(0):degEnd]);
+      var cleanDegStr string= this.extractNumber(degStr);
+      fmt.Println( ((("parseGPSCoordinate: degStr = '" + degStr) + "' -> clean: '") + cleanDegStr) + "'" )
+      var degVal *GoNullable = new(GoNullable); 
+      degVal = r_str_2_d64(cleanDegStr);
+      if ( degVal.has_value) {
+        degrees = degVal.value.(float64); 
+      }
+    }
+    var minEnd int64= int64(strings.Index(coordStr, "'"));
+    fmt.Println( "parseGPSCoordinate: minEnd = " + (strconv.FormatInt(minEnd, 10)) )
+    if  minEnd > degEnd {
+      var minStr string= string([]rune(coordStr)[(degEnd + int64(1)):minEnd]);
+      var cleanMinStr string= this.extractNumber(minStr);
+      fmt.Println( ((("parseGPSCoordinate: minStr = '" + minStr) + "' -> clean: '") + cleanMinStr) + "'" )
+      var minVal *GoNullable = new(GoNullable); 
+      minVal = r_str_2_d64(cleanMinStr);
+      if ( minVal.has_value) {
+        minutes = minVal.value.(float64); 
+      }
+    }
+    var secEnd int64= int64(strings.Index(coordStr, "\""));
+    fmt.Println( "parseGPSCoordinate: secEnd = " + (strconv.FormatInt(secEnd, 10)) )
+    if  secEnd < int64(0) {
+      secEnd = int64(len([]rune(coordStr))); 
+    }
+    if  secEnd > minEnd {
+      var secStr string= string([]rune(coordStr)[(minEnd + int64(1)):secEnd]);
+      var cleanSecStr string= this.extractNumber(secStr);
+      fmt.Println( ((("parseGPSCoordinate: secStr = '" + secStr) + "' -> clean: '") + cleanSecStr) + "'" )
+      var secVal *GoNullable = new(GoNullable); 
+      secVal = r_str_2_d64(cleanSecStr);
+      if ( secVal.has_value) {
+        seconds = secVal.value.(float64); 
+      }
+    }
+  } else {
+    var decVal *GoNullable = new(GoNullable); 
+    decVal = r_str_2_d64((strings.TrimSpace(coordStr)));
+    if ( decVal.has_value) {
+      var decimalDeg float64= decVal.value.(float64);
+      var degreesInt int64= int64(math.Floor(decimalDeg));
+      degrees = float64( degreesInt ); 
+      var minFloat float64= (decimalDeg - degrees) * 60.0;
+      var minutesInt int64= int64(math.Floor(minFloat));
+      minutes = float64( minutesInt ); 
+      seconds = (minFloat - minutes) * 60.0; 
+    }
+  }
+  fmt.Println( (((("parseGPSCoordinate: degrees=" + (strconv.FormatFloat(degrees,'f', 6, 64))) + " minutes=") + (strconv.FormatFloat(minutes,'f', 6, 64))) + " seconds=") + (strconv.FormatFloat(seconds,'f', 6, 64)) )
+  names = append(names,"degrees"); 
+  values = append(values,EvalValue_static_number(degrees)); 
+  names = append(names,"minutes"); 
+  values = append(values,EvalValue_static_number(minutes)); 
+  names = append(names,"seconds"); 
+  values = append(values,EvalValue_static_number(seconds)); 
+  names = append(names,"originalValue"); 
+  values = append(values,EvalValue_static_string(originalValue)); 
+  return EvalValue_static_object(names, values)
+}
+func (this *ComponentEngine) extractNumber (str string) string {
+  var result string= "";
+  var i int64= int64(0);
+  var __len int64= int64(len([]rune(str)));
+  for i < __len {
+    var chCode int64= int64([]rune(str)[i]);
+    if  (((chCode >= int64(48)) && (chCode <= int64(57))) || (chCode == int64(46))) || (chCode == int64(45)) {
+      var chStr string= string([]rune(str)[i:(i + int64(1))]);
+      result = result + chStr; 
+    }
+    i = i + int64(1); 
+  }
+  return result
 }
 func (this *ComponentEngine) evaluateUseImage (src string) *EvalValue {
   var resolvedPath string= src;
@@ -9654,10 +9853,12 @@ func (this *ComponentEngine) evaluateUseImage (src string) *EvalValue {
   if  metadata.hasGPS {
     var gpsNames []string = make([]string, 0);
     var gpsValues []*EvalValue = make([]*EvalValue, 0);
+    var latRaw string= (metadata.gpsLatitudeRef + " ") + metadata.gpsLatitude;
     gpsNames = append(gpsNames,"latitude"); 
-    gpsValues = append(gpsValues,EvalValue_static_string(((metadata.gpsLatitudeRef + " ") + metadata.gpsLatitude))); 
+    gpsValues = append(gpsValues,this.parseGPSCoordinate(metadata.gpsLatitudeRef, metadata.gpsLatitude, latRaw)); 
+    var lonRaw string= (metadata.gpsLongitudeRef + " ") + metadata.gpsLongitude;
     gpsNames = append(gpsNames,"longitude"); 
-    gpsValues = append(gpsValues,EvalValue_static_string(((metadata.gpsLongitudeRef + " ") + metadata.gpsLongitude))); 
+    gpsValues = append(gpsValues,this.parseGPSCoordinate(metadata.gpsLongitudeRef, metadata.gpsLongitude, lonRaw)); 
     if  (int64(len([]rune(metadata.gpsAltitude)))) > int64(0) {
       gpsNames = append(gpsNames,"altitude"); 
       gpsValues = append(gpsValues,EvalValue_static_string(metadata.gpsAltitude)); 
@@ -9682,6 +9883,24 @@ func (this *ComponentEngine) evaluateUseImage (src string) *EvalValue {
   }
   propNames = append(propNames,"bitsPerComponent"); 
   propValues = append(propValues,EvalValue_static_number((float64( metadata.bitsPerComponent )))); 
+  propNames = append(propNames,"features"); 
+  var featNames []string = make([]string, 0);
+  var featValues []*EvalValue = make([]*EvalValue, 0);
+  featNames = append(featNames,"hasExif"); 
+  var hasExif bool= ((((int64(len([]rune(metadata.dateTimeOriginal)))) > int64(0)) || ((int64(len([]rune(metadata.cameraModel)))) > int64(0))) || metadata.hasGPS) || (metadata.orientation > int64(1));
+  featValues = append(featValues,EvalValue_static_boolean(hasExif)); 
+  featNames = append(featNames,"hasGps"); 
+  featValues = append(featValues,EvalValue_static_boolean(metadata.hasGPS)); 
+  featNames = append(featNames,"hasDateTime"); 
+  var hasDateTime bool= ((int64(len([]rune(metadata.dateTimeOriginal)))) > int64(0)) || ((int64(len([]rune(metadata.dateTime)))) > int64(0));
+  featValues = append(featValues,EvalValue_static_boolean(hasDateTime)); 
+  featNames = append(featNames,"hasCamera"); 
+  var hasCamera bool= (int64(len([]rune(metadata.cameraModel)))) > int64(0);
+  featValues = append(featValues,EvalValue_static_boolean(hasCamera)); 
+  featNames = append(featNames,"hasOrientation"); 
+  var hasOrientation bool= metadata.orientation > int64(1);
+  featValues = append(featValues,EvalValue_static_boolean(hasOrientation)); 
+  propValues = append(propValues,EvalValue_static_object(featNames, featValues)); 
   return EvalValue_static_object(propNames, propValues)
 }
 func (this *ComponentEngine) setPrintSettings (format string, orientation string, width float64, height float64) () {

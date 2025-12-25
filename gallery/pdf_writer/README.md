@@ -680,6 +680,150 @@ function render() {
 - **Reusability**: Extract repeated patterns into components
 - **Organization**: Keep components in a `components/` directory
 
+#### Helper Functions in Components
+
+Non-exported functions defined in component files are automatically available within the component's scope. This allows you to define utility functions alongside your components without explicitly exporting them.
+
+```tsx
+// components/ImageDataCard.tsx
+import { View, Label, useImage } from "../evg_types";
+
+// Helper function - NOT exported, but available within the component
+function formatCoord(coord: { direction: string; degrees: number; minutes: number; seconds: number }): string {
+  return coord.direction + " " + coord.degrees + "° " + coord.minutes + "' " + coord.seconds.toFixed(2) + '"';
+}
+
+// Exported component can use the helper
+export function ImageDataCard({ src }: { src: string }) {
+  const img = useImage(src);
+  
+  return (
+    <View padding={16}>
+      <Label>GPS: {img.gps ? formatCoord(img.gps.latitude) : "N/A"}</Label>
+    </View>
+  );
+}
+```
+
+When you import `ImageDataCard` in another file, the helper function `formatCoord` is automatically registered in the component's evaluation context, allowing the component to work correctly without needing to export the helper.
+
+**Note:** Helper functions are scoped to their component file and not available to the importing file's other code.
+
+### Hooks
+
+The ComponentEngine provides React-like hooks for accessing document context and image metadata. These hooks work in both the main document and within imported components.
+
+#### usePrintSettings()
+
+Returns print/page settings from the nearest `<Print>` element ancestor.
+
+```tsx
+import { usePrintSettings } from "./evg_types";
+
+function render() {
+  const settings = usePrintSettings();
+  
+  // Access page information
+  const isLandscape = settings.orientation === "landscape";
+  const columnsCount = isLandscape ? 3 : 2;
+  
+  return (
+    <View>
+      <Label>Page: {settings.format} ({settings.width} × {settings.height})</Label>
+      <Label>Orientation: {settings.orientation}</Label>
+      <Label>Margins: {settings.margins.top}px</Label>
+    </View>
+  );
+}
+```
+
+**PrintSettings interface:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `format` | `string` | Page format (e.g., "a4", "letter") |
+| `width` | `number` | Page width in pixels |
+| `height` | `number` | Page height in pixels |
+| `orientation` | `"portrait" \| "landscape"` | Page orientation |
+| `pageCount` | `number` | Total number of pages |
+| `margins` | `{ top, right, bottom, left }` | Page margins in pixels |
+
+#### useImage(src)
+
+Returns metadata for an image file, including dimensions and EXIF data.
+
+```tsx
+import { useImage } from "./evg_types";
+
+function PhotoInfo({ src }: { src: string }) {
+  const img = useImage(src);
+  
+  return (
+    <View padding={16}>
+      <Label>{img.width} × {img.height}</Label>
+      {img.createdAt && <Label>📅 {img.createdAt}</Label>}
+      {img.camera && <Label>📷 {img.camera}</Label>}
+      {img.gps && <Label>📍 GPS data available</Label>}
+    </View>
+  );
+}
+```
+
+**ImageMetadata interface:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `width` | `number` | Image width in pixels |
+| `height` | `number` | Image height in pixels |
+| `createdAt` | `string \| null` | Creation date from EXIF |
+| `camera` | `string \| null` | Camera make and model |
+| `orientation` | `number` | EXIF orientation (1-8) |
+| `colorSpace` | `string` | Color space (e.g., "RGB") |
+| `bitsPerComponent` | `number` | Bits per color component |
+| `gps` | `GPSLocation \| null` | GPS coordinates |
+| `features` | `ImageFeatures` | Flags for available EXIF data |
+
+**GPSLocation interface:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `latitude` | `GPSCoordinate` | Latitude with direction, degrees, minutes, seconds |
+| `longitude` | `GPSCoordinate` | Longitude with direction, degrees, minutes, seconds |
+| `altitude` | `string \| undefined` | Altitude if available |
+
+**GPSCoordinate interface:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `direction` | `string` | N, S, E, or W |
+| `degrees` | `number` | Degrees component |
+| `minutes` | `number` | Minutes component |
+| `seconds` | `number` | Seconds component |
+| `originalValue` | `string` | Raw EXIF string |
+
+**Example with GPS formatting:**
+
+```tsx
+function formatGPS(coord: GPSCoordinate): string {
+  return `${coord.direction} ${coord.degrees}° ${coord.minutes}' ${coord.seconds.toFixed(2)}"`;
+}
+
+function LocationCard({ src }: { src: string }) {
+  const img = useImage(src);
+  
+  if (!img.gps) {
+    return <Label>No GPS data</Label>;
+  }
+  
+  return (
+    <View padding={16}>
+      <Label>Latitude: {formatGPS(img.gps.latitude)}</Label>
+      <Label>Longitude: {formatGPS(img.gps.longitude)}</Label>
+    </View>
+  );
+}
+```
+
 ### Photo Album Components
 
 The `components/PhotoLayouts.tsx` file provides pre-built Higher-Order Components for creating photo album layouts:

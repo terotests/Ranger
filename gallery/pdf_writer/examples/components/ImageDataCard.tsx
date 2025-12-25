@@ -5,6 +5,11 @@ interface ImageDataCardProps {
   src: string;
 }
 
+// Helper to format GPS coordinate for display
+function formatCoord(coord: { direction: string; degrees: number; minutes: number; seconds: number }): string {
+  return coord.direction + " " + coord.degrees + "° " + coord.minutes + "' " + coord.seconds.toFixed(2) + '"';
+}
+
 // Component that displays image metadata for a given source
 function ImageDataCard(props: ImageDataCardProps) {
   const img = useImage(props.src);
@@ -17,7 +22,7 @@ function ImageDataCard(props: ImageDataCardProps) {
       
       <View padding={10} backgroundColor="#ffffff" borderRadius={6} marginBottom={6}>
         <Label fontSize={11} color="#64748b">Dimensions</Label>
-        <Label fontSize={16} fontWeight="bold" color="#0f172a">{`${img.width} × ${img.height}`}</Label>
+        <Label fontSize={16} fontWeight="bold" color="#0f172a">{img.width + " × " + img.height}</Label>
       </View>
       
       <View padding={10} backgroundColor="#ffffff" borderRadius={6} marginBottom={6}>
@@ -27,12 +32,12 @@ function ImageDataCard(props: ImageDataCardProps) {
       
       <View padding={10} backgroundColor="#ffffff" borderRadius={6} marginBottom={6}>
         <Label fontSize={11} color="#64748b">Bits per Component</Label>
-        <Label fontSize={16} fontWeight="bold" color="#0f172a">{`${img.bitsPerComponent}`}</Label>
+        <Label fontSize={16} fontWeight="bold" color="#0f172a">{img.bitsPerComponent + ""}</Label>
       </View>
       
       <View padding={10} backgroundColor="#ffffff" borderRadius={6} marginBottom={6}>
         <Label fontSize={11} color="#64748b">EXIF Orientation</Label>
-        <Label fontSize={16} fontWeight="bold" color="#0f172a">{`${img.orientation}`}</Label>
+        <Label fontSize={16} fontWeight="bold" color="#0f172a">{img.orientation + ""}</Label>
       </View>
       
       <View padding={10} backgroundColor="#ffffff" borderRadius={6} marginBottom={6}>
@@ -45,9 +50,21 @@ function ImageDataCard(props: ImageDataCardProps) {
         <Label fontSize={16} fontWeight="bold" color="#0f172a">{img.camera || "N/A"}</Label>
       </View>
       
-      <View padding={10} backgroundColor="#ffffff" borderRadius={6}>
-        <Label fontSize={11} color="#64748b">GPS Location</Label>
-        <Label fontSize={16} fontWeight="bold" color="#0f172a">{img.gps ? img.gps.latitude + ", " + img.gps.longitude : "N/A"}</Label>
+      <View padding={10} backgroundColor="#ffffff" borderRadius={6} marginBottom={6}>
+        <Label fontSize={11} color="#64748b">GPS Latitude</Label>
+        <Label fontSize={16} fontWeight="bold" color="#0f172a">{img.gps ? formatCoord(img.gps.latitude) : "N/A"}</Label>
+        <Label fontSize={10} color="#94a3b8">{img.gps ? "Raw: " + img.gps.latitude.originalValue : ""}</Label>
+      </View>
+      
+      <View padding={10} backgroundColor="#ffffff" borderRadius={6} marginBottom={6}>
+        <Label fontSize={11} color="#64748b">GPS Longitude</Label>
+        <Label fontSize={16} fontWeight="bold" color="#0f172a">{img.gps ? formatCoord(img.gps.longitude) : "N/A"}</Label>
+        <Label fontSize={10} color="#94a3b8">{img.gps ? "Raw: " + img.gps.longitude.originalValue : ""}</Label>
+      </View>
+      
+      <View padding={10} backgroundColor="#e0f2fe" borderRadius={6}>
+        <Label fontSize={11} color="#64748b">Available Features</Label>
+        <Label fontSize={12} color="#0369a1">{"EXIF: " + (img.features.hasExif ? "✓" : "✗") + "  GPS: " + (img.features.hasGps ? "✓" : "✗") + "  Date: " + (img.features.hasDateTime ? "✓" : "✗") + "  Camera: " + (img.features.hasCamera ? "✓" : "✗")}</Label>
       </View>
     </View>
   );

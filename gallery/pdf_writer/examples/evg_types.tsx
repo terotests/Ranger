@@ -519,6 +519,37 @@ export interface PrintSettings {
  * Image metadata returned by useImage() hook.
  * Contains dimensions and EXIF data from JPEG images.
  */
+
+/** GPS coordinate component with degrees, minutes, seconds */
+export interface GPSCoordinate {
+  /** Direction: N, S, E, or W */
+  direction: string;
+  /** Degrees component */
+  degrees: number;
+  /** Minutes component */
+  minutes: number;
+  /** Seconds component */
+  seconds: number;
+  /** Original raw string value from EXIF */
+  originalValue: string;
+}
+
+/** GPS location data */
+export interface GPSLocation {
+  latitude: GPSCoordinate;
+  longitude: GPSCoordinate;
+  altitude?: string;
+}
+
+/** Feature flags indicating what EXIF data is available */
+export interface ImageFeatures {
+  hasExif: boolean;
+  hasGps: boolean;
+  hasDateTime: boolean;
+  hasCamera: boolean;
+  hasOrientation: boolean;
+}
+
 export interface ImageMetadata {
   /** Image width in pixels */
   width: number;
@@ -531,11 +562,13 @@ export interface ImageMetadata {
   /** EXIF orientation value (1-8, 1 = normal) */
   orientation: number;
   /** GPS coordinates from EXIF (null if not available) */
-  gps: { latitude: string; longitude: string; altitude?: string } | null;
+  gps: GPSLocation | null;
   /** Color space (e.g., "RGB", "CMYK") */
   colorSpace: string;
   /** Bits per color component */
   bitsPerComponent: number;
+  /** Feature flags indicating what data is available */
+  features: ImageFeatures;
 }
 
 /**

@@ -276,7 +276,8 @@ class JPEGMetadataParser {
             }
         }
         
-        return (to_string degrees) + "° " + (to_string minutes) + "' " + seconds + "\" " + ref
+        ; Return coordinate without the direction - direction is stored separately in gpsLatitudeRef/gpsLongitudeRef
+        return (to_string degrees) + "° " + (to_string minutes) + "' " + seconds + "\""
     }
     
     fn parseIFD:void (info:JPEGMetadataInfo tiffStart:int ifdOffset:int ifdType:int) {

@@ -6,7 +6,7 @@ import { ImageDataCard } from "./components/ImageDataCard";
 // Main render function - uses components that internally call hooks
 function render() {
   return (
-    <Print format="magazine" orientation="portrait">
+    <Print format="a4" orientation="portrait">
       <Section>
         <Page>
           {/* Header */}
