@@ -16,6 +16,12 @@ class EVGElement {
     def tagName:string "div"
     def elementType:int 0
     
+    ; Print/Book format properties
+    def format:string ""           ; Book format: "a4", "trade-5x8", "large-square", etc.
+    def orientation:string ""      ; "portrait" or "landscape"
+    def pageWidth:double 0.0       ; Resolved page width in points
+    def pageHeight:double 0.0      ; Resolved page height in points
+    
     ; Tree structure
     def parent@(optional):EVGElement
     def children:[EVGElement]
@@ -53,7 +59,7 @@ class EVGElement {
     
     ; Typography (inherited)
     def fontSize:EVGUnit
-    def fontFamily:string "Helvetica"
+    def fontFamily:string "Noto Sans"
     def fontWeight:string "normal"
     def lineHeight:double 1.2
     def textAlign:string "left"
@@ -99,8 +105,16 @@ class EVGElement {
     def imageViewBoxW:double 1.0
     def imageViewBoxH:double 1.0
     def imageViewBoxSet:boolean false
+    ; Image offset for positioning within container (can be negative)
+    ; Works with object-position CSS property
+    def imageOffsetX:EVGUnit
+    def imageOffsetY:EVGUnit
     ; Image sizing: "cover", "contain", "fill", "none"
-    def objectFit:string "fill"
+    ; Default is "cover" - preserves aspect ratio, fills container, clips overflow
+    def objectFit:string "cover"
+    ; Original image dimensions (set by image loader)
+    def sourceWidth:double 0.0
+    def sourceHeight:double 0.0
     
     ; SVG Path properties
     def svgPath:string ""
@@ -147,6 +161,9 @@ class EVGElement {
     def isLayoutComplete:boolean false
     def unitsResolved:boolean false
     
+    ; For statement evaluation: indicates if a return was executed
+    def hasReturn:boolean false
+    
     ; Inherited font size in pixels
     def inheritedFontSize:double 14.0
     
@@ -180,6 +197,9 @@ class EVGElement {
         shadowColor = (EVGColor.noColor())
         shadowOffsetX = (EVGUnit.unset())
         shadowOffsetY = (EVGUnit.unset())
+        
+        imageOffsetX = (EVGUnit.unset())
+        imageOffsetY = (EVGUnit.unset())
         
         fillColor = (EVGColor.noColor())
         strokeColor = (EVGColor.noColor())
@@ -268,6 +288,10 @@ class EVGElement {
     
     fn hasAbsolutePosition:boolean () {
         ; Check if element has absolute positioning
+        ; Layer elements are always absolute (overlay parent)
+        if ((tagName == "layer") || (tagName == "Layer")) {
+            return true
+        }
         if left.isSet {
             return true
         }
@@ -289,9 +313,96 @@ class EVGElement {
         return false
     }
     
+    ; Resolve book format to page dimensions in points (72 DPI)
+    ; Returns [width, height] based on format and orientation
+    fn resolveBookFormat:void () {
+        def w:double 595.0   ; Default A4 width
+        def h:double 842.0   ; Default A4 height
+        
+        ; Blurb book formats (width x height in points @ 72 DPI)
+        if (format == "a4") {
+            w = 595.0
+            h = 842.0
+        }
+        if (format == "letter") {
+            w = 612.0
+            h = 792.0
+        }
+        if (format == "trade-5x8") {
+            w = 360.0
+            h = 576.0
+        }
+        if (format == "trade-6x9") {
+            w = 432.0
+            h = 648.0
+        }
+        if (format == "trade-8x10") {
+            w = 576.0
+            h = 720.0
+        }
+        if (format == "mini-square") {
+            w = 360.0
+            h = 360.0
+        }
+        if (format == "small-square") {
+            w = 504.0
+            h = 504.0
+        }
+        if (format == "standard-portrait") {
+            w = 576.0
+            h = 720.0
+        }
+        if (format == "standard-landscape") {
+            w = 720.0
+            h = 576.0
+        }
+        if (format == "large-landscape") {
+            w = 936.0
+            h = 792.0
+        }
+        if (format == "large-square") {
+            w = 864.0
+            h = 864.0
+        }
+        if (format == "magazine") {
+            w = 612.0
+            h = 792.0
+        }
+        
+        ; Apply orientation (swap dimensions for landscape if not already landscape format)
+        if (orientation == "landscape") {
+            if (w < h) {
+                ; Swap width and height for landscape
+                def temp:double w
+                w = h
+                h = temp
+            }
+        }
+        if (orientation == "portrait") {
+            if (w > h) {
+                ; Swap width and height for portrait
+                def temp:double w
+                w = h
+                h = temp
+            }
+        }
+        
+        ; If custom dimensions provided, use them
+        if (pageWidth > 0.0) {
+            w = pageWidth
+        }
+        if (pageHeight > 0.0) {
+            h = pageHeight
+        }
+        
+        ; Store resolved dimensions
+        pageWidth = w
+        pageHeight = h
+    }
+    
     fn inheritProperties:void (parentEl:EVGElement) {
         ; Inherit properties from parent
-        if (fontFamily == "Helvetica") {
+        if (fontFamily == "Noto Sans") {
             fontFamily = parentEl.fontFamily
         }
         if (color.isSet == false) {
@@ -347,6 +458,30 @@ class EVGElement {
         
         if (name == "id") {
             id = value
+            return
+        }
+        
+        ; Book format properties
+        if (name == "format") {
+            format = (to_lowercase value)
+            return
+        }
+        if (name == "orientation") {
+            orientation = (to_lowercase value)
+            return
+        }
+        if (name == "pageWidth") {
+            def pw@(optional):double (to_double value)
+            if pw {
+                pageWidth = (unwrap pw)
+            }
+            return
+        }
+        if (name == "pageHeight") {
+            def ph@(optional):double (to_double value)
+            if ph {
+                pageHeight = (unwrap ph)
+            }
             return
         }
         
@@ -489,6 +624,20 @@ class EVGElement {
         if (name == "opacity") {
             def val@(optional):double (to_double value)
             opacity = (unwrap val)
+            return
+        }
+        
+        ; Image properties
+        if ((name == "object-fit") || (name == "objectFit")) {
+            objectFit = value
+            return
+        }
+        if ((name == "image-offset-x") || (name == "imageOffsetX")) {
+            imageOffsetX = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "image-offset-y") || (name == "imageOffsetY")) {
+            imageOffsetY = (EVGUnit.parse(value))
             return
         }
         

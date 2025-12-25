@@ -263,6 +263,33 @@ declare global {
 // Print Document Props
 // =============================================================================
 
+/**
+ * Book/document format presets based on Blurb standard sizes.
+ * Dimensions are in points (1 inch = 72 points).
+ */
+export type BookFormat =
+  // Standard paper sizes
+  | "a4"                    // 595×842 pts (8.27×11.69") - ISO A4
+  | "letter"                // 612×792 pts (8.5×11") - US Letter
+  // Trade book sizes (common for novels and non-fiction)
+  | "trade-5x8"             // 360×576 pts (5×8")
+  | "trade-6x9"             // 432×648 pts (6×9")
+  | "trade-8x10"            // 576×720 pts (8×10")
+  // Square formats (great for photo books)
+  | "mini-square"           // 360×360 pts (5×5" / 13×13cm)
+  | "small-square"          // 504×504 pts (7×7" / 18×18cm)
+  | "large-square"          // 864×864 pts (12×12" / 30×30cm)
+  // Standard photo book sizes
+  | "standard-portrait"     // 576×720 pts (8×10")
+  | "standard-landscape"    // 720×576 pts (10×8")
+  // Large format
+  | "large-landscape"       // 936×720 pts (13×10")
+  // Magazine
+  | "magazine";             // 612×792 pts (8.5×11")
+
+/** Page orientation */
+export type PageOrientation = "portrait" | "landscape";
+
 /** Print document properties - top-level container */
 export interface EVGPrintProps {
   children?: any;
@@ -270,6 +297,22 @@ export interface EVGPrintProps {
   title?: string;
   /** Document author for metadata */
   author?: string;
+  /** 
+   * Book format preset - defines page dimensions.
+   * Choose from standard paper sizes, trade book sizes, square formats, or photo book sizes.
+   * @default "a4"
+   */
+  format?: BookFormat;
+  /**
+   * Page orientation - portrait or landscape.
+   * For square formats, orientation has no effect.
+   * @default "portrait"
+   */
+  orientation?: PageOrientation;
+  /** JPEG quality for embedded images (1-100) */
+  imageQuality?: string;
+  /** Maximum image dimension in pixels */
+  maxImageSize?: string;
 }
 
 /** Section properties - groups pages with shared settings */
@@ -443,5 +486,128 @@ export const View = (props: EVGViewProps): any => null;
 export const Label = (props: EVGTextProps): any => null;
 export const Image = (props: EVGImageProps): any => null;
 export const Path = (props: EVGPathProps): any => null;
+
+// =============================================================================
+// Hooks - React-like hooks for accessing document context
+// =============================================================================
+
+/**
+ * Print settings returned by usePrintSettings() hook.
+ * Contains page dimensions, format, and margin information.
+ */
+export interface PrintSettings {
+  /** Page format (e.g., "a4", "letter", "large-square") */
+  format: string;
+  /** Page width in pixels */
+  width: number;
+  /** Page height in pixels */
+  height: number;
+  /** Page orientation: "portrait" or "landscape" */
+  orientation: "portrait" | "landscape";
+  /** Total number of pages in the document */
+  pageCount: number;
+  /** Page margins */
+  margins: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  };
+}
+
+/**
+ * Image metadata returned by useImage() hook.
+ * Contains dimensions and EXIF data from JPEG images.
+ */
+
+/** GPS coordinate component with degrees, minutes, seconds */
+export interface GPSCoordinate {
+  /** Direction: N, S, E, or W */
+  direction: string;
+  /** Degrees component */
+  degrees: number;
+  /** Minutes component */
+  minutes: number;
+  /** Seconds component */
+  seconds: number;
+  /** Original raw string value from EXIF */
+  originalValue: string;
+}
+
+/** GPS location data */
+export interface GPSLocation {
+  latitude: GPSCoordinate;
+  longitude: GPSCoordinate;
+  altitude?: string;
+}
+
+/** Feature flags indicating what EXIF data is available */
+export interface ImageFeatures {
+  hasExif: boolean;
+  hasGps: boolean;
+  hasDateTime: boolean;
+  hasCamera: boolean;
+  hasOrientation: boolean;
+}
+
+export interface ImageMetadata {
+  /** Image width in pixels */
+  width: number;
+  /** Image height in pixels */
+  height: number;
+  /** Image creation date from EXIF (null if not available) */
+  createdAt: string | null;
+  /** Camera make and model from EXIF (null if not available) */
+  camera: string | null;
+  /** EXIF orientation value (1-8, 1 = normal) */
+  orientation: number;
+  /** GPS coordinates from EXIF (null if not available) */
+  gps: GPSLocation | null;
+  /** Color space (e.g., "RGB", "CMYK") */
+  colorSpace: string;
+  /** Bits per color component */
+  bitsPerComponent: number;
+  /** Feature flags indicating what data is available */
+  features: ImageFeatures;
+}
+
+/**
+ * Hook to get current print/page settings.
+ * Returns format, dimensions, orientation, and margins from the <Print> element.
+ * 
+ * @example
+ * ```tsx
+ * function render() {
+ *   const settings = usePrintSettings();
+ *   const isLandscape = settings.orientation === "landscape";
+ *   const columnsCount = isLandscape ? 3 : 2;
+ *   // ... use settings.width, settings.height, etc.
+ * }
+ * ```
+ */
+export declare function usePrintSettings(): PrintSettings;
+
+/**
+ * Hook to get metadata for an image file.
+ * Returns dimensions and EXIF data (creation date, camera, GPS, etc.)
+ * 
+ * @param src - Path to the image file
+ * @returns Image metadata including dimensions and EXIF data
+ * 
+ * @example
+ * ```tsx
+ * function PhotoInfo({ src }: { src: string }) {
+ *   const img = useImage(src);
+ *   return (
+ *     <View>
+ *       <Label>{img.width} × {img.height}</Label>
+ *       {img.createdAt && <Label>📅 {img.createdAt}</Label>}
+ *       {img.camera && <Label>📷 {img.camera}</Label>}
+ *     </View>
+ *   );
+ * }
+ * ```
+ */
+export declare function useImage(src: string): ImageMetadata;
 
 export default {};

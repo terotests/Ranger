@@ -27,6 +27,12 @@ generated/bin/
 *.exe
 *.pdb
 
+# Go compiled binaries in gallery/pdf_writer/bin
+gallery/pdf_writer/bin/evg_preview_server
+gallery/pdf_writer/bin/evg_html_tool
+gallery/pdf_writer/bin/evg_tool
+gallery/pdf_writer/bin/evg_component_tool_go
+
 # Seems to work ok...
 
 

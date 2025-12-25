@@ -268,6 +268,25 @@ class EVGPDFRenderer {
         def reader:JPEGReader (new JPEGReader())
         def jpegImage:JPEGImage (reader.readJPEG(imgDir imgFile))
         
+        ; If file not found, try with ./assets/ prefix (same fallback as ResourceLoader)
+        if (jpegImage.isValid == false) {
+            def altDirPath:string ""
+            if ((indexOf src "./") == 0) {
+                ; ./images/photo.jpg -> ./assets/images/photo.jpg
+                altDirPath = baseDir + "assets/" + (substring src 2 (strlen src))
+            } {
+                altDirPath = baseDir + "assets/" + src
+            }
+            ; Extract dir and file from altDirPath
+            def altLastSlash:int (lastIndexOf altDirPath "/")
+            if (altLastSlash >= 0) {
+                imgDir = (substring altDirPath 0 (altLastSlash + 1))
+                imgFile = (substring altDirPath (altLastSlash + 1) (strlen altDirPath))
+            }
+            print ("  Trying alternative: dir=" + imgDir + " file=" + imgFile)
+            jpegImage = (reader.readJPEG(imgDir imgFile))
+        }
+        
         if jpegImage.isValid {
             ; Get EXIF orientation to determine final dimensions  
             def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
@@ -648,6 +667,27 @@ class EVGPDFRenderer {
             print ("Loading image: dir=" + imgDir + " file=" + imgFile)
             
             def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
+            
+            ; If file not found, try with ./assets/ prefix (same fallback as ResourceLoader)
+            if (metaInfo.isValid == false) {
+                def origImgSrc:string embImg.src
+                def altDirPath:string ""
+                if ((indexOf origImgSrc "./") == 0) {
+                    ; ./images/photo.jpg -> ./assets/images/photo.jpg
+                    altDirPath = baseDir + "assets/" + (substring origImgSrc 2 (strlen origImgSrc))
+                } {
+                    altDirPath = baseDir + "assets/" + origImgSrc
+                }
+                ; Extract dir and file from altDirPath
+                def altLastSlash:int (lastIndexOf altDirPath "/")
+                if (altLastSlash >= 0) {
+                    imgDir = (substring altDirPath 0 (altLastSlash + 1))
+                    imgFile = (substring altDirPath (altLastSlash + 1) (strlen altDirPath))
+                }
+                print ("  Trying alternative: dir=" + imgDir + " file=" + imgFile)
+                metaInfo = (metadataParser.parseMetadata(imgDir imgFile))
+            }
+            
             embImg.orientation = metaInfo.orientation
             
             def imgBuffer:ImageBuffer (jpegDecoder.decode(imgDir imgFile))
@@ -1000,6 +1040,27 @@ class EVGPDFRenderer {
             
             ; Get EXIF orientation
             def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
+            
+            ; If file not found, try with ./assets/ prefix (same fallback as ResourceLoader)
+            if (metaInfo.isValid == false) {
+                def origImgSrc:string embImg.src
+                def altDirPath:string ""
+                if ((indexOf origImgSrc "./") == 0) {
+                    ; ./images/photo.jpg -> ./assets/images/photo.jpg
+                    altDirPath = baseDir + "assets/" + (substring origImgSrc 2 (strlen origImgSrc))
+                } {
+                    altDirPath = baseDir + "assets/" + origImgSrc
+                }
+                ; Extract dir and file from altDirPath
+                def altLastSlash:int (lastIndexOf altDirPath "/")
+                if (altLastSlash >= 0) {
+                    imgDir = (substring altDirPath 0 (altLastSlash + 1))
+                    imgFile = (substring altDirPath (altLastSlash + 1) (strlen altDirPath))
+                }
+                print ("  Trying alternative: dir=" + imgDir + " file=" + imgFile)
+                metaInfo = (metadataParser.parseMetadata(imgDir imgFile))
+            }
+            
             embImg.orientation = metaInfo.orientation
             
             ; Decode JPEG to ImageBuffer for processing

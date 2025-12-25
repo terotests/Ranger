@@ -11,10 +11,12 @@ Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/EVGTextMeasurer.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
+Import "EVGResourceLoader.rgr"
 
 class EVGHTMLRenderer {
     def layout:EVGLayout
     def measurer:EVGTextMeasurer
+    def resourceLoader:EVGResourceLoader
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def debug:boolean false
@@ -40,6 +42,8 @@ class EVGHTMLRenderer {
         layout = lay
         def m (new SimpleTextMeasurer())
         measurer = m
+        def rl (new EVGResourceLoader())
+        resourceLoader = rl
         def uf:[string]
         usedFontFamilies = uf
         def fs:[EVGElement]
@@ -62,6 +66,7 @@ class EVGHTMLRenderer {
     fn setDebug:void (enabled:boolean) {
         layout.debug = enabled
         this.debug = enabled
+        resourceLoader.debug = enabled
     }
     
     fn setFontBasePath:void (path:string) {
@@ -107,7 +112,13 @@ class EVGHTMLRenderer {
         def uf:[string]
         usedFontFamilies = uf
         
-        ; Run layout to calculate positions
+        ; STEP 1: Load resource metadata (image dimensions)
+        ; This must happen BEFORE layout calculation
+        resourceLoader.setBasePath(baseDir)
+        resourceLoader.loadResources(root)
+        
+        ; STEP 2: Run layout to calculate positions
+        ; Now layout engine knows image dimensions for proper flexbox calculation
         layout.layout(root)
         
         ; Collect used fonts
@@ -141,7 +152,11 @@ class EVGHTMLRenderer {
         ; Reset state
         elementCounter = 0
         
-        ; Run layout
+        ; STEP 1: Load resource metadata
+        resourceLoader.setBasePath(baseDir)
+        resourceLoader.loadResources(root)
+        
+        ; STEP 2: Run layout
         layout.layout(root)
         
         ; Render only elements on specified page
@@ -315,7 +330,7 @@ class EVGHTMLRenderer {
         if ((el.tagName == "Page") || (el.tagName == "page")) {
             return (this.renderPage_Element(el depth))
         }
-        if ((el.tagName == "View") || (el.tagName == "div") || (el.tagName == "layer")) {
+        if ((el.tagName == "View") || (el.tagName == "div") || (el.tagName == "layer") || (el.tagName == "Layer")) {
             return (this.renderViewWithParent(el elementId depth parentX parentY))
         }
         if ((el.tagName == "Label") || (el.tagName == "span") || (el.tagName == "text")) {
@@ -357,6 +372,14 @@ class EVGHTMLRenderer {
     
     fn renderPrint:string (el:EVGElement depth:int) {
         ; Print is the root document container
+        ; Update renderer page dimensions from Print element
+        if (el.pageWidth > 0.0) {
+            pageWidth = el.pageWidth
+        }
+        if (el.pageHeight > 0.0) {
+            pageHeight = el.pageHeight
+        }
+        
         def html:string ""
         html = html + (this.indent(depth)) + "<div class=\"evg-document\">\n"
         
@@ -445,12 +468,25 @@ class EVGHTMLRenderer {
             html = html + " id=\"" + el.id + "\""
         }
         
-        ; Add class
-        html = html + " class=\"evg-view\""
+        ; Add class - use evg-layer for layer elements
+        if ((el.tagName == "layer") || (el.tagName == "Layer")) {
+            html = html + " class=\"evg-layer\""
+        } {
+            html = html + " class=\"evg-view\""
+        }
         
         ; Add inline styles - calculate position relative to parent
-        def relX:double (el.calculatedX - parentX)
-        def relY:double (el.calculatedY - parentY)
+        ; For absolute elements, calculatedX/Y are already relative to parent
+        ; For flow elements, we need to subtract parent's absolute position
+        def relX:double 0.0
+        def relY:double 0.0
+        if el.isAbsolute {
+            relX = el.calculatedX
+            relY = el.calculatedY
+        } {
+            relX = (el.calculatedX - parentX)
+            relY = (el.calculatedY - parentY)
+        }
         
         html = html + " style=\""
         html = html + (this.generateViewStylesRelative(el relX relY))
@@ -473,16 +509,17 @@ class EVGHTMLRenderer {
     fn generateViewStylesRelative:string (el:EVGElement relX:double relY:double) {
         def css:string ""
         
-        ; Always use absolute positioning since EVG calculates exact positions
-        css = css + "position: absolute; "
-        css = css + "left: " + (this.formatPx(relX)) + "; "
-        css = css + "top: " + (this.formatPx(relY)) + "; "
-        
-        ; Layer elements use 100% width/height to fill parent
-        if (el.tagName == "layer") {
-            css = css + "width: 100%; "
-            css = css + "height: 100%; "
+        ; Layer elements overlay parent with inset: 0
+        if ((el.tagName == "layer") || (el.tagName == "Layer")) {
+            css = css + "position: absolute; "
+            css = css + "inset: 0; "
+            css = css + "pointer-events: none; "  ; Allow clicks through to elements below
         } {
+            ; Regular positioning from layout calculation
+            css = css + "position: absolute; "
+            css = css + "left: " + (this.formatPx(relX)) + "; "
+            css = css + "top: " + (this.formatPx(relY)) + "; "
+            
             ; Regular dimensions from layout calculation
             if (el.calculatedWidth > 0.0) {
                 css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
@@ -543,14 +580,10 @@ class EVGHTMLRenderer {
             css = css + "padding: " + (this.formatPx(pt)) + " " + (this.formatPx(pr)) + " " + (this.formatPx(pb)) + " " + (this.formatPx(pl)) + "; "
         }
         
-        ; Margin
-        def mt:double (this.getResolvedMargin(el "top"))
-        def mr:double (this.getResolvedMargin(el "right"))
-        def mb:double (this.getResolvedMargin(el "bottom"))
-        def ml:double (this.getResolvedMargin(el "left"))
-        if ((mt > 0.0) || (mr > 0.0) || (mb > 0.0) || (ml > 0.0)) {
-            css = css + "margin: " + (this.formatPx(mt)) + " " + (this.formatPx(mr)) + " " + (this.formatPx(mb)) + " " + (this.formatPx(ml)) + "; "
-        }
+        ; Note: We do NOT output CSS margin for absolute-positioned elements
+        ; because the layout engine has already calculated positions (left, top)
+        ; with margins taken into account, and width/height adjusted accordingly.
+        ; CSS margin on position:absolute elements would add extra unwanted offset.
         
         ; Overflow
         if (el.overflow == "hidden") {
@@ -628,8 +661,17 @@ class EVGHTMLRenderer {
         html = html + " class=\"evg-label\""
         
         ; Calculate position relative to parent
-        def relX:double (el.calculatedX - parentX)
-        def relY:double (el.calculatedY - parentY)
+        ; For absolute elements, calculatedX/Y are already relative to parent
+        ; For flow elements, we need to subtract parent's absolute position
+        def relX:double 0.0
+        def relY:double 0.0
+        if el.isAbsolute {
+            relX = el.calculatedX
+            relY = el.calculatedY
+        } {
+            relX = (el.calculatedX - parentX)
+            relY = (el.calculatedY - parentY)
+        }
         
         ; Add inline styles
         html = html + " style=\""
@@ -658,8 +700,19 @@ class EVGHTMLRenderer {
         
         ; Always use absolute positioning since EVG calculates exact positions
         css = css + "position: absolute; "
-        css = css + "left: " + (this.formatPx(relX)) + "; "
-        css = css + "top: " + (this.formatPx(relY)) + "; "
+        ; If the calculated relative coordinates end up outside the parent's padding
+        ; (negative due to layout ordering quirks), clamp them to parent's padding
+        ; to ensure text stays inside the padded content area.
+        def px:double relX
+        def py:double relY
+        if (px < el.parent.box.paddingLeftPx) {
+            px = el.parent.box.paddingLeftPx
+        }
+        if (py < el.parent.box.paddingTopPx) {
+            py = el.parent.box.paddingTopPx
+        }
+        css = css + "left: " + (this.formatPx(px)) + "; "
+        css = css + "top: " + (this.formatPx(py)) + "; "
         
         ; Font properties
         if ((strlen el.fontFamily) > 0) {
@@ -751,35 +804,208 @@ class EVGHTMLRenderer {
         def html:string ""
         
         ; Calculate position relative to parent
-        def relX:double (el.calculatedX - parentX)
-        def relY:double (el.calculatedY - parentY)
+        ; For absolute elements, calculatedX/Y are already relative to parent
+        ; For flow elements, we need to subtract parent's absolute position
+        def relX:double 0.0
+        def relY:double 0.0
+        if el.isAbsolute {
+            relX = el.calculatedX
+            relY = el.calculatedY
+        } {
+            relX = (el.calculatedX - parentX)
+            relY = (el.calculatedY - parentY)
+        }
         
-        ; If imageViewBox is set, wrap in a container div for proper cropping
+        ; If imageViewBox is set, use special viewBox rendering
         if el.imageViewBoxSet {
             return (this.renderImageWithViewBox(el elementId depth relX relY))
         }
         
-        ; Standard image rendering (no viewBox)
-        html = html + (this.indent(depth)) + "<img"
+        ; Get container dimensions
+        def containerW:double el.calculatedWidth
+        def containerH:double el.calculatedHeight
+        
+        ; Get parent's available height for clipping (use parent's calculatedHeight if available)
+        def parentAvailableH:double el.parent.calculatedHeight
+        ; Account for padding if parent has it
+        if (el.parent.box.paddingTopPx > 0.0) {
+            parentAvailableH = parentAvailableH - el.parent.box.paddingTopPx - el.parent.box.paddingBottomPx
+        }
+        
+        ; If containerH is 0 but we have source dimensions and containerW, 
+        ; calculate height from aspect ratio to preserve image proportions
+        if ((containerH <= 0.0) && (containerW > 0.0) && (el.sourceWidth > 0.0) && (el.sourceHeight > 0.0)) {
+            def imageAspect:double (el.sourceWidth / el.sourceHeight)
+            containerH = (containerW / imageAspect)
+            if debug {
+                print ("Image: calculated containerH from aspect ratio: " + (to_string containerH))
+            }
+        }
+        
+        ; Clip containerH to parent's available height if needed
+        if ((parentAvailableH > 0.0) && (containerH > parentAvailableH)) {
+            if debug {
+                print ("Image: clipping containerH from " + (to_string containerH) + " to parent height " + (to_string parentAvailableH))
+            }
+            containerH = parentAvailableH
+        }
+        
+        ; Always use wrapper div + absolute positioned img to preserve aspect ratio
+        ; This ensures PDF and HTML render identically - NO object-fit CSS
+        ; We calculate the exact image dimensions and position manually
+        
+        ; Wrapper div with overflow:hidden
+        html = html + (this.indent(depth)) + "<div"
         
         ; Add id if element has one
         if ((strlen el.id) > 0) {
             html = html + " id=\"" + el.id + "\""
         }
         
-        ; Add class
+        html = html + " class=\"evg-image-container\" style=\""
+        html = html + "position: absolute; "
+        html = html + "left: " + (this.formatPx(relX)) + "; "
+        html = html + "top: " + (this.formatPx(relY)) + "; "
+        if (containerW > 0.0) {
+            html = html + "width: " + (this.formatPx(containerW)) + "; "
+        }
+        if (containerH > 0.0) {
+            html = html + "height: " + (this.formatPx(containerH)) + "; "
+        }
+        html = html + "overflow: hidden; "
+        
+        ; Border radius on wrapper
+        if el.box.borderRadius.isSet {
+            html = html + "border-radius: " + (this.formatPx(el.box.borderRadius.pixels)) + "; "
+        }
+        html = html + "\">\n"
+        
+        ; Calculate image size and position to cover container while preserving aspect ratio
+        ; For cover: scale image to fill container completely, center, clip excess
+        ; For contain: scale image to fit entirely, center, may have letterbox
+        
+        ; Get actual image dimensions if available (from sourceWidth/sourceHeight)
+        def imgW:double el.sourceWidth
+        def imgH:double el.sourceHeight
+        
+        ; If we don't have source dimensions, use container dimensions
+        ; (image will be centered at 100% size)
+        if (imgW <= 0.0) {
+            imgW = containerW
+        }
+        if (imgH <= 0.0) {
+            imgH = containerH
+        }
+        
+        ; Calculate aspect ratios
+        def containerRatio:double 1.0
+        def imageRatio:double 1.0
+        if (containerH > 0.0) {
+            containerRatio = (containerW / containerH)
+        }
+        if (imgH > 0.0) {
+            imageRatio = (imgW / imgH)
+        }
+        
+        ; Calculate scaled image dimensions and offset based on objectFit mode
+        def scaledW:double containerW
+        def scaledH:double containerH
+        def offsetX:double 0.0
+        def offsetY:double 0.0
+        
+        def fitMode:string el.objectFit
+        if ((strlen fitMode) == 0) {
+            fitMode = "cover"
+        }
+        
+        if (fitMode == "cover") {
+            ; Cover: image fills container completely, may be cropped
+            if (imageRatio > containerRatio) {
+                ; Image is wider - fit height, crop width
+                scaledH = containerH
+                scaledW = (containerH * imageRatio)
+                offsetX = ((containerW - scaledW) / 2.0)
+                offsetY = 0.0
+            } {
+                ; Image is taller - fit width, crop height
+                scaledW = containerW
+                scaledH = (containerW / imageRatio)
+                offsetX = 0.0
+                offsetY = ((containerH - scaledH) / 2.0)
+            }
+        }
+        if (fitMode == "contain") {
+            ; Contain: entire image visible, may have letterbox
+            if (imageRatio > containerRatio) {
+                ; Image is wider - fit width, letterbox top/bottom
+                scaledW = containerW
+                scaledH = (containerW / imageRatio)
+                offsetX = 0.0
+                offsetY = ((containerH - scaledH) / 2.0)
+            } {
+                ; Image is taller - fit height, letterbox left/right
+                scaledH = containerH
+                scaledW = (containerH * imageRatio)
+                offsetX = ((containerW - scaledW) / 2.0)
+                offsetY = 0.0
+            }
+        }
+        if (fitMode == "fill") {
+            ; Fill: stretch to fill container (distorts aspect ratio)
+            scaledW = containerW
+            scaledH = containerH
+            offsetX = 0.0
+            offsetY = 0.0
+        }
+        
+        ; Apply user-specified imageOffset adjustments
+        ; Percentage is relative to the OVERFLOW (how much image extends beyond container)
+        ; This way 0% = image at start, 50% = centered, 100% = image at end
+        ; For cover mode, the overflow is (scaledSize - containerSize)
+        if el.imageOffsetX.isSet {
+            if (el.imageOffsetX.unitType == 1) {
+                ; Percentage - offset relative to horizontal overflow
+                def overflowX:double (scaledW - containerW)
+                if (overflowX < 0.0) {
+                    overflowX = 0.0
+                }
+                ; 0% = left edge, 50% = centered, 100% = right edge
+                ; Default center is at 50%, so we adjust from there
+                def targetOffsetX:double ((overflowX * el.imageOffsetX.value) / 100.0)
+                offsetX = (0.0 - targetOffsetX)
+            } {
+                ; Pixels - add directly
+                offsetX = offsetX + el.imageOffsetX.pixels
+            }
+        }
+        if el.imageOffsetY.isSet {
+            if (el.imageOffsetY.unitType == 1) {
+                ; Percentage - offset relative to vertical overflow
+                def overflowY:double (scaledH - containerH)
+                if (overflowY < 0.0) {
+                    overflowY = 0.0
+                }
+                ; 0% = top edge, 50% = centered, 100% = bottom edge
+                def targetOffsetY:double ((overflowY * el.imageOffsetY.value) / 100.0)
+                offsetY = (0.0 - targetOffsetY)
+            } {
+                ; Pixels - add directly
+                offsetY = offsetY + el.imageOffsetY.pixels
+            }
+        }
+        
+        ; Image inside - position absolutely with calculated dimensions
+        html = html + (this.indent((depth + 1))) + "<img"
         html = html + " class=\"evg-image\""
         
-        ; Add src - either as data URI or relative path
+        ; Add src
         def imgSrc:string el.src
         if ((strlen imgSrc) > 0) {
             if embedAssets {
-                ; Try to embed as base64 data URI
                 def dataUri:string (this.getImageDataUri(imgSrc))
                 if ((strlen dataUri) > 0) {
                     html = html + " src=\"" + dataUri + "\""
                 } {
-                    ; Fallback to relative path if embedding fails
                     html = html + " src=\"" + (this.transformImagePath(imgSrc)) + "\""
                 }
             } {
@@ -794,12 +1020,19 @@ class EVGHTMLRenderer {
             html = html + " alt=\"\""
         }
         
-        ; Add inline styles
+        ; Image styles - use calculated position and size, NO object-fit
         html = html + " style=\""
-        html = html + (this.generateImageStylesRelative(el relX relY))
-        html = html + "\""
+        html = html + "position: absolute; "
+        html = html + "left: " + (this.formatPx(offsetX)) + "; "
+        html = html + "top: " + (this.formatPx(offsetY)) + "; "
+        html = html + "width: " + (this.formatPx(scaledW)) + "; "
+        html = html + "height: " + (this.formatPx(scaledH)) + "; "
+        html = html + "display: block; "
+        html = html + "\">\n"
         
-        html = html + ">\n"
+        ; Close wrapper
+        html = html + (this.indent(depth)) + "</div>\n"
+        
         return html
     }
     
@@ -912,16 +1145,48 @@ class EVGHTMLRenderer {
             css = css + "object-fit: cover; "
         }
         
-        ; Image viewBox support using CSS object-position
-        ; imageViewBox: x% y% w% h% - we use object-position to offset
-        ; For proper cropping we'd need a wrapper div with overflow:hidden
+        ; Image position offset using CSS object-position
+        ; Default is center (50% 50%), offsets move from there
+        ; imageOffsetX/Y can be pixels or percentages (negative values supported)
+        def hasOffset:boolean false
+        def posX:string "50%"
+        def posY:string "50%"
+        
+        if el.imageOffsetX.isSet {
+            hasOffset = true
+            ; For percentages, add to 50%, for pixels use calc()
+            if (el.imageOffsetX.unitType == 1) {
+                ; Percentage - add to center
+                def offsetPct:double (50.0 + el.imageOffsetX.value)
+                posX = (to_string offsetPct) + "%"
+            } {
+                ; Pixels - use calc()
+                posX = "calc(50% + " + (this.formatPx(el.imageOffsetX.pixels)) + ")"
+            }
+        }
+        
+        if el.imageOffsetY.isSet {
+            hasOffset = true
+            if (el.imageOffsetY.unitType == 1) {
+                def offsetPct:double (50.0 + el.imageOffsetY.value)
+                posY = (to_string offsetPct) + "%"
+            } {
+                posY = "calc(50% + " + (this.formatPx(el.imageOffsetY.pixels)) + ")"
+            }
+        }
+        
+        ; Legacy imageViewBox support
         if el.imageViewBoxSet {
-            ; Calculate object-position based on viewBox
+            hasOffset = true
             ; viewBox x,y define where to start showing the image
-            ; We convert to CSS object-position percentages
-            def posX:double (el.imageViewBoxX * 100.0)
-            def posY:double (el.imageViewBoxY * 100.0)
-            css = css + "object-position: " + (to_string posX) + "% " + (to_string posY) + "%; "
+            def vbX:double (el.imageViewBoxX * 100.0)
+            def vbY:double (el.imageViewBoxY * 100.0)
+            posX = (to_string vbX) + "%"
+            posY = (to_string vbY) + "%"
+        }
+        
+        if hasOffset {
+            css = css + "object-position: " + posX + " " + posY + "; "
         }
         
         ; Border radius
@@ -953,8 +1218,16 @@ class EVGHTMLRenderer {
         }
         
         ; Calculate position relative to parent
-        def relX:double (el.calculatedX - parentX)
-        def relY:double (el.calculatedY - parentY)
+        ; Use the same logic as View elements
+        def relX:double 0.0
+        def relY:double 0.0
+        if el.isAbsolute {
+            relX = el.calculatedX
+            relY = el.calculatedY
+        } {
+            relX = (el.calculatedX - parentX)
+            relY = (el.calculatedY - parentY)
+        }
         
         html = html + (this.indent(depth)) + "<svg"
         
@@ -1222,6 +1495,11 @@ class EVGHTMLRenderer {
         def uf:[string]
         usedFontFamilies = uf
         
+        ; STEP 1: Load resource metadata (image dimensions) BEFORE any layout
+        ; This is critical - layout engine needs image sizes for proper flexbox calculation
+        resourceLoader.setBasePath(baseDir)
+        resourceLoader.loadResources(root)
+        
         ; Check if it's a multi-page document (Print/Section/Page structure)
         def isMultiPage:boolean false
         if ((root.tagName == "Print") || (root.tagName == "print") || (root.tagName == "Section") || (root.tagName == "section")) {
@@ -1416,6 +1694,33 @@ class EVGHTMLRenderer {
         html = html + "            align-items: center;\n"
         html = html + "            gap: 40px;\n"
         html = html + "        }\n"
+        html = html + "        /* Book spread view - two pages side by side */\n"
+        html = html + "        .evg-spread {\n"
+        html = html + "            display: flex;\n"
+        html = html + "            flex-direction: row;\n"
+        html = html + "            gap: 4px;\n"
+        html = html + "            background: #888;\n"
+        html = html + "            padding: 4px;\n"
+        html = html + "            border-radius: 2px;\n"
+        html = html + "            box-shadow: 0 8px 30px rgba(0,0,0,0.4);\n"
+        html = html + "        }\n"
+        html = html + "        .evg-spread .evg-page {\n"
+        html = html + "            box-shadow: none;\n"
+        html = html + "        }\n"
+        html = html + "        /* Cover page - single centered */\n"
+        html = html + "        .evg-cover {\n"
+        html = html + "            box-shadow: 0 8px 30px rgba(0,0,0,0.4);\n"
+        html = html + "        }\n"
+        html = html + "        /* Page number labels */\n"
+        html = html + "        .evg-page-label {\n"
+        html = html + "            position: absolute;\n"
+        html = html + "            bottom: -25px;\n"
+        html = html + "            left: 50%;\n"
+        html = html + "            transform: translateX(-50%);\n"
+        html = html + "            font-family: system-ui, sans-serif;\n"
+        html = html + "            font-size: 12px;\n"
+        html = html + "            color: #666;\n"
+        html = html + "        }\n"
         html = html + "        .evg-status {\n"
         html = html + "            position: fixed;\n"
         html = html + "            bottom: 10px;\n"
@@ -1447,12 +1752,71 @@ class EVGHTMLRenderer {
         html = html + "        const statusEl = document.getElementById('evg-status');\n"
         html = html + "        const fontsEl = document.getElementById('evg-fonts');\n"
         html = html + "        \n"
+        html = html + "        // Arrange pages as book spreads: cover alone, then pairs\n"
+        html = html + "        function arrangeAsBookSpreads() {\n"
+        html = html + "            const pages = Array.from(contentEl.querySelectorAll('.evg-page'));\n"
+        html = html + "            // Only arrange as book if there are multiple pages\n"
+        html = html + "            if (pages.length <= 1) return;\n"
+        html = html + "            \n"
+        html = html + "            // Find the section or document container\n"
+        html = html + "            const section = contentEl.querySelector('.evg-section') || contentEl.querySelector('.evg-document') || contentEl;\n"
+        html = html + "            if (!section) return;\n"
+        html = html + "            \n"
+        html = html + "            // Clone pages before clearing to avoid DOM issues\n"
+        html = html + "            const pageClones = pages.map(p => p.cloneNode(true));\n"
+        html = html + "            \n"
+        html = html + "            // Clear the section\n"
+        html = html + "            section.innerHTML = '';\n"
+        html = html + "            \n"
+        html = html + "            // First page is cover - show alone\n"
+        html = html + "            const cover = pageClones[0];\n"
+        html = html + "            cover.classList.add('evg-cover');\n"
+        html = html + "            const coverWrapper = document.createElement('div');\n"
+        html = html + "            coverWrapper.style.position = 'relative';\n"
+        html = html + "            coverWrapper.style.marginBottom = '20px';\n"
+        html = html + "            coverWrapper.appendChild(cover);\n"
+        html = html + "            const coverLabel = document.createElement('div');\n"
+        html = html + "            coverLabel.className = 'evg-page-label';\n"
+        html = html + "            coverLabel.textContent = 'Kansi';\n"
+        html = html + "            coverWrapper.appendChild(coverLabel);\n"
+        html = html + "            section.appendChild(coverWrapper);\n"
+        html = html + "            \n"
+        html = html + "            // Remaining pages in pairs (spreads)\n"
+        html = html + "            for (let i = 1; i < pageClones.length; i += 2) {\n"
+        html = html + "                const spread = document.createElement('div');\n"
+        html = html + "                spread.className = 'evg-spread';\n"
+        html = html + "                spread.style.position = 'relative';\n"
+        html = html + "                spread.style.marginBottom = '20px';\n"
+        html = html + "                \n"
+        html = html + "                // Left page\n"
+        html = html + "                spread.appendChild(pageClones[i]);\n"
+        html = html + "                \n"
+        html = html + "                // Right page (if exists)\n"
+        html = html + "                if (i + 1 < pageClones.length) {\n"
+        html = html + "                    spread.appendChild(pageClones[i + 1]);\n"
+        html = html + "                }\n"
+        html = html + "                \n"
+        html = html + "                // Add spread label\n"
+        html = html + "                const spreadLabel = document.createElement('div');\n"
+        html = html + "                spreadLabel.className = 'evg-page-label';\n"
+        html = html + "                if (i + 1 < pages.length) {\n"
+        html = html + "                    spreadLabel.textContent = 'Sivut ' + (i + 1) + '-' + (i + 2);\n"
+        html = html + "                } else {\n"
+        html = html + "                    spreadLabel.textContent = 'Sivu ' + (i + 1) + ' (takakansi)';\n"
+        html = html + "                }\n"
+        html = html + "                spread.appendChild(spreadLabel);\n"
+        html = html + "                \n"
+        html = html + "                section.appendChild(spread);\n"
+        html = html + "            }\n"
+        html = html + "        }\n"
+        html = html + "        \n"
         html = html + "        // Load content from server\n"
         html = html + "        async function loadContent() {\n"
         html = html + "            try {\n"
         html = html + "                const response = await fetch(serverUrl + '/content');\n"
         html = html + "                const html = await response.text();\n"
         html = html + "                contentEl.innerHTML = html;\n"
+        html = html + "                arrangeAsBookSpreads();\n"
         html = html + "                statusEl.textContent = 'Connected';\n"
         html = html + "                statusEl.style.color = '#0f0';\n"
         html = html + "            } catch (err) {\n"

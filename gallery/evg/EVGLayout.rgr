@@ -90,7 +90,7 @@ class EVGLayout {
         }
         
         ; For image elements, calculate dimensions based on aspect ratio
-        if (element.tagName == "image") {
+        if ((element.tagName == "image") || (element.tagName == "Image") || (element.tagName == "img")) {
             def imgSrc:string element.src
             if ((strlen imgSrc) > 0) {
                 def dims:EVGImageDimensions (imageMeasurer.getImageDimensions(imgSrc))
@@ -157,8 +157,10 @@ class EVGLayout {
         if (childCount > 0) {
             contentHeight = (this.layoutChildren(element))
         } {
-            ; For text elements without children, calculate height from font size and text wrapping
-            if ((element.tagName == "text") || (element.tagName == "span")) {
+            ; No children - check if element has text content
+            def textContent:string element.textContent
+            if ((strlen textContent) > 0) {
+                ; Element has text content (View with text, span, text, Label, etc.)
                 def fontSize:double element.inheritedFontSize
                 if element.fontSize.isSet {
                     fontSize = element.fontSize.pixels
@@ -175,7 +177,6 @@ class EVGLayout {
                 def lineSpacing:double (fontSize * lineHeightFactor)
                 
                 ; Calculate number of wrapped lines based on text width
-                def textContent:string element.textContent
                 def availableWidth:double (width - element.box.paddingLeftPx - element.box.paddingRightPx)
                 def lineCount:int (this.estimateLineCount(textContent availableWidth fontSize))
                 
@@ -221,9 +222,10 @@ class EVGLayout {
         def innerWidth:double parent.calculatedInnerWidth
         def innerHeight:double parent.calculatedInnerHeight
         
-        ; Starting position (after padding)
-        def startX:double (parent.calculatedX + parent.box.marginLeftPx + parent.box.borderWidthPx + parent.box.paddingLeftPx)
-        def startY:double (parent.calculatedY + parent.box.marginTopPx + parent.box.borderWidthPx + parent.box.paddingTopPx)
+        ; Starting position (after border and padding, NOT margin)
+        ; Margin is OUTSIDE the element, padding is INSIDE
+        def startX:double (parent.calculatedX + parent.box.borderWidthPx + parent.box.paddingLeftPx)
+        def startY:double (parent.calculatedY + parent.box.borderWidthPx + parent.box.paddingTopPx)
         
         def currentX:double startX
         def currentY:double startY
@@ -290,7 +292,7 @@ class EVGLayout {
             ; Skip absolute positioned elements in flow
             if child.isAbsolute {
                 ; Layer elements use parent's full dimensions, not inner dimensions
-                if (child.tagName == "layer") {
+                if ((child.tagName == "layer") || (child.tagName == "Layer")) {
                     ; Re-resolve Layer dimensions with parent's full width/height
                     child.unitsResolved = false
                     child.resolveUnits(parent.calculatedWidth parent.calculatedHeight)
@@ -323,11 +325,22 @@ class EVGLayout {
             }
             
             ; Calculate child dimensions
-            def childWidth:double innerWidth
+            ; Start with available inner width minus child's margins
+            def availableForChild:double (innerWidth - child.box.marginLeftPx - child.box.marginRightPx)
+            def childWidth:double availableForChild
+            
             if child.width.isSet {
-                childWidth = child.width.pixels
+                ; If width is explicitly set and it's 100% (resolved to innerWidth), 
+                ; we should still subtract margins for proper fit
+                if (child.width.pixels >= innerWidth) {
+                    ; Width was 100% - use available space after margins
+                    childWidth = availableForChild
+                } {
+                    ; Width was set to a specific value - use it
+                    childWidth = child.width.pixels
+                }
             } {
-                ; Check if this child has a calculated flex width
+                ; No width set - check if this child has a calculated flex width
                 if (child.calculatedFlexWidth > 0.0) {
                     childWidth = child.calculatedFlexWidth
                 }
@@ -391,13 +404,85 @@ class EVGLayout {
             i = i + 1
         }
         
-        ; Handle final row
+        ; Handle final row (for row layout)
         if ((isColumn == false) && ((array_length rowElements) > 0)) {
             this.alignRow(rowElements parent rowHeight startX innerWidth)
             totalHeight = totalHeight + rowHeight
         }
         
+        ; Handle column alignment (for column layout)
+        if isColumn {
+            this.alignColumn(parent totalHeight startX startY innerWidth innerHeight)
+        }
+        
         return totalHeight
+    }
+    
+    fn alignColumn:void (parent:EVGElement contentHeight:double startX:double startY:double innerWidth:double innerHeight:double) {
+        ; Apply justifyContent (vertical) and alignItems (horizontal) alignment for column layout
+        def childCount:int (parent.getChildCount())
+        if (childCount == 0) {
+            return
+        }
+        
+        ; Get effective alignment values
+        ; For column direction: justifyContent = vertical (main axis), alignItems = horizontal (cross axis)
+        def verticalAlign:string parent.justifyContent
+        def horizontalAlign:string parent.alignItems
+        
+        ; Calculate vertical offset based on justifyContent
+        def availableHeight:double innerHeight
+        if parent.height.isSet {
+            availableHeight = parent.calculatedInnerHeight
+        }
+        
+        def offsetY:double 0.0
+        if (verticalAlign == "center") {
+            offsetY = ((availableHeight - contentHeight) / 2.0)
+        }
+        if ((verticalAlign == "flex-end") || (verticalAlign == "end")) {
+            offsetY = (availableHeight - contentHeight)
+        }
+        if (verticalAlign == "space-between") {
+            ; Space between is handled differently - distribute space between items
+            ; For now, just don't offset
+            offsetY = 0.0
+        }
+        
+        ; Apply offsets to all non-absolute children
+        def i:int 0
+        while (i < childCount) {
+            def child:EVGElement (parent.getChild(i))
+            
+            ; Skip absolute positioned elements (they're handled separately)
+            if (child.isAbsolute == false) {
+                ; Apply vertical offset
+                if (offsetY != 0.0) {
+                    child.calculatedY = child.calculatedY + offsetY
+                    ; Propagate to descendants
+                    this.propagateOffsetToChildren(child 0.0 offsetY)
+                }
+                
+                ; Apply horizontal alignment (alignItems)
+                def childTotalWidth:double (child.calculatedWidth + child.box.marginLeftPx + child.box.marginRightPx)
+                def offsetX:double 0.0
+                
+                if (horizontalAlign == "center") {
+                    offsetX = ((innerWidth - childTotalWidth) / 2.0)
+                }
+                if ((horizontalAlign == "flex-end") || (horizontalAlign == "end")) {
+                    offsetX = (innerWidth - childTotalWidth)
+                }
+                
+                if (offsetX != 0.0) {
+                    child.calculatedX = child.calculatedX + offsetX
+                    ; Propagate to descendants
+                    this.propagateOffsetToChildren(child offsetX 0.0)
+                }
+            }
+            
+            i = i + 1
+        }
     }
     
     fn alignRow:void (rowElements:[EVGElement] parent:EVGElement rowHeight:double startX:double innerWidth:double) {
@@ -416,13 +501,43 @@ class EVGLayout {
             i = i + 1
         }
         
-        ; Horizontal alignment
+        ; Determine alignment based on flexDirection
+        ; For row direction: justifyContent = horizontal, alignItems = vertical
+        ; For column direction: justifyContent = vertical, alignItems = horizontal
+        def isColumn:boolean (parent.flexDirection == "column")
+        
+        ; Get effective alignment values
+        def mainAxisAlign:string parent.justifyContent
+        def crossAxisAlign:string parent.alignItems
+        
+        ; Horizontal alignment (justifyContent for row, alignItems for column)
+        def horizontalAlign:string mainAxisAlign
+        if isColumn {
+            horizontalAlign = crossAxisAlign
+        }
+        ; Also check legacy 'align' property
+        if ((strlen parent.align) > 0) {
+            horizontalAlign = parent.align
+        }
+        
         def offsetX:double 0.0
-        if (parent.align == "center") {
+        if (horizontalAlign == "center") {
             offsetX = ((innerWidth - rowWidth) / 2.0)
         }
-        if (parent.align == "right") {
+        if ((horizontalAlign == "flex-end") || (horizontalAlign == "right")) {
             offsetX = (innerWidth - rowWidth)
+        }
+        
+        ; Vertical alignment (alignItems for row, justifyContent for column)
+        def verticalAlignVal:string crossAxisAlign
+        if isColumn {
+            verticalAlignVal = mainAxisAlign
+        }
+        ; Also check legacy 'verticalAlign' property
+        if ((strlen parent.verticalAlign) > 0) {
+            if (parent.verticalAlign != "top") {
+                verticalAlignVal = parent.verticalAlign
+            }
         }
         
         ; For vertical alignment, use parent's inner height if it has a fixed height
@@ -440,26 +555,48 @@ class EVGLayout {
         while (i < elementCount) {
             def el:EVGElement (itemAt rowElements i)
             
-            ; Horizontal offset
+            ; Horizontal offset - also propagate to children!
             if (offsetX != 0.0) {
                 el.calculatedX = el.calculatedX + offsetX
+                ; Propagate offset to all descendants
+                this.propagateOffsetToChildren(el offsetX 0.0)
             }
             
             ; Vertical alignment within row
             def childTotalHeight:double (el.calculatedHeight + el.box.marginTopPx + el.box.marginBottomPx)
             def offsetY:double 0.0
             
-            if (parent.verticalAlign == "center") {
+            if (verticalAlignVal == "center") {
                 offsetY = ((effectiveRowHeight - childTotalHeight) / 2.0)
             }
-            if (parent.verticalAlign == "bottom") {
+            if ((verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom")) {
                 offsetY = (effectiveRowHeight - childTotalHeight)
             }
             
             if (offsetY != 0.0) {
                 el.calculatedY = el.calculatedY + offsetY
+                ; Propagate offset to all descendants
+                this.propagateOffsetToChildren(el 0.0 offsetY)
             }
             
+            i = i + 1
+        }
+    }
+    
+    fn propagateOffsetToChildren:void (parent:EVGElement offsetX:double offsetY:double) {
+        ; Recursively add offset to all children's positions
+        def childCount:int (parent.getChildCount())
+        def i:int 0
+        while (i < childCount) {
+            def child:EVGElement (parent.getChild(i))
+            if (offsetX != 0.0) {
+                child.calculatedX = child.calculatedX + offsetX
+            }
+            if (offsetY != 0.0) {
+                child.calculatedY = child.calculatedY + offsetY
+            }
+            ; Recurse to grandchildren
+            this.propagateOffsetToChildren(child offsetX offsetY)
             i = i + 1
         }
     }

@@ -10,6 +10,7 @@ Import "../../../ts_parser/ts_parser_simple.rgr"
 Import "../../../ts_parser/ts_lexer.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "EvalValue.rgr"
+Import "../jpeg/JPEGMetadata.rgr"
 
 ; =============================================================================
 ; ImportedSymbol - Represents an imported component or function
@@ -20,6 +21,7 @@ class ImportedSymbol {
     def sourcePath:string ""     ; File path
     def symbolType:string ""     ; "component" | "function" | "constant"
     def functionNode@(optional):TSNode      ; AST node for function components
+    def helperFunctions:[TSNode] ; Helper functions defined in the same file
 }
 
 ; =============================================================================
@@ -103,9 +105,21 @@ class ComponentEngine {
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     
+    ; Print settings for hooks
+    def printFormat:string "a4"
+    def printOrientation:string "portrait"
+    def printMarginTop:double 0.0
+    def printMarginRight:double 0.0
+    def printMarginBottom:double 0.0
+    def printMarginLeft:double 0.0
+    def printPageCount:int 1
+    
     ; Import/export tracking
     def imports:[ImportedSymbol]
     def localComponents:[ImportedSymbol]
+    
+    ; Track all loaded files for file watching
+    def loadedFiles:[string]
     
     ; Evaluation context
     def context:EvalContext
@@ -121,6 +135,8 @@ class ComponentEngine {
         imports = imp
         def loc:[ImportedSymbol]
         localComponents = loc
+        def lf:[string]
+        loadedFiles = lf
         def ctx:EvalContext (new EvalContext())
         context = ctx
         def prim:[string]
@@ -138,6 +154,7 @@ class ComponentEngine {
         push primitives "Path"
         push primitives "Spacer"
         push primitives "Divider"
+        push primitives "Layer"
         push primitives "div"
         push primitives "span"
         push primitives "p"
@@ -146,6 +163,7 @@ class ComponentEngine {
         push primitives "h3"
         push primitives "img"
         push primitives "path"
+        push primitives "layer"
     }
     
     ; ==========================================================================
@@ -194,12 +212,22 @@ class ComponentEngine {
         return fullPath
     }
     
+    ; Get list of all loaded files (main file + imports) for file watching
+    fn getLoadedFiles:[string] () {
+        return loadedFiles
+    }
+    
     ; ==========================================================================
     ; Main Entry Points
     ; ==========================================================================
     
     fn parseFile:EVGElement (dirPath:string fileName:string) {
         basePath = dirPath
+        
+        ; Track main file for watching
+        def mainFilePath:string (dirPath + fileName)
+        push loadedFiles mainFilePath
+        
         def fileContent:buffer (buffer_read_file dirPath fileName)
         def src:string (buffer_to_string fileContent)
         return (this.parse(src))
@@ -224,7 +252,7 @@ class ComponentEngine {
         ; 3. Process top-level variable declarations
         this.processVariables(ast)
         
-        ; 3. Find and evaluate render() function
+        ; 4. Find and evaluate render() function
         def renderFn:TSNode (this.findRenderFunction(ast))
         if (renderFn.nodeType == "") {
             print "Error: No render() function found"
@@ -232,7 +260,7 @@ class ComponentEngine {
             return empty
         }
         
-        ; 4. Evaluate render function and return EVG tree
+        ; 5. Evaluate render function and return EVG tree
         return (this.evaluateFunction(renderFn))
     }
     
@@ -299,6 +327,10 @@ class ComponentEngine {
         def dirPath:string basePath
         print ("Loading import: " + dirPath + fullPath)
         
+        ; Track loaded file for file watching
+        def loadedFilePath:string (dirPath + fullPath)
+        push loadedFiles loadedFilePath
+        
         def fileContent:buffer (buffer_read_file dirPath fullPath)
         def src:string (buffer_to_string fileContent)
         if ((strlen src) == 0) {
@@ -325,6 +357,23 @@ class ComponentEngine {
         importParser.tsxMode = true
         def importAst:TSNode (importParser.parseProgram())
         
+        ; Collect all non-exported helper functions from the file
+        def helperFns:[TSNode]
+        def hk:int 0
+        while (hk < (array_length importAst.children)) {
+            def hstmt:TSNode (itemAt importAst.children hk)
+            ; Collect non-exported function declarations as helpers
+            if (hstmt.nodeType == "FunctionDeclaration") {
+                def hfnName:string hstmt.name
+                ; Only add if not in import list (those will be the main components)
+                if ((this.isInList(hfnName importedNames)) == false) {
+                    push helperFns hstmt
+                    print ("  Found helper function: " + hfnName)
+                }
+            }
+            hk = hk + 1
+        }
+        
         ; Find exported functions that match imported names
         def k:int 0
         while (k < (array_length importAst.children)) {
@@ -344,6 +393,7 @@ class ComponentEngine {
                             sym.sourcePath = fullPath
                             sym.symbolType = "component"
                             sym.functionNode = declNode
+                            sym.helperFunctions = helperFns
                             push localComponents sym
                             print ("Imported component: " + fnName + " from " + fullPath)
                         }
@@ -361,6 +411,7 @@ class ComponentEngine {
                     sym.sourcePath = fullPath
                     sym.symbolType = "component"
                     sym.functionNode = stmt
+                    sym.helperFunctions = helperFns
                     push localComponents sym
                     print ("Imported component: " + fnName + " from " + fullPath)
                 }
@@ -422,6 +473,10 @@ class ComponentEngine {
                     sym.symbolType = "component"
                     sym.functionNode = node
                     push localComponents sym
+                    
+                    ; Also register in context as callable function
+                    context.define(node.name (EvalValue.function(node)))
+                    
                     print ("Registered local component: " + node.name)
                 }
             }
@@ -516,6 +571,29 @@ class ComponentEngine {
         return result
     }
     
+    ; Evaluate a function call and return the result as EvalValue
+    ; This supports functions that return arrays, not just JSX elements
+    fn evaluateFunctionCall:EvalValue (fnNode:TSNode props:EvalValue) {
+        ; Create new context for function scope
+        def savedContext:EvalContext context
+        context = (context.createChild())
+        
+        ; Process function parameters and bind props (if any)
+        ; valueType 0 = null, so check if props is provided
+        if (props.valueType != 0) {
+            this.bindFunctionParams(fnNode props)
+        }
+        
+        ; Process function body - evaluating statements and looking for return
+        def body:TSNode (this.getFunctionBody(fnNode))
+        def result:EvalValue (this.evaluateFunctionBodyValue(body))
+        
+        ; Restore context
+        context = savedContext
+        
+        return result
+    }
+    
     fn bindFunctionParams:void (fnNode:TSNode props:EvalValue) {
         ; Check function params
         def i:int 0
@@ -586,6 +664,38 @@ class ComponentEngine {
                 this.processVariableDeclaration(stmt)
             }
             
+            ; Process if statement
+            if (stmt.nodeType == "IfStatement") {
+                def ifResult:EVGElement (this.evaluateIfStatement(stmt))
+                if ifResult.hasReturn {
+                    return ifResult
+                }
+            }
+            
+            ; Process for loop
+            if (stmt.nodeType == "ForStatement") {
+                def forResult:EVGElement (this.evaluateForStatement(stmt))
+                if forResult.hasReturn {
+                    return forResult
+                }
+            }
+            
+            ; Process for...of loop
+            if (stmt.nodeType == "ForOfStatement") {
+                def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
+                if forOfResult.hasReturn {
+                    return forOfResult
+                }
+            }
+            
+            ; Process expression statement (e.g., arr.push(x))
+            if (stmt.nodeType == "ExpressionStatement") {
+                if stmt.left {
+                    def exprNode:TSNode (unwrap stmt.left)
+                    this.evaluateExprForSideEffect(exprNode)
+                }
+            }
+            
             ; Process return statement
             if (stmt.nodeType == "ReturnStatement") {
                 if stmt.left {
@@ -605,6 +715,418 @@ class ComponentEngine {
         return empty
     }
     
+    ; Evaluate function body and return result as EvalValue (not EVGElement)
+    ; This allows functions to return arrays, primitives, etc.
+    fn evaluateFunctionBodyValue:EvalValue (body:TSNode) {
+        ; Process statements
+        def i:int 0
+        print "evaluateFunctionBodyValue: body has " + (to_string (array_length body.children)) + " children"
+        while (i < (array_length body.children)) {
+            def stmt:TSNode (itemAt body.children i)
+            print "  Statement " + (to_string i) + ": " + stmt.nodeType
+            
+            ; Process variable declarations
+            if (stmt.nodeType == "VariableDeclaration") {
+                this.processVariableDeclaration(stmt)
+            }
+            
+            ; Process if statement
+            if (stmt.nodeType == "IfStatement") {
+                def ifResult:EVGElement (this.evaluateIfStatement(stmt))
+                if ifResult.hasReturn {
+                    ; If returned from if statement, need to get the value
+                    ; For now, just continue - we'll handle this properly later
+                }
+            }
+            
+            ; Process for loop
+            if (stmt.nodeType == "ForStatement") {
+                def forResult:EVGElement (this.evaluateForStatement(stmt))
+                ; Check if loop returned early (though we continue processing)
+                if forResult.hasReturn {
+                    ; For now, continue - loops with early returns need special handling
+                }
+            }
+            
+            ; Process for...of loop
+            if (stmt.nodeType == "ForOfStatement") {
+                def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
+                ; Check if loop returned early
+                if forOfResult.hasReturn {
+                    ; For now, continue
+                }
+            }
+            
+            ; Process expression statement (e.g., arr.push(x))
+            if (stmt.nodeType == "ExpressionStatement") {
+                if stmt.left {
+                    def exprNode:TSNode (unwrap stmt.left)
+                    this.evaluateExprForSideEffect(exprNode)
+                }
+            }
+            
+            ; Process return statement - evaluate as EvalValue
+            if (stmt.nodeType == "ReturnStatement") {
+                if stmt.left {
+                    def returnExpr:TSNode (unwrap stmt.left)
+                    return (this.evaluateExpr(returnExpr))
+                }
+                return (EvalValue.null())
+            }
+            
+            i = i + 1
+        }
+        
+        ; Arrow function with expression body
+        if ((body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment")) {
+            def el:EVGElement (this.evaluateJSX(body))
+            return (EvalValue.element(el))
+        }
+        
+        ; If body is a simple expression
+        if ((body.nodeType != "BlockStatement") && (body.nodeType != "")) {
+            return (this.evaluateExpr(body))
+        }
+        
+        return (EvalValue.null())
+    }
+    
+    ; ==========================================================================
+    ; If Statement Evaluation
+    ; ==========================================================================
+    
+    ; Evaluates an if statement
+    ; Returns EVGElement with hasReturn flag set if a return was executed
+    fn evaluateIfStatement:EVGElement (node:TSNode) {
+        def result (new EVGElement())
+        result.hasReturn = false
+        
+        ; Evaluate the condition (node.left)
+        if node.left {
+            def condNode:TSNode (unwrap node.left)
+            def condition:EvalValue (this.evaluateExpr(condNode))
+            
+            if (condition.toBool()) {
+                ; Execute then-block (node.body)
+                if node.body {
+                    def thenBlock:TSNode (unwrap node.body)
+                    def blockResult:EVGElement (this.evaluateStatementBlock(thenBlock))
+                    if blockResult.hasReturn {
+                        return blockResult
+                    }
+                }
+            } {
+                ; Execute else-block if present (node.right)
+                if node.right {
+                    def elseBlock:TSNode (unwrap node.right)
+                    ; Could be another IfStatement (else if) or BlockStatement (else)
+                    if (elseBlock.nodeType == "IfStatement") {
+                        return (this.evaluateIfStatement(elseBlock))
+                    }
+                    def blockResult:EVGElement (this.evaluateStatementBlock(elseBlock))
+                    if blockResult.hasReturn {
+                        return blockResult
+                    }
+                }
+            }
+        }
+        ; No return was hit
+        return result
+    }
+    
+    ; Evaluates a block of statements (BlockStatement)
+    ; Returns EVGElement with hasReturn flag set if a return was executed
+    fn evaluateStatementBlock:EVGElement (block:TSNode) {
+        def result (new EVGElement())
+        result.hasReturn = false
+        
+        ; Handle single statement (not wrapped in BlockStatement)
+        if (block.nodeType == "ReturnStatement") {
+            if block.left {
+                def returnExpr:TSNode (unwrap block.left)
+                def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
+                returnedEl.hasReturn = true
+                return returnedEl
+            }
+        }
+        
+        ; Handle BlockStatement with children
+        if (block.nodeType == "BlockStatement") {
+            def i:int 0
+            while (i < (array_length block.children)) {
+                def stmt:TSNode (itemAt block.children i)
+                
+                if (stmt.nodeType == "VariableDeclaration") {
+                    this.processVariableDeclaration(stmt)
+                }
+                
+                if (stmt.nodeType == "IfStatement") {
+                    def ifResult:EVGElement (this.evaluateIfStatement(stmt))
+                    if ifResult.hasReturn {
+                        return ifResult
+                    }
+                }
+                
+                if (stmt.nodeType == "ForStatement") {
+                    def forResult:EVGElement (this.evaluateForStatement(stmt))
+                    if forResult.hasReturn {
+                        return forResult
+                    }
+                }
+                
+                if (stmt.nodeType == "ForOfStatement") {
+                    def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
+                    if forOfResult.hasReturn {
+                        return forOfResult
+                    }
+                }
+                
+                if (stmt.nodeType == "ExpressionStatement") {
+                    if stmt.left {
+                        def exprNode:TSNode (unwrap stmt.left)
+                        this.evaluateExprForSideEffect(exprNode)
+                    }
+                }
+                
+                if (stmt.nodeType == "ReturnStatement") {
+                    if stmt.left {
+                        def returnExpr:TSNode (unwrap stmt.left)
+                        def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
+                        returnedEl.hasReturn = true
+                        return returnedEl
+                    }
+                }
+                
+                i = i + 1
+            }
+        }
+        
+        return result
+    }
+    
+    ; Evaluates an expression for its side effects (e.g., arr.push(x), i++)
+    fn evaluateExprForSideEffect:void (node:TSNode) {
+        ; Handle CallExpression (method calls like arr.push(x))
+        if (node.nodeType == "CallExpression") {
+            this.evaluateCallExprForSideEffect(node)
+        }
+        
+        ; Handle UpdateExpression (i++, ++i)
+        if (node.nodeType == "UpdateExpression") {
+            this.evaluateUpdateExpr(node)
+        }
+        
+        ; Handle AssignmentExpression (x = 1, x += 1)
+        if (node.nodeType == "AssignmentExpression") {
+            this.evaluateUpdateExpr(node)
+        }
+    }
+    
+    ; Evaluates a call expression for side effects (e.g., arr.push(x))
+    fn evaluateCallExprForSideEffect:void (node:TSNode) {
+        ; Check if it's a method call: arr.push(x)
+        if node.left {
+            def calleeNode:TSNode (unwrap node.left)
+            if (calleeNode.nodeType == "MemberExpression") {
+                def methodName:string calleeNode.name
+                
+                ; Get the object being called on
+                if calleeNode.left {
+                    def objNode:TSNode (unwrap calleeNode.left)
+                    if (objNode.nodeType == "Identifier") {
+                        def objName:string objNode.name
+                        def objValue:EvalValue (context.lookup(objName))
+                        
+                        ; Array.push()
+                        if ((methodName == "push") && (objValue.isArray())) {
+                            ; Get arguments from node.children
+                            if ((array_length node.children) > 0) {
+                                def argNode:TSNode (itemAt node.children 0)
+                                def argValue:EvalValue (this.evaluateExpr(argNode))
+                                ; Mutate the array by adding the item
+                                push objValue.arrayValue argValue
+                                ; Update the context (in case of reassignment)
+                                context.define(objName objValue)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    ; ==========================================================================
+    ; For Loop Evaluation
+    ; ==========================================================================
+    
+    ; Evaluates a for statement: for (init; test; update) body
+    ; Returns EVGElement with hasReturn flag set if a return was executed
+    fn evaluateForStatement:EVGElement (node:TSNode) {
+        def result (new EVGElement())
+        result.hasReturn = false
+        
+        print "evaluateForStatement called"
+        
+        ; Process init (usually VariableDeclaration)
+        if node.init {
+            def initNode:TSNode (unwrap node.init)
+            print "For init nodeType: " + initNode.nodeType
+            if (initNode.nodeType == "VariableDeclaration") {
+                this.processVariableDeclaration(initNode)
+            }
+        }
+        
+        ; Loop with test (node.left) and update (node.right)
+        def maxIterations:int 10000  ; Safety limit
+        def iterations:int 0
+        
+        while (iterations < maxIterations) {
+            ; Evaluate test condition (node.left)
+            if node.left {
+                def testNode:TSNode (unwrap node.left)
+                def testResult:EvalValue (this.evaluateExpr(testNode))
+                if ((testResult.toBool()) == false) {
+                    ; Condition is false, exit loop
+                    return result
+                }
+            }
+            
+            ; Execute body
+            if node.body {
+                def bodyNode:TSNode (unwrap node.body)
+                def bodyResult:EVGElement (this.evaluateStatementBlock(bodyNode))
+                if bodyResult.hasReturn {
+                    return bodyResult
+                }
+            }
+            
+            ; Execute update (node.right)
+            if node.right {
+                def updateNode:TSNode (unwrap node.right)
+                this.evaluateUpdateExpr(updateNode)
+            }
+            
+            iterations = iterations + 1
+        }
+        
+        return result
+    }
+    
+    ; Evaluates a for...of statement: for (const x of array) body
+    ; Returns EVGElement with hasReturn flag set if a return was executed
+    fn evaluateForOfStatement:EVGElement (node:TSNode) {
+        def result (new EVGElement())
+        result.hasReturn = false
+        
+        ; Get variable name from node.left (VariableDeclaration)
+        def varName:string ""
+        if node.left {
+            def leftNode:TSNode (unwrap node.left)
+            if (leftNode.nodeType == "VariableDeclaration") {
+                if ((array_length leftNode.children) > 0) {
+                    def decl:TSNode (itemAt leftNode.children 0)
+                    varName = decl.name
+                }
+            }
+        }
+        
+        ; Get the array to iterate (node.right)
+        if node.right {
+            def rightNode:TSNode (unwrap node.right)
+            def arrayValue:EvalValue (this.evaluateExpr(rightNode))
+            
+            if (arrayValue.isArray()) {
+                def i:int 0
+                while (i < (array_length arrayValue.arrayValue)) {
+                    def item:EvalValue (itemAt arrayValue.arrayValue i)
+                    
+                    ; Bind loop variable
+                    context.define(varName item)
+                    
+                    ; Execute body
+                    if node.body {
+                        def bodyNode:TSNode (unwrap node.body)
+                        def bodyResult:EVGElement (this.evaluateStatementBlock(bodyNode))
+                        if bodyResult.hasReturn {
+                            return bodyResult
+                        }
+                    }
+                    
+                    i = i + 1
+                }
+            }
+        }
+        
+        return result
+    }
+    
+    ; Evaluates update expressions like i++, i += 1, etc.
+    fn evaluateUpdateExpr:void (node:TSNode) {
+        if (node.nodeType == "UpdateExpression") {
+            ; i++ or ++i
+            if node.left {
+                def argNode:TSNode (unwrap node.left)
+                if (argNode.nodeType == "Identifier") {
+                    def varName:string argNode.name
+                    def current:EvalValue (context.lookup(varName))
+                    def currentNum:double (current.toNumber())
+                    
+                    if (node.value == "++") {
+                        context.define(varName (EvalValue.number((currentNum + 1.0))))
+                    }
+                    if (node.value == "--") {
+                        context.define(varName (EvalValue.number((currentNum - 1.0))))
+                    }
+                }
+            }
+        }
+        
+        if (node.nodeType == "AssignmentExpression") {
+            ; i += 1, i = i + 1, etc.
+            if node.left {
+                def leftNode:TSNode (unwrap node.left)
+                if (leftNode.nodeType == "Identifier") {
+                    def varName:string leftNode.name
+                    def op:string node.value
+                    
+                    if node.right {
+                        def rightNode:TSNode (unwrap node.right)
+                        def rightValue:EvalValue (this.evaluateExpr(rightNode))
+                        
+                        if (op == "=") {
+                            context.define(varName rightValue)
+                        }
+                        if (op == "+=") {
+                            def current:EvalValue (context.lookup(varName))
+                            def isLeftStr:boolean (current.isString())
+                            def isRightStr:boolean (rightValue.isString())
+                            if (isLeftStr || isRightStr) {
+                                context.define(varName (EvalValue.string((current.toString()) + (rightValue.toString()))))
+                            } {
+                                context.define(varName (EvalValue.number((current.toNumber()) + (rightValue.toNumber()))))
+                            }
+                        }
+                        if (op == "-=") {
+                            def current:EvalValue (context.lookup(varName))
+                            context.define(varName (EvalValue.number((current.toNumber()) - (rightValue.toNumber()))))
+                        }
+                        if (op == "*=") {
+                            def current:EvalValue (context.lookup(varName))
+                            context.define(varName (EvalValue.number((current.toNumber()) * (rightValue.toNumber()))))
+                        }
+                        if (op == "/=") {
+                            def current:EvalValue (context.lookup(varName))
+                            def rightNum:double (rightValue.toNumber())
+                            if (rightNum != 0.0) {
+                                context.define(varName (EvalValue.number((current.toNumber()) / rightNum)))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     ; ==========================================================================
     ; JSX Evaluation
     ; ==========================================================================
@@ -649,10 +1171,37 @@ class ComponentEngine {
         def element (new EVGElement())
         element.tagName = (this.mapTagName(tagName))
         
+        ; Set elementType based on tag
+        if ((tagName == "Label") || (tagName == "span") || (tagName == "text")) {
+            element.elementType = 1  ; Text
+        }
+        if ((tagName == "Image") || (tagName == "img") || (tagName == "image")) {
+            element.elementType = 2  ; Image
+        }
+        if ((tagName == "Path") || (tagName == "path")) {
+            element.elementType = 3  ; Path
+        }
+        
         ; Parse attributes
         if jsxNode.left {
             def openingEl:TSNode (unwrap jsxNode.left)
             this.evaluateAttributes(element openingEl)
+        }
+        
+        ; Handle Print element - resolve book format and update engine dimensions
+        if (tagName == "Print") {
+            element.resolveBookFormat()
+            ; Update engine's page dimensions for children
+            if (element.pageWidth > 0.0) {
+                pageWidth = element.pageWidth
+            }
+            if (element.pageHeight > 0.0) {
+                pageHeight = element.pageHeight
+            }
+            ; Update print settings for hooks
+            printFormat = element.format
+            printOrientation = element.orientation
+            print "Print settings: format=" + printFormat + " orientation=" + printOrientation + " " + (to_string pageWidth) + "x" + (to_string pageHeight)
         }
         
         ; Handle text content for Label/text elements
@@ -699,6 +1248,18 @@ class ComponentEngine {
                 def props:EvalValue (this.evaluateProps(jsxNode))
                 if sym.functionNode {
                     def fnNode:TSNode (unwrap sym.functionNode)
+                    
+                    ; Register helper functions from the component's file in the context
+                    def hi:int 0
+                    while (hi < (array_length sym.helperFunctions)) {
+                        def helperFn:TSNode (itemAt sym.helperFunctions hi)
+                        def helperName:string helperFn.name
+                        def helperValue:EvalValue (EvalValue.function(helperFn))
+                        context.define(helperName helperValue)
+                        print ("Registered helper function: " + helperName)
+                        hi = hi + 1
+                    }
+                    
                     return (this.evaluateFunctionWithProps(fnNode props))
                 }
             }
@@ -978,9 +1539,62 @@ class ComponentEngine {
         if exprContainer.left {
             def exprNode:TSNode (unwrap exprContainer.left)
             
-            ; Handle array.map()
+            ; Handle CallExpression - both array.map() and regular function calls
             if (exprNode.nodeType == "CallExpression") {
-                this.evaluateArrayMapChild(element exprNode)
+                ; Check if it's a method call like array.map()
+                if exprNode.left {
+                    def calleeNode:TSNode (unwrap exprNode.left)
+                    if (calleeNode.nodeType == "MemberExpression") {
+                        ; Method call - check for .map()
+                        def methodName:string calleeNode.name
+                        if (methodName == "map") {
+                            this.evaluateArrayMapChild(element exprNode)
+                            return
+                        }
+                    }
+                }
+                ; Regular function call like buildColorBoxes()
+                ; Evaluate using evaluateExpr which handles CallExpression
+                def callResult:EvalValue (this.evaluateExpr(exprNode))
+                
+                ; Handle array result (array of elements from function)
+                if (callResult.isArray()) {
+                    def ai:int 0
+                    while (ai < (array_length callResult.arrayValue)) {
+                        def arrItem:EvalValue (itemAt callResult.arrayValue ai)
+                        if (arrItem.isElement()) {
+                            if arrItem.evgElement {
+                                def arrChildEl:EVGElement (unwrap arrItem.evgElement)
+                                if ((strlen arrChildEl.tagName) > 0) {
+                                    element.addChild(arrChildEl)
+                                }
+                            }
+                        }
+                        ai = ai + 1
+                    }
+                    return
+                }
+                
+                ; Handle single element result
+                if (callResult.isElement()) {
+                    if callResult.evgElement {
+                        def childEl:EVGElement (unwrap callResult.evgElement)
+                        if ((strlen childEl.tagName) > 0) {
+                            element.addChild(childEl)
+                        }
+                    }
+                    return
+                }
+                
+                ; Handle string/number result as text
+                def isStr:boolean (callResult.isString())
+                def isNum:boolean (callResult.isNumber())
+                if (isStr || isNum) {
+                    def textEl (new EVGElement())
+                    textEl.tagName = "text"
+                    textEl.textContent = (callResult.toString())
+                    element.addChild(textEl)
+                }
                 return
             }
             
@@ -1195,15 +1809,22 @@ class ComponentEngine {
         
         if (node.nodeType == "TemplateLiteral") {
             ; Template literals have TemplateElement children with the text
+            ; The text may contain ${...} expressions that need to be evaluated
+            print "TemplateLiteral: processing template with " + (to_string (array_length node.children)) + " children"
             def templateText:string ""
             def ti:int 0
             while (ti < (array_length node.children)) {
                 def templateChild:TSNode (itemAt node.children ti)
+                print "TemplateLiteral child " + (to_string ti) + ": nodeType=" + templateChild.nodeType + " value=" + templateChild.value
                 if (templateChild.nodeType == "TemplateElement") {
-                    templateText = templateText + templateChild.value
+                    ; Parse and evaluate any ${...} expressions in the template text
+                    def rawText:string templateChild.value
+                    def processedText:string (this.evaluateTemplateExpressions(rawText))
+                    templateText = templateText + processedText
                 }
                 ti = ti + 1
             }
+            print "TemplateLiteral: result = '" + templateText + "'"
             return (EvalValue.string(templateText))
         }
         
@@ -1271,6 +1892,331 @@ class ComponentEngine {
             el.tagName = "div"
             this.evaluateChildren(el node)
             return (EvalValue.element(el))
+        }
+        
+        ; Call Expression (function calls)
+        if (node.nodeType == "CallExpression") {
+            return (this.evaluateCallExpr(node))
+        }
+        
+        return (EvalValue.null())
+    }
+    
+    ; Evaluate a call expression (function call)
+    ; Returns the function's return value as EvalValue
+    fn evaluateCallExpr:EvalValue (node:TSNode) {
+        if node.left {
+            def callee:TSNode (unwrap node.left)
+            
+            ; Handle method calls (e.g., arr.map(), num.toFixed())
+            if (callee.nodeType == "MemberExpression") {
+                ; Get the object and method name
+                def obj:EvalValue (EvalValue.null())
+                def methodName:string ""
+                
+                ; Get the object (left side of the member expression)
+                if callee.left {
+                    def objNode:TSNode (unwrap callee.left)
+                    obj = (this.evaluateExpr(objNode))
+                }
+                
+                ; Get the method name - try callee.name first (direct property)
+                ; then fall back to callee.right for computed access
+                methodName = callee.name
+                if ((strlen methodName) == 0) {
+                    if callee.right {
+                        def propNode:TSNode (unwrap callee.right)
+                        methodName = propNode.name
+                        if ((strlen methodName) == 0) {
+                            methodName = propNode.value
+                        }
+                    }
+                }
+                
+                print "Method call: " + methodName + " on value type=" + (to_string obj.valueType)
+                
+                ; Handle Number methods
+                if (methodName == "toFixed") {
+                    def numVal:double (obj.toNumber())
+                    def decimals:int 0
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        def argVal:EvalValue (this.evaluateExpr(argNode))
+                        decimals = (to_int (argVal.toNumber()))
+                    }
+                    ; Format the number with specified decimal places
+                    ; Multiply, round, then divide to get the right precision
+                    def multiplier:double 1.0
+                    def i:int 0
+                    while (i < decimals) {
+                        multiplier = multiplier * 10.0
+                        i = i + 1
+                    }
+                    def rounded:double (to_double (to_int ((numVal * multiplier) + 0.5)))
+                    def result:double (rounded / multiplier)
+                    
+                    ; Convert to string with proper decimal places
+                    def resultStr:string (to_string result)
+                    ; Find decimal point
+                    def dotIdx:int (indexOf resultStr ".")
+                    if (decimals == 0) {
+                        ; Return integer part only
+                        if (dotIdx >= 0) {
+                            return (EvalValue.string((substring resultStr 0 dotIdx)))
+                        }
+                        return (EvalValue.string(resultStr))
+                    }
+                    if (dotIdx < 0) {
+                        ; No decimal point, add one with zeros
+                        resultStr = resultStr + "."
+                        def z:int 0
+                        while (z < decimals) {
+                            resultStr = resultStr + "0"
+                            z = z + 1
+                        }
+                        return (EvalValue.string(resultStr))
+                    }
+                    ; Pad or truncate decimals
+                    def currentDecimals:int ((strlen resultStr) - dotIdx - 1)
+                    if (currentDecimals < decimals) {
+                        ; Pad with zeros
+                        def p:int currentDecimals
+                        while (p < decimals) {
+                            resultStr = resultStr + "0"
+                            p = p + 1
+                        }
+                    } {
+                        ; Truncate
+                        resultStr = (substring resultStr 0 (dotIdx + 1 + decimals))
+                    }
+                    return (EvalValue.string(resultStr))
+                }
+                
+                ; Handle String methods
+                if (methodName == "toString") {
+                    return (EvalValue.string((obj.toString())))
+                }
+                if (methodName == "toUpperCase") {
+                    return (EvalValue.string((to_uppercase (obj.toString()))))
+                }
+                if (methodName == "toLowerCase") {
+                    return (EvalValue.string((to_lowercase (obj.toString()))))
+                }
+                if (methodName == "trim") {
+                    return (EvalValue.string((trim (obj.toString()))))
+                }
+                if (methodName == "charAt") {
+                    def str:string (obj.toString())
+                    def idx:int 0
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        def argVal:EvalValue (this.evaluateExpr(argNode))
+                        idx = (to_int (argVal.toNumber()))
+                    }
+                    if (idx < (strlen str)) {
+                        ; Use substring to get single character as string (charAt returns int)
+                        return (EvalValue.string((substring str idx (idx + 1))))
+                    }
+                    return (EvalValue.string(""))
+                }
+                if (methodName == "substring") {
+                    def str:string (obj.toString())
+                    def startIdx:int 0
+                    def endIdx:int (strlen str)
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        def argVal:EvalValue (this.evaluateExpr(argNode))
+                        startIdx = (to_int (argVal.toNumber()))
+                    }
+                    if ((array_length node.children) > 1) {
+                        def argNode2:TSNode (itemAt node.children 1)
+                        def argVal2:EvalValue (this.evaluateExpr(argNode2))
+                        endIdx = (to_int (argVal2.toNumber()))
+                    }
+                    return (EvalValue.string((substring str startIdx endIdx)))
+                }
+                if (methodName == "padStart") {
+                    def str:string (obj.toString())
+                    def targetLen:int (strlen str)
+                    def padStr:string " "
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        def argVal:EvalValue (this.evaluateExpr(argNode))
+                        targetLen = (to_int (argVal.toNumber()))
+                    }
+                    if ((array_length node.children) > 1) {
+                        def argNode2:TSNode (itemAt node.children 1)
+                        def argVal2:EvalValue (this.evaluateExpr(argNode2))
+                        padStr = (argVal2.toString())
+                        if ((strlen padStr) == 0) {
+                            padStr = " "
+                        }
+                    }
+                    ; Pad the string at the start
+                    def currentLen:int (strlen str)
+                    if (currentLen >= targetLen) {
+                        return (EvalValue.string(str))
+                    }
+                    def padding:string ""
+                    def padLen:int (strlen padStr)
+                    while ((strlen padding) < (targetLen - currentLen)) {
+                        padding = padding + padStr
+                    }
+                    ; Trim padding to exact length needed
+                    def neededPad:int (targetLen - currentLen)
+                    if ((strlen padding) > neededPad) {
+                        padding = (substring padding 0 neededPad)
+                    }
+                    return (EvalValue.string(padding + str))
+                }
+                if (methodName == "padEnd") {
+                    def str:string (obj.toString())
+                    def targetLen:int (strlen str)
+                    def padStr:string " "
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        def argVal:EvalValue (this.evaluateExpr(argNode))
+                        targetLen = (to_int (argVal.toNumber()))
+                    }
+                    if ((array_length node.children) > 1) {
+                        def argNode2:TSNode (itemAt node.children 1)
+                        def argVal2:EvalValue (this.evaluateExpr(argNode2))
+                        padStr = (argVal2.toString())
+                        if ((strlen padStr) == 0) {
+                            padStr = " "
+                        }
+                    }
+                    ; Pad the string at the end
+                    def currentLen:int (strlen str)
+                    if (currentLen >= targetLen) {
+                        return (EvalValue.string(str))
+                    }
+                    def padding:string ""
+                    def padLen:int (strlen padStr)
+                    while ((strlen padding) < (targetLen - currentLen)) {
+                        padding = padding + padStr
+                    }
+                    ; Trim padding to exact length needed
+                    def neededPad:int (targetLen - currentLen)
+                    if ((strlen padding) > neededPad) {
+                        padding = (substring padding 0 neededPad)
+                    }
+                    return (EvalValue.string(str + padding))
+                }
+                
+                ; Handle Math methods like Math.round, Math.floor, Math.ceil
+                if (obj.isObject()) {
+                    def objName:string ""
+                    if callee.left {
+                        def objNode:TSNode (unwrap callee.left)
+                        if (objNode.nodeType == "Identifier") {
+                            objName = objNode.name
+                        }
+                    }
+                    if (objName == "Math") {
+                        if ((array_length node.children) > 0) {
+                            def argNode:TSNode (itemAt node.children 0)
+                            def argVal:EvalValue (this.evaluateExpr(argNode))
+                            def num:double (argVal.toNumber())
+                            
+                            if (methodName == "round") {
+                                return (EvalValue.number((to_double (to_int (num + 0.5)))))
+                            }
+                            if (methodName == "floor") {
+                                return (EvalValue.number((to_double (to_int num))))
+                            }
+                            if (methodName == "ceil") {
+                                def intPart:int (to_int num)
+                                if (num > (to_double intPart)) {
+                                    return (EvalValue.number((to_double (intPart + 1))))
+                                }
+                                return (EvalValue.number((to_double intPart)))
+                            }
+                            if (methodName == "abs") {
+                                if (num < 0.0) {
+                                    return (EvalValue.number((0.0 - num)))
+                                }
+                                return (EvalValue.number(num))
+                            }
+                        }
+                    }
+                }
+                
+                ; Fallback: return null for unhandled methods
+                print "Warning: Unhandled method call: " + methodName
+                return (EvalValue.null())
+            }
+            
+            ; Handle regular function calls
+            if (callee.nodeType == "Identifier") {
+                def fnName:string callee.name
+                print "Evaluating function call: " + fnName
+                
+                ; ============================================================
+                ; Handle built-in hooks
+                ; ============================================================
+                if (fnName == "usePrintSettings") {
+                    return (this.evaluateUsePrintSettings())
+                }
+                if (fnName == "useImage") {
+                    ; Get the src argument from node.children
+                    def srcArg:string ""
+                    if ((array_length node.children) > 0) {
+                        def argNode:TSNode (itemAt node.children 0)
+                        print "useImage arg nodeType: " + argNode.nodeType
+                        def argValue:EvalValue (this.evaluateExpr(argNode))
+                        print "useImage arg value: " + (argValue.toString()) + " type=" + (to_string argValue.valueType)
+                        srcArg = argValue.stringValue
+                        print "useImage srcArg: " + srcArg
+                    }
+                    return (this.evaluateUseImage(srcArg))
+                }
+                
+                ; Look up the function in context
+                def fnValue:EvalValue (context.lookup(fnName))
+                print "Lookup function '" + fnName + "' -> type=" + (to_string fnValue.valueType) + " isFunction=" + (to_string (fnValue.isFunction()))
+                if (fnValue.isFunction()) {
+                    if fnValue.functionNode {
+                        def fnNode:TSNode (unwrap fnValue.functionNode)
+                        
+                        ; Create new context for function scope
+                        def savedContext:EvalContext context
+                        context = (context.createChild())
+                        
+                        ; Bind function arguments to parameters
+                        def numArgs:int (array_length node.children)
+                        def numParams:int (array_length fnNode.params)
+                        print "Function " + fnName + " called with " + (to_string numArgs) + " args, has " + (to_string numParams) + " params"
+                        
+                        def argIdx:int 0
+                        while (argIdx < numParams) {
+                            if (argIdx < numArgs) {
+                                ; Evaluate the argument
+                                def argNode:TSNode (itemAt node.children argIdx)
+                                def argValue:EvalValue (this.evaluateExpr(argNode))
+                                
+                                ; Get the parameter name
+                                def paramNode:TSNode (itemAt fnNode.params argIdx)
+                                def paramName:string paramNode.name
+                                print "Binding param '" + paramName + "' = " + (argValue.toString())
+                                
+                                ; Define the parameter in the new context
+                                context.define(paramName argValue)
+                            }
+                            argIdx = argIdx + 1
+                        }
+                        
+                        ; Evaluate function body and capture return value
+                        def body:TSNode (this.getFunctionBody(fnNode))
+                        def result:EvalValue (this.evaluateFunctionBodyValue(body))
+                        
+                        ; Restore context
+                        context = savedContext
+                        
+                        return result
+                    }
+                }
+            }
         }
         
         return (EvalValue.null())
@@ -1424,13 +2370,17 @@ class ComponentEngine {
             def obj:EvalValue (this.evaluateExpr(leftExpr))
             def propName:string node.name
             
+            print ("evaluateMemberExpr: propName=" + propName + " computed=" + (to_string node.computed) + " obj.type=" + (to_string obj.valueType))
+            
             ; Check for computed access [index]
             if node.computed {
                 if node.right {
                     def indexExpr:TSNode (unwrap node.right)
                     def indexVal:EvalValue (this.evaluateExpr(indexExpr))
+                    print ("  Index value: " + (indexVal.toString()) + " type=" + (to_string indexVal.valueType))
                     if (indexVal.isNumber()) {
                         def idx:int (to_int (indexVal.toNumber()))
+                        print ("  Getting index " + (to_string idx) + " from array of length " + (to_string (array_length obj.arrayValue)))
                         return (obj.getIndex(idx))
                     }
                     if (indexVal.isString()) {
@@ -1492,6 +2442,7 @@ class ComponentEngine {
         if (jsxTag == "Section") { return "section" }
         if (jsxTag == "Page") { return "page" }
         if (jsxTag == "View") { return "div" }
+        if (jsxTag == "Layer") { return "layer" }
         if (jsxTag == "Label") { return "text" }
         if (jsxTag == "Image") { return "image" }
         if (jsxTag == "Path") { return "path" }
@@ -1501,6 +2452,7 @@ class ComponentEngine {
         if (jsxTag == "span") { return "text" }
         if (jsxTag == "img") { return "image" }
         if (jsxTag == "path") { return "path" }
+        if (jsxTag == "layer") { return "layer" }
         return "div"
     }
     
@@ -1633,5 +2585,762 @@ class ComponentEngine {
             return (substring s 1 (len - 1))
         }
         return s
+    }
+    
+    ; Evaluates ${...} template expressions within a template literal string
+    ; Parses the string, finds ${...} patterns, evaluates them, and returns the result
+    fn evaluateTemplateExpressions:string (templateStr:string) {
+        print "evaluateTemplateExpressions: input = '" + templateStr + "'"
+        def result:string ""
+        def len:int (strlen templateStr)
+        def i:int 0
+        
+        while (i < len) {
+            def ch:string (at templateStr i)
+            
+            ; Check for ${...} pattern
+            if (ch == "$") {
+                if ((i + 1) < len) {
+                    def nextCh:string (at templateStr (i + 1))
+                    if (nextCh == "{") {
+                        ; Found ${, now find the matching }
+                        def exprStart:int (i + 2)
+                        def braceDepth:int 1
+                        def j:int exprStart
+                        
+                        while ((j < len) && (braceDepth > 0)) {
+                            def c:string (at templateStr j)
+                            if (c == "{") {
+                                braceDepth = braceDepth + 1
+                            }
+                            if (c == "}") {
+                                braceDepth = braceDepth - 1
+                            }
+                            if (braceDepth > 0) {
+                                j = j + 1
+                            }
+                        }
+                        
+                        if (braceDepth == 0) {
+                            ; Extract the expression
+                            def exprStr:string (substring templateStr exprStart j)
+                            print "evaluateTemplateExpressions: found expression '" + exprStr + "'"
+                            
+                            ; Parse and evaluate the expression
+                            def exprValue:string (this.evaluateTemplateExpression(exprStr))
+                            result = result + exprValue
+                            
+                            ; Move past the closing }
+                            i = j + 1
+                        } {
+                            ; No matching }, treat as literal
+                            result = result + ch
+                            i = i + 1
+                        }
+                    } {
+                        ; Just a $ without {
+                        result = result + ch
+                        i = i + 1
+                    }
+                } {
+                    ; $ at end of string
+                    result = result + ch
+                    i = i + 1
+                }
+            } {
+                ; Regular character
+                result = result + ch
+                i = i + 1
+            }
+        }
+        
+        return result
+    }
+    
+    ; Evaluates a single template expression string like "img.gps.latitude"
+    fn evaluateTemplateExpression:string (exprStr:string) {
+        print "evaluateTemplateExpression: parsing '" + exprStr + "'"
+        ; Tokenize and parse the expression using the TypeScript parser
+        def lexer:TSLexer (new TSLexer(exprStr))
+        def tokens:[Token] (lexer.tokenize())
+        def parser:TSParserSimple (new TSParserSimple())
+        parser.initParser(tokens)
+        def ast:TSNode (parser.parseProgram())
+        
+        ; The AST should have a Program with one ExpressionStatement
+        print "evaluateTemplateExpression: AST has " + (to_string (array_length ast.children)) + " children"
+        if ((array_length ast.children) > 0) {
+            def stmt:TSNode (itemAt ast.children 0)
+            print "evaluateTemplateExpression: stmt.nodeType = " + stmt.nodeType
+            if (stmt.nodeType == "ExpressionStatement") {
+                if stmt.left {
+                    def exprNode:TSNode (unwrap stmt.left)
+                    print "evaluateTemplateExpression: exprNode.nodeType = " + exprNode.nodeType
+                    def value:EvalValue (this.evaluateExpr(exprNode))
+                    print "evaluateTemplateExpression: result = " + (value.toString())
+                    return (value.toString())
+                }
+            }
+            ; Try direct expression evaluation
+            def value:EvalValue (this.evaluateExpr(stmt))
+            print "evaluateTemplateExpression: direct result = " + (value.toString())
+            return (value.toString())
+        }
+        
+        ; Fallback: return the original expression
+        print "evaluateTemplateExpression: fallback for '" + exprStr + "'"
+        return ("${" + exprStr + "}")
+    }
+    
+    ; ==========================================================================
+    ; Hooks Implementation
+    ; ==========================================================================
+    
+    ; usePrintSettings() - returns print settings as an object EvalValue
+    fn evaluateUsePrintSettings:EvalValue () {
+        print "Hook: usePrintSettings() called"
+        
+        ; Create property names and values arrays
+        def propNames:[string]
+        def propValues:[EvalValue]
+        
+        ; format
+        push propNames "format"
+        def formatVal:EvalValue (EvalValue.string(printFormat))
+        push propValues formatVal
+        
+        ; width
+        push propNames "width"
+        def widthVal:EvalValue (EvalValue.number(pageWidth))
+        push propValues widthVal
+        
+        ; height
+        push propNames "height"
+        def heightVal:EvalValue (EvalValue.number(pageHeight))
+        push propValues heightVal
+        
+        ; orientation
+        push propNames "orientation"
+        def orientVal:EvalValue (EvalValue.string(printOrientation))
+        push propValues orientVal
+        
+        ; pageCount
+        push propNames "pageCount"
+        def pageCountVal:EvalValue (EvalValue.number((to_double printPageCount)))
+        push propValues pageCountVal
+        
+        ; margins object
+        push propNames "margins"
+        def marginNames:[string]
+        def marginValues:[EvalValue]
+        push marginNames "top"
+        push marginValues (EvalValue.number(printMarginTop))
+        push marginNames "right"
+        push marginValues (EvalValue.number(printMarginRight))
+        push marginNames "bottom"
+        push marginValues (EvalValue.number(printMarginBottom))
+        push marginNames "left"
+        push marginValues (EvalValue.number(printMarginLeft))
+        def marginsVal:EvalValue (EvalValue.object(marginNames marginValues))
+        push propValues marginsVal
+        
+        return (EvalValue.object(propNames propValues))
+    }
+    
+    ; Parse GPS coordinate string like "43° 28' 1.49"" into components
+    ; Returns an object with direction, degrees, minutes, seconds, originalValue
+    fn parseGPSCoordinate:EvalValue (direction:string coordStr:string originalValue:string) {
+        def names:[string]
+        def values:[EvalValue]
+        
+        ; direction (N, S, E, W)
+        push names "direction"
+        push values (EvalValue.string(direction))
+        
+        ; Parse the coordinate string format: "43° 28' 1.49""
+        ; Or it might be decimal format: "43.4670833"
+        def degrees:double 0.0
+        def minutes:double 0.0
+        def seconds:double 0.0
+        
+        ; Debug: print the coordinate string being parsed
+        print "parseGPSCoordinate: coordStr = '" + coordStr + "'"
+        
+        ; Check if contains degree symbol or space-separated DMS
+        def hasDegreeSym:boolean ((indexOf coordStr "°") >= 0)
+        if hasDegreeSym {
+            ; Parse DMS format: "43° 28' 1.49""
+            ; Extract numeric parts by filtering out non-numeric characters
+            
+            def degEnd:int (indexOf coordStr "°")
+            print "parseGPSCoordinate: degEnd = " + (to_string degEnd)
+            if (degEnd > 0) {
+                def degStr:string (substring coordStr 0 degEnd)
+                def cleanDegStr:string (this.extractNumber(degStr))
+                print "parseGPSCoordinate: degStr = '" + degStr + "' -> clean: '" + cleanDegStr + "'"
+                def degVal@(optional):double (to_double cleanDegStr)
+                if degVal {
+                    degrees = (unwrap degVal)
+                }
+            }
+            
+            ; Find minutes between ° and '
+            def minEnd:int (indexOf coordStr "'")
+            print "parseGPSCoordinate: minEnd = " + (to_string minEnd)
+            if (minEnd > degEnd) {
+                ; Extract text between degree symbol and minute marker
+                ; Account for multi-byte degree symbol by starting a bit further
+                def minStr:string (substring coordStr (degEnd + 1) minEnd)
+                def cleanMinStr:string (this.extractNumber(minStr))
+                print "parseGPSCoordinate: minStr = '" + minStr + "' -> clean: '" + cleanMinStr + "'"
+                def minVal@(optional):double (to_double cleanMinStr)
+                if minVal {
+                    minutes = (unwrap minVal)
+                }
+            }
+            
+            ; Find seconds between ' and " (or end)
+            def secEnd:int (indexOf coordStr "\"")
+            print "parseGPSCoordinate: secEnd = " + (to_string secEnd)
+            if (secEnd < 0) {
+                secEnd = (strlen coordStr)
+            }
+            if (secEnd > minEnd) {
+                def secStr:string (substring coordStr (minEnd + 1) secEnd)
+                def cleanSecStr:string (this.extractNumber(secStr))
+                print "parseGPSCoordinate: secStr = '" + secStr + "' -> clean: '" + cleanSecStr + "'"
+                def secVal@(optional):double (to_double cleanSecStr)
+                if secVal {
+                    seconds = (unwrap secVal)
+                }
+            }
+        } {
+            ; Assume decimal degrees format, convert to DMS
+            def decVal@(optional):double (to_double (trim coordStr))
+            if decVal {
+                def decimalDeg:double (unwrap decVal)
+                def degreesInt:int (floor decimalDeg)
+                degrees = (to_double degreesInt)
+                def minFloat:double ((decimalDeg - degrees) * 60.0)
+                def minutesInt:int (floor minFloat)
+                minutes = (to_double minutesInt)
+                seconds = ((minFloat - minutes) * 60.0)
+            }
+        }
+        
+        print "parseGPSCoordinate: degrees=" + (to_string degrees) + " minutes=" + (to_string minutes) + " seconds=" + (to_string seconds)
+        
+        ; degrees
+        push names "degrees"
+        push values (EvalValue.number(degrees))
+        
+        ; minutes
+        push names "minutes"
+        push values (EvalValue.number(minutes))
+        
+        ; seconds
+        push names "seconds"
+        push values (EvalValue.number(seconds))
+        
+        ; originalValue
+        push names "originalValue"
+        push values (EvalValue.string(originalValue))
+        
+        return (EvalValue.object(names values))
+    }
+    
+    ; Helper: Extract numeric characters (digits, decimal point, minus) from a string
+    fn extractNumber:string (str:string) {
+        def result:string ""
+        def i:int 0
+        def len:int (strlen str)
+        while (i < len) {
+            def chCode:int (charAt str i)
+            ; Check if character is digit (48-57), decimal point (46), or minus sign (45)
+            ; ASCII: '0'=48, '9'=57, '.'=46, '-'=45
+            if (((chCode >= 48) && (chCode <= 57)) || (chCode == 46) || (chCode == 45)) {
+                def chStr:string (substring str i (i + 1))
+                result = result + chStr
+            }
+            i = i + 1
+        }
+        return result
+    }
+    
+    ; Parse EXIF date string like "2025:07:17 19:22:41" into components
+    ; Returns an object with year, month, day, hour, minute, second, monthName, weekday, timeOfDay, formatted
+    fn parseDateInfo:EvalValue (dateStr:string) {
+        def names:[string]
+        def values:[EvalValue]
+        
+        ; Return null object if no date string
+        if ((strlen dateStr) < 10) {
+            return (EvalValue.null())
+        }
+        
+        ; Parse EXIF format: "YYYY:MM:DD HH:MM:SS"
+        ; Example: "2025:07:17 19:22:41"
+        def year:int 0
+        def month:int 0
+        def day:int 0
+        def hour:int 0
+        def minute:int 0
+        def second:int 0
+        
+        ; Extract year (chars 0-3)
+        if ((strlen dateStr) >= 4) {
+            def yearStr:string (substring dateStr 0 4)
+            def yearOpt@(optional):double (to_double yearStr)
+            if yearOpt {
+                year = (to_int (unwrap yearOpt))
+            }
+        }
+        
+        ; Extract month (chars 5-6)
+        if ((strlen dateStr) >= 7) {
+            def monthStr:string (substring dateStr 5 7)
+            def monthOpt@(optional):double (to_double monthStr)
+            if monthOpt {
+                month = (to_int (unwrap monthOpt))
+            }
+        }
+        
+        ; Extract day (chars 8-9)
+        if ((strlen dateStr) >= 10) {
+            def dayStr:string (substring dateStr 8 10)
+            def dayOpt@(optional):double (to_double dayStr)
+            if dayOpt {
+                day = (to_int (unwrap dayOpt))
+            }
+        }
+        
+        ; Extract hour (chars 11-12)
+        if ((strlen dateStr) >= 13) {
+            def hourStr:string (substring dateStr 11 13)
+            def hourOpt@(optional):double (to_double hourStr)
+            if hourOpt {
+                hour = (to_int (unwrap hourOpt))
+            }
+        }
+        
+        ; Extract minute (chars 14-15)
+        if ((strlen dateStr) >= 16) {
+            def minuteStr:string (substring dateStr 14 16)
+            def minuteOpt@(optional):double (to_double minuteStr)
+            if minuteOpt {
+                minute = (to_int (unwrap minuteOpt))
+            }
+        }
+        
+        ; Extract second (chars 17-18)
+        if ((strlen dateStr) >= 19) {
+            def secondStr:string (substring dateStr 17 19)
+            def secondOpt@(optional):double (to_double secondStr)
+            if secondOpt {
+                second = (to_int (unwrap secondOpt))
+            }
+        }
+        
+        ; Store numeric values
+        push names "year"
+        push values (EvalValue.number((to_double year)))
+        
+        push names "month"
+        push values (EvalValue.number((to_double month)))
+        
+        push names "day"
+        push values (EvalValue.number((to_double day)))
+        
+        push names "hour"
+        push values (EvalValue.number((to_double hour)))
+        
+        push names "minute"
+        push values (EvalValue.number((to_double minute)))
+        
+        push names "second"
+        push values (EvalValue.number((to_double second)))
+        
+        ; Month name
+        push names "monthName"
+        def monthName:string "Unknown"
+        if (month == 1) { monthName = "January" }
+        if (month == 2) { monthName = "February" }
+        if (month == 3) { monthName = "March" }
+        if (month == 4) { monthName = "April" }
+        if (month == 5) { monthName = "May" }
+        if (month == 6) { monthName = "June" }
+        if (month == 7) { monthName = "July" }
+        if (month == 8) { monthName = "August" }
+        if (month == 9) { monthName = "September" }
+        if (month == 10) { monthName = "October" }
+        if (month == 11) { monthName = "November" }
+        if (month == 12) { monthName = "December" }
+        push values (EvalValue.string(monthName))
+        
+        ; Short month name
+        push names "monthShort"
+        def monthShort:string "Unk"
+        if (month == 1) { monthShort = "Jan" }
+        if (month == 2) { monthShort = "Feb" }
+        if (month == 3) { monthShort = "Mar" }
+        if (month == 4) { monthShort = "Apr" }
+        if (month == 5) { monthShort = "May" }
+        if (month == 6) { monthShort = "Jun" }
+        if (month == 7) { monthShort = "Jul" }
+        if (month == 8) { monthShort = "Aug" }
+        if (month == 9) { monthShort = "Sep" }
+        if (month == 10) { monthShort = "Oct" }
+        if (month == 11) { monthShort = "Nov" }
+        if (month == 12) { monthShort = "Dec" }
+        push values (EvalValue.string(monthShort))
+        
+        ; Calculate weekday using Zeller's formula (simplified)
+        ; This gives 0=Saturday, 1=Sunday, ... 6=Friday
+        ; We adjust to 0=Sunday, 1=Monday, ... 6=Saturday
+        push names "weekday"
+        def weekdayName:string "Unknown"
+        def weekdayNum:int 0
+        
+        ; Adjust month and year for Zeller (Jan and Feb are months 13, 14 of previous year)
+        def adjustedMonth:int month
+        def adjustedYear:int year
+        if (month < 3) {
+            adjustedMonth = month + 12
+            adjustedYear = year - 1
+        }
+        
+        ; Zeller's congruence - use to_int for integer division
+        def k:int (adjustedYear % 100)
+        def j:int (to_int ((to_double adjustedYear) / 100.0))
+        def monthTerm:int (to_int ((to_double (13 * (adjustedMonth + 1))) / 5.0))
+        def kDiv4:int (to_int ((to_double k) / 4.0))
+        def jDiv4:int (to_int ((to_double j) / 4.0))
+        def h:int ((day + monthTerm + k + kDiv4 + jDiv4 - (2 * j)) % 7)
+        
+        ; Handle negative modulo result
+        if (h < 0) {
+            h = h + 7
+        }
+        
+        ; Convert from Zeller (0=Sat) to standard (0=Sun)
+        weekdayNum = ((h + 6) % 7)
+        
+        if (weekdayNum == 0) { weekdayName = "Sunday" }
+        if (weekdayNum == 1) { weekdayName = "Monday" }
+        if (weekdayNum == 2) { weekdayName = "Tuesday" }
+        if (weekdayNum == 3) { weekdayName = "Wednesday" }
+        if (weekdayNum == 4) { weekdayName = "Thursday" }
+        if (weekdayNum == 5) { weekdayName = "Friday" }
+        if (weekdayNum == 6) { weekdayName = "Saturday" }
+        push values (EvalValue.string(weekdayName))
+        
+        ; Short weekday name
+        push names "weekdayShort"
+        def weekdayShort:string "Unk"
+        if (weekdayNum == 0) { weekdayShort = "Sun" }
+        if (weekdayNum == 1) { weekdayShort = "Mon" }
+        if (weekdayNum == 2) { weekdayShort = "Tue" }
+        if (weekdayNum == 3) { weekdayShort = "Wed" }
+        if (weekdayNum == 4) { weekdayShort = "Thu" }
+        if (weekdayNum == 5) { weekdayShort = "Fri" }
+        if (weekdayNum == 6) { weekdayShort = "Sat" }
+        push values (EvalValue.string(weekdayShort))
+        
+        ; Weekday number (0 = Sunday)
+        push names "weekdayNumber"
+        push values (EvalValue.number((to_double weekdayNum)))
+        
+        ; Time of day (verbal description based on hour)
+        push names "timeOfDay"
+        def timeOfDay:string "night"
+        if ((hour >= 5) && (hour < 12)) {
+            timeOfDay = "morning"
+        }
+        if ((hour >= 12) && (hour < 14)) {
+            timeOfDay = "noon"
+        }
+        if ((hour >= 14) && (hour < 17)) {
+            timeOfDay = "afternoon"
+        }
+        if ((hour >= 17) && (hour < 21)) {
+            timeOfDay = "evening"
+        }
+        if ((hour >= 21) || (hour < 5)) {
+            timeOfDay = "night"
+        }
+        push values (EvalValue.string(timeOfDay))
+        
+        ; Is it AM or PM
+        push names "ampm"
+        if (hour < 12) {
+            push values (EvalValue.string("AM"))
+        } {
+            push values (EvalValue.string("PM"))
+        }
+        
+        ; Hour in 12-hour format
+        push names "hour12"
+        def hour12:int hour
+        if (hour == 0) {
+            hour12 = 12
+        } {
+            if (hour > 12) {
+                hour12 = hour - 12
+            }
+        }
+        push values (EvalValue.number((to_double hour12)))
+        
+        ; Formatted strings for convenience
+        ; ISO format: 2025-07-17
+        push names "isoDate"
+        def monthPad:string (to_string month)
+        if (month < 10) { monthPad = "0" + monthPad }
+        def dayPad:string (to_string day)
+        if (day < 10) { dayPad = "0" + dayPad }
+        push values (EvalValue.string((to_string year) + "-" + monthPad + "-" + dayPad))
+        
+        ; Time: 19:22:41
+        push names "time"
+        def hourPad:string (to_string hour)
+        if (hour < 10) { hourPad = "0" + hourPad }
+        def minPad:string (to_string minute)
+        if (minute < 10) { minPad = "0" + minPad }
+        def secPad:string (to_string second)
+        if (second < 10) { secPad = "0" + secPad }
+        push values (EvalValue.string(hourPad + ":" + minPad + ":" + secPad))
+        
+        ; Full formatted: "Thursday, July 17, 2025"
+        push names "formatted"
+        push values (EvalValue.string(weekdayName + ", " + monthName + " " + (to_string day) + ", " + (to_string year)))
+        
+        ; Short formatted: "Jul 17, 2025"
+        push names "shortFormatted"
+        push values (EvalValue.string(monthShort + " " + (to_string day) + ", " + (to_string year)))
+        
+        ; Original value
+        push names "originalValue"
+        push values (EvalValue.string(dateStr))
+        
+        return (EvalValue.object(names values))
+    }
+
+    ; useImage(src) - returns image metadata as an object EvalValue
+    fn evaluateUseImage:EvalValue (src:string) {
+        ; Resolve the image path relative to the current TSX file's directory
+        def resolvedPath:string src
+        if ((strlen src) > 0) {
+            ; Check if it's a relative path (not starting with /)
+            def firstChar:string (substring src 0 1)
+            if (firstChar != "/") {
+                ; Check if src starts with "./" - if basePath is "./" avoid double "./"
+                def startsWithDotSlash:boolean false
+                if ((strlen src) >= 2) {
+                    if ((substring src 0 2) == "./") {
+                        startsWithDotSlash = true
+                    }
+                }
+                
+                if startsWithDotSlash {
+                    ; src already starts with "./" - check if basePath is just "./"
+                    if (basePath == "./") {
+                        resolvedPath = src
+                    } {
+                        ; basePath is something else, prepend it but remove the "./" from src
+                        resolvedPath = basePath + (substring src 2 (strlen src))
+                    }
+                } {
+                    resolvedPath = basePath + src
+                }
+            }
+        }
+        print "Hook: useImage() called with src: " + src + " -> resolved: " + resolvedPath
+        
+        ; Parse the JPEG file to get actual metadata
+        ; Split resolvedPath into directory and filename
+        def lastSlash:int (lastIndexOf resolvedPath "/")
+        def dirPath:string ""
+        def fileName:string resolvedPath
+        if (lastSlash >= 0) {
+            dirPath = (substring resolvedPath 0 (lastSlash + 1))
+            fileName = (substring resolvedPath (lastSlash + 1) (strlen resolvedPath))
+        }
+        
+        print "Hook: parsing JPEG - dir: " + dirPath + " file: " + fileName
+        
+        ; Parse the JPEG metadata
+        def parser (new JPEGMetadataParser())
+        def metadata:JPEGMetadataInfo (parser.parseMetadata(dirPath fileName))
+        
+        ; If file not found or invalid, try with ./assets/ prefix (same as ResourceLoader)
+        if (metadata.isValid == false) {
+            def altDirPath:string ""
+            if ((indexOf dirPath "./") == 0) {
+                ; ./images/ -> ./assets/images/
+                altDirPath = "./assets/" + (substring dirPath 2 (strlen dirPath))
+            } {
+                altDirPath = "./assets/" + dirPath
+            }
+            print "Hook: useImage() trying alternative path: " + altDirPath + fileName
+            metadata = (parser.parseMetadata(altDirPath fileName))
+            
+            ; Update resolvedPath if alternative worked
+            if metadata.isValid {
+                resolvedPath = altDirPath + fileName
+            }
+        }
+        
+        ; Create property names and values arrays
+        def propNames:[string]
+        def propValues:[EvalValue]
+        
+        ; Store the resolved path so ResourceLoader can use it
+        push propNames "resolvedPath"
+        push propValues (EvalValue.string(resolvedPath))
+        
+        ; Get actual values from metadata
+        ; width
+        push propNames "width"
+        push propValues (EvalValue.number((to_double metadata.width)))
+        
+        ; height
+        push propNames "height"
+        push propValues (EvalValue.number((to_double metadata.height)))
+        
+        ; createdAt - use dateTimeOriginal if available
+        push propNames "createdAt"
+        if ((strlen metadata.dateTimeOriginal) > 0) {
+            push propValues (EvalValue.string(metadata.dateTimeOriginal))
+        } {
+            if ((strlen metadata.dateTime) > 0) {
+                push propValues (EvalValue.string(metadata.dateTime))
+            } {
+                push propValues (EvalValue.null())
+            }
+        }
+        
+        ; camera - combine make and model
+        push propNames "camera"
+        if ((strlen metadata.cameraModel) > 0) {
+            def cameraStr:string ""
+            if ((strlen metadata.cameraMake) > 0) {
+                cameraStr = metadata.cameraMake + " " + metadata.cameraModel
+            } {
+                cameraStr = metadata.cameraModel
+            }
+            push propValues (EvalValue.string(cameraStr))
+        } {
+            push propValues (EvalValue.null())
+        }
+        
+        ; orientation
+        push propNames "orientation"
+        push propValues (EvalValue.number((to_double metadata.orientation)))
+        
+        ; gps - create nested object with parsed components if available
+        push propNames "gps"
+        if metadata.hasGPS {
+            def gpsNames:[string]
+            def gpsValues:[EvalValue]
+            
+            ; Parse latitude into components
+            def latRaw:string (metadata.gpsLatitudeRef + " " + metadata.gpsLatitude)
+            push gpsNames "latitude"
+            push gpsValues (this.parseGPSCoordinate(metadata.gpsLatitudeRef metadata.gpsLatitude latRaw))
+            
+            ; Parse longitude into components
+            def lonRaw:string (metadata.gpsLongitudeRef + " " + metadata.gpsLongitude)
+            push gpsNames "longitude"
+            push gpsValues (this.parseGPSCoordinate(metadata.gpsLongitudeRef metadata.gpsLongitude lonRaw))
+            
+            if ((strlen metadata.gpsAltitude) > 0) {
+                push gpsNames "altitude"
+                push gpsValues (EvalValue.string(metadata.gpsAltitude))
+            }
+            push propValues (EvalValue.object(gpsNames gpsValues))
+        } {
+            push propValues (EvalValue.null())
+        }
+        
+        ; colorSpace - based on color components
+        push propNames "colorSpace"
+        if (metadata.colorComponents == 1) {
+            push propValues (EvalValue.string("Grayscale"))
+        } {
+            if (metadata.colorComponents == 3) {
+                push propValues (EvalValue.string("RGB"))
+            } {
+                if (metadata.colorComponents == 4) {
+                    push propValues (EvalValue.string("CMYK"))
+                } {
+                    push propValues (EvalValue.string("Unknown"))
+                }
+            }
+        }
+        
+        ; bitsPerComponent
+        push propNames "bitsPerComponent"
+        push propValues (EvalValue.number((to_double metadata.bitsPerComponent)))
+        
+        ; features - flags indicating what EXIF data is available
+        push propNames "features"
+        def featNames:[string]
+        def featValues:[EvalValue]
+        
+        ; hasExif - true if we have any EXIF data
+        push featNames "hasExif"
+        def hasExif:boolean (((strlen metadata.dateTimeOriginal) > 0) || ((strlen metadata.cameraModel) > 0) || metadata.hasGPS || (metadata.orientation > 1))
+        push featValues (EvalValue.boolean(hasExif))
+        
+        ; hasGps
+        push featNames "hasGps"
+        push featValues (EvalValue.boolean(metadata.hasGPS))
+        
+        ; hasDateTime
+        push featNames "hasDateTime"
+        def hasDateTime:boolean (((strlen metadata.dateTimeOriginal) > 0) || ((strlen metadata.dateTime) > 0))
+        push featValues (EvalValue.boolean(hasDateTime))
+        
+        ; hasCamera
+        push featNames "hasCamera"
+        def hasCamera:boolean ((strlen metadata.cameraModel) > 0)
+        push featValues (EvalValue.boolean(hasCamera))
+        
+        ; hasOrientation
+        push featNames "hasOrientation"
+        def hasOrientation:boolean (metadata.orientation > 1)
+        push featValues (EvalValue.boolean(hasOrientation))
+        
+        push propValues (EvalValue.object(featNames featValues))
+        
+        ; dateInfo - parsed date components if available
+        push propNames "dateInfo"
+        if ((strlen metadata.dateTimeOriginal) > 0) {
+            push propValues (this.parseDateInfo(metadata.dateTimeOriginal))
+        } {
+            if ((strlen metadata.dateTime) > 0) {
+                push propValues (this.parseDateInfo(metadata.dateTime))
+            } {
+                push propValues (EvalValue.null())
+            }
+        }
+        
+        return (EvalValue.object(propNames propValues))
+    }
+    
+    ; Set print settings from Print element props
+    fn setPrintSettings:void (format:string orientation:string width:double height:double) {
+        printFormat = format
+        printOrientation = orientation
+        pageWidth = width
+        pageHeight = height
+        print "Print settings updated: " + format + " " + orientation + " " + (to_string width) + "x" + (to_string height)
+    }
+    
+    ; Set print margins
+    fn setPrintMargins:void (top:double right:double bottom:double left:double) {
+        printMarginTop = top
+        printMarginRight = right
+        printMarginBottom = bottom
+        printMarginLeft = left
     }
 }

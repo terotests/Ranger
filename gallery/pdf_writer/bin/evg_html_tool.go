@@ -5729,7 +5729,7 @@ func CreateNew_EVGElement() *EVGElement {
   me.imageViewBoxW = 1.0
   me.imageViewBoxH = 1.0
   me.imageViewBoxSet = false
-  me.objectFit = "fill"
+  me.objectFit = "cover"
   me.svgPath = ""
   me.viewBox = ""
   me.strokeWidth = 0.0

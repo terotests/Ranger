@@ -4,6 +4,9 @@
 ; Represents values that can be evaluated: numbers, strings, booleans, 
 ; null, arrays, objects, functions, and EVG elements.
 
+Import "../../../evg/EVGElement.rgr"
+Import "../../../ts_parser/ts_parser_simple.rgr"
+
 ; Value types
 ; 0 = null
 ; 1 = number
@@ -24,6 +27,7 @@ class EvalValue {
     def objectValues:[EvalValue]
     def functionName:string ""
     def functionBody:string ""  ; For parsed functions
+    def functionNode@(optional):TSNode  ; For function AST nodes
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
     ; Constructors
@@ -73,6 +77,14 @@ class EvalValue {
         v.valueType = 5
         v.objectKeys = keys
         v.objectValues = values
+        return v
+    }
+    
+    sfn function:EvalValue (fnNode:TSNode) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 6
+        v.functionNode = fnNode
+        v.functionName = fnNode.name
         return v
     }
     

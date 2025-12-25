@@ -49,6 +49,17 @@ target. However, most targets already can compile reasonably good code.
 
 ## Recent Updates (December 2025)
 
+### TypeScript Parser (TSParser) Enhancements
+
+The TSParser (`gallery/ts_parser`) now supports additional JavaScript/TypeScript syntax features:
+
+**New Operators:**
+- **UpdateExpression**: `i++`, `++i`, `i--`, `--i` with proper prefix/postfix semantics
+- **Compound Assignment**: `+=`, `-=`, `*=`, `/=`, `%=` operators
+- **Computed Member Access**: Array indexing `arr[i]` now correctly sets the `computed` flag
+
+These enhancements enable the EVG ComponentEngine to evaluate for loops and dynamic array operations in TSX files.
+
 ### Swift 6 Target Support
 
 The Swift 6 target (`-l=swift6`) has been significantly enhanced with the following features:
@@ -233,6 +244,81 @@ cd gallery/pdf_writer
 - **Images & fonts** - Asset serving from configurable paths
 
 See `gallery/pdf_writer/README.md` for full documentation and TSX syntax reference.
+
+### EVG ComponentEngine TypeScript Evaluation (New - December 2025)
+
+The EVG ComponentEngine now supports **full TypeScript control flow evaluation**, enabling dynamic document generation with loops and conditionals. Functions defined in TSX files can use for loops, array operations, and return arrays of elements.
+
+**Supported Features:**
+
+| Feature | Syntax | Description |
+|---------|--------|-------------|
+| For loops | `for (let i = 0; i < n; i++)` | Standard for loop with init/test/update |
+| Decrement loops | `for (let i = 5; i > 0; i--)` | Countdown loops |
+| Step loops | `for (let i = 0; i < n; i += 2)` | Custom step increments |
+| Array.push | `arr.push(<Element />)` | Build arrays of JSX elements |
+| Array indexing | `colors[i]` | Access array elements by index |
+| Compound assignment | `total += value` | `+=`, `-=`, `*=`, `/=`, `%=` operators |
+| Update expressions | `i++`, `++i`, `i--`, `--i` | Pre/post increment/decrement |
+| Function calls in JSX | `{buildItems()}` | Call functions that return element arrays |
+
+**Example - Dynamic List Generation:**
+
+```tsx
+const colors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6"];
+
+function buildColorBoxes() {
+  const boxes: any[] = [];
+  
+  for (let i = 0; i < colors.length; i++) {
+    const color = colors[i];
+    boxes.push(
+      <View backgroundColor={color} padding={8}>
+        <Label color="#ffffff">Box {i + 1}: {color}</Label>
+      </View>
+    );
+  }
+  
+  return boxes;
+}
+
+function render() {
+  return (
+    <Print>
+      <Section>
+        <Page>
+          <View padding={16}>
+            <Label fontSize={20} fontWeight="bold">Color Boxes</Label>
+            {buildColorBoxes()}
+          </View>
+        </Page>
+      </Section>
+    </Print>
+  );
+}
+```
+
+**Example - Progressive Widths with Accumulator:**
+
+```tsx
+function buildProgressBars() {
+  const bars: any[] = [];
+  let totalWidth = 0;
+  
+  for (let i = 1; i <= 5; i++) {
+    totalWidth += i * 20;  // 20, 60, 120, 200, 300
+    bars.push(
+      <View width={totalWidth} backgroundColor="#0ea5e9" padding={4}>
+        <Label color="#ffffff">Width: {totalWidth}px</Label>
+      </View>
+    );
+  }
+  
+  return bars;
+}
+```
+
+See `gallery/pdf_writer/examples/test_for_loop.tsx` for a complete demonstration.
 
 ### Space Invaders Demo Game
 

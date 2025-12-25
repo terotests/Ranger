@@ -5,6 +5,7 @@ import (
   "strconv"
   "os"
   "path/filepath"
+  "math"
   "encoding/base64"
   "net/http"
   "log"
@@ -749,6 +750,11 @@ func (this *TSLexer) nextToken () *Token {
       this.advance();
       return this.makeToken("Punctuator", "++", startPos, startLine, startCol)
     }
+    if  next_1 == "=" {
+      this.advance();
+      this.advance();
+      return this.makeToken("Punctuator", "+=", startPos, startLine, startCol)
+    }
   }
   if  ch == "-" {
     if  next_1 == "-" {
@@ -756,12 +762,36 @@ func (this *TSLexer) nextToken () *Token {
       this.advance();
       return this.makeToken("Punctuator", "--", startPos, startLine, startCol)
     }
+    if  next_1 == "=" {
+      this.advance();
+      this.advance();
+      return this.makeToken("Punctuator", "-=", startPos, startLine, startCol)
+    }
   }
   if  ch == "*" {
     if  next_1 == "*" {
       this.advance();
       this.advance();
       return this.makeToken("Punctuator", "**", startPos, startLine, startCol)
+    }
+    if  next_1 == "=" {
+      this.advance();
+      this.advance();
+      return this.makeToken("Punctuator", "*=", startPos, startLine, startCol)
+    }
+  }
+  if  ch == "/" {
+    if  next_1 == "=" {
+      this.advance();
+      this.advance();
+      return this.makeToken("Punctuator", "/=", startPos, startLine, startCol)
+    }
+  }
+  if  ch == "%" {
+    if  next_1 == "=" {
+      this.advance();
+      this.advance();
+      return this.makeToken("Punctuator", "%=", startPos, startLine, startCol)
     }
   }
   if  ch == "." {
@@ -799,6 +829,7 @@ type TSNode struct {
   kind string `json:"kind"` 
   optional bool `json:"optional"` 
   readonly bool `json:"readonly"` 
+  prefix bool `json:"prefix"` 
   shorthand bool `json:"shorthand"` 
   computed bool `json:"computed"` 
   method bool `json:"method"` 
@@ -831,6 +862,7 @@ func CreateNew_TSNode() *TSNode {
   me.kind = ""
   me.optional = false
   me.readonly = false
+  me.prefix = false
   me.shorthand = false
   me.computed = false
   me.method = false
@@ -875,6 +907,7 @@ func (this *TSParserSimple) initParser (toks []*Token) () {
   if  (int64(len(toks))) > int64(0) {
     this.currentToken.value = toks[int64(0)];
     this.currentToken.has_value = true; /* detected as non-optional */
+    this.skipIgnoredTokens();
   }
 }
 func (this *TSParserSimple) setQuiet (q bool) () {
@@ -911,6 +944,29 @@ func (this *TSParserSimple) advance () () {
     eof.value = ""; 
     this.currentToken.value = eof;
     this.currentToken.has_value = true; /* detected as non-optional */
+  }
+  this.skipIgnoredTokens();
+}
+func (this *TSParserSimple) skipIgnoredTokens () () {
+  for this.pos < (int64(len(this.tokens))) {
+    var tok *Token= this.peek();
+    var tokType string= tok.tokenType;
+    if  (tokType == "LineComment") || (tokType == "BlockComment") {
+      this.pos = this.pos + int64(1); 
+      if  this.pos < (int64(len(this.tokens))) {
+        this.currentToken.value = this.tokens[this.pos];
+        this.currentToken.has_value = true; /* detected as non-optional */
+      } else {
+        var eof *Token= CreateNew_Token();
+        eof.tokenType = "EOF"; 
+        eof.value = ""; 
+        this.currentToken.value = eof;
+        this.currentToken.has_value = true; /* detected as non-optional */
+        return
+      }
+    } else {
+      return
+    }
   }
 }
 func (this *TSParserSimple) expect (expectedType string) *Token {
@@ -3300,7 +3356,7 @@ func (this *TSParserSimple) parseAssign () *TSNode {
     assign.col = left.col; 
     return assign
   }
-  if  ((tokVal == "&&=") || (tokVal == "||=")) || (tokVal == "??=") {
+  if  ((((tokVal == "+=") || (tokVal == "-=")) || (tokVal == "*=")) || (tokVal == "/=")) || (tokVal == "%=") {
     this.advance();
     var right_1 *TSNode= this.parseAssign();
     var assign_1 *TSNode= CreateNew_TSNode();
@@ -3314,6 +3370,21 @@ func (this *TSParserSimple) parseAssign () *TSNode {
     assign_1.line = left.line; 
     assign_1.col = left.col; 
     return assign_1
+  }
+  if  ((tokVal == "&&=") || (tokVal == "||=")) || (tokVal == "??=") {
+    this.advance();
+    var right_2 *TSNode= this.parseAssign();
+    var assign_2 *TSNode= CreateNew_TSNode();
+    assign_2.nodeType = "AssignmentExpression"; 
+    assign_2.value = tokVal; 
+    assign_2.left.value = left;
+    assign_2.left.has_value = true; /* detected as non-optional */
+    assign_2.right.value = right_2;
+    assign_2.right.has_value = true; /* detected as non-optional */
+    assign_2.start = left.start; 
+    assign_2.line = left.line; 
+    assign_2.col = left.col; 
+    return assign_2
   }
   return left
 }
@@ -3501,18 +3572,33 @@ func (this *TSParserSimple) parseMultiplicative () *TSNode {
 }
 func (this *TSParserSimple) parseUnary () *TSNode {
   var tokVal string= this.peekValue();
-  if  (tokVal == "!") || (tokVal == "-") {
+  if  (tokVal == "++") || (tokVal == "--") {
     var opTok *Token= this.peek();
     this.advance();
     var arg *TSNode= this.parseUnary();
+    var update *TSNode= CreateNew_TSNode();
+    update.nodeType = "UpdateExpression"; 
+    update.value = opTok.value; 
+    update.left.value = arg;
+    update.left.has_value = true; /* detected as non-optional */
+    update.prefix = true; 
+    update.start = opTok.start; 
+    update.line = opTok.line; 
+    update.col = opTok.col; 
+    return update
+  }
+  if  (tokVal == "!") || (tokVal == "-") {
+    var opTok_1 *Token= this.peek();
+    this.advance();
+    var arg_1 *TSNode= this.parseUnary();
     var unary *TSNode= CreateNew_TSNode();
     unary.nodeType = "UnaryExpression"; 
-    unary.value = opTok.value; 
-    unary.left.value = arg;
+    unary.value = opTok_1.value; 
+    unary.left.value = arg_1;
     unary.left.has_value = true; /* detected as non-optional */
-    unary.start = opTok.start; 
-    unary.line = opTok.line; 
-    unary.col = opTok.col; 
+    unary.start = opTok_1.start; 
+    unary.line = opTok_1.line; 
+    unary.col = opTok_1.col; 
     return unary
   }
   if  tokVal == "yield" {
@@ -3537,10 +3623,10 @@ func (this *TSParserSimple) parseUnary () *TSNode {
   if  tokVal == "await" {
     var awaitTok *Token= this.peek();
     this.advance();
-    var arg_1 *TSNode= this.parseUnary();
+    var arg_2 *TSNode= this.parseUnary();
     var awaitExpr *TSNode= CreateNew_TSNode();
     awaitExpr.nodeType = "AwaitExpression"; 
-    awaitExpr.left.value = arg_1;
+    awaitExpr.left.value = arg_2;
     awaitExpr.left.has_value = true; /* detected as non-optional */
     awaitExpr.start = awaitTok.start; 
     awaitExpr.line = awaitTok.line; 
@@ -3568,12 +3654,12 @@ func (this *TSParserSimple) parseUnary () *TSNode {
       var typeNode *TSNode= this.parseType();
       if  this.matchValue(">") {
         this.advance();
-        var arg_2 *TSNode= this.parseUnary();
+        var arg_3 *TSNode= this.parseUnary();
         var assertion *TSNode= CreateNew_TSNode();
         assertion.nodeType = "TSTypeAssertion"; 
         assertion.typeAnnotation.value = typeNode;
         assertion.typeAnnotation.has_value = true; /* detected as non-optional */
-        assertion.left.value = arg_2;
+        assertion.left.value = arg_3;
         assertion.left.has_value = true; /* detected as non-optional */
         assertion.start = startTok.start; 
         assertion.line = startTok.line; 
@@ -3754,6 +3840,7 @@ func (this *TSParserSimple) parsePostfix () *TSNode {
       this.expectValue("]");
       var computed *TSNode= CreateNew_TSNode();
       computed.nodeType = "MemberExpression"; 
+      computed.computed = true; 
       computed.left.value = expr;
       computed.left.has_value = true; /* detected as non-optional */
       computed.right.value = indexExpr_1;
@@ -3817,9 +3904,23 @@ func (this *TSParserSimple) parsePostfix () *TSNode {
       tagged.col = expr.col; 
       expr = tagged; 
     }
+    if  (tokVal == "++") || (tokVal == "--") {
+      var opTok *Token= this.peek();
+      this.advance();
+      var update *TSNode= CreateNew_TSNode();
+      update.nodeType = "UpdateExpression"; 
+      update.value = opTok.value; 
+      update.left.value = expr;
+      update.left.has_value = true; /* detected as non-optional */
+      update.prefix = false; 
+      update.start = expr.start; 
+      update.line = expr.line; 
+      update.col = expr.col; 
+      expr = update; 
+    }
     var newTokVal string= this.peekValue();
     var newTokType string= this.peekType();
-    if  (((((((newTokVal != "(") && (newTokVal != ".")) && (newTokVal != "?.")) && (newTokVal != "[")) && (newTokVal != "!")) && (newTokVal != "as")) && (newTokVal != "satisfies")) && (newTokType != "Template") {
+    if  (((((((((newTokVal != "(") && (newTokVal != ".")) && (newTokVal != "?.")) && (newTokVal != "[")) && (newTokVal != "!")) && (newTokVal != "as")) && (newTokVal != "satisfies")) && (newTokVal != "++")) && (newTokVal != "--")) && (newTokType != "Template") {
       keepParsing = false; 
     }
   }
@@ -4637,14 +4738,19 @@ func EVGUnit_static_parse(str string) *EVGUnit {
     unit.isSet = true; 
     return unit
   }
+  if  trimmed == "auto" {
+    return unit
+  }
   var lastChar int64= int64([]rune(trimmed)[(__len - int64(1))]);
   if  lastChar == int64(37) {
     var numStr string= string([]rune(trimmed)[int64(0):(__len - int64(1))]);
     var numVal *GoNullable = new(GoNullable); 
     numVal = r_str_2_d64(numStr);
-    unit.value = numVal.value.(float64); 
-    unit.unitType = int64(1); 
-    unit.isSet = true; 
+    if ( numVal.has_value) {
+      unit.value = numVal.value.(float64); 
+      unit.unitType = int64(1); 
+      unit.isSet = true; 
+    }
     return unit
   }
   if  __len >= int64(2) {
@@ -4653,37 +4759,45 @@ func EVGUnit_static_parse(str string) *EVGUnit {
       var numStr_1 string= string([]rune(trimmed)[int64(0):(__len - int64(2))]);
       var numVal_1 *GoNullable = new(GoNullable); 
       numVal_1 = r_str_2_d64(numStr_1);
-      unit.value = numVal_1.value.(float64); 
-      unit.unitType = int64(2); 
-      unit.isSet = true; 
+      if ( numVal_1.has_value) {
+        unit.value = numVal_1.value.(float64); 
+        unit.unitType = int64(2); 
+        unit.isSet = true; 
+      }
       return unit
     }
     if  suffix == "px" {
       var numStr_2 string= string([]rune(trimmed)[int64(0):(__len - int64(2))]);
       var numVal_2 *GoNullable = new(GoNullable); 
       numVal_2 = r_str_2_d64(numStr_2);
-      unit.value = numVal_2.value.(float64); 
-      unit.pixels = unit.value; 
-      unit.unitType = int64(0); 
-      unit.isSet = true; 
+      if ( numVal_2.has_value) {
+        unit.value = numVal_2.value.(float64); 
+        unit.pixels = unit.value; 
+        unit.unitType = int64(0); 
+        unit.isSet = true; 
+      }
       return unit
     }
     if  suffix == "hp" {
       var numStr_3 string= string([]rune(trimmed)[int64(0):(__len - int64(2))]);
       var numVal_3 *GoNullable = new(GoNullable); 
       numVal_3 = r_str_2_d64(numStr_3);
-      unit.value = numVal_3.value.(float64); 
-      unit.unitType = int64(3); 
-      unit.isSet = true; 
+      if ( numVal_3.has_value) {
+        unit.value = numVal_3.value.(float64); 
+        unit.unitType = int64(3); 
+        unit.isSet = true; 
+      }
       return unit
     }
   }
   var numVal_4 *GoNullable = new(GoNullable); 
   numVal_4 = r_str_2_d64(trimmed);
-  unit.value = numVal_4.value.(float64); 
-  unit.pixels = unit.value; 
-  unit.unitType = int64(0); 
-  unit.isSet = true; 
+  if ( numVal_4.has_value) {
+    unit.value = numVal_4.value.(float64); 
+    unit.pixels = unit.value; 
+    unit.unitType = int64(0); 
+    unit.isSet = true; 
+  }
   return unit
 }
 func (this *EVGUnit) resolve (parentSize float64, fontSize float64) () {
@@ -5609,6 +5723,10 @@ type EVGElement struct {
   id string `json:"id"` 
   tagName string `json:"tagName"` 
   elementType int64 `json:"elementType"` 
+  format string `json:"format"` 
+  orientation string `json:"orientation"` 
+  pageWidth float64 `json:"pageWidth"` 
+  pageHeight float64 `json:"pageHeight"` 
   parent *GoNullable `json:"parent"` 
   children []*EVGElement `json:"children"` 
   width *GoNullable `json:"width"` 
@@ -5669,7 +5787,11 @@ type EVGElement struct {
   imageViewBoxW float64 `json:"imageViewBoxW"` 
   imageViewBoxH float64 `json:"imageViewBoxH"` 
   imageViewBoxSet bool `json:"imageViewBoxSet"` 
+  imageOffsetX *GoNullable `json:"imageOffsetX"` 
+  imageOffsetY *GoNullable `json:"imageOffsetY"` 
   objectFit string `json:"objectFit"` 
+  sourceWidth float64 `json:"sourceWidth"` 
+  sourceHeight float64 `json:"sourceHeight"` 
   svgPath string `json:"svgPath"` 
   viewBox string `json:"viewBox"` 
   fillColor *GoNullable `json:"fillColor"` 
@@ -5698,6 +5820,7 @@ type EVGElement struct {
   isAbsolute bool `json:"isAbsolute"` 
   isLayoutComplete bool `json:"isLayoutComplete"` 
   unitsResolved bool `json:"unitsResolved"` 
+  hasReturn bool `json:"hasReturn"` 
   inheritedFontSize float64 `json:"inheritedFontSize"` 
 }
 
@@ -5706,6 +5829,10 @@ func CreateNew_EVGElement() *EVGElement {
   me.id = ""
   me.tagName = "div"
   me.elementType = int64(0)
+  me.format = ""
+  me.orientation = ""
+  me.pageWidth = 0.0
+  me.pageHeight = 0.0
   me.children = make([]*EVGElement,0)
   me.opacity = 1.0
   me.direction = "row"
@@ -5714,7 +5841,7 @@ func CreateNew_EVGElement() *EVGElement {
   me.isInline = false
   me.lineBreak = false
   me.overflow = "visible"
-  me.fontFamily = "Helvetica"
+  me.fontFamily = "Noto Sans"
   me.fontWeight = "normal"
   me.lineHeight = 1.2
   me.textAlign = "left"
@@ -5733,7 +5860,9 @@ func CreateNew_EVGElement() *EVGElement {
   me.imageViewBoxW = 1.0
   me.imageViewBoxH = 1.0
   me.imageViewBoxSet = false
-  me.objectFit = "fill"
+  me.objectFit = "cover"
+  me.sourceWidth = 0.0
+  me.sourceHeight = 0.0
   me.svgPath = ""
   me.viewBox = ""
   me.strokeWidth = 0.0
@@ -5756,6 +5885,7 @@ func CreateNew_EVGElement() *EVGElement {
   me.isAbsolute = false
   me.isLayoutComplete = false
   me.unitsResolved = false
+  me.hasReturn = false
   me.inheritedFontSize = 14.0
   me.parent = new(GoNullable);
   me.width = new(GoNullable);
@@ -5790,6 +5920,8 @@ func CreateNew_EVGElement() *EVGElement {
   me.borderLeftWidth = new(GoNullable);
   me.borderColor = new(GoNullable);
   me.borderRadius = new(GoNullable);
+  me.imageOffsetX = new(GoNullable);
+  me.imageOffsetY = new(GoNullable);
   me.fillColor = new(GoNullable);
   me.strokeColor = new(GoNullable);
   me.shadowRadius = new(GoNullable);
@@ -5839,6 +5971,10 @@ func CreateNew_EVGElement() *EVGElement {
   me.shadowOffsetX.has_value = true; /* detected as non-optional */
   me.shadowOffsetY.value = EVGUnit_static_unset();
   me.shadowOffsetY.has_value = true; /* detected as non-optional */
+  me.imageOffsetX.value = EVGUnit_static_unset();
+  me.imageOffsetX.has_value = true; /* detected as non-optional */
+  me.imageOffsetY.value = EVGUnit_static_unset();
+  me.imageOffsetY.has_value = true; /* detected as non-optional */
   me.fillColor.value = EVGColor_static_noColor();
   me.fillColor.has_value = true; /* detected as non-optional */
   me.strokeColor.value = EVGColor_static_noColor();
@@ -5912,6 +6048,9 @@ func (this *EVGElement) isPath () bool {
   return this.elementType == int64(3)
 }
 func (this *EVGElement) hasAbsolutePosition () bool {
+  if  (this.tagName == "layer") || (this.tagName == "Layer") {
+    return true
+  }
   if  this.left.value.(*EVGUnit).isSet {
     return true
   }
@@ -5932,8 +6071,82 @@ func (this *EVGElement) hasAbsolutePosition () bool {
   }
   return false
 }
+func (this *EVGElement) resolveBookFormat () () {
+  var w float64= 595.0;
+  var h float64= 842.0;
+  if  this.format == "a4" {
+    w = 595.0; 
+    h = 842.0; 
+  }
+  if  this.format == "letter" {
+    w = 612.0; 
+    h = 792.0; 
+  }
+  if  this.format == "trade-5x8" {
+    w = 360.0; 
+    h = 576.0; 
+  }
+  if  this.format == "trade-6x9" {
+    w = 432.0; 
+    h = 648.0; 
+  }
+  if  this.format == "trade-8x10" {
+    w = 576.0; 
+    h = 720.0; 
+  }
+  if  this.format == "mini-square" {
+    w = 360.0; 
+    h = 360.0; 
+  }
+  if  this.format == "small-square" {
+    w = 504.0; 
+    h = 504.0; 
+  }
+  if  this.format == "standard-portrait" {
+    w = 576.0; 
+    h = 720.0; 
+  }
+  if  this.format == "standard-landscape" {
+    w = 720.0; 
+    h = 576.0; 
+  }
+  if  this.format == "large-landscape" {
+    w = 936.0; 
+    h = 792.0; 
+  }
+  if  this.format == "large-square" {
+    w = 864.0; 
+    h = 864.0; 
+  }
+  if  this.format == "magazine" {
+    w = 612.0; 
+    h = 792.0; 
+  }
+  if  this.orientation == "landscape" {
+    if  w < h {
+      var temp float64= w;
+      w = h; 
+      h = temp; 
+    }
+  }
+  if  this.orientation == "portrait" {
+    if  w > h {
+      var temp_1 float64= w;
+      w = h; 
+      h = temp_1; 
+    }
+  }
+  if  this.pageWidth > 0.0 {
+    w = this.pageWidth; 
+  }
+  if  this.pageHeight > 0.0 {
+    h = this.pageHeight; 
+  }
+  this.pageWidth = w; 
+  this.pageHeight = h; 
+}
 func (this *EVGElement) inheritProperties (parentEl *EVGElement) () {
-  if  this.fontFamily == "Helvetica" {
+  if  this.fontFamily == "Noto Sans" {
     this.fontFamily = parentEl.fontFamily; 
   }
   if  this.color.value.(*EVGColor).isSet == false {
@@ -5976,6 +6189,30 @@ func (this *EVGElement) resolveUnits (parentWidth float64, parentHeight float64)
 func (this *EVGElement) setAttribute (name string, value string) () {
   if  name == "id" {
     this.id = value; 
+    return
+  }
+  if  name == "format" {
+    this.format = strings.ToLower(value); 
+    return
+  }
+  if  name == "orientation" {
+    this.orientation = strings.ToLower(value); 
+    return
+  }
+  if  name == "pageWidth" {
+    var pw *GoNullable = new(GoNullable); 
+    pw = r_str_2_d64(value);
+    if ( pw.has_value) {
+      this.pageWidth = pw.value.(float64); 
+    }
+    return
+  }
+  if  name == "pageHeight" {
+    var ph *GoNullable = new(GoNullable); 
+    ph = r_str_2_d64(value);
+    if ( ph.has_value) {
+      this.pageHeight = ph.value.(float64); 
+    }
     return
   }
   if  name == "width" {
@@ -6130,6 +6367,20 @@ func (this *EVGElement) setAttribute (name string, value string) () {
     var val *GoNullable = new(GoNullable); 
     val = r_str_2_d64(value);
     this.opacity = val.value.(float64); 
+    return
+  }
+  if  (name == "object-fit") || (name == "objectFit") {
+    this.objectFit = value; 
+    return
+  }
+  if  (name == "image-offset-x") || (name == "imageOffsetX") {
+    this.imageOffsetX.value = EVGUnit_static_parse(value);
+    this.imageOffsetX.has_value = true; /* detected as non-optional */
+    return
+  }
+  if  (name == "image-offset-y") || (name == "imageOffsetY") {
+    this.imageOffsetY.value = EVGUnit_static_parse(value);
+    this.imageOffsetY.has_value = true; /* detected as non-optional */
     return
   }
   if  name == "direction" {
@@ -6301,6 +6552,7 @@ type EvalValue struct {
   objectValues []*EvalValue `json:"objectValues"` 
   functionName string `json:"functionName"` 
   functionBody string /**  unused  **/  `json:"functionBody"` 
+  functionNode *GoNullable `json:"functionNode"` 
   evgElement *GoNullable `json:"evgElement"` 
 }
 
@@ -6315,6 +6567,7 @@ func CreateNew_EvalValue() *EvalValue {
   me.objectValues = make([]*EvalValue,0)
   me.functionName = ""
   me.functionBody = ""
+  me.functionNode = new(GoNullable);
   me.evgElement = new(GoNullable);
   return me;
 }
@@ -6358,6 +6611,14 @@ func EvalValue_static_object(keys []string, values []*EvalValue) *EvalValue {
   v.valueType = int64(5); 
   v.objectKeys = keys; 
   v.objectValues = values; 
+  return v
+}
+func EvalValue_static_function(fnNode *TSNode) *EvalValue {
+  var v *EvalValue= CreateNew_EvalValue();
+  v.valueType = int64(6); 
+  v.functionNode.value = fnNode;
+  v.functionNode.has_value = true; /* detected as non-optional */
+  v.functionName = fnNode.name; 
   return v
 }
 func EvalValue_static_element(el *EVGElement) *EvalValue {
@@ -6551,12 +6812,975 @@ func (this *EvalValue) equals (other *EvalValue) bool {
   }
   return false
 }
+type BufferChunk struct { 
+  data []byte `json:"data"` 
+  used int64 `json:"used"` 
+  capacity int64 `json:"capacity"` 
+  next *GoNullable `json:"next"` 
+}
+
+func CreateNew_BufferChunk(size int64) *BufferChunk {
+  me := new(BufferChunk)
+  me.data = 
+  make([]byte, int64(0))
+  
+  me.used = int64(0)
+  me.capacity = int64(0)
+  me.next = new(GoNullable);
+  me.data = make([]byte, size); 
+  me.capacity = size; 
+  me.used = int64(0); 
+  return me;
+}
+func (this *BufferChunk) remaining () int64 {
+  return this.capacity - this.used
+}
+func (this *BufferChunk) isFull () bool {
+  return this.used >= this.capacity
+}
+type GrowableBuffer struct { 
+  firstChunk *BufferChunk `json:"firstChunk"` 
+  currentChunk *BufferChunk `json:"currentChunk"` 
+  chunkSize int64 `json:"chunkSize"` 
+  totalSize int64 `json:"totalSize"` 
+}
+
+func CreateNew_GrowableBuffer() *GrowableBuffer {
+  me := new(GrowableBuffer)
+  me.firstChunk = CreateNew_BufferChunk(int64(4096))
+  me.currentChunk = CreateNew_BufferChunk(int64(4096))
+  me.chunkSize = int64(4096)
+  me.totalSize = int64(0)
+  var chunk *BufferChunk= CreateNew_BufferChunk(me.chunkSize);
+  me.firstChunk = chunk; 
+  me.currentChunk = chunk; 
+  return me;
+}
+func (this *GrowableBuffer) setChunkSize (size int64) () {
+  this.chunkSize = size; 
+}
+func (this *GrowableBuffer) allocateNewChunk () () {
+  var newChunk *BufferChunk= CreateNew_BufferChunk(this.chunkSize);
+  this.currentChunk.next.value = newChunk;
+  this.currentChunk.next.has_value = true; /* detected as non-optional */
+  this.currentChunk = newChunk; 
+}
+func (this *GrowableBuffer) writeByte (b int64) () {
+  if  this.currentChunk.isFull() {
+    this.allocateNewChunk();
+  }
+  var pos int64= this.currentChunk.used;
+  this.currentChunk.data[pos] = byte(b)
+  this.currentChunk.used = pos + int64(1); 
+  this.totalSize = this.totalSize + int64(1); 
+}
+func (this *GrowableBuffer) writeBytes (src []byte, srcOffset int64, length int64) () {
+  var i int64= int64(0);
+  for i < length {
+    var b int64= int64(src[(srcOffset + i)]);
+    this.writeByte(b);
+    i = i + int64(1); 
+  }
+}
+func (this *GrowableBuffer) writeBuffer (src []byte) () {
+  var __len int64= int64(len(src));
+  this.writeBytes(src, int64(0), __len);
+}
+func (this *GrowableBuffer) writeString (s string) () {
+  var __len int64= int64(len([]rune(s)));
+  var i int64= int64(0);
+  for i < __len {
+    var ch int64= int64([]rune(s)[i]);
+    this.writeByte(ch);
+    i = i + int64(1); 
+  }
+}
+func (this *GrowableBuffer) writeInt16BE (value int64) () {
+  var highD float64= float64(value) / float64(int64(256));
+  var high int64= int64(highD);
+  var low int64= value - (high * int64(256));
+  this.writeByte(high);
+  this.writeByte(low);
+}
+func (this *GrowableBuffer) writeInt32BE (value int64) () {
+  var b1D float64= float64(value) / float64(int64(16777216));
+  var b1 int64= int64(b1D);
+  var rem1 int64= value - (b1 * int64(16777216));
+  var b2D float64= float64(rem1) / float64(int64(65536));
+  var b2 int64= int64(b2D);
+  var rem2 int64= rem1 - (b2 * int64(65536));
+  var b3D float64= float64(rem2) / float64(int64(256));
+  var b3 int64= int64(b3D);
+  var b4 int64= rem2 - (b3 * int64(256));
+  this.writeByte(b1);
+  this.writeByte(b2);
+  this.writeByte(b3);
+  this.writeByte(b4);
+}
+func (this *GrowableBuffer) size () int64 {
+  return this.totalSize
+}
+func (this *GrowableBuffer) toBuffer () []byte {
+  var allocSize int64= this.totalSize;
+  var result []byte= make([]byte, allocSize);
+  var pos int64= int64(0);
+  var chunk *BufferChunk= this.firstChunk;
+  var done bool= false;
+  for done == false {
+    var chunkUsed int64= chunk.used;
+    var i int64= int64(0);
+    for i < chunkUsed {
+      var b int64= int64(chunk.data[i]);
+      result[pos] = byte(b)
+      pos = pos + int64(1); 
+      i = i + int64(1); 
+    }
+    if  !chunk.next.has_value  {
+      done = true; 
+    } else {
+      chunk = chunk.next.value.(*BufferChunk); 
+    }
+  }
+  return result
+}
+func (this *GrowableBuffer) toString () string {
+  var result string= "";
+  var chunk *BufferChunk= this.firstChunk;
+  var done bool= false;
+  for done == false {
+    var chunkUsed int64= chunk.used;
+    var i int64= int64(0);
+    for i < chunkUsed {
+      var b int64= int64(chunk.data[i]);
+      result = result + (string([]rune{rune(b)})); 
+      i = i + int64(1); 
+    }
+    if  !chunk.next.has_value  {
+      done = true; 
+    } else {
+      chunk = chunk.next.value.(*BufferChunk); 
+    }
+  }
+  return result
+}
+func (this *GrowableBuffer) clear () () {
+  var chunk *BufferChunk= CreateNew_BufferChunk(this.chunkSize);
+  this.firstChunk = chunk; 
+  this.currentChunk = chunk; 
+  this.totalSize = int64(0); 
+}
+type ExifTag struct { 
+  tagId int64 `json:"tagId"` 
+  tagName string `json:"tagName"` 
+  tagValue string `json:"tagValue"` 
+  dataType int64 `json:"dataType"` 
+}
+
+func CreateNew_ExifTag() *ExifTag {
+  me := new(ExifTag)
+  me.tagId = int64(0)
+  me.tagName = ""
+  me.tagValue = ""
+  me.dataType = int64(0)
+  return me;
+}
+type JPEGMetadataInfo struct { 
+  isValid bool `json:"isValid"` 
+  errorMessage string `json:"errorMessage"` 
+  hasJFIF bool `json:"hasJFIF"` 
+  jfifVersion string `json:"jfifVersion"` 
+  densityUnits int64 `json:"densityUnits"` 
+  xDensity int64 `json:"xDensity"` 
+  yDensity int64 `json:"yDensity"` 
+  width int64 `json:"width"` 
+  height int64 `json:"height"` 
+  colorComponents int64 `json:"colorComponents"` 
+  bitsPerComponent int64 `json:"bitsPerComponent"` 
+  hasExif bool `json:"hasExif"` 
+  cameraMake string `json:"cameraMake"` 
+  cameraModel string `json:"cameraModel"` 
+  software string `json:"software"` 
+  dateTime string `json:"dateTime"` 
+  dateTimeOriginal string `json:"dateTimeOriginal"` 
+  exposureTime string `json:"exposureTime"` 
+  fNumber string `json:"fNumber"` 
+  isoSpeed string `json:"isoSpeed"` 
+  focalLength string `json:"focalLength"` 
+  flash string `json:"flash"` 
+  orientation int64 `json:"orientation"` 
+  xResolution string `json:"xResolution"` 
+  yResolution string `json:"yResolution"` 
+  resolutionUnit int64 `json:"resolutionUnit"` 
+  hasGPS bool `json:"hasGPS"` 
+  gpsLatitude string `json:"gpsLatitude"` 
+  gpsLongitude string `json:"gpsLongitude"` 
+  gpsAltitude string `json:"gpsAltitude"` 
+  gpsLatitudeRef string `json:"gpsLatitudeRef"` 
+  gpsLongitudeRef string `json:"gpsLongitudeRef"` 
+  hasComment bool `json:"hasComment"` 
+  comment string `json:"comment"` 
+  exifTags []*ExifTag `json:"exifTags"` 
+}
+
+func CreateNew_JPEGMetadataInfo() *JPEGMetadataInfo {
+  me := new(JPEGMetadataInfo)
+  me.isValid = false
+  me.errorMessage = ""
+  me.hasJFIF = false
+  me.jfifVersion = ""
+  me.densityUnits = int64(0)
+  me.xDensity = int64(0)
+  me.yDensity = int64(0)
+  me.width = int64(0)
+  me.height = int64(0)
+  me.colorComponents = int64(0)
+  me.bitsPerComponent = int64(0)
+  me.hasExif = false
+  me.cameraMake = ""
+  me.cameraModel = ""
+  me.software = ""
+  me.dateTime = ""
+  me.dateTimeOriginal = ""
+  me.exposureTime = ""
+  me.fNumber = ""
+  me.isoSpeed = ""
+  me.focalLength = ""
+  me.flash = ""
+  me.orientation = int64(1)
+  me.xResolution = ""
+  me.yResolution = ""
+  me.resolutionUnit = int64(0)
+  me.hasGPS = false
+  me.gpsLatitude = ""
+  me.gpsLongitude = ""
+  me.gpsAltitude = ""
+  me.gpsLatitudeRef = ""
+  me.gpsLongitudeRef = ""
+  me.hasComment = false
+  me.comment = ""
+  me.exifTags = make([]*ExifTag,0)
+  return me;
+}
+type JPEGMetadataParser struct { 
+  data []byte `json:"data"` 
+  dataLen int64 `json:"dataLen"` 
+  littleEndian bool `json:"littleEndian"` 
+}
+
+func CreateNew_JPEGMetadataParser() *JPEGMetadataParser {
+  me := new(JPEGMetadataParser)
+  me.data = 
+  make([]byte, int64(0))
+  
+  me.dataLen = int64(0)
+  me.littleEndian = false
+  return me;
+}
+func (this *JPEGMetadataParser) readUint16BE (offset int64) int64 {
+  var high int64= int64(this.data[offset]);
+  var low int64= int64(this.data[(offset + int64(1))]);
+  return (high * int64(256)) + low
+}
+func (this *JPEGMetadataParser) readUint16 (offset int64) int64 {
+  var result int64= int64(0);
+  if  this.littleEndian {
+    var low int64= int64(this.data[offset]);
+    var high int64= int64(this.data[(offset + int64(1))]);
+    result = (high * int64(256)) + low; 
+  } else {
+    var high_1 int64= int64(this.data[offset]);
+    var low_1 int64= int64(this.data[(offset + int64(1))]);
+    result = (high_1 * int64(256)) + low_1; 
+  }
+  return result
+}
+func (this *JPEGMetadataParser) readUint32 (offset int64) int64 {
+  var result int64= int64(0);
+  if  this.littleEndian {
+    var b0 int64= int64(this.data[offset]);
+    var b1 int64= int64(this.data[(offset + int64(1))]);
+    var b2 int64= int64(this.data[(offset + int64(2))]);
+    var b3 int64= int64(this.data[(offset + int64(3))]);
+    result = (((b3 * int64(16777216)) + (b2 * int64(65536))) + (b1 * int64(256))) + b0; 
+  } else {
+    var b0_1 int64= int64(this.data[offset]);
+    var b1_1 int64= int64(this.data[(offset + int64(1))]);
+    var b2_1 int64= int64(this.data[(offset + int64(2))]);
+    var b3_1 int64= int64(this.data[(offset + int64(3))]);
+    result = (((b0_1 * int64(16777216)) + (b1_1 * int64(65536))) + (b2_1 * int64(256))) + b3_1; 
+  }
+  return result
+}
+func (this *JPEGMetadataParser) readString (offset int64, length int64) string {
+  var result string= "";
+  var i int64= int64(0);
+  for i < length {
+    var b int64= int64(this.data[(offset + i)]);
+    if  b == int64(0) {
+      return result
+    }
+    result = result + (string([]rune{rune(b)})); 
+    i = i + int64(1); 
+  }
+  return result
+}
+func (this *JPEGMetadataParser) getTagName (tagId int64, ifdType int64) string {
+  if  ifdType == int64(2) {
+    if  tagId == int64(0) {
+      return "GPSVersionID"
+    }
+    if  tagId == int64(1) {
+      return "GPSLatitudeRef"
+    }
+    if  tagId == int64(2) {
+      return "GPSLatitude"
+    }
+    if  tagId == int64(3) {
+      return "GPSLongitudeRef"
+    }
+    if  tagId == int64(4) {
+      return "GPSLongitude"
+    }
+    if  tagId == int64(5) {
+      return "GPSAltitudeRef"
+    }
+    if  tagId == int64(6) {
+      return "GPSAltitude"
+    }
+    return "GPS_" + (strconv.FormatInt(tagId, 10))
+  }
+  if  tagId == int64(256) {
+    return "ImageWidth"
+  }
+  if  tagId == int64(257) {
+    return "ImageHeight"
+  }
+  if  tagId == int64(258) {
+    return "BitsPerSample"
+  }
+  if  tagId == int64(259) {
+    return "Compression"
+  }
+  if  tagId == int64(262) {
+    return "PhotometricInterpretation"
+  }
+  if  tagId == int64(270) {
+    return "ImageDescription"
+  }
+  if  tagId == int64(271) {
+    return "Make"
+  }
+  if  tagId == int64(272) {
+    return "Model"
+  }
+  if  tagId == int64(274) {
+    return "Orientation"
+  }
+  if  tagId == int64(282) {
+    return "XResolution"
+  }
+  if  tagId == int64(283) {
+    return "YResolution"
+  }
+  if  tagId == int64(296) {
+    return "ResolutionUnit"
+  }
+  if  tagId == int64(305) {
+    return "Software"
+  }
+  if  tagId == int64(306) {
+    return "DateTime"
+  }
+  if  tagId == int64(315) {
+    return "Artist"
+  }
+  if  tagId == int64(33432) {
+    return "Copyright"
+  }
+  if  tagId == int64(33434) {
+    return "ExposureTime"
+  }
+  if  tagId == int64(33437) {
+    return "FNumber"
+  }
+  if  tagId == int64(34850) {
+    return "ExposureProgram"
+  }
+  if  tagId == int64(34855) {
+    return "ISOSpeedRatings"
+  }
+  if  tagId == int64(36864) {
+    return "ExifVersion"
+  }
+  if  tagId == int64(36867) {
+    return "DateTimeOriginal"
+  }
+  if  tagId == int64(36868) {
+    return "DateTimeDigitized"
+  }
+  if  tagId == int64(37377) {
+    return "ShutterSpeedValue"
+  }
+  if  tagId == int64(37378) {
+    return "ApertureValue"
+  }
+  if  tagId == int64(37380) {
+    return "ExposureBiasValue"
+  }
+  if  tagId == int64(37381) {
+    return "MaxApertureValue"
+  }
+  if  tagId == int64(37383) {
+    return "MeteringMode"
+  }
+  if  tagId == int64(37384) {
+    return "LightSource"
+  }
+  if  tagId == int64(37385) {
+    return "Flash"
+  }
+  if  tagId == int64(37386) {
+    return "FocalLength"
+  }
+  if  tagId == int64(37500) {
+    return "MakerNote"
+  }
+  if  tagId == int64(37510) {
+    return "UserComment"
+  }
+  if  tagId == int64(40960) {
+    return "FlashpixVersion"
+  }
+  if  tagId == int64(40961) {
+    return "ColorSpace"
+  }
+  if  tagId == int64(40962) {
+    return "PixelXDimension"
+  }
+  if  tagId == int64(40963) {
+    return "PixelYDimension"
+  }
+  if  tagId == int64(41486) {
+    return "FocalPlaneXResolution"
+  }
+  if  tagId == int64(41487) {
+    return "FocalPlaneYResolution"
+  }
+  if  tagId == int64(41488) {
+    return "FocalPlaneResolutionUnit"
+  }
+  if  tagId == int64(41495) {
+    return "SensingMethod"
+  }
+  if  tagId == int64(41728) {
+    return "FileSource"
+  }
+  if  tagId == int64(41729) {
+    return "SceneType"
+  }
+  if  tagId == int64(41985) {
+    return "CustomRendered"
+  }
+  if  tagId == int64(41986) {
+    return "ExposureMode"
+  }
+  if  tagId == int64(41987) {
+    return "WhiteBalance"
+  }
+  if  tagId == int64(41988) {
+    return "DigitalZoomRatio"
+  }
+  if  tagId == int64(41989) {
+    return "FocalLengthIn35mmFilm"
+  }
+  if  tagId == int64(41990) {
+    return "SceneCaptureType"
+  }
+  if  tagId == int64(34665) {
+    return "ExifIFDPointer"
+  }
+  if  tagId == int64(34853) {
+    return "GPSInfoIFDPointer"
+  }
+  return "Tag_" + (strconv.FormatInt(tagId, 10))
+}
+func (this *JPEGMetadataParser) formatRational (offset int64) string {
+  var numerator int64= this.readUint32(offset);
+  var denominator int64= this.readUint32((offset + int64(4)));
+  if  denominator == int64(0) {
+    return strconv.FormatInt(numerator, 10)
+  }
+  if  denominator == int64(1) {
+    return strconv.FormatInt(numerator, 10)
+  }
+  return ((strconv.FormatInt(numerator, 10)) + "/") + (strconv.FormatInt(denominator, 10))
+}
+func (this *JPEGMetadataParser) formatGPSCoordinate (offset int64, ref string) string {
+  var degNum int64= this.readUint32(offset);
+  var degDen int64= this.readUint32((offset + int64(4)));
+  var minNum int64= this.readUint32((offset + int64(8)));
+  var minDen int64= this.readUint32((offset + int64(12)));
+  var secNum int64= this.readUint32((offset + int64(16)));
+  var secDen int64= this.readUint32((offset + int64(20)));
+  var degrees int64= int64(0);
+  if  degDen > int64(0) {
+    var tempDeg int64= degNum;
+    for tempDeg >= degDen {
+      tempDeg = tempDeg - degDen; 
+      degrees = degrees + int64(1); 
+    }
+  }
+  var minutes int64= int64(0);
+  if  minDen > int64(0) {
+    var tempMin int64= minNum;
+    for tempMin >= minDen {
+      tempMin = tempMin - minDen; 
+      minutes = minutes + int64(1); 
+    }
+  }
+  var seconds string= "0";
+  if  secDen > int64(0) {
+    var secWhole int64= int64(0);
+    var tempSec int64= secNum;
+    for tempSec >= secDen {
+      tempSec = tempSec - secDen; 
+      secWhole = secWhole + int64(1); 
+    }
+    var secRem int64= tempSec;
+    if  secRem > int64(0) {
+      var decPartTemp int64= secRem * int64(100);
+      var decPart int64= int64(0);
+      for decPartTemp >= secDen {
+        decPartTemp = decPartTemp - secDen; 
+        decPart = decPart + int64(1); 
+      }
+      if  decPart < int64(10) {
+        seconds = ((strconv.FormatInt(secWhole, 10)) + ".0") + (strconv.FormatInt(decPart, 10)); 
+      } else {
+        seconds = ((strconv.FormatInt(secWhole, 10)) + ".") + (strconv.FormatInt(decPart, 10)); 
+      }
+    } else {
+      seconds = strconv.FormatInt(secWhole, 10); 
+    }
+  }
+  return (((((strconv.FormatInt(degrees, 10)) + "° ") + (strconv.FormatInt(minutes, 10))) + "' ") + seconds) + "\""
+}
+func (this *JPEGMetadataParser) parseIFD (info *JPEGMetadataInfo, tiffStart int64, ifdOffset int64, ifdType int64) () {
+  var pos int64= tiffStart + ifdOffset;
+  if  (pos + int64(2)) > this.dataLen {
+    return
+  }
+  var numEntries int64= this.readUint16(pos);
+  pos = pos + int64(2); 
+  var i int64= int64(0);
+  for i < numEntries {
+    if  (pos + int64(12)) > this.dataLen {
+      return
+    }
+    var tagId int64= this.readUint16(pos);
+    var dataType int64= this.readUint16((pos + int64(2)));
+    var numValues int64= this.readUint32((pos + int64(4)));
+    var valueOffset int64= pos + int64(8);
+    var dataSize int64= int64(0);
+    if  dataType == int64(1) {
+      dataSize = numValues; 
+    }
+    if  dataType == int64(2) {
+      dataSize = numValues; 
+    }
+    if  dataType == int64(3) {
+      dataSize = numValues * int64(2); 
+    }
+    if  dataType == int64(4) {
+      dataSize = numValues * int64(4); 
+    }
+    if  dataType == int64(5) {
+      dataSize = numValues * int64(8); 
+    }
+    if  dataType == int64(7) {
+      dataSize = numValues; 
+    }
+    if  dataType == int64(9) {
+      dataSize = numValues * int64(4); 
+    }
+    if  dataType == int64(10) {
+      dataSize = numValues * int64(8); 
+    }
+    if  dataSize > int64(4) {
+      valueOffset = tiffStart + this.readUint32((pos + int64(8))); 
+    }
+    var tagName string= this.getTagName(tagId, ifdType);
+    var tagValue string= "";
+    if  dataType == int64(2) {
+      tagValue = this.readString(valueOffset, numValues); 
+    }
+    if  dataType == int64(3) {
+      if  dataSize <= int64(4) {
+        tagValue = strconv.FormatInt(this.readUint16((pos + int64(8))), 10); 
+      } else {
+        tagValue = strconv.FormatInt(this.readUint16(valueOffset), 10); 
+      }
+    }
+    if  dataType == int64(4) {
+      if  dataSize <= int64(4) {
+        tagValue = strconv.FormatInt(this.readUint32((pos + int64(8))), 10); 
+      } else {
+        tagValue = strconv.FormatInt(this.readUint32(valueOffset), 10); 
+      }
+    }
+    if  dataType == int64(5) {
+      tagValue = this.formatRational(valueOffset); 
+    }
+    var tag *ExifTag= CreateNew_ExifTag();
+    tag.tagId = tagId; 
+    tag.tagName = tagName; 
+    tag.tagValue = tagValue; 
+    tag.dataType = dataType; 
+    info.exifTags = append(info.exifTags,tag); 
+    if  tagId == int64(271) {
+      info.cameraMake = tagValue; 
+    }
+    if  tagId == int64(272) {
+      info.cameraModel = tagValue; 
+    }
+    if  tagId == int64(305) {
+      info.software = tagValue; 
+    }
+    if  tagId == int64(306) {
+      info.dateTime = tagValue; 
+    }
+    if  tagId == int64(274) {
+      info.orientation = this.readUint16((pos + int64(8))); 
+    }
+    if  tagId == int64(282) {
+      info.xResolution = tagValue; 
+    }
+    if  tagId == int64(283) {
+      info.yResolution = tagValue; 
+    }
+    if  tagId == int64(296) {
+      info.resolutionUnit = this.readUint16((pos + int64(8))); 
+    }
+    if  tagId == int64(36867) {
+      info.dateTimeOriginal = tagValue; 
+    }
+    if  tagId == int64(33434) {
+      info.exposureTime = tagValue; 
+    }
+    if  tagId == int64(33437) {
+      info.fNumber = tagValue; 
+    }
+    if  tagId == int64(34855) {
+      info.isoSpeed = tagValue; 
+    }
+    if  tagId == int64(37386) {
+      info.focalLength = tagValue; 
+    }
+    if  tagId == int64(37385) {
+      var flashVal int64= this.readUint16((pos + int64(8)));
+      if  (flashVal % int64(2)) == int64(1) {
+        info.flash = "Fired"; 
+      } else {
+        info.flash = "Did not fire"; 
+      }
+    }
+    if  tagId == int64(34665) {
+      var exifOffset int64= this.readUint32((pos + int64(8)));
+      this.parseIFD(info, tiffStart, exifOffset, int64(1));
+    }
+    if  tagId == int64(34853) {
+      info.hasGPS = true; 
+      var gpsOffset int64= this.readUint32((pos + int64(8)));
+      this.parseIFD(info, tiffStart, gpsOffset, int64(2));
+    }
+    if  ifdType == int64(2) {
+      if  tagId == int64(1) {
+        info.gpsLatitudeRef = tagValue; 
+      }
+      if  tagId == int64(2) {
+        info.gpsLatitude = this.formatGPSCoordinate(valueOffset, info.gpsLatitudeRef); 
+      }
+      if  tagId == int64(3) {
+        info.gpsLongitudeRef = tagValue; 
+      }
+      if  tagId == int64(4) {
+        info.gpsLongitude = this.formatGPSCoordinate(valueOffset, info.gpsLongitudeRef); 
+      }
+      if  tagId == int64(6) {
+        var altNum int64= this.readUint32(valueOffset);
+        var altDen int64= this.readUint32((valueOffset + int64(4)));
+        if  altDen > int64(0) {
+          var altWhole int64= int64(0);
+          var tempAlt int64= altNum;
+          for tempAlt >= altDen {
+            tempAlt = tempAlt - altDen; 
+            altWhole = altWhole + int64(1); 
+          }
+          var altRem int64= tempAlt;
+          if  altRem > int64(0) {
+            var altDecTemp int64= altRem * int64(10);
+            var altDec int64= int64(0);
+            for altDecTemp >= altDen {
+              altDecTemp = altDecTemp - altDen; 
+              altDec = altDec + int64(1); 
+            }
+            info.gpsAltitude = (((strconv.FormatInt(altWhole, 10)) + ".") + (strconv.FormatInt(altDec, 10))) + " m"; 
+          } else {
+            info.gpsAltitude = (strconv.FormatInt(altWhole, 10)) + " m"; 
+          }
+        } else {
+          info.gpsAltitude = (strconv.FormatInt(altNum, 10)) + " m"; 
+        }
+      }
+    }
+    pos = pos + int64(12); 
+    i = i + int64(1); 
+  }
+}
+func (this *JPEGMetadataParser) parseExif (info *JPEGMetadataInfo, appStart int64, appLen int64) () {
+  var header string= this.readString(appStart, int64(4));
+  if  header != "Exif" {
+    return
+  }
+  info.hasExif = true; 
+  var tiffStart int64= appStart + int64(6);
+  var byteOrder0 int64= int64(this.data[tiffStart]);
+  var byteOrder1 int64= int64(this.data[(tiffStart + int64(1))]);
+  if  (byteOrder0 == int64(73)) && (byteOrder1 == int64(73)) {
+    this.littleEndian = true; 
+  } else {
+    if  (byteOrder0 == int64(77)) && (byteOrder1 == int64(77)) {
+      this.littleEndian = false; 
+    } else {
+      return
+    }
+  }
+  var magic int64= this.readUint16((tiffStart + int64(2)));
+  if  magic != int64(42) {
+    return
+  }
+  var ifd0Offset int64= this.readUint32((tiffStart + int64(4)));
+  this.parseIFD(info, tiffStart, ifd0Offset, int64(0));
+}
+func (this *JPEGMetadataParser) parseJFIF (info *JPEGMetadataInfo, appStart int64, appLen int64) () {
+  var header string= this.readString(appStart, int64(4));
+  if  header != "JFIF" {
+    return
+  }
+  info.hasJFIF = true; 
+  var verMajor int64= int64(this.data[(appStart + int64(5))]);
+  var verMinor int64= int64(this.data[(appStart + int64(6))]);
+  info.jfifVersion = ((strconv.FormatInt(verMajor, 10)) + ".") + (strconv.FormatInt(verMinor, 10)); 
+  info.densityUnits = int64(this.data[(appStart + int64(7))]); 
+  info.xDensity = this.readUint16BE((appStart + int64(8))); 
+  info.yDensity = this.readUint16BE((appStart + int64(10))); 
+}
+func (this *JPEGMetadataParser) parseComment (info *JPEGMetadataInfo, appStart int64, appLen int64) () {
+  info.hasComment = true; 
+  info.comment = this.readString(appStart, appLen); 
+}
+func (this *JPEGMetadataParser) parseMetadata (dirPath string, fileName string) *JPEGMetadataInfo {
+  var info *JPEGMetadataInfo= CreateNew_JPEGMetadataInfo();
+  this.data = func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fileName)); return d }(); 
+  this.dataLen = int64(len(this.data)); 
+  if  this.dataLen < int64(4) {
+    info.errorMessage = "File too small"; 
+    return info
+  }
+  var m1 int64= int64(this.data[int64(0)]);
+  var m2 int64= int64(this.data[int64(1)]);
+  if  (m1 != int64(255)) || (m2 != int64(216)) {
+    info.errorMessage = "Not a valid JPEG file"; 
+    return info
+  }
+  info.isValid = true; 
+  var pos int64= int64(2);
+  for pos < this.dataLen {
+    var marker1 int64= int64(this.data[pos]);
+    if  marker1 != int64(255) {
+      pos = pos + int64(1); 
+      continue;
+    }
+    var marker2 int64= int64(this.data[(pos + int64(1))]);
+    if  marker2 == int64(255) {
+      pos = pos + int64(1); 
+      continue;
+    }
+    if  (marker2 == int64(216)) || (marker2 == int64(217)) {
+      pos = pos + int64(2); 
+      continue;
+    }
+    if  (marker2 >= int64(208)) && (marker2 <= int64(215)) {
+      pos = pos + int64(2); 
+      continue;
+    }
+    if  (pos + int64(4)) > this.dataLen {
+      return info
+    }
+    var segLen int64= this.readUint16BE((pos + int64(2)));
+    var segStart int64= pos + int64(4);
+    if  marker2 == int64(224) {
+      this.parseJFIF(info, segStart, segLen - int64(2));
+    }
+    if  marker2 == int64(225) {
+      this.parseExif(info, segStart, segLen - int64(2));
+    }
+    if  marker2 == int64(254) {
+      this.parseComment(info, segStart, segLen - int64(2));
+    }
+    if  (marker2 == int64(192)) || (marker2 == int64(194)) {
+      if  (pos + int64(9)) < this.dataLen {
+        info.bitsPerComponent = int64(this.data[(pos + int64(4))]); 
+        info.height = this.readUint16BE((pos + int64(5))); 
+        info.width = this.readUint16BE((pos + int64(7))); 
+        info.colorComponents = int64(this.data[(pos + int64(9))]); 
+      }
+    }
+    if  marker2 == int64(218) {
+      return info
+    }
+    if  marker2 == int64(217) {
+      return info
+    }
+    pos = (pos + int64(2)) + segLen; 
+  }
+  return info
+}
+func (this *JPEGMetadataParser) formatMetadata (info *JPEGMetadataInfo) string {
+  var out *GrowableBuffer= CreateNew_GrowableBuffer();
+  out.writeString("=== JPEG Metadata ===\n\n");
+  if  info.isValid == false {
+    out.writeString(("Error: " + info.errorMessage) + "\n");
+    return (out).toString()
+  }
+  out.writeString("--- Image Info ---\n");
+  out.writeString(((("  Dimensions: " + (strconv.FormatInt(info.width, 10))) + " x ") + (strconv.FormatInt(info.height, 10))) + "\n");
+  out.writeString(("  Color Components: " + (strconv.FormatInt(info.colorComponents, 10))) + "\n");
+  out.writeString(("  Bits per Component: " + (strconv.FormatInt(info.bitsPerComponent, 10))) + "\n");
+  if  info.hasJFIF {
+    out.writeString("\n--- JFIF Info ---\n");
+    out.writeString(("  Version: " + info.jfifVersion) + "\n");
+    var densityStr string= "No units (aspect ratio)";
+    if  info.densityUnits == int64(1) {
+      densityStr = "pixels/inch"; 
+    }
+    if  info.densityUnits == int64(2) {
+      densityStr = "pixels/cm"; 
+    }
+    out.writeString(((((("  Density: " + (strconv.FormatInt(info.xDensity, 10))) + " x ") + (strconv.FormatInt(info.yDensity, 10))) + " ") + densityStr) + "\n");
+  }
+  if  info.hasExif {
+    out.writeString("\n--- EXIF Info ---\n");
+    if  (int64(len([]rune(info.cameraMake)))) > int64(0) {
+      out.writeString(("  Camera Make: " + info.cameraMake) + "\n");
+    }
+    if  (int64(len([]rune(info.cameraModel)))) > int64(0) {
+      out.writeString(("  Camera Model: " + info.cameraModel) + "\n");
+    }
+    if  (int64(len([]rune(info.software)))) > int64(0) {
+      out.writeString(("  Software: " + info.software) + "\n");
+    }
+    if  (int64(len([]rune(info.dateTimeOriginal)))) > int64(0) {
+      out.writeString(("  Date/Time Original: " + info.dateTimeOriginal) + "\n");
+    } else {
+      if  (int64(len([]rune(info.dateTime)))) > int64(0) {
+        out.writeString(("  Date/Time: " + info.dateTime) + "\n");
+      }
+    }
+    if  (int64(len([]rune(info.exposureTime)))) > int64(0) {
+      out.writeString(("  Exposure Time: " + info.exposureTime) + " sec\n");
+    }
+    if  (int64(len([]rune(info.fNumber)))) > int64(0) {
+      out.writeString(("  F-Number: f/" + info.fNumber) + "\n");
+    }
+    if  (int64(len([]rune(info.isoSpeed)))) > int64(0) {
+      out.writeString(("  ISO Speed: " + info.isoSpeed) + "\n");
+    }
+    if  (int64(len([]rune(info.focalLength)))) > int64(0) {
+      out.writeString(("  Focal Length: " + info.focalLength) + " mm\n");
+    }
+    if  (int64(len([]rune(info.flash)))) > int64(0) {
+      out.writeString(("  Flash: " + info.flash) + "\n");
+    }
+    var orientStr string= "Normal";
+    if  info.orientation == int64(2) {
+      orientStr = "Flip horizontal"; 
+    }
+    if  info.orientation == int64(3) {
+      orientStr = "Rotate 180"; 
+    }
+    if  info.orientation == int64(4) {
+      orientStr = "Flip vertical"; 
+    }
+    if  info.orientation == int64(5) {
+      orientStr = "Transpose"; 
+    }
+    if  info.orientation == int64(6) {
+      orientStr = "Rotate 90 CW"; 
+    }
+    if  info.orientation == int64(7) {
+      orientStr = "Transverse"; 
+    }
+    if  info.orientation == int64(8) {
+      orientStr = "Rotate 270 CW"; 
+    }
+    out.writeString(("  Orientation: " + orientStr) + "\n");
+  }
+  if  info.hasGPS {
+    out.writeString("\n--- GPS Info ---\n");
+    if  (int64(len([]rune(info.gpsLatitude)))) > int64(0) {
+      out.writeString(("  Latitude: " + info.gpsLatitude) + "\n");
+    }
+    if  (int64(len([]rune(info.gpsLongitude)))) > int64(0) {
+      out.writeString(("  Longitude: " + info.gpsLongitude) + "\n");
+    }
+    if  (int64(len([]rune(info.gpsAltitude)))) > int64(0) {
+      out.writeString(("  Altitude: " + info.gpsAltitude) + "\n");
+    }
+  }
+  if  info.hasComment {
+    out.writeString("\n--- Comment ---\n");
+    out.writeString(("  " + info.comment) + "\n");
+  }
+  var tagCount int64= int64(len(info.exifTags));
+  if  tagCount > int64(0) {
+    out.writeString(("\n--- All EXIF Tags (" + (strconv.FormatInt(tagCount, 10))) + ") ---\n");
+    var idx int64 = 0;  
+    for ; idx < int64(len(info.exifTags)) ; idx++ {
+      tag := info.exifTags[idx];
+      out.writeString(("  " + tag.tagName) + " (0x");
+      var tagHex string= "";
+      var tid int64= tag.tagId;
+      var hexChars string= "0123456789ABCDEF";
+      var h3D float64= float64(tid) / float64(int64(4096));
+      var h3 int64= int64(h3D);
+      var r3 int64= tid - (h3 * int64(4096));
+      var h2D float64= float64(r3) / float64(int64(256));
+      var h2 int64= int64(h2D);
+      var r2 int64= r3 - (h2 * int64(256));
+      var h1D float64= float64(r2) / float64(int64(16));
+      var h1 int64= int64(h1D);
+      var h0 int64= r2 - (h1 * int64(16));
+      tagHex = (((string([]rune(hexChars)[h3:(h3 + int64(1))])) + (string([]rune(hexChars)[h2:(h2 + int64(1))]))) + (string([]rune(hexChars)[h1:(h1 + int64(1))]))) + (string([]rune(hexChars)[h0:(h0 + int64(1))])); 
+      out.writeString(((tagHex + "): ") + tag.tagValue) + "\n");
+    }
+  }
+  return (out).toString()
+}
+type JPEGMetadataMain struct { 
+}
+
+func CreateNew_JPEGMetadataMain() *JPEGMetadataMain {
+  me := new(JPEGMetadataMain)
+  return me;
+}
 type ImportedSymbol struct { 
   name string `json:"name"` 
   originalName string `json:"originalName"` 
   sourcePath string `json:"sourcePath"` 
   symbolType string `json:"symbolType"` 
   functionNode *GoNullable `json:"functionNode"` 
+  helperFunctions []*TSNode `json:"helperFunctions"` 
 }
 
 func CreateNew_ImportedSymbol() *ImportedSymbol {
@@ -6565,6 +7789,7 @@ func CreateNew_ImportedSymbol() *ImportedSymbol {
   me.originalName = ""
   me.sourcePath = ""
   me.symbolType = ""
+  me.helperFunctions = make([]*TSNode,0)
   me.functionNode = new(GoNullable);
   return me;
 }
@@ -6638,8 +7863,16 @@ type ComponentEngine struct {
   assetPaths []string `json:"assetPaths"` 
   pageWidth float64 `json:"pageWidth"` 
   pageHeight float64 `json:"pageHeight"` 
+  printFormat string `json:"printFormat"` 
+  printOrientation string `json:"printOrientation"` 
+  printMarginTop float64 `json:"printMarginTop"` 
+  printMarginRight float64 `json:"printMarginRight"` 
+  printMarginBottom float64 `json:"printMarginBottom"` 
+  printMarginLeft float64 `json:"printMarginLeft"` 
+  printPageCount int64 `json:"printPageCount"` 
   imports []*ImportedSymbol `json:"imports"` 
   localComponents []*ImportedSymbol `json:"localComponents"` 
+  loadedFiles []string `json:"loadedFiles"` 
   context *GoNullable `json:"context"` 
   primitives []string `json:"primitives"` 
 }
@@ -6651,8 +7884,16 @@ func CreateNew_ComponentEngine() *ComponentEngine {
   me.assetPaths = make([]string,0)
   me.pageWidth = 595.0
   me.pageHeight = 842.0
+  me.printFormat = "a4"
+  me.printOrientation = "portrait"
+  me.printMarginTop = 0.0
+  me.printMarginRight = 0.0
+  me.printMarginBottom = 0.0
+  me.printMarginLeft = 0.0
+  me.printPageCount = int64(1)
   me.imports = make([]*ImportedSymbol,0)
   me.localComponents = make([]*ImportedSymbol,0)
+  me.loadedFiles = make([]string,0)
   me.primitives = make([]string,0)
   me.parser = new(GoNullable);
   me.context = new(GoNullable);
@@ -6664,6 +7905,8 @@ func CreateNew_ComponentEngine() *ComponentEngine {
   me.imports = imp; 
   var loc []*ImportedSymbol = make([]*ImportedSymbol, 0);
   me.localComponents = loc; 
+  var lf []string = make([]string, 0);
+  me.loadedFiles = lf; 
   var ctx *EvalContext= CreateNew_EvalContext();
   me.context.value = ctx;
   me.context.has_value = true; /* detected as non-optional */
@@ -6680,6 +7923,7 @@ func CreateNew_ComponentEngine() *ComponentEngine {
   me.primitives = append(me.primitives,"Path"); 
   me.primitives = append(me.primitives,"Spacer"); 
   me.primitives = append(me.primitives,"Divider"); 
+  me.primitives = append(me.primitives,"Layer"); 
   me.primitives = append(me.primitives,"div"); 
   me.primitives = append(me.primitives,"span"); 
   me.primitives = append(me.primitives,"p"); 
@@ -6688,6 +7932,7 @@ func CreateNew_ComponentEngine() *ComponentEngine {
   me.primitives = append(me.primitives,"h3"); 
   me.primitives = append(me.primitives,"img"); 
   me.primitives = append(me.primitives,"path"); 
+  me.primitives = append(me.primitives,"layer"); 
   return me;
 }
 func (this *ComponentEngine) setAssetPaths (paths string) () {
@@ -6719,8 +7964,13 @@ func (this *ComponentEngine) resolveComponentPath (relativePath string) string {
   }
   return fullPath
 }
+func (this *ComponentEngine) getLoadedFiles () []string {
+  return this.loadedFiles
+}
 func (this *ComponentEngine) parseFile (dirPath string, fileName string) *EVGElement {
   this.basePath = dirPath; 
+  var mainFilePath string= dirPath + fileName;
+  this.loadedFiles = append(this.loadedFiles,mainFilePath); 
   var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fileName)); return d }();
   var src string= string(fileContent);
   return this.parse(src)
@@ -6786,6 +8036,8 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
   }
   var dirPath string= this.basePath;
   fmt.Println( ("Loading import: " + dirPath) + fullPath )
+  var loadedFilePath string= dirPath + fullPath;
+  this.loadedFiles = append(this.loadedFiles,loadedFilePath); 
   var fileContent []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dirPath, fullPath)); return d }();
   var src string= string(fileContent);
   if  (int64(len([]rune(src)))) == int64(0) {
@@ -6809,6 +8061,19 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
   importParser.initParser(tokens);
   importParser.tsxMode = true; 
   var importAst *TSNode= importParser.parseProgram();
+  var helperFns []*TSNode = make([]*TSNode, 0);
+  var hk int64= int64(0);
+  for hk < (int64(len(importAst.children))) {
+    var hstmt *TSNode= importAst.children[hk];
+    if  hstmt.nodeType == "FunctionDeclaration" {
+      var hfnName string= hstmt.name;
+      if  this.isInList(hfnName, importedNames) == false {
+        helperFns = append(helperFns,hstmt); 
+        fmt.Println( "  Found helper function: " + hfnName )
+      }
+    }
+    hk = hk + int64(1); 
+  }
   var k int64= int64(0);
   for k < (int64(len(importAst.children))) {
     var stmt *TSNode= importAst.children[k];
@@ -6825,6 +8090,7 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
             sym.symbolType = "component"; 
             sym.functionNode.value = declNode;
             sym.functionNode.has_value = true; /* detected as non-optional */
+            sym.helperFunctions = helperFns; 
             this.localComponents = append(this.localComponents,sym); 
             fmt.Println( (("Imported component: " + fnName) + " from ") + fullPath )
           }
@@ -6841,6 +8107,7 @@ func (this *ComponentEngine) processImportDeclaration (node *TSNode) () {
         sym_1.symbolType = "component"; 
         sym_1.functionNode.value = stmt;
         sym_1.functionNode.has_value = true; /* detected as non-optional */
+        sym_1.helperFunctions = helperFns; 
         this.localComponents = append(this.localComponents,sym_1); 
         fmt.Println( (("Imported component: " + fnName_1) + " from ") + fullPath )
       }
@@ -6891,6 +8158,7 @@ func (this *ComponentEngine) registerComponents (ast *TSNode) () {
         sym.functionNode.value = node;
         sym.functionNode.has_value = true; /* detected as non-optional */
         this.localComponents = append(this.localComponents,sym); 
+        this.context.value.(*EvalContext).define(node.name, EvalValue_static_function(node));
         fmt.Println( "Registered local component: " + node.name )
       }
     }
@@ -6968,6 +8236,24 @@ func (this *ComponentEngine) evaluateFunctionWithProps (fnNode *TSNode, props *E
   }
   return result
 }
+func (this *ComponentEngine) evaluateFunctionCall (fnNode *TSNode, props *EvalValue) *EvalValue {
+  var savedContext *GoNullable = new(GoNullable); 
+  savedContext.value = this.context.value;
+  savedContext.has_value = this.context.has_value;
+  this.context.value = this.context.value.(*EvalContext).createChild();
+  this.context.has_value = true; /* detected as non-optional */
+  if  props.valueType != int64(0) {
+    this.bindFunctionParams(fnNode, props);
+  }
+  var body *TSNode= this.getFunctionBody(fnNode);
+  var result *EvalValue= this.evaluateFunctionBodyValue(body);
+  this.context.value = savedContext.value;
+  this.context.has_value = false; 
+  if this.context.value != nil {
+    this.context.has_value = true
+  }
+  return result
+}
 func (this *ComponentEngine) bindFunctionParams (fnNode *TSNode, props *EvalValue) () {
   var i int64= int64(0);
   for i < (int64(len(fnNode.params))) {
@@ -7017,6 +8303,30 @@ func (this *ComponentEngine) evaluateFunctionBody (body *TSNode) *EVGElement {
     if  stmt.nodeType == "VariableDeclaration" {
       this.processVariableDeclaration(stmt);
     }
+    if  stmt.nodeType == "IfStatement" {
+      var ifResult *EVGElement= this.evaluateIfStatement(stmt);
+      if  ifResult.hasReturn {
+        return ifResult
+      }
+    }
+    if  stmt.nodeType == "ForStatement" {
+      var forResult *EVGElement= this.evaluateForStatement(stmt);
+      if  forResult.hasReturn {
+        return forResult
+      }
+    }
+    if  stmt.nodeType == "ForOfStatement" {
+      var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
+      if  forOfResult.hasReturn {
+        return forOfResult
+      }
+    }
+    if  stmt.nodeType == "ExpressionStatement" {
+      if ( stmt.left.has_value) {
+        var exprNode *TSNode= stmt.left.value.(*TSNode);
+        this.evaluateExprForSideEffect(exprNode);
+      }
+    }
     if  stmt.nodeType == "ReturnStatement" {
       if ( stmt.left.has_value) {
         var returnExpr *TSNode= stmt.left.value.(*TSNode);
@@ -7029,6 +8339,301 @@ func (this *ComponentEngine) evaluateFunctionBody (body *TSNode) *EVGElement {
     return this.evaluateJSX(body)
   }
   return empty
+}
+func (this *ComponentEngine) evaluateFunctionBodyValue (body *TSNode) *EvalValue {
+  var i int64= int64(0);
+  fmt.Println( ("evaluateFunctionBodyValue: body has " + (strconv.FormatInt((int64(len(body.children))), 10))) + " children" )
+  for i < (int64(len(body.children))) {
+    var stmt *TSNode= body.children[i];
+    fmt.Println( (("  Statement " + (strconv.FormatInt(i, 10))) + ": ") + stmt.nodeType )
+    if  stmt.nodeType == "VariableDeclaration" {
+      this.processVariableDeclaration(stmt);
+    }
+    if  stmt.nodeType == "IfStatement" {
+      var ifResult *EVGElement= this.evaluateIfStatement(stmt);
+      if  ifResult.hasReturn {
+      }
+    }
+    if  stmt.nodeType == "ForStatement" {
+      var forResult *EVGElement= this.evaluateForStatement(stmt);
+      if  forResult.hasReturn {
+      }
+    }
+    if  stmt.nodeType == "ForOfStatement" {
+      var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
+      if  forOfResult.hasReturn {
+      }
+    }
+    if  stmt.nodeType == "ExpressionStatement" {
+      if ( stmt.left.has_value) {
+        var exprNode *TSNode= stmt.left.value.(*TSNode);
+        this.evaluateExprForSideEffect(exprNode);
+      }
+    }
+    if  stmt.nodeType == "ReturnStatement" {
+      if ( stmt.left.has_value) {
+        var returnExpr *TSNode= stmt.left.value.(*TSNode);
+        return this.evaluateExpr(returnExpr)
+      }
+      return EvalValue_static_null()
+    }
+    i = i + int64(1); 
+  }
+  if  (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") {
+    var el *EVGElement= this.evaluateJSX(body);
+    return EvalValue_static_element(el)
+  }
+  if  (body.nodeType != "BlockStatement") && (body.nodeType != "") {
+    return this.evaluateExpr(body)
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateIfStatement (node *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  if ( node.left.has_value) {
+    var condNode *TSNode= node.left.value.(*TSNode);
+    var condition *EvalValue= this.evaluateExpr(condNode);
+    if  condition.toBool() {
+      if ( node.body.has_value) {
+        var thenBlock *TSNode= node.body.value.(*TSNode);
+        var blockResult *EVGElement= this.evaluateStatementBlock(thenBlock);
+        if  blockResult.hasReturn {
+          return blockResult
+        }
+      }
+    } else {
+      if ( node.right.has_value) {
+        var elseBlock *TSNode= node.right.value.(*TSNode);
+        if  elseBlock.nodeType == "IfStatement" {
+          return this.evaluateIfStatement(elseBlock)
+        }
+        var blockResult_1 *EVGElement= this.evaluateStatementBlock(elseBlock);
+        if  blockResult_1.hasReturn {
+          return blockResult_1
+        }
+      }
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateStatementBlock (block *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  if  block.nodeType == "ReturnStatement" {
+    if ( block.left.has_value) {
+      var returnExpr *TSNode= block.left.value.(*TSNode);
+      var returnedEl *EVGElement= this.evaluateJSX(returnExpr);
+      returnedEl.hasReturn = true; 
+      return returnedEl
+    }
+  }
+  if  block.nodeType == "BlockStatement" {
+    var i int64= int64(0);
+    for i < (int64(len(block.children))) {
+      var stmt *TSNode= block.children[i];
+      if  stmt.nodeType == "VariableDeclaration" {
+        this.processVariableDeclaration(stmt);
+      }
+      if  stmt.nodeType == "IfStatement" {
+        var ifResult *EVGElement= this.evaluateIfStatement(stmt);
+        if  ifResult.hasReturn {
+          return ifResult
+        }
+      }
+      if  stmt.nodeType == "ForStatement" {
+        var forResult *EVGElement= this.evaluateForStatement(stmt);
+        if  forResult.hasReturn {
+          return forResult
+        }
+      }
+      if  stmt.nodeType == "ForOfStatement" {
+        var forOfResult *EVGElement= this.evaluateForOfStatement(stmt);
+        if  forOfResult.hasReturn {
+          return forOfResult
+        }
+      }
+      if  stmt.nodeType == "ExpressionStatement" {
+        if ( stmt.left.has_value) {
+          var exprNode *TSNode= stmt.left.value.(*TSNode);
+          this.evaluateExprForSideEffect(exprNode);
+        }
+      }
+      if  stmt.nodeType == "ReturnStatement" {
+        if ( stmt.left.has_value) {
+          var returnExpr_1 *TSNode= stmt.left.value.(*TSNode);
+          var returnedEl_1 *EVGElement= this.evaluateJSX(returnExpr_1);
+          returnedEl_1.hasReturn = true; 
+          return returnedEl_1
+        }
+      }
+      i = i + int64(1); 
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateExprForSideEffect (node *TSNode) () {
+  if  node.nodeType == "CallExpression" {
+    this.evaluateCallExprForSideEffect(node);
+  }
+  if  node.nodeType == "UpdateExpression" {
+    this.evaluateUpdateExpr(node);
+  }
+  if  node.nodeType == "AssignmentExpression" {
+    this.evaluateUpdateExpr(node);
+  }
+}
+func (this *ComponentEngine) evaluateCallExprForSideEffect (node *TSNode) () {
+  if ( node.left.has_value) {
+    var calleeNode *TSNode= node.left.value.(*TSNode);
+    if  calleeNode.nodeType == "MemberExpression" {
+      var methodName string= calleeNode.name;
+      if ( calleeNode.left.has_value) {
+        var objNode *TSNode= calleeNode.left.value.(*TSNode);
+        if  objNode.nodeType == "Identifier" {
+          var objName string= objNode.name;
+          var objValue *EvalValue= this.context.value.(*EvalContext).lookup(objName);
+          if  (methodName == "push") && (objValue).isArray() {
+            if  (int64(len(node.children))) > int64(0) {
+              var argNode *TSNode= node.children[int64(0)];
+              var argValue *EvalValue= this.evaluateExpr(argNode);
+              objValue.arrayValue = append(objValue.arrayValue,argValue); 
+              this.context.value.(*EvalContext).define(objName, objValue);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+func (this *ComponentEngine) evaluateForStatement (node *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  fmt.Println( "evaluateForStatement called" )
+  if ( node.init.has_value) {
+    var initNode *TSNode= node.init.value.(*TSNode);
+    fmt.Println( "For init nodeType: " + initNode.nodeType )
+    if  initNode.nodeType == "VariableDeclaration" {
+      this.processVariableDeclaration(initNode);
+    }
+  }
+  var maxIterations int64= int64(10000);
+  var iterations int64= int64(0);
+  for iterations < maxIterations {
+    if ( node.left.has_value) {
+      var testNode *TSNode= node.left.value.(*TSNode);
+      var testResult *EvalValue= this.evaluateExpr(testNode);
+      if  testResult.toBool() == false {
+        return result
+      }
+    }
+    if ( node.body.has_value) {
+      var bodyNode *TSNode= node.body.value.(*TSNode);
+      var bodyResult *EVGElement= this.evaluateStatementBlock(bodyNode);
+      if  bodyResult.hasReturn {
+        return bodyResult
+      }
+    }
+    if ( node.right.has_value) {
+      var updateNode *TSNode= node.right.value.(*TSNode);
+      this.evaluateUpdateExpr(updateNode);
+    }
+    iterations = iterations + int64(1); 
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateForOfStatement (node *TSNode) *EVGElement {
+  var result *EVGElement= CreateNew_EVGElement();
+  result.hasReturn = false; 
+  var varName string= "";
+  if ( node.left.has_value) {
+    var leftNode *TSNode= node.left.value.(*TSNode);
+    if  leftNode.nodeType == "VariableDeclaration" {
+      if  (int64(len(leftNode.children))) > int64(0) {
+        var decl *TSNode= leftNode.children[int64(0)];
+        varName = decl.name; 
+      }
+    }
+  }
+  if ( node.right.has_value) {
+    var rightNode *TSNode= node.right.value.(*TSNode);
+    var arrayValue *EvalValue= this.evaluateExpr(rightNode);
+    if  (arrayValue).isArray() {
+      var i int64= int64(0);
+      for i < (int64(len(arrayValue.arrayValue))) {
+        var item *EvalValue= arrayValue.arrayValue[i];
+        this.context.value.(*EvalContext).define(varName, item);
+        if ( node.body.has_value) {
+          var bodyNode *TSNode= node.body.value.(*TSNode);
+          var bodyResult *EVGElement= this.evaluateStatementBlock(bodyNode);
+          if  bodyResult.hasReturn {
+            return bodyResult
+          }
+        }
+        i = i + int64(1); 
+      }
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateUpdateExpr (node *TSNode) () {
+  if  node.nodeType == "UpdateExpression" {
+    if ( node.left.has_value) {
+      var argNode *TSNode= node.left.value.(*TSNode);
+      if  argNode.nodeType == "Identifier" {
+        var varName string= argNode.name;
+        var current *EvalValue= this.context.value.(*EvalContext).lookup(varName);
+        var currentNum float64= current.toNumber();
+        if  node.value == "++" {
+          this.context.value.(*EvalContext).define(varName, EvalValue_static_number((currentNum + 1.0)));
+        }
+        if  node.value == "--" {
+          this.context.value.(*EvalContext).define(varName, EvalValue_static_number((currentNum - 1.0)));
+        }
+      }
+    }
+  }
+  if  node.nodeType == "AssignmentExpression" {
+    if ( node.left.has_value) {
+      var leftNode *TSNode= node.left.value.(*TSNode);
+      if  leftNode.nodeType == "Identifier" {
+        var varName_1 string= leftNode.name;
+        var op string= node.value;
+        if ( node.right.has_value) {
+          var rightNode *TSNode= node.right.value.(*TSNode);
+          var rightValue *EvalValue= this.evaluateExpr(rightNode);
+          if  op == "=" {
+            this.context.value.(*EvalContext).define(varName_1, rightValue);
+          }
+          if  op == "+=" {
+            var current_1 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            var isLeftStr bool= current_1.isString();
+            var isRightStr bool= rightValue.isString();
+            if  isLeftStr || isRightStr {
+              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_string(((current_1).toString() + (rightValue).toString())));
+            } else {
+              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_1.toNumber() + rightValue.toNumber())));
+            }
+          }
+          if  op == "-=" {
+            var current_2 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_2.toNumber() - rightValue.toNumber())));
+          }
+          if  op == "*=" {
+            var current_3 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_3.toNumber() * rightValue.toNumber())));
+          }
+          if  op == "/=" {
+            var current_4 *EvalValue= this.context.value.(*EvalContext).lookup(varName_1);
+            var rightNum float64= rightValue.toNumber();
+            if  rightNum != 0.0 {
+              this.context.value.(*EvalContext).define(varName_1, EvalValue_static_number((current_4.toNumber() / rightNum)));
+            }
+          }
+        }
+      }
+    }
+  }
 }
 func (this *ComponentEngine) evaluateJSX (node *TSNode) *EVGElement {
   var element *EVGElement= CreateNew_EVGElement();
@@ -7059,9 +8664,30 @@ func (this *ComponentEngine) evaluateJSXElement (jsxNode *TSNode) *EVGElement {
   }
   var element *EVGElement= CreateNew_EVGElement();
   element.tagName = this.mapTagName(tagName); 
+  if  ((tagName == "Label") || (tagName == "span")) || (tagName == "text") {
+    element.elementType = int64(1); 
+  }
+  if  ((tagName == "Image") || (tagName == "img")) || (tagName == "image") {
+    element.elementType = int64(2); 
+  }
+  if  (tagName == "Path") || (tagName == "path") {
+    element.elementType = int64(3); 
+  }
   if ( jsxNode.left.has_value) {
     var openingEl_1 *TSNode= jsxNode.left.value.(*TSNode);
     this.evaluateAttributes(element, openingEl_1);
+  }
+  if  tagName == "Print" {
+    element.resolveBookFormat();
+    if  element.pageWidth > 0.0 {
+      this.pageWidth = element.pageWidth; 
+    }
+    if  element.pageHeight > 0.0 {
+      this.pageHeight = element.pageHeight; 
+    }
+    this.printFormat = element.format; 
+    this.printOrientation = element.orientation; 
+    fmt.Println( (((((("Print settings: format=" + this.printFormat) + " orientation=") + this.printOrientation) + " ") + (strconv.FormatFloat(this.pageWidth,'f', 6, 64))) + "x") + (strconv.FormatFloat(this.pageHeight,'f', 6, 64)) )
   }
   if  ((tagName == "Label") || (tagName == "span")) || (tagName == "text") {
     element.textContent = this.evaluateTextContent(jsxNode); 
@@ -7095,6 +8721,15 @@ func (this *ComponentEngine) expandComponent (name string, jsxNode *TSNode) *EVG
       var props *EvalValue= this.evaluateProps(jsxNode);
       if ( sym.functionNode.has_value) {
         var fnNode *TSNode= sym.functionNode.value.(*TSNode);
+        var hi int64= int64(0);
+        for hi < (int64(len(sym.helperFunctions))) {
+          var helperFn *TSNode= sym.helperFunctions[hi];
+          var helperName string= helperFn.name;
+          var helperValue *EvalValue= EvalValue_static_function(helperFn);
+          this.context.value.(*EvalContext).define(helperName, helperValue);
+          fmt.Println( "Registered helper function: " + helperName )
+          hi = hi + int64(1); 
+        }
         return this.evaluateFunctionWithProps(fnNode, props)
       }
     }
@@ -7304,7 +8939,50 @@ func (this *ComponentEngine) evaluateExpressionChild (element *EVGElement, exprC
   if ( exprContainer.left.has_value) {
     var exprNode *TSNode= exprContainer.left.value.(*TSNode);
     if  exprNode.nodeType == "CallExpression" {
-      this.evaluateArrayMapChild(element, exprNode);
+      if ( exprNode.left.has_value) {
+        var calleeNode *TSNode= exprNode.left.value.(*TSNode);
+        if  calleeNode.nodeType == "MemberExpression" {
+          var methodName string= calleeNode.name;
+          if  methodName == "map" {
+            this.evaluateArrayMapChild(element, exprNode);
+            return
+          }
+        }
+      }
+      var callResult *EvalValue= this.evaluateExpr(exprNode);
+      if  (callResult).isArray() {
+        var ai int64= int64(0);
+        for ai < (int64(len(callResult.arrayValue))) {
+          var arrItem *EvalValue= callResult.arrayValue[ai];
+          if  arrItem.isElement() {
+            if ( arrItem.evgElement.has_value) {
+              var arrChildEl *EVGElement= arrItem.evgElement.value.(*EVGElement);
+              if  (int64(len([]rune(arrChildEl.tagName)))) > int64(0) {
+                element.addChild(arrChildEl);
+              }
+            }
+          }
+          ai = ai + int64(1); 
+        }
+        return
+      }
+      if  callResult.isElement() {
+        if ( callResult.evgElement.has_value) {
+          var childEl *EVGElement= callResult.evgElement.value.(*EVGElement);
+          if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
+            element.addChild(childEl);
+          }
+        }
+        return
+      }
+      var isStr bool= callResult.isString();
+      var isNum bool= callResult.isNumber();
+      if  isStr || isNum {
+        var textEl *EVGElement= CreateNew_EVGElement();
+        textEl.tagName = "text"; 
+        textEl.textContent = (callResult).toString(); 
+        element.addChild(textEl);
+      }
       return
     }
     if  exprNode.nodeType == "ConditionalExpression" {
@@ -7320,36 +8998,36 @@ func (this *ComponentEngine) evaluateExpressionChild (element *EVGElement, exprC
     var value *EvalValue= this.evaluateExpr(exprNode);
     if  value.isElement() {
       if ( value.evgElement.has_value) {
-        var childEl *EVGElement= value.evgElement.value.(*EVGElement);
-        if  (int64(len([]rune(childEl.tagName)))) > int64(0) {
-          element.addChild(childEl);
+        var childEl_1 *EVGElement= value.evgElement.value.(*EVGElement);
+        if  (int64(len([]rune(childEl_1.tagName)))) > int64(0) {
+          element.addChild(childEl_1);
         }
       }
       return
     }
     if  (value).isArray() {
-      var ai int64= int64(0);
-      for ai < (int64(len(value.arrayValue))) {
-        var arrItem *EvalValue= value.arrayValue[ai];
-        if  arrItem.isElement() {
-          if ( arrItem.evgElement.has_value) {
-            var arrChildEl *EVGElement= arrItem.evgElement.value.(*EVGElement);
-            if  (int64(len([]rune(arrChildEl.tagName)))) > int64(0) {
-              element.addChild(arrChildEl);
+      var ai_1 int64= int64(0);
+      for ai_1 < (int64(len(value.arrayValue))) {
+        var arrItem_1 *EvalValue= value.arrayValue[ai_1];
+        if  arrItem_1.isElement() {
+          if ( arrItem_1.evgElement.has_value) {
+            var arrChildEl_1 *EVGElement= arrItem_1.evgElement.value.(*EVGElement);
+            if  (int64(len([]rune(arrChildEl_1.tagName)))) > int64(0) {
+              element.addChild(arrChildEl_1);
             }
           }
         }
-        ai = ai + int64(1); 
+        ai_1 = ai_1 + int64(1); 
       }
       return
     }
-    var isStr bool= value.isString();
-    var isNum bool= value.isNumber();
-    if  isStr || isNum {
-      var textEl *EVGElement= CreateNew_EVGElement();
-      textEl.tagName = "text"; 
-      textEl.textContent = (value).toString(); 
-      element.addChild(textEl);
+    var isStr_1 bool= value.isString();
+    var isNum_1 bool= value.isNumber();
+    if  isStr_1 || isNum_1 {
+      var textEl_1 *EVGElement= CreateNew_EVGElement();
+      textEl_1.tagName = "text"; 
+      textEl_1.textContent = (value).toString(); 
+      element.addChild(textEl_1);
     }
   }
 }
@@ -7477,15 +9155,20 @@ func (this *ComponentEngine) evaluateExpr (node *TSNode) *EvalValue {
     return EvalValue_static_string(this.unquote(node.value))
   }
   if  node.nodeType == "TemplateLiteral" {
+    fmt.Println( ("TemplateLiteral: processing template with " + (strconv.FormatInt((int64(len(node.children))), 10))) + " children" )
     var templateText string= "";
     var ti int64= int64(0);
     for ti < (int64(len(node.children))) {
       var templateChild *TSNode= node.children[ti];
+      fmt.Println( (((("TemplateLiteral child " + (strconv.FormatInt(ti, 10))) + ": nodeType=") + templateChild.nodeType) + " value=") + templateChild.value )
       if  templateChild.nodeType == "TemplateElement" {
-        templateText = templateText + templateChild.value; 
+        var rawText string= templateChild.value;
+        var processedText string= this.evaluateTemplateExpressions(rawText);
+        templateText = templateText + processedText; 
       }
       ti = ti + int64(1); 
     }
+    fmt.Println( ("TemplateLiteral: result = '" + templateText) + "'" )
     return EvalValue_static_string(templateText)
   }
   if  node.nodeType == "BooleanLiteral" {
@@ -7530,6 +9213,275 @@ func (this *ComponentEngine) evaluateExpr (node *TSNode) *EvalValue {
     el_1.tagName = "div"; 
     this.evaluateChildren(el_1, node);
     return EvalValue_static_element(el_1)
+  }
+  if  node.nodeType == "CallExpression" {
+    return this.evaluateCallExpr(node)
+  }
+  return EvalValue_static_null()
+}
+func (this *ComponentEngine) evaluateCallExpr (node *TSNode) *EvalValue {
+  if ( node.left.has_value) {
+    var callee *TSNode= node.left.value.(*TSNode);
+    if  callee.nodeType == "MemberExpression" {
+      var obj *EvalValue= EvalValue_static_null();
+      var methodName string= "";
+      if ( callee.left.has_value) {
+        var objNode *TSNode= callee.left.value.(*TSNode);
+        obj = this.evaluateExpr(objNode); 
+      }
+      methodName = callee.name; 
+      if  (int64(len([]rune(methodName)))) == int64(0) {
+        if ( callee.right.has_value) {
+          var propNode *TSNode= callee.right.value.(*TSNode);
+          methodName = propNode.name; 
+          if  (int64(len([]rune(methodName)))) == int64(0) {
+            methodName = propNode.value; 
+          }
+        }
+      }
+      fmt.Println( (("Method call: " + methodName) + " on value type=") + (strconv.FormatInt(obj.valueType, 10)) )
+      if  methodName == "toFixed" {
+        var numVal float64= obj.toNumber();
+        var decimals int64= int64(0);
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode *TSNode= node.children[int64(0)];
+          var argVal *EvalValue= this.evaluateExpr(argNode);
+          decimals = int64(argVal.toNumber()); 
+        }
+        var multiplier float64= 1.0;
+        var i int64= int64(0);
+        for i < decimals {
+          multiplier = multiplier * 10.0; 
+          i = i + int64(1); 
+        }
+        var rounded float64= float64( (int64(((numVal * multiplier) + 0.5))) );
+        var result float64= rounded / multiplier;
+        var resultStr string= strconv.FormatFloat(result,'f', 6, 64);
+        var dotIdx int64= int64(strings.Index(resultStr, "."));
+        if  decimals == int64(0) {
+          if  dotIdx >= int64(0) {
+            return EvalValue_static_string((string([]rune(resultStr)[int64(0):dotIdx])))
+          }
+          return EvalValue_static_string(resultStr)
+        }
+        if  dotIdx < int64(0) {
+          resultStr = resultStr + "."; 
+          var z int64= int64(0);
+          for z < decimals {
+            resultStr = resultStr + "0"; 
+            z = z + int64(1); 
+          }
+          return EvalValue_static_string(resultStr)
+        }
+        var currentDecimals int64= ((int64(len([]rune(resultStr)))) - dotIdx) - int64(1);
+        if  currentDecimals < decimals {
+          var p int64= currentDecimals;
+          for p < decimals {
+            resultStr = resultStr + "0"; 
+            p = p + int64(1); 
+          }
+        } else {
+          resultStr = string([]rune(resultStr)[int64(0):((dotIdx + int64(1)) + decimals)]); 
+        }
+        return EvalValue_static_string(resultStr)
+      }
+      if  methodName == "toString" {
+        return EvalValue_static_string((obj).toString())
+      }
+      if  methodName == "toUpperCase" {
+        return EvalValue_static_string((strings.ToUpper((obj).toString())))
+      }
+      if  methodName == "toLowerCase" {
+        return EvalValue_static_string((strings.ToLower((obj).toString())))
+      }
+      if  methodName == "trim" {
+        return EvalValue_static_string((strings.TrimSpace((obj).toString())))
+      }
+      if  methodName == "charAt" {
+        var str string= (obj).toString();
+        var idx int64= int64(0);
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode_1 *TSNode= node.children[int64(0)];
+          var argVal_1 *EvalValue= this.evaluateExpr(argNode_1);
+          idx = int64(argVal_1.toNumber()); 
+        }
+        if  idx < (int64(len([]rune(str)))) {
+          return EvalValue_static_string((string([]rune(str)[idx:(idx + int64(1))])))
+        }
+        return EvalValue_static_string("")
+      }
+      if  methodName == "substring" {
+        var str_1 string= (obj).toString();
+        var startIdx int64= int64(0);
+        var endIdx int64= int64(len([]rune(str_1)));
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode_2 *TSNode= node.children[int64(0)];
+          var argVal_2 *EvalValue= this.evaluateExpr(argNode_2);
+          startIdx = int64(argVal_2.toNumber()); 
+        }
+        if  (int64(len(node.children))) > int64(1) {
+          var argNode2 *TSNode= node.children[int64(1)];
+          var argVal2 *EvalValue= this.evaluateExpr(argNode2);
+          endIdx = int64(argVal2.toNumber()); 
+        }
+        return EvalValue_static_string((string([]rune(str_1)[startIdx:endIdx])))
+      }
+      if  methodName == "padStart" {
+        var str_2 string= (obj).toString();
+        var targetLen int64= int64(len([]rune(str_2)));
+        var padStr string= " ";
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode_3 *TSNode= node.children[int64(0)];
+          var argVal_3 *EvalValue= this.evaluateExpr(argNode_3);
+          targetLen = int64(argVal_3.toNumber()); 
+        }
+        if  (int64(len(node.children))) > int64(1) {
+          var argNode2_1 *TSNode= node.children[int64(1)];
+          var argVal2_1 *EvalValue= this.evaluateExpr(argNode2_1);
+          padStr = (argVal2_1).toString(); 
+          if  (int64(len([]rune(padStr)))) == int64(0) {
+            padStr = " "; 
+          }
+        }
+        var currentLen int64= int64(len([]rune(str_2)));
+        if  currentLen >= targetLen {
+          return EvalValue_static_string(str_2)
+        }
+        var padding string= "";
+        /** unused:  padLen*/
+        for (int64(len([]rune(padding)))) < (targetLen - currentLen) {
+          padding = padding + padStr; 
+        }
+        var neededPad int64= targetLen - currentLen;
+        if  (int64(len([]rune(padding)))) > neededPad {
+          padding = string([]rune(padding)[int64(0):neededPad]); 
+        }
+        return EvalValue_static_string((padding + str_2))
+      }
+      if  methodName == "padEnd" {
+        var str_3 string= (obj).toString();
+        var targetLen_1 int64= int64(len([]rune(str_3)));
+        var padStr_1 string= " ";
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode_4 *TSNode= node.children[int64(0)];
+          var argVal_4 *EvalValue= this.evaluateExpr(argNode_4);
+          targetLen_1 = int64(argVal_4.toNumber()); 
+        }
+        if  (int64(len(node.children))) > int64(1) {
+          var argNode2_2 *TSNode= node.children[int64(1)];
+          var argVal2_2 *EvalValue= this.evaluateExpr(argNode2_2);
+          padStr_1 = (argVal2_2).toString(); 
+          if  (int64(len([]rune(padStr_1)))) == int64(0) {
+            padStr_1 = " "; 
+          }
+        }
+        var currentLen_1 int64= int64(len([]rune(str_3)));
+        if  currentLen_1 >= targetLen_1 {
+          return EvalValue_static_string(str_3)
+        }
+        var padding_1 string= "";
+        /** unused:  padLen_1*/
+        for (int64(len([]rune(padding_1)))) < (targetLen_1 - currentLen_1) {
+          padding_1 = padding_1 + padStr_1; 
+        }
+        var neededPad_1 int64= targetLen_1 - currentLen_1;
+        if  (int64(len([]rune(padding_1)))) > neededPad_1 {
+          padding_1 = string([]rune(padding_1)[int64(0):neededPad_1]); 
+        }
+        return EvalValue_static_string((str_3 + padding_1))
+      }
+      if  obj.isObject() {
+        var objName string= "";
+        if ( callee.left.has_value) {
+          var objNode_1 *TSNode= callee.left.value.(*TSNode);
+          if  objNode_1.nodeType == "Identifier" {
+            objName = objNode_1.name; 
+          }
+        }
+        if  objName == "Math" {
+          if  (int64(len(node.children))) > int64(0) {
+            var argNode_5 *TSNode= node.children[int64(0)];
+            var argVal_5 *EvalValue= this.evaluateExpr(argNode_5);
+            var num float64= argVal_5.toNumber();
+            if  methodName == "round" {
+              return EvalValue_static_number((float64( (int64((num + 0.5))) )))
+            }
+            if  methodName == "floor" {
+              return EvalValue_static_number((float64( (int64(num)) )))
+            }
+            if  methodName == "ceil" {
+              var intPart int64= int64(num);
+              if  num > (float64( intPart )) {
+                return EvalValue_static_number((float64( (intPart + int64(1)) )))
+              }
+              return EvalValue_static_number((float64( intPart )))
+            }
+            if  methodName == "abs" {
+              if  num < 0.0 {
+                return EvalValue_static_number((0.0 - num))
+              }
+              return EvalValue_static_number(num)
+            }
+          }
+        }
+      }
+      fmt.Println( "Warning: Unhandled method call: " + methodName )
+      return EvalValue_static_null()
+    }
+    if  callee.nodeType == "Identifier" {
+      var fnName string= callee.name;
+      fmt.Println( "Evaluating function call: " + fnName )
+      if  fnName == "usePrintSettings" {
+        return this.evaluateUsePrintSettings()
+      }
+      if  fnName == "useImage" {
+        var srcArg string= "";
+        if  (int64(len(node.children))) > int64(0) {
+          var argNode_6 *TSNode= node.children[int64(0)];
+          fmt.Println( "useImage arg nodeType: " + argNode_6.nodeType )
+          var argValue *EvalValue= this.evaluateExpr(argNode_6);
+          fmt.Println( (("useImage arg value: " + (argValue).toString()) + " type=") + (strconv.FormatInt(argValue.valueType, 10)) )
+          srcArg = argValue.stringValue; 
+          fmt.Println( "useImage srcArg: " + srcArg )
+        }
+        return this.evaluateUseImage(srcArg)
+      }
+      var fnValue *EvalValue= this.context.value.(*EvalContext).lookup(fnName);
+      fmt.Println( (((("Lookup function '" + fnName) + "' -> type=") + (strconv.FormatInt(fnValue.valueType, 10))) + " isFunction=") + (strconv.FormatBool(fnValue.isFunction())) )
+      if  fnValue.isFunction() {
+        if ( fnValue.functionNode.has_value) {
+          var fnNode *TSNode= fnValue.functionNode.value.(*TSNode);
+          var savedContext *GoNullable = new(GoNullable); 
+          savedContext.value = this.context.value;
+          savedContext.has_value = this.context.has_value;
+          this.context.value = this.context.value.(*EvalContext).createChild();
+          this.context.has_value = true; /* detected as non-optional */
+          var numArgs int64= int64(len(node.children));
+          var numParams int64= int64(len(fnNode.params));
+          fmt.Println( ((((("Function " + fnName) + " called with ") + (strconv.FormatInt(numArgs, 10))) + " args, has ") + (strconv.FormatInt(numParams, 10))) + " params" )
+          var argIdx int64= int64(0);
+          for argIdx < numParams {
+            if  argIdx < numArgs {
+              var argNode_7 *TSNode= node.children[argIdx];
+              var argValue_1 *EvalValue= this.evaluateExpr(argNode_7);
+              var paramNode *TSNode= fnNode.params[argIdx];
+              var paramName string= paramNode.name;
+              fmt.Println( (("Binding param '" + paramName) + "' = ") + (argValue_1).toString() )
+              this.context.value.(*EvalContext).define(paramName, argValue_1);
+            }
+            argIdx = argIdx + int64(1); 
+          }
+          var body *TSNode= this.getFunctionBody(fnNode);
+          var result_1 *EvalValue= this.evaluateFunctionBodyValue(body);
+          this.context.value = savedContext.value;
+          this.context.has_value = false; 
+          if this.context.value != nil {
+            this.context.has_value = true
+          }
+          return result_1
+        }
+      }
+    }
   }
   return EvalValue_static_null()
 }
@@ -7660,12 +9612,15 @@ func (this *ComponentEngine) evaluateMemberExpr (node *TSNode) *EvalValue {
     var leftExpr *TSNode= node.left.value.(*TSNode);
     var obj *EvalValue= this.evaluateExpr(leftExpr);
     var propName string= node.name;
+    fmt.Println( (((("evaluateMemberExpr: propName=" + propName) + " computed=") + (strconv.FormatBool(node.computed))) + " obj.type=") + (strconv.FormatInt(obj.valueType, 10)) )
     if  node.computed {
       if ( node.right.has_value) {
         var indexExpr *TSNode= node.right.value.(*TSNode);
         var indexVal *EvalValue= this.evaluateExpr(indexExpr);
+        fmt.Println( (("  Index value: " + (indexVal).toString()) + " type=") + (strconv.FormatInt(indexVal.valueType, 10)) )
         if  indexVal.isNumber() {
           var idx int64= int64(indexVal.toNumber());
+          fmt.Println( (("  Getting index " + (strconv.FormatInt(idx, 10))) + " from array of length ") + (strconv.FormatInt((int64(len(obj.arrayValue))), 10)) )
           return obj.getIndex(idx)
         }
         if  indexVal.isString() {
@@ -7721,6 +9676,9 @@ func (this *ComponentEngine) mapTagName (jsxTag string) string {
   if  jsxTag == "View" {
     return "div"
   }
+  if  jsxTag == "Layer" {
+    return "layer"
+  }
   if  jsxTag == "Label" {
     return "text"
   }
@@ -7747,6 +9705,9 @@ func (this *ComponentEngine) mapTagName (jsxTag string) string {
   }
   if  jsxTag == "path" {
     return "path"
+  }
+  if  jsxTag == "layer" {
+    return "layer"
   }
   return "div"
 }
@@ -7854,6 +9815,644 @@ func (this *ComponentEngine) unquote (s string) string {
     return string([]rune(s)[int64(1):(__len - int64(1))])
   }
   return s
+}
+func (this *ComponentEngine) evaluateTemplateExpressions (templateStr string) string {
+  fmt.Println( ("evaluateTemplateExpressions: input = '" + templateStr) + "'" )
+  var result string= "";
+  var __len int64= int64(len([]rune(templateStr)));
+  var i int64= int64(0);
+  for i < __len {
+    var ch string= string([]rune(templateStr)[i]);
+    if  ch == "$" {
+      if  (i + int64(1)) < __len {
+        var nextCh string= string([]rune(templateStr)[(i + int64(1))]);
+        if  nextCh == "{" {
+          var exprStart int64= i + int64(2);
+          var braceDepth int64= int64(1);
+          var j int64= exprStart;
+          for (j < __len) && (braceDepth > int64(0)) {
+            var c string= string([]rune(templateStr)[j]);
+            if  c == "{" {
+              braceDepth = braceDepth + int64(1); 
+            }
+            if  c == "}" {
+              braceDepth = braceDepth - int64(1); 
+            }
+            if  braceDepth > int64(0) {
+              j = j + int64(1); 
+            }
+          }
+          if  braceDepth == int64(0) {
+            var exprStr string= string([]rune(templateStr)[exprStart:j]);
+            fmt.Println( ("evaluateTemplateExpressions: found expression '" + exprStr) + "'" )
+            var exprValue string= this.evaluateTemplateExpression(exprStr);
+            result = result + exprValue; 
+            i = j + int64(1); 
+          } else {
+            result = result + ch; 
+            i = i + int64(1); 
+          }
+        } else {
+          result = result + ch; 
+          i = i + int64(1); 
+        }
+      } else {
+        result = result + ch; 
+        i = i + int64(1); 
+      }
+    } else {
+      result = result + ch; 
+      i = i + int64(1); 
+    }
+  }
+  return result
+}
+func (this *ComponentEngine) evaluateTemplateExpression (exprStr string) string {
+  fmt.Println( ("evaluateTemplateExpression: parsing '" + exprStr) + "'" )
+  var lexer *TSLexer= CreateNew_TSLexer(exprStr);
+  var tokens []*Token= lexer.tokenize();
+  var parser_1 *TSParserSimple= CreateNew_TSParserSimple();
+  parser_1.initParser(tokens);
+  var ast *TSNode= parser_1.parseProgram();
+  fmt.Println( ("evaluateTemplateExpression: AST has " + (strconv.FormatInt((int64(len(ast.children))), 10))) + " children" )
+  if  (int64(len(ast.children))) > int64(0) {
+    var stmt *TSNode= ast.children[int64(0)];
+    fmt.Println( "evaluateTemplateExpression: stmt.nodeType = " + stmt.nodeType )
+    if  stmt.nodeType == "ExpressionStatement" {
+      if ( stmt.left.has_value) {
+        var exprNode *TSNode= stmt.left.value.(*TSNode);
+        fmt.Println( "evaluateTemplateExpression: exprNode.nodeType = " + exprNode.nodeType )
+        var value *EvalValue= this.evaluateExpr(exprNode);
+        fmt.Println( "evaluateTemplateExpression: result = " + (value).toString() )
+        return (value).toString()
+      }
+    }
+    var value_1 *EvalValue= this.evaluateExpr(stmt);
+    fmt.Println( "evaluateTemplateExpression: direct result = " + (value_1).toString() )
+    return (value_1).toString()
+  }
+  fmt.Println( ("evaluateTemplateExpression: fallback for '" + exprStr) + "'" )
+  return ("${" + exprStr) + "}"
+}
+func (this *ComponentEngine) evaluateUsePrintSettings () *EvalValue {
+  fmt.Println( "Hook: usePrintSettings() called" )
+  var propNames []string = make([]string, 0);
+  var propValues []*EvalValue = make([]*EvalValue, 0);
+  propNames = append(propNames,"format"); 
+  var formatVal *EvalValue= EvalValue_static_string(this.printFormat);
+  propValues = append(propValues,formatVal); 
+  propNames = append(propNames,"width"); 
+  var widthVal *EvalValue= EvalValue_static_number(this.pageWidth);
+  propValues = append(propValues,widthVal); 
+  propNames = append(propNames,"height"); 
+  var heightVal *EvalValue= EvalValue_static_number(this.pageHeight);
+  propValues = append(propValues,heightVal); 
+  propNames = append(propNames,"orientation"); 
+  var orientVal *EvalValue= EvalValue_static_string(this.printOrientation);
+  propValues = append(propValues,orientVal); 
+  propNames = append(propNames,"pageCount"); 
+  var pageCountVal *EvalValue= EvalValue_static_number((float64( this.printPageCount )));
+  propValues = append(propValues,pageCountVal); 
+  propNames = append(propNames,"margins"); 
+  var marginNames []string = make([]string, 0);
+  var marginValues []*EvalValue = make([]*EvalValue, 0);
+  marginNames = append(marginNames,"top"); 
+  marginValues = append(marginValues,EvalValue_static_number(this.printMarginTop)); 
+  marginNames = append(marginNames,"right"); 
+  marginValues = append(marginValues,EvalValue_static_number(this.printMarginRight)); 
+  marginNames = append(marginNames,"bottom"); 
+  marginValues = append(marginValues,EvalValue_static_number(this.printMarginBottom)); 
+  marginNames = append(marginNames,"left"); 
+  marginValues = append(marginValues,EvalValue_static_number(this.printMarginLeft)); 
+  var marginsVal *EvalValue= EvalValue_static_object(marginNames, marginValues);
+  propValues = append(propValues,marginsVal); 
+  return EvalValue_static_object(propNames, propValues)
+}
+func (this *ComponentEngine) parseGPSCoordinate (direction string, coordStr string, originalValue string) *EvalValue {
+  var names []string = make([]string, 0);
+  var values []*EvalValue = make([]*EvalValue, 0);
+  names = append(names,"direction"); 
+  values = append(values,EvalValue_static_string(direction)); 
+  var degrees float64= 0.0;
+  var minutes float64= 0.0;
+  var seconds float64= 0.0;
+  fmt.Println( ("parseGPSCoordinate: coordStr = '" + coordStr) + "'" )
+  var hasDegreeSym bool= (int64(strings.Index(coordStr, "°"))) >= int64(0);
+  if  hasDegreeSym {
+    var degEnd int64= int64(strings.Index(coordStr, "°"));
+    fmt.Println( "parseGPSCoordinate: degEnd = " + (strconv.FormatInt(degEnd, 10)) )
+    if  degEnd > int64(0) {
+      var degStr string= string([]rune(coordStr)[int64(0):degEnd]);
+      var cleanDegStr string= this.extractNumber(degStr);
+      fmt.Println( ((("parseGPSCoordinate: degStr = '" + degStr) + "' -> clean: '") + cleanDegStr) + "'" )
+      var degVal *GoNullable = new(GoNullable); 
+      degVal = r_str_2_d64(cleanDegStr);
+      if ( degVal.has_value) {
+        degrees = degVal.value.(float64); 
+      }
+    }
+    var minEnd int64= int64(strings.Index(coordStr, "'"));
+    fmt.Println( "parseGPSCoordinate: minEnd = " + (strconv.FormatInt(minEnd, 10)) )
+    if  minEnd > degEnd {
+      var minStr string= string([]rune(coordStr)[(degEnd + int64(1)):minEnd]);
+      var cleanMinStr string= this.extractNumber(minStr);
+      fmt.Println( ((("parseGPSCoordinate: minStr = '" + minStr) + "' -> clean: '") + cleanMinStr) + "'" )
+      var minVal *GoNullable = new(GoNullable); 
+      minVal = r_str_2_d64(cleanMinStr);
+      if ( minVal.has_value) {
+        minutes = minVal.value.(float64); 
+      }
+    }
+    var secEnd int64= int64(strings.Index(coordStr, "\""));
+    fmt.Println( "parseGPSCoordinate: secEnd = " + (strconv.FormatInt(secEnd, 10)) )
+    if  secEnd < int64(0) {
+      secEnd = int64(len([]rune(coordStr))); 
+    }
+    if  secEnd > minEnd {
+      var secStr string= string([]rune(coordStr)[(minEnd + int64(1)):secEnd]);
+      var cleanSecStr string= this.extractNumber(secStr);
+      fmt.Println( ((("parseGPSCoordinate: secStr = '" + secStr) + "' -> clean: '") + cleanSecStr) + "'" )
+      var secVal *GoNullable = new(GoNullable); 
+      secVal = r_str_2_d64(cleanSecStr);
+      if ( secVal.has_value) {
+        seconds = secVal.value.(float64); 
+      }
+    }
+  } else {
+    var decVal *GoNullable = new(GoNullable); 
+    decVal = r_str_2_d64((strings.TrimSpace(coordStr)));
+    if ( decVal.has_value) {
+      var decimalDeg float64= decVal.value.(float64);
+      var degreesInt int64= int64(math.Floor(decimalDeg));
+      degrees = float64( degreesInt ); 
+      var minFloat float64= (decimalDeg - degrees) * 60.0;
+      var minutesInt int64= int64(math.Floor(minFloat));
+      minutes = float64( minutesInt ); 
+      seconds = (minFloat - minutes) * 60.0; 
+    }
+  }
+  fmt.Println( (((("parseGPSCoordinate: degrees=" + (strconv.FormatFloat(degrees,'f', 6, 64))) + " minutes=") + (strconv.FormatFloat(minutes,'f', 6, 64))) + " seconds=") + (strconv.FormatFloat(seconds,'f', 6, 64)) )
+  names = append(names,"degrees"); 
+  values = append(values,EvalValue_static_number(degrees)); 
+  names = append(names,"minutes"); 
+  values = append(values,EvalValue_static_number(minutes)); 
+  names = append(names,"seconds"); 
+  values = append(values,EvalValue_static_number(seconds)); 
+  names = append(names,"originalValue"); 
+  values = append(values,EvalValue_static_string(originalValue)); 
+  return EvalValue_static_object(names, values)
+}
+func (this *ComponentEngine) extractNumber (str string) string {
+  var result string= "";
+  var i int64= int64(0);
+  var __len int64= int64(len([]rune(str)));
+  for i < __len {
+    var chCode int64= int64([]rune(str)[i]);
+    if  (((chCode >= int64(48)) && (chCode <= int64(57))) || (chCode == int64(46))) || (chCode == int64(45)) {
+      var chStr string= string([]rune(str)[i:(i + int64(1))]);
+      result = result + chStr; 
+    }
+    i = i + int64(1); 
+  }
+  return result
+}
+func (this *ComponentEngine) parseDateInfo (dateStr string) *EvalValue {
+  var names []string = make([]string, 0);
+  var values []*EvalValue = make([]*EvalValue, 0);
+  if  (int64(len([]rune(dateStr)))) < int64(10) {
+    return EvalValue_static_null()
+  }
+  var year int64= int64(0);
+  var month int64= int64(0);
+  var day int64= int64(0);
+  var hour int64= int64(0);
+  var minute int64= int64(0);
+  var second int64= int64(0);
+  if  (int64(len([]rune(dateStr)))) >= int64(4) {
+    var yearStr string= string([]rune(dateStr)[int64(0):int64(4)]);
+    var yearOpt *GoNullable = new(GoNullable); 
+    yearOpt = r_str_2_d64(yearStr);
+    if ( yearOpt.has_value) {
+      year = int64((yearOpt.value.(float64))); 
+    }
+  }
+  if  (int64(len([]rune(dateStr)))) >= int64(7) {
+    var monthStr string= string([]rune(dateStr)[int64(5):int64(7)]);
+    var monthOpt *GoNullable = new(GoNullable); 
+    monthOpt = r_str_2_d64(monthStr);
+    if ( monthOpt.has_value) {
+      month = int64((monthOpt.value.(float64))); 
+    }
+  }
+  if  (int64(len([]rune(dateStr)))) >= int64(10) {
+    var dayStr string= string([]rune(dateStr)[int64(8):int64(10)]);
+    var dayOpt *GoNullable = new(GoNullable); 
+    dayOpt = r_str_2_d64(dayStr);
+    if ( dayOpt.has_value) {
+      day = int64((dayOpt.value.(float64))); 
+    }
+  }
+  if  (int64(len([]rune(dateStr)))) >= int64(13) {
+    var hourStr string= string([]rune(dateStr)[int64(11):int64(13)]);
+    var hourOpt *GoNullable = new(GoNullable); 
+    hourOpt = r_str_2_d64(hourStr);
+    if ( hourOpt.has_value) {
+      hour = int64((hourOpt.value.(float64))); 
+    }
+  }
+  if  (int64(len([]rune(dateStr)))) >= int64(16) {
+    var minuteStr string= string([]rune(dateStr)[int64(14):int64(16)]);
+    var minuteOpt *GoNullable = new(GoNullable); 
+    minuteOpt = r_str_2_d64(minuteStr);
+    if ( minuteOpt.has_value) {
+      minute = int64((minuteOpt.value.(float64))); 
+    }
+  }
+  if  (int64(len([]rune(dateStr)))) >= int64(19) {
+    var secondStr string= string([]rune(dateStr)[int64(17):int64(19)]);
+    var secondOpt *GoNullable = new(GoNullable); 
+    secondOpt = r_str_2_d64(secondStr);
+    if ( secondOpt.has_value) {
+      second = int64((secondOpt.value.(float64))); 
+    }
+  }
+  names = append(names,"year"); 
+  values = append(values,EvalValue_static_number((float64( year )))); 
+  names = append(names,"month"); 
+  values = append(values,EvalValue_static_number((float64( month )))); 
+  names = append(names,"day"); 
+  values = append(values,EvalValue_static_number((float64( day )))); 
+  names = append(names,"hour"); 
+  values = append(values,EvalValue_static_number((float64( hour )))); 
+  names = append(names,"minute"); 
+  values = append(values,EvalValue_static_number((float64( minute )))); 
+  names = append(names,"second"); 
+  values = append(values,EvalValue_static_number((float64( second )))); 
+  names = append(names,"monthName"); 
+  var monthName string= "Unknown";
+  if  month == int64(1) {
+    monthName = "January"; 
+  }
+  if  month == int64(2) {
+    monthName = "February"; 
+  }
+  if  month == int64(3) {
+    monthName = "March"; 
+  }
+  if  month == int64(4) {
+    monthName = "April"; 
+  }
+  if  month == int64(5) {
+    monthName = "May"; 
+  }
+  if  month == int64(6) {
+    monthName = "June"; 
+  }
+  if  month == int64(7) {
+    monthName = "July"; 
+  }
+  if  month == int64(8) {
+    monthName = "August"; 
+  }
+  if  month == int64(9) {
+    monthName = "September"; 
+  }
+  if  month == int64(10) {
+    monthName = "October"; 
+  }
+  if  month == int64(11) {
+    monthName = "November"; 
+  }
+  if  month == int64(12) {
+    monthName = "December"; 
+  }
+  values = append(values,EvalValue_static_string(monthName)); 
+  names = append(names,"monthShort"); 
+  var monthShort string= "Unk";
+  if  month == int64(1) {
+    monthShort = "Jan"; 
+  }
+  if  month == int64(2) {
+    monthShort = "Feb"; 
+  }
+  if  month == int64(3) {
+    monthShort = "Mar"; 
+  }
+  if  month == int64(4) {
+    monthShort = "Apr"; 
+  }
+  if  month == int64(5) {
+    monthShort = "May"; 
+  }
+  if  month == int64(6) {
+    monthShort = "Jun"; 
+  }
+  if  month == int64(7) {
+    monthShort = "Jul"; 
+  }
+  if  month == int64(8) {
+    monthShort = "Aug"; 
+  }
+  if  month == int64(9) {
+    monthShort = "Sep"; 
+  }
+  if  month == int64(10) {
+    monthShort = "Oct"; 
+  }
+  if  month == int64(11) {
+    monthShort = "Nov"; 
+  }
+  if  month == int64(12) {
+    monthShort = "Dec"; 
+  }
+  values = append(values,EvalValue_static_string(monthShort)); 
+  names = append(names,"weekday"); 
+  var weekdayName string= "Unknown";
+  var weekdayNum int64= int64(0);
+  var adjustedMonth int64= month;
+  var adjustedYear int64= year;
+  if  month < int64(3) {
+    adjustedMonth = month + int64(12); 
+    adjustedYear = year - int64(1); 
+  }
+  var k int64= adjustedYear % int64(100);
+  var j int64= int64(((float64( adjustedYear )) / 100.0));
+  var monthTerm int64= int64(((float64( (int64(13) * (adjustedMonth + int64(1))) )) / 5.0));
+  var kDiv4 int64= int64(((float64( k )) / 4.0));
+  var jDiv4 int64= int64(((float64( j )) / 4.0));
+  var h int64= (((((day + monthTerm) + k) + kDiv4) + jDiv4) - (int64(2) * j)) % int64(7);
+  if  h < int64(0) {
+    h = h + int64(7); 
+  }
+  weekdayNum = (h + int64(6)) % int64(7); 
+  if  weekdayNum == int64(0) {
+    weekdayName = "Sunday"; 
+  }
+  if  weekdayNum == int64(1) {
+    weekdayName = "Monday"; 
+  }
+  if  weekdayNum == int64(2) {
+    weekdayName = "Tuesday"; 
+  }
+  if  weekdayNum == int64(3) {
+    weekdayName = "Wednesday"; 
+  }
+  if  weekdayNum == int64(4) {
+    weekdayName = "Thursday"; 
+  }
+  if  weekdayNum == int64(5) {
+    weekdayName = "Friday"; 
+  }
+  if  weekdayNum == int64(6) {
+    weekdayName = "Saturday"; 
+  }
+  values = append(values,EvalValue_static_string(weekdayName)); 
+  names = append(names,"weekdayShort"); 
+  var weekdayShort string= "Unk";
+  if  weekdayNum == int64(0) {
+    weekdayShort = "Sun"; 
+  }
+  if  weekdayNum == int64(1) {
+    weekdayShort = "Mon"; 
+  }
+  if  weekdayNum == int64(2) {
+    weekdayShort = "Tue"; 
+  }
+  if  weekdayNum == int64(3) {
+    weekdayShort = "Wed"; 
+  }
+  if  weekdayNum == int64(4) {
+    weekdayShort = "Thu"; 
+  }
+  if  weekdayNum == int64(5) {
+    weekdayShort = "Fri"; 
+  }
+  if  weekdayNum == int64(6) {
+    weekdayShort = "Sat"; 
+  }
+  values = append(values,EvalValue_static_string(weekdayShort)); 
+  names = append(names,"weekdayNumber"); 
+  values = append(values,EvalValue_static_number((float64( weekdayNum )))); 
+  names = append(names,"timeOfDay"); 
+  var timeOfDay string= "night";
+  if  (hour >= int64(5)) && (hour < int64(12)) {
+    timeOfDay = "morning"; 
+  }
+  if  (hour >= int64(12)) && (hour < int64(14)) {
+    timeOfDay = "noon"; 
+  }
+  if  (hour >= int64(14)) && (hour < int64(17)) {
+    timeOfDay = "afternoon"; 
+  }
+  if  (hour >= int64(17)) && (hour < int64(21)) {
+    timeOfDay = "evening"; 
+  }
+  if  (hour >= int64(21)) || (hour < int64(5)) {
+    timeOfDay = "night"; 
+  }
+  values = append(values,EvalValue_static_string(timeOfDay)); 
+  names = append(names,"ampm"); 
+  if  hour < int64(12) {
+    values = append(values,EvalValue_static_string("AM")); 
+  } else {
+    values = append(values,EvalValue_static_string("PM")); 
+  }
+  names = append(names,"hour12"); 
+  var hour12 int64= hour;
+  if  hour == int64(0) {
+    hour12 = int64(12); 
+  } else {
+    if  hour > int64(12) {
+      hour12 = hour - int64(12); 
+    }
+  }
+  values = append(values,EvalValue_static_number((float64( hour12 )))); 
+  names = append(names,"isoDate"); 
+  var monthPad string= strconv.FormatInt(month, 10);
+  if  month < int64(10) {
+    monthPad = "0" + monthPad; 
+  }
+  var dayPad string= strconv.FormatInt(day, 10);
+  if  day < int64(10) {
+    dayPad = "0" + dayPad; 
+  }
+  values = append(values,EvalValue_static_string((((((strconv.FormatInt(year, 10)) + "-") + monthPad) + "-") + dayPad))); 
+  names = append(names,"time"); 
+  var hourPad string= strconv.FormatInt(hour, 10);
+  if  hour < int64(10) {
+    hourPad = "0" + hourPad; 
+  }
+  var minPad string= strconv.FormatInt(minute, 10);
+  if  minute < int64(10) {
+    minPad = "0" + minPad; 
+  }
+  var secPad string= strconv.FormatInt(second, 10);
+  if  second < int64(10) {
+    secPad = "0" + secPad; 
+  }
+  values = append(values,EvalValue_static_string(((((hourPad + ":") + minPad) + ":") + secPad))); 
+  names = append(names,"formatted"); 
+  values = append(values,EvalValue_static_string(((((((weekdayName + ", ") + monthName) + " ") + (strconv.FormatInt(day, 10))) + ", ") + (strconv.FormatInt(year, 10))))); 
+  names = append(names,"shortFormatted"); 
+  values = append(values,EvalValue_static_string(((((monthShort + " ") + (strconv.FormatInt(day, 10))) + ", ") + (strconv.FormatInt(year, 10))))); 
+  names = append(names,"originalValue"); 
+  values = append(values,EvalValue_static_string(dateStr)); 
+  return EvalValue_static_object(names, values)
+}
+func (this *ComponentEngine) evaluateUseImage (src string) *EvalValue {
+  var resolvedPath string= src;
+  if  (int64(len([]rune(src)))) > int64(0) {
+    var firstChar string= string([]rune(src)[int64(0):int64(1)]);
+    if  firstChar != "/" {
+      var startsWithDotSlash bool= false;
+      if  (int64(len([]rune(src)))) >= int64(2) {
+        if  (string([]rune(src)[int64(0):int64(2)])) == "./" {
+          startsWithDotSlash = true; 
+        }
+      }
+      if  startsWithDotSlash {
+        if  this.basePath == "./" {
+          resolvedPath = src; 
+        } else {
+          resolvedPath = this.basePath + (string([]rune(src)[int64(2):(int64(len([]rune(src))))])); 
+        }
+      } else {
+        resolvedPath = this.basePath + src; 
+      }
+    }
+  }
+  fmt.Println( (("Hook: useImage() called with src: " + src) + " -> resolved: ") + resolvedPath )
+  var lastSlash int64= int64(strings.LastIndex(resolvedPath, "/"));
+  var dirPath string= "";
+  var fileName string= resolvedPath;
+  if  lastSlash >= int64(0) {
+    dirPath = string([]rune(resolvedPath)[int64(0):(lastSlash + int64(1))]); 
+    fileName = string([]rune(resolvedPath)[(lastSlash + int64(1)):(int64(len([]rune(resolvedPath))))]); 
+  }
+  fmt.Println( (("Hook: parsing JPEG - dir: " + dirPath) + " file: ") + fileName )
+  var parser_1 *JPEGMetadataParser= CreateNew_JPEGMetadataParser();
+  var metadata *JPEGMetadataInfo= parser_1.parseMetadata(dirPath, fileName);
+  if  metadata.isValid == false {
+    var altDirPath string= "";
+    if  (int64(strings.Index(dirPath, "./"))) == int64(0) {
+      altDirPath = "./assets/" + (string([]rune(dirPath)[int64(2):(int64(len([]rune(dirPath))))])); 
+    } else {
+      altDirPath = "./assets/" + dirPath; 
+    }
+    fmt.Println( ("Hook: useImage() trying alternative path: " + altDirPath) + fileName )
+    metadata = parser_1.parseMetadata(altDirPath, fileName); 
+    if  metadata.isValid {
+      resolvedPath = altDirPath + fileName; 
+    }
+  }
+  var propNames []string = make([]string, 0);
+  var propValues []*EvalValue = make([]*EvalValue, 0);
+  propNames = append(propNames,"resolvedPath"); 
+  propValues = append(propValues,EvalValue_static_string(resolvedPath)); 
+  propNames = append(propNames,"width"); 
+  propValues = append(propValues,EvalValue_static_number((float64( metadata.width )))); 
+  propNames = append(propNames,"height"); 
+  propValues = append(propValues,EvalValue_static_number((float64( metadata.height )))); 
+  propNames = append(propNames,"createdAt"); 
+  if  (int64(len([]rune(metadata.dateTimeOriginal)))) > int64(0) {
+    propValues = append(propValues,EvalValue_static_string(metadata.dateTimeOriginal)); 
+  } else {
+    if  (int64(len([]rune(metadata.dateTime)))) > int64(0) {
+      propValues = append(propValues,EvalValue_static_string(metadata.dateTime)); 
+    } else {
+      propValues = append(propValues,EvalValue_static_null()); 
+    }
+  }
+  propNames = append(propNames,"camera"); 
+  if  (int64(len([]rune(metadata.cameraModel)))) > int64(0) {
+    var cameraStr string= "";
+    if  (int64(len([]rune(metadata.cameraMake)))) > int64(0) {
+      cameraStr = (metadata.cameraMake + " ") + metadata.cameraModel; 
+    } else {
+      cameraStr = metadata.cameraModel; 
+    }
+    propValues = append(propValues,EvalValue_static_string(cameraStr)); 
+  } else {
+    propValues = append(propValues,EvalValue_static_null()); 
+  }
+  propNames = append(propNames,"orientation"); 
+  propValues = append(propValues,EvalValue_static_number((float64( metadata.orientation )))); 
+  propNames = append(propNames,"gps"); 
+  if  metadata.hasGPS {
+    var gpsNames []string = make([]string, 0);
+    var gpsValues []*EvalValue = make([]*EvalValue, 0);
+    var latRaw string= (metadata.gpsLatitudeRef + " ") + metadata.gpsLatitude;
+    gpsNames = append(gpsNames,"latitude"); 
+    gpsValues = append(gpsValues,this.parseGPSCoordinate(metadata.gpsLatitudeRef, metadata.gpsLatitude, latRaw)); 
+    var lonRaw string= (metadata.gpsLongitudeRef + " ") + metadata.gpsLongitude;
+    gpsNames = append(gpsNames,"longitude"); 
+    gpsValues = append(gpsValues,this.parseGPSCoordinate(metadata.gpsLongitudeRef, metadata.gpsLongitude, lonRaw)); 
+    if  (int64(len([]rune(metadata.gpsAltitude)))) > int64(0) {
+      gpsNames = append(gpsNames,"altitude"); 
+      gpsValues = append(gpsValues,EvalValue_static_string(metadata.gpsAltitude)); 
+    }
+    propValues = append(propValues,EvalValue_static_object(gpsNames, gpsValues)); 
+  } else {
+    propValues = append(propValues,EvalValue_static_null()); 
+  }
+  propNames = append(propNames,"colorSpace"); 
+  if  metadata.colorComponents == int64(1) {
+    propValues = append(propValues,EvalValue_static_string("Grayscale")); 
+  } else {
+    if  metadata.colorComponents == int64(3) {
+      propValues = append(propValues,EvalValue_static_string("RGB")); 
+    } else {
+      if  metadata.colorComponents == int64(4) {
+        propValues = append(propValues,EvalValue_static_string("CMYK")); 
+      } else {
+        propValues = append(propValues,EvalValue_static_string("Unknown")); 
+      }
+    }
+  }
+  propNames = append(propNames,"bitsPerComponent"); 
+  propValues = append(propValues,EvalValue_static_number((float64( metadata.bitsPerComponent )))); 
+  propNames = append(propNames,"features"); 
+  var featNames []string = make([]string, 0);
+  var featValues []*EvalValue = make([]*EvalValue, 0);
+  featNames = append(featNames,"hasExif"); 
+  var hasExif bool= ((((int64(len([]rune(metadata.dateTimeOriginal)))) > int64(0)) || ((int64(len([]rune(metadata.cameraModel)))) > int64(0))) || metadata.hasGPS) || (metadata.orientation > int64(1));
+  featValues = append(featValues,EvalValue_static_boolean(hasExif)); 
+  featNames = append(featNames,"hasGps"); 
+  featValues = append(featValues,EvalValue_static_boolean(metadata.hasGPS)); 
+  featNames = append(featNames,"hasDateTime"); 
+  var hasDateTime bool= ((int64(len([]rune(metadata.dateTimeOriginal)))) > int64(0)) || ((int64(len([]rune(metadata.dateTime)))) > int64(0));
+  featValues = append(featValues,EvalValue_static_boolean(hasDateTime)); 
+  featNames = append(featNames,"hasCamera"); 
+  var hasCamera bool= (int64(len([]rune(metadata.cameraModel)))) > int64(0);
+  featValues = append(featValues,EvalValue_static_boolean(hasCamera)); 
+  featNames = append(featNames,"hasOrientation"); 
+  var hasOrientation bool= metadata.orientation > int64(1);
+  featValues = append(featValues,EvalValue_static_boolean(hasOrientation)); 
+  propValues = append(propValues,EvalValue_static_object(featNames, featValues)); 
+  propNames = append(propNames,"dateInfo"); 
+  if  (int64(len([]rune(metadata.dateTimeOriginal)))) > int64(0) {
+    propValues = append(propValues,this.parseDateInfo(metadata.dateTimeOriginal)); 
+  } else {
+    if  (int64(len([]rune(metadata.dateTime)))) > int64(0) {
+      propValues = append(propValues,this.parseDateInfo(metadata.dateTime)); 
+    } else {
+      propValues = append(propValues,EvalValue_static_null()); 
+    }
+  }
+  return EvalValue_static_object(propNames, propValues)
+}
+func (this *ComponentEngine) setPrintSettings (format string, orientation string, width float64, height float64) () {
+  this.printFormat = format; 
+  this.printOrientation = orientation; 
+  this.pageWidth = width; 
+  this.pageHeight = height; 
+  fmt.Println( (((((("Print settings updated: " + format) + " ") + orientation) + " ") + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)) )
+}
+func (this *ComponentEngine) setPrintMargins (top float64, right float64, bottom float64, left float64) () {
+  this.printMarginTop = top; 
+  this.printMarginRight = right; 
+  this.printMarginBottom = bottom; 
+  this.printMarginLeft = left; 
 }
 type EVGTextMetrics struct { 
   width float64 `json:"width"` 
@@ -8329,7 +10928,7 @@ func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, pare
     height = element.height.value.(*EVGUnit).pixels; 
     autoHeight = false; 
   }
-  if  element.tagName == "image" {
+  if  ((element.tagName == "image") || (element.tagName == "Image")) || (element.tagName == "img") {
     var imgSrc string= element.src;
     if  (int64(len([]rune(imgSrc)))) > int64(0) {
       var dims *EVGImageDimensions= this.imageMeasurer.value.(IFACE_EVGImageMeasurer).getImageDimensions(imgSrc);
@@ -8381,7 +10980,8 @@ func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, pare
   if  childCount > int64(0) {
     contentHeight = this.layoutChildren(element); 
   } else {
-    if  (element.tagName == "text") || (element.tagName == "span") {
+    var textContent string= element.textContent;
+    if  (int64(len([]rune(textContent)))) > int64(0) {
       var fontSize float64= element.inheritedFontSize;
       if  element.fontSize.value.(*EVGUnit).isSet {
         fontSize = element.fontSize.value.(*EVGUnit).pixels; 
@@ -8394,7 +10994,6 @@ func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, pare
         lineHeightFactor = 1.2; 
       }
       var lineSpacing float64= fontSize * lineHeightFactor;
-      var textContent string= element.textContent;
       var availableWidth float64= (width - element.box.value.(*EVGBox).paddingLeftPx) - element.box.value.(*EVGBox).paddingRightPx;
       var lineCount int64= this.estimateLineCount(textContent, availableWidth, fontSize);
       contentHeight = lineSpacing * (float64( lineCount )); 
@@ -8426,8 +11025,8 @@ func (this *EVGLayout) layoutChildren (parent *EVGElement) float64 {
   }
   var innerWidth float64= parent.calculatedInnerWidth;
   var innerHeight float64= parent.calculatedInnerHeight;
-  var startX float64= ((parent.calculatedX + parent.box.value.(*EVGBox).marginLeftPx) + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingLeftPx;
-  var startY float64= ((parent.calculatedY + parent.box.value.(*EVGBox).marginTopPx) + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingTopPx;
+  var startX float64= (parent.calculatedX + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingLeftPx;
+  var startY float64= (parent.calculatedY + parent.box.value.(*EVGBox).borderWidthPx) + parent.box.value.(*EVGBox).paddingTopPx;
   var currentX float64= startX;
   var currentY float64= startY;
   var rowHeight float64= 0.0;
@@ -8475,7 +11074,7 @@ func (this *EVGLayout) layoutChildren (parent *EVGElement) float64 {
     child.inheritProperties(parent);
     child.resolveUnits(innerWidth, innerHeight);
     if  child.isAbsolute {
-      if  child.tagName == "layer" {
+      if  (child.tagName == "layer") || (child.tagName == "Layer") {
         child.unitsResolved = false; 
         child.resolveUnits(parent.calculatedWidth, parent.calculatedHeight);
         child.calculatedWidth = parent.calculatedWidth; 
@@ -8498,9 +11097,14 @@ func (this *EVGLayout) layoutChildren (parent *EVGElement) float64 {
       i = i + int64(1); 
       continue;
     }
-    var childWidth float64= innerWidth;
+    var availableForChild float64= (innerWidth - child.box.value.(*EVGBox).marginLeftPx) - child.box.value.(*EVGBox).marginRightPx;
+    var childWidth float64= availableForChild;
     if  child.width.value.(*EVGUnit).isSet {
-      childWidth = child.width.value.(*EVGUnit).pixels; 
+      if  child.width.value.(*EVGUnit).pixels >= innerWidth {
+        childWidth = availableForChild; 
+      } else {
+        childWidth = child.width.value.(*EVGUnit).pixels; 
+      }
     } else {
       if  child.calculatedFlexWidth > 0.0 {
         childWidth = child.calculatedFlexWidth; 
@@ -8549,7 +11153,55 @@ func (this *EVGLayout) layoutChildren (parent *EVGElement) float64 {
     this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
     totalHeight = totalHeight + rowHeight; 
   }
+  if  isColumn {
+    this.alignColumn(parent, totalHeight, startX, startY, innerWidth, innerHeight);
+  }
   return totalHeight
+}
+func (this *EVGLayout) alignColumn (parent *EVGElement, contentHeight float64, startX float64, startY float64, innerWidth float64, innerHeight float64) () {
+  var childCount int64= parent.getChildCount();
+  if  childCount == int64(0) {
+    return
+  }
+  var verticalAlign string= parent.justifyContent;
+  var horizontalAlign string= parent.alignItems;
+  var availableHeight float64= innerHeight;
+  if  parent.height.value.(*EVGUnit).isSet {
+    availableHeight = parent.calculatedInnerHeight; 
+  }
+  var offsetY float64= 0.0;
+  if  verticalAlign == "center" {
+    offsetY = (availableHeight - contentHeight) / 2.0; 
+  }
+  if  (verticalAlign == "flex-end") || (verticalAlign == "end") {
+    offsetY = availableHeight - contentHeight; 
+  }
+  if  verticalAlign == "space-between" {
+    offsetY = 0.0; 
+  }
+  var i int64= int64(0);
+  for i < childCount {
+    var child *EVGElement= parent.getChild(i);
+    if  child.isAbsolute == false {
+      if  offsetY != 0.0 {
+        child.calculatedY = child.calculatedY + offsetY; 
+        this.propagateOffsetToChildren(child, 0.0, offsetY);
+      }
+      var childTotalWidth float64= (child.calculatedWidth + child.box.value.(*EVGBox).marginLeftPx) + child.box.value.(*EVGBox).marginRightPx;
+      var offsetX float64= 0.0;
+      if  horizontalAlign == "center" {
+        offsetX = (innerWidth - childTotalWidth) / 2.0; 
+      }
+      if  (horizontalAlign == "flex-end") || (horizontalAlign == "end") {
+        offsetX = innerWidth - childTotalWidth; 
+      }
+      if  offsetX != 0.0 {
+        child.calculatedX = child.calculatedX + offsetX; 
+        this.propagateOffsetToChildren(child, offsetX, 0.0);
+      }
+    }
+    i = i + int64(1); 
+  }
 }
 func (this *EVGLayout) alignRow (rowElements []*EVGElement, parent *EVGElement, rowHeight float64, startX float64, innerWidth float64) () {
   var elementCount int64= int64(len(rowElements));
@@ -8563,12 +11215,31 @@ func (this *EVGLayout) alignRow (rowElements []*EVGElement, parent *EVGElement, 
     rowWidth = ((rowWidth + el.calculatedWidth) + el.box.value.(*EVGBox).marginLeftPx) + el.box.value.(*EVGBox).marginRightPx; 
     i = i + int64(1); 
   }
+  var isColumn bool= parent.flexDirection == "column";
+  var mainAxisAlign string= parent.justifyContent;
+  var crossAxisAlign string= parent.alignItems;
+  var horizontalAlign string= mainAxisAlign;
+  if  isColumn {
+    horizontalAlign = crossAxisAlign; 
+  }
+  if  (int64(len([]rune(parent.align)))) > int64(0) {
+    horizontalAlign = parent.align; 
+  }
   var offsetX float64= 0.0;
-  if  parent.align == "center" {
+  if  horizontalAlign == "center" {
     offsetX = (innerWidth - rowWidth) / 2.0; 
   }
-  if  parent.align == "right" {
+  if  (horizontalAlign == "flex-end") || (horizontalAlign == "right") {
     offsetX = innerWidth - rowWidth; 
+  }
+  var verticalAlignVal string= crossAxisAlign;
+  if  isColumn {
+    verticalAlignVal = mainAxisAlign; 
+  }
+  if  (int64(len([]rune(parent.verticalAlign)))) > int64(0) {
+    if  parent.verticalAlign != "top" {
+      verticalAlignVal = parent.verticalAlign; 
+    }
   }
   var effectiveRowHeight float64= rowHeight;
   if  parent.height.value.(*EVGUnit).isSet {
@@ -8582,18 +11253,35 @@ func (this *EVGLayout) alignRow (rowElements []*EVGElement, parent *EVGElement, 
     var el_1 *EVGElement= rowElements[i];
     if  offsetX != 0.0 {
       el_1.calculatedX = el_1.calculatedX + offsetX; 
+      this.propagateOffsetToChildren(el_1, offsetX, 0.0);
     }
     var childTotalHeight float64= (el_1.calculatedHeight + el_1.box.value.(*EVGBox).marginTopPx) + el_1.box.value.(*EVGBox).marginBottomPx;
     var offsetY float64= 0.0;
-    if  parent.verticalAlign == "center" {
+    if  verticalAlignVal == "center" {
       offsetY = (effectiveRowHeight - childTotalHeight) / 2.0; 
     }
-    if  parent.verticalAlign == "bottom" {
+    if  (verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom") {
       offsetY = effectiveRowHeight - childTotalHeight; 
     }
     if  offsetY != 0.0 {
       el_1.calculatedY = el_1.calculatedY + offsetY; 
+      this.propagateOffsetToChildren(el_1, 0.0, offsetY);
     }
+    i = i + int64(1); 
+  }
+}
+func (this *EVGLayout) propagateOffsetToChildren (parent *EVGElement, offsetX float64, offsetY float64) () {
+  var childCount int64= parent.getChildCount();
+  var i int64= int64(0);
+  for i < childCount {
+    var child *EVGElement= parent.getChild(i);
+    if  offsetX != 0.0 {
+      child.calculatedX = child.calculatedX + offsetX; 
+    }
+    if  offsetY != 0.0 {
+      child.calculatedY = child.calculatedY + offsetY; 
+    }
+    this.propagateOffsetToChildren(child, offsetX, offsetY);
     i = i + int64(1); 
   }
 }
@@ -8679,9 +11367,185 @@ func (this *EVGLayout) estimateLineCount (text string, maxWidth float64, fontSiz
   }
   return lineCount
 }
+type ImageInfo struct { 
+  path string `json:"path"` 
+  width int64 `json:"width"` 
+  height int64 `json:"height"` 
+  loaded bool `json:"loaded"` 
+  error string `json:"error"` 
+  orientation int64 /**  unused  **/  `json:"orientation"` 
+  colorSpace string /**  unused  **/  `json:"colorSpace"` 
+  bitsPerComponent int64 /**  unused  **/  `json:"bitsPerComponent"` 
+  createdAt string /**  unused  **/  `json:"createdAt"` 
+  camera string /**  unused  **/  `json:"camera"` 
+  hasGPS bool /**  unused  **/  `json:"hasGPS"` 
+  gpsLatitude float64 /**  unused  **/  `json:"gpsLatitude"` 
+  gpsLongitude float64 /**  unused  **/  `json:"gpsLongitude"` 
+}
+
+func CreateNew_ImageInfo() *ImageInfo {
+  me := new(ImageInfo)
+  me.path = ""
+  me.width = int64(0)
+  me.height = int64(0)
+  me.loaded = false
+  me.error = ""
+  me.orientation = int64(1)
+  me.colorSpace = "RGB"
+  me.bitsPerComponent = int64(8)
+  me.createdAt = ""
+  me.camera = ""
+  me.hasGPS = false
+  me.gpsLatitude = 0.0
+  me.gpsLongitude = 0.0
+  return me;
+}
+type EVGResourceLoader struct { 
+  basePath string `json:"basePath"` 
+  imageCache []*ImageInfo `json:"imageCache"` 
+  metadataParser *GoNullable `json:"metadataParser"` 
+  debug bool `json:"debug"` 
+}
+
+func CreateNew_EVGResourceLoader() *EVGResourceLoader {
+  me := new(EVGResourceLoader)
+  me.basePath = "./"
+  me.imageCache = make([]*ImageInfo,0)
+  me.debug = false
+  me.metadataParser = new(GoNullable);
+  var cache []*ImageInfo = make([]*ImageInfo, 0);
+  me.imageCache = cache; 
+  var mp *JPEGMetadataParser= CreateNew_JPEGMetadataParser();
+  me.metadataParser.value = mp;
+  me.metadataParser.has_value = true; /* detected as non-optional */
+  return me;
+}
+func (this *EVGResourceLoader) setBasePath (path string) () {
+  this.basePath = path; 
+}
+func (this *EVGResourceLoader) loadResources (root *EVGElement) () {
+  fmt.Println( "ResourceLoader: Starting resource loading..." )
+  this.processElement(root);
+  fmt.Println( ("ResourceLoader: Loaded " + (strconv.FormatInt((int64(len(this.imageCache))), 10))) + " images" )
+}
+func (this *EVGResourceLoader) processElement (el *EVGElement) () {
+  fmt.Println( (("ResourceLoader: processElement tagName=" + el.tagName) + " src=") + el.src )
+  if  ((el.tagName == "Image") || (el.tagName == "image")) || (el.tagName == "img") {
+    if  (int64(len([]rune(el.src)))) > int64(0) {
+      fmt.Println( "ResourceLoader: Found image: " + el.src )
+      this.loadImageMetadata(el);
+    }
+  }
+  if  el.elementType == int64(2) {
+    if  (int64(len([]rune(el.src)))) > int64(0) {
+      fmt.Println( "ResourceLoader: Found image by elementType: " + el.src )
+      this.loadImageMetadata(el);
+    }
+  }
+  var i int64= int64(0);
+  for i < (int64(len(el.children))) {
+    var child *EVGElement= el.children[i];
+    this.processElement(child);
+    i = i + int64(1); 
+  }
+}
+func (this *EVGResourceLoader) loadImageMetadata (el *EVGElement) () {
+  var imgPath string= el.src;
+  var cached *ImageInfo= this.getCachedImage(imgPath);
+  if  cached.loaded {
+    el.sourceWidth = float64( cached.width ); 
+    el.sourceHeight = float64( cached.height ); 
+    if  this.debug {
+      fmt.Println( ((((("ResourceLoader: Cache hit for " + imgPath) + " (") + (strconv.FormatInt(cached.width, 10))) + "x") + (strconv.FormatInt(cached.height, 10))) + ")" )
+    }
+    return
+  }
+  var dirPath string= "";
+  var fileName string= "";
+  var lastSlash int64= int64(strings.LastIndex(imgPath, "/"));
+  var lastBackslash int64= int64(strings.LastIndex(imgPath, "\\"));
+  var lastSep int64= lastSlash;
+  if  lastBackslash > lastSep {
+    lastSep = lastBackslash; 
+  }
+  if  lastSep >= int64(0) {
+    dirPath = string([]rune(imgPath)[int64(0):(lastSep + int64(1))]); 
+    fileName = string([]rune(imgPath)[(lastSep + int64(1)):(int64(len([]rune(imgPath))))]); 
+  } else {
+    dirPath = ""; 
+    fileName = imgPath; 
+  }
+  var fullDirPath string= dirPath;
+  if  (int64(strings.Index(imgPath, "/"))) != int64(0) {
+    if  (int64(strings.Index(dirPath, "./"))) == int64(0) {
+      if  this.basePath == "./" {
+        fullDirPath = dirPath; 
+      } else {
+        fullDirPath = this.basePath + (string([]rune(dirPath)[int64(2):(int64(len([]rune(dirPath))))])); 
+      }
+    } else {
+      fullDirPath = this.basePath + dirPath; 
+    }
+  }
+  fmt.Println( ("ResourceLoader: Loading " + fullDirPath) + fileName )
+  var meta *JPEGMetadataInfo= this.metadataParser.value.(*JPEGMetadataParser).parseMetadata(fullDirPath, fileName);
+  if  meta.isValid == false {
+    var altDirPath string= "";
+    if  (int64(strings.Index(dirPath, "./"))) == int64(0) {
+      altDirPath = "./assets/" + (string([]rune(dirPath)[int64(2):(int64(len([]rune(dirPath))))])); 
+    } else {
+      altDirPath = "./assets/" + dirPath; 
+    }
+    fmt.Println( ("ResourceLoader: Trying alternative path: " + altDirPath) + fileName )
+    meta = this.metadataParser.value.(*JPEGMetadataParser).parseMetadata(altDirPath, fileName); 
+  }
+  if  meta.isValid == false {
+    fmt.Println( ((("ResourceLoader: ERROR - " + meta.errorMessage) + ": ") + fullDirPath) + fileName )
+    var errInfo *ImageInfo= CreateNew_ImageInfo();
+    errInfo.path = imgPath; 
+    errInfo.loaded = true; 
+    errInfo.error = meta.errorMessage; 
+    this.imageCache = append(this.imageCache,errInfo); 
+    return
+  }
+  var imgWidth int64= meta.width;
+  var imgHeight int64= meta.height;
+  if  (((meta.orientation == int64(5)) || (meta.orientation == int64(6))) || (meta.orientation == int64(7))) || (meta.orientation == int64(8)) {
+    imgWidth = meta.height; 
+    imgHeight = meta.width; 
+  }
+  el.sourceWidth = float64( imgWidth ); 
+  el.sourceHeight = float64( imgHeight ); 
+  if  this.debug {
+    fmt.Println( ((((("ResourceLoader: Loaded " + imgPath) + " (") + (strconv.FormatInt(imgWidth, 10))) + "x") + (strconv.FormatInt(imgHeight, 10))) + ")" )
+  }
+  var info *ImageInfo= CreateNew_ImageInfo();
+  info.path = imgPath; 
+  info.width = imgWidth; 
+  info.height = imgHeight; 
+  info.loaded = true; 
+  this.imageCache = append(this.imageCache,info); 
+}
+func (this *EVGResourceLoader) getCachedImage (path string) *ImageInfo {
+  var i int64= int64(0);
+  for i < (int64(len(this.imageCache))) {
+    var info *ImageInfo= this.imageCache[i];
+    if  info.path == path {
+      return info
+    }
+    i = i + int64(1); 
+  }
+  var empty *ImageInfo= CreateNew_ImageInfo();
+  return empty
+}
+func (this *EVGResourceLoader) clearCache () () {
+  var empty []*ImageInfo = make([]*ImageInfo, 0);
+  this.imageCache = empty; 
+}
 type EVGHTMLRenderer struct { 
   layout *GoNullable `json:"layout"` 
   measurer *GoNullable `json:"measurer"` 
+  resourceLoader *GoNullable `json:"resourceLoader"` 
   pageWidth float64 `json:"pageWidth"` 
   pageHeight float64 `json:"pageHeight"` 
   debug bool `json:"debug"` 
@@ -8722,12 +11586,16 @@ func CreateNew_EVGHTMLRenderer() *EVGHTMLRenderer {
   me.foundPages = make([]*EVGElement,0)
   me.layout = new(GoNullable);
   me.measurer = new(GoNullable);
+  me.resourceLoader = new(GoNullable);
   var lay *EVGLayout= CreateNew_EVGLayout();
   me.layout.value = lay;
   me.layout.has_value = true; /* detected as non-optional */
   var m_1 *SimpleTextMeasurer= CreateNew_SimpleTextMeasurer();
   me.measurer.value = m_1;
   me.measurer.has_value = true; /* detected as non-optional */
+  var rl *EVGResourceLoader= CreateNew_EVGResourceLoader();
+  me.resourceLoader.value = rl;
+  me.resourceLoader.has_value = true; /* detected as non-optional */
   var uf []string = make([]string, 0);
   me.usedFontFamilies = uf; 
   var fs []*EVGElement = make([]*EVGElement, 0);
@@ -8749,6 +11617,7 @@ func (this *EVGHTMLRenderer) setMeasurer (m IFACE_EVGTextMeasurer) () {
 func (this *EVGHTMLRenderer) setDebug (enabled bool) () {
   this.layout.value.(*EVGLayout).debug = enabled; 
   this.debug = enabled; 
+  this.resourceLoader.value.(*EVGResourceLoader).debug = enabled; 
 }
 func (this *EVGHTMLRenderer) setFontBasePath (path string) () {
   this.fontBasePath = path; 
@@ -8780,6 +11649,8 @@ func (this *EVGHTMLRenderer) render (root *EVGElement) string {
   this.elementCounter = int64(0); 
   var uf []string = make([]string, 0);
   this.usedFontFamilies = uf; 
+  this.resourceLoader.value.(*EVGResourceLoader).setBasePath(this.baseDir);
+  this.resourceLoader.value.(*EVGResourceLoader).loadResources(root);
   this.layout.value.(*EVGLayout).layout(root);
   this.collectFonts(root);
   var html string= "";
@@ -8801,6 +11672,8 @@ func (this *EVGHTMLRenderer) render (root *EVGElement) string {
 }
 func (this *EVGHTMLRenderer) renderPage (root *EVGElement, pageNum int64) string {
   this.elementCounter = int64(0); 
+  this.resourceLoader.value.(*EVGResourceLoader).setBasePath(this.baseDir);
+  this.resourceLoader.value.(*EVGResourceLoader).loadResources(root);
   this.layout.value.(*EVGLayout).layout(root);
   var html string= "";
   html = html + this.renderElementForPage(root, pageNum, int64(1)); 
@@ -8929,7 +11802,7 @@ func (this *EVGHTMLRenderer) renderElementWithParent (el *EVGElement, depth int6
   if  (el.tagName == "Page") || (el.tagName == "page") {
     return this.renderPage_Element(el, depth)
   }
-  if  ((el.tagName == "View") || (el.tagName == "div")) || (el.tagName == "layer") {
+  if  (((el.tagName == "View") || (el.tagName == "div")) || (el.tagName == "layer")) || (el.tagName == "Layer") {
     return this.renderViewWithParent(el, elementId, depth, parentX, parentY)
   }
   if  ((el.tagName == "Label") || (el.tagName == "span")) || (el.tagName == "text") {
@@ -8960,6 +11833,12 @@ func (this *EVGHTMLRenderer) renderElementForPage (el *EVGElement, pageNum int64
   return this.renderElement(el, depth)
 }
 func (this *EVGHTMLRenderer) renderPrint (el *EVGElement, depth int64) string {
+  if  el.pageWidth > 0.0 {
+    this.pageWidth = el.pageWidth; 
+  }
+  if  el.pageHeight > 0.0 {
+    this.pageHeight = el.pageHeight; 
+  }
   var html string= "";
   html = (html + this.indent(depth)) + "<div class=\"evg-document\">\n"; 
   var i int64= int64(0);
@@ -9022,9 +11901,20 @@ func (this *EVGHTMLRenderer) renderViewWithParent (el *EVGElement, elementId str
   if  (int64(len([]rune(el.id)))) > int64(0) {
     html = ((html + " id=\"") + el.id) + "\""; 
   }
-  html = html + " class=\"evg-view\""; 
-  var relX float64= el.calculatedX - parentX;
-  var relY float64= el.calculatedY - parentY;
+  if  (el.tagName == "layer") || (el.tagName == "Layer") {
+    html = html + " class=\"evg-layer\""; 
+  } else {
+    html = html + " class=\"evg-view\""; 
+  }
+  var relX float64= 0.0;
+  var relY float64= 0.0;
+  if  el.isAbsolute {
+    relX = el.calculatedX; 
+    relY = el.calculatedY; 
+  } else {
+    relX = el.calculatedX - parentX; 
+    relY = el.calculatedY - parentY; 
+  }
   html = html + " style=\""; 
   html = html + this.generateViewStylesRelative(el, relX, relY); 
   html = html + "\""; 
@@ -9040,13 +11930,14 @@ func (this *EVGHTMLRenderer) renderViewWithParent (el *EVGElement, elementId str
 }
 func (this *EVGHTMLRenderer) generateViewStylesRelative (el *EVGElement, relX float64, relY float64) string {
   var css string= "";
-  css = css + "position: absolute; "; 
-  css = ((css + "left: ") + this.formatPx(relX)) + "; "; 
-  css = ((css + "top: ") + this.formatPx(relY)) + "; "; 
-  if  el.tagName == "layer" {
-    css = css + "width: 100%; "; 
-    css = css + "height: 100%; "; 
+  if  (el.tagName == "layer") || (el.tagName == "Layer") {
+    css = css + "position: absolute; "; 
+    css = css + "inset: 0; "; 
+    css = css + "pointer-events: none; "; 
   } else {
+    css = css + "position: absolute; "; 
+    css = ((css + "left: ") + this.formatPx(relX)) + "; "; 
+    css = ((css + "top: ") + this.formatPx(relY)) + "; "; 
     if  el.calculatedWidth > 0.0 {
       css = ((css + "width: ") + this.formatPx(el.calculatedWidth)) + "; "; 
     }
@@ -9095,13 +11986,6 @@ func (this *EVGHTMLRenderer) generateViewStylesRelative (el *EVGElement, relX fl
   if  (((pt > 0.0) || (pr > 0.0)) || (pb > 0.0)) || (pl > 0.0) {
     css = ((((((((css + "padding: ") + this.formatPx(pt)) + " ") + this.formatPx(pr)) + " ") + this.formatPx(pb)) + " ") + this.formatPx(pl)) + "; "; 
   }
-  var mt float64= this.getResolvedMargin(el, "top");
-  var mr float64= this.getResolvedMargin(el, "right");
-  var mb float64= this.getResolvedMargin(el, "bottom");
-  var ml float64= this.getResolvedMargin(el, "left");
-  if  (((mt > 0.0) || (mr > 0.0)) || (mb > 0.0)) || (ml > 0.0) {
-    css = ((((((((css + "margin: ") + this.formatPx(mt)) + " ") + this.formatPx(mr)) + " ") + this.formatPx(mb)) + " ") + this.formatPx(ml)) + "; "; 
-  }
   if  el.overflow == "hidden" {
     css = css + "overflow: hidden; "; 
   }
@@ -9147,8 +12031,15 @@ func (this *EVGHTMLRenderer) renderLabelWithParent (el *EVGElement, elementId st
     html = ((html + " id=\"") + el.id) + "\""; 
   }
   html = html + " class=\"evg-label\""; 
-  var relX float64= el.calculatedX - parentX;
-  var relY float64= el.calculatedY - parentY;
+  var relX float64= 0.0;
+  var relY float64= 0.0;
+  if  el.isAbsolute {
+    relX = el.calculatedX; 
+    relY = el.calculatedY; 
+  } else {
+    relX = el.calculatedX - parentX; 
+    relY = el.calculatedY - parentY; 
+  }
   html = html + " style=\""; 
   html = html + this.generateLabelStylesRelative(el, relX, relY); 
   html = html + "\""; 
@@ -9166,8 +12057,16 @@ func (this *EVGHTMLRenderer) renderLabelWithParent (el *EVGElement, elementId st
 func (this *EVGHTMLRenderer) generateLabelStylesRelative (el *EVGElement, relX float64, relY float64) string {
   var css string= "";
   css = css + "position: absolute; "; 
-  css = ((css + "left: ") + this.formatPx(relX)) + "; "; 
-  css = ((css + "top: ") + this.formatPx(relY)) + "; "; 
+  var px float64= relX;
+  var py float64= relY;
+  if  px < el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingLeftPx {
+    px = el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingLeftPx; 
+  }
+  if  py < el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingTopPx {
+    py = el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingTopPx; 
+  }
+  css = ((css + "left: ") + this.formatPx(px)) + "; "; 
+  css = ((css + "top: ") + this.formatPx(py)) + "; "; 
   if  (int64(len([]rune(el.fontFamily)))) > int64(0) {
     css = ((css + "font-family: '") + el.fontFamily) + "', sans-serif; "; 
   }
@@ -9223,15 +12122,137 @@ func (this *EVGHTMLRenderer) renderImage (el *EVGElement, elementId string, dept
 }
 func (this *EVGHTMLRenderer) renderImageWithParent (el *EVGElement, elementId string, depth int64, parentX float64, parentY float64) string {
   var html string= "";
-  var relX float64= el.calculatedX - parentX;
-  var relY float64= el.calculatedY - parentY;
+  var relX float64= 0.0;
+  var relY float64= 0.0;
+  if  el.isAbsolute {
+    relX = el.calculatedX; 
+    relY = el.calculatedY; 
+  } else {
+    relX = el.calculatedX - parentX; 
+    relY = el.calculatedY - parentY; 
+  }
   if  el.imageViewBoxSet {
     return this.renderImageWithViewBox(el, elementId, depth, relX, relY)
   }
-  html = (html + this.indent(depth)) + "<img"; 
+  var containerW float64= el.calculatedWidth;
+  var containerH float64= el.calculatedHeight;
+  var parentAvailableH float64= el.parent.value.(*EVGElement).calculatedHeight;
+  if  el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingTopPx > 0.0 {
+    parentAvailableH = (parentAvailableH - el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingTopPx) - el.parent.value.(*EVGElement).box.value.(*EVGBox).paddingBottomPx; 
+  }
+  if  (((containerH <= 0.0) && (containerW > 0.0)) && (el.sourceWidth > 0.0)) && (el.sourceHeight > 0.0) {
+    var imageAspect float64= el.sourceWidth / el.sourceHeight;
+    containerH = containerW / imageAspect; 
+    if  this.debug {
+      fmt.Println( "Image: calculated containerH from aspect ratio: " + (strconv.FormatFloat(containerH,'f', 6, 64)) )
+    }
+  }
+  if  (parentAvailableH > 0.0) && (containerH > parentAvailableH) {
+    if  this.debug {
+      fmt.Println( (("Image: clipping containerH from " + (strconv.FormatFloat(containerH,'f', 6, 64))) + " to parent height ") + (strconv.FormatFloat(parentAvailableH,'f', 6, 64)) )
+    }
+    containerH = parentAvailableH; 
+  }
+  html = (html + this.indent(depth)) + "<div"; 
   if  (int64(len([]rune(el.id)))) > int64(0) {
     html = ((html + " id=\"") + el.id) + "\""; 
   }
+  html = html + " class=\"evg-image-container\" style=\""; 
+  html = html + "position: absolute; "; 
+  html = ((html + "left: ") + this.formatPx(relX)) + "; "; 
+  html = ((html + "top: ") + this.formatPx(relY)) + "; "; 
+  if  containerW > 0.0 {
+    html = ((html + "width: ") + this.formatPx(containerW)) + "; "; 
+  }
+  if  containerH > 0.0 {
+    html = ((html + "height: ") + this.formatPx(containerH)) + "; "; 
+  }
+  html = html + "overflow: hidden; "; 
+  if  el.box.value.(*EVGBox).borderRadius.value.(*EVGUnit).isSet {
+    html = ((html + "border-radius: ") + this.formatPx(el.box.value.(*EVGBox).borderRadius.value.(*EVGUnit).pixels)) + "; "; 
+  }
+  html = html + "\">\n"; 
+  var imgW float64= el.sourceWidth;
+  var imgH float64= el.sourceHeight;
+  if  imgW <= 0.0 {
+    imgW = containerW; 
+  }
+  if  imgH <= 0.0 {
+    imgH = containerH; 
+  }
+  var containerRatio float64= 1.0;
+  var imageRatio float64= 1.0;
+  if  containerH > 0.0 {
+    containerRatio = containerW / containerH; 
+  }
+  if  imgH > 0.0 {
+    imageRatio = imgW / imgH; 
+  }
+  var scaledW float64= containerW;
+  var scaledH float64= containerH;
+  var offsetX float64= 0.0;
+  var offsetY float64= 0.0;
+  var fitMode string= el.objectFit;
+  if  (int64(len([]rune(fitMode)))) == int64(0) {
+    fitMode = "cover"; 
+  }
+  if  fitMode == "cover" {
+    if  imageRatio > containerRatio {
+      scaledH = containerH; 
+      scaledW = containerH * imageRatio; 
+      offsetX = (containerW - scaledW) / 2.0; 
+      offsetY = 0.0; 
+    } else {
+      scaledW = containerW; 
+      scaledH = containerW / imageRatio; 
+      offsetX = 0.0; 
+      offsetY = (containerH - scaledH) / 2.0; 
+    }
+  }
+  if  fitMode == "contain" {
+    if  imageRatio > containerRatio {
+      scaledW = containerW; 
+      scaledH = containerW / imageRatio; 
+      offsetX = 0.0; 
+      offsetY = (containerH - scaledH) / 2.0; 
+    } else {
+      scaledH = containerH; 
+      scaledW = containerH * imageRatio; 
+      offsetX = (containerW - scaledW) / 2.0; 
+      offsetY = 0.0; 
+    }
+  }
+  if  fitMode == "fill" {
+    scaledW = containerW; 
+    scaledH = containerH; 
+    offsetX = 0.0; 
+    offsetY = 0.0; 
+  }
+  if  el.imageOffsetX.value.(*EVGUnit).isSet {
+    if  el.imageOffsetX.value.(*EVGUnit).unitType == int64(1) {
+      var overflowX float64= scaledW - containerW;
+      if  overflowX < 0.0 {
+        overflowX = 0.0; 
+      }
+      var targetOffsetX float64= (overflowX * el.imageOffsetX.value.(*EVGUnit).value) / 100.0;
+      offsetX = 0.0 - targetOffsetX; 
+    } else {
+      offsetX = offsetX + el.imageOffsetX.value.(*EVGUnit).pixels; 
+    }
+  }
+  if  el.imageOffsetY.value.(*EVGUnit).isSet {
+    if  el.imageOffsetY.value.(*EVGUnit).unitType == int64(1) {
+      var overflowY float64= scaledH - containerH;
+      if  overflowY < 0.0 {
+        overflowY = 0.0; 
+      }
+      var targetOffsetY float64= (overflowY * el.imageOffsetY.value.(*EVGUnit).value) / 100.0;
+      offsetY = 0.0 - targetOffsetY; 
+    } else {
+      offsetY = offsetY + el.imageOffsetY.value.(*EVGUnit).pixels; 
+    }
+  }
+  html = (html + this.indent((depth + int64(1)))) + "<img"; 
   html = html + " class=\"evg-image\""; 
   var imgSrc string= el.src;
   if  (int64(len([]rune(imgSrc)))) > int64(0) {
@@ -9252,9 +12273,14 @@ func (this *EVGHTMLRenderer) renderImageWithParent (el *EVGElement, elementId st
     html = html + " alt=\"\""; 
   }
   html = html + " style=\""; 
-  html = html + this.generateImageStylesRelative(el, relX, relY); 
-  html = html + "\""; 
-  html = html + ">\n"; 
+  html = html + "position: absolute; "; 
+  html = ((html + "left: ") + this.formatPx(offsetX)) + "; "; 
+  html = ((html + "top: ") + this.formatPx(offsetY)) + "; "; 
+  html = ((html + "width: ") + this.formatPx(scaledW)) + "; "; 
+  html = ((html + "height: ") + this.formatPx(scaledH)) + "; "; 
+  html = html + "display: block; "; 
+  html = html + "\">\n"; 
+  html = (html + this.indent(depth)) + "</div>\n"; 
   return html
 }
 func (this *EVGHTMLRenderer) renderImageWithViewBox (el *EVGElement, elementId string, depth int64, relX float64, relY float64) string {
@@ -9331,10 +12357,36 @@ func (this *EVGHTMLRenderer) generateImageStylesRelative (el *EVGElement, relX f
   } else {
     css = css + "object-fit: cover; "; 
   }
+  var hasOffset bool= false;
+  var posX string= "50%";
+  var posY string= "50%";
+  if  el.imageOffsetX.value.(*EVGUnit).isSet {
+    hasOffset = true; 
+    if  el.imageOffsetX.value.(*EVGUnit).unitType == int64(1) {
+      var offsetPct float64= 50.0 + el.imageOffsetX.value.(*EVGUnit).value;
+      posX = (strconv.FormatFloat(offsetPct,'f', 6, 64)) + "%"; 
+    } else {
+      posX = ("calc(50% + " + this.formatPx(el.imageOffsetX.value.(*EVGUnit).pixels)) + ")"; 
+    }
+  }
+  if  el.imageOffsetY.value.(*EVGUnit).isSet {
+    hasOffset = true; 
+    if  el.imageOffsetY.value.(*EVGUnit).unitType == int64(1) {
+      var offsetPct_1 float64= 50.0 + el.imageOffsetY.value.(*EVGUnit).value;
+      posY = (strconv.FormatFloat(offsetPct_1,'f', 6, 64)) + "%"; 
+    } else {
+      posY = ("calc(50% + " + this.formatPx(el.imageOffsetY.value.(*EVGUnit).pixels)) + ")"; 
+    }
+  }
   if  el.imageViewBoxSet {
-    var posX float64= el.imageViewBoxX * 100.0;
-    var posY float64= el.imageViewBoxY * 100.0;
-    css = ((((css + "object-position: ") + (strconv.FormatFloat(posX,'f', 6, 64))) + "% ") + (strconv.FormatFloat(posY,'f', 6, 64))) + "%; "; 
+    hasOffset = true; 
+    var vbX float64= el.imageViewBoxX * 100.0;
+    var vbY float64= el.imageViewBoxY * 100.0;
+    posX = (strconv.FormatFloat(vbX,'f', 6, 64)) + "%"; 
+    posY = (strconv.FormatFloat(vbY,'f', 6, 64)) + "%"; 
+  }
+  if  hasOffset {
+    css = ((((css + "object-position: ") + posX) + " ") + posY) + "; "; 
   }
   if  el.box.value.(*EVGBox).borderRadius.value.(*EVGUnit).isSet {
     css = ((css + "border-radius: ") + this.formatPx(el.box.value.(*EVGBox).borderRadius.value.(*EVGUnit).pixels)) + "; "; 
@@ -9354,8 +12406,15 @@ func (this *EVGHTMLRenderer) renderPathWithParent (el *EVGElement, elementId str
   if  h <= 0.0 {
     h = 24.0; 
   }
-  var relX float64= el.calculatedX - parentX;
-  var relY float64= el.calculatedY - parentY;
+  var relX float64= 0.0;
+  var relY float64= 0.0;
+  if  el.isAbsolute {
+    relX = el.calculatedX; 
+    relY = el.calculatedY; 
+  } else {
+    relX = el.calculatedX - parentX; 
+    relY = el.calculatedY - parentY; 
+  }
   html = (html + this.indent(depth)) + "<svg"; 
   if  (int64(len([]rune(el.id)))) > int64(0) {
     html = ((html + " id=\"") + el.id) + "\""; 
@@ -9560,6 +12619,8 @@ func (this *EVGHTMLRenderer) renderContent (root *EVGElement) string {
   this.elementCounter = int64(0); 
   var uf []string = make([]string, 0);
   this.usedFontFamilies = uf; 
+  this.resourceLoader.value.(*EVGResourceLoader).setBasePath(this.baseDir);
+  this.resourceLoader.value.(*EVGResourceLoader).loadResources(root);
   var isMultiPage bool= false;
   if  (((root.tagName == "Print") || (root.tagName == "print")) || (root.tagName == "Section")) || (root.tagName == "section") {
     isMultiPage = true; 
@@ -9703,6 +12764,33 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "            align-items: center;\n"; 
   html = html + "            gap: 40px;\n"; 
   html = html + "        }\n"; 
+  html = html + "        /* Book spread view - two pages side by side */\n"; 
+  html = html + "        .evg-spread {\n"; 
+  html = html + "            display: flex;\n"; 
+  html = html + "            flex-direction: row;\n"; 
+  html = html + "            gap: 4px;\n"; 
+  html = html + "            background: #888;\n"; 
+  html = html + "            padding: 4px;\n"; 
+  html = html + "            border-radius: 2px;\n"; 
+  html = html + "            box-shadow: 0 8px 30px rgba(0,0,0,0.4);\n"; 
+  html = html + "        }\n"; 
+  html = html + "        .evg-spread .evg-page {\n"; 
+  html = html + "            box-shadow: none;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Cover page - single centered */\n"; 
+  html = html + "        .evg-cover {\n"; 
+  html = html + "            box-shadow: 0 8px 30px rgba(0,0,0,0.4);\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Page number labels */\n"; 
+  html = html + "        .evg-page-label {\n"; 
+  html = html + "            position: absolute;\n"; 
+  html = html + "            bottom: -25px;\n"; 
+  html = html + "            left: 50%;\n"; 
+  html = html + "            transform: translateX(-50%);\n"; 
+  html = html + "            font-family: system-ui, sans-serif;\n"; 
+  html = html + "            font-size: 12px;\n"; 
+  html = html + "            color: #666;\n"; 
+  html = html + "        }\n"; 
   html = html + "        .evg-status {\n"; 
   html = html + "            position: fixed;\n"; 
   html = html + "            bottom: 10px;\n"; 
@@ -9734,12 +12822,71 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "        const statusEl = document.getElementById('evg-status');\n"; 
   html = html + "        const fontsEl = document.getElementById('evg-fonts');\n"; 
   html = html + "        \n"; 
+  html = html + "        // Arrange pages as book spreads: cover alone, then pairs\n"; 
+  html = html + "        function arrangeAsBookSpreads() {\n"; 
+  html = html + "            const pages = Array.from(contentEl.querySelectorAll('.evg-page'));\n"; 
+  html = html + "            // Only arrange as book if there are multiple pages\n"; 
+  html = html + "            if (pages.length <= 1) return;\n"; 
+  html = html + "            \n"; 
+  html = html + "            // Find the section or document container\n"; 
+  html = html + "            const section = contentEl.querySelector('.evg-section') || contentEl.querySelector('.evg-document') || contentEl;\n"; 
+  html = html + "            if (!section) return;\n"; 
+  html = html + "            \n"; 
+  html = html + "            // Clone pages before clearing to avoid DOM issues\n"; 
+  html = html + "            const pageClones = pages.map(p => p.cloneNode(true));\n"; 
+  html = html + "            \n"; 
+  html = html + "            // Clear the section\n"; 
+  html = html + "            section.innerHTML = '';\n"; 
+  html = html + "            \n"; 
+  html = html + "            // First page is cover - show alone\n"; 
+  html = html + "            const cover = pageClones[0];\n"; 
+  html = html + "            cover.classList.add('evg-cover');\n"; 
+  html = html + "            const coverWrapper = document.createElement('div');\n"; 
+  html = html + "            coverWrapper.style.position = 'relative';\n"; 
+  html = html + "            coverWrapper.style.marginBottom = '20px';\n"; 
+  html = html + "            coverWrapper.appendChild(cover);\n"; 
+  html = html + "            const coverLabel = document.createElement('div');\n"; 
+  html = html + "            coverLabel.className = 'evg-page-label';\n"; 
+  html = html + "            coverLabel.textContent = 'Kansi';\n"; 
+  html = html + "            coverWrapper.appendChild(coverLabel);\n"; 
+  html = html + "            section.appendChild(coverWrapper);\n"; 
+  html = html + "            \n"; 
+  html = html + "            // Remaining pages in pairs (spreads)\n"; 
+  html = html + "            for (let i = 1; i < pageClones.length; i += 2) {\n"; 
+  html = html + "                const spread = document.createElement('div');\n"; 
+  html = html + "                spread.className = 'evg-spread';\n"; 
+  html = html + "                spread.style.position = 'relative';\n"; 
+  html = html + "                spread.style.marginBottom = '20px';\n"; 
+  html = html + "                \n"; 
+  html = html + "                // Left page\n"; 
+  html = html + "                spread.appendChild(pageClones[i]);\n"; 
+  html = html + "                \n"; 
+  html = html + "                // Right page (if exists)\n"; 
+  html = html + "                if (i + 1 < pageClones.length) {\n"; 
+  html = html + "                    spread.appendChild(pageClones[i + 1]);\n"; 
+  html = html + "                }\n"; 
+  html = html + "                \n"; 
+  html = html + "                // Add spread label\n"; 
+  html = html + "                const spreadLabel = document.createElement('div');\n"; 
+  html = html + "                spreadLabel.className = 'evg-page-label';\n"; 
+  html = html + "                if (i + 1 < pages.length) {\n"; 
+  html = html + "                    spreadLabel.textContent = 'Sivut ' + (i + 1) + '-' + (i + 2);\n"; 
+  html = html + "                } else {\n"; 
+  html = html + "                    spreadLabel.textContent = 'Sivu ' + (i + 1) + ' (takakansi)';\n"; 
+  html = html + "                }\n"; 
+  html = html + "                spread.appendChild(spreadLabel);\n"; 
+  html = html + "                \n"; 
+  html = html + "                section.appendChild(spread);\n"; 
+  html = html + "            }\n"; 
+  html = html + "        }\n"; 
+  html = html + "        \n"; 
   html = html + "        // Load content from server\n"; 
   html = html + "        async function loadContent() {\n"; 
   html = html + "            try {\n"; 
   html = html + "                const response = await fetch(serverUrl + '/content');\n"; 
   html = html + "                const html = await response.text();\n"; 
   html = html + "                contentEl.innerHTML = html;\n"; 
+  html = html + "                arrangeAsBookSpreads();\n"; 
   html = html + "                statusEl.textContent = 'Connected';\n"; 
   html = html + "                statusEl.style.color = '#0f0';\n"; 
   html = html + "            } catch (err) {\n"; 
@@ -9828,7 +12975,9 @@ type EVGPreviewServer struct {
   cachedShellHTML string `json:"cachedShellHTML"` 
   cachedContentHTML string `json:"cachedContentHTML"` 
   cachedFontsCSS string `json:"cachedFontsCSS"` 
-  lastModTime int64 `json:"lastModTime"` 
+  lastModTime int64 /**  unused  **/  `json:"lastModTime"` 
+  watchedFiles []string `json:"watchedFiles"` 
+  lastModTimes []int64 `json:"lastModTimes"` 
 }
 
 func CreateNew_EVGPreviewServer() *EVGPreviewServer {
@@ -9846,6 +12995,8 @@ func CreateNew_EVGPreviewServer() *EVGPreviewServer {
   me.cachedContentHTML = ""
   me.cachedFontsCSS = ""
   me.lastModTime = int64(0)
+  me.watchedFiles = make([]string,0)
+  me.lastModTimes = make([]int64,0)
   return me;
 }
 func (this *EVGPreviewServer) initialize (tsxFile string, serverPort int64, assets string) () {
@@ -9853,6 +13004,10 @@ func (this *EVGPreviewServer) initialize (tsxFile string, serverPort int64, asse
   this.port = serverPort; 
   this.assetPaths = assets; 
   this.serverUrl = "http://localhost:" + (strconv.FormatInt(this.port, 10)); 
+  var wf []string = make([]string, 0);
+  this.watchedFiles = wf; 
+  var lmt []int64 = make([]int64, 0);
+  this.lastModTimes = lmt; 
   var lastSlash int64= int64(strings.LastIndex(this.inputFile, "/"));
   var lastBackslash int64= int64(strings.LastIndex(this.inputFile, "\\"));
   var lastSep int64= lastSlash;
@@ -9878,14 +13033,45 @@ func (this *EVGPreviewServer) reloadContent () () {
     engine.setAssetPaths(this.assetPaths);
   }
   var root *EVGElement= engine.parseFile(this.inputDir, this.inputFileName);
+  var newWatchedFiles []string = make([]string, 0);
+  this.watchedFiles = newWatchedFiles; 
+  var newLastModTimes []int64 = make([]int64, 0);
+  this.lastModTimes = newLastModTimes; 
+  var loadedFileList []string= engine.getLoadedFiles();
+  var fileIdx int64= int64(0);
+  for fileIdx < (int64(len(loadedFileList))) {
+    var loadedFile string= loadedFileList[fileIdx];
+    this.watchedFiles = append(this.watchedFiles,loadedFile); 
+    var lastSlashIdx int64= int64(strings.LastIndex(loadedFile, "/"));
+    var fileDir string= "./";
+    var fileName string= loadedFile;
+    if  lastSlashIdx >= int64(0) {
+      fileDir = string([]rune(loadedFile)[int64(0):(lastSlashIdx + int64(1))]); 
+      fileName = string([]rune(loadedFile)[(lastSlashIdx + int64(1)):(int64(len([]rune(loadedFile))))]); 
+    }
+    var modTime int64= r_file_mtime(fileDir, fileName);
+    this.lastModTimes = append(this.lastModTimes,modTime); 
+    fileIdx = fileIdx + int64(1); 
+  }
+  fmt.Println( ("Watching " + (strconv.FormatInt((int64(len(this.watchedFiles))), 10))) + " files for changes" )
   if  root.tagName == "" {
     fmt.Println( "Error: Failed to parse TSX file" )
     this.cachedContentHTML = "<div style='color:red;padding:20px;'>Error: Failed to parse TSX file</div>"; 
     return
   }
   fmt.Println( ((("Parsed: <" + root.tagName) + "> with ") + (strconv.FormatInt(root.getChildCount(), 10))) + " children" )
+  var useWidth float64= this.pageWidth;
+  var useHeight float64= this.pageHeight;
+  if  root.pageWidth > 0.0 {
+    useWidth = root.pageWidth; 
+    fmt.Println( ("Using book format width: " + (strconv.FormatFloat(root.pageWidth,'f', 6, 64))) + " pts" )
+  }
+  if  root.pageHeight > 0.0 {
+    useHeight = root.pageHeight; 
+    fmt.Println( ("Using book format height: " + (strconv.FormatFloat(root.pageHeight,'f', 6, 64))) + " pts" )
+  }
   var renderer *EVGHTMLRenderer= CreateNew_EVGHTMLRenderer();
-  renderer.setPageSize(this.pageWidth, this.pageHeight);
+  renderer.setPageSize(useWidth, useHeight);
   renderer.setTitle(this.title);
   renderer.setBaseDir(this.inputDir);
   renderer.setFontBasePath(this.inputDir + "../assets/fonts/");
@@ -9916,9 +13102,24 @@ func (this *EVGPreviewServer) handleFontsCSS (req *http.Request, res http.Respon
 func (this *EVGPreviewServer) handleAssets (req *http.Request, res http.ResponseWriter) () {
   var path string= req.URL.Path;
   var assetPath string= string([]rune(path)[int64(8):(int64(len([]rune(path))))]);
-  var fullPath string= (this.inputDir + "../assets/") + assetPath;
-  fmt.Println( "Serving asset: " + fullPath )
+  fmt.Println( "Asset request: " + assetPath )
+  var fullPath string= "./assets/" + assetPath;
+  fmt.Println( "  Trying: " + fullPath )
   var fileData []byte= func() []byte { d, _ := os.ReadFile(filepath.Join("", fullPath)); return d }();
+  if  (int64(len(fileData))) == int64(0) {
+    fmt.Println( "  Not found, trying alternative path..." )
+    fullPath = (this.inputDir + "../assets/") + assetPath; 
+    fmt.Println( "  Trying: " + fullPath )
+    fileData = func() []byte { d, _ := os.ReadFile(filepath.Join("", fullPath)); return d }(); 
+  }
+  if  (int64(len(fileData))) == int64(0) {
+    fmt.Println( "  NOT FOUND: " + assetPath )
+    res.Header().Set("Content-Type", "text/plain")
+    res.WriteHeader(int(int64(404)))
+    res.Write([]byte("Asset not found: " + assetPath))
+    return
+  }
+  fmt.Println( "  SUCCESS: Serving asset from " + fullPath )
   var ext string= "";
   var lastDot int64= int64(strings.LastIndex(assetPath, "."));
   if  lastDot >= int64(0) {
@@ -9993,15 +13194,40 @@ func (this *EVGPreviewServer) handleEvents (client *SSEClient) () {
   fmt.Println( "SSE client connected - watching for changes" )
   fmt.Fprintf(client.Writer, "event: %s\ndata: %s\n\n", "connected", "EVG Preview Server")
   client.Flusher.Flush()
-  var currentModTime int64= r_file_mtime(this.inputDir, this.inputFileName);
-  this.lastModTime = currentModTime; 
   var connected bool= client.IsConnected;
   for connected {
-    currentModTime = r_file_mtime(this.inputDir, this.inputFileName); 
-    if  currentModTime > this.lastModTime {
-      fmt.Println( "File changed - sending update" )
-      this.lastModTime = currentModTime; 
-      fmt.Fprintf(client.Writer, "event: %s\ndata: %s\n\n", "update", "File modified")
+    var fileChanged bool= false;
+    var changedFile string= "";
+    var localWatchedFiles []string= this.watchedFiles;
+    var localModTimes []int64= this.lastModTimes;
+    var watchedCount int64= int64(len(localWatchedFiles));
+    var modTimesCount int64= int64(len(localModTimes));
+    if  (watchedCount > int64(0)) && (modTimesCount == watchedCount) {
+      var i int64= int64(0);
+      for i < watchedCount {
+        var watchedFile string= localWatchedFiles[i];
+        var storedModTime int64= localModTimes[i];
+        var lastSlashIdx int64= int64(strings.LastIndex(watchedFile, "/"));
+        var fileDir string= "./";
+        var fileName string= watchedFile;
+        if  lastSlashIdx >= int64(0) {
+          fileDir = string([]rune(watchedFile)[int64(0):(lastSlashIdx + int64(1))]); 
+          fileName = string([]rune(watchedFile)[(lastSlashIdx + int64(1)):(int64(len([]rune(watchedFile))))]); 
+        }
+        var currentModTime int64= r_file_mtime(fileDir, fileName);
+        if  currentModTime > storedModTime {
+          fileChanged = true; 
+          changedFile = watchedFile; 
+          if  i < (int64(len(this.lastModTimes))) {
+            this.lastModTimes[i] = currentModTime
+          }
+        }
+        i = i + int64(1); 
+      }
+    }
+    if  fileChanged {
+      fmt.Println( ("File changed: " + changedFile) + " - sending update" )
+      fmt.Fprintf(client.Writer, "event: %s\ndata: %s\n\n", "update", changedFile)
       client.Flusher.Flush()
     }
     connected = client.IsConnected; 

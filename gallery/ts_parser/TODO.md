@@ -2,7 +2,62 @@
 
 Missing TypeScript syntax features that need to be implemented.
 
+## Known Issues
+
+### Await with Ternary Expression
+
+- [ ] **Await inside ternary branches** - Not parsing correctly
+
+  ```typescript
+  async function fn() { 
+    const x = condition ? await a : await b; 
+  }
+  ```
+  
+  **Status**: The `await` expressions inside ternary branches are not being recognized.
+  This may be related to how the parser handles `await` in expression context vs statement context.
+
 ## High Priority
+
+### Update/Increment Expressions (COMPLETED ✓)
+
+- [x] **UpdateExpression** (`++`, `--`) ✓ (Implemented)
+
+  ```typescript
+  i++;   // postfix increment
+  ++i;   // prefix increment
+  i--;   // postfix decrement
+  --i;   // prefix decrement
+  ```
+  
+  **AST structure**:
+  ```json
+  {
+    "nodeType": "UpdateExpression",
+    "value": "++",
+    "left": { "nodeType": "Identifier", "name": "i" },
+    "prefix": false
+  }
+  ```
+
+- [x] **Compound Assignment Expressions** (`+=`, `-=`, `*=`, `/=`, `%=`) ✓ (Implemented)
+
+  ```typescript
+  x += 5;
+  x -= 3;
+  x *= 2;
+  x /= 4;
+  ```
+  
+  **AST structure**:
+  ```json
+  {
+    "nodeType": "AssignmentExpression",
+    "value": "+=",
+    "left": { "nodeType": "Identifier", "name": "x" },
+    "right": { "nodeType": "NumericLiteral", "value": "5" }
+  }
+  ```
 
 ### Type System
 

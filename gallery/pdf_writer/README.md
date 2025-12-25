@@ -33,6 +33,119 @@ A collection of binary format utilities written in Ranger:
 To properly support shadows and effects in PDF, a raster (pixel buffer) renderer is planned.
 See [EVG_RASTER_PLAN.md](EVG_RASTER_PLAN.md) for details.
 
+### New: TypeScript Control Flow Evaluation (December 2025)
+
+The ComponentEngine now supports **full TypeScript control flow evaluation**, enabling dynamic document generation with loops, conditionals, and array operations.
+
+**Supported Features:**
+
+| Feature | Syntax | Description |
+|---------|--------|-------------|
+| For loops | `for (let i = 0; i < n; i++)` | Standard for loops with init/test/update |
+| Decrement loops | `for (let i = 5; i > 0; i--)` | Countdown loops |
+| Step loops | `for (let i = 0; i < n; i += 2)` | Custom step increments |
+| Array.push | `arr.push(<Element />)` | Build arrays of JSX elements |
+| Array indexing | `colors[i]` | Access array elements by index |
+| Compound assignment | `total += value` | `+=`, `-=`, `*=`, `/=`, `%=` |
+| Update expressions | `i++`, `++i`, `i--`, `--i` | Pre/post increment/decrement |
+| Function calls in JSX | `{buildItems()}` | Call functions that return element arrays |
+| Template literals | `` `${expr}` `` | String interpolation with expressions |
+| Method calls | `.toFixed()`, `.substring()` | String and number methods |
+
+#### Template Literals
+
+Template literals (backtick strings) are fully supported with expression interpolation:
+
+```tsx
+// Simple variable interpolation
+const name = "World";
+const greeting = `Hello, ${name}!`;  // "Hello, World!"
+
+// Expressions with arithmetic
+const width = `${100 / photos.length}%`;  // "16.666...%"
+
+// Method calls in template literals
+function formatGPS(coord: GPSCoordinate): string {
+  return `${coord.direction} ${coord.degrees}° ${coord.minutes}' ${coord.seconds.toFixed(2)}"`;
+}
+// Result: "N 58° 39' 55.35""
+
+// Property access chains
+const info = `${img.camera} - ${img.createdAt.substring(0, 10)}`;
+```
+
+**Supported methods in expressions:**
+
+| Method | Description | Example |
+|--------|-------------|---------|
+| `.toFixed(n)` | Format number with n decimals | `(3.14159).toFixed(2)` → `"3.14"` |
+| `.toString()` | Convert to string | `(42).toString()` → `"42"` |
+| `.toUpperCase()` | Uppercase string | `"hello".toUpperCase()` → `"HELLO"` |
+| `.toLowerCase()` | Lowercase string | `"HELLO".toLowerCase()` → `"hello"` |
+| `.trim()` | Remove whitespace | `"  hi  ".trim()` → `"hi"` |
+| `.substring(start, end)` | Extract substring | `"hello".substring(0, 3)` → `"hel"` |
+| `.charAt(index)` | Get character at index | `"hello".charAt(1)` → `"e"` |
+| `.padStart(len, str)` | Pad string at start | `"5".padStart(2, "0")` → `"05"` |
+| `.padEnd(len, str)` | Pad string at end | `"5".padEnd(3, ".")` → `"5.."` |
+
+**Example - Dynamic List with For Loop:**
+
+```tsx
+const colors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6"];
+
+function buildColorBoxes() {
+  const boxes: any[] = [];
+  
+  for (let i = 0; i < colors.length; i++) {
+    const color = colors[i];
+    boxes.push(
+      <View backgroundColor={color} padding={8} marginBottom={4}>
+        <Label color="#ffffff">Box {i + 1}: {color}</Label>
+      </View>
+    );
+  }
+  
+  return boxes;
+}
+
+function render() {
+  return (
+    <Print>
+      <Section>
+        <Page>
+          <View padding={16}>
+            <Label fontSize={20} fontWeight="bold">Dynamic Color Boxes</Label>
+            {buildColorBoxes()}
+          </View>
+        </Page>
+      </Section>
+    </Print>
+  );
+}
+```
+
+**Example - Accumulator Pattern:**
+
+```tsx
+function buildProgressBars() {
+  const bars: any[] = [];
+  let totalWidth = 0;
+  
+  for (let i = 1; i <= 5; i++) {
+    totalWidth += i * 20;  // Accumulating: 20, 60, 120, 200, 300
+    bars.push(
+      <View width={totalWidth} backgroundColor="#0ea5e9" padding={4}>
+        <Label color="#ffffff">Width: {totalWidth}px</Label>
+      </View>
+    );
+  }
+  
+  return bars;
+}
+```
+
+See `examples/test_for_loop.tsx` for a complete demonstration of all loop types.
+
 ## EVG Attributes Reference
 
 TSX uses **camelCase** for all attributes (e.g., `fontSize`, `backgroundColor`, `verticalAlign`).
@@ -99,7 +212,48 @@ TSX uses **camelCase** for all attributes (e.g., `fontSize`, `backgroundColor`, 
 |-----------|------|-------------|---------|
 | `src` | string | Image source path | `"./photo.jpg"` |
 | `objectFit` | string | Image scaling mode | `"cover"`, `"contain"`, `"fill"` |
+| `imageOffsetX` | string | Horizontal image offset | `"50px"`, `"-20%"` |
+| `imageOffsetY` | string | Vertical image offset | `"100px"`, `"-10%"` |
 | `imageViewBox` | string | Crop region (x% y% w% h%) | `"25% 25% 50% 50%"` |
+
+#### Image Offset (Positioning)
+The `imageOffsetX` and `imageOffsetY` attributes adjust the position of the image within its container. This is useful for fine-tuning the focal point of cropped images when using `objectFit="cover"`.
+
+**Percentage values** work relative to the image overflow (how much the image extends beyond the container):
+- **`0%`** = Image aligned to start (top/left edge visible)
+- **`50%`** = Image centered (default for cover mode)
+- **`100%`** = Image aligned to end (bottom/right edge visible)
+
+**Pixel values** are absolute offsets added to the default position.
+
+```tsx
+{/* Show top of image (0% = top edge) */}
+<Image
+  src="./portrait.jpg"
+  width="100%"
+  height="300px"
+  objectFit="cover"
+  imageOffsetY="0%"
+/>
+
+{/* Show bottom of image (100% = bottom edge) */}
+<Image
+  src="./portrait.jpg"
+  width="100%"
+  height="300px"
+  objectFit="cover"
+  imageOffsetY="100%"
+/>
+
+{/* Shift image 50px down from center */}
+<Image
+  src="./landscape.jpg"
+  width="400px"
+  height="250px"
+  objectFit="cover"
+  imageOffsetY="50px"
+/>
+```
 
 ### Special Elements
 
@@ -563,6 +717,217 @@ function render() {
 - **Composability**: Build complex layouts by combining simple components
 - **Reusability**: Extract repeated patterns into components
 - **Organization**: Keep components in a `components/` directory
+
+#### Helper Functions in Components
+
+Non-exported functions defined in component files are automatically available within the component's scope. This allows you to define utility functions alongside your components without explicitly exporting them.
+
+```tsx
+// components/ImageDataCard.tsx
+import { View, Label, useImage } from "../evg_types";
+
+// Helper function - NOT exported, but available within the component
+function formatCoord(coord: { direction: string; degrees: number; minutes: number; seconds: number }): string {
+  return coord.direction + " " + coord.degrees + "° " + coord.minutes + "' " + coord.seconds.toFixed(2) + '"';
+}
+
+// Exported component can use the helper
+export function ImageDataCard({ src }: { src: string }) {
+  const img = useImage(src);
+  
+  return (
+    <View padding={16}>
+      <Label>GPS: {img.gps ? formatCoord(img.gps.latitude) : "N/A"}</Label>
+    </View>
+  );
+}
+```
+
+When you import `ImageDataCard` in another file, the helper function `formatCoord` is automatically registered in the component's evaluation context, allowing the component to work correctly without needing to export the helper.
+
+**Note:** Helper functions are scoped to their component file and not available to the importing file's other code.
+
+### Hooks
+
+The ComponentEngine provides React-like hooks for accessing document context and image metadata. These hooks work in both the main document and within imported components.
+
+#### usePrintSettings()
+
+Returns print/page settings from the nearest `<Print>` element ancestor.
+
+```tsx
+import { usePrintSettings } from "./evg_types";
+
+function render() {
+  const settings = usePrintSettings();
+  
+  // Access page information
+  const isLandscape = settings.orientation === "landscape";
+  const columnsCount = isLandscape ? 3 : 2;
+  
+  return (
+    <View>
+      <Label>Page: {settings.format} ({settings.width} × {settings.height})</Label>
+      <Label>Orientation: {settings.orientation}</Label>
+      <Label>Margins: {settings.margins.top}px</Label>
+    </View>
+  );
+}
+```
+
+**PrintSettings interface:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `format` | `string` | Page format (e.g., "a4", "letter") |
+| `width` | `number` | Page width in pixels |
+| `height` | `number` | Page height in pixels |
+| `orientation` | `"portrait" \| "landscape"` | Page orientation |
+| `pageCount` | `number` | Total number of pages |
+| `margins` | `{ top, right, bottom, left }` | Page margins in pixels |
+
+#### useImage(src)
+
+Returns metadata for an image file, including dimensions and EXIF data.
+
+```tsx
+import { useImage } from "./evg_types";
+
+function PhotoInfo({ src }: { src: string }) {
+  const img = useImage(src);
+  
+  return (
+    <View padding={16}>
+      <Label>{img.width} × {img.height}</Label>
+      {img.createdAt && <Label>📅 {img.createdAt}</Label>}
+      {img.camera && <Label>📷 {img.camera}</Label>}
+      {img.gps && <Label>📍 GPS data available</Label>}
+    </View>
+  );
+}
+```
+
+**ImageMetadata interface:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `width` | `number` | Image width in pixels |
+| `height` | `number` | Image height in pixels |
+| `createdAt` | `string \| null` | Creation date from EXIF |
+| `camera` | `string \| null` | Camera make and model |
+| `orientation` | `number` | EXIF orientation (1-8) |
+| `colorSpace` | `string` | Color space (e.g., "RGB") |
+| `bitsPerComponent` | `number` | Bits per color component |
+| `gps` | `GPSLocation \| null` | GPS coordinates |
+| `dateInfo` | `DateInfo \| null` | Parsed date/time components |
+| `features` | `ImageFeatures` | Flags for available EXIF data |
+
+**GPSLocation interface:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `latitude` | `GPSCoordinate` | Latitude with direction, degrees, minutes, seconds |
+| `longitude` | `GPSCoordinate` | Longitude with direction, degrees, minutes, seconds |
+| `altitude` | `string \| undefined` | Altitude if available |
+
+**GPSCoordinate interface:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `direction` | `string` | N, S, E, or W |
+| `degrees` | `number` | Degrees component |
+| `minutes` | `number` | Minutes component |
+| `seconds` | `number` | Seconds component |
+| `originalValue` | `string` | Raw EXIF string |
+
+**DateInfo interface:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `year` | `number` | Full year (e.g., 2025) |
+| `month` | `number` | Month (1-12) |
+| `day` | `number` | Day of month (1-31) |
+| `hour` | `number` | Hour (0-23) |
+| `minute` | `number` | Minute (0-59) |
+| `second` | `number` | Second (0-59) |
+| `monthName` | `string` | Full month name (e.g., "July") |
+| `monthShort` | `string` | Abbreviated month (e.g., "Jul") |
+| `weekday` | `string` | Full weekday name (e.g., "Thursday") |
+| `weekdayShort` | `string` | Abbreviated weekday (e.g., "Thu") |
+| `weekdayNumber` | `number` | Day of week (0=Sunday, 6=Saturday) |
+| `timeOfDay` | `string` | "morning", "noon", "afternoon", "evening", "night" |
+| `ampm` | `string` | "AM" or "PM" |
+| `hour12` | `number` | Hour in 12-hour format (1-12) |
+| `isoDate` | `string` | ISO format date (e.g., "2025-07-17") |
+| `time` | `string` | Time string (e.g., "19:22:41") |
+| `formatted` | `string` | Full format (e.g., "Thursday, July 17, 2025") |
+| `shortFormatted` | `string` | Short format (e.g., "Jul 17, 2025") |
+| `originalValue` | `string` | Raw EXIF date string |
+
+**Example with GPS formatting:**
+
+```tsx
+function formatGPS(coord: GPSCoordinate): string {
+  return `${coord.direction} ${coord.degrees}° ${coord.minutes}' ${coord.seconds.toFixed(2)}"`;
+}
+
+function LocationCard({ src }: { src: string }) {
+  const img = useImage(src);
+  
+  if (!img.gps) {
+    return <Label>No GPS data</Label>;
+  }
+  
+  return (
+    <View padding={16}>
+      <Label>Latitude: {formatGPS(img.gps.latitude)}</Label>
+      <Label>Longitude: {formatGPS(img.gps.longitude)}</Label>
+    </View>
+  );
+}
+```
+
+**Example with date formatting:**
+
+```tsx
+function PhotoDateInfo({ src }: { src: string }) {
+  const img = useImage(src);
+  
+  if (!img.dateInfo) {
+    return <Label>No date information</Label>;
+  }
+  
+  const d = img.dateInfo;
+  
+  return (
+    <View padding={16} gap="8px">
+      {/* Full formatted date: "Thursday, July 17, 2025" */}
+      <Label fontWeight="bold">{d.formatted}</Label>
+      
+      {/* Time (already formatted with leading zeros): "19:22:41" */}
+      <Label>Time: {d.time}</Label>
+      
+      {/* 12-hour format with AM/PM */}
+      <Label>{d.hour12}:{d.minute < 10 ? "0" : ""}{d.minute} {d.ampm}</Label>
+      
+      {/* Time of day description: "morning", "afternoon", "evening", "night" */}
+      <Label>Taken in the {d.timeOfDay}</Label>
+      
+      {/* Short format: "Thu, Jul 17, 2025" */}
+      <Label>{d.weekdayShort}, {d.shortFormatted}</Label>
+      
+      {/* ISO date: "2025-07-17" */}
+      <Label>ISO: {d.isoDate}</Label>
+      
+      {/* Individual components */}
+      <Label>Year: {d.year}, Month: {d.monthName}, Day: {d.day}</Label>
+      
+      {/* Weekday info */}
+      <Label>{d.weekday} (day {d.weekdayNumber} of week)</Label>
+    </View>
+  );
+}
+```
 
 ### Photo Album Components
 

@@ -871,6 +871,7 @@ func (this *TSParserSimple) initParser (toks []*Token) () {
   if  (int64(len(toks))) > int64(0) {
     this.currentToken.value = toks[int64(0)];
     this.currentToken.has_value = true; /* detected as non-optional */
+    this.skipIgnoredTokens();
   }
 }
 func (this *TSParserSimple) setQuiet (q bool) () {
@@ -907,6 +908,29 @@ func (this *TSParserSimple) advance () () {
     eof.value = ""; 
     this.currentToken.value = eof;
     this.currentToken.has_value = true; /* detected as non-optional */
+  }
+  this.skipIgnoredTokens();
+}
+func (this *TSParserSimple) skipIgnoredTokens () () {
+  for this.pos < (int64(len(this.tokens))) {
+    var tok *Token= this.peek();
+    var tokType string= tok.tokenType;
+    if  (tokType == "LineComment") || (tokType == "BlockComment") {
+      this.pos = this.pos + int64(1); 
+      if  this.pos < (int64(len(this.tokens))) {
+        this.currentToken.value = this.tokens[this.pos];
+        this.currentToken.has_value = true; /* detected as non-optional */
+      } else {
+        var eof *Token= CreateNew_Token();
+        eof.tokenType = "EOF"; 
+        eof.value = ""; 
+        this.currentToken.value = eof;
+        this.currentToken.has_value = true; /* detected as non-optional */
+        return
+      }
+    } else {
+      return
+    }
   }
 }
 func (this *TSParserSimple) expect (expectedType string) *Token {
@@ -5605,6 +5629,10 @@ type EVGElement struct {
   id string `json:"id"` 
   tagName string `json:"tagName"` 
   elementType int64 `json:"elementType"` 
+  format string `json:"format"` 
+  orientation string `json:"orientation"` 
+  pageWidth float64 `json:"pageWidth"` 
+  pageHeight float64 `json:"pageHeight"` 
   parent *GoNullable `json:"parent"` 
   children []*EVGElement `json:"children"` 
   width *GoNullable `json:"width"` 
@@ -5702,6 +5730,10 @@ func CreateNew_EVGElement() *EVGElement {
   me.id = ""
   me.tagName = "div"
   me.elementType = int64(0)
+  me.format = ""
+  me.orientation = ""
+  me.pageWidth = 0.0
+  me.pageHeight = 0.0
   me.children = make([]*EVGElement,0)
   me.opacity = 1.0
   me.direction = "row"
@@ -5710,7 +5742,7 @@ func CreateNew_EVGElement() *EVGElement {
   me.isInline = false
   me.lineBreak = false
   me.overflow = "visible"
-  me.fontFamily = "Helvetica"
+  me.fontFamily = "Noto Sans"
   me.fontWeight = "normal"
   me.lineHeight = 1.2
   me.textAlign = "left"
@@ -5729,7 +5761,7 @@ func CreateNew_EVGElement() *EVGElement {
   me.imageViewBoxW = 1.0
   me.imageViewBoxH = 1.0
   me.imageViewBoxSet = false
-  me.objectFit = "fill"
+  me.objectFit = "cover"
   me.svgPath = ""
   me.viewBox = ""
   me.strokeWidth = 0.0
@@ -5928,8 +5960,82 @@ func (this *EVGElement) hasAbsolutePosition () bool {
   }
   return false
 }
+func (this *EVGElement) resolveBookFormat () () {
+  var w float64= 595.0;
+  var h float64= 842.0;
+  if  this.format == "a4" {
+    w = 595.0; 
+    h = 842.0; 
+  }
+  if  this.format == "letter" {
+    w = 612.0; 
+    h = 792.0; 
+  }
+  if  this.format == "trade-5x8" {
+    w = 360.0; 
+    h = 576.0; 
+  }
+  if  this.format == "trade-6x9" {
+    w = 432.0; 
+    h = 648.0; 
+  }
+  if  this.format == "trade-8x10" {
+    w = 576.0; 
+    h = 720.0; 
+  }
+  if  this.format == "mini-square" {
+    w = 360.0; 
+    h = 360.0; 
+  }
+  if  this.format == "small-square" {
+    w = 504.0; 
+    h = 504.0; 
+  }
+  if  this.format == "standard-portrait" {
+    w = 576.0; 
+    h = 720.0; 
+  }
+  if  this.format == "standard-landscape" {
+    w = 720.0; 
+    h = 576.0; 
+  }
+  if  this.format == "large-landscape" {
+    w = 936.0; 
+    h = 792.0; 
+  }
+  if  this.format == "large-square" {
+    w = 864.0; 
+    h = 864.0; 
+  }
+  if  this.format == "magazine" {
+    w = 612.0; 
+    h = 792.0; 
+  }
+  if  this.orientation == "landscape" {
+    if  w < h {
+      var temp float64= w;
+      w = h; 
+      h = temp; 
+    }
+  }
+  if  this.orientation == "portrait" {
+    if  w > h {
+      var temp_1 float64= w;
+      w = h; 
+      h = temp_1; 
+    }
+  }
+  if  this.pageWidth > 0.0 {
+    w = this.pageWidth; 
+  }
+  if  this.pageHeight > 0.0 {
+    h = this.pageHeight; 
+  }
+  this.pageWidth = w; 
+  this.pageHeight = h; 
+}
 func (this *EVGElement) inheritProperties (parentEl *EVGElement) () {
-  if  this.fontFamily == "Helvetica" {
+  if  this.fontFamily == "Noto Sans" {
     this.fontFamily = parentEl.fontFamily; 
   }
   if  this.color.value.(*EVGColor).isSet == false {
@@ -5972,6 +6078,30 @@ func (this *EVGElement) resolveUnits (parentWidth float64, parentHeight float64)
 func (this *EVGElement) setAttribute (name string, value string) () {
   if  name == "id" {
     this.id = value; 
+    return
+  }
+  if  name == "format" {
+    this.format = strings.ToLower(value); 
+    return
+  }
+  if  name == "orientation" {
+    this.orientation = strings.ToLower(value); 
+    return
+  }
+  if  name == "pageWidth" {
+    var pw *GoNullable = new(GoNullable); 
+    pw = r_str_2_d64(value);
+    if ( pw.has_value) {
+      this.pageWidth = pw.value.(float64); 
+    }
+    return
+  }
+  if  name == "pageHeight" {
+    var ph *GoNullable = new(GoNullable); 
+    ph = r_str_2_d64(value);
+    if ( ph.has_value) {
+      this.pageHeight = ph.value.(float64); 
+    }
     return
   }
   if  name == "width" {
@@ -8316,6 +8446,12 @@ func (this *EVGHTMLRenderer) renderElementForPage (el *EVGElement, pageNum int64
   return this.renderElement(el, depth)
 }
 func (this *EVGHTMLRenderer) renderPrint (el *EVGElement, depth int64) string {
+  if  el.pageWidth > 0.0 {
+    this.pageWidth = el.pageWidth; 
+  }
+  if  el.pageHeight > 0.0 {
+    this.pageHeight = el.pageHeight; 
+  }
   var html string= "";
   html = (html + this.indent(depth)) + "<div class=\"evg-document\">\n"; 
   var i int64= int64(0);
@@ -8378,7 +8514,11 @@ func (this *EVGHTMLRenderer) renderViewWithParent (el *EVGElement, elementId str
   if  (int64(len([]rune(el.id)))) > int64(0) {
     html = ((html + " id=\"") + el.id) + "\""; 
   }
-  html = html + " class=\"evg-view\""; 
+  if  el.tagName == "layer" {
+    html = html + " class=\"evg-layer\""; 
+  } else {
+    html = html + " class=\"evg-view\""; 
+  }
   var relX float64= el.calculatedX - parentX;
   var relY float64= el.calculatedY - parentY;
   html = html + " style=\""; 
@@ -8396,13 +8536,14 @@ func (this *EVGHTMLRenderer) renderViewWithParent (el *EVGElement, elementId str
 }
 func (this *EVGHTMLRenderer) generateViewStylesRelative (el *EVGElement, relX float64, relY float64) string {
   var css string= "";
-  css = css + "position: absolute; "; 
-  css = ((css + "left: ") + this.formatPx(relX)) + "; "; 
-  css = ((css + "top: ") + this.formatPx(relY)) + "; "; 
   if  el.tagName == "layer" {
-    css = css + "width: 100%; "; 
-    css = css + "height: 100%; "; 
+    css = css + "position: absolute; "; 
+    css = css + "inset: 0; "; 
+    css = css + "pointer-events: none; "; 
   } else {
+    css = css + "position: absolute; "; 
+    css = ((css + "left: ") + this.formatPx(relX)) + "; "; 
+    css = ((css + "top: ") + this.formatPx(relY)) + "; "; 
     if  el.calculatedWidth > 0.0 {
       css = ((css + "width: ") + this.formatPx(el.calculatedWidth)) + "; "; 
     }
@@ -9560,6 +9701,7 @@ func CreateNew_ComponentEngine() *ComponentEngine {
   me.primitives = append(me.primitives,"Path"); 
   me.primitives = append(me.primitives,"Spacer"); 
   me.primitives = append(me.primitives,"Divider"); 
+  me.primitives = append(me.primitives,"Layer"); 
   me.primitives = append(me.primitives,"div"); 
   me.primitives = append(me.primitives,"span"); 
   me.primitives = append(me.primitives,"p"); 
@@ -9568,6 +9710,7 @@ func CreateNew_ComponentEngine() *ComponentEngine {
   me.primitives = append(me.primitives,"h3"); 
   me.primitives = append(me.primitives,"img"); 
   me.primitives = append(me.primitives,"path"); 
+  me.primitives = append(me.primitives,"layer"); 
   return me;
 }
 func (this *ComponentEngine) setAssetPaths (paths string) () {
@@ -9942,6 +10085,15 @@ func (this *ComponentEngine) evaluateJSXElement (jsxNode *TSNode) *EVGElement {
   if ( jsxNode.left.has_value) {
     var openingEl_1 *TSNode= jsxNode.left.value.(*TSNode);
     this.evaluateAttributes(element, openingEl_1);
+  }
+  if  tagName == "Print" {
+    element.resolveBookFormat();
+    if  element.pageWidth > 0.0 {
+      this.pageWidth = element.pageWidth; 
+    }
+    if  element.pageHeight > 0.0 {
+      this.pageHeight = element.pageHeight; 
+    }
   }
   if  ((tagName == "Label") || (tagName == "span")) || (tagName == "text") {
     element.textContent = this.evaluateTextContent(jsxNode); 
@@ -10601,6 +10753,9 @@ func (this *ComponentEngine) mapTagName (jsxTag string) string {
   if  jsxTag == "View" {
     return "div"
   }
+  if  jsxTag == "Layer" {
+    return "layer"
+  }
   if  jsxTag == "Label" {
     return "text"
   }
@@ -10627,6 +10782,9 @@ func (this *ComponentEngine) mapTagName (jsxTag string) string {
   }
   if  jsxTag == "path" {
     return "path"
+  }
+  if  jsxTag == "layer" {
+    return "layer"
   }
   return "div"
 }

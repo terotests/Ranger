@@ -17,10 +17,11 @@ function render() {
     <Print
       title="Skandinaaviset Kirjaimet Testi"
       author="Tero Tolonen"
+      format="a4"
       imageQuality="85"
       maxImageSize="1200"
     >
-      <Section pageWidth="595" pageHeight="842" margin="0">
+      <Section margin="0">
         {/* Sivu 1: Otsikkosivu suomeksi - käytä Noto Sans fonttia */}
         <Page>
           <View width="100%" height="100%" backgroundColor="#2c3e50" justifyContent="center" alignItems="center">
@@ -28,6 +29,14 @@ function render() {
             <Label fontSize="24px" fontFamily="Noto Sans" color="white" marginTop="20px" textAlign="center">Äidin ja Isän Matkakirja</Label>
           </View>
         </Page>
+      
+        {/* Sivu 3: Kuva tekstillä */}
+        <Page>
+          <FullPagePhotoWithCaption
+            src={testPhoto}
+            title="Kaunis päivä Oulujärven rannalla - täällä oli ihana säätila!"
+          />
+        </Page>      
 
         {/* Sivu 2: Otsikko kuvan päällä */}
         <Page>
@@ -39,13 +48,7 @@ function render() {
           />
         </Page>
 
-        {/* Sivu 3: Kuva tekstillä */}
-        <Page>
-          <FullPagePhotoWithCaption
-            src={testPhoto}
-            caption="Kaunis päivä Oulujärven rannalla - täällä oli ihana säätila!"
-          />
-        </Page>
+
 
         {/* Sivu 4: Tekstisivu skandinaavisilla kirjaimilla */}
         <Page>

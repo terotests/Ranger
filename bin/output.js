@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 class CmdParams  {
   constructor() {
     this.flags = {};
@@ -22461,7 +22462,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
               }
             }
             if ( isHttpServer ) {
-              await this.httpServerWriter.writeServerStart(serverArg, node, ctx, wr, this);
+              this.httpServerWriter.writeServerStart(serverArg, node, ctx, wr, this);
               return;
             }
           }
@@ -23194,7 +23195,7 @@ class RangerGolangHttpServerWriter  {
     wr.addImport("fmt");
     wr.addImport("log");
   };
-  async writeServerStart (serverArg, node, ctx, wr, writer) {
+  writeServerStart (serverArg, node, ctx, wr, writer) {
     const paramDesc = serverArg.paramDesc;
     const className = paramDesc.nameNode.type_name;
     let cl;
@@ -23208,13 +23209,18 @@ class RangerGolangHttpServerWriter  {
     let portExpr = "8080";
     if ( (node.children.length) >= 3 ) {
       const portArg = node.children[2];
-      const portWriter = new CodeWriter();
-      ctx.setInExpr();
-      await writer.WalkNode(portArg, ctx, portWriter);
-      ctx.unsetInExpr();
-      const compiledPort = portWriter.getCode();
-      if ( (compiledPort.length) > 0 ) {
-        portExpr = compiledPort;
+      if ( (portArg.vref.length) > 0 ) {
+        if ( false == (typeof(portArg.paramDesc) === "undefined") ) {
+          if ( (portArg.paramDesc.compiledName.length) > 0 ) {
+            portExpr = portArg.paramDesc.compiledName;
+          } else {
+            portExpr = portArg.vref;
+          }
+        } else {
+          portExpr = portArg.vref;
+        }
+      } else {
+        portExpr = (portArg.int_value.toString());
       }
     }
     this.addHttpImports(wr);

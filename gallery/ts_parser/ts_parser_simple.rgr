@@ -20,6 +20,7 @@ class TSNode {
   ; Flags
   def optional:boolean false
   def readonly:boolean false
+  def prefix:boolean false    ; for UpdateExpression: true for ++i, false for i++
   
   ; ESTree Property flags (ES2015)
   def shorthand:boolean false ; { x } shorthand property
@@ -59,6 +60,8 @@ class TSParserSimple {
     this.quiet = false
     if ((array_length toks) > 0) {
       this.currentToken = (itemAt toks 0)
+      ; Skip initial comments/whitespace
+      this.skipIgnoredTokens()
     }
   }
   
@@ -99,6 +102,29 @@ class TSParserSimple {
       eof.tokenType = "EOF"
       eof.value = ""
       this.currentToken = eof
+    }
+    ; Skip comments and whitespace tokens
+    this.skipIgnoredTokens()
+  }
+  
+  fn skipIgnoredTokens:void () {
+    while (this.pos < (array_length this.tokens)) {
+      def tok (this.peek())
+      def tokType:string tok.tokenType
+      if ((tokType == "LineComment") || (tokType == "BlockComment")) {
+        this.pos = this.pos + 1
+        if (this.pos < (array_length this.tokens)) {
+          this.currentToken = (itemAt this.tokens this.pos)
+        } {
+          def eof (new Token())
+          eof.tokenType = "EOF"
+          eof.value = ""
+          this.currentToken = eof
+          return
+        }
+      } {
+        return
+      }
     }
   }
   
@@ -3151,6 +3177,22 @@ class TSParserSimple {
       return assign
     }
     
+    ; Compound assignment operators: +=, -=, *=, /=, %=
+    if ((tokVal == "+=") || (tokVal == "-=") || (tokVal == "*=") || (tokVal == "/=") || (tokVal == "%=")) {
+      this.advance()
+      def right (this.parseAssign())
+      
+      def assign (new TSNode())
+      assign.nodeType = "AssignmentExpression"
+      assign.value = tokVal
+      assign.left = left
+      assign.right = right
+      assign.start = left.start
+      assign.line = left.line
+      assign.col = left.col
+      return assign
+    }
+    
     ; Logical assignment operators: &&=, ||=, ??=
     if ((tokVal == "&&=") || (tokVal == "||=") || (tokVal == "??=")) {
       this.advance()
@@ -3392,6 +3434,23 @@ class TSParserSimple {
   
   fn parseUnary:TSNode () {
     def tokVal (this.peekValue())
+    
+    ; Handle prefix ++ and --
+    if ((tokVal == "++") || (tokVal == "--")) {
+      def opTok (this.peek())
+      this.advance()
+      def arg (this.parseUnary())
+      
+      def update (new TSNode())
+      update.nodeType = "UpdateExpression"
+      update.value = opTok.value
+      update.left = arg
+      update.prefix = true
+      update.start = opTok.start
+      update.line = opTok.line
+      update.col = opTok.col
+      return update
+    }
     
     if ((tokVal == "!") || (tokVal == "-")) {
       def opTok (this.peek())
@@ -3700,6 +3759,7 @@ class TSParserSimple {
         this.expectValue("]")
         def computed (new TSNode())
         computed.nodeType = "MemberExpression"
+        computed.computed = true
         computed.left = expr
         computed.right = indexExpr
         computed.start = expr.start
@@ -3764,10 +3824,25 @@ class TSParserSimple {
         expr = tagged
       }
       
+      ; Postfix ++ and --
+      if ((tokVal == "++") || (tokVal == "--")) {
+        def opTok (this.peek())
+        this.advance()
+        def update (new TSNode())
+        update.nodeType = "UpdateExpression"
+        update.value = opTok.value
+        update.left = expr
+        update.prefix = false
+        update.start = expr.start
+        update.line = expr.line
+        update.col = expr.col
+        expr = update
+      }
+      
       ; Check if we should continue
       def newTokVal (this.peekValue())
       def newTokType (this.peekType())
-      if ((newTokVal != "(") && (newTokVal != ".") && (newTokVal != "?.") && (newTokVal != "[") && (newTokVal != "!") && (newTokVal != "as") && (newTokVal != "satisfies") && (newTokType != "Template")) {
+      if ((newTokVal != "(") && (newTokVal != ".") && (newTokVal != "?.") && (newTokVal != "[") && (newTokVal != "!") && (newTokVal != "as") && (newTokVal != "satisfies") && (newTokVal != "++") && (newTokVal != "--") && (newTokType != "Template")) {
         keepParsing = false
       }
     }

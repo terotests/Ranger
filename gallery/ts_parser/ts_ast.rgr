@@ -908,6 +908,19 @@ class UnaryExpression {
   def col:int 0
 }
 
+; UpdateExpression - i++, ++i, i--, --i
+class UpdateExpression {
+  def type:string "UpdateExpression"
+  def nodeType:string "UpdateExpression"
+  def operator:string ""   ; "++" or "--"
+  def argument@(optional):ASTNode
+  def prefix:boolean false ; true for ++i, false for i++
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+}
+
 ; CallExpression - foo(a, b)
 class CallExpression {
   def type:string "CallExpression"

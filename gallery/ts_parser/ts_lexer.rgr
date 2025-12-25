@@ -535,12 +535,22 @@ class TSLexer {
                 this.advance()
                 return (this.makeToken("Punctuator" "++" startPos startLine startCol))
             }
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "+=" startPos startLine startCol))
+            }
         }
         if (ch == "-") {
             if (next == "-") {
                 this.advance()
                 this.advance()
                 return (this.makeToken("Punctuator" "--" startPos startLine startCol))
+            }
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "-=" startPos startLine startCol))
             }
         }
         
@@ -550,6 +560,29 @@ class TSLexer {
                 this.advance()
                 this.advance()
                 return (this.makeToken("Punctuator" "**" startPos startLine startCol))
+            }
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "*=" startPos startLine startCol))
+            }
+        }
+        
+        ; Division and /=
+        if (ch == "/") {
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "/=" startPos startLine startCol))
+            }
+        }
+        
+        ; Modulo %=
+        if (ch == "%") {
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "%=" startPos startLine startCol))
             }
         }
         

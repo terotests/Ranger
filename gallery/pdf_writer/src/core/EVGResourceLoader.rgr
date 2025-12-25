@@ -1,0 +1,207 @@
+; EVGResourceLoader.rgr - Load and cache image metadata for EVG rendering
+;
+; This class handles loading JPEG metadata (dimensions, orientation) for images
+; referenced in EVG documents. It caches the results to avoid re-parsing.
+
+Import "../jpeg/JPEGMetadata.rgr"
+Import "../../../evg/EVGElement.rgr"
+
+; Extended class to cache image info including EXIF data
+class ImageInfo {
+    def path:string ""
+    def width:int 0
+    def height:int 0
+    def loaded:boolean false
+    def error:string ""
+    
+    ; EXIF metadata
+    def orientation:int 1
+    def colorSpace:string "RGB"
+    def bitsPerComponent:int 8
+    def createdAt:string ""
+    def camera:string ""
+    
+    ; GPS data (parsed as decimal degrees)
+    def hasGPS:boolean false
+    def gpsLatitude:double 0.0
+    def gpsLongitude:double 0.0
+}
+
+; Resource loader for EVG documents - loads image metadata
+class EVGResourceLoader {
+    def basePath:string "./"
+    def imageCache:[ImageInfo]
+    def metadataParser:JPEGMetadataParser
+    def debug:boolean false
+    
+    Constructor () {
+        def cache:[ImageInfo]
+        imageCache = cache
+        def mp (new JPEGMetadataParser())
+        metadataParser = mp
+    }
+    
+    fn setBasePath:void (path:string) {
+        basePath = path
+    }
+    
+    fn loadResources:void (root:EVGElement) {
+        print "ResourceLoader: Starting resource loading..."
+        this.processElement(root)
+        print "ResourceLoader: Loaded " + (to_string (array_length imageCache)) + " images"
+    }
+    
+    fn processElement:void (el:EVGElement) {
+        print "ResourceLoader: processElement tagName=" + el.tagName + " src=" + el.src
+        
+        ; Check if this is an image element by tag name
+        if (((el.tagName == "Image") || (el.tagName == "image")) || (el.tagName == "img")) {
+            if ((strlen el.src) > 0) {
+                print "ResourceLoader: Found image: " + el.src
+                this.loadImageMetadata(el)
+            }
+        }
+        
+        ; Also check by elementType (2 = image)
+        if (el.elementType == 2) {
+            if ((strlen el.src) > 0) {
+                print "ResourceLoader: Found image by elementType: " + el.src
+                this.loadImageMetadata(el)
+            }
+        }
+        
+        ; Process children recursively
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children i)
+            this.processElement(child)
+            i = (i + 1)
+        }
+    }
+    
+    fn loadImageMetadata:void (el:EVGElement) {
+        def imgPath:string el.src
+        
+        ; Check cache first
+        def cached:ImageInfo (this.getCachedImage(imgPath))
+        if cached.loaded {
+            el.sourceWidth = (to_double cached.width)
+            el.sourceHeight = (to_double cached.height)
+            if debug {
+                print "ResourceLoader: Cache hit for " + imgPath + " (" + (to_string cached.width) + "x" + (to_string cached.height) + ")"
+            }
+            return
+        }
+        
+        ; Parse the path to separate directory and filename
+        def dirPath:string ""
+        def fileName:string ""
+        def lastSlash:int (lastIndexOf imgPath "/")
+        def lastBackslash:int (lastIndexOf imgPath "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            dirPath = (substring imgPath 0 (lastSep + 1))
+            fileName = (substring imgPath (lastSep + 1) (strlen imgPath))
+        } {
+            dirPath = ""
+            fileName = imgPath
+        }
+        
+        ; Build full path - handle relative paths
+        ; Fix: avoid double "./" by checking if dirPath already starts with "./"
+        def fullDirPath:string dirPath
+        if ((indexOf imgPath "/") != 0) {
+            ; Path is relative, prepend basePath
+            ; But avoid "./" + "./" = "././" issue
+            if ((indexOf dirPath "./") == 0) {
+                ; dirPath starts with "./", use basePath only if it's not "./"
+                if (basePath == "./") {
+                    fullDirPath = dirPath
+                } {
+                    ; Strip "./" from dirPath and prepend basePath
+                    fullDirPath = basePath + (substring dirPath 2 (strlen dirPath))
+                }
+            } {
+                fullDirPath = basePath + dirPath
+            }
+        }
+        
+        print "ResourceLoader: Loading " + fullDirPath + fileName
+        
+        ; Parse JPEG metadata
+        def meta:JPEGMetadataInfo (metadataParser.parseMetadata(fullDirPath fileName))
+        
+        ; If file not found or too small, try with ./assets/ prefix
+        if (meta.isValid == false) {
+            ; Try alternative path: prepend "assets/" to the path
+            def altDirPath:string ""
+            if ((indexOf dirPath "./") == 0) {
+                ; ./images/ -> ./assets/images/
+                altDirPath = "./assets/" + (substring dirPath 2 (strlen dirPath))
+            } {
+                altDirPath = "./assets/" + dirPath
+            }
+            print "ResourceLoader: Trying alternative path: " + altDirPath + fileName
+            meta = (metadataParser.parseMetadata(altDirPath fileName))
+        }
+        
+        if (meta.isValid == false) {
+            print "ResourceLoader: ERROR - " + meta.errorMessage + ": " + fullDirPath + fileName
+            def errInfo (new ImageInfo())
+            errInfo.path = imgPath
+            errInfo.loaded = true
+            errInfo.error = meta.errorMessage
+            push imageCache errInfo
+            return
+        }
+        
+        ; Get dimensions, handling EXIF orientation
+        def imgWidth:int meta.width
+        def imgHeight:int meta.height
+        
+        ; For orientations 5-8, width and height are swapped
+        if ((((meta.orientation == 5) || (meta.orientation == 6)) || (meta.orientation == 7)) || (meta.orientation == 8)) {
+            imgWidth = meta.height
+            imgHeight = meta.width
+        }
+        
+        ; Set source dimensions on element
+        el.sourceWidth = (to_double imgWidth)
+        el.sourceHeight = (to_double imgHeight)
+        
+        if debug {
+            print "ResourceLoader: Loaded " + imgPath + " (" + (to_string imgWidth) + "x" + (to_string imgHeight) + ")"
+        }
+        
+        ; Cache the result
+        def info (new ImageInfo())
+        info.path = imgPath
+        info.width = imgWidth
+        info.height = imgHeight
+        info.loaded = true
+        push imageCache info
+    }
+    
+    fn getCachedImage:ImageInfo (path:string) {
+        def i:int 0
+        while (i < (array_length imageCache)) {
+            def info:ImageInfo (itemAt imageCache i)
+            if (info.path == path) {
+                return info
+            }
+            i = (i + 1)
+        }
+        ; Return empty info if not found
+        def empty (new ImageInfo())
+        return empty
+    }
+    
+    fn clearCache:void () {
+        def empty:[ImageInfo]
+        imageCache = empty
+    }
+}

@@ -3479,6 +3479,34 @@ int r_string_index_of( std::string str, std::string key )  {
             }        
         }
 
+        indexOfFrom cmdStringIndexFrom:int (str:string key:string startPos:int) {
+            templates {
+                php( "(($p = strpos(" (e 1) ", " (e 2) ", " (e 3) ")) !== false ? $p : -1)")
+                go ( "func() int64 { idx := strings.Index(" (e 1) "[" (e 3) ":], " (e 2) "); if idx == -1 { return -1 }; return int64(idx) + " (e 3) " }()" (imp "strings"))
+                es6 ( (e 1) ".indexOf(" (e 2 ) ", " (e 3) ")" )
+                java7 ( (e 1) ".indexOf(" (e 2 ) ", (int)" (e 3) ")" )
+                python ( (e 1) ".find(" (e 2) ", " (e 3) ")" )
+                swift3 ( "(" (e 1) ".range(of:" (e 2) ", range: " (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 3) ")..<" (e 1) ".endIndex).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
+                swift6 ( "(" (e 1) ".range(of:" (e 2) ", range: " (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 3) ")..<" (e 1) ".endIndex).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
+                cpp (
+                    "r_string_index_of_from(" (e 1) " , " (e 2) ", " (e 3) ")"
+(create_polyfill
+"
+int r_string_index_of_from( std::string str, std::string key, int start )  { 
+    if (start < 0 || start >= str.length()) return -1;
+    auto n = str.find( key, start );
+    if (n == std::string::npos) {
+        return -1;
+    }   
+    return n;
+}
+" )                   
+                )
+                rust ( "(" (e 1) "[" (e 3) " as usize..].find(&*" (e 2) ").map(|i| (i + " (e 3) " as usize) as i64).unwrap_or(-1))" )
+                ranger ( "(indexOfFrom " (e 1) " " (e 2) " " (e 3) ")")
+            }        
+        }
+
         lastIndexOf cmdStringLastIndex:int (str:string key:string) {
             templates {
                 es6 ( (e 1) ".lastIndexOf(" (e 2 ) ")" )
@@ -3683,7 +3711,27 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  ranger ( nl "remove " (e 1) " " (e 2) nl)
                  es6 ( (e 1) ".splice(" (e 2) ", 1);" )                                              
             }
-        }         
+        }
+
+        ; Set value at specific index in array
+        set_at    cmdSetAt:void  ( array@(mutates):[T] index:int value:T ) { 
+            templates {
+                 ranger ( nl "set_at " (e 1) " " (e 2) " " (e 3) nl)
+                 es6 ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                 go ( (e 1) "[" (e 2) "] = " (e 3) )
+                 cpp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                 swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
+                 swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
+                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                 python ( (e 1) "[" (e 2) "] = " (e 3) )
+                 java7 ( (e 1) ".set(" (e 2) ", " (e 3) ");" )
+                 kotlin ( (e 1) "[" (e 2) "] = " (e 3) )
+                 csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                 scala ( (e 1) "(" (e 2) ") = " (e 3) )
+                 rust ( (e 1) "[" (e 2) " as usize] = " (e 3) ";" )
+                 * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+            }
+        }
 
         push    cmdPush@(moves@( 2 1 ) ):void  ( array@(mutates):[T] item:T ) { 
             templates {

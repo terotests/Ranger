@@ -26,12 +26,14 @@ interface CaptionStyle {
  */
 interface FullPagePhotoProps {
   src: string;
+  title?: string;
 }
 
-export function FullPagePhoto({ src }: FullPagePhotoProps) {
+export function FullPagePhoto({ src, title }: FullPagePhotoProps) {
   return (
-    <View width="100%" height="100%">
+    <View width="100%" height="100%" padding="30px" backgroundColor="#f5f5f5">
       <Image src={src} width="100%" height="100%" />
+      {title && <Label width="100%" textAlign="center">{title}</Label>}
     </View>
   );
 }
@@ -41,30 +43,26 @@ export function FullPagePhoto({ src }: FullPagePhotoProps) {
  */
 interface FullPagePhotoCaptionProps {
   src: string;
-  caption: string;
+  title: string;
   captionColor?: string;
   overlayColor?: string;
 }
 
 export function FullPagePhotoWithCaption({
   src,
-  caption,
+  title,
   captionColor = "#ffffff",
   overlayColor = "rgba(0,0,0,0.4)",
 }: FullPagePhotoCaptionProps) {
   return (
-    <View width="100%" height="100%">
-      <Image src={src} width="100%" height="100%" />
-      <View
+    <View width="100%" height="100%" padding="30px" backgroundColor="#f5f5f5">
+      <Image 
+        src={src} 
         width="100%"
-        height="80px"
-        backgroundColor={overlayColor}
-        padding="20px"
-      >
-        <Label fontSize="18px" color={captionColor} textAlign="center">
-          {caption}
-        </Label>
-      </View>
+        height="100%"
+        clipPath="M50,10 Q90,10 90,50 Q90,90 50,90 Q10,90 10,50 Q10,10 50,10 Z"
+      />
+      {title && <Label width="100%" fontFamily="Noto Sans" textAlign="center">{title}</Label>}
     </View>
   );
 }

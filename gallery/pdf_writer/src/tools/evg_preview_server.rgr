@@ -60,12 +60,20 @@ class EVGPreviewServer@(HttpServer) {
     
     ; File modification tracking
     def lastModTime:int 0
+    def watchedFiles:[string]
+    def lastModTimes:[int]
     
     fn initialize:void (tsxFile:string serverPort:int assets:string) {
         inputFile = tsxFile
         port = serverPort
         assetPaths = assets
         serverUrl = "http://localhost:" + (to_string port)
+        
+        ; Initialize watched files arrays
+        def wf:[string]
+        watchedFiles = wf
+        def lmt:[int]
+        lastModTimes = lmt
         
         ; Extract directory and filename
         def lastSlash:int (lastIndexOf inputFile "/")
@@ -105,6 +113,31 @@ class EVGPreviewServer@(HttpServer) {
         
         def root:EVGElement (engine.parseFile(inputDir inputFileName))
         
+        ; Update watched files list from engine
+        def newWatchedFiles:[string]
+        watchedFiles = newWatchedFiles
+        def newLastModTimes:[int]
+        lastModTimes = newLastModTimes
+        
+        def loadedFileList:[string] (engine.getLoadedFiles())
+        def fileIdx:int 0
+        while (fileIdx < (array_length loadedFileList)) {
+            def loadedFile:string (itemAt loadedFileList fileIdx)
+            push watchedFiles loadedFile
+            ; Get initial mod time for this file - need to split path
+            def lastSlashIdx:int (lastIndexOf loadedFile "/")
+            def fileDir:string "./"
+            def fileName:string loadedFile
+            if (lastSlashIdx >= 0) {
+                fileDir = (substring loadedFile 0 (lastSlashIdx + 1))
+                fileName = (substring loadedFile (lastSlashIdx + 1) (strlen loadedFile))
+            }
+            def modTime:int (file_mtime fileDir fileName)
+            push lastModTimes modTime
+            fileIdx = fileIdx + 1
+        }
+        print ("Watching " + (to_string (array_length watchedFiles)) + " files for changes")
+        
         if (root.tagName == "") {
             print "Error: Failed to parse TSX file"
             cachedContentHTML = "<div style='color:red;padding:20px;'>Error: Failed to parse TSX file</div>"
@@ -113,9 +146,21 @@ class EVGPreviewServer@(HttpServer) {
         
         print "Parsed: <" + root.tagName + "> with " + (to_string (root.getChildCount())) + " children"
         
+        ; Use Print element's dimensions if available (from format prop)
+        def useWidth:double pageWidth
+        def useHeight:double pageHeight
+        if (root.pageWidth > 0.0) {
+            useWidth = root.pageWidth
+            print "Using book format width: " + (to_string root.pageWidth) + " pts"
+        }
+        if (root.pageHeight > 0.0) {
+            useHeight = root.pageHeight
+            print "Using book format height: " + (to_string root.pageHeight) + " pts"
+        }
+        
         ; Create renderer
         def renderer (new EVGHTMLRenderer())
-        renderer.setPageSize(pageWidth pageHeight)
+        renderer.setPageSize(useWidth useHeight)
         renderer.setTitle(title)
         renderer.setBaseDir(inputDir)
         renderer.setFontBasePath(inputDir + "../assets/fonts/")
@@ -169,14 +214,31 @@ class EVGPreviewServer@(HttpServer) {
         ; Strip /assets/ prefix to get the relative path
         def assetPath:string (substring path 8 (strlen path))
         
-        ; Build full path: inputDir/../assets/assetPath
-        ; inputDir is like "examples/", so ../assets/ goes to the assets folder
-        def fullPath:string (inputDir + "../assets/" + assetPath)
+        print "Asset request: " + assetPath
         
-        print "Serving asset: " + fullPath
-        
-        ; Read the file as binary
+        ; Try ./assets/ first (for when running from project root)
+        def fullPath:string ("./assets/" + assetPath)
+        print "  Trying: " + fullPath
         def fileData:buffer (buffer_read_file "" fullPath)
+        
+        ; If not found, try inputDir/../assets/
+        if ((buffer_length fileData) == 0) {
+            print "  Not found, trying alternative path..."
+            fullPath = (inputDir + "../assets/" + assetPath)
+            print "  Trying: " + fullPath
+            fileData = (buffer_read_file "" fullPath)
+        }
+        
+        ; If still not found, return 404
+        if ((buffer_length fileData) == 0) {
+            print "  NOT FOUND: " + assetPath
+            http_set_header res "Content-Type" "text/plain"
+            http_set_status res 404
+            http_send res ("Asset not found: " + assetPath)
+            return
+        }
+        
+        print "  SUCCESS: Serving asset from " + fullPath
         
         ; Determine content type from extension
         def ext:string ""
@@ -273,21 +335,54 @@ class EVGPreviewServer@(HttpServer) {
         ; Send initial connected message
         sse_send client "connected" "EVG Preview Server"
         
-        ; Get initial modification time
-        def currentModTime:int (file_mtime inputDir inputFileName)
-        lastModTime = currentModTime
-        
         ; Keep connection open and poll for updates
         def connected:boolean (sse_is_connected client)
         
         while connected {
-            ; Check file modification time
-            currentModTime = (file_mtime inputDir inputFileName)
+            ; Check all watched files for modifications
+            def fileChanged:boolean false
+            def changedFile:string ""
             
-            if (currentModTime > lastModTime) {
-                print "File changed - sending update"
-                lastModTime = currentModTime
-                sse_send client "update" "File modified"
+            ; Take local snapshots of the arrays to avoid race conditions
+            ; (generateHTML may clear and rebuild these arrays concurrently)
+            def localWatchedFiles:[string] watchedFiles
+            def localModTimes:[int] lastModTimes
+            def watchedCount:int (array_length localWatchedFiles)
+            def modTimesCount:int (array_length localModTimes)
+            
+            ; Only check files if we have any watched files AND matching mod times
+            if ((watchedCount > 0) && (modTimesCount == watchedCount)) {
+                def i:int 0
+                while (i < watchedCount) {
+                    def watchedFile:string (itemAt localWatchedFiles i)
+                    def storedModTime:int (itemAt localModTimes i)
+                    
+                    ; Split path to get dir and filename for file_mtime
+                    def lastSlashIdx:int (lastIndexOf watchedFile "/")
+                    def fileDir:string "./"
+                    def fileName:string watchedFile
+                    if (lastSlashIdx >= 0) {
+                        fileDir = (substring watchedFile 0 (lastSlashIdx + 1))
+                        fileName = (substring watchedFile (lastSlashIdx + 1) (strlen watchedFile))
+                    }
+                    
+                    def currentModTime:int (file_mtime fileDir fileName)
+                    
+                    if (currentModTime > storedModTime) {
+                        fileChanged = true
+                        changedFile = watchedFile
+                        ; Update stored mod time - check bounds to avoid race condition
+                        if (i < (array_length lastModTimes)) {
+                            set_at lastModTimes i currentModTime
+                        }
+                    }
+                    i = i + 1
+                }
+            }
+            
+            if fileChanged {
+                print ("File changed: " + changedFile + " - sending update")
+                sse_send client "update" changedFile
             }
             
             ; Sleep 500ms between checks
