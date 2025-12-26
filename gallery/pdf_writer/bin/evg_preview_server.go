@@ -14663,10 +14663,19 @@ func (this *FontManager) loadFont (relativePath string) bool {
     }
     i = i + int64(1); 
   }
-  var fullPath_1 string= (this.fontsDirectory + "/") + relativePath;
+  var separator string= "/";
+  var dirLen int64= int64(len([]rune(this.fontsDirectory)));
+  if  dirLen > int64(0) {
+    var lastChar string= string([]rune(this.fontsDirectory)[(dirLen - int64(1)):dirLen]);
+    if  lastChar == "/" {
+      separator = ""; 
+    }
+  }
+  var fullPath_1 string= (this.fontsDirectory + separator) + relativePath;
+  fmt.Println( "FontManager: Trying to load font from: " + fullPath_1 )
   var font_1 *TrueTypeFont= CreateNew_TrueTypeFont();
   if  font_1.loadFromFile(fullPath_1) == false {
-    fmt.Println( "FontManager: Failed to load font: " + relativePath )
+    fmt.Println( ((("FontManager: Failed to load font: " + relativePath) + " (full path: ") + fullPath_1) + ")" )
     return false
   }
   this.fonts = append(this.fonts,font_1); 
@@ -14682,19 +14691,62 @@ func (this *FontManager) loadFontFamily (familyDir string) () {
   this.loadFont(((familyDir + "/") + familyDir) + "-Regular.ttf");
 }
 func (this *FontManager) getFont (fontFamily string) *TrueTypeFont {
+  var slashIdx int64= int64(strings.Index(fontFamily, "/"));
+  var searchFamily string= fontFamily;
+  var searchStyle string= "";
+  if  slashIdx >= int64(0) {
+    searchFamily = string([]rune(fontFamily)[int64(0):slashIdx]); 
+    var afterSlash string= string([]rune(fontFamily)[(slashIdx + int64(1)):(int64(len([]rune(fontFamily))))]);
+    var dashIdx int64= int64(strings.Index(afterSlash, "-"));
+    if  dashIdx >= int64(0) {
+      searchStyle = string([]rune(afterSlash)[(dashIdx + int64(1)):(int64(len([]rune(afterSlash))))]); 
+    }
+  } else {
+    var dashIdx_1 int64= int64(strings.Index(fontFamily, "-"));
+    if  dashIdx_1 >= int64(0) {
+      searchFamily = string([]rune(fontFamily)[int64(0):dashIdx_1]); 
+      searchStyle = string([]rune(fontFamily)[(dashIdx_1 + int64(1)):(int64(len([]rune(fontFamily))))]); 
+    }
+  }
   var i int64= int64(0);
   for i < (int64(len(this.fonts))) {
     var f *TrueTypeFont= this.fonts[i];
-    if  f.fontFamily == fontFamily {
-      return f
+    if  f.fontFamily == searchFamily {
+      if  (int64(len([]rune(searchStyle)))) > int64(0) {
+        if  f.fontStyle == searchStyle {
+          return f
+        }
+      } else {
+        return f
+      }
     }
     i = i + int64(1); 
   }
   i = int64(0); 
   for i < (int64(len(this.fonts))) {
     var f_1 *TrueTypeFont= this.fonts[i];
-    if  (int64(strings.Index(f_1.fontFamily, fontFamily))) >= int64(0) {
-      return f_1
+    if  f_1.fontFamily == searchFamily {
+      if  (int64(len([]rune(searchStyle)))) > int64(0) {
+        if  (int64(strings.Index(f_1.fontStyle, searchStyle))) >= int64(0) {
+          return f_1
+        }
+      }
+    }
+    i = i + int64(1); 
+  }
+  i = int64(0); 
+  for i < (int64(len(this.fonts))) {
+    var f_2 *TrueTypeFont= this.fonts[i];
+    if  f_2.fontFamily == fontFamily {
+      return f_2
+    }
+    i = i + int64(1); 
+  }
+  i = int64(0); 
+  for i < (int64(len(this.fonts))) {
+    var f_3 *TrueTypeFont= this.fonts[i];
+    if  (int64(strings.Index(f_3.fontFamily, fontFamily))) >= int64(0) {
+      return f_3
     }
     i = i + int64(1); 
   }
@@ -18425,13 +18477,13 @@ func (this *EVGPDFRenderer) getSectionPageWidth (section *EVGElement) float64 {
   if  section.width.value.(*EVGUnit).isSet {
     return section.width.value.(*EVGUnit).pixels
   }
-  return 595.0
+  return this.pageWidth
 }
 func (this *EVGPDFRenderer) getSectionPageHeight (section *EVGElement) float64 {
   if  section.height.value.(*EVGUnit).isSet {
     return section.height.value.(*EVGUnit).pixels
   }
-  return 842.0
+  return this.pageHeight
 }
 func (this *EVGPDFRenderer) getSectionMargin (section *EVGElement) float64 {
   var m *GoNullable = new(GoNullable); 
@@ -19158,14 +19210,89 @@ func (this *EVGPDFRenderer) getImagePdfName (src string) string {
   this.embeddedImages = append(this.embeddedImages,newImg); 
   return "/Im" + (strconv.FormatInt((int64(len(this.embeddedImages))), 10))
 }
+func (this *EVGPDFRenderer) getEmbeddedImage (src string) *EmbeddedImage {
+  var i int64= int64(0);
+  for i < (int64(len(this.embeddedImages))) {
+    var embImg *EmbeddedImage= this.embeddedImages[i];
+    if  embImg.src == src {
+      return embImg
+    }
+    i = i + int64(1); 
+  }
+  var empty *EmbeddedImage= CreateNew_EmbeddedImage("");
+  return empty
+}
 func (this *EVGPDFRenderer) renderImage (el *EVGElement, x float64, y float64, w float64, h float64) () {
   var src string= el.src;
   if  (int64(len([]rune(src)))) == int64(0) {
     return
   }
   var imgName string= this.getImagePdfName(src);
+  var origW float64= 0.0;
+  var origH float64= 0.0;
+  var cacheIdx int64= int64(0);
+  for cacheIdx < (int64(len(this.imageDimensionsCacheKeys))) {
+    var src_key string= this.imageDimensionsCacheKeys[cacheIdx];
+    if  src_key == src {
+      var dims *EVGImageDimensions= this.imageDimensionsCache[cacheIdx];
+      origW = float64( dims.width ); 
+      origH = float64( dims.height ); 
+    }
+    cacheIdx = cacheIdx + int64(1); 
+  }
+  var renderW float64= w;
+  var renderH float64= h;
+  var offsetX float64= 0.0;
+  var offsetY float64= 0.0;
+  fmt.Println( (((((((("renderImage: src=" + src) + " container=") + (strconv.FormatFloat(w,'f', 6, 64))) + "x") + (strconv.FormatFloat(h,'f', 6, 64))) + " origImg=") + (strconv.FormatFloat(origW,'f', 6, 64))) + "x") + (strconv.FormatFloat(origH,'f', 6, 64)) )
+  if  origW > 0.0 {
+    if  origH > 0.0 {
+      var objectFit string= el.objectFit;
+      if  (int64(len([]rune(objectFit)))) == int64(0) {
+        objectFit = "cover"; 
+      }
+      var containerRatio float64= w / h;
+      var imageRatio float64= origW / origH;
+      fmt.Println( (((("  objectFit=" + objectFit) + " containerRatio=") + (strconv.FormatFloat(containerRatio,'f', 6, 64))) + " imageRatio=") + (strconv.FormatFloat(imageRatio,'f', 6, 64)) )
+      if  objectFit == "cover" {
+        if  imageRatio > containerRatio {
+          renderH = h; 
+          renderW = h * imageRatio; 
+          offsetX = (w - renderW) / 2.0; 
+        } else {
+          renderW = w; 
+          renderH = w / imageRatio; 
+          offsetY = (h - renderH) / 2.0; 
+        }
+      }
+      if  objectFit == "contain" {
+        if  imageRatio > containerRatio {
+          renderW = w; 
+          renderH = w / imageRatio; 
+          offsetY = (h - renderH) / 2.0; 
+        } else {
+          renderH = h; 
+          renderW = h * imageRatio; 
+          offsetX = (w - renderW) / 2.0; 
+        }
+      }
+    }
+  }
   this.streamBuffer.value.(*GrowableBuffer).writeString("q\n");
-  this.streamBuffer.value.(*GrowableBuffer).writeString(((((((this.formatNum(w) + " 0 0 ") + this.formatNum(h)) + " ") + this.formatNum(x)) + " ") + this.formatNum(y)) + " cm\n");
+  var effectiveFit string= el.objectFit;
+  if  (int64(len([]rune(effectiveFit)))) == int64(0) {
+    effectiveFit = "cover"; 
+  }
+  if  effectiveFit == "cover" {
+    if  origW > 0.0 {
+      if  origH > 0.0 {
+        this.streamBuffer.value.(*GrowableBuffer).writeString(((((((this.formatNum(x) + " ") + this.formatNum(y)) + " ") + this.formatNum(w)) + " ") + this.formatNum(h)) + " re W n\n");
+      }
+    }
+  }
+  var finalX float64= x + offsetX;
+  var finalY float64= y + offsetY;
+  this.streamBuffer.value.(*GrowableBuffer).writeString(((((((this.formatNum(renderW) + " 0 0 ") + this.formatNum(renderH)) + " ") + this.formatNum(finalX)) + " ") + this.formatNum(finalY)) + " cm\n");
   this.streamBuffer.value.(*GrowableBuffer).writeString(imgName + " Do\n");
   this.streamBuffer.value.(*GrowableBuffer).writeString("Q\n");
 }
@@ -19572,6 +19699,12 @@ func (this *EVGPDFRenderer) renderText (el *EVGElement, x float64, y float64, w 
   }
   var lines []string= this.wrapText(text, w, fontSize, fontFamily);
   var fontName string= this.getPdfFontName(fontFamily);
+  var ttfFontDebug *TrueTypeFont= this.fontManager.getFont(fontFamily);
+  if  ttfFontDebug.unitsPerEm > int64(0) {
+    fmt.Println( ((((("PDF Font: requested='" + fontFamily) + "' -> resolved='") + ttfFontDebug.fontFamily) + "' style='") + ttfFontDebug.fontStyle) + "'" )
+  } else {
+    fmt.Println( ("PDF Font: requested='" + fontFamily) + "' -> FALLBACK (font not found)" )
+  }
   var hasShadow bool= false;
   var shadowOffsetX float64= 0.0;
   var shadowOffsetY float64= 0.0;
@@ -19899,7 +20032,7 @@ func (this *EVGPreviewServer) reloadContent () () {
   renderer.setPageSize(useWidth, useHeight);
   renderer.setTitle(this.title);
   renderer.setBaseDir(this.inputDir);
-  renderer.setFontBasePath(this.inputDir + "../assets/fonts/");
+  renderer.setFontBasePath(this.inputDir + "assets/fonts/");
   renderer.setImageServer(this.serverUrl);
   this.cachedContentHTML = renderer.renderContent(root); 
   this.cachedShellHTML = renderer.generateShellHTML(this.serverUrl); 
@@ -20018,8 +20151,6 @@ func (this *EVGPreviewServer) handleFonts (req *http.Request, res http.ResponseW
 func (this *EVGPreviewServer) handleExportPDF (req *http.Request, res http.ResponseWriter) () {
   fmt.Println( "Generating PDF export..." )
   var engine *ComponentEngine= CreateNew_ComponentEngine();
-  engine.pageWidth = this.pageWidth; 
-  engine.pageHeight = this.pageHeight; 
   if  (int64(len([]rune(this.assetPaths)))) > int64(0) {
     engine.setAssetPaths(this.assetPaths);
   }
@@ -20031,19 +20162,15 @@ func (this *EVGPreviewServer) handleExportPDF (req *http.Request, res http.Respo
     res.Write([]byte("Error: Failed to parse TSX file"))
     return
   }
-  var useWidth float64= this.pageWidth;
-  var useHeight float64= this.pageHeight;
-  if  root.pageWidth > 0.0 {
-    useWidth = root.pageWidth; 
-  }
-  if  root.pageHeight > 0.0 {
-    useHeight = root.pageHeight; 
-  }
+  var useWidth float64= engine.pageWidth;
+  var useHeight float64= engine.pageHeight;
+  fmt.Println( (("PDF page size from engine: " + (strconv.FormatFloat(useWidth,'f', 6, 64))) + "x") + (strconv.FormatFloat(useHeight,'f', 6, 64)) )
   var pdfRenderer *EVGPDFRenderer= CreateNew_EVGPDFRenderer();
   pdfRenderer.setPageSize(useWidth, useHeight);
   pdfRenderer.setBaseDir(this.inputDir);
   pdfRenderer.init(pdfRenderer);
-  var fontDir string= this.inputDir + "../assets/fonts/";
+  var fontDir string= this.inputDir + "assets/fonts/";
+  fmt.Println( "PDF Font directory: " + fontDir )
   var fm *FontManager= CreateNew_FontManager();
   fm.setFontsDirectory(fontDir);
   fm.loadFont("Open_Sans/OpenSans-Regular.ttf");

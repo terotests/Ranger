@@ -165,7 +165,7 @@ class EVGPreviewServer@(HttpServer) {
         renderer.setPageSize(useWidth useHeight)
         renderer.setTitle(title)
         renderer.setBaseDir(inputDir)
-        renderer.setFontBasePath(inputDir + "../assets/fonts/")
+        renderer.setFontBasePath(inputDir + "assets/fonts/")
         renderer.setImageServer(serverUrl)
         
         ; Render content (without html/head/body wrapper)
@@ -336,8 +336,7 @@ class EVGPreviewServer@(HttpServer) {
         
         ; Parse the TSX file fresh
         def engine (new ComponentEngine())
-        engine.pageWidth = pageWidth
-        engine.pageHeight = pageHeight
+        ; Don't set page dimensions - let ComponentEngine parse them from Print element
         
         if ((strlen assetPaths) > 0) {
             engine.setAssetPaths(assetPaths)
@@ -353,15 +352,10 @@ class EVGPreviewServer@(HttpServer) {
             return
         }
         
-        ; Use Print element's dimensions if available
-        def useWidth:double pageWidth
-        def useHeight:double pageHeight
-        if (root.pageWidth > 0.0) {
-            useWidth = root.pageWidth
-        }
-        if (root.pageHeight > 0.0) {
-            useHeight = root.pageHeight
-        }
+        ; Use dimensions from ComponentEngine (which parsed Print element's format)
+        def useWidth:double engine.pageWidth
+        def useHeight:double engine.pageHeight
+        print "PDF page size from engine: " + (to_string useWidth) + "x" + (to_string useHeight)
         
         ; Create PDF renderer
         def pdfRenderer (new EVGPDFRenderer())
@@ -369,8 +363,10 @@ class EVGPreviewServer@(HttpServer) {
         pdfRenderer.setBaseDir(inputDir)
         pdfRenderer.init(pdfRenderer)
         
-        ; Load fonts for PDF rendering - construct from inputDir
-        def fontDir:string (inputDir + "../assets/fonts/")
+        ; Load fonts for PDF rendering - relative to inputDir (where .tsx file is)
+        ; Structure: inputDir/assets/fonts/FontFamily/Font.ttf
+        def fontDir:string (inputDir + "assets/fonts/")
+        print ("PDF Font directory: " + fontDir)
         
         def fm:FontManager (new FontManager())
         fm.setFontsDirectory(fontDir)

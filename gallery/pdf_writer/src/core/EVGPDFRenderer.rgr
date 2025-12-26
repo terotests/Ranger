@@ -369,19 +369,19 @@ class EVGPDFRenderer {
     }
     
     fn getSectionPageWidth:double (section:EVGElement) {
-        ; Get page width from section, default to A4
+        ; Get page width from section, default to renderer's page width
         if section.width.isSet {
             return section.width.pixels
         }
-        return 595.0
+        return pageWidth
     }
     
     fn getSectionPageHeight:double (section:EVGElement) {
-        ; Get page height from section, default to A4
+        ; Get page height from section, default to renderer's page height
         if section.height.isSet {
             return section.height.pixels
         }
-        return 842.0
+        return pageHeight
     }
     
     fn getSectionMargin:double (section:EVGElement) {
@@ -1315,6 +1315,21 @@ class EVGPDFRenderer {
         return ("/Im" + (to_string (array_length embeddedImages)))
     }
     
+    fn getEmbeddedImage:EmbeddedImage (src:string) {
+        ; Find embedded image by src
+        def i:int 0
+        while (i < (array_length embeddedImages)) {
+            def embImg:EmbeddedImage (itemAt embeddedImages i)
+            if (embImg.src == src) {
+                return embImg
+            }
+            i = i + 1
+        }
+        ; Not found, return empty
+        def empty (new EmbeddedImage(""))
+        return empty
+    }
+    
     fn renderImage:void (el:EVGElement x:double y:double w:double h:double) {
         def src:string el.src
         if ((strlen src) == 0) {
@@ -1324,11 +1339,95 @@ class EVGPDFRenderer {
         ; Register the image for embedding
         def imgName:string (this.getImagePdfName(src))
         
+        ; Get original image dimensions from cache for objectFit calculation
+        def origW:double 0.0
+        def origH:double 0.0
+        def cacheIdx:int 0
+        while (cacheIdx < (array_length imageDimensionsCacheKeys)) {
+            def src_key:string (itemAt imageDimensionsCacheKeys cacheIdx)
+            if (src_key == src) {
+                def dims:EVGImageDimensions (itemAt imageDimensionsCache cacheIdx)
+                origW = (to_double dims.width)
+                origH = (to_double dims.height)
+            }
+            cacheIdx = cacheIdx + 1
+        }
+        
+        ; Calculate actual render dimensions based on objectFit
+        def renderW:double w
+        def renderH:double h
+        def offsetX:double 0.0
+        def offsetY:double 0.0
+        
+        print ("renderImage: src=" + src + " container=" + (to_string w) + "x" + (to_string h) + " origImg=" + (to_string origW) + "x" + (to_string origH))
+        
+        if (origW > 0.0) {
+            if (origH > 0.0) {
+                def objectFit:string el.objectFit
+                ; Default to "cover" to match HTML renderer behavior
+                if ((strlen objectFit) == 0) {
+                    objectFit = "cover"
+                }
+                def containerRatio:double (w / h)
+                def imageRatio:double (origW / origH)
+                
+                print ("  objectFit=" + objectFit + " containerRatio=" + (to_string containerRatio) + " imageRatio=" + (to_string imageRatio))
+                
+                if (objectFit == "cover") {
+                    ; Scale to cover entire container, may crop
+                    if (imageRatio > containerRatio) {
+                        ; Image is wider than container - scale by height, crop width
+                        renderH = h
+                        renderW = h * imageRatio
+                        offsetX = (w - renderW) / 2.0  ; Center horizontally (negative = crop)
+                    } {
+                        ; Image is taller than container - scale by width, crop height
+                        renderW = w
+                        renderH = w / imageRatio
+                        offsetY = (h - renderH) / 2.0  ; Center vertically (negative = crop)
+                    }
+                }
+                if (objectFit == "contain") {
+                    ; Scale to fit within container, may letterbox
+                    if (imageRatio > containerRatio) {
+                        ; Image is wider - fit to width, letterbox height
+                        renderW = w
+                        renderH = w / imageRatio
+                        offsetY = (h - renderH) / 2.0  ; Center vertically
+                    } {
+                        ; Image is taller - fit to height, letterbox width
+                        renderH = h
+                        renderW = h * imageRatio
+                        offsetX = (w - renderW) / 2.0  ; Center horizontally
+                    }
+                }
+                ; For "fill" or default (when neither cover nor contain), use w and h as-is (stretch)
+            }
+        }
+        
         ; Draw the image (orientation already applied during JPEG processing)
         ; PDF transformation matrix: [a b c d e f] cm
         ; where: a=scaleX, d=scaleY, e=translateX, f=translateY
         streamBuffer.writeString("q\n")
-        streamBuffer.writeString((this.formatNum(w)) + " 0 0 " + (this.formatNum(h)) + " " + (this.formatNum(x)) + " " + (this.formatNum(y)) + " cm\n")
+        
+        ; Determine effective objectFit (default to cover)
+        def effectiveFit:string el.objectFit
+        if ((strlen effectiveFit) == 0) {
+            effectiveFit = "cover"
+        }
+        
+        ; Clip to container bounds for "cover" mode
+        if (effectiveFit == "cover") {
+            if (origW > 0.0) {
+                if (origH > 0.0) {
+                    streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum(y)) + " " + (this.formatNum(w)) + " " + (this.formatNum(h)) + " re W n\n")
+                }
+            }
+        }
+        
+        def finalX:double (x + offsetX)
+        def finalY:double (y + offsetY)
+        streamBuffer.writeString((this.formatNum(renderW)) + " 0 0 " + (this.formatNum(renderH)) + " " + (this.formatNum(finalX)) + " " + (this.formatNum(finalY)) + " cm\n")
         streamBuffer.writeString(imgName + " Do\n")
         streamBuffer.writeString("Q\n")
     }
@@ -1932,6 +2031,14 @@ class EVGPDFRenderer {
         
         ; Get PDF font name
         def fontName:string (this.getPdfFontName(fontFamily))
+        
+        ; Debug: Log font resolution
+        def ttfFontDebug:TrueTypeFont (fontManager.getFont(fontFamily))
+        if (ttfFontDebug.unitsPerEm > 0) {
+            print ("PDF Font: requested='" + fontFamily + "' -> resolved='" + ttfFontDebug.fontFamily + "' style='" + ttfFontDebug.fontStyle + "'")
+        } {
+            print ("PDF Font: requested='" + fontFamily + "' -> FALLBACK (font not found)")
+        }
         
         ; Check for text shadow
         def hasShadow:boolean false

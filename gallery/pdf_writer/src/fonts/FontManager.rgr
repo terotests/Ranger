@@ -88,11 +88,21 @@ class FontManager {
             i = i + 1
         }
         ; Fallback to single fontsDirectory for backward compatibility
-        def fullPath:string (fontsDirectory + "/" + relativePath)
+        ; Check if fontsDirectory ends with "/" to avoid double slash
+        def separator:string "/"
+        def dirLen:int (strlen fontsDirectory)
+        if (dirLen > 0) {
+            def lastChar:string (substring fontsDirectory (dirLen - 1) dirLen)
+            if (lastChar == "/") {
+                separator = ""
+            }
+        }
+        def fullPath:string (fontsDirectory + separator + relativePath)
+        print ("FontManager: Trying to load font from: " + fullPath)
         def font (new TrueTypeFont())
         
         if ((font.loadFromFile(fullPath)) == false) {
-            print ("FontManager: Failed to load font: " + relativePath)
+            print ("FontManager: Failed to load font: " + relativePath + " (full path: " + fullPath + ")")
             return false
         }
         
@@ -119,7 +129,66 @@ class FontManager {
     
     fn getFont:TrueTypeFont (fontFamily:string) {
         ; Find font by family name
+        ; Support formats: "Cinzel", "Cinzel/Cinzel-Bold", "Cinzel-Bold"
+        
+        ; First, check if fontFamily contains "/" - this indicates path format like "Cinzel/Cinzel-Bold"
+        def slashIdx:int (indexOf fontFamily "/")
+        def searchFamily:string fontFamily
+        def searchStyle:string ""
+        
+        if (slashIdx >= 0) {
+            ; Extract family and style from path format "Family/Family-Style"
+            searchFamily = (substring fontFamily 0 slashIdx)
+            def afterSlash:string (substring fontFamily (slashIdx + 1) (strlen fontFamily))
+            ; Find the dash in "Cinzel-Bold" to get "Bold"
+            def dashIdx:int (indexOf afterSlash "-")
+            if (dashIdx >= 0) {
+                searchStyle = (substring afterSlash (dashIdx + 1) (strlen afterSlash))
+            }
+        } {
+            ; Check for dash format like "Cinzel-Bold"
+            def dashIdx:int (indexOf fontFamily "-")
+            if (dashIdx >= 0) {
+                searchFamily = (substring fontFamily 0 dashIdx)
+                searchStyle = (substring fontFamily (dashIdx + 1) (strlen fontFamily))
+            }
+        }
+        
+        ; Exact match on both family and style
         def i:int 0
+        while (i < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts i)
+            if (f.fontFamily == searchFamily) {
+                if ((strlen searchStyle) > 0) {
+                    ; Check if style matches
+                    if (f.fontStyle == searchStyle) {
+                        return f
+                    }
+                } {
+                    ; No style specified, return first match
+                    return f
+                }
+            }
+            i = i + 1
+        }
+        
+        ; Try case-insensitive style match
+        i = 0
+        while (i < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts i)
+            if (f.fontFamily == searchFamily) {
+                if ((strlen searchStyle) > 0) {
+                    ; Check if style contains the search term (case-insensitive would be better but use contains)
+                    if ((indexOf f.fontStyle searchStyle) >= 0) {
+                        return f
+                    }
+                }
+            }
+            i = i + 1
+        }
+        
+        ; Fallback: try original exact match
+        i = 0
         while (i < (array_length fonts)) {
             def f:TrueTypeFont (itemAt fonts i)
             if (f.fontFamily == fontFamily) {
@@ -128,7 +197,7 @@ class FontManager {
             i = i + 1
         }
         
-        ; Try partial match
+        ; Try partial match on original fontFamily
         i = 0
         while (i < (array_length fonts)) {
             def f:TrueTypeFont (itemAt fonts i)
