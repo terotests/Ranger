@@ -203,6 +203,7 @@ class EVGComponentTool {
         
         ; Load decorative fonts for test_features
         fontManager.loadFont("Cinzel/Cinzel-Regular.ttf")
+        fontManager.loadFont("Cinzel/Cinzel-Bold.ttf")
         fontManager.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
         fontManager.loadFont("Gloria_Hallelujah/GloriaHallelujah.ttf")
         fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf")

@@ -82,6 +82,46 @@ class JPEGDecoder {
         }
     }
     
+    fn reset:void () {
+        ; Reset all state for decoding a new image
+        ; This is important when reusing the same decoder instance!
+        width = 0
+        height = 0
+        numComponents = 0
+        precision = 8
+        scanDataStart = 0
+        scanDataLen = 0
+        mcuWidth = 8
+        mcuHeight = 8
+        mcusPerRow = 0
+        mcusPerCol = 0
+        maxHSamp = 1
+        maxVSamp = 1
+        restartInterval = 0
+        
+        ; Clear components
+        clear components
+        
+        ; Reset Huffman tables
+        huffman.dcTable0.resetArrays()
+        huffman.dcTable1.resetArrays()
+        huffman.acTable0.resetArrays()
+        huffman.acTable1.resetArrays()
+        
+        ; Reset quantization tables
+        def i 0
+        while (i < 4) {
+            def qt:QuantizationTable (at quantTables i)
+            clear qt.values
+            def j 0
+            while (j < 64) {
+                push qt.values 1
+                j = j + 1
+            }
+            i = i + 1
+        }
+    }
+    
     fn readUint16BE:int (pos:int) {
         def high:int (buffer_get data pos)
         def low:int (buffer_get data (pos + 1))
@@ -393,6 +433,9 @@ class JPEGDecoder {
     
     fn decode:ImageBuffer (dirPath:string fileName:string) {
         ; Main decode function
+        ; Reset all state before decoding new image
+        this.reset()
+        
         data = (buffer_read_file dirPath fileName)
         dataLen = (buffer_length data)
         
@@ -456,8 +499,9 @@ class JPEGDecoder {
                         compRst.prevDC = 0
                         c = c + 1
                     }
-                    ; Align bit reader to byte boundary (skip partial byte after RST marker)
+                    ; Align bit reader to byte boundary and skip RST marker
                     reader.alignToByte()
+                    reader.skipRestartMarker()
                 }
                 
                 ; Decode all blocks in this MCU

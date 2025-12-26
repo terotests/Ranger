@@ -90,9 +90,8 @@ func (this *GrowableBuffer) writeByte (b int64) () {
   if  this.currentChunk.isFull() {
     this.allocateNewChunk();
   }
-  var buf []byte= this.currentChunk.data;
   var pos int64= this.currentChunk.used;
-  buf[pos] = byte(b)
+  this.currentChunk.data[pos] = byte(b)
   this.currentChunk.used = pos + int64(1); 
   this.totalSize = this.totalSize + int64(1); 
 }
@@ -109,10 +108,10 @@ func (this *GrowableBuffer) writeBuffer (src []byte) () {
   this.writeBytes(src, int64(0), __len);
 }
 func (this *GrowableBuffer) writeString (s string) () {
-  var __len int64= int64(len(s));
+  var __len int64= int64(len([]rune(s)));
   var i int64= int64(0);
   for i < __len {
-    var ch int64= int64(s[i]);
+    var ch int64= int64([]rune(s)[i]);
     this.writeByte(ch);
     i = i + int64(1); 
   }
@@ -149,11 +148,10 @@ func (this *GrowableBuffer) toBuffer () []byte {
   var chunk *BufferChunk= this.firstChunk;
   var done bool= false;
   for done == false {
-    var chunkData []byte= chunk.data;
     var chunkUsed int64= chunk.used;
     var i int64= int64(0);
     for i < chunkUsed {
-      var b int64= int64(chunkData[i]);
+      var b int64= int64(chunk.data[i]);
       result[pos] = byte(b)
       pos = pos + int64(1); 
       i = i + int64(1); 
@@ -171,12 +169,11 @@ func (this *GrowableBuffer) toString () string {
   var chunk *BufferChunk= this.firstChunk;
   var done bool= false;
   for done == false {
-    var chunkData []byte= chunk.data;
     var chunkUsed int64= chunk.used;
     var i int64= int64(0);
     for i < chunkUsed {
-      var b int64= int64(chunkData[i]);
-      result = result + (string([] byte{byte(b)})); 
+      var b int64= int64(chunk.data[i]);
+      result = result + (string([]rune{rune(b)})); 
       i = i + int64(1); 
     }
     if  !chunk.next.has_value  {
@@ -290,6 +287,18 @@ func (this *BitReader) peekBits (count int64) int64 {
 func (this *BitReader) alignToByte () () {
   this.bitPos = int64(0); 
 }
+func (this *BitReader) skipRestartMarker () bool {
+  if  (this.bytePos + int64(1)) >= this.dataEnd {
+    return false
+  }
+  var byte1 int64= int64(this.data[this.bytePos]);
+  var byte2 int64= int64(this.data[(this.bytePos + int64(1))]);
+  if  ((byte1 == int64(255)) && (byte2 >= int64(208))) && (byte2 <= int64(215)) {
+    this.bytePos = this.bytePos + int64(2); 
+    return true
+  }
+  return false
+}
 func (this *BitReader) getBytePosition () int64 {
   return this.bytePos
 }
@@ -319,19 +328,27 @@ type HuffmanTable struct {
 
 func CreateNew_HuffmanTable() *HuffmanTable {
   me := new(HuffmanTable)
-  me.bits = make([]int64,0)
+  me.bits = 
+  make([]int64, int64(16))
+  
   me.values = make([]int64,0)
-  me.maxCode = make([]int64,0)
-  me.minCode = make([]int64,0)
-  me.valPtr = make([]int64,0)
+  me.maxCode = 
+  make([]int64, int64(16))
+  
+  me.minCode = 
+  make([]int64, int64(16))
+  
+  me.valPtr = 
+  make([]int64, int64(16))
+  
   me.tableClass = int64(0)
   me.tableId = int64(0)
   var i int64= int64(0);
   for i < int64(16) {
-    me.bits = append(me.bits,int64(0)); 
-    me.maxCode = append(me.maxCode,int64(-1)); 
-    me.minCode = append(me.minCode,int64(0)); 
-    me.valPtr = append(me.valPtr,int64(0)); 
+    me.bits[i] = int64(0)
+    me.maxCode[i] = int64(-1)
+    me.minCode[i] = int64(0)
+    me.valPtr[i] = int64(0)
     i = i + int64(1); 
   }
   return me;
@@ -343,15 +360,15 @@ func (this *HuffmanTable) build () () {
   for i < int64(16) {
     var count int64= this.bits[i];
     if  count > int64(0) {
-      this.minCode[i] = code;
-      this.valPtr[i] = valueIdx;
+      this.minCode[i] = code
+      this.valPtr[i] = valueIdx
       valueIdx = valueIdx + count; 
       code = code + count; 
-      this.maxCode[i] = code - int64(1);
+      this.maxCode[i] = code - int64(1)
     } else {
-      this.maxCode[i] = int64(-1);
-      this.minCode[i] = int64(0);
-      this.valPtr[i] = valueIdx;
+      this.maxCode[i] = int64(-1)
+      this.minCode[i] = int64(0)
+      this.valPtr[i] = valueIdx
     }
     code = int64(code << uint(int64(1))); 
     i = i + int64(1); 
@@ -376,6 +393,17 @@ func (this *HuffmanTable) decode (reader *BitReader) int64 {
   }
   fmt.Println( "Huffman decode error: code not found" )
   return int64(0)
+}
+func (this *HuffmanTable) resetArrays () () {
+  var i int64= int64(0);
+  for i < int64(16) {
+    this.bits[i] = int64(0)
+    this.maxCode[i] = int64(-1)
+    this.minCode[i] = int64(0)
+    this.valPtr[i] = int64(0)
+    i = i + int64(1); 
+  }
+  this.values = this.values[:0]
 }
 type HuffmanDecoder struct { 
   dcTable0 *HuffmanTable `json:"dcTable0"` 
@@ -417,25 +445,14 @@ func (this *HuffmanDecoder) parseDHT (data []byte, pos int64, length int64) () {
     }
     table.tableClass = tableClass; 
     table.tableId = tableId; 
-    table.bits = table.bits[:0]
+    table.resetArrays();
     var totalSymbols int64= int64(0);
     var i int64= int64(0);
     for i < int64(16) {
       var count int64= int64(data[pos]);
-      table.bits = append(table.bits,count); 
+      table.bits[i] = count
       totalSymbols = totalSymbols + count; 
       pos = pos + int64(1); 
-      i = i + int64(1); 
-    }
-    table.values = table.values[:0]
-    table.maxCode = table.maxCode[:0]
-    table.minCode = table.minCode[:0]
-    table.valPtr = table.valPtr[:0]
-    i = int64(0); 
-    for i < int64(16) {
-      table.maxCode = append(table.maxCode,int64(-1)); 
-      table.minCode = append(table.minCode,int64(0)); 
-      table.valPtr = append(table.valPtr,int64(0)); 
       i = i + int64(1); 
     }
     i = int64(0); 
@@ -459,149 +476,149 @@ type IDCT struct {
 
 func CreateNew_IDCT() *IDCT {
   me := new(IDCT)
-  me.cosTable = make([]int64,0)
-  me.zigzagMap = make([]int64,0)
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(1004)); 
-  me.cosTable = append(me.cosTable,int64(946)); 
-  me.cosTable = append(me.cosTable,int64(851)); 
-  me.cosTable = append(me.cosTable,int64(724)); 
-  me.cosTable = append(me.cosTable,int64(569)); 
-  me.cosTable = append(me.cosTable,int64(392)); 
-  me.cosTable = append(me.cosTable,int64(200)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(851)); 
-  me.cosTable = append(me.cosTable,int64(392)); 
-  me.cosTable = append(me.cosTable,int64(-200)); 
-  me.cosTable = append(me.cosTable,int64(-724)); 
-  me.cosTable = append(me.cosTable,int64(-1004)); 
-  me.cosTable = append(me.cosTable,int64(-946)); 
-  me.cosTable = append(me.cosTable,int64(-569)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(569)); 
-  me.cosTable = append(me.cosTable,int64(-392)); 
-  me.cosTable = append(me.cosTable,int64(-1004)); 
-  me.cosTable = append(me.cosTable,int64(-724)); 
-  me.cosTable = append(me.cosTable,int64(200)); 
-  me.cosTable = append(me.cosTable,int64(946)); 
-  me.cosTable = append(me.cosTable,int64(851)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(200)); 
-  me.cosTable = append(me.cosTable,int64(-946)); 
-  me.cosTable = append(me.cosTable,int64(-569)); 
-  me.cosTable = append(me.cosTable,int64(724)); 
-  me.cosTable = append(me.cosTable,int64(851)); 
-  me.cosTable = append(me.cosTable,int64(-392)); 
-  me.cosTable = append(me.cosTable,int64(-1004)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(-200)); 
-  me.cosTable = append(me.cosTable,int64(-946)); 
-  me.cosTable = append(me.cosTable,int64(569)); 
-  me.cosTable = append(me.cosTable,int64(724)); 
-  me.cosTable = append(me.cosTable,int64(-851)); 
-  me.cosTable = append(me.cosTable,int64(-392)); 
-  me.cosTable = append(me.cosTable,int64(1004)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(-569)); 
-  me.cosTable = append(me.cosTable,int64(-392)); 
-  me.cosTable = append(me.cosTable,int64(1004)); 
-  me.cosTable = append(me.cosTable,int64(-724)); 
-  me.cosTable = append(me.cosTable,int64(-200)); 
-  me.cosTable = append(me.cosTable,int64(946)); 
-  me.cosTable = append(me.cosTable,int64(-851)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(-851)); 
-  me.cosTable = append(me.cosTable,int64(392)); 
-  me.cosTable = append(me.cosTable,int64(200)); 
-  me.cosTable = append(me.cosTable,int64(-724)); 
-  me.cosTable = append(me.cosTable,int64(1004)); 
-  me.cosTable = append(me.cosTable,int64(-946)); 
-  me.cosTable = append(me.cosTable,int64(569)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(-1004)); 
-  me.cosTable = append(me.cosTable,int64(946)); 
-  me.cosTable = append(me.cosTable,int64(-851)); 
-  me.cosTable = append(me.cosTable,int64(724)); 
-  me.cosTable = append(me.cosTable,int64(-569)); 
-  me.cosTable = append(me.cosTable,int64(392)); 
-  me.cosTable = append(me.cosTable,int64(-200)); 
-  me.zigzagMap = append(me.zigzagMap,int64(0)); 
-  me.zigzagMap = append(me.zigzagMap,int64(1)); 
-  me.zigzagMap = append(me.zigzagMap,int64(8)); 
-  me.zigzagMap = append(me.zigzagMap,int64(16)); 
-  me.zigzagMap = append(me.zigzagMap,int64(9)); 
-  me.zigzagMap = append(me.zigzagMap,int64(2)); 
-  me.zigzagMap = append(me.zigzagMap,int64(3)); 
-  me.zigzagMap = append(me.zigzagMap,int64(10)); 
-  me.zigzagMap = append(me.zigzagMap,int64(17)); 
-  me.zigzagMap = append(me.zigzagMap,int64(24)); 
-  me.zigzagMap = append(me.zigzagMap,int64(32)); 
-  me.zigzagMap = append(me.zigzagMap,int64(25)); 
-  me.zigzagMap = append(me.zigzagMap,int64(18)); 
-  me.zigzagMap = append(me.zigzagMap,int64(11)); 
-  me.zigzagMap = append(me.zigzagMap,int64(4)); 
-  me.zigzagMap = append(me.zigzagMap,int64(5)); 
-  me.zigzagMap = append(me.zigzagMap,int64(12)); 
-  me.zigzagMap = append(me.zigzagMap,int64(19)); 
-  me.zigzagMap = append(me.zigzagMap,int64(26)); 
-  me.zigzagMap = append(me.zigzagMap,int64(33)); 
-  me.zigzagMap = append(me.zigzagMap,int64(40)); 
-  me.zigzagMap = append(me.zigzagMap,int64(48)); 
-  me.zigzagMap = append(me.zigzagMap,int64(41)); 
-  me.zigzagMap = append(me.zigzagMap,int64(34)); 
-  me.zigzagMap = append(me.zigzagMap,int64(27)); 
-  me.zigzagMap = append(me.zigzagMap,int64(20)); 
-  me.zigzagMap = append(me.zigzagMap,int64(13)); 
-  me.zigzagMap = append(me.zigzagMap,int64(6)); 
-  me.zigzagMap = append(me.zigzagMap,int64(7)); 
-  me.zigzagMap = append(me.zigzagMap,int64(14)); 
-  me.zigzagMap = append(me.zigzagMap,int64(21)); 
-  me.zigzagMap = append(me.zigzagMap,int64(28)); 
-  me.zigzagMap = append(me.zigzagMap,int64(35)); 
-  me.zigzagMap = append(me.zigzagMap,int64(42)); 
-  me.zigzagMap = append(me.zigzagMap,int64(49)); 
-  me.zigzagMap = append(me.zigzagMap,int64(56)); 
-  me.zigzagMap = append(me.zigzagMap,int64(57)); 
-  me.zigzagMap = append(me.zigzagMap,int64(50)); 
-  me.zigzagMap = append(me.zigzagMap,int64(43)); 
-  me.zigzagMap = append(me.zigzagMap,int64(36)); 
-  me.zigzagMap = append(me.zigzagMap,int64(29)); 
-  me.zigzagMap = append(me.zigzagMap,int64(22)); 
-  me.zigzagMap = append(me.zigzagMap,int64(15)); 
-  me.zigzagMap = append(me.zigzagMap,int64(23)); 
-  me.zigzagMap = append(me.zigzagMap,int64(30)); 
-  me.zigzagMap = append(me.zigzagMap,int64(37)); 
-  me.zigzagMap = append(me.zigzagMap,int64(44)); 
-  me.zigzagMap = append(me.zigzagMap,int64(51)); 
-  me.zigzagMap = append(me.zigzagMap,int64(58)); 
-  me.zigzagMap = append(me.zigzagMap,int64(59)); 
-  me.zigzagMap = append(me.zigzagMap,int64(52)); 
-  me.zigzagMap = append(me.zigzagMap,int64(45)); 
-  me.zigzagMap = append(me.zigzagMap,int64(38)); 
-  me.zigzagMap = append(me.zigzagMap,int64(31)); 
-  me.zigzagMap = append(me.zigzagMap,int64(39)); 
-  me.zigzagMap = append(me.zigzagMap,int64(46)); 
-  me.zigzagMap = append(me.zigzagMap,int64(53)); 
-  me.zigzagMap = append(me.zigzagMap,int64(60)); 
-  me.zigzagMap = append(me.zigzagMap,int64(61)); 
-  me.zigzagMap = append(me.zigzagMap,int64(54)); 
-  me.zigzagMap = append(me.zigzagMap,int64(47)); 
-  me.zigzagMap = append(me.zigzagMap,int64(55)); 
-  me.zigzagMap = append(me.zigzagMap,int64(62)); 
-  me.zigzagMap = append(me.zigzagMap,int64(63)); 
+  me.cosTable = 
+  make([]int64, int64(64))
+  
+  me.zigzagMap = 
+  make([]int64, int64(64))
+  
+  me.cosTable[int64(0)] = int64(1024)
+  me.cosTable[int64(1)] = int64(1004)
+  me.cosTable[int64(2)] = int64(946)
+  me.cosTable[int64(3)] = int64(851)
+  me.cosTable[int64(4)] = int64(724)
+  me.cosTable[int64(5)] = int64(569)
+  me.cosTable[int64(6)] = int64(392)
+  me.cosTable[int64(7)] = int64(200)
+  me.cosTable[int64(8)] = int64(1024)
+  me.cosTable[int64(9)] = int64(851)
+  me.cosTable[int64(10)] = int64(392)
+  me.cosTable[int64(11)] = int64(-200)
+  me.cosTable[int64(12)] = int64(-724)
+  me.cosTable[int64(13)] = int64(-1004)
+  me.cosTable[int64(14)] = int64(-946)
+  me.cosTable[int64(15)] = int64(-569)
+  me.cosTable[int64(16)] = int64(1024)
+  me.cosTable[int64(17)] = int64(569)
+  me.cosTable[int64(18)] = int64(-392)
+  me.cosTable[int64(19)] = int64(-1004)
+  me.cosTable[int64(20)] = int64(-724)
+  me.cosTable[int64(21)] = int64(200)
+  me.cosTable[int64(22)] = int64(946)
+  me.cosTable[int64(23)] = int64(851)
+  me.cosTable[int64(24)] = int64(1024)
+  me.cosTable[int64(25)] = int64(200)
+  me.cosTable[int64(26)] = int64(-946)
+  me.cosTable[int64(27)] = int64(-569)
+  me.cosTable[int64(28)] = int64(724)
+  me.cosTable[int64(29)] = int64(851)
+  me.cosTable[int64(30)] = int64(-392)
+  me.cosTable[int64(31)] = int64(-1004)
+  me.cosTable[int64(32)] = int64(1024)
+  me.cosTable[int64(33)] = int64(-200)
+  me.cosTable[int64(34)] = int64(-946)
+  me.cosTable[int64(35)] = int64(569)
+  me.cosTable[int64(36)] = int64(724)
+  me.cosTable[int64(37)] = int64(-851)
+  me.cosTable[int64(38)] = int64(-392)
+  me.cosTable[int64(39)] = int64(1004)
+  me.cosTable[int64(40)] = int64(1024)
+  me.cosTable[int64(41)] = int64(-569)
+  me.cosTable[int64(42)] = int64(-392)
+  me.cosTable[int64(43)] = int64(1004)
+  me.cosTable[int64(44)] = int64(-724)
+  me.cosTable[int64(45)] = int64(-200)
+  me.cosTable[int64(46)] = int64(946)
+  me.cosTable[int64(47)] = int64(-851)
+  me.cosTable[int64(48)] = int64(1024)
+  me.cosTable[int64(49)] = int64(-851)
+  me.cosTable[int64(50)] = int64(392)
+  me.cosTable[int64(51)] = int64(200)
+  me.cosTable[int64(52)] = int64(-724)
+  me.cosTable[int64(53)] = int64(1004)
+  me.cosTable[int64(54)] = int64(-946)
+  me.cosTable[int64(55)] = int64(569)
+  me.cosTable[int64(56)] = int64(1024)
+  me.cosTable[int64(57)] = int64(-1004)
+  me.cosTable[int64(58)] = int64(946)
+  me.cosTable[int64(59)] = int64(-851)
+  me.cosTable[int64(60)] = int64(724)
+  me.cosTable[int64(61)] = int64(-569)
+  me.cosTable[int64(62)] = int64(392)
+  me.cosTable[int64(63)] = int64(-200)
+  me.zigzagMap[int64(0)] = int64(0)
+  me.zigzagMap[int64(1)] = int64(1)
+  me.zigzagMap[int64(2)] = int64(8)
+  me.zigzagMap[int64(3)] = int64(16)
+  me.zigzagMap[int64(4)] = int64(9)
+  me.zigzagMap[int64(5)] = int64(2)
+  me.zigzagMap[int64(6)] = int64(3)
+  me.zigzagMap[int64(7)] = int64(10)
+  me.zigzagMap[int64(8)] = int64(17)
+  me.zigzagMap[int64(9)] = int64(24)
+  me.zigzagMap[int64(10)] = int64(32)
+  me.zigzagMap[int64(11)] = int64(25)
+  me.zigzagMap[int64(12)] = int64(18)
+  me.zigzagMap[int64(13)] = int64(11)
+  me.zigzagMap[int64(14)] = int64(4)
+  me.zigzagMap[int64(15)] = int64(5)
+  me.zigzagMap[int64(16)] = int64(12)
+  me.zigzagMap[int64(17)] = int64(19)
+  me.zigzagMap[int64(18)] = int64(26)
+  me.zigzagMap[int64(19)] = int64(33)
+  me.zigzagMap[int64(20)] = int64(40)
+  me.zigzagMap[int64(21)] = int64(48)
+  me.zigzagMap[int64(22)] = int64(41)
+  me.zigzagMap[int64(23)] = int64(34)
+  me.zigzagMap[int64(24)] = int64(27)
+  me.zigzagMap[int64(25)] = int64(20)
+  me.zigzagMap[int64(26)] = int64(13)
+  me.zigzagMap[int64(27)] = int64(6)
+  me.zigzagMap[int64(28)] = int64(7)
+  me.zigzagMap[int64(29)] = int64(14)
+  me.zigzagMap[int64(30)] = int64(21)
+  me.zigzagMap[int64(31)] = int64(28)
+  me.zigzagMap[int64(32)] = int64(35)
+  me.zigzagMap[int64(33)] = int64(42)
+  me.zigzagMap[int64(34)] = int64(49)
+  me.zigzagMap[int64(35)] = int64(56)
+  me.zigzagMap[int64(36)] = int64(57)
+  me.zigzagMap[int64(37)] = int64(50)
+  me.zigzagMap[int64(38)] = int64(43)
+  me.zigzagMap[int64(39)] = int64(36)
+  me.zigzagMap[int64(40)] = int64(29)
+  me.zigzagMap[int64(41)] = int64(22)
+  me.zigzagMap[int64(42)] = int64(15)
+  me.zigzagMap[int64(43)] = int64(23)
+  me.zigzagMap[int64(44)] = int64(30)
+  me.zigzagMap[int64(45)] = int64(37)
+  me.zigzagMap[int64(46)] = int64(44)
+  me.zigzagMap[int64(47)] = int64(51)
+  me.zigzagMap[int64(48)] = int64(58)
+  me.zigzagMap[int64(49)] = int64(59)
+  me.zigzagMap[int64(50)] = int64(52)
+  me.zigzagMap[int64(51)] = int64(45)
+  me.zigzagMap[int64(52)] = int64(38)
+  me.zigzagMap[int64(53)] = int64(31)
+  me.zigzagMap[int64(54)] = int64(39)
+  me.zigzagMap[int64(55)] = int64(46)
+  me.zigzagMap[int64(56)] = int64(53)
+  me.zigzagMap[int64(57)] = int64(60)
+  me.zigzagMap[int64(58)] = int64(61)
+  me.zigzagMap[int64(59)] = int64(54)
+  me.zigzagMap[int64(60)] = int64(47)
+  me.zigzagMap[int64(61)] = int64(55)
+  me.zigzagMap[int64(62)] = int64(62)
+  me.zigzagMap[int64(63)] = int64(63)
   return me;
 }
 func (this *IDCT) dezigzag (zigzag []int64) []int64 {
-  var block []int64 = make([]int64, 0);
+  var block []int64= make([]int64, int64(64));
   var i int64= int64(0);
   for i < int64(64) {
-    block = append(block,int64(0)); 
-    i = i + int64(1); 
-  }
-  i = int64(0); 
-  for i < int64(64) {
     var pos int64= this.zigzagMap[i];
-    block[pos] = zigzag[i];
+    var val int64= zigzag[i];
+    block[pos] = val
     i = i + int64(1); 
   }
   return block
@@ -623,17 +640,12 @@ func (this *IDCT) idct1d (input []int64, startIdx int64, stride int64, output []
       }
       u = u + int64(1); 
     }
-    output[outIdx + (x * outStride)] = int64(sum >> uint(int64(11)));
+    output[outIdx + (x * outStride)] = int64(sum >> uint(int64(11)))
     x = x + int64(1); 
   }
 }
 func (this *IDCT) transform (block []int64, output []int64) () {
-  var temp []int64 = make([]int64, 0);
-  var i int64= int64(0);
-  for i < int64(64) {
-    temp = append(temp,int64(0)); 
-    i = i + int64(1); 
-  }
+  var temp []int64= make([]int64, int64(64));
   var row int64= int64(0);
   for row < int64(8) {
     var rowStart int64= row * int64(8);
@@ -645,7 +657,7 @@ func (this *IDCT) transform (block []int64, output []int64) () {
     this.idct1d(temp, col, int64(8), output, col, int64(8));
     col = col + int64(1); 
   }
-  i = int64(0); 
+  var i int64= int64(0);
   for i < int64(64) {
     var val int64= (output[i]) + int64(128);
     if  val < int64(0) {
@@ -654,7 +666,7 @@ func (this *IDCT) transform (block []int64, output []int64) () {
     if  val > int64(255) {
       val = int64(255); 
     }
-    output[i] = val;
+    output[i] = val
     i = i + int64(1); 
   }
 }
@@ -1700,19 +1712,15 @@ func (this *JPEGDecoder) parseMarkers () bool {
   return true
 }
 func (this *JPEGDecoder) decodeBlock (reader *BitReader, comp *JPEGComponent, quantTable *QuantizationTable) []int64 {
-  var coeffs []int64 = make([]int64, 0);
-  var i int64= int64(0);
-  for i < int64(64) {
-    coeffs = append(coeffs,int64(0)); 
-    i = i + int64(1); 
-  }
+  var coeffs []int64= make([]int64, int64(64));
+  for i := int64(0); i < int64(64); i++ { coeffs[i] = int64(0) }
   var dcTable *HuffmanTable= this.huffman.value.(*HuffmanDecoder).getDCTable(comp.dcTableId);
   var dcCategory int64= dcTable.decode(reader);
   var dcDiff int64= reader.receiveExtend(dcCategory);
   var dcValue int64= comp.prevDC + dcDiff;
   comp.prevDC = dcValue; 
   var dcQuant int64= quantTable.values[int64(0)];
-  coeffs[int64(0)] = dcValue * dcQuant;
+  coeffs[int64(0)] = dcValue * dcQuant
   var acTable *HuffmanTable= this.huffman.value.(*HuffmanDecoder).getACTable(comp.acTableId);
   var k int64= int64(1);
   for k < int64(64) {
@@ -1729,7 +1737,7 @@ func (this *JPEGDecoder) decodeBlock (reader *BitReader, comp *JPEGComponent, qu
         if  k < int64(64) {
           var acValue int64= reader.receiveExtend(acCategory);
           var acQuant int64= quantTable.values[k];
-          coeffs[k] = acValue * acQuant;
+          coeffs[k] = acValue * acQuant
           k = k + int64(1); 
         }
       }
@@ -1782,6 +1790,7 @@ func (this *JPEGDecoder) decode (dirPath string, fileName string) *ImageBuffer {
           c = c + int64(1); 
         }
         reader.alignToByte();
+        reader.skipRestartMarker();
       }
       yBlocksData = yBlocksData[:0]
       yBlockCount = int64(0); 
@@ -1794,16 +1803,12 @@ func (this *JPEGDecoder) decode (dirPath string, fileName string) *ImageBuffer {
           var blockH int64= int64(0);
           for blockH < comp_1.hSamp {
             var coeffs []int64= this.decodeBlock(reader, comp_1, quantTable);
-            var blockPixels []int64 = make([]int64, 0);
-            var bi int64= int64(0);
-            for bi < int64(64) {
-              blockPixels = append(blockPixels,int64(0)); 
-              bi = bi + int64(1); 
-            }
+            var blockPixels []int64= make([]int64, int64(64));
+            for i := int64(0); i < int64(64); i++ { blockPixels[i] = int64(0) }
             var tempBlock []int64= this.idct.value.(*IDCT).dezigzag(coeffs);
             this.idct.value.(*IDCT).transform(tempBlock, blockPixels);
             if  compIdx == int64(0) {
-              bi = int64(0); 
+              var bi int64= int64(0);
               for bi < int64(64) {
                 yBlocksData = append(yBlocksData,blockPixels[bi]); 
                 bi = bi + int64(1); 
@@ -1812,18 +1817,18 @@ func (this *JPEGDecoder) decode (dirPath string, fileName string) *ImageBuffer {
             }
             if  compIdx == int64(1) {
               cbBlock = cbBlock[:0]
-              bi = int64(0); 
-              for bi < int64(64) {
-                cbBlock = append(cbBlock,blockPixels[bi]); 
-                bi = bi + int64(1); 
+              var bi_1 int64= int64(0);
+              for bi_1 < int64(64) {
+                cbBlock = append(cbBlock,blockPixels[bi_1]); 
+                bi_1 = bi_1 + int64(1); 
               }
             }
             if  compIdx == int64(2) {
               crBlock = crBlock[:0]
-              bi = int64(0); 
-              for bi < int64(64) {
-                crBlock = append(crBlock,blockPixels[bi]); 
-                bi = bi + int64(1); 
+              var bi_2 int64= int64(0);
+              for bi_2 < int64(64) {
+                crBlock = append(crBlock,blockPixels[bi_2]); 
+                bi_2 = bi_2 + int64(1); 
               }
             }
             blockH = blockH + int64(1); 
@@ -2029,136 +2034,140 @@ type FDCT struct {
 
 func CreateNew_FDCT() *FDCT {
   me := new(FDCT)
-  me.cosTable = make([]int64,0)
-  me.zigzagOrder = make([]int64,0)
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(1004)); 
-  me.cosTable = append(me.cosTable,int64(946)); 
-  me.cosTable = append(me.cosTable,int64(851)); 
-  me.cosTable = append(me.cosTable,int64(724)); 
-  me.cosTable = append(me.cosTable,int64(569)); 
-  me.cosTable = append(me.cosTable,int64(392)); 
-  me.cosTable = append(me.cosTable,int64(200)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(851)); 
-  me.cosTable = append(me.cosTable,int64(392)); 
-  me.cosTable = append(me.cosTable,int64(-200)); 
-  me.cosTable = append(me.cosTable,int64(-724)); 
-  me.cosTable = append(me.cosTable,int64(-1004)); 
-  me.cosTable = append(me.cosTable,int64(-946)); 
-  me.cosTable = append(me.cosTable,int64(-569)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(569)); 
-  me.cosTable = append(me.cosTable,int64(-392)); 
-  me.cosTable = append(me.cosTable,int64(-1004)); 
-  me.cosTable = append(me.cosTable,int64(-724)); 
-  me.cosTable = append(me.cosTable,int64(200)); 
-  me.cosTable = append(me.cosTable,int64(946)); 
-  me.cosTable = append(me.cosTable,int64(851)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(200)); 
-  me.cosTable = append(me.cosTable,int64(-946)); 
-  me.cosTable = append(me.cosTable,int64(-569)); 
-  me.cosTable = append(me.cosTable,int64(724)); 
-  me.cosTable = append(me.cosTable,int64(851)); 
-  me.cosTable = append(me.cosTable,int64(-392)); 
-  me.cosTable = append(me.cosTable,int64(-1004)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(-200)); 
-  me.cosTable = append(me.cosTable,int64(-946)); 
-  me.cosTable = append(me.cosTable,int64(569)); 
-  me.cosTable = append(me.cosTable,int64(724)); 
-  me.cosTable = append(me.cosTable,int64(-851)); 
-  me.cosTable = append(me.cosTable,int64(-392)); 
-  me.cosTable = append(me.cosTable,int64(1004)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(-569)); 
-  me.cosTable = append(me.cosTable,int64(-392)); 
-  me.cosTable = append(me.cosTable,int64(1004)); 
-  me.cosTable = append(me.cosTable,int64(-724)); 
-  me.cosTable = append(me.cosTable,int64(-200)); 
-  me.cosTable = append(me.cosTable,int64(946)); 
-  me.cosTable = append(me.cosTable,int64(-851)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(-851)); 
-  me.cosTable = append(me.cosTable,int64(392)); 
-  me.cosTable = append(me.cosTable,int64(200)); 
-  me.cosTable = append(me.cosTable,int64(-724)); 
-  me.cosTable = append(me.cosTable,int64(1004)); 
-  me.cosTable = append(me.cosTable,int64(-946)); 
-  me.cosTable = append(me.cosTable,int64(569)); 
-  me.cosTable = append(me.cosTable,int64(1024)); 
-  me.cosTable = append(me.cosTable,int64(-1004)); 
-  me.cosTable = append(me.cosTable,int64(946)); 
-  me.cosTable = append(me.cosTable,int64(-851)); 
-  me.cosTable = append(me.cosTable,int64(724)); 
-  me.cosTable = append(me.cosTable,int64(-569)); 
-  me.cosTable = append(me.cosTable,int64(392)); 
-  me.cosTable = append(me.cosTable,int64(-200)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(0)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(1)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(8)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(16)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(9)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(2)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(3)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(10)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(17)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(24)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(32)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(25)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(18)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(11)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(4)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(5)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(12)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(19)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(26)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(33)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(40)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(48)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(41)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(34)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(27)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(20)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(13)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(6)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(7)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(14)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(21)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(28)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(35)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(42)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(49)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(56)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(57)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(50)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(43)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(36)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(29)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(22)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(15)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(23)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(30)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(37)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(44)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(51)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(58)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(59)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(52)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(45)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(38)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(31)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(39)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(46)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(53)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(60)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(61)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(54)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(47)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(55)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(62)); 
-  me.zigzagOrder = append(me.zigzagOrder,int64(63)); 
+  me.cosTable = 
+  make([]int64, int64(64))
+  
+  me.zigzagOrder = 
+  make([]int64, int64(64))
+  
+  me.cosTable[int64(0)] = int64(1024)
+  me.cosTable[int64(1)] = int64(1004)
+  me.cosTable[int64(2)] = int64(946)
+  me.cosTable[int64(3)] = int64(851)
+  me.cosTable[int64(4)] = int64(724)
+  me.cosTable[int64(5)] = int64(569)
+  me.cosTable[int64(6)] = int64(392)
+  me.cosTable[int64(7)] = int64(200)
+  me.cosTable[int64(8)] = int64(1024)
+  me.cosTable[int64(9)] = int64(851)
+  me.cosTable[int64(10)] = int64(392)
+  me.cosTable[int64(11)] = int64(-200)
+  me.cosTable[int64(12)] = int64(-724)
+  me.cosTable[int64(13)] = int64(-1004)
+  me.cosTable[int64(14)] = int64(-946)
+  me.cosTable[int64(15)] = int64(-569)
+  me.cosTable[int64(16)] = int64(1024)
+  me.cosTable[int64(17)] = int64(569)
+  me.cosTable[int64(18)] = int64(-392)
+  me.cosTable[int64(19)] = int64(-1004)
+  me.cosTable[int64(20)] = int64(-724)
+  me.cosTable[int64(21)] = int64(200)
+  me.cosTable[int64(22)] = int64(946)
+  me.cosTable[int64(23)] = int64(851)
+  me.cosTable[int64(24)] = int64(1024)
+  me.cosTable[int64(25)] = int64(200)
+  me.cosTable[int64(26)] = int64(-946)
+  me.cosTable[int64(27)] = int64(-569)
+  me.cosTable[int64(28)] = int64(724)
+  me.cosTable[int64(29)] = int64(851)
+  me.cosTable[int64(30)] = int64(-392)
+  me.cosTable[int64(31)] = int64(-1004)
+  me.cosTable[int64(32)] = int64(1024)
+  me.cosTable[int64(33)] = int64(-200)
+  me.cosTable[int64(34)] = int64(-946)
+  me.cosTable[int64(35)] = int64(569)
+  me.cosTable[int64(36)] = int64(724)
+  me.cosTable[int64(37)] = int64(-851)
+  me.cosTable[int64(38)] = int64(-392)
+  me.cosTable[int64(39)] = int64(1004)
+  me.cosTable[int64(40)] = int64(1024)
+  me.cosTable[int64(41)] = int64(-569)
+  me.cosTable[int64(42)] = int64(-392)
+  me.cosTable[int64(43)] = int64(1004)
+  me.cosTable[int64(44)] = int64(-724)
+  me.cosTable[int64(45)] = int64(-200)
+  me.cosTable[int64(46)] = int64(946)
+  me.cosTable[int64(47)] = int64(-851)
+  me.cosTable[int64(48)] = int64(1024)
+  me.cosTable[int64(49)] = int64(-851)
+  me.cosTable[int64(50)] = int64(392)
+  me.cosTable[int64(51)] = int64(200)
+  me.cosTable[int64(52)] = int64(-724)
+  me.cosTable[int64(53)] = int64(1004)
+  me.cosTable[int64(54)] = int64(-946)
+  me.cosTable[int64(55)] = int64(569)
+  me.cosTable[int64(56)] = int64(1024)
+  me.cosTable[int64(57)] = int64(-1004)
+  me.cosTable[int64(58)] = int64(946)
+  me.cosTable[int64(59)] = int64(-851)
+  me.cosTable[int64(60)] = int64(724)
+  me.cosTable[int64(61)] = int64(-569)
+  me.cosTable[int64(62)] = int64(392)
+  me.cosTable[int64(63)] = int64(-200)
+  me.zigzagOrder[int64(0)] = int64(0)
+  me.zigzagOrder[int64(1)] = int64(1)
+  me.zigzagOrder[int64(2)] = int64(8)
+  me.zigzagOrder[int64(3)] = int64(16)
+  me.zigzagOrder[int64(4)] = int64(9)
+  me.zigzagOrder[int64(5)] = int64(2)
+  me.zigzagOrder[int64(6)] = int64(3)
+  me.zigzagOrder[int64(7)] = int64(10)
+  me.zigzagOrder[int64(8)] = int64(17)
+  me.zigzagOrder[int64(9)] = int64(24)
+  me.zigzagOrder[int64(10)] = int64(32)
+  me.zigzagOrder[int64(11)] = int64(25)
+  me.zigzagOrder[int64(12)] = int64(18)
+  me.zigzagOrder[int64(13)] = int64(11)
+  me.zigzagOrder[int64(14)] = int64(4)
+  me.zigzagOrder[int64(15)] = int64(5)
+  me.zigzagOrder[int64(16)] = int64(12)
+  me.zigzagOrder[int64(17)] = int64(19)
+  me.zigzagOrder[int64(18)] = int64(26)
+  me.zigzagOrder[int64(19)] = int64(33)
+  me.zigzagOrder[int64(20)] = int64(40)
+  me.zigzagOrder[int64(21)] = int64(48)
+  me.zigzagOrder[int64(22)] = int64(41)
+  me.zigzagOrder[int64(23)] = int64(34)
+  me.zigzagOrder[int64(24)] = int64(27)
+  me.zigzagOrder[int64(25)] = int64(20)
+  me.zigzagOrder[int64(26)] = int64(13)
+  me.zigzagOrder[int64(27)] = int64(6)
+  me.zigzagOrder[int64(28)] = int64(7)
+  me.zigzagOrder[int64(29)] = int64(14)
+  me.zigzagOrder[int64(30)] = int64(21)
+  me.zigzagOrder[int64(31)] = int64(28)
+  me.zigzagOrder[int64(32)] = int64(35)
+  me.zigzagOrder[int64(33)] = int64(42)
+  me.zigzagOrder[int64(34)] = int64(49)
+  me.zigzagOrder[int64(35)] = int64(56)
+  me.zigzagOrder[int64(36)] = int64(57)
+  me.zigzagOrder[int64(37)] = int64(50)
+  me.zigzagOrder[int64(38)] = int64(43)
+  me.zigzagOrder[int64(39)] = int64(36)
+  me.zigzagOrder[int64(40)] = int64(29)
+  me.zigzagOrder[int64(41)] = int64(22)
+  me.zigzagOrder[int64(42)] = int64(15)
+  me.zigzagOrder[int64(43)] = int64(23)
+  me.zigzagOrder[int64(44)] = int64(30)
+  me.zigzagOrder[int64(45)] = int64(37)
+  me.zigzagOrder[int64(46)] = int64(44)
+  me.zigzagOrder[int64(47)] = int64(51)
+  me.zigzagOrder[int64(48)] = int64(58)
+  me.zigzagOrder[int64(49)] = int64(59)
+  me.zigzagOrder[int64(50)] = int64(52)
+  me.zigzagOrder[int64(51)] = int64(45)
+  me.zigzagOrder[int64(52)] = int64(38)
+  me.zigzagOrder[int64(53)] = int64(31)
+  me.zigzagOrder[int64(54)] = int64(39)
+  me.zigzagOrder[int64(55)] = int64(46)
+  me.zigzagOrder[int64(56)] = int64(53)
+  me.zigzagOrder[int64(57)] = int64(60)
+  me.zigzagOrder[int64(58)] = int64(61)
+  me.zigzagOrder[int64(59)] = int64(54)
+  me.zigzagOrder[int64(60)] = int64(47)
+  me.zigzagOrder[int64(61)] = int64(55)
+  me.zigzagOrder[int64(62)] = int64(62)
+  me.zigzagOrder[int64(63)] = int64(63)
   return me;
 }
 func (this *FDCT) dct1d (input []int64, startIdx int64, stride int64, output []int64, outIdx int64, outStride int64) () {
@@ -2175,35 +2184,25 @@ func (this *FDCT) dct1d (input []int64, startIdx int64, stride int64, output []i
     if  u == int64(0) {
       sum = int64((sum * int64(724)) >> uint(int64(10))); 
     }
-    output[outIdx + (u * outStride)] = int64(sum >> uint(int64(11)));
+    output[outIdx + (u * outStride)] = int64(sum >> uint(int64(11)))
     u = u + int64(1); 
   }
 }
 func (this *FDCT) transform (pixels []int64) []int64 {
-  var shifted []int64 = make([]int64, 0);
+  var shifted []int64= make([]int64, int64(64));
   var i int64= int64(0);
   for i < int64(64) {
-    shifted = append(shifted,(pixels[i]) - int64(128)); 
+    shifted[i] = (pixels[i]) - int64(128)
     i = i + int64(1); 
   }
-  var temp []int64 = make([]int64, 0);
-  i = int64(0); 
-  for i < int64(64) {
-    temp = append(temp,int64(0)); 
-    i = i + int64(1); 
-  }
+  var temp []int64= make([]int64, int64(64));
   var row int64= int64(0);
   for row < int64(8) {
     var rowStart int64= row * int64(8);
     this.dct1d(shifted, rowStart, int64(1), temp, rowStart, int64(1));
     row = row + int64(1); 
   }
-  var coeffs []int64 = make([]int64, 0);
-  i = int64(0); 
-  for i < int64(64) {
-    coeffs = append(coeffs,int64(0)); 
-    i = i + int64(1); 
-  }
+  var coeffs []int64= make([]int64, int64(64));
   var col int64= int64(0);
   for col < int64(8) {
     this.dct1d(temp, col, int64(8), coeffs, col, int64(8));
@@ -2212,11 +2211,11 @@ func (this *FDCT) transform (pixels []int64) []int64 {
   return coeffs
 }
 func (this *FDCT) zigzag (block []int64) []int64 {
-  var zigzagOut []int64 = make([]int64, 0);
+  var zigzagOut []int64= make([]int64, int64(64));
   var i int64= int64(0);
   for i < int64(64) {
     var pos int64= this.zigzagOrder[i];
-    zigzagOut = append(zigzagOut,block[pos]); 
+    zigzagOut[i] = block[pos]
     i = i + int64(1); 
   }
   return zigzagOut
@@ -2972,7 +2971,7 @@ func (this *JPEGEncoder) encodeNumber (value int64, category int64) int64 {
   return value
 }
 func (this *JPEGEncoder) encodeBlock (writer *BitWriter, coeffs []int64, quantTable []int64, dcCodes []int64, dcLengths []int64, acCodes []int64, acLengths []int64, prevDC int64) () {
-  var quantized []int64 = make([]int64, 0);
+  var quantized []int64= make([]int64, int64(64));
   var i int64= int64(0);
   for i < int64(64) {
     var q int64= quantTable[i];
@@ -2983,7 +2982,7 @@ func (this *JPEGEncoder) encodeBlock (writer *BitWriter, coeffs []int64, quantTa
     } else {
       qVal = int64((float64((c - (int64(q >> uint(int64(1)))))) / float64(q))); 
     }
-    quantized = append(quantized,qVal); 
+    quantized[i] = qVal
     i = i + int64(1); 
   }
   var zigzagged []int64= this.fdct.value.(*FDCT).zigzag(quantized);
@@ -3054,7 +3053,8 @@ func (this *JPEGEncoder) rgbToYCbCr (r int64, g int64, b int64, yOut []int64, cb
   crOut = append(crOut,cr); 
 }
 func (this *JPEGEncoder) extractBlock (img *ImageBuffer, blockX int64, blockY int64, channel int64) []int64 {
-  var output []int64 = make([]int64, 0);
+  var output []int64= make([]int64, int64(64));
+  var idx int64= int64(0);
   var py int64= int64(0);
   for py < int64(8) {
     var px int64= int64(0);
@@ -3072,14 +3072,15 @@ func (this *JPEGEncoder) extractBlock (img *ImageBuffer, blockX int64, blockY in
       var cb int64= (int64((((int64(0) - (int64(43) * c.r)) - (int64(85) * c.g)) + (int64(128) * c.b)) >> uint(int64(8)))) + int64(128);
       var cr int64= (int64((((int64(128) * c.r) - (int64(107) * c.g)) - (int64(21) * c.b)) >> uint(int64(8)))) + int64(128);
       if  channel == int64(0) {
-        output = append(output,y); 
+        output[idx] = y
       }
       if  channel == int64(1) {
-        output = append(output,cb); 
+        output[idx] = cb
       }
       if  channel == int64(2) {
-        output = append(output,cr); 
+        output[idx] = cr
       }
+      idx = idx + int64(1); 
       px = px + int64(1); 
     }
     py = py + int64(1); 
@@ -3207,6 +3208,70 @@ func (this *JPEGEncoder) writeMarkers (writer *BitWriter, width int64, height in
   writer.writeByte(int64(0));
   writer.writeByte(int64(63));
   writer.writeByte(int64(0));
+}
+func (this *JPEGEncoder) encodeToBuffer (img *ImageBuffer) []byte {
+  var writer *BitWriter= CreateNew_BitWriter();
+  this.writeMarkers(writer, img.width, img.height);
+  var mcuWidth int64= int64((float64((img.width + int64(7))) / float64(int64(8))));
+  var mcuHeight int64= int64((float64((img.height + int64(7))) / float64(int64(8))));
+  this.prevDCY = int64(0); 
+  this.prevDCCb = int64(0); 
+  this.prevDCCr = int64(0); 
+  var mcuY int64= int64(0);
+  for mcuY < mcuHeight {
+    var mcuX int64= int64(0);
+    for mcuX < mcuWidth {
+      var blockX int64= mcuX * int64(8);
+      var blockY int64= mcuY * int64(8);
+      var yBlock []int64= this.extractBlock(img, blockX, blockY, int64(0));
+      var yCoeffs []int64= this.fdct.value.(*FDCT).transform(yBlock);
+      this.encodeBlock(writer, yCoeffs, this.yQuantTable, this.dcYCodes, this.dcYLengths, this.acYCodes, this.acYLengths, this.prevDCY);
+      var yZig []int64= this.fdct.value.(*FDCT).zigzag(yCoeffs);
+      var yQ int64= this.yQuantTable[int64(0)];
+      var yDC int64= yZig[int64(0)];
+      if  yDC >= int64(0) {
+        this.prevDCY = int64((float64((yDC + (int64(yQ >> uint(int64(1)))))) / float64(yQ))); 
+      } else {
+        this.prevDCY = int64((float64((yDC - (int64(yQ >> uint(int64(1)))))) / float64(yQ))); 
+      }
+      var cbBlock []int64= this.extractBlock(img, blockX, blockY, int64(1));
+      var cbCoeffs []int64= this.fdct.value.(*FDCT).transform(cbBlock);
+      this.encodeBlock(writer, cbCoeffs, this.cQuantTable, this.dcCCodes, this.dcCLengths, this.acCCodes, this.acCLengths, this.prevDCCb);
+      var cbZig []int64= this.fdct.value.(*FDCT).zigzag(cbCoeffs);
+      var cbQ int64= this.cQuantTable[int64(0)];
+      var cbDC int64= cbZig[int64(0)];
+      if  cbDC >= int64(0) {
+        this.prevDCCb = int64((float64((cbDC + (int64(cbQ >> uint(int64(1)))))) / float64(cbQ))); 
+      } else {
+        this.prevDCCb = int64((float64((cbDC - (int64(cbQ >> uint(int64(1)))))) / float64(cbQ))); 
+      }
+      var crBlock []int64= this.extractBlock(img, blockX, blockY, int64(2));
+      var crCoeffs []int64= this.fdct.value.(*FDCT).transform(crBlock);
+      this.encodeBlock(writer, crCoeffs, this.cQuantTable, this.dcCCodes, this.dcCLengths, this.acCCodes, this.acCLengths, this.prevDCCr);
+      var crZig []int64= this.fdct.value.(*FDCT).zigzag(crCoeffs);
+      var crQ int64= this.cQuantTable[int64(0)];
+      var crDC int64= crZig[int64(0)];
+      if  crDC >= int64(0) {
+        this.prevDCCr = int64((float64((crDC + (int64(crQ >> uint(int64(1)))))) / float64(crQ))); 
+      } else {
+        this.prevDCCr = int64((float64((crDC - (int64(crQ >> uint(int64(1)))))) / float64(crQ))); 
+      }
+      mcuX = mcuX + int64(1); 
+    }
+    mcuY = mcuY + int64(1); 
+  }
+  writer.flushByte();
+  var outBuf []byte= writer.getBuffer();
+  var outLen int64= writer.getLength();
+  var finalBuf []byte= make([]byte, (outLen + int64(2)));
+  var i int64= int64(0);
+  for i < outLen {
+    finalBuf[i] = byte(int64(outBuf[i]))
+    i = i + int64(1); 
+  }
+  finalBuf[outLen] = byte(int64(255))
+  finalBuf[outLen + int64(1)] = byte(int64(217))
+  return finalBuf
 }
 func (this *JPEGEncoder) encode (img *ImageBuffer, dirPath string, fileName string) () {
   fmt.Println( "Encoding JPEG: " + fileName )
@@ -3365,10 +3430,10 @@ func CreateNew_ProgressiveJPEGDecoder() *ProgressiveJPEGDecoder {
   me.eobrun = int64(0)
   me.huffman = CreateNew_HuffmanDecoder(); 
   me.idct = CreateNew_IDCT(); 
-  var i_3 int64= int64(0);
-  for i_3 < int64(4) {
+  var i_5 int64= int64(0);
+  for i_5 < int64(4) {
     me.quantTables = append(me.quantTables,CreateNew_QuantizationTable()); 
-    i_3 = i_3 + int64(1); 
+    i_5 = i_5 + int64(1); 
   }
   return me;
 }
@@ -4020,19 +4085,15 @@ func (this *ProgressiveJPEGDecoder) buildImage () *ImageBuffer {
         var bh int64= int64(0);
         for bh < comp0.hSamp {
           var blockIdx int64= (((mcuIdx * comp0.hSamp) * comp0.vSamp) + (bv * comp0.hSamp)) + bh;
-          var blockCoeffs []int64 = make([]int64, 0);
+          var blockCoeffs []int64= make([]int64, int64(64));
           var k int64= int64(0);
           for k < int64(64) {
-            blockCoeffs = append(blockCoeffs,(yBuf).get(blockIdx, k)); 
+            blockCoeffs[k] = (yBuf).get(blockIdx, k)
             k = k + int64(1); 
           }
           var tempBlock []int64= this.idct.dezigzag(blockCoeffs);
-          var blockPixels []int64 = make([]int64, 0);
-          k = int64(0); 
-          for k < int64(64) {
-            blockPixels = append(blockPixels,int64(0)); 
-            k = k + int64(1); 
-          }
+          var blockPixels []int64= make([]int64, int64(64));
+          for i := int64(0); i < int64(64); i++ { blockPixels[i] = int64(0) }
           this.idct.transform(tempBlock, blockPixels);
           k = int64(0); 
           for k < int64(64) {
@@ -4048,34 +4109,38 @@ func (this *ProgressiveJPEGDecoder) buildImage () *ImageBuffer {
       if  this.numComponents >= int64(3) {
         var cbBuf *CoeffBuffer= this.coeffBuffers[int64(1)];
         var cbBlockIdx int64= mcuIdx;
-        var blockCoeffs_1 []int64 = make([]int64, 0);
+        var blockCoeffs_1 []int64= make([]int64, int64(64));
         var k_1 int64= int64(0);
         for k_1 < int64(64) {
-          blockCoeffs_1 = append(blockCoeffs_1,(cbBuf).get(cbBlockIdx, k_1)); 
+          blockCoeffs_1[k_1] = (cbBuf).get(cbBlockIdx, k_1)
           k_1 = k_1 + int64(1); 
         }
         var tempBlock_1 []int64= this.idct.dezigzag(blockCoeffs_1);
+        var cbPixels []int64= make([]int64, int64(64));
+        for i := int64(0); i < int64(64); i++ { cbPixels[i] = int64(0) }
+        this.idct.transform(tempBlock_1, cbPixels);
         k_1 = int64(0); 
         for k_1 < int64(64) {
-          cbBlock = append(cbBlock,int64(0)); 
+          cbBlock = append(cbBlock,cbPixels[k_1]); 
           k_1 = k_1 + int64(1); 
         }
-        this.idct.transform(tempBlock_1, cbBlock);
         var crBuf *CoeffBuffer= this.coeffBuffers[int64(2)];
         var crBlockIdx int64= mcuIdx;
-        blockCoeffs_1 = blockCoeffs_1[:0]
+        var crCoeffs []int64= make([]int64, int64(64));
         k_1 = int64(0); 
         for k_1 < int64(64) {
-          blockCoeffs_1 = append(blockCoeffs_1,(crBuf).get(crBlockIdx, k_1)); 
+          crCoeffs[k_1] = (crBuf).get(crBlockIdx, k_1)
           k_1 = k_1 + int64(1); 
         }
-        var crTempBlock []int64= this.idct.dezigzag(blockCoeffs_1);
+        var crTempBlock []int64= this.idct.dezigzag(crCoeffs);
+        var crPixels []int64= make([]int64, int64(64));
+        for i := int64(0); i < int64(64); i++ { crPixels[i] = int64(0) }
+        this.idct.transform(crTempBlock, crPixels);
         k_1 = int64(0); 
         for k_1 < int64(64) {
-          crBlock = append(crBlock,int64(0)); 
+          crBlock = append(crBlock,crPixels[k_1]); 
           k_1 = k_1 + int64(1); 
         }
-        this.idct.transform(crTempBlock, crBlock);
       }
       this.writeMCU(img, baseX, baseY, yBlocksData, cbBlock, crBlock);
       mcuX = mcuX + int64(1); 
@@ -4379,7 +4444,7 @@ func (this *JPEGMetadataParser) readString (offset int64, length int64) string {
     if  b == int64(0) {
       return result
     }
-    result = result + (string([] byte{byte(b)})); 
+    result = result + (string([]rune{rune(b)})); 
     i = i + int64(1); 
   }
   return result
@@ -4623,7 +4688,7 @@ func (this *JPEGMetadataParser) formatGPSCoordinate (offset int64, ref string) s
       seconds = strconv.FormatInt(secWhole, 10); 
     }
   }
-  return ((((((strconv.FormatInt(degrees, 10)) + "° ") + (strconv.FormatInt(minutes, 10))) + "' ") + seconds) + "\" ") + ref
+  return (((((strconv.FormatInt(degrees, 10)) + "° ") + (strconv.FormatInt(minutes, 10))) + "' ") + seconds) + "\""
 }
 func (this *JPEGMetadataParser) parseIFD (info *JPEGMetadataInfo, tiffStart int64, ifdOffset int64, ifdType int64) () {
   var pos int64= tiffStart + ifdOffset;
@@ -4931,35 +4996,35 @@ func (this *JPEGMetadataParser) formatMetadata (info *JPEGMetadataInfo) string {
   }
   if  info.hasExif {
     out.writeString("\n--- EXIF Info ---\n");
-    if  (int64(len(info.cameraMake))) > int64(0) {
+    if  (int64(len([]rune(info.cameraMake)))) > int64(0) {
       out.writeString(("  Camera Make: " + info.cameraMake) + "\n");
     }
-    if  (int64(len(info.cameraModel))) > int64(0) {
+    if  (int64(len([]rune(info.cameraModel)))) > int64(0) {
       out.writeString(("  Camera Model: " + info.cameraModel) + "\n");
     }
-    if  (int64(len(info.software))) > int64(0) {
+    if  (int64(len([]rune(info.software)))) > int64(0) {
       out.writeString(("  Software: " + info.software) + "\n");
     }
-    if  (int64(len(info.dateTimeOriginal))) > int64(0) {
+    if  (int64(len([]rune(info.dateTimeOriginal)))) > int64(0) {
       out.writeString(("  Date/Time Original: " + info.dateTimeOriginal) + "\n");
     } else {
-      if  (int64(len(info.dateTime))) > int64(0) {
+      if  (int64(len([]rune(info.dateTime)))) > int64(0) {
         out.writeString(("  Date/Time: " + info.dateTime) + "\n");
       }
     }
-    if  (int64(len(info.exposureTime))) > int64(0) {
+    if  (int64(len([]rune(info.exposureTime)))) > int64(0) {
       out.writeString(("  Exposure Time: " + info.exposureTime) + " sec\n");
     }
-    if  (int64(len(info.fNumber))) > int64(0) {
+    if  (int64(len([]rune(info.fNumber)))) > int64(0) {
       out.writeString(("  F-Number: f/" + info.fNumber) + "\n");
     }
-    if  (int64(len(info.isoSpeed))) > int64(0) {
+    if  (int64(len([]rune(info.isoSpeed)))) > int64(0) {
       out.writeString(("  ISO Speed: " + info.isoSpeed) + "\n");
     }
-    if  (int64(len(info.focalLength))) > int64(0) {
+    if  (int64(len([]rune(info.focalLength)))) > int64(0) {
       out.writeString(("  Focal Length: " + info.focalLength) + " mm\n");
     }
-    if  (int64(len(info.flash))) > int64(0) {
+    if  (int64(len([]rune(info.flash)))) > int64(0) {
       out.writeString(("  Flash: " + info.flash) + "\n");
     }
     var orientStr string= "Normal";
@@ -4988,13 +5053,13 @@ func (this *JPEGMetadataParser) formatMetadata (info *JPEGMetadataInfo) string {
   }
   if  info.hasGPS {
     out.writeString("\n--- GPS Info ---\n");
-    if  (int64(len(info.gpsLatitude))) > int64(0) {
+    if  (int64(len([]rune(info.gpsLatitude)))) > int64(0) {
       out.writeString(("  Latitude: " + info.gpsLatitude) + "\n");
     }
-    if  (int64(len(info.gpsLongitude))) > int64(0) {
+    if  (int64(len([]rune(info.gpsLongitude)))) > int64(0) {
       out.writeString(("  Longitude: " + info.gpsLongitude) + "\n");
     }
-    if  (int64(len(info.gpsAltitude))) > int64(0) {
+    if  (int64(len([]rune(info.gpsAltitude)))) > int64(0) {
       out.writeString(("  Altitude: " + info.gpsAltitude) + "\n");
     }
   }
@@ -5021,7 +5086,7 @@ func (this *JPEGMetadataParser) formatMetadata (info *JPEGMetadataInfo) string {
       var h1D float64= float64(r2) / float64(int64(16));
       var h1 int64= int64(h1D);
       var h0 int64= r2 - (h1 * int64(16));
-      tagHex = (((hexChars[h3:(h3 + int64(1))]) + (hexChars[h2:(h2 + int64(1))])) + (hexChars[h1:(h1 + int64(1))])) + (hexChars[h0:(h0 + int64(1))]); 
+      tagHex = (((string([]rune(hexChars)[h3:(h3 + int64(1))])) + (string([]rune(hexChars)[h2:(h2 + int64(1))]))) + (string([]rune(hexChars)[h1:(h1 + int64(1))]))) + (string([]rune(hexChars)[h0:(h0 + int64(1))])); 
       out.writeString(((tagHex + "): ") + tag.tagValue) + "\n");
     }
   }
@@ -5095,7 +5160,7 @@ func (this *JPEGScaler) run () () {
         quality = qVal; 
       }
     }
-    if  (int64(arg[int64(0)])) != int64(45) {
+    if  (int64([]rune(arg)[int64(0)])) != int64(45) {
       if  inputFile == "" {
         inputFile = arg; 
       } else {
@@ -5120,16 +5185,16 @@ func (this *JPEGScaler) run () () {
   var inputName string= inputFile;
   var lastInputSlash int64= int64(-1);
   var k int64= int64(0);
-  for k < (int64(len(inputFile))) {
-    var ch int64= int64(inputFile[k]);
+  for k < (int64(len([]rune(inputFile)))) {
+    var ch int64= int64([]rune(inputFile)[k]);
     if  (ch == int64(47)) || (ch == int64(92)) {
       lastInputSlash = k; 
     }
     k = k + int64(1); 
   }
   if  lastInputSlash >= int64(0) {
-    inputDir = inputFile[int64(0):lastInputSlash]; 
-    inputName = inputFile[(lastInputSlash + int64(1)):(int64(len(inputFile)))]; 
+    inputDir = string([]rune(inputFile)[int64(0):lastInputSlash]); 
+    inputName = string([]rune(inputFile)[(lastInputSlash + int64(1)):(int64(len([]rune(inputFile))))]); 
   }
   var metaParser *JPEGMetadataParser= CreateNew_JPEGMetadataParser();
   var metaInfo *JPEGMetadataInfo= metaParser.parseMetadata(inputDir, inputName);
@@ -5169,16 +5234,16 @@ func (this *JPEGScaler) run () () {
   var outName string= outputFile;
   var lastSlash int64= int64(-1);
   var j int64= int64(0);
-  for j < (int64(len(outputFile))) {
-    var ch_1 int64= int64(outputFile[j]);
+  for j < (int64(len([]rune(outputFile)))) {
+    var ch_1 int64= int64([]rune(outputFile)[j]);
     if  (ch_1 == int64(47)) || (ch_1 == int64(92)) {
       lastSlash = j; 
     }
     j = j + int64(1); 
   }
   if  lastSlash >= int64(0) {
-    outDir = outputFile[int64(0):lastSlash]; 
-    outName = outputFile[(lastSlash + int64(1)):(int64(len(outputFile)))]; 
+    outDir = string([]rune(outputFile)[int64(0):lastSlash]); 
+    outName = string([]rune(outputFile)[(lastSlash + int64(1)):(int64(len([]rune(outputFile))))]); 
   }
   var encoder *JPEGEncoder= CreateNew_JPEGEncoder();
   encoder.setQuality(quality);
@@ -5191,16 +5256,16 @@ func (this *JPEGScaler) decodeJPEG (filePath string) *ImageBuffer {
   var name string= filePath;
   var lastSlash int64= int64(-1);
   var j int64= int64(0);
-  for j < (int64(len(filePath))) {
-    var c int64= int64(filePath[j]);
+  for j < (int64(len([]rune(filePath)))) {
+    var c int64= int64([]rune(filePath)[j]);
     if  (c == int64(47)) || (c == int64(92)) {
       lastSlash = j; 
     }
     j = j + int64(1); 
   }
   if  lastSlash >= int64(0) {
-    dir = filePath[int64(0):lastSlash]; 
-    name = filePath[(lastSlash + int64(1)):(int64(len(filePath)))]; 
+    dir = string([]rune(filePath)[int64(0):lastSlash]); 
+    name = string([]rune(filePath)[(lastSlash + int64(1)):(int64(len([]rune(filePath))))]); 
   }
   var data []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(dir, name)); return d }();
   var dataLen int64= int64(len(data));

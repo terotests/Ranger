@@ -39,6 +39,8 @@
 
 Import "../jsx/ComponentEngine.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
+Import "../core/EVGPDFRenderer.rgr"
+Import "../fonts/FontManager.rgr"
 Import "../../../evg/EVGElement.rgr"
 
 ; Preview Server with @(HttpServer) annotation
@@ -326,6 +328,92 @@ class EVGPreviewServer@(HttpServer) {
         http_set_header res "Cache-Control" "max-age=3600"
         http_set_status res 200
         http_send_buffer res fileData
+    }
+    
+    ; GET /export-pdf - Generate and download PDF
+    fn handleExportPDF@(GET "/export-pdf"):void (req:HttpRequest res:HttpResponse) {
+        print "Generating PDF export..."
+        
+        ; Parse the TSX file fresh
+        def engine (new ComponentEngine())
+        engine.pageWidth = pageWidth
+        engine.pageHeight = pageHeight
+        
+        if ((strlen assetPaths) > 0) {
+            engine.setAssetPaths(assetPaths)
+        }
+        
+        def root:EVGElement (engine.parseFile(inputDir inputFileName))
+        
+        if (root.tagName == "") {
+            print "Error: Failed to parse TSX file for PDF export"
+            http_set_header res "Content-Type" "text/plain"
+            http_set_status res 500
+            http_send res "Error: Failed to parse TSX file"
+            return
+        }
+        
+        ; Use Print element's dimensions if available
+        def useWidth:double pageWidth
+        def useHeight:double pageHeight
+        if (root.pageWidth > 0.0) {
+            useWidth = root.pageWidth
+        }
+        if (root.pageHeight > 0.0) {
+            useHeight = root.pageHeight
+        }
+        
+        ; Create PDF renderer
+        def pdfRenderer (new EVGPDFRenderer())
+        pdfRenderer.setPageSize(useWidth useHeight)
+        pdfRenderer.setBaseDir(inputDir)
+        pdfRenderer.init(pdfRenderer)
+        
+        ; Load fonts for PDF rendering - construct from inputDir
+        def fontDir:string (inputDir + "../assets/fonts/")
+        
+        def fm:FontManager (new FontManager())
+        fm.setFontsDirectory(fontDir)
+        
+        ; Load common fonts
+        fm.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        fm.loadFont("Helvetica/Helvetica.ttf")
+        fm.loadFont("Noto_Sans/NotoSans-Regular.ttf")
+        fm.loadFont("Noto_Sans/NotoSans-Bold.ttf")
+        
+        ; Load decorative fonts
+        fm.loadFont("Cinzel/Cinzel-Regular.ttf")
+        fm.loadFont("Cinzel/Cinzel-Bold.ttf")
+        fm.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+        fm.loadFont("Gloria_Hallelujah/GloriaHallelujah.ttf")
+        fm.loadFont("Great_Vibes/GreatVibes-Regular.ttf")
+        fm.loadFont("Kaushan_Script/KaushanScript-Regular.ttf")
+        
+        pdfRenderer.setFontManager(fm)
+        
+        ; Render to PDF buffer
+        def pdfBuffer:buffer (pdfRenderer.render(root))
+        def pdfSize:int (buffer_length pdfBuffer)
+        
+        print ("PDF generated: " + (to_string pdfSize) + " bytes")
+        
+        ; Generate filename from input file
+        def outputName:string inputFileName
+        def dotIdx:int (lastIndexOf outputName ".")
+        if (dotIdx >= 0) {
+            outputName = (substring outputName 0 dotIdx)
+        }
+        outputName = outputName + ".pdf"
+        
+        ; Send PDF as download
+        http_set_header res "Content-Type" "application/pdf"
+        http_set_header res "Content-Disposition" ("attachment; filename=\"" + outputName + "\"")
+        http_set_header res "Cache-Control" "no-cache"
+        http_set_status res 200
+        http_send_buffer res pdfBuffer
+        
+        print ("PDF export complete: " + outputName)
     }
     
     ; SSE /events - Live update stream

@@ -1763,9 +1763,8 @@ class EVGPDFRenderer {
         def numSteps:int 50
         def radians:double ((angle * 3.14159265) / 180.0)
         
-        ; Determine if horizontal, vertical, or diagonal
+        ; Determine if horizontal or vertical gradient
         def isHorizontal:boolean false
-        def isVertical:boolean false
         
         ; Normalize angle to 0-360
         while (angle < 0.0) {
@@ -1776,21 +1775,15 @@ class EVGPDFRenderer {
         }
         
         ; Approximate angle to major directions for simpler rendering
+        ; Horizontal: Right (90 deg) or Left (270 deg)
+        ; Vertical: Down (180 deg) or Up (0/360 deg) - handled by else branch
         if ((angle >= 45.0) && (angle < 135.0)) {
             ; Right (90 deg)
             isHorizontal = true
         }
-        if ((angle >= 135.0) && (angle < 225.0)) {
-            ; Down (180 deg)
-            isVertical = true
-        }
         if ((angle >= 225.0) && (angle < 315.0)) {
             ; Left (270 deg)
             isHorizontal = true
-        }
-        if ((angle >= 315.0) || (angle < 45.0)) {
-            ; Up (0 deg or 360 deg)
-            isVertical = true
         }
         
         ; Draw gradient strips

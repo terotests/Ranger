@@ -676,6 +676,11 @@ class TSLexer  {
         this.advance();
         return this.makeToken("Punctuator", "++", startPos, startLine, startCol);
       }
+      if ( next_1 == "=" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "+=", startPos, startLine, startCol);
+      }
     }
     if ( ch == "-" ) {
       if ( next_1 == "-" ) {
@@ -683,12 +688,36 @@ class TSLexer  {
         this.advance();
         return this.makeToken("Punctuator", "--", startPos, startLine, startCol);
       }
+      if ( next_1 == "=" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "-=", startPos, startLine, startCol);
+      }
     }
     if ( ch == "*" ) {
       if ( next_1 == "*" ) {
         this.advance();
         this.advance();
         return this.makeToken("Punctuator", "**", startPos, startLine, startCol);
+      }
+      if ( next_1 == "=" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "*=", startPos, startLine, startCol);
+      }
+    }
+    if ( ch == "/" ) {
+      if ( next_1 == "=" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "/=", startPos, startLine, startCol);
+      }
+    }
+    if ( ch == "%" ) {
+      if ( next_1 == "=" ) {
+        this.advance();
+        this.advance();
+        return this.makeToken("Punctuator", "%=", startPos, startLine, startCol);
       }
     }
     if ( ch == "." ) {
@@ -728,6 +757,7 @@ class TSNode  {
     this.kind = "";
     this.optional = false;
     this.readonly = false;
+    this.prefix = false;
     this.shorthand = false;
     this.computed = false;
     this.method = false;
@@ -753,6 +783,7 @@ class TSParserSimple  {
     this.quiet = false;
     if ( (toks.length) > 0 ) {
       this.currentToken = toks[0];
+      this.skipIgnoredTokens();
     }
   };
   setQuiet (q) {
@@ -788,6 +819,27 @@ class TSParserSimple  {
       eof.value = "";
       this.currentToken = eof;
     }
+    this.skipIgnoredTokens();
+  };
+  skipIgnoredTokens () {
+    while (this.pos < (this.tokens.length)) {
+      const tok = this.peek();
+      const tokType = tok.tokenType;
+      if ( (tokType == "LineComment") || (tokType == "BlockComment") ) {
+        this.pos = this.pos + 1;
+        if ( this.pos < (this.tokens.length) ) {
+          this.currentToken = this.tokens[this.pos];
+        } else {
+          const eof = new Token();
+          eof.tokenType = "EOF";
+          eof.value = "";
+          this.currentToken = eof;
+          return;
+        }
+      } else {
+        return;
+      }
+    };
   };
   expect (expectedType) {
     const tok = this.peek();
@@ -3055,7 +3107,7 @@ class TSParserSimple  {
       assign.col = left.col;
       return assign;
     }
-    if ( ((tokVal == "&&=") || (tokVal == "||=")) || (tokVal == "??=") ) {
+    if ( ((((tokVal == "+=") || (tokVal == "-=")) || (tokVal == "*=")) || (tokVal == "/=")) || (tokVal == "%=") ) {
       this.advance();
       const right_1 = this.parseAssign();
       const assign_1 = new TSNode();
@@ -3067,6 +3119,19 @@ class TSParserSimple  {
       assign_1.line = left.line;
       assign_1.col = left.col;
       return assign_1;
+    }
+    if ( ((tokVal == "&&=") || (tokVal == "||=")) || (tokVal == "??=") ) {
+      this.advance();
+      const right_2 = this.parseAssign();
+      const assign_2 = new TSNode();
+      assign_2.nodeType = "AssignmentExpression";
+      assign_2.value = tokVal;
+      assign_2.left = left;
+      assign_2.right = right_2;
+      assign_2.start = left.start;
+      assign_2.line = left.line;
+      assign_2.col = left.col;
+      return assign_2;
     }
     return left;
   };
@@ -3236,17 +3301,31 @@ class TSParserSimple  {
   };
   parseUnary () {
     const tokVal = this.peekValue();
-    if ( (tokVal == "!") || (tokVal == "-") ) {
+    if ( (tokVal == "++") || (tokVal == "--") ) {
       const opTok = this.peek();
       this.advance();
       const arg = this.parseUnary();
+      const update = new TSNode();
+      update.nodeType = "UpdateExpression";
+      update.value = opTok.value;
+      update.left = arg;
+      update.prefix = true;
+      update.start = opTok.start;
+      update.line = opTok.line;
+      update.col = opTok.col;
+      return update;
+    }
+    if ( (tokVal == "!") || (tokVal == "-") ) {
+      const opTok_1 = this.peek();
+      this.advance();
+      const arg_1 = this.parseUnary();
       const unary = new TSNode();
       unary.nodeType = "UnaryExpression";
-      unary.value = opTok.value;
-      unary.left = arg;
-      unary.start = opTok.start;
-      unary.line = opTok.line;
-      unary.col = opTok.col;
+      unary.value = opTok_1.value;
+      unary.left = arg_1;
+      unary.start = opTok_1.start;
+      unary.line = opTok_1.line;
+      unary.col = opTok_1.col;
       return unary;
     }
     if ( tokVal == "yield" ) {
@@ -3270,10 +3349,10 @@ class TSParserSimple  {
     if ( tokVal == "await" ) {
       const awaitTok = this.peek();
       this.advance();
-      const arg_1 = this.parseUnary();
+      const arg_2 = this.parseUnary();
       const awaitExpr = new TSNode();
       awaitExpr.nodeType = "AwaitExpression";
-      awaitExpr.left = arg_1;
+      awaitExpr.left = arg_2;
       awaitExpr.start = awaitTok.start;
       awaitExpr.line = awaitTok.line;
       awaitExpr.col = awaitTok.col;
@@ -3300,11 +3379,11 @@ class TSParserSimple  {
         const typeNode = this.parseType();
         if ( this.matchValue(">") ) {
           this.advance();
-          const arg_2 = this.parseUnary();
+          const arg_3 = this.parseUnary();
           const assertion = new TSNode();
           assertion.nodeType = "TSTypeAssertion";
           assertion.typeAnnotation = typeNode;
-          assertion.left = arg_2;
+          assertion.left = arg_3;
           assertion.start = startTok.start;
           assertion.line = startTok.line;
           assertion.col = startTok.col;
@@ -3475,6 +3554,7 @@ class TSParserSimple  {
         this.expectValue("]");
         const computed = new TSNode();
         computed.nodeType = "MemberExpression";
+        computed.computed = true;
         computed.left = expr;
         computed.right = indexExpr_1;
         computed.start = expr.start;
@@ -3529,9 +3609,22 @@ class TSParserSimple  {
         tagged.col = expr.col;
         expr = tagged;
       }
+      if ( (tokVal == "++") || (tokVal == "--") ) {
+        const opTok = this.peek();
+        this.advance();
+        const update = new TSNode();
+        update.nodeType = "UpdateExpression";
+        update.value = opTok.value;
+        update.left = expr;
+        update.prefix = false;
+        update.start = expr.start;
+        update.line = expr.line;
+        update.col = expr.col;
+        expr = update;
+      }
       const newTokVal = this.peekValue();
       const newTokType = this.peekType();
-      if ( (((((((newTokVal != "(") && (newTokVal != ".")) && (newTokVal != "?.")) && (newTokVal != "[")) && (newTokVal != "!")) && (newTokVal != "as")) && (newTokVal != "satisfies")) && (newTokType != "Template") ) {
+      if ( (((((((((newTokVal != "(") && (newTokVal != ".")) && (newTokVal != "?.")) && (newTokVal != "[")) && (newTokVal != "!")) && (newTokVal != "as")) && (newTokVal != "satisfies")) && (newTokVal != "++")) && (newTokVal != "--")) && (newTokType != "Template") ) {
         keepParsing = false;
       }
     };
@@ -4407,13 +4500,18 @@ EVGUnit.parse = function(str) {
     unit.isSet = true;
     return unit;
   }
+  if ( trimmed == "auto" ) {
+    return unit;
+  }
   const lastChar = trimmed.charCodeAt((__len - 1) );
   if ( lastChar == 37 ) {
     const numStr = trimmed.substring(0, (__len - 1) );
     const numVal = isNaN( parseFloat(numStr) ) ? undefined : parseFloat(numStr);
-    unit.value = numVal;
-    unit.unitType = 1;
-    unit.isSet = true;
+    if ( typeof(numVal) != "undefined" ) {
+      unit.value = numVal;
+      unit.unitType = 1;
+      unit.isSet = true;
+    }
     return unit;
   }
   if ( __len >= 2 ) {
@@ -4421,34 +4519,42 @@ EVGUnit.parse = function(str) {
     if ( suffix == "em" ) {
       const numStr_1 = trimmed.substring(0, (__len - 2) );
       const numVal_1 = isNaN( parseFloat(numStr_1) ) ? undefined : parseFloat(numStr_1);
-      unit.value = numVal_1;
-      unit.unitType = 2;
-      unit.isSet = true;
+      if ( typeof(numVal_1) != "undefined" ) {
+        unit.value = numVal_1;
+        unit.unitType = 2;
+        unit.isSet = true;
+      }
       return unit;
     }
     if ( suffix == "px" ) {
       const numStr_2 = trimmed.substring(0, (__len - 2) );
       const numVal_2 = isNaN( parseFloat(numStr_2) ) ? undefined : parseFloat(numStr_2);
-      unit.value = numVal_2;
-      unit.pixels = unit.value;
-      unit.unitType = 0;
-      unit.isSet = true;
+      if ( typeof(numVal_2) != "undefined" ) {
+        unit.value = numVal_2;
+        unit.pixels = unit.value;
+        unit.unitType = 0;
+        unit.isSet = true;
+      }
       return unit;
     }
     if ( suffix == "hp" ) {
       const numStr_3 = trimmed.substring(0, (__len - 2) );
       const numVal_3 = isNaN( parseFloat(numStr_3) ) ? undefined : parseFloat(numStr_3);
-      unit.value = numVal_3;
-      unit.unitType = 3;
-      unit.isSet = true;
+      if ( typeof(numVal_3) != "undefined" ) {
+        unit.value = numVal_3;
+        unit.unitType = 3;
+        unit.isSet = true;
+      }
       return unit;
     }
   }
   const numVal_4 = isNaN( parseFloat(trimmed) ) ? undefined : parseFloat(trimmed);
-  unit.value = numVal_4;
-  unit.pixels = unit.value;
-  unit.unitType = 0;
-  unit.isSet = true;
+  if ( typeof(numVal_4) != "undefined" ) {
+    unit.value = numVal_4;
+    unit.pixels = unit.value;
+    unit.unitType = 0;
+    unit.isSet = true;
+  }
   return unit;
 };
 class EVGColor  {
@@ -5048,11 +5154,164 @@ class EVGBox  {
     return ((((((((((((((((("Box[margin:" + ((this.marginTopPx.toString()))) + "/") + ((this.marginRightPx.toString()))) + "/") + ((this.marginBottomPx.toString()))) + "/") + ((this.marginLeftPx.toString()))) + " padding:") + ((this.paddingTopPx.toString()))) + "/") + ((this.paddingRightPx.toString()))) + "/") + ((this.paddingBottomPx.toString()))) + "/") + ((this.paddingLeftPx.toString()))) + " border:") + ((this.borderWidthPx.toString()))) + "]";
   };
 }
+class EVGGradientStop  {
+  constructor() {
+    this.percentage = 0.0;
+    this.color = new EVGColor();
+  }
+}
+EVGGradientStop.create = function(pct, col) {
+  const stop = new EVGGradientStop();
+  stop.percentage = pct;
+  stop.color = col;
+  return stop;
+};
+class EVGGradient  {
+  constructor() {
+    this.isSet = false;
+    this.isLinear = true;
+    this.angle = 0.0;
+    this.stops = [];
+    let s = [];
+    this.stops = s;
+  }
+  getStartColor () {
+    if ( (this.stops.length) > 0 ) {
+      const stop = this.stops[0];
+      return stop.color;
+    }
+    return EVGColor.noColor();
+  };
+  getEndColor () {
+    const __len = this.stops.length;
+    if ( __len > 0 ) {
+      const stop = this.stops[(__len - 1)];
+      return stop.color;
+    }
+    return EVGColor.noColor();
+  };
+  getStopCount () {
+    return this.stops.length;
+  };
+  getStop (index) {
+    return this.stops[index];
+  };
+  addStop (percentage, color) {
+    const stop = EVGGradientStop.create(percentage, color);
+    this.stops.push(stop);
+  };
+  toCSSString () {
+    if ( this.isSet == false ) {
+      return "";
+    }
+    let result = "";
+    if ( this.isLinear ) {
+      result = ("linear-gradient(" + ((this.angle.toString()))) + "deg";
+    } else {
+      result = "radial-gradient(circle";
+    }
+    const numStops = this.stops.length;
+    let i = 0;
+    while (i < numStops) {
+      const stop = this.stops[i];
+      result = (result + ", ") + stop.color.toCSSString();
+      i = i + 1;
+    };
+    result = result + ")";
+    return result;
+  };
+}
+EVGGradient.parse = function(gradStr) {
+  const grad = new EVGGradient();
+  const __len = gradStr.length;
+  if ( __len == 0 ) {
+    return grad;
+  }
+  const linearIdx = gradStr.indexOf("linear-gradient");
+  const radialIdx = gradStr.indexOf("radial-gradient");
+  if ( linearIdx >= 0 ) {
+    grad.isLinear = true;
+    grad.isSet = true;
+  }
+  if ( radialIdx >= 0 ) {
+    grad.isLinear = false;
+    grad.isSet = true;
+  }
+  if ( grad.isSet == false ) {
+    return grad;
+  }
+  if ( grad.isLinear ) {
+    const degIdx = gradStr.indexOf("deg");
+    if ( degIdx > 0 ) {
+      const startIdx = gradStr.indexOf("(");
+      if ( startIdx >= 0 ) {
+        const angleStr = gradStr.substring((startIdx + 1), degIdx );
+        const angleVal = isNaN( parseFloat((angleStr.trim())) ) ? undefined : parseFloat((angleStr.trim()));
+        if ( typeof(angleVal) != "undefined" ) {
+          grad.angle = angleVal;
+        }
+      }
+    }
+  }
+  let colors = [];
+  let i = 0;
+  while (i < __len) {
+    const ch = gradStr.charCodeAt(i );
+    if ( ch == 35 ) {
+      const colorStart = i;
+      let colorEnd = i + 1;
+      while (colorEnd < __len) {
+        const c = gradStr.charCodeAt(colorEnd );
+        let isHex = false;
+        if ( (c >= 48) && (c <= 57) ) {
+          isHex = true;
+        }
+        if ( (c >= 65) && (c <= 70) ) {
+          isHex = true;
+        }
+        if ( (c >= 97) && (c <= 102) ) {
+          isHex = true;
+        }
+        if ( isHex ) {
+          colorEnd = colorEnd + 1;
+        } else {
+          break;
+        }
+      };
+      const colorStr = gradStr.substring(colorStart, colorEnd );
+      const parsedColor = EVGColor.parseHex(colorStr);
+      if ( parsedColor.isSet ) {
+        colors.push(parsedColor);
+      }
+      i = colorEnd;
+    } else {
+      i = i + 1;
+    }
+  };
+  const numColors = colors.length;
+  if ( numColors > 0 ) {
+    let colorIdx = 0;
+    while (colorIdx < numColors) {
+      let pct = 0.0;
+      if ( numColors > 1 ) {
+        pct = (colorIdx) / ((numColors - 1));
+      }
+      const col = colors[colorIdx];
+      grad.addStop(pct, col);
+      colorIdx = colorIdx + 1;
+    };
+  }
+  return grad;
+};
 class EVGElement  {
   constructor() {
     this.id = "";
     this.tagName = "div";
     this.elementType = 0;
+    this.format = "";
+    this.orientation = "";
+    this.pageWidth = 0.0;
+    this.pageHeight = 0.0;
     this.children = [];
     this.opacity = 1.0;
     this.direction = "row";
@@ -5061,7 +5320,7 @@ class EVGElement  {
     this.isInline = false;
     this.lineBreak = false;
     this.overflow = "visible";
-    this.fontFamily = "Helvetica";
+    this.fontFamily = "Noto Sans";
     this.fontWeight = "normal";
     this.lineHeight = 1.2;
     this.textAlign = "left";
@@ -5074,6 +5333,15 @@ class EVGElement  {
     this.position = "relative";     /** note: unused */
     this.src = "";
     this.alt = "";     /** note: unused */
+    this.imageViewBox = "";     /** note: unused */
+    this.imageViewBoxX = 0.0;     /** note: unused */
+    this.imageViewBoxY = 0.0;     /** note: unused */
+    this.imageViewBoxW = 1.0;     /** note: unused */
+    this.imageViewBoxH = 1.0;     /** note: unused */
+    this.imageViewBoxSet = false;     /** note: unused */
+    this.objectFit = "cover";
+    this.sourceWidth = 0.0;     /** note: unused */
+    this.sourceHeight = 0.0;     /** note: unused */
     this.svgPath = "";
     this.viewBox = "";
     this.strokeWidth = 0.0;
@@ -5083,6 +5351,8 @@ class EVGElement  {
     this.maxImageSize = 0;
     this.rotate = 0.0;
     this.scale = 1.0;
+    this.backgroundGradient = "";
+    this.gradient = new EVGGradient();
     this.calculatedX = 0.0;
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
@@ -5094,6 +5364,7 @@ class EVGElement  {
     this.isAbsolute = false;
     this.isLayoutComplete = false;
     this.unitsResolved = false;
+    this.hasReturn = false;
     this.inheritedFontSize = 14.0;
     this.tagName = "div";
     this.elementType = 0;
@@ -5118,6 +5389,8 @@ class EVGElement  {
     this.shadowColor = EVGColor.noColor();
     this.shadowOffsetX = EVGUnit.unset();
     this.shadowOffsetY = EVGUnit.unset();
+    this.imageOffsetX = EVGUnit.unset();
+    this.imageOffsetY = EVGUnit.unset();
     this.fillColor = EVGColor.noColor();
     this.strokeColor = EVGColor.noColor();
   }
@@ -5163,6 +5436,9 @@ class EVGElement  {
     return this.elementType == 3;
   };
   hasAbsolutePosition () {
+    if ( (this.tagName == "layer") || (this.tagName == "Layer") ) {
+      return true;
+    }
     if ( this.left.isSet ) {
       return true;
     }
@@ -5183,8 +5459,82 @@ class EVGElement  {
     }
     return false;
   };
+  resolveBookFormat () {
+    let w = 595.0;
+    let h = 842.0;
+    if ( this.format == "a4" ) {
+      w = 595.0;
+      h = 842.0;
+    }
+    if ( this.format == "letter" ) {
+      w = 612.0;
+      h = 792.0;
+    }
+    if ( this.format == "trade-5x8" ) {
+      w = 360.0;
+      h = 576.0;
+    }
+    if ( this.format == "trade-6x9" ) {
+      w = 432.0;
+      h = 648.0;
+    }
+    if ( this.format == "trade-8x10" ) {
+      w = 576.0;
+      h = 720.0;
+    }
+    if ( this.format == "mini-square" ) {
+      w = 360.0;
+      h = 360.0;
+    }
+    if ( this.format == "small-square" ) {
+      w = 504.0;
+      h = 504.0;
+    }
+    if ( this.format == "standard-portrait" ) {
+      w = 576.0;
+      h = 720.0;
+    }
+    if ( this.format == "standard-landscape" ) {
+      w = 720.0;
+      h = 576.0;
+    }
+    if ( this.format == "large-landscape" ) {
+      w = 936.0;
+      h = 792.0;
+    }
+    if ( this.format == "large-square" ) {
+      w = 864.0;
+      h = 864.0;
+    }
+    if ( this.format == "magazine" ) {
+      w = 612.0;
+      h = 792.0;
+    }
+    if ( this.orientation == "landscape" ) {
+      if ( w < h ) {
+        const temp = w;
+        w = h;
+        h = temp;
+      }
+    }
+    if ( this.orientation == "portrait" ) {
+      if ( w > h ) {
+        const temp_1 = w;
+        w = h;
+        h = temp_1;
+      }
+    }
+    if ( this.pageWidth > 0.0 ) {
+      w = this.pageWidth;
+    }
+    if ( this.pageHeight > 0.0 ) {
+      h = this.pageHeight;
+    }
+    this.pageWidth = w;
+    this.pageHeight = h;
+  };
   inheritProperties (parentEl) {
-    if ( this.fontFamily == "Helvetica" ) {
+    if ( this.fontFamily == "Noto Sans" ) {
       this.fontFamily = parentEl.fontFamily;
     }
     if ( this.color.isSet == false ) {
@@ -5223,6 +5573,28 @@ class EVGElement  {
   setAttribute (name, value) {
     if ( name == "id" ) {
       this.id = value;
+      return;
+    }
+    if ( name == "format" ) {
+      this.format = value.toLowerCase();
+      return;
+    }
+    if ( name == "orientation" ) {
+      this.orientation = value.toLowerCase();
+      return;
+    }
+    if ( name == "pageWidth" ) {
+      const pw = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(pw) != "undefined" ) {
+        this.pageWidth = pw;
+      }
+      return;
+    }
+    if ( name == "pageHeight" ) {
+      const ph = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(ph) != "undefined" ) {
+        this.pageHeight = ph;
+      }
       return;
     }
     if ( name == "width" ) {
@@ -5329,6 +5701,20 @@ class EVGElement  {
       this.backgroundColor = EVGColor.parse(value);
       return;
     }
+    if ( (name == "background-gradient") || (name == "backgroundGradient") ) {
+      this.backgroundGradient = value;
+      this.gradient = EVGGradient.parse(value);
+      return;
+    }
+    if ( name == "background" ) {
+      if ( (value.includes("linear-gradient")) || (value.includes("radial-gradient")) ) {
+        this.backgroundGradient = value;
+        this.gradient = EVGGradient.parse(value);
+      } else {
+        this.backgroundColor = EVGColor.parse(value);
+      }
+      return;
+    }
     if ( name == "color" ) {
       this.color = EVGColor.parse(value);
       return;
@@ -5336,6 +5722,18 @@ class EVGElement  {
     if ( name == "opacity" ) {
       const val = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
       this.opacity = val;
+      return;
+    }
+    if ( (name == "object-fit") || (name == "objectFit") ) {
+      this.objectFit = value;
+      return;
+    }
+    if ( (name == "image-offset-x") || (name == "imageOffsetX") ) {
+      this.imageOffsetX = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "image-offset-y") || (name == "imageOffsetY") ) {
+      this.imageOffsetY = EVGUnit.parse(value);
       return;
     }
     if ( name == "direction" ) {
@@ -6075,7 +6473,7 @@ class JPEGMetadataParser  {
         seconds = (secWhole.toString());
       }
     }
-    return (((((((degrees.toString())) + "° ") + ((minutes.toString()))) + "' ") + seconds) + "\" ") + ref;
+    return ((((((degrees.toString())) + "° ") + ((minutes.toString()))) + "' ") + seconds) + "\"";
   };
   parseIFD (info, tiffStart, ifdOffset, ifdType) {
     let pos = tiffStart + ifdOffset;
@@ -7117,11 +7515,20 @@ class EVGLayout  {
     }
     let height = 0.0;
     let autoHeight = true;
+    if ( (element.tagName == "Page") || (element.tagName == "page") ) {
+      if ( element.width.isSet == false ) {
+        width = this.pageWidth;
+      }
+      if ( element.height.isSet == false ) {
+        height = this.pageHeight;
+        autoHeight = false;
+      }
+    }
     if ( element.height.isSet ) {
       height = element.height.pixels;
       autoHeight = false;
     }
-    if ( element.tagName == "image" ) {
+    if ( ((element.tagName == "image") || (element.tagName == "Image")) || (element.tagName == "img") ) {
       const imgSrc = element.src;
       if ( (imgSrc.length) > 0 ) {
         const dims = this.imageMeasurer.getImageDimensions(imgSrc);
@@ -7173,7 +7580,8 @@ class EVGLayout  {
     if ( childCount > 0 ) {
       contentHeight = this.layoutChildren(element);
     } else {
-      if ( (element.tagName == "text") || (element.tagName == "span") ) {
+      const textContent = element.textContent;
+      if ( (textContent.length) > 0 ) {
         let fontSize = element.inheritedFontSize;
         if ( element.fontSize.isSet ) {
           fontSize = element.fontSize.pixels;
@@ -7186,7 +7594,6 @@ class EVGLayout  {
           lineHeightFactor = 1.2;
         }
         const lineSpacing = fontSize * lineHeightFactor;
-        const textContent = element.textContent;
         const availableWidth = (width - element.box.paddingLeftPx) - element.box.paddingRightPx;
         const lineCount = this.estimateLineCount(textContent, availableWidth, fontSize);
         contentHeight = lineSpacing * (lineCount);
@@ -7218,8 +7625,8 @@ class EVGLayout  {
     }
     const innerWidth = parent.calculatedInnerWidth;
     const innerHeight = parent.calculatedInnerHeight;
-    const startX = ((parent.calculatedX + parent.box.marginLeftPx) + parent.box.borderWidthPx) + parent.box.paddingLeftPx;
-    const startY = ((parent.calculatedY + parent.box.marginTopPx) + parent.box.borderWidthPx) + parent.box.paddingTopPx;
+    const startX = (parent.calculatedX + parent.box.borderWidthPx) + parent.box.paddingLeftPx;
+    const startY = (parent.calculatedY + parent.box.borderWidthPx) + parent.box.paddingTopPx;
     let currentX = startX;
     let currentY = startY;
     let rowHeight = 0.0;
@@ -7267,18 +7674,37 @@ class EVGLayout  {
       child.inheritProperties(parent);
       child.resolveUnits(innerWidth, innerHeight);
       if ( child.isAbsolute ) {
-        this.layoutAbsolute(child, innerWidth, innerHeight);
-        child.calculatedX = child.calculatedX + startX;
-        child.calculatedY = child.calculatedY + startY;
+        if ( (child.tagName == "layer") || (child.tagName == "Layer") ) {
+          child.unitsResolved = false;
+          child.resolveUnits(parent.calculatedWidth, parent.calculatedHeight);
+          child.calculatedWidth = parent.calculatedWidth;
+          child.calculatedHeight = parent.calculatedHeight;
+          child.calculatedInnerWidth = child.box.getInnerWidth(child.calculatedWidth);
+          child.calculatedInnerHeight = child.box.getInnerHeight(child.calculatedHeight);
+          child.height.isSet = true;
+          child.height.pixels = child.calculatedHeight;
+          this.layoutAbsolute(child, parent.calculatedWidth, parent.calculatedHeight);
+          child.calculatedX = child.calculatedX + parent.calculatedX;
+          child.calculatedY = child.calculatedY + parent.calculatedY;
+        } else {
+          this.layoutAbsolute(child, innerWidth, innerHeight);
+          child.calculatedX = child.calculatedX + startX;
+          child.calculatedY = child.calculatedY + startY;
+        }
         if ( child.getChildCount() > 0 ) {
           this.layoutChildren(child);
         }
         i = i + 1;
         continue;
       }
-      let childWidth = innerWidth;
+      const availableForChild = (innerWidth - child.box.marginLeftPx) - child.box.marginRightPx;
+      let childWidth = availableForChild;
       if ( child.width.isSet ) {
-        childWidth = child.width.pixels;
+        if ( child.width.pixels >= innerWidth ) {
+          childWidth = availableForChild;
+        } else {
+          childWidth = child.width.pixels;
+        }
       } else {
         if ( child.calculatedFlexWidth > 0.0 ) {
           childWidth = child.calculatedFlexWidth;
@@ -7327,7 +7753,55 @@ class EVGLayout  {
       this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
       totalHeight = totalHeight + rowHeight;
     }
+    if ( isColumn ) {
+      this.alignColumn(parent, totalHeight, startX, startY, innerWidth, innerHeight);
+    }
     return totalHeight;
+  };
+  alignColumn (parent, contentHeight, startX, startY, innerWidth, innerHeight) {
+    const childCount = parent.getChildCount();
+    if ( childCount == 0 ) {
+      return;
+    }
+    const verticalAlign = parent.justifyContent;
+    const horizontalAlign = parent.alignItems;
+    let availableHeight = innerHeight;
+    if ( parent.height.isSet ) {
+      availableHeight = parent.calculatedInnerHeight;
+    }
+    let offsetY = 0.0;
+    if ( verticalAlign == "center" ) {
+      offsetY = (availableHeight - contentHeight) / 2.0;
+    }
+    if ( (verticalAlign == "flex-end") || (verticalAlign == "end") ) {
+      offsetY = availableHeight - contentHeight;
+    }
+    if ( verticalAlign == "space-between" ) {
+      offsetY = 0.0;
+    }
+    let i = 0;
+    while (i < childCount) {
+      const child = parent.getChild(i);
+      if ( child.isAbsolute == false ) {
+        if ( offsetY != 0.0 ) {
+          child.calculatedY = child.calculatedY + offsetY;
+          this.propagateOffsetToChildren(child, 0.0, offsetY);
+        }
+        const childTotalWidth = (child.calculatedWidth + child.box.marginLeftPx) + child.box.marginRightPx;
+        let offsetX = 0.0;
+        if ( horizontalAlign == "center" ) {
+          offsetX = (innerWidth - childTotalWidth) / 2.0;
+        }
+        if ( (horizontalAlign == "flex-end") || (horizontalAlign == "end") ) {
+          offsetX = innerWidth - childTotalWidth;
+        }
+        if ( offsetX != 0.0 ) {
+          child.calculatedX = child.calculatedX + offsetX;
+          this.propagateOffsetToChildren(child, offsetX, 0.0);
+        }
+      }
+      i = i + 1;
+    };
   };
   alignRow (rowElements, parent, rowHeight, startX, innerWidth) {
     const elementCount = rowElements.length;
@@ -7341,12 +7815,31 @@ class EVGLayout  {
       rowWidth = ((rowWidth + el.calculatedWidth) + el.box.marginLeftPx) + el.box.marginRightPx;
       i = i + 1;
     };
+    const isColumn = parent.flexDirection == "column";
+    const mainAxisAlign = parent.justifyContent;
+    const crossAxisAlign = parent.alignItems;
+    let horizontalAlign = mainAxisAlign;
+    if ( isColumn ) {
+      horizontalAlign = crossAxisAlign;
+    }
+    if ( (parent.align.length) > 0 ) {
+      horizontalAlign = parent.align;
+    }
     let offsetX = 0.0;
-    if ( parent.align == "center" ) {
+    if ( horizontalAlign == "center" ) {
       offsetX = (innerWidth - rowWidth) / 2.0;
     }
-    if ( parent.align == "right" ) {
+    if ( (horizontalAlign == "flex-end") || (horizontalAlign == "right") ) {
       offsetX = innerWidth - rowWidth;
+    }
+    let verticalAlignVal = crossAxisAlign;
+    if ( isColumn ) {
+      verticalAlignVal = mainAxisAlign;
+    }
+    if ( (parent.verticalAlign.length) > 0 ) {
+      if ( parent.verticalAlign != "top" ) {
+        verticalAlignVal = parent.verticalAlign;
+      }
     }
     let effectiveRowHeight = rowHeight;
     if ( parent.height.isSet ) {
@@ -7360,18 +7853,35 @@ class EVGLayout  {
       const el_1 = rowElements[i];
       if ( offsetX != 0.0 ) {
         el_1.calculatedX = el_1.calculatedX + offsetX;
+        this.propagateOffsetToChildren(el_1, offsetX, 0.0);
       }
       const childTotalHeight = (el_1.calculatedHeight + el_1.box.marginTopPx) + el_1.box.marginBottomPx;
       let offsetY = 0.0;
-      if ( parent.verticalAlign == "center" ) {
+      if ( verticalAlignVal == "center" ) {
         offsetY = (effectiveRowHeight - childTotalHeight) / 2.0;
       }
-      if ( parent.verticalAlign == "bottom" ) {
+      if ( (verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom") ) {
         offsetY = effectiveRowHeight - childTotalHeight;
       }
       if ( offsetY != 0.0 ) {
         el_1.calculatedY = el_1.calculatedY + offsetY;
+        this.propagateOffsetToChildren(el_1, 0.0, offsetY);
       }
+      i = i + 1;
+    };
+  };
+  propagateOffsetToChildren (parent, offsetX, offsetY) {
+    const childCount = parent.getChildCount();
+    let i = 0;
+    while (i < childCount) {
+      const child = parent.getChild(i);
+      if ( offsetX != 0.0 ) {
+        child.calculatedX = child.calculatedX + offsetX;
+      }
+      if ( offsetY != 0.0 ) {
+        child.calculatedY = child.calculatedY + offsetY;
+      }
+      this.propagateOffsetToChildren(child, offsetX, offsetY);
       i = i + 1;
     };
   };
@@ -8551,6 +9061,18 @@ class BitReader  {
   };
   alignToByte () {
     this.bitPos = 0;
+  };
+  skipRestartMarker () {
+    if ( (this.bytePos + 1) >= this.dataEnd ) {
+      return false;
+    }
+    const byte1 = this.data._view.getUint8(this.bytePos);
+    const byte2 = this.data._view.getUint8((this.bytePos + 1));
+    if ( ((byte1 == 255) && (byte2 >= 208)) && (byte2 <= 215) ) {
+      this.bytePos = this.bytePos + 2;
+      return true;
+    }
+    return false;
   };
   getBytePosition () {
     return this.bytePos;
@@ -9948,6 +10470,7 @@ class JPEGDecoder  {
             c = c + 1;
           };
           reader.alignToByte();
+          reader.skipRestartMarker();
         }
         yBlocksData.length = 0;
         yBlockCount = 0;
@@ -11639,7 +12162,22 @@ class EVGPDFRenderer  {
       imgFile = imgSrc;
     }
     const reader = new JPEGReader();
-    const jpegImage = reader.readJPEG(imgDir, imgFile);
+    let jpegImage = reader.readJPEG(imgDir, imgFile);
+    if ( jpegImage.isValid == false ) {
+      let altDirPath = "";
+      if ( (src.indexOf("./")) == 0 ) {
+        altDirPath = (this.baseDir + "assets/") + (src.substring(2, (src.length) ));
+      } else {
+        altDirPath = (this.baseDir + "assets/") + src;
+      }
+      const altLastSlash = altDirPath.lastIndexOf("/");
+      if ( altLastSlash >= 0 ) {
+        imgDir = altDirPath.substring(0, (altLastSlash + 1) );
+        imgFile = altDirPath.substring((altLastSlash + 1), (altDirPath.length) );
+      }
+      console.log((("  Trying alternative: dir=" + imgDir) + " file=") + imgFile);
+      jpegImage = reader.readJPEG(imgDir, imgFile);
+    }
     if ( jpegImage.isValid ) {
       const metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
       const orientation = metaInfo.orientation;
@@ -11930,7 +12468,23 @@ class EVGPDFRenderer  {
         imgFile = imgSrc;
       }
       console.log((("Loading image: dir=" + imgDir) + " file=") + imgFile);
-      const metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
+      let metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
+      if ( metaInfo.isValid == false ) {
+        const origImgSrc = embImg.src;
+        let altDirPath = "";
+        if ( (origImgSrc.indexOf("./")) == 0 ) {
+          altDirPath = (this.baseDir + "assets/") + (origImgSrc.substring(2, (origImgSrc.length) ));
+        } else {
+          altDirPath = (this.baseDir + "assets/") + origImgSrc;
+        }
+        const altLastSlash = altDirPath.lastIndexOf("/");
+        if ( altLastSlash >= 0 ) {
+          imgDir = altDirPath.substring(0, (altLastSlash + 1) );
+          imgFile = altDirPath.substring((altLastSlash + 1), (altDirPath.length) );
+        }
+        console.log((("  Trying alternative: dir=" + imgDir) + " file=") + imgFile);
+        metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
+      }
       embImg.orientation = metaInfo.orientation;
       let imgBuffer = this.jpegDecoder.decode(imgDir, imgFile);
       if ( (imgBuffer.width > 1) && (imgBuffer.height > 1) ) {
@@ -12213,7 +12767,23 @@ class EVGPDFRenderer  {
         imgFile = imgSrc;
       }
       console.log((("Loading image: dir=" + imgDir) + " file=") + imgFile);
-      const metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
+      let metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
+      if ( metaInfo.isValid == false ) {
+        const origImgSrc = embImg.src;
+        let altDirPath = "";
+        if ( (origImgSrc.indexOf("./")) == 0 ) {
+          altDirPath = (this.baseDir + "assets/") + (origImgSrc.substring(2, (origImgSrc.length) ));
+        } else {
+          altDirPath = (this.baseDir + "assets/") + origImgSrc;
+        }
+        const altLastSlash = altDirPath.lastIndexOf("/");
+        if ( altLastSlash >= 0 ) {
+          imgDir = altDirPath.substring(0, (altLastSlash + 1) );
+          imgFile = altDirPath.substring((altLastSlash + 1), (altDirPath.length) );
+        }
+        console.log((("  Trying alternative: dir=" + imgDir) + " file=") + imgFile);
+        metaInfo = this.metadataParser.parseMetadata(imgDir, imgFile);
+      }
       embImg.orientation = metaInfo.orientation;
       let imgBuffer = this.jpegDecoder.decode(imgDir, imgFile);
       if ( (imgBuffer.width > 1) && (imgBuffer.height > 1) ) {
@@ -12341,20 +12911,31 @@ class EVGPDFRenderer  {
     const w = el.calculatedWidth;
     const h = el.calculatedHeight;
     const pdfY = (this.pageHeight - y) - h;
+    let borderRadius = 0.0;
+    if ( el.box.borderRadius.isSet ) {
+      borderRadius = el.box.borderRadius.pixels;
+    }
     let hasClipPath = false;
     if ( (el.clipPath.length) > 0 ) {
       hasClipPath = true;
       this.streamBuffer.writeString("q\n");
       this.applyClipPath(el.clipPath, x, pdfY, w, h);
     }
-    const bgColor = el.backgroundColor;
-    if ( this.debug ) {
-      console.log((((("  bg check: " + el.tagName) + " isSet=") + ((bgColor.isSet.toString()))) + " r=") + ((bgColor.r.toString())));
+    if ( el.tagName != "text" ) {
+      this.renderShadow(el, x, pdfY, w, h, borderRadius);
     }
-    if ( bgColor.isSet ) {
-      this.renderBackground(x, pdfY, w, h, bgColor);
+    if ( (el.backgroundGradient.length) > 0 ) {
+      this.renderGradientBackground(el, x, pdfY, w, h, borderRadius);
+    } else {
+      const bgColor = el.backgroundColor;
+      if ( this.debug ) {
+        console.log((((("  bg check: " + el.tagName) + " isSet=") + ((bgColor.isSet.toString()))) + " r=") + ((bgColor.r.toString())));
+      }
+      if ( bgColor.isSet ) {
+        this.renderBackgroundWithRadius(x, pdfY, w, h, bgColor, borderRadius);
+      }
     }
-    this.renderBorder(el, x, pdfY, w, h);
+    this.renderBorderWithRadius(el, x, pdfY, w, h, borderRadius);
     if ( el.tagName == "text" ) {
       this.renderText(el, x, pdfY, w, h);
     }
@@ -12505,14 +13086,246 @@ class EVGPDFRenderer  {
     };
     this.streamBuffer.writeString("W n\n");
   };
-  renderBackground (x, y, w, h, color) {
+  drawRoundedRectPath (x, y, w, h, radius) {
+    let maxRadius = w / 2.0;
+    if ( (h / 2.0) < maxRadius ) {
+      maxRadius = h / 2.0;
+    }
+    let r = radius;
+    if ( r > maxRadius ) {
+      r = maxRadius;
+    }
+    if ( r <= 0.0 ) {
+      this.streamBuffer.writeString(((((((this.formatNum(x) + " ") + this.formatNum(y)) + " ") + this.formatNum(w)) + " ") + this.formatNum(h)) + " re\n");
+      return;
+    }
+    const k = 0.5523;
+    const c = r * k;
+    this.streamBuffer.writeString(((this.formatNum(x) + " ") + this.formatNum((y + r))) + " m\n");
+    this.streamBuffer.writeString(((((((((((this.formatNum(x) + " ") + this.formatNum(((y + r) - c))) + " ") + this.formatNum(((x + r) - c))) + " ") + this.formatNum(y)) + " ") + this.formatNum((x + r))) + " ") + this.formatNum(y)) + " c\n");
+    this.streamBuffer.writeString(((this.formatNum(((x + w) - r)) + " ") + this.formatNum(y)) + " l\n");
+    this.streamBuffer.writeString(((((((((((this.formatNum((((x + w) - r) + c)) + " ") + this.formatNum(y)) + " ") + this.formatNum((x + w))) + " ") + this.formatNum(((y + r) - c))) + " ") + this.formatNum((x + w))) + " ") + this.formatNum((y + r))) + " c\n");
+    this.streamBuffer.writeString(((this.formatNum((x + w)) + " ") + this.formatNum(((y + h) - r))) + " l\n");
+    this.streamBuffer.writeString(((((((((((this.formatNum((x + w)) + " ") + this.formatNum((((y + h) - r) + c))) + " ") + this.formatNum((((x + w) - r) + c))) + " ") + this.formatNum((y + h))) + " ") + this.formatNum(((x + w) - r))) + " ") + this.formatNum((y + h))) + " c\n");
+    this.streamBuffer.writeString(((this.formatNum((x + r)) + " ") + this.formatNum((y + h))) + " l\n");
+    this.streamBuffer.writeString(((((((((((this.formatNum(((x + r) - c)) + " ") + this.formatNum((y + h))) + " ") + this.formatNum(x)) + " ") + this.formatNum((((y + h) - r) + c))) + " ") + this.formatNum(x)) + " ") + this.formatNum(((y + h) - r))) + " c\n");
+    this.streamBuffer.writeString("h\n");
+  };
+  renderShadow (el, x, y, w, h, radius) {
+    if ( el.shadowRadius.isSet == false ) {
+      if ( el.shadowColor.isSet == false ) {
+        return;
+      }
+    }
+    let offsetX = 0.0;
+    let offsetY = 0.0;
+    if ( el.shadowOffsetX.isSet ) {
+      offsetX = el.shadowOffsetX.pixels;
+    }
+    if ( el.shadowOffsetY.isSet ) {
+      offsetY = 0.0 - el.shadowOffsetY.pixels;
+    }
+    let blur = 0.0;
+    if ( el.shadowRadius.isSet ) {
+      blur = el.shadowRadius.pixels;
+    }
+    let shadowColor = el.shadowColor;
+    if ( shadowColor.isSet == false ) {
+      shadowColor = EVGColor.rgba(0, 0, 0, 0.5);
+    }
+    let numLayers = 8;
+    if ( blur < 5.0 ) {
+      numLayers = 5;
+    }
+    if ( blur < 2.0 ) {
+      numLayers = 3;
+    }
+    const baseAlpha = shadowColor.a / 255.0;
+    const alphaPerLayer = baseAlpha / (numLayers);
+    let i = 0;
+    while (i < numLayers) {
+      const layerRatio = ((numLayers - i)) / (numLayers);
+      const spread = blur * layerRatio;
+      const layerAlpha = alphaPerLayer * (1.0 + (layerRatio * 0.5));
+      this.streamBuffer.writeString("q\n");
+      const r = shadowColor.r / 255.0;
+      const g = shadowColor.g / 255.0;
+      const b = shadowColor.b / 255.0;
+      const blendFactor = 1.0 - layerAlpha;
+      let blendedR = (r * layerAlpha) + (1.0 * blendFactor);
+      let blendedG = (g * layerAlpha) + (1.0 * blendFactor);
+      let blendedB = (b * layerAlpha) + (1.0 * blendFactor);
+      if ( blendedR > 1.0 ) {
+        blendedR = 1.0;
+      }
+      if ( blendedG > 1.0 ) {
+        blendedG = 1.0;
+      }
+      if ( blendedB > 1.0 ) {
+        blendedB = 1.0;
+      }
+      this.streamBuffer.writeString(((((this.formatNum(blendedR) + " ") + this.formatNum(blendedG)) + " ") + this.formatNum(blendedB)) + " rg\n");
+      const sx = (x + offsetX) - spread;
+      const sy = (y + offsetY) - spread;
+      const sw = w + (spread * 2.0);
+      const sh = h + (spread * 2.0);
+      const sr = radius + spread;
+      this.drawRoundedRectPath(sx, sy, sw, sh, sr);
+      if ( i < (numLayers - 1) ) {
+        const nextRatio = (((numLayers - i) - 1)) / (numLayers);
+        const nextSpread = blur * nextRatio;
+        const nx = (x + offsetX) - nextSpread;
+        const ny = (y + offsetY) - nextSpread;
+        const nw = w + (nextSpread * 2.0);
+        const nh = h + (nextSpread * 2.0);
+        const nr = radius + nextSpread;
+        this.drawRoundedRectPath(nx, ny, nw, nh, nr);
+      }
+      this.streamBuffer.writeString("f*\n");
+      this.streamBuffer.writeString("Q\n");
+      i = i + 1;
+    };
+  };
+  renderBackgroundWithRadius (x, y, w, h, color, radius) {
     this.streamBuffer.writeString("q\n");
     const r = color.r / 255.0;
     const g = color.g / 255.0;
     const b = color.b / 255.0;
     this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
-    this.streamBuffer.writeString(((((((this.formatNum(x) + " ") + this.formatNum(y)) + " ") + this.formatNum(w)) + " ") + this.formatNum(h)) + " re\n");
+    this.drawRoundedRectPath(x, y, w, h, radius);
     this.streamBuffer.writeString("f\n");
+    this.streamBuffer.writeString("Q\n");
+  };
+  renderBackground (x, y, w, h, color) {
+    this.renderBackgroundWithRadius(x, y, w, h, color, 0.0);
+  };
+  renderGradientBackground (el, x, y, w, h, radius) {
+    const gradient = el.backgroundGradient;
+    const isLinear = gradient.includes("linear-gradient");
+    const isRadial = gradient.includes("radial-gradient");
+    if ( isLinear == false ) {
+      if ( isRadial == false ) {
+        return;
+      }
+    }
+    const parenStart = gradient.indexOf("(");
+    if ( parenStart < 0 ) {
+      return;
+    }
+    const parenEnd = gradient.lastIndexOf(")");
+    if ( parenEnd < 0 ) {
+      return;
+    }
+    const content = gradient.substring((parenStart + 1), parenEnd );
+    const parts = content.split(",");
+    if ( (parts.length) < 2 ) {
+      return;
+    }
+    const firstPart = (parts[0]).trim();
+    let angle = 180.0;
+    if ( isLinear ) {
+      if ( firstPart.includes("deg") ) {
+        const angleStr = firstPart.replace("deg", "");
+        const angleVal = isNaN( parseFloat(angleStr) ) ? undefined : parseFloat(angleStr);
+        if ( typeof(angleVal) != "undefined" ) {
+          angle = angleVal;
+        }
+      }
+    }
+    let colors = [];
+    let i = 1;
+    while (i < (parts.length)) {
+      const colorStr = (parts[i]).trim();
+      const color = EVGColor.parse(colorStr);
+      if ( color.isSet ) {
+        colors.push(color);
+      }
+      i = i + 1;
+    };
+    if ( (colors.length) < 2 ) {
+      if ( (colors.length) == 1 ) {
+        const c = colors[0];
+        this.renderBackgroundWithRadius(x, y, w, h, c, radius);
+      }
+      return;
+    }
+    this.streamBuffer.writeString("q\n");
+    if ( radius > 0.0 ) {
+      this.drawRoundedRectPath(x, y, w, h, radius);
+      this.streamBuffer.writeString("W n\n");
+    }
+    const numSteps = 50;
+    const radians = (angle * 3.14159265) / 180.0;
+    let isHorizontal = false;
+    while (angle < 0.0) {
+      angle = angle + 360.0;
+    };
+    while (angle >= 360.0) {
+      angle = angle - 360.0;
+    };
+    if ( (angle >= 45.0) && (angle < 135.0) ) {
+      isHorizontal = true;
+    }
+    if ( (angle >= 225.0) && (angle < 315.0) ) {
+      isHorizontal = true;
+    }
+    let stepIdx = 0;
+    while (stepIdx < numSteps) {
+      const t = (stepIdx) / ((numSteps - 1));
+      const colorIdx = t * (((colors.length) - 1));
+      const idx1 = Math.floor( colorIdx);
+      let idx2 = idx1 + 1;
+      if ( idx2 >= (colors.length) ) {
+        idx2 = (colors.length) - 1;
+      }
+      const localT = colorIdx - (idx1);
+      const c1 = colors[idx1];
+      const c2 = colors[idx2];
+      const r = ((c1.r * (1.0 - localT)) + (c2.r * localT)) / 255.0;
+      const g = ((c1.g * (1.0 - localT)) + (c2.g * localT)) / 255.0;
+      const b = ((c1.b * (1.0 - localT)) + (c2.b * localT)) / 255.0;
+      this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
+      if ( isHorizontal ) {
+        const stripW = w / (numSteps);
+        let stripX = x;
+        if ( (angle >= 225.0) && (angle < 315.0) ) {
+          stripX = (x + w) - (stripW * ((stepIdx + 1)));
+        } else {
+          stripX = x + (stripW * (stepIdx));
+        }
+        this.streamBuffer.writeString(((((((this.formatNum(stripX) + " ") + this.formatNum(y)) + " ") + this.formatNum((stripW + 0.5))) + " ") + this.formatNum(h)) + " re\n");
+      } else {
+        const stripH = h / (numSteps);
+        let stripY = y;
+        if ( (angle >= 135.0) && (angle < 225.0) ) {
+          stripY = (y + h) - (stripH * ((stepIdx + 1)));
+        } else {
+          stripY = y + (stripH * (stepIdx));
+        }
+        this.streamBuffer.writeString(((((((this.formatNum(x) + " ") + this.formatNum(stripY)) + " ") + this.formatNum(w)) + " ") + this.formatNum((stripH + 0.5))) + " re\n");
+      }
+      this.streamBuffer.writeString("f\n");
+      stepIdx = stepIdx + 1;
+    };
+    this.streamBuffer.writeString("Q\n");
+  };
+  renderBorderWithRadius (el, x, y, w, h, radius) {
+    const borderWidth = el.box.borderWidth.pixels;
+    if ( borderWidth <= 0.0 ) {
+      return;
+    }
+    let borderColor = el.box.borderColor;
+    if ( borderColor.isSet == false ) {
+      borderColor = EVGColor.black();
+    }
+    this.streamBuffer.writeString("q\n");
+    const r = borderColor.r / 255.0;
+    const g = borderColor.g / 255.0;
+    const b = borderColor.b / 255.0;
+    this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " RG\n");
+    this.streamBuffer.writeString(this.formatNum(borderWidth) + " w\n");
+    this.drawRoundedRectPath(x, y, w, h, radius);
+    this.streamBuffer.writeString("S\n");
     this.streamBuffer.writeString("Q\n");
   };
   renderBorder (el, x, y, w, h) {
@@ -12558,16 +13371,30 @@ class EVGPDFRenderer  {
     }
     const lines = this.wrapText(text, w, fontSize, fontFamily);
     const fontName = this.getPdfFontName(fontFamily);
+    let hasShadow = false;
+    let shadowOffsetX = 0.0;
+    let shadowOffsetY = 0.0;
+    let shadowBlur = 0.0;
+    let shadowColor = EVGColor.rgba(0, 0, 0, 0.5);
+    if ( el.shadowRadius.isSet || el.shadowColor.isSet ) {
+      hasShadow = true;
+      if ( el.shadowOffsetX.isSet ) {
+        shadowOffsetX = el.shadowOffsetX.pixels;
+      }
+      if ( el.shadowOffsetY.isSet ) {
+        shadowOffsetY = 0.0 - el.shadowOffsetY.pixels;
+      }
+      if ( el.shadowRadius.isSet ) {
+        shadowBlur = el.shadowRadius.pixels;
+      }
+      if ( el.shadowColor.isSet ) {
+        shadowColor = el.shadowColor;
+      }
+    }
     let lineY = (y + h) - fontSize;
     let i = 0;
     while (i < (lines.length)) {
       const line = lines[i];
-      this.streamBuffer.writeString("BT\n");
-      this.streamBuffer.writeString(((fontName + " ") + this.formatNum(fontSize)) + " Tf\n");
-      const r = color.r / 255.0;
-      const g = color.g / 255.0;
-      const b = color.b / 255.0;
-      this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
       let textX = x;
       if ( el.textAlign == "center" ) {
         const textWidth = this.measurer.measureTextWidth(line, fontFamily, fontSize);
@@ -12577,6 +13404,39 @@ class EVGPDFRenderer  {
         const textWidth_1 = this.measurer.measureTextWidth(line, fontFamily, fontSize);
         textX = (x + w) - textWidth_1;
       }
+      if ( hasShadow ) {
+        let numPasses = 1;
+        if ( shadowBlur > 1.0 ) {
+          numPasses = 3;
+        }
+        let pass = 0;
+        while (pass < numPasses) {
+          let blurOffset = 0.0;
+          if ( numPasses > 1 ) {
+            blurOffset = (shadowBlur * 0.3) * (pass);
+          }
+          const shadowAlpha = (shadowColor.a / 255.0) / (numPasses);
+          const blendFactor = 1.0 - shadowAlpha;
+          const sr = ((shadowColor.r / 255.0) * shadowAlpha) + (1.0 * blendFactor);
+          const sg = ((shadowColor.g / 255.0) * shadowAlpha) + (1.0 * blendFactor);
+          const sb = ((shadowColor.b / 255.0) * shadowAlpha) + (1.0 * blendFactor);
+          this.streamBuffer.writeString("BT\n");
+          this.streamBuffer.writeString(((fontName + " ") + this.formatNum(fontSize)) + " Tf\n");
+          this.streamBuffer.writeString(((((this.formatNum(sr) + " ") + this.formatNum(sg)) + " ") + this.formatNum(sb)) + " rg\n");
+          const shadowX = (textX + shadowOffsetX) + blurOffset;
+          const shadowY = (lineY + shadowOffsetY) - blurOffset;
+          this.streamBuffer.writeString(((this.formatNum(shadowX) + " ") + this.formatNum(shadowY)) + " Td\n");
+          this.streamBuffer.writeString(("(" + this.escapeText(line)) + ") Tj\n");
+          this.streamBuffer.writeString("ET\n");
+          pass = pass + 1;
+        };
+      }
+      this.streamBuffer.writeString("BT\n");
+      this.streamBuffer.writeString(((fontName + " ") + this.formatNum(fontSize)) + " Tf\n");
+      const r = color.r / 255.0;
+      const g = color.g / 255.0;
+      const b = color.b / 255.0;
+      this.streamBuffer.writeString(((((this.formatNum(r) + " ") + this.formatNum(g)) + " ") + this.formatNum(b)) + " rg\n");
       this.streamBuffer.writeString(((this.formatNum(textX) + " ") + this.formatNum(lineY)) + " Td\n");
       this.streamBuffer.writeString(("(" + this.escapeText(line)) + ") Tj\n");
       this.streamBuffer.writeString("ET\n");
@@ -12962,6 +13822,13 @@ EvalValue.object = function(keys, values) {
   v.objectValues = values;
   return v;
 };
+EvalValue.function = function(fnNode) {
+  const v = new EvalValue();
+  v.valueType = 6;
+  v.functionNode = fnNode;
+  v.functionName = fnNode.name;
+  return v;
+};
 EvalValue.element = function(el) {
   const v = new EvalValue();
   v.valueType = 7;
@@ -12974,6 +13841,7 @@ class ImportedSymbol  {
     this.originalName = "";
     this.sourcePath = "";
     this.symbolType = "";
+    this.helperFunctions = [];
   }
 }
 class EvalContext  {
@@ -13038,8 +13906,16 @@ class ComponentEngine  {
     this.assetPaths = [];
     this.pageWidth = 595.0;
     this.pageHeight = 842.0;
+    this.printFormat = "a4";
+    this.printOrientation = "portrait";
+    this.printMarginTop = 0.0;
+    this.printMarginRight = 0.0;
+    this.printMarginBottom = 0.0;
+    this.printMarginLeft = 0.0;
+    this.printPageCount = 1;
     this.imports = [];
     this.localComponents = [];
+    this.loadedFiles = [];
     this.primitives = [];
     const p = new TSParserSimple();
     this.parser = p;
@@ -13048,6 +13924,8 @@ class ComponentEngine  {
     this.imports = imp;
     let loc = [];
     this.localComponents = loc;
+    let lf = [];
+    this.loadedFiles = lf;
     const ctx = new EvalContext();
     this.context = ctx;
     let prim = [];
@@ -13063,6 +13941,7 @@ class ComponentEngine  {
     this.primitives.push("Path");
     this.primitives.push("Spacer");
     this.primitives.push("Divider");
+    this.primitives.push("Layer");
     this.primitives.push("div");
     this.primitives.push("span");
     this.primitives.push("p");
@@ -13071,6 +13950,7 @@ class ComponentEngine  {
     this.primitives.push("h3");
     this.primitives.push("img");
     this.primitives.push("path");
+    this.primitives.push("layer");
   }
   setAssetPaths (paths) {
     let start = 0;
@@ -13101,8 +13981,13 @@ class ComponentEngine  {
     };
     return fullPath;
   };
+  getLoadedFiles () {
+    return this.loadedFiles;
+  };
   parseFile (dirPath, fileName) {
     this.basePath = dirPath;
+    const mainFilePath = dirPath + fileName;
+    this.loadedFiles.push(mainFilePath);
     const fileContent = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
     const src = (function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(fileContent);
     return this.parse(src);
@@ -13168,6 +14053,8 @@ class ComponentEngine  {
     }
     const dirPath = this.basePath;
     console.log(("Loading import: " + dirPath) + fullPath);
+    const loadedFilePath = dirPath + fullPath;
+    this.loadedFiles.push(loadedFilePath);
     const fileContent = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fullPath); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
     const src = (function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(fileContent);
     if ( (src.length) == 0 ) {
@@ -13191,6 +14078,19 @@ class ComponentEngine  {
     importParser.initParser(tokens);
     importParser.tsxMode = true;
     const importAst = importParser.parseProgram();
+    let helperFns = [];
+    let hk = 0;
+    while (hk < (importAst.children.length)) {
+      const hstmt = importAst.children[hk];
+      if ( hstmt.nodeType == "FunctionDeclaration" ) {
+        const hfnName = hstmt.name;
+        if ( this.isInList(hfnName, importedNames) == false ) {
+          helperFns.push(hstmt);
+          console.log("  Found helper function: " + hfnName);
+        }
+      }
+      hk = hk + 1;
+    };
     let k = 0;
     while (k < (importAst.children.length)) {
       const stmt = importAst.children[k];
@@ -13206,6 +14106,7 @@ class ComponentEngine  {
               sym.sourcePath = fullPath;
               sym.symbolType = "component";
               sym.functionNode = declNode;
+              sym.helperFunctions = helperFns;
               this.localComponents.push(sym);
               console.log((("Imported component: " + fnName) + " from ") + fullPath);
             }
@@ -13221,6 +14122,7 @@ class ComponentEngine  {
           sym_1.sourcePath = fullPath;
           sym_1.symbolType = "component";
           sym_1.functionNode = stmt;
+          sym_1.helperFunctions = helperFns;
           this.localComponents.push(sym_1);
           console.log((("Imported component: " + fnName_1) + " from ") + fullPath);
         }
@@ -13270,6 +14172,7 @@ class ComponentEngine  {
           sym.symbolType = "component";
           sym.functionNode = node;
           this.localComponents.push(sym);
+          this.context.define(node.name, EvalValue.function(node));
           console.log("Registered local component: " + node.name);
         }
       }
@@ -13333,6 +14236,17 @@ class ComponentEngine  {
     this.context = savedContext;
     return result;
   };
+  evaluateFunctionCall (fnNode, props) {
+    const savedContext = this.context;
+    this.context = this.context.createChild();
+    if ( props.valueType != 0 ) {
+      this.bindFunctionParams(fnNode, props);
+    }
+    const body = this.getFunctionBody(fnNode);
+    const result = this.evaluateFunctionBodyValue(body);
+    this.context = savedContext;
+    return result;
+  };
   bindFunctionParams (fnNode, props) {
     let i = 0;
     while (i < (fnNode.params.length)) {
@@ -13382,6 +14296,30 @@ class ComponentEngine  {
       if ( stmt.nodeType == "VariableDeclaration" ) {
         this.processVariableDeclaration(stmt);
       }
+      if ( stmt.nodeType == "IfStatement" ) {
+        const ifResult = this.evaluateIfStatement(stmt);
+        if ( ifResult.hasReturn ) {
+          return ifResult;
+        }
+      }
+      if ( stmt.nodeType == "ForStatement" ) {
+        const forResult = this.evaluateForStatement(stmt);
+        if ( forResult.hasReturn ) {
+          return forResult;
+        }
+      }
+      if ( stmt.nodeType == "ForOfStatement" ) {
+        const forOfResult = this.evaluateForOfStatement(stmt);
+        if ( forOfResult.hasReturn ) {
+          return forOfResult;
+        }
+      }
+      if ( stmt.nodeType == "ExpressionStatement" ) {
+        if ( typeof(stmt.left) != "undefined" ) {
+          const exprNode = stmt.left;
+          this.evaluateExprForSideEffect(exprNode);
+        }
+      }
       if ( stmt.nodeType == "ReturnStatement" ) {
         if ( typeof(stmt.left) != "undefined" ) {
           const returnExpr = stmt.left;
@@ -13394,6 +14332,301 @@ class ComponentEngine  {
       return this.evaluateJSX(body);
     }
     return empty;
+  };
+  evaluateFunctionBodyValue (body) {
+    let i = 0;
+    console.log(("evaluateFunctionBodyValue: body has " + (((body.children.length).toString()))) + " children");
+    while (i < (body.children.length)) {
+      const stmt = body.children[i];
+      console.log((("  Statement " + ((i.toString()))) + ": ") + stmt.nodeType);
+      if ( stmt.nodeType == "VariableDeclaration" ) {
+        this.processVariableDeclaration(stmt);
+      }
+      if ( stmt.nodeType == "IfStatement" ) {
+        const ifResult = this.evaluateIfStatement(stmt);
+        if ( ifResult.hasReturn ) {
+        }
+      }
+      if ( stmt.nodeType == "ForStatement" ) {
+        const forResult = this.evaluateForStatement(stmt);
+        if ( forResult.hasReturn ) {
+        }
+      }
+      if ( stmt.nodeType == "ForOfStatement" ) {
+        const forOfResult = this.evaluateForOfStatement(stmt);
+        if ( forOfResult.hasReturn ) {
+        }
+      }
+      if ( stmt.nodeType == "ExpressionStatement" ) {
+        if ( typeof(stmt.left) != "undefined" ) {
+          const exprNode = stmt.left;
+          this.evaluateExprForSideEffect(exprNode);
+        }
+      }
+      if ( stmt.nodeType == "ReturnStatement" ) {
+        if ( typeof(stmt.left) != "undefined" ) {
+          const returnExpr = stmt.left;
+          return this.evaluateExpr(returnExpr);
+        }
+        return EvalValue.null();
+      }
+      i = i + 1;
+    };
+    if ( (body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment") ) {
+      const el = this.evaluateJSX(body);
+      return EvalValue.element(el);
+    }
+    if ( (body.nodeType != "BlockStatement") && (body.nodeType != "") ) {
+      return this.evaluateExpr(body);
+    }
+    return EvalValue.null();
+  };
+  evaluateIfStatement (node) {
+    const result = new EVGElement();
+    result.hasReturn = false;
+    if ( typeof(node.left) != "undefined" ) {
+      const condNode = node.left;
+      const condition = this.evaluateExpr(condNode);
+      if ( condition.toBool() ) {
+        if ( typeof(node.body) != "undefined" ) {
+          const thenBlock = node.body;
+          const blockResult = this.evaluateStatementBlock(thenBlock);
+          if ( blockResult.hasReturn ) {
+            return blockResult;
+          }
+        }
+      } else {
+        if ( typeof(node.right) != "undefined" ) {
+          const elseBlock = node.right;
+          if ( elseBlock.nodeType == "IfStatement" ) {
+            return this.evaluateIfStatement(elseBlock);
+          }
+          const blockResult_1 = this.evaluateStatementBlock(elseBlock);
+          if ( blockResult_1.hasReturn ) {
+            return blockResult_1;
+          }
+        }
+      }
+    }
+    return result;
+  };
+  evaluateStatementBlock (block) {
+    const result = new EVGElement();
+    result.hasReturn = false;
+    if ( block.nodeType == "ReturnStatement" ) {
+      if ( typeof(block.left) != "undefined" ) {
+        const returnExpr = block.left;
+        const returnedEl = this.evaluateJSX(returnExpr);
+        returnedEl.hasReturn = true;
+        return returnedEl;
+      }
+    }
+    if ( block.nodeType == "BlockStatement" ) {
+      let i = 0;
+      while (i < (block.children.length)) {
+        const stmt = block.children[i];
+        if ( stmt.nodeType == "VariableDeclaration" ) {
+          this.processVariableDeclaration(stmt);
+        }
+        if ( stmt.nodeType == "IfStatement" ) {
+          const ifResult = this.evaluateIfStatement(stmt);
+          if ( ifResult.hasReturn ) {
+            return ifResult;
+          }
+        }
+        if ( stmt.nodeType == "ForStatement" ) {
+          const forResult = this.evaluateForStatement(stmt);
+          if ( forResult.hasReturn ) {
+            return forResult;
+          }
+        }
+        if ( stmt.nodeType == "ForOfStatement" ) {
+          const forOfResult = this.evaluateForOfStatement(stmt);
+          if ( forOfResult.hasReturn ) {
+            return forOfResult;
+          }
+        }
+        if ( stmt.nodeType == "ExpressionStatement" ) {
+          if ( typeof(stmt.left) != "undefined" ) {
+            const exprNode = stmt.left;
+            this.evaluateExprForSideEffect(exprNode);
+          }
+        }
+        if ( stmt.nodeType == "ReturnStatement" ) {
+          if ( typeof(stmt.left) != "undefined" ) {
+            const returnExpr_1 = stmt.left;
+            const returnedEl_1 = this.evaluateJSX(returnExpr_1);
+            returnedEl_1.hasReturn = true;
+            return returnedEl_1;
+          }
+        }
+        i = i + 1;
+      };
+    }
+    return result;
+  };
+  evaluateExprForSideEffect (node) {
+    if ( node.nodeType == "CallExpression" ) {
+      this.evaluateCallExprForSideEffect(node);
+    }
+    if ( node.nodeType == "UpdateExpression" ) {
+      this.evaluateUpdateExpr(node);
+    }
+    if ( node.nodeType == "AssignmentExpression" ) {
+      this.evaluateUpdateExpr(node);
+    }
+  };
+  evaluateCallExprForSideEffect (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      const calleeNode = node.left;
+      if ( calleeNode.nodeType == "MemberExpression" ) {
+        const methodName = calleeNode.name;
+        if ( typeof(calleeNode.left) != "undefined" ) {
+          const objNode = calleeNode.left;
+          if ( objNode.nodeType == "Identifier" ) {
+            const objName = objNode.name;
+            const objValue = this.context.lookup(objName);
+            if ( (methodName == "push") && (objValue).isArray() ) {
+              if ( (node.children.length) > 0 ) {
+                const argNode = node.children[0];
+                const argValue = this.evaluateExpr(argNode);
+                objValue.arrayValue.push(argValue);
+                this.context.define(objName, objValue);
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+  evaluateForStatement (node) {
+    const result = new EVGElement();
+    result.hasReturn = false;
+    console.log("evaluateForStatement called");
+    if ( typeof(node.init) != "undefined" ) {
+      const initNode = node.init;
+      console.log("For init nodeType: " + initNode.nodeType);
+      if ( initNode.nodeType == "VariableDeclaration" ) {
+        this.processVariableDeclaration(initNode);
+      }
+    }
+    const maxIterations = 10000;
+    let iterations = 0;
+    while (iterations < maxIterations) {
+      if ( typeof(node.left) != "undefined" ) {
+        const testNode = node.left;
+        const testResult = this.evaluateExpr(testNode);
+        if ( testResult.toBool() == false ) {
+          return result;
+        }
+      }
+      if ( typeof(node.body) != "undefined" ) {
+        const bodyNode = node.body;
+        const bodyResult = this.evaluateStatementBlock(bodyNode);
+        if ( bodyResult.hasReturn ) {
+          return bodyResult;
+        }
+      }
+      if ( typeof(node.right) != "undefined" ) {
+        const updateNode = node.right;
+        this.evaluateUpdateExpr(updateNode);
+      }
+      iterations = iterations + 1;
+    };
+    return result;
+  };
+  evaluateForOfStatement (node) {
+    const result = new EVGElement();
+    result.hasReturn = false;
+    let varName = "";
+    if ( typeof(node.left) != "undefined" ) {
+      const leftNode = node.left;
+      if ( leftNode.nodeType == "VariableDeclaration" ) {
+        if ( (leftNode.children.length) > 0 ) {
+          const decl = leftNode.children[0];
+          varName = decl.name;
+        }
+      }
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      const rightNode = node.right;
+      const arrayValue = this.evaluateExpr(rightNode);
+      if ( (arrayValue).isArray() ) {
+        let i = 0;
+        while (i < (arrayValue.arrayValue.length)) {
+          const item = arrayValue.arrayValue[i];
+          this.context.define(varName, item);
+          if ( typeof(node.body) != "undefined" ) {
+            const bodyNode = node.body;
+            const bodyResult = this.evaluateStatementBlock(bodyNode);
+            if ( bodyResult.hasReturn ) {
+              return bodyResult;
+            }
+          }
+          i = i + 1;
+        };
+      }
+    }
+    return result;
+  };
+  evaluateUpdateExpr (node) {
+    if ( node.nodeType == "UpdateExpression" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        const argNode = node.left;
+        if ( argNode.nodeType == "Identifier" ) {
+          const varName = argNode.name;
+          const current = this.context.lookup(varName);
+          const currentNum = current.toNumber();
+          if ( node.value == "++" ) {
+            this.context.define(varName, EvalValue.number((currentNum + 1.0)));
+          }
+          if ( node.value == "--" ) {
+            this.context.define(varName, EvalValue.number((currentNum - 1.0)));
+          }
+        }
+      }
+    }
+    if ( node.nodeType == "AssignmentExpression" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        const leftNode = node.left;
+        if ( leftNode.nodeType == "Identifier" ) {
+          const varName_1 = leftNode.name;
+          const op = node.value;
+          if ( typeof(node.right) != "undefined" ) {
+            const rightNode = node.right;
+            const rightValue = this.evaluateExpr(rightNode);
+            if ( op == "=" ) {
+              this.context.define(varName_1, rightValue);
+            }
+            if ( op == "+=" ) {
+              const current_1 = this.context.lookup(varName_1);
+              const isLeftStr = current_1.isString();
+              const isRightStr = rightValue.isString();
+              if ( isLeftStr || isRightStr ) {
+                this.context.define(varName_1, EvalValue.string(((current_1).toString() + (rightValue).toString())));
+              } else {
+                this.context.define(varName_1, EvalValue.number((current_1.toNumber() + rightValue.toNumber())));
+              }
+            }
+            if ( op == "-=" ) {
+              const current_2 = this.context.lookup(varName_1);
+              this.context.define(varName_1, EvalValue.number((current_2.toNumber() - rightValue.toNumber())));
+            }
+            if ( op == "*=" ) {
+              const current_3 = this.context.lookup(varName_1);
+              this.context.define(varName_1, EvalValue.number((current_3.toNumber() * rightValue.toNumber())));
+            }
+            if ( op == "/=" ) {
+              const current_4 = this.context.lookup(varName_1);
+              const rightNum = rightValue.toNumber();
+              if ( rightNum != 0.0 ) {
+                this.context.define(varName_1, EvalValue.number((current_4.toNumber() / rightNum)));
+              }
+            }
+          }
+        }
+      }
+    }
   };
   evaluateJSX (node) {
     const element = new EVGElement();
@@ -13424,9 +14657,30 @@ class ComponentEngine  {
     }
     const element = new EVGElement();
     element.tagName = this.mapTagName(tagName);
+    if ( ((tagName == "Label") || (tagName == "span")) || (tagName == "text") ) {
+      element.elementType = 1;
+    }
+    if ( ((tagName == "Image") || (tagName == "img")) || (tagName == "image") ) {
+      element.elementType = 2;
+    }
+    if ( (tagName == "Path") || (tagName == "path") ) {
+      element.elementType = 3;
+    }
     if ( typeof(jsxNode.left) != "undefined" ) {
       const openingEl_1 = jsxNode.left;
       this.evaluateAttributes(element, openingEl_1);
+    }
+    if ( tagName == "Print" ) {
+      element.resolveBookFormat();
+      if ( element.pageWidth > 0.0 ) {
+        this.pageWidth = element.pageWidth;
+      }
+      if ( element.pageHeight > 0.0 ) {
+        this.pageHeight = element.pageHeight;
+      }
+      this.printFormat = element.format;
+      this.printOrientation = element.orientation;
+      console.log((((((("Print settings: format=" + this.printFormat) + " orientation=") + this.printOrientation) + " ") + ((this.pageWidth.toString()))) + "x") + ((this.pageHeight.toString())));
     }
     if ( ((tagName == "Label") || (tagName == "span")) || (tagName == "text") ) {
       element.textContent = this.evaluateTextContent(jsxNode);
@@ -13460,6 +14714,15 @@ class ComponentEngine  {
         const props = this.evaluateProps(jsxNode);
         if ( typeof(sym.functionNode) != "undefined" ) {
           const fnNode = sym.functionNode;
+          let hi = 0;
+          while (hi < (sym.helperFunctions.length)) {
+            const helperFn = sym.helperFunctions[hi];
+            const helperName = helperFn.name;
+            const helperValue = EvalValue.function(helperFn);
+            this.context.define(helperName, helperValue);
+            console.log("Registered helper function: " + helperName);
+            hi = hi + 1;
+          };
           return this.evaluateFunctionWithProps(fnNode, props);
         }
       }
@@ -13669,7 +14932,50 @@ class ComponentEngine  {
     if ( typeof(exprContainer.left) != "undefined" ) {
       const exprNode = exprContainer.left;
       if ( exprNode.nodeType == "CallExpression" ) {
-        this.evaluateArrayMapChild(element, exprNode);
+        if ( typeof(exprNode.left) != "undefined" ) {
+          const calleeNode = exprNode.left;
+          if ( calleeNode.nodeType == "MemberExpression" ) {
+            const methodName = calleeNode.name;
+            if ( methodName == "map" ) {
+              this.evaluateArrayMapChild(element, exprNode);
+              return;
+            }
+          }
+        }
+        const callResult = this.evaluateExpr(exprNode);
+        if ( (callResult).isArray() ) {
+          let ai = 0;
+          while (ai < (callResult.arrayValue.length)) {
+            const arrItem = callResult.arrayValue[ai];
+            if ( arrItem.isElement() ) {
+              if ( typeof(arrItem.evgElement) != "undefined" ) {
+                const arrChildEl = arrItem.evgElement;
+                if ( (arrChildEl.tagName.length) > 0 ) {
+                  element.addChild(arrChildEl);
+                }
+              }
+            }
+            ai = ai + 1;
+          };
+          return;
+        }
+        if ( callResult.isElement() ) {
+          if ( typeof(callResult.evgElement) != "undefined" ) {
+            const childEl = callResult.evgElement;
+            if ( (childEl.tagName.length) > 0 ) {
+              element.addChild(childEl);
+            }
+          }
+          return;
+        }
+        const isStr = callResult.isString();
+        const isNum = callResult.isNumber();
+        if ( isStr || isNum ) {
+          const textEl = new EVGElement();
+          textEl.tagName = "text";
+          textEl.textContent = (callResult).toString();
+          element.addChild(textEl);
+        }
         return;
       }
       if ( exprNode.nodeType == "ConditionalExpression" ) {
@@ -13685,36 +14991,36 @@ class ComponentEngine  {
       const value = this.evaluateExpr(exprNode);
       if ( value.isElement() ) {
         if ( typeof(value.evgElement) != "undefined" ) {
-          const childEl = value.evgElement;
-          if ( (childEl.tagName.length) > 0 ) {
-            element.addChild(childEl);
+          const childEl_1 = value.evgElement;
+          if ( (childEl_1.tagName.length) > 0 ) {
+            element.addChild(childEl_1);
           }
         }
         return;
       }
       if ( (value).isArray() ) {
-        let ai = 0;
-        while (ai < (value.arrayValue.length)) {
-          const arrItem = value.arrayValue[ai];
-          if ( arrItem.isElement() ) {
-            if ( typeof(arrItem.evgElement) != "undefined" ) {
-              const arrChildEl = arrItem.evgElement;
-              if ( (arrChildEl.tagName.length) > 0 ) {
-                element.addChild(arrChildEl);
+        let ai_1 = 0;
+        while (ai_1 < (value.arrayValue.length)) {
+          const arrItem_1 = value.arrayValue[ai_1];
+          if ( arrItem_1.isElement() ) {
+            if ( typeof(arrItem_1.evgElement) != "undefined" ) {
+              const arrChildEl_1 = arrItem_1.evgElement;
+              if ( (arrChildEl_1.tagName.length) > 0 ) {
+                element.addChild(arrChildEl_1);
               }
             }
           }
-          ai = ai + 1;
+          ai_1 = ai_1 + 1;
         };
         return;
       }
-      const isStr = value.isString();
-      const isNum = value.isNumber();
-      if ( isStr || isNum ) {
-        const textEl = new EVGElement();
-        textEl.tagName = "text";
-        textEl.textContent = (value).toString();
-        element.addChild(textEl);
+      const isStr_1 = value.isString();
+      const isNum_1 = value.isNumber();
+      if ( isStr_1 || isNum_1 ) {
+        const textEl_1 = new EVGElement();
+        textEl_1.tagName = "text";
+        textEl_1.textContent = (value).toString();
+        element.addChild(textEl_1);
       }
     }
   };
@@ -13834,15 +15140,20 @@ class ComponentEngine  {
       return EvalValue.string(this.unquote(node.value));
     }
     if ( node.nodeType == "TemplateLiteral" ) {
+      console.log(("TemplateLiteral: processing template with " + (((node.children.length).toString()))) + " children");
       let templateText = "";
       let ti = 0;
       while (ti < (node.children.length)) {
         const templateChild = node.children[ti];
+        console.log((((("TemplateLiteral child " + ((ti.toString()))) + ": nodeType=") + templateChild.nodeType) + " value=") + templateChild.value);
         if ( templateChild.nodeType == "TemplateElement" ) {
-          templateText = templateText + templateChild.value;
+          const rawText = templateChild.value;
+          const processedText = this.evaluateTemplateExpressions(rawText);
+          templateText = templateText + processedText;
         }
         ti = ti + 1;
       };
+      console.log(("TemplateLiteral: result = '" + templateText) + "'");
       return EvalValue.string(templateText);
     }
     if ( node.nodeType == "BooleanLiteral" ) {
@@ -13887,6 +15198,268 @@ class ComponentEngine  {
       el_1.tagName = "div";
       this.evaluateChildren(el_1, node);
       return EvalValue.element(el_1);
+    }
+    if ( node.nodeType == "CallExpression" ) {
+      return this.evaluateCallExpr(node);
+    }
+    return EvalValue.null();
+  };
+  evaluateCallExpr (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      const callee = node.left;
+      if ( callee.nodeType == "MemberExpression" ) {
+        let obj = EvalValue.null();
+        let methodName = "";
+        if ( typeof(callee.left) != "undefined" ) {
+          const objNode = callee.left;
+          obj = this.evaluateExpr(objNode);
+        }
+        methodName = callee.name;
+        if ( (methodName.length) == 0 ) {
+          if ( typeof(callee.right) != "undefined" ) {
+            const propNode = callee.right;
+            methodName = propNode.name;
+            if ( (methodName.length) == 0 ) {
+              methodName = propNode.value;
+            }
+          }
+        }
+        console.log((("Method call: " + methodName) + " on value type=") + ((obj.valueType.toString())));
+        if ( methodName == "toFixed" ) {
+          const numVal = obj.toNumber();
+          let decimals = 0;
+          if ( (node.children.length) > 0 ) {
+            const argNode = node.children[0];
+            const argVal = this.evaluateExpr(argNode);
+            decimals = Math.floor( argVal.toNumber());
+          }
+          let multiplier = 1.0;
+          let i = 0;
+          while (i < decimals) {
+            multiplier = multiplier * 10.0;
+            i = i + 1;
+          };
+          const rounded = (Math.floor( ((numVal * multiplier) + 0.5)));
+          const result = rounded / multiplier;
+          let resultStr = (result.toString());
+          const dotIdx = resultStr.indexOf(".");
+          if ( decimals == 0 ) {
+            if ( dotIdx >= 0 ) {
+              return EvalValue.string((resultStr.substring(0, dotIdx )));
+            }
+            return EvalValue.string(resultStr);
+          }
+          if ( dotIdx < 0 ) {
+            resultStr = resultStr + ".";
+            let z = 0;
+            while (z < decimals) {
+              resultStr = resultStr + "0";
+              z = z + 1;
+            };
+            return EvalValue.string(resultStr);
+          }
+          const currentDecimals = ((resultStr.length) - dotIdx) - 1;
+          if ( currentDecimals < decimals ) {
+            let p = currentDecimals;
+            while (p < decimals) {
+              resultStr = resultStr + "0";
+              p = p + 1;
+            };
+          } else {
+            resultStr = resultStr.substring(0, ((dotIdx + 1) + decimals) );
+          }
+          return EvalValue.string(resultStr);
+        }
+        if ( methodName == "toString" ) {
+          return EvalValue.string((obj).toString());
+        }
+        if ( methodName == "toUpperCase" ) {
+          return EvalValue.string(((obj).toString().toUpperCase()));
+        }
+        if ( methodName == "toLowerCase" ) {
+          return EvalValue.string(((obj).toString().toLowerCase()));
+        }
+        if ( methodName == "trim" ) {
+          return EvalValue.string(((obj).toString().trim()));
+        }
+        if ( methodName == "charAt" ) {
+          const str = (obj).toString();
+          let idx = 0;
+          if ( (node.children.length) > 0 ) {
+            const argNode_1 = node.children[0];
+            const argVal_1 = this.evaluateExpr(argNode_1);
+            idx = Math.floor( argVal_1.toNumber());
+          }
+          if ( idx < (str.length) ) {
+            return EvalValue.string((str.substring(idx, (idx + 1) )));
+          }
+          return EvalValue.string("");
+        }
+        if ( methodName == "substring" ) {
+          const str_1 = (obj).toString();
+          let startIdx = 0;
+          let endIdx = str_1.length;
+          if ( (node.children.length) > 0 ) {
+            const argNode_2 = node.children[0];
+            const argVal_2 = this.evaluateExpr(argNode_2);
+            startIdx = Math.floor( argVal_2.toNumber());
+          }
+          if ( (node.children.length) > 1 ) {
+            const argNode2 = node.children[1];
+            const argVal2 = this.evaluateExpr(argNode2);
+            endIdx = Math.floor( argVal2.toNumber());
+          }
+          return EvalValue.string((str_1.substring(startIdx, endIdx )));
+        }
+        if ( methodName == "padStart" ) {
+          const str_2 = (obj).toString();
+          let targetLen = str_2.length;
+          let padStr = " ";
+          if ( (node.children.length) > 0 ) {
+            const argNode_3 = node.children[0];
+            const argVal_3 = this.evaluateExpr(argNode_3);
+            targetLen = Math.floor( argVal_3.toNumber());
+          }
+          if ( (node.children.length) > 1 ) {
+            const argNode2_1 = node.children[1];
+            const argVal2_1 = this.evaluateExpr(argNode2_1);
+            padStr = (argVal2_1).toString();
+            if ( (padStr.length) == 0 ) {
+              padStr = " ";
+            }
+          }
+          const currentLen = str_2.length;
+          if ( currentLen >= targetLen ) {
+            return EvalValue.string(str_2);
+          }
+          let padding = "";
+          const padLen = padStr.length;
+          while ((padding.length) < (targetLen - currentLen)) {
+            padding = padding + padStr;
+          };
+          const neededPad = targetLen - currentLen;
+          if ( (padding.length) > neededPad ) {
+            padding = padding.substring(0, neededPad );
+          }
+          return EvalValue.string((padding + str_2));
+        }
+        if ( methodName == "padEnd" ) {
+          const str_3 = (obj).toString();
+          let targetLen_1 = str_3.length;
+          let padStr_1 = " ";
+          if ( (node.children.length) > 0 ) {
+            const argNode_4 = node.children[0];
+            const argVal_4 = this.evaluateExpr(argNode_4);
+            targetLen_1 = Math.floor( argVal_4.toNumber());
+          }
+          if ( (node.children.length) > 1 ) {
+            const argNode2_2 = node.children[1];
+            const argVal2_2 = this.evaluateExpr(argNode2_2);
+            padStr_1 = (argVal2_2).toString();
+            if ( (padStr_1.length) == 0 ) {
+              padStr_1 = " ";
+            }
+          }
+          const currentLen_1 = str_3.length;
+          if ( currentLen_1 >= targetLen_1 ) {
+            return EvalValue.string(str_3);
+          }
+          let padding_1 = "";
+          const padLen_1 = padStr_1.length;
+          while ((padding_1.length) < (targetLen_1 - currentLen_1)) {
+            padding_1 = padding_1 + padStr_1;
+          };
+          const neededPad_1 = targetLen_1 - currentLen_1;
+          if ( (padding_1.length) > neededPad_1 ) {
+            padding_1 = padding_1.substring(0, neededPad_1 );
+          }
+          return EvalValue.string((str_3 + padding_1));
+        }
+        if ( obj.isObject() ) {
+          let objName = "";
+          if ( typeof(callee.left) != "undefined" ) {
+            const objNode_1 = callee.left;
+            if ( objNode_1.nodeType == "Identifier" ) {
+              objName = objNode_1.name;
+            }
+          }
+          if ( objName == "Math" ) {
+            if ( (node.children.length) > 0 ) {
+              const argNode_5 = node.children[0];
+              const argVal_5 = this.evaluateExpr(argNode_5);
+              const num = argVal_5.toNumber();
+              if ( methodName == "round" ) {
+                return EvalValue.number(((Math.floor( (num + 0.5)))));
+              }
+              if ( methodName == "floor" ) {
+                return EvalValue.number(((Math.floor( num))));
+              }
+              if ( methodName == "ceil" ) {
+                const intPart = Math.floor( num);
+                if ( num > (intPart) ) {
+                  return EvalValue.number(((intPart + 1)));
+                }
+                return EvalValue.number((intPart));
+              }
+              if ( methodName == "abs" ) {
+                if ( num < 0.0 ) {
+                  return EvalValue.number((0.0 - num));
+                }
+                return EvalValue.number(num);
+              }
+            }
+          }
+        }
+        console.log("Warning: Unhandled method call: " + methodName);
+        return EvalValue.null();
+      }
+      if ( callee.nodeType == "Identifier" ) {
+        const fnName = callee.name;
+        console.log("Evaluating function call: " + fnName);
+        if ( fnName == "usePrintSettings" ) {
+          return this.evaluateUsePrintSettings();
+        }
+        if ( fnName == "useImage" ) {
+          let srcArg = "";
+          if ( (node.children.length) > 0 ) {
+            const argNode_6 = node.children[0];
+            console.log("useImage arg nodeType: " + argNode_6.nodeType);
+            const argValue = this.evaluateExpr(argNode_6);
+            console.log((("useImage arg value: " + (argValue).toString()) + " type=") + ((argValue.valueType.toString())));
+            srcArg = argValue.stringValue;
+            console.log("useImage srcArg: " + srcArg);
+          }
+          return this.evaluateUseImage(srcArg);
+        }
+        const fnValue = this.context.lookup(fnName);
+        console.log((((("Lookup function '" + fnName) + "' -> type=") + ((fnValue.valueType.toString()))) + " isFunction=") + ((fnValue.isFunction().toString())));
+        if ( fnValue.isFunction() ) {
+          if ( typeof(fnValue.functionNode) != "undefined" ) {
+            const fnNode = fnValue.functionNode;
+            const savedContext = this.context;
+            this.context = this.context.createChild();
+            const numArgs = node.children.length;
+            const numParams = fnNode.params.length;
+            console.log(((((("Function " + fnName) + " called with ") + ((numArgs.toString()))) + " args, has ") + ((numParams.toString()))) + " params");
+            let argIdx = 0;
+            while (argIdx < numParams) {
+              if ( argIdx < numArgs ) {
+                const argNode_7 = node.children[argIdx];
+                const argValue_1 = this.evaluateExpr(argNode_7);
+                const paramNode = fnNode.params[argIdx];
+                const paramName = paramNode.name;
+                console.log((("Binding param '" + paramName) + "' = ") + (argValue_1).toString());
+                this.context.define(paramName, argValue_1);
+              }
+              argIdx = argIdx + 1;
+            };
+            const body = this.getFunctionBody(fnNode);
+            const result_1 = this.evaluateFunctionBodyValue(body);
+            this.context = savedContext;
+            return result_1;
+          }
+        }
+      }
     }
     return EvalValue.null();
   };
@@ -14017,12 +15590,15 @@ class ComponentEngine  {
       const leftExpr = node.left;
       const obj = this.evaluateExpr(leftExpr);
       const propName = node.name;
+      console.log((((("evaluateMemberExpr: propName=" + propName) + " computed=") + ((node.computed.toString()))) + " obj.type=") + ((obj.valueType.toString())));
       if ( node.computed ) {
         if ( typeof(node.right) != "undefined" ) {
           const indexExpr = node.right;
           const indexVal = this.evaluateExpr(indexExpr);
+          console.log((("  Index value: " + (indexVal).toString()) + " type=") + ((indexVal.valueType.toString())));
           if ( indexVal.isNumber() ) {
             const idx = Math.floor( indexVal.toNumber());
+            console.log((("  Getting index " + ((idx.toString()))) + " from array of length ") + (((obj.arrayValue.length).toString())));
             return obj.getIndex(idx);
           }
           if ( indexVal.isString() ) {
@@ -14078,6 +15654,9 @@ class ComponentEngine  {
     if ( jsxTag == "View" ) {
       return "div";
     }
+    if ( jsxTag == "Layer" ) {
+      return "layer";
+    }
     if ( jsxTag == "Label" ) {
       return "text";
     }
@@ -14104,6 +15683,9 @@ class ComponentEngine  {
     }
     if ( jsxTag == "path" ) {
       return "path";
+    }
+    if ( jsxTag == "layer" ) {
+      return "layer";
     }
     return "div";
   };
@@ -14211,6 +15793,634 @@ class ComponentEngine  {
       return s.substring(1, (__len - 1) );
     }
     return s;
+  };
+  evaluateTemplateExpressions (templateStr) {
+    console.log(("evaluateTemplateExpressions: input = '" + templateStr) + "'");
+    let result = "";
+    const __len = templateStr.length;
+    let i = 0;
+    while (i < __len) {
+      const ch = templateStr[i];
+      if ( ch == "$" ) {
+        if ( (i + 1) < __len ) {
+          const nextCh = templateStr[(i + 1)];
+          if ( nextCh == "{" ) {
+            const exprStart = i + 2;
+            let braceDepth = 1;
+            let j = exprStart;
+            while ((j < __len) && (braceDepth > 0)) {
+              const c = templateStr[j];
+              if ( c == "{" ) {
+                braceDepth = braceDepth + 1;
+              }
+              if ( c == "}" ) {
+                braceDepth = braceDepth - 1;
+              }
+              if ( braceDepth > 0 ) {
+                j = j + 1;
+              }
+            };
+            if ( braceDepth == 0 ) {
+              const exprStr = templateStr.substring(exprStart, j );
+              console.log(("evaluateTemplateExpressions: found expression '" + exprStr) + "'");
+              const exprValue = this.evaluateTemplateExpression(exprStr);
+              result = result + exprValue;
+              i = j + 1;
+            } else {
+              result = result + ch;
+              i = i + 1;
+            }
+          } else {
+            result = result + ch;
+            i = i + 1;
+          }
+        } else {
+          result = result + ch;
+          i = i + 1;
+        }
+      } else {
+        result = result + ch;
+        i = i + 1;
+      }
+    };
+    return result;
+  };
+  evaluateTemplateExpression (exprStr) {
+    console.log(("evaluateTemplateExpression: parsing '" + exprStr) + "'");
+    const lexer = new TSLexer(exprStr);
+    const tokens = lexer.tokenize();
+    const parser_1 = new TSParserSimple();
+    parser_1.initParser(tokens);
+    const ast = parser_1.parseProgram();
+    console.log(("evaluateTemplateExpression: AST has " + (((ast.children.length).toString()))) + " children");
+    if ( (ast.children.length) > 0 ) {
+      const stmt = ast.children[0];
+      console.log("evaluateTemplateExpression: stmt.nodeType = " + stmt.nodeType);
+      if ( stmt.nodeType == "ExpressionStatement" ) {
+        if ( typeof(stmt.left) != "undefined" ) {
+          const exprNode = stmt.left;
+          console.log("evaluateTemplateExpression: exprNode.nodeType = " + exprNode.nodeType);
+          const value = this.evaluateExpr(exprNode);
+          console.log("evaluateTemplateExpression: result = " + (value).toString());
+          return (value).toString();
+        }
+      }
+      const value_1 = this.evaluateExpr(stmt);
+      console.log("evaluateTemplateExpression: direct result = " + (value_1).toString());
+      return (value_1).toString();
+    }
+    console.log(("evaluateTemplateExpression: fallback for '" + exprStr) + "'");
+    return ("${" + exprStr) + "}";
+  };
+  evaluateUsePrintSettings () {
+    console.log("Hook: usePrintSettings() called");
+    let propNames = [];
+    let propValues = [];
+    propNames.push("format");
+    const formatVal = EvalValue.string(this.printFormat);
+    propValues.push(formatVal);
+    propNames.push("width");
+    const widthVal = EvalValue.number(this.pageWidth);
+    propValues.push(widthVal);
+    propNames.push("height");
+    const heightVal = EvalValue.number(this.pageHeight);
+    propValues.push(heightVal);
+    propNames.push("orientation");
+    const orientVal = EvalValue.string(this.printOrientation);
+    propValues.push(orientVal);
+    propNames.push("pageCount");
+    const pageCountVal = EvalValue.number((this.printPageCount));
+    propValues.push(pageCountVal);
+    propNames.push("margins");
+    let marginNames = [];
+    let marginValues = [];
+    marginNames.push("top");
+    marginValues.push(EvalValue.number(this.printMarginTop));
+    marginNames.push("right");
+    marginValues.push(EvalValue.number(this.printMarginRight));
+    marginNames.push("bottom");
+    marginValues.push(EvalValue.number(this.printMarginBottom));
+    marginNames.push("left");
+    marginValues.push(EvalValue.number(this.printMarginLeft));
+    const marginsVal = EvalValue.object(marginNames, marginValues);
+    propValues.push(marginsVal);
+    return EvalValue.object(propNames, propValues);
+  };
+  parseGPSCoordinate (direction, coordStr, originalValue) {
+    let names = [];
+    let values = [];
+    names.push("direction");
+    values.push(EvalValue.string(direction));
+    let degrees = 0.0;
+    let minutes = 0.0;
+    let seconds = 0.0;
+    console.log(("parseGPSCoordinate: coordStr = '" + coordStr) + "'");
+    const hasDegreeSym = (coordStr.indexOf("°")) >= 0;
+    if ( hasDegreeSym ) {
+      const degEnd = coordStr.indexOf("°");
+      console.log("parseGPSCoordinate: degEnd = " + ((degEnd.toString())));
+      if ( degEnd > 0 ) {
+        const degStr = coordStr.substring(0, degEnd );
+        const cleanDegStr = this.extractNumber(degStr);
+        console.log(((("parseGPSCoordinate: degStr = '" + degStr) + "' -> clean: '") + cleanDegStr) + "'");
+        const degVal = isNaN( parseFloat(cleanDegStr) ) ? undefined : parseFloat(cleanDegStr);
+        if ( typeof(degVal) != "undefined" ) {
+          degrees = degVal;
+        }
+      }
+      const minEnd = coordStr.indexOf("'");
+      console.log("parseGPSCoordinate: minEnd = " + ((minEnd.toString())));
+      if ( minEnd > degEnd ) {
+        const minStr = coordStr.substring((degEnd + 1), minEnd );
+        const cleanMinStr = this.extractNumber(minStr);
+        console.log(((("parseGPSCoordinate: minStr = '" + minStr) + "' -> clean: '") + cleanMinStr) + "'");
+        const minVal = isNaN( parseFloat(cleanMinStr) ) ? undefined : parseFloat(cleanMinStr);
+        if ( typeof(minVal) != "undefined" ) {
+          minutes = minVal;
+        }
+      }
+      let secEnd = coordStr.indexOf("\"");
+      console.log("parseGPSCoordinate: secEnd = " + ((secEnd.toString())));
+      if ( secEnd < 0 ) {
+        secEnd = coordStr.length;
+      }
+      if ( secEnd > minEnd ) {
+        const secStr = coordStr.substring((minEnd + 1), secEnd );
+        const cleanSecStr = this.extractNumber(secStr);
+        console.log(((("parseGPSCoordinate: secStr = '" + secStr) + "' -> clean: '") + cleanSecStr) + "'");
+        const secVal = isNaN( parseFloat(cleanSecStr) ) ? undefined : parseFloat(cleanSecStr);
+        if ( typeof(secVal) != "undefined" ) {
+          seconds = secVal;
+        }
+      }
+    } else {
+      const decVal = isNaN( parseFloat((coordStr.trim())) ) ? undefined : parseFloat((coordStr.trim()));
+      if ( typeof(decVal) != "undefined" ) {
+        const decimalDeg = decVal;
+        const degreesInt = Math.floor(decimalDeg);
+        degrees = degreesInt;
+        const minFloat = (decimalDeg - degrees) * 60.0;
+        const minutesInt = Math.floor(minFloat);
+        minutes = minutesInt;
+        seconds = (minFloat - minutes) * 60.0;
+      }
+    }
+    console.log((((("parseGPSCoordinate: degrees=" + ((degrees.toString()))) + " minutes=") + ((minutes.toString()))) + " seconds=") + ((seconds.toString())));
+    names.push("degrees");
+    values.push(EvalValue.number(degrees));
+    names.push("minutes");
+    values.push(EvalValue.number(minutes));
+    names.push("seconds");
+    values.push(EvalValue.number(seconds));
+    names.push("originalValue");
+    values.push(EvalValue.string(originalValue));
+    return EvalValue.object(names, values);
+  };
+  extractNumber (str) {
+    let result = "";
+    let i = 0;
+    const __len = str.length;
+    while (i < __len) {
+      const chCode = str.charCodeAt(i );
+      if ( (((chCode >= 48) && (chCode <= 57)) || (chCode == 46)) || (chCode == 45) ) {
+        const chStr = str.substring(i, (i + 1) );
+        result = result + chStr;
+      }
+      i = i + 1;
+    };
+    return result;
+  };
+  parseDateInfo (dateStr) {
+    let names = [];
+    let values = [];
+    if ( (dateStr.length) < 10 ) {
+      return EvalValue.null();
+    }
+    let year = 0;
+    let month = 0;
+    let day = 0;
+    let hour = 0;
+    let minute = 0;
+    let second = 0;
+    if ( (dateStr.length) >= 4 ) {
+      const yearStr = dateStr.substring(0, 4 );
+      const yearOpt = isNaN( parseFloat(yearStr) ) ? undefined : parseFloat(yearStr);
+      if ( typeof(yearOpt) != "undefined" ) {
+        year = Math.floor( (yearOpt));
+      }
+    }
+    if ( (dateStr.length) >= 7 ) {
+      const monthStr = dateStr.substring(5, 7 );
+      const monthOpt = isNaN( parseFloat(monthStr) ) ? undefined : parseFloat(monthStr);
+      if ( typeof(monthOpt) != "undefined" ) {
+        month = Math.floor( (monthOpt));
+      }
+    }
+    if ( (dateStr.length) >= 10 ) {
+      const dayStr = dateStr.substring(8, 10 );
+      const dayOpt = isNaN( parseFloat(dayStr) ) ? undefined : parseFloat(dayStr);
+      if ( typeof(dayOpt) != "undefined" ) {
+        day = Math.floor( (dayOpt));
+      }
+    }
+    if ( (dateStr.length) >= 13 ) {
+      const hourStr = dateStr.substring(11, 13 );
+      const hourOpt = isNaN( parseFloat(hourStr) ) ? undefined : parseFloat(hourStr);
+      if ( typeof(hourOpt) != "undefined" ) {
+        hour = Math.floor( (hourOpt));
+      }
+    }
+    if ( (dateStr.length) >= 16 ) {
+      const minuteStr = dateStr.substring(14, 16 );
+      const minuteOpt = isNaN( parseFloat(minuteStr) ) ? undefined : parseFloat(minuteStr);
+      if ( typeof(minuteOpt) != "undefined" ) {
+        minute = Math.floor( (minuteOpt));
+      }
+    }
+    if ( (dateStr.length) >= 19 ) {
+      const secondStr = dateStr.substring(17, 19 );
+      const secondOpt = isNaN( parseFloat(secondStr) ) ? undefined : parseFloat(secondStr);
+      if ( typeof(secondOpt) != "undefined" ) {
+        second = Math.floor( (secondOpt));
+      }
+    }
+    names.push("year");
+    values.push(EvalValue.number((year)));
+    names.push("month");
+    values.push(EvalValue.number((month)));
+    names.push("day");
+    values.push(EvalValue.number((day)));
+    names.push("hour");
+    values.push(EvalValue.number((hour)));
+    names.push("minute");
+    values.push(EvalValue.number((minute)));
+    names.push("second");
+    values.push(EvalValue.number((second)));
+    names.push("monthName");
+    let monthName = "Unknown";
+    if ( month == 1 ) {
+      monthName = "January";
+    }
+    if ( month == 2 ) {
+      monthName = "February";
+    }
+    if ( month == 3 ) {
+      monthName = "March";
+    }
+    if ( month == 4 ) {
+      monthName = "April";
+    }
+    if ( month == 5 ) {
+      monthName = "May";
+    }
+    if ( month == 6 ) {
+      monthName = "June";
+    }
+    if ( month == 7 ) {
+      monthName = "July";
+    }
+    if ( month == 8 ) {
+      monthName = "August";
+    }
+    if ( month == 9 ) {
+      monthName = "September";
+    }
+    if ( month == 10 ) {
+      monthName = "October";
+    }
+    if ( month == 11 ) {
+      monthName = "November";
+    }
+    if ( month == 12 ) {
+      monthName = "December";
+    }
+    values.push(EvalValue.string(monthName));
+    names.push("monthShort");
+    let monthShort = "Unk";
+    if ( month == 1 ) {
+      monthShort = "Jan";
+    }
+    if ( month == 2 ) {
+      monthShort = "Feb";
+    }
+    if ( month == 3 ) {
+      monthShort = "Mar";
+    }
+    if ( month == 4 ) {
+      monthShort = "Apr";
+    }
+    if ( month == 5 ) {
+      monthShort = "May";
+    }
+    if ( month == 6 ) {
+      monthShort = "Jun";
+    }
+    if ( month == 7 ) {
+      monthShort = "Jul";
+    }
+    if ( month == 8 ) {
+      monthShort = "Aug";
+    }
+    if ( month == 9 ) {
+      monthShort = "Sep";
+    }
+    if ( month == 10 ) {
+      monthShort = "Oct";
+    }
+    if ( month == 11 ) {
+      monthShort = "Nov";
+    }
+    if ( month == 12 ) {
+      monthShort = "Dec";
+    }
+    values.push(EvalValue.string(monthShort));
+    names.push("weekday");
+    let weekdayName = "Unknown";
+    let weekdayNum = 0;
+    let adjustedMonth = month;
+    let adjustedYear = year;
+    if ( month < 3 ) {
+      adjustedMonth = month + 12;
+      adjustedYear = year - 1;
+    }
+    const k = adjustedYear % 100;
+    const j = Math.floor( ((adjustedYear) / 100.0));
+    const monthTerm = Math.floor( (((13 * (adjustedMonth + 1))) / 5.0));
+    const kDiv4 = Math.floor( ((k) / 4.0));
+    const jDiv4 = Math.floor( ((j) / 4.0));
+    let h = (((((day + monthTerm) + k) + kDiv4) + jDiv4) - (2 * j)) % 7;
+    if ( h < 0 ) {
+      h = h + 7;
+    }
+    weekdayNum = (h + 6) % 7;
+    if ( weekdayNum == 0 ) {
+      weekdayName = "Sunday";
+    }
+    if ( weekdayNum == 1 ) {
+      weekdayName = "Monday";
+    }
+    if ( weekdayNum == 2 ) {
+      weekdayName = "Tuesday";
+    }
+    if ( weekdayNum == 3 ) {
+      weekdayName = "Wednesday";
+    }
+    if ( weekdayNum == 4 ) {
+      weekdayName = "Thursday";
+    }
+    if ( weekdayNum == 5 ) {
+      weekdayName = "Friday";
+    }
+    if ( weekdayNum == 6 ) {
+      weekdayName = "Saturday";
+    }
+    values.push(EvalValue.string(weekdayName));
+    names.push("weekdayShort");
+    let weekdayShort = "Unk";
+    if ( weekdayNum == 0 ) {
+      weekdayShort = "Sun";
+    }
+    if ( weekdayNum == 1 ) {
+      weekdayShort = "Mon";
+    }
+    if ( weekdayNum == 2 ) {
+      weekdayShort = "Tue";
+    }
+    if ( weekdayNum == 3 ) {
+      weekdayShort = "Wed";
+    }
+    if ( weekdayNum == 4 ) {
+      weekdayShort = "Thu";
+    }
+    if ( weekdayNum == 5 ) {
+      weekdayShort = "Fri";
+    }
+    if ( weekdayNum == 6 ) {
+      weekdayShort = "Sat";
+    }
+    values.push(EvalValue.string(weekdayShort));
+    names.push("weekdayNumber");
+    values.push(EvalValue.number((weekdayNum)));
+    names.push("timeOfDay");
+    let timeOfDay = "night";
+    if ( (hour >= 5) && (hour < 12) ) {
+      timeOfDay = "morning";
+    }
+    if ( (hour >= 12) && (hour < 14) ) {
+      timeOfDay = "noon";
+    }
+    if ( (hour >= 14) && (hour < 17) ) {
+      timeOfDay = "afternoon";
+    }
+    if ( (hour >= 17) && (hour < 21) ) {
+      timeOfDay = "evening";
+    }
+    if ( (hour >= 21) || (hour < 5) ) {
+      timeOfDay = "night";
+    }
+    values.push(EvalValue.string(timeOfDay));
+    names.push("ampm");
+    if ( hour < 12 ) {
+      values.push(EvalValue.string("AM"));
+    } else {
+      values.push(EvalValue.string("PM"));
+    }
+    names.push("hour12");
+    let hour12 = hour;
+    if ( hour == 0 ) {
+      hour12 = 12;
+    } else {
+      if ( hour > 12 ) {
+        hour12 = hour - 12;
+      }
+    }
+    values.push(EvalValue.number((hour12)));
+    names.push("isoDate");
+    let monthPad = (month.toString());
+    if ( month < 10 ) {
+      monthPad = "0" + monthPad;
+    }
+    let dayPad = (day.toString());
+    if ( day < 10 ) {
+      dayPad = "0" + dayPad;
+    }
+    values.push(EvalValue.string(((((((year.toString())) + "-") + monthPad) + "-") + dayPad)));
+    names.push("time");
+    let hourPad = (hour.toString());
+    if ( hour < 10 ) {
+      hourPad = "0" + hourPad;
+    }
+    let minPad = (minute.toString());
+    if ( minute < 10 ) {
+      minPad = "0" + minPad;
+    }
+    let secPad = (second.toString());
+    if ( second < 10 ) {
+      secPad = "0" + secPad;
+    }
+    values.push(EvalValue.string(((((hourPad + ":") + minPad) + ":") + secPad)));
+    names.push("formatted");
+    values.push(EvalValue.string(((((((weekdayName + ", ") + monthName) + " ") + ((day.toString()))) + ", ") + ((year.toString())))));
+    names.push("shortFormatted");
+    values.push(EvalValue.string(((((monthShort + " ") + ((day.toString()))) + ", ") + ((year.toString())))));
+    names.push("originalValue");
+    values.push(EvalValue.string(dateStr));
+    return EvalValue.object(names, values);
+  };
+  evaluateUseImage (src) {
+    let resolvedPath = src;
+    if ( (src.length) > 0 ) {
+      const firstChar = src.substring(0, 1 );
+      if ( firstChar != "/" ) {
+        let startsWithDotSlash = false;
+        if ( (src.length) >= 2 ) {
+          if ( (src.substring(0, 2 )) == "./" ) {
+            startsWithDotSlash = true;
+          }
+        }
+        if ( startsWithDotSlash ) {
+          if ( this.basePath == "./" ) {
+            resolvedPath = src;
+          } else {
+            resolvedPath = this.basePath + (src.substring(2, (src.length) ));
+          }
+        } else {
+          resolvedPath = this.basePath + src;
+        }
+      }
+    }
+    console.log((("Hook: useImage() called with src: " + src) + " -> resolved: ") + resolvedPath);
+    const lastSlash = resolvedPath.lastIndexOf("/");
+    let dirPath = "";
+    let fileName = resolvedPath;
+    if ( lastSlash >= 0 ) {
+      dirPath = resolvedPath.substring(0, (lastSlash + 1) );
+      fileName = resolvedPath.substring((lastSlash + 1), (resolvedPath.length) );
+    }
+    console.log((("Hook: parsing JPEG - dir: " + dirPath) + " file: ") + fileName);
+    const parser_1 = new JPEGMetadataParser();
+    let metadata = parser_1.parseMetadata(dirPath, fileName);
+    if ( metadata.isValid == false ) {
+      let altDirPath = "";
+      if ( (dirPath.indexOf("./")) == 0 ) {
+        altDirPath = "./assets/" + (dirPath.substring(2, (dirPath.length) ));
+      } else {
+        altDirPath = "./assets/" + dirPath;
+      }
+      console.log(("Hook: useImage() trying alternative path: " + altDirPath) + fileName);
+      metadata = parser_1.parseMetadata(altDirPath, fileName);
+      if ( metadata.isValid ) {
+        resolvedPath = altDirPath + fileName;
+      }
+    }
+    let propNames = [];
+    let propValues = [];
+    propNames.push("resolvedPath");
+    propValues.push(EvalValue.string(resolvedPath));
+    propNames.push("width");
+    propValues.push(EvalValue.number((metadata.width)));
+    propNames.push("height");
+    propValues.push(EvalValue.number((metadata.height)));
+    propNames.push("createdAt");
+    if ( (metadata.dateTimeOriginal.length) > 0 ) {
+      propValues.push(EvalValue.string(metadata.dateTimeOriginal));
+    } else {
+      if ( (metadata.dateTime.length) > 0 ) {
+        propValues.push(EvalValue.string(metadata.dateTime));
+      } else {
+        propValues.push(EvalValue.null());
+      }
+    }
+    propNames.push("camera");
+    if ( (metadata.cameraModel.length) > 0 ) {
+      let cameraStr = "";
+      if ( (metadata.cameraMake.length) > 0 ) {
+        cameraStr = (metadata.cameraMake + " ") + metadata.cameraModel;
+      } else {
+        cameraStr = metadata.cameraModel;
+      }
+      propValues.push(EvalValue.string(cameraStr));
+    } else {
+      propValues.push(EvalValue.null());
+    }
+    propNames.push("orientation");
+    propValues.push(EvalValue.number((metadata.orientation)));
+    propNames.push("gps");
+    if ( metadata.hasGPS ) {
+      let gpsNames = [];
+      let gpsValues = [];
+      const latRaw = (metadata.gpsLatitudeRef + " ") + metadata.gpsLatitude;
+      gpsNames.push("latitude");
+      gpsValues.push(this.parseGPSCoordinate(metadata.gpsLatitudeRef, metadata.gpsLatitude, latRaw));
+      const lonRaw = (metadata.gpsLongitudeRef + " ") + metadata.gpsLongitude;
+      gpsNames.push("longitude");
+      gpsValues.push(this.parseGPSCoordinate(metadata.gpsLongitudeRef, metadata.gpsLongitude, lonRaw));
+      if ( (metadata.gpsAltitude.length) > 0 ) {
+        gpsNames.push("altitude");
+        gpsValues.push(EvalValue.string(metadata.gpsAltitude));
+      }
+      propValues.push(EvalValue.object(gpsNames, gpsValues));
+    } else {
+      propValues.push(EvalValue.null());
+    }
+    propNames.push("colorSpace");
+    if ( metadata.colorComponents == 1 ) {
+      propValues.push(EvalValue.string("Grayscale"));
+    } else {
+      if ( metadata.colorComponents == 3 ) {
+        propValues.push(EvalValue.string("RGB"));
+      } else {
+        if ( metadata.colorComponents == 4 ) {
+          propValues.push(EvalValue.string("CMYK"));
+        } else {
+          propValues.push(EvalValue.string("Unknown"));
+        }
+      }
+    }
+    propNames.push("bitsPerComponent");
+    propValues.push(EvalValue.number((metadata.bitsPerComponent)));
+    propNames.push("features");
+    let featNames = [];
+    let featValues = [];
+    featNames.push("hasExif");
+    const hasExif = ((((metadata.dateTimeOriginal.length) > 0) || ((metadata.cameraModel.length) > 0)) || metadata.hasGPS) || (metadata.orientation > 1);
+    featValues.push(EvalValue.boolean(hasExif));
+    featNames.push("hasGps");
+    featValues.push(EvalValue.boolean(metadata.hasGPS));
+    featNames.push("hasDateTime");
+    const hasDateTime = ((metadata.dateTimeOriginal.length) > 0) || ((metadata.dateTime.length) > 0);
+    featValues.push(EvalValue.boolean(hasDateTime));
+    featNames.push("hasCamera");
+    const hasCamera = (metadata.cameraModel.length) > 0;
+    featValues.push(EvalValue.boolean(hasCamera));
+    featNames.push("hasOrientation");
+    const hasOrientation = metadata.orientation > 1;
+    featValues.push(EvalValue.boolean(hasOrientation));
+    propValues.push(EvalValue.object(featNames, featValues));
+    propNames.push("dateInfo");
+    if ( (metadata.dateTimeOriginal.length) > 0 ) {
+      propValues.push(this.parseDateInfo(metadata.dateTimeOriginal));
+    } else {
+      if ( (metadata.dateTime.length) > 0 ) {
+        propValues.push(this.parseDateInfo(metadata.dateTime));
+      } else {
+        propValues.push(EvalValue.null());
+      }
+    }
+    return EvalValue.object(propNames, propValues);
+  };
+  setPrintSettings (format, orientation, width, height) {
+    this.printFormat = format;
+    this.printOrientation = orientation;
+    this.pageWidth = width;
+    this.pageHeight = height;
+    console.log((((((("Print settings updated: " + format) + " ") + orientation) + " ") + ((width.toString()))) + "x") + ((height.toString())));
+  };
+  setPrintMargins (top, right, bottom, left) {
+    this.printMarginTop = top;
+    this.printMarginRight = right;
+    this.printMarginBottom = bottom;
+    this.printMarginLeft = left;
   };
 }
 class EVGComponentTool  {
@@ -14354,6 +16564,7 @@ class EVGComponentTool  {
     this.fontManager.loadFont("Noto_Sans/NotoSans-Regular.ttf");
     this.fontManager.loadFont("Noto_Sans/NotoSans-Bold.ttf");
     this.fontManager.loadFont("Cinzel/Cinzel-Regular.ttf");
+    this.fontManager.loadFont("Cinzel/Cinzel-Bold.ttf");
     this.fontManager.loadFont("Josefin_Sans/JosefinSans-Regular.ttf");
     this.fontManager.loadFont("Gloria_Hallelujah/GloriaHallelujah.ttf");
     this.fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf");

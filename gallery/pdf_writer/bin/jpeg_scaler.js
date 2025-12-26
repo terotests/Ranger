@@ -37,9 +37,8 @@ class GrowableBuffer  {
     if ( this.currentChunk.isFull() ) {
       this.allocateNewChunk();
     }
-    const buf = this.currentChunk.data;
     const pos = this.currentChunk.used;
-    buf._view.setUint8(pos, b);
+    this.currentChunk.data._view.setUint8(pos, b);
     this.currentChunk.used = pos + 1;
     this.totalSize = this.totalSize + 1;
   };
@@ -96,11 +95,10 @@ class GrowableBuffer  {
     let chunk = this.firstChunk;
     let done = false;
     while (done == false) {
-      const chunkData = chunk.data;
       const chunkUsed = chunk.used;
       let i = 0;
       while (i < chunkUsed) {
-        const b = chunkData._view.getUint8(i);
+        const b = chunk.data._view.getUint8(i);
         result._view.setUint8(pos, b);
         pos = pos + 1;
         i = i + 1;
@@ -118,11 +116,10 @@ class GrowableBuffer  {
     let chunk = this.firstChunk;
     let done = false;
     while (done == false) {
-      const chunkData = chunk.data;
       const chunkUsed = chunk.used;
       let i = 0;
       while (i < chunkUsed) {
-        const b = chunkData._view.getUint8(i);
+        const b = chunk.data._view.getUint8(i);
         result = result + (String.fromCharCode(b));
         i = i + 1;
       };
@@ -175,6 +172,11 @@ class BitReader  {
         if ( nextByte == 0 ) {
           this.bytePos = this.bytePos + 1;
         } else {
+          if ( (nextByte >= 208) && (nextByte <= 215) ) {
+            this.bytePos = this.bytePos + 1;
+            this.loadNextByte();
+            return;
+          }
           if ( nextByte == 255 ) {
             this.bytePos = this.bytePos + 1;
             this.loadNextByte();
@@ -220,6 +222,18 @@ class BitReader  {
   alignToByte () {
     this.bitPos = 0;
   };
+  skipRestartMarker () {
+    if ( (this.bytePos + 1) >= this.dataEnd ) {
+      return false;
+    }
+    const byte1 = this.data._view.getUint8(this.bytePos);
+    const byte2 = this.data._view.getUint8((this.bytePos + 1));
+    if ( ((byte1 == 255) && (byte2 >= 208)) && (byte2 <= 215) ) {
+      this.bytePos = this.bytePos + 2;
+      return true;
+    }
+    return false;
+  };
   getBytePosition () {
     return this.bytePos;
   };
@@ -240,19 +254,19 @@ class BitReader  {
 }
 class HuffmanTable  {
   constructor() {
-    this.bits = [];
+    this.bits = new Int32Array(16);
     this.values = [];
-    this.maxCode = [];
-    this.minCode = [];
-    this.valPtr = [];
+    this.maxCode = new Int32Array(16);
+    this.minCode = new Int32Array(16);
+    this.valPtr = new Int32Array(16);
     this.tableClass = 0;
     this.tableId = 0;
     let i = 0;
     while (i < 16) {
-      this.bits.push(0);
-      this.maxCode.push(-1);
-      this.minCode.push(0);
-      this.valPtr.push(0);
+      this.bits[i] = 0;
+      this.maxCode[i] = -1;
+      this.minCode[i] = 0;
+      this.valPtr[i] = 0;
       i = i + 1;
     };
   }
@@ -297,6 +311,17 @@ class HuffmanTable  {
     console.log("Huffman decode error: code not found");
     return 0;
   };
+  resetArrays () {
+    let i = 0;
+    while (i < 16) {
+      this.bits[i] = 0;
+      this.maxCode[i] = -1;
+      this.minCode[i] = 0;
+      this.valPtr[i] = 0;
+      i = i + 1;
+    };
+    this.values.length = 0;
+  };
 }
 class HuffmanDecoder  {
   constructor() {
@@ -330,25 +355,14 @@ class HuffmanDecoder  {
       }
       table.tableClass = tableClass;
       table.tableId = tableId;
-      table.bits.length = 0;
+      table.resetArrays();
       let totalSymbols = 0;
       let i = 0;
       while (i < 16) {
         const count = data._view.getUint8(pos);
-        table.bits.push(count);
+        table.bits[i] = count;
         totalSymbols = totalSymbols + count;
         pos = pos + 1;
-        i = i + 1;
-      };
-      table.values.length = 0;
-      table.maxCode.length = 0;
-      table.minCode.length = 0;
-      table.valPtr.length = 0;
-      i = 0;
-      while (i < 16) {
-        table.maxCode.push(-1);
-        table.minCode.push(0);
-        table.valPtr.push(0);
         i = i + 1;
       };
       i = 0;
@@ -368,148 +382,144 @@ class HuffmanDecoder  {
 }
 class IDCT  {
   constructor() {
-    this.cosTable = [];
-    this.zigzagMap = [];
-    this.cosTable.push(1024);
-    this.cosTable.push(1004);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(724);
-    this.cosTable.push(569);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(1024);
-    this.cosTable.push(851);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.cosTable.push(-724);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(1024);
-    this.cosTable.push(569);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(200);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(1024);
-    this.cosTable.push(200);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(724);
-    this.cosTable.push(851);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-200);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(724);
-    this.cosTable.push(-851);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-569);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(-200);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(1024);
-    this.cosTable.push(-851);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(-724);
-    this.cosTable.push(1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(1024);
-    this.cosTable.push(-1004);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(724);
-    this.cosTable.push(-569);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.zigzagMap.push(0);
-    this.zigzagMap.push(1);
-    this.zigzagMap.push(8);
-    this.zigzagMap.push(16);
-    this.zigzagMap.push(9);
-    this.zigzagMap.push(2);
-    this.zigzagMap.push(3);
-    this.zigzagMap.push(10);
-    this.zigzagMap.push(17);
-    this.zigzagMap.push(24);
-    this.zigzagMap.push(32);
-    this.zigzagMap.push(25);
-    this.zigzagMap.push(18);
-    this.zigzagMap.push(11);
-    this.zigzagMap.push(4);
-    this.zigzagMap.push(5);
-    this.zigzagMap.push(12);
-    this.zigzagMap.push(19);
-    this.zigzagMap.push(26);
-    this.zigzagMap.push(33);
-    this.zigzagMap.push(40);
-    this.zigzagMap.push(48);
-    this.zigzagMap.push(41);
-    this.zigzagMap.push(34);
-    this.zigzagMap.push(27);
-    this.zigzagMap.push(20);
-    this.zigzagMap.push(13);
-    this.zigzagMap.push(6);
-    this.zigzagMap.push(7);
-    this.zigzagMap.push(14);
-    this.zigzagMap.push(21);
-    this.zigzagMap.push(28);
-    this.zigzagMap.push(35);
-    this.zigzagMap.push(42);
-    this.zigzagMap.push(49);
-    this.zigzagMap.push(56);
-    this.zigzagMap.push(57);
-    this.zigzagMap.push(50);
-    this.zigzagMap.push(43);
-    this.zigzagMap.push(36);
-    this.zigzagMap.push(29);
-    this.zigzagMap.push(22);
-    this.zigzagMap.push(15);
-    this.zigzagMap.push(23);
-    this.zigzagMap.push(30);
-    this.zigzagMap.push(37);
-    this.zigzagMap.push(44);
-    this.zigzagMap.push(51);
-    this.zigzagMap.push(58);
-    this.zigzagMap.push(59);
-    this.zigzagMap.push(52);
-    this.zigzagMap.push(45);
-    this.zigzagMap.push(38);
-    this.zigzagMap.push(31);
-    this.zigzagMap.push(39);
-    this.zigzagMap.push(46);
-    this.zigzagMap.push(53);
-    this.zigzagMap.push(60);
-    this.zigzagMap.push(61);
-    this.zigzagMap.push(54);
-    this.zigzagMap.push(47);
-    this.zigzagMap.push(55);
-    this.zigzagMap.push(62);
-    this.zigzagMap.push(63);
+    this.cosTable = new Int32Array(64);
+    this.zigzagMap = new Int32Array(64);
+    this.cosTable[0] = 1024;
+    this.cosTable[1] = 1004;
+    this.cosTable[2] = 946;
+    this.cosTable[3] = 851;
+    this.cosTable[4] = 724;
+    this.cosTable[5] = 569;
+    this.cosTable[6] = 392;
+    this.cosTable[7] = 200;
+    this.cosTable[8] = 1024;
+    this.cosTable[9] = 851;
+    this.cosTable[10] = 392;
+    this.cosTable[11] = -200;
+    this.cosTable[12] = -724;
+    this.cosTable[13] = -1004;
+    this.cosTable[14] = -946;
+    this.cosTable[15] = -569;
+    this.cosTable[16] = 1024;
+    this.cosTable[17] = 569;
+    this.cosTable[18] = -392;
+    this.cosTable[19] = -1004;
+    this.cosTable[20] = -724;
+    this.cosTable[21] = 200;
+    this.cosTable[22] = 946;
+    this.cosTable[23] = 851;
+    this.cosTable[24] = 1024;
+    this.cosTable[25] = 200;
+    this.cosTable[26] = -946;
+    this.cosTable[27] = -569;
+    this.cosTable[28] = 724;
+    this.cosTable[29] = 851;
+    this.cosTable[30] = -392;
+    this.cosTable[31] = -1004;
+    this.cosTable[32] = 1024;
+    this.cosTable[33] = -200;
+    this.cosTable[34] = -946;
+    this.cosTable[35] = 569;
+    this.cosTable[36] = 724;
+    this.cosTable[37] = -851;
+    this.cosTable[38] = -392;
+    this.cosTable[39] = 1004;
+    this.cosTable[40] = 1024;
+    this.cosTable[41] = -569;
+    this.cosTable[42] = -392;
+    this.cosTable[43] = 1004;
+    this.cosTable[44] = -724;
+    this.cosTable[45] = -200;
+    this.cosTable[46] = 946;
+    this.cosTable[47] = -851;
+    this.cosTable[48] = 1024;
+    this.cosTable[49] = -851;
+    this.cosTable[50] = 392;
+    this.cosTable[51] = 200;
+    this.cosTable[52] = -724;
+    this.cosTable[53] = 1004;
+    this.cosTable[54] = -946;
+    this.cosTable[55] = 569;
+    this.cosTable[56] = 1024;
+    this.cosTable[57] = -1004;
+    this.cosTable[58] = 946;
+    this.cosTable[59] = -851;
+    this.cosTable[60] = 724;
+    this.cosTable[61] = -569;
+    this.cosTable[62] = 392;
+    this.cosTable[63] = -200;
+    this.zigzagMap[0] = 0;
+    this.zigzagMap[1] = 1;
+    this.zigzagMap[2] = 8;
+    this.zigzagMap[3] = 16;
+    this.zigzagMap[4] = 9;
+    this.zigzagMap[5] = 2;
+    this.zigzagMap[6] = 3;
+    this.zigzagMap[7] = 10;
+    this.zigzagMap[8] = 17;
+    this.zigzagMap[9] = 24;
+    this.zigzagMap[10] = 32;
+    this.zigzagMap[11] = 25;
+    this.zigzagMap[12] = 18;
+    this.zigzagMap[13] = 11;
+    this.zigzagMap[14] = 4;
+    this.zigzagMap[15] = 5;
+    this.zigzagMap[16] = 12;
+    this.zigzagMap[17] = 19;
+    this.zigzagMap[18] = 26;
+    this.zigzagMap[19] = 33;
+    this.zigzagMap[20] = 40;
+    this.zigzagMap[21] = 48;
+    this.zigzagMap[22] = 41;
+    this.zigzagMap[23] = 34;
+    this.zigzagMap[24] = 27;
+    this.zigzagMap[25] = 20;
+    this.zigzagMap[26] = 13;
+    this.zigzagMap[27] = 6;
+    this.zigzagMap[28] = 7;
+    this.zigzagMap[29] = 14;
+    this.zigzagMap[30] = 21;
+    this.zigzagMap[31] = 28;
+    this.zigzagMap[32] = 35;
+    this.zigzagMap[33] = 42;
+    this.zigzagMap[34] = 49;
+    this.zigzagMap[35] = 56;
+    this.zigzagMap[36] = 57;
+    this.zigzagMap[37] = 50;
+    this.zigzagMap[38] = 43;
+    this.zigzagMap[39] = 36;
+    this.zigzagMap[40] = 29;
+    this.zigzagMap[41] = 22;
+    this.zigzagMap[42] = 15;
+    this.zigzagMap[43] = 23;
+    this.zigzagMap[44] = 30;
+    this.zigzagMap[45] = 37;
+    this.zigzagMap[46] = 44;
+    this.zigzagMap[47] = 51;
+    this.zigzagMap[48] = 58;
+    this.zigzagMap[49] = 59;
+    this.zigzagMap[50] = 52;
+    this.zigzagMap[51] = 45;
+    this.zigzagMap[52] = 38;
+    this.zigzagMap[53] = 31;
+    this.zigzagMap[54] = 39;
+    this.zigzagMap[55] = 46;
+    this.zigzagMap[56] = 53;
+    this.zigzagMap[57] = 60;
+    this.zigzagMap[58] = 61;
+    this.zigzagMap[59] = 54;
+    this.zigzagMap[60] = 47;
+    this.zigzagMap[61] = 55;
+    this.zigzagMap[62] = 62;
+    this.zigzagMap[63] = 63;
   }
   dezigzag (zigzag) {
-    let block = [];
+    const block = new Int32Array(64);
     let i = 0;
     while (i < 64) {
-      block.push(0);
-      i = i + 1;
-    };
-    i = 0;
-    while (i < 64) {
       const pos = this.zigzagMap[i];
-      block[pos] = zigzag[i];
+      const val = zigzag[i];
+      block[pos] = val;
       i = i + 1;
     };
     return block;
@@ -536,12 +546,7 @@ class IDCT  {
     };
   };
   transform (block, output) {
-    let temp = [];
-    let i = 0;
-    while (i < 64) {
-      temp.push(0);
-      i = i + 1;
-    };
+    const temp = new Int32Array(64);
     let row = 0;
     while (row < 8) {
       const rowStart = row * 8;
@@ -553,7 +558,7 @@ class IDCT  {
       this.idct1d(temp, col, 8, output, col, 8);
       col = col + 1;
     };
-    i = 0;
+    let i = 0;
     while (i < 64) {
       let val = (output[i]) + 128;
       if ( val < 0 ) {
@@ -1343,6 +1348,7 @@ class JPEGDecoder  {
     this.mcusPerCol = 0;
     this.maxHSamp = 1;
     this.maxVSamp = 1;
+    this.restartInterval = 0;
     this.huffman = new HuffmanDecoder();
     this.idct = new IDCT();
     let i_2 = 0;
@@ -1443,6 +1449,10 @@ class JPEGDecoder  {
       if ( b == 255 ) {
         const nextB = this.data._view.getUint8((searchPos + 1));
         if ( (nextB != 0) && (nextB != 255) ) {
+          if ( (nextB >= 208) && (nextB <= 215) ) {
+            searchPos = searchPos + 2;
+            continue;
+          }
           this.scanDataLen = searchPos - this.scanDataStart;
           return;
         }
@@ -1518,6 +1528,10 @@ class JPEGDecoder  {
         console.log("  DQT (Quantization Tables)");
         this.parseDQT(dataStart, markerDataLen);
       }
+      if ( marker2 == 221 ) {
+        this.restartInterval = this.readUint16BE(dataStart);
+        console.log(("  DRI (Restart Interval: " + ((this.restartInterval.toString()))) + ")");
+      }
       if ( marker2 == 218 ) {
         console.log("  SOS (Start of Scan)");
         this.parseSOS(dataStart, markerDataLen);
@@ -1538,12 +1552,8 @@ class JPEGDecoder  {
     return true;
   };
   decodeBlock (reader, comp, quantTable) {
-    let coeffs = [];
-    let i = 0;
-    while (i < 64) {
-      coeffs.push(0);
-      i = i + 1;
-    };
+    const coeffs = new Int32Array(64);
+    coeffs.fill(0, 0, 64);
     const dcTable = this.huffman.getDCTable(comp.dcTableId);
     const dcCategory = dcTable.decode(reader);
     const dcDiff = reader.receiveExtend(dcCategory);
@@ -1607,10 +1617,21 @@ class JPEGDecoder  {
     let yBlockCount = 0;
     let cbBlock = [];
     let crBlock = [];
+    let mcuCount = 0;
     let mcuY = 0;
     while (mcuY < this.mcusPerCol) {
       let mcuX = 0;
       while (mcuX < this.mcusPerRow) {
+        if ( ((this.restartInterval > 0) && (mcuCount > 0)) && ((mcuCount % this.restartInterval) == 0) ) {
+          c = 0;
+          while (c < this.numComponents) {
+            const compRst = this.components[c];
+            compRst.prevDC = 0;
+            c = c + 1;
+          };
+          reader.alignToByte();
+          reader.skipRestartMarker();
+        }
         yBlocksData.length = 0;
         yBlockCount = 0;
         let compIdx = 0;
@@ -1622,16 +1643,12 @@ class JPEGDecoder  {
             let blockH = 0;
             while (blockH < comp_1.hSamp) {
               const coeffs = this.decodeBlock(reader, comp_1, quantTable);
-              let blockPixels = [];
-              let bi = 0;
-              while (bi < 64) {
-                blockPixels.push(0);
-                bi = bi + 1;
-              };
+              const blockPixels = new Int32Array(64);
+              blockPixels.fill(0, 0, 64);
               const tempBlock = this.idct.dezigzag(coeffs);
               this.idct.transform(tempBlock, blockPixels);
               if ( compIdx == 0 ) {
-                bi = 0;
+                let bi = 0;
                 while (bi < 64) {
                   yBlocksData.push(blockPixels[bi]);
                   bi = bi + 1;
@@ -1640,18 +1657,18 @@ class JPEGDecoder  {
               }
               if ( compIdx == 1 ) {
                 cbBlock.length = 0;
-                bi = 0;
-                while (bi < 64) {
-                  cbBlock.push(blockPixels[bi]);
-                  bi = bi + 1;
+                let bi_1 = 0;
+                while (bi_1 < 64) {
+                  cbBlock.push(blockPixels[bi_1]);
+                  bi_1 = bi_1 + 1;
                 };
               }
               if ( compIdx == 2 ) {
                 crBlock.length = 0;
-                bi = 0;
-                while (bi < 64) {
-                  crBlock.push(blockPixels[bi]);
-                  bi = bi + 1;
+                let bi_2 = 0;
+                while (bi_2 < 64) {
+                  crBlock.push(blockPixels[bi_2]);
+                  bi_2 = bi_2 + 1;
                 };
               }
               blockH = blockH + 1;
@@ -1662,6 +1679,7 @@ class JPEGDecoder  {
         };
         this.writeMCU(img, mcuX, mcuY, yBlocksData, yBlockCount, cbBlock, crBlock);
         mcuX = mcuX + 1;
+        mcuCount = mcuCount + 1;
       };
       mcuY = mcuY + 1;
       if ( (mcuY % 10) == 0 ) {
@@ -1852,136 +1870,136 @@ class JPEGDecoder  {
 }
 class FDCT  {
   constructor() {
-    this.cosTable = [];
-    this.zigzagOrder = [];
-    this.cosTable.push(1024);
-    this.cosTable.push(1004);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(724);
-    this.cosTable.push(569);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(1024);
-    this.cosTable.push(851);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.cosTable.push(-724);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(1024);
-    this.cosTable.push(569);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(200);
-    this.cosTable.push(946);
-    this.cosTable.push(851);
-    this.cosTable.push(1024);
-    this.cosTable.push(200);
-    this.cosTable.push(-946);
-    this.cosTable.push(-569);
-    this.cosTable.push(724);
-    this.cosTable.push(851);
-    this.cosTable.push(-392);
-    this.cosTable.push(-1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-200);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(724);
-    this.cosTable.push(-851);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(1024);
-    this.cosTable.push(-569);
-    this.cosTable.push(-392);
-    this.cosTable.push(1004);
-    this.cosTable.push(-724);
-    this.cosTable.push(-200);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(1024);
-    this.cosTable.push(-851);
-    this.cosTable.push(392);
-    this.cosTable.push(200);
-    this.cosTable.push(-724);
-    this.cosTable.push(1004);
-    this.cosTable.push(-946);
-    this.cosTable.push(569);
-    this.cosTable.push(1024);
-    this.cosTable.push(-1004);
-    this.cosTable.push(946);
-    this.cosTable.push(-851);
-    this.cosTable.push(724);
-    this.cosTable.push(-569);
-    this.cosTable.push(392);
-    this.cosTable.push(-200);
-    this.zigzagOrder.push(0);
-    this.zigzagOrder.push(1);
-    this.zigzagOrder.push(8);
-    this.zigzagOrder.push(16);
-    this.zigzagOrder.push(9);
-    this.zigzagOrder.push(2);
-    this.zigzagOrder.push(3);
-    this.zigzagOrder.push(10);
-    this.zigzagOrder.push(17);
-    this.zigzagOrder.push(24);
-    this.zigzagOrder.push(32);
-    this.zigzagOrder.push(25);
-    this.zigzagOrder.push(18);
-    this.zigzagOrder.push(11);
-    this.zigzagOrder.push(4);
-    this.zigzagOrder.push(5);
-    this.zigzagOrder.push(12);
-    this.zigzagOrder.push(19);
-    this.zigzagOrder.push(26);
-    this.zigzagOrder.push(33);
-    this.zigzagOrder.push(40);
-    this.zigzagOrder.push(48);
-    this.zigzagOrder.push(41);
-    this.zigzagOrder.push(34);
-    this.zigzagOrder.push(27);
-    this.zigzagOrder.push(20);
-    this.zigzagOrder.push(13);
-    this.zigzagOrder.push(6);
-    this.zigzagOrder.push(7);
-    this.zigzagOrder.push(14);
-    this.zigzagOrder.push(21);
-    this.zigzagOrder.push(28);
-    this.zigzagOrder.push(35);
-    this.zigzagOrder.push(42);
-    this.zigzagOrder.push(49);
-    this.zigzagOrder.push(56);
-    this.zigzagOrder.push(57);
-    this.zigzagOrder.push(50);
-    this.zigzagOrder.push(43);
-    this.zigzagOrder.push(36);
-    this.zigzagOrder.push(29);
-    this.zigzagOrder.push(22);
-    this.zigzagOrder.push(15);
-    this.zigzagOrder.push(23);
-    this.zigzagOrder.push(30);
-    this.zigzagOrder.push(37);
-    this.zigzagOrder.push(44);
-    this.zigzagOrder.push(51);
-    this.zigzagOrder.push(58);
-    this.zigzagOrder.push(59);
-    this.zigzagOrder.push(52);
-    this.zigzagOrder.push(45);
-    this.zigzagOrder.push(38);
-    this.zigzagOrder.push(31);
-    this.zigzagOrder.push(39);
-    this.zigzagOrder.push(46);
-    this.zigzagOrder.push(53);
-    this.zigzagOrder.push(60);
-    this.zigzagOrder.push(61);
-    this.zigzagOrder.push(54);
-    this.zigzagOrder.push(47);
-    this.zigzagOrder.push(55);
-    this.zigzagOrder.push(62);
-    this.zigzagOrder.push(63);
+    this.cosTable = new Int32Array(64);
+    this.zigzagOrder = new Int32Array(64);
+    this.cosTable[0] = 1024;
+    this.cosTable[1] = 1004;
+    this.cosTable[2] = 946;
+    this.cosTable[3] = 851;
+    this.cosTable[4] = 724;
+    this.cosTable[5] = 569;
+    this.cosTable[6] = 392;
+    this.cosTable[7] = 200;
+    this.cosTable[8] = 1024;
+    this.cosTable[9] = 851;
+    this.cosTable[10] = 392;
+    this.cosTable[11] = -200;
+    this.cosTable[12] = -724;
+    this.cosTable[13] = -1004;
+    this.cosTable[14] = -946;
+    this.cosTable[15] = -569;
+    this.cosTable[16] = 1024;
+    this.cosTable[17] = 569;
+    this.cosTable[18] = -392;
+    this.cosTable[19] = -1004;
+    this.cosTable[20] = -724;
+    this.cosTable[21] = 200;
+    this.cosTable[22] = 946;
+    this.cosTable[23] = 851;
+    this.cosTable[24] = 1024;
+    this.cosTable[25] = 200;
+    this.cosTable[26] = -946;
+    this.cosTable[27] = -569;
+    this.cosTable[28] = 724;
+    this.cosTable[29] = 851;
+    this.cosTable[30] = -392;
+    this.cosTable[31] = -1004;
+    this.cosTable[32] = 1024;
+    this.cosTable[33] = -200;
+    this.cosTable[34] = -946;
+    this.cosTable[35] = 569;
+    this.cosTable[36] = 724;
+    this.cosTable[37] = -851;
+    this.cosTable[38] = -392;
+    this.cosTable[39] = 1004;
+    this.cosTable[40] = 1024;
+    this.cosTable[41] = -569;
+    this.cosTable[42] = -392;
+    this.cosTable[43] = 1004;
+    this.cosTable[44] = -724;
+    this.cosTable[45] = -200;
+    this.cosTable[46] = 946;
+    this.cosTable[47] = -851;
+    this.cosTable[48] = 1024;
+    this.cosTable[49] = -851;
+    this.cosTable[50] = 392;
+    this.cosTable[51] = 200;
+    this.cosTable[52] = -724;
+    this.cosTable[53] = 1004;
+    this.cosTable[54] = -946;
+    this.cosTable[55] = 569;
+    this.cosTable[56] = 1024;
+    this.cosTable[57] = -1004;
+    this.cosTable[58] = 946;
+    this.cosTable[59] = -851;
+    this.cosTable[60] = 724;
+    this.cosTable[61] = -569;
+    this.cosTable[62] = 392;
+    this.cosTable[63] = -200;
+    this.zigzagOrder[0] = 0;
+    this.zigzagOrder[1] = 1;
+    this.zigzagOrder[2] = 8;
+    this.zigzagOrder[3] = 16;
+    this.zigzagOrder[4] = 9;
+    this.zigzagOrder[5] = 2;
+    this.zigzagOrder[6] = 3;
+    this.zigzagOrder[7] = 10;
+    this.zigzagOrder[8] = 17;
+    this.zigzagOrder[9] = 24;
+    this.zigzagOrder[10] = 32;
+    this.zigzagOrder[11] = 25;
+    this.zigzagOrder[12] = 18;
+    this.zigzagOrder[13] = 11;
+    this.zigzagOrder[14] = 4;
+    this.zigzagOrder[15] = 5;
+    this.zigzagOrder[16] = 12;
+    this.zigzagOrder[17] = 19;
+    this.zigzagOrder[18] = 26;
+    this.zigzagOrder[19] = 33;
+    this.zigzagOrder[20] = 40;
+    this.zigzagOrder[21] = 48;
+    this.zigzagOrder[22] = 41;
+    this.zigzagOrder[23] = 34;
+    this.zigzagOrder[24] = 27;
+    this.zigzagOrder[25] = 20;
+    this.zigzagOrder[26] = 13;
+    this.zigzagOrder[27] = 6;
+    this.zigzagOrder[28] = 7;
+    this.zigzagOrder[29] = 14;
+    this.zigzagOrder[30] = 21;
+    this.zigzagOrder[31] = 28;
+    this.zigzagOrder[32] = 35;
+    this.zigzagOrder[33] = 42;
+    this.zigzagOrder[34] = 49;
+    this.zigzagOrder[35] = 56;
+    this.zigzagOrder[36] = 57;
+    this.zigzagOrder[37] = 50;
+    this.zigzagOrder[38] = 43;
+    this.zigzagOrder[39] = 36;
+    this.zigzagOrder[40] = 29;
+    this.zigzagOrder[41] = 22;
+    this.zigzagOrder[42] = 15;
+    this.zigzagOrder[43] = 23;
+    this.zigzagOrder[44] = 30;
+    this.zigzagOrder[45] = 37;
+    this.zigzagOrder[46] = 44;
+    this.zigzagOrder[47] = 51;
+    this.zigzagOrder[48] = 58;
+    this.zigzagOrder[49] = 59;
+    this.zigzagOrder[50] = 52;
+    this.zigzagOrder[51] = 45;
+    this.zigzagOrder[52] = 38;
+    this.zigzagOrder[53] = 31;
+    this.zigzagOrder[54] = 39;
+    this.zigzagOrder[55] = 46;
+    this.zigzagOrder[56] = 53;
+    this.zigzagOrder[57] = 60;
+    this.zigzagOrder[58] = 61;
+    this.zigzagOrder[59] = 54;
+    this.zigzagOrder[60] = 47;
+    this.zigzagOrder[61] = 55;
+    this.zigzagOrder[62] = 62;
+    this.zigzagOrder[63] = 63;
   }
   dct1d (input, startIdx, stride, output, outIdx, outStride) {
     let u = 0;
@@ -2002,30 +2020,20 @@ class FDCT  {
     };
   };
   transform (pixels) {
-    let shifted = [];
+    const shifted = new Int32Array(64);
     let i = 0;
     while (i < 64) {
-      shifted.push((pixels[i]) - 128);
+      shifted[i] = (pixels[i]) - 128;
       i = i + 1;
     };
-    let temp = [];
-    i = 0;
-    while (i < 64) {
-      temp.push(0);
-      i = i + 1;
-    };
+    const temp = new Int32Array(64);
     let row = 0;
     while (row < 8) {
       const rowStart = row * 8;
       this.dct1d(shifted, rowStart, 1, temp, rowStart, 1);
       row = row + 1;
     };
-    let coeffs = [];
-    i = 0;
-    while (i < 64) {
-      coeffs.push(0);
-      i = i + 1;
-    };
+    const coeffs = new Int32Array(64);
     let col = 0;
     while (col < 8) {
       this.dct1d(temp, col, 8, coeffs, col, 8);
@@ -2034,11 +2042,11 @@ class FDCT  {
     return coeffs;
   };
   zigzag (block) {
-    let zigzagOut = [];
+    const zigzagOut = new Int32Array(64);
     let i = 0;
     while (i < 64) {
       const pos = this.zigzagOrder[i];
-      zigzagOut.push(block[pos]);
+      zigzagOut[i] = block[pos];
       i = i + 1;
     };
     return zigzagOut;
@@ -2758,7 +2766,7 @@ class JPEGEncoder  {
     return value;
   };
   encodeBlock (writer, coeffs, quantTable, dcCodes, dcLengths, acCodes, acLengths, prevDC) {
-    let quantized = [];
+    const quantized = new Int32Array(64);
     let i = 0;
     while (i < 64) {
       const q = quantTable[i];
@@ -2769,7 +2777,7 @@ class JPEGEncoder  {
       } else {
         qVal = Math.floor( ((c - ((q >> 1))) / q));
       }
-      quantized.push(qVal);
+      quantized[i] = qVal;
       i = i + 1;
     };
     const zigzagged = this.fdct.zigzag(quantized);
@@ -2840,7 +2848,8 @@ class JPEGEncoder  {
     crOut.push(cr);
   };
   extractBlock (img, blockX, blockY, channel) {
-    let output = [];
+    const output = new Int32Array(64);
+    let idx = 0;
     let py = 0;
     while (py < 8) {
       let px = 0;
@@ -2858,14 +2867,15 @@ class JPEGEncoder  {
         const cb = (((((0 - (43 * c.r)) - (85 * c.g)) + (128 * c.b)) >> 8)) + 128;
         const cr = (((((128 * c.r) - (107 * c.g)) - (21 * c.b)) >> 8)) + 128;
         if ( channel == 0 ) {
-          output.push(y);
+          output[idx] = y;
         }
         if ( channel == 1 ) {
-          output.push(cb);
+          output[idx] = cb;
         }
         if ( channel == 2 ) {
-          output.push(cr);
+          output[idx] = cr;
         }
+        idx = idx + 1;
         px = px + 1;
       };
       py = py + 1;
@@ -2994,6 +3004,70 @@ class JPEGEncoder  {
     writer.writeByte(63);
     writer.writeByte(0);
   };
+  encodeToBuffer (img) {
+    const writer = new BitWriter();
+    this.writeMarkers(writer, img.width, img.height);
+    const mcuWidth = Math.floor( ((img.width + 7) / 8));
+    const mcuHeight = Math.floor( ((img.height + 7) / 8));
+    this.prevDCY = 0;
+    this.prevDCCb = 0;
+    this.prevDCCr = 0;
+    let mcuY = 0;
+    while (mcuY < mcuHeight) {
+      let mcuX = 0;
+      while (mcuX < mcuWidth) {
+        const blockX = mcuX * 8;
+        const blockY = mcuY * 8;
+        const yBlock = this.extractBlock(img, blockX, blockY, 0);
+        const yCoeffs = this.fdct.transform(yBlock);
+        this.encodeBlock(writer, yCoeffs, this.yQuantTable, this.dcYCodes, this.dcYLengths, this.acYCodes, this.acYLengths, this.prevDCY);
+        const yZig = this.fdct.zigzag(yCoeffs);
+        const yQ = this.yQuantTable[0];
+        const yDC = yZig[0];
+        if ( yDC >= 0 ) {
+          this.prevDCY = Math.floor( ((yDC + ((yQ >> 1))) / yQ));
+        } else {
+          this.prevDCY = Math.floor( ((yDC - ((yQ >> 1))) / yQ));
+        }
+        const cbBlock = this.extractBlock(img, blockX, blockY, 1);
+        const cbCoeffs = this.fdct.transform(cbBlock);
+        this.encodeBlock(writer, cbCoeffs, this.cQuantTable, this.dcCCodes, this.dcCLengths, this.acCCodes, this.acCLengths, this.prevDCCb);
+        const cbZig = this.fdct.zigzag(cbCoeffs);
+        const cbQ = this.cQuantTable[0];
+        const cbDC = cbZig[0];
+        if ( cbDC >= 0 ) {
+          this.prevDCCb = Math.floor( ((cbDC + ((cbQ >> 1))) / cbQ));
+        } else {
+          this.prevDCCb = Math.floor( ((cbDC - ((cbQ >> 1))) / cbQ));
+        }
+        const crBlock = this.extractBlock(img, blockX, blockY, 2);
+        const crCoeffs = this.fdct.transform(crBlock);
+        this.encodeBlock(writer, crCoeffs, this.cQuantTable, this.dcCCodes, this.dcCLengths, this.acCCodes, this.acCLengths, this.prevDCCr);
+        const crZig = this.fdct.zigzag(crCoeffs);
+        const crQ = this.cQuantTable[0];
+        const crDC = crZig[0];
+        if ( crDC >= 0 ) {
+          this.prevDCCr = Math.floor( ((crDC + ((crQ >> 1))) / crQ));
+        } else {
+          this.prevDCCr = Math.floor( ((crDC - ((crQ >> 1))) / crQ));
+        }
+        mcuX = mcuX + 1;
+      };
+      mcuY = mcuY + 1;
+    };
+    writer.flushByte();
+    const outBuf = writer.getBuffer();
+    const outLen = writer.getLength();
+    const finalBuf = (function(){ var b = new ArrayBuffer((outLen + 2)); b._view = new DataView(b); return b; })();
+    let i = 0;
+    while (i < outLen) {
+      finalBuf._view.setUint8(i, outBuf._view.getUint8(i));
+      i = i + 1;
+    };
+    finalBuf._view.setUint8(outLen, 255);
+    finalBuf._view.setUint8(outLen + 1, 217);
+    return finalBuf;
+  };
   encode (img, dirPath, fileName) {
     console.log("Encoding JPEG: " + fileName);
     console.log((("  Image size: " + ((img.width.toString()))) + "x") + ((img.height.toString())));
@@ -3119,10 +3193,10 @@ class ProgressiveJPEGDecoder  {
     this.eobrun = 0;
     this.huffman = new HuffmanDecoder();
     this.idct = new IDCT();
-    let i_3 = 0;
-    while (i_3 < 4) {
+    let i_5 = 0;
+    while (i_5 < 4) {
       this.quantTables.push(new QuantizationTable());
-      i_3 = i_3 + 1;
+      i_5 = i_5 + 1;
     };
   }
   readUint16BE (pos) {
@@ -3773,19 +3847,15 @@ class ProgressiveJPEGDecoder  {
           let bh = 0;
           while (bh < comp0.hSamp) {
             const blockIdx = (((mcuIdx * comp0.hSamp) * comp0.vSamp) + (bv * comp0.hSamp)) + bh;
-            let blockCoeffs = [];
+            const blockCoeffs = new Int32Array(64);
             let k = 0;
             while (k < 64) {
-              blockCoeffs.push((yBuf).get(blockIdx, k));
+              blockCoeffs[k] = (yBuf).get(blockIdx, k);
               k = k + 1;
             };
             const tempBlock = this.idct.dezigzag(blockCoeffs);
-            let blockPixels = [];
-            k = 0;
-            while (k < 64) {
-              blockPixels.push(0);
-              k = k + 1;
-            };
+            const blockPixels = new Int32Array(64);
+            blockPixels.fill(0, 0, 64);
             this.idct.transform(tempBlock, blockPixels);
             k = 0;
             while (k < 64) {
@@ -3801,34 +3871,38 @@ class ProgressiveJPEGDecoder  {
         if ( this.numComponents >= 3 ) {
           const cbBuf = this.coeffBuffers[1];
           const cbBlockIdx = mcuIdx;
-          let blockCoeffs_1 = [];
+          const blockCoeffs_1 = new Int32Array(64);
           let k_1 = 0;
           while (k_1 < 64) {
-            blockCoeffs_1.push((cbBuf).get(cbBlockIdx, k_1));
+            blockCoeffs_1[k_1] = (cbBuf).get(cbBlockIdx, k_1);
             k_1 = k_1 + 1;
           };
           const tempBlock_1 = this.idct.dezigzag(blockCoeffs_1);
+          const cbPixels = new Int32Array(64);
+          cbPixels.fill(0, 0, 64);
+          this.idct.transform(tempBlock_1, cbPixels);
           k_1 = 0;
           while (k_1 < 64) {
-            cbBlock.push(0);
+            cbBlock.push(cbPixels[k_1]);
             k_1 = k_1 + 1;
           };
-          this.idct.transform(tempBlock_1, cbBlock);
           const crBuf = this.coeffBuffers[2];
           const crBlockIdx = mcuIdx;
-          blockCoeffs_1.length = 0;
+          const crCoeffs = new Int32Array(64);
           k_1 = 0;
           while (k_1 < 64) {
-            blockCoeffs_1.push((crBuf).get(crBlockIdx, k_1));
+            crCoeffs[k_1] = (crBuf).get(crBlockIdx, k_1);
             k_1 = k_1 + 1;
           };
-          const crTempBlock = this.idct.dezigzag(blockCoeffs_1);
+          const crTempBlock = this.idct.dezigzag(crCoeffs);
+          const crPixels = new Int32Array(64);
+          crPixels.fill(0, 0, 64);
+          this.idct.transform(crTempBlock, crPixels);
           k_1 = 0;
           while (k_1 < 64) {
-            crBlock.push(0);
+            crBlock.push(crPixels[k_1]);
             k_1 = k_1 + 1;
           };
-          this.idct.transform(crTempBlock, crBlock);
         }
         this.writeMCU(img, baseX, baseY, yBlocksData, cbBlock, crBlock);
         mcuX = mcuX + 1;
@@ -3983,6 +4057,754 @@ class ProgressiveJPEGDecoder  {
     return img;
   };
 }
+class ExifTag  {
+  constructor() {
+    this.tagId = 0;
+    this.tagName = "";
+    this.tagValue = "";
+    this.dataType = 0;
+  }
+}
+class JPEGMetadataInfo  {
+  constructor() {
+    this.isValid = false;
+    this.errorMessage = "";
+    this.hasJFIF = false;
+    this.jfifVersion = "";
+    this.densityUnits = 0;
+    this.xDensity = 0;
+    this.yDensity = 0;
+    this.width = 0;
+    this.height = 0;
+    this.colorComponents = 0;
+    this.bitsPerComponent = 0;
+    this.hasExif = false;
+    this.cameraMake = "";
+    this.cameraModel = "";
+    this.software = "";
+    this.dateTime = "";
+    this.dateTimeOriginal = "";
+    this.exposureTime = "";
+    this.fNumber = "";
+    this.isoSpeed = "";
+    this.focalLength = "";
+    this.flash = "";
+    this.orientation = 1;
+    this.xResolution = "";
+    this.yResolution = "";
+    this.resolutionUnit = 0;
+    this.hasGPS = false;
+    this.gpsLatitude = "";
+    this.gpsLongitude = "";
+    this.gpsAltitude = "";
+    this.gpsLatitudeRef = "";
+    this.gpsLongitudeRef = "";
+    this.hasComment = false;
+    this.comment = "";
+    this.exifTags = [];
+  }
+}
+class JPEGMetadataParser  {
+  constructor() {
+    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.dataLen = 0;
+    this.littleEndian = false;
+  }
+  readUint16BE (offset) {
+    const high = this.data._view.getUint8(offset);
+    const low = this.data._view.getUint8((offset + 1));
+    return (high * 256) + low;
+  };
+  readUint16 (offset) {
+    let result = 0;
+    if ( this.littleEndian ) {
+      const low = this.data._view.getUint8(offset);
+      const high = this.data._view.getUint8((offset + 1));
+      result = (high * 256) + low;
+    } else {
+      const high_1 = this.data._view.getUint8(offset);
+      const low_1 = this.data._view.getUint8((offset + 1));
+      result = (high_1 * 256) + low_1;
+    }
+    return result;
+  };
+  readUint32 (offset) {
+    let result = 0;
+    if ( this.littleEndian ) {
+      const b0 = this.data._view.getUint8(offset);
+      const b1 = this.data._view.getUint8((offset + 1));
+      const b2 = this.data._view.getUint8((offset + 2));
+      const b3 = this.data._view.getUint8((offset + 3));
+      result = (((b3 * 16777216) + (b2 * 65536)) + (b1 * 256)) + b0;
+    } else {
+      const b0_1 = this.data._view.getUint8(offset);
+      const b1_1 = this.data._view.getUint8((offset + 1));
+      const b2_1 = this.data._view.getUint8((offset + 2));
+      const b3_1 = this.data._view.getUint8((offset + 3));
+      result = (((b0_1 * 16777216) + (b1_1 * 65536)) + (b2_1 * 256)) + b3_1;
+    }
+    return result;
+  };
+  readString (offset, length) {
+    let result = "";
+    let i = 0;
+    while (i < length) {
+      const b = this.data._view.getUint8((offset + i));
+      if ( b == 0 ) {
+        return result;
+      }
+      result = result + (String.fromCharCode(b));
+      i = i + 1;
+    };
+    return result;
+  };
+  getTagName (tagId, ifdType) {
+    if ( ifdType == 2 ) {
+      if ( tagId == 0 ) {
+        return "GPSVersionID";
+      }
+      if ( tagId == 1 ) {
+        return "GPSLatitudeRef";
+      }
+      if ( tagId == 2 ) {
+        return "GPSLatitude";
+      }
+      if ( tagId == 3 ) {
+        return "GPSLongitudeRef";
+      }
+      if ( tagId == 4 ) {
+        return "GPSLongitude";
+      }
+      if ( tagId == 5 ) {
+        return "GPSAltitudeRef";
+      }
+      if ( tagId == 6 ) {
+        return "GPSAltitude";
+      }
+      return "GPS_" + ((tagId.toString()));
+    }
+    if ( tagId == 256 ) {
+      return "ImageWidth";
+    }
+    if ( tagId == 257 ) {
+      return "ImageHeight";
+    }
+    if ( tagId == 258 ) {
+      return "BitsPerSample";
+    }
+    if ( tagId == 259 ) {
+      return "Compression";
+    }
+    if ( tagId == 262 ) {
+      return "PhotometricInterpretation";
+    }
+    if ( tagId == 270 ) {
+      return "ImageDescription";
+    }
+    if ( tagId == 271 ) {
+      return "Make";
+    }
+    if ( tagId == 272 ) {
+      return "Model";
+    }
+    if ( tagId == 274 ) {
+      return "Orientation";
+    }
+    if ( tagId == 282 ) {
+      return "XResolution";
+    }
+    if ( tagId == 283 ) {
+      return "YResolution";
+    }
+    if ( tagId == 296 ) {
+      return "ResolutionUnit";
+    }
+    if ( tagId == 305 ) {
+      return "Software";
+    }
+    if ( tagId == 306 ) {
+      return "DateTime";
+    }
+    if ( tagId == 315 ) {
+      return "Artist";
+    }
+    if ( tagId == 33432 ) {
+      return "Copyright";
+    }
+    if ( tagId == 33434 ) {
+      return "ExposureTime";
+    }
+    if ( tagId == 33437 ) {
+      return "FNumber";
+    }
+    if ( tagId == 34850 ) {
+      return "ExposureProgram";
+    }
+    if ( tagId == 34855 ) {
+      return "ISOSpeedRatings";
+    }
+    if ( tagId == 36864 ) {
+      return "ExifVersion";
+    }
+    if ( tagId == 36867 ) {
+      return "DateTimeOriginal";
+    }
+    if ( tagId == 36868 ) {
+      return "DateTimeDigitized";
+    }
+    if ( tagId == 37377 ) {
+      return "ShutterSpeedValue";
+    }
+    if ( tagId == 37378 ) {
+      return "ApertureValue";
+    }
+    if ( tagId == 37380 ) {
+      return "ExposureBiasValue";
+    }
+    if ( tagId == 37381 ) {
+      return "MaxApertureValue";
+    }
+    if ( tagId == 37383 ) {
+      return "MeteringMode";
+    }
+    if ( tagId == 37384 ) {
+      return "LightSource";
+    }
+    if ( tagId == 37385 ) {
+      return "Flash";
+    }
+    if ( tagId == 37386 ) {
+      return "FocalLength";
+    }
+    if ( tagId == 37500 ) {
+      return "MakerNote";
+    }
+    if ( tagId == 37510 ) {
+      return "UserComment";
+    }
+    if ( tagId == 40960 ) {
+      return "FlashpixVersion";
+    }
+    if ( tagId == 40961 ) {
+      return "ColorSpace";
+    }
+    if ( tagId == 40962 ) {
+      return "PixelXDimension";
+    }
+    if ( tagId == 40963 ) {
+      return "PixelYDimension";
+    }
+    if ( tagId == 41486 ) {
+      return "FocalPlaneXResolution";
+    }
+    if ( tagId == 41487 ) {
+      return "FocalPlaneYResolution";
+    }
+    if ( tagId == 41488 ) {
+      return "FocalPlaneResolutionUnit";
+    }
+    if ( tagId == 41495 ) {
+      return "SensingMethod";
+    }
+    if ( tagId == 41728 ) {
+      return "FileSource";
+    }
+    if ( tagId == 41729 ) {
+      return "SceneType";
+    }
+    if ( tagId == 41985 ) {
+      return "CustomRendered";
+    }
+    if ( tagId == 41986 ) {
+      return "ExposureMode";
+    }
+    if ( tagId == 41987 ) {
+      return "WhiteBalance";
+    }
+    if ( tagId == 41988 ) {
+      return "DigitalZoomRatio";
+    }
+    if ( tagId == 41989 ) {
+      return "FocalLengthIn35mmFilm";
+    }
+    if ( tagId == 41990 ) {
+      return "SceneCaptureType";
+    }
+    if ( tagId == 34665 ) {
+      return "ExifIFDPointer";
+    }
+    if ( tagId == 34853 ) {
+      return "GPSInfoIFDPointer";
+    }
+    return "Tag_" + ((tagId.toString()));
+  };
+  formatRational (offset) {
+    const numerator = this.readUint32(offset);
+    const denominator = this.readUint32((offset + 4));
+    if ( denominator == 0 ) {
+      return (numerator.toString());
+    }
+    if ( denominator == 1 ) {
+      return (numerator.toString());
+    }
+    return (((numerator.toString())) + "/") + ((denominator.toString()));
+  };
+  formatGPSCoordinate (offset, ref) {
+    const degNum = this.readUint32(offset);
+    const degDen = this.readUint32((offset + 4));
+    const minNum = this.readUint32((offset + 8));
+    const minDen = this.readUint32((offset + 12));
+    const secNum = this.readUint32((offset + 16));
+    const secDen = this.readUint32((offset + 20));
+    let degrees = 0;
+    if ( degDen > 0 ) {
+      let tempDeg = degNum;
+      while (tempDeg >= degDen) {
+        tempDeg = tempDeg - degDen;
+        degrees = degrees + 1;
+      };
+    }
+    let minutes = 0;
+    if ( minDen > 0 ) {
+      let tempMin = minNum;
+      while (tempMin >= minDen) {
+        tempMin = tempMin - minDen;
+        minutes = minutes + 1;
+      };
+    }
+    let seconds = "0";
+    if ( secDen > 0 ) {
+      let secWhole = 0;
+      let tempSec = secNum;
+      while (tempSec >= secDen) {
+        tempSec = tempSec - secDen;
+        secWhole = secWhole + 1;
+      };
+      const secRem = tempSec;
+      if ( secRem > 0 ) {
+        let decPartTemp = secRem * 100;
+        let decPart = 0;
+        while (decPartTemp >= secDen) {
+          decPartTemp = decPartTemp - secDen;
+          decPart = decPart + 1;
+        };
+        if ( decPart < 10 ) {
+          seconds = (((secWhole.toString())) + ".0") + ((decPart.toString()));
+        } else {
+          seconds = (((secWhole.toString())) + ".") + ((decPart.toString()));
+        }
+      } else {
+        seconds = (secWhole.toString());
+      }
+    }
+    return ((((((degrees.toString())) + "° ") + ((minutes.toString()))) + "' ") + seconds) + "\"";
+  };
+  parseIFD (info, tiffStart, ifdOffset, ifdType) {
+    let pos = tiffStart + ifdOffset;
+    if ( (pos + 2) > this.dataLen ) {
+      return;
+    }
+    const numEntries = this.readUint16(pos);
+    pos = pos + 2;
+    let i = 0;
+    while (i < numEntries) {
+      if ( (pos + 12) > this.dataLen ) {
+        return;
+      }
+      const tagId = this.readUint16(pos);
+      const dataType = this.readUint16((pos + 2));
+      const numValues = this.readUint32((pos + 4));
+      let valueOffset = pos + 8;
+      let dataSize = 0;
+      if ( dataType == 1 ) {
+        dataSize = numValues;
+      }
+      if ( dataType == 2 ) {
+        dataSize = numValues;
+      }
+      if ( dataType == 3 ) {
+        dataSize = numValues * 2;
+      }
+      if ( dataType == 4 ) {
+        dataSize = numValues * 4;
+      }
+      if ( dataType == 5 ) {
+        dataSize = numValues * 8;
+      }
+      if ( dataType == 7 ) {
+        dataSize = numValues;
+      }
+      if ( dataType == 9 ) {
+        dataSize = numValues * 4;
+      }
+      if ( dataType == 10 ) {
+        dataSize = numValues * 8;
+      }
+      if ( dataSize > 4 ) {
+        valueOffset = tiffStart + this.readUint32((pos + 8));
+      }
+      const tagName = this.getTagName(tagId, ifdType);
+      let tagValue = "";
+      if ( dataType == 2 ) {
+        tagValue = this.readString(valueOffset, numValues);
+      }
+      if ( dataType == 3 ) {
+        if ( dataSize <= 4 ) {
+          tagValue = (this.readUint16((pos + 8)).toString());
+        } else {
+          tagValue = (this.readUint16(valueOffset).toString());
+        }
+      }
+      if ( dataType == 4 ) {
+        if ( dataSize <= 4 ) {
+          tagValue = (this.readUint32((pos + 8)).toString());
+        } else {
+          tagValue = (this.readUint32(valueOffset).toString());
+        }
+      }
+      if ( dataType == 5 ) {
+        tagValue = this.formatRational(valueOffset);
+      }
+      const tag = new ExifTag();
+      tag.tagId = tagId;
+      tag.tagName = tagName;
+      tag.tagValue = tagValue;
+      tag.dataType = dataType;
+      info.exifTags.push(tag);
+      if ( tagId == 271 ) {
+        info.cameraMake = tagValue;
+      }
+      if ( tagId == 272 ) {
+        info.cameraModel = tagValue;
+      }
+      if ( tagId == 305 ) {
+        info.software = tagValue;
+      }
+      if ( tagId == 306 ) {
+        info.dateTime = tagValue;
+      }
+      if ( tagId == 274 ) {
+        info.orientation = this.readUint16((pos + 8));
+      }
+      if ( tagId == 282 ) {
+        info.xResolution = tagValue;
+      }
+      if ( tagId == 283 ) {
+        info.yResolution = tagValue;
+      }
+      if ( tagId == 296 ) {
+        info.resolutionUnit = this.readUint16((pos + 8));
+      }
+      if ( tagId == 36867 ) {
+        info.dateTimeOriginal = tagValue;
+      }
+      if ( tagId == 33434 ) {
+        info.exposureTime = tagValue;
+      }
+      if ( tagId == 33437 ) {
+        info.fNumber = tagValue;
+      }
+      if ( tagId == 34855 ) {
+        info.isoSpeed = tagValue;
+      }
+      if ( tagId == 37386 ) {
+        info.focalLength = tagValue;
+      }
+      if ( tagId == 37385 ) {
+        const flashVal = this.readUint16((pos + 8));
+        if ( (flashVal % 2) == 1 ) {
+          info.flash = "Fired";
+        } else {
+          info.flash = "Did not fire";
+        }
+      }
+      if ( tagId == 34665 ) {
+        const exifOffset = this.readUint32((pos + 8));
+        this.parseIFD(info, tiffStart, exifOffset, 1);
+      }
+      if ( tagId == 34853 ) {
+        info.hasGPS = true;
+        const gpsOffset = this.readUint32((pos + 8));
+        this.parseIFD(info, tiffStart, gpsOffset, 2);
+      }
+      if ( ifdType == 2 ) {
+        if ( tagId == 1 ) {
+          info.gpsLatitudeRef = tagValue;
+        }
+        if ( tagId == 2 ) {
+          info.gpsLatitude = this.formatGPSCoordinate(valueOffset, info.gpsLatitudeRef);
+        }
+        if ( tagId == 3 ) {
+          info.gpsLongitudeRef = tagValue;
+        }
+        if ( tagId == 4 ) {
+          info.gpsLongitude = this.formatGPSCoordinate(valueOffset, info.gpsLongitudeRef);
+        }
+        if ( tagId == 6 ) {
+          const altNum = this.readUint32(valueOffset);
+          const altDen = this.readUint32((valueOffset + 4));
+          if ( altDen > 0 ) {
+            let altWhole = 0;
+            let tempAlt = altNum;
+            while (tempAlt >= altDen) {
+              tempAlt = tempAlt - altDen;
+              altWhole = altWhole + 1;
+            };
+            const altRem = tempAlt;
+            if ( altRem > 0 ) {
+              let altDecTemp = altRem * 10;
+              let altDec = 0;
+              while (altDecTemp >= altDen) {
+                altDecTemp = altDecTemp - altDen;
+                altDec = altDec + 1;
+              };
+              info.gpsAltitude = ((((altWhole.toString())) + ".") + ((altDec.toString()))) + " m";
+            } else {
+              info.gpsAltitude = ((altWhole.toString())) + " m";
+            }
+          } else {
+            info.gpsAltitude = ((altNum.toString())) + " m";
+          }
+        }
+      }
+      pos = pos + 12;
+      i = i + 1;
+    };
+  };
+  parseExif (info, appStart, appLen) {
+    const header = this.readString(appStart, 4);
+    if ( header != "Exif" ) {
+      return;
+    }
+    info.hasExif = true;
+    const tiffStart = appStart + 6;
+    const byteOrder0 = this.data._view.getUint8(tiffStart);
+    const byteOrder1 = this.data._view.getUint8((tiffStart + 1));
+    if ( (byteOrder0 == 73) && (byteOrder1 == 73) ) {
+      this.littleEndian = true;
+    } else {
+      if ( (byteOrder0 == 77) && (byteOrder1 == 77) ) {
+        this.littleEndian = false;
+      } else {
+        return;
+      }
+    }
+    const magic = this.readUint16((tiffStart + 2));
+    if ( magic != 42 ) {
+      return;
+    }
+    const ifd0Offset = this.readUint32((tiffStart + 4));
+    this.parseIFD(info, tiffStart, ifd0Offset, 0);
+  };
+  parseJFIF (info, appStart, appLen) {
+    const header = this.readString(appStart, 4);
+    if ( header != "JFIF" ) {
+      return;
+    }
+    info.hasJFIF = true;
+    const verMajor = this.data._view.getUint8((appStart + 5));
+    const verMinor = this.data._view.getUint8((appStart + 6));
+    info.jfifVersion = (((verMajor.toString())) + ".") + ((verMinor.toString()));
+    info.densityUnits = this.data._view.getUint8((appStart + 7));
+    info.xDensity = this.readUint16BE((appStart + 8));
+    info.yDensity = this.readUint16BE((appStart + 10));
+  };
+  parseComment (info, appStart, appLen) {
+    info.hasComment = true;
+    info.comment = this.readString(appStart, appLen);
+  };
+  parseMetadata (dirPath, fileName) {
+    const info = new JPEGMetadataInfo();
+    this.data = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+    this.dataLen = this.data.byteLength;
+    if ( this.dataLen < 4 ) {
+      info.errorMessage = "File too small";
+      return info;
+    }
+    const m1 = this.data._view.getUint8(0);
+    const m2 = this.data._view.getUint8(1);
+    if ( (m1 != 255) || (m2 != 216) ) {
+      info.errorMessage = "Not a valid JPEG file";
+      return info;
+    }
+    info.isValid = true;
+    let pos = 2;
+    while (pos < this.dataLen) {
+      const marker1 = this.data._view.getUint8(pos);
+      if ( marker1 != 255 ) {
+        pos = pos + 1;
+        continue;
+      }
+      const marker2 = this.data._view.getUint8((pos + 1));
+      if ( marker2 == 255 ) {
+        pos = pos + 1;
+        continue;
+      }
+      if ( (marker2 == 216) || (marker2 == 217) ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( (marker2 >= 208) && (marker2 <= 215) ) {
+        pos = pos + 2;
+        continue;
+      }
+      if ( (pos + 4) > this.dataLen ) {
+        return info;
+      }
+      const segLen = this.readUint16BE((pos + 2));
+      const segStart = pos + 4;
+      if ( marker2 == 224 ) {
+        this.parseJFIF(info, segStart, segLen - 2);
+      }
+      if ( marker2 == 225 ) {
+        this.parseExif(info, segStart, segLen - 2);
+      }
+      if ( marker2 == 254 ) {
+        this.parseComment(info, segStart, segLen - 2);
+      }
+      if ( (marker2 == 192) || (marker2 == 194) ) {
+        if ( (pos + 9) < this.dataLen ) {
+          info.bitsPerComponent = this.data._view.getUint8((pos + 4));
+          info.height = this.readUint16BE((pos + 5));
+          info.width = this.readUint16BE((pos + 7));
+          info.colorComponents = this.data._view.getUint8((pos + 9));
+        }
+      }
+      if ( marker2 == 218 ) {
+        return info;
+      }
+      if ( marker2 == 217 ) {
+        return info;
+      }
+      pos = (pos + 2) + segLen;
+    };
+    return info;
+  };
+  formatMetadata (info) {
+    const out = new GrowableBuffer();
+    out.writeString("=== JPEG Metadata ===\n\n");
+    if ( info.isValid == false ) {
+      out.writeString(("Error: " + info.errorMessage) + "\n");
+      return (out).toString();
+    }
+    out.writeString("--- Image Info ---\n");
+    out.writeString(((("  Dimensions: " + ((info.width.toString()))) + " x ") + ((info.height.toString()))) + "\n");
+    out.writeString(("  Color Components: " + ((info.colorComponents.toString()))) + "\n");
+    out.writeString(("  Bits per Component: " + ((info.bitsPerComponent.toString()))) + "\n");
+    if ( info.hasJFIF ) {
+      out.writeString("\n--- JFIF Info ---\n");
+      out.writeString(("  Version: " + info.jfifVersion) + "\n");
+      let densityStr = "No units (aspect ratio)";
+      if ( info.densityUnits == 1 ) {
+        densityStr = "pixels/inch";
+      }
+      if ( info.densityUnits == 2 ) {
+        densityStr = "pixels/cm";
+      }
+      out.writeString(((((("  Density: " + ((info.xDensity.toString()))) + " x ") + ((info.yDensity.toString()))) + " ") + densityStr) + "\n");
+    }
+    if ( info.hasExif ) {
+      out.writeString("\n--- EXIF Info ---\n");
+      if ( (info.cameraMake.length) > 0 ) {
+        out.writeString(("  Camera Make: " + info.cameraMake) + "\n");
+      }
+      if ( (info.cameraModel.length) > 0 ) {
+        out.writeString(("  Camera Model: " + info.cameraModel) + "\n");
+      }
+      if ( (info.software.length) > 0 ) {
+        out.writeString(("  Software: " + info.software) + "\n");
+      }
+      if ( (info.dateTimeOriginal.length) > 0 ) {
+        out.writeString(("  Date/Time Original: " + info.dateTimeOriginal) + "\n");
+      } else {
+        if ( (info.dateTime.length) > 0 ) {
+          out.writeString(("  Date/Time: " + info.dateTime) + "\n");
+        }
+      }
+      if ( (info.exposureTime.length) > 0 ) {
+        out.writeString(("  Exposure Time: " + info.exposureTime) + " sec\n");
+      }
+      if ( (info.fNumber.length) > 0 ) {
+        out.writeString(("  F-Number: f/" + info.fNumber) + "\n");
+      }
+      if ( (info.isoSpeed.length) > 0 ) {
+        out.writeString(("  ISO Speed: " + info.isoSpeed) + "\n");
+      }
+      if ( (info.focalLength.length) > 0 ) {
+        out.writeString(("  Focal Length: " + info.focalLength) + " mm\n");
+      }
+      if ( (info.flash.length) > 0 ) {
+        out.writeString(("  Flash: " + info.flash) + "\n");
+      }
+      let orientStr = "Normal";
+      if ( info.orientation == 2 ) {
+        orientStr = "Flip horizontal";
+      }
+      if ( info.orientation == 3 ) {
+        orientStr = "Rotate 180";
+      }
+      if ( info.orientation == 4 ) {
+        orientStr = "Flip vertical";
+      }
+      if ( info.orientation == 5 ) {
+        orientStr = "Transpose";
+      }
+      if ( info.orientation == 6 ) {
+        orientStr = "Rotate 90 CW";
+      }
+      if ( info.orientation == 7 ) {
+        orientStr = "Transverse";
+      }
+      if ( info.orientation == 8 ) {
+        orientStr = "Rotate 270 CW";
+      }
+      out.writeString(("  Orientation: " + orientStr) + "\n");
+    }
+    if ( info.hasGPS ) {
+      out.writeString("\n--- GPS Info ---\n");
+      if ( (info.gpsLatitude.length) > 0 ) {
+        out.writeString(("  Latitude: " + info.gpsLatitude) + "\n");
+      }
+      if ( (info.gpsLongitude.length) > 0 ) {
+        out.writeString(("  Longitude: " + info.gpsLongitude) + "\n");
+      }
+      if ( (info.gpsAltitude.length) > 0 ) {
+        out.writeString(("  Altitude: " + info.gpsAltitude) + "\n");
+      }
+    }
+    if ( info.hasComment ) {
+      out.writeString("\n--- Comment ---\n");
+      out.writeString(("  " + info.comment) + "\n");
+    }
+    const tagCount = info.exifTags.length;
+    if ( tagCount > 0 ) {
+      out.writeString(("\n--- All EXIF Tags (" + ((tagCount.toString()))) + ") ---\n");
+      for ( let idx = 0; idx < info.exifTags.length; idx++) {
+        var tag = info.exifTags[idx];
+        out.writeString(("  " + tag.tagName) + " (0x");
+        let tagHex = "";
+        const tid = tag.tagId;
+        const hexChars = "0123456789ABCDEF";
+        const h3D = tid / 4096;
+        const h3 = Math.floor( h3D);
+        const r3 = tid - (h3 * 4096);
+        const h2D = r3 / 256;
+        const h2 = Math.floor( h2D);
+        const r2 = r3 - (h2 * 256);
+        const h1D = r2 / 16;
+        const h1 = Math.floor( h1D);
+        const h0 = r2 - (h1 * 16);
+        tagHex = (((hexChars.substring(h3, (h3 + 1) )) + (hexChars.substring(h2, (h2 + 1) ))) + (hexChars.substring(h1, (h1 + 1) ))) + (hexChars.substring(h0, (h0 + 1) ));
+        out.writeString(((tagHex + "): ") + tag.tagValue) + "\n");
+      };
+    }
+    return (out).toString();
+  };
+}
+class JPEGMetadataMain  {
+  constructor() {
+  }
+}
 class JPEGScaler  {
   constructor() {
   }
@@ -4057,10 +4879,35 @@ class JPEGScaler  {
     console.log((("Mode:   " + mode) + " = ") + ((value.toString())));
     console.log("Quality: " + ((quality.toString())));
     console.log("");
-    const img = this.decodeJPEG(inputFile);
+    let inputDir = ".";
+    let inputName = inputFile;
+    let lastInputSlash = -1;
+    let k = 0;
+    while (k < (inputFile.length)) {
+      const ch = inputFile.charCodeAt(k );
+      if ( (ch == 47) || (ch == 92) ) {
+        lastInputSlash = k;
+      }
+      k = k + 1;
+    };
+    if ( lastInputSlash >= 0 ) {
+      inputDir = inputFile.substring(0, lastInputSlash );
+      inputName = inputFile.substring((lastInputSlash + 1), (inputFile.length) );
+    }
+    const metaParser = new JPEGMetadataParser();
+    const metaInfo = metaParser.parseMetadata(inputDir, inputName);
+    const orientation = metaInfo.orientation;
+    console.log("EXIF Orientation: " + ((orientation.toString())));
+    let img = this.decodeJPEG(inputFile);
     if ( img.width == 0 ) {
       console.log("Error: Failed to decode input JPEG");
       return;
+    }
+    console.log((("Decoded size: " + ((img.width.toString()))) + "x") + ((img.height.toString())));
+    if ( orientation > 1 ) {
+      console.log("Applying EXIF orientation correction...");
+      img = img.applyExifOrientation(orientation);
+      console.log((("After orientation: " + ((img.width.toString()))) + "x") + ((img.height.toString())));
     }
     console.log((("Original size: " + ((img.width.toString()))) + "x") + ((img.height.toString())));
     let newWidth = 0;
@@ -4086,8 +4933,8 @@ class JPEGScaler  {
     let lastSlash = -1;
     let j = 0;
     while (j < (outputFile.length)) {
-      const ch = outputFile.charCodeAt(j );
-      if ( (ch == 47) || (ch == 92) ) {
+      const ch_1 = outputFile.charCodeAt(j );
+      if ( (ch_1 == 47) || (ch_1 == 92) ) {
         lastSlash = j;
       }
       j = j + 1;
